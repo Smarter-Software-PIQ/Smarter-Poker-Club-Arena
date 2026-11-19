@@ -18372,12 +18372,15 @@ export class HorseLogic {
       // read, so this is byte-identical outside Omaha and short deck.
       ...(() => {
         if ((opts.v46Charts ?? true) === false) return {};
-        const v86ShortDeckDefault =
-          v86 && vi.isShortDeck && opts.v46ShortDeck !== false && opts.v46ShortDeck !== true;
+        // SHORT DECK IS OPT-IN ONLY (2026-11-18). v46ShortDeck is an off-only
+        // owner hold with measured harm (shortdeck_v46_classes -0.51 +/- 0.15
+        // over 960k hands), so only an explicit true reads the short-deck
+        // chart. #10441 had turned it on whenever the option was unset under
+        // v86PloOverhaul, with no evaluation; that path is removed.
         const baseRead46 = handClassRead(
           player.cards,
           vi.isOmaha,
-          vi.isShortDeck && (opts.v46ShortDeck === true || v86ShortDeckDefault),
+          vi.isShortDeck && opts.v46ShortDeck === true,
           opts.v86UnblockedPreflop === false || opts.v86PloOverhaul === false
         );
         const eliteActive86 = v86 && omahaElite && omahaElite.cls !== 'other';
@@ -18425,13 +18428,9 @@ export class HorseLogic {
         }
         if (read46.cls === 'other' || read46.cls === 'sd_other') return {};
         if (telemetryOn(opts)) {
-          if (v86ShortDeckDefault) {
-            noteFire('v86_short_deck_class');
-          } else {
-            noteFire('v46_class_read');
-            if (read46.foldAlways) noteFire('v46_class_fold');
-            else if (read46.neverThreeBet) noteFire('v46_class_never_3bet');
-          }
+          noteFire('v46_class_read');
+          if (read46.foldAlways) noteFire('v46_class_fold');
+          else if (read46.neverThreeBet) noteFire('v46_class_never_3bet');
         }
         return {
           classShift: read46.shift,

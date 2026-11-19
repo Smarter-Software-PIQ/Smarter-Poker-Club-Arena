@@ -3255,7 +3255,8 @@ describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker ->
     }
     expect(sawSmallPotNearNutRaise).toBe(true);
 
-    // 4. Short Deck chart active by default under v86PloOverhaul (unless v46ShortDeck: false)
+    // 4. Short Deck chart is opt-in only (2026-11-18): v46ShortDeck is an off-only owner hold with measured harm,
+    // so under v86PloOverhaul an unset option reads no short-deck class, exactly as an explicit false does.
     const sdHero = makeSeat(2, LAG_SHARK_HORSE, 'JsTs', { stack: 200 });
     const sdPreGs: HorseGameStateV2 = {
       players: [makeSeat(1, 'sd-opp', '', { bet: 2, totalInvested: 2, stack: 198 }), sdHero],
@@ -3279,12 +3280,16 @@ describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker ->
     drainFires();
     seedFastRandom(55);
     HorseLogic.decide(sdHero, sdPreGs, 'lag', {}, { telemetry: true });
-    expect(drainFires().some((f) => f.feature === 'v86_short_deck_class')).toBe(true);
+    const sdUnsetFires = drainFires().map((f) => f.feature);
+    expect(sdUnsetFires).not.toContain('v86_short_deck_class');
+    expect(sdUnsetFires).not.toContain('v46_class_read');
 
     drainFires();
     seedFastRandom(55);
     HorseLogic.decide(sdHero, sdPreGs, 'lag', {}, { telemetry: true, v46ShortDeck: false });
-    expect(drainFires().some((f) => f.feature === 'v86_short_deck_class')).toBe(false);
+    const sdOffFires = drainFires().map((f) => f.feature);
+    expect(sdOffFires).not.toContain('v86_short_deck_class');
+    expect(sdOffFires).not.toContain('v46_class_read');
 
     // 5. turnDeadlineMs Hollywood ceiling clamp (never exceeds Math.max(floor, deadlineRemainingMs - 1500), zero PRNG draws)
     const deadlineGs: HorseGameStateV2 = {
