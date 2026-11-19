@@ -62,7 +62,9 @@ describe('a deadlocked hand settlement is retried in the live path', () => {
     expect(newBlock).toContain(
       "RETURN v_stack_result || jsonb_build_object('atomic_hand_commit',false);"
     );
-    expect(newBlock.indexOf('RAISE EXCEPTION')).toBeLessThan(newBlock.indexOf('RETURN v_stack_result'));
+    expect(newBlock.indexOf('RAISE EXCEPTION')).toBeLessThan(
+      newBlock.indexOf('RETURN v_stack_result')
+    );
   });
 
   it('carries a live proof the merge route can read', () => {
@@ -81,7 +83,9 @@ describe('a deadlocked hand settlement is retried in the live path', () => {
   });
 
   it('is proved natively on every pull request that touches it', () => {
-    expect(PROOF).toContain("[ \"$(field \"$R\" reason)\" = rolled_back ] || fail \"preimage did not reproduce the defect");
+    expect(PROOF).toContain(
+      '[ "$(field "$R" reason)" = rolled_back ] || fail "preimage did not reproduce the defect'
+    );
     expect(PROOF).toContain('-f "$MIGRATION"');
     expect(PROOF).toMatch(/for code in 40P01 40001 55P03/);
     expect(WORKFLOW).toContain('bash scripts/ci/test-a-deadlocked-hand-settlement-is-retried.sh');

@@ -21,7 +21,7 @@ Three background jobs were reported as slow connection holders from
   fixture also evaluated `horse_snapshot_disposable` for uncertified rows
   (2,999 calls to delete 300 of 3,000).
 - Fix (`20261119173316`): covering index `(created_at, id) INCLUDE
-  (table_id, hand_number)` built CONCURRENTLY in the sanctioned preamble, and
+(table_id, hand_number)` built CONCURRENTLY in the sanctioned preamble, and
   the function works set-based in sub-pages of 1,000: index-only page read,
   certificate and permit semi-joins, then the unchanged full DELETE predicate
   for certified rows only. Same rows deleted, same cursor, wrap, budget,

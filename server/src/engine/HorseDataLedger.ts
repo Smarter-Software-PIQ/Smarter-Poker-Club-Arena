@@ -1118,6 +1118,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'vpipFloorLimpOnlyTenHandWindow',
+    'Owner 2026-11-17 14:34 Chicago ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops.") and 18:38 (a Horse the limp cannot keep over the floor is booted and replaced with a new horse), applied to the one kind of floored cash table vpipFloorLimpOnly left on the old floor: a table known to be judged at ten hands or fewer, the sitting with no warning and no grace (production 2026-11-19: seventeen such tables, NLH, PLO4, PLO5, PLO6, PLO8 and short deck, all at 40%), where the floor still widened ranges and called raises (receipt vpip_floor_limp_only_not_governed_ten_hand_window). With this on together with vpipFloorLimpOnly such a table is governed by the same one action (vpipFloorLimpOnlyApplies is true there, receipt vpip_floor_limp_only_governed_ten_hand_window): the floor widens no bar, calls no raise and raises nothing; under its line (vpipLimpTargetFor of the floor and window the table carries) a preflop fold in an unraised pot for at most the big blind becomes the limp or the small blind completion by the selection of the variant (VPIP_FLOOR_LIMP_ONLY_VARIANTS); raised, the unfloored decision stands; no judged sample yet (under three hands) means no action. A Horse that still falls short is evicted and replaced, on the spot in this mode. Alone (vpipFloorLimpOnly off) it does nothing; never tournaments, All-In-Or-Fold, bomb pots or Lightning. Default off (opt-in); the eviction rate it brings is measured offline and stated in its authority file.',
+    'V94'
+  ),
+  flag(
     'lightningVpipFloorLimpOnly',
     'Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses must always follow"): every Lightning Games row carries a 40% VPIP floor in the ten-hand mode (migration 20261023230001, "Lightning uses 40% minimum VPIP and a BB ante") and the Lightning decision snapshot carried neither the floor nor the Horse own figure (production 2026-11-18, PLO5 1/2 pool: 49 Horses, 19,842 dealt hands, VPIP 24.6%, 48 of 48 with ten or more hands under 40%). The Lightning snapshot now carries the floor, the window and the Horse own last hands this pool sitting in deal order in lightningVpipFloor (LightningHorseVpipLedger; never in vpipFloor, so vpipFloorMul and vpipFloorCallDown still cannot fire in a pool), and with this on the floor has the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep): judged over the window of the game, rolling and projected with this hand (2026-11-19), when folding would leave the window under ceil(floor x window) entered hands (a new sitting seen from its first hand: every prefix at the floor; a count carried over a restart: nothing until it holds window - 1 hands), and one hand early only when priced, a preflop fold in a pot nobody has raised, for at most the big blind and less than the stack, becomes the limp or the small blind completion; never a raise, never a call of a raise, nothing postflop; no All-In-Or-Fold hand, no tournament. Independent of vpipFloorLimpOnly, which never governs a pool. No pool session is ended by the floor today, for a person or a Horse (the parked anchor runs the sit-out clock alone). Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -3615,6 +3620,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'vpipFloorLimpOnly is on and this floored cash table is known to be judged the Action / Madness way (the sitting at ten hands or fewer, no warning): left on the old floor on purpose (unmeasured mode, integrator decision 2026-11-18), so the floor may still widen and call here',
     'VPIP',
     'vpip_floor'
+  ),
+  receipt(
+    'vpip_floor_limp_only_governed_ten_hand_window',
+    'HorseLogic (VPIP floor, vpipFloorLimpOnlyTenHandWindow)',
+    'vpipFloorLimpOnly and vpipFloorLimpOnlyTenHandWindow are on and this floored cash table is known to be judged at ten hands or fewer (the sitting, no warning, no grace): governed by the limp-only floor like every other table, so the floor widened no bar and may only limp',
+    'VPIP',
+    'vpip_floor_limp_only_seen'
   ),
   receipt(
     'vpip_floor_limp_only_limp',

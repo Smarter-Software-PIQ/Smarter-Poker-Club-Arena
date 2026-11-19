@@ -88,6 +88,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo4_vpip_floor_limp_only',
         'plo5_vpip_floor_limp_only',
         'plo6_vpip_floor_limp_only',
+        // 2026-11-19: vpipFloorLimpOnlyTenHandWindow, the same reason.
+        'nlh_vpip_floor_limp_only_ten_hand_window',
+        'plo4_vpip_floor_limp_only_ten_hand_window',
+        'plo5_vpip_floor_limp_only_ten_hand_window',
+        'plo6_vpip_floor_limp_only_ten_hand_window',
         // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
         // record no league hand has (no pooled public rows, no worker); its reason states it.
         'nlh_long_shown_river_memory',
