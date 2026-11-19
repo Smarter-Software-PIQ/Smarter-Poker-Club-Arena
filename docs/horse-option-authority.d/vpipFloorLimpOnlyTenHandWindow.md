@@ -17,9 +17,9 @@ Alone (with `vpipFloorLimpOnly` off) it does nothing. It adds no threshold: the 
 
 Default OFF in source (read `=== true`). Off (unset, false or a truthy non-boolean), every decision is the one it was, draw for draw, and the not-governed receipt fires as before.
 
-## Where it would act (read-only production read, 2026-11-19 about 18:30Z)
+## Where it would act (read-only production reads, 2026-11-19 about 18:30Z and 19:58Z)
 
-17 floored cash tables are in this mode, all six-max, floor 40, window 10, club fade0000: hold'em 4, PLO4 3, PLO5 4, PLO6 3, PLO8 1, short deck 2. Eight had six Horses seated at the read (hold'em 4 tables, PLO4 3, PLO5 1; 48 Horses); the rest were empty. Twelve of the 17 belong to games named "Lightning Games". `vpip_floor_limp_only_not_governed_ten_hand_window` fired 20,683 times on 2026-11-19 up to the read, against 172,805 `vpip_floor_limp_only_seen`. Whether every one of those tables decides on the table path (and not as a Lightning pool, which this option never touches) was not traced.
+17 floored cash tables carry this mode, all six-max, floor 40, window 10, club fade0000: hold'em 4, PLO4 3, PLO5 4, PLO6 3, PLO8 1, short deck 2. Twelve of them are the host tables of the "Lightning Games" (every hold'em and PLO4 one, three PLO5, two PLO6): a pool's hands are decided on the Lightning path, which this option never touches (`lightningVpipFloorLimpOnly` is the option there). That reading rests on the scope code and on the Lightning floor's own record (a Lightning anchor does not run a table's dealing loop); it was not traced per table. So the tables this option would act on today are five: "PLO5 0.10/0.25 Classic", "PLO6 0.10/0.25 Classic", "PLO8 0.25/0.50 Action" and the two short deck "Madness" tables. All five were empty at the first read; the PLO6 table dealt 90 hands in the two hours before the second. `vpip_floor_limp_only_not_governed_ten_hand_window` fired 20,683 times on 2026-11-19 up to the first read, against 172,805 `vpip_floor_limp_only_seen`. The hold'em and PLO4 rows below describe a table production does not have today; of the four variants it does have, PLO6 is the one over the churn bar.
 
 ## Measurement (declared before the run)
 
