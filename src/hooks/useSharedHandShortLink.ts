@@ -64,30 +64,72 @@ export function useSharedHandShortLink(
   const active = enabled && !!payload;
   const key = active ? `${generation}|${inviteCode ?? ''}|${previewKey}|${payload}` : '';
   const inFlight = useRef<{ key: string; done: Promise<ReservedShortLink | null> } | null>(null);
+  const tokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!active || !payload) {
       inFlight.current = null;
+      tokenRef.current = null;
       return;
     }
+    tokenRef.current = null;
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let ceilingTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolveRetry: ((value: ReservedShortLink | null) => void) | null = null;
+    let resolveCeiling: ((value: null) => void) | null = null;
+    const clearTimers = () => {
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (ceilingTimer !== null) {
+        clearTimeout(ceilingTimer);
+        ceilingTimer = null;
+      }
+      if (resolveRetry) {
+        const settle = resolveRetry;
+        resolveRetry = null;
+        settle(null);
+      }
+      if (resolveCeiling) {
+        const settle = resolveCeiling;
+        resolveCeiling = null;
+        settle(null);
+      }
+    };
     const attempt = () => reserveSharedHand(payload, inviteCode, preview ?? {}).catch(() => null);
     const reserved = attempt().then((first) => {
       if (first || cancelled) return first;
       return new Promise<ReservedShortLink | null>((resolve) => {
-        setTimeout(() => resolve(cancelled ? null : attempt()), SHORT_LINK_RETRY_MS);
+        resolveRetry = resolve;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          resolveRetry = null;
+          resolve(cancelled ? null : attempt());
+        }, SHORT_LINK_RETRY_MS);
       });
     });
     const ceiling = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), SHORT_LINK_CEILING_MS);
+      resolveCeiling = resolve;
+      ceilingTimer = setTimeout(() => {
+        ceilingTimer = null;
+        resolveCeiling = null;
+        resolve(null);
+      }, SHORT_LINK_CEILING_MS);
     });
-    const done = Promise.race([reserved, ceiling]);
+    const done = Promise.race([reserved, ceiling]).then((link) => {
+      clearTimers();
+      if (!cancelled) {
+        tokenRef.current = link?.token ?? null;
+        setSettled({ key, link });
+      }
+      return link;
+    });
     inFlight.current = { key, done };
-    void done.then((link) => {
-      if (!cancelled) setSettled({ key, link });
-    });
     return () => {
       cancelled = true;
+      clearTimers();
     };
     // `key` stands for payload, invite, preview and generation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,19 +138,27 @@ export function useSharedHandShortLink(
   const current = active && settled?.key === key ? settled.link : null;
   const pending = active && settled?.key !== key;
   const token = current?.token ?? null;
+  if (token) tokenRef.current = token;
 
   const markSent = useCallback(() => {
-    if (!token) return;
-    setSettled((s) => (s?.link ? { ...s, link: { ...s.link, sent: true } } : s));
-    void markSharedHandSent(token).catch(() => {});
-  }, [token]);
+    const activeToken = tokenRef.current;
+    if (!activeToken) return;
+    setSettled((s) =>
+      s?.link && s.link.token === activeToken ? { ...s, link: { ...s.link, sent: true } } : s
+    );
+    void markSharedHandSent(activeToken).catch(() => {});
+  }, []);
 
   const revoke = useCallback(async () => {
-    if (!token) return false;
-    const ok = await revokeSharedHand(token).catch(() => false);
-    if (ok) setGeneration((g) => g + 1);
+    const activeToken = tokenRef.current;
+    if (!activeToken) return false;
+    const ok = await revokeSharedHand(activeToken).catch(() => false);
+    if (ok) {
+      tokenRef.current = null;
+      setGeneration((g) => g + 1);
+    }
     return ok;
-  }, [token]);
+  }, []);
 
   const ready = useCallback(async (): Promise<string | null> => {
     if (token) return shortHandUrl(token);
