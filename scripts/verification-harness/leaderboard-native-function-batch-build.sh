@@ -10,7 +10,7 @@ if [[ "${1:-}" == --check ]]; then
   exit 0
 fi
 [[ $# == 1 && -d "$1" ]] || { echo 'Owned Build Scratch Parent Required.' >&2; exit 1; }
-for command in docker node curl sha256sum tar; do command -v "$command" >/dev/null; done
+for command in docker node curl sha256sum tar timeout; do command -v "$command" >/dev/null; done
 scratch="$(mktemp -d "$1/leaderboard-native-build.XXXXXX")"
 chmod 700 "$scratch"
 cleanup() { local result=$?; trap - EXIT; rm -rf -- "$scratch" || result=1; [[ ! -e "$scratch" ]] || result=1; exit "$result"; }
@@ -20,7 +20,16 @@ printf '%s  %s\n' dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d429
 tar -xOf "$scratch/postgresql-17.11.tar.bz2" postgresql-17.11/src/bin/pg_dump/pg_dump.c > "$scratch/pg_dump.c"
 node "$here/leaderboard-native-function-batch.mjs" "$scratch/pg_dump.c" "$scratch/pg_dump-batched.c"
 cp "$here/leaderboard-native-function-batch.Dockerfile" "$scratch/Dockerfile"
-docker build --iidfile "$scratch/image-id" "$scratch" > "$scratch/build.log" 2>&1 || { echo 'Pinned Native Qualification Client Build Failed.' >&2; tail -20 "$scratch/build.log" >&2; exit 1; }
+# Bounded inside the step's 8 minutes so a stalled build names its stage instead of
+# being killed silently by the runner with the log still in scratch.
+build_status=0
+timeout --kill-after=15 390 docker build --progress=plain --iidfile "$scratch/image-id" "$scratch" > "$scratch/build.log" 2>&1 || build_status=$?
+if [[ $build_status != 0 ]]; then
+  echo 'Pinned Native Qualification Client Build Failed.' >&2
+  [[ $build_status != 124 ]] || echo 'Pinned Native Qualification Client Build Exceeded 390 Seconds.' >&2
+  tail -40 "$scratch/build.log" >&2
+  exit 1
+fi
 image="$(cat "$scratch/image-id")"
 [[ "$image" =~ ^sha256:[0-9a-f]{64}$ ]]
 # No database URL, credentials, public ports or external network reachability.
