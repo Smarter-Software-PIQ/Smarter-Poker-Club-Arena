@@ -18,6 +18,17 @@
 --    (2a1132b9-5ba2-42e6-9f01-30a7fcffebe3) from drill subject selection
 --    because its BEFORE DELETE trigger fn_deep_stack_society_cannot_be_deleted_by_accident
 --    refuses the delete_journals_burn arm (never bypassing app.deep_stack_teardown).
+-- 5. smarter_private.cash_hand_earning_club_evidence: adds a manifest-free
+--    seat-history fallback (matching cash_seat_occupancy_history on table_id,
+--    user_id, and the hand's played timestamp from public.hands) when
+--    cash_hand_participant_manifests has no row or tiers 1-4 return NULL,
+--    returning the club only when count(DISTINCT club_id) = 1.
+-- 6. Daily retention prunes (ca-cash-hand-chair-clubs-prune-daily and
+--    ca-cash-seat-occupancy-history-prune-daily): protect rows whose hand or
+--    table still has an unbanked/terminal row in public.cash_rake_pending.
+-- 7. public.fn_ca_cron_failure_watch: raises failed weekly/infrequent jobs
+--    immediately via (day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed
+--    without waiting 24 hours, keeping the same :run: dedupe key and priority sort.
 --
 -- @probe-exempt: public.fn_ca_alarm_drill the drill locks live money rows and runs every watcher, which an install transaction under the 12 s budget must not hold; it is run once live after install, and weekly by its cron
 
@@ -822,9 +833,11 @@ BEGIN
              max(left(x.return_message, 200)) FILTER (WHERE x.in_day AND x.status = 'failed') AS sample_error,
              count(*) FILTER (WHERE x.finished_rank <= 3) AS finished,
              count(*) FILTER (WHERE x.finished_rank <= 3 AND x.status = 'failed') AS failed_in_a_row,
-             -- 20261119171234: the newest finished run in the same 7-day pass,
-             -- so a job that runs less than daily is still seen.
+             -- 20261119171234 + 20261119180800: the newest finished run and 7-day
+             -- run count in the same single pass, so a weekly job that fails is
+             -- heard immediately without waiting 24 hours.
              count(*) FILTER (WHERE x.in_day) AS runs_24h,
+             count(*) FILTER (WHERE x.status IN ('failed', 'succeeded')) AS runs_7d,
              bool_or(x.finished_rank = 1 AND x.status = 'failed') AS last_finished_failed,
              max(x.start_time) FILTER (WHERE x.finished_rank = 1) AS last_finished_at,
              max(left(x.return_message, 200)) FILTER (WHERE x.finished_rank = 1) AS last_finished_error
@@ -840,11 +853,12 @@ BEGIN
      WHERE (day.finished = 3 AND day.failed_in_a_row = 3
             AND (day.last_success IS NULL OR day.last_success <= now() - interval '2 hours'))
         OR (day.fails >= 5 AND day.fails > day.successes)
-        -- a weekly job is heard on its own last run, not after three weeks
-        OR (day.runs_24h = 0 AND day.last_finished_failed)
+        -- a weekly/infrequent job is heard immediately on its own last run, not
+        -- after 24 hours or three weeks (daily/hourly/minute jobs have runs_7d >= 2)
+        OR ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed)
      -- Infrequent/weekly failures sort first so 20 frequent failing jobs cannot
      -- truncate a failed weekly guard out of the LIMIT 20 window.
-     ORDER BY (day.runs_24h = 0 AND day.last_finished_failed) DESC, day.fails DESC, day.jobname
+     ORDER BY ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed) DESC, day.fails DESC, day.jobname
      LIMIT 20
   LOOP
     SELECT EXISTS (SELECT 1 FROM public.ca_guard_inventory g
@@ -853,14 +867,15 @@ BEGIN
     PERFORM public.fn_ca_raise_drift_incident(
       'fn_ca_cron_failure_watch', 'unknown',
       CASE WHEN v_is_guard THEN 'critical' ELSE 'warning' END,
-      CASE WHEN r.runs_24h = 0
+      CASE WHEN r.runs_24h = 0 OR r.runs_7d = 1
            THEN 'cron-failing:' || r.jobname || ':run:' || to_char(r.last_finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI')
            ELSE 'cron-failing:' || r.jobname || ':' || CURRENT_DATE::text END,
       0, NULL, NULL, 'reporting', 'cron.job_run_details',
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-      CASE WHEN r.runs_24h = 0
-           THEN 'scheduled job ' || r.jobname || ' has not run in 24h and its last run, at '
-                || r.last_finished_at::text || ', failed with no success since. Last error: '
+      CASE WHEN r.runs_24h = 0 OR r.runs_7d = 1
+           THEN 'scheduled job ' || r.jobname || ' (infrequent/weekly, ' || r.runs_7d
+                || ' finished run in 7d) failed its last run at '
+                || r.last_finished_at::text || ' with no success since. Last error: '
                 || COALESCE(r.last_finished_error, '?')
       ELSE
       'scheduled job ' || r.jobname || ' failed ' || r.fails || ' of '
@@ -942,6 +957,106 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
 -- so the guard-def watch records it instead of raising a notice.
 SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119180800_harden_rake_lock_timeout_alert_dedupe_cron_watch_and_drill_club');
 
+CREATE OR REPLACE FUNCTION smarter_private.cash_hand_earning_club_evidence(p_hand_id uuid, p_table_id uuid, p_player_id uuid)
+ RETURNS uuid[]
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_number bigint;
+  v_seat uuid;
+  v_join timestamptz;
+  v_receipts uuid[];
+  v_clubs uuid[];
+  v_played_at timestamptz;
+BEGIN
+  SELECT a.hand_number INTO v_number FROM public.hand_atomic_commits a
+   WHERE a.hand_id = p_hand_id AND a.table_id = p_table_id;
+  IF v_number IS NULL THEN RETURN NULL; END IF;
+
+  -- 1. The chair the player was dealt in, frozen with the hand.
+  SELECT array_agg(c.club_id) INTO v_clubs FROM smarter_private.cash_hand_chair_clubs c
+   WHERE c.table_id = p_table_id AND c.hand_number = v_number
+     AND c.user_id = p_player_id AND c.club_id IS NOT NULL;
+  IF v_clubs IS NOT NULL THEN RETURN v_clubs; END IF;
+
+  -- The dealt manifest names the exact stint, and the receipts that funded it.
+  SELECT (e->>'seat_id')::uuid, (e->>'seat_joined_at')::timestamptz,
+         (SELECT array_agg(DISTINCT (r->>'funding_club_id')::uuid)
+            FROM jsonb_array_elements(e->'funding_receipts') r
+           WHERE r->>'funding_club_id' IS NOT NULL)
+    INTO v_seat, v_join, v_receipts
+    FROM public.cash_hand_participant_manifests m
+    CROSS JOIN LATERAL jsonb_array_elements(m.participants) e
+   WHERE m.table_id = p_table_id AND m.hand_number = v_number
+     AND (e->>'user_id')::uuid = p_player_id;
+
+  -- 2. That exact stint's chair, recorded by the seat row when it ended.
+  IF v_seat IS NOT NULL AND v_join IS NOT NULL THEN
+    SELECT ARRAY[o.club_id] INTO v_clubs FROM smarter_private.cash_seat_occupancy_history o
+     WHERE o.seat_id = v_seat AND o.user_id = p_player_id AND o.joined_at = v_join
+       AND o.table_id = p_table_id AND o.club_id IS NOT NULL;
+    IF v_clubs IS NOT NULL THEN RETURN v_clubs; END IF;
+  END IF;
+
+  -- 3. The receipts that funded the stint.
+  IF v_receipts IS NOT NULL THEN RETURN v_receipts; END IF;
+
+  -- 4. The exit journal's snapshot of that exact chair when it was vacated.
+  IF v_seat IS NOT NULL AND v_join IS NOT NULL THEN
+    SELECT ARRAY[x.club_id] INTO v_clubs FROM public.ca_seat_stack_exits x
+     WHERE x.user_id = p_player_id AND x.table_id = p_table_id AND x.seat_id = v_seat
+       AND x.occurred_at >= v_join AND x.club_id IS NOT NULL
+     ORDER BY x.occurred_at LIMIT 1;
+    IF v_clubs IS NOT NULL THEN RETURN v_clubs; END IF;
+  END IF;
+
+  -- 5. Manifest-free seat-history fallback: when cash_hand_participant_manifests
+  --    has no row (or tiers 1-4 yielded no club), resolve the hand's played time
+  --    from public.hands and match the player's ended occupancy interval on this
+  --    table, returning the club only when unambiguous (count(DISTINCT club_id) = 1).
+  SELECT COALESCE(h.started_at, h.created_at) INTO v_played_at
+    FROM public.hands h
+   WHERE h.id = p_hand_id AND h.table_id = p_table_id;
+  IF v_played_at IS NOT NULL THEN
+    SELECT CASE WHEN count(DISTINCT o.club_id) = 1
+                THEN ARRAY[min(o.club_id::text)::uuid]
+           END
+      INTO v_clubs
+      FROM smarter_private.cash_seat_occupancy_history o
+     WHERE o.table_id = p_table_id
+       AND o.user_id = p_player_id
+       AND o.club_id IS NOT NULL
+       AND o.joined_at <= v_played_at
+       AND o.ended_at >= v_played_at;
+    IF v_clubs IS NOT NULL THEN RETURN v_clubs; END IF;
+  END IF;
+
+  RETURN NULL;
+END $function$;
+
+REVOKE ALL ON FUNCTION smarter_private.cash_hand_earning_club_evidence(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+-- periodic-work: retention only. Protect deal-time and seat-occupancy evidence
+-- while any unbanked or terminal row for that hand or table remains in
+-- public.cash_rake_pending.
+DO $cron$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    PERFORM cron.schedule(
+      'ca-cash-hand-chair-clubs-prune-daily',
+      '35 5 * * *',
+      $job$DELETE FROM smarter_private.cash_hand_chair_clubs c WHERE c.captured_at < now() - interval '14 days' AND NOT EXISTS (SELECT 1 FROM public.cash_rake_pending rp WHERE rp.table_id = c.table_id AND rp.hand_number = c.hand_number)$job$
+    );
+    PERFORM cron.schedule(
+      'ca-cash-seat-occupancy-history-prune-daily',
+      '40 5 * * *',
+      $job$DELETE FROM smarter_private.cash_seat_occupancy_history o WHERE o.recorded_at < now() - interval '30 days' AND NOT EXISTS (SELECT 1 FROM public.cash_rake_pending rp WHERE rp.table_id = o.table_id)$job$
+    );
+  END IF;
+END $cron$;
+
 -- @probe-for: public.fn_ca_bank_pending_cash_rake
 DO $probe$
 BEGIN
@@ -964,6 +1079,19 @@ END $probe$;
 DO $probe$
 BEGIN
   PERFORM public.fn_ca_cron_failure_watch();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: smarter_private.cash_hand_earning_club_evidence
+DO $probe$
+BEGIN
+  PERFORM smarter_private.cash_hand_earning_club_evidence(
+    '00000000-0000-0000-0000-000000000000'::uuid,
+    '00000000-0000-0000-0000-000000000000'::uuid,
+    '00000000-0000-0000-0000-000000000000'::uuid
+  );
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN OTHERS THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;

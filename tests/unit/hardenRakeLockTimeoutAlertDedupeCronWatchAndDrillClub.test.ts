@@ -74,11 +74,18 @@ describe('harden rake lock_timeout, terminal alert dedupe, cron watch priority, 
     );
   });
 
-  it('fn_ca_cron_failure_watch orders infrequent/weekly failures ahead of frequent failures before LIMIT 20', () => {
+  it('fn_ca_cron_failure_watch detects weekly/infrequent failures immediately and orders them ahead of frequent failures before LIMIT 20', () => {
     const watch = fnBody('public.fn_ca_cron_failure_watch');
     expect(watch).toContain(
-      'ORDER BY (day.runs_24h = 0 AND day.last_finished_failed) DESC, day.fails DESC, day.jobname'
+      "count(*) FILTER (WHERE x.status IN ('failed', 'succeeded')) AS runs_7d"
     );
+    expect(watch).toContain(
+      'OR ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed)'
+    );
+    expect(watch).toContain(
+      'ORDER BY ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed) DESC, day.fails DESC, day.jobname'
+    );
+    expect(watch).toContain('CASE WHEN r.runs_24h = 0 OR r.runs_7d = 1');
     expect(watch).toContain('LIMIT 20');
     expect(sql).toContain(
       "SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119180800_harden_rake_lock_timeout_alert_dedupe_cron_watch_and_drill_club');"
@@ -96,9 +103,41 @@ describe('harden rake lock_timeout, terminal alert dedupe, cron watch priority, 
     expect(sql).toMatch(/^-- @probe-exempt: public\.fn_ca_alarm_drill /m);
   });
 
-  it('probes all three non-exempt redefined functions before commit', () => {
+  it('smarter_private.cash_hand_earning_club_evidence keeps all provenance tiers and adds a manifest-free seat-history fallback', () => {
+    const ev = fnBody('smarter_private.cash_hand_earning_club_evidence');
+    for (const marker of [
+      'smarter_private.cash_hand_chair_clubs',
+      'smarter_private.cash_seat_occupancy_history',
+      'public.cash_hand_participant_manifests',
+      'public.ca_seat_stack_exits',
+    ]) {
+      expect(ev).toContain(marker);
+    }
+    expect(ev).toContain('FROM public.hands h');
+    expect(ev).toContain('o.joined_at <= v_played_at');
+    expect(ev).toContain('o.ended_at >= v_played_at');
+    expect(ev).toContain('count(DISTINCT o.club_id) = 1');
+    expect(sql).toContain(
+      'REVOKE ALL ON FUNCTION smarter_private.cash_hand_earning_club_evidence(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;'
+    );
+  });
+
+  it('daily evidence prune cron jobs protect rows referenced by public.cash_rake_pending and guard on pg_cron', () => {
+    expect(sql).toContain("IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN");
+    expect(sql).toContain('ca-cash-hand-chair-clubs-prune-daily');
+    expect(sql).toContain(
+      'AND NOT EXISTS (SELECT 1 FROM public.cash_rake_pending rp WHERE rp.table_id = c.table_id AND rp.hand_number = c.hand_number)'
+    );
+    expect(sql).toContain('ca-cash-seat-occupancy-history-prune-daily');
+    expect(sql).toContain(
+      'AND NOT EXISTS (SELECT 1 FROM public.cash_rake_pending rp WHERE rp.table_id = o.table_id)'
+    );
+  });
+
+  it('probes all four non-exempt redefined functions before commit', () => {
     expect(sql).toMatch(/^-- @probe-for: public\.fn_ca_bank_pending_cash_rake$/m);
     expect(sql).toMatch(/^-- @probe-for: public\.fn_ca_bank_pending_hand_obligations$/m);
     expect(sql).toMatch(/^-- @probe-for: public\.fn_ca_cron_failure_watch$/m);
+    expect(sql).toMatch(/^-- @probe-for: smarter_private\.cash_hand_earning_club_evidence$/m);
   });
 });
