@@ -1,6 +1,6 @@
 # vpipFloorLimpOnlyTenHandWindow: authority for the live switch
 
-Evidence for switching this option on: **NOT MET** (2026-11-19). Mechanism, scope, receipts, tests and off-identity are MET, and the floor makes no raise and no call of a raise in any measured cell. The declared churn bar is not met on hold'em, PLO4 and PLO6: at a 40% floor judged on the sitting at ten hands with no grace, the limp-only floor evicts Horses more often than on any table the owner's ruling was given for. The rate is stated below; switching on needs the owner or the lead to accept it by name. Nothing in this change switches anything.
+Evidence for switching this option on: **Evidence NOT MET** (2026-11-19). Mechanism, scope, receipts, tests and off-identity are MET, and the floor makes no raise and no call of a raise in any measured cell. The declared churn bar is not met on hold'em, PLO4 and PLO6: at a 40% floor judged on the sitting at ten hands with no grace, the limp-only floor evicts Horses more often than on any table the owner's ruling was given for. The rate is stated below; switching on needs the owner or the lead to accept it by name. Nothing in this change switches anything.
 
 ## The owner's orders it rests on (verbatim)
 

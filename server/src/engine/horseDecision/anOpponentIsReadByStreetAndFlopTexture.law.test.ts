@@ -460,10 +460,11 @@ describe('an opponent is read by street and by flop texture', () => {
       'benchmark/HorseLeagueStreetRead.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
+      // omahaFlopVerdictReadsTheBettor's pure read (2026-11-19)
+      'engine/HorseOmahaFlopBettorRead.ts',
       // the default-off flop defence tree (omahaFlopDefenceIsPriced, dark batch 2026-11-18): the counters' TYPE only
       'engine/HorseOmahaFlopDefenceTree.ts',
-      // omahaFlopVerdictReadsTheBettor's pure read (2026-11-19) and the flop rule that asks for it (flopTextureOf)
-      'engine/HorseOmahaFlopBettorRead.ts',
+      // the flop rule that asks for the bettor read (flopTextureOf)
       'engine/HorseOmahaFlopFacingBetEvRule.ts',
       // the flop-shown record (2026-11-19) takes the flop texture and the public flop from it
       'engine/HorseOmahaFlopShown.ts',
