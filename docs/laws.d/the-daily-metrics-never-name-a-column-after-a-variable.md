@@ -1,0 +1,3 @@
+# tests/the-daily-metrics-never-name-a-column-after-a-variable.law.test.ts
+
+On 2026-11-19 the `sp-daily-metrics-snapshot` cron failed on every run from 06:15 UTC with `column reference "d" is ambiguous`: 20261118165140 added `max_degraded_run` to `public.fn_sp_daily_metrics_compute(date)` and named its run flag column `d`, which the function also declares as a `jsonb` variable. PL/pgSQL resolves names only when a statement first runs, so nothing caught it before the first real snapshot. This law pins migration 20261119080913, which renames the alias to `is_degraded` on the exact installed text, and refuses any later text for the function that names a column alias after one of its declared variables.
