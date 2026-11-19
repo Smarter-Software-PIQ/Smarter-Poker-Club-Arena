@@ -3457,6 +3457,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-18'
   ),
   receipt(
+    'holdem_option_decision_lightning',
+    'workerRuntime executeFastWithUpgradeEvidence (fire scope)',
+    "a Lightning FAST decision (public memory domain speed 'lightning') in which at least one holdem_* receipt fired: the Lightning share, parallel (the same decision is also in holdem_option_decision_cash)",
+    '2026-11-19'
+  ),
+  receipt(
+    'fmt_*',
+    'workerRuntime executeFastWithUpgradeEvidence (fire scope, receiptBasesByFormat)',
+    "fmt_<c|t|l>_<key>_seen: one count per FAST decision whose fire scope held <key>, by the hand's format (c Classic cash, t tournament, l Lightning: publicMemoryDomain.speed lightning); every holdem_* key in every format, and every key in a Lightning decision; a trailing _seen of the key is not doubled; the key's own count is unchanged; bounded by the registered receipts; occurrence counter; named *_seen; measurement only, no decision reads it",
+    '2026-11-19'
+  ),
+  receipt(
     'tournament_utility_stack_scaled_margin_changed_seen',
     'HorseLogic phase 7 utility (HorseTournamentUtility, tournamentUtilityStackScaledMargin)',
     'the stack-scaled margin changed the chosen action: the utility overrode the baseline and the whole-pool margin (the option off) would have kept it',

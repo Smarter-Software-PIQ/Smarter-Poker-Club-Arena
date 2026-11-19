@@ -5,6 +5,8 @@
  *    receipt, by the request's format; none when no holdem_* receipt fired.
  *  - <style option>_receipt_picked_seen: one count per R1 action-change re-decision that answered, so
  *    <option>_changed_action_seen / <option>_receipt_picked_seen is a rate; none when no option applied.
+ *  - 2026-11-19: holdem_option_decision_lightning (the Lightning share, parallel to _cash) and the receipts by format
+ *    fmt_<c|t|l>_<key>_seen (receiptBasesByFormat): every holdem_* key in every format, every key in Lightning.
  * Driven through the production HorseDecisionWorkerRuntime with a scripted brain (the harness of
  * aStyleActionReceiptNamesAChangedAction.test.ts), and the committed decision is the brain's answer either way.
  */
@@ -28,6 +30,7 @@ import type {
 import { buildHorseDecisionKey } from './protocol.js';
 import {
   HorseDecisionWorkerRuntime,
+  receiptBasesByFormat,
   type HorseDecisionWorkerDependencies,
 } from './workerRuntime.js';
 import {
@@ -91,10 +94,13 @@ interface Run {
   fires: Record<string, number>;
 }
 
-async function run(script: Script): Promise<Run> {
+async function run(
+  script: Script,
+  shape: (r: FastHorseDecisionRequest) => FastHorseDecisionRequest = (r) => r
+): Promise<Run> {
   HorseMind.reset();
   restoreFastRandom(SEED);
-  const request = riverRequest();
+  const request = shape(riverRequest());
   const calls: Opts[] = [];
   const features: string[] = [];
   const messages: HorseDecisionWorkerResponse[] = [];
@@ -223,5 +229,90 @@ describe('<style option>_receipt_picked_seen', () => {
   it('no option applied: no re-decision and nothing counted', async () => {
     const r = await run({ applies: [], on: CALL, off: {} });
     expect(picked(r.features)).toEqual([]);
+  });
+});
+
+describe('receipts by format (2026-11-19): fmt_<c|t|l>_<key>_seen and holdem_option_decision_lightning', () => {
+  const fired = new Set([
+    'holdem_persona_open_shift_seen',
+    'holdem_call_down_needs_style_evidence',
+    'style_fold_bluff_seen',
+    'decide_lightning',
+    'fmt_l_already_seen',
+  ]);
+  it('cash and tournament: only the holdem_* keys, a trailing _seen not doubled', () => {
+    const want = ['holdem_call_down_needs_style_evidence', 'holdem_persona_open_shift'];
+    expect(receiptBasesByFormat(fired, 'cash').sort()).toEqual(want);
+    expect(receiptBasesByFormat(fired, 'tournament').sort()).toEqual(want);
+  });
+  it('Lightning: every key, never an fmt_ key again', () => {
+    expect(receiptBasesByFormat(fired, 'lightning').sort()).toEqual([
+      'decide_lightning',
+      'holdem_call_down_needs_style_evidence',
+      'holdem_persona_open_shift',
+      'style_fold_bluff',
+    ]);
+    expect(receiptBasesByFormat(new Set(), 'lightning')).toEqual([]);
+  });
+  const byFormat = (fs: string[]) => fs.filter((k) => k.startsWith('fmt_'));
+  it('a cash decision: one fmt_c_ count per holdem_* key that fired (fired twice, counted once), no Lightning share', async () => {
+    const r = await run({
+      applies: [],
+      on: CALL,
+      off: {},
+      reads: ['holdem_persona_open_shift_seen', 'style_fold_bluff_seen'],
+    });
+    expect(r.fast.decision.action).toBe('call');
+    expect(byFormat(r.features)).toEqual(['fmt_c_holdem_persona_open_shift_seen']);
+    expect(holdemSplit(r.features)).toEqual(['holdem_option_decision_cash']);
+    expect(r.fires['holdem_persona_open_shift_seen']).toBe(2);
+  });
+  it('the counters are telemetry only: the same decision, the same brain calls and the same keys fired with or without a holdem_* key', async () => {
+    const withKey = await run({
+      applies: ['styleBigBetHonesty'],
+      on: FOLD,
+      off: { styleBigBetHonesty: CALL },
+      reads: ['holdem_persona_open_shift_seen'],
+    });
+    const without = await run({
+      applies: ['styleBigBetHonesty'],
+      on: FOLD,
+      off: { styleBigBetHonesty: CALL },
+      reads: ['other_persona_open_shift_seen'],
+    });
+    expect(withKey.fast.decision).toEqual(without.fast.decision);
+    expect(withKey.deep).toEqual(without.deep);
+    expect(withKey.calls).toEqual(without.calls);
+    expect(byFormat(without.features)).toEqual([]);
+    expect(byFormat(withKey.features)).toEqual(['fmt_c_holdem_persona_open_shift_seen']);
+  });
+  it('a Lightning decision: every key of its scope under l, and the Lightning share beside the cash one', async () => {
+    const lightning = (r: FastHorseDecisionRequest): FastHorseDecisionRequest => {
+      const shaped = {
+        ...r,
+        gameState: {
+          ...r.gameState,
+          publicMemoryDomain: { ...(r.gameState.publicMemoryDomain ?? {}), speed: 'lightning' },
+        },
+      } as unknown as FastHorseDecisionRequest;
+      return { ...shaped, decisionKey: buildHorseDecisionKey(shaped) };
+    };
+    const r = await run(
+      {
+        applies: [],
+        on: CALL,
+        off: {},
+        reads: ['holdem_persona_open_shift_seen', 'style_fold_bluff_seen'],
+      },
+      lightning
+    );
+    expect(r.fast.decision.action).toBe('call');
+    expect(holdemSplit(r.features).sort()).toEqual([
+      'holdem_option_decision_cash',
+      'holdem_option_decision_lightning',
+    ]);
+    expect(byFormat(r.features)).toContain('fmt_l_holdem_persona_open_shift_seen');
+    expect(byFormat(r.features)).toContain('fmt_l_style_fold_bluff_seen');
+    expect(byFormat(r.features).some((k) => k.startsWith('fmt_c_'))).toBe(false);
   });
 });

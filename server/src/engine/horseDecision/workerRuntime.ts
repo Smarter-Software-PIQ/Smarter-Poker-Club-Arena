@@ -875,6 +875,31 @@ function firedAnyHoldemReceipt(fired: ReadonlySet<string>): boolean {
   return false;
 }
 
+/**
+ * RECEIPTS BY FORMAT (2026-11-19, Horse Switch lane, telemetry only; swarm NLH-CASH I4 and LIGHTNING I2). The keys a
+ * FAST decision's fire scope held, copied under the hand's format so a receipt's reach can be stated per format:
+ *  - every holdem_* key, in every format: fmt_<c|t|l>_<key>_seen (c Classic cash, t tournament, l Lightning);
+ *  - in a Lightning decision, every other key too: fmt_l_<key>_seen.
+ * A trailing _seen of the key is not doubled. One count per decision in which the key fired (the scope is a set), so
+ * fmt_t_<key>_seen / holdem_option_decision_tournament is the tournament share of the decisions that fired it; the
+ * key's own count (fires) is unchanged. Lightning is cash: holdem_option_decision_cash and the unsplit keys keep
+ * counting it, as before. The set of keys is bounded by the registered receipts (HorseDataLedger, family fmt_*).
+ * receiptBasesByFormat gives the <key> part (the fmt_ key is built at its one noteFeature site). Read after the answer
+ * was sent; never read by a decision.
+ */
+export function receiptBasesByFormat(
+  fired: ReadonlySet<string>,
+  format: 'cash' | 'tournament' | 'lightning'
+): string[] {
+  const out: string[] = [];
+  for (const key of fired) {
+    if (key.startsWith('fmt_')) continue;
+    if (format !== 'lightning' && !key.startsWith('holdem_')) continue;
+    out.push(key.endsWith('_seen') ? key.slice(0, -'_seen'.length) : key);
+  }
+  return out;
+}
+
 export class HorseDecisionWorkerRuntime {
   /** Private, actor-bounded read views; never included in IPC or telemetry.
    * Repeated identical fast identities are ambiguous and disable that second
@@ -3011,10 +3036,18 @@ export class HorseDecisionWorkerRuntime {
     // holdem_* receipt fired, by cash or tournament, so a hold'em option's reach can be stated per format without
     // multiplying every key. Reads the decision's own fire scope after the answer was sent.
     const holdemTournament = request.gameState.gameMode === 'tournament';
-    if (firedAnyHoldemReceipt(scoped.fired))
+    const receiptFormat = styleReceiptFormat(request.gameState);
+    if (firedAnyHoldemReceipt(scoped.fired)) {
       this.deps.noteFeature(
         holdemTournament ? 'holdem_option_decision_tournament' : 'holdem_option_decision_cash'
       );
+      // 2026-11-19: the Lightning share, parallel (the same decision stays in _cash, so its history holds).
+      if (receiptFormat === 'lightning') this.deps.noteFeature('holdem_option_decision_lightning');
+    }
+    // 2026-11-19 RECEIPTS BY FORMAT (receiptBasesByFormat): telemetry only, after the answer was sent.
+    const formatCode = styleReceiptFormatCode(receiptFormat);
+    for (const base of receiptBasesByFormat(scoped.fired, receiptFormat))
+      this.deps.noteFeature(`fmt_${formatCode}_${base}_seen`);
     return scoped.value;
   }
 
