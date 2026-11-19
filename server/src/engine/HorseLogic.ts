@@ -148,6 +148,11 @@ import {
   type OmahaSlowplayRead,
 } from './HorseOmahaStrongHandSlowplayMix.js';
 import {
+  omahaValueSizeBand,
+  OMAHA_VALUE_SIZE_BAND_SALT,
+  OMAHA_VALUE_SIZE_KEEP_SALT,
+} from './HorseOmahaValueSizeBand.js';
+import {
   omahaPlanHeroInPosition,
   omahaPlanLineUncommitted,
   omahaPlanOppLine,
@@ -3199,6 +3204,12 @@ export interface HorseDecideOpts {
    * league state (PROTOCOL-nutsize-2) FAILED on the Horse-only cells (PLO4
    * -1.19, PLO5 -1.31 bb/100) while the human field gained +2.29 (z +5.2). */
   omahaNutClassValueSize?: boolean;
+  /** omahaValueSizeIsUnreadable (WooWoo audit NUT-SIZE lane 2026-11-19, owner 2026-11-18 23:00 Chicago:
+   * nut bets "LIKE 80-95% POT", not the full pot every time; HorseOmahaValueSizeBand.ts). Default OFF (read
+   * `=== true`): a PLO4/PLO5 cash postflop full-pot bet or raise with a nut-class hand stays the full pot with
+   * the measured street share and otherwise is sized uniformly in 80-95% of the pot increment; every other
+   * wager is unchanged. The last step of the wager_rules node. */
+  omahaValueSizeIsUnreadable?: boolean;
   /** Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing
    * a 4-bet or more preflop a hand without aces or a premium structure folds
    * unless the committed call pays the price against aces; in a pot 4-bet or
@@ -12202,6 +12213,59 @@ function omahaStrongHandValueRule(
  *
  * Receipts: omaha_strong_hand_slowplay_call, omaha_strong_hand_slowplay_check.
  */
+/**
+ * omahaValueSizeIsUnreadable (WooWoo audit NUT-SIZE lane 2026-11-19; default OFF, read `=== true`):
+ * HorseOmahaValueSizeBand.ts. PLO4/PLO5 cash (table and fast-table cash; never a tournament), pot limit,
+ * high only, one board, no bomb pot, not All-In-Or-Fold, postflop. A full-pot bet or raise with a
+ * nut-class hand (omahaNutClassNow, or the exact river nuts) stays the full pot with the measured street
+ * share and otherwise is sized uniformly in 80-95% of the pot increment; every other decision is
+ * returned as it is. The two draws come from the decision's derived stream (read, never advanced).
+ * Receipts: omaha_value_size_band_applied, omaha_value_size_full_pot_kept.
+ */
+function omahaValueSizeIsUnreadableRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  tele: boolean
+): HorseDecision {
+  if (opts.omahaValueSizeIsUnreadable !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
+  try {
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    if (variant !== 'plo4' && variant !== 'plo5') return decision;
+    if (!vi.isOmaha || vi.isFixedLimit || !vi.isPotLimit) return decision;
+    if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return decision;
+    if (isTournamentMode(gs)) return decision;
+    if (
+      (gs.boardCount ?? 1) !== 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0 ||
+      gs.bombPot === true ||
+      (gs as { allInOrFold?: boolean }).allInOrFold === true
+    )
+      return decision;
+    const stream = saveFastRandom();
+    const spotKey = omahaSlowplaySpotKey(player, gs);
+    const result = omahaValueSizeBand(
+      decision,
+      player,
+      gs,
+      {
+        keepUnit: omahaSlowplayUnit(stream, spotKey, OMAHA_VALUE_SIZE_KEEP_SALT),
+        bandUnit: omahaSlowplayUnit(stream, spotKey, OMAHA_VALUE_SIZE_BAND_SALT),
+      },
+      () => omahaNutClassNow(player, gs) || hasRiverNuts(player, gs, true)
+    );
+    if (tele && result.changed === 'band') noteFire('omaha_value_size_band_applied');
+    if (tele && result.changed === 'full_pot_kept') noteFire('omaha_value_size_full_pot_kept');
+    return result.decision;
+  } catch {
+    return decision;
+  }
+}
+
 function omahaStrongHandSlowplayMixRule(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -14608,8 +14672,17 @@ export class HorseLogic {
     // omahaBetSizeByPublicState (default off): the size of the node's final
     // own bet or raise, chosen from public information only, after every
     // owner rule has decided bet or check (never turns a check into a bet).
+    // omahaValueSizeIsUnreadable (default off): last, how much of the full pot a nut-class
+    // wager is (HorseOmahaValueSizeBand.ts); one owner of that cell, after every rule above.
     const publicSized = (d: HorseDecision): HorseDecision =>
-      this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele);
+      omahaValueSizeIsUnreadableRule(
+        this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele),
+        player,
+        gs,
+        vi,
+        opts,
+        tele
+      );
     decision = graph.run('wager_rules', decision, () => {
       // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
       // in-position hold'em postflop balance runs first, so every owner rule

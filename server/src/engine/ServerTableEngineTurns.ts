@@ -52,6 +52,8 @@ import { canQuickCheckFold, facingShovePrice } from './HorseQuickCheckFold.js';
 import { HorseLogic, holdemPremiumAggression, type HorseGameStateV2 } from './HorseLogic.js';
 import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import { riverNutsRaise, fullPotNearPotWager } from './HorseRiverNuts.js';
+import { omahaValueSizeBandHolds } from './HorseOmahaValueSizeBand.js';
+import { noteValueSizeBandWager } from './HorseRiverValueAudit.js';
 import { tournamentShoveDiscipline } from './HorseTournamentShoveDiscipline.js';
 import { shortAllInCallFloor } from './HorseShortAllInCallFloor.js';
 import { getTournamentBrainContextSnapshot } from '../services/TournamentBrainContext.js';
@@ -5174,8 +5176,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // A liveness action carries no priced poker decision. Do not
               // turn its free check into a premium value bet after the worker
               // failed. The short-all-in call floor below still applies.
+              // omahaValueSizeIsUnreadable (default off): a nut-class wager sized in the owner's
+              // 80-95% band stays as sized while it is still legal and in the band on the fresh
+              // state; the nut and near-pot roundings would only put the full pot back.
               const wagerGuarded =
-                safeWorkerFallback || decision.policyFallback === 'brain_exception'
+                safeWorkerFallback ||
+                decision.policyFallback === 'brain_exception' ||
+                omahaValueSizeBandHolds(decision, privateHero, commitState)
                   ? decision
                   : fullPotNearPotWager(
                       riverNutsRaise(
@@ -5589,6 +5596,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 executedAmount = normalizedAmount;
               }
               const acceptedWager = acceptedActions.length === 1 ? acceptedActions[0] : null;
+              // omahaValueSizeIsUnreadable (default off): the river value alarm excuses exactly
+              // this accepted band wager (HorseRiverValueAudit.noteValueSizeBandWager).
+              if (
+                applied &&
+                decision.valueSize === 'unreadable_band' &&
+                acceptedWager !== null &&
+                (acceptedWager.record.action === 'bet' || acceptedWager.record.action === 'raise')
+              )
+                noteValueSizeBandWager(
+                  acceptedWager.record.userId,
+                  acceptedWager.record.stage,
+                  acceptedWager.record.amount
+                );
               // The Phase 15 preserved boundary has one owner, shared with the
               // Lightning hand host: the exact accepted action, or no commit.
               const exactWagerAccepted = horsePlanWagerAcceptedExactly({
