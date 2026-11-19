@@ -118,7 +118,7 @@ describe('A rebuy never blocks a hand commit on the tournament row', () => {
     }
   });
 
-  it('proves before/after non-blocking behavior and safety invariants on native PostgreSQL', () => {
+  it('proves before/after non-blocking behavior and safety invariants on native PostgreSQL and is wired into CI', () => {
     expect(harness).toContain('20261119175856_');
     for (const proof of [
       'BEFORE: hand commit on unrelated Table B waited behind rebuy',
@@ -131,5 +131,11 @@ describe('A rebuy never blocks a hand commit on the tournament row', () => {
     ]) {
       expect(harness).toContain(proof);
     }
+    const workflow = readFileSync('.github/workflows/tournament-event-lane.yml', 'utf8');
+    expect(workflow).toContain(`supabase/migrations/${file}`);
+    expect(workflow).toContain('scripts/ci/fixtures/rebuy-off-tournament-row/**');
+    expect(workflow).toContain(
+      'python3 scripts/ci/test-a-rebuy-never-blocks-a-hand-commit-on-the-tournament-row.py'
+    );
   });
 });
