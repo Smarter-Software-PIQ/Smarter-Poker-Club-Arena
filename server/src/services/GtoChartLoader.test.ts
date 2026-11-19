@@ -137,12 +137,12 @@ describe('GTO chart corpus refresh guard', () => {
     );
     const stores = [
       {
-        load: 'loadGtoCharts',
+        load: 'loadGtoChartsForBoot',
         start: 'startGtoChartLoader',
         source: './GtoChartLoader.ts',
       },
       {
-        load: 'loadGtoPostflop',
+        load: 'loadGtoPostflopForBoot',
         start: 'startGtoPostflopLoader',
         source: './GtoPostflopLoader.ts',
       },
