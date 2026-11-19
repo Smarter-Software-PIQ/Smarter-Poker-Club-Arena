@@ -1098,3 +1098,276 @@ export function omahaReraisedRaiseMultiwayPriced(
     multiway,
   };
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * FOLD, CALL OR RAISE FACING A RE-RAISE, ALL THREE PRICED (option
+ * omahaPreflopJamFacingReraiseIsPriced, 2026-11-19, default OFF; owner
+ * complaint on hand #60156608 and the owner's 15:34 Chicago input: "just
+ * calling would have been fine ... re-raising AKQQ should never be an option").
+ *
+ * The rules facing a 3-bet or more decide the re-raise (and the 5-bet jam) by
+ * the hand's entry-score percentile against a bar: never by equity against the
+ * hands that put that money in. Here every one of the three actions is priced
+ * at the LOWER BOUND of hero's equity (the estimate minus twice its standard
+ * error) and the largest EV is played:
+ *   EV(fold)  = 0
+ *   EV(call)  = the calling rule's omahaReraisedCallEv: realization at the
+ *               stack-to-pot ratio the call leaves, in or out of position
+ *               (the measured omahaReraisedCallRealization, REALIZATION.md;
+ *               1 only when nothing is left behind) x equity against his
+ *               range at this raise x the pot after the call net of rake
+ *               - the call
+ *   EV(raise) = P(fold) x pot + P(call) x (realization at the ratio left x
+ *               equity against the hands that CONTINUE x pot called net of
+ *               rake - chips added) + P(re-raise) x max(-chips added, EV of
+ *               going on against the hands that raise again)
+ * with his answers from his own record (reraiseResponseRatesForTheRaise).
+ *
+ * THE RANGES ARE MEASURED, NOT A PERCENTILE BAND ALONE. A band of the entry
+ * score puts high-card hands next to aces, so a hand near its top looked like
+ * a favourite against a 4-bet (AKQQx: 0.50 against the band, 0.35 against
+ * aces). The composition of the hands people actually showed after making the
+ * k-th raise of a preflop street (production, PLO4/PLO5 cash, hands with a
+ * person, 2026-10-15 to 2026-11-17 00:00Z; archive
+ * repairs/CALL-OR-RAISE-2/raise-range-*.{sql,txt}) is used as the range: the
+ * share holding two aces, the share holding two kings (no two aces), and the
+ * rest drawn from the band of his measured re-raise rate. The continuing range
+ * against hero's raise is the measured range one raise higher. Nothing here
+ * reads hero's hand class: hero's equity against those hands decides.
+ * Measured (people; Horses in brackets, not used): shown after a 3-bet 600
+ * (715), two aces 50 (255), two kings 43 (134); after a 4-bet 180 (323), aces
+ * 31 (160), kings 14 (41); after a 5-bet or later 86 (78), aces 24 (35), kings
+ * 10 (14). Limits, stated: shown hands only (a pot that ends before a showdown
+ * is not in the count: 180 of 351 4-bets were shown); one pooled composition
+ * of people for every opponent (a Horse raiser holds aces more often, so
+ * against a Horse this prices hero's equity high); no per-player record of
+ * shown hands exists; the rest of the range is the band of his re-raise rate.
+ *
+ * Heads-up only: with any other player still in the hand the spot is not
+ * priced here.
+ */
+export interface OmahaRaiseRangeComposition {
+  /** shown hands at this raise, of them with two aces, with two kings and fewer than two aces */
+  n: number;
+  aces: number;
+  kings: number;
+}
+/** By the raise the hand was made at: 2 = a 3-bet, 3 = a 4-bet, 4 = a 5-bet or later. */
+export const OMAHA_RAISE_RANGE_COMPOSITION: Readonly<
+  Record<2 | 3 | 4, OmahaRaiseRangeComposition>
+> = Object.freeze({
+  2: { n: 600, aces: 50, kings: 43 },
+  3: { n: 180, aces: 31, kings: 14 },
+  4: { n: 86, aces: 24, kings: 10 },
+});
+export const OMAHA_THREE_WAY_SAMPLES_PER_PART = 600;
+export const OMAHA_THREE_WAY_SE_MULTIPLE = 2;
+
+const rankCount = (h: readonly Card[], r: string): number => h.filter((c) => c.rank === r).length;
+
+/** Hero's equity against the measured range at one raise, its standard error, and the parts. */
+export function omahaMeasuredRangeEquity(
+  hole: readonly Card[],
+  dead: readonly Card[],
+  level: number,
+  rate: number,
+  samplesPerPart: number = OMAHA_THREE_WAY_SAMPLES_PER_PART
+): {
+  equity: number;
+  se: number;
+  parts: [number, number, number];
+  shares: [number, number, number];
+} | null {
+  const k = Math.min(4, Math.max(2, Math.round(level))) as 2 | 3 | 4;
+  const c = OMAHA_RAISE_RANGE_COMPOSITION[k];
+  if (!(c.n > 0)) return null;
+  const sA = c.aces / c.n;
+  const sK = c.kings / c.n;
+  const sR = Math.max(0, 1 - sA - sK);
+  const lo = 1 - omahaReraiserRangeWidth(rate, k);
+  const tests: ((h: readonly Card[]) => boolean)[] = [
+    (h) => rankCount(h, 'A') >= 2,
+    (h) => rankCount(h, 'K') >= 2 && rankCount(h, 'A') < 2,
+    (h) =>
+      rankCount(h, 'A') < 2 &&
+      rankCount(h, 'K') < 2 &&
+      (lo <= 1e-9 || omahaPreflopPercentile([...h], false) >= lo),
+  ];
+  const shares: [number, number, number] = [sA, sK, sR];
+  const parts: [number, number, number] = [0, 0, 0];
+  let varSampling = 0;
+  for (let i = 0; i < 3; i++) {
+    if (shares[i] <= 1e-9) continue;
+    let n = 0;
+    let s = 0;
+    let s2 = 0;
+    const e = omahaReraisedEquity(hole, [], dead, tests[i], samplesPerPart, (_o, r) => {
+      n++;
+      s += r;
+      s2 += r * r;
+    });
+    if (e === null || n < 2) return null;
+    parts[i] = e;
+    varSampling += (shares[i] * shares[i] * Math.max(0, (s2 - (s * s) / n) / (n - 1))) / n;
+  }
+  const equity = shares[0] * parts[0] + shares[1] * parts[1] + shares[2] * parts[2];
+  // the composition is itself a count: its multinomial error on the mixture
+  const second = shares[0] * parts[0] ** 2 + shares[1] * parts[1] ** 2 + shares[2] * parts[2] ** 2;
+  const varShares = Math.max(0, second - equity * equity) / c.n;
+  return { equity, se: Math.sqrt(varSampling + varShares), parts, shares };
+}
+
+export interface OmahaThreeWayInput {
+  hole: readonly Card[];
+  dead: readonly Card[];
+  preflopRaises: number;
+  call: number;
+  pot: number;
+  stack: number;
+  heroBet: number;
+  /** hero's total on the street if he raises (capped by his stack); null: no raise is legal */
+  raiseTo: number | null;
+  raiserBet: number;
+  raiserStack: number;
+  pricing: OmahaReraisedCallPricing;
+  rates: ReraiseResponsePosterior;
+  rakeCalled: number;
+  standing: 'fold' | 'call' | 'raise';
+  samplesPerPart?: number;
+}
+export interface OmahaThreeWayReceipt {
+  verdict: 'fold' | 'call' | 'raise';
+  standing: 'fold' | 'call' | 'raise';
+  /** EV of each action at the lower bound of the equities (fold is 0) */
+  evCallLow: number;
+  evRaiseLow: number | null;
+  /** the same at the equities' estimates */
+  evCall: number;
+  evRaise: number | null;
+  equityNow: number;
+  equityNowSe: number;
+  equityContinue: number | null;
+  equityContinueSe: number | null;
+  equityReraise: number | null;
+  realizationCall: number;
+  realizationRaise: number | null;
+  sprRaise: number | null;
+  pFold: number;
+  pCall: number;
+  pReraise: number;
+  added: number | null;
+  /** equity against the measured range's parts at this raise: two aces, two kings, the rest */
+  partsNow: [number, number, number];
+  sharesNow: [number, number, number];
+}
+
+export function omahaThreeWayPriced(i: OmahaThreeWayInput): OmahaThreeWayReceipt | null {
+  const p = i.pricing;
+  const call = Math.min(i.call, i.stack);
+  if (!(call > 0.005) || !(i.pot > 0) || !(i.stack > call + 0.005)) return null;
+  const k = Math.max(2, i.preflopRaises);
+  const now = omahaMeasuredRangeEquity(i.hole, i.dead, k, p.rate, i.samplesPerPart);
+  if (!now) return null;
+  const m = OMAHA_THREE_WAY_SE_MULTIPLE;
+  const width = omahaReraiserRangeWidth(p.rate, k);
+  const callLow = omahaReraisedCallEv(
+    Math.max(0, now.equity - m * now.se),
+    width,
+    call,
+    i.pot,
+    i.stack,
+    p
+  );
+  const callMid = omahaReraisedCallEv(now.equity, width, call, i.pot, i.stack, p);
+  const rakeCalled = clamp(Number.isFinite(i.rakeCalled) ? i.rakeCalled : p.rakeFraction, 0, 0.5);
+  let evRaiseLow: number | null = null;
+  let evRaise: number | null = null;
+  let cont: ReturnType<typeof omahaMeasuredRangeEquity> = null;
+  let again: ReturnType<typeof omahaMeasuredRangeEquity> = null;
+  let realizationRaise: number | null = null;
+  let sprRaise: number | null = null;
+  let added: number | null = null;
+  let pCall = i.rates.call;
+  let pReraise = i.rates.raise;
+  if (i.raiseTo !== null) {
+    const raiseTo = Math.min(
+      i.raiseTo,
+      i.heroBet + i.stack,
+      Math.max(0, i.raiserBet) + Math.max(0, i.raiserStack)
+    );
+    added = raiseTo - i.heroBet;
+    if (added > call + 0.005) {
+      cont = omahaMeasuredRangeEquity(i.hole, i.dead, k + 1, p.rate, i.samplesPerPart);
+      const raiserPays = Math.min(Math.max(0, i.raiserStack), Math.max(0, raiseTo - i.raiserBet));
+      const potCalled = i.pot + added + raiserPays;
+      const behind = Math.max(0, Math.min(i.stack - added, i.raiserStack - raiserPays));
+      sprRaise = potCalled > 0 ? behind / potCalled : 0;
+      realizationRaise = omahaReraisedCallRealization(p.inPosition, sprRaise, 0, 0);
+      const canReraise = behind > 0.005;
+      pCall = canReraise ? i.rates.call : i.rates.call + i.rates.raise;
+      pReraise = canReraise ? i.rates.raise : 0;
+      if (canReraise)
+        again = omahaMeasuredRangeEquity(i.hole, i.dead, k + 2, p.rate, i.samplesPerPart);
+      if (cont && (!canReraise || again)) {
+        const value = (eqC: number, eqA: number): number => {
+          const whenCalled =
+            (realizationRaise as number) * eqC * potCalled * (1 - rakeCalled) - (added as number);
+          let reraised = -(added as number);
+          if (canReraise) {
+            const allIn = (sprRaise as number) <= 1 + 1e-9;
+            const more = allIn ? behind : Math.min(potCalled, behind);
+            const potFinal = potCalled + 2 * more;
+            const r2 = allIn
+              ? 1
+              : omahaReraisedCallRealization(p.inPosition, (behind - more) / potFinal, 0, 0);
+            reraised = Math.max(
+              reraised,
+              r2 * eqA * potFinal * (1 - rakeCalled) - ((added as number) + more)
+            );
+          }
+          return i.rates.fold * i.pot + pCall * whenCalled + pReraise * reraised;
+        };
+        evRaise = value(cont.equity, again ? again.equity : 0);
+        evRaiseLow = value(
+          Math.max(0, cont.equity - m * cont.se),
+          again ? Math.max(0, again.equity - m * again.se) : 0
+        );
+      }
+    }
+  }
+  // The largest EV at the lower bound; a tie keeps the standing action.
+  const ev: Record<'fold' | 'call' | 'raise', number | null> = {
+    fold: 0,
+    call: callLow.evCall,
+    raise: evRaiseLow,
+  };
+  let verdict: 'fold' | 'call' | 'raise' = i.standing;
+  for (const a of ['fold', 'call', 'raise'] as const) {
+    const v = ev[a];
+    const best = ev[verdict];
+    if (v !== null && (best === null || v > best + 1e-9)) verdict = a;
+  }
+  return {
+    verdict,
+    standing: i.standing,
+    evCallLow: callLow.evCall,
+    evRaiseLow,
+    evCall: callMid.evCall,
+    evRaise,
+    equityNow: now.equity,
+    equityNowSe: now.se,
+    equityContinue: cont ? cont.equity : null,
+    equityContinueSe: cont ? cont.se : null,
+    equityReraise: again ? again.equity : null,
+    realizationCall: callLow.realization,
+    realizationRaise,
+    sprRaise,
+    pFold: i.rates.fold,
+    pCall,
+    pReraise,
+    added,
+    partsNow: now.parts,
+    sharesNow: now.shares,
+  };
+}

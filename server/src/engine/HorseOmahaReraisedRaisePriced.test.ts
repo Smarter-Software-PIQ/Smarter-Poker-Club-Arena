@@ -16,7 +16,10 @@ import { reraiseResponseFromRow } from './HorseOmahaReraiseResponse.js';
 import {
   RERAISE_RAISE_SE_MULTIPLE,
   RERAISE_THIRD_PLAYER_FOLD,
+  OMAHA_RAISE_RANGE_COMPOSITION,
   heroShareOfPots,
+  omahaMeasuredRangeEquity,
+  omahaThreeWayPriced,
   omahaReraisedRaiseEv,
   omahaReraisedRaiseMultiwayPriced,
   omahaReraisedRaisePriced,
@@ -435,5 +438,87 @@ describe('main pot and side pots (heroShareOfPots)', () => {
       3
     );
     expect(r).toEqual({ won: 239, pot: 239 });
+  });
+});
+
+describe('omahaPreflopJamFacingReraiseIsPriced: fold, call and raise priced against measured ranges (hand #60156608)', () => {
+  // Made-up suits; the shape of the hand the owner complained of and of a double-suited rundown.
+  const HIGH = cards('AsKdQsQd9h');
+  const RUNDOWN = cards('9h8h7s6s5d');
+  const pricing = (rate: number): OmahaReraisedCallPricing =>
+    ({
+      rate,
+      opportunities: 0,
+      rateSource: 'population',
+      inPosition: true,
+      othersIn: 0,
+      raiserBehind: 249.56,
+      rakeFraction: 0.03,
+      heroAlreadyRaised: true,
+      heroInvested: 16,
+    }) as OmahaReraisedCallPricing;
+  const spot = (hole: Card[], standing: 'fold' | 'call' | 'raise') => ({
+    hole,
+    dead: [],
+    preflopRaises: 3,
+    call: 34.5,
+    pot: 73.5,
+    stack: 226.7,
+    heroBet: 16,
+    raiseTo: 154,
+    raiserBet: 50.5,
+    raiserStack: 249.56,
+    pricing: pricing(0.046),
+    rates: reraiseResponseRatesForTheRaise(null, 'fourBetFacesFiveBet')!,
+    rakeCalled: 0.03,
+    standing,
+  });
+  it('the measured compositions are counts (shown hands of people after the 3-bet, the 4-bet, the 5-bet or later)', () => {
+    for (const k of [2, 3, 4] as const) {
+      const c = OMAHA_RAISE_RANGE_COMPOSITION[k];
+      expect(c.n).toBeGreaterThan(50);
+      expect(c.aces + c.kings).toBeLessThanOrEqual(c.n);
+    }
+    // a raise later in the street is made with aces more often
+    const share = (k: 2 | 3 | 4) =>
+      OMAHA_RAISE_RANGE_COMPOSITION[k].aces / OMAHA_RAISE_RANGE_COMPOSITION[k].n;
+    expect(share(4)).toBeGreaterThan(share(3));
+    expect(share(3)).toBeGreaterThan(share(2));
+  });
+  it('the equity is against the parts of the range: high cards lose most of it to aces, a rundown keeps it', () => {
+    const high = omahaMeasuredRangeEquity(HIGH, [], 3, 0.046)!;
+    const run = omahaMeasuredRangeEquity(RUNDOWN, [], 3, 0.046)!;
+    expect(high.parts[0]).toBeLessThan(0.42); // against two aces
+    expect(run.parts[0]).toBeGreaterThan(high.parts[0] + 0.05);
+    expect(high.se).toBeGreaterThan(0);
+    expect(high.shares[0] + high.shares[1] + high.shares[2]).toBeCloseTo(1, 9);
+  });
+  it('all three actions are priced and the largest lower-bound EV is played (the 5-bet of #60156608 becomes a call)', () => {
+    const r = omahaThreeWayPriced(spot(HIGH, 'raise'))!;
+    expect(r).not.toBeNull();
+    expect(r.evRaiseLow).not.toBeNull();
+    const best = Math.max(0, r.evCallLow, r.evRaiseLow!);
+    const chosen = r.verdict === 'fold' ? 0 : r.verdict === 'call' ? r.evCallLow : r.evRaiseLow!;
+    expect(chosen).toBe(best);
+    expect(r.verdict).toBe('call');
+    // the call is realized below 1 with chips behind (measured realization, never 100 percent)
+    expect(r.realizationCall).toBeLessThan(1);
+    // the lower bound is below the estimate
+    expect(r.evCallLow).toBeLessThan(r.evCall);
+    expect(r.evRaiseLow!).toBeLessThan(r.evRaise!);
+  });
+  it('the standing action stands on a tie and a standing raise needs a priced raise', () => {
+    const r = omahaThreeWayPriced({ ...spot(HIGH, 'raise'), raiseTo: null })!;
+    expect(r.evRaiseLow).toBeNull();
+    // with no raise priced the verdict can only be fold or call; the decision wrapper then keeps a standing raise
+    expect(['fold', 'call']).toContain(r.verdict);
+  });
+  it('a short call that leaves nothing behind is not this pricing (closed all-in call untouched)', () => {
+    expect(omahaThreeWayPriced({ ...spot(HIGH, 'call'), stack: 30 })).toBeNull();
+  });
+  it('the same cards and spot give the same receipt (no random stream)', () => {
+    expect(JSON.stringify(omahaThreeWayPriced(spot(RUNDOWN, 'call')))).toBe(
+      JSON.stringify(omahaThreeWayPriced(spot(RUNDOWN, 'call')))
+    );
   });
 });

@@ -993,6 +993,35 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPreflopJamFacingReraiseIsPriced',
+    'Owner complaint, hand #60156608 (2026-11-19; owner 15:34 Chicago: just calling would have been fine, re-raising AKQQ should never be an option; no blanket rules): PLO4/PLO5 cash tables, high only, one board, no bomb pot, not Lightning, preflop, facing two or more raises heads-up with the re-raiser not all in and chips behind after a call. Fold, call and raise (4-bet, 5-bet or jam) are each priced at the lower bound of hero equity (estimate minus twice its standard error) against the MEASURED ranges (the composition of hands people showed after making that raise: two aces, two kings, the rest from the band of his re-raise rate; the continuing range is the measured range one raise higher): EV(fold) = 0; EV(call) by the calling rule (measured realization at the stack-to-pot ratio left); EV(raise) from his own answers to a raise. The largest is played. Nothing keyed to a hand class, the strength percentile, a position or an account. Default OFF (opt-in, read === true). Authority: docs/horse-option-authority.d/omahaPreflopJamFacingReraiseIsPriced.md.',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_three_way_fold',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaPreflopJamFacingReraiseIsPriced)',
+    'the three-way pricing facing a re-raise answered FOLD (every number is on the decision, omahaPreflopThreeWay)',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_three_way_call',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaPreflopJamFacingReraiseIsPriced)',
+    'the three-way pricing facing a re-raise answered CALL (every number is on the decision, omahaPreflopThreeWay)',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_three_way_raise',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaPreflopJamFacingReraiseIsPriced)',
+    'the three-way pricing facing a re-raise answered RAISE (every number is on the decision, omahaPreflopThreeWay)',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_three_way_changed',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaPreflopJamFacingReraiseIsPriced)',
+    'the three-way pricing facing a re-raise changed the standing action (fold, call or raise of the rules before it)',
+    'V94'
+  ),
+  flag(
     'omahaReraiseRangeEarlyPosition',
     'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges under the gun must be capped): the rule of omahaReraiseRangeOutOfPosition for the early-position spots, the Horse under the gun or under the gun plus one at a table of six or more dealt in with a live player still to act: the 3-bet or 4-bet stands only with suited aces, any aces when the re-raise commits, or the declared premium structures; every other hand calls or folds by the calling rule. Switched separately. Default off (opt-in) until its declared evaluation passes.',
     'V94'
