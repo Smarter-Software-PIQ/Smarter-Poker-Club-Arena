@@ -61,6 +61,7 @@ import {
   type DurableHandCommit,
   type DurableThaw,
 } from './BustRebuyWindow.js';
+import { showdownSweepOwed } from './ShowdownSweepOwed.js';
 import {
   atRebuyStopLoss,
   horseRebuyAmount,
@@ -1318,7 +1319,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // read, the sweeps, the seat-move notice - ran under the armed rest;
         // this waits out whatever of it is left, records how long the felt
         // actually waited, and only then deals.
-        await this.awaitNextHandRest();
+        // A tournament with F06 admission reserves its permit under the rest
+        // (hand delay 2026-11-18): it stops F06_RESERVE_LEAD_MS short here and
+        // dealHand finishes the rest after the reservation. Every other table
+        // waits the whole rest here, as before.
+        if (this.reservesPermitUnderTheRest()) await this.awaitNextHandRestLead();
+        else await this.awaitNextHandRest();
         // A pause may arrive while the roster, rest or blind read is pending.
         // (2026-09-25) This is also where the Cluster halt read with the
         // roster, under the rest, is honoured - the freshest value this
@@ -1369,6 +1375,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // completionPresentation (Seating): the chair stays until its pot is pushed.
         if (!this.running) this.endCompletionPresentation();
         this.consecutiveErrors = 0;
+        // The last look after a rest finished inside dealHand refused the
+        // deal; its reserved permit was released there. Nothing was dealt,
+        // so there is no hand to present: go round. The next iteration's
+        // pre-deal checks park the table through the owner's gate, so nothing
+        // parks here, between dealHand and the hand-free broadcast (law:
+        // a-break-never-starts-in-the-middle-of-a-hand).
+        if (this.dealAbandonedAtRestEnd) {
+          this.dealAbandonedAtRestEnd = false;
+          this.endCompletionPresentation();
+          if (!this.running) break;
+          continue;
+        }
 
         // Bible V8 §4.23: Formal cleanup timing between hands.
         //
@@ -1450,6 +1468,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // Dan 2026-10-24: an all-in showdown keeps the tabled hands and
             // the announced winner up two seconds longer.
             allInShowdown: this.currentHandAllInShowdown,
+            // Hand delay 2026-11-18: the 500 ms bets sweep is held only when
+            // the felt plays it. A single-board showdown whose river carried
+            // no chips (an all-in run out, a river checked through) has
+            // nothing left to sweep, and TablePage ships its pot at once.
+            betsSweepOwed: showdownSweepOwed({
+              wentToShowdown,
+              ritRuns: this.currentHandRitBoards,
+              boardCardCount: this.currentHandCommunityCards.length,
+              actions: this.currentHandActions,
+            }),
           });
 
           // Phase 1: the completion sequence actually plays out. When this
@@ -2019,19 +2047,124 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   static readonly BLIND_READ_LEAD_MS = 600;
 
+  /**
+   * THE PERMIT IS RESERVED UNDER THE REST (hand delay, 2026-11-18).
+   *
+   * Dan 2026-11-17: the time to finish a hand, move the button and start the
+   * next must be under a second, two at most. A tournament table spent about
+   * 0.54 s AFTER the rest (production hand_history, 2026-11-18: tournament
+   * fold p50 3.85 s against cash 3.35 s for the same beats) on round trips
+   * that waited for nothing a player sees: dealHand's F06 hand-number state
+   * read and `fn_f06_begin_hand` ran only once the rest had fully elapsed.
+   *
+   * A table with F06 hand admission now enters dealHand this long before the
+   * rest ends. dealHand reserves the permit, then waits out what is left of
+   * the rest (awaitNextHandRest), re-applies the last look the loop applies
+   * after the rest (handRestStillAllowsTheDeal) and only then builds, retains
+   * and starts the hand. A permit reserved and then not dealt - a pause, a
+   * hand-for-hand round, a break, a balancing move, a final-table deal, a
+   * terminal close-out, a stop - is released by dealHand's own finally through
+   * the existing door (fn_f06_cancel_prepared_hand), exactly as a pause that
+   * arrives between the reservation and the start always has been.
+   *
+   * 2026-11-19: the seq-0 save of the prepared original moved under the rest
+   * too (restFinishesAfterRetention). A saved original that a hold meets
+   * before it starts is no longer fenced (`retained_original_start_unproven`):
+   * it is released exactly once through fn_f06_cancel_retained_prepared_hand.
+   */
+  static readonly F06_RESERVE_LEAD_MS = 1000;
+  private restFinishesInsideDeal = false;
+  private restBlindRead: Promise<unknown> | null = null;
+  /** Set by dealHand when its post-rest last look refused the deal. */
+  protected dealAbandonedAtRestEnd = false;
+  /**
+   * THE PREPARED HAND IS SAVED UNDER THE REST (hand delay, 2026-11-19).
+   * Set by dealHand after the reservation: the hand is built and its seq-0
+   * original saved (retainOriginalBatch) while the rest still runs, and
+   * runOriginalController finishes the rest after the save, re-applies the
+   * last look and only then starts it. A last look that refuses - every
+   * pause owner, hand-for-hand, a balancing move, a final-table deal, a
+   * terminal close-out, a weekly payout, an admin pause, a Cluster halt, a
+   * stop - releases the saved, never-started original exactly once through
+   * fn_f06_cancel_retained_prepared_hand instead of fencing the engine.
+   */
+  private restFinishesAfterRetention = false;
+  /** This rest's blind read was awaited before the build; never read twice. */
+  private restBlindReadConsumed = false;
+  /** A hold met this attempt's saved original past the last look. */
+  private retainedOriginalMetAHold = false;
+
+  /** Await the blind read the lead started: the hand is built at that level. */
+  protected async awaitRestBlindRead(): Promise<void> {
+    this.startRestBlindRead();
+    const blindRead = this.restBlindRead;
+    this.restBlindReadConsumed = true;
+    if (!blindRead) return;
+    try {
+      await blindRead;
+    } finally {
+      if (this.restBlindRead === blindRead) this.restBlindRead = null;
+    }
+  }
+
+  private startRestBlindRead(): void {
+    if (this.restBlindRead || this.restBlindReadConsumed || !this.isTournamentTable()) return;
+    const read = this.withStepBudget(
+      'refresh_blinds',
+      ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
+      this.refreshBlinds()
+    );
+    // Observed by awaitNextHandRest; never an unhandled rejection meanwhile.
+    read.catch(() => undefined);
+    this.restBlindRead = read;
+  }
+
+  /** True when this deal reserves its F06 permit under the rest. */
+  protected reservesPermitUnderTheRest(): boolean {
+    return this.isTournamentTable() && this.hasF06HandAdmission();
+  }
+
+  /**
+   * Sleep until F06_RESERVE_LEAD_MS of the rest is left, start the blind read,
+   * and leave the rest armed: dealHand finishes it after the reservation.
+   */
+  protected async awaitNextHandRestLead(): Promise<void> {
+    await this.settlePreparedHandNumber();
+    if (this.nextHandNotBeforeMs !== null) {
+      const remaining = this.nextHandNotBeforeMs - Date.now();
+      const lead = ServerTableEngineDealing.F06_RESERVE_LEAD_MS;
+      if (remaining > lead) {
+        this.setLoopPhase('next_hand_rest');
+        await this.sleep(remaining - lead);
+      }
+    }
+    this.startRestBlindRead();
+    this.restFinishesInsideDeal = true;
+  }
+
+  /**
+   * The loop's post-rest last look, re-applied inside dealHand after a rest
+   * that finished there. Synchronous: nothing may wait between it and the
+   * deal. False sends the attempt back to the loop without a hand.
+   */
+  protected handRestStillAllowsTheDeal(): boolean {
+    return (
+      this.running &&
+      this.lifecycleCanMutate() &&
+      !this.isNextHandPaused() &&
+      !this.isHandForHandReleaseBlocked() &&
+      !this.terminalCloseoutPaused &&
+      this.tournamentMovePauseOwners.size === 0
+      // seatBoundaryChangedUnderRest is not repeated: it answers false for
+      // every tournament table, and only tournament tables reserve under the
+      // rest (reservesPermitUnderTheRest). The law in
+      // aMainSeatTakesTheNextHand pins its single call site in the loop.
+    );
+  }
+
   protected async awaitNextHandRest(): Promise<void> {
     await this.settlePreparedHandNumber();
-    let blindRead: Promise<unknown> | null = null;
-    const startBlindRead = (): void => {
-      if (blindRead || !this.isTournamentTable()) return;
-      blindRead = this.withStepBudget(
-        'refresh_blinds',
-        ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.refreshBlinds()
-      );
-      // Observed below; never an unhandled rejection while the rest sleeps.
-      blindRead.catch(() => undefined);
-    };
+    const startBlindRead = (): void => this.startRestBlindRead();
     if (this.nextHandNotBeforeMs !== null) {
       const remaining = this.nextHandNotBeforeMs - Date.now();
       if (remaining > 0) {
@@ -2050,9 +2183,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     // Read the tournament stakes before the caller rechecks its lease and
     // pause gates; started inside the rest above when there was one.
     startBlindRead();
+    const blindRead = this.restBlindRead;
     if (blindRead) {
       this.setLoopPhase('refresh_blinds');
-      await blindRead;
+      try {
+        await blindRead;
+      } finally {
+        if (this.restBlindRead === blindRead) this.restBlindRead = null;
+      }
     }
     if (this.lastCompletionAtMs !== null && !this.gapSawIdle) {
       const now = Date.now();
@@ -2084,6 +2222,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     // for a spin reveal) is not a sample of the rest; it waited on people.
     this.lastCompletionAtMs = null;
     this.gapPhaseMs = {};
+    this.restBlindReadConsumed = false;
   }
 
   /**
@@ -2995,6 +3134,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   }
 
   protected async dealHand(players: SeatedPlayer[]): Promise<void> {
+    this.dealAbandonedAtRestEnd = false;
     if (this.operatorClosureOnlyId) throw new Error('operator_cash_close_dealing_forbidden');
     // Resume an already-owned cancellation with the same immutable identity.
     // A lost response never permits allocation of a different hand first.
@@ -3093,6 +3233,26 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       await this.reserveF06Hand(this.handCount);
       this.cashBreachSpan?.enter('dealing');
       if (this.discardPreparedHandForPause()) return;
+      // THE REST GOES ON for a permit reserved under it (hand delay
+      // 2026-11-18, F06_RESERVE_LEAD_MS; 2026-11-19, the save moved under it
+      // too). The blind read the lead started is awaited, so the hand is
+      // built at the level in force; the last look is applied once now, so a
+      // hold already standing costs no build or save; and the rest itself is
+      // finished in runOriginalController after the seq-0 save
+      // (restFinishesAfterRetention), where the last look runs again. A
+      // refusal here leaves through the finally below, which releases the
+      // reserved permit exactly once.
+      if (this.restFinishesInsideDeal) {
+        this.restFinishesInsideDeal = false;
+        await this.awaitRestBlindRead();
+        if (!this.handRestStillAllowsTheDeal()) {
+          this.dealAbandonedAtRestEnd = true;
+          unstartedCause = 'last_look_after_reserved_rest';
+          return;
+        }
+        this.restFinishesAfterRetention = true;
+        this.handPreparedUnderTheRest = true;
+      }
       this.handsDealtThisSession++;
       const handNumber = this.handCount;
       const handStartMs = Date.now(); // FIX 149: Capture hand start time for telemetry
@@ -4475,16 +4635,58 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       unstartedCause ??= 'threw:' + ServerTableEngineDealing.causeOf(error);
       throw error;
     } finally {
+      // A SAVED ORIGINAL THIS ATTEMPT NEVER STARTED (hand delay 2026-11-19):
+      // its last look refused it, a hold met it before the start, or the
+      // engine stopped. Released exactly once, so the table is between hands
+      // again and the loop goes round to its pause handling. A release that
+      // cannot be proved keeps the existing custody: a running table is
+      // fenced (as a hold on a saved original always was); a stopped one
+      // leaves its capsule for the successor.
+      const metAHold = this.retainedOriginalMetAHold;
+      this.retainedOriginalMetAHold = false;
+      if (
+        !handStarted &&
+        retainedPreparedOriginal &&
+        (this.dealAbandonedAtRestEnd || metAHold || !this.running)
+      ) {
+        const saved = this.retainedPreparedOriginalController;
+        if (saved && (await this.cancelF06RetainedPreparedHand(saved))) {
+          retainedPreparedOriginal = false;
+          this.dealAbandonedAtRestEnd = true;
+        } else if (this.running) {
+          this.killForRestart('retained_original_start_unproven');
+        }
+      }
       // A reserved number abandoned before start is not a completed boundary.
       // Keep parked banks bound to the last real hand, including every pause
       // that can arrive during asynchronous hand preparation.
       if (!handStarted && !retainedPreparedOriginal) this.handCount = completedHandNumber;
+      // A rest this attempt was to finish but never reached (an early return
+      // or a throw before the reservation) stays armed for the loop; its
+      // blind read is dropped so the next rest reads the level fresh.
+      if (this.restFinishesInsideDeal) {
+        this.restFinishesInsideDeal = false;
+        this.restBlindRead = null;
+      }
+      // A save-under-the-rest attempt that left before finishing the rest
+      // leaves it armed for the loop, which reads the level fresh.
+      if (this.restFinishesAfterRetention) {
+        this.restFinishesAfterRetention = false;
+        this.restBlindRead = null;
+      }
+      this.restBlindReadConsumed = false;
+      this.handPreparedUnderTheRest = false;
       releaseSeatBoundary();
       try {
         // The exact continuation has finished all preparation awaits and never
         // invoked permit.start. Fence that permit before durably releasing it;
         // a pause checkpoint alone cannot survive a process replacement.
-        if (!handStarted && (this.isNextHandPaused() || !this.running)) {
+        // A permit reserved under the rest whose last look refused the deal is
+        // the same case: a planned stop, not a recovery event.
+        if (
+          !handStarted &&
+          (this.isNextHandPaused() || !this.running || this.dealAbandonedAtRestEnd)
+        ) {
           await this.cancelF06PreparedHand();
         } else if (!handStarted) {
           /* THE PAUSE WAS NEVER THE ONLY WAY TO END UNSTARTED (2026-10-15).
@@ -4800,6 +5002,30 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return;
       this.markRetainedPreparedOriginal(preparedController, original, preparedBatch);
     }
+    // THE REST ENDS HERE when the hand was prepared and saved under it (hand
+    // delay 2026-11-19): the seq-0 save above rode the rest. Nothing has been
+    // shown or started (publishedHandState stays the rest's until the start).
+    // The loop's last look runs again on the far side; a refusal releases the
+    // saved, never-started original exactly once.
+    // dealHand's finally releases it (it holds the attempt's proof of
+    // non-start); nothing here waits on the release.
+    if (this.restFinishesAfterRetention) {
+      this.restFinishesAfterRetention = false;
+      await this.awaitNextHandRest();
+      if (
+        this.handController !== preparedController ||
+        !this.running ||
+        !this.isCurrentEngine() ||
+        !this.lifecycleCanMutate()
+      )
+        return;
+      if (!this.handRestStillAllowsTheDeal()) {
+        this.dealAbandonedAtRestEnd = true;
+        attempt.cause = 'last_look_after_retained_rest';
+        return;
+      }
+    }
+    this.handPreparedUnderTheRest = false;
     if (original) {
       if (recovered) {
         if (JSON.parse(recovered.batch.controller).handStarted === false)
@@ -4882,8 +5108,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         !this.isNextHandPausedOnlyByUnclaimedTournamentMove()
       ) {
         // Polled holds keep their existing read/wait owner. A prepared
-        // retained original (fresh or claimed) cannot bypass them or become
-        // an ordinary local cancellation; fence for canonical custody.
+        // retained original cannot bypass them. The one this process saved
+        // and never started is released exactly once (hand delay,
+        // 2026-11-19); a claimed one, or a release that cannot be proved,
+        // is fenced for canonical custody as before.
+        attempt.cause = 'retained_original_met_a_hold';
+        if (!recovered) {
+          // Released by dealHand's finally; fenced there if it cannot be.
+          this.retainedOriginalMetAHold = true;
+          return;
+        }
         this.killForRestart('retained_original_start_unproven');
         return;
       }

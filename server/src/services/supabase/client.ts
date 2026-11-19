@@ -18,10 +18,18 @@ import { resolveClientTimeoutMs } from '../cashAccountingBatchBudget.js';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { reportError } from '../errorReporter.js';
 import { stampOwnedDataActorHeaders } from './dataActorContext.js';
+import { currentTournamentIdOrNull } from './dataActorContext.js';
 import { bindRealtimeCallbacksToRegistration } from './realtimeCallbackContext.js';
 import { observeFenceInResponse } from './tournamentManagerFence.js';
 import { measureLightningFoldFetch } from '../../lightning/LightningFoldTiming.js';
 import { recordDbAttemptFailure, recordDbResponseStatus } from './dbReplyMetrics.js';
+import {
+  classifyEventDbFailure,
+  classifyEventDbOutcome,
+  eventDatabaseBulkhead,
+  type EventDbOutcome,
+  type EventDbPermit,
+} from './eventDatabaseBulkhead.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -105,11 +113,31 @@ function preserveResponseMetadata(buffered: Response, original: Response): Respo
   return buffered;
 }
 
+/** What one answered attempt says about its event's lane. Only an error
+ * answer is parsed, and its body is already buffered. Never throws. */
+async function eventOutcomeOf(answered: Response, elapsedMs: number): Promise<EventDbOutcome> {
+  let code: unknown;
+  if (answered.status >= 400) {
+    try {
+      code = ((await answered.clone().json()) as { code?: unknown } | null)?.code;
+    } catch {
+      code = undefined;
+    }
+  }
+  return classifyEventDbOutcome(answered.status, code, elapsedMs);
+}
+
 function createBoundedServiceClient(
   timeoutMs: number,
   actorToken?: string,
-  replacementSubject = false
+  replacementSubject = false,
+  /* One event's requests are bounded per event (eventDatabaseBulkhead.ts).
+     The maintenance client opts out: the freeze's own writers and the
+     terminal settlement doors must never park behind an event's hand traffic.
+     A viewer-token or original-subject client carries no event at all. */
+  eventBulkhead = true
 ): SupabaseClient {
+  const bounded = eventBulkhead && !actorToken && !replacementSubject;
   const clientKey = replacementSubject
     ? 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
     : EFFECTIVE_SERVICE_ROLE_KEY;
@@ -151,15 +179,37 @@ function createBoundedServiceClient(
           const boundary = new Promise<never>((_resolve, reject) => {
             rejectBoundary = reject;
           });
+          /* A PARKED CALL'S DEADLINE IS NOT A FATAL (2026-11-19). The race
+             below is the boundary's only reader, and an attempt parked behind
+             its event's bound (eventDatabaseBulkhead) has not reached it yet.
+             Its deadline then rejected a promise nobody watched, which
+             index.ts drains the whole engine for. The parked caller still
+             gets the same rejection through ctl.signal; this only marks the
+             boundary handled. */
+          boundary.catch(() => undefined);
           const refuse = (reason: unknown) => {
             rejectBoundary(reason);
             ctl.abort(reason);
           };
           const t = setTimeout(() => refuse(new Error('supabase_timeout')), timeoutMs);
           const onAbort = () => refuse(callerSignal!.reason);
+          /* ONE EVENT'S REQUESTS ARE BOUNDED (2026-11-18). The slot is taken
+             inside this attempt's own deadline and caller abort, so a parked
+             request ends exactly as a slow one always has. Outside an event's
+             authority there is no key and nothing here runs. */
+          const eventKey = bounded ? currentTournamentIdOrNull() : null;
+          let permit: EventDbPermit | null = null;
+          let eventOutcome: EventDbOutcome = 'neutral';
+          let sentAt = 0;
           try {
             callerSignal?.addEventListener('abort', onAbort, { once: true });
             callerSignal?.throwIfAborted();
+            if (eventKey !== null) {
+              const admitted = eventDatabaseBulkhead.acquire(eventKey, ctl.signal);
+              // Under the bound the permit is returned synchronously: no await.
+              permit = admitted instanceof Promise ? await admitted : admitted;
+              sentAt = performance.now();
+            }
             const operation = measureLightningFoldFetch(async (timing) => {
               const requestHeaders =
                 typeof Request !== 'undefined' && attemptInput instanceof Request
@@ -262,16 +312,20 @@ function createBoundedServiceClient(
             // Abort is cooperative; reject independently if transport stalls.
             // The race observes late failures without replaying ambiguous writes.
             try {
-              return await Promise.race([operation, boundary]);
+              const answered = await Promise.race([operation, boundary]);
+              if (permit) eventOutcome = await eventOutcomeOf(answered, performance.now() - sentAt);
+              return answered;
             } catch (error) {
               // A reply that never arrived is counted for DatabaseRepliesLost
               // (dbReplyMetrics.ts) and rethrown unchanged.
               recordDbAttemptFailure(error);
+              if (permit) eventOutcome = classifyEventDbFailure(error, performance.now() - sentAt);
               throw error;
             }
           } finally {
             clearTimeout(t);
             callerSignal?.removeEventListener('abort', onAbort);
+            if (permit) eventDatabaseBulkhead.release(permit, eventOutcome);
           }
         };
 
@@ -305,8 +359,12 @@ function createBoundedServiceClient(
 export const supabase: SupabaseClient = createBoundedServiceClient(DB_TIMEOUT_MS);
 
 /** Only the serialized maintenance save/clear RPCs use this longer deadline. */
-export const maintenanceSupabase: SupabaseClient =
-  createBoundedServiceClient(MAINTENANCE_DB_TIMEOUT_MS);
+export const maintenanceSupabase: SupabaseClient = createBoundedServiceClient(
+  MAINTENANCE_DB_TIMEOUT_MS,
+  undefined,
+  false,
+  false
+);
 
 /* The horse fleet's seat-purchase client. See SEEDING_DB_TIMEOUT_MS. */
 export const seedingSupabase: SupabaseClient = createBoundedServiceClient(SEEDING_DB_TIMEOUT_MS);

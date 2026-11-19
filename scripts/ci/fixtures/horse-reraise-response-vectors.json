@@ -1,0 +1,1551 @@
+{
+  "_comment": "Engine/database parity vectors of the re-raise response record (HorseOmahaReraiseResponse; migration 20261118023000). expected = the engine. Written by server/scripts/generate-horse-reraise-response-vectors.ts; do not edit by hand. No cards are read by either reducer.",
+  "named": [
+    {
+      "name": "a 3-bettor is 4-bet and calls",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "call",
+          "origin": "player"
+        }
+      ],
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a2": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "name": "a 3-bettor is 4-bet and folds",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a3",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "fold",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "fold",
+          "origin": "player"
+        }
+      ],
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a2": [1, 1, 0, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "name": "a 3-bettor is 4-bet and 5-bets; the 4-bettor then calls the 5-bet",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "call",
+          "origin": "player"
+        }
+      ],
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a2": [1, 0, 0, 1, 0, 0, 0, 0],
+        "00000000-0000-4000-8000-0000000000a1": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "name": "a full-raise all-in is a raise; an all-in that is not a full raise is a call",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "all_in",
+          "origin": "player",
+          "isFullRaise": true
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "all_in",
+          "origin": "player",
+          "isFullRaise": false
+        }
+      ],
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a2": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "name": "two raises come back to the 3-bettor: a different spot, not counted",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a3",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "fold",
+          "origin": "player"
+        }
+      ],
+      "expected": {}
+    },
+    {
+      "name": "an opener who is 3-bet is not a re-raiser; a single raised pot has no opportunity",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "call",
+          "origin": "player"
+        }
+      ],
+      "expected": {}
+    },
+    {
+      "name": "an unattributed fold and a forced action are not admitted; the flop is not read",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "fold",
+          "origin": "timeout"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "call",
+          "origin": "forced"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "flop",
+          "action": "fold",
+          "origin": "player"
+        }
+      ],
+      "expected": {}
+    },
+    {
+      "name": "hole cards in the log change nothing",
+      "actions": [
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player",
+          "holeCards": ["Aspades", "Ahearts"]
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a1",
+          "stage": "preflop",
+          "action": "raise",
+          "origin": "player"
+        },
+        {
+          "userId": "00000000-0000-4000-8000-0000000000a2",
+          "stage": "preflop",
+          "action": "call",
+          "origin": "player"
+        }
+      ],
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a2": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    }
+  ],
+  "random": [
+    {
+      "log": "a1,preflop,raise,player,0 a2,preflop,raise,player,- a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,1 a0,preflop,raise,player,1 a0,preflop,fold,pre_action,0 a1,preflop,sb,player,0 a1,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,bet,timeout,- a1,preflop,raise,player,- a1,preflop,fold,player,0 a0,preflop,raise,player,- a0,preflop,raise,forced,- -,preflop,raise,player,- a0,preflop,fold,player,- -,preflop,fold,player,- a1,preflop,bet,timeout,- a1,flop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,fold,player,1 a2,preflop,call,horse_policy,- -,preflop,all_in,pre_action,1 a3,preflop,raise,horse_policy,1 a1,preflop,call,player,- a2,flop,fold,player,1 -,preflop,sb,player,- a0,preflop,raise,-,- -,preflop,bet,forced,- a2,preflop,call,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 a3,preflop,raise,timeout,- -,preflop,call,player,0 a2,preflop,call,player,0 a3,preflop,all_in,forced,- a1,flop,bet,player,1 a1,preflop,raise,forced,- a1,preflop,all_in,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,1 -,preflop,all_in,player,0 a1,preflop,raise,player,- -,preflop,raise,-,1 a0,preflop,raise,player,1 -,preflop,check,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,pre_action,0 a0,preflop,bet,player,- a0,preflop,check,-,- a3,preflop,raise,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,call,player,0 a2,preflop,bet,player,- a2,preflop,call,player,- a1,preflop,raise,player,0 a0,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,fold,player,0 -,flop,check,player,0 a1,preflop,raise,player,0 a0,preflop,all_in,player,0 a1,preflop,fold,player,- a0,preflop,raise,player,- a2,preflop,sb,player,1 a1,preflop,check,player,- a2,preflop,raise,-,- a2,preflop,all_in,horse_policy,1 a2,preflop,bet,horse_policy,1 a2,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- -,preflop,all_in,player,- a0,preflop,all_in,player,- a0,preflop,check,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 a2,preflop,raise,player,- -,preflop,bet,-,- a0,preflop,raise,player,1 a0,preflop,raise,player,- a3,preflop,call,player,0 -,preflop,raise,player,- a2,preflop,call,timeout,- a2,preflop,raise,forced,0 -,preflop,call,player,1 a3,preflop,call,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,check,player,1 -,preflop,call,-,- a0,flop,raise,player,1 a0,preflop,raise,player,- a3,flop,raise,horse_policy,0 a0,preflop,sb,player,1 a0,preflop,all_in,timeout,0 a0,preflop,sb,player,1 a3,preflop,sb,player,- a1,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,check,player,- a2,preflop,raise,player,1 a1,preflop,raise,player,1 a1,preflop,check,player,- -,preflop,sb,player,0 a1,preflop,sb,-,- a2,preflop,sb,player,- a1,preflop,bet,forced,1 a1,preflop,raise,player,0 a0,flop,call,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,all_in,player,- a1,preflop,fold,timeout,- a0,preflop,call,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a2,preflop,raise,player,- a3,preflop,raise,player,0 a2,preflop,check,player,1 a0,preflop,raise,player,0 a3,preflop,raise,player,- a2,preflop,raise,player,1",
+      "expected": {
+        "a2": [1, 0, 1, 0, 0, 0, 0, 0],
+        "a3": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a1,preflop,call,player,1 -,preflop,raise,player,0 a2,preflop,raise,player,0 a3,preflop,call,player,- a3,flop,check,forced,- -,preflop,sb,-,- a0,preflop,all_in,timeout,1",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,fold,player,0 a2,preflop,all_in,player,1 a2,preflop,raise,player,- a3,preflop,check,player,1 a0,preflop,raise,player,0 a3,flop,raise,player,1 a0,preflop,raise,pre_action,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,call,player,- a3,preflop,call,player,1 a3,preflop,call,player,- a0,preflop,raise,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a1,preflop,call,player,- a0,preflop,check,-,- a1,preflop,bet,player,- a2,preflop,bet,player,- a0,flop,all_in,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,flop,raise,horse_policy,- a0,preflop,fold,player,0 a1,preflop,call,player,0 a2,preflop,fold,forced,- a2,preflop,bet,player,- a3,preflop,call,player,- a1,preflop,all_in,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,0 a0,preflop,check,horse_policy,0 a0,preflop,raise,horse_policy,- a2,preflop,raise,timeout,1 a3,preflop,sb,player,- a2,preflop,raise,player,- a2,preflop,raise,player,- -,preflop,sb,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 -,preflop,fold,timeout,- a0,preflop,raise,forced,- a1,flop,raise,player,0 a2,preflop,raise,player,1 -,preflop,fold,player,- a2,flop,raise,timeout,0 a3,preflop,all_in,player,1 a1,preflop,all_in,timeout,- a1,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,1 a3,flop,call,player,- a3,preflop,raise,player,1 a2,preflop,all_in,player,0",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,raise,player,0 a2,preflop,raise,timeout,0 a0,flop,raise,player,0 a0,preflop,all_in,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a0,preflop,raise,player,0 -,preflop,raise,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,bet,player,0 a3,preflop,raise,player,0 a3,preflop,check,-,- a3,preflop,all_in,player,0 a3,preflop,raise,player,- a0,preflop,raise,-,- a3,preflop,check,player,- a0,preflop,raise,player,- -,preflop,raise,player,0 a0,preflop,bet,player,-",
+      "expected": {
+        "a3": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "-,preflop,sb,player,- a1,flop,all_in,player,1 a2,preflop,all_in,-,0 a1,preflop,sb,player,- a0,preflop,raise,pre_action,- a0,preflop,raise,player,0 -,preflop,all_in,player,- a2,preflop,raise,player,- a1,preflop,sb,player,0 a1,preflop,raise,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,call,player,- -,preflop,raise,horse_policy,0 -,preflop,all_in,player,1 a0,preflop,raise,player,0 a1,preflop,all_in,player,1 a3,preflop,sb,pre_action,1 a1,flop,all_in,player,- a0,preflop,fold,-,- a2,preflop,sb,player,1 -,preflop,bet,player,- a0,preflop,fold,forced,- a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,fold,horse_policy,- a2,preflop,fold,forced,1 -,preflop,call,player,- a3,preflop,raise,player,- a0,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a0,preflop,raise,player,- a0,preflop,sb,player,- a1,preflop,raise,player,- a3,preflop,raise,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,0 a2,preflop,raise,player,- a1,preflop,all_in,forced,- a1,preflop,fold,pre_action,- a0,preflop,all_in,player,0 -,preflop,call,player,0 a2,preflop,raise,player,- a2,preflop,bet,timeout,1 a1,preflop,sb,-,1 a1,preflop,sb,player,0 a2,preflop,check,player,- a1,preflop,fold,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,forced,0 -,preflop,raise,player,- a0,preflop,call,timeout,1 a0,preflop,raise,player,- a0,flop,raise,player,1 a2,preflop,sb,horse_policy,1 a2,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 a1,preflop,all_in,player,- a0,flop,check,player,- a0,preflop,all_in,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,horse_policy,- -,preflop,raise,player,- a0,preflop,raise,horse_policy,0 a0,preflop,call,player,- a2,preflop,check,player,- a2,preflop,fold,player,- -,preflop,raise,forced,- a1,preflop,fold,timeout,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,-,0 a0,preflop,sb,-,1 a3,preflop,raise,player,- a0,preflop,raise,horse_policy,0 a2,preflop,fold,forced,- -,preflop,raise,horse_policy,- a1,flop,all_in,horse_policy,- a2,preflop,raise,player,- a3,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,forced,1 a2,preflop,raise,player,- a0,preflop,bet,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,sb,player,- a1,preflop,raise,player,- a1,preflop,sb,player,- a2,preflop,raise,player,1 a3,preflop,all_in,forced,0 a2,preflop,raise,player,0 a1,preflop,all_in,player,- -,preflop,raise,player,1 a3,flop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,call,pre_action,- a0,preflop,raise,pre_action,0 a2,preflop,call,player,- a2,preflop,fold,player,- a3,preflop,all_in,-,1 a2,preflop,bet,player,- a2,preflop,check,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,horse_policy,1 a0,preflop,call,player,- a1,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,flop,bet,player,0 a3,preflop,call,player,- -,preflop,check,forced,- a0,preflop,sb,player,0 -,preflop,all_in,player,- a2,preflop,raise,player,- a3,preflop,all_in,player,1 a2,preflop,fold,player,0 a2,preflop,raise,forced,- a3,preflop,call,pre_action,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 a2,preflop,sb,timeout,0 a3,preflop,fold,player,1 a0,preflop,raise,player,0 a0,preflop,fold,player,- a0,preflop,call,player,- a1,preflop,bet,player,- a3,preflop,raise,timeout,- a3,preflop,raise,horse_policy,- a0,flop,raise,horse_policy,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,- a1,preflop,all_in,-,- -,preflop,raise,player,1 a1,preflop,raise,player,- a1,preflop,raise,player,0 a0,preflop,raise,player,0 a1,preflop,call,timeout,1 a1,preflop,raise,player,- a2,preflop,call,player,1",
+      "expected": {
+        "a1": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,player,- a0,preflop,raise,player,- a1,preflop,fold,horse_policy,0 a1,preflop,fold,-,- a3,flop,raise,pre_action,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,player,- a1,preflop,raise,pre_action,1 -,preflop,raise,player,- a0,preflop,call,-,1 a0,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 -,preflop,all_in,player,0 a2,preflop,raise,player,- a1,preflop,raise,-,0 a2,preflop,all_in,player,1 a1,preflop,raise,horse_policy,0 a1,preflop,raise,pre_action,0 a3,preflop,all_in,player,0 a0,preflop,raise,player,- a1,preflop,raise,player,-",
+      "expected": {
+        "a2": [1, 0, 0, 1, 0, 0, 0, 0],
+        "a1": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a1,preflop,call,player,1 a2,preflop,raise,horse_policy,1 a1,preflop,raise,timeout,- a0,preflop,fold,forced,1 -,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,forced,0 -,flop,call,player,1 a1,flop,raise,pre_action,1 -,preflop,all_in,forced,- a2,preflop,all_in,timeout,0 a1,preflop,call,player,- a0,preflop,bet,forced,- a1,preflop,check,player,0 a1,preflop,all_in,timeout,- a1,preflop,raise,player,0 a1,preflop,raise,-,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,forced,- a0,preflop,all_in,player,- a0,preflop,check,player,0 a1,preflop,call,player,1 a1,preflop,all_in,player,- -,preflop,raise,player,0 a1,preflop,raise,pre_action,1 a1,preflop,fold,pre_action,1 a1,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a3,preflop,raise,pre_action,- a3,preflop,raise,pre_action,- a2,preflop,raise,-,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,sb,player,- a1,preflop,raise,horse_policy,1 a2,preflop,raise,player,0 a3,preflop,raise,player,0 a2,preflop,raise,player,1 -,preflop,call,player,0 a0,preflop,raise,player,1 a0,preflop,raise,forced,- a2,preflop,fold,player,- -,preflop,fold,timeout,- a2,preflop,call,player,-",
+      "expected": {
+        "a2": [1, 0, 0, 1, 1, 1, 0, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,raise,player,0 a0,preflop,raise,player,1 a3,preflop,all_in,player,0 -,preflop,raise,pre_action,- a0,preflop,call,horse_policy,0 a1,flop,raise,player,- a1,preflop,all_in,pre_action,- a1,preflop,raise,pre_action,- a3,preflop,fold,player,- a2,flop,fold,forced,0 a0,preflop,check,player,0",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,check,player,1 -,preflop,raise,player,- -,preflop,raise,pre_action,1 a0,preflop,all_in,horse_policy,1 a0,preflop,check,player,0 a1,preflop,all_in,forced,- a0,preflop,fold,player,- a0,preflop,raise,player,- a1,preflop,call,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,sb,player,0 a0,preflop,raise,player,1 a1,flop,raise,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a3,preflop,raise,player,1 a2,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,all_in,player,- -,preflop,all_in,-,- -,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 a2,preflop,fold,player,- a1,preflop,raise,horse_policy,1 a3,preflop,bet,player,- a2,preflop,raise,player,- a2,preflop,all_in,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,flop,all_in,forced,0 a3,preflop,call,forced,- -,preflop,call,player,0 a0,preflop,check,-,0 -,preflop,sb,timeout,0 -,preflop,fold,timeout,1 a0,preflop,raise,player,- a2,preflop,raise,pre_action,- -,preflop,sb,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,sb,timeout,- a1,preflop,all_in,player,1 a2,preflop,raise,player,0 a3,preflop,all_in,pre_action,1 a2,preflop,raise,player,1 -,preflop,raise,pre_action,1 a2,preflop,raise,player,- a2,preflop,raise,horse_policy,- a2,preflop,call,player,0 a0,preflop,raise,player,1 a1,preflop,all_in,player,-",
+      "expected": {
+        "a2": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a1,preflop,raise,player,1 a3,preflop,raise,player,0 a1,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a0,preflop,fold,player,0 a3,preflop,raise,player,- a2,flop,sb,player,1 a1,flop,raise,player,- -,preflop,sb,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,flop,raise,horse_policy,1 -,flop,raise,player,0 a0,preflop,fold,timeout,- a3,preflop,raise,player,0 a0,preflop,raise,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,all_in,player,- a1,preflop,raise,player,1 a3,preflop,all_in,pre_action,- a0,preflop,all_in,-,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,pre_action,1 a0,preflop,fold,player,- -,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,call,forced,- a1,preflop,raise,horse_policy,- a3,preflop,call,-,0 a2,preflop,all_in,player,- a0,preflop,fold,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,call,timeout,- a0,preflop,sb,player,0 a1,preflop,raise,player,1 a2,preflop,fold,player,- a0,preflop,raise,forced,1 a1,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,fold,horse_policy,- a0,preflop,bet,timeout,- a2,preflop,sb,forced,0 a1,preflop,fold,-,0 a2,preflop,raise,player,- -,preflop,all_in,player,1 a3,preflop,all_in,pre_action,- a1,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,horse_policy,- a2,preflop,check,player,- a3,preflop,raise,player,1 a0,preflop,all_in,player,0 a1,preflop,call,player,- a3,preflop,raise,-,1 a1,preflop,fold,pre_action,- a2,preflop,all_in,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,all_in,player,- a1,preflop,raise,player,- a1,preflop,call,player,0 a1,preflop,raise,timeout,1 a2,preflop,raise,player,- a1,preflop,raise,player,- a1,flop,bet,player,-",
+      "expected": {
+        "a1": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a2,preflop,check,player,1 a1,preflop,raise,timeout,1 a2,preflop,raise,forced,1 a0,preflop,all_in,player,0 a1,preflop,call,player,1 a1,preflop,raise,player,0 a0,preflop,raise,player,- a2,preflop,all_in,horse_policy,- a2,preflop,raise,pre_action,- a1,preflop,raise,pre_action,- a2,preflop,call,timeout,1 a1,preflop,raise,player,1",
+      "expected": {
+        "a2": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a1,preflop,fold,player,0 a0,preflop,raise,player,- a0,preflop,bet,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,fold,player,1 a0,preflop,raise,player,- a2,preflop,fold,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a3,preflop,fold,timeout,- a3,preflop,raise,forced,1 a3,flop,raise,horse_policy,- a1,preflop,fold,-,- -,preflop,bet,player,- a2,preflop,raise,timeout,- a1,preflop,raise,horse_policy,- a2,preflop,fold,player,0 a0,preflop,raise,player,1 a2,preflop,call,horse_policy,-",
+      "expected": {
+        "a2": [1, 1, 0, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a1,flop,raise,player,- -,preflop,all_in,timeout,- a2,preflop,fold,player,- a1,preflop,fold,pre_action,- -,preflop,sb,player,- a1,preflop,all_in,timeout,- a0,preflop,all_in,player,0 a0,preflop,raise,player,- a1,flop,raise,player,- a3,preflop,raise,player,- a1,preflop,raise,pre_action,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a1,preflop,bet,player,1 a2,preflop,fold,horse_policy,1 a2,preflop,all_in,player,- a1,preflop,raise,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,all_in,player,0 a1,preflop,fold,forced,0 a0,preflop,call,player,- a3,preflop,all_in,horse_policy,1 a1,preflop,fold,forced,- a0,preflop,check,player,- a0,preflop,raise,-,0 a2,preflop,raise,player,0 a2,preflop,raise,pre_action,1 a0,preflop,call,horse_policy,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,check,player,1 -,preflop,raise,forced,0 a2,preflop,sb,timeout,- a0,preflop,raise,player,1 a2,preflop,raise,player,- a1,flop,raise,player,- a0,flop,raise,player,- a2,preflop,raise,forced,- a0,preflop,check,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,fold,player,- a3,preflop,raise,horse_policy,- -,flop,raise,player,0 a1,preflop,fold,player,1 a0,preflop,check,player,0 a1,preflop,check,player,0 a2,preflop,raise,player,- a2,preflop,bet,player,0 a2,preflop,raise,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,forced,- a1,preflop,raise,player,- a0,preflop,bet,player,- a1,flop,all_in,horse_policy,- a1,preflop,fold,player,0 a2,preflop,raise,player,1 a1,preflop,bet,pre_action,0 a2,preflop,raise,horse_policy,0 a0,flop,bet,forced,- a2,preflop,raise,player,0",
+      "expected": {
+        "a2": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a1,preflop,raise,player,- a0,preflop,sb,-,- -,preflop,raise,horse_policy,- a1,preflop,check,horse_policy,- a1,preflop,all_in,pre_action,1 a2,preflop,sb,player,1 a0,preflop,sb,player,- a2,preflop,bet,player,1 -,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,check,timeout,0 a1,preflop,raise,forced,0 a1,preflop,raise,player,- a1,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,sb,player,- a2,preflop,check,timeout,- a2,preflop,call,player,0 a0,preflop,bet,horse_policy,1 a1,preflop,all_in,timeout,- a0,preflop,raise,player,- a1,preflop,sb,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,pre_action,- a0,preflop,raise,forced,- a0,preflop,fold,player,- a2,preflop,fold,player,1 a2,preflop,raise,player,- a3,preflop,bet,player,1 a3,preflop,raise,player,- -,flop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,all_in,player,1 a2,preflop,fold,pre_action,0 a0,preflop,fold,player,- a0,preflop,call,timeout,- a2,preflop,raise,horse_policy,0 a1,preflop,call,timeout,- a2,preflop,raise,timeout,0 -,preflop,check,player,- a3,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,1 a2,preflop,all_in,player,0 a0,preflop,raise,timeout,- a1,flop,raise,player,1 -,preflop,raise,player,- a1,preflop,raise,player,1 a3,preflop,raise,forced,- -,preflop,all_in,timeout,- a1,preflop,sb,player,- a2,preflop,fold,player,- a0,preflop,fold,timeout,- -,preflop,call,pre_action,0",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,raise,player,- a1,preflop,raise,player,1 a0,preflop,fold,player,- a0,preflop,check,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,call,player,0 a2,preflop,fold,player,0 a0,preflop,all_in,player,- a0,preflop,fold,player,- a0,preflop,call,player,1 a1,preflop,fold,timeout,0 -,preflop,all_in,player,1 a0,preflop,raise,player,- a3,preflop,check,horse_policy,1 a0,preflop,all_in,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- -,preflop,raise,horse_policy,1 a2,flop,sb,player,- -,preflop,bet,player,1 a1,preflop,check,player,1 a2,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,pre_action,- a3,preflop,call,player,- -,preflop,raise,player,- a1,preflop,bet,player,- a1,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a3,flop,fold,player,0 a2,preflop,raise,timeout,- a1,preflop,raise,timeout,0 -,preflop,call,player,- a0,preflop,call,horse_policy,- -,preflop,raise,player,0 -,preflop,fold,player,- a3,preflop,call,player,1 a1,preflop,raise,horse_policy,- -,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,bet,player,1 a3,preflop,call,player,- a1,preflop,raise,player,0 -,preflop,sb,player,1 a0,preflop,raise,player,1 a3,preflop,all_in,player,- a0,preflop,raise,player,- a0,preflop,raise,pre_action,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,bet,forced,- a2,preflop,raise,horse_policy,- a2,preflop,raise,player,- a3,preflop,call,player,1 -,preflop,bet,player,- a1,preflop,raise,horse_policy,1 a2,preflop,raise,pre_action,- a0,preflop,call,pre_action,1 a3,preflop,raise,pre_action,1 a1,preflop,raise,timeout,1",
+      "expected": {
+        "a2": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a2,preflop,all_in,player,0 a3,preflop,raise,pre_action,- a3,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,0 -,preflop,raise,player,1 a2,flop,raise,player,0 a0,preflop,raise,player,0 a0,preflop,raise,player,1 a2,preflop,all_in,horse_policy,1 a2,preflop,bet,player,- a2,preflop,check,-,0 a0,flop,call,player,1 a2,preflop,raise,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,timeout,- a1,preflop,raise,player,- -,preflop,raise,horse_policy,1 a0,preflop,check,pre_action,- a0,preflop,raise,player,- a0,flop,sb,player,- a1,flop,raise,player,1 a2,flop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,1 a0,preflop,raise,player,- a3,preflop,sb,-,- a1,preflop,check,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,call,player,0 a0,preflop,raise,forced,- a2,preflop,raise,timeout,- a0,preflop,raise,player,- a0,preflop,raise,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,forced,0 a2,preflop,raise,-,1 a1,preflop,raise,-,- a1,preflop,raise,timeout,1 a2,flop,call,player,1 a1,preflop,raise,player,- a0,preflop,raise,pre_action,0 a1,preflop,raise,player,-",
+      "expected": {
+        "a1": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "-,preflop,call,player,- a1,preflop,fold,player,- a1,preflop,raise,player,- a1,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,all_in,player,- a2,preflop,bet,timeout,- a1,preflop,fold,timeout,- a3,preflop,raise,-,1 -,preflop,sb,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,0 a2,preflop,raise,player,0 a0,preflop,check,player,1 a2,preflop,all_in,-,0 -,preflop,call,timeout,- a2,preflop,raise,player,- a0,preflop,all_in,player,- a0,preflop,bet,player,- a3,preflop,call,forced,- a0,preflop,raise,player,- a3,preflop,fold,player,0 a0,preflop,fold,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,call,timeout,- a0,preflop,raise,player,- a2,preflop,sb,-,0 a3,preflop,raise,player,- a0,preflop,all_in,player,0 a1,preflop,all_in,player,- a0,flop,raise,player,- a0,preflop,raise,horse_policy,- a1,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "-,flop,raise,horse_policy,1 a1,preflop,fold,horse_policy,1 a1,preflop,raise,player,- a1,preflop,check,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a0,preflop,all_in,player,0 -,preflop,raise,player,1 a0,preflop,raise,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a3,preflop,raise,-,- a2,preflop,call,pre_action,0 a0,preflop,all_in,player,1 a1,preflop,fold,player,1 a2,preflop,raise,player,- a0,preflop,call,player,- a2,preflop,fold,player,- a1,preflop,raise,player,0 a1,preflop,fold,player,- a0,preflop,all_in,horse_policy,-",
+      "expected": {
+        "a0": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,raise,horse_policy,- a2,preflop,raise,player,0 a1,flop,raise,forced,0 a2,preflop,fold,player,1 a1,preflop,raise,horse_policy,- a0,preflop,raise,pre_action,- a0,preflop,raise,player,0 a0,preflop,raise,horse_policy,- a2,preflop,fold,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,raise,player,0 a0,preflop,bet,horse_policy,- a0,preflop,all_in,player,0 a2,preflop,check,pre_action,1 a2,preflop,raise,timeout,0 a2,preflop,bet,player,0 a3,flop,fold,forced,0 a3,preflop,sb,player,- a2,preflop,bet,player,- a0,preflop,bet,pre_action,1 a0,preflop,raise,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,all_in,player,1 -,preflop,raise,player,0 a3,preflop,check,player,- a2,preflop,raise,pre_action,1 a1,preflop,raise,player,- a0,preflop,call,player,- a3,preflop,raise,player,- a1,preflop,raise,player,0 a3,preflop,raise,pre_action,- a3,flop,raise,player,-",
+      "expected": {
+        "a1": [1, 0, 0, 1, 0, 0, 0, 0],
+        "a3": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,player,- a0,preflop,raise,player,- a3,preflop,raise,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,sb,-,1 a0,preflop,raise,player,- a1,flop,bet,-,0 a1,preflop,raise,horse_policy,- a1,preflop,raise,player,0 a1,preflop,all_in,player,0 a0,preflop,raise,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,fold,player,0 a1,preflop,call,player,- a0,preflop,call,pre_action,- a0,preflop,raise,player,0 -,preflop,raise,timeout,0 a0,preflop,fold,forced,0 a0,preflop,bet,player,0 -,preflop,bet,pre_action,1 a2,preflop,raise,timeout,- a2,preflop,raise,player,0 a2,flop,raise,player,0 -,preflop,raise,horse_policy,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,fold,player,- a3,preflop,call,timeout,0 -,preflop,call,horse_policy,- a0,preflop,raise,player,- a0,preflop,all_in,pre_action,- a1,preflop,all_in,player,- -,preflop,raise,player,- a2,preflop,raise,-,0 a2,preflop,raise,forced,1 a1,preflop,raise,player,- a3,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,forced,0 a1,preflop,fold,player,- a1,preflop,raise,player,- -,preflop,fold,player,- a2,preflop,raise,player,- a0,preflop,bet,player,- a2,preflop,raise,player,1",
+      "expected": {
+        "a2": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "-,preflop,raise,player,- a0,preflop,raise,player,- a2,preflop,check,horse_policy,1 a0,preflop,call,player,- a1,preflop,raise,pre_action,0 a0,preflop,raise,pre_action,- a2,preflop,call,player,- a2,preflop,raise,player,0 a0,preflop,bet,player,- a2,preflop,check,forced,1",
+      "expected": {
+        "a0": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "-,preflop,raise,player,0 a2,preflop,fold,player,- a3,preflop,raise,player,0 a1,preflop,raise,horse_policy,0 -,flop,raise,forced,- a1,preflop,all_in,horse_policy,- a0,preflop,raise,horse_policy,- -,preflop,check,player,1 a0,flop,raise,timeout,1 a2,preflop,raise,-,0 -,preflop,raise,-,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a2,preflop,raise,player,- a3,preflop,raise,player,1 a3,preflop,call,player,- a1,preflop,all_in,horse_policy,1 a2,preflop,raise,player,- a2,preflop,all_in,player,- a1,preflop,call,player,- a3,preflop,all_in,player,- a1,preflop,raise,player,1",
+      "expected": {
+        "a1": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,fold,horse_policy,1 a0,preflop,call,-,1 a0,preflop,raise,player,0 a3,preflop,fold,player,1 a1,preflop,fold,pre_action,- a0,preflop,sb,player,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,check,forced,1 a1,preflop,raise,pre_action,0 a2,preflop,raise,pre_action,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,player,- a2,preflop,raise,forced,0 a2,flop,raise,player,- a3,flop,sb,pre_action,0 a1,preflop,fold,pre_action,- a0,flop,call,-,0 a2,preflop,call,player,- -,preflop,fold,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,forced,- a1,preflop,raise,-,1 a3,preflop,raise,player,- a1,preflop,sb,player,- a1,preflop,raise,pre_action,1 -,preflop,check,player,- a2,preflop,call,player,1 a3,preflop,call,player,0 a2,preflop,raise,horse_policy,1 a0,preflop,fold,player,0",
+      "expected": {
+        "a3": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a2,preflop,all_in,-,- a3,preflop,raise,horse_policy,1 a0,flop,raise,player,- -,preflop,raise,player,- a2,preflop,raise,player,- a3,preflop,raise,player,0 a1,preflop,call,pre_action,- a2,preflop,call,player,-",
+      "expected": {
+        "a2": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,player,1 a1,preflop,raise,player,- a3,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 a1,preflop,fold,forced,1 a0,preflop,raise,player,- -,preflop,fold,player,1 a0,preflop,call,player,1 a0,preflop,fold,player,- a0,preflop,sb,player,- a2,preflop,raise,player,- a0,preflop,check,pre_action,- a3,preflop,check,player,1 a0,preflop,bet,horse_policy,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,- a1,preflop,raise,player,0 a0,preflop,fold,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,flop,raise,-,0 a1,preflop,all_in,player,1 a2,preflop,call,player,- a1,preflop,raise,forced,0 a3,preflop,raise,-,1 a0,preflop,all_in,player,- a2,flop,raise,player,- a2,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,fold,-,- a1,preflop,call,player,1 a1,flop,check,horse_policy,0 a2,preflop,raise,player,- a1,preflop,raise,player,- a1,flop,check,pre_action,- -,flop,call,player,- a2,flop,raise,forced,0 a2,preflop,sb,player,- a3,flop,raise,player,1 a1,preflop,call,horse_policy,0 a3,preflop,raise,horse_policy,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,1 a0,preflop,raise,forced,1 a0,preflop,raise,player,- a2,preflop,call,player,1 a2,preflop,check,-,0",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,0 a2,preflop,bet,horse_policy,- a1,preflop,check,forced,1 a0,preflop,all_in,forced,1 a1,preflop,raise,player,0 a1,preflop,call,pre_action,- -,preflop,raise,pre_action,- a2,preflop,bet,forced,1 a0,preflop,fold,player,- a2,preflop,raise,player,0 a1,preflop,check,player,-",
+      "expected": {
+        "a2": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,call,player,0 a3,preflop,call,player,- a0,preflop,all_in,player,- a0,preflop,fold,player,0 a0,preflop,call,player,- -,preflop,raise,player,1 a1,preflop,raise,player,1 a1,preflop,sb,timeout,- -,preflop,call,player,- a3,flop,call,pre_action,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,call,pre_action,- a2,flop,raise,forced,1 a1,preflop,raise,player,- a3,preflop,raise,pre_action,- a3,preflop,raise,player,- a0,preflop,raise,timeout,- a3,preflop,check,player,1 a1,preflop,raise,player,-",
+      "expected": {
+        "a3": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,player,- a1,preflop,raise,-,1 a2,preflop,raise,player,- a0,preflop,check,player,1 a1,preflop,raise,forced,1 a1,flop,raise,player,- a0,preflop,fold,player,- a3,flop,raise,player,- a0,preflop,all_in,player,- a0,preflop,raise,player,- -,preflop,raise,player,0 a0,preflop,raise,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,call,player,1 a0,preflop,raise,player,1 a1,preflop,all_in,player,1 a3,preflop,raise,player,- a2,preflop,raise,player,- -,preflop,check,-,- a0,preflop,raise,player,1 a1,preflop,call,-,- a0,preflop,bet,player,0 a1,flop,raise,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,-,1 a0,preflop,raise,player,- a0,preflop,raise,player,0 a1,preflop,sb,player,- a0,preflop,fold,player,- a0,preflop,bet,player,1 a0,flop,bet,player,- a1,preflop,call,player,1 -,preflop,all_in,player,- a2,preflop,fold,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a3,preflop,raise,player,- -,preflop,raise,horse_policy,- a1,preflop,call,player,1 a3,preflop,fold,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,1 a1,preflop,all_in,pre_action,1 a1,flop,check,player,0 a3,preflop,raise,-,1 a2,preflop,all_in,forced,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,flop,check,forced,0 a1,preflop,call,player,0 a1,preflop,check,forced,- a0,preflop,call,-,- a1,preflop,sb,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,all_in,timeout,0 a2,preflop,raise,horse_policy,- a0,preflop,check,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,timeout,- a1,preflop,fold,forced,- a1,preflop,check,player,- -,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,check,player,- -,preflop,call,pre_action,- a2,preflop,raise,player,0 a1,preflop,raise,player,- a1,preflop,fold,player,0 a3,preflop,all_in,player,0 a0,preflop,raise,player,1 a1,preflop,raise,player,0 a2,flop,raise,player,- a3,preflop,call,player,0 a1,preflop,check,pre_action,1",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,call,player,0 a3,preflop,call,player,- a0,flop,raise,pre_action,- a2,preflop,fold,horse_policy,- a0,preflop,check,player,1 a2,flop,sb,player,1 a2,preflop,all_in,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,all_in,player,- a1,flop,raise,player,- a0,preflop,all_in,player,- a2,preflop,fold,pre_action,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,0 a1,preflop,fold,player,- a0,preflop,raise,pre_action,1 a2,preflop,all_in,player,0 a3,preflop,call,-,- a3,flop,fold,-,- a2,preflop,call,pre_action,1 a2,preflop,raise,timeout,- -,preflop,raise,player,- a2,preflop,raise,player,- a0,flop,all_in,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,flop,call,timeout,0 a2,preflop,all_in,player,- a2,preflop,raise,player,- a0,preflop,fold,player,1 -,preflop,raise,player,1 -,preflop,raise,forced,1 a3,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,flop,raise,player,- a0,preflop,all_in,player,1 -,preflop,fold,player,- a1,preflop,raise,pre_action,0 a0,flop,raise,-,1 a0,preflop,call,player,1 a2,preflop,raise,player,1 a0,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,all_in,player,1 a0,preflop,raise,player,- -,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,-,- -,preflop,raise,pre_action,0 -,preflop,fold,timeout,- a1,preflop,raise,timeout,- a3,preflop,raise,player,1 a2,preflop,raise,timeout,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,call,player,0 a1,preflop,bet,player,0 a2,preflop,sb,-,- a3,preflop,raise,timeout,0 a1,preflop,raise,player,0 a1,preflop,raise,timeout,1 -,flop,raise,-,0 a2,preflop,raise,player,- a2,preflop,raise,player,- a2,preflop,call,player,- a1,preflop,all_in,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 -,preflop,raise,player,- a2,flop,call,horse_policy,- a2,preflop,raise,player,1 a2,preflop,all_in,timeout,- a2,preflop,raise,player,0 a2,preflop,raise,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,call,player,0 a2,preflop,raise,pre_action,- a0,preflop,sb,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a2,preflop,sb,player,- a1,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,bet,player,- a3,flop,all_in,player,0 a2,preflop,raise,horse_policy,- a1,flop,raise,timeout,0 a1,preflop,fold,player,- a0,preflop,all_in,forced,- a1,preflop,call,pre_action,0 a2,preflop,raise,player,- a2,preflop,all_in,pre_action,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,flop,raise,player,1 a1,preflop,fold,player,- a1,preflop,raise,player,1 a2,preflop,raise,player,- a3,flop,raise,timeout,0 a3,preflop,all_in,timeout,1 a2,preflop,check,-,1 a3,preflop,raise,player,-",
+      "expected": {
+        "a2": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,-,0 a2,preflop,call,horse_policy,1 a0,preflop,raise,pre_action,1 a1,preflop,check,timeout,1 a1,preflop,raise,forced,- a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,horse_policy,0 a2,preflop,check,timeout,1 a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,horse_policy,- a2,preflop,raise,forced,- -,preflop,raise,forced,- -,flop,raise,player,- a1,preflop,raise,player,0 a1,preflop,raise,forced,0 a1,flop,raise,player,0 a0,preflop,raise,player,1 a0,preflop,raise,player,- a1,preflop,raise,forced,1 -,preflop,raise,-,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,sb,player,1 a2,preflop,call,player,1 a2,preflop,raise,timeout,- a0,preflop,call,player,1 a0,preflop,all_in,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,all_in,player,- a0,preflop,bet,-,- -,preflop,raise,player,- a0,preflop,raise,player,- a0,preflop,check,horse_policy,- a0,preflop,raise,player,0 a0,preflop,check,timeout,- a0,flop,sb,timeout,- a1,preflop,bet,player,0 a0,preflop,sb,player,- a3,preflop,bet,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a3,preflop,raise,player,0 a0,preflop,raise,player,0 a0,preflop,bet,player,- a1,preflop,bet,pre_action,- a2,preflop,bet,forced,1 a1,preflop,fold,-,- a0,preflop,sb,player,- a2,preflop,all_in,-,- a3,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,-,- a2,preflop,bet,player,- a2,flop,raise,timeout,0 -,preflop,fold,player,0 -,preflop,fold,forced,1 a2,preflop,fold,-,- a3,preflop,all_in,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,all_in,horse_policy,- a2,preflop,raise,-,- a2,preflop,all_in,forced,0 a3,preflop,all_in,player,- a0,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- -,preflop,call,-,- a2,preflop,call,forced,1 a0,preflop,bet,horse_policy,- a0,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,flop,all_in,player,1 a0,preflop,bet,player,1 a1,preflop,all_in,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a0,preflop,all_in,player,- a2,preflop,raise,player,0 a1,preflop,raise,forced,1 a0,preflop,check,pre_action,- a3,preflop,raise,pre_action,- -,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,sb,timeout,1 a0,preflop,raise,player,- a0,preflop,all_in,player,0 a2,preflop,raise,player,0 a1,preflop,raise,pre_action,1 a1,preflop,bet,player,1 a2,preflop,sb,player,- a0,preflop,bet,forced,- a0,preflop,check,player,- a1,preflop,raise,player,1 a0,preflop,check,player,0 a3,preflop,bet,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,0 a1,preflop,all_in,player,- -,flop,sb,pre_action,- -,preflop,fold,player,1 a0,preflop,call,horse_policy,0 a2,preflop,raise,player,1 a3,preflop,call,horse_policy,1 a2,preflop,fold,pre_action,1 -,preflop,fold,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,check,player,0 a0,preflop,raise,-,- a0,preflop,all_in,player,1 a0,preflop,sb,player,0 a3,preflop,raise,player,0 a1,preflop,call,player,0 a0,preflop,raise,player,0 a1,preflop,call,timeout,0",
+      "expected": {
+        "a0": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,player,0 a2,preflop,raise,timeout,- a1,preflop,fold,player,- a1,preflop,bet,player,- a1,preflop,raise,player,0 a1,preflop,call,player,1 a2,preflop,raise,player,- a1,preflop,raise,-,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,pre_action,1 a1,preflop,all_in,player,0 a0,preflop,call,-,- -,preflop,fold,player,- a2,preflop,raise,player,- a1,preflop,raise,timeout,- a1,preflop,raise,-,1 a0,preflop,raise,timeout,- a2,flop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 a0,preflop,raise,player,0 a0,preflop,fold,forced,0 -,preflop,all_in,player,- a3,preflop,raise,player,- a2,preflop,all_in,timeout,- -,flop,raise,player,- a2,preflop,all_in,player,- a0,preflop,call,player,- a0,preflop,call,player,0 -,preflop,sb,-,1 -,flop,bet,timeout,0",
+      "expected": {
+        "a0": [1, 0, 1, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "-,preflop,raise,player,- a0,preflop,raise,timeout,- a1,preflop,call,player,0 -,preflop,raise,player,- a1,preflop,all_in,player,1 a2,preflop,fold,player,- a0,preflop,raise,player,0 -,preflop,bet,player,- a2,preflop,call,player,1 -,preflop,raise,player,- a2,preflop,sb,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,bet,player,0 a2,preflop,bet,player,0 a3,preflop,raise,player,1 a0,preflop,check,horse_policy,0 a3,preflop,raise,player,1 a1,preflop,all_in,player,- -,preflop,raise,player,- a0,preflop,raise,pre_action,1 a2,flop,bet,forced,0 -,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,horse_policy,0 a0,preflop,raise,horse_policy,0 a1,preflop,fold,pre_action,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,forced,- a1,preflop,fold,player,- a0,preflop,raise,player,- a0,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,bet,-,1 a0,preflop,call,player,1 -,preflop,call,player,- a3,preflop,sb,horse_policy,0 a3,preflop,fold,horse_policy,- a3,preflop,raise,player,- a0,flop,check,player,- -,preflop,fold,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a1,preflop,all_in,player,- a1,preflop,check,-,1 a2,preflop,raise,player,0 a3,preflop,sb,player,0 a1,preflop,raise,player,0 a2,preflop,all_in,player,- a3,preflop,raise,player,- a2,preflop,raise,player,- a3,preflop,all_in,pre_action,0 a0,preflop,raise,pre_action,-",
+      "expected": {
+        "a2": [1, 0, 1, 0, 0, 0, 0, 0],
+        "a3": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a2,preflop,raise,player,0 a1,preflop,raise,player,- -,preflop,call,player,1 a2,flop,raise,player,- a0,preflop,raise,player,1 a0,preflop,raise,horse_policy,1 a1,preflop,fold,forced,- a3,preflop,sb,player,- a0,preflop,raise,player,- -,preflop,raise,player,1 -,preflop,raise,horse_policy,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,fold,pre_action,- -,preflop,raise,player,- a3,flop,raise,player,1 a2,preflop,sb,forced,- -,preflop,check,player,1 a1,preflop,raise,player,- a0,preflop,fold,player,- a0,flop,raise,player,0 a1,preflop,check,player,- -,preflop,fold,player,1 a1,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a2,preflop,raise,-,- a3,preflop,bet,player,- a1,flop,call,player,0 a0,preflop,call,pre_action,- a0,preflop,raise,horse_policy,1 a2,preflop,raise,horse_policy,1 -,preflop,bet,-,0 a3,preflop,raise,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,- a2,preflop,fold,timeout,- a2,preflop,all_in,horse_policy,- -,preflop,raise,player,1 a2,preflop,raise,timeout,- a2,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,fold,timeout,1 a3,preflop,all_in,player,0 -,preflop,raise,horse_policy,- a1,preflop,bet,player,- a0,preflop,sb,player,1 a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,- a1,flop,fold,player,- a1,preflop,fold,player,1 a0,preflop,all_in,forced,- a2,preflop,check,timeout,1 a3,preflop,all_in,player,- a1,preflop,all_in,pre_action,- -,preflop,raise,player,- -,preflop,check,player,- a2,preflop,fold,-,- a0,preflop,fold,player,- a0,preflop,all_in,-,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 a1,preflop,raise,player,- a1,preflop,raise,-,0 a1,preflop,raise,-,1 a1,preflop,bet,player,0 a1,flop,all_in,player,- -,preflop,fold,player,0 a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,0 a3,preflop,raise,player,0 a2,preflop,raise,player,1 a3,preflop,raise,player,0 -,preflop,raise,player,0 -,preflop,raise,player,- a0,preflop,call,player,-",
+      "expected": {
+        "a3": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,bet,player,1 a1,preflop,raise,player,- a3,preflop,raise,player,0 a0,preflop,raise,player,- a0,preflop,fold,player,1 a0,preflop,raise,player,1 a1,preflop,raise,forced,- a1,preflop,raise,pre_action,0 a1,preflop,raise,forced,- a0,preflop,raise,player,1 a2,preflop,raise,player,-",
+      "expected": {
+        "a0": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a2,preflop,raise,horse_policy,- a3,preflop,all_in,player,- a3,preflop,raise,-,- a1,preflop,raise,-,0 a3,preflop,raise,player,- a2,preflop,fold,player,0 a2,preflop,raise,player,- a2,preflop,fold,player,1 a1,preflop,all_in,player,- a1,flop,check,player,- a1,preflop,raise,horse_policy,0 a1,preflop,call,horse_policy,-",
+      "expected": {
+        "a3": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,raise,player,- a0,flop,fold,player,0 a0,flop,all_in,player,- a3,preflop,raise,player,1 a0,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a3,preflop,raise,player,- a2,preflop,fold,horse_policy,1 a2,preflop,fold,player,- a2,preflop,bet,pre_action,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,timeout,1 a0,preflop,raise,horse_policy,0 a2,preflop,call,player,1 a0,preflop,raise,player,1 -,preflop,raise,player,- a2,preflop,call,player,- a2,preflop,all_in,timeout,1 a0,preflop,raise,player,1 a0,preflop,call,forced,- a0,preflop,fold,player,- a3,preflop,all_in,player,-",
+      "expected": {
+        "a0": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a2,preflop,raise,horse_policy,- a2,preflop,check,player,1 a1,preflop,call,player,1 a2,preflop,fold,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a3,preflop,raise,-,0 a2,preflop,raise,timeout,- a3,preflop,raise,player,0 a1,preflop,fold,horse_policy,-",
+      "expected": {
+        "a3": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,check,timeout,0 a2,preflop,all_in,player,- a1,preflop,raise,player,0 -,preflop,raise,player,- a3,preflop,raise,player,- a2,preflop,raise,forced,- a3,preflop,raise,horse_policy,- a1,preflop,raise,player,- a1,preflop,raise,player,1 a1,preflop,all_in,horse_policy,0 a0,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,0 a2,preflop,raise,player,0 a1,flop,all_in,player,0 a2,flop,call,player,- a1,preflop,raise,player,0 a3,preflop,check,player,0 a1,preflop,raise,player,0 a1,preflop,raise,pre_action,1 a3,preflop,raise,player,- a1,preflop,fold,horse_policy,- a0,preflop,raise,-,- -,preflop,call,horse_policy,0",
+      "expected": {
+        "a1": [0, 0, 0, 0, 1, 1, 0, 0]
+      }
+    },
+    {
+      "log": "a0,flop,raise,player,0 a2,flop,raise,player,- a0,preflop,call,pre_action,- a1,preflop,bet,player,- a2,preflop,all_in,horse_policy,0 a1,preflop,raise,player,0 a0,preflop,raise,pre_action,0 a2,preflop,sb,forced,- a1,preflop,bet,pre_action,1",
+      "expected": {
+        "a1": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,raise,player,1 a2,preflop,raise,player,- a2,preflop,sb,-,1 a3,preflop,call,player,1 a1,preflop,fold,player,1 -,preflop,bet,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a2,preflop,fold,-,0 a1,preflop,call,-,0 a0,preflop,raise,forced,- a0,preflop,raise,player,- a0,preflop,fold,player,1 a1,preflop,all_in,player,- a1,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,call,forced,1 a1,preflop,call,player,0 a2,preflop,bet,timeout,1 -,preflop,bet,player,1 a3,preflop,call,player,0 a2,preflop,raise,horse_policy,- a0,preflop,raise,player,1 a1,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,flop,raise,pre_action,- a0,preflop,fold,player,- a2,preflop,raise,-,0 a2,preflop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,flop,raise,player,1 a2,preflop,bet,player,0 a3,preflop,fold,-,- a0,flop,raise,player,1 -,preflop,all_in,forced,0 a0,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,sb,horse_policy,- -,flop,raise,horse_policy,0 a0,preflop,raise,player,0 a0,flop,all_in,player,- a3,preflop,sb,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- -,preflop,raise,timeout,1 a0,preflop,all_in,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,call,horse_policy,- a2,preflop,fold,player,- a1,preflop,raise,player,- -,preflop,raise,player,- a1,preflop,fold,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,flop,raise,pre_action,0 a2,preflop,all_in,player,- a1,preflop,all_in,player,1 a1,preflop,call,-,- a1,preflop,fold,player,1 a3,preflop,bet,player,- a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,player,- a3,preflop,raise,player,1 a2,preflop,bet,player,0 a0,preflop,raise,-,1 -,preflop,all_in,player,- a0,preflop,all_in,-,0 a1,preflop,raise,pre_action,- a2,preflop,raise,player,1 a1,preflop,raise,player,1 a0,preflop,raise,player,1 a0,preflop,call,player,1 a1,preflop,bet,horse_policy,-",
+      "expected": {
+        "a1": [0, 0, 0, 0, 1, 0, 0, 1]
+      }
+    },
+    {
+      "log": "a0,preflop,check,horse_policy,- -,preflop,fold,-,0 -,preflop,raise,player,- a2,preflop,all_in,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,0 a0,preflop,raise,timeout,0 a1,preflop,bet,player,0 a2,preflop,call,player,- a0,preflop,raise,player,0",
+      "expected": {
+        "a0": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,raise,player,- a2,preflop,raise,player,- a0,preflop,raise,player,0 a1,preflop,fold,timeout,- a1,preflop,raise,player,1 a1,preflop,call,player,- a2,preflop,all_in,player,1 a1,preflop,check,player,0 a2,flop,fold,player,0 a2,preflop,raise,pre_action,0 a0,preflop,raise,forced,0 a1,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,call,player,1 a1,preflop,all_in,player,- a1,preflop,bet,pre_action,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,pre_action,1 a1,preflop,raise,player,0 -,preflop,raise,player,- a2,preflop,raise,player,- a0,preflop,fold,player,- -,preflop,fold,player,- a0,preflop,fold,player,1 -,preflop,all_in,player,0 a2,preflop,bet,-,1 -,preflop,all_in,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 a2,preflop,fold,player,- -,preflop,raise,player,1 a2,preflop,raise,player,- a1,preflop,raise,player,- a1,preflop,all_in,player,1 a3,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,0 a0,preflop,sb,player,- a2,preflop,raise,-,- a0,preflop,bet,player,1 -,preflop,all_in,-,1 a2,preflop,raise,player,- a2,preflop,call,timeout,1",
+      "expected": {
+        "a2": [1, 0, 0, 1, 0, 0, 0, 0]
+      }
+    },
+    {
+      "log": "a1,preflop,all_in,player,- -,preflop,raise,timeout,- a3,preflop,raise,timeout,1 -,preflop,raise,player,- a3,preflop,all_in,player,- a1,preflop,raise,-,- -,flop,call,pre_action,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,forced,1 a0,preflop,raise,player,- a0,flop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,1 a1,flop,raise,forced,- a3,preflop,raise,-,- a2,preflop,raise,-,- a1,preflop,sb,player,- a2,preflop,raise,player,0 a2,preflop,bet,player,1 a1,flop,raise,player,- a2,preflop,raise,horse_policy,- a2,preflop,all_in,player,1 -,preflop,raise,player,1 a0,flop,call,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a1,preflop,raise,player,1 a1,preflop,fold,pre_action,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,all_in,forced,0 a3,preflop,all_in,player,- a1,preflop,fold,player,0 a1,preflop,fold,player,0 a2,preflop,raise,player,1 a1,preflop,fold,player,0 a3,preflop,fold,forced,0 a2,preflop,fold,player,- a3,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,- a2,preflop,raise,player,- a2,preflop,all_in,player,- a0,preflop,sb,-,- a2,preflop,raise,-,1 a0,preflop,check,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,- a3,preflop,raise,forced,- a3,flop,raise,player,- a1,preflop,fold,horse_policy,- a2,preflop,call,player,- a0,preflop,fold,player,0 -,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,sb,player,- -,preflop,check,player,- -,preflop,all_in,timeout,0 -,preflop,call,forced,- a3,preflop,raise,player,0 a0,preflop,raise,player,0 a1,preflop,fold,player,1 a2,preflop,check,pre_action,- a0,preflop,raise,pre_action,- a1,preflop,raise,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,raise,player,1 a1,preflop,raise,player,1 a0,preflop,raise,player,1 a1,preflop,fold,player,- a2,preflop,raise,player,1 a2,flop,raise,player,1 a2,preflop,sb,player,- a1,preflop,raise,player,- a2,preflop,call,pre_action,- a0,preflop,fold,player,0",
+      "expected": {
+        "a1": [1, 1, 0, 0, 0, 0, 0, 0],
+        "a2": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a1,preflop,fold,forced,- a0,flop,raise,player,- a2,preflop,bet,player,1 -,preflop,raise,player,1 a1,preflop,raise,forced,- a0,preflop,sb,player,1 a3,preflop,raise,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a0,flop,sb,player,- a0,preflop,sb,player,- a1,preflop,all_in,horse_policy,0 a0,preflop,all_in,forced,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,player,0 a0,preflop,all_in,player,- a2,preflop,raise,player,0 a1,preflop,fold,pre_action,0 a2,preflop,call,player,- a2,flop,raise,player,- a3,preflop,all_in,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,player,1 a3,preflop,call,player,1 a0,preflop,call,player,0 a3,preflop,fold,player,- a2,preflop,call,pre_action,- a2,preflop,raise,forced,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,fold,player,- a1,preflop,raise,pre_action,- a0,preflop,call,player,- a2,preflop,fold,pre_action,1 a0,flop,check,-,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,fold,player,0 -,preflop,fold,player,1 a1,preflop,raise,player,- a2,preflop,call,player,0 a0,preflop,fold,forced,1 a1,preflop,call,timeout,0",
+      "expected": {}
+    },
+    {
+      "log": "-,flop,raise,player,- -,preflop,raise,player,- a1,preflop,raise,player,- a2,preflop,raise,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,pre_action,1 a2,preflop,all_in,player,- a0,preflop,bet,player,- -,preflop,raise,horse_policy,1 -,preflop,sb,player,- a2,preflop,raise,pre_action,- a0,preflop,check,forced,- a0,flop,all_in,forced,1 a0,preflop,sb,player,- a1,preflop,sb,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,all_in,player,- -,preflop,fold,player,- a2,flop,fold,-,0 a0,preflop,fold,player,0 a0,preflop,raise,player,0 a0,preflop,raise,pre_action,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,raise,timeout,1 a1,preflop,bet,timeout,- a1,preflop,all_in,player,- a2,preflop,raise,player,- a0,preflop,raise,timeout,- a0,preflop,all_in,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,all_in,-,1 a1,preflop,raise,horse_policy,1 a2,preflop,fold,player,0 a2,preflop,raise,player,- -,preflop,fold,player,- a0,flop,raise,player,- a1,preflop,raise,player,1 a2,preflop,call,player,- a1,preflop,all_in,player,1 a1,preflop,raise,player,0 a0,preflop,raise,player,- a0,flop,raise,-,-",
+      "expected": {
+        "a1": [1, 0, 0, 1, 0, 0, 0, 0],
+        "a2": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a0,preflop,call,horse_policy,0 a3,preflop,raise,player,1 a2,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "a0,preflop,raise,player,1 a2,preflop,raise,forced,- -,preflop,raise,player,0 a3,preflop,raise,pre_action,- -,preflop,all_in,horse_policy,- -,preflop,raise,player,1 a0,preflop,fold,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,raise,player,- a1,flop,raise,player,- a0,preflop,raise,player,1 a0,preflop,call,player,0 a0,preflop,raise,player,0 a0,preflop,bet,player,1",
+      "expected": {}
+    },
+    {
+      "log": "a3,preflop,check,-,0 a1,preflop,fold,player,0 a2,preflop,raise,horse_policy,- a1,preflop,all_in,player,- a0,preflop,sb,-,- a2,flop,check,player,0 a0,preflop,fold,player,-",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,sb,player,- a1,preflop,raise,player,1 a2,preflop,raise,player,0 a2,preflop,bet,player,0 a2,flop,fold,forced,0 -,preflop,raise,horse_policy,- a1,preflop,raise,player,0 a0,preflop,call,player,1 a0,preflop,raise,pre_action,- -,preflop,raise,-,- a1,preflop,check,timeout,0 a3,preflop,check,player,1",
+      "expected": {
+        "a1": [0, 0, 0, 0, 1, 0, 1, 0]
+      }
+    },
+    {
+      "log": "a3,preflop,fold,player,- a3,preflop,check,horse_policy,0 a3,preflop,all_in,player,- a3,preflop,all_in,player,0 a0,preflop,call,player,- a0,preflop,call,player,- a1,preflop,raise,player,1 a0,preflop,all_in,player,- a0,preflop,bet,horse_policy,- a1,preflop,fold,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a2,preflop,fold,player,- a3,preflop,bet,pre_action,1 a1,preflop,raise,player,- a3,preflop,raise,player,0 a2,preflop,raise,player,0 a0,preflop,raise,pre_action,0 a1,preflop,fold,player,0 -,preflop,bet,player,- a3,preflop,sb,player,1 a3,preflop,fold,forced,0 a2,preflop,fold,player,-",
+      "expected": {
+        "a2": [0, 0, 0, 0, 1, 1, 0, 0]
+      }
+    },
+    {
+      "log": "a1,preflop,check,player,- a3,preflop,all_in,horse_policy,1 a2,preflop,raise,forced,- a1,preflop,call,player,- a2,preflop,raise,player,0 a2,preflop,all_in,horse_policy,0",
+      "expected": {}
+    },
+    {
+      "log": "a1,preflop,fold,timeout,- a2,preflop,raise,player,1 a2,preflop,bet,player,1 -,preflop,raise,player,0",
+      "expected": {}
+    },
+    {
+      "log": "a0,flop,raise,player,- -,preflop,fold,timeout,1 a0,preflop,fold,horse_policy,- a1,preflop,check,player,0 -,flop,raise,timeout,- a2,preflop,raise,-,- a1,preflop,all_in,player,1",
+      "expected": {}
+    },
+    {
+      "log": "-,preflop,raise,-,- -,preflop,raise,player,- a2,preflop,bet,player,- -,preflop,raise,horse_policy,- a1,flop,call,player,0 a2,preflop,raise,forced,- a1,preflop,sb,player,1 a2,preflop,call,player,-",
+      "expected": {}
+    }
+  ],
+  "chain": {
+    "steps": [
+      "00000000",
+      "10101010",
+      "10010000",
+      "11000000",
+      "00000000",
+      "11001001",
+      "10011010",
+      "10010000",
+      "00001010",
+      "10010000",
+      "00001001",
+      "10100000",
+      "11000000",
+      "00000000",
+      "11000000",
+      "00000000",
+      "00000000",
+      "00000000",
+      "11000000",
+      "10011001",
+      "00001001",
+      "10101100",
+      "00000000",
+      "10101010",
+      "11000000",
+      "10010000",
+      "10011001",
+      "00001010",
+      "00000000",
+      "11001100",
+      "10101100",
+      "10011010",
+      "00000000",
+      "00000000",
+      "11001001",
+      "00000000",
+      "10101001",
+      "00001100",
+      "00000000",
+      "10100000",
+      "00001010",
+      "00001010",
+      "10010000",
+      "00000000",
+      "10011001",
+      "11001010",
+      "10011010",
+      "10010000",
+      "11000000",
+      "00000000",
+      "10011001",
+      "11001001",
+      "10010000",
+      "00001001",
+      "00000000",
+      "10100000",
+      "11001100",
+      "00000000",
+      "11000000",
+      "10011001",
+      "00001001",
+      "10010000",
+      "00001001",
+      "00000000",
+      "00001001",
+      "10010000",
+      "00001010",
+      "00000000",
+      "10100000",
+      "00001100",
+      "10010000",
+      "00000000",
+      "00000000",
+      "11000000",
+      "11000000",
+      "00000000",
+      "10100000",
+      "00000000",
+      "10101001",
+      "00001010",
+      "00001010",
+      "00000000",
+      "10100000",
+      "10010000",
+      "00001100",
+      "10010000",
+      "00000000",
+      "00000000",
+      "10011001",
+      "00001010",
+      "00001010",
+      "00001001",
+      "10100000",
+      "00001100",
+      "00001010",
+      "00001100",
+      "00001001",
+      "10100000",
+      "11001001",
+      "00001001",
+      "10011010",
+      "00000000",
+      "00000000",
+      "00000000",
+      "10010000",
+      "00000000",
+      "00001100",
+      "10010000",
+      "10100000",
+      "10100000",
+      "00000000",
+      "10011100",
+      "10010000",
+      "00000000",
+      "00000000",
+      "11000000",
+      "11000000",
+      "00000000",
+      "10010000",
+      "00001010"
+    ],
+    "checkpoints": [
+      {
+        "after": 1,
+        "row": null
+      },
+      {
+        "after": 2,
+        "row": [1, 0, 1, 0, 1, 0, 1, 0]
+      },
+      {
+        "after": 3,
+        "row": [1.977159968434246, 0, 0.9771599684342459, 1, 1, 0, 1, 0]
+      },
+      {
+        "after": 10,
+        "row": [
+          6.53820633387615, 1.8447554800950239, 0.8705505632961239, 3.822900290485001,
+          3.8650345638814696, 0, 2.910192959971053, 0.9548416039104165
+        ]
+      },
+      {
+        "after": 20,
+        "row": [
+          10.601636694226995, 4.508524856380492, 1.6872948694750836, 4.4058169683714175,
+          5.6676557705800255, 0, 2.7787733135875627, 2.8888824569924623
+        ]
+      },
+      {
+        "after": 30,
+        "row": [
+          14.896916566600193, 5.857931844893422, 3.2714967057667494, 5.767488015940021,
+          10.601636694226995, 1.9117224885582167, 4.329255633386943, 4.360658572281835
+        ]
+      },
+      {
+        "after": 40,
+        "row": [
+          18.04840092586738, 6.173665575479438, 5.803454678560402, 6.071280671827539,
+          14.221741593516098, 3.614873603054791, 4.789961285823076, 5.81690670463823
+        ]
+      },
+      {
+        "after": 50,
+        "row": [
+          21.379701363188154, 7.3075210358723215, 5.052200739484283, 9.019979587831552,
+          17.44688840782632, 3.2204862592008623, 8.089285818010898, 6.137116330614559
+        ]
+      },
+      {
+        "after": 60,
+        "row": [
+          24.72521619447655, 9.039168463659163, 5.230774251147715, 10.455273479669675,
+          20.320167570509696, 3.84628704854487, 7.206734365936733, 9.26714615602809
+        ]
+      },
+      {
+        "after": 70,
+        "row": [
+          26.00144400467143, 8.433842392653075, 5.8804849476020555, 11.687116664416303,
+          22.879968293403664, 4.426652201148412, 7.397630377025211, 11.05568571523004
+        ]
+      },
+      {
+        "after": 80,
+        "row": [
+          27.941410185999267, 9.4015739720595, 7.216076470296477, 11.323759743643297,
+          23.823905591127275, 4.226751687698125, 8.06356525433517, 11.533588649093977
+        ]
+      },
+      {
+        "after": 90,
+        "row": [
+          29.339846592486627, 8.571626418170247, 7.512092188661902, 13.256127985654482,
+          25.585825056600036, 4.808466171136193, 9.284766771870839, 11.492592113593007
+        ]
+      },
+      {
+        "after": 100,
+        "row": [
+          30.30704640976346, 8.997610239281313, 8.941031419832159, 12.368404750649994,
+          28.656780885952635, 5.82091101344616, 9.480239647135448, 13.35563022537103
+        ]
+      },
+      {
+        "after": 110,
+        "row": [
+          31.77726584951772, 8.01595942850211, 9.942713399215211, 13.8185930218004,
+          29.339846592486627, 6.55804800829874, 10.029287198560178, 12.752511385627711
+        ]
+      },
+      {
+        "after": 120,
+        "row": [
+          33.087082463779794, 9.07340955186216, 8.857950622197603, 15.155722289720034,
+          29.99206614728974, 7.239057047199727, 10.576380674751407, 12.17662842533861
+        ]
+      }
+    ]
+  }
+}

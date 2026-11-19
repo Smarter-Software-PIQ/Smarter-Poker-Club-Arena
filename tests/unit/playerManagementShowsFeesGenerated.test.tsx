@@ -204,44 +204,15 @@ describe('Player Management shows fees generated', () => {
   });
 });
 
-it('shows withdrawable balance only for an actual wallet promo restriction and preserves wallet-column privacy', () => {
+it('carries no promo control or withdrawable balance on a roster row', () => {
+  // Dan, 2026-11-17: promo progress is shown in the cashier when a player is
+  // cashing out, never on Player Management.
   const row = simpleRow({});
-  const promo = {
-    locked: 50,
-    wallet_locked: 0,
-    wallet_profit_locked: 0,
-    open_grants: 1,
-    fee_target: 200,
-    fee_progress: 50,
-    fee_remaining: 150,
-    percent: 25,
-    wallet: 274600,
-    cashable: 274580,
-    next_expiry_at: null,
-    integrity_held: 20,
-  };
-  const view = render({ ...row, props: { ...row.props, promo } });
-  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
-  view.rerender({ ...row, props: { ...row.props, promo: { ...promo, wallet_profit_locked: 10 } } });
-  expect(screen.getByText('Withdrawable Balance 274,580.00')).toBeVisible();
+  const view = render(row);
+  expect(screen.queryByText(/Withdrawable Balance|Promo/)).toBeNull();
   view.rerender({
     ...row,
-    props: {
-      ...row.props,
-      promo: { ...promo, wallet_locked: 50 },
-      simpleMode: false,
-      columns: new Set(['wallets']),
-    },
+    props: { ...row.props, simpleMode: false, columns: new Set(['wallets']) },
   });
-  expect(screen.getByText('Withdrawable Balance')).toBeVisible();
-  view.rerender({
-    ...row,
-    props: {
-      ...row.props,
-      promo: { ...promo, wallet_locked: 50 },
-      simpleMode: false,
-      columns: new Set(['fees']),
-    },
-  });
-  expect(screen.queryByText('Withdrawable Balance')).toBeNull();
+  expect(screen.queryByText(/Withdrawable Balance|Promo/)).toBeNull();
 });

@@ -28,6 +28,8 @@ def qualify(scope, setup, owner, club, request, email):
     definitions += '\n' + re.sub(r'(?m)^  --[^\n]*\n', '', union_context)
     definitions += '\n' + function('20261002152925_club_retirement_safe_unwind.sql', 'fn_can_create_games')
     definitions += '\n' + function('20260917113717_the_finish_lane_is_exclusive_among_finishes.sql', 'fn_ca_lock_settlement_lane_global')
+    # 20261118171613: the cleanup takes its own club's lane, never the platform lane.
+    definitions += '\n' + function('20261118171613_tournament_and_club_lanes_fence_only_their_own_tables.sql', 'fn_ca_lock_settlement_lane_for_club')
     definitions += '\n' + function('20260922153234_one_club_membership_cap_one_count_one_lock.sql', 'fn_club_membership_lock', '$$')
     definitions += '\n' + function('20260830010000_cashier_integrity_and_wallet_launcher.sql', 'lock_club_cashier_hierarchy_mutation')
     definitions += """
@@ -57,7 +59,8 @@ DECLARE target uuid; BEGIN
  IF OLD.user_id=auth.uid() AND OLD.role='admin' THEN
   IF NOT fixture_lock_held(hashtextextended(OLD.user_id::text,77431))
    OR NOT fixture_lock_held(hashtextextended('ca:tournament-terminal-settlement:v1',0))
-   OR NOT fixture_lock_held(hashtextextended('ca:hand-settlement-barrier:v1',0))
+   OR NOT fixture_lock_held(hashtextextended('ca:club-settlement-lane:v1:d6c9b170-0000-4000-8000-000000000002',0))
+   OR fixture_lock_held(hashtextextended('ca:hand-settlement-barrier:v1',0))
   THEN RAISE EXCEPTION 'maintained lanes missing before member delete'; END IF;
   FOR target IN SELECT id FROM clubs WHERE id IN(
    'a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2a1132b9-5ba2-42e6-9f01-30a7fcffebe3',
@@ -140,16 +143,17 @@ END$$;
     setup += "CREATE TABLE prepared_treasury_before AS SELECT id,chip_treasury FROM clubs WHERE name LIKE 'Prepared %';COMMIT;SELECT 'prepared three-admin producer ready';"
     run('terminal-staff-native-producer', setup, 'prepared three-admin producer ready')
     run('terminal-staff-native-installed-authorities', """
-SELECT CASE WHEN count(*)=6 AND bool_and(md5(pg_get_functiondef(oid))=CASE proname
+SELECT CASE WHEN count(*)=7 AND bool_and(md5(pg_get_functiondef(oid))=CASE proname
  WHEN 'fn_member_leave_to_treasury' THEN '4789ec1ec413959098416312831c96ed'
  WHEN 'fn_club_is_staff' THEN 'b00e779331805a29e696cf6a71d8c486'
  WHEN 'fn_can_create_games' THEN '86c1ceac6b112bb891cbe3edb5be2291'
  WHEN 'fn_club_union_context' THEN '47f070509473bacf3db38573d89cd904'
  WHEN 'fn_club_membership_lock' THEN '07343122ba0f2fa43bfb879184d56be9'
- WHEN 'fn_ca_lock_settlement_lane_global' THEN '7c759bb7a639c3124de2607bdbf12577' END) THEN 't' ELSE json_object_agg(proname,md5(pg_get_functiondef(oid)))::text END
+ WHEN 'fn_ca_lock_settlement_lane_global' THEN '7c759bb7a639c3124de2607bdbf12577'
+ WHEN 'fn_ca_lock_settlement_lane_for_club' THEN '34e6fce6e778850f13e32ef3922049bb' END) THEN 't' ELSE json_object_agg(proname,md5(pg_get_functiondef(oid)))::text END
  FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN(
  'fn_member_leave_to_treasury','fn_club_is_staff','fn_can_create_games','fn_club_union_context',
- 'fn_club_membership_lock','fn_ca_lock_settlement_lane_global');
+ 'fn_club_membership_lock','fn_ca_lock_settlement_lane_global','fn_ca_lock_settlement_lane_for_club');
 """, 't')
     config = {'host': str(scope['socket']), 'port': 55479, 'user': 'postgres', 'database': 'postgres'}
     record = {'id': owner, 'email': email, 'templateFixtureRequest': {'clubId': club, 'requestId': request}}

@@ -95,6 +95,9 @@ jobs:
             scripts/ci/fixtures/promo-ticket-play-through/**
             tests/fixtures/promo-ticket-play-through/**
             scripts/ci/test-promo-fee-basis.py
+            scripts/ci/test-promo-entry-fee-never-settles-progress.py
+            supabase/migrations/*_a_promo_entry_fee_never_settles_*.sql
+            scripts/ci/test-promo-winnings-credit-never-settles-progress.py
             tests/fixtures/promo-fee-basis/**
             scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
             scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
@@ -108,6 +111,8 @@ jobs:
             tests/fixtures/promo-integrity-*.json
             scripts/ci/test-mtt-unlimited.py
             scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py
+            scripts/ci/test-a-rebuy-reads-promo-fee-state-outside-its-lane.py
+            scripts/ci/fixtures/rebuy-promo-fee-state/**
             tests/fixtures/spin-fee-guard/**
             .github/workflows/promo-play-through.yml
             scripts/ci/test-promo-obligation-earning-matrix.py
@@ -181,11 +186,29 @@ jobs:
       - name: Promo fees preserve gross rake and exclude free earnings
         if: steps.relevant.outputs.run == 'true'
         run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
+      - name: A promo entry fee never settles promo progress inside a payout
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-promo-entry-fee-never-settles-progress.py
+      - name: A promo winnings credit never settles promo progress inside a payout
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-promo-winnings-credit-never-settles-progress.py
       - name: A Spin's canonical fee agrees with its zero-fee entry (incident 002a0deb)
         if: steps.relevant.outputs.run == 'true'
         env:
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py --pg-bin /usr/lib/postgresql/17/bin
+      - name: A rebuy reads promo fee state outside its event lane
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-a-rebuy-reads-promo-fee-state-outside-its-lane.py
       - name: Every tournament obligation kind earns through the promo trigger exactly once (champion residual)
         if: steps.relevant.outputs.run == 'true'
         env:

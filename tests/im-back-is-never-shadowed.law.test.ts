@@ -37,9 +37,9 @@ describe("LAW - I'm Back is never shadowed by the reserved bar", () => {
   });
 
   it('the placeholder hero prints the seat row stack, not zero', () => {
-    expect(PAGE).toMatch(
-      /stack:\s*lightningWaitingSeat\?\.stack \?\? heroRowStack \?\? pendingSeatStackRef\.current \?\? 0,/
-    );
+    // 2026-11-18: through the one stand-in rule (lib/standInStack), which
+    // shows the row's balance and never prints 0 for one nobody has confirmed.
+    expect(PAGE).toMatch(/rowStack: heroRowStack,\s*paidBuyIn: pendingSeatStackRef\.current,/);
     expect(PAGE).toMatch(
       /select\(\s*'user_id, seat_number, occupancy_id, is_sitting_out, sit_out_at, leave_pending, stack'\s*\)/
     );

@@ -431,6 +431,8 @@ function fixture(
   engine.announcePendingSeatMoves = async () => true;
   engine.persistPresenceForRestart = async () => {};
   engine.awaitNextHandRest = async () => {};
+  // The blind read the rest's lead started, awaited before the build (2026-11-19).
+  engine.awaitRestBlindRead = async () => {};
   engine.broadcastCurrentState = async () => {};
   engine.persistHoleCardsWithRetry = async () => {};
   engine.flushSnapshot = async () => {};

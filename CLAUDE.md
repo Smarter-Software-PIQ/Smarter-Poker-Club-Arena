@@ -836,6 +836,61 @@ the identical rule (`GLOBAL_HEADER_PROFILE_FRAME_LAW.md` in that repo).
 
 ---
 
+## 10.7c PHONE AVATARS NEVER SHRINK (Dan, 2026-11-18, BINDING)
+
+**Dan, verbatim: "I KEEP FIXING IT AND MAKING IT SO THE AVATARS ARE AS LARGE
+AS THEY CAN BE WITHOUT OVERLAPPING ANYTHING OR HIDING ANYTHING, AND THEN IT
+KEEPS REGRESSING BACK TO THE SMALLER VERSIONS."** Between 2026-11-12 and
+11-16 that happened more than a dozen times. No single change did it; four
+mechanisms each shrank the portraits and every check passed.
+
+### The approved sizes are a file, not a solver's output
+
+`src/components/table/mobileAvatarSize.ts` holds the sizes a phone table
+(600px layout width) draws its portraits at: six-max 2.1, watched six-max 2.3,
+full-ring rail 1.7, and the minimum rendered heights. `SeatSlot.css` must carry
+the same numbers. `tests/mobile-avatars-never-ratchet-smaller.law.test.ts`
+refuses a lower value, and the browser cases
+(`tests/e2e/support/mobileAvatarSizingCases.ts`) and the post-deploy live proof
+(`mobileLiveTableLayout.ts`) assert the rendered heights in layout px. **If a
+feature needs room, make room around the portrait. A smaller portrait is a
+failing build.** Raising a size is welcome and takes the measured sweep: every
+guard case green, no new overlap; record the new number in all three places in
+one commit.
+
+### The four things you may not build again (each one shipped)
+
+1. **A stored size.** No `localStorage`, cookie, profile column or module-level
+   cache of a portrait size, and no "size record" that only moves one way.
+   `sp-mobile-avatar-size-v1/v2/v3` capped every table of a game type on a
+   phone at the smallest size ever fitted, and no deploy could undo it. The
+   law forbids storage reads and writes in `mobileAvatarEnlargement.ts` and the
+   retired keys are deleted on load.
+2. **A ring-wide value that starts from its own last value.** The nine-seat
+   rail (`--sp-nine-rail-bust`) multiplied itself by a factor capped at 1 on
+   every pass, so one wide portrait shrank nine chairs for the session. A size
+   is computed from the approved base and the current table every pass; a
+   too-wide portrait limits only its own chair (`--sp-seat-rail-bust`).
+3. **A size chosen from a moment of play.** The first fit is LOCKED for the
+   session (Dan: "they need to stay the same size 1000% of the time"), so it
+   may only read permanent geometry. Wagers on the felt, the chair the puck
+   sits beside and a hand tabled at showdown are not inputs; the marker solver
+   keeps them clear of the portrait, not the other way round.
+4. **A relative test.** "Zoom times bust scale > 1" passed when the
+   enlargement was lost entirely, because the CSS base alone is above 1. Every
+   check asserts an absolute height, and none may clear device state first.
+
+### How it regressed, so you recognise the shape
+
+Every shrink arrived inside a correct fix for something else: #10796 moved
+chairs onto the rail and dropped the base from 2.1 to 1.7 "because the fitter
+can grow it"; #11085 then removed the fitter's growth to fix a 7px
+seated/observer mismatch. Each PR was green. If your change makes a portrait
+smaller anywhere, the law will say so; the answer is to find room, not to edit
+the number. `docs/changelog/2026-11-18-phone-avatars-never-shrink.md`.
+
+---
+
 ## 10.8 LAWS LIVE IN docs/LAWS.md, AND YOU NEVER WAIT ON CI (added 2026-09-01, binding)
 
 **1. THE LAW REGISTRY.** Every `*.law.test.*` file must have a file in
@@ -1448,6 +1503,33 @@ it kept drifting for another 135 commits.
    three days; every `git checkout` and `git pull` in it failed. The freshness
    check reports locks older than an hour. Confirm with `lsof` that no git
    process holds it before removing it.
+
+---
+
+## 10.88 CLAIM AN INCIDENT BEFORE YOU WORK IT, AND CHECK OUT ONE TREE AT A TIME (2026-11-18, BINDING)
+
+**1. Claim first.** An "AI AGENT NEEDED" handoff goes to every lane at once.
+On 2026-11-18 incident `d2d79c4f` reached two lanes; both started the same
+root cause and neither could see the other. Before you investigate a
+reliability incident, claim it:
+
+```sql
+SELECT smarter_private.fn_claim_reliability_incident('<incident id>', '<your session id>', '<your branch>', '<PR, when there is one>');
+```
+
+`claimed: true` means it is yours for four hours (renew with the same call;
+release with `smarter_private.fn_release_reliability_incident_claim`).
+`claimed: false` means another lane holds it: the answer names the owner,
+branch and PR. Do not start a second fix. Coordinate through the owner's PR or
+`COORDINATION-INBOX.md` (10.8 rule 5), or take a different incident. The
+handoff text itself shows a live claim, so a reminder tells every reader who
+already has it. A claim expires on its own; nothing watches it.
+
+**2. One checkout at a time.** Make worktrees with `scripts/agent-workspace.sh`,
+which now holds a machine-wide lock around the checkout. Never run your own
+parallel `git worktree add` or `git reset --hard` of the whole tree on the
+Mac: six at once took the load average to 41 and left half-made trees behind.
+A lane that does not need the whole tree sets `AGENT_SPARSE_PATHS`.
 
 ---
 

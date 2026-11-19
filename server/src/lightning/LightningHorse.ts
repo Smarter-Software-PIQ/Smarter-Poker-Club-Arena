@@ -26,6 +26,7 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  */
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
+import { omahaValueSizeBandHolds } from '../engine/HorseOmahaValueSizeBand.js';
 import {
   noteFire,
   noteHorseLegalizerDegraded,
@@ -49,6 +50,7 @@ import {
 import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadline.js';
 import type { HandController } from '../engine/HandController.js';
 import type { ActionType, HorseDecision, SeatPlayer } from '../types.js';
+import type { LightningHorseVpipFloorInput } from './LightningHorseVpipLedger.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -89,6 +91,12 @@ export interface LightningHorseTurn {
   savedProfileHumanIds?: readonly string[];
   sevenDeuceEnabled?: boolean;
   sevenDeuceBountyBB?: number;
+  /**
+   * A floored pool (owner 2026-11-18, "if a game requires a vpip horses must
+   * always follow"): the game's floor, window and this Horse's own count
+   * this sitting (LightningHorseVpipLedger). Null or absent: no floor.
+   */
+  vpipFloor?: LightningHorseVpipFloorInput | null;
 }
 
 export interface LightningHorseDecision {
@@ -100,6 +108,9 @@ export interface LightningHorseDecision {
   workerFallback: boolean;
   /** The lane's result, for committing plan effects once the wager lands. */
   fast: FastHorseDecisionResult | null;
+  /** omahaValueSizeIsUnreadable (default off): the band stamp of the worker's decision, carried to the
+   *  door (shapeLightningHorseAction); absent unless the option sized this wager. */
+  valueSize?: HorseDecision['valueSize'];
 }
 
 /** The physical engine's snapshot of this turn, for this horse. */
@@ -179,6 +190,21 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     bigBlindAnte: turn.bigBlindAnte,
     allInOrFold: turn.allInOrFold,
     straddleActive: false,
+    // The pool's floor, in its own field: vpipFloor stays absent, so the table floor's widening
+    // and call-down cannot fire here; only lightningVpipFloorLimpOnly reads this.
+    ...(turn.vpipFloor
+      ? {
+          lightningVpipFloor: {
+            floor: turn.vpipFloor.floor,
+            windowHands: turn.vpipFloor.windowHands,
+            own: {
+              hands: turn.vpipFloor.own.hands,
+              vpipHands: turn.vpipFloor.own.vpipHands,
+              leavingEntered: turn.vpipFloor.own.leavingEntered === true,
+            },
+          },
+        }
+      : {}),
     ...(turn.sevenDeuceEnabled === true
       ? {
           sevenDeuceEnabled: true,
@@ -239,6 +265,7 @@ export async function decideLightningHorse(
       thinkTime: Number(fast.decision.thinkTime) || 0,
       workerFallback: false,
       fast,
+      ...(fast.decision.valueSize !== undefined ? { valueSize: fast.decision.valueSize } : {}),
     });
   } catch (err) {
     if (signal.aborted) throw err;
@@ -337,7 +364,7 @@ export function lightningHorseThinkTimeMs(input: {
 export function shapeLightningHorseAction(
   hc: HandController,
   userId: string,
-  decision: { action: string; amount?: number },
+  decision: { action: string; amount?: number; valueSize?: HorseDecision['valueSize'] },
   allInOrFold: boolean
 ): { action: ActionType; amount?: number } {
   const state = hc.getState();
@@ -386,13 +413,28 @@ export function shapeLightningHorseAction(
       fixedBetSize: auth.fixedBetSize,
       wagersCapped: auth.wagersCapped,
     } as HorseGameStateV2;
-    const value = riverNutsRaise(
-      { action: action as HorseDecision['action'], amount, thinkTime: 0 },
+    // omahaValueSizeIsUnreadable (default off): the nut wager the cell sized in the owner's
+    // 80-95% band stays as sized while it is still the stamped wager, legal and in the band
+    // on this fresh menu; the exact-nuts rule would only put the full pot back.
+    const banded = omahaValueSizeBandHolds(
+      {
+        action: action as HorseDecision['action'],
+        amount,
+        thinkTime: 0,
+        valueSize: decision.valueSize,
+      },
       me,
       nutState
     );
-    action = value.action;
-    amount = value.amount;
+    if (!banded) {
+      const value = riverNutsRaise(
+        { action: action as HorseDecision['action'], amount, thinkTime: 0 },
+        me,
+        nutState
+      );
+      action = value.action;
+      amount = value.amount;
+    }
   }
   const fixed = auth?.structure === 'fixed_limit';
   if (me && action === 'bet' && amount !== undefined) {

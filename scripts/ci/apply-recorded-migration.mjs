@@ -70,6 +70,7 @@ import {
   WHEEL_WALLET_CUTOVER,
 } from './wheel-wallet-lock-observation.mjs';
 import { stalePinParts } from './migration-stale-pins.mjs';
+import { handPathParts } from './hand-path-shared-writes.mjs';
 
 import {
   recoveryRequest,
@@ -930,8 +931,14 @@ const transactionBody = preamble.length > 0 ? shape.body : sql;
 // stopped the 2026-10-19 close): a snapshot after BEGIN;, a check before the
 // history insert.
 let stalePin;
+// A migration that ADDS a blocking exclusive write on a union/club/pool-wide
+// row to a hand's money path is refused inside its own transaction
+// (hand-path-shared-writes.mjs; incident 075013fd: the third such row in two
+// months). Snapshot after the stale-pin snapshot, check after its check.
+let handPath;
 try {
   stalePin = stalePinParts(file, sql, transactionBody);
+  handPath = handPathParts(file, sql, transactionBody);
 } catch (e) {
   refused(e.message);
 }
@@ -940,8 +947,10 @@ const atomicSQL = transactionBody.replace(
   (_whole, begin, middle) =>
     begin +
     stalePin.snapshot +
+    handPath.snapshot +
     middle +
     stalePin.check +
+    handPath.check +
     (declaredBudget ? offlineScopeCheckSQL() : '') +
     historyStatement +
     '\nCOMMIT;'

@@ -1,3 +1,9 @@
+-- SUPERSEDED BY 20261118030451
+-- This authored file was never installed: the same change was applied directly to
+-- production at 2026-11-18 03:04:51Z and recorded as version 20261118030451. That
+-- exact applied SQL is backfilled as 20261118030451_madness_plo5_vpip_floor_is_forty.sql
+-- (md5 bcd98a965c2b203584d4d16abff5ca1e = fn_ca_migration_text('20261118030451')).
+-- The release selector requires the installed version, so this file steps aside.
 -- EVERY PLO TABLE KEEPS 40, MADNESS INCLUDED (Dan, 2026-11-17).
 --
 -- 20261118004324 brought Classic plo5/plo6 down from 50 to 40 and deliberately

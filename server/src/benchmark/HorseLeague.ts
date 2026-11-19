@@ -102,6 +102,16 @@ import {
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
+import { leagueLearnStreetRead } from './HorseLeagueStreetRead.js';
+import {
+  leagueSpotProbe,
+  leagueSpotSelectionRecord,
+  selectLeagueSpotDeals,
+  type LeagueSpotPassObservation,
+  type LeagueSpotProbeHand,
+  type LeagueSpotSelection,
+  type LeagueSpotSelectionRecord,
+} from './HorseLeagueSpotSelection.js';
 import { pressureOpponentDecision } from './V53PressurePopulation.js';
 import { leagueHorseDecisionInput } from './LeagueDecisionState.js';
 
@@ -213,6 +223,10 @@ export interface LeagueResult {
   blockStderr?: number;
   /** The number of blocks blockStderr was computed from. */
   stderrBlocks?: number;
+  /** SPOT-SEEDED (2026-11-19): present only when the matchup selected deals
+   *  (LeagueMatchup.spot). The result then measures that spot, not overall
+   *  win rate (HorseLeagueSpotSelection.ts). */
+  spotSelection?: LeagueSpotSelectionRecord;
 }
 
 export interface LeagueBenchmarkComponent {
@@ -353,6 +367,15 @@ export interface LeagueMatchup {
    * reports both runs so a loss that only appears through memory is visible.
    */
   memoryLearning?: 'off';
+  /**
+   * SPOT-SEEDED SESSIONS (2026-11-19, HorseLeagueSpotSelection.ts). Absent:
+   * every deal is played, as every card before. Set: only deals whose public
+   * state reaches the declared spot under a probe of arm B (or either arm) are
+   * played, each as a normal duplicate pair (both arms see the same deal). The
+   * selection rule and its counts are recorded in LeagueResult.spotSelection.
+   * A selected result measures the spot, not overall win rate.
+   */
+  spot?: LeagueSpotSelection;
 }
 
 /** The human field inside one dealt hand (see LeagueMatchup.opponentPopulation). */
@@ -742,6 +765,40 @@ export function blockStandardError(
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit });
 
+/** The deck playHand deals for `handSeed`: seeds fastRandom, then Fisher-Yates on it.
+ *  The stream is left where playHand continues from it. */
+function leagueShuffledDeck(handSeed: number): Card[] {
+  seedFastRandom(handSeed);
+  const deck = [...FULL_DECK];
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(fastRandom() * (i + 1));
+    const tmp = deck[i];
+    deck[i] = deck[j];
+    deck[j] = tmp;
+  }
+  return deck;
+}
+
+/** The hole cards (by seat index) and the five-card board playHand deals for a
+ *  seed, without playing it. The ambient fastRandom stream is restored. */
+export function leagueDealtCards(
+  handSeed: number,
+  gameVariant: string,
+  numSeats: number
+): { holes: Card[][]; board: Card[] } {
+  const saved = saveFastRandom();
+  try {
+    const deck = leagueShuffledDeck(handSeed);
+    const hc = variantInfo(gameVariant).holeCount;
+    return {
+      holes: Array.from({ length: numSeats }, (_, s) => deck.slice(s * hc, s * hc + hc)),
+      board: deck.slice(numSeats * hc, numSeats * hc + 5),
+    };
+  } finally {
+    restoreFastRandom(saved);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // One hand
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,15 +864,7 @@ export function playHand(
   const START_STACK = stackBB * BB;
   const vi = variantInfo(gameVariant);
   const holeCount = vi.holeCount;
-  seedFastRandom(handSeed);
-  // Deterministic deck for this seed (Fisher-Yates on fastRandom).
-  const deck = [...FULL_DECK];
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(fastRandom() * (i + 1));
-    const tmp = deck[i];
-    deck[i] = deck[j];
-    deck[j] = tmp;
-  }
+  const deck = leagueShuffledDeck(handSeed);
 
   const tally: LeagueCounters = counters ?? { illegal: 0, truncated: 0 };
 
@@ -1368,6 +1417,10 @@ export function playHand(
           true
         );
       });
+      // omahaReadIsByStreetAndTexture (2026-11-18): the street read the option uses, learned the way the
+      // accepted-hand learner keeps it, only for a hand a seat's configuration reads it in.
+      if (seats.some((_, i) => configOf(i).omahaReadIsByStreetAndTexture === true))
+        leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
     }
@@ -1648,13 +1701,101 @@ export async function runMatchup(
   // survives mind-on play.
   const sb1 = HorseMind.createSandbox();
   const sb2 = HorseMind.createSandbox();
+  // SPOT-SEEDED: probe candidate deals with arm B (or either arm) at every
+  // seat, each on a fresh sandbox with learning off, and keep the deals that
+  // reach the spot (HorseLeagueSpotSelection.ts); the pass sandboxes never see it.
+  const spot = matchup.spot;
+  const spotDeals = spot
+    ? await selectLeagueSpotDeals(
+        spot,
+        pairs,
+        (c, arm): LeagueSpotProbeHand => {
+          const handSeed = (runSeed ^ (c * 2654435761)) >>> 0 || 1;
+          const dealerSeat = (c % SEATS) + 1;
+          const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+          const handId = matchup.handIdentity === 'deal_seed' ? handSeed : null;
+          const opts = withLearning(
+            withDealHand(withDealMood(arm === 'a' ? matchup.a : matchup.b, moodMs), handId),
+            false
+          );
+          const mods = hybrid
+            ? { ...hybrid.mods, ...((arm === 'a' ? matchup.modsA : matchup.modsB) ?? {}) }
+            : ((arm === 'a' ? matchup.modsA : matchup.modsB) ?? {});
+          const hasMods =
+            matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
+          const styleOf = matchup.productionStyles
+            ? (s: number) => plo4StrengthSeatStyle(handSeed, s + 1)
+            : hybrid
+              ? () => hybrid.style
+              : undefined;
+          const dealt = leagueDealtCards(handSeed, matchup.variant ?? 'nlh', SEATS);
+          const hand = leagueSpotProbe(
+            spot.predicate,
+            dealt,
+            () => true,
+            false,
+            (observer) =>
+              playHand(
+                handSeed,
+                dealerSeat,
+                () => opts,
+                { illegal: 0, truncated: 0 },
+                HorseMind.createSandbox(),
+                matchup.variant ?? 'nlh',
+                SEATS,
+                matchup.stackBB ?? 100,
+                matchup.context ?? CASH_LEAGUE_CONTEXT,
+                hasMods ? () => mods : undefined,
+                undefined,
+                styleOf,
+                false,
+                observer as LeagueHandObserver,
+                leaguePairHandClock(c, runSeed)
+              )
+          );
+          spot.observe?.({
+            candidate: c,
+            pass: arm === 'a' ? 'probe_a' : 'probe_b',
+            handSeed,
+            dealerSeat,
+            cards: hand.cards,
+            board: hand.board,
+          });
+          return hand;
+        },
+        () => true,
+        shouldContinue
+      )
+    : null;
+  const passObserver = (
+    candidate: number,
+    pass: LeagueSpotPassObservation['pass'],
+    handSeed: number,
+    dealerSeat: number
+  ): LeagueHandObserver | undefined =>
+    spot?.observe
+      ? {
+          onEnd: (e) =>
+            spot.observe!({
+              candidate,
+              pass,
+              handSeed,
+              dealerSeat,
+              cards: e.cards.map((c) => [...c]),
+              board: [...e.board],
+            }),
+        }
+      : undefined;
+  const pairCount = spotDeals ? spotDeals.kept.length : pairs;
 
-  for (let p = 0; p < pairs; p++) {
+  for (let k = 0; k < pairCount; k++) {
     if (!shouldContinue()) break;
     // V12.3: retain a worker yield every 16 pairs. Production no longer shares
     // this event loop with live poker, but the yield is where CANCEL messages
     // are observed and where the worker sends its liveness heartbeat.
-    if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+    if (k > 0 && (k & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+    // Unselected: pair k is deal k. Spot-seeded: the k-th kept candidate deal.
+    const p = spotDeals ? spotDeals.kept[k]! : k;
     const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
     const dealerSeat = (p % SEATS) + 1;
     // Both passes of the pair are dealt on one hand clock (leaguePairHandClock).
@@ -1722,7 +1863,7 @@ export async function runMatchup(
       undefined,
       styleOf,
       learn,
-      undefined,
+      passObserver(p, 'pass1', handSeed, dealerSeat),
       handClock
     );
     const net2 = playHand(
@@ -1739,7 +1880,7 @@ export async function runMatchup(
       undefined,
       styleOf,
       learn,
-      undefined,
+      passObserver(p, 'pass2', handSeed, dealerSeat),
       handClock
     );
 
@@ -1788,6 +1929,9 @@ export async function runMatchup(
     inert: n > 0 && (divergentPairs === 0 || stderr === 0),
     ...(block
       ? { blockStderr: (block.stderr / A_HANDS_PER_PAIR) * 100, stderrBlocks: block.blocks }
+      : {}),
+    ...(spot && spotDeals
+      ? { spotSelection: leagueSpotSelectionRecord(spot, spotDeals, 'any_horse_seat') }
       : {}),
   };
 }
@@ -2009,6 +2153,7 @@ async function runHumanFieldMatchup(
   const rngBefore = saveFastRandom();
   const sb1 = HorseMind.createSandbox();
   const sb2 = HorseMind.createSandbox();
+  let spotRecord: LeagueSpotSelectionRecord | null = null;
   const withEvidence = (opts: HorseDecideOpts): HorseDecideOpts => {
     if (!opts.gtoV31DatasetChecksum && !opts.onGtoV31Decision) return opts;
     return {
@@ -2032,15 +2177,95 @@ async function runHumanFieldMatchup(
   const modsA = hybrid ? { ...hybrid.mods, ...(matchup.modsA ?? {}) } : (matchup.modsA ?? {});
   const modsB = hybrid ? { ...hybrid.mods, ...(matchup.modsB ?? {}) } : (matchup.modsB ?? {});
   const styleOf = hybrid ? () => hybrid.style : undefined;
+  const spot = matchup.spot;
 
   try {
-    for (let p = 0; p < pairs; p++) {
+    // SPOT-SEEDED: the probe plays the hero on arm B (or either arm) against
+    // the same field, on a fresh sandbox with learning off and its own response
+    // tally (HorseLeagueSpotSelection.ts); the pass sandboxes never see it.
+    const probeField: LeagueHumanField = { ...field, responses: {} };
+    const spotDeals = spot
+      ? await selectLeagueSpotDeals(
+          spot,
+          pairs,
+          (c, arm): LeagueSpotProbeHand => {
+            const handSeed = (runSeed ^ (c * 2654435761)) >>> 0 || 1;
+            const dealerSeat = (c % SEATS) + 1;
+            const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+            const opts = withDealHand(
+              withDealMood(withLearning(arm === 'a' ? matchup.a : matchup.b, false), moodMs),
+              matchup.handIdentity === 'deal_seed' ? handSeed : null
+            );
+            const mods = arm === 'a' ? modsA : modsB;
+            const dealt = leagueDealtCards(handSeed, variant, SEATS);
+            const hand = leagueSpotProbe(
+              spot.predicate,
+              dealt,
+              (s) => s === HERO,
+              true,
+              (observer) =>
+                playHand(
+                  handSeed,
+                  dealerSeat,
+                  () => opts,
+                  { illegal: 0, truncated: 0 },
+                  HorseMind.createSandbox(),
+                  variant,
+                  SEATS,
+                  matchup.stackBB ?? 100,
+                  matchup.context ?? CASH_LEAGUE_CONTEXT,
+                  () => mods,
+                  probeField,
+                  styleOf,
+                  false,
+                  observer as LeagueHandObserver,
+                  leaguePairHandClock(c, runSeed)
+                )
+            );
+            spot.observe?.({
+              candidate: c,
+              pass: arm === 'a' ? 'probe_a' : 'probe_b',
+              handSeed,
+              dealerSeat,
+              cards: hand.cards,
+              board: hand.board,
+            });
+            return hand;
+          },
+          (s) => s === HERO,
+          shouldContinue
+        )
+      : null;
+    spotRecord = spot && spotDeals ? leagueSpotSelectionRecord(spot, spotDeals, 'hero') : null;
+    const pairCount = spotDeals ? spotDeals.kept.length : pairs;
+    for (let k = 0; k < pairCount; k++) {
       if (!shouldContinue()) break;
-      if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+      if (k > 0 && (k & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+      // Unselected: pair k is deal k. Spot-seeded: the k-th kept candidate deal.
+      const p = spotDeals ? spotDeals.kept[k]! : k;
       const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
       const dealerSeat = (p % SEATS) + 1;
       const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
-      const play = (opts: HorseDecideOpts, mods: HorseProfileMods, sb: HorseMindSandbox) =>
+      const observer = (pass: 'pass1' | 'pass2'): LeagueHandObserver | undefined =>
+        spot?.observe
+          ? {
+              onEnd: (e) =>
+                spot.observe!({
+                  candidate: p,
+                  pass,
+                  handSeed,
+                  dealerSeat,
+                  cards: e.cards.map((c) => [...c]),
+                  board: [...e.board],
+                }),
+            }
+          : undefined;
+      const play = (
+        opts: HorseDecideOpts,
+        mods: HorseProfileMods,
+        sb: HorseMindSandbox,
+        pass: 'pass1' | 'pass2'
+      ) =>
         playHand(
           handSeed,
           dealerSeat,
@@ -2059,12 +2284,12 @@ async function runHumanFieldMatchup(
           field,
           styleOf,
           learn,
-          undefined,
+          observer(pass),
           // Both passes of the pair are dealt on one hand clock.
           leaguePairHandClock(p, runSeed)
         );
-      const a = play(optsA, modsA, sb1)[HERO];
-      const b = play(optsB, modsB, sb2)[HERO];
+      const a = play(optsA, modsA, sb1, 'pass1')[HERO];
+      const b = play(optsB, modsB, sb2, 'pass2')[HERO];
       netA.push(a / BB);
       netB.push(b / BB);
       perPairDiff.push((a - b) / BB);
@@ -2123,6 +2348,7 @@ async function runHumanFieldMatchup(
     opponentPopulation: population,
     humanResponses: responses,
     ...(block ? { blockStderr: block.stderr * 100, stderrBlocks: block.blocks } : {}),
+    ...(spotRecord ? { spotSelection: spotRecord } : {}),
   };
 }
 
@@ -2187,9 +2413,35 @@ export const OMAHA_PRICED_FAMILY_CARDS: ReadonlyArray<
   ['omahaBigBetCallsArePriced', 'big_bet_calls_are_priced'],
   ['omahaUnderpairMultiwayIsPriced', 'underpair_multiway_is_priced'],
 ];
+/** The priced sites of the 2026-11-18 option batch (option, card name). */
+export const OMAHA_PRICED_SITE_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaFlopBetIsPriced', 'flop_bet_is_priced'],
+  ['omahaMadeHandBetIsPriced', 'made_hand_bet_is_priced'],
+  ['omahaTurnSetSizeIsPriced', 'turn_set_size_is_priced'],
+  ['omahaBlockerBluffIsPriced', 'blocker_bluff_is_priced'],
+];
+/** The priced2 inputs of the 2026-11-18 option batch (option, card name); both arms carry every family on. */
+export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaPricedPriorsByOpponentKind', 'priced_priors_by_opponent_kind'],
+  ['omahaRaiseEvCountsLossesOnce', 'raise_ev_counts_losses_once'],
+];
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
 ) as HorseDecideOpts;
+/**
+ * Production's live Omaha set on 2026-11-18: the 2026-11-16 list plus
+ * omahaTurnRiverRaiseIsPriced (switched on 2026-11-18 11:54Z, inbox). The base
+ * of both arms of the 2026-11-18 batch cards whose option acts inside, or
+ * reads through, the live rules; arm A adds the one option.
+ */
+export const OMAHA_LIVE_OPTIONS_20261118: HorseDecideOpts = Object.freeze({
+  ...OMAHA_LIVE_OPTIONS_20261116,
+  omahaTurnRiverRaiseIsPriced: true,
+});
 
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
@@ -2411,6 +2663,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNutClassValueSize: true },
     b: {},
   })),
+  // 2026-11-19 (WooWoo audit NUT-SIZE): omahaValueSizeIsUnreadable, default OFF: a nut-class full-pot
+  // wager stays the full pot at the measured street share, else is sized in the owner's 80-95% band.
+  // Both arms carry omahaNutClassValueSize (on in production by release default); arm a adds the option.
+  // Same league state caveat as the card above. Declared; not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_value_size_is_unreadable`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaNutClassValueSize: true, omahaValueSizeIsUnreadable: true },
+    b: { omahaNutClassValueSize: true },
+  })),
   // 2026-11-15 HV31 FLOP-5 D1 HEADS-UP POSTFLOP BALANCE
   // (holdemHeadsUpPostflopBalance, default OFF): a switches on the heads-up
   // in-position hold'em c-bet, check-raise defence and turn balance
@@ -2546,6 +2810,44 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFlopFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
+  // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
+  // raise are read from the decision's own street and flop texture, blended
+  // with the pooled read by the cell's opportunities; the league learns the
+  // street read in the card's sandbox (HorseLeagueStreetRead).
+  // The option changes no decision by itself: it only re-routes reads that
+  // OTHER options consume (the *VsValueLeader rules' label, omahaFacingBetEv's
+  // bettor read, the priced families' street cells). On a bare base every
+  // consumer is off and the card is inert (2026-11-18 evaluation of the {} /
+  // {} card: 1,000 sessions, 0 divergent pairs). So both arms carry the live
+  // production set (the 2026-11-16 list plus omahaTurnRiverRaiseIsPriced, on
+  // since 2026-11-18 11:54Z; the base the option's replay and its first league
+  // used) and arm A adds the option. Guarded by
+  // ADefaultOffFlagHasALeagueCard.law.test.ts (a read-only option's card
+  // carries a consumer in both arms).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_read_is_by_street_and_texture`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReadIsByStreetAndTexture: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
+  // heads-up turn or river with nothing to call, the owner's check or bet is
+  // priced beside bets of 10/20/25% of the pot with the opponent's measured
+  // response by pot share. It runs after the street plan and the card-impact
+  // rule (both live), so both arms carry production's live set
+  // (OMAHA_LIVE_OPTIONS_20261118, lead decision 2026-11-18) and a adds the
+  // option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_small_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
   // barrel only against measured postflop value leaders, and the bare overpair
@@ -2669,6 +2971,33 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaEliteContinuesVsMeasuredWideThreeBettor: true },
     b: {},
   })),
+  // 2026-11-17 OMAHA PREFLOP RE-RAISE DEFENCE, PRICED (HorseOmahaPreflopReraiseDefence,
+  // default OFF): facing a 3-bet or more preflop the fold, call or proposed
+  // re-raise is chosen by expected value (exact-hand equity against the
+  // re-raiser's measured width, measured realization, price and rake) in
+  // place of the re-raise range rules and the strong-range rule. Those rules
+  // and the re-raised-pot call cell it defers to are live, so both arms carry
+  // production's live set (OMAHA_LIVE_OPTIONS_20261118, lead decision
+  // 2026-11-18) and a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_reraise_defence_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 (THREEBET-2): omahaPreflopReraiseDefencePricedInPosition, default OFF: the same priced
+  // decision, only for a Horse that opened and is heads-up in position against one 3-bet. Both arms carry
+  // production's live set, arm a adds the option. Declared; not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_reraise_defence_priced_in_position`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePricedInPosition: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a
@@ -2731,6 +3060,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-17 OMAHA TURN CALL REALIZATION BY RUNOUT
+  // (HorseOmahaRunoutRealization, default OFF): inside the facing-bet EV rule,
+  // a non-final turn call's realization factor is read from the hand's own
+  // per-river counts against the bettor's value region and his other holdings
+  // instead of the flat 0.85 / 0.92. Both arms carry production's live set
+  // (OMAHA_LIVE_OPTIONS_20261118, which runs the facing-bet EV rule; lead
+  // decision 2026-11-18); a adds the option, b is the brain as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_call_realization_by_runout`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnCallRealizationByRunout: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);
@@ -2744,6 +3088,35 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTurnRiverRaiseNeedsNuts: true },
     b: {},
   })),
+  // 2026-11-16 OMAHA MULTIWAY AND BLUFF DISCIPLINE (HorseOmahaMultiwayDiscipline,
+  // three options, each default OFF, one card per game each): the multiway
+  // river call priced against every continuing range, no river bluff into a
+  // measured value leader who showed strength, and no multiway turn or river
+  // bet with one pair or less and no nut-class draw. Six-max (the spots are
+  // multiway), the live cash Hybrid persona (hybridBaseline) and the
+  // deal-seeded mood clock; a switches the option on, b is today's brain.
+  // The mirror's memory learning is on (the league default), so the value
+  // leader read and the measured fold rates can engage. The cards only
+  // measure; no evaluation has been run.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    [
+      {
+        slug: 'multiway_river_call_needs_strength',
+        a: { omahaMultiwayRiverCallNeedsStrength: true },
+      },
+      { slug: 'no_river_bluff_into_value_leader', a: { omahaNoRiverBluffIntoValueLeader: true } },
+      { slug: 'multiway_weak_hand_no_bet', a: { omahaMultiwayWeakHandNoBet: true } },
+    ].map(({ slug, a }) => ({
+      name: `${variant}_omaha_${slug}`,
+      variant,
+      seats: 6,
+      pairs: 6000,
+      hybridBaseline: true,
+      moodClock: 'deal_seed' as const,
+      a,
+      b: {},
+    }))
+  ),
   // 2026-11-17 THE OMAHA PRICED RULES (owner 11:49: "there should not be any
   // blanket rules ... they must all be done by math"; HorseOmahaPricedRules,
   // ten default-OFF options). Each option replaces one family of categorical
@@ -2771,6 +3144,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, omahaPricedMix: true },
       b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
     },
+    // 2026-11-18 option batch: the priced sites (HorseOmahaPricedSites, each default OFF; two off-only)
+    // act where the rule they replace is on, so both arms carry the live options and arm A adds one.
+    ...OMAHA_PRICED_SITE_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+    })),
+    // 2026-11-18 option batch: the priced2 inputs (omahaPricedPriorsByOpponentKind default OFF,
+    // omahaRaiseEvCountsLossesOnce off-only) change only what the priced families compute, so both arms
+    // carry every priced family on (OMAHA_PRICED_FAMILIES_ON) and arm A adds the one input.
+    ...OMAHA_PRICED_INPUT_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
+    })),
   ]),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with
@@ -2785,6 +3179,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStreetPlan: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STREET PLAN, the flop, the turn three-way and the
+  // preflop stack-to-pot layers (HorseOmahaStreetPlan, owner 11:43, each
+  // default OFF, switched separately). a switches one on, b is today's brain;
+  // the live cash Hybrid persona on both arms (hybridBaseline). Declared, not
+  // run: the constants are unmeasured.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    (
+      [
+        ['omaha_street_plan_flop', { omahaStreetPlanFlop: true }],
+        ['omaha_street_plan_three_way', { omahaStreetPlanThreeWay: true }],
+        ['omaha_preflop_stack_plan', { omahaPreflopStackPlan: true }],
+      ] as const
+    ).map(([card, a]) => ({
+      name: `${variant}_${card}`,
+      variant,
+      pairs: 6000,
+      hybridBaseline: true,
+      a: { ...a },
+      b: {},
+    }))
+  ),
   // 2026-11-15 (default OFF, switched separately): a 3-bet or 4-bet out of
   // position (omahaReraiseRangeOutOfPosition) or from early position
   // (omahaReraiseRangeEarlyPosition) needs suited aces, committed aces or a
@@ -2871,6 +3286,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaStrongHandSlowplayMix: true },
+    b: {},
+  })),
+  // 2026-11-16 OMAHA BET SIZE BY PUBLIC STATE (horsePublicBetSize, default
+  // OFF): the size of an own postflop bet or raise comes from public
+  // information only; a switches it on, b is today's brain. The league's
+  // opponents do not read sizes, so this card asks only whether the public
+  // sizes cost chips, not whether they close the tell.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bet_size_by_public_state`,
+    variant,
+    pairs: 6000,
+    hybridBaseline: true,
+    a: { omahaBetSizeByPublicState: true },
     b: {},
   })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
@@ -4195,6 +4623,60 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       "What would change this: a league table that carries a VPIP floor and each seat's judged " +
       'VPIP window (as the live Madness tables do); until it is built, the recorded-hand cases in ' +
       'HorseOmahaVpipFloorByLimp.test.ts are the only evidence.',
+  })),
+  // 2026-11-18 (Lightning parity lane): lightningVpipFloorLimpOnly and
+  // omahaReraisedPositionInLightning, default off. Refused, not dealt: this league
+  // deals no Lightning hand (no Lightning public memory domain in playHand).
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_lightning_vpip_floor_limp_only`,
+      variant,
+      a: { lightningVpipFloorLimpOnly: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option acts only on a Lightning cash decision whose ' +
+        'state carries lightningVpipFloor (HorseLogic.lightningVpipFloorLimpOnlyInputs), and ' +
+        'playHand builds neither a Lightning public memory domain nor that field, so the two arms ' +
+        'play identical poker. The option is DEFAULT OFF (read as === true). ' +
+        'Measured 2026-11-18 by running this refused matchup through runMatchup (seed 20261118, 300 pairs): ' +
+        '0 of 300 pairs diverged. ' +
+        'What would change this: a league pool that deals Lightning hands with a floor and a ' +
+        'per-sitting count of dealt and entered hands; until it is built, ' +
+        'HorseLightningVpipFloorLimpOnly.test.ts is the evidence.',
+    },
+    {
+      name: `${variant}_omaha_reraised_position_in_lightning`,
+      variant,
+      a: { omahaReraisedPositionInLightning: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option only lifts the Lightning branch of ' +
+        'omahaReraisedLaneUntouched (HorseLogic), and playHand deals no Lightning hand, so the two ' +
+        'arms play identical poker. The option is DEFAULT OFF (read as === true). ' +
+        'Measured 2026-11-18 by running this refused matchup through runMatchup (seed 20261118, 300 pairs): ' +
+        '0 of 300 pairs diverged. ' +
+        'What would change this: a league pool that deals Lightning hands (a Lightning public ' +
+        'memory domain on the decision state); until it is built, the recorded Lightning lines of ' +
+        'HorseOmahaReraisedPositionInLightning.test.ts are the evidence.',
+    },
+  ]),
+  // 2026-11-17 (F-10, owner ruling 14:34 Chicago): vpipFloorLimpOnly, default off.
+  // Refused, not dealt: this league seats no VPIP-floor table.
+  ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_vpip_floor_limp_only`,
+    variant,
+    a: { vpipFloorLimpOnly: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option only acts on a table that carries a VPIP floor ' +
+      '(vpipFloorLimpOnlyApplies needs vpipFloor > 0), and playHand builds its decision state with ' +
+      'no vpipFloor, vpipWindowHands or ownVpip, so the two arms play identical poker. The option is ' +
+      'DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-17 by running this refused matchup through runMatchup (seed 20261117, 300 pairs): ' +
+      '0 of 300 pairs diverged. ' +
+      "What would change this: a league table that carries a VPIP floor and each seat's judged VPIP " +
+      'window; until it is built, HorseVpipFloorLimpOnly.test.ts and the sitting evaluation of ' +
+      'HorseVpipFloorLimpOnly.test-support.ts are the evidence.',
   })),
   // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
   // dealt: the evidence it reads does not exist in a league hand.

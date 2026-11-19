@@ -464,11 +464,11 @@ describe('Simple Club Data', () => {
   it('routes the calendar and simple game/stakes controls into the authoritative query', async () => {
     render(<ClubDataPage />);
     await screen.findByText('Shark Table One');
-    applyCalendarRange('2026-08-14');
+    applyCalendarRange(TEST_END_DATE);
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith(
         'ca_club_data_snapshot_v2',
-        expect.objectContaining({ p_end: '2026-08-14' })
+        expect.objectContaining({ p_end: TEST_END_DATE })
       )
     );
     fireEvent.click(screen.getByRole('button', { name: 'Omaha', exact: true }));

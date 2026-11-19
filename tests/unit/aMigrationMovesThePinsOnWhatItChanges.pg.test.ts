@@ -200,8 +200,13 @@ COMMIT;
     expect(applier).toContain('stalePin = stalePinParts(file, sql, transactionBody);');
     // A declared offline install budget adds its scope check between the
     // stale-pin check and the history row (migration-install-budget.mjs).
+    // The hand-path shared-row guard (hand-path-shared-writes.mjs, incident
+    // 075013fd) rides directly behind each stale-pin piece: its snapshot after
+    // the stale-pin snapshot, its check after the stale-pin check. The
+    // stale-pin snapshot is still the first thing after BEGIN and its check
+    // still runs before the history row.
     expect(applier).toMatch(
-      /begin \+\s*stalePin\.snapshot \+\s*middle \+\s*stalePin\.check \+\s*\(declaredBudget \? offlineScopeCheckSQL\(\) : ''\) \+\s*historyStatement/
+      /begin \+\s*stalePin\.snapshot \+\s*handPath\.snapshot \+\s*middle \+\s*stalePin\.check \+\s*handPath\.check \+\s*\(declaredBudget \? offlineScopeCheckSQL\(\) : ''\) \+\s*historyStatement/
     );
     expect(applier.indexOf('stalePin = stalePinParts(')).toBeLessThan(
       applier.indexOf('const atomicSQL = transactionBody.replace(')

@@ -1,0 +1,60 @@
+name: A tournament change fences only its own event
+
+# Incident 075013fd, lanes R, R2 and E2 (migrations 20261118191946,
+# 20261119011750 and 20261119053909). Runs
+# scripts/ci/test-rebuy-never-pauses-the-tournament.py against a throwaway
+# PostgreSQL 17 cluster, never production: the exact production definitions
+# (md5-checked fixtures) must show each defect first - a rebuy, a bust, a
+# balancing move, a break step, the break scan, the entry close and a bounty
+# sweep holding the event lane T(id) exclusive and pausing every table of the
+# event, and one event's cancel holding the platform lane and pausing other
+# events' tables and cash - and, after the unmodified migration files, the same
+# calls leave every untouched table, every other event and cash dealing at
+# once, still serialise with a hand of the tables they touch in both orders,
+# conserve chips and chairs, and run mixed concurrent workloads with zero
+# deadlocks. No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths
+# it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261118160405_tournament_table_writers_never_wait_on_the_platform_lane.sql
+      - supabase/migrations/20261118171613_tournament_and_club_lanes_fence_only_their_own_tables.sql
+      - supabase/migrations/20261118191946_a_rebuy_never_pauses_the_tournament.sql
+      - supabase/migrations/20261119011750_bounty_rebuys_and_eliminations_share_the_event_lane.sql
+      - supabase/migrations/20261119053909_a_move_break_or_cancel_fences_only_its_own_event.sql
+      - scripts/ci/fixtures/tournament-lane-isolation/**
+      - scripts/ci/fixtures/rebuy-never-pauses/**
+      - scripts/ci/fixtures/event-scoped-field-lane/**
+      - scripts/ci/test-rebuy-never-pauses-the-tournament.py
+      - .github/workflows/tournament-event-lane.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tournament-event-lane-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tournament-event-lane:
+    name: A tournament change fences only its own event
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: A tournament change fences only its own event
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-rebuy-never-pauses-the-tournament.py --output artifacts/tournament-event-lane
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tournament-event-lane-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/tournament-event-lane/results.json
+          retention-days: 7
+          if-no-files-found: warn

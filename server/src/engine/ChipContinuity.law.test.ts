@@ -416,7 +416,10 @@ describe('the migration is the one this engine was written against', () => {
       'PERFORM public.fn_cash_session_open(p_user_id, p_table_id, p_amount);'
     );
     expect(MIGRATION).toContain('BUYIN_BELOW_FLOOR');
-    // The key: club + variant + sb + bb. Never the table, never the template.
+    // The 2026-09-04 key was club + variant + sb + bb. Superseded 2026-11-18 by
+    // Dan's one-game ruling: the key is the cash game (game_scope). This test
+    // pins the historical file only; the current law is
+    // tests/a-rathole-floor-belongs-to-one-game.law.test.ts.
     const floor = MIGRATION.slice(
       MIGRATION.indexOf('FUNCTION public.fn_cash_rejoin_floor'),
       MIGRATION.indexOf('FUNCTION public.fn_cash_effective_buyin')

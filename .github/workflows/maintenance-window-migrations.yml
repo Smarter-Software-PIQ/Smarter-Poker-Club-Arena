@@ -12,6 +12,7 @@ on:
       - 'scripts/ci/maintenance-window-migrations.mjs'
       - 'scripts/ci/owner-window-migration.mjs'
       - 'scripts/ci/install-window-migrations.mjs'
+      - 'scripts/ci/read-migration-corpus.mjs'
       - 'scripts/ci/apply-recorded-migration.mjs'
       - 'scripts/ci/migration-session-identity.mjs'
       - 'scripts/ci/migration-install-budget.mjs'
@@ -19,6 +20,10 @@ on:
       - 'scripts/ci/accounting-migration-admission.mjs'
       - 'scripts/ci/test-maintenance-window-migrations.sh'
       - 'scripts/ci/fixtures/maintenance-window-migrations/**'
+      - 'scripts/ci/window-queue-rehearsal.mjs'
+      - 'scripts/ci/rehearse-window-queue.sh'
+      - 'scripts/ci/test-window-queue-rehearsal.sh'
+      - 'scripts/ci/fixtures/window-queue-rehearsal/**'
       - 'supabase/migrations/*_rebuy_and_addon_stack_invariants_survive_registered_updates.sql'
       - 'supabase/migrations/20261112013925_a_rebuy_pays_the_starting_stack.sql'
       - 'supabase/migrations/20261102005209_an_add_on_pays_the_starting_stack.sql'
@@ -52,6 +57,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           WINDOW_WORK: ${{ runner.temp }}/pg-window
         run: bash scripts/ci/test-maintenance-window-migrations.sh
+      - name: The pull-request rehearsal refuses a window file with a missing dependency
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          REHEARSAL_WORK: ${{ runner.temp }}/pg-window-rehearsal
+          REHEARSAL_EVIDENCE: artifacts/maintenance-window-migrations/rehearsal
+        run: bash scripts/ci/test-window-queue-rehearsal.sh
       - name: Retain native evidence
         if: always()
         uses: actions/upload-artifact@v4

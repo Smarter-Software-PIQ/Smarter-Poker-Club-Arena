@@ -1,5 +1,5 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import ClubDataReconciliation from '../../src/components/club/ClubDataReconciliation';
 import {
   financialWindowStatus,
@@ -40,6 +40,30 @@ describe('financial totals keep source qualification separate from billing final
     expect(screen.getByText(/Nov 16, 2026 12:00 AM Pacific Time/)).toBeInTheDocument();
     expect(screen.queryByText('Billing Finalized')).not.toBeInTheDocument();
     expect(screen.getByText(/A Game Played On Multiple Days Counts Once/)).toBeInTheDocument();
+  });
+  it('opens real drilldowns and identifies snapshot evidence without inventing revisions', () => {
+    const games = vi.fn(),
+      players = vi.fn(),
+      history = vi.fn();
+    render(
+      <ClubDataReconciliation
+        basis="union_invoice_accounting"
+        range={range}
+        reconciliation={totals}
+        generatedAt="2026-11-16T08:00:00Z"
+        onGames={games}
+        onPlayers={players}
+        onHistory={history}
+      />
+    );
+    fireEvent.click(screen.getByText('View Contributing Games'));
+    fireEvent.click(screen.getByText('View Player Totals'));
+    fireEvent.click(screen.getByText('View Issued Invoices'));
+    expect(games).toHaveBeenCalledOnce();
+    expect(players).toHaveBeenCalledOnce();
+    expect(history).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Does Not Contain A Revision-By-Revision History/)).toBeInTheDocument();
+    expect(screen.getByText(/Source Snapshot:/)).toHaveTextContent('Chicago Time');
   });
   it('does not turn an absent or unqualified BBJ answer into zero', () => {
     const view = render(<ClubDataReconciliation basis="union_invoice_accounting" range={range} />);

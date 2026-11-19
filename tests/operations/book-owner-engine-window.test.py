@@ -60,9 +60,9 @@ def waiver_constants():
     values = {}
     for node in tree.body:
         if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', '') in (
-                'OWNER_NOTICE_WAIVER', 'OWNER_NOTICE_WAIVER_VALID_UNTIL'):
+                'OWNER_NOTICE_WAIVER',):
             values[node.targets[0].id] = ast.literal_eval(node.value)
-    return values['OWNER_NOTICE_WAIVER'], values['OWNER_NOTICE_WAIVER_VALID_UNTIL']
+    return values['OWNER_NOTICE_WAIVER'], None
 
 
 def waived_order_text(predecessor):
@@ -299,10 +299,10 @@ class BookOwnerEngineWindow(unittest.TestCase):
                 f"        self.assertEqual(windows['windows'].pop()['id'], '{old_id}')\n"), chain[:300])
 
     def test_books_one_window_on_the_owner_notice_waiver_then_an_ordinary_one(self):
-        instruction, valid_until = waiver_constants()
+        instruction, _ = waiver_constants()
         module = (ROOT / 'scripts/ci/owner-notice-waiver.mjs').read_text()
-        # One sentence, one expiry, in both places.
-        self.assertIn(valid_until, module)
+        # One sentence in both places; no expiry (standing order 2026-11-17 20:23 Chicago).
+        self.assertNotIn('OWNER_NOTICE_WAIVER_VALID_UNTIL', module)
         literal = module.split('export const OWNER_NOTICE_WAIVER_INSTRUCTION =')[1].split(';')[0]
         self.assertEqual(''.join(re.findall(r"'([^']*)'", literal)), instruction)
         windows = json.loads(self.read(WINDOWS))
@@ -357,28 +357,28 @@ class BookOwnerEngineWindow(unittest.TestCase):
         before = self.snapshot()
         instruction, _ = waiver_constants()
         refusals = (
-            (dict(extra=['--notice-at', '2026-11-18T05:40:00Z']), None, r'exactly one of --notice-at and --no-advance-notice'),
+            (dict(extra=['--notice-at', '2026-11-18T05:40:00Z', '--no-advance-notice']), None,
+             r'at most one of --notice-at and --no-advance-notice'),
             (dict(), waived_order_text(W['predecessor']).replace(instruction, 'No notice this time.'),
              r'lacks required text.*For this release, execute the earliest qualified engine cutover'),
             (dict(), waived_order_text(W['predecessor']).replace('not extended', 'kept'), r"lacks required text.*'not extended'"),
-            # The waiver ends at the 03:30 America/Chicago preparation of November 18 (09:30 UTC).
-            (dict(window_id='2026-11-20-owner-test-engine-0606z', not_before='2026-11-20T06:06:00Z',
-                  not_after='2026-11-20T08:30:00Z'), None, r'a window closing after 2026-11-18T09:30:00Z cannot use it'),
             (dict(not_before='2026-11-18T06:05:29Z'), None, r'329 s past the hour'),
         )
         for changes, order, pattern in refusals:
             with self.subTest(pattern=pattern):
                 self.assert_refused(self.book(W, order=order, **changes), pattern, before)
-        # Neither flag is also refused.
+        # Neither flag books without notice (standing order): planned here as a dry run, nothing written.
         tag = W['window_id']
         result = subprocess.run([sys.executable, '-B', str(SCRIPT), '--repo', str(self.repo), '--window-id', tag,
                                  '--predecessor', W['predecessor'], '--contains', W['contains'],
                                  '--not-before', W['not_before'], '--not-after', W['not_after'], '--slug', W['slug'],
                                  '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
                                  '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
-                                 '--changelog-file', str(self.inputs / f'{tag}-changelog.txt')],
+                                 '--changelog-file', str(self.inputs / f'{tag}-changelog.txt'), '--dry-run'],
                                 text=True, capture_output=True, timeout=SUITE_TIMEOUT)
-        self.assert_refused(result, r'exactly one of --notice-at and --no-advance-notice', before)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('notice            none', result.stdout)
+        self.assertEqual(self.snapshot(), before)
 
     def test_refuses_each_invalid_booking_before_writing_anything(self):
         before = self.snapshot()

@@ -46,6 +46,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
+import { migrationCorpus } from './helpers/migrationCorpus';
 import {
   WINDOW_ANNOTATION,
   WINDOW_LOCK_TIMEOUT_MS,
@@ -409,6 +410,7 @@ describe('the route runs on the daily schedule that already exists', () => {
   it('is qualified natively on every pull request that touches it', () => {
     const wf = parse(read('.github/workflows/maintenance-window-migrations.yml'));
     expect(wf.on.pull_request.paths).toContain('scripts/ci/maintenance-window-migrations.mjs');
+    expect(wf.on.pull_request.paths).toContain('scripts/ci/read-migration-corpus.mjs');
     expect(wf.on.pull_request.paths).toContain('scripts/ci/apply-recorded-migration.mjs');
     const run = wf.jobs.qualify.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
     expect(run).toContain('bash scripts/ci/test-maintenance-window-migrations.sh');

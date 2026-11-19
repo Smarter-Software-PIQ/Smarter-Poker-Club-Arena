@@ -1,4 +1,4 @@
-# plo6NoMultiwayBetWithWeakMadeHand: authority for the live switch
+# plo6NoMultiwayBetWithWeakMadeHand: authority for the live switch (OFF-ONLY)
 
 Status: built, OFF, unevaluated; switching ON needs recorded authority. Evidence NOT MET (development evidence only); no owner order to switch this option on is recorded in this file.
 
@@ -123,3 +123,7 @@ The Horses already check the final spot 363 times in the window against the 90 b
 Scope, stated plainly: the rule acts in every PLO6 high game that reaches the spot, tournaments included (3 of the measured bets were tournament bets) and Lightning PLO6 cash if such a table exists; nothing in the option excludes either. A check adds no chips in any of them.
 
 Out-of-sample check, 2026-11-16 (bar written before reading: lost:won ratio at least 2.0, net negative, at least 20 removed bets; archive `phase1-play/plo-port-20261115/FRESH-SAMPLE-20261116.md`): INSUFFICIENT in both sets. After the development window (to 2026-11-16T04:36Z): 162 cash hands, 3 removed bets in 2 hands, net -219.8 bb. Before it (2026-08-19 to 2026-11-10T21:30Z): 845 hands, 4 removed bets in 4 hands, net -19.8 bb, ratio 1.95. The direction agrees with the rule; the size of the development leak is not confirmed, and the spot is much rarer outside the development window (5.7% and 2.4% of candidate bets against 19.8%). The value row stays NOT MET; default OFF.
+
+## Off-only (categorical, 2026-11-18)
+
+It decides by hand class, player count and street with no price ("a check has no price to weigh"), which the owner's no-blanket-rules order of 2026-11-17 11:49 Chicago rules out; it fired 0 times in 7 days and its league run was -0.44 (SE 2) (horse-switch swarm, PLO6-HILO VERDICT-READY items 1 and 16). It is now in OPTION_SWITCH_OFF_ONLY (status `hold`). Production read 2026-11-19T00:05Z (SELECT only): no option-switch row for it. The follow-up list migration `20261119144317_horse_option_switch_off_only_reraise_flop_fl_plo6` re-asserts the database lists so the table refuses an `on` row. It comes back only as a priced comparison that passes its own declared evaluation.

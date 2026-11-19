@@ -123,6 +123,13 @@ export interface HorseEvIndifferenceContext {
    * Absent on every decision without the option: the Horse's own seed.
    */
   aggressionBias?: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle.omahaPlayStyleTieBandMul, default
+   * off): the indifference band is multiplied by this (1..2) for a candidate
+   * MORE aggressive than the best only (a bet against a check). Absent on
+   * every decision without the option: the band as it is.
+   */
+  aggressionBandMul?: number;
 }
 
 export interface EvSpot {
@@ -249,15 +256,25 @@ function personallyIndifferent(
   maxWager: number
 ): boolean {
   if (candidate === best) return true;
-  const band = indifferenceBand(context);
+  const baseBand = indifferenceBand(context);
+  const bandMul =
+    context.aggressionBandMul !== undefined &&
+    Number.isFinite(context.aggressionBandMul) &&
+    actionPressure(candidate) > actionPressure(best)
+      ? clamp(context.aggressionBandMul, 1, 2)
+      : undefined;
+  const band = bandMul !== undefined ? baseBand * bandMul : baseBand;
   const gapBB = (candidate.ev - best.ev) / context.bigBlind;
   if (!(band > 0) || !Number.isFinite(gapBB) || gapBB < -band) return false;
   const seeds = indifferenceStyleSeedsFor(context.horseId, context.mode);
   const size = (a: EvAction) => ('amount' in a ? a.amount / Math.max(0.01, maxWager) : 0);
-  const aggressionBias =
+  const ownAggressionBias =
     context.aggressionBias !== undefined && Number.isFinite(context.aggressionBias)
       ? clamp(context.aggressionBias, -HORSE_INDIFFERENCE_EV_BAND_BB, HORSE_INDIFFERENCE_EV_BAND_BB)
       : seeds.indifferenceAggressionBias;
+  // The widened band carries a bias scaled with it: the top of the seed range
+  // stays the top of the (wider) band.
+  const aggressionBias = bandMul !== undefined ? ownAggressionBias * bandMul : ownAggressionBias;
   const bias =
     (actionPressure(candidate) - actionPressure(best)) * aggressionBias +
     (size(candidate) - size(best)) * seeds.sizingMixBias;
@@ -265,6 +282,7 @@ function personallyIndifferent(
     bubbleFactor: context.mode === 'tournament' ? context.bubbleFactor : undefined,
     handKey: context.handKey,
     street,
+    ...(bandMul !== undefined ? { bandMul } : {}),
   });
 }
 

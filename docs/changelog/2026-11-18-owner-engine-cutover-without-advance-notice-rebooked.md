@@ -1,0 +1,3 @@
+# Owner engine cutover without advance notice, rebooked
+
+The owner ordered the engine cutover completed at the earliest possible time and removed the player announcement from every future engine cutover (November 17, 2026, 20:23 Chicago). Window 2026-11-17-owner-no-notice-engine-2330z was never dispatched: owner-ordered emergency cash installs at 04:03 UTC changed production after its certificate copy. This booking opens window 2026-11-18-owner-no-notice-engine-0705z, admission 07:05:30 UTC November 18 through fixed 09:20 UTC November 18 (01:05:30-03:20 Chicago), for the same release: serving 28372c9a17, containing at minimum ba6a2725372. No player notice is shown before the freeze; the engine still finishes every hand and settles before freezing.

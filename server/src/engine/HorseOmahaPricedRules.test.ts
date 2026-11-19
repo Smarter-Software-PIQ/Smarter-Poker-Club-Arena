@@ -38,6 +38,7 @@ import {
   OMAHA_PRICED_PERSON_BET_CHECKED_TO,
   omahaPricedCardImpactRead,
   omahaPricedBet,
+  omahaPricedFoldToRaiseRatio,
   omahaPricedMixProbability,
   omahaPricedPublicSpotKey,
   omahaPricedRaise,
@@ -176,8 +177,15 @@ describe('the size of a bet is a continuous input, never a trigger', () => {
     ).toBeLessThan(0.02);
   });
   it('the mode is off outside a PLO4/PLO5 cash decision and off by default', () => {
-    const on = { rangeContinuous: true, bluffShareFromBetRate: true };
+    const on = { rangeContinuous: true, bluffShareFromBetRate: true, priorsByKind: true };
     expect(omahaPricedModeOf(on, { gameVariant: 'plo5', gameMode: 'cash' })).toEqual(on);
+    // omahaPricedPriorsByOpponentKind unset: its field reads false (the #11212 prior)
+    expect(
+      omahaPricedModeOf(
+        { rangeContinuous: true, bluffShareFromBetRate: true },
+        { gameVariant: 'plo5', gameMode: 'cash' }
+      )
+    ).toEqual({ rangeContinuous: true, bluffShareFromBetRate: true, priorsByKind: false });
     expect(omahaPricedModeOf(on, { gameVariant: 'plo4', bigBlind: 2 })).toEqual(on);
     expect(omahaPricedModeOf(on, { gameVariant: 'plo6', gameMode: 'cash' })).toBe(
       OMAHA_PRICED_MODE_OFF
@@ -685,5 +693,56 @@ describe('the measured person bet rate stands in for the stated prior when there
       omahaPricedCardImpactRead({ ...OMAHA_PRICED_NO_READ, betCheckedTo: 0.6 }, 'river')
         .betCheckedTo
     ).toBe(0.6);
+  });
+});
+
+describe('a measured fold to raises is read at the price of the raise (plo-truncation-013U37)', () => {
+  // BLANKET-LOO-1 at f3e99378ccbb: with omahaReadIsByStreetAndTexture on, every Horse-only league cell
+  // truncated 18-65 hands per 100,000: two Horses re-raised each other by the minimum (2 BB at a time,
+  // 48 actions on one turn) because the street read's fold-to-raise cell, counted over raises of every
+  // size, was read as the fold to a minimum raise. Facing a 4-chip raise as the pot grows by 8 a round,
+  // the minimum re-raise must not be the priced answer round after round.
+  const WAR: [string, string][] = [
+    ['3d3c4c8s5s', '9dQdJh7h'],
+    ['Kc9c8h6d2s', '9dQdJh7h'],
+    ['Th9h8c2d2s', '7c4c3h3d'],
+    ['QsJs9c8d4h', '5d9s6s9h'],
+  ];
+  const minimumReRaises = (hole: string, board: string, hit: number, opp: number): number => {
+    const read = { ...OMAHA_PRICED_NO_READ, foldToRaise: cell(hit, opp) };
+    let rounds = 0;
+    for (let pot = 11; rounds < 60; pot += 8) {
+      const st = pricedSpot({ hole, board, potBefore: pot, bet: 4 });
+      st.gs.minRaiseTo = 8; // the previous raise was 4: the minimum re-raise is to 8
+      const v = omahaPricedRaise(st.hero, st.gs, { read });
+      if (!v || v.action !== 'raise' || Math.abs(v.amount - 8) > 0.005) break;
+      rounds++;
+    }
+    return rounds;
+  };
+  it('against a measured over-folder the minimum re-raise does not repeat as the pot grows', () => {
+    for (const [hole, board] of WAR)
+      for (const [hit, opp] of [
+        [6, 15],
+        [10, 20],
+        [18, 20],
+      ])
+        expect(minimumReRaises(hole, board, hit, opp)).toBeLessThan(3);
+  });
+  it('a larger raise is folded to more often; the cell is read as a ratio to the population fold to a raise', () => {
+    expect(omahaPricedFoldToRaiseRatio(null)).toBe(1);
+    expect(omahaPricedFoldToRaiseRatio(cell(0, 0))).toBe(1);
+    expect(omahaPricedFoldToRaiseRatio(cell(14, 54))).toBeCloseTo(1, 12);
+    expect(omahaPricedFoldToRaiseRatio(cell(18, 20))).toBeGreaterThan(2);
+    expect(omahaPricedFoldToRaiseRatio(cell(1, 20))).toBeLessThan(0.5);
+    const st = pricedSpot({ hole: '3d3c4c8s5s', board: '9dQdJh7h', potBefore: 120, bet: 40 });
+    const v = omahaPricedRaise(st.hero, st.gs, {
+      read: { ...OMAHA_PRICED_NO_READ, foldToRaise: cell(18, 20) },
+    })!;
+    const rows = [...v.rows].filter((r) => !r.allIn).sort((a, b) => a.to - b.to);
+    expect(rows.length).toBeGreaterThan(1);
+    for (let i = 1; i < rows.length; i++)
+      expect(rows[i].continues).toBeLessThanOrEqual(rows[i - 1].continues + 1e-9);
+    expect(rows[0].continues).toBeGreaterThan(rows[rows.length - 1].continues);
   });
 });

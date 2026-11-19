@@ -1,7 +1,7 @@
 /**
  * The recorded flop decisions behind HorseOmahaFlopFacingBetEv.test.ts.
  *
- * PLO5 1/2 cash, 2026-11-16 to 2026-11-17: fifteen flop decisions of Horses
+ * PLO5 1/2 cash, 2026-11-16 to 2026-11-17: twenty-one flop decisions of Horses
  * facing one player's bet or raise, taken from the decision audit of that
  * player's 721 hands (lane archive plo-handoff-review-01a1cbbd/
  * audit2-01BNteGZ, PLO5-WOOWOO-AUDIT-PART2-DECISIONS-20261117.csv). Each entry
@@ -25,6 +25,14 @@
  *    still folds (stated in the test, not hidden).
  *  - lostCall: the Horse called, the hand lost, and the flop verdict folds.
  *  - smallBetCall: a call of a bet of a third of the pot that the verdict keeps.
+ *  - rc02a: the five flop folds of sets and nut straights the 48-hour audit
+ *    of the same tables named (its root cause RC-02a; hands 59710501,
+ *    59727433, 59756252, 59806482, 59842423, 2026-11-16 and 2026-11-17, with
+ *    a caller already in or players still to act); the verdict calls four
+ *    of them and prices the fifth within a few percent of the pot of its margin.
+ *  - bareOverpair: a real node of the bare-overpair continuation (the
+ *    preflop raiser checked a bare big pair and faces a bet heads-up), which
+ *    the flop verdict stands aside for.
  * The audit file holds one flop call judged wrong (hand 59852499): it is a
  * bomb pot, outside this rule, so it is not here.
  */
@@ -38,7 +46,7 @@ import type { Card, CardRank, CardSuit } from '../types.js';
 export interface RecordedFlopFacingBet {
   /** Hand number. */
   n: number;
-  group: 'wrongFold' | 'wrongFoldKept' | 'lostCall' | 'smallBetCall';
+  group: 'wrongFold' | 'wrongFoldKept' | 'lostCall' | 'smallBetCall' | 'rc02a' | 'bareOverpair';
   /** The audit's cause or note for the decision. */
   audit: string;
   /** What the Horse did. */
@@ -431,6 +439,158 @@ export const RECORDED_FLOP_FACING_BETS: RecordedFlopFacingBet[] = [
       [3, 1088.15, 0.0, 1.0, 0.0, 0, 1],
       [5, 957.2, 0.0, 11.0, 2.0, 0, 1],
       [6, 1183.62, 0.0, 11.0, 0.0, 0, 0],
+    ],
+  },
+  {
+    n: 59710501,
+    group: 'rc02a',
+    audit:
+      'bottom set of sevens on 7 9 J, a caller in and a player behind (the 48-hour audit, RC-02a)',
+    did: 'fold',
+    pl: '1H 2H 3P 4H 5H 6H',
+    dealer: 6,
+    a: '1|p|sb|1|f|0|0;2|p|bb|2|f|0|0;2|p|ante|2|f|0|1;3|p|raise|9|p|1|0;4|p|call|9|h|0|0;5|p|call|9|h|0|0;6|p|fold|0|h|0|0;1|p|call|8|h|0|0;2|p|call|7|h|0|0;1|f|check|0|h|0|0;2|f|check|0|h|0|0;3|f|bet|36|p|1|0;4|f|fold|0|h|0|0;5|f|call|36|h|0|0',
+    board: '7h9hJd',
+    seat: 1,
+    hole: '3d2c7c7d6c',
+    pot: 119,
+    bet: 36,
+    cur: 36,
+    min: 72,
+    max: 191,
+    seats: [
+      [1, 1656.12, 0, 9, 0, 0, 0],
+      [2, 614.15, 0, 11, 2, 0, 0],
+      [3, 466.1, 36, 45, 0, 0, 0],
+      [4, 1486.6, 0, 9, 0, 0, 1],
+      [5, 809.9, 36, 45, 0, 0, 0],
+      [6, 904.6, 0, 0, 0, 0, 1],
+    ],
+  },
+  {
+    n: 59727433,
+    group: 'rc02a',
+    audit: 'bottom set of deuces on J 5 2, in position, a caller in and two behind (RC-02a)',
+    did: 'fold',
+    pl: '1H 2H 3P 4H 5H 6H',
+    dealer: 6,
+    a: '1|p|sb|1|f|0|0;2|p|bb|2|f|0|0;2|p|ante|2|f|0|1;3|p|raise|9|p|1|0;4|p|call|9|h|0|0;5|p|call|9|h|0|0;6|p|call|9|h|0|0;1|p|call|8|h|0|0;2|p|call|7|h|0|0;1|f|check|0|h|0|0;2|f|check|0|h|0|0;3|f|bet|56|p|1|0;4|f|fold|0|h|0|0;5|f|call|56|h|0|0',
+    board: 'Jc5s2h',
+    seat: 6,
+    hole: 'QhAd2d2s9s',
+    pot: 168,
+    bet: 56,
+    cur: 56,
+    min: 112,
+    max: 280,
+    seats: [
+      [1, 507.1, 0, 9, 0, 0, 0],
+      [2, 539.4, 0, 11, 2, 0, 0],
+      [3, 1332.3, 56, 65, 0, 0, 0],
+      [4, 397.5, 0, 9, 0, 0, 1],
+      [5, 1326.2, 56, 65, 0, 0, 0],
+      [6, 1336.05, 0, 9, 0, 0, 0],
+    ],
+  },
+  {
+    n: 59756252,
+    group: 'rc02a',
+    audit: 'the nut straight on 5 4 8 with four players behind (RC-02a)',
+    did: 'fold',
+    pl: '1P 2H 3H 4H 5H 6H',
+    dealer: 4,
+    a: '5|p|sb|1|f|0|0;6|p|bb|2|f|0|0;6|p|ante|2|f|0|1;1|p|raise|9|p|1|0;2|p|call|9|h|0|0;3|p|call|9|h|0|0;4|p|call|9|h|0|0;5|p|call|8|h|0|0;6|p|call|7|h|0|0;5|f|check|0|h|0|0;6|f|check|0|h|0|0;1|f|bet|28|p|1|0',
+    board: '5h4s8c',
+    seat: 2,
+    hole: '3h7h6d4c2c',
+    pot: 84,
+    bet: 28,
+    cur: 28,
+    min: 56,
+    max: 140,
+    seats: [
+      [1, 2599.64, 28, 37, 0, 0, 0],
+      [2, 1035.85, 0, 9, 0, 0, 0],
+      [3, 1089.39, 0, 9, 0, 0, 0],
+      [4, 1276.75, 0, 9, 0, 0, 0],
+      [5, 350, 0, 9, 0, 0, 0],
+      [6, 389, 0, 11, 2, 0, 0],
+    ],
+  },
+  {
+    n: 59806482,
+    group: 'rc02a',
+    audit: 'the nut straight on 4 7 8 with two players behind (RC-02a)',
+    did: 'fold',
+    pl: '1P 2H 3H 4H 5H 6H',
+    dealer: 4,
+    a: '5|p|sb|1|f|0|0;6|p|bb|2|f|0|0;6|p|ante|2|f|0|1;1|p|raise|9|p|1|0;2|p|call|9|h|0|0;3|p|call|9|h|0|0;4|p|fold|0|h|0|0;5|p|call|8|h|0|0;6|p|fold|0|h|0|0;5|f|check|0|h|0|0;1|f|bet|30|p|1|0',
+    board: '4s7s8h',
+    seat: 2,
+    hole: '5c4hTs2s6c',
+    pot: 70,
+    bet: 30,
+    cur: 30,
+    min: 60,
+    max: 130,
+    seats: [
+      [1, 5495.85, 30, 39, 0, 0, 0],
+      [2, 1594.51, 0, 9, 0, 0, 0],
+      [3, 553.7, 0, 9, 0, 0, 0],
+      [4, 581.5, 0, 0, 0, 0, 1],
+      [5, 1210.85, 0, 9, 0, 0, 0],
+      [6, 1583.92, 0, 4, 2, 0, 1],
+    ],
+  },
+  {
+    n: 59842423,
+    group: 'rc02a',
+    audit: 'top set of nines on 6 9 8 with two players behind (RC-02a)',
+    did: 'fold',
+    pl: '1P 2H 3H 4H 5H 6H',
+    dealer: 1,
+    a: '2|p|sb|1|f|0|0;3|p|bb|2|f|0|0;3|p|ante|2|f|0|1;4|p|call|2|h|0|0;5|p|fold|0|h|0|0;6|p|fold|0|h|0|0;1|p|raise|11|p|1|0;2|p|call|10|h|0|0;3|p|call|9|h|0|0;4|p|call|9|h|0|0;2|f|check|0|h|0|0;3|f|check|0|h|0|0;4|f|check|0|h|0|0;1|f|bet|35|p|1|0',
+    board: '6c9s8c',
+    seat: 2,
+    hole: '4d9c4h9d5s',
+    pot: 81,
+    bet: 35,
+    cur: 35,
+    min: 70,
+    max: 151,
+    seats: [
+      [1, 4102.4, 35, 46, 0, 0, 0],
+      [2, 1019.85, 0, 11, 0, 0, 0],
+      [3, 1454.1, 0, 13, 2, 0, 0],
+      [4, 265.4, 0, 11, 0, 0, 0],
+      [5, 1117.1, 0, 0, 0, 0, 1],
+      [6, 474.5, 0, 0, 0, 0, 1],
+    ],
+  },
+  {
+    n: 59830767,
+    group: 'bareOverpair',
+    audit:
+      'bare kings on 4 2 4: the preflop raiser checked and faces a bet heads-up (the bare-overpair continuation owns this spot)',
+    did: 'fold',
+    pl: '1P 2H 3H 4H 5H 6H',
+    dealer: 4,
+    a: '5|p|sb|1|f|0|0;6|p|bb|2|f|0|0;6|p|ante|2|f|0|1;1|p|raise|9|p|1|0;2|p|fold|0|h|0|0;3|p|call|9|h|0|0;4|p|call|9|h|0|0;5|p|raise|49|h|1|0;6|p|fold|0|h|0|0;1|p|call|40|p|0|0;3|p|fold|0|h|0|0;4|p|fold|0|h|0|0;5|f|check|0|h|0|0;1|f|bet|90|p|1|0',
+    board: '4d2c4s',
+    seat: 5,
+    hole: '9sKh5sKd7d',
+    pot: 210.0,
+    bet: 90.0,
+    cur: 90.0,
+    min: 180.0,
+    max: 390.0,
+    seats: [
+      [1, 4456.85, 90.0, 139.0, 0.0, 0, 0],
+      [2, 563.1, 0.0, 0.0, 0.0, 0, 1],
+      [3, 1713.3, 0.0, 9.0, 0.0, 0, 1],
+      [4, 447.05, 0.0, 9.0, 0.0, 0, 1],
+      [5, 1267.3, 0.0, 49.0, 0.0, 0, 0],
+      [6, 853.45, 0.0, 2.0, 2.0, 0, 1],
     ],
   },
 ];

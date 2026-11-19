@@ -191,6 +191,10 @@ def main():
   check('reviewed winnings override skips fee history',settlement_reads(overridden),'0')
   check('member without a grant skips fee history',settlement_reads(user=B),'0')
   check('open winnings gate still evaluates the original fee history',settlement_reads(),'1')
+  principal_test=ROOT/'scripts/ci/test-promo-profit-payout-capacity.py';track(principal_test)
+  principal_spec=importlib.util.spec_from_file_location('empty_principal',principal_test)
+  principal=importlib.util.module_from_spec(principal_spec);principal_spec.loader.exec_module(principal)
+  principal.verify(db,C,A,T,old,ROOT/'supabase/migrations/20261118021557_tournament_credit_checks_capacity_before_fee_history.sql',runfile,check)
   check('nonagent authoritative balance fields are both absent values',f"SELECT (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_wallet') IS NULL AND (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable') IS NULL",'t')
   check('original grant has one shared phase and original thresholds',f"SELECT count(*)||':'||max(principal_target)::integer||':'||max(profit_target)::integer FROM fn_ca_promo_shared_fee_state('{C}','{A}') WHERE grant_id='{old}'",'1:200:100')
   fee(40)
@@ -215,6 +219,16 @@ def main():
   overlap_grant=gift(5);case=str(uuid.uuid4())
   db.run(f"UPDATE club_members SET chip_balance=100 WHERE club_id='{C}' AND user_id='{A}';UPDATE club_members SET role='owner' WHERE club_id='{C}' AND user_id='{B}';INSERT INTO agents VALUES('{C}','{A}',50);INSERT INTO ca_promo_profit_custody VALUES('{overlap_grant}','{C}','{A}','player_wallet','{A}',20);INSERT INTO ca_promo_integrity_cases(id,hand_id,source_club_id,source_user_id,club_id,recipient_id,amount,evidence) VALUES('{case}',gen_random_uuid(),'{C}','{B}','{C}','{A}',20,jsonb_build_object('fixture','isolated accepted earning source'));INSERT INTO ca_promo_integrity_custody VALUES('{case}','{C}','{A}','player_wallet','{A}',20);INSERT INTO ca_promo_profit_integrity_overlap VALUES('{overlap_grant}','{case}','{C}','{A}','player_wallet','{A}',10)")
   check('cashable union counts same physical W and H amount once',f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'",'65')
+  check('payout bound covers exact retained W/H intersection',
+        f"SELECT NOT fn_ca_promo_restrictions_exceed_capacity('{C}','{A}','player_wallet','{A}',35) AND fn_ca_promo_restrictions_exceed_capacity('{C}','{A}','player_wallet','{A}',34)",'t')
+  check('even a large physical wallet cannot hide an invalid W/H intersection',f"""
+    BEGIN;
+    UPDATE ca_promo_profit_integrity_overlap SET amount=100 WHERE grant_id='{overlap_grant}' AND case_id='{case}';
+    DO $$BEGIN BEGIN PERFORM fn_ca_promo_restrictions_exceed_capacity('{C}','{A}','player_wallet','{A}',10000);
+      RAISE EXCEPTION 'invalid overlap escaped payout validation';
+     EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'winnings_review_intersection_not_conserved' THEN RAISE;END IF;END;END$$;
+    SELECT 'refused';ROLLBACK;""",'refused')
+
   db.run(f"SELECT fn_ca_promo_integrity_move('{C}','{A}','player_wallet','{A}','agent_wallet','{A}',15)")
   check('original per-case H movement preserves its exact W intersection',f"SELECT fn_ca_promo_profit_locked_at('{C}','{A}','agent_wallet','{A}')=5 AND fn_ca_promo_profit_overlap_at('{C}','{A}','agent_wallet','{A}')=5",'t')
   check('authoritative agent summary subtracts only the actual restricted union',f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable'",'35')
@@ -390,7 +404,7 @@ def main():
    return src,cr
   u,g,t,ch,hc=paid_source(20,80,80,80,100,10);src,cr=typed_earning(u,t,ch,20)
   check('joint original P/W/H payout cells conserve one physical amount',f"SELECT sum(principal_amount)=4 AND sum(profit_amount)=16 AND sum(integrity_amount)=16 AND sum(overlap_amount)=16 AND sum(amount)=20 FROM fn_ca_promo_profit_event_cells('{src}')",'t')
-  db.run(f"BEGIN;UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{u}';SET LOCAL session_replication_role=replica;INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('{cr}','prize_liability','{t}','player_wallet','{u}',20,'fixture_original_credit','{C}');SET LOCAL session_replication_role=origin;INSERT INTO ca_promo_profit_earning_credit_links VALUES('{cr}','{src}');SELECT fn_ca_promo_profit_project_earning('{cr}','{src}','player_wallet','{u}');COMMIT")
+  db.run(f"BEGIN;UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{u}';SET LOCAL session_replication_role=replica;INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('{cr}','prize_liability','{t}','player_wallet','{u}',20,'fixture_original_credit','{C}');SET LOCAL session_replication_role=origin;INSERT INTO ca_promo_profit_earning_credit_links VALUES('{cr}','{src}');SET LOCAL track_functions='all';SELECT fn_ca_promo_profit_project_earning('{cr}','{src}','player_wallet','{u}');DO $$BEGIN IF coalesce(pg_stat_get_xact_function_calls('public.fn_ca_promo_restrictions_exceed_capacity(uuid,uuid,text,uuid,numeric)'::regprocedure),0)<>1 THEN RAISE EXCEPTION 'original tournament payout did not use its capacity check';END IF;END$$;COMMIT")
   check('mixed existing capital returns P4 W16 H16 overlap16 without doubleholding',f"SELECT fn_ca_promo_locked_at('{C}','{u}','player_wallet','{u}')=4 AND fn_ca_promo_profit_locked_at('{C}','{u}','player_wallet','{u}')=16 AND fn_ca_promo_integrity_locked_at('{C}','{u}','player_wallet','{u}')=16 AND fn_ca_promo_profit_overlap_at('{C}','{u}','player_wallet','{u}')=16 AND fn_ca_promo_restricted_at('{C}','{u}','player_wallet','{u}')=20",'t')
   # A real awarded asset carries derived W into the original earned-ticket
   # redemption callbacks. There is no purchased promo ticket or new gift.
@@ -417,9 +431,34 @@ def main():
   h=str(uuid.uuid4());db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{h}','{T}',1,clock_timestamp());INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{C}','{u}',40,'{h}')")
   db.run(f"INSERT INTO tournament_refund_tranches(entitlement_id,tournament_id,user_id,source_wallet_club_id,refund_fee) VALUES('{en}','{t}','{u}','{C}',8)")
   check('earned two-times stays final and later canonical reversal is deduplicated',f"SELECT (SELECT unlocked_at IS NOT NULL FROM ca_promo_profit_gates WHERE grant_id='{g}') AND max(profit_earned)=40 FROM fn_ca_promo_shared_fee_state('{C}','{u}') WHERE grant_id='{g}'",'t')
+  # Actual Free Buy funding owner over the installed fee state. The same
+  # cutoff row posts before and after its owner stops settling; each run
+  # rolls back, so both start from one identical member and open grant.
+  section(ticket,'CREATE FUNCTION public.fn_ca_promo_free_buy_funded()',"INSERT INTO public.ca_declared_money_triggers(table_name,trigger_name,note) VALUES('chip_ledger','ca_promo_free_buy_funded'")
+  db.run("ALTER TABLE chip_ledger ADD COLUMN IF NOT EXISTS tournament_id uuid,ADD COLUMN IF NOT EXISTS idempotency_key text;DO $$BEGIN IF to_regprocedure('public.fn_tournament_club_for_user(uuid,uuid,uuid)') IS NULL THEN CREATE FUNCTION public.fn_tournament_club_for_user(uuid,uuid,uuid) RETURNS uuid LANGUAGE sql AS 'SELECT $3';END IF;END$$")
+  fu,fk,fe,fl=map(lambda _:str(uuid.uuid4()),range(4))
+  db.run(f"INSERT INTO club_members(club_id,user_id,chip_balance,role) VALUES('{C}','{fu}',20,'member');SELECT fn_ca_promo_play_through_record_grant('{C}','{fu}',20,'club_promo','{fk}',NULL,'promo_wallet','{C}',NULL);INSERT INTO tournaments VALUES('{fe}','{C}','RUNNING');INSERT INTO tournament_players(tournament_id,user_id,club_id) VALUES('{fe}','{fu}','{C}');INSERT INTO smarter_private.free_buy_ticket_redemptions SELECT id,tournament_id,user_id,NULL FROM tournament_players WHERE tournament_id='{fe}'")
+  free_buy_cutoff=f"""BEGIN;SET LOCAL track_functions='all';
+   INSERT INTO chip_ledger(id,from_type,from_entity_id,from_label,to_type,to_entity_id,amount,category,club_id,tournament_id,idempotency_key,metadata)
+    VALUES('{fl}','union_wallet','fade0000-0000-0000-0000-000000000001','union_wallets.promo_wallet','prize_liability','{fe}',1,'promo_send','{C}','{fe}','tourney:{fe}:free_buy_cutoff_funding','{{"kind":"midway_free_buy_promo_head","stage":"cutoff"}}');
+   SELECT (COALESCE(pg_stat_get_xact_function_calls('public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure),0)>0)::text||'|'||md5(jsonb_build_object(
+    'grants',(SELECT jsonb_agg(jsonb_build_array(g.source_kind,g.source_ref,g.amount,g.remaining,g.multiplier,g.fee_target,g.source_ledger_id,g.funded_from_type,g.funded_from_id,g.closed_at IS NULL,g.close_reason,g.expires_at-g.granted_at,
+      g.cycle_started_at=(SELECT o.cycle_started_at FROM ca_promo_play_through_grants o WHERE o.source_ref='{fk}')) ORDER BY g.source_ref) FROM ca_promo_play_through_grants g WHERE g.user_id='{fu}'),
+    'custody',(SELECT jsonb_agg(jsonb_build_array(g.source_ref,c.kind,c.entity_id,c.amount) ORDER BY g.source_ref,c.kind,c.entity_id) FROM ca_promo_principal_custody c JOIN ca_promo_play_through_grants g ON g.id=c.grant_id WHERE g.user_id='{fu}'),
+    'lots',(SELECT jsonb_agg(jsonb_build_array(g.source_ref,l.tournament_id,l.charge_ledger_id,l.source_ref,l.original_amount,l.remaining) ORDER BY l.source_ref) FROM ca_promo_event_principal_lots l JOIN ca_promo_play_through_grants g ON g.id=l.grant_id WHERE g.user_id='{fu}'),
+    'slices',(SELECT jsonb_agg(to_jsonb(f)-'grant_id'||jsonb_build_object('grant',g.source_ref) ORDER BY g.source_ref) FROM ca_promo_free_buy_funding_slices f JOIN ca_promo_play_through_grants g ON g.id=f.grant_id WHERE g.user_id='{fu}'),
+    'winnings',(SELECT jsonb_agg(jsonb_build_array(g.source_ref,w.unlocked_at IS NULL,p.source_kind,p.activated_at=g.granted_at,p.closed_at IS NULL) ORDER BY g.source_ref) FROM ca_promo_play_through_grants g JOIN ca_promo_profit_gates w ON w.grant_id=g.id JOIN ca_promo_profit_fee_phases p ON p.grant_id=g.id WHERE g.user_id='{fu}')
+   )::text)||'|'||(SELECT count(*) FROM ca_promo_free_buy_funding_slices f JOIN ca_promo_play_through_grants g ON g.id=f.grant_id WHERE g.user_id='{fu}' AND f.amount=1);
+   ROLLBACK;"""
+  settled_post=db.one(free_buy_cutoff)
+  if not(settled_post.startswith('true|') and settled_post.endswith('|1')):raise AssertionError('settling Free Buy owner did not read fee history for an open-grant entrant: '+settled_post)
+  runfile(ROOT/'supabase/migrations/20261118031822_free_buy_grants_post_without_reading_fee_history.sql')
+  check('Free Buy funding grant for an open-grant member reads no fee history and writes identical grant, custody, lot and slice rows',free_buy_cutoff,'false|'+settled_post.split('|',1)[1])
   lock_test=ROOT/'scripts/ci/test-promo-profit-cash-fee-lock.py';track(lock_test)
   import runpy
   runpy.run_path(str(lock_test))['verify'](db,C,T,ROOT/'supabase/migrations/20261118001328_cash_fee_settlement_never_waits_on_a_cashout_grant.sql',runfile,check)
+  snapshot_test=ROOT/'scripts/ci/test-promo-profit-fee-state-snapshot.py';track(snapshot_test)
+  runpy.run_path(str(snapshot_test))['verify'](db,C,T,B,ROOT/'supabase/migrations/20261119002019_promo_fee_state_is_read_from_an_hourly_snapshot.sql',runfile,check)
   for source,digest in input_hashes.items():
    if hashlib.sha256(Path(source).read_bytes()).hexdigest()!=digest:raise RuntimeError('source changed during qualification: '+source)
   report={'status':'passed','checks':checks,'production_mutations':False,'source_sha256':input_hashes,'qualification_limits':['Typed original funded gifts, H cases, W earning positions and cash fee openings; these checks qualify allocation/custody/authorization, not original earning producers, financial member departure or eventual jackpot payer. Notification callback uses an explicit invocation sink; actual notice delivery is separately qualified.']}

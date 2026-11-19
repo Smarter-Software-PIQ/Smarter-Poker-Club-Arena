@@ -25,6 +25,8 @@ on:
       - tests/fixtures/native-alert-event/**
       - scripts/ci/fixtures/informational-alert-state/**
       - scripts/ci/test-informational-alert-state.py
+      - scripts/ci/fixtures/an-alert-resolution-reaches-its-incident-once-per-statement/**
+      - scripts/ci/test-an-alert-resolution-reaches-its-incident-once-per-statement.py
       - .github/workflows/informational-alert-state.yml
 
 permissions:
@@ -60,6 +62,10 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-post-commit-handoff-classification.py
+      - name: An alert resolution reaches its incident once per statement
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-an-alert-resolution-reaches-its-incident-once-per-statement.py
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4

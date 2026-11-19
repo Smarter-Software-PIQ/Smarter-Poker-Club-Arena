@@ -1,0 +1,46 @@
+name: Hand gap unintended-delay watch (PostgreSQL proof)
+
+# Incident 075013fd lane E5. Runs scripts/ci/test-hand-gap-watch.py against a
+# throwaway PostgreSQL 16 cluster (the runner image's own), never production:
+# fn_ca_hand_gap_unintended_delay grades synthetic hand_history rows by shape,
+# skips Lightning, breaks and gaps of 60 s or more, keeps cash busts and
+# run-it-twice out of the over-budget figures; fn_ca_hand_gap_watch records
+# each window, raises nothing for an on-time table or a single breached
+# window, raises ONE critical alert for two consecutive breached windows
+# (deduplicated across later windows and re-runs), and resolves it.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261119052955_an_unintended_delay_between_hands_pages_within_minutes.sql
+      - scripts/sql/hand-gap-unintended-delay.sql
+      - scripts/ci/test-hand-gap-watch.py
+      - .github/workflows/hand-gap-watch-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hand-gap-watch-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: An unintended delay between hands pages within minutes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove the watch on PostgreSQL 16
+        env:
+          PG_BIN: /usr/lib/postgresql/16/bin
+        run: python3 scripts/ci/test-hand-gap-watch.py --output artifacts/hand-gap-watch
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-gap-watch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/hand-gap-watch/*.json
+          retention-days: 7
+          if-no-files-found: warn

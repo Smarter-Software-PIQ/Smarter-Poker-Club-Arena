@@ -16,7 +16,13 @@
  *  - PRECEDENCE: which rule decides a flop spot with the option off and on
  *    (the paired-board fold, the 20 big blind mark, the bare-overpair
  *    continuation, a raise);
- *  - unset and false byte-identical; the worker receipt validator.
+ *  - unset and false byte-identical; the worker receipt validator;
+ *  - THE FIELD counted together on the same runouts (a caller, a player
+ *    still to act with his call in the pot), the realization measured by
+ *    hand class and position, the lead told from the stab, the ramp over
+ *    what is left to bet, and the five flop folds of sets and nut straights
+ *    the 48-hour audit named (RC-02a): four are called, the fifth is a
+ *    priced thin spot.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
@@ -28,22 +34,36 @@ import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { omahaFacingBetEvSpot, type OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
 import {
+  OMAHA_FLOP_EV_BEHIND_CONTINUE,
+  OMAHA_FLOP_EV_CALLER_SHARE,
+  OMAHA_FLOP_EV_FIELD_MAX,
   OMAHA_FLOP_EV_LEAD,
   OMAHA_FLOP_EV_OTHER_PER_RUNOUT,
+  OMAHA_FLOP_EV_POOL,
   OMAHA_FLOP_EV_PRIOR_OTHER,
+  OMAHA_FLOP_EV_REALIZATION_CEILING,
+  OMAHA_FLOP_EV_REALIZATION_FIT,
+  OMAHA_FLOP_EV_REALIZATION_PRIOR_CALLS,
   OMAHA_FLOP_EV_RIVERS,
+  OMAHA_FLOP_EV_STAB,
   OMAHA_FLOP_EV_VALUE_PER_RUNOUT,
   OMAHA_FLOP_EV_VALUE_SHARE,
   OMAHA_FLOP_RUNOUT_REALIZATION_MIN,
   OMAHA_FLOP_RUNOUT_ROW,
+  omahaFlopEvBehindContinue,
   omahaFlopEvCounts,
   omahaFlopEvCountsResetCache,
   omahaFlopEvSeed,
   omahaFlopFacingBetEvAdmitsCall,
   omahaFlopFacingBetEvSpot,
   omahaFlopFacingBetEvVerdict,
+  omahaFlopFittedRealization,
+  omahaFlopHandClass,
   omahaFlopRunoutRealization,
+  type OmahaFlopRealizationFit,
 } from './HorseOmahaFlopFacingBetEv.js';
+import { omahaFlopFacingBetEvAnswer } from './HorseOmahaFlopFacingBetEvRule.js';
+import { omahaBareOverpairFlopFacingBetSpot } from './HorseOmahaOopChecks.js';
 import {
   OMAHA_LIVE_OPTIONS_20261116,
   RECORDED_FLOP_FACING_BETS,
@@ -225,23 +245,66 @@ describe('the sampled count of the flop hand', () => {
     }
   });
 
-  it('walks every unseen card as the turn card with three river cards each and eight holdings per runout', () => {
+  it('walks a balanced set of runouts: every unseen card is the turn card of the same number of them, with its holdings on each', () => {
     const hole = flopCardsOf('7sAc6s4sQc');
     const board = flopCardsOf('JdQs6c');
     const c = omahaFlopEvCounts(hole, board, [], 0.36)!;
     expect(c.unseen).toBe(44);
     expect(c.holeCount).toBe(5);
-    expect(c.runouts).toBe(44 * OMAHA_FLOP_EV_RIVERS);
+    expect(c.pool).toBe(OMAHA_FLOP_EV_POOL);
+    expect(c.runouts).toBe(44 * OMAHA_FLOP_EV_RIVERS[0]);
     expect(c.rows.length).toBe(c.runouts * OMAHA_FLOP_RUNOUT_ROW);
     expect(c.turnOf.length).toBe(c.runouts);
-    expect(new Set(Array.from(c.turnOf)).size).toBe(44);
-    // a holding that holds a runout card is redrawn; nearly every runout meets its full eight
-    expect(c.samples).toBeGreaterThan(
-      c.runouts * (OMAHA_FLOP_EV_VALUE_PER_RUNOUT + OMAHA_FLOP_EV_OTHER_PER_RUNOUT) * 0.98
-    );
+    const perTurn = new Map<number, number>();
+    for (const t of Array.from(c.turnOf)) perTurn.set(t, (perTurn.get(t) ?? 0) + 1);
+    expect(perTurn.size).toBe(44);
+    expect([...perTurn.values()].every((k) => k === OMAHA_FLOP_EV_RIVERS[0])).toBe(true);
+    // a holding that holds a runout card is passed over for the next one: every runout meets its full count
+    const per = OMAHA_FLOP_EV_VALUE_PER_RUNOUT + OMAHA_FLOP_EV_OTHER_PER_RUNOUT;
+    expect(c.samples).toBe(c.runouts * per);
+    for (let k = 0; k < c.runouts; k++) {
+      expect(c.rows[k * OMAHA_FLOP_RUNOUT_ROW + 1]).toBe(OMAHA_FLOP_EV_VALUE_PER_RUNOUT);
+      expect(c.rows[k * OMAHA_FLOP_RUNOUT_ROW + 3]).toBe(OMAHA_FLOP_EV_OTHER_PER_RUNOUT);
+    }
     const four = omahaFlopEvCounts(flopCardsOf('AsKsQdJd'), flopCardsOf('Ts7s2c'), [], 0.46)!;
     expect(four.unseen).toBe(45);
-    expect(four.runouts).toBe(45 * OMAHA_FLOP_EV_RIVERS);
+    expect(four.runouts).toBe(45 * OMAHA_FLOP_EV_RIVERS[0]);
+    // a larger field walks fewer runouts with the same holdings on each
+    const field = omahaFlopEvCounts(hole, board, [], 0.36, {
+      always: [0.55],
+      behind: 1,
+      behindShare: 0.55,
+    })!;
+    expect(field.runouts).toBe(44 * OMAHA_FLOP_EV_RIVERS[2]);
+    // the bettor and two others on every holding (a holding with no clear partner is passed over: rare)
+    expect(field.samples).toBeGreaterThan(field.runouts * per * 3 * 0.99);
+    expect(field.samples).toBeLessThanOrEqual(field.runouts * per * 3);
+  });
+
+  it('the sampling error of the verdict is under its margin: other seeds of the same hands move EV by less than 2 percent of the pot', () => {
+    // the decision never passes a salt; the measurement does, to draw the same hand again
+    const spread: number[] = [];
+    for (const r of RECORDED_FLOP_FACING_BETS) {
+      const st = at(r);
+      const spot = omahaFlopFacingBetEvSpot(st.hero, st.gs as never);
+      if (!spot) continue;
+      const evs: number[] = [];
+      for (let salt = 0; salt < 6; salt++) {
+        const v = omahaFlopFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, {
+          rake: 0,
+          inPosition: false,
+          salt,
+        })!;
+        evs.push(v.ev / (spot.winnable + spot.paid));
+      }
+      const mean = evs.reduce((x, y) => x + y, 0) / evs.length;
+      spread.push(Math.sqrt(evs.reduce((x, y) => x + (y - mean) ** 2, 0) / (evs.length - 1)));
+    }
+    expect(spread.length).toBeGreaterThanOrEqual(20);
+    spread.sort((x, y) => x - y);
+    // the margin is 0.02 of the pot
+    expect(spread[spread.length >> 1]).toBeLessThan(0.02);
+    expect(spread.reduce((x, y) => x + y, 0) / spread.length).toBeLessThan(0.02);
   });
 
   it('is the same on every call, in any card order, and draws nothing from the brain random stream', () => {
@@ -322,7 +385,6 @@ describe('the realization factor is read from the runouts', () => {
     const bluffy = omahaFlopRunoutRealization(c.rows, c.turnOf, 0.6, false)!.realization;
     expect(ip).toBeGreaterThan(oop);
     expect(bluffy).toBeGreaterThan(oop);
-    expect(omahaFlopRunoutRealization.length).toBe(4); // rows, turn cards, bluff share, position
   });
 
   it('by hand: equity on runouts the hand calls down is kept, bluff-catcher equity only where a street is checked', () => {
@@ -366,10 +428,14 @@ describe('the spot, the range and the price', () => {
     expect(a.bucket).toBe('big');
     expect(a.isRaise).toBe(false);
     expect(a.lead).toBe(false);
+    expect(a.stab).toBe(false);
     expect([a.callers, a.allIns, a.behind]).toEqual([0, 0, 2]);
+    // each of the two players behind would add his own 30 to the pot this call can win
+    expect(a.behindCall).toBe(30);
     expect(a.paid).toBe(30);
     expect(a.winnable).toBe(70);
     expect(a.final).toBe(false);
+    expect(a.later).toBe(1); // far more than a pot behind
     expect(a.valueShare).toBe(OMAHA_FLOP_EV_VALUE_SHARE.big);
     expect(a.priorBluff).toBe(OMAHA_FLOP_EV_PRIOR_OTHER.big);
     // 59852600: the Horse faces a raise
@@ -380,8 +446,30 @@ describe('the spot, the range and the price', () => {
     // 59831538: a pot-sized bet into the preflop raiser by a player who only called (a lead)
     const lead = verdictOf(rec(59831538)).spot;
     expect(lead.lead).toBe(true);
+    expect(lead.stab).toBe(false);
     expect(lead.valueShare).toBeCloseTo(OMAHA_FLOP_EV_VALUE_SHARE.big * OMAHA_FLOP_EV_LEAD, 10);
     expect(lead.priorBluff).toBeCloseTo(OMAHA_FLOP_EV_PRIOR_OTHER.big * OMAHA_FLOP_EV_LEAD, 10);
+  });
+
+  it('a bet after the preflop raiser checked is a stab, not a lead: wider than a lead, narrower than a continuation bet', () => {
+    // 59868806: seat 5 raised before the flop; the flop was checked to seat 1, who bet half the pot.
+    const r = rec(59868806);
+    const stab = verdictOf(r).spot;
+    expect(stab.lead).toBe(false);
+    expect(stab.stab).toBe(true);
+    expect(OMAHA_FLOP_EV_STAB).toBeGreaterThan(OMAHA_FLOP_EV_LEAD);
+    expect(OMAHA_FLOP_EV_STAB).toBeLessThan(1);
+    expect(stab.valueShare).toBeCloseTo(OMAHA_FLOP_EV_VALUE_SHARE.mid * OMAHA_FLOP_EV_STAB, 10);
+    expect(stab.priorBluff).toBeCloseTo(OMAHA_FLOP_EV_PRIOR_OTHER.mid * OMAHA_FLOP_EV_STAB, 10);
+    // the same bet with the raiser's check taken out of the record is a lead into him
+    const led = { ...r, a: r.a.replace(';5|f|check|0|h|0|0', '') };
+    expect(led.a).not.toBe(r.a);
+    const asLead = verdictOf(led).spot;
+    expect(asLead.lead).toBe(true);
+    expect(asLead.stab).toBe(false);
+    expect(asLead.valueShare).toBeCloseTo(OMAHA_FLOP_EV_VALUE_SHARE.mid * OMAHA_FLOP_EV_LEAD, 10);
+    // and what the raiser did AFTER the bet does not change the range the bet came from
+    expect(r.a.includes('5|f|fold')).toBe(true);
   });
 
   it('covers PLO4 and PLO5 cash flops facing a bet and nothing else', () => {
@@ -406,24 +494,39 @@ describe('the spot, the range and the price', () => {
     expect(omahaFlopFacingBetEvSpot(st.hero, { ...st.gs, toCall: 0 } as never)).toBeNull();
   });
 
-  it('a call for the whole stack, or with nobody left who can bet, is final and takes no realization factor', () => {
-    const r = rec(59790514);
+  it('a call for the whole stack is final and takes no realization factor; what is left to bet moves the factor in a straight line, with no step', () => {
+    const r = rec(59790514); // 30 to call into 70: the pot after the call is 100
     const short = verdictOf(r, null, { stacks: { 2: 30 } });
     expect(short.spot.allIn).toBe(true);
     expect(short.spot.final).toBe(true);
+    expect(short.spot.later).toBe(0);
     expect(short.v.realization).toBe(1);
     expect(short.v.robustShare).toBeNull();
-    const trivial = verdictOf(r, null, { stacks: { 2: 38 } });
-    expect(trivial.spot.allIn).toBe(false);
-    expect(trivial.spot.final).toBe(true);
     const deep = verdictOf(r);
     expect(deep.spot.final).toBe(false);
-    expect(deep.v.realization).toBeLessThan(1);
+    expect(deep.spot.later).toBe(1);
+    expect(deep.v.realization).not.toBe(1);
     expect(deep.v.robustShare).not.toBeNull();
+    const full = deep.v.realization;
+    // 8 behind after the call is 8 percent of a pot: 8 percent of the way from 1 to the full factor
+    const left = (behind: number) => verdictOf(r, null, { stacks: { 2: 30 + behind } });
+    for (const behind of [1, 8, 10, 11, 25, 50, 99]) {
+      const x = left(behind);
+      expect(x.spot.allIn).toBe(false);
+      expect(x.spot.final).toBe(false);
+      expect(x.spot.later).toBeCloseTo(behind / 100, 9);
+      expect(x.v.realization).toBeCloseTo(1 + (full - 1) * (behind / 100), 9);
+    }
+    // no step at a tenth of the pot (the old rule: no factor at 10 behind, the whole factor at 11)
+    expect(Math.abs(left(11).v.realization - left(10).v.realization)).toBeLessThan(0.01);
+    // a pot or more behind: the whole factor
+    expect(left(100).v.realization).toBe(full);
+    expect(left(400).v.realization).toBe(full);
   });
 
-  it('EV(call) is P(win) x the pot it wins + P(tie) x the split - P(lose) x the call, against one margin', () => {
-    const { spot, v } = verdictOf(rec(59790514));
+  it('heads-up, EV(call) is P(win) x the pot it wins + P(tie) x the split - P(lose) x the call, against one margin', () => {
+    const { spot, v } = verdictOf(rec(59811519));
+    expect([spot.callers, spot.allIns, spot.behind]).toEqual([0, 0, 0]);
     const pLose = 1 - v.pWin - v.pTie;
     expect(v.ev).toBeCloseTo(
       v.pWin * spot.winnable + v.pTie * ((spot.winnable - spot.paid) / 2) - pLose * spot.paid,
@@ -432,9 +535,94 @@ describe('the spot, the range and the price', () => {
     expect(v.margin).toBeCloseTo(0.02 * (spot.winnable + spot.paid), 9);
     expect(v.price).toBeCloseTo(spot.paid / (spot.winnable + spot.paid), 12);
     expect(v.call).toBe(v.ev > v.margin);
-    expect(v.bluffShare).toBe(OMAHA_FLOP_EV_PRIOR_OTHER.big); // no read: the prior
-    expect(v.field).toBeLessThan(1); // two players behind
-    expect(v.realization).toBeLessThanOrEqual(0.85); // and the cap they bring
+    expect(v.bluffShare).toBe(OMAHA_FLOP_EV_PRIOR_OTHER.mid); // no read: the prior
+    expect(v.field).toBe(1);
+    expect(v.continueShare).toBe(0);
+  });
+
+  it('a player still to act is priced both ways: he folds and the pot stays, or he continues with his call in the pot and his hand to beat', () => {
+    const r = rec(59790514); // 30 into 40, two players behind
+    const st = at(r);
+    const { spot, v } = verdictOf(r);
+    expect(spot.behind).toBe(2);
+    const cont = omahaFlopEvBehindContinue(spot.potFrac);
+    expect(v.continueShare).toBe(cont);
+    // 0.75 of the pot sits between the measured points at 0.65 and 1
+    expect(cont).toBeGreaterThan(OMAHA_FLOP_EV_BEHIND_CONTINUE[3][1]);
+    expect(cont).toBeLessThan(OMAHA_FLOP_EV_BEHIND_CONTINUE[2][1]);
+    const counts = omahaFlopEvCounts(st.hero.cards, st.gs.communityCards, [], spot.valueShare, {
+      always: [],
+      behind: 2,
+      behindShare: OMAHA_FLOP_EV_CALLER_SHARE,
+    })!;
+    expect(counts.jointValue.length).toBe(3);
+    const q = v.bluffShare;
+    const weights = [(1 - cont) ** 2, 2 * cont * (1 - cont), cont ** 2];
+    let ev = 0;
+    for (let j = 0; j <= 2; j++) {
+      const jv = counts.jointValue[j];
+      const jo = counts.jointOther[j];
+      const win = v.realization * (q * jo.win + (1 - q) * jv.win);
+      const tie = v.realization * (q * jo.tie + (1 - q) * jv.tie);
+      const tieShare = v.realization * (q * jo.tieShare + (1 - q) * jv.tieShare);
+      const pot = spot.winnable + j * spot.behindCall; // each one who continues adds his 30
+      ev +=
+        weights[j] *
+        (win * pot + tieShare * (pot + spot.paid) - tie * spot.paid - (1 - win - tie) * spot.paid);
+    }
+    expect(v.ev).toBeCloseTo(ev, 9);
+    // nobody behind continuing is the bettor alone; every one who continues is one more hand to beat
+    expect(counts.jointValue[0].win).toBe(counts.value.win);
+    expect(counts.jointValue[1].win).toBeLessThan(counts.jointValue[0].win);
+    expect(counts.jointValue[2].win).toBeLessThan(counts.jointValue[1].win);
+    expect(v.field).toBeLessThan(1);
+    // the old tax had no pot credit and capped the factor at 0.85: with the same two players
+    // behind the call is worth more than a product of "must also beat him" shares
+    const alone = q * counts.other.win + (1 - q) * counts.value.win;
+    const taxed =
+      alone * (1 - 0.25 * (1 - counts.top(0.25).win)) ** 2 * Math.min(v.realization, 0.85);
+    expect(v.pWin).toBeGreaterThan(taxed);
+    // there is no cap for a player behind
+    expect(OMAHA_FLOP_EV_REALIZATION_CEILING).toBeGreaterThan(0.85);
+  });
+
+  it('the continue rate of a player behind follows the bet as a share of the pot (measured points, straight lines between)', () => {
+    const pts = OMAHA_FLOP_EV_BEHIND_CONTINUE;
+    expect(omahaFlopEvBehindContinue(0.05)).toBe(pts[0][1]);
+    expect(omahaFlopEvBehindContinue(pts[1][0])).toBeCloseTo(pts[1][1], 12);
+    expect(omahaFlopEvBehindContinue((pts[1][0] + pts[2][0]) / 2)).toBeCloseTo(
+      (pts[1][1] + pts[2][1]) / 2,
+      12
+    );
+    expect(omahaFlopEvBehindContinue(3)).toBe(pts[pts.length - 1][1]);
+    for (let x = 0.05; x < 1.5; x += 0.05)
+      expect(omahaFlopEvBehindContinue(x + 0.05)).toBeLessThanOrEqual(omahaFlopEvBehindContinue(x));
+  });
+
+  it('a caller is beaten TOGETHER with the bettor on the same runout, not as a second independent share', () => {
+    // 59710501: bottom set on 7h 9h Jd, a caller already in. A set wins on the runouts where it is
+    // strong against both, so the joint share is far above the product of the two separate shares
+    // (the product is what folded this hand).
+    const st = at(rec(59710501));
+    const spot = omahaFlopFacingBetEvSpot(st.hero, st.gs as never)!;
+    expect([spot.callers, spot.allIns, spot.behind]).toEqual([1, 0, 1]);
+    const c = omahaFlopEvCounts(st.hero.cards, st.gs.communityCards, [], spot.valueShare, {
+      always: [OMAHA_FLOP_EV_CALLER_SHARE],
+      behind: 0,
+      behindShare: 1,
+    })!;
+    const together = c.jointValue[0].win;
+    const product = c.value.win * c.top(OMAHA_FLOP_EV_CALLER_SHARE).win;
+    expect(together).toBeLessThan(c.value.win);
+    expect(together).toBeGreaterThan(product + 0.05);
+    // a field larger than the count draws for is not answered (the decision it was given stands)
+    expect(
+      omahaFlopEvCounts(st.hero.cards, st.gs.communityCards, [], spot.valueShare, {
+        always: new Array(OMAHA_FLOP_EV_FIELD_MAX + 1).fill(0.5),
+        behind: 0,
+        behindShare: 1,
+      })
+    ).toBeNull();
   });
 
   it('the size of the bet in chips decides nothing: the same spot at a tenth and at ten times the stakes is the same verdict', () => {
@@ -693,27 +881,263 @@ describe('precedence on the flop: which rule decides, option off and on', () => 
     }
   });
 
-  it('it stands aside for the bare-overpair continuation, which keeps its own priced verdict', async () => {
-    const oop = await import('./HorseOmahaOopChecks.js');
-    const r = rec(59790514);
-    const spy = vi
-      .spyOn(oop, 'omahaBareOverpairFlopFacingBetSpot')
-      .mockImplementation(() => ({ call: 30 }) as never);
-    const { omahaFlopFacingBetEvAnswer } = await import('./HorseOmahaFlopFacingBetEvRule.js');
+  it('it stands aside for the bare-overpair continuation, which keeps its own priced verdict', () => {
+    // 59830767: the preflop raiser checked bare kings on 4d 2c 4s and faces a bet heads-up: a real
+    // node of the continuation (no stand-in for its spot).
+    const r = rec(59830767);
     const st = at(r);
+    expect(omahaBareOverpairFlopFacingBetSpot(st.hero, st.gs as never)).not.toBeNull();
+    expect(omahaFlopFacingBetEvSpot(st.hero, st.gs as never)).not.toBeNull();
     const ctx = { mind: false, telemetry: false, rake: 0, inPosition: false };
-    const owned = omahaFlopFacingBetEvAnswer(st.hero, st.gs as never, {
-      ...ctx,
-      bareOverpairContinuation: true,
-    });
-    const free = omahaFlopFacingBetEvAnswer(st.hero, st.gs as never, {
-      ...ctx,
-      bareOverpairContinuation: false,
-    });
-    spy.mockRestore();
-    // ESM namespaces may not be spied in every runner: assert what was observable
-    if (spy.mock.calls.length > 0) expect(owned).toBeNull();
-    expect(free).not.toBeNull();
-    expect(free!.verdict.call).toBe(true);
+    expect(
+      omahaFlopFacingBetEvAnswer(st.hero, st.gs as never, {
+        ...ctx,
+        bareOverpairContinuation: true,
+      })
+    ).toBeNull();
+    expect(
+      omahaFlopFacingBetEvAnswer(st.hero, st.gs as never, {
+        ...ctx,
+        bareOverpairContinuation: false,
+      })
+    ).not.toBeNull();
+    // through HorseLogic.decide: with the continuation on, the flop verdict never answers there and
+    // the decision is the continuation's own, byte for byte; with it off, the verdict answers
+    const CONT: HorseDecideOpts = { omahaBareOverpairOopFlopCheck: true };
+    const owned = play(r, { ...CONT, ...ON });
+    const alone = play(r, CONT);
+    expect(owned.bytes).toEqual(alone.bytes);
+    expect(
+      fired(owned, 'omaha_flop_facing_bet_ev_call') + fired(owned, 'omaha_flop_facing_bet_ev_fold')
+    ).toBe(0);
+    const free = play(r, ON);
+    expect(
+      fired(free, 'omaha_flop_facing_bet_ev_call') + fired(free, 'omaha_flop_facing_bet_ev_fold')
+    ).toBe(SEEDS.length);
+  });
+});
+
+// ───────────────────── realization measured by class and position ─────────────────────
+
+describe('the realization factor is corrected by what flop calls returned in production, by hand class and position', () => {
+  const FLAT = (ratio: number, n: number): OmahaFlopRealizationFit => ({
+    made: { ip: { ratio, n }, oop: { ratio, n } },
+    draw: { ip: { ratio, n }, oop: { ratio, n } },
+    pair: { ip: { ratio, n }, oop: { ratio, n } },
+  });
+
+  it('names the class of a flop hand: two pair or better, a draw, one pair or less', () => {
+    const k = (h: string, b: string) => omahaFlopHandClass(flopCardsOf(h), flopCardsOf(b));
+    expect(k('3d2c7c7d6c', '7h9hJd')).toBe('made'); // bottom set
+    expect(k('7sAc6s4sQc', 'JdQs6c')).toBe('made'); // two pair
+    expect(k('3h7h6d4c2c', '5h4s8c')).toBe('made'); // the nut straight
+    expect(k('AsKsQdJd', 'Ts7s2c')).toBe('draw'); // the nut flush draw
+    expect(k('KhTh9d8d2c', 'JdQs6c')).toBe('draw'); // a wrap
+    expect(k('2hAhAd4s8s', 'Jh5c4d')).toBe('pair'); // aces, no draw
+    expect(k('Ah3d4c7s8h', 'JdQs6c')).toBe('pair'); // ace high
+  });
+
+  it('a cell with no calls leaves the model alone; with many it moves to its measurement; in between, continuously', () => {
+    const model = 0.8;
+    const at0 = omahaFlopFittedRealization(model, 'pair', true, 1, FLAT(0.5, 0));
+    expect(at0.multiplier).toBe(1);
+    expect(at0.realization).toBe(model);
+    const K = OMAHA_FLOP_EV_REALIZATION_PRIOR_CALLS;
+    const half = omahaFlopFittedRealization(model, 'pair', true, 1, FLAT(0.5, K));
+    expect(half.weight).toBeCloseTo(0.5, 12);
+    expect(half.multiplier).toBeCloseTo(0.75, 12);
+    expect(half.realization).toBeCloseTo(0.6, 12);
+    const many = omahaFlopFittedRealization(model, 'pair', true, 1, FLAT(0.5, K * 1000));
+    expect(many.realization).toBeCloseTo(0.4, 2);
+    let last = model;
+    for (const n of [1, 5, 25, 100, 400, 1600, 6400]) {
+      const x = omahaFlopFittedRealization(model, 'pair', true, 1, FLAT(0.5, n)).realization;
+      expect(x).toBeLessThan(last);
+      expect(last - x).toBeLessThan(0.2); // no jump at any sample size
+      last = x;
+    }
+    // bounds: never under 0, never over the ceiling
+    expect(omahaFlopFittedRealization(1, 'made', true, 1, FLAT(9, 1e9)).realization).toBe(
+      OMAHA_FLOP_EV_REALIZATION_CEILING
+    );
+    expect(omahaFlopFittedRealization(0.5, 'draw', false, 1, FLAT(-9, 1e9)).realization).toBe(0);
+    // nothing in it is a bet size or a stack share: its inputs are the model's factor, the class,
+    // the position and the share of the later streets left to play
+    expect(omahaFlopFittedRealization(model, 'pair', true, 0, FLAT(0.5, K)).realization).toBe(1);
+  });
+
+  it('the fitted cells are the measured ones, each with its sample, and the weak-pair cells sit under the made-hand cells', () => {
+    const fit = OMAHA_FLOP_EV_REALIZATION_FIT;
+    let calls = 0;
+    for (const klass of ['made', 'draw', 'pair'] as const)
+      for (const pos of ['ip', 'oop'] as const) {
+        expect(fit[klass][pos].n).toBeGreaterThanOrEqual(100);
+        expect(Number.isFinite(fit[klass][pos].ratio)).toBe(true);
+        calls += fit[klass][pos].n;
+      }
+    expect(calls).toBe(4059); // every Horse flop call of the shared realization table (CONSTANTS file)
+    const used = (klass: 'made' | 'draw' | 'pair', ip: boolean) =>
+      omahaFlopFittedRealization(0.8, klass, ip, 1).realization;
+    expect(used('pair', true)).toBeLessThan(used('made', true));
+    expect(used('pair', false)).toBeLessThan(used('made', false));
+    expect(used('pair', true)).toBeLessThan(0.8); // one pair in position returned less than the model said
+  });
+
+  it('the verdict applies it: the same hand and spot with a lower measured cell is worth less', () => {
+    const r = rec(59811519); // aces, no draw, heads-up
+    const st = at(r);
+    const spot = omahaFlopFacingBetEvSpot(st.hero, st.gs as never)!;
+    const withFit = (fit: OmahaFlopRealizationFit) =>
+      omahaFlopFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, {
+        rake: 0,
+        inPosition: true,
+        fit,
+      })!;
+    const neutral = withFit(FLAT(1, 0));
+    const low = withFit(FLAT(0.4, 5000));
+    expect(neutral.klass).toBe('pair');
+    expect(neutral.fitMultiplier).toBe(1);
+    expect(neutral.realization).toBeCloseTo(1 + (neutral.modelRealization - 1) * spot.later, 12);
+    expect(low.modelRealization).toBe(neutral.modelRealization);
+    expect(low.fitMultiplier).toBeLessThan(0.45);
+    expect(low.ev).toBeLessThan(neutral.ev);
+  });
+});
+
+// ───────────────────── the five folds of sets and nut straights (RC-02a) ─────────────────────
+
+describe('the five flop folds of sets and nut straights the 48-hour audit named (RC-02a): four are called, one is a priced thin spot', () => {
+  const five = RECORDED_FLOP_FACING_BETS.filter((r) => r.group === 'rc02a');
+  const IN_POSITION = new Set([59727433]);
+
+  it('are the five hands, each with a caller in or players still to act', () => {
+    expect(five.map((r) => r.n).sort()).toEqual([59710501, 59727433, 59756252, 59806482, 59842423]);
+    for (const r of five) {
+      const { spot } = verdictOf(r);
+      expect(spot.callers + spot.behind, `hand ${r.n}`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  // 59710501 is the one of the five the verdict does not call. Bottom set of sevens on 7h 9h Jd,
+  // out of position, 36 to call into 119 with a caller in and a player behind: counted together
+  // with them its share of the pot is at the price (0.23; an independent count of the same ranges
+  // gives 0.28), and two pair or better called out of position by Horses realized 0.81 of its
+  // exact equity in production (the shared realization table; OMAHA_FLOP_EV_REALIZATION_FIT.made.oop).
+  // It is a priced fold about a tenth of the pot under its margin: stated here, not forced to a call.
+  const THIN = 59710501;
+
+  it('the verdict calls the top set, the bottom set in position and both nut straights', () => {
+    for (const r of five.filter((x) => x.n !== THIN)) {
+      const { spot, v } = verdictOf(r, null, {}, IN_POSITION.has(r.n));
+      expect(v.klass, `hand ${r.n}`).toBe('made');
+      expect(v.call, `hand ${r.n}`).toBe(true);
+      expect(v.ev, `hand ${r.n}`).toBeGreaterThan(2 * v.margin);
+      expect(v.price, `hand ${r.n}`).toBeLessThan(0.35);
+      expect(spot.final).toBe(false);
+    }
+    // top set of nines on 6c 9s 8c with two players behind: the hand the field tax folded
+    const top = verdictOf(rec(59842423));
+    expect(top.v.call).toBe(true);
+    expect(top.v.potShare).toBeGreaterThan(top.v.price + 0.1);
+  });
+
+  it('the bottom set with a caller in and a player behind is priced, not folded by a rule: its share is at the price and its EV about a tenth of the pot under the margin', () => {
+    const r = rec(THIN);
+    const { spot, v } = verdictOf(r);
+    expect([spot.callers, spot.behind]).toEqual([1, 1]);
+    expect(v.klass).toBe('made');
+    expect(Math.abs(v.potShare - v.price)).toBeLessThan(0.06);
+    expect(v.call).toBe(false);
+    const short = (v.ev - v.margin) / (spot.winnable + spot.paid);
+    expect(short).toBeLessThan(0);
+    expect(short).toBeGreaterThan(-0.15);
+    // nothing but the price decides: the same hand and field at half the bet is a call
+    const cheaper = {
+      ...r,
+      a: r.a.replace('3|f|bet|36|', '3|f|bet|18|').replace('5|f|call|36|', '5|f|call|18|'),
+      pot: 83,
+      bet: 18,
+      cur: 18,
+      min: 36,
+      max: 119,
+      seats: r.seats.map((s) =>
+        s[2] === 36 ? [s[0], s[1] + 18, 18, s[3] - 18, s[4], s[5], s[6]] : s
+      ),
+    };
+    const half = verdictOf(cheaper);
+    expect(half.spot.paid).toBe(18);
+    expect(half.spot.potFrac).toBeLessThan(spot.potFrac);
+    expect(half.v.ev - half.v.margin).toBeGreaterThan(v.ev - v.margin);
+    // and with nobody behind and position it is worth more than as recorded
+    const noneBehind = {
+      ...r,
+      a: `${r.a};2|f|fold|0|h|0|0`,
+      seats: r.seats.map((s) => (s[0] === 2 ? [...s.slice(0, 6), 1] : s)),
+    };
+    const better = verdictOf(noneBehind, null, {}, true);
+    expect(better.spot.behind).toBe(0);
+    expect(better.v.ev).toBeGreaterThan(v.ev);
+  });
+
+  it('through HorseLogic.decide with the production option list: no fold on any seed, the verdict answers and the receipt is admitted', () => {
+    for (const r of five.filter((x) => x.n !== THIN)) {
+      const on = play(r, { ...PACKAGE, ...ON });
+      expect(
+        on.actions.every((a) => a !== 'fold'),
+        `hand ${r.n}: ${on.actions.join(',')}`
+      ).toBe(true);
+      expect(
+        on.refusals.every((x) => x === null),
+        `hand ${r.n} receipts`
+      ).toBe(true);
+      // every seed that ended in a call was answered by the verdict
+      on.actions.forEach((a, i) => {
+        if (a === 'call')
+          expect(on.fires[i].includes('omaha_flop_facing_bet_ev_call'), `hand ${r.n}`).toBe(true);
+      });
+    }
+    // the top set is not folded on any seed
+    const top = play(rec(59842423), { ...PACKAGE, ...ON });
+    expect(all(top, 'call', 'raise')).toBe(true);
+    expect(fired(top, 'omaha_flop_facing_bet_ev_fold')).toBe(0);
+  });
+
+  it('a caller node, a PLO4 node and a whole-stack call go through HorseLogic.decide and the receipt validator', () => {
+    // a caller already in: 59710501 (above) answered by the verdict on every seed
+    const caller = play(rec(59710501), ON);
+    expect(verdictOf(rec(59710501)).spot.callers).toBe(1);
+    expect(
+      fired(caller, 'omaha_flop_facing_bet_ev_call') +
+        fired(caller, 'omaha_flop_facing_bet_ev_fold')
+    ).toBe(SEEDS.length);
+    expect(caller.refusals.every((x) => x === null)).toBe(true);
+    // PLO4: the same recorded spot with four cards (top and bottom pair), option off and on
+    const four: FlopEdit = { variant: 'plo4', hole: '7sAc6sQc' };
+    const r = rec(59790514);
+    const v4 = verdictOf(r, null, four).v;
+    for (const base of [{}, PACKAGE]) {
+      const off = play(r, base, four);
+      const on = play(r, { ...base, ...ON }, four);
+      expect(
+        fired(off, 'omaha_flop_facing_bet_ev_call') + fired(off, 'omaha_flop_facing_bet_ev_fold')
+      ).toBe(0);
+      expect(fired(on, `omaha_flop_facing_bet_ev_${v4.call ? 'call' : 'fold'}`)).toBe(SEEDS.length);
+      expect(
+        on.actions.every((a) =>
+          v4.call ? a !== 'fold' : a === 'fold' || a === 'raise' || a === 'all_in'
+        )
+      ).toBe(true);
+      expect(on.refusals.every((x) => x === null)).toBe(true);
+    }
+    // the whole stack: the call is an all-in, admitted by the validator
+    const shove: FlopEdit = { stacks: { 2: 30 } };
+    expect(verdictOf(r, null, shove).spot.allIn).toBe(true);
+    expect(verdictOf(r, null, shove).v.call).toBe(true);
+    for (const base of [{}, PACKAGE]) {
+      const on = play(r, { ...base, ...ON }, shove);
+      expect(all(on, 'all_in'), on.actions.join(',')).toBe(true);
+      expect(fired(on, 'omaha_flop_facing_bet_ev_call')).toBe(SEEDS.length);
+      expect(on.refusals.every((x) => x === null)).toBe(true);
+    }
   });
 });

@@ -1059,6 +1059,15 @@ export interface HorseDecision {
   tournamentPreflopAttribution?: import('./engine/HorsePhase6Attribution.js').HorsePhase6Attribution;
   /** Finite private provenance for the brain's last-resort liveness action. */
   policyFallback?: 'brain_exception';
+  /** omahaValueSizeIsUnreadable (default off, HorseOmahaValueSizeBand.ts): this bet or raise is a nut-class
+   *  wager sized in the owner's 80-95% pot band; the table's commit guards keep it while it is still legal and
+   *  in the band (omahaValueSizeBandHolds) instead of rounding it back up to the full pot. */
+  valueSize?: {
+    readonly kind: 'unreadable_band';
+    /** The wager the cell sized: a decision whose action or amount no longer equals this is not a band wager. */
+    readonly action: 'bet' | 'raise';
+    readonly amount: number;
+  };
   /** Private request-to-executor witness, attached at the live response boundary. */
   executionWitness?: import('./engine/HorseExecutionWitness.js').HorseExecutionWitness;
   /** Bounded outer policy-order trace; contains actions only, never cards or seeds. */
@@ -1076,8 +1085,12 @@ export interface HorseDecision {
     | 'preflop_priced_refusal';
   plo4Policy?: import('./engine/plo4/Plo4LivePolicy.js').Plo4LiveReceipt;
   omahaVariantPolicy?: import('./engine/omaha/OmahaVariantLivePolicy.js').OmahaVariantReceipt;
-  /** omahaStreetPlan (default off): the bounded plan a turn decision was made under; no card, no identity. */
-  streetPlan?: import('./engine/HorseOmahaStreetPlan.js').OmahaStreetPlanRecord;
+  /** omahaStreetPlan, omahaStreetPlanFlop, omahaStreetPlanThreeWay (default off): the bounded plan a
+   * flop or turn decision was made under; no card, no identity. */
+  streetPlan?:
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaStreetPlanRecord
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaFlopPlanRecord
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaThreeWayPlanRecord;
   remainingVariantPolicy?: import('./engine/remainingVariants/RemainingVariantLivePolicy.js').RemainingVariantReceipt;
   jointPolicy?: import('./engine/multiway/JointLivePolicy.js').JointPolicyReceipt;
   tournamentPostflop?: import('./engine/HorseTournamentPostflop.js').HorseTournamentPostflopLedger;

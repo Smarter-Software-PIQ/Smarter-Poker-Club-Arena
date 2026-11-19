@@ -1,0 +1,62 @@
+{
+  "_comment": "Pre-existing shared-row writes on a hand's path that cannot be removed in incident 075013fd. Read by scripts/ci/check-hand-path-shared-writes.mjs; every entry names function, kind, target, owner, reason, date (tests/a-hands-money-path-never-writes-a-shared-row.law.test.ts). This list is DEBT: remove an entry in the change that removes the write. The 14 that #11270/#11266 remove (atomic_distribute_rake, bbj_record_contribution, fn_bbj_allocate, record_insurance_transaction, the envelope's bbj-pool lock and pool row, and through them trg_union_rake_weekly and fn_bbj_contribution_drops_cached_hours) are deliberately NOT here.",
+  "measured": "2026-11-18 read-only on production kuklfnapbkmacvwxktbh: 875 functions on the path, 37 violations before #11270/#11266, 23 after. With the SET-target rule (20261118160106: an UPDATE OF trigger is followed only when the statement SETs one of its columns) 726 functions and 12 violations: 11 were triggers that cannot fire (fn_apply_club_ladder, fn_sync_club_staff_notice_group, fn_refresh_club_activity_counts, fn_sync_club_table_counts, guard_member_club_standalone_game, fn_ca_fund_overlay_on_lock x4, fn_guard_tournament_start_readiness x2) and are removed. 20261118161644 (lane H1, installs on merge) then removes fn_ca_horse_split_return_late_credit row_lock/write clubs and fn_ca_deleted_wallet_bank_return write clubs (proved on production texts by scripts/ci/test-hand-path-cash-lane.py); the last two lane-H1 entries go when 20261118161703 installs in the daily window. Lane H2 (#11311) re-reasoned its fn_ca_burn and spin entries (STATIC ONLY, G3 native proof).",
+  "entries": [
+    {
+      "function": "fn_ca_burn",
+      "kind": "row_lock",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE FOR THIS ROW (lane H2, 2026-11-18). The chain is real up to fn_ca_burn: a Diamond Arena BBJ credit (fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance) to a player with an open diamond_debts receivable writes a NEGATIVE debt_settlement row, which fires trg_allocate_lifetime_vip_diamond_spend (WHEN new.amount < 0) -> expire_lifetime_vip_diamond_lots_for_user, and an overdue Lifetime VIP lot is burned through fn_ca_burn('diamonds', 'player', ...). That branch locks and writes only the player's profiles row; the clubs / union_wallets lock and write sit in fn_ca_burn's CHIPS branch (v_asset = 'chips' AND v_src IN ('club','union')), which the expiry's literal arguments never select. The reader cannot see literal arguments. Production 2026-11-18: 0 jackpot hits ever, 0 open diamond debts, 0 overdue lots, 0 VIP expiry burns. Native proof: scripts/ci/test-hand-path-shared-writes.py G3 diamond (the real production texts complete while another session holds the club and union wallet rows; a chip burn waits on them). Remove when fn_ca_burn's diamond retirement is its own function the expiry calls.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_burn",
+      "kind": "row_lock",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE FOR THIS ROW (lane H2, 2026-11-18). The chain is real up to fn_ca_burn: a Diamond Arena BBJ credit (fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance) to a player with an open diamond_debts receivable writes a NEGATIVE debt_settlement row, which fires trg_allocate_lifetime_vip_diamond_spend (WHEN new.amount < 0) -> expire_lifetime_vip_diamond_lots_for_user, and an overdue Lifetime VIP lot is burned through fn_ca_burn('diamonds', 'player', ...). That branch locks and writes only the player's profiles row; the clubs / union_wallets lock and write sit in fn_ca_burn's CHIPS branch (v_asset = 'chips' AND v_src IN ('club','union')), which the expiry's literal arguments never select. The reader cannot see literal arguments. Production 2026-11-18: 0 jackpot hits ever, 0 open diamond debts, 0 overdue lots, 0 VIP expiry burns. Native proof: scripts/ci/test-hand-path-shared-writes.py G3 diamond (the real production texts complete while another session holds the club and union wallet rows; a chip burn waits on them). Remove when fn_ca_burn's diamond retirement is its own function the expiry calls.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_burn",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE FOR THIS ROW (lane H2, 2026-11-18). The chain is real up to fn_ca_burn: a Diamond Arena BBJ credit (fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance) to a player with an open diamond_debts receivable writes a NEGATIVE debt_settlement row, which fires trg_allocate_lifetime_vip_diamond_spend (WHEN new.amount < 0) -> expire_lifetime_vip_diamond_lots_for_user, and an overdue Lifetime VIP lot is burned through fn_ca_burn('diamonds', 'player', ...). That branch locks and writes only the player's profiles row; the clubs / union_wallets lock and write sit in fn_ca_burn's CHIPS branch (v_asset = 'chips' AND v_src IN ('club','union')), which the expiry's literal arguments never select. The reader cannot see literal arguments. Production 2026-11-18: 0 jackpot hits ever, 0 open diamond debts, 0 overdue lots, 0 VIP expiry burns. Native proof: scripts/ci/test-hand-path-shared-writes.py G3 diamond (the real production texts complete while another session holds the club and union wallet rows; a chip burn waits on them). Remove when fn_ca_burn's diamond retirement is its own function the expiry calls.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_burn",
+      "kind": "write",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE FOR THIS ROW (lane H2, 2026-11-18). The chain is real up to fn_ca_burn: a Diamond Arena BBJ credit (fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance) to a player with an open diamond_debts receivable writes a NEGATIVE debt_settlement row, which fires trg_allocate_lifetime_vip_diamond_spend (WHEN new.amount < 0) -> expire_lifetime_vip_diamond_lots_for_user, and an overdue Lifetime VIP lot is burned through fn_ca_burn('diamonds', 'player', ...). That branch locks and writes only the player's profiles row; the clubs / union_wallets lock and write sit in fn_ca_burn's CHIPS branch (v_asset = 'chips' AND v_src IN ('club','union')), which the expiry's literal arguments never select. The reader cannot see literal arguments. Production 2026-11-18: 0 jackpot hits ever, 0 open diamond debts, 0 overdue lots, 0 VIP expiry burns. Native proof: scripts/ci/test-hand-path-shared-writes.py G3 diamond (the real production texts complete while another session holds the club and union wallet rows; a chip burn waits on them). Remove when fn_ca_burn's diamond retirement is its own function the expiry calls.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_spin_book_entry",
+      "kind": "row_lock",
+      "target": "spin_bonus_pools",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE ON A HAND (lane H2, 2026-11-18). The hand's only left_at write is fn_ca_settle_hand_stacks_absolute's zero-stack VACATE of a tournament seat; trg_seat_change_syncs_seat_first_count then runs fn_sync_seat_first_player_count, which books the Spin (and locks the union/club spin_bonus_pools row) only when live seats >= max_players. A vacate strictly lowers the count from <= max_players, so a hand can never satisfy it; the booking belongs to the third paid seat's fill. Production: 782 of 782 spin contributions in the 7 days to 2026-11-18 were booked before their spin's first hand commit (0 inside or after one). Native proof: scripts/ci/test-hand-path-shared-writes.py G3 spin (production seat-first texts + the hand's verbatim seat/roster statements commit while another session holds the spin pool, club and union wallet rows; a third-seat fill waits on the pool). The reader cannot evaluate the count guard. Remove when the booking leaves the seat-count trigger for the fill's own path.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_spin_book_entry",
+      "kind": "write",
+      "target": "spin_bonus_pools",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE ON A HAND (lane H2, 2026-11-18). The hand's only left_at write is fn_ca_settle_hand_stacks_absolute's zero-stack VACATE of a tournament seat; trg_seat_change_syncs_seat_first_count then runs fn_sync_seat_first_player_count, which books the Spin (and locks the union/club spin_bonus_pools row) only when live seats >= max_players. A vacate strictly lowers the count from <= max_players, so a hand can never satisfy it; the booking belongs to the third paid seat's fill. Production: 782 of 782 spin contributions in the 7 days to 2026-11-18 were booked before their spin's first hand commit (0 inside or after one). Native proof: scripts/ci/test-hand-path-shared-writes.py G3 spin (production seat-first texts + the hand's verbatim seat/roster statements commit while another session holds the spin pool, club and union wallet rows; a third-seat fill waits on the pool). The reader cannot evaluate the count guard. Remove when the booking leaves the seat-count trigger for the fill's own path.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_spin_reserve_pool",
+      "kind": "write",
+      "target": "spin_bonus_pools",
+      "owner": "club-arena hand path (incident 075013fd lane H2)",
+      "reason": "STATIC ONLY, PROVEN UNREACHABLE ON A HAND (lane H2, 2026-11-18). The hand's only left_at write is fn_ca_settle_hand_stacks_absolute's zero-stack VACATE of a tournament seat; trg_seat_change_syncs_seat_first_count then runs fn_sync_seat_first_player_count, which books the Spin (and locks the union/club spin_bonus_pools row) only when live seats >= max_players. A vacate strictly lowers the count from <= max_players, so a hand can never satisfy it; the booking belongs to the third paid seat's fill. Production: 782 of 782 spin contributions in the 7 days to 2026-11-18 were booked before their spin's first hand commit (0 inside or after one). Native proof: scripts/ci/test-hand-path-shared-writes.py G3 spin (production seat-first texts + the hand's verbatim seat/roster statements commit while another session holds the spin pool, club and union wallet rows; a third-seat fill waits on the pool). The reader cannot evaluate the count guard. Remove when the booking leaves the seat-count trigger for the fill's own path.",
+      "date": "2026-11-18"
+    }
+  ]
+}

@@ -58,6 +58,50 @@ import {
 } from './terminalSettlementRpc.js';
 import type { VerifiedSatelliteSettlementReceipt } from './satelliteSettlementReceipt.js';
 import type { VerifiedSatelliteQualifierReceipt } from './satelliteQualifierReceipt.js';
+
+/**
+ * A tournament chip purchase refused before it wrote anything, because a lock
+ * it needed was busy (55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY: the player's keys,
+ * or a bounty settle past its 500 ms bound, 20261119013430). The same request
+ * is idempotent, so the caller may send it again.
+ */
+export function isTournamentPurchasePlayerBusy(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
+  return (
+    !!error &&
+    error.code === '55P03' &&
+    String(error.message ?? '').includes('TOURNAMENT_PURCHASE_PLAYER_BUSY')
+  );
+}
+/**
+ * Sends a purchase refused TOURNAMENT_PURCHASE_PLAYER_BUSY again, at most
+ * `retries` times with a short growing pause, asking `mayResend` before every
+ * attempt so a freeze or a closed decision window ends it at once.
+ */
+export async function resendBusyTournamentPurchase<
+  D,
+  E extends { code?: string; message?: string },
+>(
+  first: { data: D; error: E | null },
+  send: () => PromiseLike<{ data: D; error: E | null }>,
+  mayResend: () => boolean,
+  retries: number,
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+): Promise<{ data: D; error: E | null }> {
+  let result = first;
+  for (
+    let attempt = 1;
+    attempt <= retries && isTournamentPurchasePlayerBusy(result.error) && mayResend();
+    attempt++
+  ) {
+    await pause(150 * attempt);
+    if (!mayResend()) break;
+    const next = await send();
+    result = { data: next.data, error: next.error };
+  }
+  return result;
+}
 import {
   resolveOriginalSatelliteQualifierOutcome,
   readSatelliteQualifierState,
@@ -2790,6 +2834,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   static readonly HORSE_REBUY_INPUT_RETRY_MS = 2_000;
   static readonly HORSE_REBUY_INPUT_MAX_PASSES = 16;
   static readonly HORSE_REBUY_INPUT_CONCURRENCY = 4;
+  /** In-place retries of a purchase refused 55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY. */
+  static readonly HORSE_REBUY_BUSY_RETRIES = 3;
 
   protected override horseRebuyOfferMayHaveOpened(): void {
     this.answerHorseRebuyOffersNow(0);
@@ -3229,7 +3275,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               }
               startedAtMs = Date.now();
               diagnostic('purchase_started', undefined, startedAtMs);
-              const { data, error } = await supabase.rpc('process_tournament_rebuy', {
+              const request = {
                 p_tournament_id: this.tournamentId,
                 p_user_id: h.id,
                 p_rebuy_type: recoveryType,
@@ -3238,7 +3284,29 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 p_cost: null,
                 p_chips: null,
                 p_current_level: this.currentLevel,
-              });
+              };
+              let { data, error } = await supabase.rpc('process_tournament_rebuy', request);
+              // 20261119013430: a purchase whose bounty settle waited over its
+              // 500 ms lock bound (or whose player keys were busy) is refused
+              // with 55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY before anything is
+              // written. It is the same idempotent request, so it is sent again
+              // in place, bounded, and only while the freeze gate, the
+              // mutation gate and the decision window still allow a purchase.
+              if (isTournamentPurchasePlayerBusy(error)) {
+                ({ data, error } = await resendBusyTournamentPurchase(
+                  { data, error },
+                  () => supabase.rpc('process_tournament_rebuy', request),
+                  () =>
+                    mayMutate() &&
+                    !isMaintenanceFrozen() &&
+                    !(
+                      timing?.promptUntilMs !== null &&
+                      timing?.promptUntilMs !== undefined &&
+                      Date.now() >= timing.promptUntilMs
+                    ),
+                  TournamentManagerEliminations.HORSE_REBUY_BUSY_RETRIES
+                ));
+              }
               diagnostic(
                 error || (data as { success?: boolean } | null)?.success !== true
                   ? 'purchase_unproven'
@@ -3724,7 +3792,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     ]);
   }
 
-  private bustGuardPrefetchMap?: Map<string, ReturnType<TournamentManagerEliminations['readBustGuard']>>;
+  private bustGuardPrefetchMap?: Map<
+    string,
+    ReturnType<TournamentManagerEliminations['readBustGuard']>
+  >;
   protected get bustGuardPrefetch() {
     return (this.bustGuardPrefetchMap ??= new Map());
   }
@@ -6322,6 +6393,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     message: string;
   } | null = null;
   static readonly SATELLITE_REFUSAL_ALERT_EVERY_MS = 10 * 60_000;
+  static readonly SATELLITE_CONTENTION_GRACE_MS = 5 * 60_000;
+
+  /** Busy-database refusals: the statement did not run to an answer. */
+  static isContentionRefusal(message: string): boolean {
+    return /canceling statement due to (?:statement|lock) timeout|deadlock detected|could not serialize access|could not obtain lock|\((?:57014|55P03|40001|40P01)\)/i.test(
+      message
+    );
+  }
 
   private async recordSatelliteSettlementRefusal(
     error: SatelliteSettlementRefusedError,
@@ -6335,6 +6414,21 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         : { count: 1, firstAt: now, lastAlertAt: 0, message: error.message };
     this.satelliteRefusals = refusals;
     if (refusals.count < 2) return;
+    // A refusal the database gave because it was BUSY (statement or lock
+    // timeout, deadlock victim, serialization failure) can change on the next
+    // sweep, and usually does. Production 2026-11-18 19:22Z, satellite
+    // 3f9f1ff2: two qualifier settlements ten seconds apart were cancelled
+    // with 57014 while a Free Buy rebuy convoy (incident 075013fd) held the
+    // tournament lanes; the critical alert said the event "cannot finish until
+    // the refusal is fixed", and the third sweep settled all 20 qualifiers
+    // eleven seconds later. Contention pages only once it has persisted for
+    // SATELLITE_CONTENTION_GRACE_MS; any other refusal pages on its first
+    // repeat, exactly as before.
+    if (
+      TournamentManagerEliminations.isContentionRefusal(refusals.message) &&
+      now - refusals.firstAt < TournamentManagerEliminations.SATELLITE_CONTENTION_GRACE_MS
+    )
+      return;
     if (
       refusals.lastAlertAt > 0 &&
       now - refusals.lastAlertAt < TournamentManagerEliminations.SATELLITE_REFUSAL_ALERT_EVERY_MS

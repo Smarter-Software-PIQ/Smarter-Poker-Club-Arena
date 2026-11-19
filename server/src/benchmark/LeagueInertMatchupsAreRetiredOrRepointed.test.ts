@@ -73,6 +73,16 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // PLO Strategy (2026-11-15): the league seats no VPIP-floor table.
         'plo4_omaha_vpip_floor_by_limp',
         'plo5_omaha_vpip_floor_by_limp',
+        // Lightning parity (2026-11-18): the league deals no Lightning hand.
+        'plo4_lightning_vpip_floor_limp_only',
+        'plo5_lightning_vpip_floor_limp_only',
+        'plo4_omaha_reraised_position_in_lightning',
+        'plo5_omaha_reraised_position_in_lightning',
+        // F-10 (2026-11-17): vpipFloorLimpOnly, the same reason.
+        'nlh_vpip_floor_limp_only',
+        'plo4_vpip_floor_limp_only',
+        'plo5_vpip_floor_limp_only',
+        'plo6_vpip_floor_limp_only',
         // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
         // record no league hand has (no pooled public rows, no worker); its reason states it.
         'nlh_long_shown_river_memory',

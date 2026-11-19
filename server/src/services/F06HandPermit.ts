@@ -120,7 +120,32 @@ export class F06HandPermit {
     const r = result.data as Record<string, unknown> | null;
     if (!result.error && r?.ok === false && r.reason === 'hand_number_already_used') {
       this.phase = 'number_refused';
+      this.beginRefusal = 'hand_number_already_used';
       throw new Error('f06_hand_number_already_used');
+    }
+    /* A REFUSAL THAT NAMES ITS REASON PROVES THERE IS NO PERMIT (hand delay,
+       2026-11-18). fn_f06_begin_hand answers an existing permit_id with that
+       row (to_jsonb of the permit, which has no `reason` column), and returns
+       every `reason` - diamond_arena_closed, permit_released_absent,
+       source_excluded, hand_permit_unresolved, operator_abort_stopped - from
+       the same transaction BEFORE its INSERT, after taking this table's lane
+       row lock (fn_ca_f06_share_table_lane), so a lost earlier call with the
+       same permit_id has either committed (and is FOUND) or never inserted.
+       Leaving such a refusal `unknown` made the next attempt replay the same
+       begin, get the same refusal and throw again: a table refused for a
+       break's source exclusion looped on its error backoff instead of
+       allocating fresh and reading the exclusion. The permit is known absent;
+       the slot is free and the next attempt starts over. */
+    if (
+      !result.error &&
+      r?.ok === false &&
+      typeof r.reason === 'string' &&
+      F06HandPermit.PRE_INSERT_REFUSALS.has(r.reason) &&
+      r.permit_id === undefined
+    ) {
+      this.phase = 'number_refused';
+      this.beginRefusal = r.reason;
+      throw new Error('f06_begin_refused:' + r.reason);
     }
     if (
       result.error ||
@@ -138,8 +163,23 @@ export class F06HandPermit {
       throw new Error('f06_permit_unproven');
     this.phase = 'reserved';
   }
+  /** Every reason fn_f06_begin_hand returns before it inserts a permit. */
+  static readonly PRE_INSERT_REFUSALS: ReadonlySet<string> = new Set([
+    'hand_number_already_used',
+    'diamond_arena_closed',
+    'permit_released_absent',
+    'source_excluded',
+    'hand_permit_unresolved',
+    'operator_abort_stopped',
+  ]);
+  private beginRefusal: string | null = null;
+  /** SQL proved no permit row exists for this permit_id: the slot is free. */
   knownNumberRefusal(): boolean {
     return this.phase === 'number_refused';
+  }
+  /** The reason SQL gave for refusing this begin, when it gave one. */
+  refusedBecause(): string | null {
+    return this.beginRefusal;
   }
   async drainNeverStarted(stop: () => Promise<void>, released: () => boolean): Promise<void> {
     if (this.phase === 'attempted') throw new Error('f06_hand_may_have_started');
@@ -346,6 +386,72 @@ export class F06HandPermit {
   private preparedCancellation = false;
   hasPreparedCancellation(): boolean {
     return this.preparedCancellation;
+  }
+
+  /**
+   * A RETAINED PREPARED ORIGINAL IS CANCELLED, NOT FENCED (hand delay,
+   * 2026-11-19). The seq-0 save of an unstarted original now runs under the
+   * between-hands rest, so a pause can meet a saved hand that never started.
+   * Only this object can prove the start never ran (`start` was never
+   * called after attemptOriginalRetention); it gives that proof up first,
+   * synchronously, so no later start can race the release, then asks SQL to
+   * delete the unstarted capsule and close the permit never_started in one
+   * transaction (fn_f06_cancel_retained_prepared_hand). The receipt is the
+   * same one fn_f06_cancel_prepared_hand writes. A lost reply keeps the
+   * intent: the same call replays with the same identity. The phase stays
+   * `attempted` until the receipt is proved, so a caller that cannot finish
+   * the release leaves the capsule custody exactly as it was.
+   */
+  async cancelRetainedPreparedHand(): Promise<void> {
+    if (
+      !this.current() ||
+      this.phase !== 'attempted' ||
+      !(this.originalRetentionAwaitingStart || this.retainedCancellation)
+    )
+      throw new Error('f06_retained_cancellation_unproven');
+    this.retainedCancellation = true;
+    this.originalRetentionAwaitingStart = false; // start() is refused from here on.
+    const b = this.binding;
+    const input = {
+      p_tournament_id: b.tournament_id,
+      p_lease_generation: b.lease_generation,
+      p_table_id: b.table_id,
+      p_lifecycle: b.lifecycle,
+      p_permit_id: b.permit_id,
+      p_hand_number: b.hand_number,
+      p_custody_id: b.custody_id,
+    };
+    const valid = (data: unknown): boolean => {
+      const r = data as Record<string, unknown> | null;
+      return (
+        !!r &&
+        r.ok === true &&
+        r.state === 'never_started' &&
+        r.evidence_id === b.permit_id &&
+        r.tournament_id === b.tournament_id &&
+        r.table_id === b.table_id &&
+        r.lifecycle === b.lifecycle &&
+        r.hand_number === b.hand_number &&
+        r.permit_id === b.permit_id &&
+        r.custody_id === b.custody_id &&
+        r.generation === b.lease_generation
+      );
+    };
+    const result = await observeCurrentEngineWriter(
+      'permit-finish',
+      JSON.stringify({ ...b, kind: 'retained-prepared-cancellation' }),
+      () => this.rpc('fn_f06_cancel_retained_prepared_hand', input),
+      (value) => !!value.error || !valid(value.data)
+    );
+    if (!this.current() || result.error || !valid(result.data))
+      throw new Error('f06_retained_cancellation_unknown');
+    this.phase = 'terminated';
+    this.preparedCancellation = true;
+  }
+  private retainedCancellation = false;
+  /** A retained prepared original whose release was asked for; never starts. */
+  hasRetainedCancellation(): boolean {
+    return this.retainedCancellation;
   }
 
   assertPreparedStartAllowed(): void {

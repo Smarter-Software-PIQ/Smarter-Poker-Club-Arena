@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# A HAND'S MONEY PATH NEVER WRITES A SHARED ROW - ON THE LIVE CATALOG
+#
+# scripts/ci/check-hand-path-shared-writes.mjs asks production's
+# fn_ca_hand_path_shared_writes() for every blocking exclusive write, row lock
+# or advisory lock on a union/club/pool-wide row that the hand doors reach
+# (calls and the triggers their writes fire), and fails on any one that is not
+# on scripts/ci/hand-path-shared-writes.allowlist.json. Incident 075013fd: the
+# third such row in two months (clubs.total_rake, club_wallets, union_wallets).
+# Migrations are applied to production before their pull request merges, so
+# the live catalog is the branch's truth; the applier refuses, inside the
+# migration's own transaction, any migration that ADDS one.
+#
+# Runs on every pull request that touches a migration and on every push to
+# main. Not a required check, like the settlement lane doctrine: a violation
+# shows red on the PR and on main and names the function and its path; it
+# does not hold every other branch hostage to a database that cannot be
+# reached. No timer (CLAUDE.md 10.85).
+# ─────────────────────────────────────────────────────────────────────────────
+name: Hand Path Shared Writes
+
+on:
+  # pull_request_target runs MAIN's workflow and script with the credential.
+  # The script never reads the pull request: it asks the live catalog one
+  # question, so no pull-request code ever runs beside the key (2026-11-11).
+  pull_request_target:
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci/check-hand-path-shared-writes.mjs'
+      - 'scripts/ci/hand-path-shared-writes.mjs'
+      - 'scripts/ci/hand-path-shared-writes.allowlist.json'
+      - '.github/workflows/hand-path-shared-writes.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci/hand-path-shared-writes.allowlist.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hand-path-shared-writes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hand-path:
+    if: "!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+    name: No hand path waits on a shared row
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the default branch (never the pull request)
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Use Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Ask the live catalog
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/check-hand-path-shared-writes.mjs

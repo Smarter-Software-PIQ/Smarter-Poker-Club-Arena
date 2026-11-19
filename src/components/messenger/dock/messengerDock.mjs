@@ -69,3 +69,17 @@ export function dockNotificationLayout(viewHeight, bottom, dockHeight) {
     const clearance = Math.min(bottom + dockHeight + 12, Math.max(bottom + 128, viewHeight - 400));
     return { bottom: clearance, maxHeight: Math.max(60, viewHeight - clearance - 12) };
 }
+
+// A BACKGROUND REFRESH NEVER PRINTS THE BROWSER'S OWN ERROR OVER THE PAGE
+// (2026-11-18). "signal timed out" appeared in red above the chat button on
+// the poker table: it is the browser's text for a request that passed the
+// dock's 30 second ceiling, written straight to the screen by a refresh
+// nobody asked for. A message the Messenger API wrote itself is already
+// meant for a person and is kept; transport failures are said plainly.
+export function dockFailureText(failure) {
+    const name = String(failure?.name || '');
+    const text = String(failure?.message || '');
+    if (name === 'TimeoutError' || name === 'AbortError' || /timed out|aborted/i.test(text)) return 'Messages Are Taking Too Long. Try Again';
+    if (!text || /failed to fetch|load failed|networkerror|network request failed/i.test(text)) return 'Messages Are Unavailable. Check Your Connection';
+    return text;
+}

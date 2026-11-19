@@ -432,7 +432,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
     calls: {
       isTournamentMode: [10, 'pure read of the game state; chooses a receipt name'],
       omahaIsWager: [1, 'pure predicate on a decision'],
-      omahaSameWager: [1, 'pure predicate on two decisions'],
+      omahaSameWager: [3, 'pure predicate on two decisions'],
       omahaPlanLineUncommitted: [1, 'pure predicate on a plan line'],
       wagerBindingPassedShortAllIn: [1, 'pure predicate; chooses a receipt name'],
       holdemDrawPresent: [1, 'pure predicate on cards'],
@@ -441,10 +441,14 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure predicate on cards (hasRiverNuts), in the condition of a gated else-if; chooses a receipt',
       ],
       omahaProposeReceipt: [
-        12,
+        20,
         'queues a receipt (made / vetoed) settled against the final decision; the queue is cleared per decide',
       ],
       changed: [3, 'a local closure that only calls noteFire'],
+      noteHorsePlayStyleReceipt: [
+        2,
+        'a local function that only calls noteFire (the one play style receipt of a decision)',
+      ],
       noteGtoMiss: [1, 'HorseGtoExecution: two noteFire calls'],
       noteHorseActionClamped: [5, 'a watchcounter (dropped inside a second-look capture)'],
       noteHorsePlanReevaluated: [2, 'a watchcounter (dropped inside a second-look capture)'],
@@ -485,7 +489,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       ],
     },
     outside: {
-      'const tele = telemetryOn(opts);': [34, 'the local name of the gate'],
+      'const tele = telemetryOn(opts);': [40, 'the local name of the gate'],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
         2,
@@ -539,9 +543,24 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'asks the read for its receipt; the measured width is the same either way',
       ],
       'noteLayer: telemetryOn(opts)': [1, 'a counting callback handed to the preflop layer'],
-      'telemetry: telemetryOn(opts),': [4, 'passes the gate to a module that counts with it'],
+      'telemetryOn(opts) ? noteIcmBustPaysPlaceFactorChanged : undefined': [
+        1,
+        'a counting callback (one noteFire) handed to withIcmBustPaysPlace, called once after the decision returns; the decision is the same either way',
+      ],
+      'telemetry: telemetryOn(opts),': [5, 'passes the gate to a module that counts with it'],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
-      tele: [1, 'the gate passed as an argument to a module that counts with it'],
+      tele: [
+        2,
+        'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',
+      ],
+      'tele: boolean': [
+        2,
+        'the gate as the parameter of omahaBetSizeByPublicStateRule and omahaValueSizeIsUnreadableRule, read there only to count',
+      ],
+      'this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele),': [
+        1,
+        'passes the gate to the public bet size rule, which only counts with it; the size is the same either way',
+      ],
       'tele15,': [1, 'the gate passed in the v31 input, read there to count'],
     },
   };

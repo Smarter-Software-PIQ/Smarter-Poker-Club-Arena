@@ -200,6 +200,48 @@ export const OMAHA_CATEGORICAL_RULE_SITES: readonly OmahaCategoricalRuleSite[] =
     guard: 'omahaPricedModeNow().bluffShareFromBetRate',
     file: 'HorseOmahaFacingBetEv.ts',
   },
+  {
+    audit: 'S1 (sites-013U37)',
+    rule: 'bare big pair out of position on the flop with the lead: the bet becomes a check by hand class',
+    legacyOptions: ['omahaBareOverpairOopFlopCheck'],
+    where: 'omahaOopCheckRules (flop branch)',
+    decidesBy: ['category', 'line'],
+    pricedBy: 'omahaFlopBetIsPriced',
+    legacyReceipts: ['omaha_bare_overpair_oop_flop_checked'],
+    sharedWith: ['omaha_priced_site_flop_bet_unpriced_kept'],
+    guard: 'omahaPricedSitesFlopBet(decision, player, gs, opts, flopSpot)',
+  },
+  {
+    audit: 'S3 (sites-013U37)',
+    rule: 'made-hand defence, bet half: no bet into the fresh turn card out of position, no thin river value bet',
+    legacyOptions: ['omahaMadeHandDefenseVsValueLeader', 'omahaBeatenMadeHandDefense'],
+    where: 'omahaMadeHandDefenseRules (omahaBeatenNoBet), omahaWagerIsChecked',
+    decidesBy: ['label', 'category'],
+    pricedBy: 'omahaMadeHandBetIsPriced',
+    legacyReceipts: ['omaha_beaten_fresh_card_check', 'omaha_beaten_river_no_value_bet'],
+    guard: 'omahaPricedSitesMadeHandBet(flat.decision, player, gs, opts)',
+  },
+  {
+    audit: 'S5 (sites-013U37)',
+    rule: 'turn set pound: the monster size by hand class',
+    legacyOptions: ['omahaTurnSetPound'],
+    where: 'decidePostflop value sizing (turnSetPound)',
+    decidesBy: ['category', 'size'],
+    pricedBy: 'omahaTurnSetSizeIsPriced',
+    legacyReceipts: ['omaha_turn_set_pound'],
+    guard: 'omahaPricedSitesTurnSetSize(poundBet, player, gs, opts)',
+  },
+  {
+    audit: 'S6 (sites-013U37)',
+    rule: 'river nut-blocker bluff: an equity line (0.28) and the paired-board bar',
+    legacyOptions: ['omahaRiverNutBlockerBluffReachable'],
+    where: 'decidePostflop V86 river nut-blocker bluff',
+    decidesBy: ['category'],
+    pricedBy: 'omahaBlockerBluffIsPriced',
+    legacyReceipts: ['v86_river_nut_blocker_bluff'],
+    sharedWith: ['omaha_priced_site_blocker_bluff_admitted'],
+    guard: 'omahaPricedSitesBlockerBluffAdmits(player, gs, opts, bet86Rb)',
+  },
 ]);
 
 /**
@@ -237,6 +279,51 @@ export const OMAHA_OPEN_RULE_SITES: readonly OmahaOpenRuleSite[] = Object.freeze
       '(4 of 4 judged changes wrong, about -102 bb on the audit judge); the verdict defect is the field ' +
       'factor and turn realization (WooWoo audit RC-02b, held by the PLO Strategy pickup 01BNteGY). The bet ' +
       'half of the rule is priced by omahaOopTurnBarrelIsPriced.',
+  },
+  {
+    audit: 'S1b (sites-013U37)',
+    rule: 'bare big pair out of position on the flop, facing the bet after the check (the continuation): call, fold or flat by hand shape at the price',
+    legacyOptions: ['omahaBareOverpairOopFlopCheck'],
+    where: 'omahaBareOverpairFlopFacingBetRule (omahaOopCheckRules and omahaOwnerRuledFinal)',
+    decidesBy: ['category', 'line'],
+    legacyReceipts: [
+      'omaha_bare_overpair_oop_flop_check_called',
+      'omaha_bare_overpair_oop_flop_check_folded',
+      'omaha_bare_overpair_oop_flop_check_raise_flatted',
+      'omaha_bare_overpair_oop_flop_check_failsafe_flatted',
+    ],
+    why:
+      'a flop call or fold facing a bet belongs to the flop facing-bet expected-value verdict (omahaFlopFacingBetEv, ' +
+      'HorseOmahaFlopFacingBetEv.ts, held by the flopev2 build of this lane); the sites build prices only the bet half ' +
+      '(omahaFlopBetIsPriced) and does not decide a flop call.',
+  },
+  {
+    audit: 'S6b (sites-013U37, review R3 B1)',
+    rule: 'river nut-blocker bluff: whether the bluff is offered at all - the chips-behind bar, the capped-line and station label gates and the persona frequency draw (targetRb86)',
+    legacyOptions: ['omahaRiverNutBlockerBluffReachable'],
+    where: 'decidePostflop V86 river nut-blocker bluff (before omahaPricedSitesBlockerBluffAdmits)',
+    decidesBy: ['label', 'line'],
+    legacyReceipts: ['omaha_priced_site_blocker_bluff_gate_withheld'],
+    why:
+      'omahaBlockerBluffIsPriced prices the exact bet the bluff places beside the check (S6), but the gates that decide ' +
+      'whether the bluff is offered are a label read (station, capped line), a stack bar and a frequency draw; pricing ' +
+      'them needs a river bluff frequency from his measured fold-to-bet read (owner of the river bluff baseline: PLO ' +
+      'Strategy lane, not built). With the option on they still withhold bluffs; each is receipted.',
+  },
+  {
+    audit: '14 (verifier D9, 2026-11-19)',
+    rule: "the flop 20 big blind mark: a newest-street wager of 20 big blinds or more counts as a big bet in the range read (OppPostflopRead.bigBet), which tiers the bettor's range and conditions the reference brain's sampling, and so moves its flop fold or call",
+    legacyOptions: ['v16SizeCond'],
+    where:
+      'HorseMind range read (newestStreetBigBet, the "existing 20bb street-total threshold"); read by HorseEval omahaAggressorTier and the V16 size-conditioned sampler in HorseLogic',
+    decidesBy: ['size', 'chips'],
+    legacyReceipts: ['range_read_big_bet_counted', 'v16_sizecond_bigbet'],
+    why:
+      'owner: PLO Strategy lane 013U37. On the flop the mark is the reference fold or call input; its priced replacement is the ' +
+      'flop facing-bet expected-value verdict (omahaFlopFacingBetEv, default OFF; when on it takes the flop fold or call away ' +
+      'from the mark and from ploPairedBoardFold). On the turn and river omahaBigBetIsPotShare reads the pot share instead, ' +
+      'which is itself a size line (classed open). The mark has no option of its own: v16SizeCond off strips it with the rest ' +
+      'of the V16 sampler.',
   },
 ]);
 
@@ -276,7 +363,20 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPressureIsPriced: priced('the pressure play by its price'),
   omahaBigBetCallsArePriced: priced('the exact count in place of the big-bet cells'),
   omahaUnderpairMultiwayIsPriced: priced('the multiway flop call on sampled shares'),
+  omahaPricedPriorsByOpponentKind: priced(
+    "the priors and reference rates every priced comparison reads, by the opponent's measured kind; unpriceable spots fall closed (an input, not a rule site)"
+  ),
+  omahaRaiseEvCountsLossesOnce: priced(
+    "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
+  ),
   omahaPricedMix: priced('mixing between two close priced actions'),
+  // the priced sites of 2026-11-18 (HorseOmahaPricedSites.ts)
+  omahaMadeHandBetIsPriced: priced('the defence wager beside the check on the card-impact model'),
+  omahaTurnSetSizeIsPriced: priced(
+    'every public-state size and the check on the card-impact model'
+  ),
+  omahaBlockerBluffIsPriced: priced('the river bluff beside the check on the card-impact model'),
+  omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
   // priced before 2026-11-17 (the audit: "each compares priced lines")
   omahaFacingBetEv: priced('expected value of the call on the exact count'),
   omahaStreetPlan: priced('the bet and the check priced as whole lines'),
@@ -291,11 +391,39 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPairedBoardFoldRespectsPrice: priced(
     'stands aside for the expected-value verdict on the turn and river'
   ),
-  omahaBigBetIsPotShare: priced('reads a turn or river wager by its pot share, not 20 big blinds'),
+  // verifier D10 (2026-11-19): a size line, not a priced comparison
+  omahaBigBetIsPotShare: open(
+    'a pot-share size line: a turn or river wager under 70% of the pot it went into is tiered by its pot share instead of the 20 big blind mark, and the option also gates the limped-pot minimum bet (a bet under 2 BB into 4 BB or more becomes max(2 BB, 40% of the pot)); neither is priced. With omahaSmallBetIsPriced on, the minimum bet replaces a bet that option placed only through its priced size comparison. Owner: PLO Strategy lane 013U37'
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaTurnCallRealizationByRunout: priced(
+    'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
+  ),
+  omahaSmallBetIsPriced: priced(
+    'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
+  ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
+  omahaValueSizeIsUnreadable: priced(
+    'how much of the full pot a nut-class wager is: the measured keep share at the full pot, else a uniform draw in the owner 80-95% pot band (default OFF)'
+  ),
+  // wave two (2026-11-16, PR #11211; all default OFF)
+  omahaMultiwayWeakHandNoBet: priced(
+    'a multiway bet with a weak hand becomes a check only when the bet-versus-check expected value over every live range says so'
+  ),
+  omahaStreetPlanThreeWay: priced(
+    'the three-way bet and check priced as whole lines against each opponent range'
+  ),
+  omahaStreetPlanFlop: priced(
+    'the flop bet and check priced as whole lines; off-only (failed its evaluation)'
+  ),
+  omahaMultiwayRiverCallNeedsStrength: priced(
+    'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
+  ),
+  omahaReadIsByStreetAndTexture: priced(
+    "the opponent read every priced comparison and the value-leader label take, from the decision's street and flop texture, blended continuously with the pooled read (an input, not a rule site)"
+  ),
   // categorical, replaced
   omahaTurnRiverRaiseNeedsNuts: categorical('omahaTurnRiverRaiseIsPriced'),
   omahaRiverNutRaiseOnly: categorical('omahaTurnRiverRaiseIsPriced'),
@@ -313,23 +441,20 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ploPairedBoardFold: open(
     'the flop: stack share and category (audit 1). It still decides whenever omahaFlopFacingBetEv is off (that option is default OFF and has no rule site in this register yet); on the turn and river the expected-value verdict already does'
   ),
-  omahaBareOverpairOopFlopCheck: open(
-    'the flop bet-to-check half is by hand class and position; the flop street plan (plo-wave2b-01BNteGZ) prices the flop bet'
-  ),
-  omahaMadeHandDefenseVsValueLeader: open(
-    'no bet into the fresh card and no turn raise against a labelled value leader; with omahaTurnRiverRaiseIsPriced on the raise half is priced outermost, the bet half is not replaced'
-  ),
-  omahaBeatenMadeHandDefense: open(
-    'the unconditional form of the made-hand defence; off-only in the live switch'
-  ),
+  // the bet half priced by omahaFlopBetIsPriced; the continuation facing the flop bet is an open site (flop facing-bet verdict)
+  omahaBareOverpairOopFlopCheck: categorical('omahaFlopBetIsPriced'),
+  // the bet half priced by omahaMadeHandBetIsPriced; the raise half by omahaTurnRiverRaiseIsPriced outermost
+  omahaMadeHandDefenseVsValueLeader: categorical('omahaMadeHandBetIsPriced'),
+  omahaBeatenMadeHandDefense: categorical('omahaMadeHandBetIsPriced'),
   omahaOnePairDiscipline: open('one-pair cells by hand class; off-only in the live switch'),
-  omahaRiverNutBlockerBluffReachable: open(
-    'admits one pair to the blocker bluff by an equity line (0.28); its paired-board bar is priced by omahaPairedBoardBetIsPriced'
-  ),
+  omahaRiverNutBlockerBluffReachable: categorical('omahaBlockerBluffIsPriced'),
   omahaReraisedPotFlopContinueNeedsEquityShape: open(
     'the flop continue in a re-raised pot by hand shape; the flop belongs to the flop facing-bet EV build (plo-flopev-01BNteGZ)'
   ),
-  omahaTurnSetPound: open('a turn value size by hand class; not in the audit'),
+  omahaTurnSetPound: categorical('omahaTurnSetSizeIsPriced'),
+  omahaNoRiverBluffIntoValueLeader: open(
+    'the river bluff is withheld by an opponent label (measured value leader); off-only in the live switch until it is rewritten as a priced bluff from the fold-to-bet read'
+  ),
   // outside PLO4/PLO5 cash postflop decisions
   ploSuitedAcesFourBet: outside(PREFLOP),
   omahaSmallBlindSteal: outside(PREFLOP),
@@ -337,15 +462,27 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaReraisedPotStackOffFold: outside(PREFLOP),
   omahaReraisedPotStackOffRealistic: outside(PREFLOP),
   omahaReraisedFoldVsTight: outside(PREFLOP),
+  omahaReraisedPositionInLightning: outside(PREFLOP),
   omahaEliteContinuesVsMeasuredWideThreeBettor: outside(PREFLOP),
   omahaOopReraisedPotStrongRange: outside(
-    PREFLOP + '; its out-of-position 4-bet call fold (audit 20) goes to that build'
+    PREFLOP +
+      '; its out-of-position 4-bet call fold (audit 20) stays with its re-raised-pot call cell (one owner per cell, inbox 2026-11-18 00:06Z)'
+  ),
+  omahaPreflopReraiseDefencePriced: outside(
+    'preflop: fold, call and the proposed re-raise by expected value against the measured range (off-only under the preflop hold)'
+  ),
+  omahaPreflopReraiseDefencePricedInPosition: outside(
+    "preflop: only a fold becomes the priced call of omahaPreflopReraiseDefencePriced, for an opener heads-up in position against one person's 3-bet"
   ),
   omahaReraiseRangeOutOfPosition: outside(PREFLOP),
   omahaReraiseRangeEarlyPosition: outside(PREFLOP),
   omahaNoCallColdFourBetWithoutPremium: outside(PREFLOP),
   omahaVpipFloorByLimp: outside(PREFLOP),
   omahaManiacReRaiseWidthMeasured: outside('a read (re-raise width), not a rule'),
+  omahaPreflopStackPlan: outside(PREFLOP + '; off-only under the preflop range hold'),
+  omahaBetSizeByPublicState: outside(
+    'a size chooser from public state only: it never decides a bet against a check, a call or a fold (aBetSizeIsPublicInformationOnly.law)'
+  ),
   omahaPreflopCallWithActionBehind: outside(PREFLOP),
   omahaCommitZoneThreeBetPriceRelief: outside(PREFLOP),
   omahaNeutralUnknown: outside('a read prior'),

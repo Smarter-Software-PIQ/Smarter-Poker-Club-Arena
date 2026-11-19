@@ -2,6 +2,8 @@ import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import { readHourlyCashAdmissions } from './supabase/cashHourlyTables.js';
 import {
+  HORSE_STARTED_CASH_GAMES,
+  LIGHTNING_HORSE_SEEDED,
   horseCashPlanPrimaryTables,
   horseCashPlanSecondTables,
   horseUnionCashTableAllowed,
@@ -82,6 +84,14 @@ import { seatBoosts, takeOpenOrders } from './StableHandPlanBus.js';
 import { stakeForBand } from './StableHandController.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { gamesFedByTheirList, listFeedsTable } from './HorseListFeedsTable.js';
+import {
+  clearVarietyHolds,
+  compareVarietyFirst,
+  publishVarietyHolds,
+  varietyFirstPlan,
+  varietyHoldsThisCycle,
+  VarietyStartMemory,
+} from './HorseVarietyFirst.js';
 import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
 import { availableNow, regularSeatWeight } from './HorseRegulars.js';
 import {
@@ -725,6 +735,10 @@ export class HorseFleetManager {
    * is the truth about a fleet that is not seating anyone.
    */
   private lastEligibleBuiltAt = 0;
+  /** Games the walk could not start, resting so depth may proceed (HorseVarietyFirst). */
+  private readonly varietyStarts = new VarietyStartMemory();
+  /** This cycle's held starts, for the seat-call door (claimOfferedSeats). */
+  private varietyHeldStarts: ReadonlySet<string> = new Set();
   /* Last time a failed fleet-state publish was reported. The engine can ship
      before the World Hub migration that creates fn_ca_fleet_state_upsert, and
      an unthrottled report would file one error reporting event and one console line
@@ -1959,7 +1973,7 @@ export class HorseFleetManager {
          buy-in refusals in one hour were VPIP_BARRED - and, worse, COUNTED
          every barred horse as a buyer, so the controller opened feeders for
          players the door would refuse. One paged read for the whole floor,
-         keyed exactly as the SQL joins (club, variant, sb, bb).
+         keyed exactly as the SQL joins (the cash game, game_scope).
 
          FAILS OPEN, like the bankroll loader above and for the same reason:
          the database is the authoritative guard, so an unread row costs one
@@ -1971,10 +1985,7 @@ export class HorseFleetManager {
         const rejoinPage = await fetchAllRows<{
           id: string;
           player_id: string;
-          club_id: string;
-          variant: string;
-          sb: number | string;
-          bb: number | string;
+          game_scope: string | null;
           required_stack: number | string | null;
           barred_until: string | null;
           expires_at: string;
@@ -1982,9 +1993,7 @@ export class HorseFleetManager {
           (cursor, want) => {
             let q = supabase
               .from('cash_rejoin_constraints')
-              .select(
-                'id, player_id, club_id, variant, sb, bb, required_stack, barred_until, expires_at'
-              )
+              .select('id, player_id, game_scope, required_stack, barred_until, expires_at')
               .gt('expires_at', nowIsoForRejoin)
               .order('id', { ascending: true })
               .limit(want);
@@ -2690,9 +2699,43 @@ export class HorseFleetManager {
         tables,
         (tableId) => (seatsByTable.get(tableId) ?? []).length
       );
+      /* A PLAN GAME WITH NO TABLE STARTS BEFORE ANOTHER GAME'S EXTRA TABLE
+         (2026-11-18). One plan for the three doors a start is taken through:
+         this walk, a seat call (claimOfferedSeats) and the table engine's
+         feeder-start move, which reads what is published here. The admission
+         asked is the walk's own, with nobody at the table. See
+         HorseVarietyFirst. */
+      const varietyNowMs = Date.now();
+      const variety = varietyFirstPlan({
+        tables,
+        seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
+        startGames: HORSE_STARTED_CASH_GAMES,
+        /* Every Lightning game: its empty tables are the pool's next ring,
+           seeded or started by a person. */
+        neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...(cashPlanLightningGames ?? [])]),
+        restingGames: this.varietyStarts.resting(varietyNowMs),
+        preferredStarts: new Set(lightningStarters.keys()),
+        mayStart: (t) =>
+          !surplusTableIds.has(t.id) &&
+          !isTableOfDisabledGame(t, disabledGameIds) &&
+          !tableHeldByRetainedHand(t.id) &&
+          horseCashGameAllowed(t, varietyNowMs) &&
+          horseUnionCashTableAllowed(
+            t,
+            0,
+            varietyNowMs,
+            cashPlanPrimaryTables,
+            cashPlanLightningGames,
+            cashPlanLightningHumanGames,
+            cashPlanSecondTables,
+            false,
+            ploDemand
+          ),
+      });
       const orderedTables = [...tables, ...diamondTables].sort(
         (a, b) =>
           Number(humanShort(b)) - Number(humanShort(a)) ||
+          compareVarietyFirst(a, b, variety) ||
           compareLightningStarters(a, b, lightningStarters) ||
           Number(!!b.cluster_id) - Number(!!a.cluster_id) ||
           clusterRank(a) - clusterRank(b) ||
@@ -2925,8 +2968,20 @@ export class HorseFleetManager {
          hold belongs to fn_offer_open_seat's own sweep, which expires it and
          passes the seat to the next player in line. A draining table is still
          never answered, whatever the policy says. */
+      /* Nothing is held until this cycle has shown it can make an owed start
+         (HorseVarietyFirst.varietyHoldsThisCycle): not while the hourly read
+         is outstanding or failed, not in a withheld cycle, not when the cap
+         admits no owed table. */
+      this.varietyHeldStarts = new Set();
+      clearVarietyHolds();
       const hourlyAdmissions = await readHourlyCashAdmissions();
       if (!readIsCurrent()) return;
+      const varietyHeld = varietyHoldsThisCycle(variety, {
+        withheld: !!cycleWithheld,
+        admitted: (tableId) => hourlyAdmissions.has(tableId),
+      });
+      this.varietyHeldStarts = varietyHeld;
+      publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
       let hourlyAutonomousStarted = false;
       const claimed = cycleWithheld
         ? 0
@@ -3176,6 +3231,12 @@ export class HorseFleetManager {
           beat.withheldTables++;
           continue;
         }
+        /* Variety first (HorseVarietyFirst): is this a game's owed start, and
+           did the walk fail to make it for a reason of the table's own? */
+        const varietyGame = hourly.startsGame ? variety.owedStarts.get(table.id) : undefined;
+        const varietyHostCapBefore = hostCapRefused;
+        let varietyFloorStop = false;
+        let varietyStartedHere = false;
         let diag: OpeningFeederDiag | null = null;
         try {
           /* THE DIAGNOSTIC IS OPENED FIRST (2026-09-06). It used to be created
@@ -3200,6 +3261,13 @@ export class HorseFleetManager {
               skipped: {},
               withheld: null,
             };
+          }
+          /* AN EXTRA TABLE WAITS FOR A GAME THAT HAS NONE (2026-11-18). Only
+             a start: the database says this table is empty (`startsGame`). */
+          if (hourly.startsGame && varietyHeld.has(table.id)) {
+            beat.withheldTables++;
+            if (diag) diag.withheld = 'variety_first';
+            continue;
           }
           // A draining table gets no new horses. Without this the surplus can
           // never empty, and so can never be retired.
@@ -3319,6 +3387,7 @@ export class HorseFleetManager {
             beat.withheldTables++;
             if (firstTableWithheld === null) firstTableWithheld = 'max_horses_reached';
             if (diag) diag.withheld = 'max_horses_reached';
+            varietyFloorStop = true;
             continue;
           }
           /* ── THE CYCLE'S OWN CLOCK (2026-09-11) ───────────────────────────
@@ -3347,6 +3416,7 @@ export class HorseFleetManager {
             beat.withheldTables++;
             if (firstTableWithheld === null) firstTableWithheld = 'cycle_time_budget';
             if (diag) diag.withheld = 'cycle_time_budget';
+            varietyFloorStop = true;
             continue;
           }
           /* `tablesConsidered > 0` above is not a rounding detail: one table is
@@ -3552,8 +3622,9 @@ export class HorseFleetManager {
           // Find candidate horses:
           // 1. Not already at this table
           // 2. Not exceeding 4 max tables
-          /* The game key the door rules are written against (club, variant,
-             sb, bb), formatted once per table. See rejoinTableKey. */
+          /* The game key the door rules are written against (the cash game
+             itself, never its stakes level), formatted once per table. See
+             rejoinTableKey. */
           const constraintTableKey = rejoinTableKey(table);
           /* A Diamond Arena table (only ever present while the arena is open,
              see where `diamondTables` is read). Decides the lane tag, the
@@ -4227,6 +4298,7 @@ export class HorseFleetManager {
                 }))
             ) {
               for (const c of cleared) seatPicker.release(c.seatNumber);
+              varietyFloorStop = true;
               seatCeilingSkipped++;
               noteSkip(diag, 'seat_ceiling');
               continue;
@@ -4281,6 +4353,14 @@ export class HorseFleetManager {
               (reason) => {
                 buyInRefused.set(reason, (buyInRefused.get(reason) ?? 0) + 1);
                 noteSkip(diag, `buyin_${reason}`);
+                /* The floor's answer, not this game's: it rests nothing. */
+                if (
+                  reason === 'hourly_cap' ||
+                  reason === 'lightning_paced' ||
+                  reason === 'frozen'
+                ) {
+                  varietyFloorStop = true;
+                }
                 /* The horse is at the platform's game limit as the DATABASE
                    counts it (seats plus bookings). No later table in this
                    cycle can be different, so it is not offered one. */
@@ -4294,7 +4374,10 @@ export class HorseFleetManager {
               }
             );
             if (!success) return false;
-            if (hourly.startsGame) hourlyAutonomousStarted = true;
+            if (hourly.startsGame) {
+              hourlyAutonomousStarted = true;
+              varietyStartedHere = true;
+            }
             seated++;
             totalSeated++;
             seatBudget--;
@@ -4428,6 +4511,20 @@ export class HorseFleetManager {
         } catch (err: any) {
           reportError(err, 'HorseFleet.Error_seeding_table_tablename');
         } finally {
+          /* A game the walk could not start rests, so depth is not held for
+             ever behind a game no Horse can sit in. A floor-wide stop (seat
+             budget, cycle clock, the host's seat ceiling) is not the game's
+             own reason and rests nothing. */
+          if (varietyGame !== undefined) {
+            if (varietyStartedHere) this.varietyStarts.noteStarted(varietyGame);
+            else if (
+              !varietyFloorStop &&
+              hostCapRefused === varietyHostCapBefore &&
+              readIsCurrent()
+            ) {
+              this.varietyStarts.noteCouldNotStart(varietyGame, Date.now());
+            }
+          }
           /* EXACTLY ONE LINE PER OPENING FEEDER PER CYCLE, whatever path the
              table took. A feeder that opens and gets nobody now says why. */
           if (diag) {
@@ -5445,6 +5542,17 @@ export class HorseFleetManager {
            now that a horse can genuinely answer an offer, the rule has to be
            written down rather than depended on as an accident. */
         if (table.lifecycle === 'breaking' || table.lifecycle === 'closed') continue;
+        /* NOR AN EMPTY EXTRA TABLE WHILE A PLAN GAME HAS NONE (2026-11-18).
+           This path runs before the walk, so without this the head of a full
+           game's list took the free start under the hourly cap every time.
+           Only a start: a table anybody is sitting at is answered as before.
+           The offer's hold expires on its own sweep and passes on. */
+        if (
+          this.varietyHeldStarts.has(String(table.id)) &&
+          (seatsByTable.get(table.id) ?? []).length === 0
+        ) {
+          continue;
+        }
 
         // An existing offer does not authorize another game outside the
         // cash schedule. Ask before sizing or purchasing its buy-in.

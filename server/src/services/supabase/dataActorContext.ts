@@ -245,6 +245,13 @@ export function stampOwnedDataActorHeaders(headers: Headers): Headers {
   return headers;
 }
 
+/** The event whose authority this async chain runs under, or null for
+ * ordinary service work. Read once per request by the event database
+ * bulkhead (eventDatabaseBulkhead.ts); allocates nothing. */
+export function currentTournamentIdOrNull(): string | null {
+  return tournamentManagerActor.getStore()?.tournamentId ?? null;
+}
+
 /** Test/diagnostic read only.  Mutation still requires the run/bind helpers. */
 export function currentTournamentDataAuthority(): Readonly<TournamentDataAuthority> | null {
   const current = tournamentManagerActor.getStore();

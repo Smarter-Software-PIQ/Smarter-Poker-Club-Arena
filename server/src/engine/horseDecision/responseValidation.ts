@@ -31,6 +31,7 @@ import { JOINT_LIVE_DOMAIN } from '../multiway/JointLivePolicy.js';
 import { horsePhase13ContinuationVersion } from '../HorsePhase13Authority.js';
 import {
   PLO_PAIRED_BOARD_VARIANTS,
+  ploPairedBoardMustFold,
   ploPairedBoardRiverMustCheck,
 } from '../HorsePloPairedBoardFold.js';
 import { callLargeRiverBoatWager } from '../HorseOmahaBigBetCalls.js';
@@ -39,7 +40,13 @@ import {
   omahaRiverNutRaiseOnly,
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
-import { OMAHA_STREET_PLAN_VARIANTS, omahaStreetPlanAdmitsCheck } from '../HorseOmahaStreetPlan.js';
+import {
+  OMAHA_STREET_PLAN_VARIANTS,
+  omahaStreetPlanAdmitsCheck,
+  omahaStreetPlanFlopAdmitsCheck,
+  omahaStreetPlanThreeWayAdmitsCheck,
+} from '../HorseOmahaStreetPlan.js';
+import { omahaPricedSitesFlopBetSpot } from '../HorseOmahaPricedSites.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import { huBalanceSpot } from '../HorseHeadsUpPostflopBalance.js';
 import {
@@ -59,6 +66,7 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import {
@@ -70,6 +78,11 @@ import {
   OMAHA_FLOP_FACING_BET_EV_VARIANTS,
   omahaFlopFacingBetEvAdmitsCall,
 } from '../HorseOmahaFlopFacingBetEv.js';
+import {
+  OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
+  omahaMultiwayWeakHandSpot,
+  omahaRiverBluffIntoValueLeaderSpot,
+} from '../HorseOmahaMultiwayDiscipline.js';
 import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
@@ -1387,6 +1400,20 @@ function policyGraphIsValidInScope(
       // same seeded test is re-run on the request (both board tests on: the
       // request does not carry V58/V59).
       !(variant === 'plo6' && plo6RiverLiveFoldTest(context.player, context.gameState));
+    // omahaFlopBetIsPriced (sites-013U37, default off): a bare big pair's flop
+    // bet with the betting lead becomes a check, in either position, when the
+    // check is priced above it. A check puts no chip in; when the request is
+    // known, only where the option's public spot, re-run on it, holds (the
+    // receipt context carries neither the options nor the opponent read).
+    const omahaPricedSiteFlopBetToCheck =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaPricedSitesFlopBetSpot(context.player, context.gameState)));
     // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
     // facing no wager becomes a check on the flop out of position with a bare
     // pair, on the turn after the flop bet was called, and on a paired river
@@ -1465,12 +1492,51 @@ function policyGraphIsValidInScope(
     // is admitted only with the request, only in the spot the rule covers and
     // only for the exact chips the call puts in. Its whole-stack form is an
     // all-in, a wager action.
+    // The composed chain inside wager_rules (journal debcf579..., 2026-11-18
+    // 23:00:11Z, Lightning PLO5): a raise or an all-in raise that the PLO
+    // paired-board fold turned into a fold, then omahaFacingBetEv turned into
+    // the call. The node records raise -> call; the fold in between is not
+    // recorded. At a table the same transition was admitted only because the
+    // nut-rule admission happens to cover it (omahaRaiseNeedsNutsScope), which
+    // refuses Lightning, so the Horse got a fallback action there. It is
+    // admitted where both rules hold on the request: the paired-board fold
+    // spot (re-run, with and without V86 multi-street, which the request does
+    // not carry) and the facing-bet EV spot for the exact chips below.
+    const pairedFoldThenEvCall =
+      previous !== null &&
+      (previous.action === 'raise' || previous.action === 'all_in') &&
+      context !== undefined &&
+      PLO_PAIRED_BOARD_VARIANTS.has(variant) &&
+      (() => {
+        const gs = context.gameState;
+        // plo4/plo5/plo6 only (PLO_PAIRED_BOARD_VARIANTS): high-only unless the table's rules say split
+        const hiLo = gs.variantRules?.splitLow8OrBetter === true;
+        const input = {
+          gameVariant: gs.gameVariant,
+          hiLo,
+          multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+          board: gs.communityCards ?? [],
+          hero: context.player,
+          players: gs.players ?? [],
+          currentBet: gs.currentBet,
+          toCall: gs.toCall,
+          pot: gs.pot,
+        };
+        try {
+          return (
+            ploPairedBoardMustFold({ ...input, v86MultiStreetUnblocked: true }) ||
+            ploPairedBoardMustFold({ ...input, v86MultiStreetUnblocked: false })
+          );
+        } catch {
+          return false;
+        }
+      })();
     const omahaFacingBetEvCalled =
       transition.node === 'wager_rules' &&
       omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
-      previous.action === 'fold' &&
+      (previous.action === 'fold' || pairedFoldThenEvCall) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       (() => {
@@ -1507,7 +1573,7 @@ function policyGraphIsValidInScope(
       OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant) &&
       transition.after.action === 'call' &&
       previous !== null &&
-      ['fold', 'raise', 'bet', 'all_in'].includes(previous.action) &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
@@ -1598,6 +1664,33 @@ function policyGraphIsValidInScope(
             previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
             value.streetPlan
           )));
+    // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, options omahaStreetPlanFlop
+    // and omahaStreetPlanThreeWay, default off): a heads-up flop bet, or a
+    // turn bet with exactly two live opponents, facing no wager becomes a
+    // check under the plan. Admitted only with the request, only where the
+    // plan re-run on it with the multipliers the decision records gives the
+    // check (neither layer has a facing-bet seam, so the re-run is the
+    // decision's own verdict). With no request it admits nothing.
+    const omahaStreetPlanLayerBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (omahaStreetPlanFlopAdmitsCheck(
+        context.player,
+        context.gameState,
+        previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+        value.streetPlan
+      ) ||
+        omahaStreetPlanThreeWayAdmitsCheck(
+          context.player,
+          context.gameState,
+          previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+          value.streetPlan
+        ));
     // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, options
     // omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
     // position or from early position with a hand outside the capped range
@@ -1612,6 +1705,27 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
+    // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
+    // more preflop, a fold or a re-raise becomes a call when the expected
+    // value of the call is the largest. The verdict reads the opponent
+    // memory, which the request does not carry, so the call is admitted only
+    // with the request, only in the preflop spot the rule covers and only for
+    // the exact chips the call puts in. (Its fold is the fold admission
+    // above; the whole-stack call is an all-in, a wager action.)
+    const omahaPreflopReraiseDefenceCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPreflopReraiseDefenceAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
     // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
     // draw out of position, or in position with a bare flush draw, becomes a
     // call. Admitted only with the request, where the bar re-run on it agrees.
@@ -1624,9 +1738,26 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaDrawRaiseBarOf(context.player, context.gameState) !== null;
+    // 2026-11-16 (HorseOmahaMultiwayDiscipline, options
+    // omahaNoRiverBluffIntoValueLeader and omahaMultiwayWeakHandNoBet, default
+    // off): a turn or river bet facing no wager becomes a check. A check puts
+    // no chip in; when the request is known, only where one of the two public
+    // spots, re-run on it, holds (the receipt context carries neither the
+    // options nor the opponent read).
+    const omahaDisciplineBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_MULTIWAY_DISCIPLINE_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          (omahaRiverBluffIntoValueLeaderSpot(context.player, context.gameState) !== null ||
+            omahaMultiwayWeakHandSpot(context.player, context.gameState) !== null)));
     if (
       transition.node === 'wager_rules' &&
       changed &&
+      !omahaDisciplineBetToCheck &&
       !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
       !huBalanceBetToCheck &&
@@ -1642,9 +1773,11 @@ function policyGraphIsValidInScope(
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
+      !omahaPricedSiteFlopBetToCheck &&
       !omahaOopTurnToCall &&
       !omahaBareOverpairContToCall &&
       !omahaStreetPlanBetToCheck &&
+      !omahaStreetPlanLayerBetToCheck &&
       !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
@@ -1652,6 +1785,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&

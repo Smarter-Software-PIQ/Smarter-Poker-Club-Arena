@@ -1,0 +1,196 @@
+{
+ "roots": [
+  "fn_ca_commit_hand_settlement",
+  "fn_ca_commit_hand_submission",
+  "fn_ca_process_hand_post_commit_obligations"
+ ],
+ "closure": 875,
+ "violations": [
+  {
+   "function": "atomic_distribute_rake",
+   "kind": "write",
+   "target": "club_wallets"
+  },
+  {
+   "function": "atomic_distribute_rake",
+   "kind": "write",
+   "target": "union_wallets"
+  },
+  {
+   "function": "bbj_record_contribution",
+   "kind": "row_lock",
+   "target": "bbj_pools"
+  },
+  {
+   "function": "bbj_record_contribution",
+   "kind": "write",
+   "target": "bbj_pools"
+  },
+  {
+   "function": "fn_apply_club_ladder",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_apply_union_ladder",
+   "kind": "write",
+   "target": "unions"
+  },
+  {
+   "function": "fn_bbj_allocate",
+   "kind": "row_lock",
+   "target": "ca_bbj_alloc_state"
+  },
+  {
+   "function": "fn_bbj_allocate",
+   "kind": "write",
+   "target": "ca_bbj_alloc_state"
+  },
+  {
+   "function": "fn_bbj_contribution_drops_cached_hours",
+   "kind": "advisory_lock",
+   "target": "bbj-facts-hours:"
+  },
+  {
+   "function": "fn_bbj_contribution_drops_cached_hours",
+   "kind": "write",
+   "target": "bbj_pool_contribution_hours"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "row_lock",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "row_lock",
+   "target": "union_wallets"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "write",
+   "target": "union_wallets"
+  },
+  {
+   "function": "fn_ca_deleted_wallet_bank_return",
+   "kind": "row_lock",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_deleted_wallet_bank_return",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_fund_overlay_on_lock",
+   "kind": "row_lock",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_fund_overlay_on_lock",
+   "kind": "row_lock",
+   "target": "union_wallets"
+  },
+  {
+   "function": "fn_ca_fund_overlay_on_lock",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_fund_overlay_on_lock",
+   "kind": "write",
+   "target": "union_wallets"
+  },
+  {
+   "function": "fn_ca_horse_split_return_late_credit",
+   "kind": "row_lock",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_horse_split_return_late_credit",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_ca_process_hand_post_commit_obligations",
+   "kind": "advisory_lock",
+   "target": "bbj-pool:"
+  },
+  {
+   "function": "fn_ca_process_hand_post_commit_obligations",
+   "kind": "row_lock",
+   "target": "bbj_pools"
+  },
+  {
+   "function": "fn_ca_process_hand_post_commit_obligations",
+   "kind": "write",
+   "target": "bbj_pools"
+  },
+  {
+   "function": "fn_guard_tournament_start_readiness",
+   "kind": "row_lock",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_guard_tournament_start_readiness",
+   "kind": "row_lock",
+   "target": "union_wallets"
+  },
+  {
+   "function": "fn_refresh_club_activity_counts",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "fn_spin_book_entry",
+   "kind": "row_lock",
+   "target": "spin_bonus_pools"
+  },
+  {
+   "function": "fn_spin_book_entry",
+   "kind": "write",
+   "target": "spin_bonus_pools"
+  },
+  {
+   "function": "fn_spin_reserve_pool",
+   "kind": "write",
+   "target": "spin_bonus_pools"
+  },
+  {
+   "function": "fn_sync_club_staff_notice_group",
+   "kind": "write",
+   "target": "club_messenger_staff_notice_groups"
+  },
+  {
+   "function": "fn_sync_club_table_counts",
+   "kind": "write",
+   "target": "clubs"
+  },
+  {
+   "function": "guard_member_club_standalone_game",
+   "kind": "advisory_lock",
+   "target": "club-game-ownership:"
+  },
+  {
+   "function": "record_insurance_transaction",
+   "kind": "write",
+   "target": "club_wallets"
+  },
+  {
+   "function": "record_insurance_transaction",
+   "kind": "write",
+   "target": "union_wallets"
+  },
+  {
+   "function": "trg_union_rake_weekly",
+   "kind": "write",
+   "target": "union_rake_weekly"
+  }
+ ],
+ "_captured": "2026-11-18 ~08:45 UTC, read-only on production (project kuklfnapbkmacvwxktbh, PostgreSQL 17.6): the block of scripts/ci/hand-path-shared-writes.mjs run as an anonymous DO (fn_ca_hand_path_shared_writes is not installed yet), before #11270 and #11266. function/kind/target only; paths are in the PR body."
+}

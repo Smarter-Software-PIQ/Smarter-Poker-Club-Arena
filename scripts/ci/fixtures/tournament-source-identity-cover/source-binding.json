@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc",
+    "scripts/ci/apply-recorded-migration.mjs": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -176,5 +176,15 @@
     "before": "80a6c2f8731ff7977968cb3ce4a387c92c1fc82d8d08c36b97ac201a9f14ba7b",
     "after": "0e6dfe0a56ab5b89e58c43265ab68e80e71130e6eb8a78e882c4e1bf8ff3c9f5",
     "review": "Only exact same reviewed BBJ SQL SHA b5a74ce10bf8f22d7ce5f6b22675a7f34608ad9e616b0829578712849b2985be receives2520s and44-minute initial/per-index runway, correcting steady validation estimate~2477s. Ordinary600/12/5 and cash shared600 recovery unchanged; no SQL/name/financial-reader/producer change or financial restamp.75-minute BBJ job unchanged:900+720+2520+300=4440s<4500s. Native77 and unchanged recovery reused."
+  },
+  "aHandsMoneyPathNeverWritesASharedRow20261118": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc",
+        "after": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5"
+      }
+    },
+    "review": "The only change in apply-recorded-migration.mjs is one import of handPathParts from hand-path-shared-writes.mjs and the atomic history binding splicing its two pieces into the same single replace, right after the stale-pin pieces: for migrations from 20261118084747 on that can change the function/trigger graph, a snapshot of the hand path's shared-row writes right after BEGIN; and a check before the history insert that refuses a migration adding one (or dropping a hand door). Both are empty for older or data-only files. Nothing else sent, bound or recorded changes. Restamped here too (this binding pins the same file); diff read by the incident 075013fd coordinator: one import of handPathParts and its snapshot/check spliced right after the stale-pin pieces, nothing else.",
+    "reason": "2026-11-17 incident 075013fd: union_wallets on every raked hand (8,303 timeouts), after club_wallets (2026-10-02) and clubs.total_rake (2026-09-29); nothing stopped the class."
   }
 }

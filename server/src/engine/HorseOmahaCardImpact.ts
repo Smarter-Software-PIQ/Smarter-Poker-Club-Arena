@@ -59,6 +59,7 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
+import { omahaTurnRiverTables } from './HorseOmahaRiverTables.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
 import {
@@ -355,6 +356,55 @@ export interface OmahaCardImpactInput {
   amounts: number[];
   /** an opponent seat, mixed into the seed only */
   seedSalt?: number;
+  /**
+   * omahaSmallBetIsPriced (default absent): the share of his range that continues and that raises facing a bet of a
+   * given pot share, measured (HorseOmahaSmallBet.omahaSmallBetResponseAt). Absent: the pot-odds keep and the prior raise share.
+   */
+  responseAt?: OmahaCardImpactResponseCurve;
+}
+
+/**
+ * The share of his range that continues against a bet laid at pot odds `prior` (pot / (pot + bet)): the pot odds, scaled by his
+ * measured continue rate at the reference bet when he is measured. The one owner of that keep (omahaCardImpact's line weights
+ * and bet responses use it).
+ */
+export function omahaCardImpactKeep(
+  read: OmahaCardImpactRead,
+  prior: number,
+  river: boolean
+): number {
+  const rate = river ? (read.riverCallRate ?? read.continueRate) : read.continueRate;
+  if (!read.measured || rate === null) return prior;
+  return clamp((rate * prior) / (1 / (1 + OMAHA_CARD_IMPACT_PRIOR.referenceBet)), 0.05, 0.97);
+}
+
+/** Points (pot share, continue share, raise share) sorted by share; linear between points, flat beyond the ends. */
+export type OmahaCardImpactResponseCurve = readonly {
+  share: number;
+  cont: number;
+  raise: number;
+}[];
+
+/** The curve at a pot share: continue and raise shares, each clamped to [0, 1], raise <= continue. */
+export function omahaCardImpactResponseOf(
+  curve: OmahaCardImpactResponseCurve,
+  share: number
+): { cont: number; raise: number } {
+  const n = curve.length;
+  const at = (i: number) => ({
+    cont: clamp(curve[i].cont, 0, 1),
+    raise: clamp(Math.min(curve[i].raise, curve[i].cont), 0, 1),
+  });
+  if (share <= curve[0].share) return at(0);
+  if (share >= curve[n - 1].share) return at(n - 1);
+  for (let i = 1; i < n; i++)
+    if (share <= curve[i].share) {
+      const a = at(i - 1);
+      const b = at(i);
+      const t = (share - curve[i - 1].share) / (curve[i].share - curve[i - 1].share);
+      return { cont: a.cont + t * (b.cont - a.cont), raise: a.raise + t * (b.raise - a.raise) };
+    }
+  return at(n - 1);
 }
 
 const cache = new Map<string, OmahaCardImpact | null>();
@@ -477,6 +527,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     input.amounts.map(round2),
     input.seedSalt ?? 0,
     omahaStrategyConstant('cardImpactDistinctDrawOuts', { gameVariant: `plo${hole.length}` }),
+    ...(input.responseAt && input.responseAt.length > 0 ? [input.responseAt] : []),
   ]);
   const hit = cache.get(cacheKey);
   if (hit !== undefined)
@@ -511,7 +562,10 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     }
     return t;
   };
-  const tNow = table(board);
+  // The turn's pair tables are the decision's shared exact count
+  // (HorseOmahaRiverTables, the same values, taken once per decision).
+  const shared = street === 'turn' ? omahaTurnRiverTables(hole, board, dead) : null;
+  const tNow = shared !== null && shared.n === n ? shared.now : table(board);
   const tPrev = table(prev);
   const tFlop = prev.length === 3 ? tPrev : table(flop);
   const heroNow = scoreOmahaHiPartial(hole, board);
@@ -545,25 +599,38 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     const sub: Array<[number, number]> = [];
     for (let x = 0; x < 4; x++) for (let y = x + 1; y < 4; y++) sub.push([x, y]);
     for (let r = 0; r < n; r++) {
-      const inc = new Float64Array(n * n);
-      b3[2] = unseen[r];
+      let inc: Float64Array;
       let top = 0;
-      for (let i = 0; i < n; i++) {
-        if (i === r) continue;
-        two[0] = unseen[i];
-        for (let j = i + 1; j < n; j++) {
-          if (j === r) continue;
-          two[1] = unseen[j];
-          let best = tNow[i * n + j];
-          for (const [x, y] of sub) {
-            b3[0] = board[x];
-            b3[1] = board[y];
-            const s = scoreOmahaHiPartial(two, b3);
-            if (s > best) best = s;
+      if (shared !== null && shared.n === n) {
+        inc = shared.river[r];
+        for (let i = 0; i < n; i++) {
+          if (i === r) continue;
+          for (let j = i + 1; j < n; j++) {
+            if (j === r) continue;
+            const v = inc[i * n + j];
+            if (v > top) top = v;
           }
-          inc[i * n + j] = best;
-          inc[j * n + i] = best;
-          if (best > top) top = best;
+        }
+      } else {
+        inc = new Float64Array(n * n);
+        b3[2] = unseen[r];
+        for (let i = 0; i < n; i++) {
+          if (i === r) continue;
+          two[0] = unseen[i];
+          for (let j = i + 1; j < n; j++) {
+            if (j === r) continue;
+            two[1] = unseen[j];
+            let best = tNow[i * n + j];
+            for (const [x, y] of sub) {
+              b3[0] = board[x];
+              b3[1] = board[y];
+              const s = scoreOmahaHiPartial(two, b3);
+              if (s > best) best = s;
+            }
+            inc[i * n + j] = best;
+            inc[j * n + i] = best;
+            if (best > top) top = best;
+          }
         }
       }
       riverInc[r] = inc;
@@ -690,11 +757,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     return mask;
   };
   const P = OMAHA_CARD_IMPACT_PRIOR;
-  const keepOf = (prior: number, river: boolean): number => {
-    const rate = river ? (read.riverCallRate ?? read.continueRate) : read.continueRate;
-    if (!read.measured || rate === null) return prior;
-    return clamp((rate * prior) / (1 / (1 + P.referenceBet)), 0.05, 0.97);
-  };
+  const keepOf = (prior: number, river: boolean): number => omahaCardImpactKeep(read, prior, river);
   for (const step of line) {
     const c = cOf(step.boardLen);
     if (step.kind === 'call') {
@@ -769,9 +832,13 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
   const options: OmahaCardImpactOption[] = [];
   const betOption = (amount: number): OmahaCardImpactOption => {
     const B = Math.min(amount, eff);
-    const q = keepOf(pot / (pot + B), river);
+    const measured =
+      input.responseAt && input.responseAt.length > 0
+        ? omahaCardImpactResponseOf(input.responseAt, B / pot)
+        : null;
+    const q = measured ? measured.cont : keepOf(pot / (pot + B), river);
     const allIn = B >= eff - 0.005;
-    const rho = allIn ? 0 : Math.min(P.raiseShare, q);
+    const rho = allIn ? 0 : Math.min(measured ? measured.raise : P.raiseShare, q);
     const T = allIn ? B : Math.min(pot + 3 * B, eff);
     let acc = 0;
     let fold = 0;
@@ -948,13 +1015,15 @@ export function omahaCardImpactDecision(
   decision: HorseDecision,
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  read: OmahaReadConditional | null
+  read: OmahaReadConditional | null,
+  /** omahaBetSizeByPublicState: the only sizes to price beside the decision's own (the public size). */
+  sizes?: readonly number[]
 ): OmahaCardImpactDecision | null {
   const scope = omahaCardImpactScope(hero, gs);
   if (!scope) return null;
   if (decision.action !== 'check' && decision.action !== 'bet' && decision.action !== 'all_in')
     return null;
-  const amounts = omahaCardImpactAmounts(hero, scope.opponent, gs);
+  const amounts = sizes ? [...sizes] : omahaCardImpactAmounts(hero, scope.opponent, gs);
   const legacyAmount =
     decision.action === 'all_in'
       ? hero.stack

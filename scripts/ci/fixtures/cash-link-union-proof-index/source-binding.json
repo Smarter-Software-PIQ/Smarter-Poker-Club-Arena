@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Fixed-width Boolean proof gate Btree and exact two-index recovery; native63 includes actual original non-inlined SQL-function cold95/100percent\u00d71/20percent weeks, complete bags/metadata and COST1 counters; source65/generation/table contracts unchanged; no production capacity claim",
+  "scope": "Fixed-width Boolean proof gate Btree and exact two-index recovery; native63 includes actual original non-inlined SQL-function cold95/100percent×1/20percent weeks, complete bags/metadata and COST1 counters; source65/generation/table contracts unchanged; no production capacity claim",
   "sourceFiles": {
     "scripts/ci/fixtures/cash-link-union-proof-index/qualification-evidence.json": "6211a82f7b772faae51d7192b7a4a25e4867365a43de75bb5eef67b44cf2dd14",
     "scripts/ci/fixtures/cash-link-union-proof-index/README.md": "489cf40fe24148bf995b8a36d601dd6c06d73f10519a58d1f4b99fb5e9409a1c",
@@ -15,7 +15,7 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "d349c59e55f35a9f1f39b269664994f33df64fca4170ec209a5ae7d5b3c25fe6",
-    "scripts/ci/apply-recorded-migration.mjs": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc",
+    "scripts/ci/apply-recorded-migration.mjs": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5",
     ".github/workflows/apply-merged-migration.yml": "b4c0cc41b45ec00f1b521c2a60782100f83f48f3ace225e09ad8f6ca5cd50873",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
@@ -191,5 +191,15 @@
     "before": "1ad478fb6dcabd8f9411f67f1e3f465c247c047d9320d43c4dffd260f3bad5f1",
     "after": "b4c0cc41b45ec00f1b521c2a60782100f83f48f3ace225e09ad8f6ca5cd50873",
     "review": "Workflow comment only: BBJ build40 becomes42minutes; BBJ75-minute/ordinary35-minute jobs and all executable workflow inputs remain unchanged. Exact BBJ helper alone now2520s/44-minute runway from steady measured validation~2477s; ordinary600/12/5 and shared600 recovery unchanged. No SQL, index-name, financial source or financial qualification restamp; native77 reused."
+  },
+  "aHandsMoneyPathNeverWritesASharedRow20261118": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc",
+        "after": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5"
+      }
+    },
+    "review": "The only change in apply-recorded-migration.mjs is one import of handPathParts from hand-path-shared-writes.mjs and the atomic history binding splicing its two pieces into the same single replace, right after the stale-pin pieces: for migrations from 20261118084747 on that can change the function/trigger graph, a snapshot of the hand path's shared-row writes right after BEGIN; and a check before the history insert that refuses a migration adding one (or dropping a hand door). Both are empty for older or data-only files. Nothing else sent, bound or recorded changes.",
+    "reason": "2026-11-17 incident 075013fd: union_wallets on every raked hand (8,303 timeouts), after club_wallets (2026-10-02) and clubs.total_rake (2026-09-29); nothing stopped the class."
   }
 }

@@ -26,6 +26,7 @@ import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } f
 import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadline.js';
+import { horseSwitchArms } from '../benchmark/HorseSwitchArms.js';
 import {
   LIGHTNING_EVAL_BB_PRICE_BUCKETS,
   LIGHTNING_EVAL_DEFINITIONS,
@@ -62,6 +63,12 @@ import {
   LIGHTNING_EVAL_FINAL,
   LIGHTNING_EVAL_STAGE_HANDS_PER_CELL,
   LIGHTNING_EVAL_SMOKE,
+  LIGHTNING_EVAL_SWITCH_SEED_RANGE,
+  LightningEvalPoolLedger,
+  lightningEvalFloorRules,
+  lightningEvalSwitchCandidate,
+  lightningEvalSwitchConfig,
+  type LightningEvalSwitchCardRecord,
   classifyLightningEntry,
   createLightningDryStreakTracker,
   emptyPositionStats,
@@ -1114,6 +1121,220 @@ describe('the paired Lightning evaluation harness', () => {
 });
 
 /**
+ * E1 (switch cards on the live base, their own seed class) and E2 (floored
+ * pools: rules, one pool session per player, a ledger per arm), 2026-11-19.
+ */
+const SWITCH_BASE = {
+  styleRaiseRespect: true,
+  styleFoldBluff: true,
+  omahaFacingBetEv: true,
+  omahaSmallBetIsPriced: true,
+  v8: true,
+};
+function switchConfigFor(
+  flag: string,
+  cells: LightningEvalCell[],
+  hands: number,
+  base: Record<string, unknown> = SWITCH_BASE
+) {
+  const arms = horseSwitchArms(base, flag);
+  const record: LightningEvalSwitchCardRecord = {
+    name: `unit_${flag}`,
+    flag,
+    candidateValue: arms.candidateValue,
+    baseValue: arms.baseValue ?? null,
+    ignored: arms.ignored,
+    digest: arms.digest,
+    scope: 'hero',
+  };
+  return {
+    record,
+    config: lightningEvalSwitchConfig({
+      record,
+      baseline: arms.b,
+      seeds: [LIGHTNING_EVAL_SWITCH_SEED_RANGE.min + 1],
+      handsPerCell: hands,
+      cells,
+    }),
+  };
+}
+
+describe('Lightning harness E1 and E2', () => {
+  it('E1: the switch seed class is its own, and a switch card refuses any other seed', () => {
+    const { min, max } = LIGHTNING_EVAL_SWITCH_SEED_RANGE;
+    expect(lightningEvalSeedClassOf(min)).toBe('switch');
+    expect(lightningEvalSeedClassOf(max)).toBe('switch');
+    expect(lightningEvalSeedClassOf(min - 1)).toBeNull();
+    for (const cls of ['development', 'selection', 'final'] as const)
+      for (const seed of LIGHTNING_EVAL_SEEDS[cls]) {
+        expect(lightningEvalSeedClassOf(seed)).toBe(cls);
+        expect(() =>
+          lightningEvalSwitchConfig({
+            record: switchConfigFor(
+              'v8',
+              [{ variant: 'nlh', players: 4, stackBB: 100, field: 'all_horse' }],
+              1
+            ).record,
+            baseline: SWITCH_BASE,
+            seeds: [seed],
+            handsPerCell: 1,
+            cells: [{ variant: 'nlh', players: 4, stackBB: 100, field: 'all_horse' }],
+          })
+        ).toThrow(/outside the switch seed range/);
+      }
+  });
+
+  it('E1: both arms run on the live base, not the 2026-11-14 style options, and differ only in the flag', async () => {
+    const { config, record } = switchConfigFor(
+      'v8',
+      [{ variant: 'plo5', players: 4, stackBB: 50, field: 'all_horse' }],
+      6
+    );
+    expect(config.baselineDecideOpts).toEqual(
+      Object.fromEntries(Object.entries(SWITCH_BASE).sort(([a], [b]) => a.localeCompare(b)))
+    );
+    const candidate = lightningEvalSwitchCandidate(record);
+    expect(candidate.decideOpts).toEqual({ v8: false });
+    const report = await runLightningPairedEval({ config, candidate, playArm });
+    expect(report.seedClass).toBe('switch');
+    expect(report.switchCard).toMatchObject({ flag: 'v8', candidateValue: false, baseValue: true });
+    expect(report.definitions.switchCard).toBeDefined();
+    expect(report.baselineArm.decideOpts).toEqual(config.baselineDecideOpts);
+    const cell = report.cells[0]!;
+    for (const arm of [cell.baseline, cell.candidate]) {
+      for (const k of Object.keys(SWITCH_BASE)) {
+        expect(arm.counters.subjectDecideOptionKeys).toContain(k);
+        expect(arm.counters.nonSubjectDecideOptionKeys).toContain(k);
+      }
+      // The frozen 2026-11-14 style set is not slipped in.
+      expect(arm.counters.subjectDecideOptionKeys).not.toContain('styleValueExtraction');
+      expect(arm.counters.illegalActions + arm.counters.conservationViolations).toBe(0);
+    }
+  }, 420_000);
+
+  it('E2: the pool ledger judges a window, a rolling window and grace as a floored game does', () => {
+    const whole = new LightningEvalPoolLedger({
+      vpipPct: 40,
+      windowHands: 10,
+      graceHands: 0,
+      rolling: false,
+    });
+    for (let i = 0; i < 9; i++) whole.record('s', false);
+    expect(whole.figure('s')).toEqual({ hands: 9, vpip: 0 });
+    whole.record('s', false); // hand 10, 0 %: booted on the spot (grace 0), a new sitting
+    let r = whole.report(new Set(['s']), (x) => x, 0).subjects[0]!;
+    expect(r).toMatchObject({ hands: 10, warnings: 1, evictions: 1, sittings: 2 });
+    expect(r.vpipAtPct['10']).toBe(0);
+    expect(whole.figure('s')).toEqual({ hands: 0, vpip: null });
+
+    // Whole sitting, grace 3: warned at hand 10 (30 %), recovered at hand 12 (5 of 12).
+    const graced = new LightningEvalPoolLedger({
+      vpipPct: 40,
+      windowHands: 10,
+      graceHands: 3,
+      rolling: false,
+    });
+    for (let i = 0; i < 10; i++) graced.record('g', i < 3);
+    graced.record('g', true);
+    r = graced.report(new Set(['g']), (x) => x, 0).subjects[0]!;
+    expect(r).toMatchObject({ warnings: 1, recoveries: 0, evictions: 0 });
+    graced.record('g', true);
+    r = graced.report(new Set(['g']), (x) => x, 0).subjects[0]!;
+    expect(r).toMatchObject({ warnings: 1, recoveries: 1, evictions: 0, hands: 12, entered: 5 });
+    // Grace runs out: warned at 10, booted when the grace hands are spent under the floor.
+    const spent = new LightningEvalPoolLedger({
+      vpipPct: 40,
+      windowHands: 10,
+      graceHands: 2,
+      rolling: false,
+    });
+    for (let i = 0; i < 11; i++) spent.record('x', false);
+    expect(spent.report(new Set(['x']), (x) => x, 0).subjects[0]!.evictions).toBe(0);
+    spent.record('x', false);
+    expect(spent.report(new Set(['x']), (x) => x, 0).subjects[0]!.evictions).toBe(1);
+    // Rolling forgets: 10 entries then 7 folds is 59 % of the sitting but 30 % of the last 10.
+    const rollingLedger = new LightningEvalPoolLedger({
+      vpipPct: 40,
+      windowHands: 10,
+      graceHands: 0,
+      rolling: true,
+    });
+    const wholeLedger = new LightningEvalPoolLedger({
+      vpipPct: 40,
+      windowHands: 10,
+      graceHands: 0,
+      rolling: false,
+    });
+    for (let i = 0; i < 17; i++) {
+      rollingLedger.record('p', i < 10);
+      wholeLedger.record('p', i < 10);
+    }
+    expect(rollingLedger.report(new Set(['p']), (x) => x, 0).subjects[0]!.evictions).toBe(1);
+    expect(wholeLedger.report(new Set(['p']), (x) => x, 0).subjects[0]!.evictions).toBe(0);
+    expect(lightningEvalFloorRules(undefined)).toEqual({});
+    expect(
+      lightningEvalFloorRules({ vpipPct: 40, windowHands: 10, graceHands: 0, rolling: false })
+    ).toEqual({ nit_game: true, maintain_percent_min: 40, maintain_hands: 10 });
+  });
+
+  it('E2: a floored cell gives each player one pool session, each arm its own ledger, and a null candidate stays paired', async () => {
+    const floor = {
+      vpipPct: 40,
+      windowHands: 10,
+      graceHands: 0,
+      rolling: false,
+      feedSnapshot: true,
+      restartEveryHands: 6,
+    };
+    const config: LightningEvalConfig = {
+      name: 'floored-pin',
+      seedClass: 'development',
+      seeds: [LIGHTNING_EVAL_SEEDS.development[0]!],
+      handsPerCell: 12,
+      cells: [{ variant: 'plo5', players: 4, stackBB: 100, field: 'all_horse', floor }],
+      baselineDecideOpts: {},
+    };
+    const fed: Array<{ floor: unknown; window: unknown; own: unknown }> = [];
+    const report = await runLightningPairedEval({
+      config,
+      candidate: {
+        ...NULL_CANDIDATE,
+        snapshotPatch: (snap: any) => {
+          fed.push({
+            floor: snap.gameState.vpipFloor,
+            window: snap.gameState.vpipWindowHands,
+            own: snap.gameState.ownVpip,
+          });
+          return snap;
+        },
+      },
+      playArm,
+    });
+    const cell = report.cells[0]!;
+    expect(cell.paired.divergentDecisions).toBe(0);
+    expect(cell.pool).toBeDefined();
+    const { baseline, candidate } = cell.pool!;
+    expect(baseline).not.toBe(candidate);
+    expect(baseline).toEqual(candidate);
+    // One pool session per player: the hero's single session saw every hand.
+    expect(baseline.subjects).toHaveLength(1);
+    expect(baseline.subjects[0]!.hands).toBe(12);
+    expect(baseline.table.hands).toBe(12 * 4);
+    expect(baseline.feedClears).toBe(1);
+    expect(report.definitions.pool).toBeDefined();
+    // The host handed the floor and the hero's own figure to its decisions.
+    expect(fed.length).toBeGreaterThan(0);
+    expect(fed.every((f) => f.floor === 40 && f.window === 10)).toBe(true);
+    expect(fed.some((f) => (f.own as { hands: number }).hands > 0)).toBe(true);
+    expect(
+      fed.every(
+        (f) => (f.own as { hands: number }).hands <= 6 // the feed ledger clears every 6 hands
+      )
+    ).toBe(true);
+  }, 420_000);
+});
+
+/**
  * THE RUNNER. From server/:
  *   LIGHTNING_EVAL_CONFIG=smoke LIGHTNING_EVAL_OUT=<dir> \
  *     npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
@@ -1131,23 +1352,70 @@ const STAGED: Record<string, LightningEvalConfig> = {
   dev_mixed: LIGHTNING_EVAL_DEV_MIXED,
   dev_mixed_smoke: LIGHTNING_EVAL_DEV_MIXED_SMOKE,
 };
-describe.runIf(requested !== undefined && requested in STAGED)(
+/**
+ * E1 SWITCH CARD: LIGHTNING_EVAL_CONFIG=switch LIGHTNING_EVAL_SWITCH=<card.json>.
+ * card.json: { name, flag, candidateValue?, scope? ('hero' | 'all_horses'),
+ * base (option -> boolean map, entries, an arms.json or live switch rows) or
+ * basePath, seeds (from LIGHTNING_EVAL_SWITCH_SEED_RANGE), handsPerCell,
+ * cells (LightningEvalCell[], floor allowed) }. LIGHTNING_EVAL_CANDIDATE is
+ * refused with it: the candidate is the card's flag.
+ */
+function loadSwitchCard(): { config: LightningEvalConfig; candidate: LightningEvalArmSpec } {
+  const path = process.env.LIGHTNING_EVAL_SWITCH;
+  if (!path) throw new Error('LIGHTNING_EVAL_SWITCH (a card file) is required');
+  if (process.env.LIGHTNING_EVAL_CANDIDATE)
+    throw new Error('a switch card declares its candidate; LIGHTNING_EVAL_CANDIDATE is refused');
+  const card = JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
+  const base =
+    card.basePath !== undefined
+      ? JSON.parse(readFileSync(String(card.basePath), 'utf8'))
+      : card.base;
+  const scope = card.scope ?? 'hero';
+  if (scope !== 'hero' && scope !== 'all_horses')
+    throw new Error('scope must be hero or all_horses');
+  const arms = horseSwitchArms(base, String(card.flag), card.candidateValue);
+  const record: LightningEvalSwitchCardRecord = {
+    name: String(card.name),
+    flag: arms.flag,
+    candidateValue: arms.candidateValue,
+    baseValue: arms.baseValue ?? null,
+    ignored: arms.ignored,
+    digest: arms.digest,
+    scope,
+  };
+  return {
+    config: lightningEvalSwitchConfig({
+      record,
+      baseline: arms.b,
+      seeds: card.seeds,
+      handsPerCell: card.handsPerCell,
+      cells: card.cells,
+    }),
+    candidate: lightningEvalSwitchCandidate(record),
+  };
+}
+
+describe.runIf(requested !== undefined && (requested in STAGED || requested === 'switch'))(
   'the paired Lightning evaluation runner',
   () => {
     it('runs the declared configuration and writes its report', async () => {
-      const config = STAGED[requested!]!;
+      const switchCard = requested === 'switch' ? loadSwitchCard() : null;
+      const config = switchCard ? switchCard.config : STAGED[requested!]!;
       const outDir = process.env.LIGHTNING_EVAL_OUT;
       if (!outDir) throw new Error('LIGHTNING_EVAL_OUT (a directory) is required');
       const range = process.env.LIGHTNING_EVAL_CELLS?.split(':').map(Number);
-      const candidateOpts = process.env.LIGHTNING_EVAL_CANDIDATE
-        ? (JSON.parse(process.env.LIGHTNING_EVAL_CANDIDATE) as Record<string, unknown>)
-        : null;
-      const candidate: LightningEvalArmSpec = candidateOpts
-        ? {
-            name: Object.keys(candidateOpts).sort().join('+') || 'empty',
-            decideOpts: candidateOpts,
-          }
-        : NULL_CANDIDATE;
+      const candidateOpts =
+        !switchCard && process.env.LIGHTNING_EVAL_CANDIDATE
+          ? (JSON.parse(process.env.LIGHTNING_EVAL_CANDIDATE) as Record<string, unknown>)
+          : null;
+      const candidate: LightningEvalArmSpec = switchCard
+        ? switchCard.candidate
+        : candidateOpts
+          ? {
+              name: Object.keys(candidateOpts).sort().join('+') || 'empty',
+              decideOpts: candidateOpts,
+            }
+          : NULL_CANDIDATE;
       // LIGHTNING_EVAL_DEADLINE=apply: answer a decision past the production
       // deadline as production does (machine dependent; default measure).
       const deadlineEnv = process.env.LIGHTNING_EVAL_DEADLINE ?? 'measure';

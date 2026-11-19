@@ -264,6 +264,38 @@ describe('the rake snapshot on a union', () => {
     expect(screen.queryByText(/Rollup Written Hourly/)).not.toBeInTheDocument();
   });
 
+  it('follows carried Data dates and retains other financial pages separate ranges', async () => {
+    rpcMock.mockImplementation((fn: string) =>
+      Promise.resolve({
+        data:
+          fn === 'ca_rake_snapshot_pacific_v2'
+            ? { ...payload('club', []), range: { start: '2026-11-09', end: '2026-11-15', days: 7 } }
+            : null,
+        error: null,
+      })
+    );
+    render(
+      <RakeSnapshotPanel
+        clubId={null}
+        unionId={UNION_ID}
+        userId={USER_ID}
+        scopes={['union']}
+        reportBasis="pacific"
+        reportRange={{ start: '2026-11-09', end: '2026-11-15' }}
+      />
+    );
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_rake_snapshot_pacific_v2',
+        expect.objectContaining({ p_start: '2026-11-09', p_end: '2026-11-15' })
+      )
+    );
+    expect(screen.getByRole('button', { name: 'Use Report Dates' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Year', exact: true })).toBeDisabled();
+  });
   it('names its headline as the caller says, "Rake / Fee" by default', async () => {
     const report = payload('club', [clubRow(CLUB_A, 'SHARK CLUB')]);
     rpcMock.mockImplementation((fn: string) =>
