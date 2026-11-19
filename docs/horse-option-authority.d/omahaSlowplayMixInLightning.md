@@ -31,7 +31,7 @@ HorseOmahaScopesInLightning.test.ts: the scope (Lightning outside both spots unl
 
 ## League
 
-The league deals no Lightning domain. Refused matchup `plo5_omaha_slowplay_mix_in_lightning` (HorseLeague.ts UNMEASURABLE_MATCHUPS, the mix on in both arms). Inert there by construction; this matchup was NOT run through runMatchup (no league run was allowed while it was built): its refusal cites the sibling plo5_omaha_priced_in_lightning measurement (0 of 300 pairs diverged) and says its own 300-pair run is owed. The real evaluation is the paired Lightning harness (server/src/lightning/LightningPairedEval.test.ts, a switch card on the live base, E1) under the pre-written bar: PLO lane evidence plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md and card-omahaSlowplayMixInLightning.json, written before any run.
+The league deals no Lightning domain. Refused matchup `plo5_omaha_slowplay_mix_in_lightning` (HorseLeague.ts UNMEASURABLE_MATCHUPS, the mix on in both arms). Inert there by construction, and measured 2026-11-19 by running the refused matchup through runMatchup: 0 of 300 pairs diverged (run seed 20261119, status inert; archive plo-handoff-review-01a1cbbd/stack0400-01TLQer7J/measure/). The real evaluation is the paired Lightning harness (server/src/lightning/LightningPairedEval.test.ts, a switch card on the live base, E1) under the pre-written bar: PLO lane evidence plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md and card-omahaSlowplayMixInLightning.json, written before any run.
 
 ## Evidence rows
 
@@ -39,3 +39,9 @@ The league deals no Lightning domain. Refused matchup `plo5_omaha_slowplay_mix_i
 - Replay of the real audited decisions (fixed / unchanged / newly wrong): NOT RUN.
 - Value in Lightning: NOT MET. NOT EVALUATED: no Lightning result exists for this option.
 - Do not switch on without a WIN under the pre-written bar.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -33,7 +33,7 @@ HorseOmahaScopesInLightning.test.ts, on two recorded public states (PLO5 cash ha
 
 ## League
 
-The league deals no Lightning domain. Refused matchup `plo5_omaha_public_bet_size_in_lightning` (HorseLeague.ts UNMEASURABLE_MATCHUPS, the public size on in both arms). Inert there by construction; this matchup was NOT run through runMatchup (no league run was allowed while it was built): its refusal cites the sibling plo5_omaha_priced_in_lightning measurement (0 of 300 pairs diverged) and says its own 300-pair run is owed. The real evaluation is the paired Lightning harness (server/src/lightning/LightningPairedEval.test.ts, a switch card on the live base, E1) under the pre-written bar: PLO lane evidence plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md and card-omahaPublicBetSizeInLightning.json, written before any run.
+The league deals no Lightning domain. Refused matchup `plo5_omaha_public_bet_size_in_lightning` (HorseLeague.ts UNMEASURABLE_MATCHUPS, the public size on in both arms). The option is inert there by construction, but the matchup does not read 0.00: measured 2026-11-19 through runMatchup (300 pairs, run seed 20261119; archive plo-handoff-review-01a1cbbd/stack0400-01TLQer7J/measure/), 49 of 300 pairs diverged (-9.69 +/- 7.28 bb/100), while identical arms diverged in 38 of 300 (both arms the b set) and 39 of 300 (both arms the a set). The divergence is the size stream of omahaBetSizeByPublicState (horsePublicBetSize.horseBetSizeRandom, seeded from the operating system at load, never from the run seed or the deal), on in both arms; with that stream held constant (mocked to 0.5; 1,676 size draws) the matchup and its identical-arm control each diverged in 0 of 300 pairs. A league card for this option would therefore report unpaired size noise, not the option, and it stays refused. The real evaluation is the paired Lightning harness (server/src/lightning/LightningPairedEval.test.ts, a switch card on the live base, E1) under the pre-written bar: PLO lane evidence plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md and card-omahaPublicBetSizeInLightning.json, written before any run.
 
 ## Evidence rows
 
@@ -41,3 +41,9 @@ The league deals no Lightning domain. Refused matchup `plo5_omaha_public_bet_siz
 - Replay of the real audited decisions (fixed / unchanged / newly wrong): NOT RUN.
 - Value in Lightning: NOT MET. NOT EVALUATED: no Lightning result exists for this option. The Lightning harness's opponents are Horses, which do not read bet sizes; a harness result can show only that the public sizes do not cost chips there.
 - Do not switch on without a WIN under the pre-written bar.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

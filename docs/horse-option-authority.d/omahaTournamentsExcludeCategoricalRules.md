@@ -31,3 +31,9 @@ None of its own: with it on the categorical rules' receipts stop firing in tourn
 ## Evaluation (owed)
 
 League cards declared, not run: `plo4_mtt_6max_omaha_tournaments_exclude_categorical_rules_40bb` and `plo5_...` in `server/src/benchmark/HorseLeague.ts` (both arms `OMAHA_LIVE_OPTIONS_20261118`, arm A adds this option). A PASS-BAR must be written before any run; nothing has been measured.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

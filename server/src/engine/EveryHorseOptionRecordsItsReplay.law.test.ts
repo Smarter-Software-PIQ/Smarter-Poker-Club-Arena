@@ -21,7 +21,8 @@
  *   3. The claim cannot be worded around: a status paragraph that says MET without the words "Evidence MET" or
  *      "Evidence NOT MET" fails, except the files that were worded so when this law was written
  *      (PARTIAL_STATUS_20261119, closed).
- *   4. GRANDFATHERED_20261119: the files that claimed "Evidence MET" on 2026-11-19, before this bar existed. Their
+ *   4. GRANDFATHERED_20261119: the files that claimed "Evidence MET" on 2026-11-19, before this bar existed, for
+ *      the options production had switched on that day (read 2026-11-19T19:00:33Z). Their
  *      replays are in prose in the file (LEGACY) or were not run on the committed scorer. The list is closed and
  *      only shrinks: an entry must still be a file that claims MET, and it leaves the list in the pull request
  *      that gives it run rows. No new option may be added to it.
@@ -47,12 +48,14 @@ const DIR = join(
 );
 
 /**
- * Claimed "Evidence MET" on 2026-11-19, before the replay bar was machine-read (read from the files that day; this
- * law does not know which of them production has switched on). Closed: remove an entry, never add one.
+ * Claimed "Evidence MET" on 2026-11-19, before the replay bar was machine-read, AND switched on in production
+ * that day (production option-switch read 2026-11-19T19:00:33Z: these three are on). The law itself does not read
+ * production. omahaReadIsByStreetAndTexture also claimed MET that day but had no switch row and its own file holds
+ * its switch-on (the minimum-raise ladder section); its status paragraph now states "Evidence NOT MET" and it is
+ * not listed. Closed: remove an entry, never add one.
  */
 export const GRANDFATHERED_20261119: readonly string[] = [
   'omahaPreflopReraiseDefencePricedInPosition',
-  'omahaReadIsByStreetAndTexture',
   'omahaSmallBetIsPriced',
   'omahaTurnRiverRaiseIsPriced',
 ];
@@ -183,7 +186,7 @@ describe('LAW: every Horse option records its replay on real audited decisions',
     for (const list of [GRANDFATHERED_20261119, PARTIAL_STATUS_20261119]) {
       expect([...list]).toEqual([...new Set(list)].sort());
     }
-    expect(GRANDFATHERED_20261119.length).toBeLessThanOrEqual(4);
+    expect(GRANDFATHERED_20261119.length).toBeLessThanOrEqual(3);
     expect(PARTIAL_STATUS_20261119.length).toBeLessThanOrEqual(4);
     // What is grandfathered is exactly what claims MET without a run row: nothing else slips through unlisted.
     const metWithoutRun = Object.entries(files)

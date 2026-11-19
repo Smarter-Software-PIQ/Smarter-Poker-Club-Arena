@@ -2675,7 +2675,9 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   })),
   // 2026-11-19 (WooWoo audit NUT-SIZE): omahaValueSizeIsUnreadable, default OFF: a nut-class full-pot
   // wager stays the full pot at the measured street share, else is sized in the owner's 80-95% band.
-  // Both arms carry omahaNutClassValueSize (on in production by release default); arm a adds the option.
+  // Both arms carry omahaNutClassValueSize; arm a adds the option. omahaNutClassValueSize is NOT on in
+  // production: it is default OFF in source (#10989) and off-only since its failed evaluation (ploFailed,
+  // 2026-11-18), so this card's base is not the production base.
   // Same league state caveat as the card above. Declared; not run.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_value_size_is_unreadable`,
@@ -4996,10 +4998,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'carries a public memory domain, so every league decision is already inside the mix in both arms, both arms ' +
       'play identical poker (omaha_slowplay_mix_in_lightning_scope_seen never fires) and the card would report ' +
       '0.00 +/- 0.00 every night. Inert by construction (the one read of the option is behind the speed test). ' +
-      'THIS matchup was NOT run through runMatchup (no league run was allowed while it was built, 2026-11-19): ' +
-      'the only measurement is the sibling refusal plo5_omaha_priced_in_lightning, the same construction (a ' +
-      'Lightning-only scope on the same live Omaha set), where 0 of 300 pairs diverged (run seed 20261118); its ' +
-      'own 300-pair run is owed before this line is read as measured. ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261119, status inert, 0.00 bb/100). ' +
       'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
       'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
       'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
@@ -5023,12 +5023,17 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'game of omahaBetSizeByPublicState no longer refuses a decision whose gs.publicMemoryDomain.speed is ' +
       '"lightning". The league deals its own tables and no league context carries a public memory domain, so every ' +
       'league decision is already inside the public size in both arms, both arms play identical poker ' +
-      '(omaha_public_bet_size_in_lightning_scope_seen never fires) and the card would report 0.00 +/- 0.00 every ' +
-      'night. Inert by construction (the one read of the option is behind the speed test). ' +
-      'THIS matchup was NOT run through runMatchup (no league run was allowed while it was built, 2026-11-19): ' +
-      'the only measurement is the sibling refusal plo5_omaha_priced_in_lightning, the same construction (a ' +
-      'Lightning-only scope on the same live Omaha set), where 0 of 300 pairs diverged (run seed 20261118); its ' +
-      'own 300-pair run is owed before this line is read as measured. ' +
+      '(omaha_public_bet_size_in_lightning_scope_seen never fires): the option is inert by construction (its one ' +
+      'read is behind the speed test). ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup (run seed 20261119): 49 of 300 pairs ' +
+      'diverged (-9.69 +/- 7.28 bb/100), and NONE of that is the option: with IDENTICAL arms 38 of 300 pairs ' +
+      'diverged (both arms the b set, +11.65 +/- 6.25 bb/100) and 39 of 300 (both arms the a set, -7.47 +/- 6.98). ' +
+      'The divergence is the size stream of omahaBetSizeByPublicState, which is on in both arms: ' +
+      'horsePublicBetSize.horseBetSizeRandom is seeded from the operating system at load, never from the run seed ' +
+      'or the deal, so the two deals of a duplicate pair draw different sizes. With that stream held constant ' +
+      '(horseBetSizeRandom mocked to 0.5; 1,676 size draws taken) the same matchup diverged in 0 of 300 pairs, as ' +
+      'did its identical-arm control. So the league card of this option would not report 0.00 +/- 0.00: it would ' +
+      'report unpaired size noise that is no measurement of the option, which is the reason it stays refused. ' +
       'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
       'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
       'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
