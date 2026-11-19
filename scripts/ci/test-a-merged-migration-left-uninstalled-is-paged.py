@@ -26,6 +26,12 @@ a fake extensions.http answering from a table, so every outcome is data:
     hours; a file merged before the switch-on gets its hour from the
     switch-on, so a resume that never sent it still pages; an unreadable
     workflow state holds nothing (20261117165416, incident c1a85d20);
+  * a file whose first hour touches the nightly release schema freeze
+    (23:45-04:15 America/Chicago, RELEASE_SCHEMA_FREEZE_CHICAGO) is held by
+    its own dispatcher run until 04:15, so its hour starts at the freeze end:
+    a merge at 00:22 Chicago is quiet at 01:22 and pages at 05:15 if still not
+    installed; installing it at 04:15 raises nothing; a daytime merge keeps
+    its hour from the merge (20261119090911, alerts 445153-445214);
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
 """
@@ -48,6 +54,8 @@ SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_mi
 # The never-run marker, spelled in two pieces so this file is not read as one.
 # 20261117165416: installs switched off hold the hour page (incident c1a85d20).
 PAUSE_FIX = next(MIGRATIONS.glob('*_the_install_watch_holds_its_page_while_installs_are_switched*.sql'))
+# 20261119090911: the hour starts when the nightly release schema freeze ends.
+FREEZE_FIX = next(MIGRATIONS.glob('*_the_install_watch_starts_its_hour_when_the_release_freeze_en*.sql'))
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -441,13 +449,79 @@ def main():
                    f"('{APPLIER}', '{DISPATCHER}')") == '0'
         ok('an unreadable workflow state holds nothing and only the two workflows are read')
 
+        # THE NIGHTLY RELEASE SCHEMA FREEZE (2026-11-19, alerts 445153-445214).
+        # Nine ordinary files merged between 23:45 and 04:15 Chicago were held
+        # on purpose by their dispatcher runs until 04:15, and the watch paged
+        # "dispatch it" for each one an hour after its merge.
+        # Installed here, not with the others: the fixtures above predate the
+        # freeze (2026-11-18) and sit inside it (10:00Z is 04:00 Chicago).
+        PRE_FREEZE = PRE_PAUSE or os.environ.get('MIGWATCH_PRE_FREEZE') == '1'
+        if not PRE_PAUSE:
+            print('# watch md5 before the freeze fix: ' + sql("SELECT md5(pg_get_functiondef('public.fn_ca_merged_migration_install_watch(timestamp with time zone)'::regprocedure))"))
+        if not PRE_FREEZE:
+            for attempt in (1, 2):
+                r = psql(['-f', str(FREEZE_FIX)])
+                assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', FREEZE_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'freeze-fix live proof must hold after install'
+            ok('the freeze fix installs over the exact live watch (md5 preimage), twice idempotently, and its live proof holds')
+        workflows('active', 'active')
+        watch('2026-11-19 05:00:00Z')
+        F1 = 'supabase/migrations/20261119013426_merged_inside_the_release_freeze.sql'
+        F2 = 'supabase/migrations/20261119053000_merged_in_the_hour_before_the_freeze.sql'
+        merge(41, '2026-11-19T05:30:00Z', [{'filename': F2, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        merge(40, '2026-11-19T06:22:54Z', [{'filename': F1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        r = watch('2026-11-19 06:30:00Z')
+        r = watch('2026-11-19 07:23:00Z')
+        if PRE_FREEZE:
+            assert alert_status('20261119013426') == 'firing', r
+            print('# MIGWATCH_PRE_FREEZE=1: the live definition pages a file the release freeze is holding')
+            return
+        assert alert_status('20261119013426') == '', f'the release freeze must hold the hour page: {r}'
+        assert alert_status('20261119053000') == '', 'a merge at 23:30 Chicago whose hour runs into the freeze is held too'
+        watch('2026-11-19 11:14:00Z')
+        assert alert_status('20261119013426') == '', 'the hour starts at 04:15 Chicago (10:15Z), not at the merge'
+        r = watch('2026-11-19 11:15:00Z')
+        assert alert_status('20261119013426') == 'firing', r
+        assert alert_status('20261119053000') == 'firing', r
+        ok('the release freeze holds the hour page: a merge at 00:22 Chicago is quiet at 01:22 and pages at 05:15 if still not installed')
+
+        F3 = 'supabase/migrations/20261119064000_installed_when_the_freeze_ends.sql'
+        merge(42, '2026-11-19T06:40:00Z', [{'filename': F3, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-19 06:45:00Z')
+        watch('2026-11-19 07:41:00Z')
+        assert alert_status('20261119064000') == ''
+        sql("INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('20261119064000', 'installed_when_the_freeze_ends')")
+        watch('2026-11-19 10:20:00Z')
+        watch('2026-11-19 11:45:00Z')
+        assert alert_status('20261119064000') == '', 'a file installed at the freeze end never pages'
+        ok('a file the dispatcher installs when the freeze ends raises nothing')
+
+        F4 = 'supabase/migrations/20261119160000_merged_in_the_daytime.sql'
+        merge(43, '2026-11-19T16:00:00Z', [{'filename': F4, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-19 16:59:00Z')
+        assert alert_status('20261119160000') == ''
+        watch('2026-11-19 17:00:00Z')
+        assert alert_status('20261119160000') == 'firing'
+        ok('a daytime merge keeps its hour from the merge')
+
+        assert sql("SELECT smarter_private.fn_ca_install_watch_freeze_hold_end('2026-11-20 04:40:00+00') IS NULL") == 't'
+        assert sql("SELECT smarter_private.fn_ca_install_watch_freeze_hold_end('2026-11-20 05:30:00+00') = '2026-11-20 10:15:00+00'") == 't'
+        assert sql("SELECT smarter_private.fn_ca_release_schema_freeze_end('2026-07-15 04:44:59+00') IS NULL") == 't'
+        assert sql("SELECT smarter_private.fn_ca_release_schema_freeze_end('2026-07-15 04:45:00+00') = '2026-07-15 09:15:00+00'") == 't'
+        assert sql("SELECT smarter_private.fn_ca_release_schema_freeze_end('2026-11-01 05:00:00+00') = '2026-11-01 10:15:00+00'") == 't'
+        assert sql("SELECT smarter_private.fn_ca_release_schema_freeze_end('2027-03-14 09:30:00+00') IS NULL") == 't'
+        assert sql("SELECT smarter_private.fn_ca_release_schema_freeze_end('2027-03-14 08:30:00+00') = '2027-03-14 09:15:00+00'") == 't'
+        ok('the freeze is read on Chicago wall time across both DST changes, and an hour ending before it is not held')
+
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "
             "jsonb_build_object('summary', 'The 4 AM engine update did not happen.'))")
         assert pages('Engine Update Missed At 4 AM') == 1
         ok('a migration page does not hold back an engine release page')
 
-        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '2'  # both inserted by this test
+        expected_ledger = '2' if PRE_FREEZE else '3'  # every row inserted by this test
+        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == expected_ledger
         assert sql("SELECT count(*) FROM mock_http_calls WHERE uri NOT LIKE 'https://api.github.com/%' AND uri NOT LIKE 'https://raw.githubusercontent.com/%'") == '0'
         assert sql("SELECT jobname || ' ' || schedule FROM cron.job WHERE jobname LIKE 'ca-merged-migration%'") == 'ca-merged-migration-install-watch-10m */10 * * * *'
         ok('it never writes the migration ledger and only reads GitHub')

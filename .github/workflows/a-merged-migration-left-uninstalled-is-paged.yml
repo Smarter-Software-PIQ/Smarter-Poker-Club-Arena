@@ -1,7 +1,7 @@
 name: A merged migration left uninstalled is paged
 
 # fn_ca_merged_migration_install_watch() (migrations 20261109182123,
-# 20261110194917, 20261112035143 and 20261117165416). Runs
+# 20261110194917, 20261112035143, 20261117165416 and 20261119090911). Runs
 # scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py against a
 # throwaway PostgreSQL 17 cluster, never production. No timer (CLAUDE.md
 # 10.85): pull_request only, scoped to the paths it proves.
@@ -13,6 +13,9 @@ on:
       - supabase/migrations/20261110194917_the_install_watch_reads_a_renamed_migration_s_header_from_it.sql
       - supabase/migrations/20261112035143_the_install_watch_reads_a_superseded_migration_as_never_to_b.sql
       - supabase/migrations/20261117165416_the_install_watch_holds_its_page_while_installs_are_switched.sql
+      - supabase/migrations/20261119090911_the_install_watch_starts_its_hour_when_the_release_freeze_en.sql
+      - scripts/ci/merged-migration-dispatch.mjs
+      - tests/the-install-watch-reads-the-release-freeze-the-dispatcher-holds.law.test.ts
       - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
       - scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
       - scripts/ci/test-a-missed-engine-cutover-is-paged.py
