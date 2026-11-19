@@ -4978,6 +4978,64 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'big blind, a new table every hand) and sets the domain.',
   },
   {
+    // PLO Strategy lane 2026-11-19 (lead 01TLQer7J): omahaStrongHandSlowplayMix on in BOTH arms; the one-arm
+    // question is its Lightning scope.
+    name: 'plo5_omaha_slowplay_mix_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaStrongHandSlowplayMix: true,
+      omahaSlowplayMixInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaStrongHandSlowplayMix: true },
+    reason:
+      'No Lightning domain in the league table. omahaSlowplayMixInLightning is DEFAULT OFF (HorseLogic ' +
+      'omahaStrongHandSlowplayMixRule: opts.omahaSlowplayMixInLightning === true) and it changes one thing: the ' +
+      'game of omahaStrongHandSlowplayMix (HorseOmahaStrongHandSlowplayMix inGame) no longer refuses a decision ' +
+      'whose gs.publicMemoryDomain.speed is "lightning". The league deals its own tables and no league context ' +
+      'carries a public memory domain, so every league decision is already inside the mix in both arms, both arms ' +
+      'play identical poker (omaha_slowplay_mix_in_lightning_scope_seen never fires) and the card would report ' +
+      '0.00 +/- 0.00 every night. Inert by construction (the one read of the option is behind the speed test). ' +
+      'THIS matchup was NOT run through runMatchup (no league run was allowed while it was built, 2026-11-19): ' +
+      'the only measurement is the sibling refusal plo5_omaha_priced_in_lightning, the same construction (a ' +
+      'Lightning-only scope on the same live Omaha set), where 0 of 300 pairs diverged (run seed 20261118); its ' +
+      'own 300-pair run is owed before this line is read as measured. ' +
+      'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
+      'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
+      'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
+      'deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and ' +
+      'sets the domain.',
+  },
+  {
+    // PLO Strategy lane 2026-11-19 (lead 01TLQer7J): omahaBetSizeByPublicState on in BOTH arms; the one-arm
+    // question is its Lightning scope.
+    name: 'plo5_omaha_public_bet_size_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaBetSizeByPublicState: true,
+      omahaPublicBetSizeInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaBetSizeByPublicState: true },
+    reason:
+      'No Lightning domain in the league table. omahaPublicBetSizeInLightning is DEFAULT OFF ' +
+      '(HorseLogic.publicBetSizeInGame: opts.omahaPublicBetSizeInLightning !== true) and it changes one thing: the ' +
+      'game of omahaBetSizeByPublicState no longer refuses a decision whose gs.publicMemoryDomain.speed is ' +
+      '"lightning". The league deals its own tables and no league context carries a public memory domain, so every ' +
+      'league decision is already inside the public size in both arms, both arms play identical poker ' +
+      '(omaha_public_bet_size_in_lightning_scope_seen never fires) and the card would report 0.00 +/- 0.00 every ' +
+      'night. Inert by construction (the one read of the option is behind the speed test). ' +
+      'THIS matchup was NOT run through runMatchup (no league run was allowed while it was built, 2026-11-19): ' +
+      'the only measurement is the sibling refusal plo5_omaha_priced_in_lightning, the same construction (a ' +
+      'Lightning-only scope on the same live Omaha set), where 0 of 300 pairs diverged (run seed 20261118); its ' +
+      'own 300-pair run is owed before this line is read as measured. ' +
+      'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
+      'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
+      'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
+      'deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and ' +
+      'sets the domain.',
+  },
+  {
     // PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 20:08:21Z): the live Omaha set (with the priced
     // turn/river raise and the priced small bets on) in BOTH arms; the one-arm question is the Lightning scope.
     name: 'plo5_omaha_priced_in_lightning',
