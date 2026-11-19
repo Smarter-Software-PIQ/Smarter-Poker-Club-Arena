@@ -37,8 +37,10 @@
  *    fold rate (the population figure without one). Out of position the
  *    Horse realizes less of its share on both lines. With
  *    omahaSampledRaiseIsPricedAtEverySize the fold, the call and a raise to
- *    each legal size are priced and the fold share is read at the price each
- *    raise lays (OMAHA_PRICED_SAMPLED_REFERENCE_FOLD).
+ *    each legal size are priced, the fold share read at the price each raise
+ *    lays each opponent (OMAHA_PRICED_SAMPLED_REFERENCE_FOLD) and the share
+ *    held when called taken against the part of the range that continues
+ *    at that price (omahaPricedSampledContinuingShare).
  *
  *  BET OR CHECK, TURN AND RIVER (omahaPricedBet). HorseOmahaCardImpact prices
  *    a check and every bet size against each opponent's range as his line
@@ -90,6 +92,7 @@ import {
   OMAHA_BIG_DRAW_RAISE_FOLD_SCALE,
   OMAHA_BIG_DRAW_SAMPLES,
   omahaBigDrawEquities,
+  type OmahaBigDrawCounts,
   type OmahaBigDrawEquities,
 } from './HorseOmahaBigDrawAggression.js';
 import {
@@ -115,6 +118,15 @@ const round4 = (n: number): number => Math.round(n * 10000) / 10000;
 export interface OmahaPricedCell {
   hit: number;
   opp: number;
+  /**
+   * The mean minimum-defence price of the raises behind a fold-to-raise cell (the mean of
+   * increment / (pot + call + increment) over its opportunities). NO STORED CELL CARRIES ONE TODAY
+   * (HorseOmahaStreetRead cells are exactly {hit, opp}); read only by omahaPricedSampledFoldAtPrice
+   * (omahaSampledRaiseIsPricedAtEverySize). Absent: the cell is taken as measured at the frozen
+   * reference price (OMAHA_PRICED_SAMPLED_REFERENCE_FOLD), which holds only for raises made through
+   * OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH.
+   */
+  price?: number | null;
 }
 /**
  * The per-street, per-texture cells for the street and board of the decision,
@@ -146,6 +158,13 @@ export function omahaPricedShrunk(
   const opp = Math.max(0, cell.opp);
   const hit = clamp(cell.hit, 0, opp);
   return (hit + prior * k) / (opp + k);
+}
+
+/** A read's copy of a fold-to-raise cell: {hit, opp}, and the price it was measured at where the cell carries one. */
+function omahaPricedFoldToRaiseCellOf(c: OmahaPricedCell): OmahaPricedCell {
+  return fin(c.price) && c.price > 0
+    ? { hit: c.hit, opp: c.opp, price: c.price }
+    : { hit: c.hit, opp: c.opp };
 }
 
 export interface OmahaPricedRead {
@@ -225,7 +244,7 @@ export function omahaPricedRead(
   const bet = omahaPricedKindBetRate(betStat, popBet, kind, cell ? streetName : undefined, cell)!;
   let foldToRaise: OmahaPricedCell | null = null;
   if (street && known(street.foldToRaise)) {
-    foldToRaise = { hit: street.foldToRaise.hit, opp: street.foldToRaise.opp };
+    foldToRaise = omahaPricedFoldToRaiseCellOf(street.foldToRaise);
     source = 'street';
   }
   return {
@@ -278,7 +297,7 @@ function omahaPricedReadUnknownKind(
       source = 'street';
     }
     if (known(street.foldToRaise)) {
-      foldToRaise = { hit: street.foldToRaise.hit, opp: street.foldToRaise.opp };
+      foldToRaise = omahaPricedFoldToRaiseCellOf(street.foldToRaise);
       source = 'street';
     }
   }
@@ -751,6 +770,8 @@ export interface OmahaPricedSampledRow {
   jam: boolean;
   /** the share of the time every opponent folds to THIS raise */
   foldEquity: number;
+  /** the Horse's share against the part of the range that continues against THIS raise */
+  equity: number;
   ev: number;
 }
 
@@ -787,15 +808,26 @@ export const OMAHA_PRICED_SAMPLED_REFERENCE_FOLD: Readonly<Record<'flop' | 'turn
   Object.freeze({ flop: 0.369, turn: 0.353 });
 
 /**
+ * The last day of the raises behind OMAHA_PRICED_SAMPLED_REFERENCE_FOLD. A fold-to-raise cell that
+ * carries no price of its own is taken as measured at the reference price, which is true only of
+ * raises made at the sizes Horses raised through this day. Once omahaSampledRaiseIsPricedAtEverySize
+ * is on anywhere, Horses raise to other sizes and a cell without a price would have its size
+ * counted twice: A PRICE-INDEXED CELL (OmahaPricedCell.price, from a counter the street read does
+ * not keep today) IS REQUIRED BEFORE SWITCH-ON. See docs/horse-option-authority.d.
+ */
+export const OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH = '2026-11-15';
+
+/**
  * One opponent's fold to a raise he must put `call` more in to continue against, the pot holding
- * `laid` before that increment (the wager faced and the Horse's call of it included). His
- * size-blind figure (`prior`: his fold to a bet scaled to a raise; the street read's cell shrunk
- * toward it) was measured over raises of every size, so it is the fold at the reference price: it
- * is carried to THIS price by the minimum-defence fold this raise lays over the reference one. As in
- * omahaPricedRaise (plo-truncation-013U37) the fold priced is the smaller of the two readings of a
- * cell: the cell shrunk toward the prior at this price, and the whole read carried to this price. A
- * read never makes a raise worth more than either reading; with no cell both are the prior at this
- * price. Exported for its test.
+ * `laid` before that (the wager faced and the Horse's call of it included). `prior` (his fold to a
+ * bet scaled to a raise) is the fold at the reference price: it is carried to THIS price by the
+ * minimum-defence fold this raise lays over the reference one. The street read's cell is carried
+ * from the price IT was measured at (`cell.price`; with none, the reference price, see
+ * OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH), so a cell measured over large raises is not
+ * scaled up again at a large raise. As in omahaPricedRaise (plo-truncation-013U37) the fold priced
+ * is the smaller of the two readings of a cell: the cell as measured, shrunk toward the prior at
+ * this price, and the cell carried to this price. A read never makes a raise worth more than either
+ * reading; with no cell both are the prior at this price. Exported for its test.
  */
 export function omahaPricedSampledFoldAtPrice(i: {
   street: 'flop' | 'turn';
@@ -806,11 +838,93 @@ export function omahaPricedSampledFoldAtPrice(i: {
 }): number {
   const model = clamp(i.call / Math.max(1e-9, i.laid + i.call), 0.03, 0.95);
   const factor = model / OMAHA_PRICED_SAMPLED_REFERENCE_FOLD[i.street];
+  const priorAt = clamp(i.prior * factor, 0, 0.95);
+  const asMeasured = clamp(omahaPricedShrunk(i.cell, priorAt), 0, 0.95);
+  const c = i.cell;
+  if (c && fin(c.price) && c.price > 0 && fin(c.opp) && fin(c.hit) && c.opp > 0) {
+    // the cell's own price: its folds carried from there to here, then shrunk toward the prior here
+    const opp = Math.max(0, c.opp);
+    const hit = clamp((clamp(c.hit, 0, opp) * model) / clamp(c.price, 0.03, 0.95), 0, opp);
+    return Math.min(asMeasured, clamp(omahaPricedShrunk({ hit, opp }, priorAt), 0, 0.95));
+  }
   const sizeBlind = clamp(omahaPricedShrunk(i.cell, i.prior), 0, 0.95);
-  return Math.min(
-    clamp(omahaPricedShrunk(i.cell, clamp(i.prior * factor, 0, 0.95)), 0, 0.95),
-    clamp(sizeBlind * factor, 0, 0.95)
-  );
+  return Math.min(asMeasured, clamp(sizeBlind * factor, 0, 0.95));
+}
+
+/**
+ * The Horse's share against the part of an opponent's range that continues when he folds `fold` of
+ * it. The model is the one omahaPricedRaise counts on the turn and river: the weakest holdings fold
+ * first, so the part that continues is the STRONGEST (1 - fold) share of the range he wagered with.
+ * On the sample that range is the hands that continue against a bet (counts 1), its strongest class
+ * the hands that continue against a raise (counts 2), each class one figure (no order inside a
+ * class: the order would be read off the Horse's own cards). A share no larger than the strong
+ * class takes that class (equities.raise, the one figure every size had before); a larger share
+ * adds the rest of the betting range in proportion. So a larger raise, folded to more often, is
+ * continued against by a stronger range. A class with fewer than 40 sampled hands is not split
+ * (equities.raise). Exported for its test.
+ */
+export function omahaPricedSampledContinuingShare(
+  equities: OmahaBigDrawEquities,
+  counts: OmahaBigDrawCounts | null | undefined,
+  fold: number
+): number {
+  const g1 = counts?.got[1] ?? 0;
+  const g2 = counts?.got[2] ?? 0;
+  if (!counts || !(g1 >= 40) || !(g2 >= 40) || !(g1 > g2)) return equities.raise;
+  const keep = clamp(1 - (fin(fold) ? fold : 0), 0, 1);
+  const strong = g2 / g1;
+  if (keep <= strong) return equities.raise;
+  const rest = g1 - g2;
+  const other = rest >= 40 ? ((counts.won[1] ?? 0) - (counts.won[2] ?? 0)) / rest : equities.bet;
+  return (strong * equities.raise + (keep - strong) * other) / keep;
+}
+
+/**
+ * omahaSampledRaiseIsPricedAtEverySize: the raise-to amounts priced, smallest first. The minimum,
+ * the middle and the maximum legal raise (OMAHA_PRICED_RAISE_STEPS), none more than the Horse or the
+ * deepest opponent holds, and the proposed size where it is a legal one. They depend on the public
+ * state only, so the receipt validator re-derives them (omahaPricedSampledAdmitsResize).
+ */
+export function omahaPricedSampledCandidates(
+  i: {
+    stack: number;
+    heroBet: number;
+    currentBet: number;
+    opponents: ReadonlyArray<{ stack: number; bet: number }>;
+    to?: number | null;
+  },
+  sizes: OmahaPricedSampledSizes
+): number[] {
+  const heroBet = fin(i.heroBet) ? Math.max(0, i.heroBet) : 0;
+  const cur = fin(i.currentBet) ? Math.max(0, i.currentBet) : 0;
+  const total = heroBet + (fin(i.stack) ? Math.max(0, i.stack) : 0);
+  if (i.opponents.length === 0) return [];
+  const cover = Math.max(...i.opponents.map((o) => Math.max(0, o.stack) + Math.max(0, o.bet)));
+  const cap = Math.min(total, cover);
+  const canRaise = sizes.canRaise !== false;
+  const canShove = sizes.canShove !== false;
+  const lo = fin(sizes.minTo) ? sizes.minTo : cur * 2;
+  const hi = Math.min(fin(sizes.maxTo) ? sizes.maxTo : cap, cap);
+  const tos: number[] = [];
+  const add = (raw: number): void => {
+    const to = round2(Math.min(raw, cap));
+    if (!(to > cur + 0.005)) return;
+    // putting the Horse's whole stack in is the all-in action; anything less is a raise
+    if (to >= total - 0.005 ? !canShove : !canRaise) return;
+    if (!tos.includes(to)) tos.push(to);
+  };
+  if (hi + 0.005 < lo) {
+    // less than a full raise is left: only the Horse's own stack can go in
+    if (total <= cap + 0.005) add(total);
+  } else {
+    for (const f of OMAHA_PRICED_RAISE_STEPS) {
+      const raw = lo + f * (hi - lo);
+      add(clamp(sizes.whole === true ? Math.round(raw) : round2(raw), lo, hi));
+    }
+  }
+  const to = i.to;
+  if (fin(to) && (to >= lo - 0.005 || to >= total - 0.005)) add(to);
+  return tos.sort((a, b) => a - b);
 }
 
 /**
@@ -832,13 +946,16 @@ export function omahaPricedSampledRaise(
     const total = heroBet + stack;
     const cover = Math.max(...i.opponents.map((o) => Math.max(0, o.stack) + Math.max(0, o.bet)));
     const matched = Math.min(Math.min(i.to, total), cover);
-    if (!(matched > cur + 0.005)) return null;
+    // With `sizes` the legal sizes are priced whatever the proposed one is (it is priced only
+    // where it is legal); without, the one size given must be a raise.
+    if (!i.sizes && !(matched > cur + 0.005)) return null;
     const cost = matched - heroBet;
     const x = matched - cur;
     const samples = i.samples ?? OMAHA_BIG_DRAW_SAMPLES;
-    const equities = omahaBigDrawEquities(i.hole, i.board, i.dead ?? [], samples);
+    const counts: OmahaBigDrawCounts | undefined = i.sizes ? { got: [], won: [] } : undefined;
+    const equities = omahaBigDrawEquities(i.hole, i.board, i.dead ?? [], samples, counts);
     if (equities === null) return null;
-    if (i.sizes) return omahaPricedSampledAtEverySize(i, i.sizes, equities, samples);
+    if (i.sizes) return omahaPricedSampledAtEverySize(i, i.sizes, equities, samples, counts);
     let foldEquity = 1;
     for (const o of i.opponents) {
       const read = o.read ?? OMAHA_PRICED_NO_READ;
@@ -877,17 +994,21 @@ export function omahaPricedSampledRaise(
 
 /**
  * omahaSampledRaiseIsPricedAtEverySize. The fold (0), the call and a raise to each candidate size
- * priced on the same sampled shares: the minimum, the middle and the maximum legal raise
- * (OMAHA_PRICED_RAISE_STEPS) and the proposed one. Each raise's fold share is every opponent's fold
- * at the price THAT raise lays him (omahaPricedSampledFoldAtPrice), so a small raise does not buy
- * the fold of a large one and the size enters only through the price. The raise of highest value
- * is the raise; it is made when it is worth more than the call by the margin and more than the fold.
+ * (omahaPricedSampledCandidates) priced on the same sample. Each raise's fold share is every
+ * opponent's fold at the price THAT raise lays HIM: what he must put in to continue (the raise-to
+ * less his own wager, his stack permitting) over the pot it is laid into
+ * (omahaPricedSampledFoldAtPrice). The share the Horse holds when called is its share against the
+ * part of the range that continues against that raise (omahaPricedSampledContinuingShare), so a
+ * small raise does not buy the fold of a large one, a large one is not called by the range that
+ * calls a small one, and the size enters only through the price. The raise of highest value is the
+ * raise; it is made when it is worth more than the call by the margin and more than the fold.
  */
 function omahaPricedSampledAtEverySize(
   i: OmahaPricedSampledInput,
   sizes: OmahaPricedSampledSizes,
   equities: OmahaBigDrawEquities,
-  samples: number
+  samples: number,
+  counts: OmahaBigDrawCounts | undefined
 ): OmahaPricedSampledVerdict | null {
   const pot = Math.max(0, i.pot);
   const toCall = Math.max(0, i.toCall);
@@ -896,58 +1017,43 @@ function omahaPricedSampledAtEverySize(
   const total = heroBet + Math.max(0, i.stack);
   const cover = Math.max(...i.opponents.map((o) => Math.max(0, o.stack) + Math.max(0, o.bet)));
   const cap = Math.min(total, cover);
-  const canRaise = sizes.canRaise !== false;
-  const canShove = sizes.canShove !== false;
-  const lo = fin(sizes.minTo) ? sizes.minTo : cur * 2;
-  const hi = Math.min(fin(sizes.maxTo) ? sizes.maxTo : cap, cap);
-  const tos: number[] = [];
-  const add = (raw: number): void => {
-    const to = round2(Math.min(raw, cap));
-    if (!(to > cur + 0.005)) return;
-    // putting the Horse's whole stack in is the all-in action; anything less is a raise
-    if (to >= total - 0.005 ? !canShove : !canRaise) return;
-    if (!tos.includes(to)) tos.push(to);
-  };
-  if (hi + 0.005 < lo) {
-    // less than a full raise is left: only the Horse's own stack can go in
-    if (total <= cap + 0.005) add(total);
-  } else {
-    for (const f of OMAHA_PRICED_RAISE_STEPS) {
-      const raw = lo + f * (hi - lo);
-      add(clamp(sizes.whole === true ? Math.round(raw) : round2(raw), lo, hi));
-    }
-  }
-  if (fin(i.to) && (i.to >= lo - 0.005 || i.to >= total - 0.005)) add(i.to);
+  const tos = omahaPricedSampledCandidates(i, sizes);
   if (tos.length === 0) return null;
-  tos.sort((a, b) => a - b);
   const real = i.inPosition ? 1 : OMAHA_BIG_DRAW_OOP_REALISATION;
   const rows: Array<OmahaPricedSampledRow & { ev0: number; fold0: number; at: number }> = [];
   for (const to of tos) {
     const cost = to - heroBet;
     const x = to - cur;
     let foldEquity = 1;
+    let keeps = 0;
+    let shares = 0;
     for (const o of i.opponents) {
       const read = o.read ?? OMAHA_PRICED_NO_READ;
       const toBet = clamp(read.foldToBet ?? OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET, 0, 0.95);
       const oBet = Math.max(0, o.bet);
-      foldEquity *= omahaPricedSampledFoldAtPrice({
+      const fold = omahaPricedSampledFoldAtPrice({
         street: i.street,
         prior: toBet * OMAHA_BIG_DRAW_RAISE_FOLD_SCALE,
         cell: read.foldToRaise,
         laid: pot + toCall,
-        // what the raise adds to the wager already made (his own stack permitting): the same
-        // increment for the bettor and for a player still to answer the wager
-        call: Math.max(0, Math.min(to, oBet + Math.max(0, o.stack)) - Math.max(oBet, cur)),
+        // HIS call: the raise-to less what he has in on this street (his own stack permitting).
+        // The bettor's is the raise increment; a player still to answer the wager pays that too.
+        call: Math.max(0, Math.min(to, oBet + Math.max(0, o.stack)) - oBet),
       });
+      foldEquity *= fold;
+      keeps += 1 - fold;
+      shares += (1 - fold) * omahaPricedSampledContinuingShare(equities, counts, fold);
     }
+    // called by one of two: the share against each one's continuing range, by how often he continues
+    const equity = keeps > 1e-9 ? shares / keeps : equities.raise;
     const jam = to >= cap - 0.005;
     const ev =
-      foldEquity * pot +
-      (1 - foldEquity) * ((jam ? 1 : real) * equities.raise * (pot + cost + x) - cost);
+      foldEquity * pot + (1 - foldEquity) * ((jam ? 1 : real) * equity * (pot + cost + x) - cost);
     rows.push({
       to,
       jam,
       foldEquity: round4(foldEquity),
+      equity: round4(equity),
       ev: round2(ev),
       ev0: ev,
       fold0: foldEquity,
@@ -963,6 +1069,7 @@ function omahaPricedSampledAtEverySize(
     to: r.to,
     jam: r.jam,
     foldEquity: r.foldEquity,
+    equity: r.equity,
     ev: r.ev,
   });
   return {

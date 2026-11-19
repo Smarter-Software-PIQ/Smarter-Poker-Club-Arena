@@ -60,7 +60,10 @@ import {
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
 import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
-import { omahaPricedAdmitsRaiseToCall } from '../HorseOmahaPricedWiring.js';
+import {
+  omahaPricedAdmitsRaiseToCall,
+  omahaPricedSampledAdmitsResize,
+} from '../HorseOmahaPricedWiring.js';
 import {
   OMAHA_CARD_IMPACT_VARIANTS,
   omahaCardImpactCheckAdmissible,
@@ -1614,6 +1617,29 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaPricedAdmitsRaiseToCall(context.player, context.gameState, transition.after.amount);
+    // Lane HORSE DECISIONS 2026-11-19 (HorseOmahaPricedWiring, option
+    // omahaSampledRaiseIsPricedAtEverySize with omahaDrawRaiseIsPriced or
+    // omahaPressureIsPriced): on the PLO4/PLO5 cash flop and turn a raise
+    // facing a wager is made at the priced size of highest value. The size is
+    // priced on the opponent memory, which the request does not carry, so
+    // raise -> raise is admitted only with the request, only in the sampled
+    // spot, and only for the exact chips of one of the sizes the comparison
+    // prices there (an all-in where the whole stack is one of them). The
+    // generic wager clause below admits it too and is left as it is.
+    const omahaSampledRaiseResized =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      ['raise', 'all_in'].includes(transition.after.action) &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPricedSampledAdmitsResize(
+        context.player,
+        context.gameState,
+        transition.after.action,
+        transition.after.amount
+      );
     // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
     // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
     // with a nut-class hand becomes a call at a mixed frequency. The draw and
@@ -1768,6 +1794,7 @@ function policyGraphIsValidInScope(
       !omahaFlopFacingBetEvCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
+      !omahaSampledRaiseResized &&
       !omahaSlowplayCalled &&
       !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&

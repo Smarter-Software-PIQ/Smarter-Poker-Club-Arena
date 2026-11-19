@@ -5,23 +5,36 @@
  *
  * The defect: the sampled comparison priced ONE raise size and read the opponent's fold to a raise
  * size-blind (his fold to a bet times 0.42, or the street read's fold-to-raise cell, both measured
- * over raises of every size). A 20-chip minimum raise into 120 was priced with the fold share of a
- * pot raise, and no size was ever compared with another.
+ * over raises of every size). A 20-chip minimum raise into 120 was priced with the fold share of an
+ * average raise, and no size was ever compared with another.
  *
  * With the option on: the fold, the call and a raise to each legal size are priced, each raise's
- * fold share at the price that raise lays, and the action of highest value is chosen. With it off,
- * every decision is byte-identical.
+ * fold share at the price that raise lays each opponent and its called share against the part of
+ * the range that continues at that price; the action of highest value is chosen and the raise is
+ * made AT the priced size (the draw raise and the pressure raise). With it off, every decision is
+ * byte-identical.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
+import { seedFastRandom } from './HorseEval.js';
 import type { HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
-import { OMAHA_BIG_DRAW_OOP_REALISATION } from './HorseOmahaBigDrawAggression.js';
+import {
+  OMAHA_BIG_DRAW_OOP_REALISATION,
+  omahaBigDrawEquities,
+  type OmahaBigDrawCounts,
+} from './HorseOmahaBigDrawAggression.js';
+import { emptyStreetRead, validStreetRead } from './HorseOmahaStreetRead.js';
+import { OPTION_SWITCH_RELEASE_DEFAULT_OFF } from './HorseOptionSwitch.js';
+import { readFileSync } from 'node:fs';
 import {
   OMAHA_PRICED_NO_READ,
   OMAHA_PRICED_SAMPLED_MARGIN,
   OMAHA_PRICED_SAMPLED_REFERENCE_FOLD,
+  OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH,
+  omahaPricedSampledCandidates,
+  omahaPricedSampledContinuingShare,
   omahaPricedSampledFoldAtPrice,
   omahaPricedSampledRaise,
   omahaPricedShrunk,
@@ -37,6 +50,9 @@ import {
 } from './HorseOmahaPricedRules.test-support.js';
 import {
   omahaPricedDrawRaiseRule,
+  omahaPricedPressureRaiseSized,
+  omahaPricedPressureWithheld,
+  omahaPricedSampledAdmitsResize,
   omahaPricedSetStreetRatesSource,
 } from './HorseOmahaPricedWiring.js';
 import {
@@ -180,7 +196,7 @@ describe('the fold, the call and a raise to each legal size, chosen by value (op
           const ev =
             r.foldEquity * pot +
             (1 - r.foldEquity) *
-              (OMAHA_BIG_DRAW_OOP_REALISATION * v.equities.raise * (pot + cost + x) - cost);
+              (OMAHA_BIG_DRAW_OOP_REALISATION * r.equity * (pot + cost + x) - cost);
           expect(Math.abs(r.ev - ev)).toBeLessThan(0.15);
         }
         // the raise is the row of highest value; the action is the comparison of the three
@@ -332,6 +348,7 @@ describe('through the rule and the whole decision', () => {
       { ...allPriced(true), [OPTION]: true },
     ] as HorseDecideOpts[];
     let changed = 0;
+    let resized = 0;
     for (const s of SPOTS) {
       const st = pricedSpot(s);
       for (const seed of SEEDS)
@@ -353,11 +370,448 @@ describe('through the rule and the whole decision', () => {
             })
           ).toBeNull();
           if (bytes(d) !== bytes(without)) changed++;
+          // a raise the option moved to another size passes the dedicated exact admission
+          if (
+            (d.action === 'raise' || d.action === 'all_in') &&
+            (without.action === 'raise' || without.action === 'all_in') &&
+            (d.action !== without.action || d.amount !== without.amount)
+          ) {
+            resized++;
+            expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, d.action, d.amount)).toBe(true);
+          }
         }
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[sampled raise at every size, whole decision] decisions changed by the option: ${changed}`
+      `[sampled raise at every size, whole decision] decisions changed by the option: ${changed}, raises resized: ${resized}`
     );
+    // not vacuous: the option changes whole decisions in these spots
+    expect(changed).toBeGreaterThan(0);
+  });
+});
+
+describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
+  const REF = OMAHA_PRICED_SAMPLED_REFERENCE_FOLD.flop;
+  const PRIOR = 0.1764;
+  const foldAt = (
+    call: number,
+    c: { hit: number; opp: number; price?: number } | null,
+    laid = 120,
+    street: 'flop' | 'turn' = 'flop'
+  ) => omahaPricedSampledFoldAtPrice({ street, prior: PRIOR, cell: c, laid, call });
+  const HAND = 'AhKhJcTc2s';
+  const rowsOf = (i: OmahaPricedSampledInput) => omahaPricedSampledRaise(i)!.rows!;
+
+  it('N2: a cell that carries the price it was measured at is carried from THAT price', () => {
+    const c = { hit: 60, opp: 200 };
+    // measured at the reference price: the figure a cell with no price gives
+    for (const call of [10, 40, 120, 300])
+      expect(foldAt(call, { ...c, price: REF })).toBeCloseTo(foldAt(call, c), 12);
+    // measured over pot raises (price 0.5) and priced at a pot raise: his rate as measured, shrunk
+    // toward the prior at this price, never scaled up again
+    const atPot = foldAt(120, { ...c, price: 0.5 });
+    expect(atPot).toBeCloseTo(omahaPricedShrunk(c, (PRIOR * 0.5) / REF), 12);
+    expect(foldAt(120, { hit: 300, opp: 1000, price: 0.5 })).toBeLessThanOrEqual(0.3 + 1e-9);
+    // the same cell at a 20-chip raise: carried down from 0.5, not from the reference price, so it
+    // folds less than the cell read as if it had been measured at the reference price
+    const small = foldAt(20, { ...c, price: 0.5 });
+    const smallAtReference = foldAt(20, c);
+    expect(small).toBeLessThan(smallAtReference);
+    const model = 20 / 140;
+    expect(small).toBeCloseTo(
+      omahaPricedShrunk({ hit: (60 * model) / 0.5, opp: 200 }, (PRIOR * model) / REF),
+      12
+    );
+    // the fold still rises with the price laid
+    let last = 0;
+    for (const call of [5, 20, 60, 120, 400]) {
+      const f = foldAt(call, { ...c, price: 0.5 });
+      expect(f).toBeGreaterThan(last);
+      last = f;
+    }
+  });
+  it('N2: no stored cell carries a price today, so the reference stands only to its cutoff and the option stays off', () => {
+    const row = emptyStreetRead();
+    expect(validStreetRead(row)).toBe(true);
+    (row.foldToRaise.flop as { price?: number }).price = 0.4;
+    // the stored row is exactly {hit, opp}: a price needs a counter migration
+    expect(validStreetRead(row)).toBe(false);
+    expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF).toContain('omahaSampledRaiseIsPricedAtEverySize');
+    expect(OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH).toBe('2026-11-15');
+    const authority = readFileSync(
+      new URL(
+        '../../../docs/horse-option-authority.d/omahaSampledRaiseIsPricedAtEverySize.md',
+        import.meta.url
+      ),
+      'utf8'
+    );
+    expect(authority).toContain('price-indexed cell is required before switch-on');
+    expect(authority).toContain(OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH);
+  });
+
+  it('N4: the range that continues is the strongest share of his range, and tightens with the fold', () => {
+    const eq = { all: 0.5, bet: 0.4, raise: 0.25 };
+    // 200 hands continue against a bet, the strongest 80 against a raise: the Horse holds 0.25
+    // against those and 0.5 against the other 120
+    const counts: OmahaBigDrawCounts = { got: [400, 200, 80], won: [200, 80, 20] };
+    const share = (fold: number, k: OmahaBigDrawCounts | null = counts) =>
+      omahaPricedSampledContinuingShare(eq, k, fold);
+    expect(share(0)).toBeCloseTo(0.4, 12);
+    expect(share(0.2)).toBeCloseTo((0.4 * 0.25 + 0.4 * 0.5) / 0.8, 12);
+    expect(share(0.6)).toBe(0.25);
+    expect(share(0.9)).toBe(0.25);
+    let last = 1;
+    for (const fold of [0, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8]) {
+      expect(share(fold)).toBeLessThanOrEqual(last);
+      last = share(fold);
+    }
+    // a class too thin to split, or no sample: the one figure
+    expect(share(0.1, { got: [400, 200, 30], won: [200, 80, 8] })).toBe(0.25);
+    expect(share(0.1, null)).toBe(0.25);
+    // on the sample itself: asking for the counts does not move the shares, and each row holds
+    // its own share, nearer the raise-continuing figure the larger the raise
+    const got: OmahaBigDrawCounts = { got: [], won: [] };
+    const e = omahaBigDrawEquities(cards(HAND), cards(BOARD), [], undefined, got)!;
+    expect(e).toEqual(omahaBigDrawEquities(cards(HAND), cards(BOARD))!);
+    expect(got.got[1]).toBeGreaterThan(got.got[2]);
+    const v = atEverySize(HAND, 100, 20);
+    expect(v.equities).toEqual(e);
+    for (const r of v.rows!)
+      expect(r.equity).toBeCloseTo(omahaPricedSampledContinuingShare(e, got, r.foldEquity), 3);
+    for (let k = 1; k < v.rows!.length; k++)
+      expect(Math.abs(v.rows![k].equity - e.raise)).toBeLessThan(
+        Math.abs(v.rows![k - 1].equity - e.raise)
+      );
+  });
+
+  it('N5, N9: two opponents: each is priced on HIS call and the fold share is the product', () => {
+    const base = spot(HAND, 100, 20);
+    const two = {
+      ...base,
+      opponents: [
+        { stack: 900, bet: 20, read: null },
+        { stack: 900, bet: 0, read: null },
+      ],
+      sizes: legal(100, 20),
+    };
+    for (const r of rowsOf(two)) {
+      // the bettor pays the increment; the player still to answer pays the whole raise
+      const bettor = foldAt(r.to - 20, null, 140);
+      const behind = foldAt(r.to, null, 140);
+      expect(behind).toBeGreaterThan(bettor);
+      expect(r.foldEquity).toBeCloseTo(bettor * behind, 4);
+    }
+    // heads-up rows fold more often than the same raise into two
+    const one = rowsOf({ ...base, sizes: legal(100, 20) });
+    rowsOf(two).forEach((r, k) => expect(r.foldEquity).toBeLessThan(one[k].foldEquity));
+    // his call is no more than his stack; the raise is matched by the deepest opponent
+    const short = {
+      ...two,
+      opponents: [two.opponents[0], { stack: 30, bet: 0, read: null }],
+    };
+    const top = rowsOf(short).at(-1)!;
+    expect(top.to).toBe(160);
+    expect(top.foldEquity).toBeCloseTo(foldAt(140, null, 140) * foldAt(30, null, 140), 4);
+    // a measured read of one opponent moves his factor alone
+    const read = {
+      ...two,
+      opponents: [
+        two.opponents[0],
+        { stack: 900, bet: 0, read: { ...OMAHA_PRICED_NO_READ, foldToRaise: cell(18, 20) } },
+      ],
+    };
+    for (const r of rowsOf(read))
+      expect(r.foldEquity).toBeCloseTo(
+        foldAt(r.to - 20, null, 140) * foldAt(r.to, cell(18, 20), 140),
+        4
+      );
+  });
+
+  it('N9: a short stack: the largest size is the all-in; with less than a full raise left it is the only one', () => {
+    const base = spot(HAND, 100, 20);
+    const v = omahaPricedSampledRaise({
+      ...base,
+      stack: 100,
+      sizes: { ...legal(100, 20), maxTo: 100 },
+    })!;
+    expect(v.rows!.map((r) => [r.to, r.jam])).toEqual([
+      [40, false],
+      [70, false],
+      [100, true],
+    ]);
+    // the all-in realizes its whole share (no later street), the others the out-of-position part
+    const jam = v.rows![2];
+    expect(
+      Math.abs(jam.ev - (jam.foldEquity * 120 + (1 - jam.foldEquity) * (jam.equity * 300 - 100)))
+    ).toBeLessThan(0.15);
+    // 30 behind facing 20 (the minimum raise is to 40): the all-in for less than a full raise
+    const less = { ...base, stack: 30, to: 30, sizes: { minTo: 40, maxTo: 30, whole: true } };
+    expect(rowsOf(less).map((r) => [r.to, r.jam])).toEqual([[30, true]]);
+    // the menu: no all-in offered, no raise offered, neither
+    expect(
+      omahaPricedSampledRaise({ ...less, sizes: { ...less.sizes, canShove: false } })
+    ).toBeNull();
+    const menu = (m: { canRaise?: boolean; canShove?: boolean }) =>
+      omahaPricedSampledRaise({
+        ...base,
+        stack: 100,
+        sizes: { ...legal(100, 20), maxTo: 100, ...m },
+      });
+    expect(menu({ canRaise: false })!.rows!.map((r) => r.to)).toEqual([100]);
+    expect(menu({ canShove: false })!.rows!.map((r) => r.to)).toEqual([40, 70]);
+    expect(menu({ canRaise: false, canShove: false })).toBeNull();
+  });
+
+  it('N9: a fractional-chip table prices fractional sizes', () => {
+    const base = { ...spot(HAND, 1.1, 0.25), to: 0.5 };
+    const sizes = { minTo: 0.5, maxTo: 1.85, whole: false };
+    const rows = rowsOf({ ...base, sizes });
+    expect(rows.map((r) => r.to)).toEqual([0.5, Math.round(1.175 * 100) / 100, 1.85]);
+    expect(Number.isInteger(rows[1].to)).toBe(false);
+    for (let k = 1; k < rows.length; k++)
+      expect(rows[k].foldEquity).toBeGreaterThan(rows[k - 1].foldEquity);
+    // on a whole-chip table the middle size is a whole chip (the ends are the legal ends)
+    expect(rowsOf({ ...base, sizes: { ...sizes, whole: true } }).map((r) => r.to)).toEqual([
+      0.5, 1, 1.85,
+    ]);
+  });
+
+  it('N9: a turn spot at function level reads the turn reference price', () => {
+    const turn: OmahaPricedSampledInput = {
+      ...spot(HAND, 100, 30),
+      street: 'turn',
+      board: cards('Qh9h3d2c'),
+      sizes: legal(100, 30),
+    };
+    const v = omahaPricedSampledRaise(turn)!;
+    expect(v.rows!.map((r) => r.to)).toEqual([60, 125, 190]);
+    for (const r of v.rows!) {
+      expect(r.foldEquity).toBeCloseTo(foldAt(r.to - 30, null, 160, 'turn'), 4);
+      expect(r.foldEquity).toBeGreaterThan(foldAt(r.to - 30, null, 160, 'flop'));
+    }
+    expect(v.best!.ev).toBe(Math.max(...v.rows!.map((r) => r.ev)));
+    expect(v.action).toBe(v.raise ? 'raise' : v.evCall > 0 ? 'call' : 'fold');
+  });
+
+  it('N7: the legal sizes are priced whatever the proposed size is', () => {
+    const base = { ...spot(HAND, 100, 20), sizes: legal(100, 20) };
+    for (const to of [20, 0, Number.NaN])
+      expect(rowsOf({ ...base, to }).map((r) => r.to)).toEqual([40, 100, 160]);
+    // without the range the one size given must be a raise, as before
+    expect(omahaPricedSampledRaise({ ...spot(HAND, 100, 20), to: 20 })).toBeNull();
+    expect(
+      omahaPricedSampledCandidates(
+        { stack: 900, heroBet: 0, currentBet: 20, opponents: [{ stack: 900, bet: 20 }] },
+        legal(100, 20)
+      )
+    ).toEqual([40, 100, 160]);
+  });
+
+  const ruleOn = (
+    st: ReturnType<typeof pricedSpot>,
+    opts: HorseDecideOpts,
+    decision: HorseDecision,
+    seed = 1
+  ) => {
+    enableBrainTelemetry();
+    drainFires();
+    seedFastRandom(seed);
+    const out = omahaPricedDrawRaiseRule(decision, st.hero, st.gs, {
+      ...opts,
+      telemetry: true,
+    } as HorseDecideOpts);
+    return { out, fires: drainFires().map((f) => f.feature) };
+  };
+  const DRAW_ON = {
+    omahaNoDrawRaiseOutOfPosition: true,
+    omahaDrawRaiseIsPriced: true,
+    omahaSampledRaiseIsPricedAtEverySize: true,
+    mind: false,
+  } as HorseDecideOpts;
+  /** the spot with the Horse `behind` chips deep (its all-in is then a legal size) */
+  const shortSpot = (s: PricedSpot, behind: number) => {
+    const st = pricedSpot(s);
+    st.hero.stack = behind;
+    for (const p of st.gs.players ?? []) if (p.seat === st.hero.seat) p.stack = behind;
+    st.gs.maxRaiseTo = Math.min(st.gs.maxRaiseTo as number, behind + (st.hero.bet ?? 0));
+    return st;
+  };
+
+  it('N8, N9: the resize to the whole stack is the all-in; a changed amount carries no old size note', () => {
+    const s: PricedSpot = { hole: HAND, board: BOARD, potBefore: 100, bet: 20 };
+    const st = shortSpot(s, 100);
+    const decision = {
+      action: 'raise',
+      amount: 40,
+      thinkTime: 1000,
+      valueSize: { amount: 40 },
+      continuationGuard: 'x',
+    } as unknown as HorseDecision;
+    const { out, fires } = ruleOn(st, DRAW_ON, decision);
+    expect(fires).toContain('omaha_priced_draw_raise_resized');
+    expect(out!.action).toBe('all_in');
+    expect(out!.amount).toBeUndefined();
+    expect(out!.valueSize).toBeUndefined();
+    expect(out!.continuationGuard).toBeUndefined();
+    expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'all_in', undefined)).toBe(true);
+    // the all-in given, already the size of highest value, is kept with its notes
+    const jam = { ...decision, action: 'all_in' } as HorseDecision;
+    delete jam.amount;
+    const kept = ruleOn(st, DRAW_ON, jam);
+    expect(kept.out).toBe(jam);
+    expect(kept.fires).toContain('omaha_priced_draw_raise_kept');
+    // a deep raise resized keeps the raise action and drops the notes too
+    const deep = pricedSpot(s);
+    const moved = ruleOn(deep, DRAW_ON, decision);
+    expect(moved.out!.action).toBe('raise');
+    expect(moved.out!.amount).toBe(160);
+    expect(moved.out!.valueSize).toBeUndefined();
+  });
+
+  it('N9: two opponents through the rule: the raise is still made at a priced legal size', () => {
+    const st = pricedSpot({ hole: HAND, board: BOARD, potBefore: 100, bet: 20 });
+    const opp = (st.gs.players ?? []).find((p) => p.seat !== st.hero.seat)!;
+    st.gs.players!.push({ ...opp, seat: 3, user_id: 'third-player', bet: 0, stack: 500 });
+    const decision: HorseDecision = { action: 'raise', amount: 40, thinkTime: 1000 };
+    const { out, fires } = ruleOn(st, DRAW_ON, decision);
+    expect(['raise', 'call']).toContain(out!.action);
+    if (out!.action === 'raise') {
+      expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', out!.amount)).toBe(true);
+      expect([40, 100, 160]).toContain(out!.amount);
+    } else expect(fires).toContain('omaha_priced_draw_raise_called');
+    // three opponents cannot be sampled: no size is admitted
+    st.gs.players!.push({ ...opp, seat: 4, user_id: 'fourth-player', bet: 0, stack: 500 });
+    expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', 160)).toBe(false);
+  });
+
+  it('N1: the pressure sizing is wired first in the draw rules of the whole decision', () => {
+    const logic = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
+    const rules = logic.slice(logic.indexOf('function omahaDrawRules('));
+    const body = rules.slice(0, rules.indexOf('\n}\n')).replace(/\s+/g, ' ');
+    expect(body).toContain(
+      'omahaNoDrawRaiseFinal( omahaPricedPressureRaiseSized(decision, player, gs, opts), player, gs, opts )'
+    );
+  });
+
+  it('N1: the validator admission is the exact chips of a priced size, in the sampled spot only', () => {
+    const st = pricedSpot({ hole: HAND, board: BOARD, potBefore: 100, bet: 20 });
+    const admits = (action: string, amount?: number, at = st) =>
+      omahaPricedSampledAdmitsResize(at.hero, at.gs, action, amount);
+    for (const to of [40, 100, 160]) expect(admits('raise', to)).toBe(true);
+    for (const to of [20, 39, 41, 99.99, 101, 160.5, 161, 500])
+      expect(admits('raise', to)).toBe(false);
+    expect(admits('raise', undefined)).toBe(false);
+    expect(admits('call', 20)).toBe(false);
+    // deep: the whole stack is not a priced size
+    expect(admits('all_in')).toBe(false);
+    const short = shortSpot({ hole: HAND, board: BOARD, potBefore: 100, bet: 20 }, 100);
+    expect(admits('all_in', undefined, short)).toBe(true);
+    expect(admits('raise', 100, short)).toBe(false);
+    expect(admits('raise', 70, short)).toBe(true);
+    // the river is not a sampled spot
+    const river = pricedSpot({ hole: HAND, board: 'Qh9h3d2c5s', potBefore: 100, bet: 20 });
+    expect(admits('raise', 160, river)).toBe(false);
+  });
+
+  it('N1: a pressure raise admitted at a priced size is made at that size, a draw or not', () => {
+    const PRESS = {
+      omahaPressureIsPriced: true,
+      omahaSampledRaiseIsPricedAtEverySize: true,
+      mind: false,
+      telemetry: true,
+    } as HorseDecideOpts;
+    const sized = (st: ReturnType<typeof pricedSpot>, d: HorseDecision, opts = PRESS) => {
+      enableBrainTelemetry();
+      drainFires();
+      const out = omahaPricedPressureRaiseSized(d, st.hero, st.gs, opts);
+      return { out, fires: drainFires().map((f) => f.feature) };
+    };
+    const min = (st: ReturnType<typeof pricedSpot>) =>
+      ({
+        action: 'raise',
+        amount: st.gs.minRaiseTo as number,
+        thinkTime: 1000,
+        valueSize: { amount: st.gs.minRaiseTo },
+      }) as unknown as HorseDecision;
+    // top set (no draw the bar names) and the nut flush draw with a wrap
+    for (const hole of ['QsQd7c4c2s', HAND]) {
+      const st = pricedSpot({ hole, board: BOARD, potBefore: 50, bet: 50 });
+      const d = min(st);
+      // no pressure raise was admitted in this decision: the brain's raise is its own
+      expect(sized(st, d).out).toBe(d);
+      // the pressure play is priced: admitted because the best priced size beats the call
+      expect(omahaPricedPressureWithheld('raise', st.hero, st.gs, PRESS, {} as never)).toBe(false);
+      const on = sized(st, d);
+      expect(on.fires).toContain('omaha_priced_pressure_raise_resized');
+      expect(on.out.action).toBe('raise');
+      expect(on.out.amount!).toBeGreaterThan(d.amount!);
+      expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', on.out.amount)).toBe(true);
+      expect(on.out.valueSize).toBeUndefined();
+      // the size of highest value given: kept as it is
+      expect(sized(st, on.out).out).toBe(on.out);
+      // not a raise: untouched
+      const call: HorseDecision = { action: 'call', amount: 50, thinkTime: 0 };
+      expect(sized(st, call).out).toBe(call);
+      // either option off: the decision itself
+      for (const off of [
+        { ...PRESS, omahaSampledRaiseIsPricedAtEverySize: false },
+        { ...PRESS, omahaSampledRaiseIsPricedAtEverySize: 1 },
+        { ...PRESS, omahaPressureIsPriced: false },
+      ] as HorseDecideOpts[])
+        expect(sized(st, d, off).out).toBe(d);
+      // a draw the draw rule owns is priced and sized there, once
+      const owned = sized(st, d, {
+        ...PRESS,
+        omahaNoDrawRaiseOutOfPosition: true,
+        omahaDrawRaiseIsPriced: true,
+      } as HorseDecideOpts);
+      if (hole === HAND) expect(owned.out).toBe(d);
+      else expect(owned.fires).toContain('omaha_priced_pressure_raise_resized');
+    }
+    // a pressure raise the price withholds leaves nothing to size
+    const air = pricedSpot({ hole: '2c3c7s8sKc', board: BOARD, potBefore: 100, bet: 20 });
+    expect(omahaPricedPressureWithheld('raise', air.hero, air.gs, PRESS, {} as never)).toBe(true);
+    const d = min(air);
+    expect(sized(air, d).out).toBe(d);
+    // with the size option off the admission is not kept (nothing is sized later)
+    const st = pricedSpot({ hole: 'QsQd7c4c2s', board: BOARD, potBefore: 60, bet: 60 });
+    const OFF = { ...PRESS, omahaSampledRaiseIsPricedAtEverySize: false } as HorseDecideOpts;
+    omahaPricedPressureWithheld('raise', st.hero, st.gs, OFF, {} as never);
+    expect(sized(st, min(st)).out.amount).toBe(st.gs.minRaiseTo);
+  });
+
+  it('N6: a raise the mix took, not priced above the call, is resized under its own receipt', () => {
+    const MIX = { ...DRAW_ON, omahaPricedMix: true } as HorseDecideOpts;
+    let mixed = 0;
+    let priced = 0;
+    // the nut flush draw facing 20 into 100 is within the sampling noise of the call and its size
+    // of highest value is not the minimum; the flush draw with a wrap is priced above the call
+    for (const hole of ['AhTh8c4d2d', 'JhTh8c7d2d'])
+      for (const [potBefore, bet] of [
+        [100, 20],
+        [100, 50],
+      ])
+        for (let seed = 1; seed <= 16; seed++) {
+          const st = pricedSpot({ hole, board: BOARD, potBefore, bet });
+          const decision: HorseDecision = { action: 'raise', amount: 2 * bet, thinkTime: 1000 };
+          const plain = ruleOn(st, DRAW_ON, decision, seed);
+          const mix = ruleOn(st, MIX, decision, seed);
+          if (mix.fires.includes('omaha_priced_draw_raise_mixed_resized')) {
+            mixed++;
+            // without the mix the same raise is the call: it was not priced above it
+            expect(plain.out!.action).toBe('call');
+            expect(mix.fires).toContain('omaha_priced_mix_lower_action_taken');
+            expect(mix.fires).not.toContain('omaha_priced_draw_raise_resized');
+            expect(['raise', 'all_in']).toContain(mix.out!.action);
+          }
+          if (mix.fires.includes('omaha_priced_draw_raise_resized')) {
+            priced++;
+            // priced above the call: the mix did not take the lower action
+            expect(plain.fires).toContain('omaha_priced_draw_raise_resized');
+            expect(mix.fires).not.toContain('omaha_priced_mix_lower_action_taken');
+          }
+        }
+    expect(mixed).toBeGreaterThan(0);
+    expect(priced).toBeGreaterThan(0);
   });
 });

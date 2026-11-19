@@ -57,9 +57,11 @@ import {
   omahaPricedRaise,
   omahaPricedRead,
   omahaPricedReadSpread,
+  omahaPricedSampledCandidates,
   omahaPricedSampledRaise,
   type OmahaPricedRaiseVerdict,
   type OmahaPricedRead,
+  type OmahaPricedSampledRow,
   type OmahaPricedSampledSizes,
   type OmahaPricedStreetRates,
 } from './HorseOmahaPricedRules.js';
@@ -508,6 +510,14 @@ function sampledSizes(
   toCall: number
 ): OmahaPricedSampledSizes | null {
   if (opts.omahaSampledRaiseIsPricedAtEverySize !== true) return null;
+  return legalSampledSizes(player, gs, toCall);
+}
+/** The legal raise-to range and menu of the decision, from the public state alone. */
+function legalSampledSizes(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  toCall: number
+): OmahaPricedSampledSizes {
   const menu = Array.isArray(gs.legalActions) ? gs.legalActions : null;
   return {
     minTo: Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : num(gs.currentBet) * 2,
@@ -516,6 +526,69 @@ function sampledSizes(
     canRaise: menu === null || menu.includes('raise'),
     canShove: menu === null || menu.includes('all_in'),
   };
+}
+/**
+ * omahaSampledRaiseIsPricedAtEverySize: the decision that makes the raise at the priced size of
+ * highest value, or null when the size given (`to`, as matched: no more than the Horse or the
+ * deepest opponent holds) is already that size. The Horse's whole stack is the all-in action. A
+ * changed amount voids what was said of the old one (valueSize, continuationGuard).
+ */
+function sampledResized(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  spot: SampledSpot,
+  to: number,
+  best: OmahaPricedSampledRow
+): HorseDecision | null {
+  const heroAll = num(player.bet) + num(player.stack);
+  const cover = Math.max(...spot.live.map((p) => num(p.stack) + num(p.bet)));
+  if (Math.abs(Math.min(to, heroAll, cover) - best.to) < 0.006) return null;
+  const resized: HorseDecision =
+    best.to >= heroAll - 0.005
+      ? { ...decision, action: 'all_in' }
+      : { ...decision, action: 'raise', amount: best.to };
+  if (resized.action === 'all_in') delete resized.amount;
+  delete resized.continuationGuard;
+  delete resized.valueSize;
+  return resized;
+}
+/**
+ * Receipt validation (omahaSampledRaiseIsPricedAtEverySize): a raise or an all-in that became a
+ * raise to another size. The size chosen is priced on the opponent memory, which the request does
+ * not carry, so it is admitted only with the request, only in the sampled spot (PLO4/PLO5 cash,
+ * flop or turn, facing a wager, one or two opponents, none all in), and only for the exact chips of
+ * one of the sizes the comparison prices there (omahaPricedSampledCandidates, public state alone):
+ * an all-in where the Horse's whole stack is one of them, a raise to exactly one of the others.
+ */
+export function omahaPricedSampledAdmitsResize(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  action: string,
+  amount: number | null | undefined
+): boolean {
+  try {
+    if (!omahaPricedInScope(player, gs)) return false;
+    const spot = sampledSpot(player, gs);
+    if (!spot) return false;
+    const heroAll = num(player.bet) + num(player.stack);
+    const tos = omahaPricedSampledCandidates(
+      {
+        stack: num(player.stack),
+        heroBet: num(player.bet),
+        currentBet: num(gs.currentBet),
+        opponents: spot.live.map((p) => ({ stack: num(p.stack), bet: num(p.bet) })),
+      },
+      legalSampledSizes(player, gs, spot.toCall)
+    );
+    if (action === 'all_in') return tos.some((to) => to >= heroAll - 0.005);
+    return (
+      action === 'raise' &&
+      typeof amount === 'number' &&
+      tos.some((to) => to < heroAll - 0.005 && Math.abs(to - amount) < 1e-9)
+    );
+  } catch {
+    return false;
+  }
 }
 const potRaiseTo = (player: SeatPlayer, gs: HorseGameStateV2, toCall: number): number => {
   const cap = num(gs.currentBet) + num(gs.pot) + toCall;
@@ -625,18 +698,17 @@ export function omahaPricedDrawRaiseRule(
       raise = !raise;
     if (raise) {
       // omahaSampledRaiseIsPricedAtEverySize: the raise is made to the size of highest value. The
-      // size given is kept when it is that size (as matched: no more than the deepest opponent holds).
+      // size given is kept when it is that size. A raise the mix took (omahaPricedMix: within the
+      // noise of the call, NOT priced above it) is sized the same way under its own receipt.
       const best = verdict.best ?? null;
-      const heroAll = num(player.bet) + num(player.stack);
-      const cover = Math.max(...spot.live.map((p) => num(p.stack) + num(p.bet)));
-      if (best && Math.abs(Math.min(to, heroAll, cover) - best.to) >= 0.006) {
-        if (tele) noteFire('omaha_priced_draw_raise_resized');
-        const resized: HorseDecision =
-          best.to >= heroAll - 0.005
-            ? { ...decision, action: 'all_in' }
-            : { ...decision, action: 'raise', amount: best.to };
-        if (resized.action === 'all_in') delete resized.amount;
-        delete resized.continuationGuard;
+      const resized = best ? sampledResized(decision, player, spot, to, best) : null;
+      if (resized) {
+        if (tele)
+          noteFire(
+            verdict.raise
+              ? 'omaha_priced_draw_raise_resized'
+              : 'omaha_priced_draw_raise_mixed_resized'
+          );
         return resized;
       }
       if (tele) noteFire('omaha_priced_draw_raise_kept');
@@ -811,6 +883,10 @@ export function omahaPricedPressureWithheld(
         if (verdict) {
           priceable = true;
           admitted = kind === 'raise' ? verdict.raise : verdict.evCall > 0;
+          // omahaSampledRaiseIsPricedAtEverySize: the raise admitted here is admitted at the
+          // priced size of highest value, and is made at it (omahaPricedPressureRaiseSized)
+          if (kind === 'raise' && verdict.best)
+            notePressureAdmittedAtPrice(player, gs, verdict.raise);
         }
       } else if (kind === 'call_down' && stage === 'flop') {
         const eq = omahaBigDrawEquities(
@@ -842,6 +918,96 @@ export function omahaPricedPressureWithheld(
     return !admitted;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The decisions whose pressure raise the sampled comparison admitted at a priced size
+ * (omahaSampledRaiseIsPricedAtEverySize): the brain sizes that raise itself, after this module has
+ * answered, so the admission is kept for the rule that runs on the brain's answer. Keyed by the
+ * whole spot (hand, seat, street, chips, cards, actions so far); every pricing of the spot rewrites
+ * its entry; bounded. It only says THAT the raise was admitted by price: the size is priced again
+ * where it is applied.
+ */
+const PRESSURE_ADMITTED_AT_PRICE = new Set<string>();
+const PRESSURE_ADMITTED_LIMIT = 256;
+const cardKey = (cs: ReadonlyArray<{ rank: string; suit: string }> | null | undefined): string =>
+  (cs ?? []).map((c) => `${c.rank}${c.suit[0]}`).join('');
+function pressureSpotKey(player: SeatPlayer, gs: HorseGameStateV2): string {
+  return [
+    (gs as { handNumber?: number }).handNumber ?? '',
+    String(gs.stage ?? ''),
+    player.user_id ?? '',
+    player.seat,
+    num(player.bet),
+    num(player.stack),
+    num(gs.pot),
+    num(gs.currentBet),
+    cardKey(player.cards),
+    cardKey(gs.communityCards),
+    (gs.actionHistory ?? []).length,
+  ].join('|');
+}
+function notePressureAdmittedAtPrice(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  admitted: boolean
+): void {
+  const key = pressureSpotKey(player, gs);
+  PRESSURE_ADMITTED_AT_PRICE.delete(key);
+  if (!admitted) return;
+  if (PRESSURE_ADMITTED_AT_PRICE.size >= PRESSURE_ADMITTED_LIMIT)
+    for (const oldest of PRESSURE_ADMITTED_AT_PRICE) {
+      PRESSURE_ADMITTED_AT_PRICE.delete(oldest);
+      break;
+    }
+  PRESSURE_ADMITTED_AT_PRICE.add(key);
+}
+
+/**
+ * omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced: the pressure raise is admitted
+ * when the priced size of highest value is worth more than the call, so the raise the brain then
+ * makes is made AT that size (before, it kept the brain's own size: a minimum raise admitted on the
+ * fold share of the pot raise). Applies to a raise or an all-in facing the wager in a spot whose
+ * pressure raise the sampled comparison admitted in this decision. A draw the bar names is left to
+ * omahaPricedDrawRaiseRule where that rule owns it (it prices and sizes the same way). The raise is
+ * priced again here: where it is no longer priced above the call, or the size given is already the
+ * size of highest value, the decision is returned as given. Receipt:
+ * omaha_priced_pressure_raise_resized.
+ */
+export function omahaPricedPressureRaiseSized(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaSampledRaiseIsPricedAtEverySize !== true || opts.omahaPressureIsPriced !== true)
+    return decision;
+  if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
+  try {
+    if (!omahaPricedInScope(player, gs)) return decision;
+    if (!PRESSURE_ADMITTED_AT_PRICE.has(pressureSpotKey(player, gs))) return decision;
+    const spot = sampledSpot(player, gs);
+    if (!spot) return decision;
+    if (
+      opts.omahaNoDrawRaiseOutOfPosition === true &&
+      omahaPricedOwnsDrawRaise(player, gs, opts) &&
+      omahaDrawRaiseBarOf(player, gs) !== null
+    )
+      return decision;
+    const to =
+      decision.action === 'raise' && typeof decision.amount === 'number'
+        ? decision.amount
+        : num(player.bet) + num(player.stack);
+    const verdict = sampledVerdict(player, gs, opts, spot, to);
+    if (!verdict || !verdict.raise || !verdict.best) return decision;
+    const resized = sampledResized(decision, player, spot, to, verdict.best);
+    if (!resized) return decision;
+    if (telemetryOn(opts)) noteFire('omaha_priced_pressure_raise_resized');
+    return resized;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
   }
 }
 

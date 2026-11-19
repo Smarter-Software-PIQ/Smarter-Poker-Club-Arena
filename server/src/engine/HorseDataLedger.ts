@@ -5708,6 +5708,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_priced_draw_raise_mixed_resized',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaSampledRaiseIsPricedAtEverySize and omahaPricedMix)',
+    'the same decision with omahaSampledRaiseIsPricedAtEverySize on: NOT priced above the call by the margin, within the noise of it and taken by the mix, and made to the legal size of highest value in place of the size given',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_draw_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
     'the same decision, no sample could be drawn (three or more opponents, one all in): the bar acts as with the option off (fall closed)',
@@ -5771,6 +5777,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_pressure_raise_admitted',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
     'the pressure raise against this bettor is priced above the call: the play is not withheld',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_pressure_raise_resized',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced with omahaSampledRaiseIsPricedAtEverySize)',
+    'a raise facing the wager, in a decision whose pressure raise the sampled comparison admitted at a priced size, priced above the call by the margin: made to the legal size of highest value in place of the size the brain gave',
     'V94'
   ),
   receipt(

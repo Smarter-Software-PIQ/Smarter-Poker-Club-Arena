@@ -500,6 +500,7 @@ import {
   omahaPricedBlockerBluffAdmits,
   omahaPricedDrawRaiseBarred,
   omahaPricedDrawRaiseRule,
+  omahaPricedPressureRaiseSized,
   omahaPricedFacingRead,
   omahaPricedNoteFacingInputs,
   omahaPricedOopTurnBarrelRule,
@@ -9528,8 +9529,15 @@ function omahaDrawRules(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced (both default off): a pressure
+  // raise admitted at a priced size is made at that size (the decision itself with either off).
   return omahaBigDrawAggression(
-    omahaNoDrawRaiseFinal(decision, player, gs, opts),
+    omahaNoDrawRaiseFinal(
+      omahaPricedPressureRaiseSized(decision, player, gs, opts),
+      player,
+      gs,
+      opts
+    ),
     player,
     gs,
     opts

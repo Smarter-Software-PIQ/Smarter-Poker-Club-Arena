@@ -43,7 +43,7 @@ Every opponent figure a priced comparison reads now comes from his own KIND's pr
 
 ## Follow-up of 2026-11-19 (the sampled raise priced at every size)
 
-The sampled comparison this family asks (`omahaPricedSampledRaise`) prices one raise size and reads the fold to a raise size-blind (verifier follow-up on #11345). The repair sits behind the default-OFF option `omahaSampledRaiseIsPricedAtEverySize` (docs/horse-option-authority.d/omahaSampledRaiseIsPricedAtEverySize.md): with it on, the fold, the call and a raise to each legal size are priced, each raise's fold share at the price it lays. With it off this family is byte-identical to before; its evaluation above was measured with it off.
+The sampled comparison this family asks (`omahaPricedSampledRaise`) prices one raise size and reads the fold to a raise size-blind (verifier follow-up on #11345). The repair sits behind the default-OFF option `omahaSampledRaiseIsPricedAtEverySize` (docs/horse-option-authority.d/omahaSampledRaiseIsPricedAtEverySize.md): with it on, the fold, the call and a raise to each legal size are priced, each raise's fold share at the price it lays, and a pressure raise admitted because the priced size of highest value beats the call is made at that size (`omahaPricedPressureRaiseSized`, receipt `omaha_priced_pressure_raise_resized`) in place of the brain's own size. With it off this family is byte-identical to before; its evaluation above was measured with it off.
 
 ## Evidence rows
 
