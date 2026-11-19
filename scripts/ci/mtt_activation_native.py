@@ -33,7 +33,11 @@ def source_inputs(e):
         raise ValueError("actual activation manifest required")
     required = {GUARD, PREVIOUS_ACTIVATION, SUCCESSOR, FUNDING_ACTIVATION, ATTENDANCE_TARGET, PRODUCERS, SATELLITE_SUCCESSOR, ACTIVATION, L03, L04, MONEY_GUARD, FIXTURE + "/prepared-authorities.json",
                 FIXTURE + "/active-index.sql", "scripts/ci/mtt_activation_native.py"}
-    required.update({"scripts/ci/mtt_activation_funding.py", "scripts/ci/mtt_activation_satellite.py",
+    required.update({"scripts/ci/tournament_background_admission.py",
+        "supabase/migrations/20261118024212_activate_scoped_funded_tournament_attendance.sql",
+        "scripts/ci/tournament_background_admission_fixture.py", FIXTURE + "/current-attendance-and-continuation.json",
+        "scripts/ci/probes/hand-continuation-native.sql","tests/fixtures/cashier-value-tickets/issuer.sql",
+        "supabase/migrations/20261118015251_keep_background_tournament_registration_from_queueing_behind.sql", "scripts/ci/mtt_activation_funding.py", "scripts/ci/mtt_activation_satellite.py",
         "supabase/migrations/20260917233447_tournament_original_funding_and_obligation_receipts.sql",
         "supabase/migrations/20260918002654_horse_tournament_entry_retains_original_funding.sql"})
     required.update(FIXTURE + "/" + name for name in (
