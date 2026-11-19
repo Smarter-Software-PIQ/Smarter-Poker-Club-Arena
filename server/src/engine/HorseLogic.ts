@@ -114,6 +114,7 @@ import {
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import { omahaTurnStabSpot } from './HorseOmahaTurnStabDefence.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
@@ -3856,6 +3857,13 @@ export interface HorseDecideOpts {
    * byte-identical. Default OFF; the league deals no Lightning (refused matchup); its evaluation is the paired
    * Lightning harness (lightning/LightningPairedEval.test.ts). */
   omahaPricedInLightning?: boolean;
+  /** TURN-STAB lane 2026-11-19 (owner 4:53 PM Chicago: the person checks the flop, the Horse checks behind,
+   * the person fires the turn near pot and the Horse gives it up): opt-in (`=== true`). Inside omahaFacingBetEv
+   * only: facing a PERSON's first wager of the turn after a checked-through flop, heads-up, PLO4/PLO5 cash, the
+   * spot's prior is that line's measured non-value share (HorseOmahaTurnStabDefence.ts), and the bettor's own
+   * read moves it through the facing-bet EV's own path. Lightning only with omahaPricedInLightning on. Off or
+   * unset: byte-identical. Default OFF until its declared evaluation passes. */
+  omahaTurnStabDefenceIsPriced?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -11395,6 +11403,9 @@ let omahaFacingBetEvCountMemo: {
   plo6RiverNuts: boolean;
   plo6RiverUnpaired: boolean;
   runoutRealization: boolean;
+  /** omahaTurnStabDefenceIsPriced, and whether the Lightning pools are open to it (omahaPricedInLightning). */
+  turnStab: boolean;
+  turnStabLightning: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -11427,6 +11438,8 @@ function omahaFacingBetEvCount(
   const plo6RiverNuts = opts.v58Plo6RiverNuts !== false;
   const plo6RiverUnpaired = opts.v59Plo6RiverUnpaired !== false;
   const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
+  const turnStab = opts.omahaTurnStabDefenceIsPriced === true;
+  const turnStabLightning = turnStab && opts.omahaPricedInLightning === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -11435,11 +11448,17 @@ function omahaFacingBetEvCount(
     memo.mind === mind &&
     memo.plo6RiverNuts === plo6RiverNuts &&
     memo.plo6RiverUnpaired === plo6RiverUnpaired &&
-    memo.runoutRealization === runoutRealization
+    memo.runoutRealization === runoutRealization &&
+    memo.turnStab === turnStab &&
+    memo.turnStabLightning === turnStabLightning
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
-  const spot = omahaFacingBetEvSpot(player, gs);
+  const baseSpot = omahaFacingBetEvSpot(player, gs);
+  // omahaTurnStabDefenceIsPriced (default off): a person's turn stab after a checked-through flop is priced
+  // against that line's measured range (HorseOmahaTurnStabDefence); the same object outside the line.
+  const spot =
+    baseSpot && turnStab ? omahaTurnStabSpot(baseSpot, player, gs, turnStabLightning) : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     if (mind) {
@@ -11499,6 +11518,11 @@ function omahaFacingBetEvCount(
         }
       );
     const verdict = verdictOf(spot, read);
+    if (verdict && spot !== baseSpot && baseSpot && telemetryOn(opts)) {
+      noteFire('omaha_turn_stab_defence_priced_seen');
+      if (verdictOf(baseSpot, read)?.call !== verdict.call)
+        noteFire('omaha_turn_stab_defence_changed');
+    }
     if (verdict) {
       answer = { spot, verdict };
       // Receipt: the continuous inputs changed the verdict the stepped tables and the label cap give.
@@ -11515,6 +11539,8 @@ function omahaFacingBetEvCount(
     plo6RiverNuts,
     plo6RiverUnpaired,
     runoutRealization,
+    turnStab,
+    turnStabLightning,
     answer,
   };
   return answer;

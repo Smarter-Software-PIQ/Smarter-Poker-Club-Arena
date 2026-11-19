@@ -401,6 +401,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaTurnStabDefenceIsPriced: priced(
+    "the non-value prior of a person's turn stab after a checked-through flop, measured for that line, inside the facing-bet EV (default OFF; an input, not a rule site)"
+  ),
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
   ),

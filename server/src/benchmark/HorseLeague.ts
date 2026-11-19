@@ -5003,6 +5003,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and sets the domain.',
   },
   {
+    // TURN-STAB lane 2026-11-19: the live Omaha set (which runs omahaFacingBetEv) in BOTH arms; the one-arm
+    // question is the turn-stab prior.
+    name: 'plo5_omaha_turn_stab_defence_is_priced',
+    variant: 'plo5',
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnStabDefenceIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+    reason:
+      'No person in the league table. omahaTurnStabDefenceIsPriced is DEFAULT OFF (HorseLogic.omahaFacingBetEvCount: ' +
+      'opts.omahaTurnStabDefenceIsPriced === true) and it changes one input: the non-value prior of the facing-bet ' +
+      'EV when the bettor is a PERSON (HorseOmahaPricedMode.omahaOpponentKindOf) making the first wager of the turn ' +
+      'after a checked-through flop. Every league seat is a Horse, so the line never holds in either arm, both arms ' +
+      'play identical poker (omaha_turn_stab_defence_priced_seen never fires) and the card would report 0.00 +/- 0.00. ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261119, status inert). ' +
+      'It is measured where persons play: the declared replay of journaled production decisions ' +
+      '(woowoo-48h-audit-01BNteGYgf/repairs/TURN-STAB/EVAL-DECLARATION.md). What would change this: a league field ' +
+      'that seats a person model with a measured turn-stab line.',
+  },
+  {
     // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the
     // Lightning-separate style read itself.
     name: 'nlh_style_lightning_separate',
