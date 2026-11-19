@@ -161,6 +161,42 @@ BEGIN
 END
 $function$;
 
+-- Probes (scripts/ci/templates/function-probe.sql): each runs the new body once in a subtransaction that is always
+-- undone, so no evidence or switch row survives. omahaCardImpact is a registered non-style option that supports on;
+-- styleFoldBluff is a style option (it has canary). Any error but the sentinel rolls the whole migration back.
+
+-- @probe-for: public.fn_ca_horse_option_switch_record_evidence
+DO $probe$
+DECLARE
+  v_sha text := repeat('a', 64);
+BEGIN
+  -- a non-style option records evidence (the canary test lets it through)
+  PERFORM public.fn_ca_horse_option_switch_record_evidence(
+    'omahaCardImpact', 'migration-probe/evidence.md', v_sha, 'evidence', 'migration probe (undone)', NULL,
+    'migration-probe');
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_ca_horse_option_switch_set
+DO $probe$
+DECLARE
+  v_sha text := repeat('b', 64);
+BEGIN
+  -- on for a non-style option passes the own-citation and recorded-evidence rules
+  PERFORM public.fn_ca_horse_option_switch_record_evidence(
+    'omahaCardImpact', 'migration-probe/evidence.md', v_sha, 'evidence', 'migration probe (undone)', NULL,
+    'migration-probe');
+  PERFORM public.fn_ca_horse_option_switch_set(
+    'omahaCardImpact', 'on', 'migration-probe', 'authority: omahaCardImpact migration-probe/evidence.md sha256 ' || v_sha);
+  -- a style option (canary) is set without a citation
+  PERFORM public.fn_ca_horse_option_switch_set('styleFoldBluff', 'off', 'migration-probe', NULL);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 REVOKE ALL ON FUNCTION public.fn_ca_horse_style_switch_effective() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_horse_option_switch_effective() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_horse_option_switch_record_evidence(text, text, text, text, text, text, text)
