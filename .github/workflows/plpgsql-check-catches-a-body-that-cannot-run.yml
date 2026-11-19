@@ -54,8 +54,9 @@ jobs:
         run: |
           set -uo pipefail
           echo scripts/ci/fixtures/plpgsql-check/20261118164000_ambiguous_row_source_alias.sql > "$RUNNER_TEMP/bad.txt"
-          CHANGED="$RUNNER_TEMP/bad.txt" bash scripts/ci/plpgsql-check-changed.sh 2> "$RUNNER_TEMP/bad.log"
-          rc=$?
+          # The runner's shell is bash -e: an expected failure is captured, not fatal.
+          rc=0
+          CHANGED="$RUNNER_TEMP/bad.txt" bash scripts/ci/plpgsql-check-changed.sh 2> "$RUNNER_TEMP/bad.log" || rc=$?
           cat "$RUNNER_TEMP/bad.log"
           [ "$rc" -eq 1 ] || { echo "::error::expected exit 1 for the ambiguous alias, got $rc"; exit 1; }
           grep -q 'ERROR.*ca_fixture_capture(jsonb).*42702' "$RUNNER_TEMP/bad.log" \
