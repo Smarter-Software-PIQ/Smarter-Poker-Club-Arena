@@ -1262,6 +1262,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFoldModelFittedOnPeople',
+    'WooWoo audit FOLD-MODEL 2026-11-18 (owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; OMAHA_EV_FOLD_MODEL was fitted with Horses pooled in and credits people 0.379 folds heads-up to a Horse first flop bet where people folded 617/1,987 = 0.311, 2026-11-04..18): PLO4/PLO5 cash in the priced scope, flop or turn, heads-up against a person, nothing to call: his fold share to every v38 bet size is the fold model fitted on people only (OMAHA_PERSON_FOLD_CELLS: 3,417 heads-up person answers, variant x street x pot type x bet-size bucket, each cell shrunk to OMAHA_EV_FOLD_MODEL with 8 mdf-units, scaled by his own durable fold read relative to people with the cross-validated elasticity 1.5), replacing mdfFold x foldMul for him; Horses, unknown kinds, multiway, facing-bet spots and the river unchanged; default OFF',
+    'V94'
+  ),
+  flag(
     'omahaFlopBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The flop bet of a bare big pair (an overpair, or queens or better with one higher card on the flop, no flush draw, fewer than eight straight outs) with the betting lead, in either position, is priced beside the check heads-up (HorseOmahaPricedSites.omahaPricedSitesFlopBetEv): he folds the weakest share of his holdings given by his fold to a bet (the priced read), raises with the strongest share (measured 0.15) and calls with the band between; the Horse equity against each band comes from the flop facing-bet sampler with its cards removal; the bet stands when it is priced at least at the check. It replaces the out-of-position check of omahaBareOverpairOopFlopCheck and prices the same hand in position (owner fixture txHiARhC, hand 59833576). Multiway and unpriceable spots keep the rule decision.',
     'V94'
@@ -5801,6 +5806,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the same spot could not be priced with the measured fold share (opponent a Horse or of unknown kind, all in, no model row or no price): mdfFold x foldMul is kept',
     'V94'
   ),  receipt(
+    'omaha_fold_model_fitted_on_people_priced',
+    'HorseLogic v38 EV engine (HorseOmahaFoldModelFittedOnPeople; omahaFoldModelFittedOnPeople)',
+    'a PLO4/PLO5 cash heads-up flop or turn decision facing no bet against a person in which every bet size was priced with the fold model fitted on people',
+    'V94'
+  ),
+  receipt(
+    'omaha_fold_model_fitted_on_people_unpriced_kept',
+    'HorseLogic v38 EV engine (HorseOmahaFoldModelFittedOnPeople; omahaFoldModelFittedOnPeople)',
+    'the same spot could not be priced with the fold model fitted on people (opponent a Horse or of unknown kind, all in, or no model row): mdfFold x foldMul is kept',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_site_flop_bet_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'a bare big pair flop bet with the lead is priced at least at the check and stands',

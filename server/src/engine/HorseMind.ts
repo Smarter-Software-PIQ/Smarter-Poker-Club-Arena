@@ -5258,7 +5258,8 @@ export class HorseMind {
    * His postflop fold-to-a-bet counters for this decision (the same durable,
    * decayed row omahaEvFoldMulOf reads: folds `hit` of `opp` faced first
    * postflop bets), or null outside a decision or with no row. Pure read: no
-   * receipt, no write. Read by HorseOmahaFlopBetMeasuredFoldShare.
+   * receipt, no write. Read by HorseOmahaFlopBetMeasuredFoldShare and
+   * HorseOmahaFoldModelFittedOnPeople.
    */
   static foldToBetCountersOf(userId: string): { hit: number; opp: number } | null {
     if (!this.decisionScope) return null;
