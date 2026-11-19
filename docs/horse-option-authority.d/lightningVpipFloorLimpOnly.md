@@ -74,14 +74,14 @@ Trigger 2, pool pace. Declared: hands per 20 minutes within 15% of the baseline,
 
 | Pool           | Hands per 20 min before / on / after | Change | Mean hand, s       | Horse VPIP %       | Early-look folds % | Flop seen %        | Flop with 3+ players % |
 | -------------- | ------------------------------------ | ------ | ------------------ | ------------------ | ------------------ | ------------------ | ---------------------- |
-| PLO4 0.25/0.50 | 113.5 / 72.6 / 119.0                 | -36%   | 15.0 / 23.0 / 14.4 | 24.7 / 43.0 / 25.1 | 72.6 / 55.5 / 72.8 | 33.9 / 52.9 / 32.8 | 5.3 / 12.7 / 2.5       |
-| PLO4 0.50/1.00 | 85.0 / 63.3 / 99.0                   | -26%   | 21.9 / 30.0 / 16.5 | 28.1 / 44.4 / 25.4 | 71.5 / 55.1 / 72.7 | 38.8 / 59.6 / 35.4 | 2.4 / 13.5 / 4.0       |
-| PLO5 1.00/2.00 | 103.0 / 79.0 / 110.0                 | -23%   | 16.8 / 28.4 / 18.6 | 27.0 / 44.1 / 26.1 | 72.3 / 57.7 / 73.0 | 35.0 / 64.9 / 44.5 | 1.0 / 18.9 / 1.8       |
-| NLH 0.25/0.50  | 67.5 / 50.5 / 62.0                   | -25%   | 26.8 / 34.0 / 26.9 | 35.0 / 44.1 / 38.4 | 61.6 / 46.2 / 61.6 | 48.9 / 45.1 / 56.5 | 7.4 / 12.7 / 12.9      |
-| NLH 0.50/1.00  | 177.5 / 147.2 / 160.0                | -17%   | 22.3 / 24.3 / 24.7 | 32.0 / 41.8 / 33.0 | 65.1 / 47.0 / 65.7 | 51.8 / 36.7 / 54.4 | 8.5 / 11.1 / 10.6      |
-| NLH 1.00/2.00  | 77.0 / 68.3 / 72.0                   | -11%   | 22.2 / 23.4 / 22.7 | 37.3 / 43.3 / 38.8 | 63.4 / 49.4 / 60.7 | 56.5 / 43.8 / 54.2 | 11.0 / 18.8 / 5.6      |
+| PLO4 0.25/0.50 | 113.5 / 72.6 / 123.0                 | -36%   | 15.0 / 23.0 / 15.2 | 24.7 / 43.0 / 25.1 | 72.6 / 55.5 / 72.8 | 33.9 / 52.9 / 34.1 | 5.3 / 12.7 / 2.4       |
+| PLO4 0.50/1.00 | 85.0 / 63.3 / 106.0                  | -26%   | 21.9 / 30.0 / 16.7 | 28.1 / 44.4 / 25.4 | 71.5 / 55.1 / 72.7 | 38.8 / 59.6 / 34.9 | 2.4 / 13.5 / 3.8       |
+| PLO5 1.00/2.00 | 103.0 / 79.0 / 123.0                 | -23%   | 16.8 / 28.4 / 19.0 | 27.0 / 44.1 / 26.1 | 72.3 / 57.7 / 73.0 | 35.0 / 64.9 / 44.7 | 1.0 / 18.9 / 3.3       |
+| NLH 0.25/0.50  | 67.5 / 50.5 / 65.0                   | -25%   | 26.8 / 34.0 / 26.9 | 35.0 / 44.1 / 38.4 | 61.6 / 46.2 / 61.6 | 48.9 / 45.1 / 56.9 | 7.4 / 12.7 / 12.3      |
+| NLH 0.50/1.00  | 177.5 / 147.2 / 175.0                | -17%   | 22.3 / 24.3 / 24.5 | 32.0 / 41.8 / 33.0 | 65.1 / 47.0 / 65.7 | 51.8 / 36.7 / 54.3 | 8.5 / 11.1 / 10.3      |
+| NLH 1.00/2.00  | 77.0 / 68.3 / 80.0                   | -11%   | 22.2 / 23.4 / 22.0 | 37.3 / 43.3 / 38.8 | 63.4 / 49.4 / 60.7 | 56.5 / 43.8 / 52.5 | 11.0 / 18.8 / 6.3      |
 
-The floor was met: Horse VPIP landed at 42-44% in every pool. The wait between hands that the pool records (`waited_ms`) moved little for Horses (median 2.0-2.6 s before, 2.0-3.6 s on, in every pool). One person played, in PLO5 1/2, only while the option was on and just after: 17 hands on (median wait 1.96 s, mean 6.79 s, 95th percentile 29.7 s), 14 hands after (1.23 s, 2.64 s, 8.7 s); there is no before figure for a person.
+The floor was met: Horse VPIP landed at 42-44% in every pool. The wait between hands that the pool records (`waited_ms`) moved little for Horses (median 2.0-2.6 s before, 2.0-3.6 s on, in every pool). One person played, in PLO5 1/2, only while the option was on and just after: 17 hands on (median wait 1.96 s, mean 6.79 s, 95th percentile 29.7 s), 16 hands after (1.23 s, 2.62 s, 7.8 s); there is no before figure for a person.
 
 The lower hand rate is the floor itself, not a second fault. A fast-table pool deals at the speed its players come free. A Horse at its natural 25-28% in PLO folds 72% of its hands on the early look and is free within seconds; to hold 40% over every ten hands it must stay in at least 12 to 15 more hands of each hundred until its turn, and most of those limps see a flop (limped flops rose from 1-2% to 17-20% of PLO hands). In all six pools the measured rate on is within 15% of the baseline rate multiplied by (mean hand before / mean hand on), so the longer hands account for all of it. With the same Horses seated, a PLO pool whose Horses hold the floor by limp-fold cannot stay within 15% of the unfloored rate. The pace can be restored only by seating more Horses in a floored pool (a fill decision), not by this option.
 
