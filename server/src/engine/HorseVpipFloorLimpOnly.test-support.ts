@@ -30,8 +30,10 @@ const RECORDED: unknown = JSON.parse(
   readFileSync(new URL('./HorseOmahaUnderpair.fixture.json', import.meta.url), 'utf8')
 );
 
-export type FloorVariant = 'plo4' | 'plo5' | 'plo6' | 'nlh' | 'plo8' | 'short_deck';
-export const HOLE_COUNT: Record<FloorVariant, number> = {
+export type FloorVariant = 'plo4' | 'plo5' | 'plo6' | 'nlh';
+/** Every variant the harness can seat: the four measured by F-10, plus PLO8 and short deck. */
+export type SeatedFloorVariant = FloorVariant | 'plo8' | 'short_deck';
+export const HOLE_COUNT: Record<SeatedFloorVariant, number> = {
   nlh: 2,
   plo4: 4,
   plo5: 5,
@@ -40,9 +42,10 @@ export const HOLE_COUNT: Record<FloorVariant, number> = {
   short_deck: 2,
 };
 /** No-limit betting (hold'em and short deck); every other variant here is pot limit. */
-const noLimit = (variant: FloorVariant): boolean => variant === 'nlh' || variant === 'short_deck';
+const noLimit = (variant: SeatedFloorVariant): boolean =>
+  variant === 'nlh' || variant === 'short_deck';
 /** The ranks dealt: short deck has no deuce to five. */
-const ranksOf = (variant: FloorVariant): string =>
+const ranksOf = (variant: SeatedFloorVariant): string =>
   variant === 'short_deck' ? '6789TJQKA' : '23456789TJQKA';
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
@@ -121,7 +124,7 @@ export interface Spot {
 }
 
 export interface Table {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   /** The table's VPIP floor, percent; 0 = no floor (the field is absent). */
   floor: number;
   window?: number;
@@ -418,7 +421,7 @@ export interface SittingStats {
  * the sitting ends.
  */
 export function sitting(cfg: {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   floor: number;
   opts: HorseDecideOpts;
   hands: number;
@@ -615,7 +618,7 @@ export interface SpotRate {
  * Facing a raise this is the only VPIP the limp-only ruling leaves a Horse.
  */
 export function unflooredEntryRates(cfg: {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   opts: HorseDecideOpts;
   hands: number;
   seed: number;
@@ -701,7 +704,7 @@ export interface TableSittingStats {
  * No reads (mind off), so every opponent is the population envelope.
  */
 export function tableSitting(cfg: {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   floor: number;
   opts: HorseDecideOpts;
   hands: number;
