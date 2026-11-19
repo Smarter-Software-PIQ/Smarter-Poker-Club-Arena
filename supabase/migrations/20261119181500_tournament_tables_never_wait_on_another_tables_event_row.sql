@@ -437,7 +437,11 @@ END $probe$;
 
 -- @probe-for: public.fn_ca_lock_tournament_rebuy_acquisition
 DO $probe$
-DECLARE v_t uuid := gen_random_uuid(); v_u uuid := gen_random_uuid(); v_r jsonb;
+-- The user must exist: the acquisition locks the player's Daily Missions
+-- profile before it reads the tournament, and a random id is refused there
+-- (P0001, production apply run 2026-11-19 21:19 UTC). The row lock is undone
+-- with this probe's subtransaction; the tournament id stays random.
+DECLARE v_t uuid := gen_random_uuid(); v_u uuid := (SELECT p.id FROM public.profiles p ORDER BY p.id LIMIT 1); v_r jsonb;
 BEGIN
   PERFORM public.fn_ca_share_tournament_lane_for_rebuy(v_t, v_u);
   v_r := public.fn_ca_lock_tournament_rebuy_acquisition(v_t, NULL, v_u);
