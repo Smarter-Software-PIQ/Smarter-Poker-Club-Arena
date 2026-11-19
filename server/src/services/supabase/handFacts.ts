@@ -984,6 +984,12 @@ export interface HandFactsInput {
   dealtStacksAtDeal?: Map<string, number>;
   /** Original controller witness, captured before remaining community cards. */
   allInRunoutWitness?: import('../../types.js').AllInRunoutWitness | null;
+  /**
+   * The first all-in runout's equity, priced by the host itself (the Lightning
+   * host has no table broadcast to capture from). Preferred over the table
+   * capture when present. userId -> fraction 0..1.
+   */
+  allInEquity?: { byUser: Map<string, number>; street: string } | null;
   winners: Array<{ userId: string; amount: number }>;
   actions: HandAction[];
   /**
@@ -1127,9 +1133,13 @@ export async function writeHandFacts(
     // A protocol-2 payload is built before the accepted-hand transaction. Do
     // not consume its exact equity until that transaction succeeds, otherwise
     // a refused/transport-unknown attempt could make a safe retry less exact.
-    const equity = input.collectOnly
+    const captured = input.collectOnly
       ? peekEquity(input.tableId, input.handNumber)
       : takeEquity(input.tableId, input.handNumber);
+    // A host that priced its own runout (Lightning) passes it explicitly.
+    const equity: CapturedEquity | null = input.allInEquity
+      ? { byUser: input.allInEquity.byUser, street: input.allInEquity.street, capturedAt: 0 }
+      : captured;
 
     // Without a real big blind every bb-normalised column would be written as
     // RAW CHIPS - a plausible-looking number 10x out at a 5/10 table, which

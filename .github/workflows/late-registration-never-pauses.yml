@@ -1,0 +1,55 @@
+name: A late registration never pauses the tournament
+
+# Migration 20261119052513 (incident 075013fd, lane L). Runs
+# scripts/ci/test-late-registration-never-pauses-the-tournament.py against a
+# throwaway PostgreSQL 17 cluster, never production: the exact production
+# definitions of the registration chain (pg_get_functiondef md5 equal to the
+# live functions) plus lanes T, R and R2 installed natively must show the
+# defect first - a late registration in flight holds the event lane T(id)
+# exclusively and every other table's per-hand call waits for it - and, after
+# the unmodified migration file, the same calls proceed at once, registration
+# serialises with a hand, a rebuy and a balancing move on its destination
+# table, a full field opens a new table inside the shared lane, chips and
+# entries are conserved, and a mixed run logs zero deadlocks.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261119052513_a_late_registration_never_pauses_the_tournament.sql
+      - supabase/migrations/20261119011750_bounty_rebuys_and_eliminations_share_the_event_lane.sql
+      - supabase/migrations/20261118191946_a_rebuy_never_pauses_the_tournament.sql
+      - scripts/ci/fixtures/late-registration-never-pauses/**
+      - scripts/ci/fixtures/rebuy-never-pauses/**
+      - scripts/ci/test-late-registration-never-pauses-the-tournament.py
+      - .github/workflows/late-registration-never-pauses.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: late-registration-never-pauses-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  late-registration-never-pauses:
+    name: A late registration never pauses the tournament
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: A late registration never pauses the tournament
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-late-registration-never-pauses-the-tournament.py --output artifacts/late-registration-never-pauses
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: late-registration-never-pauses-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/late-registration-never-pauses/results.json
+          retention-days: 7
+          if-no-files-found: warn

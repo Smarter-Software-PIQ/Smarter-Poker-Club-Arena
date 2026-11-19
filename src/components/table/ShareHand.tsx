@@ -249,6 +249,13 @@ export interface ShareHandProps {
    * and on any failure, when the long link is sent instead.
    */
   shortUrl?: string | null;
+  /**
+   * The short link is being made right now (useSharedHandShortLink.pending).
+   * The sheet waits for it and never puts the long link on screen meanwhile
+   * (Dan 2026-11-18). False with no shortUrl means the reservation failed,
+   * and only then is the long link sent.
+   */
+  shortPending?: boolean;
   /** Called when the sender actually sends the link (copy, social, native). */
   onShared?: () => void;
 }
@@ -811,6 +818,7 @@ export function ShareHand({
   handId = null,
   inviteCode = null,
   shortUrl = null,
+  shortPending = false,
   onShared,
 }: ShareHandProps) {
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -847,11 +855,14 @@ export function ShareHand({
 
   // Generate shareable URL
   const shareUrl = useMemo(() => {
-    const encoded = encodeHand(hand);
     if (shortUrl) return shortUrl;
+    // The short link is on its way: there is no link to send yet.
+    if (shortPending) return '';
+    const encoded = encodeHand(hand);
     const invite = normalizeInviteCode(inviteCode);
     return `${baseUrl}?h=${encoded}${invite ? `&i=${invite}` : ''}`;
-  }, [hand, baseUrl, inviteCode, shortUrl]);
+  }, [hand, baseUrl, inviteCode, shortUrl, shortPending]);
+  const linkReady = shareUrl !== '';
 
   // Social share text
   const shareText = useMemo(() => {
@@ -867,6 +878,7 @@ export function ShareHand({
 
   // Copy link
   const handleCopy = useCallback(async () => {
+    if (!linkReady) return;
     haptic.light();
     // copyText falls back to a selection copy when the Clipboard API is
     // present but refused, reports a copy that did not happen, and counts the
@@ -881,11 +893,12 @@ export function ShareHand({
       setCopyFailed(true);
       selectForHand(urlInputRef.current);
     }
-  }, [shareUrl, onShared]);
+  }, [shareUrl, onShared, linkReady]);
 
   // Share to social platforms
   const handleSocialShare = useCallback(
     (platform: 'twitter' | 'facebook' | 'telegram' | 'whatsapp') => {
+      if (!linkReady) return;
       const encodedUrl = encodeURIComponent(shareUrl);
       const encodedText = encodeURIComponent(shareText);
 
@@ -899,11 +912,12 @@ export function ShareHand({
       openInBrowser(urls[platform], 'width=600,height=400');
       onShared?.();
     },
-    [shareUrl, shareText, onShared]
+    [shareUrl, shareText, onShared, linkReady]
   );
 
   // Native share (mobile)
   const handleNativeShare = useCallback(async () => {
+    if (!linkReady) return;
     const outcome = await shareLink({
       source: 'ShareHand.share',
       title: 'Hand Replay - ' + clubName,
@@ -921,10 +935,11 @@ export function ShareHand({
       setCopyFailed(true);
       selectForHand(urlInputRef.current);
     }
-  }, [shareText, shareUrl, clubName, onShared]);
+  }, [shareText, shareUrl, clubName, onShared, linkReady]);
 
   // Embed code
   const embedCode = useMemo(() => {
+    if (!shareUrl) return '';
     /* A short link has no query of its own, so the separator follows the URL. */
     const sep = shareUrl.includes('?') ? '&' : '?';
     return `<iframe src="${shareUrl}${sep}embed=true" width="400" height="300" frameborder="0" allowfullscreen></iframe>`;
@@ -1038,15 +1053,18 @@ export function ShareHand({
                 <input
                   ref={urlInputRef}
                   type="text"
-                  value={shareUrl}
+                  value={linkReady ? shareUrl : 'Creating Your Short Link'}
                   readOnly
                   className="share-hand__url-input"
                   aria-label="Hand Link"
+                  aria-busy={!linkReady}
+                  data-link-state={linkReady ? (shortUrl ? 'short' : 'long') : 'pending'}
                 />
                 <button
                   className={`share-hand__copy-btn ${copied ? 'share-hand__copy-btn--success' : ''}`}
                   aria-label={copied ? 'Link Copied' : 'Copy Link'}
                   onClick={handleCopy}
+                  disabled={!linkReady}
                 >
                   {copied ? 'Copied' : 'Copy'}
                 </button>
@@ -1058,7 +1076,11 @@ export function ShareHand({
               )}
 
               {hasShareSheet() && (
-                <button className="share-hand__native-share" onClick={handleNativeShare}>
+                <button
+                  className="share-hand__native-share"
+                  onClick={handleNativeShare}
+                  disabled={!linkReady}
+                >
                   Share
                 </button>
               )}
@@ -1096,6 +1118,7 @@ export function ShareHand({
                 <button
                   key={social.platform}
                   className={`share-hand__social-btn ${social.className}`}
+                  disabled={!linkReady}
                   onClick={() =>
                     handleSocialShare(
                       social.platform as 'twitter' | 'facebook' | 'telegram' | 'whatsapp'
@@ -1126,6 +1149,7 @@ export function ShareHand({
               />
               <button
                 className="share-hand__copy-embed"
+                disabled={!linkReady}
                 onClick={() => {
                   void copyText(embedCode, 'ShareHand.embed').then((ok) => {
                     setEmbedState(ok ? 'copied' : 'failed');
@@ -1145,7 +1169,17 @@ export function ShareHand({
         </div>
 
         {/* Share As Video (Phase 9.1): only for a hand with a stored row id. */}
-        {handId && <ShareAsVideoPanel handId={handId} />}
+        {handId && (
+          <ShareAsVideoPanel
+            handId={handId}
+            handNumber={hand.handNumber}
+            shortUrl={shortUrl}
+            shortPending={shortPending}
+            shareText={shareText}
+            shareTitle={'Hand Replay - ' + clubName}
+            onShared={onShared}
+          />
+        )}
       </div>
     </div>
   );
