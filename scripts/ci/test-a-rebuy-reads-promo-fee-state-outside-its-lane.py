@@ -6,7 +6,8 @@ Native PostgreSQL 16/17 proof for migration
 
 Fixture: the production bodies, md5 pinned
 (scripts/ci/fixtures/rebuy-promo-fee-state/preimages.json), of
-process_tournament_rebuy and fn_ca_promo_play_through_state. The hourly
+fn_ca_promo_play_through_state and of process_tournament_rebuy as
+20261119013430 (lane B7) leaves it (md5 c294af49). The hourly
 snapshot readers and fn_ca_promo_play_through_settle come byte for byte from
 20261119002019, and fn_ca_share_tournament_lane_for_rebuy from
 20261118191946, all on production's column shapes. Only the live fee-history
@@ -98,6 +99,13 @@ BEGIN
   WHERE g.club_id=p_club AND g.user_id=p_user ORDER BY p.activated_at,p.id;
 END $f$;
 CREATE FUNCTION public.fn_platform_frozen() RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
+-- What the migration's probe reaches on its way to an add-on receipt replay.
+CREATE SCHEMA auth;
+CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
+CREATE FUNCTION public.fn_caller_session_is_live() RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
+CREATE TABLE public.entry_purchase_idempotency_receipts(key_domain text NOT NULL, idempotency_key text NOT NULL, request jsonb NOT NULL,
+ response jsonb, claimed_at timestamptz NOT NULL, completed_at timestamptz, PRIMARY KEY(key_domain,idempotency_key));
 """ % {'cost': LIVE_COST}
 
 # account shape -> list of (grant open?, principal_state, custody kind, custody amount)
@@ -173,7 +181,7 @@ def main():
         psql(fix['public.fn_ca_promo_play_through_state(uuid,uuid)']['definition'])
         psql('SET check_function_bodies=off;\n' + fix[REBUY]['definition'])
         for sig, f in fix.items():
-            check(f'fixture {sig.split("(")[0]} is the production body (md5 {f["md5"]})', md5(sig) == f['md5'])
+            check(f'fixture {sig.split("(")[0]} is its pinned body (md5 {f["md5"]})', md5(sig) == f['md5'])
         for sig, want in SNAP_MD5.items():
             check(f'{sig.split("(")[0]} from its migration is the production body (md5 {want})', md5(sig) == want)
 

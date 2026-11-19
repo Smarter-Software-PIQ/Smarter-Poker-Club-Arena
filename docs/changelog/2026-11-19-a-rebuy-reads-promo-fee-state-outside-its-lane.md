@@ -23,4 +23,4 @@ When the purchase itself closes a grant (213 of 584 open-grant purchases) and an
 
 `scripts/ci/test-a-rebuy-reads-promo-fee-state-outside-its-lane.py` runs on native PostgreSQL 16/17 against the production bodies, with their md5s pinned. With a 400 ms recomputation and 100 ms of in-lane work, the second of two purchases of one event waited 1,002 ms before and 588 ms after. The law is `tests/a-rebuy-reads-promo-fee-state-outside-its-lane.law.test.ts`.
 
-Lane B7 (#11356) substitutes the same pre-image, so whichever merges second re-pins.
+This change requires `20261119013430` (lane B7, #11356) and applies to that migration's post-image, `c294af49`, landing on `8acb4563`.
