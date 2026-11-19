@@ -36,7 +36,7 @@
 -- @live-proof: (SELECT count(*) = 1 FROM pg_attribute a WHERE a.attrelid = 'public.hand_history'::regclass AND a.attname = 'engine_build' AND NOT a.attisdropped AND NOT a.attnotnull AND NOT a.atthasdef AND a.atttypid = 'text'::regtype)
 BEGIN;
 SET LOCAL lock_timeout = '1s';
-SET LOCAL statement_timeout = '8s';
+SET LOCAL statement_timeout = '5s';
 ALTER TABLE public.hand_history ADD COLUMN engine_build text;
 COMMENT ON COLUMN public.hand_history.engine_build IS
   'Full git commit of the engine build that committed this hand (GIT_COMMIT_SHA). NULL before 20261118073245 or when the process could not prove a full SHA.';
