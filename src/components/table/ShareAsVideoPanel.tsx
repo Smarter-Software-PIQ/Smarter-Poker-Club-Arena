@@ -475,7 +475,11 @@ export default function ShareAsVideoPanel({
   } else if (phase === 'idle') {
     body = (
       <>
-        <button type="button" className="share-hand__video-btn" onClick={request}>
+        <button
+          type="button"
+          className="share-hand__video-btn share-hand__video-btn--plate"
+          onClick={request}
+        >
           Share As Video
         </button>
         <p className="share-hand__video-hint">
@@ -489,7 +493,11 @@ export default function ShareAsVideoPanel({
     body = (
       <>
         <p className="share-hand__video-status share-hand__video-status--failed">{message}</p>
-        <button type="button" className="share-hand__video-btn" onClick={request}>
+        <button
+          type="button"
+          className="share-hand__video-btn share-hand__video-btn--plate"
+          onClick={request}
+        >
           Try Again
         </button>
       </>
@@ -500,7 +508,11 @@ export default function ShareAsVideoPanel({
         <p className="share-hand__video-status">
           Still Working On Your Clip. Check Again In A Moment.
         </p>
-        <button type="button" className="share-hand__video-btn" onClick={checkAgain}>
+        <button
+          type="button"
+          className="share-hand__video-btn share-hand__video-btn--plate"
+          onClick={checkAgain}
+        >
           Check Again
         </button>
       </>
@@ -550,7 +562,7 @@ export default function ShareAsVideoPanel({
         )}
         <button
           type="button"
-          className="share-hand__video-btn"
+          className="share-hand__video-btn share-hand__video-btn--plate"
           disabled={leaveBusy}
           onClick={publish}
         >
@@ -574,7 +586,11 @@ export default function ShareAsVideoPanel({
           Your Clip Could Not Be Rendered
         </p>
         <p className="share-hand__video-hint">{handClipFailureReason(job.error)}</p>
-        <button type="button" className="share-hand__video-btn" onClick={request}>
+        <button
+          type="button"
+          className="share-hand__video-btn share-hand__video-btn--plate"
+          onClick={request}
+        >
           Try Again
         </button>
       </>
