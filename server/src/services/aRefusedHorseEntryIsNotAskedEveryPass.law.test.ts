@@ -173,6 +173,36 @@ describe('a refused horse entry is not asked every pass', () => {
     expect(entries()).toBe(6);
   });
 
+  it('defers one busy event and admits another funded candidate on its next ordinary pass', async () => {
+    let busy = true;
+    const { svc, entries } = harness(['h1', 'h2', 'h3'], () =>
+      busy
+        ? { data: null, error: { code: '55P03', message: 'horse_attendance_lane_busy' } }
+        : { data: { ok: true, registration_id: 'funded' }, error: null }
+    );
+    expect(await svc.registerHorses(T, 1)).toBe(0);
+    expect(entries()).toBe(1);
+    busy = false;
+    expect(await svc.registerHorses(T, 1)).toBe(1);
+    expect(entries()).toBe(2);
+  });
+
+  it('one busy paying wallet leaves the next entrant eligible in the same pass', async () => {
+    let first = true;
+    const { svc, entries } = harness(['h1', 'h2'], () => {
+      if (first) {
+        first = false;
+        return {
+          data: null,
+          error: { code: '55P03', message: 'canceling statement due to lock timeout' },
+        };
+      }
+      return { data: { ok: true, registration_id: 'funded' }, error: null };
+    });
+    expect(await svc.registerHorses(T, 1)).toBe(1);
+    expect(entries()).toBe(2);
+  });
+
   it('stops the pass at the first call the database did not answer', async () => {
     const { svc, entries } = harness(['h1', 'h2', 'h3'], () => ({
       data: null,
