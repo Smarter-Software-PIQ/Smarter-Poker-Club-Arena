@@ -744,10 +744,7 @@ import {
   tournamentDockClosed as readTournamentDockClosed,
   setTournamentDockClosed,
 } from '../lib/tournamentDockStore';
-import {
-  LightningPreviousHandReview,
-  PreviousHandCard,
-} from '../components/table/PreviousHandCard';
+import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
 import { reportClientWarning, reportError } from '../utils/errorReporter';
 import {
@@ -1652,7 +1649,7 @@ function warmSeatToPlayer(seat: WarmSeat, heroUserId: string): SeatPlayer {
   return {
     id: seat.user_id,
     name: playerDisplayName(profiles),
-    stack: seat.stack || 0,
+    ...standInStack({ rowStack: seat.stack }),
     avatar: profiles?.avatar_url || undefined,
     isHero: seat.user_id === heroUserId,
     status: 'active',
@@ -2850,7 +2847,7 @@ function LiveTablePage({
             p[idx] = {
               id: seat.user_id,
               name: playerDisplayName(seat.profiles),
-              stack: seat.stack || 0,
+              ...standInStack({ rowStack: seat.stack }),
               avatar: seat.profiles?.avatar_url || undefined,
               isHero: seat.user_id === userId,
               status: 'active',
@@ -2948,12 +2945,17 @@ function LiveTablePage({
   const lightningCheckFoldArmRef = useRef<string | null>(null);
   /** The hand that was last live on this felt: an idle snapshot has no key. */
   const lightningLiveHandKeyRef = useRef<string | null>(null);
-  const [selectedLightningReview, setSelectedLightningReview] = useState<{
-    deal: PreviousLightningDeal;
-    receipt?: { archiveId: string | null };
-  } | null>(null);
+  const [pinnedLightningDeal, setPinnedLightningDeal] = useState<PreviousLightningDeal | null>(
+    null
+  );
+  const [pinnedLightningDealStatus, setPinnedLightningDealStatus] = useState<
+    'pending' | 'unavailable' | 'failed'
+  >('pending');
   const reviewRoom = lightningObserver ? null : lightningRoom?.poolSessionId;
-  useEffect(() => setSelectedLightningReview(null), [reviewRoom, userId]);
+  useEffect(() => {
+    setPinnedLightningDeal(null);
+    setPinnedLightningDealStatus('pending');
+  }, [reviewRoom, userId]);
   const reviewedLightningDeal = usePreviousLightningDeal(
     reviewRoom,
     userId,
@@ -11056,6 +11058,57 @@ function LiveTablePage({
   const takeSavedHandRef = useRef(takeSavedHand);
   takeSavedHandRef.current = takeSavedHand;
 
+  // Lightning reconnect recovery for Previous Hands: if a fast-folded deal
+  // settled while the engine socket was disconnected and HandDetailModal is
+  // open, resolve that deal on reconnect and prepend it into handHistory.
+  const handHistoryWasConnectedRef = useRef(engineWsStatus === 'connected');
+  useEffect(() => {
+    const connected = engineWsStatus === 'connected';
+    const reconnected = connected && !handHistoryWasConnectedRef.current;
+    handHistoryWasConnectedRef.current = connected;
+    if (
+      !reconnected ||
+      !showHandDetail ||
+      !reviewRoom ||
+      !userId ||
+      userId === 'guest' ||
+      !pinnedLightningDeal ||
+      pinnedLightningDeal.scope !== JSON.stringify([reviewRoom, userId]) ||
+      handHistoryRowsRef.current.some((h) => h.handNumber === pinnedLightningDeal.number)
+    ) {
+      return;
+    }
+    const readScope = handHistoryScopeRef.current;
+    let active = true;
+    void handHistoryService
+      .getPreviousLightningHand(userId, reviewRoom, pinnedLightningDeal)
+      .then((read) => {
+        if (!active || handHistoryScopeRef.current !== readScope) return;
+        if (read.state === 'ready') {
+          const record = adaptServiceHandToPanel(read.hand, userId);
+          setHandHistory((prev) => {
+            const next = prependHand(prev, record, Number.POSITIVE_INFINITY);
+            handHistoryRowsRef.current = next;
+            return next;
+          });
+          loadedHandHistoryScopeRef.current = readScope;
+          handHistoryFetchedAtRef.current = Date.now();
+          handHistoryTableRef.current = tableId ?? null;
+          setPinnedLightningDealStatus('pending');
+        } else {
+          setPinnedLightningDealStatus(read.state);
+        }
+      })
+      .catch((error) => {
+        if (!active || handHistoryScopeRef.current !== readScope) return;
+        reportError(error, 'TablePage.recoverLightningPreviousHand');
+        setPinnedLightningDealStatus('failed');
+      });
+    return () => {
+      active = false;
+    };
+  }, [engineWsStatus, showHandDetail, reviewRoom, userId, tableId, pinnedLightningDeal]);
+
   // Hand replay — resolve the most recent hand id lazily when the panel opens
   // rather than paying a lookup on every completed hand.
   useEffect(() => {
@@ -14187,27 +14240,6 @@ function LiveTablePage({
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
       if (eventType === 'hand_history_saved' || eventType === 'observed_hand_saved') {
-        const receiptRoom = handState.pool_session_id;
-        if (
-          receiptRoom &&
-          receiptRoom === lightningRoomRef.current?.poolSessionId &&
-          handState.player_id === userId
-        ) {
-          const scope = JSON.stringify([receiptRoom, userId]);
-          setSelectedLightningReview((open) => {
-            if (
-              !open ||
-              open.deal.scope !== scope ||
-              open.deal.number !== handState.hand_number ||
-              (open.deal.id && open.deal.id !== handState.lightning_hand_id)
-            )
-              return open;
-            const archiveId = typeof handState.hand_id === 'string' ? handState.hand_id : null;
-            return open.receipt?.archiveId === archiveId
-              ? open
-              : { ...open, receipt: { archiveId } };
-          });
-        }
         if (lightningRoomRef.current && typeof handState.lightning_hand_id === 'string') {
           // Every commit can advance the anchor count, including an earlier fold.
           // Only the displayed hand's receipt can change its settlement state.
@@ -18561,7 +18593,7 @@ function LiveTablePage({
                 id: seat.user_id,
                 name: playerDisplayName(profile),
                 avatar: profile?.avatar_url || '',
-                stack: seat.stack || 0,
+                ...standInStack({ rowStack: seat.stack }),
                 status:
                   seat.is_sitting_out && !heroFreshJoin
                     ? ('sitting_out' as const)
@@ -25343,10 +25375,12 @@ function LiveTablePage({
              * The moment real chips exist this stops applying — `playHasBegun`
              * latches on the first dealer, hand, or non-zero stack.
              */
-            stack:
-              Number(seat.stack || 0) > 0 || playHasBegun
-                ? Number(seat.stack || 0)
-                : Number(seatFirstBuyIn?.startingChips || 0),
+            ...(Number(seat.stack || 0) > 0 || playHasBegun
+              ? standInStack({ rowStack: seat.stack })
+              : standInStack({
+                  rowStack: null,
+                  paidBuyIn: seatFirstBuyIn?.startingChips ?? null,
+                })),
             status: 'active' as const,
             isHero,
             showCards: isHero,
@@ -29425,11 +29459,11 @@ function LiveTablePage({
                 didFold={prevHandResult?.didFold ?? false}
                 handDescription={prevHandResult?.handDescription}
                 onTap={() => {
-                  if (reviewedLightningDeal)
-                    setSelectedLightningReview((open) =>
-                      open ? null : { deal: reviewedLightningDeal }
-                    );
-                  else setShowHandDetail(true);
+                  if (reviewedLightningDeal) {
+                    setPinnedLightningDeal(reviewedLightningDeal);
+                    setPinnedLightningDealStatus('pending');
+                  }
+                  setShowHandDetail(true);
                 }}
                 onShareHand={() => {
                   // The modal renders only when a hand has been captured. Say so
@@ -32671,24 +32705,14 @@ function LiveTablePage({
       {/* Dan 2026-08-21: PokerBros-style hand breakdown. Replay + Share are
           buttons in its header, driving the existing HandReplayPlayer and
           ShareHand modals. */}
-      {reviewRoom &&
-        selectedLightningReview?.deal.scope === JSON.stringify([reviewRoom, userId]) && (
-          <LightningPreviousHandReview
-            key={selectedLightningReview.deal.scope + ':' + selectedLightningReview.deal.number}
-            room={reviewRoom}
-            viewer={userId}
-            deal={selectedLightningReview.deal}
-            receipt={selectedLightningReview.receipt}
-            connected={engineWsStatus === 'connected'}
-            onClose={() => setSelectedLightningReview(null)}
-          />
-        )}
       <HandDetailModal
         currentUserName={username || null}
         isOpen={showHandDetail}
         onClose={() => {
           setShowHandDetail(false);
           setHandDetailFocusId(null);
+          setPinnedLightningDeal(null);
+          setPinnedLightningDealStatus('pending');
         }}
         hands={
           handHistoryViewerRef.current === userId &&
@@ -32707,13 +32731,25 @@ function LiveTablePage({
         onLoadOlder={loadOlderReviewHands}
         hasOlderHands={hasOlderHands}
         olderHandsLoading={olderHandsLoading}
-        viewerSeated={tableState.heroSeat > 0 || heroSeatRef.current > 0}
+        viewerSeated={
+          tableState.heroSeat > 0 ||
+          heroSeatRef.current > 0 ||
+          Boolean(lightningRoom && !lightningObserver)
+        }
+        pendingLightningDeal={
+          reviewRoom && pinnedLightningDeal?.scope === JSON.stringify([reviewRoom, userId])
+            ? {
+                handNumber: pinnedLightningDeal.number,
+                status: handHistoryState === 'failed' ? 'failed' : pinnedLightningDealStatus,
+              }
+            : null
+        }
         /* P5 2026-09-05: the rest of the server's ninety seconds. The felt
            shows the offer for ~2.5s; a player who missed it can buy the same
            reveal here, through the same charging call. */
         onRabbitHunt={handleRabbitReveal}
         rabbitIsVIP={viewerIsVip}
-        rabbitTableId={tableId ?? null}
+        rabbitTableId={lightningRoom ? null : (tableId ?? null)}
         onRabbitHuntReceipt={handleRabbitReceipt}
         rabbitUserId={userId === 'guest' ? null : userId}
         /* Take the hand you are LOOKING AT. This was `onReplay={() => {...}}`
