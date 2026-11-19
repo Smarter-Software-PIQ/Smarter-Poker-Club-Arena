@@ -179,6 +179,14 @@ function createBoundedServiceClient(
           const boundary = new Promise<never>((_resolve, reject) => {
             rejectBoundary = reject;
           });
+          /* A PARKED CALL'S DEADLINE IS NOT A FATAL (2026-11-19). The race
+             below is the boundary's only reader, and an attempt parked behind
+             its event's bound (eventDatabaseBulkhead) has not reached it yet.
+             Its deadline then rejected a promise nobody watched, which
+             index.ts drains the whole engine for. The parked caller still
+             gets the same rejection through ctl.signal; this only marks the
+             boundary handled. */
+          boundary.catch(() => undefined);
           const refuse = (reason: unknown) => {
             rejectBoundary(reason);
             ctl.abort(reason);

@@ -161,8 +161,9 @@ fi
 WAIT=$(jq -r '.waitSeconds' <<<"$PLAN")
 if [ "$(jq -r '.heldForDailyRelease' <<<"$PLAN")" = true ]; then
   # THE NIGHTLY RELEASE SCHEMA FREEZE (owner instruction 2026-11-17): the
-  # 00:07 Backup copy must still equal production at the 03:30 selection.
-  HELD="This PR merged during the nightly release schema freeze (23:45-04:15 America/Chicago). Its ordinary migration(s) ${LIST}are held by this dispatcher run and install at $(jq -r '.dispatchAt' <<<"$PLAN") (once, no retry), so the nightly Backup certificate still matches production when the 04:00 engine cutover is selected at 03:30. For a production outage that cannot wait, dispatch \`apply-merged-migration\` by hand now; that install makes tonight's certificate stale and the 04:00 cutover then keeps serving."
+  # last Backup copy must still equal production at the 03:30 selection. The
+  # window is the planner's own (RELEASE_SCHEMA_FREEZE_CHICAGO), never retyped here.
+  HELD="This PR merged during the nightly release schema freeze ($(jq -r '.releaseFreezeChicago' <<<"$PLAN") America/Chicago). Its ordinary migration(s) ${LIST}are held by this dispatcher run and install at $(jq -r '.dispatchAt' <<<"$PLAN") (once, no retry), so the nightly Backup certificate still matches production when the 04:00 engine cutover is selected at 03:30. For a production outage that cannot wait, dispatch \`apply-merged-migration\` by hand now; that install makes tonight's certificate stale and the 04:00 cutover then keeps serving."
   say "- **HELD FOR THE DAILY ENGINE RELEASE**: ${HELD}"
   [ "$PHASE" != send ] || gh pr comment "$PR" --repo "$REPO" --body "$HELD" || true
 fi

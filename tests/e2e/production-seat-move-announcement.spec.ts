@@ -281,9 +281,19 @@ test('the published table explains controlled seat moves without moving a player
       authority: 'existing tables catalogue cash_games foreign-key join',
     };
     expect(observedViewerId, 'the page must use its reserved fixture identity').toBe(fixtureUserId);
-    const main = catalogue.find((table) => table.id !== source.id && MAIN_NAME.test(table.name));
+    // A must-move always announces The Main Game, whatever the destination is
+    // named (cluster tables stopped carrying "Main" on 2026-11-19), so any
+    // other catalogue table can carry it; a "Main"-named one is preferred. The
+    // seat change needs a distinct table whose own name is announced.
+    const main =
+      catalogue.find((table) => table.id !== source.id && MAIN_NAME.test(table.name)) ??
+      catalogue.find((table) => table.id !== source.id && table.name.trim());
     const other = catalogue.find(
-      (table) => table.id !== source.id && !MAIN_NAME.test(table.name) && table.name.trim()
+      (table) =>
+        table.id !== source.id &&
+        table.id !== main?.id &&
+        !MAIN_NAME.test(table.name) &&
+        table.name.trim()
     );
     if (!main || !other)
       throw new Error('The readable catalogue needs distinct main and other-table destinations.');

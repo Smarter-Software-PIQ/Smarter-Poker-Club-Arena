@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { transpileModule } from 'typescript';
 import { openLobbyGameSection } from '../e2e/support/lobbyGameSections';
+import { admitsForCoverage, coverageComplete } from '../e2e/support/cashTableCandidates';
 import {
   scopedStalledTables,
   classifyMissingTournamentSubject,
@@ -411,6 +412,8 @@ describe('the actual cash selector scans across lobby tabs', () => {
       'readEngineHealth',
       'healthyRunningTable',
       'CASH_SPECTATOR_ACTION',
+      'admitsForCoverage',
+      'coverageComplete',
       transpileModule(body, {}).outputText +
         transpileModule(
           `async function openWinner(page, selected) {
@@ -449,7 +452,9 @@ describe('the actual cash selector scans across lobby tabs', () => {
         health.tableIds.includes(id) && !(health.tableIds.length > 1 && removed.includes(id))
           ? { tableId: id, handCount: health.sequence }
           : null,
-      /View|Watch/
+      /View|Watch/,
+      admitsForCoverage,
+      coverageComplete
     );
     return {
       result: await selector.select(page, {}),

@@ -369,6 +369,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaStrategyInPlo6',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
+  // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
+  'omahaReraisedPotFlopContinueNeedsEquityShape',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -468,6 +470,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
     'its check is gated by an opponent label (measured value leader): held until rewritten as a priced comparison'
   ),
+  // 2026-11-18 horse-switch swarm (PLO6-HILO VERDICT-READY items 1 and 16): it decides by hand class, player count
+  // and street with no price ("a check has no price to weigh"); 0 fires in 7 days. Off-only until it is priced.
+  plo6NoMultiwayBetWithWeakMadeHand: hold(
+    'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
+    'categorical, no price: it skips a multiway bet by hand class alone; held until rewritten as a priced comparison'
+  ),
   // 2026-11-17 PLO Strategy wave two: the two options whose verdicts were rewritten under the owner's
   // no-blanket-rules order were then evaluated on a bar written before the runs, and both lost.
   omahaStreetPlanFlop: ploFailed(
@@ -481,6 +489,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   // 2026-11-17 PLO Strategy: the priced preflop re-raise defence changes which hands continue against a 3-bet
   // or more (a preflop calling and re-raising range), so it is under the owner preflop range hold.
   omahaPreflopReraiseDefencePriced: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-18 horse-switch swarm (LIMIT-HU-OTHER VERDICT-READY item 2): it changes fixed-limit first-in and
+  // big-blind-defence ranges, which is the owner preflop range hold's definition.
+  fixedLimitPricedPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,
@@ -555,6 +566,15 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'PROVISIONAL (raw rows lost with SSD1): Horse-only PLO4 -1.84 bb/100 (SE 0.88, z -2.09), PLO5 -0.83 (SE 0.78), field pooled +0.25 +/- 1.64, with the opponent-kind priors and this correction on together (priced2 config 0, fad0d304ffd)',
     '2026-11-18 priced2 league (priced2-013U37/PASS-BAR.md configuration 0, eval/RUN1-LOST-SSD1.md)'
   ),
+  // 2026-11-18 WooWoo 48-hour audit (lead ruling): measured harm on real hands, switched OFF live at
+  // 2026-11-18T01:42:08Z (switch audit row 69). Off-only until a priced replacement passes its declared evaluation.
+  omahaReraisedPotFlopContinueNeedsEquityShape: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm on real hands: its rule omaha_reraised_flop_continue_folded took re-raised-pot heads-up flop folds from 9 of 30 to 37 of 69; switching it off removes 15 of 15 of its folds (13 audited wrong or questionable) and breaks 0 audited-correct calls or raises',
+    source:
+      'WooWoo 48-hour audit, 2026-11-18 (repairs/FLOP-DEFENCE/ATTRIBUTION.md; SWITCH-AUDIT.md anomaly 5); switched off live 2026-11-18T01:42:08Z',
+  }),
   omahaPricedMix: ploFailed(
     'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
@@ -603,6 +623,14 @@ export interface OptionSwitchPreflopHoldLift {
  * horsePlayStyles (the three Horse playing styles, default OFF): its tight and pressure styles move preflop entry
  * and 3-bet/4-bet bars. Lifted by the owner's 2026-11-15 16:42 Chicago text, ruled sufficient for this option alone
  * by Hand Analysis (inbox 2026-11-16T03:06:28Z, B1).
+ * omahaPreflopReraiseDefencePricedInPosition (THREEBET-2, default OFF): the in-position heads-up scope of the priced
+ * preflop re-raise defence (it changes the continuing range of an opener against one 3-bet). Lifted for this name alone
+ * under the owner's delegation of activation decisions to the WooWoo audit programme lane, 2026-11-18: "YOU OWN THE
+ * CODEBASE, YOU DECIDE WHAT TURNS ON AND IF ITS READY" (relayed by the integrator, session 013U37bYh22, in the
+ * THREEBET-2 brief), and the owner text it repeats, recorded verbatim at 2026-11-18T00:01:03Z in the programme
+ * checkpoint ("you own this code base ... turn activation on and off as you see fit"). The lift makes the switch
+ * accept `on` and `off`; it turns nothing on. omahaPreflopReraiseDefencePriced itself and every other
+ * PREFLOP_HOLD_SOURCE entry stay off-only.
  */
 export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
   Record<string, OptionSwitchPreflopHoldLift>
@@ -613,6 +641,13 @@ export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
     file: 'OWNER-TEXT-20261115-1000-PLO-CHAT-VERBATIM.md',
     sha256: '7921dea5df9daf5992faacb5a585f2fa67e2ae1c878936f040a3e7b0eea58b39',
     readAt: '2026-11-16T03:22:11Z (15,830 bytes; append-only, the digest moves as the file grows)',
+  }),
+  omahaPreflopReraiseDefencePricedInPosition: Object.freeze({
+    source:
+      'owner 2026-11-18, delegation of activation decisions to the WooWoo audit programme lane: "YOU OWN THE CODEBASE, YOU DECIDE WHAT TURNS ON AND IF ITS READY" (relayed by the integrator, session 013U37bYh22); the owner text it repeats, verbatim at 2026-11-18T00:01:03Z: "you own this code base ... turn activation on and off as you see fit." Lift for omahaPreflopReraiseDefencePricedInPosition by name, alone',
+    file: 'woowoo-48h-audit-01BNteGYgf/CHECKPOINT.md',
+    sha256: '63f041c4ca82354bcc6bec5edd93d7e121a56d6f8518aa99507d1d9de53b1be6',
+    readAt: '2026-11-19T01:14:21Z (135,509 bytes; append-only, the digest moves as the file grows)',
   }),
 });
 /** The names whose off-only entry is the owner preflop range hold (used by the lift law test). */

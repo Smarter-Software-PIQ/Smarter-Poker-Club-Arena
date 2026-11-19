@@ -67,7 +67,16 @@ export function useSeatMoveAnnouncement({
         if (!profile?.error && profile?.data) name = playerDisplayName(profile.data);
         if (!table.error && table.data?.name) {
           const label = String(table.data.name).trim();
-          destination = /\bmain(?:\s*\d+)?\b/i.test(label) ? 'The Main Game' : label || destination;
+          // A MUST-MOVE ALWAYS LANDS IN THE MAIN GAME (2026-11-19). Cluster
+          // tables stopped carrying "Main" in their names at 02:37 UTC (the main
+          // is "NLH 0.50/1 Classic", its feeders "... Classic Feeder"), so the
+          // name alone stopped recognising the main game. A must-move is the
+          // move into the main game by definition; only a seat change names
+          // its destination table.
+          destination =
+            data.reason === 'must_move' || /\bmain(?:\s*\d+)?\b/i.test(label)
+              ? 'The Main Game'
+              : label || destination;
         }
       } catch (error) {
         reportError(error, 'useSeatMoveAnnouncement.read');
