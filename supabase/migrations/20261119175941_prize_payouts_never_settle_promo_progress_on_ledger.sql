@@ -147,8 +147,13 @@ DO $probe$
 BEGIN
   BEGIN
     PERFORM public.fn_ca_promo_roll_event_principal(gen_random_uuid(), gen_random_uuid(), 'ticket');
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM <> 'invalid_promo_event_roll' THEN RAISE; END IF;
+  EXCEPTION
+    WHEN no_data_found THEN
+      -- A random ledger id has no chip_ledger row: the earning binder's STRICT
+      -- read refuses it (P0002, production apply run 2026-11-19 21:19 UTC).
+      NULL;
+    WHEN raise_exception THEN
+      IF SQLERRM <> 'invalid_promo_event_roll' THEN RAISE; END IF;
   END;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
