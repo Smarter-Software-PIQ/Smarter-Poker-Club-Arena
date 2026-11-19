@@ -654,7 +654,26 @@ export async function lateRegisterHorsesOnce(
         );
         continue;
       }
-      if (!open) continue;
+      if (!open) {
+        /* SHORT WHEN ENTRIES STOP (owner law 2026-11-14: no overlay chips until
+           registration, rebuys and the add-on have all ended). No new entry
+           can cover the gap now, and the house is asked only once rebuys and
+           the add-on have also ended, so this is the last moment the gap
+           can be read before any house chips move. One open alert per event;
+           the rebuy and add-on boost (markGuaranteeShort above) keeps running
+           while the pool stays open. */
+        if (missing > 0) {
+          void raiseFinancialAlert(
+            'warning',
+            'HorseOverlayGuard.guarantee_short_at_entry_close',
+            `${t.name} stopped taking entries ${missing} entries short of its ${Number(t.guaranteed_prize)} guarantee; rebuys and the add-on still count before any house chips move`,
+            { tournament_id: t.id, missing_entries: missing, entry_amount: entryAmount },
+            `${t.id}:guarantee_short_at_entry_close`,
+            t.id
+          );
+        }
+        continue;
+      }
 
       const startedIso = new Date(startedAtMs).toISOString();
       const [late, live, total] = await Promise.all([

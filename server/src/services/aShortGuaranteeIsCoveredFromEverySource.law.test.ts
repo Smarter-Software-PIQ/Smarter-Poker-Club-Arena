@@ -116,6 +116,7 @@ describe('a short guarantee is covered from every source', () => {
       'HorseOverlayGuard.guarantee_tracking_short',
       'Tournament.guarantee_closed_with_house_money',
       'HorseOverlayGuard.guarantee_exceeds_horse_supply',
+      'HorseOverlayGuard.guarantee_short_at_entry_close',
     ]) {
       const at = src.indexOf(`'${source}',`);
       expect(at, source).toBeGreaterThan(0);
