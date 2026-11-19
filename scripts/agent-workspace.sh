@@ -126,6 +126,77 @@ if [ -z "${AGENT_WORKSPACE_REEXEC:-}" ] && [ -r "$0" ]; then
   fi
 fi
 
+# ── ONE CHECKOUT AT A TIME, AND ONLY WHAT THE LANE NEEDS (2026-11-18) ──────
+#
+# Measured on 2026-11-18 about 13:00 Chicago: six or more agents were running
+# full `git worktree add` / `git reset --hard` checkouts of this 40,000-plus
+# file tree at the same moment, the Mac's load average sat at 41, and a
+# checkout that finishes in about 40 seconds on its own hung for over ten
+# minutes. Two were cut off half way (index staged as all-deleted, files
+# untracked), and one of those half-made trees belonged to a second lane
+# working the same incident as the first.
+#
+# So the checkout itself is serialized machine-wide: a mkdir lock in the
+# shared git directory, held only for the `worktree add`. A lock whose holder
+# process has exited (or that never got a holder written within a minute) is
+# taken over, so a killed agent never wedges the next one. The wait is bounded
+# by AGENT_CHECKOUT_WAIT_SECONDS (default 900) and then refuses loudly rather
+# than adding one more full checkout to the pile.
+#
+# AGENT_SPARSE_PATHS="dir1 dir2" opts a lane into a cone sparse checkout of
+# those directories plus .husky, scripts and docs/agent-policy (root files
+# always come along). Use it only for a lane whose push does not need the
+# whole tree; the default stays a full checkout.
+# The lock lives in the shared git directory, resolved only when a tree is
+# actually being created (agent-checkout.lock).
+CHECKOUT_LOCK="${CHECKOUT_LOCK:-}"
+
+acquire_checkout_lock() {
+  local waited=0 holder limit="${AGENT_CHECKOUT_WAIT_SECONDS:-900}"
+  [ -n "$CHECKOUT_LOCK" ] || CHECKOUT_LOCK="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/agent-checkout.lock"
+  while ! mkdir "$CHECKOUT_LOCK" 2>/dev/null; do
+    holder="$(cat "$CHECKOUT_LOCK/pid" 2>/dev/null || true)"
+    if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } \
+       || { [ -z "$holder" ] && [ -n "$(find "$CHECKOUT_LOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+      echo "# checkout lock left by ${holder:-a process that never registered}; taking it over" >&2
+      rm -rf "$CHECKOUT_LOCK"
+      continue
+    fi
+    if [ "$waited" -ge "$limit" ]; then
+      echo "another agent's checkout (pid ${holder:-unknown}) has held $CHECKOUT_LOCK for ${limit}s;" >&2
+      echo "refusing rather than adding a second full checkout. Raise AGENT_CHECKOUT_WAIT_SECONDS to wait longer." >&2
+      return 1
+    fi
+    [ "$waited" -eq 0 ] && echo "# waiting for another agent's checkout to finish (pid ${holder:-starting})..." >&2
+    sleep 2
+    waited=$((waited + 2))
+  done
+  echo $$ > "$CHECKOUT_LOCK/pid"
+  trap 'rm -rf "$CHECKOUT_LOCK"' EXIT INT TERM
+}
+
+release_checkout_lock() {
+  rm -rf "$CHECKOUT_LOCK"
+  trap - EXIT INT TERM
+}
+
+create_worktree() {
+  local rc=0
+  acquire_checkout_lock || return 1
+  if [ -n "${AGENT_SPARSE_PATHS:-}" ]; then
+    git -C "$ROOT" worktree add --no-checkout -b "$BRANCH" "$DIR" origin/main >/dev/null || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      # shellcheck disable=SC2086 # the paths are a word list by design
+      git -C "$DIR" sparse-checkout set --cone .husky scripts docs/agent-policy $AGENT_SPARSE_PATHS \
+        && git -C "$DIR" read-tree -mu HEAD || rc=$?
+    fi
+  else
+    git -C "$ROOT" worktree add -b "$BRANCH" "$DIR" origin/main >/dev/null || rc=$?
+  fi
+  release_checkout_lock
+  return "$rc"
+}
+
 # MAC_DEPENDENCIES_CI_ONLY_V1
 # User policy, 2026-09-11: Mac worktrees receive no dependency copies or installs.
 # APFS clones still grow when tools write them, and the fallback is a full copy.
@@ -530,7 +601,7 @@ else
     echo "branch '$BRANCH' already exists without its expected worktree; choose a new slug" >&2
     exit 1
   fi
-  git -C "$ROOT" worktree add -b "$BRANCH" "$DIR" origin/main >/dev/null
+  create_worktree || exit 1
 fi
 
 # The one identity this estate can deploy under. Vercel refuses to build a

@@ -810,6 +810,8 @@ export abstract class TournamentManagerBase {
   /** The add-on may own the level clock even when hand-for-hand owns dealer pause. */
   private addOnBreakOwnsLevelClock = false;
   private addOnBreakOwnsPause = false;
+  /** The add-on drain stopped the level clock before its break began. See holdLevelClockForAddOnDrain. */
+  private addOnDrainHoldsLevelClock = false;
   /** Bounded, no-money replay of a committed add-on's operational tail. */
   private addOnFinalTailReplayTimer: NodeJS.Timeout | null = null;
   private addOnFinalTailReplayAttempts = 0;
@@ -4579,6 +4581,11 @@ export abstract class TournamentManagerBase {
    * Every entry into a break now goes through this.
    */
   protected suspendLevelClock(): void {
+    // The add-on drain already stopped this clock and holds the time that was
+    // really left (holdLevelClockForAddOnDrain). With nothing armed there is
+    // nothing to measure, and measuring a null timer would replace that
+    // remainder with a fresh full level. Every later pause inherits it.
+    if (this.addOnDrainHoldsLevelClock && !this.blindTimer && !this.blindStartTimer) return;
     if (this.blindStartTimer) {
       this.clearLifecycleTimeout(this.blindStartTimer);
       this.blindStartTimer = null;
@@ -4624,6 +4631,63 @@ export abstract class TournamentManagerBase {
       // from the break with no clock at all.
       this.savedBlindTimerRemaining = pausedLevelTotalMs;
     }
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   *  THE LEVEL CLOCK STOPS WHEN THE ADD-ON DRAIN STARTS (Dan 2026-11-18)
+   * ═══════════════════════════════════════════════════════════════════════════
+   *
+   * "WHEN THE ADD ON PERIOD STARTS AND HANDS ARE PAUSED, THE NEXT LEVEL STAYS
+   * PAUSED UNTIL THE REBUY PERIOD IS OVER... IT CURRENTLY KEEPS RUNNING UNTIL
+   * THE ADD ON STARTS."
+   *
+   * The add-on phase has two parts: the drain (every table finishes the hand
+   * it is in and parks) and then the one paid minute. Only the minute stopped
+   * the level clock (beginAddOnBreak). Through the whole drain the tables were
+   * parking one by one while the level went on being spent, so on a minutes
+   * window a big field could burn most of a level with nobody able to play
+   * it, and a level that came due in the drain went up the instant the add-on
+   * closed.
+   *
+   * The drain is the start of the pause. It stops the clock here, once, with
+   * the time that was really left, and that same remainder is handed to the
+   * add-on break (which must not measure the stopped clock again: a null
+   * timer reads as a fresh full level) and given back when the break ends.
+   */
+  private holdLevelClockForAddOnDrain(): void {
+    if (this.addOnDrainHoldsLevelClock || !this.running) return;
+    // A synchronized break or a day ending already stopped this clock and
+    // gives it back itself; so does an add-on break that owns it.
+    if (this.onBreak || this.stageEndPause) return;
+    if (this.addOnBreakActive && this.addOnBreakOwnsLevelClock) return;
+    // A level being published right now has no armed clock to measure. Its
+    // own completion saves the full new level because isOnBreak() is true.
+    if (!this.blindTransitionInFlight) this.suspendLevelClock();
+    this.addOnDrainHoldsLevelClock = true;
+  }
+
+  /**
+   * A drain that stopped the clock and never reached its break (the window
+   * was recovered already expired) must not leave the event with no level
+   * clock. Called once the add-on is over for good.
+   */
+  private giveBackAddOnDrainLevelClock(): void {
+    if (!this.addOnDrainHoldsLevelClock) return;
+    if (this.addOnDrainPending || this.addOnBreakActive) return;
+    this.addOnDrainHoldsLevelClock = false;
+    if (
+      !this.running ||
+      this.onBreak ||
+      this.stageEndPause ||
+      this.blindTimer ||
+      this.blindTransitionInFlight
+    )
+      return;
+    const blindStructure = this.tournamentCache?.blind_structure || [];
+    const remaining = this.savedBlindTimerRemaining;
+    this.savedBlindTimerRemaining = 0;
+    this.startBlindTimer(blindStructure, remaining > 0 ? remaining : undefined);
   }
 
   /** Synchronized break: pause blind timer and broadcast break event */
@@ -5487,6 +5551,9 @@ export abstract class TournamentManagerBase {
     if (addOnBreakStillActive) {
       this.addOnBreakOwnsPause = true;
       this.addOnBreakOwnsLevelClock = true;
+      // The clock stays stopped for a drain that has not reached its break;
+      // the break takes this remainder over instead of measuring a null timer.
+      if (this.addOnDrainPending) this.addOnDrainHoldsLevelClock = true;
     }
     // A day-ending event keeps its tables held: the break was never the
     // stage-end pause's owner and may not lift it.
@@ -10411,6 +10478,7 @@ export abstract class TournamentManagerBase {
     this.addOnBreakEndsAtMs = 0;
     this.addOnBreakOwnsLevelClock = false;
     this.addOnBreakOwnsPause = false;
+    this.addOnDrainHoldsLevelClock = false;
     this.addOnResumeBroadcastRetryAttempts = 0;
     this.addOnFinalTailReplayAttempts = 0;
     // Cleanup hand-for-hand sync
@@ -13075,6 +13143,7 @@ export abstract class TournamentManagerBase {
     if (!lifecycle || !this.lifecycleIsCurrent(lifecycle)) return;
     this.addOnClosingDrainOpening = true;
     this.addOnDrainPending = true;
+    this.holdLevelClockForAddOnDrain();
     for (const engine of this.tableEngines.values()) {
       engine.pauseAfterHand(TournamentManagerBase.MAX_HEALTHY_PAUSE_MS, {
         beforeNextHand: true,
@@ -13210,10 +13279,14 @@ export abstract class TournamentManagerBase {
     }
     this.addOnBreakActive = true;
     this.addOnBreakOwnsPause = !this.onBreak && !this.handForHandActive;
+    // The drain already stopped this clock with the time that was really
+    // left. Take that remainder over; measuring again would grant a full level.
+    const drainHeldLevelClock = this.addOnDrainHoldsLevelClock;
+    this.addOnDrainHoldsLevelClock = false;
     this.addOnBreakOwnsLevelClock = !this.onBreak;
     this.armAddOnBreakEnd(endMs);
 
-    if (this.addOnBreakOwnsLevelClock) this.suspendLevelClock();
+    if (this.addOnBreakOwnsLevelClock && !drainHeldLevelClock) this.suspendLevelClock();
     if (this.addOnBreakOwnsPause) {
       const remainingMs = Math.max(1_000, endMs - Date.now());
       for (const engine of this.tableEngines.values()) {
@@ -13264,7 +13337,10 @@ export abstract class TournamentManagerBase {
   }
 
   private async finishAddOnBreak(): Promise<void> {
-    if (!this.addOnBreakActive) return;
+    if (!this.addOnBreakActive) {
+      this.giveBackAddOnDrainLevelClock();
+      return;
+    }
     if (isMaintenanceFrozen()) {
       // Keep the pause authority until thaw has shifted and re-read the window;
       // otherwise MaintenanceBreak would resume these tables from under it.
@@ -13693,6 +13769,7 @@ export abstract class TournamentManagerBase {
       // No early Free Buy exception: all offers follow the database-owned
       // entry boundary, then every current dealer must park before the clock.
       this.addOnDrainPending = true;
+      this.holdLevelClockForAddOnDrain();
       for (const engine of this.tableEngines.values()) {
         engine.pauseAfterHand(TournamentManagerBase.MAX_HEALTHY_PAUSE_MS, {
           beforeNextHand: true,
@@ -14200,6 +14277,11 @@ export abstract class TournamentManagerBase {
     }
     await this.finalizeAfterAddOn();
     if (!this.lifecycleIsCurrent(lifecycle)) return;
+    // The add-on is over for good. A drain that stopped the level clock and
+    // never reached its break gives it back here; a break that did, already
+    // has. Kept out of finalizeAfterAddOn: that method is the money close and
+    // nothing about a clock may make it report a failure.
+    if (this.prizePoolFinalized) this.giveBackAddOnDrainLevelClock();
   }
 
   /** Called by the platform thaw after fn_thaw_platform commits and before

@@ -1319,6 +1319,11 @@ def main():
         review_spec=importlib.util.spec_from_file_location('original_review_outcomes',review_module)
         review=importlib.util.module_from_spec(review_spec);review_spec.loader.exec_module(review)
         review.qualify(ROOT,sql,psql,record,incident,tick,now,ok)
+        claims_module=ROOT/'scripts/ci/qualify-reliability-incident-claims.py'
+        claims_spec=importlib.util.spec_from_file_location('incident_claims',claims_module)
+        claims=importlib.util.module_from_spec(claims_spec);claims_spec.loader.exec_module(claims)
+        claims.qualify(ROOT,sql,psql,ok,[pg_bin('psql'),'-h',str(sock),'-p',port,'-U','postgres','-d','postgres',
+                                         '-X','-q','-t','-A','-v','ON_ERROR_STOP=1'])
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

@@ -163,6 +163,42 @@ describe('Ubuntu browser dependency mirror', () => {
     }
   });
 
+  // THE RUNNERS MOVED MIRRORS (2026-11-18). Hosted runners now resolve Ubuntu
+  // through a regional EC2 mirror in their mirrorlist. The script matched
+  // azure.archive.ubuntu.com only, printed "updated 0 source files", and the
+  // Post-Deploy E2E browser install hit its 10-minute bound in 3 of 7 failed
+  // runs (44332156955, 44268660943, 44239575898). Every regional or cloud
+  // subdomain of the archive is a hosted mirror; the primary, security and
+  // ports hosts and look-alike paths are not.
+  it('rewrites any regional cloud archive mirror, including EC2, and nothing else', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ca-apt-mirror-'));
+    try {
+      mkdirSync(join(root, 'sources.list.d'));
+      writeFileSync(
+        join(root, 'sources.list.d', 'ubuntu.sources'),
+        'Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\nSuites: noble noble-updates\nComponents: main\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n'
+      );
+      const mirror = join(root, 'apt-mirrors.txt');
+      writeFileSync(
+        mirror,
+        'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://archive.ubuntu.com/ubuntu/\tpriority:2\nhttp://security.ubuntu.com/ubuntu/\tpriority:3\nhttp://ports.ubuntu.com/ubuntu-ports/\tpriority:4\nhttp://us.archive.ubuntu.com/ubuntu-extra/\tpriority:5\n'
+      );
+      const run = () =>
+        execFileSync('python3', ['scripts/ci/ubuntu-apt-mirror.py', '--root', root], {
+          encoding: 'utf8',
+        });
+      const first = run();
+      expect(first).toContain('updated 1 source files');
+      expect(first).toContain('us-east-2.ec2.archive.ubuntu.com');
+      expect(readFileSync(mirror, 'utf8')).toBe(
+        'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://archive.ubuntu.com/ubuntu/\tpriority:2\nhttp://security.ubuntu.com/ubuntu/\tpriority:3\nhttp://ports.ubuntu.com/ubuntu-ports/\tpriority:4\nhttp://us.archive.ubuntu.com/ubuntu-extra/\tpriority:5\n'
+      );
+      expect(run()).toContain('updated 0 source files');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('refuses a missing source directory', () => {
     const root = mkdtempSync(join(tmpdir(), 'ca-apt-mirror-'));
     try {
