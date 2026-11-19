@@ -5,13 +5,7 @@
  * column aliased `d`; the function DECLAREs `d jsonb`, so PL/pgSQL could not
  * resolve `WHERE d` and sp-daily-metrics-snapshot failed on every run from
  * 06:15 UTC. Migration 20261119083000 names the column is_degraded, reads it
- * qualified, and executes the changed statement before COMMIT.
- *
- * 2026-11-19 (incident dc479141): the first version called the whole function
- * for 2099-01-01 as its probe. A call takes 238-264 s on production (a dozen
- * sections are not bounded by the day), so the applier killed the install at
- * its statement budget (run 44503916790). The whole call is exempt with that
- * measurement; the probe executes the changed statement with `d` in scope.
+ * qualified, and proves the new body by its md5 read-back before COMMIT.
  */
 import { describe, expect, it } from 'vitest';
 import { migrationNames, migrationText } from './helpers/migrationCorpus';
@@ -35,17 +29,12 @@ describe('the fleet degraded run never shadows the digest', () => {
     expect(MIG).toContain('$n2$FROM hb) r WHERE r.is_degraded GROUP BY grp$n2$');
   });
 
-  it('executes the changed statement before COMMIT, never the whole over-budget function', () => {
-    const probe = MIG.indexOf('DO $changed_statement$');
-    expect(probe).toBeGreaterThan(MIG.indexOf('SELECT pg_temp.dmc_subst('));
-    expect(probe).toBeLessThan(MIG.lastIndexOf('COMMIT;'));
-    const block = MIG.slice(probe, MIG.indexOf('END $changed_statement$;'));
-    // The colliding variable is in scope, exactly as in the function.
-    expect(block).toMatch(/DECLARE\s+d jsonb;/);
-    expect(block).toContain('WHERE r.is_degraded GROUP BY grp');
-    expect(block).toContain('FROM public.ca_horse_fleet_heartbeat WHERE beat_at >= s AND beat_at < e');
-    // The 238-264 s call is exempt with its measurement, and never made.
-    expect(MIG).toMatch(/^-- @probe-exempt: public\.fn_sp_daily_metrics_compute one call takes 238-264 s/m);
+  it('proves the body by its postimage read-back and installs within the applier budget', () => {
+    // 2026-11-19: the pre-commit probe ran the whole digest and production
+    // refused the file at 10:20 UTC (25P04, 12 s budget). The md5 read-back
+    // inside dmc_subst proves the replaced body instead.
+    expect(MIG).toContain('the replaced function does not read back as the postimage');
+    expect(MIG).toMatch(/^-- @probe-exempt: public\.fn_sp_daily_metrics_compute .{20,}$/m);
     expect(MIG).not.toContain('PERFORM public.fn_sp_daily_metrics_compute(');
   });
 });
