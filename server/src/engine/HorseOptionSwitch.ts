@@ -470,6 +470,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
     'its check is gated by an opponent label (measured value leader): held until rewritten as a priced comparison'
   ),
+  // 2026-11-18 horse-switch swarm (PLO6-HILO VERDICT-READY items 1 and 16): it decides by hand class, player count
+  // and street with no price ("a check has no price to weigh"); 0 fires in 7 days. Off-only until it is priced.
+  plo6NoMultiwayBetWithWeakMadeHand: hold(
+    'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
+    'categorical, no price: it skips a multiway bet by hand class alone; held until rewritten as a priced comparison'
+  ),
   // 2026-11-17 PLO Strategy wave two: the two options whose verdicts were rewritten under the owner's
   // no-blanket-rules order were then evaluated on a bar written before the runs, and both lost.
   omahaStreetPlanFlop: ploFailed(
@@ -483,6 +489,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   // 2026-11-17 PLO Strategy: the priced preflop re-raise defence changes which hands continue against a 3-bet
   // or more (a preflop calling and re-raising range), so it is under the owner preflop range hold.
   omahaPreflopReraiseDefencePriced: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-18 horse-switch swarm (LIMIT-HU-OTHER VERDICT-READY item 2): it changes fixed-limit first-in and
+  // big-blind-defence ranges, which is the owner preflop range hold's definition.
+  fixedLimitPricedPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,

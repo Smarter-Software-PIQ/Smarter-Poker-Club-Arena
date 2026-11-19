@@ -23,3 +23,10 @@ The rule comes back only as a new option with a priced replacement that passes i
 ## Proof
 
 Run singly: `everyUpgradeHasALiveSwitch.law.test.ts` 49 passed (it failed 1 of 49 before the release-default entry), `HorseOptionSwitch.test.ts` 33, `HorseOptionSwitchMigrationLists.test.ts` 5, `HorseOptionSwitchPreflopHoldLift.test.ts` 3, `HorseDefaultOnNeedsEvidence.law.test.ts` 8, `HorseDataLedger.test.ts` 11, `HorseOmahaNoBlanketRule.law.test.ts` 11, `HorseOmahaOopReraisedPot.test.ts` 60, `styleSwitchRuntime.law.test.ts` 9, `aMergedMigrationIsInstallable.test.ts` 1662, `migrationVersionUniqueness.test.ts` 1. `gen-horse-option-switch-sql.ts --check` exit 0. Server `tsc --noEmit` exit 0.
+
+## Added on the same branch (2026-11-19)
+
+Two more options are registered off-only in the same follow-up list migration (regenerated in place: 274 other options, 54 off-only). Production read 2026-11-19T00:05Z (SELECT only): neither has a switch row; no row is written.
+
+- `fixedLimitPricedPreflop`: owner preflop range hold (it changes fixed-limit first-in and big-blind-defence ranges). Evidence: horse-switch swarm LIMIT-HU-OTHER VERDICT-READY item 2. Already in the release-default OFF list.
+- `plo6NoMultiwayBetWithWeakMadeHand`: hold under the owner's no-blanket-rules order (categorical, no price; 0 fires in 7 days). Evidence: horse-switch swarm PLO6-HILO VERDICT-READY items 1 and 16. Authority file marked OFF-ONLY.
