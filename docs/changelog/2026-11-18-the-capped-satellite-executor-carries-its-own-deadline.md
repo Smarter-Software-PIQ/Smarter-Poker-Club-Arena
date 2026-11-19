@@ -1,0 +1,3 @@
+# The capped satellite executor carries its own deadline
+
+Satellite qualifier settlement is sent to `fn_execute_capped_satellite_terminal_request`. PostgREST applies the called function's `statement_timeout`; that wrapper declared none, so settlement ran under service_role's 8 s instead of the 45 s its inner request declares. It timed out (204 refusals in 12 h), held the qualifier boundary, darkened the event and stopped MTT play (incidents 12edc9a0, 5968b285, 46b78962, 65660ecc on 2026-11-18). The wrapper now declares `statement_timeout = 45s` and `lock_timeout = 8s`; `tests/a-satellite-settlement-entrypoint-carries-its-own-deadline.law.test.ts` holds it.
