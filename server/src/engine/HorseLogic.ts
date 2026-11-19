@@ -122,6 +122,7 @@ import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
 import { omahaPricedPublicSpotKey } from './HorseOmahaPricedRules.js';
 import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
+import { riverNoBlockerBetVerdict } from './HorseRiverNoBlockerBet.js';
 import {
   omahaBetVsCheckEv,
   omahaBetVsCheckOpponents,
@@ -3501,6 +3502,12 @@ export interface HorseDecideOpts {
    * never turned into a bet. Default OFF (read `=== true`); league cards plo4/plo5
    * _omaha_multiway_checked_to_bet_is_priced. */
   omahaMultiwayCheckedToBetIsPriced?: boolean;
+  /** Owner order 2026-11-19 16:47 America/Chicago ("REMOVE BLOCKER BETS ON THE RIVER FOR HORSES ..."), lane RIVER-BLOCK:
+   * hold'em and PLO4/PLO5/PLO6 cash, the river, nothing to call: a Horse bet under the measured threshold share of the pot
+   * (HorseRiverNoBlockerBet.RIVER_NO_BLOCKER_BET_MIN_SHARE, PLO 40%, hold'em 25%) becomes the check or, priced on the
+   * card-impact model where it applies (else only with the river nuts), the threshold bet. The turn is never touched. Default
+   * OFF (read as === true). */
+  horseRiverNoBlockerBet?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -16088,7 +16095,12 @@ export class HorseLogic {
         opts,
         tele
       );
-    decision = graph.run('wager_rules', decision, () => {
+    // horseRiverNoBlockerBet (owner 2026-11-19 16:47, default OFF): the last word of this node on a river first bet.
+    const riverNoBlocker = (r: { decision: HorseDecision }): { decision: HorseDecision } =>
+      opts.horseRiverNoBlockerBet === true && !isTournamentMode(gs)
+        ? { ...r, decision: this.riverNoBlockerBetRule(r.decision, player, gs, vi, opts, tele) }
+        : r;
+    const wagerRulesNode = (): { decision: HorseDecision } => {
       // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
       // in-position hold'em postflop balance runs first, so every owner rule
       // below still judges the action it leaves.
@@ -16387,7 +16399,8 @@ export class HorseLogic {
           )
         ),
       };
-    }).decision;
+    };
+    decision = graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode())).decision;
     // Forced-phase authority (2026-11-07): an owner wager rule above may replace
     // an authorised Phase 10-13 candidate; its receipt must say so
     // (HorsePhaseControllerWithdrawal.ts, reconcileHorsePhaseReceipts).
@@ -28620,6 +28633,50 @@ export class HorseLogic {
     return withBrainTelemetrySuspended(() =>
       HorseLogic.omahaBetSizeByPublicStateRule(decision, player, gs, vi, opts, false)
     );
+  }
+
+  /**
+   * horseRiverNoBlockerBet (owner order 2026-11-19 16:47 America/Chicago, lane RIVER-BLOCK, default OFF; HorseRiverNoBlockerBet.ts):
+   * the last word of the wager_rules node on a cash river first bet. A Horse bet under the measured threshold share of the pot
+   * becomes the check or the threshold bet (priced on the card-impact model where it applies, else only with the river nuts).
+   * Receipts: river_no_blocker_bet_checked, river_no_blocker_bet_resized_priced, river_no_blocker_bet_resized_nuts,
+   * river_no_blocker_bet_failed. Unset or false the caller never reaches it.
+   */
+  private static riverNoBlockerBetRule(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts,
+    tele: boolean
+  ): HorseDecision {
+    if (opts.horseRiverNoBlockerBet !== true || decision.action !== 'bet') return decision;
+    try {
+      let read: OmahaReadConditional | null = null;
+      if (opts.mind !== false && vi.isOmaha) {
+        const scope = omahaCardImpactScope(player, gs);
+        if (scope) {
+          try {
+            read = HorseMind.omahaReadConditionalOf(scope.opponent.user_id);
+          } catch {
+            read = null;
+          }
+        }
+      }
+      const verdict = riverNoBlockerBetVerdict(decision, player, gs, read);
+      if (verdict.changed === null) return decision;
+      const legal = this.legalize(verdict.decision, player, gs, vi);
+      if (tele) {
+        if (verdict.changed === 'checked') noteFire('river_no_blocker_bet_checked');
+        else if (verdict.changed === 'resized_priced')
+          noteFire('river_no_blocker_bet_resized_priced');
+        else noteFire('river_no_blocker_bet_resized_nuts');
+      }
+      return legal;
+    } catch {
+      if (tele) noteFire('river_no_blocker_bet_failed');
+      return decision;
+    }
   }
 
   private static omahaBetSizeByPublicStateRule(

@@ -2994,6 +2994,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaCheckedToBetIsPriced: true },
     b: {},
   })),
+  // 2026-11-19 lane RIVER-BLOCK (owner order 16:47 Chicago: "REMOVE BLOCKER BETS ON THE RIVER FOR HORSES"):
+  // horseRiverNoBlockerBet, default OFF. PLO: both arms carry production's live Omaha set with the priced small
+  // bets on (live since 2026-11-18 19:18Z), a adds the option. Hold'em: the bare base, a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_horse_river_no_blocker_bet`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaSmallBetIsPriced: true,
+      horseRiverNoBlockerBet: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
+  })),
+  {
+    name: 'nlh_horse_river_no_blocker_bet',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { horseRiverNoBlockerBet: true },
+    b: {},
+  },
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
   // barrel only against measured postflop value leaders, and the bare overpair
