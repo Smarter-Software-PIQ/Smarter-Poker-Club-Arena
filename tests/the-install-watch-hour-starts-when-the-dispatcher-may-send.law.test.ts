@@ -43,15 +43,17 @@ function newestBody(defines: RegExp): { name: string; body: string } {
   return { name: last!.name, body: sql.slice(start, sql.indexOf('$function$', open + 1)) };
 }
 
-const FREEZE = /create\s+or\s+replace\s+function\s+smarter_private\.ca_release_schema_freeze_holds\s*\(/i;
-const DUE = /create\s+or\s+replace\s+function\s+smarter_private\.ca_merged_migration_install_due_at\s*\(/i;
+const FREEZE =
+  /create\s+or\s+replace\s+function\s+smarter_private\.ca_release_schema_freeze_holds\s*\(/i;
+const DUE =
+  /create\s+or\s+replace\s+function\s+smarter_private\.ca_merged_migration_install_due_at\s*\(/i;
 
 describe("the install watch's hour starts when the dispatcher may send", () => {
-  it('the dispatcher freeze is still a midnight-wrapping Chicago window', () => {
-    expect(FROM > UNTIL).toBe(true);
-    // 2026-11-19 is CST (UTC-6): 05:44Z = 23:44, 05:45Z = 23:45, 10:15Z = 04:15.
-    expect(inReleaseSchemaFreeze(Date.parse('2026-11-19T05:44:59Z'))).toBe(false);
-    expect(inReleaseSchemaFreeze(Date.parse('2026-11-19T05:45:00Z'))).toBe(true);
+  it('the dispatcher freeze is a same-day Chicago window [00:45, 04:15)', () => {
+    expect(FROM < UNTIL).toBe(true);
+    // 2026-11-19 is CST (UTC-6): 06:44Z = 00:44, 06:45Z = 00:45, 10:15Z = 04:15.
+    expect(inReleaseSchemaFreeze(Date.parse('2026-11-19T06:44:59Z'))).toBe(false);
+    expect(inReleaseSchemaFreeze(Date.parse('2026-11-19T06:45:00Z'))).toBe(true);
     expect(inReleaseSchemaFreeze(Date.parse('2026-11-19T10:14:59Z'))).toBe(true);
     expect(inReleaseSchemaFreeze(Date.parse('2026-11-19T10:15:00Z'))).toBe(false);
   });
@@ -69,7 +71,6 @@ describe("the install watch's hour starts when the dispatcher may send", () => {
     const { body } = newestBody(DUE);
     expect(body).toContain('smarter_private.ca_release_schema_freeze_holds(p_clock)');
     expect(body).toContain(`+ time '${UNTIL}'`);
-    expect(body).toContain(`>= time '${FROM}'`);
     expect(body).toMatch(/END \+ interval '60 minutes'/);
   });
 
@@ -81,19 +82,29 @@ describe("the install watch's hour starts when the dispatcher may send", () => {
     expect(at).toBeGreaterThanOrEqual(0);
     const sql = corpus[at].sql;
     // A later wholesale redefinition must keep the dispatcher's clock.
-    const WHOLE = /create\s+or\s+replace\s+function\s+public\.fn_ca_merged_migration_install_watch\s*\(/i;
+    const WHOLE =
+      /create\s+or\s+replace\s+function\s+public\.fn_ca_merged_migration_install_watch\s*\(/i;
     for (const later of corpus.slice(at + 1).filter(({ sql: s }) => WHOLE.test(s))) {
-      expect(later.sql, `${later.name} redefines the watch without the dispatcher's clock`).toContain(
-        'ca_merged_migration_install_due_at('
+      expect(
+        later.sql,
+        `${later.name} redefines the watch without the dispatcher's clock`
+      ).toContain('ca_merged_migration_install_due_at(');
+      expect(later.sql, `${later.name} redefines the watch without the freeze wording`).toContain(
+        'do NOT hand-dispatch'
       );
-      expect(later.sql, `${later.name} redefines the watch without the freeze wording`).toContain('do NOT hand-dispatch');
     }
-    expect(sql).toContain('ca_merged_migration_install_due_at(GREATEST(v_row.merged_at, v_row.modified_at)) > p_at');
+    expect(sql).toContain(
+      'ca_merged_migration_install_due_at(GREATEST(v_row.merged_at, v_row.modified_at)) > p_at'
+    );
     expect(sql).toContain('modified_at = GREATEST(COALESCE(modified_at, v_at), v_at)');
     // One page per (file, fix): alerts are unique on (source, event_key).
-    expect(sql).toContain("'uninstalled:' || v_row.version || COALESCE('@' || left(v_row.modified_sha, 12), '')");
+    expect(sql).toContain(
+      "'uninstalled:' || v_row.version || COALESCE('@' || left(v_row.modified_sha, 12), '')"
+    );
     // Inside the freeze the page must never instruct a hand dispatch.
-    expect(sql).toMatch(/WHEN smarter_private\.ca_release_schema_freeze_holds\(p_at\)\s+THEN 'It is inside the nightly release schema freeze/);
+    expect(sql).toMatch(
+      /WHEN smarter_private\.ca_release_schema_freeze_holds\(p_at\)\s+THEN 'It is inside the nightly release schema freeze/
+    );
     expect(sql).toContain('do NOT hand-dispatch');
   });
 });
