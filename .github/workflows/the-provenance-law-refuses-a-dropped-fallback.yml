@@ -1,0 +1,49 @@
+name: The provenance law refuses a dropped fallback
+
+# Event trigger ca_cash_rake_provenance_law refuses any redefinition of the
+# dealt-chair rake provenance functions that drops the evidence they read or
+# write (incident d2d79c4f, 2026-11-18). Proving a DDL guard takes DDL, which
+# is forbidden against production (CLAUDE.md section 2, rule 3), so the weekly
+# alarm drill cannot rehearse it. This does, on every pull request that
+# touches a migration: it installs the guard from the latest migration that
+# defines it into a throwaway database and requires every guarded function to
+# be refused without its evidence and accepted with it. No timer (10.85).
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/**
+      - scripts/ci/test-provenance-law-refuses-a-dropped-fallback.sh
+      - .github/workflows/the-provenance-law-refuses-a-dropped-fallback.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: the-provenance-law-refuses-a-dropped-fallback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provenance-law:
+    name: The provenance law refuses a dropped fallback
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: provenance-law-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every guarded function is refused without its evidence
+        env:
+          PGPASSWORD: provenance-law-only
+          REHEARSAL_PSQL: psql -h localhost -p 5432 -U postgres -d postgres
+        run: bash scripts/ci/test-provenance-law-refuses-a-dropped-fallback.sh
