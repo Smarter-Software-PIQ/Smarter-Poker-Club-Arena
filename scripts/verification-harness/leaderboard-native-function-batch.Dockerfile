@@ -2,11 +2,14 @@
 FROM docker.io/library/node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS node_runtime
 FROM ghcr.io/supabase/postgres@sha256:178f0976b54a39237096bfa310c1a352dbc82fb1b08dda45cdb8acb5d40c1426
 USER root
-# The build never waits on the global Ubuntu archive (2026-11-19: archive.ubuntu.com
-# slowed past this step's 8 minutes on every run from 06:33 UTC). Read the in-region
-# mirror GitHub's runners use, bound every request and retry it, so a slow mirror is
-# a retry, never a hang.
-RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do if [ -f "$f" ]; then sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' "$f"; fi; done \
+# The build never waits on one Ubuntu mirror (2026-11-19). archive.ubuntu.com
+# stalled this step past its 8 minutes from 06:33 UTC; pinning the in-region
+# azure mirror instead then failed outright on runners that cannot reach it.
+# The sources read a mirror list, so apt's mirror method fails over between
+# hosts, and every request is bounded and retried: one slow or unreachable
+# mirror is a failover, never a hang and never a missing package.
+RUN printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu\tpriority:2\nhttp://us.archive.ubuntu.com/ubuntu\tpriority:3\n' > /etc/apt/ca-ubuntu-mirrors.txt \
+ && for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do if [ -f "$f" ]; then sed -i -E 's#https?://([a-z0-9-]+\.)*(archive|security)\.ubuntu\.com/ubuntu/?#mirror+file:/etc/apt/ca-ubuntu-mirrors.txt#g' "$f"; fi; done \
  && printf 'Acquire::Retries "5";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' > /etc/apt/apt.conf.d/80-bounded-retries \
  && apt-get update && apt-get install --no-install-recommends -y build-essential libssl-dev bison flex perl bzip2 pkg-config && rm -rf /var/lib/apt/lists/*
 COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
