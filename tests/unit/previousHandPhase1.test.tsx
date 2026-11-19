@@ -334,8 +334,9 @@ describe('the surfaces', () => {
     render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
     expect(screen.queryByLabelText('Copy Hand Number 7')).toBeNull();
     fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
-    await Promise.resolve();
-    expect(writeText).toHaveBeenCalledTimes(1);
+    // 2026-11-18: Link waits for the short link being made. No short link can
+    // be made here, so once that is known the long link is what is copied.
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1), { timeout: 4000 });
     const copied = (writeText.mock.calls[0] as unknown as [string])[0];
     // The SENDER's hand, inside the link: it opens for anyone who taps it and
     // can never fall back to the recipient's own hand history.
@@ -366,7 +367,7 @@ describe('the surfaces', () => {
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
       render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
       fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
-      await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1), { timeout: 4000 });
       const arg = (share.mock.calls[0] as unknown as [{ url: string; title: string }])[0];
       expect(arg.url).toContain('/hub/club-arena/replay?h=');
       expect(arg.title).toBe('Hand #7');
@@ -383,7 +384,7 @@ describe('the surfaces', () => {
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
       render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
       fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
-      await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1), { timeout: 4000 });
       await Promise.resolve();
       expect(writeText).not.toHaveBeenCalled();
     });

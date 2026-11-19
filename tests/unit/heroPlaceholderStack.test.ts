@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { standInStack } from '../../src/lib/standInStack';
 
 // Execute the actual render branch. An old buy-in must never shadow the
 // current seat balance when the engine omits a sitting-out hero from a hand.
@@ -25,12 +26,20 @@ function placeholder(
     'lightningWaitingSeat',
     'lightningStandIn',
     'heroSitsOutPerRow',
+    'standInStack',
     `let displayPlayer = null;
      const pendingSeat = null, seatNumber = 8, tableState = { heroSeat: 8 };
      const userId = 'hero', username = 'Player', heroAvatarUrl = '';
      ${branch}
      return displayPlayer;`
-  )(rowStack, { current: pendingStack }, lightningWaitingSeat, lightningStandIn, heroSitsOutPerRow);
+  )(
+    rowStack,
+    { current: pendingStack },
+    lightningWaitingSeat,
+    lightningStandIn,
+    heroSitsOutPerRow,
+    standInStack
+  );
 }
 
 describe('hero placeholder identity', () => {
@@ -94,6 +103,18 @@ describe('hero placeholder stack', () => {
 
   it('shows the confirmed buy-in while the seat row has not arrived', () => {
     expect(placeholder(null).stack).toBe(400);
+  });
+
+  /* Dan 2026-11-18: "THEIR STACK SHOULD SHOW, IT SHOULD NEVER SAY ZERO." With
+     no seat row read yet and no buy-in confirmed on this device (waiting for
+     the big blind after a reload, a buy-in recovered from its receipt, any
+     tournament seat) the chair printed 0. It is pending, not zero. */
+  it('never prints 0 for a balance nobody has confirmed yet', () => {
+    const chair = placeholder(null, 0);
+    expect(chair.stackPending).toBe(true);
+    expect(placeholder(null).stackPending).toBe(false);
+    expect(placeholder(0).stackPending).toBe(false);
+    expect(placeholder(528.7).stackPending).toBe(false);
   });
 
   it('shows a confirmed waiting entrant without an invented sitting-out tag', () => {
