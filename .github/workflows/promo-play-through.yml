@@ -95,6 +95,8 @@ jobs:
             scripts/ci/fixtures/promo-ticket-play-through/**
             tests/fixtures/promo-ticket-play-through/**
             scripts/ci/test-promo-fee-basis.py
+            scripts/ci/test-promo-entry-fee-never-settles-progress.py
+            supabase/migrations/*_a_promo_entry_fee_never_settles_*.sql
             tests/fixtures/promo-fee-basis/**
             scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
             scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
@@ -181,6 +183,12 @@ jobs:
       - name: Promo fees preserve gross rake and exclude free earnings
         if: steps.relevant.outputs.run == 'true'
         run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
+      - name: A promo entry fee never settles promo progress inside a payout
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-promo-entry-fee-never-settles-progress.py
       - name: A Spin's canonical fee agrees with its zero-fee entry (incident 002a0deb)
         if: steps.relevant.outputs.run == 'true'
         env:
