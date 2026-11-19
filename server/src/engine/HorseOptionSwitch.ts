@@ -39,6 +39,17 @@
  * The database accepts `shadow` for exactly these names (registry:shadow-options markers); the style options keep
  * their own four states.
  *
+ * ON_SHADOW FOR A NON-STYLE OPTION (2026-11-19, Horse Switch lane; OPTION_SWITCH_ON_SHADOW_NAMES). `shadow` passes
+ * nothing, so for an option that is OFF in source and ON in production only by an `on` row (DEFAULT-ON-AUDIT F1) a
+ * shadow row would switch the rule OFF on live tables. `on_shadow` measures such a rule without changing it: the
+ * ACTED decision receives `<option>: true` exactly like `on` (optionSwitchDecisionOpts), and the worker re-decides
+ * once with `<option>: false` (optionSwitchShadowFlip), counted option_shadow_<option>_<changed|same>_seen exactly like
+ * shadow. It keeps every rule of `on` at the database (own citation, recorded evidence, off-only refused, the serving
+ * registry guard). Both values are explicit, so the release default is not needed and a 'code' option takes it; an
+ * off-only option, a style option and an option whose read is not per decision (OPTION_SWITCH_SHADOW_REFUSED) do not
+ * (optionSwitchOnShadowRefusal). Every shadow option takes it too. The database accepts `on_shadow` for exactly
+ * these names (registry:on-shadow-options markers).
+ *
  * RELEASE DEFAULT is informational: 'on' or 'off' where the code's reads say so plainly, 'code' where the code
  * decides (a parent option, a variant, a mixed read; see the ledger note) and for any option not classified yet.
  *
@@ -82,7 +93,7 @@ export type OptionSwitchOwner =
   | 'Lightning'
   | 'Fixed-Limit'
   | 'Programme';
-export type OptionSwitchAnyState = 'off' | 'shadow' | 'canary' | 'on';
+export type OptionSwitchAnyState = 'off' | 'shadow' | 'on_shadow' | 'canary' | 'on';
 /** 'code': decided by code (a parent option, a variant or a mixed read), see the ledger note. */
 export type OptionSwitchReleaseDefault = 'off' | 'on' | 'code';
 
@@ -101,6 +112,11 @@ export interface OptionSwitchEntry {
    * (OPTION_SWITCH_SHADOW_NAMES). Never with a shadow arm, never for an off-only option or a 'code' release default.
    */
   readonly shadowRedecide?: boolean;
+  /**
+   * True where a non-style option supports `on_shadow`: acted with true (as `on`), re-decided once with false
+   * (OPTION_SWITCH_ON_SHADOW_NAMES). Never with a shadow arm, never for an off-only option; set wherever shadowRedecide is.
+   */
+  readonly onShadowRedecide?: boolean;
   readonly description: string;
   /** Set when the option is off-only (OPTION_SWITCH_OFF_ONLY): its status, reason and source. Enforced. */
   readonly offOnly?: OptionSwitchOffOnly;
@@ -114,7 +130,8 @@ export interface OptionSwitchOffOnly {
 }
 
 const ON_OFF = Object.freeze(['off', 'on'] as const);
-const OFF_SHADOW_ON = Object.freeze(['off', 'shadow', 'on'] as const);
+const OFF_SHADOW_ON_SHADOW_ON = Object.freeze(['off', 'shadow', 'on_shadow', 'on'] as const);
+const OFF_ON_SHADOW_ON = Object.freeze(['off', 'on_shadow', 'on'] as const);
 const OFF_ONLY = Object.freeze(['off'] as const);
 const HOLDEM = "Hold'em Strategy" as const;
 
@@ -770,6 +787,17 @@ export function optionSwitchShadowRefusal(name: string): string | null {
   return null;
 }
 
+/**
+ * Why `name` cannot take `on_shadow`, or null when it can. The rule of shadow without its release-default reason: the
+ * acted value (true) and the re-decided value (false) are both explicit, so a 'code' option takes it.
+ */
+export function optionSwitchOnShadowRefusal(name: string): string | null {
+  if (Object.hasOwn(OPTION_SWITCH_SHADOW_REFUSED, name)) return OPTION_SWITCH_SHADOW_REFUSED[name]!;
+  const off = optionSwitchOffOnly(name);
+  if (off) return `off-only (${off.status}: ${off.source})`;
+  return null;
+}
+
 /** Owner, scope and description where the activation inventory records them; else 'Programme' and the ledger. */
 type Override = readonly [owner: OptionSwitchOwner, scope: string, description?: string];
 const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Override>>> = {
@@ -944,20 +972,28 @@ const oneLine = (text: string): string => {
 
 /**
  * One registered non-style option, from its ledger row: off (and on unless it is off-only), no shadow arm; shadow
- * by re-decision where optionSwitchShadowRefusal allows it.
+ * by re-decision where optionSwitchShadowRefusal allows it, on_shadow where optionSwitchOnShadowRefusal allows it.
  */
 function plainEntry(name: string, note: string, tag: string): OptionSwitchEntry {
   const override = (OVERRIDES as Readonly<Record<string, Override | undefined>>)[name];
   const offOnly = optionSwitchOffOnly(name);
   const shadow = optionSwitchShadowRefusal(name) === null;
+  const onShadow = optionSwitchOnShadowRefusal(name) === null;
   return Object.freeze({
     name,
     owner: override?.[0] ?? ('Programme' as const),
     scope: override?.[1] ?? tag,
-    states: offOnly ? OFF_ONLY : shadow ? OFF_SHADOW_ON : ON_OFF,
+    states: offOnly
+      ? OFF_ONLY
+      : shadow
+        ? OFF_SHADOW_ON_SHADOW_ON
+        : onShadow
+          ? OFF_ON_SHADOW_ON
+          : ON_OFF,
     releaseDefault: releaseDefaultOf(name),
     shadowArm: false,
     ...(shadow ? { shadowRedecide: true } : {}),
+    ...(onShadow ? { onShadowRedecide: true } : {}),
     description: override?.[2] ?? oneLine(note),
     ...(offOnly ? { offOnly } : {}),
   });
@@ -1016,6 +1052,13 @@ export const OPTION_SWITCH_OFF_ONLY_NAMES: readonly string[] = Object.freeze(
 export const OPTION_SWITCH_SHADOW_NAMES: readonly string[] = Object.freeze(
   OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.shadowRedecide === true).map((e) => e.name)
 );
+/**
+ * The registered non-style options that take `on_shadow` (acted with true, re-decided once with false). Every shadow
+ * option is one of them.
+ */
+export const OPTION_SWITCH_ON_SHADOW_NAMES: readonly string[] = Object.freeze(
+  OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.onShadowRedecide === true).map((e) => e.name)
+);
 /** The registered non-style options that may be switched on (with their own citation). */
 export const OPTION_SWITCH_ON_OFF_NAMES: readonly string[] = Object.freeze(
   OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.offOnly === undefined).map((e) => e.name)
@@ -1060,6 +1103,30 @@ export function assertOptionSwitchRegistry(entries: readonly OptionSwitchEntry[]
     }
     if (style && e.shadowRedecide === true)
       throw new Error(`option switch: ${e.name} is a style option: its shadow is its own arm`);
+    // on_shadow (2026-11-19): exactly where it is re-decided, never for a style option, never without on, and the
+    // order is off, shadow, on_shadow, on (the states list the database answers)
+    if (style && (e.onShadowRedecide === true || e.states.includes('on_shadow')))
+      throw new Error(`option switch: ${e.name} is a style option: it has no on_shadow`);
+    if (!style && e.states.includes('on_shadow') !== (e.onShadowRedecide === true))
+      throw new Error(
+        `option switch: ${e.name} takes on_shadow exactly when it is re-decided in on_shadow`
+      );
+    if (!style && e.onShadowRedecide === true) {
+      const refusal = optionSwitchOnShadowRefusal(e.name);
+      if (refusal) throw new Error(`option switch: ${e.name} cannot take on_shadow (${refusal})`);
+      if (!e.states.includes('on'))
+        throw new Error(`option switch: ${e.name} takes on_shadow only with on`);
+    }
+    if (!style && e.shadowRedecide === true && e.onShadowRedecide !== true)
+      throw new Error(`option switch: ${e.name} takes shadow, so it takes on_shadow too`);
+    if (!style) {
+      const order = ['off', 'shadow', 'on_shadow', 'on'];
+      const at = e.states.map((x) => order.indexOf(x));
+      if (at.some((i, k) => i < 0 || (k > 0 && i <= at[k - 1]!)))
+        throw new Error(
+          `option switch: ${e.name} lists its states out of order (off, shadow, on_shadow, on)`
+        );
+    }
   }
 }
 assertOptionSwitchRegistry(OPTION_SWITCH_REGISTRY);
@@ -1073,7 +1140,7 @@ export function optionSwitchStatesOf(name: string): readonly OptionSwitchAnyStat
 // The switched values of the non-style options.
 // ---------------------------------------------------------------------------------------------------------------
 
-export type OptionSwitchValue = 'off' | 'on' | 'shadow';
+export type OptionSwitchValue = 'off' | 'on' | 'shadow' | 'on_shadow';
 /**
  * What is switched right now: only the options that have a row, in registry order. An option not named runs at its
  * release default. {} = nothing switched.
@@ -1109,7 +1176,7 @@ export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | nul
 
 /**
  * The configuration as fn_ca_horse_option_switch_effective answers:
- *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on' | 'shadow', ... } }
+ *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on' | 'shadow' | 'on_shadow', ... } }
  * `style` belongs to StyleSwitchHolder and is not judged here. `options` may name registered non-style options
  * only, each in a state it supports; anything else is invalid.
  *
@@ -1169,7 +1236,7 @@ const RECEIPT = 'option_switch';
  * the next refresh). THE DIFFERENCE: every failure (unreadable, invalid, stale) leaves NOTHING SWITCHED, which is
  * every option at its release default, not every option off. Never throws.
  *
- * Receipts: option_switch_<option>_<on|off|shadow|default>_seen when an option's switched value changes (`default`: its
+ * Receipts: option_switch_<option>_<on|off|shadow|on_shadow|default>_seen when an option's switched value changes (`default`: its
  * row went away or the configuration failed), and option_switch_config_unreadable_seen / _invalid_seen /
  * _stale_seen.
  */
@@ -1239,7 +1306,8 @@ export class OptionSwitchHolder {
 /**
  * The decision options a switched set gives EVERY Horse alike (no Horse id is read: only a style canary splits
  * Horses): `<option>: true` for on (never for an off-only option), `<option>: false` for off, nothing for an option without a row or
- * for a name that is not registered. Nothing switched gives {}.
+ * for a name that is not registered. Nothing switched gives {}. `on_shadow` gives true exactly like on (2026-11-19);
+ * shadow gives nothing.
  */
 export function optionSwitchDecisionOpts(
   states: OptionSwitchStates | null | undefined
@@ -1249,16 +1317,32 @@ export function optionSwitchDecisionOpts(
     for (const name of OPTION_SWITCH_PLAIN_NAMES)
       if (states[name] === 'on' && PLAIN_BY_NAME.get(name)?.offOnly === undefined) out[name] = true;
       else if (states[name] === 'off') out[name] = false;
+      else if (
+        states[name] === 'on_shadow' &&
+        PLAIN_BY_NAME.get(name)?.offOnly === undefined &&
+        PLAIN_BY_NAME.get(name)?.onShadowRedecide === true
+      )
+        out[name] = true;
   return out;
 }
 
-/** The options in shadow, in registry order (only options that take shadow; anything else is ignored). */
+/**
+ * The options in shadow or on_shadow, in registry order (only options that take that state; anything else is
+ * ignored). Both are re-decided the same way; only the acted value and the flip differ (optionSwitchShadowFlip).
+ */
 export function optionSwitchShadowOptions(
   states: OptionSwitchStates | null | undefined
 ): readonly string[] {
   if (!states) return [];
   const out: string[] = [];
-  for (const name of OPTION_SWITCH_SHADOW_NAMES) if (states[name] === 'shadow') out.push(name);
+  for (const name of OPTION_SWITCH_ON_SHADOW_NAMES) {
+    const entry = PLAIN_BY_NAME.get(name)!;
+    if (
+      (states[name] === 'shadow' && entry.shadowRedecide === true) ||
+      (states[name] === 'on_shadow' && entry.onShadowRedecide === true)
+    )
+      out.push(name);
+  }
   return out;
 }
 
@@ -1266,12 +1350,17 @@ export function optionSwitchShadowOptions(
  * The value the shadow re-decision passes for `option`: the opposite of what the acted decision ran with. The acted
  * value is the boolean the decision options carried (a feature flag or the caller), else the release default.
  * Null for an option that does not take shadow.
+ *
+ * `on_shadow` (2026-11-19, pass the option's switched state): the acted decision ran with true (as `on`), so the
+ * re-decision passes false. Null for an option that does not take on_shadow.
  */
 export function optionSwitchShadowFlip(
   option: string,
-  acted: Readonly<Record<string, unknown>>
+  acted: Readonly<Record<string, unknown>>,
+  state?: OptionSwitchValue
 ): boolean | null {
   const entry = PLAIN_BY_NAME.get(option);
+  if (state === 'on_shadow') return entry?.onShadowRedecide === true ? false : null;
   if (entry?.shadowRedecide !== true) return null;
   const v = acted[option];
   const live = typeof v === 'boolean' ? v : entry.releaseDefault === 'on';
