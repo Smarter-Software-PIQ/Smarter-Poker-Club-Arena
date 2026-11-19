@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FIX = ROOT / 'scripts/ci/fixtures/roster-cash-batch'
-MIG = ROOT / 'supabase/migrations/20261119183700_chicago_cash_windows_add_partial_days_instead_of_subtracting.sql'
+MIG = ROOT / 'supabase/migrations/20261119183700_chicago_cash_windows_purely_additive_remaining_slices.sql'
 
 
 def lit(s):
