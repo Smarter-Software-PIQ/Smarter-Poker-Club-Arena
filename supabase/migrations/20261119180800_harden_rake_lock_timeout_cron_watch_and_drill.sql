@@ -1,4 +1,4 @@
--- 20261119180800_harden_rake_lock_timeout_alert_dedupe_cron_watch_and_drill_club.sql
+-- 20261119180800_harden_rake_lock_timeout_cron_watch_and_drill.sql
 --
 -- WHAT THIS CHANGES, AND WHY:
 --
@@ -955,7 +955,7 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
 
 -- fn_ca_cron_failure_watch is a watched guard: the redefinition is declared,
 -- so the guard-def watch records it instead of raising a notice.
-SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119180800_harden_rake_lock_timeout_alert_dedupe_cron_watch_and_drill_club');
+SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119180800_harden_rake_lock_timeout_cron_watch_and_drill');
 
 CREATE OR REPLACE FUNCTION smarter_private.cash_hand_earning_club_evidence(p_hand_id uuid, p_table_id uuid, p_player_id uuid)
  RETURNS uuid[]

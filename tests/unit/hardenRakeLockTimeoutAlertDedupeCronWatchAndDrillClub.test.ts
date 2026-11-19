@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path';
 import { sliceSqlStatement } from '../helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '../..');
-const FILE = '20261119180800_harden_rake_lock_timeout_alert_dedupe_cron_watch_and_drill_club.sql';
+const FILE = '20261119180800_harden_rake_lock_timeout_cron_watch_and_drill.sql';
 const sql = readFileSync(join(ROOT, 'supabase/migrations', FILE), 'utf8');
 
 const fnBody = (qualified: string) =>
@@ -88,7 +88,7 @@ describe('harden rake lock_timeout, terminal alert dedupe, cron watch priority, 
     expect(watch).toContain('CASE WHEN r.runs_24h = 0 OR r.runs_7d = 1');
     expect(watch).toContain('LIMIT 20');
     expect(sql).toContain(
-      "SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119180800_harden_rake_lock_timeout_alert_dedupe_cron_watch_and_drill_club');"
+      "SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119180800_harden_rake_lock_timeout_cron_watch_and_drill');"
     );
   });
 
