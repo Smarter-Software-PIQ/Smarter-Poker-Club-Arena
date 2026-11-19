@@ -86,3 +86,9 @@ Archive `plo-handoff-review-01a1cbbd/flopread-01TLQer7J/replay/` (REPLAY.md, the
 - The pooled read and this read overlap and both apply.
 - A different value share redraws the verdict's sample, so near the margin a decision can flip from sampling alone.
 - The replay's record is rebuilt and is one record over every table size.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (the replay of 2026-11-19 on the 563 audited flop decisions of the WooWoo 48-hour audit, verdict-only, off = omahaFlopFacingBetEv alone against on, FAILED: changed 11; fixed 1; newlyWrong 4; unjudged 6; unchanged 552. It is recorded in prose in the section "Replay on the 563 audited flop decisions" and in the archive plo-handoff-review-01a1cbbd/flopread-01TLQer7J/replay/REPLAY.md; it was scored before the scorer wrote rows and its replay file declares no option sets, so the scorer refuses to write a run row for it. A run row needs a new run)
