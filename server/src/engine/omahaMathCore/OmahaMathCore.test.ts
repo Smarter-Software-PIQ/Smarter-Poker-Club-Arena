@@ -42,6 +42,7 @@ import {
   OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K,
   omahaMathCoreChangeMarginK,
   omahaMathCoreRiverAllInCommitOk,
+  omahaMathCorePlo5RiverFoldToCall,
   OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K,
   omahaMathCoreFoldBoundaryRawOk,
   omahaMathCoreStreetAdmitted,
@@ -953,5 +954,45 @@ describe('omahaMathCore river all-in commit margin (RIVER-CORE criterion 2: 7 of
         0
       )
     ).toBe(true);
+  });
+});
+
+describe('omahaMathCore PLO5 river scope (RIVER-CORE criterion 3: fold -> plain call only)', () => {
+  const ev = (action: string, amount: number | null, e: number, se: number | null) => ({
+    action,
+    amount,
+    ev: e,
+    se,
+  });
+  it('turns a fold into a plain call only when the call beats the fold by K standard errors', () => {
+    const evs = [ev('fold', null, 0, 0), ev('call', 40, 30, 5), ev('raise', 160, 90, 5)];
+    expect(omahaMathCorePlo5RiverFoldToCall('fold', evs, 200, 5)).toEqual({
+      action: 'call',
+      amount: 40,
+    });
+    expect(omahaMathCorePlo5RiverFoldToCall('fold', evs, 200, 7)).toBeNull();
+  });
+  it('never calls off a stack, never acts unless today folds, and an exact price needs a positive gap', () => {
+    const offs = [ev('fold', null, 0, 0), ev('call', 200, 80, 1)];
+    expect(omahaMathCorePlo5RiverFoldToCall('fold', offs, 200, 5)).toBeNull();
+    const evs = [ev('fold', null, 0, 0), ev('call', 40, 30, 1)];
+    for (const today of ['check', 'call', 'bet', 'raise', 'all_in'])
+      expect(omahaMathCorePlo5RiverFoldToCall(today, evs, 200, 5)).toBeNull();
+    expect(
+      omahaMathCorePlo5RiverFoldToCall(
+        'fold',
+        [ev('fold', null, 0, 0), ev('call', 40, 0.5, 0)],
+        200,
+        5
+      )
+    ).toEqual({ action: 'call', amount: 40 });
+    expect(
+      omahaMathCorePlo5RiverFoldToCall(
+        'fold',
+        [ev('fold', null, 0, 0), ev('call', 40, -0.5, 0)],
+        200,
+        5
+      )
+    ).toBeNull();
   });
 });

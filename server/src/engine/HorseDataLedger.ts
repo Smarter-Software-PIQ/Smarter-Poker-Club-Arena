@@ -1173,7 +1173,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCorePlo5River',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning), narrowed by lane RIVER-CORE (CRITERIA-RIVER-CORE-3, after the full river core graded FAIL in real chips): it may only turn today's fold into a plain call that leaves chips behind, when the call beats the fold by the change margin; every other PLO5 river decision is today's action. Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(

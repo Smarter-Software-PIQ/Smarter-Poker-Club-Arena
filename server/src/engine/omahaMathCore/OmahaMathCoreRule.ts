@@ -159,6 +159,37 @@ export function omahaMathCoreRiverAllInCommitOk(
   return gap > (k / 100) * stack;
 }
 
+/**
+ * PLO5 river scope (lane RIVER-CORE, criterion repairs/EMERG/CRITERIA-RIVER-CORE-3.md, sha256 8b77e342...): the full
+ * river core graded FAIL in real chips to persons (third journal day -1,883 +- 1,185: its new leads, shoves and
+ * call-offs). On the PLO5 cash river the core may only turn today's FOLD into a plain CALL that leaves chips behind,
+ * when EV(call) - EV(fold) beats K standard errors (SE 0: any positive gap) and the raw fold-boundary test passes;
+ * every other PLO5 river decision is today's action. Returns the call candidate, or null (today's action stands).
+ */
+export function omahaMathCorePlo5RiverFoldToCall(
+  incomingAction: string,
+  evs: ReadonlyArray<{
+    action: string;
+    amount: number | null;
+    ev: number;
+    se: number | null;
+    calibration?: { raw: number; rawSe: number | null } | null;
+  }>,
+  heroStack: number,
+  k: number
+): { action: 'call'; amount: number | null } | null {
+  if (incomingAction !== 'fold') return null;
+  const fold = evs.find((e) => e.action === 'fold');
+  const call = evs.find((e) => e.action === 'call');
+  if (!fold || !call) return null;
+  if (!((call.amount ?? 0) < Math.max(0, heroStack) - 0.005)) return null;
+  const se = Math.sqrt(Math.max(0, call.se ?? 0) ** 2 + Math.max(0, fold.se ?? 0) ** 2);
+  const gap = call.ev - fold.ev;
+  if (!(gap > k * se) || !(gap > 0)) return null;
+  if (!omahaMathCoreFoldBoundaryRawOk(call, fold, 'fold', 'call', k)) return null;
+  return { action: 'call', amount: call.amount };
+}
+
 type PricedEv = {
   ev: number;
   se: number | null;
@@ -600,6 +631,36 @@ export function omahaMathCoreRule(
           legal = kept;
         }
       }
+    }
+    // RIVER-CORE criterion 3: on the PLO5 cash river the core may only turn today's fold into a plain call
+    if (String(gs.gameVariant).toLowerCase() === 'plo5' && String(gs.stage) === 'river') {
+      const keep: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+        keep.amount = incoming.amount;
+      const pick = omahaMathCorePlo5RiverFoldToCall(
+        incoming.action,
+        receipt.evs,
+        player.stack ?? 0,
+        OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5
+      );
+      let narrowed: HorseDecision = keep;
+      if (pick) {
+        const proposed: HorseDecision = { action: 'call', thinkTime: decision.thinkTime };
+        if (pick.amount !== null) proposed.amount = pick.amount;
+        try {
+          const l = legalize(proposed);
+          if (l.action === 'call') narrowed = l;
+        } catch {
+          narrowed = keep;
+        }
+      }
+      const chosen = receipt.evs.find((e) => e.action === narrowed.action);
+      receipt.choice = {
+        action: narrowed.action as CoreReceipt['choice']['action'],
+        amount: narrowed.amount ?? null,
+        ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
+      };
+      legal = narrowed;
     }
     // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
     // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
