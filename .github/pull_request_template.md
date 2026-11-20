@@ -2,6 +2,8 @@
 
 <!-- Brief description of what this PR does -->
 
+Lane: <!-- one lane id from ops/ownership.json, e.g. club-arena-client, tournaments, alarms-and-watches. The Ownership map check warns when this PR touches another lane's paths or database functions, or a function another open PR also defines; a locked area (release controls) needs its own lane here. -->
+
 ## Type of Change
 
 - [ ] Bug fix

@@ -1,14 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, render, renderHook, screen } from '@testing-library/react';
+import { afterEach, expect, it } from 'vitest';
 import { HandDetailModal } from '../../src/components/table/HandDetailModal';
-import {
-  LightningPreviousHandReview,
-  LightningPreviousHandResult,
-} from '../../src/components/table/PreviousHandCard';
 import { usePreviousLightningDeal } from '../../src/lightning/usePreviousLightningDeal';
-import { handHistoryService } from '../../src/services/HandHistoryService';
 import type { LightningSnapshotFields } from '../../src/lightning/lightningHand';
 import { buildReplay } from '../../src/utils/handReplay';
 
@@ -86,65 +81,18 @@ it.each([
   expect(result.current).toBeNull();
 });
 
-it('renders only the requested hand, distinguishes pending and failed reads, and closes', () => {
-  const close = vi.fn();
-  const hand = {
-    handNumber: 41,
-    streets: [{ name: 'flop' as const, cards: ['Ac', 'Kh', '2s'], actions: [], pot: 12 }],
-    potTotal: 26,
-    heroResult: 13,
-  };
-  const props = { handNumber: 42, hand, historyFailed: false, onClose: close };
-  const view = render(<LightningPreviousHandResult {...props} />);
-  expect(screen.getByText('Hand #42')).toBeTruthy();
-  expect(screen.getByRole('status').textContent).toBe('Awaiting Final Result');
-  view.rerender(<LightningPreviousHandResult {...props} historyFailed />);
-  expect(screen.getByRole('status').textContent).toBe('Hand History Unavailable');
-  view.rerender(<LightningPreviousHandResult {...props} handNumber={41} />);
-  expect(screen.getByText('Ac Kh 2s')).toBeTruthy();
-  expect(screen.getByText('Pot 26 · Your Result +13')).toBeTruthy();
-  view.rerender(
-    <LightningPreviousHandResult
-      {...props}
-      handNumber={41}
-      hand={{ ...hand, streets: [], heroResult: -3 }}
-    />
+it('retires the bare LightningPreviousHandReview and LightningPreviousHandResult aside permanently', () => {
+  const cardSource = readFileSync(
+    resolve(__dirname, '../../src/components/table/PreviousHandCard.tsx'),
+    'utf8'
   );
-  expect(screen.getByText('No Board Dealt')).toBeTruthy();
-  expect(screen.getByText('Pot 26 · Your Result -3')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Close Previous Hand' }));
-  expect(close).toHaveBeenCalledOnce();
-});
-
-it('reruns the selected deal read on reconnect and ignores a late response from the disconnected read', async () => {
-  let finishOld!: (result: { state: 'pending' }) => void;
-  const reader = vi
-    .spyOn(handHistoryService, 'getPreviousLightningHand')
-    .mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finishOld = resolve;
-        })
-    )
-    .mockResolvedValueOnce({ state: 'unavailable' });
-  const deal = { id: 'hand-41', number: 41, scope: 'scope' };
-  const props = { deal, viewer: 'hero', room: 'room', onClose: vi.fn() };
-  try {
-    const view = render(<LightningPreviousHandReview {...props} connected />);
-    view.rerender(<LightningPreviousHandReview {...props} connected={false} />);
-    expect(reader).toHaveBeenCalledTimes(1);
-    view.rerender(<LightningPreviousHandReview {...props} connected />);
-    await screen.findByText('Hand Settled · History Unavailable');
-    finishOld({ state: 'pending' });
-    await Promise.resolve();
-    expect(screen.getByRole('status').textContent).toBe('Hand Settled · History Unavailable');
-    expect(reader.mock.calls).toEqual([
-      ['hero', 'room', deal, undefined],
-      ['hero', 'room', deal, undefined],
-    ]);
-  } finally {
-    reader.mockRestore();
-  }
+  const cardCss = readFileSync(
+    resolve(__dirname, '../../src/components/table/PreviousHandCard.css'),
+    'utf8'
+  );
+  expect(cardSource).not.toContain('LightningPreviousHandReview');
+  expect(cardSource).not.toContain('LightningPreviousHandResult');
+  expect(cardCss).not.toContain('.lightning-previous-result');
 });
 
 it('TablePage opens the full HandDetailModal on Previous Hand tap in Lightning instead of the bare aside', () => {
@@ -156,6 +104,9 @@ it('TablePage opens the full HandDetailModal on Previous Hand tap in Lightning i
   expect(tablePage).not.toContain('<LightningPreviousHandReview');
   expect(tablePage).toContain('Boolean(lightningRoom && !lightningObserver)');
   expect(tablePage).toContain('rabbitTableId={lightningRoom ? null : (tableId ?? null)}');
+  expect(tablePage).toContain(
+    'tableNameFallback={lightningRoom ? tableState.tableName || null : null}'
+  );
 });
 
 it('HandDetailModal shows pending Lightning deal status in empty and populated states and clears it once settled', () => {
@@ -208,10 +159,12 @@ it('HandDetailModal shows pending Lightning deal status in empty and populated s
       heroId="hero"
       loadState="ready"
       viewerSeated
+      tableNameFallback="Lightning PLO5 1/2"
       pendingLightningDeal={{ handNumber: 41, status: 'pending' }}
     />
   );
   expect(screen.getByRole('dialog', { name: 'Hand Detail' })).toBeTruthy();
+  expect(screen.getByText('Lightning PLO5 1/2')).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('Hand #41');
   expect(screen.getByRole('status').textContent).toContain('Awaiting Final Result');
 
@@ -224,9 +177,11 @@ it('HandDetailModal shows pending Lightning deal status in empty and populated s
       heroId="hero"
       loadState="ready"
       viewerSeated
+      tableNameFallback="Lightning PLO5 1/2"
       pendingLightningDeal={{ handNumber: 41, status: 'pending' }}
     />
   );
+  expect(screen.getByText('Lightning PLO5 1/2')).toBeTruthy();
   expect(screen.getByText('#40')).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('Hand #41');
   expect(screen.getByRole('status').textContent).toContain('Awaiting Final Result');

@@ -53,6 +53,7 @@ import {
   HAND_COMPLETION as H,
   owedBetweenHandsMs,
 } from '../config/handCompletionSpec.js';
+import { REBUY_PAUSE_MAX_MS, RIT_REVEAL_MAX_MS } from './handCadenceSpec.js';
 import { disposeEngines, fixture } from './f06RestDealFixture.test-support.js';
 
 afterEach(() => disposeEngines());
@@ -231,8 +232,19 @@ describe('the production grade reads the same numbers', () => {
     ['pot_award_stagger_ms', H.POT_AWARD_STAGGER_MS],
     ['next_hand_rest_ms', H.NEXT_HAND_REST_MS],
     ['engine_between_hands_budget_ms', ENGINE_BETWEEN_HANDS_BUDGET_MS],
+    ['rebuy_pause_max_ms', REBUY_PAUSE_MAX_MS],
+    ['rit_reveal_max_ms', RIT_REVEAL_MAX_MS],
   ])('%s', (name, value) => {
     expect(SQL).toMatch(new RegExp(`\\b${value} AS ${name}\\b`));
+  });
+  it('records actual between-hand pause times onto the next hand cadence', () => {
+    expect(DEALING).toContain('this.pendingPriorHandCadence = {');
+    expect(DEALING).toContain('hold_ms: Math.round(resultDisplayMs)');
+    expect(DEALING).toContain('rest_ms: Math.round(restMs)');
+    expect(DEALING).toContain('rebuy_pause_ms: rebuyPauseMs');
+    expect(DEALING).toContain('rit_reveal_ms: ritRevealMs');
+    expect(DEALING).toContain('this.currentHandCadence = this.pendingPriorHandCadence;');
+    expect(DEALING).toContain('REBUY_PAUSE_MAX_MS');
   });
   it('excludes Lightning hands by their pooled hand row, not by table name', () => {
     expect(SQL).toContain('lightning_hand lh WHERE lh.hand_history_id = hh.id');

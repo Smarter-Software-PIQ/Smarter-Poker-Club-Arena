@@ -116,7 +116,7 @@ describe('rit_offer - one shared 10s countdown on the wire', () => {
 });
 
 describe('consent progress - live checkmarks and the accept banner', () => {
-  it('broadcasts rit_response_update per accept and rit_all_accepted at the deadline after unanimity', () => {
+  it('broadcasts rit_response_update per accept and rit_all_accepted immediately on unanimity', () => {
     vi.useFakeTimers();
     const { e, runoutEvent, emitted } = atAllIn();
 
@@ -139,18 +139,20 @@ describe('consent progress - live checkmarks and the accept banner', () => {
       'no banner before the chooser decides'
     ).toBeFalsy();
 
-    // The choice is recorded immediately; the outcome waits for ten seconds.
+    // Chooser picks 2 -> completes unanimous consent -> rit_all_accepted broadcasts immediately.
     e.respondToRIT(chooser, undefined, 2);
-    expect(emitted.find((p) => p.type === 'rit_all_accepted')).toBeFalsy();
-    vi.advanceTimersByTime(10_000);
     const allAccepted = emitted.find((p) => p.type === 'rit_all_accepted');
-    expect(allAccepted, 'unanimous consent must broadcast rit_all_accepted').toBeTruthy();
+    expect(
+      allAccepted,
+      'unanimous consent must broadcast rit_all_accepted immediately'
+    ).toBeTruthy();
     expect(allAccepted!.runs).toBe(2);
 
-    // The chooser-decided event carries the shared deadline for responders.
+    // The chooser-decided event carries the shared deadline for responders and precedes rit_all_accepted.
     const decided = emitted.find((p) => p.type === 'rit_chooser_decided');
     expect(decided).toBeTruthy();
     expect(Number(decided!.deadline_ts)).toBeGreaterThan(0);
+    expect(emitted.indexOf(decided!)).toBeLessThan(emitted.indexOf(allAccepted!));
   });
 });
 

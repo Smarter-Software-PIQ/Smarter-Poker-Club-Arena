@@ -287,7 +287,7 @@ trap 'request_stop "received SIGHUP" 129' HUP
 trap 'request_stop "received SIGINT" 130' INT
 trap 'request_stop "received SIGTERM" 143' TERM
 trap 'request_stop "its parent process went away" 129' USR1
-trap 'stop_watcher; [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE" "$STATE_FILE.tree" "$STATE_FILE.tree.new"' EXIT
+trap 'stop_watcher; [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE" "$STATE_FILE.tree" "$STATE_FILE.tree.new"; if [ -n "${HQ_TICKET:-}" ]; then hq_release; fi' EXIT
 
 if [ "$WATCH_PARENT" = 1 ] && [ "$ORIG_PPID" -le 1 ]; then
   say "STOPPED: its parent process went away before it started (launched in the background without nohup or AGENT_PUSH_DETACHED=1); nothing was pushed."
@@ -513,6 +513,20 @@ heavy_local_stage() {
 if [ "$(uname -s)" = Darwin ] && ! heavy_local_stage; then
   say "not waiting on the Mac's load: this push changes no engine, database or dependency-manifest path, so the hook runs static guards and directly related tests only"
 elif [ "$(uname -s)" = Darwin ]; then
+  # THE HOST-WIDE HEAVY-JOB QUEUE (Dan, 2026-11-19 17:26 Chicago). Load alone
+  # could not stop dozens of agents from starting their gates in the same
+  # minute: each saw the load fall, and all of them started. A heavy push now
+  # first takes a FIFO slot in the machine's queue (scripts/lib/heavy-queue.sh,
+  # slots = cores / 7) and holds it through git push, so the pre-push hook
+  # under it runs inside this slot and never takes a second one
+  # (HQ_HELD_TICKET). The load wait below still runs after admission, for
+  # load the queue does not see. A broken queue warns and changes nothing.
+  # Check the line: bash scripts/heavy-queue.sh status
+  if [ -f "$SCRIPT_DIR/lib/heavy-queue.sh" ] && . "$SCRIPT_DIR/lib/heavy-queue.sh" 2>/dev/null; then
+    HQ_OWNER_PID=$MAIN_PID hq_acquire "agent-push $BRANCH" || true
+  else
+    say "WARNING: scripts/lib/heavy-queue.sh is missing or unreadable; pushing without the heavy-job queue (no check is skipped)."
+  fi
   cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
   budget=${AGENT_PUSH_LOAD_WAIT_SECONDS:-900}
   waited=0

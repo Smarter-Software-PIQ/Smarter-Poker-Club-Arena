@@ -158,6 +158,42 @@ describe('Previous Hand reads a Lightning pool session, not a physical table', (
     ).toBeUndefined();
   });
 
+  it('pages past 50 Lightning session hands via fn_lightning_session_hands_page when beforeHandNumber is set', async () => {
+    state.rpc.mockResolvedValue({
+      data: [{ hand_id: 'engine-b', hand_history_id: B, hand_number: 20 }],
+      error: null,
+    });
+    const older = await handHistoryService.getPlayerHands(HERO, 50, {
+      tableId: POOL,
+      lightningPoolSessionId: POOL,
+      beforeHandNumber: 30,
+      throwOnError: true,
+    });
+    expect(older.map((hand) => hand.id)).toEqual([B]);
+    expect(state.rpc).toHaveBeenCalledWith('fn_lightning_session_hands_page', {
+      p_pool_session_id: POOL,
+      p_limit: 50,
+      p_before_hand_number: 30,
+    });
+
+    // Deploy-window safety: missing RPC returns [] cleanly instead of crashing.
+    state.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function fn_lightning_session_hands_page',
+      },
+    });
+    await expect(
+      handHistoryService.getPlayerHands(HERO, 50, {
+        tableId: POOL,
+        lightningPoolSessionId: POOL,
+        beforeHandNumber: 20,
+        throwOnError: true,
+      })
+    ).resolves.toEqual([]);
+  });
+
   it('does not fabricate a hand before its history row is recorded', async () => {
     state.rpc.mockResolvedValue({
       data: [{ hand_id: 'pending', hand_history_id: null }],

@@ -1,0 +1,3 @@
+# tests/daily-cash-retention-pruners-are-bounded.law.test.ts
+
+The two daily cash-retention prune cron jobs (`ca-cash-hand-chair-clubs-prune-daily` and `ca-cash-seat-occupancy-history-prune-daily`) call owner-only bounded batch pruning functions in `smarter_private` (`fn_prune_cash_hand_chair_clubs` and `fn_prune_cash_seat_occupancy_history`) using `LIMIT`, `FOR UPDATE SKIP LOCKED`, a wall-clock deadline, and exact 14-day / 30-day cutoffs against `now()`. No raw unbatched `DELETE FROM` runs on the cron schedule, no new cron jobs are added, and the native PostgreSQL 17 proof script (`scripts/ci/test-batch-daily-cash-retention-pruners.py`) stays wired into `.github/workflows/snapshot-prune-reads-its-age-bound.yml`.

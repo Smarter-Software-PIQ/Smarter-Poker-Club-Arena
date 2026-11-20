@@ -412,9 +412,13 @@ describe('every floor rule of the reference node is admitted on every route it c
     });
   }
 
-  it('with the limp-only options off their limp is not admitted (the admission is the option)', () => {
+  it('with the table limp-only option off its limp is not admitted (the admission is the option)', () => {
+    // The pool floor's limp is admitted whenever the pool floor COULD limp,
+    // whatever the request's opts say: the switch delivers
+    // lightningVpipFloorLimpOnly inside the worker after the request is built
+    // (#11491, lightningPoolFloorLimpShape), so the pool half is pinned below.
     let refused = 0;
-    for (const name of ['tableLimp', 'poolLimp'] as const) {
+    for (const name of ['tableLimp'] as const) {
       const rule = RULES[name];
       for (const snap of grid(rule.variant, rule.floors)) {
         const out = rule.apply(snap.player, snap.gameState, rule.opts);
@@ -432,7 +436,25 @@ describe('every floor rule of the reference node is admitted on every route it c
         refused++;
       }
     }
-    expect(refused).toBeGreaterThan(100);
+    expect(refused).toBeGreaterThan(50);
+  });
+
+  it('the pool floor limp is admitted with the request opts silent (the switch delivers the option, #11491)', () => {
+    let admitted = 0;
+    const rule = RULES.poolLimp;
+    for (const snap of grid(rule.variant, rule.floors)) {
+      const out = rule.apply(snap.player, snap.gameState, rule.opts);
+      if (out.action === 'fold') continue;
+      const off = { ...snap, opts: {} };
+      if (!necessaryReferenceRouteGates('chart_open_jam', off)) continue;
+      const receipt = {
+        route: 'chart_open_jam',
+        referenceProposal: { action: out.action, amount: out.amount ?? null },
+      } as never;
+      expect(referenceReturnShape(receipt, off)).toBe(true);
+      admitted++;
+    }
+    expect(admitted).toBeGreaterThan(50);
   });
 });
 
