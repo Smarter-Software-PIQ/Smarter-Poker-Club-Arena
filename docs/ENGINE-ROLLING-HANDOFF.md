@@ -212,7 +212,7 @@ the same dealer lanes ready, and then hands over to
 - opens the dealer gate, so `/health` answers 200 with
   `rollingHandoff.role = "handoff-successor"` (its liveness is the dealer
   gate, not the leader discovery verdict, which would call an engine with no
-  discovery dead);
+  discovery dead: `EngineLivenessVerdict.handoffSuccessorDealerReady`);
 - runs NO stale-data cleanup (it would cash out the serving engine's live
   seats), no break adoption, no discovery, no horse fleet, no sweep, no
   reaper, no scheduler, no projection worker and no index-owned leader
@@ -363,7 +363,7 @@ migration 20260912111633 is granted only with the handed generation and the old 
 after a released row re-creates it for the old instance, a second return is
 refused, a stale tournament lease is refused, and `anon` has no access.
 
-`server/src/handoff/rollingHandoffSuccessorAndRelay.test.ts` (9 tests): two
+`server/src/handoff/rollingHandoffSuccessorAndRelay.test.ts` (10 tests): two
 GameServer instances in this process, each behind its own real HTTP listener
 on its own loopback port, with the real router, real EngineWebSocketServer,
 a real TableStateHub each, the real coordinator and the real relay, over the

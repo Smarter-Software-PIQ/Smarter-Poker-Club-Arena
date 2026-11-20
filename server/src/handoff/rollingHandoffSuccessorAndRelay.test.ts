@@ -55,6 +55,7 @@ import {
 } from './handoffSuccessorRole.js';
 import { prefetchRequestBody, readBody } from '../http/body.js';
 import { ChannelHub } from '../hub/ChannelHub.js';
+import { evaluateEngineLiveness } from '../engine/EngineLivenessVerdict.js';
 import type {
   HandedLease,
   HandOffRequest,
@@ -639,6 +640,25 @@ describe('handoff successor role and relay configuration', () => {
     const without = await request(b.port, 'GET', '/internal/rolling-handoff/status');
     expect(withNull.status).toBe(404);
     expect(withNull.body).toEqual(without.body);
+  });
+
+  it('a successor is alive once it can deal, though it runs no discovery; nobody else changes', () => {
+    const barren = {
+      isLeader: false,
+      processUptimeMs: 3_600_000,
+      discoveryLoopStalledMs: 3_600_000,
+      discoveryStaleMs: 3_600_000,
+      dbConfirmedDead: false,
+      tables: [],
+    };
+    expect(evaluateEngineLiveness({ ...barren, handoffSuccessorDealerReady: true }).status).toBe(
+      'ok'
+    );
+    expect(evaluateEngineLiveness({ ...barren, handoffSuccessorDealerReady: false }).status).toBe(
+      'standby'
+    );
+    expect(evaluateEngineLiveness(barren).status).toBe('standby');
+    expect(evaluateEngineLiveness({ ...barren, isLeader: true }).status).toBe('dead');
   });
 
   it('ChannelHub mirrors tournament broadcasts only while a mirror is set', () => {

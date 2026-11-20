@@ -6309,6 +6309,10 @@ export class GameServer {
       discoveryStaleMs,
       dbConfirmedDead: dealRate.dbConfirmedDead,
       tables: tableLiveness,
+      // A rolling handoff successor runs no discovery; absent otherwise.
+      ...(this.handoffSuccessorPhase
+        ? { handoffSuccessorDealerReady: this.dealerPrerequisitesReady }
+        : {}),
     });
     const { deadStalledCount, dealableTableCount, wholeFleetStalled, barrenLeaderDead } =
       livenessVerdict;
@@ -6374,14 +6378,7 @@ export class GameServer {
        *   Docker healthcheck exits non-zero only on 'dead', so a standby is
        *          NOT restarted -- it must stay alive to be able to take over.
        */
-      // A handoff successor runs no discovery, so the leader verdict does not
-      // apply to it: it is alive once its dealer gate is open. With
-      // ENGINE_ROLLING_HANDOFF off this is always livenessVerdict.status.
-      liveness: this.handoffSuccessorPhase
-        ? this.dealerPrerequisitesReady
-          ? 'ok'
-          : 'standby'
-        : livenessVerdict.status,
+      liveness: livenessVerdict.status,
       /**
        * Independent evidence, reported whether or not it has reached a
        * verdict, so a fleet going quiet is visible BEFORE anything restarts.
@@ -6747,6 +6744,10 @@ export class GameServer {
       discoveryStaleMs: now - this.lastDiscoveryOkAt,
       dbConfirmedDead: this.dealRateVerifier.snapshot().dbConfirmedDead,
       tables: liveness,
+      // A rolling handoff successor runs no discovery; absent otherwise.
+      ...(this.handoffSuccessorPhase
+        ? { handoffSuccessorDealerReady: this.dealerPrerequisitesReady }
+        : {}),
     });
     const stalled = liveness.filter(
       (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000
