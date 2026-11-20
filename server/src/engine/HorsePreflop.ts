@@ -4024,8 +4024,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // stack-offs of 150bb or more, -63,663bb. The M-zones still own short
     // play - deepT is zero at 120bb and below, so nothing under that depth
     // changes, spins and SNGs included.
+    // EFFECTIVE DEPTH (2026-11-19, EMERG AUDIT-05): the war is fought for the chips BOTH sides can lose, so the
+    // depth is the smaller of hero's stack and the deepest live opponent's (effectiveStackBB), never hero's own
+    // stack alone. Reading `stackBB` here tightened a 400bb Horse facing a 100bb person's 3-bet as if 400bb deep
+    // (Omaha always takes this branch: the V73 read is hold'em only). The V73 read already uses effective depth.
+    const deepDepthBB = Math.min(stackBB, ctx.effectiveStackBB ?? stackBB);
     const deepT =
-      ctx.deepDiscipline === true && stackBB > 120 ? Math.min(0.05, (stackBB - 120) / 2600) : 0;
+      ctx.deepDiscipline === true && deepDepthBB > 120
+        ? Math.min(0.05, (deepDepthBB - 120) / 2600)
+        : 0;
     let fourBetThresh = phase6CapBar(
       t53(0.93 - (fourBetAggression - 1) * 0.04, 'fourBet') -
         0.04 * hunted3 -
