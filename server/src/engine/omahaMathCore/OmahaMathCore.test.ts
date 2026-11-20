@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 /**
  * omahaMathCore law tests (lane MATHCORE 2026-11-19). Hand references are
  * hand numbers only; the recorded spots are the existing flop fixtures
@@ -35,7 +36,6 @@ import {
   OMAHA_MATH_CORE_ALLOWED_PROVENANCE,
   OMAHA_MATH_CORE_TABLES,
 } from './OmahaMathCoreTables.js';
-import publicTables from './publicTables.v3.json' with { type: 'json' };
 import {
   OMAHA_MATH_CORE_ALL_STREETS,
   OMAHA_MATH_CORE_CHANGE_MARGIN_K,
@@ -48,6 +48,11 @@ import {
   omahaMathCoreStreetAdmitted,
 } from './OmahaMathCoreRule.js';
 
+// Read at run time, not imported: a 4.6 MB JSON import makes tsc type the whole literal and
+// pushes the server compile past the default 4 GB heap (CI native-smoke OOM on #11515).
+const publicTables: unknown = JSON.parse(
+  readFileSync(new URL('./publicTables.v3.json', import.meta.url), 'utf8')
+);
 const now = () => performance.now();
 const DECK: Card[] = Array.from({ length: 52 }, (_, i) => ({
   rank: '23456789TJQKA'[i >> 2] as Card['rank'],

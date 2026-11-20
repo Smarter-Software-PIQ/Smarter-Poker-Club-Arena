@@ -653,7 +653,7 @@ export function toRangeSpec(t: TrackedRange, label: string, minShare = 1e-4): Ra
     if (t.w[i] > max * minShare) parts.push({ idx: Int32Array.of(i), weight: t.w[i] });
   return {
     parts,
-    label: `${label} tracked effN ${Math.round(t.effN)} [${t.steps.join(' > ')}] (${RANGE_TRACK_VERSION})`,
+    label: `${label} Tracked EffN ${Math.round(t.effN)} [${t.steps.join(' > ')}] (${RANGE_TRACK_VERSION})`,
   };
 }
 

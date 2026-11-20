@@ -12,14 +12,22 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 import { readFileSync } from 'node:fs';
 
-// Read, not imported: this module is not a test file, so the engine image compile (tsconfig.emit.json, noResolve)
-// would emit it without the JSON it imports (engine-build-resource-proof refuses such an import).
+// Read, not imported, and typed here rather than with typeof import(...): this module is not a test file, so a
+// value or type import of the JSON puts it in the full typechecked build (tsconfig.runtime.json emits it into
+// dist) while the engine image compile (tsconfig.emit.json, noResolve) does not; engine-build-resource-proof
+// refuses that difference ("runtime emission differs from the full typechecked CI build").
+interface NashTableCase {
+  decisionTimeMs: number;
+  style: string;
+  mods: Record<string, unknown>;
+  gameState: { players: unknown[] } & Record<string, unknown>;
+}
 const FIXTURE = JSON.parse(
   readFileSync(
     new URL('./AnAofClosingSeatCallsFromTheNashTable.fixture.json', import.meta.url),
     'utf8'
   )
-) as typeof import('./AnAofClosingSeatCallsFromTheNashTable.fixture.json');
+) as { cases: Record<'bigBlindKingQueenOffsuit', NashTableCase> };
 
 const BASE = FIXTURE.cases.bigBlindKingQueenOffsuit;
 export const BASE_STYLE = BASE.style;

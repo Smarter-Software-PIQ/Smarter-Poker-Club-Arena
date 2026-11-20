@@ -125,7 +125,7 @@ describe('RANGEADV range tracking (PLO4/PLO5 only)', () => {
       })
     )!;
     expect(t.ranges.get(2)!.steps.join(' ')).toContain('no measured node');
-    expect(toRangeSpec(t.ranges.get(2)!, 's2').label).toContain('tracked effN');
+    expect(toRangeSpec(t.ranges.get(2)!, 's2').label).toMatch(/Tracked EffN/);
   });
 
   it('play-back EV is computed, finite and bounded (experimental component)', () => {
