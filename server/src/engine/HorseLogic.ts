@@ -64,6 +64,7 @@ import {
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
+import { omahaRiverCurrentNutsCallFloorRule } from './HorseOmahaRiverCurrentNutsCallFloor.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -3615,6 +3616,11 @@ export interface HorseDecideOpts {
    * Outermost wrapper of wager_rules, so it also covers decisions whose
    * Omaha pack was refused for depth. Never changes a non-fold. Default OFF. */
   omahaFacingBetIsPricedByEquity?: boolean;
+  /** EMERG lane RANGE-MODEL-2 2026-11-20 (HorseOmahaRiverCurrentNutsCallFloor.ts): in PLO4/PLO5 cash
+   * on the river facing a wager, the node's final fold becomes the legal call when hero holds the exact
+   * current nuts and a full chop with every live opponent still returns the call. The outermost answer
+   * of wager_rules; never changes a non-fold. Default OFF (read === true). */
+  omahaRiverCurrentNutsCallFloor?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -18118,7 +18124,22 @@ export class HorseLogic {
         noteFire('omaha_open_measured_fold');
         noteDecisionRuleReceipt('omaha_open_measured_fold', coldCallMeasured, openMeasured);
       }
-      return { decision: openMeasured };
+      // EMERG lane RANGE-MODEL-2 2026-11-20 (omahaRiverCurrentNutsCallFloor, default off): the
+      // outermost answer of this node. A final river fold facing a wager with the exact current nuts,
+      // where a full chop with every live opponent still returns the call, becomes the legal call
+      // (HorseOmahaRiverCurrentNutsCallFloor.ts). It changes only a fold.
+      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+        openMeasured,
+        player,
+        gs,
+        opts.omahaRiverCurrentNutsCallFloor === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (nutsFloored !== openMeasured && tele) {
+        noteFire('omaha_river_current_nuts_call_floor');
+        noteDecisionRuleReceipt('omaha_river_current_nuts_call_floor', openMeasured, nutsFloored);
+      }
+      return { decision: nutsFloored };
     };
     decision = graph.run('wager_rules', decision, () => {
       const ruled = riverNoBlocker(wagerRulesNode());

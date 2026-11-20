@@ -3532,6 +3532,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane RANGE-MODEL-2 (default OFF, PLO4/PLO5 cash): omahaRiverCurrentNutsCallFloor (a final river
+  // fold facing a wager with the exact current nuts becomes the call where a full chop still returns it); a switches it
+  // on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_current_nuts_call_floor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverCurrentNutsCallFloor: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane RAKE (default OFF, PLO4/PLO5 cash): omahaFacingBetPaysTheWholeDeduction (the facing-bet
   // call verdicts deduct the whole projected deduction of the pot after the call instead of the marginal rake
   // rate); both arms carry omahaFacingBetEv, a adds the option.
