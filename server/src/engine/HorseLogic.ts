@@ -75,6 +75,7 @@ import {
   omahaFourBetFoldPricedCallRule,
   registerFourBetFoldPricing,
 } from './HorseOmahaFourBetFoldPricedCall.js';
+import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -3636,6 +3637,12 @@ export interface HorseDecideOpts {
    * legal call only when the engine's priced call of a re-raise (omahaReraisedCallPriced, its own inputs)
    * has EV(call) > 0. Never changes a non-fold; never raises. Default OFF (read === true). */
   omahaFourBetFoldPricedCall?: boolean;
+  /**
+   * EMERG lane OFFENCE-BUILD 2026-11-20 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up, the Horse acts
+   * first with nothing to call: the node's final check is priced beside the bets with the measured response curve
+   * (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
+   */
+  omahaRiverFirstToActBetIsPriced?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -18163,16 +18170,41 @@ export class HorseLogic {
       // outermost answer of this node. A final river fold facing a wager with the exact current nuts,
       // where a full chop with every live opponent still returns the call, becomes the legal call
       // (HorseOmahaRiverCurrentNutsCallFloor.ts). It changes only a fold.
-      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+      // EMERG lane OFFENCE-BUILD 2026-11-20 (omahaRiverFirstToActBetIsPriced, default off): PLO4/PLO5 cash river,
+      // heads-up, the Horse acts first with nothing to call: a final check is priced beside the engine's bet sizes with
+      // the measured response curve and replaced by the best bet only when it beats the check by more than its own
+      // standard error (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
+      const firstToActOn = opts.omahaRiverFirstToActBetIsPriced === true;
+      const firstToAct = omahaRiverFirstToActBetRule(
         openMeasured,
+        player,
+        gs,
+        firstToActOn,
+        firstToActOn ? omahaPricedDeps(player, gs).rake : 0,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (firstToAct.changed && tele) {
+        noteFire('omaha_river_first_to_act_bet_priced');
+        noteDecisionRuleReceipt(
+          'omaha_river_first_to_act_bet_priced',
+          openMeasured,
+          firstToAct.decision
+        );
+      }
+      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+        firstToAct.decision,
         player,
         gs,
         opts.omahaRiverCurrentNutsCallFloor === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (nutsFloored !== openMeasured && tele) {
+      if (nutsFloored !== firstToAct.decision && tele) {
         noteFire('omaha_river_current_nuts_call_floor');
-        noteDecisionRuleReceipt('omaha_river_current_nuts_call_floor', openMeasured, nutsFloored);
+        noteDecisionRuleReceipt(
+          'omaha_river_current_nuts_call_floor',
+          firstToAct.decision,
+          nutsFloored
+        );
       }
       // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (omahaFourBetFoldPricedCall, default off): a final
       // preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only
