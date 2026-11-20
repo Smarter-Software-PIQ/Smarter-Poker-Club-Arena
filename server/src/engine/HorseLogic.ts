@@ -116,6 +116,7 @@ import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmah
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFacingBetValueRangeOver } from './HorseOmahaFacingBetValueRange.js';
 import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
+import { omahaTurnStabSpot } from './HorseOmahaTurnStabDefence.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
@@ -4017,6 +4018,18 @@ export interface HorseDecideOpts {
    * raise is made to the size of highest value. Off: one size, its fold share size-blind (#11212,
    * byte-identical). Default OFF; no league yet. */
   omahaSampledRaiseIsPricedAtEverySize?: boolean;
+  /** TURN-STAB lane 2026-11-19 (owner 4:53 PM Chicago: the person checks the flop, the Horse checks behind,
+   * the person fires the turn near pot and the Horse gives it up): opt-in (`=== true`). Inside omahaFacingBetEv
+   * only: facing a PERSON's first wager of the turn after a checked-through flop, heads-up, PLO4/PLO5 cash, the
+   * spot's prior is that line's measured non-value share (HorseOmahaTurnStabDefence.ts), and the bettor's own
+   * read moves it through the facing-bet EV's own path. Lightning only with omahaPricedInLightning on. Off or
+   * unset: byte-identical. Default OFF until its declared evaluation passes. */
+  omahaTurnStabDefenceIsPriced?: boolean;
+  /** AUDIT48-TURN lane 2026-11-19: opt-in (`=== true`), only with omahaTurnStabDefenceIsPriced and
+   * omahaPricedInLightning on. In the Lightning pools the turn-stab line reads its Lightning-measured non-value row
+   * (HorseOmahaTurnStabDefence.OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING) in place of the pooled row. Table play
+   * untouched. Off or unset: byte-identical. Default OFF until its declared evaluation passes. */
+  omahaTurnStabLightningRow?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -12147,6 +12160,10 @@ let omahaFacingBetEvCountMemo: {
   riverBluffCatch: boolean;
   valueRangeRelative: boolean;
   pairedRiverPriced: boolean;
+  /** omahaTurnStabDefenceIsPriced, and whether the Lightning pools are open to it (omahaPricedInLightning). */
+  turnStab: boolean;
+  turnStabLightning: boolean;
+  turnStabLightningRow: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -12183,6 +12200,9 @@ function omahaFacingBetEvCount(
   const riverBluffCatch = opts.omahaRiverBluffCatchIsPriced === true && !isTournamentMode(gs);
   const valueRangeRelative = opts.omahaFacingBetValueIsRangeRelative === true;
   const pairedRiverPriced = opts.omahaPairedBoardRiverIsPriced === true;
+  const turnStab = opts.omahaTurnStabDefenceIsPriced === true;
+  const turnStabLightning = turnStab && opts.omahaPricedInLightning === true;
+  const turnStabLightningRow = turnStabLightning && opts.omahaTurnStabLightningRow === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -12195,11 +12215,20 @@ function omahaFacingBetEvCount(
     memo.shownField === shownField &&
     memo.riverBluffCatch === riverBluffCatch &&
     memo.valueRangeRelative === valueRangeRelative &&
-    memo.pairedRiverPriced === pairedRiverPriced
+    memo.pairedRiverPriced === pairedRiverPriced &&
+    memo.turnStab === turnStab &&
+    memo.turnStabLightning === turnStabLightning &&
+    memo.turnStabLightningRow === turnStabLightningRow
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
-  const spot = omahaFacingBetEvSpot(player, gs);
+  const baseSpot = omahaFacingBetEvSpot(player, gs);
+  // omahaTurnStabDefenceIsPriced (default off): a person's turn stab after a checked-through flop is priced
+  // against that line's measured range (HorseOmahaTurnStabDefence); the same object outside the line.
+  const spot =
+    baseSpot && turnStab
+      ? omahaTurnStabSpot(baseSpot, player, gs, turnStabLightning, turnStabLightningRow)
+      : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     if (mind) {
@@ -12275,6 +12304,17 @@ function omahaFacingBetEvCount(
         }
       );
     let verdict = verdictOf(spot, read);
+    if (verdict && spot !== baseSpot && baseSpot && telemetryOn(opts)) {
+      noteFire('omaha_turn_stab_defence_priced_seen');
+      if (verdictOf(baseSpot, read)?.call !== verdict.call)
+        noteFire('omaha_turn_stab_defence_changed');
+      if (
+        turnStabLightningRow &&
+        (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed ===
+          'lightning'
+      )
+        noteFire('omaha_turn_stab_lightning_row_seen');
+    }
     // One river verdict per decision (Horse fixes integration, 2026-11-19). On a heads-up river
     // facing a person's first bet: omahaPairedBoardRiverIsPriced owns the paired-board nut-class spot
     // and goes first; omahaFacingBetValueIsRangeRelative prices the spot only when the paired-river
@@ -12360,6 +12400,9 @@ function omahaFacingBetEvCount(
     riverBluffCatch,
     valueRangeRelative,
     pairedRiverPriced,
+    turnStab,
+    turnStabLightning,
+    turnStabLightningRow,
     answer,
   };
   return answer;

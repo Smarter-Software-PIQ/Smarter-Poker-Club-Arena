@@ -422,6 +422,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopDefenceIsPriced: priced(
     'the heads-up flop fold or call facing his first bet is the flop expected-value verdict with the call priced as a two-street tree (his measured barrel and river bet rates, the Horse priced turn and river answers); alone it answers only that spot (default OFF)'
   ),
+  omahaTurnStabDefenceIsPriced: priced(
+    "the non-value prior of a person's turn stab after a checked-through flop, measured for that line, inside the facing-bet EV (default OFF; an input, not a rule site)"
+  ),
+  omahaTurnStabLightningRow: priced(
+    "the Lightning-measured non-value prior of a person's turn stab after a checked-through flop, inside the facing-bet EV, with omahaTurnStabDefenceIsPriced and omahaPricedInLightning on (default OFF; an input, not a rule site)"
+  ),
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
   ),

@@ -1177,6 +1177,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnStabDefenceIsPriced',
+    "TURN-STAB lane 2026-11-19 (owner 2026-11-19 4:53 PM Chicago: the person checks the flop, the Horse checks behind, the person fires the turn near pot and the Horse gives it up; owner 2026-11-17: no blanket rules, every decision by ranges, equity and EV): inside omahaFacingBetEv only, PLO4/PLO5 cash, one board, heads-up, facing a PERSON's first wager of the turn after a flop nobody wagered on, the spot's non-value prior is that line's measured share read at the bet's size (HorseOmahaTurnStabDefence.ts: fit 2026-11-05 to 2026-11-18, every player's cards from the hand facts, the method of OMAHA_PRICED_MEASURED_BLUFF, shrunk toward the person table with its 8 pseudo-bets: 0.532 / 0.626 / 0.336 / 0.336 by size row against today's 0.34 / 0.40 / 0.22 / 0.22); the value region, price, realization, margin and the bettor's own read are the facing-bet EV's own. Horse or unknown bettors, raises, multiway pots, tournaments, PLO6, the river and Lightning (unless omahaPricedInLightning is on) are untouched. Default OFF (opt-in, read === true) until its declared evaluation passes; league card refused (the league seats no person)",
+    'V94'
+  ),
+  flag(
+    'omahaTurnStabLightningRow',
+    "AUDIT48-TURN lane 2026-11-19 (owner 2026-11-19 6:44 PM Chicago: audit every Horse decision against persons in the past 48 hours; owner 2026-11-17: no blanket rules, every decision by ranges, equity and EV): with omahaTurnStabDefenceIsPriced and omahaPricedInLightning on, in the Lightning pools only, the turn-stab line's non-value prior is read from the Lightning-measured row (HorseOmahaTurnStabDefence.OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING: 2026-11-05 22:00Z to 2026-11-19 22:00Z, every player's cards from the hand facts, the method of OMAHA_PRICED_MEASURED_BLUFF, shrunk with 8 pseudo-bets toward the pooled row: 0.536 / 0.740 / 0.532 / 0.532 by size row against the pooled 0.532 / 0.626 / 0.336 / 0.336). Table play, Horse or unknown bettors, raises, multiway pots, tournaments, PLO6 and the river are untouched. Default OFF (opt-in, read === true) until its declared evaluation passes; league card refused (the league seats no person and deals no Lightning)",
+    'V94'
+  ),
+  flag(
     'omahaTurnCallRealizationByRunout',
     "PLO Strategy lane 2026-11-17 (owner: Phase 2 PLO4/PLO5 texture-based equity realization; the size of the bet must not decide): inside omahaFacingBetEv only, PLO4/PLO5, one board, high only, a turn call with chips behind. The realization factor of the call is read from the exact per-river counts of the hand against the bettor's value region and his other holdings: the equity on rivers where the hand beats at least half of his value region is realized in full; on rivers where it beats under a fifth it is realized only at the share a non-value holding checks down (0.6 in position, 0.45 out), rising to full as his measured bluff share goes from 0.35 to 0.6 (HorseOmahaRunoutRealization.ts); only that check-down term rises with the bluff share, the factor as a whole is not monotone in it. It replaces the flat 0.85 / 0.92; the three reviewed hand-specific caps still apply after it. No term is the bet size. Constants stated, not measured. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_turn_call_realization_by_runout",
     'V94'
@@ -5684,6 +5694,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_strategy_rule_failed',
     'HorseLogic wager_rules (omahaFacingBetEv, omahaCardImpact, omahaStreetPlan, omahaOwnBetRules, omahaOopTurnFacingBetRule)',
     'one of the 2026-11-15 Omaha strategy rules threw inside its own boundary: the decision it was given stands (for the facing-bet expected value, the rules that yield to it act as with it off)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_stab_defence_priced_seen',
+    'HorseLogic.omahaFacingBetEvCount (HorseOmahaTurnStabDefence, omahaTurnStabDefenceIsPriced)',
+    "the facing-bet EV priced a person's turn stab after a checked-through flop against that line's measured non-value share",
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_stab_lightning_row_seen',
+    'HorseLogic.omahaFacingBetEvCount (HorseOmahaTurnStabDefence, omahaTurnStabLightningRow)',
+    "the facing-bet EV priced a person's Lightning turn stab after a checked-through flop against the Lightning-measured non-value row",
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_stab_defence_changed',
+    'HorseLogic.omahaFacingBetEvCount (HorseOmahaTurnStabDefence, omahaTurnStabDefenceIsPriced)',
+    "the facing-bet EV verdict on a person's turn stab after a checked-through flop differs from the verdict on the spot's own prior (a fold became a call or a call became a fold)",
     'V94'
   ),
   receipt(

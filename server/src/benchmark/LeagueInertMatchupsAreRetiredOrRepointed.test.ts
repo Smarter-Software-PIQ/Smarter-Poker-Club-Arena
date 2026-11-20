@@ -53,6 +53,10 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-19 (PLO lane): the same, for the slowplay mix's and the public bet size's Lightning scopes.
         'plo5_omaha_slowplay_mix_in_lightning',
         'plo5_omaha_public_bet_size_in_lightning',
+        // 2026-11-19 TURN-STAB: the line needs a person bettor; the league seats none (0 of 300 pairs diverged).
+        'plo5_omaha_turn_stab_defence_is_priced',
+        // 2026-11-19 AUDIT48-TURN: a person bettor in a Lightning domain; the league has neither.
+        'plo5_omaha_turn_stab_lightning_row',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',
