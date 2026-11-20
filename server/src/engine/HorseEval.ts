@@ -3503,9 +3503,14 @@ export function simulateEquity(
       const band = oppBands ? oppBands[o] : null;
       if (band) {
         if (rangeUse) rangeUse.bandMask |= 1 << o;
+        // AUDIT-FILES-B (2026-11-19): the band is PERCENTILE-intent (placeOmahaBandCombo
+        // maps it through the reservoir CDF). The raw Omaha score is compressed (median
+        // 0.24, p99 0.59), so measuring a percentile band against it, as this fallback
+        // did, read a top-40% band [0.6, 1] as beyond p99 and kept the strongest of the
+        // tries: the opponent drawn stronger than the read meant. Compare in the same unit.
         const scoreOf = (cards: Card[]): number =>
           vi.isOmaha
-            ? omahaPreflopScore(cards, vi.isHiLo)
+            ? omahaPreflopPercentile(cards, vi.isHiLo)
             : cards.length === 3
               ? pineapplePreflopScore(cards, vi.isShortDeck)
               : holdemPreflopScore(cards[0], cards[1], vi.isShortDeck);

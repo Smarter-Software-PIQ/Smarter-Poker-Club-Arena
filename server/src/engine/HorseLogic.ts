@@ -12548,16 +12548,14 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
     delete folded.continuationGuard;
     return folded;
   } catch {
-    // Never leave a non-nut raise standing on a failure inside scope: price it.
+    // Never leave a non-nut raise standing on a failure inside scope, and never
+    // fold on one either (AUDIT-FILES-B 2026-11-19): the brain wanted to RAISE this
+    // hand, and an exception is no evidence that folding beats calling. A failure
+    // inside scope keeps the chips the raise would add out and calls.
     if (!scope) return decision;
     try {
       if (!omahaDecisionRaises(decision, player, scope)) return decision;
       if (omahaRaiseNeedsNutsKeeps(player, gs, scope) !== null) return decision;
-      if (omahaRaiseNeedsNutsPriceFolds(scope, gs)) {
-        const folded: HorseDecision = { ...decision, action: 'fold' };
-        delete folded.amount;
-        return folded;
-      }
       return omahaRaiseNeedsNutsCall(decision, scope);
     } catch {
       return decision;
