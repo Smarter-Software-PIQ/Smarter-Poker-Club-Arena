@@ -7,7 +7,7 @@ Built 2026-11-19 by EMERG lane FACING on the owner's orders of 7:31 PM and 7:38 
 PLO4/PLO5 cash (table and Lightning; no Lightning or speed exclusion), high only, one board, no bomb pot, postflop, the Horse facing a bet or a raise whose last aggressor is a person (`is_horse === false`), and the wager_rules node's final answer is a fold (`server/src/engine/HorseOmahaFacingBetEquity.ts`, applied as the outermost answer of the wager_rules node in `HorseLogic.ts`):
 
 - Equity: the Horse's showdown share recomputed with 600 card-seeded Monte Carlo runouts, exactly two hole cards and three board cards, one random holding of the Horse's own size for every live opponent (at most five), run to the river. The seed is the cards; the brain's random stream is never read. Sampling SE at most 0.020.
-- Calibration: the raw share is mapped, by street and heads-up or multiway, to the share the same spots actually had against the persons' real cards (measured; CONSTANTS.md). A cell with fewer than three measured knots (river multiway) gives no verdict.
+- Calibration: the raw share is mapped, by street, to the share against hands revealed at showdown: public information only (lead decision 2026-11-19; CONSTANTS.md, `OMAHA_FACING_EQUITY_PROVENANCE`). Hidden hole cards were used only to grade the finished rule offline. River multiway has too few revealed spots and gives no verdict.
 - Realization: times the realization measured from the Horses' own flop and turn calls (chips the call won back, later streets included, over its all-in share); river 1.
 - Price: paid / (pot + paid). The fold becomes the call only when realized equity minus the price exceeds the measured margin.
 

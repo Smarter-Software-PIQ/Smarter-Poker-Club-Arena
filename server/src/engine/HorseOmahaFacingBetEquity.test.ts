@@ -16,6 +16,7 @@ import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import {
   OMAHA_FACING_EQUITY_CALIBRATION,
+  OMAHA_FACING_EQUITY_PROVENANCE,
   omahaFacingBetIsPricedByEquityRule,
   omahaFacingEquityAdmitsCall,
   omahaFacingEquityCalibrated,
@@ -91,6 +92,15 @@ describe('omahaFacingBetIsPricedByEquity: the equity', () => {
     expect(omahaFacingEquityCalibrated('river', false, 0.9)).toBeNull();
     // Persons' river bets are value-heavy: a raw half is worth well under a half.
     expect(omahaFacingEquityCalibrated('river', true, 0.5)!).toBeLessThan(0.35);
+  });
+});
+
+describe('omahaFacingBetIsPricedByEquity: provenance', () => {
+  it('every constant is fitted on public information; hidden cards only grade', () => {
+    expect(OMAHA_FACING_EQUITY_PROVENANCE.calibration).toMatch(/^public: /);
+    expect(OMAHA_FACING_EQUITY_PROVENANCE.calibration).toMatch(/revealed at showdown/);
+    expect(OMAHA_FACING_EQUITY_PROVENANCE.realization).toMatch(/^public: /);
+    expect(OMAHA_FACING_EQUITY_PROVENANCE.hiddenCards).toMatch(/no constant/);
   });
 });
 

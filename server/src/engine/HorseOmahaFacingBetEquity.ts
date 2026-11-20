@@ -1,15 +1,16 @@
 /**
  * omahaFacingBetIsPricedByEquity (default OFF; EMERG lane FACING, 2026-11-19).
  *
- * PLO4/PLO5 cash, high only, one board, postflop. The Horse faces a bet or a
+ * PLO4/PLO5/PLO6 cash, high only, one board, postflop. The Horse faces a bet or a
  * raise whose last aggressor is a person, and the node's final answer is a
  * fold. The fold stands only when the call does not pay: the Horse's showdown
  * equity, recomputed here (exactly two hole cards and three board cards,
  * card-seeded Monte Carlo of OMAHA_FACING_EQUITY_SAMPLES runouts against one
  * holding for every live opponent), mapped through the street calibration
- * measured against persons' REAL cards in the 48-hour dataset (fit on Nov 18,
- * held out on Nov 19), times the street realization measured from the
- * Horses' own flop and turn calls, must beat the price
+ * fitted on PUBLIC information only (cards revealed at showdown; fit on Nov
+ * 18, held out on Nov 19; OMAHA_FACING_EQUITY_PROVENANCE), times the street
+ * realization measured from the Horses' own flop and turn calls, must beat
+ * the price
  * paid / (pot + paid) by the measured margin. Otherwise the call replaces the
  * fold. It never changes a check, a call, a bet or a raise, so a raise the
  * node already chose is kept.
@@ -25,7 +26,7 @@ import { scoreOmahaHi } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 
-export const OMAHA_FACING_EQUITY_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+export const OMAHA_FACING_EQUITY_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
 /** Runouts per verdict: SE <= 0.5 / sqrt(600) = 0.020 on the raw share. */
 export const OMAHA_FACING_EQUITY_SAMPLES = 600;
 /** More live opponents than this: no verdict (the fold stands). */
@@ -33,9 +34,10 @@ export const OMAHA_FACING_EQUITY_FIELD_MAX = 5;
 
 type Street = 'flop' | 'turn' | 'river';
 /**
- * Calibration knots [raw, true] by street and heads-up/multiway: the raw
- * share against random holdings mapped to the measured share against the
- * persons' real cards in the same spots (Nov 18 fit; CONSTANTS.md).
+ * Calibration knots [raw, calibrated] by street: the raw share against
+ * random holdings mapped to the share against hands revealed at showdown
+ * (public information only; Nov 18 fit; CONSTANTS.md). River multiway had
+ * too few revealed spots: no verdict.
  */
 export const OMAHA_FACING_EQUITY_CALIBRATION: Readonly<
   Record<
@@ -45,66 +47,118 @@ export const OMAHA_FACING_EQUITY_CALIBRATION: Readonly<
 > = {
   flop: {
     hu: [
-      [0.203, 0.191],
-      [0.303, 0.252],
-      [0.407, 0.312],
-      [0.495, 0.4],
-      [0.596, 0.489],
-      [0.715, 0.59],
-      [0.869, 0.783],
+      [0.292, 0.169],
+      [0.436, 0.339],
+      [0.583, 0.457],
+      [0.715, 0.559],
+      [0.945, 0.898],
     ],
     mw: [
-      [0.107, 0.085],
-      [0.199, 0.17],
-      [0.298, 0.25],
-      [0.399, 0.292],
-      [0.5, 0.376],
-      [0.6, 0.518],
-      [0.985, 0.975],
+      [0.292, 0.169],
+      [0.436, 0.339],
+      [0.583, 0.457],
+      [0.715, 0.559],
+      [0.945, 0.898],
     ],
   },
   turn: {
     hu: [
-      [0.214, 0.089],
-      [0.302, 0.289],
-      [0.401, 0.318],
-      [0.5, 0.381],
-      [0.602, 0.486],
-      [0.714, 0.614],
-      [0.86, 0.658],
+      [0.381, 0.239],
+      [0.572, 0.363],
+      [0.729, 0.594],
+      [0.912, 0.779],
     ],
     mw: [
-      [0.09, 0.047],
-      [0.204, 0.177],
-      [0.293, 0.232],
-      [0.39, 0.349],
-      [0.996, 0.997],
+      [0.381, 0.239],
+      [0.572, 0.363],
+      [0.729, 0.594],
+      [0.912, 0.779],
     ],
   },
   river: {
     hu: [
-      [0.059, 0.0],
-      [0.261, 0.1],
-      [0.409, 0.176],
-      [0.492, 0.289],
-      [0.595, 0.412],
-      [0.735, 0.422],
-      [0.877, 0.571],
+      [0.3, 0.214],
+      [0.4, 0.25],
+      [0.5, 0.286],
+      [0.6, 0.357],
+      [0.7, 0.464],
+      [0.8, 0.607],
+      [0.9, 0.679],
     ],
     mw: [],
   },
 };
+/**
+ * PLO6 (owner 2026-11-19 8:16 PM: same rules for all PLO games): its own
+ * public-only fit, each knot shrunk to the PLO4/PLO5 knot at the same raw
+ * share by n / (n + 20) revealed spots, realization by n / (n + 50) calls.
+ * The PLO6 river had 6 revealed spots (fewer than 20): no verdict, the fold
+ * stands (graded offline, the shrunk river verdict lost; CONSTANTS.md).
+ */
+export const OMAHA_FACING_EQUITY_CALIBRATION_PLO6: typeof OMAHA_FACING_EQUITY_CALIBRATION = {
+  flop: {
+    hu: [
+      [0.3, 0.206],
+      [0.45, 0.362],
+      [0.6, 0.484],
+      [0.75, 0.608],
+      [0.9, 0.823],
+    ],
+    mw: [
+      [0.3, 0.206],
+      [0.45, 0.362],
+      [0.6, 0.484],
+      [0.75, 0.608],
+      [0.9, 0.823],
+    ],
+  },
+  turn: {
+    hu: [
+      [0.3, 0.216],
+      [0.45, 0.254],
+      [0.6, 0.362],
+      [0.75, 0.581],
+      [0.9, 0.764],
+    ],
+    mw: [
+      [0.3, 0.216],
+      [0.45, 0.254],
+      [0.6, 0.362],
+      [0.75, 0.581],
+      [0.9, 0.764],
+    ],
+  },
+  river: { hu: [], mw: [] },
+};
+export const OMAHA_FACING_EQUITY_REALIZATION_PLO6: Readonly<Record<Street, number>> = {
+  flop: 0.613,
+  turn: 0.752,
+  river: 1,
+};
+/**
+ * Where every constant comes from (lead decision 2026-11-19: live inputs are
+ * public information only). Hidden hole cards were used only to grade the
+ * finished rule offline on the held-out day, never to fit a constant.
+ */
+export const OMAHA_FACING_EQUITY_PROVENANCE = Object.freeze({
+  calibration:
+    "public: flop/turn from opponents whose cards were revealed at showdown (weighted by the public reveal rate per street and raw band); river from the persons' river betting range revealed at showdown (Horse-called heads-up river bets, the bettor's hand percentile on its board)",
+  realization:
+    "public: chips the Horses' flop and turn calls won back (table results) over the calibrated public equity",
+  hiddenCards: 'offline grading of the held-out day only; no constant',
+  fit: 'Nov 18 Chicago; held out Nov 19 Chicago',
+} as const);
 /** Measured realization of the all-in share after a call (river: 1, no later street). */
 export const OMAHA_FACING_EQUITY_REALIZATION: Readonly<Record<Street, number>> = {
-  flop: 0.463,
-  turn: 0.541,
+  flop: 0.486,
+  turn: 0.64,
   river: 1,
 };
 /** Measured margin over the price (calibration standard error, CONSTANTS.md). */
 export const OMAHA_FACING_EQUITY_MARGIN: Readonly<Record<Street, number>> = {
-  flop: 0.02,
-  turn: 0.04,
-  river: 0.08,
+  flop: 0.031,
+  turn: 0.047,
+  river: 0.087,
 };
 
 const RANKS: readonly string[] = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
@@ -112,6 +166,7 @@ const SUITS: readonly string[] = ['clubs', 'diamonds', 'hearts', 'spades'];
 const key = (c: Card): string => `${c.rank}${c.suit}`;
 
 export interface OmahaFacingEquitySpot {
+  variant: string;
   street: Street;
   paid: number;
   price: number;
@@ -187,7 +242,14 @@ export function omahaFacingEquitySpot(
     ).length;
     if (opponents < 1 || opponents > OMAHA_FACING_EQUITY_FIELD_MAX) return null;
     const paid = Math.min(player.stack, toCall);
-    return { street, paid, price: paid / (gs.pot + paid), opponents, bettorSeat: faced.bettorSeat };
+    return {
+      variant,
+      street,
+      paid,
+      price: paid / (gs.pot + paid),
+      opponents,
+      bettorSeat: faced.bettorSeat,
+    };
   } catch {
     return null;
   }
@@ -292,9 +354,12 @@ function interpolate(knots: readonly (readonly [number, number])[], x: number): 
 export function omahaFacingEquityCalibrated(
   street: Street,
   headsUp: boolean,
-  raw: number
+  raw: number,
+  variant: string = 'plo5'
 ): number | null {
-  const cell = OMAHA_FACING_EQUITY_CALIBRATION[street];
+  const cell = (
+    variant === 'plo6' ? OMAHA_FACING_EQUITY_CALIBRATION_PLO6 : OMAHA_FACING_EQUITY_CALIBRATION
+  )[street];
   const knots = headsUp ? cell.hu : cell.mw;
   if (knots.length < 3) return null;
   return Math.max(0, Math.min(1, interpolate(knots, raw)));
@@ -307,9 +372,18 @@ export function omahaFacingEquityVerdict(
 ): OmahaFacingEquityVerdict | null {
   const raw = omahaFacingRawEquity(hole, board, spot.opponents);
   if (raw === null) return null;
-  const calibrated = omahaFacingEquityCalibrated(spot.street, spot.opponents === 1, raw);
+  const calibrated = omahaFacingEquityCalibrated(
+    spot.street,
+    spot.opponents === 1,
+    raw,
+    spot.variant
+  );
   if (calibrated === null) return null;
-  const realized = calibrated * OMAHA_FACING_EQUITY_REALIZATION[spot.street];
+  const realization =
+    spot.variant === 'plo6'
+      ? OMAHA_FACING_EQUITY_REALIZATION_PLO6
+      : OMAHA_FACING_EQUITY_REALIZATION;
+  const realized = calibrated * realization[spot.street];
   const margin = OMAHA_FACING_EQUITY_MARGIN[spot.street];
   return {
     raw,
