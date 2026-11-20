@@ -1293,6 +1293,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayIsPricedInTournaments',
+    "HORSE DECISIONS lane 2026-11-19, builder F-FIX (auditor F, PLO tournaments against people, archive plo-handoff-review-01a1cbbd/hvh48-audit-01TLQer7J/F-plo-tournament: class 2, preflop multiway call-offs with dead equity, 6 CLEAR + 3 LIKELY, 19.5 bb; class 3, multiway bets that lose to the check, 3 CLEAR + 3 LIKELY; owner 2026-11-17 11:49: no blanket rules, every decision by ranges, equity, price and EV). Omaha tournaments only (PLO4/PLO5/PLO6/PLO8 pot limit, one board, no bomb pot); default off (read === true). Preflop: a continue (call, raise or all in) facing a bet with two or more opponents already in and the call leaving no more than the pot behind is priced by the Horse's joint Monte Carlo share of the pot against one holding from each opponent's range (the top width by the engine's preflop percentile, the width from his most aggressive preflop action: limp 60%, call 40%, open 32%, short shove 45%, 3-bet 12%, 4-bet 5%), PLO8 split hi/lo with ties split (quartering priced); EV = share x pot - (1 - share) x call x bf with bf the engine's pay-jump bubble factor (payJumpBubbleFactor; 1 where it plays chip EV); folded when EV is below zero by more than the sample's standard error, never a fold made a call. Postflop: a multiway own bet (nothing to call, two or more live opponents) is priced beside the check on the same deals: EV(check) = share against every opponent x pot, EV(bet) = the pot when every opponent folds, else the share against the opponents who continue (two pair or better, a hole-card pair at or above the second board rank, a flush draw, eight straight outs, in PLO8 a made low or nut-low draw; on earlier streets his line keeps the same class or a 20% float) x the pot after the calls, less the chips matched; checked when worth less than the check by 2% of the pot, never a check made a bet. HorseOmahaMultiwayPricedInTournaments.ts; HorseLogic wager_rules (outermost) and the path outside the graph. Off: byte-identical. No league yet; do not switch on without a WIN.",
+    'V94'
+  ),
+  flag(
     'omahaMadeHandBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the spot where the made-hand defence (omahaBeatenMadeHandDefense, or omahaMadeHandDefenseVsValueLeader against measured value leaders) turns a turn bet into the fresh card out of position or a thin river value bet into a check, the wager is priced beside the check against every live opponent whatever his label (HorseOmahaPricedRules.omahaPricedBet, the card-impact model, the Horse cards removed from every range): it stands when it is priced at least at the check, else it is checked. Unpriceable spots keep the wager. With it on the defence bet half does not decide in this scope.',
     'V94'
@@ -5552,6 +5557,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_mw_tourney_call_off_folded',
+    'HorseLogic wager_rules (HorseOmahaMultiwayPricedInTournaments, omahaMultiwayIsPricedInTournaments)',
+    'an Omaha tournament multiway preflop call-off was priced below zero against the callers ranges (with the pay-jump bubble factor) and became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_tourney_call_off_kept',
+    'HorseLogic wager_rules (HorseOmahaMultiwayPricedInTournaments, omahaMultiwayIsPricedInTournaments)',
+    'an Omaha tournament multiway preflop call-off was priced and kept (EV at or above zero within the sample error)',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_tourney_bet_checked',
+    'HorseLogic wager_rules (HorseOmahaMultiwayPricedInTournaments, omahaMultiwayIsPricedInTournaments)',
+    'an Omaha tournament multiway own bet was priced below the check against the continuing opponents jointly by the margin and became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_tourney_bet_kept',
+    'HorseLogic wager_rules (HorseOmahaMultiwayPricedInTournaments, omahaMultiwayIsPricedInTournaments)',
+    'an Omaha tournament multiway own bet was priced beside the check and kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_tourney_unpriced',
+    'HorseLogic wager_rules (HorseOmahaMultiwayPricedInTournaments, omahaMultiwayIsPricedInTournaments)',
+    'an Omaha tournament multiway call-off or own bet in scope could not be priced (too few deals drawn); the decision given stands',
+    'V94'
+  ),
+  receipt(
     'omaha_small_bet_paired_board_press_bet',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
     "on a paired turn or river with less than a full house against a measured value leader, the card-impact press the label guard (conflict sweep S4) would have withheld was priced beside the check and the small bets and beat the owner's decision by the margin; it is the final action",
@@ -6762,6 +6797,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide (HorseHoldemPremiumAggression)',
     'NLH fold after the horse own 4-bet was re-raised turned into a call (AA/KK jam)',
     'Hold em premium aggression'
+  ),
+  receipt(
+    'tournament_crumbs_call_floor',
+    'HorseLogic.decide (HorseTournamentCrumbsCallFloor)',
+    'Pot-limit Omaha tournament preflop fold of the last 2 big blinds or less, the call all in, at a price no worse than 0.34 and no worse than an average hand share 1/(opponents+1), turned into the call (the V11 guard crumbs line applied after the class gate and the Omaha layers; plain bug fix 2026-11-19, auditor F hands 84233985, 6e17fcee, 83b469ee)',
+    'Tournament crumbs call floor'
   ),
   receipt(
     'short_all_in_call_floor',

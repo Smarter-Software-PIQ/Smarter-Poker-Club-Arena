@@ -332,6 +332,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRaiseEvCountsLossesOnce',
   'omahaSampledRaiseIsPricedAtEverySize',
   'omahaBluffIsPricedAgainstTheTarget',
+  // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
+  'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
   'omahaTurnSetSizeIsPriced',
   'omahaBlockerBluffIsPriced',

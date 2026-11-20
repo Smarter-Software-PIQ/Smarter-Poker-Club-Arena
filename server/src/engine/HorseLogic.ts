@@ -606,7 +606,18 @@ import { tournamentShoveDiscipline } from './HorseTournamentShoveDiscipline.js';
 import {
   pairedBoardFoldYieldsToShortAllIn,
   shortAllInCallFloor,
+  shortAllInSpot,
 } from './HorseShortAllInCallFloor.js';
+import {
+  tournamentCrumbsCallFloor,
+  tournamentCrumbsSpot,
+} from './HorseTournamentCrumbsCallFloor.js';
+import {
+  omahaMwBetSpot,
+  omahaMwBetVerdict,
+  omahaMwCallOffSpot,
+  omahaMwCallOffVerdict,
+} from './HorseOmahaMultiwayPricedInTournaments.js';
 import {
   classifyTournamentPreflopBranch,
   tournamentMZone,
@@ -4091,6 +4102,15 @@ export interface HorseDecideOpts {
    * a bet are priced against a raise to each legal size on the sampled spot (omahaPricedSampledRaise at every
    * size) with the same measured fold. Off: byte-identical. Default OFF; no league or replay yet. */
   omahaBluffIsPricedAgainstTheTarget?: boolean;
+  /** HORSE DECISIONS lane 2026-11-19 (auditor F, PLO tournaments; builder F-FIX): opt-in (`=== true`).
+   * In Omaha tournaments (PLO4/PLO5/PLO6/PLO8 pot limit, one board) a preflop multiway call-off (two or
+   * more opponents in, the call leaving no more than the pot behind) is priced by the Horse's joint
+   * Monte Carlo share against the callers' ranges (hi/lo split with quartering in PLO8) against the price
+   * with the engine's pay-jump bubble factor, and folded when priced below; a multiway own bet postflop
+   * is priced beside the check against the opponents who continue, jointly, and checked when it is worth
+   * less (HorseOmahaMultiwayPricedInTournaments.ts). Off or unset: byte-identical. Default OFF; no league
+   * result yet. */
+  omahaMultiwayIsPricedInTournaments?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -8786,7 +8806,83 @@ function shortAllInCallFloorOutsideGraph(
   gs: HorseGameStateV2
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? shortAllInCallFloor(decision, player, gs, undefined)
+    ? tournamentCrumbsCallFloor(shortAllInCallFloor(decision, player, gs, undefined), player, gs)
+    : decision;
+}
+
+/**
+ * omahaMultiwayIsPricedInTournaments (default OFF, read `=== true`;
+ * HorseOmahaMultiwayPricedInTournaments.ts): the outermost Omaha tournament
+ * pricing of HorseLogic's `wager_rules` node (and of the path outside the
+ * policy graph), after every owner rule and floor. Preflop, a multiway
+ * call-off priced below zero becomes a fold; postflop, a multiway own bet
+ * priced below the check becomes a check. Never makes a call, a bet or a
+ * raise. A spot the short all-in floor or the crumbs floor owns is left to
+ * them. Off: the decision itself (the same object).
+ */
+function omahaMultiwayIsPricedInTournamentsRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaMultiwayIsPricedInTournaments !== true) return decision;
+  const tele = telemetryOn(opts);
+  try {
+    if (String(gs.stage ?? '') === 'preflop') {
+      const spot = omahaMwCallOffSpot(player, gs, decision);
+      if (!spot) return decision;
+      if (shortAllInSpot(player, gs) !== null || tournamentCrumbsSpot(player, gs) !== null)
+        return decision;
+      const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
+      let bf: number | null = null;
+      try {
+        bf = payJumpBubbleFactor(gs, player.stack / bb, player.user_id, spot.call);
+      } catch {
+        bf = null;
+      }
+      const verdict = omahaMwCallOffVerdict(player, gs, decision, bf);
+      if (verdict === null) {
+        if (tele) noteFire('omaha_mw_tourney_unpriced');
+        return decision;
+      }
+      if (verdict.action === 'keep') {
+        if (tele) noteFire('omaha_mw_tourney_call_off_kept');
+        return decision;
+      }
+      if (tele) noteFire('omaha_mw_tourney_call_off_folded');
+      const folded: HorseDecision = { ...decision, action: 'fold' };
+      delete folded.amount;
+      return folded;
+    }
+    if (!omahaMwBetSpot(player, gs, decision)) return decision;
+    const verdict = omahaMwBetVerdict(player, gs, decision);
+    if (verdict === null) {
+      if (tele) noteFire('omaha_mw_tourney_unpriced');
+      return decision;
+    }
+    if (verdict.action === 'keep') {
+      if (tele) noteFire('omaha_mw_tourney_bet_kept');
+      return decision;
+    }
+    if (tele) noteFire('omaha_mw_tourney_bet_checked');
+    const checked: HorseDecision = { ...decision, action: 'check' };
+    delete checked.amount;
+    return checked;
+  } catch {
+    if (tele) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+function omahaMultiwayIsPricedInTournamentsOutsideGraph(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  return decision.policyGraph === undefined
+    ? omahaMultiwayIsPricedInTournamentsRule(decision, player, gs, opts)
     : decision;
 }
 
@@ -15230,29 +15326,34 @@ export class HorseLogic {
         setEquityDepth(opts.deepEquity);
         try {
           return omahaSettleReceipts(
-            omahaRaiseNeedsNutsOutsideGraph(
-              shortAllInCallFloorOutsideGraph(
-                holdemPremiumAggressionOutsideGraph(
-                  pairedBoardFoldOutsideGraph(
-                    this.decideInternal(
+            omahaMultiwayIsPricedInTournamentsOutsideGraph(
+              omahaRaiseNeedsNutsOutsideGraph(
+                shortAllInCallFloorOutsideGraph(
+                  holdemPremiumAggressionOutsideGraph(
+                    pairedBoardFoldOutsideGraph(
+                      this.decideInternal(
+                        player,
+                        gameState,
+                        style,
+                        mods,
+                        opts,
+                        rangeCapture,
+                        planReadCapture
+                      ),
                       player,
                       gameState,
-                      style,
-                      mods,
-                      opts,
-                      rangeCapture,
-                      planReadCapture
+                      opts
                     ),
                     player,
                     gameState,
                     opts
                   ),
                   player,
-                  gameState,
-                  opts
+                  gameState
                 ),
                 player,
-                gameState
+                gameState,
+                opts
               ),
               player,
               gameState,
@@ -15264,29 +15365,34 @@ export class HorseLogic {
         }
       }
       return omahaSettleReceipts(
-        omahaRaiseNeedsNutsOutsideGraph(
-          shortAllInCallFloorOutsideGraph(
-            holdemPremiumAggressionOutsideGraph(
-              pairedBoardFoldOutsideGraph(
-                this.decideInternal(
+        omahaMultiwayIsPricedInTournamentsOutsideGraph(
+          omahaRaiseNeedsNutsOutsideGraph(
+            shortAllInCallFloorOutsideGraph(
+              holdemPremiumAggressionOutsideGraph(
+                pairedBoardFoldOutsideGraph(
+                  this.decideInternal(
+                    player,
+                    gameState,
+                    style,
+                    mods,
+                    opts,
+                    rangeCapture,
+                    planReadCapture
+                  ),
                   player,
                   gameState,
-                  style,
-                  mods,
-                  opts,
-                  rangeCapture,
-                  planReadCapture
+                  opts
                 ),
                 player,
                 gameState,
                 opts
               ),
               player,
-              gameState,
-              opts
+              gameState
             ),
             player,
-            gameState
+            gameState,
+            opts
           ),
           player,
           gameState,
@@ -16817,10 +16923,14 @@ export class HorseLogic {
       );
       if (preflopAuthority) prePremium.preflopAuthority = preflopAuthority;
       const ruled = holdemPremiumAggression(prePremium, player, gs, opts);
-      const floored = shortAllInCallFloor(ruled, player, gs, () =>
+      const shortFloored = shortAllInCallFloor(ruled, player, gs, () =>
         shortAllInDeadCheckEquity(player, gs, vi)
       );
-      if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
+      if (shortFloored !== ruled && tele) noteFire('short_all_in_call_floor');
+      // Plain bug fix 2026-11-19 (auditor F): the V11 guard's crumbs line, after the class gate and the
+      // Omaha layers that own those folds (HorseTournamentCrumbsCallFloor.ts).
+      const floored = tournamentCrumbsCallFloor(shortFloored, player, gs);
+      if (floored !== shortFloored && tele) noteFire('tournament_crumbs_call_floor');
       const checkRaised = riverBluffCheckRaise(floored, player, gs, opts);
       const finalWager = callLargeRiverBoatWager(
         checkRaised,
@@ -16924,20 +17034,25 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: bluffPriced(
-            publicSized(
-              omahaOwnerRuledFinal(
-                omahaDrawRules(
-                  onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+          decision: omahaMultiwayIsPricedInTournamentsRule(
+            bluffPriced(
+              publicSized(
+                omahaOwnerRuledFinal(
+                  omahaDrawRules(
+                    onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+                    player,
+                    gs,
+                    opts
+                  ),
                   player,
                   gs,
                   opts
-                ),
-                player,
-                gs,
-                opts
+                )
               )
-            )
+            ),
+            player,
+            gs,
+            opts
           ),
         };
       }
@@ -16953,14 +17068,20 @@ export class HorseLogic {
       // a check, so an owner-ruled check or fold is never its to change.
       // plo6FacingBetIsPriced (default off): the outermost facing-bet answer in PLO6 cash, after every
       // owner of this node (a fold stands only where the call is not priced; the river answer is priced).
+      // omahaMultiwayIsPricedInTournaments (default off): outermost, after the public size.
       return {
-        decision: bluffPriced(
-          publicSized(
-            plo6FacingBetIsPricedRule(
-              omahaTurnRiverRaiseNeedsNutsRule(
-                omahaOwnerRuledFinal(
-                  omahaStrongHandSlowplayMixRule(
-                    omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+        decision: omahaMultiwayIsPricedInTournamentsRule(
+          bluffPriced(
+            publicSized(
+              plo6FacingBetIsPricedRule(
+                omahaTurnRiverRaiseNeedsNutsRule(
+                  omahaOwnerRuledFinal(
+                    omahaStrongHandSlowplayMixRule(
+                      omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+                      player,
+                      gs,
+                      opts
+                    ),
                     player,
                     gs,
                     opts
@@ -16972,12 +17093,12 @@ export class HorseLogic {
                 player,
                 gs,
                 opts
-              ),
-              player,
-              gs,
-              opts
+              )
             )
-          )
+          ),
+          player,
+          gs,
+          opts
         ),
       };
     }).decision;
