@@ -2674,6 +2674,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverFullHouseValue: true, holdemRiverFullHouseValueIsPriced: true },
     b: { holdemRiverFullHouseValue: true },
   },
+  // 2026-11-19 NLH price lane (holdemValueAndCallsArePriced, default OFF, unevaluated): a prices the heads-up
+  // postflop value raise, the facing-bet call, the strong made hand's bet or check and the river bet against the
+  // bettor's line range by EV; b keeps the brain's lines (the random value-raise gate, the V11 gate, the slowplay
+  // mix, the block bets). Declared, not run.
+  {
+    name: 'nlh_holdem_value_and_calls_are_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemValueAndCallsArePriced: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely

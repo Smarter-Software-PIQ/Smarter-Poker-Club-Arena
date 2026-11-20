@@ -2267,6 +2267,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemValueAndCallsArePriced',
+    "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
+    'V94'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -8441,6 +8446,72 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_full_house_lead_unpriced',
     'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
     "a qualifying no-limit hold'em river full house with more than one opponent, or no population cell for the table: nothing priced, the boat keeps the check",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_value_raise_deferred',
+    'HorseLogic decidePostflop value raise (holdemValueAndCallsArePriced)',
+    "a no-limit hold'em value raise facing a wager in scope: the random gate (0.55 x aggression + checkRaiseFreq) is not drawn; the call is returned for the priced reference to compare with every legal raise",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_raise',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    'facing a wager heads-up, a value raise at a legal priced size had the highest value (above fold and call)',
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_call',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "facing a wager heads-up, the call had the highest value against the bettor's line range",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_fold',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "facing a wager heads-up, the fold had the highest value (the call was priced below zero against the bettor's line range)",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_bet',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    'not facing a wager heads-up, a made hand bet at the legal priced size of highest value (above the check, his bet and the check-raise counted)',
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_check',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "not facing a wager heads-up, a made hand's check had the highest value",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_changed',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "the priced decision differs from the brain's (action or amount)",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_unpriced',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "in scope but not priceable (no population cell, an empty range or a pricing error): the brain's decision is kept",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_unpriced_multiway',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "more than one live opponent: nothing priced, the brain's decision is kept",
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_bluff_raise_kept',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    'facing a wager, the brain raised without a made hand (a bluff raise): kept, not priced here',
+    'V94'
+  ),
+  receipt(
+    'holdem_priced_not_value_kept',
+    'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
+    "not facing a wager on the flop or turn, a made hand below half the equity of the bettor's line range: the brain's check or bet is kept",
     'V94'
   ),
   receipt(
