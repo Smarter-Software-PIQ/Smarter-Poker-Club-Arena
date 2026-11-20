@@ -3,6 +3,7 @@
  * loads is public, PLO6 never enters, the wired decision is deterministic and legal. Constructed
  * spots only (no recorded hole cards).
  */
+import { OMAHA_MATH_CORE_ALLOWED_PROVENANCE } from './OmahaMathCoreTables.js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -101,8 +102,12 @@ describe('COREWIRE: provenance law on every table the core loads', () => {
       const text = typeof prov === 'string' ? prov : JSON.stringify(prov ?? null);
       if (f === 'publicTables.v3.json') continue; // per-cell provenance, law in OmahaMathCore.test.ts
       if (f === 'preflopRealization.v1.json') {
-        // built from the Horses' own unshown cards: not admitted, and the core does not read it
-        expect(PREFLOP_REALIZATION_ADMITTED).toBe(false);
+        // lead ruling 2026-11-19: the Horses' own cards in their own past hands (own_cards_history), admitted;
+        // nothing about any opponent's hidden cards
+        expect((prov as { class?: string }).class).toBe('own_cards_history');
+        expect(OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has('own_cards_history')).toBe(true);
+        expect(text).toMatch(/No opponent hole cards are read/);
+        expect(PREFLOP_REALIZATION_ADMITTED).toBe(true);
         continue;
       }
       if (f === 'preflopStrength.v1.json') {
@@ -116,10 +121,12 @@ describe('COREWIRE: provenance law on every table the core loads', () => {
       expect(['public_actions', 'showdown_only']).toContain(prov);
     }
   });
-  it('the core never reads preflop realization while it is not admitted', () => {
+  it('preflop realization is read (admitted, own_cards_history) and never moves a postflop decision', () => {
     const s = spot({ hole: 'AsAhKsQh', board: '', street: 'preflop', toCall: 4, pot: 7 });
     const { receipt } = decideOmahaMathCore(s, fixed);
-    expect(receipt.realization.value).toBe(1);
+    expect(Number.isFinite(receipt.realization.value)).toBe(true);
+    const post = decideOmahaMathCore(spot({ hole: 'AsAhKsQh', board: '9c6h2h' }), fixed).receipt;
+    expect(post.realization.source).not.toMatch(/preflop realization/);
   });
 });
 

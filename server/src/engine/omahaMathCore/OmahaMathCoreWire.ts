@@ -74,12 +74,12 @@ export function selectionScore(a: { ev: number; se: number | null }): number {
 }
 
 /**
- * Provenance law: preflopRealization.v1.json (lane PREFLOP-EV) is built from the Horses' own hole cards
- * over hands where those cards were never shown at the table. That is neither public_actions nor
- * showdown_only, so the core does not read it (preflop realization = 1) until the lead admits it. The
- * two PREFLOP-EV tests that assert realization-dependent choices run only when this is true.
+ * Provenance (LEAD RULING 2026-11-19, relayed to COREWIRE-2): preflopRealization.v1.json (lane PREFLOP-EV) is built
+ * from the Horses' own hole cards in their own past hands: information a player legitimately has about itself; it
+ * holds nothing about any opponent's hidden cards. Its provenance class is "own_cards_history" (allowed list,
+ * OmahaMathCoreTables OMAHA_MATH_CORE_ALLOWED_PROVENANCE). Admitted; preflop stays behind omahaMathCorePreflop.
  */
-export const PREFLOP_REALIZATION_ADMITTED = false;
+export const PREFLOP_REALIZATION_ADMITTED = true;
 
 /**
  * Test hook: the core's one-step fallback path (planValue off) is where lane DRAWS' later-street term

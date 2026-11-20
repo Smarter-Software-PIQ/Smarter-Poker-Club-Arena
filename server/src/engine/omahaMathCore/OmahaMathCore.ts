@@ -56,6 +56,7 @@ import {
   PREFLOP_GAMES,
   behindResponse,
   preflopOpponentModel,
+  preflopRealization,
   reorderPoolPreflop,
   sliceOf,
   type PreflopPublicAction,
@@ -63,6 +64,7 @@ import {
 import type { PublicStreetAction } from './OmahaMathCoreRangeTrack.js';
 import { RAISE_FOLD_CREDIT_MIN_N } from './OmahaMathCoreValue.js';
 import {
+  PREFLOP_REALIZATION_ADMITTED,
   horseDefenceFold,
   selectionScore,
   wiredBetRate as betRate,
@@ -601,12 +603,21 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     drawSource = t.source;
     return t;
   };
-  // (preflop realization, provenance law: preflopRealization.v1 is built from Horses' unshown own cards
-  // and is not admitted until the lead rules on it; see repairs/EMERG/COREWIRE.md)
-  const pfReal = (_pot: number, _eff: number, _players: number, _allIn: boolean) => ({
-    value: real,
-    source: realCell.source,
-  });
+  // preflop realization (LEAD RULING 2026-11-19: admitted, provenance own_cards_history: the Horses' own cards in
+  // their own past hands, nothing about any opponent's hidden cards). Preflop stays behind omahaMathCorePreflop.
+  // the realization of the preflop call / check line (the receipt's realization when admitted)
+  let pfRealCallLine: { value: number; source: string } | null = null;
+  const pfReal = (pot: number, eff: number, players: number, allIn: boolean) => {
+    if (!PREFLOP_REALIZATION_ADMITTED) return { value: real, source: realCell.source };
+    try {
+      return preflopRealization(state, pot, eff, players, allIn);
+    } catch (e) {
+      return {
+        value: real,
+        source: `preflop realization error (${(e as Error).message}): ${realCell.source}`,
+      };
+    }
+  };
 
   const foldOf = (
     o: CoreOpponent,
@@ -755,11 +766,18 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       let ev: number;
       let behindNote: string | null = null;
       if ((pfm ? behindPf : behind).length === 0) {
-        ev =
-          realized(callAllIn || street === 'river') *
-            e1.equity *
-            rakeNet(state, P + toCall - uncovered) -
-          toCall;
+        let rz = realized(callAllIn || street === 'river');
+        if (pfm && !callAllIn) {
+          // preflop, nobody behind: the measured realization of this call line (admitted own_cards_history)
+          const effC = Math.min(
+            stack - toCall,
+            Math.max(0, ...live.map((o) => o.stack - Math.max(0, state.currentBet - o.bet)))
+          );
+          const rr = pfReal(P + toCall - uncovered, effC, live.length + 1, effC <= 0.005);
+          pfRealCallLine = rr;
+          rz = rr.value;
+        }
+        ev = rz * e1.equity * rakeNet(state, P + toCall - uncovered) - toCall;
       } else if (pfm) {
         // preflop with players still to act (lane PREFLOP-EV): each folds / calls / raises at his public
         // frequency for his node; a raise behind (iso / squeeze) is priced one step deep
@@ -803,6 +821,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         const rN = callAllIn
           ? { value: 1, source: 'all-in' }
           : pfReal(potN, effN, basePf.length + 1 + behindPf.length, effN <= 0.005);
+        pfRealCallLine = rN;
         const evNoRaise = rN.value * e2.equity * rakeNet(state, potN) - toCall;
         let evRaised = -toCall;
         if (worst && !callAllIn && pNoRaise < 1 - 1e-6) {
@@ -1180,7 +1199,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       switch: 'omahaMathCore',
       tables: OMAHA_MATH_CORE_TABLE_VERSION,
       street,
-      realization: { value: real, source: realCell.source },
+      realization: pfRealCallLine ?? { value: real, source: realCell.source },
       price: toCall > 0 ? round2((toCall / (P + toCall)) * 1e4) / 1e4 : 0,
       pot: P,
       toCall,
