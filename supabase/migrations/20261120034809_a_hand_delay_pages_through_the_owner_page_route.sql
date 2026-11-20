@@ -40,6 +40,7 @@
 -- chip, seat or ledger row. No hot-table lock (ca_owner_page_state has 8
 -- rows; no foreign key).
 --
+-- @probe-exempt: public.fn_ca_a_real_alert_reaches_the_owner trigger function on operational_alert_events, not callable directly; the static plpgsql_check gate and scripts/ci/test-hand-gap-watch.py exercise it
 -- @live-proof: (SELECT strpos(pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure), 'fn_raise_notification') = 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure), 'paged_via') > 0 AND public.fn_ca_owner_page_kind('financial-alerts-backfill', 'fn_ca_hand_gap_watch', 'critical') = 'hand_delay' AND public.fn_ca_owner_page_kind('cutover-readiness-watch', 'CutoverReadinessAtRisk', 'critical') = 'cutover_readiness' AND EXISTS (SELECT 1 FROM public.ca_owner_page_state WHERE kind = 'hand_delay') AND strpos(pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure), 'WHEN ''hand_delay'' THEN ''Unintended Delay Between Hands''') > 0)
 
 BEGIN;
