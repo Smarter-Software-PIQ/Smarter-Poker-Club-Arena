@@ -1,0 +1,550 @@
+{
+  "cells": {
+    "flop|all|allin|hu|person": {
+      "fold": 0.1875,
+      "n": 16
+    },
+    "flop|all|half|hu|horse": {
+      "fold": 0.3125,
+      "n": 48
+    },
+    "flop|all|half|hu|person": {
+      "fold": 0.3694,
+      "n": 157
+    },
+    "flop|all|half|mw|horse": {
+      "fold": 0.5897,
+      "n": 117
+    },
+    "flop|all|half|mw|person": {
+      "fold": 0.5325,
+      "n": 77
+    },
+    "flop|all|pot|hu|horse": {
+      "fold": 0.6154,
+      "n": 65
+    },
+    "flop|all|pot|hu|person": {
+      "fold": 0.5062,
+      "n": 81
+    },
+    "flop|all|pot|mw|horse": {
+      "fold": 0.7576,
+      "n": 33
+    },
+    "flop|all|pot|mw|person": {
+      "fold": 0.4375,
+      "n": 16
+    },
+    "flop|all|small|hu|horse": {
+      "fold": 0.3413,
+      "n": 126
+    },
+    "flop|all|small|hu|person": {
+      "fold": 0.1923,
+      "n": 338
+    },
+    "flop|all|small|mw|horse": {
+      "fold": 0.5482,
+      "n": 166
+    },
+    "flop|all|small|mw|person": {
+      "fold": 0.3077,
+      "n": 78
+    },
+    "flop|all|twothirds|hu|horse": {
+      "fold": 0.5846,
+      "n": 65
+    },
+    "flop|all|twothirds|hu|person": {
+      "fold": 0.4118,
+      "n": 102
+    },
+    "flop|all|twothirds|mw|horse": {
+      "fold": 0.8226,
+      "n": 62
+    },
+    "flop|all|twothirds|mw|person": {
+      "fold": 0.6176,
+      "n": 34
+    },
+    "flop|paired_rainbow|half|mw|horse": {
+      "fold": 0.5833,
+      "n": 12
+    },
+    "flop|paired_rainbow|half|mw|person": {
+      "fold": 0.5455,
+      "n": 11
+    },
+    "flop|paired_rainbow|small|hu|horse": {
+      "fold": 0.2727,
+      "n": 11
+    },
+    "flop|paired_rainbow|small|hu|person": {
+      "fold": 0.2857,
+      "n": 28
+    },
+    "flop|paired_rainbow|small|mw|horse": {
+      "fold": 0.7143,
+      "n": 14
+    },
+    "flop|paired_rainbow|twothirds|hu|person": {
+      "fold": 0.6667,
+      "n": 15
+    },
+    "flop|paired_rainbow|twothirds|mw|horse": {
+      "fold": 0.9,
+      "n": 10
+    },
+    "flop|paired_twotone|half|hu|person": {
+      "fold": 0.4211,
+      "n": 19
+    },
+    "flop|paired_twotone|pot|hu|person": {
+      "fold": 0.9,
+      "n": 10
+    },
+    "flop|paired_twotone|small|hu|person": {
+      "fold": 0.32,
+      "n": 25
+    },
+    "flop|paired_twotone|small|mw|horse": {
+      "fold": 0.5,
+      "n": 22
+    },
+    "flop|paired_twotone|small|mw|person": {
+      "fold": 0.4615,
+      "n": 13
+    },
+    "flop|paired_twotone|twothirds|hu|person": {
+      "fold": 0.6923,
+      "n": 13
+    },
+    "flop|paired_twotone|twothirds|mw|horse": {
+      "fold": 0.8333,
+      "n": 12
+    },
+    "flop|unpaired_flush3|half|hu|person": {
+      "fold": 0.6364,
+      "n": 11
+    },
+    "flop|unpaired_flush3|twothirds|mw|horse": {
+      "fold": 0.9286,
+      "n": 14
+    },
+    "flop|unpaired_rainbow|half|hu|horse": {
+      "fold": 0.1,
+      "n": 10
+    },
+    "flop|unpaired_rainbow|half|hu|person": {
+      "fold": 0.303,
+      "n": 33
+    },
+    "flop|unpaired_rainbow|half|mw|horse": {
+      "fold": 0.7083,
+      "n": 24
+    },
+    "flop|unpaired_rainbow|half|mw|person": {
+      "fold": 0.7857,
+      "n": 14
+    },
+    "flop|unpaired_rainbow|pot|hu|horse": {
+      "fold": 0.7308,
+      "n": 26
+    },
+    "flop|unpaired_rainbow|pot|hu|person": {
+      "fold": 0.375,
+      "n": 24
+    },
+    "flop|unpaired_rainbow|small|hu|horse": {
+      "fold": 0.451,
+      "n": 51
+    },
+    "flop|unpaired_rainbow|small|hu|person": {
+      "fold": 0.1345,
+      "n": 119
+    },
+    "flop|unpaired_rainbow|small|mw|horse": {
+      "fold": 0.5088,
+      "n": 57
+    },
+    "flop|unpaired_rainbow|small|mw|person": {
+      "fold": 0.1923,
+      "n": 26
+    },
+    "flop|unpaired_rainbow|twothirds|hu|horse": {
+      "fold": 0.6875,
+      "n": 16
+    },
+    "flop|unpaired_rainbow|twothirds|hu|person": {
+      "fold": 0.3529,
+      "n": 34
+    },
+    "flop|unpaired_rainbow|twothirds|mw|horse": {
+      "fold": 0.7273,
+      "n": 11
+    },
+    "flop|unpaired_twotone|half|hu|horse": {
+      "fold": 0.3333,
+      "n": 27
+    },
+    "flop|unpaired_twotone|half|hu|person": {
+      "fold": 0.3412,
+      "n": 85
+    },
+    "flop|unpaired_twotone|half|mw|horse": {
+      "fold": 0.5278,
+      "n": 72
+    },
+    "flop|unpaired_twotone|half|mw|person": {
+      "fold": 0.4255,
+      "n": 47
+    },
+    "flop|unpaired_twotone|pot|hu|horse": {
+      "fold": 0.5,
+      "n": 24
+    },
+    "flop|unpaired_twotone|pot|hu|person": {
+      "fold": 0.4242,
+      "n": 33
+    },
+    "flop|unpaired_twotone|pot|mw|horse": {
+      "fold": 0.6667,
+      "n": 18
+    },
+    "flop|unpaired_twotone|pot|mw|person": {
+      "fold": 0.3636,
+      "n": 11
+    },
+    "flop|unpaired_twotone|small|hu|horse": {
+      "fold": 0.2593,
+      "n": 54
+    },
+    "flop|unpaired_twotone|small|hu|person": {
+      "fold": 0.205,
+      "n": 161
+    },
+    "flop|unpaired_twotone|small|mw|horse": {
+      "fold": 0.5556,
+      "n": 72
+    },
+    "flop|unpaired_twotone|small|mw|person": {
+      "fold": 0.2941,
+      "n": 34
+    },
+    "flop|unpaired_twotone|twothirds|hu|horse": {
+      "fold": 0.5556,
+      "n": 36
+    },
+    "flop|unpaired_twotone|twothirds|hu|person": {
+      "fold": 0.2581,
+      "n": 31
+    },
+    "flop|unpaired_twotone|twothirds|mw|horse": {
+      "fold": 0.7333,
+      "n": 15
+    },
+    "flop|unpaired_twotone|twothirds|mw|person": {
+      "fold": 0.6364,
+      "n": 11
+    },
+    "river|all|allin|hu|person": {
+      "fold": 0.5385,
+      "n": 26
+    },
+    "river|all|half|hu|person": {
+      "fold": 0.6071,
+      "n": 28
+    },
+    "river|all|pot|hu|horse": {
+      "fold": 0.8235,
+      "n": 51
+    },
+    "river|all|pot|hu|person": {
+      "fold": 0.8286,
+      "n": 105
+    },
+    "river|all|pot|mw|horse": {
+      "fold": 0.4167,
+      "n": 12
+    },
+    "river|all|small|hu|horse": {
+      "fold": 0.5408,
+      "n": 98
+    },
+    "river|all|small|hu|person": {
+      "fold": 0.3961,
+      "n": 154
+    },
+    "river|all|twothirds|hu|horse": {
+      "fold": 0.9048,
+      "n": 21
+    },
+    "river|all|twothirds|hu|person": {
+      "fold": 0.7368,
+      "n": 19
+    },
+    "river|all|twothirds|mw|horse": {
+      "fold": 0.9412,
+      "n": 17
+    },
+    "river|paired_flush3|pot|hu|person": {
+      "fold": 1.0,
+      "n": 13
+    },
+    "river|paired_flush3|small|hu|horse": {
+      "fold": 0.6471,
+      "n": 17
+    },
+    "river|paired_flush3|small|hu|person": {
+      "fold": 0.2917,
+      "n": 24
+    },
+    "river|paired_twotone|half|hu|person": {
+      "fold": 0.5,
+      "n": 12
+    },
+    "river|paired_twotone|pot|hu|horse": {
+      "fold": 0.8125,
+      "n": 16
+    },
+    "river|paired_twotone|pot|hu|person": {
+      "fold": 0.7241,
+      "n": 29
+    },
+    "river|paired_twotone|small|hu|horse": {
+      "fold": 0.3824,
+      "n": 34
+    },
+    "river|paired_twotone|small|hu|person": {
+      "fold": 0.4894,
+      "n": 47
+    },
+    "river|paired_twotone|twothirds|hu|horse": {
+      "fold": 1.0,
+      "n": 10
+    },
+    "river|unpaired_flush3|pot|hu|person": {
+      "fold": 0.8889,
+      "n": 18
+    },
+    "river|unpaired_flush3|small|hu|horse": {
+      "fold": 0.64,
+      "n": 25
+    },
+    "river|unpaired_flush3|small|hu|person": {
+      "fold": 0.439,
+      "n": 41
+    },
+    "river|unpaired_twotone|pot|hu|horse": {
+      "fold": 0.88,
+      "n": 25
+    },
+    "river|unpaired_twotone|pot|hu|person": {
+      "fold": 0.8222,
+      "n": 45
+    },
+    "river|unpaired_twotone|small|hu|horse": {
+      "fold": 0.5909,
+      "n": 22
+    },
+    "river|unpaired_twotone|small|hu|person": {
+      "fold": 0.3095,
+      "n": 42
+    },
+    "turn|all|allin|hu|person": {
+      "fold": 0.3571,
+      "n": 28
+    },
+    "turn|all|half|hu|horse": {
+      "fold": 0.3,
+      "n": 10
+    },
+    "turn|all|half|hu|person": {
+      "fold": 0.3636,
+      "n": 55
+    },
+    "turn|all|half|mw|horse": {
+      "fold": 0.6333,
+      "n": 60
+    },
+    "turn|all|half|mw|person": {
+      "fold": 0.5526,
+      "n": 38
+    },
+    "turn|all|pot|hu|horse": {
+      "fold": 0.5467,
+      "n": 75
+    },
+    "turn|all|pot|hu|person": {
+      "fold": 0.4734,
+      "n": 207
+    },
+    "turn|all|pot|mw|horse": {
+      "fold": 0.8085,
+      "n": 47
+    },
+    "turn|all|pot|mw|person": {
+      "fold": 0.6538,
+      "n": 26
+    },
+    "turn|all|small|hu|horse": {
+      "fold": 0.4348,
+      "n": 115
+    },
+    "turn|all|small|hu|person": {
+      "fold": 0.2256,
+      "n": 195
+    },
+    "turn|all|small|mw|horse": {
+      "fold": 0.5,
+      "n": 70
+    },
+    "turn|all|small|mw|person": {
+      "fold": 0.4595,
+      "n": 37
+    },
+    "turn|all|twothirds|hu|horse": {
+      "fold": 0.64,
+      "n": 25
+    },
+    "turn|all|twothirds|hu|person": {
+      "fold": 0.3125,
+      "n": 32
+    },
+    "turn|all|twothirds|mw|horse": {
+      "fold": 0.7358,
+      "n": 53
+    },
+    "turn|all|twothirds|mw|person": {
+      "fold": 0.6,
+      "n": 35
+    },
+    "turn|paired_twotone|half|mw|horse": {
+      "fold": 0.6667,
+      "n": 24
+    },
+    "turn|paired_twotone|half|mw|person": {
+      "fold": 0.7273,
+      "n": 11
+    },
+    "turn|paired_twotone|pot|hu|horse": {
+      "fold": 0.4667,
+      "n": 15
+    },
+    "turn|paired_twotone|pot|hu|person": {
+      "fold": 0.5128,
+      "n": 39
+    },
+    "turn|paired_twotone|small|hu|horse": {
+      "fold": 0.5,
+      "n": 24
+    },
+    "turn|paired_twotone|small|hu|person": {
+      "fold": 0.2075,
+      "n": 53
+    },
+    "turn|paired_twotone|small|mw|horse": {
+      "fold": 0.5,
+      "n": 14
+    },
+    "turn|unpaired_flush3|pot|hu|person": {
+      "fold": 0.6129,
+      "n": 31
+    },
+    "turn|unpaired_flush3|small|hu|person": {
+      "fold": 0.5,
+      "n": 16
+    },
+    "turn|unpaired_flush3|twothirds|mw|horse": {
+      "fold": 0.8333,
+      "n": 12
+    },
+    "turn|unpaired_rainbow|small|hu|person": {
+      "fold": 0.25,
+      "n": 16
+    },
+    "turn|unpaired_twotone|allin|hu|person": {
+      "fold": 0.25,
+      "n": 20
+    },
+    "turn|unpaired_twotone|half|hu|person": {
+      "fold": 0.3235,
+      "n": 34
+    },
+    "turn|unpaired_twotone|half|mw|horse": {
+      "fold": 0.625,
+      "n": 24
+    },
+    "turn|unpaired_twotone|half|mw|person": {
+      "fold": 0.4,
+      "n": 15
+    },
+    "turn|unpaired_twotone|pot|hu|horse": {
+      "fold": 0.5625,
+      "n": 48
+    },
+    "turn|unpaired_twotone|pot|hu|person": {
+      "fold": 0.4,
+      "n": 115
+    },
+    "turn|unpaired_twotone|pot|mw|horse": {
+      "fold": 0.7692,
+      "n": 26
+    },
+    "turn|unpaired_twotone|pot|mw|person": {
+      "fold": 0.5333,
+      "n": 15
+    },
+    "turn|unpaired_twotone|small|hu|horse": {
+      "fold": 0.4366,
+      "n": 71
+    },
+    "turn|unpaired_twotone|small|hu|person": {
+      "fold": 0.15,
+      "n": 100
+    },
+    "turn|unpaired_twotone|small|mw|horse": {
+      "fold": 0.4783,
+      "n": 46
+    },
+    "turn|unpaired_twotone|small|mw|person": {
+      "fold": 0.4348,
+      "n": 23
+    },
+    "turn|unpaired_twotone|twothirds|hu|horse": {
+      "fold": 0.6471,
+      "n": 17
+    },
+    "turn|unpaired_twotone|twothirds|hu|person": {
+      "fold": 0.24,
+      "n": 25
+    },
+    "turn|unpaired_twotone|twothirds|mw|horse": {
+      "fold": 0.6562,
+      "n": 32
+    },
+    "turn|unpaired_twotone|twothirds|mw|person": {
+      "fold": 0.5789,
+      "n": 19
+    }
+  },
+  "definitions": {
+    "band": "raise share (adds - toCall)/(pot + toCall): small<=0.4, half<=0.6, twothirds<=0.8, pot, allin",
+    "texture": "paired|unpaired x flush3 (3+ one suit)|twotone|rainbow on the board at the bet"
+  },
+  "holdout": {
+    "logloss_base": 0.6286,
+    "logloss_texture": 0.6258,
+    "split_t": "2026-11-19 06:01:30.35075+00",
+    "test_scored": 842,
+    "train": 2304
+  },
+  "keyFormat": "street|texture|band|players|responder (texture all = base)",
+  "minBaseN": 30,
+  "provenance": "public_actions",
+  "sha256": "4a7d16afd70cc07bc17e1b6453fdc3835ba577fd57d65c0f2447c97807c3568d",
+  "shrinkM": 20,
+  "source": "audit48 decisions plo4+plo5 cash, Horse bet/raise and each responder after it (public actions, boards)",
+  "version": "playbook-texture-v1"
+}
