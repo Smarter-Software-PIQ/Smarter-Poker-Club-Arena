@@ -6078,6 +6078,31 @@ export class TournamentRecurringService {
     );
   }
 
+  /**
+   * Whether the pool this event's top-up draws from (clubMemberIdsForTournament)
+   * holds any horse: true / false from a complete read, null when unknowable.
+   * Read-only. Used only so an empty event's cancel does not wait on a top-up
+   * that can never add anyone (tournament/emptyPastStartEvent.ts, 2026-11-20).
+   * Identification, not exclusion: it changes no horse's treatment.
+   */
+  async hostPoolHasHorse(tournamentId: string): Promise<boolean | null> {
+    const members = await this.clubMemberIdsForTournament(tournamentId);
+    if (members === null) return null;
+    if (members.size === 0) return false;
+    const ids = [...members];
+    for (let offset = 0; offset < ids.length; offset += IN_LIST_CHUNK) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('is_horse', true)
+        .in('id', ids.slice(offset, offset + IN_LIST_CHUNK))
+        .limit(1);
+      if (error || !Array.isArray(data)) return null;
+      if (data.length > 0) return true;
+    }
+    return false;
+  }
+
   /** Who may enter an event this club hosts, or null when that is unknowable right now. */
   private async clubMemberIdsForScope(
     hostClubId: string,
