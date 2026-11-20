@@ -16,8 +16,9 @@
  *   level 2: prior = population cell x lift (renormalised); posterior =
  *            (his decayed counts in the exact cell + m x prior) / (n + m).
  * m, m0 and half-life were chosen out of sample (fit Nov 1-18, test Nov 19 Chicago).
- * Game is a key; a game he has no read in (e.g. PLO6) borrows his lift from his
- * other PLO games, weighted by evidence, before the same shrink.
+ * Scope: PLO4 and PLO5 only (owner 8:26 PM Nov 19); any other game returns the population
+ * cell unchanged. Game is a key; a PLO4/PLO5 game he has no read in borrows his lift from
+ * the other one at half weight, before the same shrink.
  *
  * Runtime: snapshot parsed once at import, Map lookups only, synchronous and
  * deterministic for (snapshot version, request); never throws: any miss returns the
@@ -46,7 +47,7 @@ export interface OppTierMix {
   n: number;
 }
 export type OppActor = 'person' | 'horse';
-export type OppGame = 'plo4' | 'plo5' | 'plo6';
+export type OppGame = 'plo4' | 'plo5';
 export interface OppSpot {
   game: OppGame | string;
   mode?: string;
@@ -105,7 +106,8 @@ export const OPPONENT_MODEL_PROVENANCE: 'public_actions' | 'showdown_only' =
 export const OPPONENT_WAGER_TILT_ENABLED = false;
 /** Tiers that are not value (RANGES tier map: nutted/strong/medium/medium_draw are made value). */
 const NON_VALUE: ReadonlySet<string> = new Set(['strong_draw', 'draw', 'weak', 'air']);
-const GAMES: readonly string[] = ['plo4', 'plo5', 'plo6'];
+/** Scope (owner 8:26 PM Nov 19): PLO4 and PLO5 only; any other game reads the population unchanged. */
+const GAMES: readonly string[] = ['plo4', 'plo5'];
 
 const OPP = new Map<string, OpponentRow>(Object.entries(OPPONENT_MODEL_SNAPSHOT.opponents ?? {}));
 
@@ -115,8 +117,8 @@ function finite(x: unknown): x is number {
 function clamp01(x: number): number {
   return Math.max(0.0005, Math.min(0.9995, x));
 }
-function row(user: string | null, actor: OppActor): OpponentRow | null {
-  if (!user) return null;
+function row(user: string | null, actor: OppActor, game?: unknown): OpponentRow | null {
+  if (!user || !GAMES.includes(String(game))) return null;
   const r = OPP.get(user);
   return r && r.a === actor ? r : null;
 }
@@ -158,7 +160,7 @@ function coarseFor(
     lift: acc,
     nEff: w * 0.5,
     recentZ: null,
-    key: `${rest('*')} (borrowed from other PLO games)`,
+    key: `${rest('*')} (borrowed from the other PLO4/PLO5 game)`,
     borrowed: true,
   };
 }
@@ -175,7 +177,7 @@ export function opponentFold(
 ): OppFoldCell {
   try {
     if (!pop || !finite(pop.p)) return pop;
-    const r = row(user, actor);
+    const r = row(user, actor, spot.game);
     if (!r)
       return {
         ...pop,
@@ -225,7 +227,7 @@ export function opponentWagerMix(
 ): OppTierMix {
   try {
     if (!pop || !pop.tiers) return pop;
-    const r = row(user, actor);
+    const r = row(user, actor, spot.game);
     if (!OPPONENT_WAGER_TILT_ENABLED || !r)
       return { ...pop, key: `${pop.key}; opponent ${OPPONENT_MODEL_VERSION}: population` };
     const w = r.wager[`${spot.game}|${spot.street}`];
@@ -277,7 +279,7 @@ export function opponentPreflop(
   pop: OppPreflopCell
 ): OppPreflopCell {
   try {
-    const r = row(user, actor);
+    const r = row(user, actor, spot.game);
     if (!r || !pop)
       return (
         pop && {

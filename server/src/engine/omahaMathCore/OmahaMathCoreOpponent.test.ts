@@ -96,11 +96,11 @@ describe('OPPMODEL laws', () => {
       opponentPreflop('zz', 'person', { game: 'x', position: 'BTN', level: 0 }, null as never)
     ).not.toThrow();
   });
-  it('PLO6 without his own PLO6 read borrows his lift from his other PLO games', () => {
+  it('scope is PLO4 and PLO5 only: any other game reads the population unchanged', () => {
     const id = heaviest('person', 'plo5|flop|vs_horse');
-    const out = opponentFold(id, 'person', { ...SPOT, game: 'plo6' }, POP);
-    if (!OPPONENT_MODEL_SNAPSHOT.opponents[id].response['plo6|flop|vs_horse'])
-      expect(out.source).toContain('borrowed');
+    expect(opponentFold(id, 'person', { ...SPOT, game: 'plo6' }, POP).p).toBe(POP.p);
+    const pf = { fold: 0.3, call: 0.5, raise: 0.2, check: 0, n: 100, source: 'pop' };
+    expect(opponentPreflop(id, 'person', { game: 'plo6', position: 'BTN', level: 1 }, pf).fold).toBe(0.3);
   });
   it('wager tilt is a failed candidate and stays OFF: population mix returned unchanged', () => {
     expect(OPPONENT_WAGER_TILT_ENABLED).toBe(false);
