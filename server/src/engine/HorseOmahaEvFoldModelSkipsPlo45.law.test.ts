@@ -166,6 +166,10 @@ describe('omahaEvFoldModelSkipsPlo45 (default off; PLO4 / PLO5 cash only; PLO6 u
 
   it('HorseLogic.decide carries the option into the decision read options only on an explicit true', () => {
     const src = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
-    expect(src).toContain('omahaEvFoldModelSkipsPlo45: opts.omahaEvFoldModelSkipsPlo45 === true,');
+    // The key exists only on an explicit true, so with the option off the read options are byte-identical
+    // to what they were before it (HorseMindReadCalibration pins the off shape).
+    expect(src).toContain(
+      '...(opts.omahaEvFoldModelSkipsPlo45 === true ? { omahaEvFoldModelSkipsPlo45: true } : {}),'
+    );
   });
 });
