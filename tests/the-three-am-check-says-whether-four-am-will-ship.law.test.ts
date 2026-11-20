@@ -102,7 +102,8 @@ describe('what it judges', () => {
   });
   it('a merged migration is uninstalled exactly as the install watch keeps it', () => {
     expect(body).toMatch(/w\.window_install IS NOT TRUE AND w\.retired_at IS NULL AND w\.superseded_by IS NULL/);
-    expect(body).toContain('supabase_migrations.schema_migrations');
+    expect(body).toContain('public.fn_ca_installed_migration_listing()');
+    expect(body).toContain('w.version <> ALL (v_installed)');
   });
   it('could-not-tell is its own verdict and pages nothing', () => {
     expect(body).toMatch(/WHEN jsonb_array_length\(v_unknowns\) > 0 THEN 'unknown'/);

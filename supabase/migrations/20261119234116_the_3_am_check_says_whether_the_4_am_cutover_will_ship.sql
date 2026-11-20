@@ -31,7 +31,7 @@
 --       of the newest server commits after it, holds a SUCCESS
 --       backup-engine/certified status written after the freeze began, and
 --       every migration file it adds since the serving build is installed
---       (supabase_migrations.schema_migrations; a file declared for the
+--       (fn_ca_installed_migration_listing; a file declared for the
 --       maintenance window is exempt, as the selector exempts it). When the
 --       serving build already contains the baseline nothing is owed;
 --    b. no merged ordinary migration from before the freeze is uninstalled
@@ -133,6 +133,7 @@ DECLARE
   v_runs jsonb; v_spin record; v_stuck record; v_hours integer;
   v_verdict text; v_summary text; v_key text; v_id bigint; v_run_id bigint; v_resolved integer := 0;
   v_sha text;
+  v_installed text[];
 BEGIN
   -- The cutover judged: the next 04:00 Chicago at or after p_at.
   v_day := CASE WHEN v_local::time < time '04:00' THEN v_local::date ELSE v_local::date + 1 END;
@@ -183,13 +184,17 @@ BEGIN
     END IF;
   END IF;
 
+  -- The installed ledger, read through the existing reader
+  -- (fn_ca_installed_migration_listing: supabase_migrations.schema_migrations).
+  v_installed := ARRAY(SELECT j->>0 FROM json_array_elements(public.fn_ca_installed_migration_listing()) j);
+
   -- b. No merged ordinary migration from before the freeze is uninstalled.
   --    (A dry run before the freeze allows the installer its 30 minutes.)
   SELECT array_agg(w.version ORDER BY w.version) INTO v_missing
     FROM smarter_private.ca_merged_migration_watch w
    WHERE w.merged_at < least(v_freeze, p_at - interval '30 minutes')
      AND w.window_install IS NOT TRUE AND w.retired_at IS NULL AND w.superseded_by IS NULL
-     AND NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations s WHERE s.version = w.version);
+     AND w.version <> ALL (v_installed);
   IF v_missing IS NOT NULL THEN
     v_facts := v_facts || jsonb_build_object('uninstalled_before_freeze', to_jsonb(v_missing));
     v_reasons := v_reasons || to_jsonb(format('%s merged migration(s) from before the freeze are not installed: %s',
@@ -280,7 +285,7 @@ BEGIN
       SELECT array_agg(substring(f->>'filename' FROM c_file) ORDER BY f->>'filename') INTO v_missing
         FROM jsonb_array_elements(v_cmp->'files') f
        WHERE f->>'status' IN ('added', 'renamed') AND f->>'filename' ~ c_file
-         AND NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations s WHERE s.version = substring(f->>'filename' FROM c_file))
+         AND substring(f->>'filename' FROM c_file) <> ALL (v_installed)
          AND NOT EXISTS (SELECT 1 FROM smarter_private.ca_merged_migration_watch w
                           WHERE w.version = substring(f->>'filename' FROM c_file) AND (w.window_install OR w.superseded_by IS NOT NULL));
       IF v_missing IS NOT NULL THEN

@@ -72,6 +72,10 @@ SCHEMA = re.search(r'^SCHEMA = r"""(.*?)"""', CUTOVER_TEST, re.S | re.M).group(1
 CREATE SCHEMA supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations (version text PRIMARY KEY, name text, statements text[]);
 CREATE FUNCTION cron.unschedule(j bigint) RETURNS boolean LANGUAGE sql AS $$ DELETE FROM cron.job WHERE jobid = j RETURNING true $$;
+CREATE FUNCTION public.fn_ca_installed_migration_listing() RETURNS json LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path TO 'pg_catalog', 'pg_temp' AS $$
+  SELECT coalesce(json_agg(json_build_array(m.version, m.name) ORDER BY m.version, m.name), '[]'::json)
+    FROM supabase_migrations.schema_migrations m $$;
 CREATE TABLE public.v_spin_unfilled_waits (tournament_id uuid, name text, longest_wait interval);
 CREATE TABLE public.tournaments (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text, status text, started_at timestamptz);
 CREATE TABLE public.sp_settings (key text PRIMARY KEY, value numeric);
