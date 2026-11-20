@@ -129,6 +129,12 @@ import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
 import { omahaPricedPublicSpotKey } from './HorseOmahaPricedRules.js';
 import { omahaFacingBetIsPricedByEquityRule } from './HorseOmahaFacingBetEquity.js';
+import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
+import {
+  omahaMathCoreExactLegalize,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from './omahaMathCore/OmahaMathCoreAcceptance.js';
 import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import { riverNoBlockerBetVerdict } from './HorseRiverNoBlockerBet.js';
 import {
@@ -3503,6 +3509,18 @@ export interface HorseDecideOpts {
    * Outermost wrapper of wager_rules, so it also covers decisions whose
    * Omaha pack was refused for depth. Never changes a non-fold. Default OFF. */
   omahaFacingBetIsPricedByEquity?: boolean;
+  /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
+   * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
+   * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
+   * live opponent run to the river (Monte Carlo, SE in the receipt) x measured realization, plus measured fold
+   * equity, net of rake (omahaMathCore/OmahaMathCore.ts; tables with n and source in OmahaMathCoreTables.ts).
+   * The decision the owner rules produced is never an input; it stands only if the core throws (receipted).
+   * Default OFF (read === true); the lead switches it. */
+  omahaMathCore?: boolean;
+  /** omahaMathCorePreflop (lane MATHCORE 2026-11-19, lead decision): with omahaMathCore on, the core also owns
+   * PLO4/PLO5 cash PREFLOP decisions. Off (default), the core computes and receipts its preflop EV (shadow) and
+   * today's preflop action stands. Read === true. */
+  omahaMathCorePreflop?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -14703,6 +14721,12 @@ export class HorseLogic {
         deepDiveCapture
       );
       if (String(first.action) !== 'fold') return first;
+      // COREGUARD (owner 2026-11-19 8:48 PM): an omahaMathCore fold is the core's
+      // EV choice on the real frame; no hypothetical frame re-asks it.
+      if (omahaMathCoreOwns(first)) {
+        if (telemetryOn(opts)) noteFire('lightning_fold_through_math_core_owned');
+        return first;
+      }
       // A malformed state, or a frame ask that fails, keeps the early fold (the option-off answer).
       let through: HorseDecision;
       try {
@@ -14962,6 +14986,50 @@ export class HorseLogic {
       phase12DecisionEquityCeiling = null;
       const toCall = Math.max(0, (gameState.currentBet || 0) - (player.bet || 0));
       if (telemetryOn(opts)) noteFire('phase15_brain_exception');
+      // COREGUARD B4 (owner 2026-11-19 8:48 PM): in the core's scope with
+      // omahaMathCore on, an exception anywhere in the brain is never an
+      // automatic fold. The core runs standalone on the request (public state
+      // and the Horse's own cards); if it fails too, the minimal exact
+      // computation decides (equity vs random holdings against the price).
+      // The receipt names the error. Null otherwise (PLO6, switch off): the
+      // safety net below, as before. A Lightning fold-through frame ask is a
+      // side ask and keeps its own path.
+      const coreRecovered = lightningFoldThroughFrameAsk
+        ? null
+        : omahaMathCoreRecover({
+            player,
+            gs: gameState,
+            on: opts.omahaMathCore === true,
+            from: 'brain_exception',
+            error: err,
+            runCore: true,
+            preflopOwned: opts.omahaMathCorePreflop === true,
+          });
+      if (coreRecovered) {
+        let coreThink = 1500;
+        if (opts.horseActionTimeIsPublicOnly === true) {
+          try {
+            coreThink = horsePublicActionTimeMs(
+              HorseLogic.publicTimingSpot(
+                gameState,
+                player.user_id,
+                coreRecovered.action,
+                coreRecovered.amount,
+                [1400, 4200],
+                {
+                  useTiming: (opts.v9Timing ?? opts.v9) !== false,
+                  useGravity: opts.decisionGravityTiming !== false,
+                  hollywoodRaise: false,
+                  holdemHollywood: false,
+                }
+              )
+            );
+          } catch {
+            coreThink = 1500;
+          }
+        }
+        return { ...coreRecovered, thinkTime: coreThink };
+      }
       // 2026-11-15: on FIXED LIMIT the safety net is price-aware - a call at a
       // price of 4 to 1 or better when the menu offers `call`, else fold
       // (BettingStructure.failureFallbackAction). Other structures fold.
@@ -16526,9 +16594,14 @@ export class HorseLogic {
         );
         return {
           decision: publicSized(
-            omahaOwnerRuledFinal(
-              omahaDrawRules(
-                onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+            omahaTurnRiverRaiseNeedsNutsRule(
+              omahaOwnerRuledFinal(
+                omahaStrongHandSlowplayMixRule(
+                  omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+                  player,
+                  gs,
+                  opts
+                ),
                 player,
                 gs,
                 opts
@@ -16588,7 +16661,25 @@ export class HorseLogic {
       }
       return { decision: equityPriced };
     };
-    decision = graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode())).decision;
+    decision = graph.run('wager_rules', decision, () => {
+      const ruled = riverNoBlocker(wagerRulesNode());
+      return {
+        // omahaMathCore (default OFF, lane MATHCORE 2026-11-19): the math-first
+        // PLO4/PLO5 cash core is the outermost owner of this node. Every owner
+        // rule above (the river no-blocker bet included) runs as before; with
+        // the option on, the core's EV choice replaces whatever they leave (it
+        // never reads it) and is final: the commit door keeps it and the
+        // response validator admits it. Any error keeps the rules' decision
+        // with an error receipt.
+        // COREGUARD (owner 2026-11-19 8:48 PM): the core's proposal is legalized
+        // by cent / chip-unit rounding only (omahaMathCoreExactLegalize), never by
+        // this.legalize's near-pot snap, 92% / 95% stack jam or whole-dollar
+        // rounding: the size the core priced is the size the table plays.
+        decision: omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
+          omahaMathCoreExactLegalize(d, player, gs)
+        ),
+      };
+    }).decision;
     // Forced-phase authority (2026-11-07): an owner wager rule above may replace
     // an authorised Phase 10-13 candidate; its receipt must say so
     // (HorsePhaseControllerWithdrawal.ts, reconcileHorsePhaseReceipts).

@@ -99,19 +99,22 @@ export const HORSE_PHASE10_POLICY_DIGEST_DEFINITION = 'horse-phase10-policy-dige
  * contract digest). The engine image keeps `src/` beside `dist/` (see
  * server/Dockerfile), so the running code can recompute this digest.
  */
-export const HORSE_PHASE10_POLICY_SOURCE_FILES: readonly string[] = Object.freeze([
-  'src/engine/plo4/Plo4PolicyPack.ts',
-  'src/engine/plo4/Plo4LivePolicy.ts',
-  'src/engine/HorseLogic.ts',
-  'src/engine/HorsePolicyRegistry.ts',
-  'src/engine/HorseEval.ts',
-  'src/engine/omaha/OmahaCardFacts.ts',
-  'src/engine/PokerEngine.ts',
-  'src/engine/multiway/DealtSeatCensus.ts',
-  'src/engine/HorseTournamentUtilityEvidence.ts',
-  // v3 (2026-10-16): the reference decision's own sources (the digest hole).
-  ...HORSE_REFERENCE_DECISION_SOURCE_FILES,
-]);
+export const HORSE_PHASE10_POLICY_SOURCE_FILES: readonly string[] = Object.freeze(
+  [
+    'src/engine/plo4/Plo4PolicyPack.ts',
+    'src/engine/plo4/Plo4LivePolicy.ts',
+    'src/engine/HorseLogic.ts',
+    'src/engine/HorsePolicyRegistry.ts',
+    'src/engine/HorseEval.ts',
+    'src/engine/omaha/OmahaCardFacts.ts',
+    'src/engine/PokerEngine.ts',
+    'src/engine/multiway/DealtSeatCensus.ts',
+    'src/engine/HorseTournamentUtilityEvidence.ts',
+    // v3 (2026-10-16): the reference decision's own sources (the digest hole).
+    ...HORSE_REFERENCE_DECISION_SOURCE_FILES,
+    // (2026-11-19: the math core's sources overlap files listed above; each is hashed once, first place)
+  ].filter((f, i, all) => all.indexOf(f) === i)
+);
 
 /** Reads a server-relative source path. Throws on failure. */
 export type HorsePhase10PolicySourceReader = (serverRelativePath: string) => Buffer;

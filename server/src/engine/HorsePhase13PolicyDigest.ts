@@ -155,8 +155,8 @@ export const HORSE_PHASE13_POLICY_EXCLUDED_CLOSURE_FILES: Readonly<Record<string
       'write-only feature counters HorseMind notes when a read is corroborated or presumed; it returns nothing any decision reads',
     'src/engine/remainingVariants/RemainingVariantActionEconomics.ts':
       'boundary: the Phase 12 post-decision net-action economics; no joint call reaches it',
-    'src/engine/omaha/OmahaVariantEquity.ts':
-      'the Phase 11 and 12 equity summaries; neither choosePineappleFlopPair nor remainingVariantChipUnit calls it',
+    // (OmahaVariantEquity.ts is hashed since 2026-11-19: the math core reaches it through lane EQUITY's
+    // scoring, HorseReferenceDecisionSources.ts; hashed beats excluded)
     'src/engine/omaha/OmahaCardFacts.ts':
       'the Phase 10 card facts the PLO4 policy reads; plo4BlindSeatsStatus and plo4ButtonOffset read nothing from it',
     'src/engine/CryptoRandom.ts':

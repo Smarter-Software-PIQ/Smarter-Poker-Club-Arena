@@ -53,6 +53,11 @@ import type { ActionType, HorseDecision, SeatPlayer } from '../types.js';
 import type { LightningHorseVpipFloorInput } from './LightningHorseVpipLedger.js';
 import type { LiveHorseDecideOpts } from '../engine/horseDecision/protocol.js';
 import type { LightningFastFoldTuning } from '../engine/runtimeSettings/apply.js';
+import {
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
+import { omahaMathCoreSwitchOn } from '../engine/omahaMathCore/OmahaMathCoreSwitchState.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -118,6 +123,9 @@ export interface LightningHorseDecision {
   /** omahaValueSizeIsUnreadable (default off): the band stamp of the worker's decision, carried to the
    *  door (shapeLightningHorseAction); absent unless the option sized this wager. */
   valueSize?: HorseDecision['valueSize'];
+  /** COREGUARD: the omahaMathCore receipt of a worker-failure answer the core's minimal computation priced
+   *  (omahaMathCoreRecover); absent otherwise (the lane's own decision carries its receipt in `fast`). */
+  omahaMathCore?: HorseDecision['omahaMathCore'];
 }
 
 /** The physical engine's snapshot of this turn, for this horse. */
@@ -288,6 +296,34 @@ export async function decideLightningHorse(
       /* metrics must never affect gameplay */
     }
     onWorkerFailure?.(err);
+    // COREGUARD (owner 2026-11-19 8:48 PM): a PLO4/PLO5 decision the core owns
+    // (omahaMathCore on) never becomes a liveness fold: the bounded minimal
+    // exact computation prices it (OmahaMathCoreAcceptance). Null outside the
+    // core's scope or with the switch off: the liveness answer, as before.
+    let recovered: HorseDecision | null = null;
+    try {
+      const snapshot = buildLightningHorseSnapshot(turn);
+      recovered = omahaMathCoreRecover({
+        player: snapshot.player,
+        gs: { ...snapshot.gameState, toCall },
+        on: omahaMathCoreSwitchOn(snapshot.opts as Readonly<Record<string, unknown>> | undefined),
+        from: 'worker_failure',
+        error: err,
+        runCore: false,
+        budgetMs: 15,
+      });
+    } catch {
+      recovered = null;
+    }
+    if (recovered)
+      return startedOnTurn(turn, {
+        action: String(recovered.action),
+        ...(recovered.amount !== undefined ? { amount: recovered.amount } : {}),
+        thinkTime: 0,
+        workerFallback: true,
+        fast: null,
+        omahaMathCore: recovered.omahaMathCore,
+      });
     return startedOnTurn(turn, {
       action: toCall > 0 ? 'fold' : 'check',
       thinkTime: 0,
@@ -372,7 +408,13 @@ export function lightningHorseThinkTimeMs(input: {
 export function shapeLightningHorseAction(
   hc: HandController,
   userId: string,
-  decision: { action: string; amount?: number; valueSize?: HorseDecision['valueSize'] },
+  decision: {
+    action: string;
+    amount?: number;
+    valueSize?: HorseDecision['valueSize'];
+    omahaMathCore?: HorseDecision['omahaMathCore'];
+    fast?: { decision?: Pick<HorseDecision, 'omahaMathCore'> } | null;
+  },
   allInOrFold: boolean
 ): { action: ActionType; amount?: number } {
   const state = hc.getState();
@@ -406,7 +448,10 @@ export function shapeLightningHorseAction(
   // the worker's final wager rules. Classic tables reapply the exact-nuts rule
   // at this boundary; Lightning must use the same rule and fresh legal menu.
   // This does not reinstate a withdrawn strategy or its plan effects.
-  if (me && auth?.canAct && state.stage === 'river') {
+  // COREGUARD: an omahaMathCore choice is the size the core priced; the
+  // exact-nuts rule never rewrites it (it is a reference-owner rule).
+  const coreOwned = omahaMathCoreOwns(decision) || omahaMathCoreOwns(decision.fast?.decision);
+  if (me && auth?.canAct && state.stage === 'river' && !coreOwned) {
     const nutState = {
       ...state,
       ...hc.getBlindSnapshot(),

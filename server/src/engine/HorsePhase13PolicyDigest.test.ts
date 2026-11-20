@@ -83,6 +83,10 @@ const HORSE_P13_BASE_REFERENCE_OVERLAP = [
   'src/engine/BettingStructure.ts',
   'src/engine/VariantRules.ts',
   'src/engine/HorseTournamentUtility.ts',
+  // 2026-11-19: the math core's equity reaches these through lane EQUITY's scoring (already base files)
+  'src/engine/multiway/DealtSeatCensus.ts',
+  'src/config/tableSeating.ts',
+  'src/engine/plo4/Plo4PolicyPack.ts',
 ];
 /** Every non-test owner of the joint policy. */
 const MULTIWAY_OWNERS = readdirSync(path.join(serverRoot, 'src/engine/multiway'))

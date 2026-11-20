@@ -1,6 +1,13 @@
 import { confirmedHuman } from './HorseConfirmedSeatRole.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
+import {
+  keepOmahaMathCoreDecision,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from './omahaMathCore/OmahaMathCoreAcceptance.js';
+import { omahaMathCoreSwitchOn } from './omahaMathCore/OmahaMathCoreSwitchState.js';
+import type { OmahaMathCoreDecisionReceipt } from './omahaMathCore/OmahaMathCoreRule.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
 import { liveHorsePhase8GuardAuthority } from './HorseTournamentCatastropheGuardAuthority.js';
 /**
@@ -145,7 +152,12 @@ import { horseDecideOptsFromRuntimeSettings } from './runtimeSettings/apply.js';
  * Named rather than boolean because the five gates fail for opposite causes
  * and want opposite fixes - see ServerTableEngineTurns.secondLookPlan.
  */
-export type SecondLookDecline = 'not_facing_bet' | 'small_pot' | 'action_shape' | 'no_think_time';
+export type SecondLookDecline =
+  | 'not_facing_bet'
+  | 'small_pot'
+  | 'action_shape'
+  | 'no_think_time'
+  | 'math_core_owned';
 
 export type SecondLookPlan =
   | { ok: true; afterMs: number }
@@ -299,6 +311,9 @@ export function noteSecondLookDecline(reason: SecondLookDecline): void {
       return;
     case 'no_think_time':
       noteFire('v44_declined_no_think_time');
+      return;
+    case 'math_core_owned':
+      noteFire('v44_declined_math_core_owned');
       return;
   }
 }
@@ -498,7 +513,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
    * replay inside it.
    */
   static secondLookPlan(
-    decision: { action: string; thinkTime: number },
+    decision: {
+      action: string;
+      thinkTime: number;
+      omahaMathCore?: OmahaMathCoreDecisionReceipt | null;
+    },
     toCall: number,
     pot: number,
     bigBlind: number,
@@ -523,6 +542,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
      * week; the reason is one string, and it turns tomorrow's audit line into
      * a diagnosis.
      */
+    // COREGUARD (owner 2026-11-19 8:48 PM): an applied omahaMathCore choice is
+    // ONE decision. A deep replay would be a second Monte Carlo run of the core
+    // that could disagree with the receipt; the executed action is the receipt.
+    if (omahaMathCoreOwns(decision)) return { ok: false, reason: 'math_core_owned' };
     if (toCall <= 0) return { ok: false, reason: 'not_facing_bet' };
     if (pot < ServerTableEngineTurns.SECOND_LOOK_MIN_POT_BB * Math.max(bigBlind, 0.01))
       return { ok: false, reason: 'small_pot' };
@@ -540,9 +563,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
    * sizing question the sample did not decide, and is ignored.
    */
   static secondLookVerdict(
-    fast: { action: string; amount?: number },
+    fast: { action: string; amount?: number; omahaMathCore?: OmahaMathCoreDecisionReceipt | null },
     deep: { action: string; amount?: number; policyFallback?: HorseDecision['policyFallback'] }
   ): { action: string; amount?: number } | null {
+    if (omahaMathCoreOwns(fast)) return null;
     if (deep.policyFallback !== undefined) return null;
     if (deep.action !== 'call' && deep.action !== 'fold' && deep.action !== 'all_in') return null;
     if (deep.action === fast.action) return null;
@@ -4549,17 +4573,36 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         // call when the pot lays 4 to 1 or better and `call` is on the seat's
         // menu, else fold (BettingStructure.failureFallbackAction). Every
         // other structure folds when chips are owed, as before.
+        // COREGUARD (owner 2026-11-19 8:48 PM): a PLO4/PLO5 cash decision the
+        // core owns (omahaMathCore on) never becomes a liveness fold. The
+        // bounded minimal exact computation decides it instead (equity of the
+        // Horse's own holding vs random holdings against the price; check when
+        // free; omahaMathCore/OmahaMathCoreAcceptance.ts). Null outside the
+        // core's scope or with the switch off (PLO6 included): as before.
+        const coreRecovered = omahaMathCoreRecover({
+          player: decisionSnapshot.player,
+          gs: decisionSnapshot.gameState,
+          on: omahaMathCoreSwitchOn(
+            decisionSnapshot.opts as Readonly<Record<string, unknown>> | undefined
+          ),
+          from: 'worker_failure',
+          error,
+          runCore: false,
+          budgetMs: 15,
+        });
         const fallbackAction = failureFallbackAction({
           structure: boundedActions.structure,
           toCall,
           pot: state.pot,
           legalActions: boundedActions.legalActions,
         });
-        const safeDecision: HorseDecision = {
-          action: fallbackAction,
-          ...(fallbackAction === 'call' ? { amount: toCall } : {}),
-          thinkTime: 0,
-        };
+        const safeDecision: HorseDecision = coreRecovered
+          ? { ...coreRecovered, thinkTime: 0 }
+          : {
+              action: fallbackAction,
+              ...(fallbackAction === 'call' ? { amount: toCall } : {}),
+              thinkTime: 0,
+            };
         safeDecision.executionWitness = createHorseExecutionWitness(
           decisionSnapshot,
           safeDecision,
@@ -4980,6 +5023,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // replaced it, is checked here; missing, stale, withdrawn, refused,
             // mismatched, expired or restarted authority executes the reference
             // decision the shadow path would have executed.
+            // COREGUARD (owner 2026-11-19 8:48 PM): the decision as the core issued
+            // it. The Phase 8-14 rechecks below still record their verdicts and
+            // withdraw their own selections, but an applied omahaMathCore choice
+            // is never reverted to a pack's baseline (keepOmahaMathCoreDecision).
+            const coreIssued = decision;
             decision = recheckHorsePhase8GuardBeforeAcceptance(decision, decisionSnapshot);
             if (postflopLedger?.applied) {
               const verdict = liveHorsePhase8Authority.check(postflopLedger.authority);
@@ -5140,6 +5188,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             }
 
             decision = recheckHorsePhase14BeforeAcceptance(decision);
+            decision = keepOmahaMathCoreDecision(coreIssued, decision, 'commit_authority');
 
             // Authority can be withdrawn while a worker answer waits for its
             // think time. Re-selecting that owner's baseline above must not
@@ -5191,9 +5240,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // omahaValueSizeIsUnreadable (default off): a nut-class wager sized in the owner's
               // 80-95% band stays as sized while it is still legal and in the band on the fresh
               // state; the nut and near-pot roundings would only put the full pot back.
+              // omahaMathCore: the core's applied EV choice is final; the
+              // commit-door wager rules never re-decide it.
+              const mathCoreOwned = omahaMathCoreOwns(decision);
               const wagerGuarded =
                 safeWorkerFallback ||
                 decision.policyFallback === 'brain_exception' ||
+                mathCoreOwned ||
                 omahaValueSizeBandHolds(decision, privateHero, commitState)
                   ? decision
                   : fullPotNearPotWager(
@@ -5215,9 +5268,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // tournament. Last at the door too, on the controller's fresh
               // state, so no withdrawal above and no liveness fallback can fold
               // that spot. No equity is measured here, so it calls.
-              const guarded = brainChoseFold
-                ? wagerGuarded
-                : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
+              const guarded =
+                brainChoseFold || mathCoreOwned
+                  ? wagerGuarded
+                  : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
               if (guarded !== wagerGuarded) noteFire('short_all_in_call_floor_commit');
               if (guarded !== decision) {
                 decision = { ...decision, ...guarded };
@@ -5552,7 +5606,14 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               attemptedAmount: number | undefined,
               origin: 'horse_policy' | 'horse_fallback'
             ): boolean => {
-              if (origin === 'horse_policy' && !horseFeatureAcceptanceUsable(decision)) {
+              // COREGUARD: the core never reads the reference features, so a
+              // feature-authority withdrawal does not refuse its choice (the
+              // refusal path would check or fold it).
+              if (
+                origin === 'horse_policy' &&
+                !omahaMathCoreOwns(decision) &&
+                !horseFeatureAcceptanceUsable(decision)
+              ) {
                 noteFire('horse_feature_authority_withdrawn_before_acceptance');
                 noteHorseLegalizerDegraded(
                   activeVariant,
@@ -5682,8 +5743,38 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 // above produced no broadcast, so the clock must start again for
                 // whichever of these two lands.
                 this.lastActionAcceptedAtMs = Date.now();
-                applied = attemptAction('check', undefined, 'horse_fallback');
+                // COREGUARD: a refused core choice facing a bet is priced, never an
+                // automatic fold: the minimal exact computation on the fresh price
+                // calls when the equity beats it (then check, then fold, as before).
+                const refusedCore = omahaMathCoreOwns(decision)
+                  ? omahaMathCoreRecover({
+                      player: decisionSnapshot.player,
+                      gs: {
+                        ...decisionSnapshot.gameState,
+                        pot: currentState.pot,
+                        currentBet: currentState.currentBet,
+                        toCall,
+                      },
+                      on: true,
+                      from: 'controller_refused',
+                      error: 'controller_refused',
+                      runCore: false,
+                      budgetMs: 15,
+                    })
+                  : null;
+                applied = false;
+                if (refusedCore?.action === 'call' || refusedCore?.action === 'all_in') {
+                  const coreCallAmount =
+                    refusedCore.action === 'call' ? snapWagerNearest(toCall) : undefined;
+                  applied = attemptAction(refusedCore.action, coreCallAmount, 'horse_fallback');
+                  if (applied) {
+                    executedAction = refusedCore.action;
+                    executedAmount = coreCallAmount ?? null;
+                  }
+                }
                 if (applied) {
+                  noteFire('omaha_math_core_refused_choice_priced_call');
+                } else if ((applied = attemptAction('check', undefined, 'horse_fallback'))) {
                   executedAction = 'check';
                   executedAmount = null;
                 } else {

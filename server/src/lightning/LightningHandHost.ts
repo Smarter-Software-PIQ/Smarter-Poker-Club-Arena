@@ -6,6 +6,11 @@ import { priceLightningRunout } from './LightningRunoutEquity.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
 import { recheckHorseQualifiedBeforeAcceptance } from '../engine/HorseQualifiedAcceptance.js';
+import {
+  keepOmahaMathCoreDecision,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
 
 import { publicHandStatsFrame } from '../engine/presentation/publicHandStats.js';
 import {
@@ -2712,6 +2717,10 @@ export class LightningHandHost {
       retireHorseExecutionWitness(decision.fast.decision.executionWitness, 'turn_abandoned');
       return null;
     }
+    // COREGUARD (owner 2026-11-19 8:48 PM): the decision as the core issued it.
+    // The rechecks below record their verdicts; an applied omahaMathCore choice
+    // is never reverted to a pack baseline nor folded by a feature withdrawal.
+    const coreIssued = decision.fast.decision;
     const qualified = recheckHorseQualifiedBeforeAcceptance(decision.fast.decision, {
       player: hero,
       gameState: {
@@ -2730,8 +2739,11 @@ export class LightningHandHost {
       } as import('../engine/HorseLogic.js').HorseGameStateV2,
     });
     const beforeFeatureCheck = recheckHorsePhase14BeforeAcceptance(qualified);
-    const checked = recheckHorseFeaturesBeforeAcceptance(beforeFeatureCheck, auth.toCall);
-    const featureRefused = checked !== beforeFeatureCheck && !!checked.featureAuthority;
+    const featureChecked = recheckHorseFeaturesBeforeAcceptance(beforeFeatureCheck, auth.toCall);
+    const coreOwned = omahaMathCoreOwns(coreIssued);
+    const checked = keepOmahaMathCoreDecision(coreIssued, featureChecked, 'lightning_door');
+    const featureRefused =
+      !coreOwned && featureChecked !== beforeFeatureCheck && !!featureChecked.featureAuthority;
     decision.fast.decision = checked;
     return { checked, featureRefused };
   }
@@ -2842,14 +2854,68 @@ export class LightningHandHost {
       if (!r.success && this.hc) {
         intended = false;
         const auth = this.hc.getAuthoritativeActionState(userId);
-        applied = this.applyAction(
-          userId,
-          auth?.legalActions.includes('check') ? 'check' : 'fold',
-          undefined,
-          'horse_fallback',
-          undefined,
-          observe
-        ).success;
+        // COREGUARD: a refused core choice facing a bet is priced by the minimal
+        // exact computation on the fresh price (call when the equity beats it),
+        // never an automatic fold; then check, then fold, as before.
+        const coreChoice = fast?.decision ?? decision;
+        let coreCall: { action: ActionType; amount?: number } | null = null;
+        if (
+          omahaMathCoreOwns(coreChoice) &&
+          auth?.canAct &&
+          !auth.legalActions.includes('check') &&
+          (auth.toCall ?? 0) > 0
+        ) {
+          const st = this.hc.getState();
+          const me = st.players.find((p) => p.user_id === userId);
+          const priced = me
+            ? omahaMathCoreRecover({
+                player: me as unknown as import('../types.js').SeatPlayer,
+                gs: {
+                  players: st.players,
+                  communityCards: st.communityCards,
+                  stage: st.stage,
+                  currentBet: st.currentBet,
+                  pot: st.pot,
+                  minRaise: st.minRaise,
+                  ...this.hc.getBlindSnapshot(),
+                  gameMode: 'cash',
+                  gameVariant: String(this.rules?.game_variant ?? 'nlh'),
+                  toCall: auth.toCall,
+                  legalActions: [...auth.legalActions],
+                } as unknown as import('../engine/HorseLogic.js').HorseGameStateV2,
+                on: true,
+                from: 'controller_refused',
+                error: 'controller_refused',
+                runCore: false,
+                budgetMs: 15,
+              })
+            : null;
+          if (priced && (priced.action === 'call' || priced.action === 'all_in'))
+            coreCall = {
+              action: priced.action,
+              ...(priced.action === 'call' ? { amount: auth.toCall } : {}),
+            };
+        }
+        if (coreCall) {
+          applied = this.applyAction(
+            userId,
+            coreCall.action,
+            coreCall.amount,
+            'horse_fallback',
+            undefined,
+            observe
+          ).success;
+          if (applied) noteFire('omaha_math_core_refused_choice_priced_call');
+        }
+        if (!applied)
+          applied = this.applyAction(
+            userId,
+            auth?.legalActions.includes('check') ? 'check' : 'fold',
+            undefined,
+            'horse_fallback',
+            undefined,
+            observe
+          ).success;
       }
       // After the commit decision, so an accepted batch is already committing
       // and only a non-exact one is retired by the finalizer.

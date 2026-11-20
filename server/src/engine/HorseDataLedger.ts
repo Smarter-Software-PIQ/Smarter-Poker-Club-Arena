@@ -1087,6 +1087,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V40'
   ),
   flag(
+    'omahaMathCorePreflop',
+    "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core computes and receipts its preflop EV (omahaMathCore.shadow) and today's preflop action stands. Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCore',
+    "Lane MATHCORE 2026-11-19 (owner 7:33-8:17 PM Chicago: \"ITS MATH FIRST ... make 100% of the decisions based on the math, the hand, the outs, the board. NEVER pre-determined choices\"; lead ruling: live inputs are public information only): in PLO4/PLO5 cash (table and Lightning; PLO6 never: owner 8:26 PM), high only, one board, every street, the decision is the expected-value maximum over every legal action (fold, check, call, bet or raise at several sizes on the table's chip unit, all-in): exact 2+3 showdown equity (lane EQUITY's equityVsRanges, the core's own exact sampler when it declines) against one range per live opponent built from public information (a wager is value from the top and non-value from the bottom at the share shown at showdown for that line and size, at the line's public wager frequency; a caller is the band between his public raise and fold frequencies; a preflop raiser the top share of his public raise frequency) on a pool of concrete holdings with card removal, plus fold equity from public response frequencies (person rows shrunk to the population), net of rake (omahaMathCore/OmahaMathCore.ts; table publicTables.v3.json, every cell provenance public_actions or showdown_only). The decision the owner rules produced is never an input; it stands only when the core throws (error receipt). Outermost owner of wager_rules, kept by the commit door, admitted by the response validator under the option. Default OFF (read === true); the lead switches it.",
+    'V94'
+  ),
+  flag(
     'omahaFlopFacingBetEv',
     "PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the hand, the equity, the opponent's range and the price, never on the size of the bet alone, and no blanket rule may block a correct decision): in PLO4/PLO5 cash, high only, one board, on the FLOP facing a bet or a raise, a fold or a call (the whole-stack call included) is replaced by one expected-value verdict (HorseOmahaFlopFacingBetEv.ts): the hand's showdown result on two-card runouts sampled with a seed taken from the cards (a balanced set of runouts, every unseen card the turn card and the river card of the same number of them, three opponent holdings per runout; never the brain's random stream), against the bettor's value region (the strongest share of holdings on the flop, set by the bet's share of the pot, a raise, a lead into the preflop aggressor or a stab after he checked) and his other holdings at a non-value share moved by his measured read, with every other player counted together on the same runouts (a caller's hand to beat as well; a player still to act priced as folding or as continuing with his call in the pot, at the measured continue rate), times a realization factor read from the hand's own runouts (equity on runouts where the hand can call the turn and the river is realized, bluff-catcher equity only on streets he checks) and corrected by what flop calls of that hand class and position returned in production (shrunk by sample size; docs/horse-option-authority.d/omahaFlopFacingBetEv.CONSTANTS.md), against the price and the one margin of omahaFacingBetEv. The flop had no such rule: the stack-share paired-board fold and the 20 big blind big-bet mark decided it; with the option on they no longer decide a spot the verdict covers. A raise is left alone; the bare-overpair continuation keeps its own verdict; tournaments, PLO6, hi-lo, bomb pots and capped wagers are outside it. Independent of omahaFacingBetEv. The realization cells, the continue rate and the sampling error are measured; the value shares are stated. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_flop_facing_bet_ev",
     'V94'
@@ -7857,6 +7867,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'ServerTableEngineTurns.secondLookPlan',
     'no second look: the pot was under 20bb and not worth the deeper sample',
     'V44'
+  ),
+  receipt(
+    'v44_declined_math_core_owned',
+    'ServerTableEngineTurns.secondLookPlan',
+    'no second look: omahaMathCore decided this action (its EV choice is final; no deep re-run replaces it)',
+    'V94'
+  ),
+  receipt(
+    'lightning_fold_through_math_core_owned',
+    'HorseLogic.decide (lightningEarlyFoldNeedsFoldThrough)',
+    'the Lightning fold-through re-ask stood aside: omahaMathCore owns this decision',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_refused_choice_priced_call',
+    'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD)',
+    'a refused or failed worker answer on an omahaMathCore decision was replaced by the priced call or check, never a fold',
+    'V94'
   ),
   receipt(
     'v44_declined_action_shape',

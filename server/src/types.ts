@@ -1061,6 +1061,10 @@ export interface HorseDecision {
   tournamentPreflopAttribution?: import('./engine/HorsePhase6Attribution.js').HorsePhase6Attribution;
   /** Finite private provenance for the brain's last-resort liveness action. */
   policyFallback?: 'brain_exception';
+  /** omahaMathCore (default off, lane MATHCORE 2026-11-19): the math-first PLO4/PLO5 cash core's receipt -
+   *  equity, ranges and their sources, price, EV of every legal action and the choice; or the error that made
+   *  the decision fall back. Journal-only; never cards. */
+  omahaMathCore?: import('./engine/omahaMathCore/OmahaMathCoreRule.js').OmahaMathCoreDecisionReceipt;
   /** omahaValueSizeIsUnreadable (default off, HorseOmahaValueSizeBand.ts): this bet or raise is a nut-class
    *  wager sized in the owner's 80-95% pot band; the table's commit guards keep it while it is still legal and
    *  in the band (omahaValueSizeBandHolds) instead of rounding it back up to the full pot. */
