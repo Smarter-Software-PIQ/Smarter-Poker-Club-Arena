@@ -1,7 +1,7 @@
 # 2026-11-20 - Daily real-card Horse decision grade (read-only report)
 
 Since about 1:12 PM Chicago on 2026-11-20 every Horse's dealt hole cards are
-kept for every hand (`smarter_private.horse_dealt_hole_cards`, #11511). This
+kept for every hand (the private Horse dealt-cards table, #11511). This
 adds the daily report built on them: where Horses lose chips to people, by spot
 class. It changes no engine code, no option, no registry and no migration.
 

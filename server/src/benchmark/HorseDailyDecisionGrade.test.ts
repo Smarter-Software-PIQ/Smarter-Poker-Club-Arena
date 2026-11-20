@@ -7,7 +7,7 @@ import {
   compareReports,
   flagged,
   gameTable,
-  gradeHand,
+  gradeHand as gradeHandWith,
   horseHandClass,
   mostFrequentPerson,
   optionSetAt,
@@ -25,6 +25,10 @@ import {
   type RawHand,
   type SeatTuple,
 } from './HorseDailyDecisionGrade.js';
+import { insuranceEquity } from '../engine/InsuranceEquity.js';
+
+const gradeHand = (h: RawHand) => gradeHandWith(h, insuranceEquity);
+const CARDS_TABLE = 'private_schema.horse_cards_table';
 
 const cards = (s: string) => parseCards(s)!;
 
@@ -424,7 +428,7 @@ describe('the window, the statements and the option set', () => {
   });
 
   it("renders single read-only statements that take a person's cards only from a showdown", () => {
-    const sql = renderHandsSql('2026-11-20T19:12:44Z', '2026-11-20T19:27:44Z');
+    const sql = renderHandsSql('2026-11-20T19:12:44Z', '2026-11-20T19:27:44Z', CARDS_TABLE);
     expect(sql).toContain(
       "h.created_at >= '2026-11-20T19:12:44Z' and h.created_at < '2026-11-20T19:27:44Z'"
     );
@@ -433,11 +437,15 @@ describe('the window, the statements and the option set', () => {
     expect(sql).not.toMatch(/f\.hole_cards/); // ca_hand_facts' cards are never read
     expect(sql).not.toMatch(/email/i);
     expect(sql).not.toContain(';');
+    expect(sql).toContain('from private_schema.horse_cards_table c where c.hand_id = h.id');
+    expect(() =>
+      renderHandsSql('2026-11-20T19:12:44Z', '2026-11-20T19:27:44Z', 'x; drop')
+    ).toThrow();
     expect(renderSwitchSql('2026-11-20T19:12:44Z')).toContain('ca_horse_style_switch_audit');
     expect(() =>
-      renderHandsSql("2026-11-20T19:12:44Z'; drop table x; --", '2026-11-20T19:27:44Z')
+      renderHandsSql("2026-11-20T19:12:44Z'; drop table x; --", '2026-11-20T19:27:44Z', CARDS_TABLE)
     ).toThrow();
-    expect(() => renderHandsSql('2026-11-20 19:12', '2026-11-20T19:27:44Z')).toThrow();
+    expect(() => renderHandsSql('2026-11-20 19:12', '2026-11-20T19:27:44Z', CARDS_TABLE)).toThrow();
   });
 
   it('rolls the option rows back through the audit to the window', () => {
@@ -480,6 +488,7 @@ describe('the report', () => {
     hands,
     switchRows: [{ option: 'a', state: 'on', updated_at: '2026-11-19T00:00:00Z' }],
     switchAudit: [],
+    equity: insuranceEquity,
   });
 
   it('keeps each hand once, inside the window, cash and tournament apart', () => {

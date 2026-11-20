@@ -7,8 +7,8 @@
  * SELECTs and hands the rows here.
  *
  * WHAT IT READS. Since about 1:12 PM Chicago on 2026-11-20 every Horse's dealt
- * hole cards are kept for every hand in smarter_private.horse_dealt_hole_cards
- * (#11511; service-role read only, no client path). Before that only hands
+ * hole cards are kept for every hand in the private Horse dealt-cards table
+ * (#11511; service-role read only, no client path; only the CLI names it). Before that only hands
  * that reached showdown carried cards. The report joins those cards to the
  * public action line of hand_history and to ca_hand_facts' realised nets.
  *
@@ -67,7 +67,18 @@ import {
   omahaPreflopPercentile,
   variantInfo,
 } from '../engine/HorseEval.js';
-import { insuranceEquity } from '../engine/InsuranceEquity.js';
+/**
+ * All-in equity calculator, injected by the caller (the CLI passes the engine's
+ * insuranceEquity). This module never imports a synchronous Monte Carlo
+ * calculator itself, so it keeps the live-thread worker boundary
+ * (SyncMonteCarloWorkerBoundary.guard.test.ts).
+ */
+export type EquityFn = (
+  hero: Card[],
+  opponents: Card[][],
+  board: Card[],
+  variant: string
+) => { equity: number };
 import { isReadOnlyStatement } from './RiverBluffLiveReport.js';
 
 export const REPORT_SCHEMA = 'horse-daily-decision-grade/v1';
@@ -129,8 +140,10 @@ export interface RawHand {
 const TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/;
 
 /** One bounded SELECT for [start, end): hands with a person dealt in. */
-export function renderHandsSql(start: string, end: string): string {
+export function renderHandsSql(start: string, end: string, horseCardsTable: string): string {
   if (!TS.test(start) || !TS.test(end)) throw new Error('START and END must be UTC instants (…Z)');
+  if (!/^[a-z_]+\.[a-z_]+$/.test(horseCardsTable))
+    throw new Error('horseCardsTable must be schema.table');
   const sql = `select h.id, h.created_at, h.game_variant as g, h.big_blind as bb,
  (h.tournament_id is not null) as tournament,
  exists(select 1 from lightning_hand lh where lh.hand_history_id = h.id) as ltg,
@@ -145,7 +158,7 @@ export function renderHandsSql(start: string, end: string): string {
     'invested', f.invested, 'horse', coalesce(p.is_horse, false), 'alias', p.username))
     from ca_hand_facts f left join profiles p on p.id = f.user_id where f.hand_id = h.id) as facts,
  (select jsonb_agg(jsonb_build_object('uid', c.user_id, 'seat', c.seat, 'cards', c.hole_cards))
-    from smarter_private.horse_dealt_hole_cards c where c.hand_id = h.id) as horse_cards,
+    from ${horseCardsTable} c where c.hand_id = h.id) as horse_cards,
  (select jsonb_object_agg(s->>'user_id', h.hole_cards->(s->>'user_id'))
     from jsonb_array_elements(case when jsonb_typeof(h.showdown) = 'array' then h.showdown else '[]'::jsonb end) s
     where coalesce((s->>'mucked')::boolean, false) = false and h.hole_cards ? (s->>'user_id')) as shown
@@ -396,7 +409,7 @@ export function poolOf(h: Pick<RawHand, 'tournament' | 'ltg'>): Pool {
 }
 
 /** Every gradeable Horse decision of one hand. Bomb pots and unsupported variants yield none. */
-export function gradeHand(h: RawHand): GradedDecision[] {
+export function gradeHand(h: RawHand, equity: EquityFn): GradedDecision[] {
   const out: GradedDecision[] = [];
   const facts = h.facts ?? [];
   const acts = h.acts ?? [];
@@ -502,7 +515,7 @@ export function gradeHand(h: RawHand): GradedDecision[] {
           // A call for less than the wager risks only the stack; the uncovered part goes back to the bettor.
           const pay = Math.min(toCall, stack);
           const potFor = pot - (toCall - pay);
-          const eq = insuranceEquity(hero, opp as Card[][], board, h.g).equity / 100;
+          const eq = equity(hero, opp as Card[][], board, h.g).equity / 100;
           d.lossBb = (eq * (potFor + pay) - pay) / bb;
           d.basis = closes ? 'fold_all_in_exact' : 'fold_showdown_equity';
         }
@@ -792,6 +805,7 @@ export function buildReport(input: {
   hands: readonly RawHand[];
   switchRows?: readonly SwitchRow[] | null;
   switchAudit?: readonly SwitchAudit[] | null;
+  equity: EquityFn;
 }): Report {
   const seen = new Set<string>();
   const hands = input.hands.filter((h) => {
@@ -811,7 +825,7 @@ export function buildReport(input: {
     if (h.bomb) bombs += 1;
     const kept = new Set((h.horse_cards ?? []).map((c) => c.uid));
     if ((h.facts ?? []).some((f) => f.horse && !kept.has(f.uid))) missing += 1;
-    (h.tournament ? tournament : cash).push(...gradeHand(h));
+    (h.tournament ? tournament : cash).push(...gradeHand(h, input.equity));
   }
   return {
     schema: REPORT_SCHEMA,

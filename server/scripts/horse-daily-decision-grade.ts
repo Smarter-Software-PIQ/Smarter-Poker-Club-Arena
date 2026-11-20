@@ -45,6 +45,15 @@ import {
   type SwitchAudit,
   type SwitchRow,
 } from '../src/benchmark/HorseDailyDecisionGrade.js';
+import { insuranceEquity } from '../src/engine/InsuranceEquity.js';
+
+/**
+ * The private table holding every Horse's dealt cards (#11511). This CLI is the
+ * only reader the law tests/horse-dealt-hole-cards-stay-private.law.test.ts
+ * admits: an offline audit run by an operator through the read-only management
+ * route (read_only: true), printing aggregates only (no card, no hand id).
+ */
+const HORSE_CARDS_TABLE = 'smarter_private.horse_dealt_hole_cards';
 
 const DEFAULT_PROJECT_REF = 'kuklfnapbkmacvwxktbh';
 
@@ -77,7 +86,7 @@ async function query(sql: string): Promise<unknown[]> {
 /** One slice; a slice that fails is read once more as two halves, then the run stops. */
 async function handsFor(start: string, end: string, split = true): Promise<RawHand[]> {
   try {
-    return (await query(renderHandsSql(start, end))) as RawHand[];
+    return (await query(renderHandsSql(start, end, HORSE_CARDS_TABLE))) as RawHand[];
   } catch (e) {
     const a = Date.parse(start);
     const b = Date.parse(end);
@@ -119,7 +128,7 @@ async function main(): Promise<void> {
   if (out && !out.endsWith('.md')) throw new Error('--out must end in .md');
 
   if (has('--sql')) {
-    for (const [a, b] of slices) console.log(renderHandsSql(a, b) + ';\n');
+    for (const [a, b] of slices) console.log(renderHandsSql(a, b, HORSE_CARDS_TABLE) + ';\n');
     console.log(renderSwitchSql(utcIso(startMs)) + ';');
     return;
   }
@@ -157,7 +166,15 @@ async function main(): Promise<void> {
       .slice(2)
       .map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a}'`))
       .join(' ');
-  const report = buildReport({ command, startMs, endMs, hands, switchRows, switchAudit });
+  const report = buildReport({
+    command,
+    startMs,
+    endMs,
+    hands,
+    switchRows,
+    switchAudit,
+    equity: insuranceEquity,
+  });
   const previous = previousReport(out, arg('--previous'));
   const markdown = renderMarkdown(
     report,
