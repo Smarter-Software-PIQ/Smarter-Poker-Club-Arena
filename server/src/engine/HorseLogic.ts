@@ -9904,7 +9904,7 @@ function omahaReraisedCallVsRaise(
   try {
     if (String(gs.stage ?? '') !== 'preflop') return standing;
     // ONE OWNER PER CELL: a call that omahaPreflopReraiseDefencePricedInPosition
-    // made of a fold (the Horse opened, one person's 3-bet, heads-up, acting
+    // made of a fold (the Horse opened, one 3-bet, heads-up, acting
     // after him) is that option's verdict and is not priced here. A call that
     // stands in the same spot with that option off is priced as any other.
     if (
@@ -10081,7 +10081,7 @@ function omahaOopReraisedPotStrongRange(
   // WooWoo audit lane) belongs to that cell, kept or folded; this option then
   // does not answer and the decision is exactly the one with it off.
   // omahaPreflopReraiseDefencePricedInPosition (default off; review of 01ddd45b4df F1): in the spot where the Horse
-  // opened, faces one person's 3-bet heads-up and acts after him (omahaPreflopReraiseDefenceHeadsUpInPosition), and
+  // opened, faces one 3-bet (any 3-bettor) heads-up and acts after him (omahaPreflopReraiseDefenceHeadsUpInPosition), and
   // only there, a FOLD of the decision with this option off becomes a CALL when the priced verdict of
   // omahaPreflopReraiseDefencePriced is a call. Nothing else moves: a call, a 4-bet or anything else the off decision
   // makes is returned as it is, and the option never makes a fold. The parent option on owns the spot as before.
