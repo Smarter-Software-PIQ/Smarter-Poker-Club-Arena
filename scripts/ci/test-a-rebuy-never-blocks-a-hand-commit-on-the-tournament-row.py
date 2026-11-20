@@ -116,7 +116,16 @@ CREATE TABLE public.tournament_players(
 CREATE TABLE public.tournament_knockout_candidates(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid);
 CREATE TABLE public.table_seats(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), table_id uuid, user_id uuid, left_at timestamptz);
 CREATE TABLE public.hand_atomic_commits(id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-CREATE TABLE public.tournament_bounty_obligations(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, state text, claimants jsonb);
+CREATE TABLE public.tournament_bounty_obligations(
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id uuid,
+  table_id uuid,
+  hand_id uuid,
+  hand_number bigint,
+  eliminated_user_id uuid,
+  state text,
+  claimants jsonb
+);
 CREATE TABLE public.entry_purchase_idempotency_receipts(
   key_domain text NOT NULL,
   idempotency_key text NOT NULL,
@@ -292,25 +301,38 @@ def main():
             actual = psql(f"SELECT md5(pg_get_functiondef('{fn['signature']}'::regprocedure))").stdout.strip()
             check(f"pre-image md5 matches for {fn['signature'].split('(')[0]}", actual == fn['md5'])
 
-        # 1. BEFORE MIGRATION: held rebuy (FOR UPDATE + UPDATE prize_pool) BLOCKS hand commit & retain on Table B
-        rebuy_before = f"""
+        # 1. BEFORE MIGRATION (post-20261119181500 state):
+        #    (a) fn_claim_bounty_legacy_candidate_20260907 STILL takes FOR UPDATE
+        #        on public.tournaments, blocking a FOR KEY SHARE hand commit on Table B.
+        #    (b) fn_ca_retain_hand_submission STILL takes FOR SHARE on public.tournaments,
+        #        blocking behind a FOR NO KEY UPDATE rebuy on Table A.
+        bounty_claim_before = f"""
         BEGIN;
+        SELECT public.fn_claim_bounty_legacy_candidate_20260907(
+          '{TR}'::uuid, '{USER_1}'::uuid, 2, 0, '{TBL_A}'::uuid, '{HAND_ID_1}'::uuid,
+          1000001::bigint, now(), NULL::uuid, NULL::jsonb, 0, false);
+        SELECT pg_sleep({HOLD_SEC});
+        COMMIT;
+        """
+        el_commit_before, r_cb = race_holder_vs_runner(bounty_claim_before, hand_commit_sql(TBL_B, 1))
+        check(f'BEFORE: hand commit on unrelated Table B waited behind bounty-claim FOR UPDATE ({el_commit_before:.3f}s >= 0.30s)',
+              r_cb.returncode == 0 and r_cb.stdout.strip() == 'true' and el_commit_before >= 0.30)
+
+        rebuy_noku = f"""
+        BEGIN;
+        SELECT public.fn_ca_share_tournament_lane_for_tables('{TR}'::uuid, '{USER_1}'::uuid, ARRAY['{TBL_A}']::uuid[]);
         SELECT * FROM public.fn_lock_tournament_launch_proof_parents(ARRAY['{TR}']::uuid[]);
         UPDATE public.tournaments SET prize_pool = prize_pool + 100 WHERE id = '{TR}';
         SELECT pg_sleep({HOLD_SEC});
         COMMIT;
         """
-        el_commit_before, r_cb = race_holder_vs_runner(rebuy_before, hand_commit_sql(TBL_B, 1))
-        check(f'BEFORE: hand commit on unrelated Table B waited behind rebuy ({el_commit_before:.3f}s >= 0.30s)',
-              r_cb.returncode == 0 and r_cb.stdout.strip() == 'true' and el_commit_before >= 0.30)
-
-        el_retain_before, r_rb = race_holder_vs_runner(rebuy_before, retain_sql(TBL_B, 101, HAND_ID_1))
-        check(f'BEFORE: hand retain on unrelated Table B waited behind rebuy ({el_retain_before:.3f}s >= 0.30s; rc={r_rb.returncode} err={r_rb.stderr.strip()})',
+        el_retain_before, r_rb = race_holder_vs_runner(rebuy_noku, retain_sql(TBL_B, 101, HAND_ID_1))
+        check(f'BEFORE: hand retain on unrelated Table B waited behind rebuy FOR NO KEY UPDATE ({el_retain_before:.3f}s >= 0.30s; rc={r_rb.returncode} err={r_rb.stderr.strip()})',
               r_rb.returncode == 0 and r_rb.stdout.strip() == 'true' and el_retain_before >= 0.30)
 
         # 2. APPLY MIGRATION
         psql(file=MIGRATION)
-        check('migration applied cleanly (including all 7 @probe-for probes)', True)
+        check('migration applied cleanly (including @probe-for and 20261119181500 prerequisite guard)', True)
 
         # Verify @live-proof evaluates true
         mig_text = MIGRATION.read_text()
@@ -323,12 +345,16 @@ def main():
         check('second apply refused atomically by pre-image guard',
               r_dup.returncode != 0 and 'pre-image drifted' in r_dup.stderr)
 
-        # 3. AFTER MIGRATION: held rebuy (FOR NO KEY UPDATE via fn_lock_tournament_launch_proof_parents +
-        #    fn_ca_share_tournament_lane_for_tables + pool UPDATE) does NOT block hand commit or retain on Table B!
+        # 3. AFTER MIGRATION: held bounty rebuy (fn_ca_share_tournament_lane_for_tables +
+        #    fn_lock_tournament_launch_proof_parents + fn_claim_bounty_legacy_candidate_20260907
+        #    + pool UPDATE) does NOT block hand commit or retain on Table B!
         rebuy_after = f"""
         BEGIN;
         SELECT public.fn_ca_share_tournament_lane_for_tables('{TR}'::uuid, '{USER_1}'::uuid, ARRAY['{TBL_A}']::uuid[]);
         SELECT * FROM public.fn_lock_tournament_launch_proof_parents(ARRAY['{TR}']::uuid[]);
+        SELECT public.fn_claim_bounty_legacy_candidate_20260907(
+          '{TR}'::uuid, '{USER_1}'::uuid, 2, 0, '{TBL_A}'::uuid, '{HAND_ID_2}'::uuid,
+          1000002::bigint, now(), NULL::uuid, NULL::jsonb, 0, false);
         UPDATE public.tournaments
            SET prize_pool = prize_pool + 100,
                bounty_pool = bounty_pool + 50,
