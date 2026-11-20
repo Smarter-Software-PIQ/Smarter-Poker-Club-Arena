@@ -42,7 +42,7 @@ function componentPage(container: HTMLElement) {
   };
 }
 describe('isolated NLH player browser input uses actual rendered ActionPanel paths', () => {
-  it('opens normal Raise then submits its immediate All In preset', async () => {
+  it('opens normal Raise, runs the slider up with All In, then confirms (two actions)', async () => {
     const onAction = vi.fn(),
       { container } = render(<ActionPanel {...base} onAction={onAction} />);
     expect(container.querySelector('.action-btn--allin')).toBeNull();
@@ -51,7 +51,7 @@ describe('isolated NLH player browser input uses actual rendered ActionPanel pat
     ).toBe(true);
     expect(onAction).toHaveBeenCalledExactlyOnceWith('allin', 500);
   });
-  it('retains the short-stack direct All In path', async () => {
+  it('short-stack direct All In arms, then confirms (two actions)', async () => {
     const onAction = vi.fn(),
       { container } = render(<ActionPanel {...base} canRaise={false} onAction={onAction} />);
     expect(

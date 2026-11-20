@@ -24,7 +24,6 @@ permissions:
   actions: read
 concurrency:
   group: horse-strength-hosted-capacity
-  queue: max
   cancel-in-progress: false
 env:
   SUPABASE_URL: https://supabase.invalid

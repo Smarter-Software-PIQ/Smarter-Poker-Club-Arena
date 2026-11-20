@@ -41,6 +41,10 @@ HorseOmahaPricedRules.test.ts, HorseOmahaPricedRulesRecorded.test.ts (real decis
 
 Every opponent figure a priced comparison reads now comes from his own KIND's prior (`omahaPricedKindPrior`, HorseOmahaPricedMode.ts; kind from `gs.humanUserIds`, else the seat's `is_horse`): a Horse is never priced on a person's bluff table, bet rate, fold rate or reference rate, nor a person on a Horse's. Each posterior is re-centred on that prior, so a player with no opportunity reads exactly it (no step at the first opportunity). The Horse figures are measured on the same 5,379-hand production window as the person figures (archive plo-handoff-review-01a1cbbd/priced2-013U37/calib). Where the comparison cannot price a spot at all, the categorical rule acts there as with the option off, beside the `_unpriced_kept` receipt (it no longer falls open). Cause and measurements: archive priced-01BNteGZ/ALLON-DIAGNOSIS-20261118.md. Evaluation protocol of this source: archive priced2-013U37/PASS-BAR.md. The v2 verdict below was measured on the #11212 source and is NOT carried over to this source.
 
+## Follow-up of 2026-11-19 (the sampled raise priced at every size)
+
+The sampled comparison this family asks (`omahaPricedSampledRaise`) prices one raise size and reads the fold to a raise size-blind (verifier follow-up on #11345). The repair sits behind the default-OFF option `omahaSampledRaiseIsPricedAtEverySize` (docs/horse-option-authority.d/omahaSampledRaiseIsPricedAtEverySize.md): with it on, the fold, the call and a raise to each legal size are priced, each raise's fold share at the price it lays. With it off this family is byte-identical to before; its evaluation above was measured with it off.
+
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
@@ -51,3 +55,9 @@ Every opponent figure a priced comparison reads now comes from his own KIND's pr
 ## Limits
 
 The fold-to-raise prior (0.42 x 0.42 = 0.18) agrees with the measured flop figure (11 of 65 heads-up raises folded to, 0.17; turn 9 of 39, 0.23; persons and Horses together). The out-of-position realization 0.8 is the big-draw module constant, not measured. One or two opponents only; three or more keep the decision given.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

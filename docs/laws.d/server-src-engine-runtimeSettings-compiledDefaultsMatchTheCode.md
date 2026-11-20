@@ -1,0 +1,3 @@
+# server/src/engine/runtimeSettings/compiledDefaultsMatchTheCode.law.test.ts
+
+Every engine runtime setting (`server/src/engine/runtimeSettings/registry.ts`) has a published default equal to its compiled default: each registry default equals the constant the code reads, the version 1 seed of migration `20261119211354` names every registered key with exactly that value and parses in the engine to the compiled snapshot, so no Horse decision option is passed and the Lightning fast-fold timing is unchanged at the defaults, and every reader pins its settings at a hand boundary. Guards against moving a tunable onto the runtime settings channel changing play, and against a reader that could change a value mid-hand.

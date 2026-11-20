@@ -47,6 +47,8 @@ import {
   type HorseProfileMods,
 } from '../engine/HorseLogic.js';
 import { HorseMind, readScopeOf, type HorseMindSandbox } from '../engine/HorseMind.js';
+import { seedHorseTimingRandom } from '../engine/horsePublicActionTime.js';
+import { seedHorseBetSizeRandom } from '../engine/horsePublicBetSize.js';
 import {
   seedFastRandom,
   saveFastRandom,
@@ -765,6 +767,34 @@ export function blockStandardError(
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit });
 
+/**
+ * THE BRAIN'S TWO PUBLIC STREAMS ARE PINNED PER DECISION (2026-11-19).
+ * horsePublicBetSize (every public bet size, with omahaBetSizeByPublicState)
+ * and horsePublicActionTime draw from streams production seeds from the
+ * operating system at load, never from a deal. Unpinned, the two passes of a
+ * duplicate pair drew different sizes: IDENTICAL arms with the option on
+ * diverged in 38 and 39 of 300 pairs (seed 20261119), and 0 of 300 with the
+ * stream held. playHand seeds both before every seat's decision from the
+ * deal, the seat and the decision's place in the hand, so the two passes of a
+ * pair draw the same numbers at the same node and an arm that draws more
+ * does not shift a later decision. Benchmark only: production never calls it.
+ */
+export function leaguePinPublicStreams(
+  handSeed: number,
+  seatIdx: number,
+  decisionIndex: number
+): void {
+  let h = (handSeed ^ 0x9e3779b9) >>> 0;
+  for (const x of [seatIdx + 1, decisionIndex + 1]) {
+    h = Math.imul(h ^ (x >>> 0), 0x85ebca6b) >>> 0;
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35) >>> 0;
+    h ^= h >>> 16;
+  }
+  seedHorseBetSizeRandom(h);
+  seedHorseTimingRandom(h ^ 0x5bd1e995);
+}
+
 /** The deck playHand deals for `handSeed`: seeds fastRandom, then Fisher-Yates on it.
  *  The stream is left where playHand continues from it. */
 function leagueShuffledDeck(handSeed: number): Card[] {
@@ -1031,6 +1061,7 @@ export function playHand(
         }) ?? { player: p, gameState: gs };
 
       const toCall = Math.max(0, currentBet - p.bet);
+      leaguePinPublicStreams(handSeed, i, history.length);
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
@@ -1419,7 +1450,14 @@ export function playHand(
       });
       // omahaReadIsByStreetAndTexture (2026-11-18): the street read the option uses, learned the way the
       // accepted-hand learner keeps it, only for a hand a seat's configuration reads it in.
-      if (seats.some((_, i) => configOf(i).omahaReadIsByStreetAndTexture === true))
+      // omahaFlopVerdictReadsTheBettor (2026-11-19) reads the same record.
+      if (
+        seats.some(
+          (_, i) =>
+            configOf(i).omahaReadIsByStreetAndTexture === true ||
+            configOf(i).omahaFlopVerdictReadsTheBettor === true
+        )
+      )
         leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
@@ -2428,6 +2466,8 @@ export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
 > = [
   ['omahaPricedPriorsByOpponentKind', 'priced_priors_by_opponent_kind'],
   ['omahaRaiseEvCountsLossesOnce', 'raise_ev_counts_losses_once'],
+  // 2026-11-19: the sampled raise (omahaDrawRaiseIsPriced, omahaPressureIsPriced) priced at every legal size
+  ['omahaSampledRaiseIsPricedAtEverySize', 'sampled_raise_is_priced_at_every_size'],
 ];
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
@@ -2675,7 +2715,9 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   })),
   // 2026-11-19 (WooWoo audit NUT-SIZE): omahaValueSizeIsUnreadable, default OFF: a nut-class full-pot
   // wager stays the full pot at the measured street share, else is sized in the owner's 80-95% band.
-  // Both arms carry omahaNutClassValueSize (on in production by release default); arm a adds the option.
+  // Both arms carry omahaNutClassValueSize; arm a adds the option. omahaNutClassValueSize is NOT on in
+  // production: it is default OFF in source (#10989) and off-only since its failed evaluation (ploFailed,
+  // 2026-11-18), so this card's base is not the production base.
   // Same league state caveat as the card above. Declared; not run.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_value_size_is_unreadable`,
@@ -2820,6 +2862,54 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFlopFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-18 OMAHA FLOP DEFENCE (HorseOmahaFlopDefenceTree, default OFF): the
+  // heads-up first-bet flop call priced as a two-street tree. The live
+  // options of 2026-11-16 in both arms; arm A adds the option alone, and on
+  // top of the flop verdict.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_defence_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopDefenceIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_defence_is_priced_on_flop_ev`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261116,
+      omahaFlopFacingBetEv: true,
+      omahaFlopDefenceIsPriced: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopFacingBetEv: true },
+  })),
+  // 2026-11-18 OMAHA FLOP BET PRICES THE RAISE (HorseOmahaFlopBetRaiseBranch,
+  // default OFF; WooWoo audit FLOPBET-RAISE, finding FOURBET F1): every v38
+  // flop bet size priced with his raise as a third branch. The live options
+  // of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_prices_the_raise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetPricesTheRaise: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
+  // 2026-11-18 OMAHA FLOP BET USES THE MEASURED FOLD SHARE
+  // (HorseOmahaFlopBetMeasuredFoldShare, default OFF; WooWoo audit FOLD-SHARE):
+  // a person's fold share to every v38 flop bet size is the fitted person model.
+  // The live options of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_uses_measured_fold_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetUsesMeasuredFoldShare: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
   // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
   // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
   // raise are read from the decision's own street and flop texture, blended
@@ -2843,6 +2933,38 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReadIsByStreetAndTexture: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-19 OMAHA MULTIWAY CHECK PRICED AGAINST THE BET (lane MULTIWAY-BET,
+  // HorseOmahaMultiwayDiscipline section 4, default OFF): a multiway check with
+  // nothing to call in a pot not re-raised before the flop is priced against the
+  // candidate bets. Both arms carry production's live set; a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_checked_to_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaMultiwayCheckedToBetIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 THE FLOP VERDICT READS THE BETTOR (HorseOmahaFlopBettorRead,
+  // default OFF): the flop facing-bet verdict's value share, non-value share
+  // and later-street realization take this bettor's own street record beside
+  // his kind. It changes nothing by itself: it is an input of
+  // omahaFlopFacingBetEv, so that option is on in BOTH arms (over
+  // production's live set, OMAHA_LIVE_OPTIONS_20261118) and arm A adds the
+  // read. The street record is learned inside the card
+  // (HorseLeagueStreetRead). Guarded by ADefaultOffFlagHasALeagueCard.law.test.ts.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_verdict_reads_the_bettor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaFlopFacingBetEv: true,
+      omahaFlopVerdictReadsTheBettor: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFlopFacingBetEv: true },
+  })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is
   // priced beside bets of 10/20/25% of the pot with the opponent's measured
@@ -2857,6 +2979,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-18 OMAHA CHECKED-TO BET IS PRICED (HorseOmahaCheckedToBet, default
+  // OFF): on the river (v2: the turn is out), when every opponent has checked
+  // and the answer is a check, the check is priced beside every bet size
+  // against each opponent's checking range and measured continue rate; a
+  // switches it on, b is today's brain. The mirror's memory learning is on
+  // (the league default), so the reads it prices from exist.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_checked_to_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCheckedToBetIsPriced: true },
+    b: {},
   })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
@@ -3085,6 +3221,54 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnCallRealizationByRunout: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-18 WooWoo F-04/F-11 C3 (HorseOmahaFacingBetEvShownField, default
+  // OFF): inside the facing-bet EV rule, a turn or river call with another
+  // player in the hand is priced on the joint field, the measured turn
+  // realization and the close-call mix. a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_ev_shown_field`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetEvShownField: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-18 WooWoo RIVER-FACING (HorseOmahaRiverBluffCatch, default OFF):
+  // inside the facing-bet EV rule, a heads-up first river bet is priced as a
+  // bluff-catch on the bettor's measured range with the Horse's blockers.
+  // a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bluff_catch_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaRiverBluffCatchIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-18 OMAHA FACING-BET VALUE REGION FROM HIS RANGE (lane VALUE-REGION,
+  // hand 59993188, default OFF): the river facing-bet verdict, heads-up against
+  // a person's first bet, is priced on his measured betting range on this
+  // board. Both arms carry production's live set; a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_value_is_range_relative`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFacingBetValueIsRangeRelative: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-18 OMAHA PAIRED-BOARD RIVER IS PRICED (lane PAIRED-RIVER, hand
+  // 59993188, default OFF): a nut-class straight or flush on a paired river,
+  // heads-up against the first bet, is priced on the bettor's line-conditioned
+  // range. Both arms carry production's live set; a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_paired_board_river_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPairedBoardRiverIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);
@@ -3176,6 +3360,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
     })),
   ]),
+  // 2026-11-18 OMAHA FOLD MODEL FITTED ON PEOPLE (HorseOmahaFoldModelFittedOnPeople, default OFF;
+  // WooWoo audit FOLD-MODEL): a person's fold share to every v38 flop / turn bet size is the fold model
+  // fitted on people. The live options of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_fold_model_fitted_on_people`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFoldModelFittedOnPeople: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with
   // the river planned, and the river following the plan. a switches it on,
@@ -3233,6 +3428,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
   ]),
+  // 2026-11-18 (WooWoo audit, CALL-VS-RAISE, default OFF): the priced
+  // call-or-raise facing a re-raise. Both sides run the re-raised-pot rules it
+  // sits on (it acts on their standing call and on the raises they lower); a
+  // adds the pricing, b is those rules alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_call_vs_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+      omahaReraisedCallVsRaisePriced: true,
+    },
+    b: {
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+    },
+  })),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher
@@ -4704,6 +4920,26 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'window; until it is built, HorseVpipFloorLimpOnly.test.ts and the sitting evaluation of ' +
       'HorseVpipFloorLimpOnly.test-support.ts are the evidence.',
   })),
+  // 2026-11-19: vpipFloorLimpOnlyTenHandWindow, default off. Refused, not dealt:
+  // this league seats no VPIP-floor table, and none judged at ten hands.
+  ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_vpip_floor_limp_only_ten_hand_window`,
+    variant,
+    a: { vpipFloorLimpOnly: true, vpipFloorLimpOnlyTenHandWindow: true },
+    b: { vpipFloorLimpOnly: true },
+    reason:
+      'Unanswerable by this league: the option only brings a table KNOWN to be judged at ten hands ' +
+      'under vpipFloorLimpOnly (vpipFloorLimpOnlyGovernsTenHandTable needs vpipFloor > 0, a window ' +
+      "of ten or fewer and the Horse's own judged row), and playHand builds its decision state with " +
+      'no vpipFloor, vpipWindowHands or ownVpip, so the two arms play identical poker. The option is ' +
+      'DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup (seed 20261119, 300 pairs): ' +
+      '0 of 300 pairs diverged. ' +
+      'What would change this: a league table that carries a VPIP floor, the ten-hand sitting window ' +
+      "and each seat's judged VPIP; until it is built, HorseVpipFloorLimpOnlyTenHandWindow.test.ts " +
+      'and the sitting evaluation of HorseVpipFloorLimpOnly.test-support.ts (audit archive ' +
+      'repairs/TENHAND) are the evidence.',
+  })),
   // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
   // dealt: the evidence it reads does not exist in a league hand.
   {
@@ -4976,6 +5212,71 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
       'big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    // PLO Strategy lane 2026-11-19 (lead 01TLQer7J): omahaStrongHandSlowplayMix on in BOTH arms; the one-arm
+    // question is its Lightning scope.
+    name: 'plo5_omaha_slowplay_mix_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaStrongHandSlowplayMix: true,
+      omahaSlowplayMixInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaStrongHandSlowplayMix: true },
+    reason:
+      'No Lightning domain in the league table. omahaSlowplayMixInLightning is DEFAULT OFF (HorseLogic ' +
+      'omahaStrongHandSlowplayMixRule: opts.omahaSlowplayMixInLightning === true) and it changes one thing: the ' +
+      'game of omahaStrongHandSlowplayMix (HorseOmahaStrongHandSlowplayMix inGame) no longer refuses a decision ' +
+      'whose gs.publicMemoryDomain.speed is "lightning". The league deals its own tables and no league context ' +
+      'carries a public memory domain, so every league decision is already inside the mix in both arms, both arms ' +
+      'play identical poker (omaha_slowplay_mix_in_lightning_scope_seen never fires) and the card would report ' +
+      '0.00 +/- 0.00 every night. Inert by construction (the one read of the option is behind the speed test). ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261119, status inert, 0.00 bb/100). ' +
+      'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
+      'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
+      'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
+      'deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and ' +
+      'sets the domain.',
+  },
+  {
+    // PLO Strategy lane 2026-11-19 (lead 01TLQer7J): omahaBetSizeByPublicState on in BOTH arms; the one-arm
+    // question is its Lightning scope.
+    name: 'plo5_omaha_public_bet_size_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaBetSizeByPublicState: true,
+      omahaPublicBetSizeInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaBetSizeByPublicState: true },
+    reason:
+      'No Lightning domain in the league table. omahaPublicBetSizeInLightning is DEFAULT OFF ' +
+      '(HorseLogic.publicBetSizeInGame: opts.omahaPublicBetSizeInLightning !== true) and it changes one thing: the ' +
+      'game of omahaBetSizeByPublicState no longer refuses a decision whose gs.publicMemoryDomain.speed is ' +
+      '"lightning". The league deals its own tables and no league context carries a public memory domain, so every ' +
+      'league decision is already inside the public size in both arms, both arms play identical poker ' +
+      '(omaha_public_bet_size_in_lightning_scope_seen never fires): the option is inert by construction (its one ' +
+      'read is behind the speed test). ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup (run seed 20261119): 49 of 300 pairs ' +
+      'diverged (-9.69 +/- 7.28 bb/100), and NONE of that is the option: with IDENTICAL arms 38 of 300 pairs ' +
+      'diverged (both arms the b set, +11.65 +/- 6.25 bb/100) and 39 of 300 (both arms the a set, -7.47 +/- 6.98). ' +
+      'The divergence is the size stream of omahaBetSizeByPublicState, which is on in both arms: ' +
+      'horsePublicBetSize.horseBetSizeRandom is seeded from the operating system at load, never from the run seed ' +
+      'or the deal, so the two deals of a duplicate pair draw different sizes. With that stream held constant ' +
+      '(horseBetSizeRandom mocked to 0.5; 1,676 size draws taken) the same matchup diverged in 0 of 300 pairs, as ' +
+      'did its identical-arm control. That noise is closed: playHand now pins the size and timing streams per ' +
+      'decision from the deal, the seat and the decision index (leaguePinPublicStreams, law ' +
+      'aPairedLeagueEvaluationRepeatsItself). Re-measured 2026-11-19 on the pinned league (300 pairs, run seed ' +
+      '20261119, one niced process): 0 of 300 pairs diverged (status inert, 0.00 +/- 0.00 bb/100), and its ' +
+      'identical-arm controls (both arms the b set; both arms the a set) 0 of 300 each. The matchup is inert as ' +
+      'constructed, which is the reason it stays refused. ' +
+      'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
+      'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
+      'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
+      'deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and ' +
+      'sets the domain.',
   },
   {
     // PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 20:08:21Z): the live Omaha set (with the priced

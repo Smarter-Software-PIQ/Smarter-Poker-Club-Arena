@@ -38,3 +38,9 @@ HorseOmahaMultiwayDiscipline.test.ts (the multiway value region: derived identit
 ## Limits
 
 The constants are the facing-bet module's population shares (0.35 / 0.25 / 0.5), not measured for multiway fields; the multiway value region rests on the same independence assumption; the 0.5x to 1.5x bounds on the caller read are stated, not measured; 0.39 is the sweep's heads-up continue rate to a Horse river bet (138 of 353), not a multiway rate. Independence of the ranges is a simplification. The sweep replay is a reconstruction, not the recorded state.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -57,3 +57,9 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 action change, sizes unjudged), league INCONCLUSIVE (near-inert); do not switch on.** It stays off.
 
 League cards (HorseLeague.ts, declared, not run): plo4_omaha_turn_set_size_is_priced and plo5_omaha_turn_set_size_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaTurnSetSizeIsPriced. Run once on eb30ce7a6f9: INCONCLUSIVE (Evidence rows).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

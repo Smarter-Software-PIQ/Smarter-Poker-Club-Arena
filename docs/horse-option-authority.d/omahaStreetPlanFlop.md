@@ -42,3 +42,9 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 ## Limits
 
 A model, not a solver: the opponent's turn lead when the Horse is in position is his bet-after-check share; the river has no facing-bet seam (the call is the equity against his betting range); the preflop range is a percentile cut, not his read band; 40 hands x 8 turn cards x 8 rivers is a sample.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

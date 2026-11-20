@@ -1623,6 +1623,127 @@ describe('F-02 in the decision (omahaOopReraisedPotStrongRange on)', () => {
   });
 });
 
+describe('omahaReraisedCallVsRaisePriced in the decision (default OFF)', () => {
+  const RULES: HorseDecideOpts = {
+    omahaOopReraisedPotStrongRange: true,
+    omahaReraiseRangeOutOfPosition: true,
+    omahaReraiseRangeEarlyPosition: true,
+  };
+  const ON: HorseDecideOpts = { ...RULES, omahaReraisedCallVsRaisePriced: true };
+  // Recorded public states facing a 3-bet or a 4-bet, each with hands of several strengths.
+  const SPOTS: Array<[string, Recorded, number]> = [
+    ...['KsKhQs9h4d', 'AsAhKsQh7d', 'Ts9s8h7h6d', 'AsKsQhJh9d', 'QsQhJsTh3c'].map(
+      (hole): [string, Recorded, number] => [
+        `3-bet out of position, ${hole}`,
+        withHole(RECORDED.h59407629, hole),
+        2,
+      ]
+    ),
+    ...['KsKhQs9h4d', 'AsAhKsQh7d', 'JsJhTs9h8d'].map((hole): [string, Recorded, number] => [
+      `4-bet, ${hole}`,
+      withHole(RECORDED.h59462734, hole),
+      2,
+    ]),
+  ];
+  const rank = (a: string) => (a === 'raise' || a === 'all_in' ? 2 : a === 'call' ? 1 : 0);
+  it('unset and false are byte-identical, with the rules on and with them off', () => {
+    for (const [name, rec, nth] of SPOTS) {
+      const build = () => stateAt(rec, nth);
+      for (const base of [{}, RULES]) {
+        const unset = playMany(build, base);
+        const off = playMany(build, { ...base, omahaReraisedCallVsRaisePriced: false });
+        expect(off.bytes, name).toEqual(unset.bytes);
+        expect(off.next, name).toEqual(unset.next);
+        expect(count(unset, 'omaha_reraised_raise_priced'), name).toBe(0);
+        expect(unset.bytes.join('').includes('omahaReraisedRaise'), name).toBe(false);
+      }
+    }
+  });
+  it('on: never lowers a decision; draws no random number; a changed decision is a raise with a receipt that clears its bar', () => {
+    let priced = 0;
+    let raised = 0;
+    for (const [name, rec, nth] of SPOTS) {
+      const build = () => stateAt(rec, nth);
+      const rules = playMany(build, RULES);
+      const on = playMany(build, ON);
+      expect(on.next, name).toEqual(rules.next);
+      on.bytes.forEach((b, k) => {
+        const d = JSON.parse(b) as {
+          action: string;
+          omahaReraisedRaise?: { verdict: string; evRaise: number; edge: number; se: number };
+        };
+        expect(rank(d.action), `${name} seed ${k}`).toBeGreaterThanOrEqual(rank(rules.actions[k]));
+        const r = d.omahaReraisedRaise;
+        if (r) priced++;
+        if (d.action !== rules.actions[k]) {
+          raised++;
+          expect(rank(d.action), name).toBe(2);
+          expect(r?.verdict, name).toBe('raise');
+          expect(r!.evRaise, name).toBeGreaterThan(0);
+          expect(r!.edge, name).toBeGreaterThan(2 * r!.se);
+        } else if (r) {
+          // a kept decision differs from the rules' only by the receipt it carries
+          const { omahaReraisedRaise: _receipt, ...rest } = JSON.parse(b);
+          void _receipt;
+          expect(rest, name).toEqual(JSON.parse(rules.bytes[k]));
+        } else expect(b, name).toBe(rules.bytes[k]);
+      });
+      expect(
+        count(on, 'omaha_reraised_raise_priced_raise') +
+          count(on, 'omaha_reraised_raise_priced_call'),
+        name
+      ).toBe(on.bytes.filter((b) => b.includes('"omahaReraisedRaise"')).length);
+    }
+    // the option reaches these spots (pinned so the test cannot pass vacuously)
+    expect(priced).toBeGreaterThan(0);
+    // 16 priced decisions (the heads-up spots only: B1), none raised: with no record of the re-raiser he has no
+    // fold share (B2) and the raise does not clear its bar. The raises are pinned on recorded spots in
+    // HorseOmahaReraisedRaisePriced.test.ts.
+    expect([priced, raised]).toEqual([16, 0]);
+  });
+  it('PLO6, a tournament, Lightning, a bomb pot: on is byte-identical to the rules alone', () => {
+    const rec = withHole(RECORDED.h59407629, 'KsKhQs9h4d');
+    const variants: Array<[string, () => ReturnType<typeof stateAt>]> = [
+      ['plo6', () => stateAt({ ...rec, variant: 'plo6', hole: 'KsKhQs9h4d2c' }, 2)],
+      [
+        'tournament',
+        () => {
+          const st = stateAt(rec, 2);
+          (st.gs as unknown as { gameMode: string }).gameMode = 'tournament';
+          return st;
+        },
+      ],
+      [
+        'lightning',
+        () => {
+          const st = stateAt(rec, 2);
+          (st.gs as unknown as { publicMemoryDomain: object }).publicMemoryDomain = {
+            version: 1,
+            speed: 'lightning',
+            ante: 'none',
+          };
+          return st;
+        },
+      ],
+      [
+        'bomb pot',
+        () => {
+          const st = stateAt(rec, 2);
+          (st.gs as unknown as { bombPot: boolean }).bombPot = true;
+          return st;
+        },
+      ],
+    ];
+    for (const [name, build] of variants) {
+      const rules = playMany(build, RULES);
+      const on = playMany(build, ON);
+      expect(on.bytes, name).toEqual(rules.bytes);
+      expect(on.next, name).toEqual(rules.next);
+      expect(count(on, 'omaha_reraised_raise_priced'), name).toBe(0);
+    }
+  });
+});
+
 // ─── ROWFIX 2026-11-18: each row switches only its own behaviour ───
 // REVIEW-97de6c23913 N8: the re-raise range rules judged the 4-bet they turn into a call with
 // omahaOopReraisedPotStrongRange forced on, so that row off did not turn its cell off.

@@ -23,7 +23,7 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../..');
 const DIR = join(ROOT, 'supabase/migrations');
-const FIX = '20261119183127';
+const FIX = '20261120001649';
 
 function newestBody(head: string) {
   const file = readdirSync(DIR)
@@ -88,14 +88,22 @@ describe('a proven job clears its weekly failure', () => {
     expect(watch.file >= FIX).toBe(true);
   });
 
-  it('still hears a weekly job on its own last failed run', () => {
-    expect(watch.body).toContain('OR (day.runs_24h = 0 AND day.last_finished_failed');
+  it('still hears a weekly job immediately on its own last failed run and sorts it ahead of frequent failures', () => {
+    expect(watch.body).toContain(
+      "count(*) FILTER (WHERE x.status IN ('failed', 'succeeded')) AS runs_7d"
+    );
+    expect(watch.body).toContain(
+      'OR ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed'
+    );
+    expect(watch.body).toContain(
+      'ORDER BY ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed) DESC, day.fails DESC, day.jobname'
+    );
     expect(watch.body).toContain("'cron-failing:' || r.jobname || ':run:'");
   });
 
   it("does not raise it once the job's one function recorded a completed run after the failure", () => {
     const rule = watch.body.slice(
-      watch.body.indexOf('OR (day.runs_24h = 0 AND day.last_finished_failed')
+      watch.body.indexOf('OR ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed')
     );
     expect(rule).toContain('AND NOT EXISTS (');
     expect(rule).toContain('SELECT 1 FROM public.ca_detector_runs pr');
@@ -111,7 +119,7 @@ describe('a proven job clears its weekly failure', () => {
   it('keeps the daily rules free of the proof, so a daily job is judged on its runs alone', () => {
     const where = watch.body.slice(
       watch.body.indexOf('WHERE (day.finished = 3'),
-      watch.body.indexOf('OR (day.runs_24h = 0')
+      watch.body.indexOf('OR ((day.runs_24h = 0 OR day.runs_7d = 1)')
     );
     expect(where).not.toContain('ca_detector_runs');
   });

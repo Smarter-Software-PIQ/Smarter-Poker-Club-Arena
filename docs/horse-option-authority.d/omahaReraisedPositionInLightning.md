@@ -38,3 +38,9 @@ The existing `omaha_reraised_call_priced_call`, `_priced_fold` and their `_after
 ## What the activation row must contain
 
 `option = 'omahaReraisedPositionInLightning'`, `state = 'on'`, note `authority: omahaReraisedPositionInLightning docs/horse-option-authority.d/omahaReraisedPositionInLightning.md sha256 <the sha256 of this file as merged>`, only after its declared evaluation passes, the serving engine build knows the option name and the switch-list migration that adds it is installed.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

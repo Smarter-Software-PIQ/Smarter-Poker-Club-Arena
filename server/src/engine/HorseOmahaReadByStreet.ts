@@ -159,17 +159,33 @@ export function omahaStreetBetCell(
  * The cells the priced comparisons read (OmahaPricedStreetRates, through
  * omahaPricedStreetRatesOf) for the decision's street: bet rate (texture cell on the flop),
  * fold to a bet and fold to a raise of that street. A cell with no opportunity is null.
+ *
+ * `foldToRaisePrice` (2026-11-19, horse decisions stack 2): the mean price of the raises behind
+ * this street's fold-to-raise cell, from the opponent's durable price record (passed by
+ * HorseOmahaReadByStreetRule, the record's one decision reader), set as that cell's `price`
+ * (OmahaPricedCell.price, read only by omahaPricedSampledFoldAtPrice). Set only on a cell that
+ * exists, and only a finite price in (0, 1]; absent, null or anything else: the cells are exactly
+ * as before (no `price` key).
  */
 export function omahaStreetRatesOf(
   row: StreetReadCounters | null | undefined,
   street: PostflopStreet | null,
-  texture: FlopTexture | null
+  texture: FlopTexture | null,
+  foldToRaisePrice: number | null = null
 ): OmahaPricedStreetRates | null {
   if (!row || !street) return null;
+  const foldToRaise = copy(row.foldToRaise[street]);
   const rates: OmahaPricedStreetRates = {
     bet: omahaStreetBetCell(row, street, texture),
     foldToBet: copy(row.foldToBet[street]),
-    foldToRaise: copy(row.foldToRaise[street]),
+    foldToRaise:
+      foldToRaise &&
+      typeof foldToRaisePrice === 'number' &&
+      Number.isFinite(foldToRaisePrice) &&
+      foldToRaisePrice > 0 &&
+      foldToRaisePrice <= 1
+        ? { ...foldToRaise, price: foldToRaisePrice }
+        : foldToRaise,
   };
   return rates.bet || rates.foldToBet || rates.foldToRaise ? rates : null;
 }

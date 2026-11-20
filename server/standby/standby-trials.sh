@@ -16,6 +16,9 @@
 #   trial break <sha>                one full maintenance break on <sha>:
 #                                    announce, park, freeze, thaw, deal again.
 #   trial all <from_sha> <to_sha>    swap, then table-kill and break on <to>.
+#   trial regression-replay <sha>    the day's incidents replayed against the
+#                                    candidate's source and the copy (below);
+#                                    also run by every certification.
 
 engine_key() { docker exec "$CONTAINER" printenv INTERNAL_API_KEY; }
 fault_token() { docker exec "$CONTAINER" printenv FAULT_INJECTION_TOKEN; }
@@ -483,6 +486,278 @@ trial_table_kill() {
   trial_verdict table-kill "$v" ",\"sha\":\"$sha\",\"killed\":$killed,\"reasons\":\"${reasons#,}\""
 }
 
+# ---------------------------------------------------------------------------
+# trial regression-replay <sha>: TODAY'S INCIDENTS NEVER COME BACK
+# (owner order 2026-11-19 17:26 Chicago). Before the 03:30 selection can take
+# a candidate, its Backup certification replays the incidents fixed that day
+# against the candidate's own source and the restored copy, which holds
+# production's exact installed schema (the selector refuses any other copy):
+#
+#   spin_reservation_budget  incident eaafbbfb: the engine's free-horse picker
+#                            reads fn_horses_at_tournament_reservation_budget,
+#                            and that read agrees with the seat door
+#                            fn_seat_horse_in_seat_first_game (same promise
+#                            predicate, same threshold, same horses on the
+#                            copy's data);
+#   hand_gap_owed_waits      incidents 1e532243 and 076ff467: the hand-gap
+#                            grader leaves out a wait inside a maintenance
+#                            break, a tournament break and hand-for-hand, and
+#                            still grades an ordinary pair (synthetic hands in
+#                            the year 2000, inside a transaction that is
+#                            always rolled back, triggers off);
+#   cutover_owes_baseline    incident 076ff467: fn_ca_engine_cutover_watch
+#                            owes the build merged by the candidate's own
+#                            freeze start minus SETTLE, and the 03:00 readiness
+#                            check reads the same clock;
+#   drill_records_its_run    incident 316ed735: fn_ca_alarm_drill writes its
+#                            completed run to ca_detector_runs.
+#
+# A check is armed once the migration that fixed its incident is installed on
+# the copy (that is, in production); before that it says not_armed and passes,
+# so an unshipped fix never withholds a certificate. Once armed, a failure is a
+# regression and withholds the certificate (cmd_certify records
+# regression_replay_failed). Nothing is committed: one transaction, rolled
+# back, statement budget 30 s. Native proof:
+# scripts/ci/test-backup-regression-replay.py.
+# ---------------------------------------------------------------------------
+regression_replay_clock() { # sha -> "<freeze start minutes from midnight> <settle minutes>"
+  python3 - "$1" "${REPO_DIR:-/opt/club-arena}" <<'PY_REPLAY_CLOCK'
+import re, subprocess, sys
+sha, repo = sys.argv[1:3]
+def show(path):
+    return subprocess.run(['git', '-C', repo, 'show', f'{sha}:{path}'], capture_output=True, text=True, check=True).stdout
+d = re.search(r'RELEASE_SCHEMA_FREEZE_CHICAGO\s*=\s*\{\s*from:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]', show('scripts/ci/merged-migration-dispatch.mjs'))
+s = re.search(r'SETTLE\s*=\s*timedelta\(minutes=(\d+)\)', show('scripts/ci/backup-freeze-baseline.py'))
+if not (d and s):
+    sys.exit('release clock not found in the candidate')
+m = int(d[1]) * 60 + int(d[2])
+print(m - 24 * 60 if m >= 12 * 60 else m, int(s[1]))
+PY_REPLAY_CLOCK
+}
+
+regression_replay_picker() { # sha: the candidate's free-horse picker excludes horses at the budget
+  # Read each file whole, then search it. standby-engine.sh runs under
+  # `set -Eeuo pipefail`: piping git show into grep -q let grep exit at the
+  # first match, git show died of SIGPIPE, and pipefail turned a found
+  # pattern into a failure (Backup 44680630430, 2026-11-20 05:27 UTC,
+  # picker_ignores_reservation_budget on a candidate that has the fix).
+  local repo="${REPO_DIR:-/opt/club-arena}" budget recurring
+  budget=$(git -C "$repo" show "$1:server/src/services/horseReservationBudget.ts" 2>/dev/null) || return 1
+  recurring=$(git -C "$repo" show "$1:server/src/services/TournamentRecurringService.ts" 2>/dev/null) || return 1
+  [[ "$budget" == *"HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'"* ]] || return 1
+  [[ "$recurring" == *'this.horseReservationBudget.atBudget()'* ]] || return 1
+}
+
+regression_replay_sql() { # freeze_offset settle -> one JSON array of check verdicts; never commits
+  psql_db -XqAt -v freeze_offset="$1" -v settle="$2" <<'SQL_REGRESSION_REPLAY'
+BEGIN;
+SET LOCAL statement_timeout = '30s';
+SET LOCAL lock_timeout = '2s';
+SET LOCAL session_replication_role = replica;
+SELECT set_config('replay.freeze_offset', :'freeze_offset', true), set_config('replay.settle', :'settle', true) \g /dev/null
+CREATE TEMP TABLE replay_verdict (check_name text PRIMARY KEY, verdict text NOT NULL, detail text) ON COMMIT DROP;
+-- The restored Backup copy carries no supabase_migrations schema (Backup
+-- certify 44673040919, 2026-11-20 04:15 UTC: "relation
+-- supabase_migrations.schema_migrations does not exist"). A version is
+-- installed only where that history exists and names it; anywhere else the
+-- check reads not installed (not_armed), never an error.
+CREATE FUNCTION pg_temp.replay_installed(p_version text) RETURNS boolean LANGUAGE plpgsql AS $replay_installed$
+DECLARE v boolean;
+BEGIN
+  IF to_regclass('supabase_migrations.schema_migrations') IS NULL THEN RETURN false; END IF;
+  EXECUTE 'SELECT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = $1)' INTO v USING p_version;
+  RETURN v;
+END
+$replay_installed$;
+DO $replay$
+DECLARE
+  c_freeze integer := current_setting('replay.freeze_offset')::integer;
+  c_settle integer := current_setting('replay.settle')::integer;
+  v_door text; v_read text; v_def text; v_ready text; v_thr_door integer; v_thr_read integer;
+  v_budget uuid[]; v_mirror uuid[]; v_got integer; v_off integer;
+  v_cash integer; v_tour integer; v_maint integer; v_notes text := '';
+  v_t uuid := gen_random_uuid(); v_u uuid := gen_random_uuid(); v_v uuid := gen_random_uuid();
+  v_h4h boolean;
+BEGIN
+  -- spin_reservation_budget ------------------------------------------------
+  IF NOT pg_temp.replay_installed('20261119181143') THEN
+    INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'not_armed', '20261119181143 is not installed');
+  ELSE
+    BEGIN
+      v_door := regexp_replace(pg_get_functiondef('public.fn_seat_horse_in_seat_first_game(uuid,uuid)'::regprocedure), '\s+', '', 'g');
+      v_read := regexp_replace(pg_get_functiondef('public.fn_horses_at_tournament_reservation_budget()'::regprocedure), '\s+', '', 'g');
+      v_thr_door := substring(v_door FROM '\)>=([0-9]+)THENRETURNjsonb_build_object\(''ok'',false,''reason'',''horse_tournament_reservation_budget''\)')::integer;
+      v_thr_read := substring(v_read FROM 'HAVINGcount\(DISTINCTpromise\.tournament_id\)>=([0-9]+)')::integer;
+      IF v_thr_door IS NULL OR v_thr_read IS NULL THEN
+        INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'fail', format('reservation budget predicate not found (door %s, read %s)', v_thr_door, v_thr_read));
+      ELSIF v_thr_door <> v_thr_read THEN
+        INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'fail', format('the seat door refuses at %s promises but the picker read excludes at %s', v_thr_door, v_thr_read));
+      ELSIF strpos(v_door, 'promise.statusIN(''registered'',''playing'')') = 0 OR strpos(v_read, 'promise.statusIN(''registered'',''playing'')') = 0
+         OR strpos(v_door, 'NOTIN(''COMPLETING'',''COMPLETED'',''CANCELLED'')') = 0 OR strpos(v_read, 'NOTIN(''COMPLETING'',''COMPLETED'',''CANCELLED'')') = 0 THEN
+        INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'fail', 'the seat door and the picker read no longer count the same promises');
+      ELSE
+        v_budget := public.fn_horses_at_tournament_reservation_budget();
+        SELECT COALESCE(array_agg(x ORDER BY x), '{}'::uuid[]) INTO v_mirror FROM (
+          SELECT promise.user_id AS x
+            FROM public.tournament_players promise
+            JOIN public.tournaments promised ON promised.id = promise.tournament_id
+            JOIN public.profiles h ON h.id = promise.user_id AND h.is_horse IS TRUE
+           WHERE promise.status IN ('registered','playing')
+             AND upper(COALESCE(promised.status,'')) NOT IN ('COMPLETING','COMPLETED','CANCELLED')
+           GROUP BY promise.user_id
+          HAVING count(DISTINCT promise.tournament_id) >= v_thr_door) m;
+        IF v_budget IS DISTINCT FROM v_mirror THEN
+          INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'fail',
+            format('on the copy the picker read names %s horse(s) and the door refuses %s', cardinality(v_budget), cardinality(v_mirror)));
+        ELSE
+          INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'pass',
+            format('%s horse(s) at the budget; door and picker read agree at >= %s promises', cardinality(v_budget), v_thr_door));
+        END IF;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'fail', 'error: ' || SQLERRM);
+    END;
+  END IF;
+
+  -- hand_gap_owed_waits ----------------------------------------------------
+  IF to_regprocedure('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)') IS NULL THEN
+    INSERT INTO replay_verdict VALUES ('hand_gap_owed_waits', 'not_armed', 'the grader is not installed');
+  ELSE
+    BEGIN
+      v_h4h := to_regclass('public.ca_tournament_hand_for_hand') IS NOT NULL
+               AND pg_temp.replay_installed('20261119211558');
+      -- Night 1 (2000-01-01): an ordinary cash pair and an ordinary tournament
+      -- pair are graded; a tournament-break pair and a hand-for-hand pair are not.
+      INSERT INTO public.hand_history (table_id, tournament_id, started_at, ended_at, created_at, actions, players, pots, showdown)
+      SELECT tb, tr, '2000-01-01 00:00:00+00'::timestamptz + s, '2000-01-01 00:00:00+00'::timestamptz + e,
+             '2000-01-01 00:00:00+00'::timestamptz + c, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb
+        FROM (VALUES (gen_random_uuid(), NULL::uuid), (gen_random_uuid(), v_v), (gen_random_uuid(), v_t), (gen_random_uuid(), v_u)) AS g(tb, tr)
+        CROSS JOIN (VALUES (interval '-30 seconds', interval '0 seconds', interval '1 second'),
+                           (interval '20 seconds', interval '50 seconds', interval '51 seconds')) AS h(s, e, c);
+      BEGIN
+        INSERT INTO public.tournaments (id, name, buy_in_amount, buy_in_fee, start_time, ban_chat, status, break_started_at, break_ends_at)
+        VALUES (v_t, 'regression replay', 0, 0, '2000-01-01 00:00:00+00', false, 'RUNNING',
+                '2000-01-01 00:00:05+00', '2000-01-01 00:00:15+00');
+      EXCEPTION WHEN OTHERS THEN
+        v_t := NULL;
+        v_notes := v_notes || '; tournament break not exercised: ' || SQLERRM;
+      END;
+      IF v_h4h THEN
+        EXECUTE 'INSERT INTO public.ca_tournament_hand_for_hand (tournament_id, started_at, ended_at) VALUES ($1, $2, $3)'
+          USING v_u, '2000-01-01 00:00:02+00'::timestamptz, '2000-01-01 00:00:18+00'::timestamptz;
+      END IF;
+      SELECT COALESCE(sum(hands) FILTER (WHERE kind = 'cash'), 0), COALESCE(sum(hands) FILTER (WHERE kind = 'tournament'), 0)
+        INTO v_cash, v_tour FROM public.fn_ca_hand_gap_unintended_delay('2000-01-01 00:10:00+00', 15);
+      -- Night 2 (2000-01-02): an ordinary pair inside a maintenance break.
+      INSERT INTO public.hand_history (table_id, tournament_id, started_at, ended_at, created_at, actions, players, pots, showdown)
+      VALUES (v_v, NULL, '2000-01-01 23:59:30+00', '2000-01-02 00:00:00+00', '2000-01-02 00:00:01+00', '[]', '[]', '[]', '[]'),
+             (v_v, NULL, '2000-01-02 00:00:20+00', '2000-01-02 00:00:50+00', '2000-01-02 00:00:51+00', '[]', '[]', '[]', '[]');
+      INSERT INTO public.engine_maintenance_break_log (break_started_at, break_ended_at, unparked_at_countdown, peak_unparked, tables_resumed)
+      VALUES ('2000-01-02 00:00:05+00', '2000-01-02 00:00:15+00', 0, 0, 0);
+      SELECT COALESCE(sum(hands), 0) INTO v_maint FROM public.fn_ca_hand_gap_unintended_delay('2000-01-02 00:10:00+00', 15);
+      -- The ordinary tournament pair (no break, no hand-for-hand) is graded;
+      -- the tournament-break pair only when its synthetic event could be written.
+      v_got := 1 + CASE WHEN v_t IS NULL THEN 1 ELSE 0 END + CASE WHEN v_h4h THEN 0 ELSE 1 END;
+      IF v_cash <> 1 THEN
+        INSERT INTO replay_verdict VALUES ('hand_gap_owed_waits', 'fail', format('an ordinary cash pair graded %s times, not once (the replay proves nothing)', v_cash));
+      ELSIF v_maint <> 0 THEN
+        INSERT INTO replay_verdict VALUES ('hand_gap_owed_waits', 'fail', 'a wait inside a maintenance break was graded as a delay');
+      ELSIF v_tour <> v_got THEN
+        INSERT INTO replay_verdict VALUES ('hand_gap_owed_waits', 'fail',
+          format('%s tournament pair(s) graded, expected %s: a tournament break%s wait was graded as a delay',
+                 v_tour, v_got, CASE WHEN v_h4h THEN ' or hand-for-hand' ELSE '' END));
+      ELSE
+        INSERT INTO replay_verdict VALUES ('hand_gap_owed_waits', 'pass',
+          format('maintenance break%s%s left out, ordinary pairs graded%s',
+                 CASE WHEN v_t IS NOT NULL THEN ', tournament break' ELSE '' END,
+                 CASE WHEN v_h4h THEN ', hand-for-hand' ELSE ' (hand-for-hand not armed: 20261119211558 not installed)' END, v_notes));
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      INSERT INTO replay_verdict VALUES ('hand_gap_owed_waits', 'fail', 'error: ' || SQLERRM);
+    END;
+  END IF;
+
+  -- cutover_owes_baseline --------------------------------------------------
+  IF NOT pg_temp.replay_installed('20261119182637') THEN
+    INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'not_armed', '20261119182637 is not installed');
+  ELSE
+    BEGIN
+      v_def := pg_get_functiondef('public.fn_ca_engine_cutover_watch(timestamp with time zone)'::regprocedure);
+      -- The 03:00 readiness check (20261119234116), when installed; NULL otherwise.
+      v_ready := pg_get_functiondef(to_regprocedure('public.fn_ca_cutover_readiness_watch(timestamp with time zone,boolean)'));
+      v_off := substring(v_def FROM 'ca_cutover_owed_build\(v_serving, least\(v_cutoff, \(v_day::timestamp \+ interval ''(-?[0-9]+) minutes''\) AT TIME ZONE c_tz\)\)')::integer;
+      IF v_off IS NULL THEN
+        INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'fail', 'the cutover watch no longer owes the freeze-baseline build');
+      ELSIF v_off <> c_freeze - c_settle THEN
+        INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'fail',
+          format('the cutover watch owes the build merged by %s min from midnight; the candidate freezes at %s and settles %s', v_off, c_freeze, c_settle));
+      ELSIF v_ready IS NOT NULL
+        AND (strpos(v_ready, format('c_freeze_offset constant interval := interval ''%s minutes''', c_freeze)) = 0
+          OR strpos(v_ready, format('c_settle constant interval := interval ''%s minutes''', c_settle)) = 0) THEN
+        INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'fail', 'the 03:00 readiness check reads a different freeze clock than the candidate');
+      ELSE
+        INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'pass',
+          format('owes the build merged by %s min from the cutover date''s midnight (freeze %s, settle %s)', v_off, c_freeze, c_settle));
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'fail', 'error: ' || SQLERRM);
+    END;
+  END IF;
+
+  -- drill_records_its_run --------------------------------------------------
+  IF NOT pg_temp.replay_installed('20261119231718') THEN
+    INSERT INTO replay_verdict VALUES ('drill_records_its_run', 'not_armed', '20261119231718 is not installed');
+  ELSE
+    BEGIN
+      v_def := pg_get_functiondef('public.fn_ca_alarm_drill()'::regprocedure);
+      IF to_regclass('public.ca_detector_runs') IS NULL
+         OR strpos(v_def, 'INSERT INTO public.ca_detector_runs (detector, detail)') = 0
+         OR strpos(v_def, 'VALUES (''fn_ca_alarm_drill''') = 0
+         OR strpos(v_def, 'INSERT INTO public.ca_detector_runs (detector, detail)')
+            > strpos(v_def, 'RETURN jsonb_build_object(''pass'', cardinality(v_failing) = 0,') THEN
+        INSERT INTO replay_verdict VALUES ('drill_records_its_run', 'fail', 'fn_ca_alarm_drill no longer records its completed run in ca_detector_runs');
+      ELSE
+        INSERT INTO replay_verdict VALUES ('drill_records_its_run', 'pass', 'fn_ca_alarm_drill records its completed run before it returns');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      INSERT INTO replay_verdict VALUES ('drill_records_its_run', 'fail', 'error: ' || SQLERRM);
+    END;
+  END IF;
+END
+$replay$;
+SELECT json_agg(json_build_object('check', check_name, 'verdict', verdict, 'detail', detail) ORDER BY check_name) FROM replay_verdict;
+ROLLBACK;
+SQL_REGRESSION_REPLAY
+}
+
+trial_regression_replay() {
+  local sha="$1" clock checks reasons="" t0
+  valid_sha "$sha"
+  t0=$(date +%s)
+  # The replay runs before cmd_build fetches; read the candidate the same way.
+  git -C "${REPO_DIR:-/opt/club-arena}" cat-file -e "$sha^{commit}" 2>/dev/null \
+    || git -C "${REPO_DIR:-/opt/club-arena}" fetch -q origin 2>/dev/null || true
+  regression_replay_picker "$sha" || reasons="$reasons,picker_ignores_reservation_budget"
+  if ! clock=$(regression_replay_clock "$sha" 2>&1); then
+    trial_verdict regression-replay fail ",\"sha\":\"$sha\",\"reason\":\"candidate_release_clock_unreadable\""
+    return 1
+  fi
+  # shellcheck disable=SC2086
+  if ! checks=$(regression_replay_sql $clock 2>&1); then
+    trial_verdict regression-replay fail ",\"sha\":\"$sha\",\"reason\":\"replay_sql_failed\",\"error\":$(printf '%s' "$checks" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()[-500:]))')"
+    return 1
+  fi
+  local failed
+  failed=$(python3 -c 'import json,sys
+rows = json.loads(sys.argv[1])
+assert isinstance(rows, list) and len(rows) == 4, "expected four checks"
+print(",".join(r["check"] for r in rows if r["verdict"] not in ("pass", "not_armed")))' "$checks") \
+    || { trial_verdict regression-replay fail ",\"sha\":\"$sha\",\"reason\":\"replay_output_unreadable\""; return 1; }
+  [ -z "$failed" ] || reasons="$reasons,$failed"
+  local v=pass; [ -z "$reasons" ] || v=fail
+  trial_verdict regression-replay "$v" ",\"sha\":\"$sha\",\"seconds\":$(( $(date +%s) - t0 )),\"clock\":\"$clock\",\"checks\":$checks,\"reasons\":\"${reasons#,}\""
+}
+
 cmd_trial() {
   local name="${1:?trial name}"; shift
   assert_isolated
@@ -490,6 +765,7 @@ cmd_trial() {
     swap)       trial_swap "${1:?from}" "${2:?to}" ;;
     break)      trial_break "${1:?sha}" ;;
     table-kill) trial_table_kill "${1:?sha}" "${2:-3}" ;;
+    regression-replay) trial_regression_replay "${1:?sha}" ;;
     all)        local rc=0
                 trial_swap "${1:?from}" "${2:?to}" || rc=1
                 trial_table_kill "$2" 3 || rc=1

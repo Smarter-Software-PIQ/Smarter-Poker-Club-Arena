@@ -13,3 +13,9 @@ priced2 league, configuration 0 (base + omahaTurnRiverRaiseIsPriced vs base), so
 Overall: FAILED. Off-only until a new build passes a new bar.
 
 League cards (HorseLeague.ts, declared, not run): plo4_omaha_raise_ev_counts_losses_once and plo5_omaha_raise_ev_counts_losses_once: the live options of 2026-11-16 in both arms, arm A adds omahaRaiseEvCountsLossesOnce (both arms carry every priced family on).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -1,0 +1,275 @@
+{
+  "$comment": [
+    "CODE-AREA OWNERSHIP MAP (Dan, 2026-11-19 17:26 Chicago). Read by scripts/ci/ownership-check.mjs on every pull request (.github/workflows/ownership-map.yml).",
+    "Why: on 2026-11-19 three agents rewrote the same database function (fn_ca_alarm_drill) in three open pull requests and each merge overwrote the last.",
+    "A pull request names its lane with a line 'Lane: <lane-id>' in its description. The check comments and warns when a pull request touches a path or database function owned by another lane, or a database function another OPEN pull request also defines. It fails only when a pull request touches a locked area without declaring that area's lane.",
+    "Areas are matched in order: the first area whose pattern matches owns the path or function. Path patterns: '**' crosses directories, '*' stays inside one. Function patterns: '*' matches any run of characters. Names are compared without schema and in lower case.",
+    "Seeded from AGENTS.md (engine release custody), CLAUDE.md sections 1, 2 and 13, docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md (sections 1a to 1d), docs/ENGINE-RELEASE-RUNBOOK.md and PUBLISHING.md. Add a lane or an area here in the same pull request that creates new owned code."
+  ],
+  "version": 1,
+  "lanes": {
+    "release-custody": {
+      "description": "Engine release controls: staging, certification, cutover transaction, seal, rollback, Backup engine and the owner windows. One custodian at a time (AGENTS.md).",
+      "sources": [
+        "AGENTS.md",
+        "docs/ENGINE-RELEASE-RUNBOOK.md",
+        "docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"
+      ]
+    },
+    "migration-install": {
+      "description": "How merged migrations reach production: Apply Merged Migration, its dispatcher and the applied-migration ledger.",
+      "sources": ["CLAUDE.md", "PUBLISHING.md"]
+    },
+    "engine-maintenance": {
+      "description": "The daily 04:00-06:00 Chicago maintenance window, maintenance breaks, freeze and thaw.",
+      "sources": ["CLAUDE.md", "docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"]
+    },
+    "reliability-controller": {
+      "description": "Reliability Controller: incident intake, classification, escalation, notification and automatic runbooks.",
+      "sources": ["docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"]
+    },
+    "alarms-and-watches": {
+      "description": "Production alarms, watches and drills: cron health, cron failure watch, hand-gap watch, engine cutover watch, alarm drills and the operational alert ledger.",
+      "sources": ["docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"]
+    },
+    "daily-digest": {
+      "description": "The Smarter.Poker daily operations digest and every digest helper.",
+      "sources": ["docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"]
+    },
+    "ci-and-agent-tooling": {
+      "description": "Agent push route, pre-push hook, CI guards, migration version tooling, the heavy-job queue and this ownership map.",
+      "sources": ["PUBLISHING.md", "CLAUDE.md"]
+    },
+    "horse-brain": {
+      "description": "Horse decision engine, GTO/V31 solver data, Horse rosters and training.",
+      "sources": ["CLAUDE.md"]
+    },
+    "lightning": {
+      "description": "Lightning pooled fast-fold cash: clusters, pools, matcher and its client.",
+      "sources": ["CLAUDE.md"]
+    },
+    "tournaments": {
+      "description": "Tournament lifecycle: registration, launch, Spins, Sit and Gos, satellites, bounties, payouts.",
+      "sources": ["CLAUDE.md"]
+    },
+    "money-and-accounting": {
+      "description": "Chip accounting: ledger, escrow, mint, cashier, union wallets, rake, rakeback, promo, BBJ and cash-outs.",
+      "sources": ["CLAUDE.md"]
+    },
+    "diamond": {
+      "description": "Diamond economy, Diamond Arena (closed) and Diamond games.",
+      "sources": ["CLAUDE.md"]
+    },
+    "table-engine": {
+      "description": "The poker engine on the Hetzner host: table engines, dealing, settlement, GameServer.",
+      "sources": ["CLAUDE.md", "docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"]
+    },
+    "club-arena-client": {
+      "description": "The Club Arena web client.",
+      "sources": ["CLAUDE.md"]
+    }
+  },
+  "areas": [
+    {
+      "lane": "release-custody",
+      "locked": true,
+      "why": "Release controls. A change here can replace or roll back the live engine; the custodian owns it alone.",
+      "paths": [
+        "server/release/**",
+        "server/release-evidence/**",
+        "server/scripts/engine-release-*",
+        "server/scripts/engine-supervisor.sh",
+        "server/src/maintenance/maintenanceSchedulePolicy.json",
+        "scripts/release/**",
+        "operations/release/**",
+        ".github/workflows/auto-deploy-hetzner.yml",
+        ".github/workflows/stage-engine-release.yml",
+        ".github/workflows/evening-release-plan.yml",
+        ".github/workflows/backup-engine.yml",
+        ".github/workflows/engine-drill.yml",
+        ".github/workflows/engine-rollback-drill.yml"
+      ],
+      "functions": [
+        "fn_ca_release_freeze_refuses_mgmt_api_ddl",
+        "ca_release_schema_freeze_holds",
+        "fn_ca_release_claim",
+        "release_engine_leadership"
+      ]
+    },
+    {
+      "lane": "release-custody",
+      "paths": [
+        "server/standby/**",
+        "server/scripts/engine-up.sh",
+        "docs/ENGINE-RELEASE-RUNBOOK.md",
+        "docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md"
+      ],
+      "functions": ["fn_ca_release_*", "ca_cutover_*", "fn_ca_engine_release_*"]
+    },
+    {
+      "lane": "migration-install",
+      "paths": [
+        ".github/workflows/apply-merged-migration.yml",
+        ".github/workflows/dispatch-merged-migrations.yml",
+        ".github/workflows/applied-migrations-recorded.yml",
+        ".github/workflows/a-merged-migration-left-uninstalled-is-paged.yml"
+      ],
+      "functions": []
+    },
+    {
+      "lane": "reliability-controller",
+      "paths": ["docs/reliability-controller/**", "scripts/reliability/**"],
+      "functions": [
+        "reliability_*",
+        "fn_reliability_*",
+        "fn_claim_reliability_incident",
+        "fn_release_reliability_incident_claim"
+      ]
+    },
+    {
+      "lane": "alarms-and-watches",
+      "paths": [
+        "scripts/operational-alerts/**",
+        "docs/production-alerts/**",
+        ".github/workflows/a-*-is-paged.yml",
+        ".github/workflows/cron-health.yml",
+        ".github/workflows/cron-failure-watch-reaches-the-board.yml",
+        ".github/workflows/a-silent-job-cannot-hide.yml",
+        ".github/workflows/a-job-failing-every-run-is-named.yml",
+        ".github/workflows/hand-gap-watch-proof.yml"
+      ],
+      "functions": [
+        "fn_ca_alarm_*",
+        "fn_ca_cron_*",
+        "fn_cron_*",
+        "fn_ca_hand_gap_*",
+        "fn_ca_engine_cutover_watch",
+        "*operational_alert*",
+        "fn_bbj_*drill*",
+        "fn_try_cron_lock",
+        "fn_release_cron_lock"
+      ]
+    },
+    {
+      "lane": "daily-digest",
+      "paths": [".github/workflows/estate-digest*.yml", ".github/workflows/digest-*.yml"],
+      "functions": ["fn_sp_daily_digest*", "fn_sp_digest_*", "*_digest", "*_digest_payload"]
+    },
+    {
+      "lane": "engine-maintenance",
+      "paths": ["server/src/maintenance/**"],
+      "functions": [
+        "*maintenance_break*",
+        "*maintenance_thaw*",
+        "fn_maintenance_*",
+        "maintenance_write_admission",
+        "fn_active_maintenance_release_boundary",
+        "fn_engine_maintenance_promise_proof"
+      ]
+    },
+    {
+      "lane": "ci-and-agent-tooling",
+      "paths": [
+        ".husky/**",
+        "scripts/agent-*.sh",
+        "scripts/heavy-queue.sh",
+        "scripts/lib/heavy-queue.sh",
+        "scripts/ci/**",
+        "scripts/new-migration.mjs",
+        "scripts/reserve-migration-version.sh",
+        ".github/workflows/ci.yml",
+        ".github/workflows/ci-supersede.yml",
+        ".github/workflows/ownership-map.yml",
+        "docs/agent-policy/**",
+        "ops/ownership.json"
+      ],
+      "functions": []
+    },
+    {
+      "lane": "horse-brain",
+      "paths": [
+        "server/src/engine/Horse*",
+        "server/src/engine/horseDecision/**",
+        "server/src/gto/**",
+        "docs/horse-*",
+        "docs/horse-*/**",
+        "scripts/horse-*",
+        "scripts/horse-measure/**"
+      ],
+      "functions": ["fn_ca_horse_*", "fn_horse_*", "horse_*", "fn_gto_*", "fn_training_*"]
+    },
+    {
+      "lane": "lightning",
+      "paths": [
+        "server/src/lightning/**",
+        "src/lightning/**",
+        "docs/lightning/**",
+        "tests/lightning/**"
+      ],
+      "functions": ["fn_lightning_*", "fn_cash_cluster_*"]
+    },
+    {
+      "lane": "tournaments",
+      "paths": [
+        "server/src/tournament/**",
+        "scripts/tournament-schedules/**",
+        "docs/tournament-schedules/**",
+        "ops/tournament-monitor/**"
+      ],
+      "functions": [
+        "fn_ca_tournament_*",
+        "fn_ca_satellite_*",
+        "fn_mystery_bounty_*",
+        "fn_spin_*",
+        "fn_ca_launch_*",
+        "fn_ca_midway_*",
+        "fn_settle_tournament_*",
+        "fn_complete_tournament_*",
+        "fn_register_for_tournament*",
+        "*tournament*"
+      ]
+    },
+    {
+      "lane": "diamond",
+      "paths": ["docs/DIAMOND-*"],
+      "functions": ["fn_poker_diamond_*", "fn_ca_diamond_*", "fn_diamond_*"]
+    },
+    {
+      "lane": "money-and-accounting",
+      "paths": ["docs/accounting/**", "docs/CHIP-*", "supabase/accounting/**"],
+      "functions": [
+        "fn_accounting_*",
+        "fn_settle_accounting_*",
+        "fn_ca_ledger_*",
+        "fn_ca_escrow_*",
+        "fn_ca_mint_*",
+        "fn_union_*",
+        "fn_ca_union_*",
+        "fn_ca_rake_*",
+        "*rakeback*",
+        "fn_cashier_*",
+        "fn_agent_wallet_*",
+        "fn_club_bank_*",
+        "fn_ca_promo_*",
+        "fn_cashout_*",
+        "fn_bbj_*"
+      ]
+    },
+    {
+      "lane": "table-engine",
+      "paths": ["server/src/**", "server/Dockerfile", "server/native/**"],
+      "functions": [
+        "fn_cash_seat_*",
+        "fn_cash_game_*",
+        "fn_ca_hand_*",
+        "fn_ca_fleet_*",
+        "fn_ca_engine_*"
+      ]
+    },
+    {
+      "lane": "club-arena-client",
+      "paths": ["src/**", "public/**"],
+      "functions": []
+    }
+  ]
+}

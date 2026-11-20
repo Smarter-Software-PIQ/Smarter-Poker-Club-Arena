@@ -34,3 +34,9 @@ HorseOmahaRiverMediumBetCalls.test.ts, HorseOmahaStrategyPrecedence.test.ts (all
 ## Limits
 
 The spot reads gs.toCall; the league state carries none, so the option is inert in the league (facing-bet builder's finding). Its reach through the production worker path (workerRuntime) was NOT proven by a worker-path test in this head.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
