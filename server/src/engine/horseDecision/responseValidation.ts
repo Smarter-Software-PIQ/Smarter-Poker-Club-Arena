@@ -61,6 +61,10 @@ import {
 } from '../HorseOmahaOopChecks.js';
 import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
 import {
+  omahaBluffPricedAdmitsCheck,
+  omahaBluffPricedAdmitsRaiseToCall,
+} from '../HorseOmahaBluffPricedAgainstTheTarget.js';
+import {
   omahaPricedAdmitsRaiseToCall,
   omahaPricedSampledAdmitsResize,
 } from '../HorseOmahaPricedWiring.js';
@@ -1030,6 +1034,14 @@ export interface HorseDecisionReceiptContext {
    */
   omahaPricedInLightning?: boolean;
   /**
+   * HORSE DECISIONS lane 2026-11-19: the decision's own omahaBluffIsPricedAgainstTheTarget, read `=== true`.
+   * Only then are its two conversions admitted (a heads-up wager facing no bet -> the check; a flop or turn
+   * raise facing a bet -> the call, for the exact chips), in its own spot re-derived from the request. Absent
+   * or false (every caller that does not know the decision's options, and every decision while the option is
+   * off), the validator is exactly as before.
+   */
+  omahaBluffPricedAgainstTheTarget?: boolean;
+  /**
    * PLO Strategy lane 2026-11-19: the decision's own omahaSlowplayMixInLightning, read `=== true`. Only then are
    * the two conversions of omahaStrongHandSlowplayMix (raise -> call, flop bet -> check) admitted in a Lightning
    * pool, in the mix's own spot as at a table (the mix's game includes Lightning only under that option). Absent
@@ -1659,6 +1671,34 @@ function policyGraphIsValidInScope(
         transition.after.amount,
         context.omahaPricedInLightning === true
       );
+    // HORSE DECISIONS lane 2026-11-19 (HorseOmahaBluffPricedAgainstTheTarget, option
+    // omahaBluffIsPricedAgainstTheTarget): in PLO4/PLO5 cash (table and Lightning) a heads-up wager
+    // facing no bet that is not priced above the check becomes the check. The price reads the
+    // opponent memory, which the request does not carry, so both are admitted only under the
+    // decision's own option (context.omahaBluffPricedAgainstTheTarget, its gate candidates): the
+    // check in the bet-or-check spot re-derived from the request. A flop or turn
+    // raise facing a bet with no raise priced above the call becomes the call: only with the
+    // request, only in the sampled spot, only for the exact chips of the call. (Its call -> raise is
+    // a wager action, admitted below; its raise -> fold is the PLO fold admission above.)
+    const omahaBluffPricedBetToCheck =
+      context?.omahaBluffPricedAgainstTheTarget === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBluffPricedAdmitsCheck(context.player, context.gameState);
+    const omahaBluffPricedRaiseCalled =
+      context?.omahaBluffPricedAgainstTheTarget === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBluffPricedAdmitsRaiseToCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
     // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
     // with a nut-class hand becomes a call at a mixed frequency. The draw and
@@ -1823,6 +1863,8 @@ function policyGraphIsValidInScope(
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
       !omahaSampledRaiseResized &&
+      !omahaBluffPricedBetToCheck &&
+      !omahaBluffPricedRaiseCalled &&
       !omahaSlowplayCalled &&
       !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&
@@ -2094,9 +2136,42 @@ export function omahaSlowplayMixInLightningGateCandidates(
 }
 
 /**
+ * The omahaBluffIsPricedAgainstTheTarget values the worker may have run this decision with, built
+ * exactly as omahaPricedInLightningGateCandidates: the live switch row this client last delivered,
+ * then the request's own option when it differs, then the configuration delivered before the last
+ * change while it still counts.
+ */
+export function omahaBluffPricedAgainstTheTargetGateCandidates(
+  requestOpts: { omahaBluffIsPricedAgainstTheTarget?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.omahaBluffIsPricedAgainstTheTarget === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok
+        ? optionSwitchDecisionOpts(parsed.states).omahaBluffIsPricedAgainstTheTarget
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
  * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
  * gate (and, when given, each candidate omahaPricedInLightning gate and each
- * candidate omahaSlowplayMixInLightning gate) as well: null as soon as one
+ * candidate omahaSlowplayMixInLightning gate, and each candidate
+ * omahaBluffIsPricedAgainstTheTarget gate) as well: null as soon as one
  * set of gates admits the decision, else the refusal under the first (the
  * effective one). Without `pricedInLightningGates` / `slowplayMixInLightningGates`
  * only the false gate of each is tried: exactly as before.
@@ -2110,40 +2185,44 @@ export function horseDecisionReceiptRefusalForGates(
     | 'omahaPricedRaise'
     | 'omahaPricedInLightning'
     | 'omahaSlowplayMixInLightning'
+    | 'omahaBluffPricedAgainstTheTarget'
   >,
   plo6Gates: readonly boolean[],
   pricedRaiseGates: readonly boolean[],
   pricedInLightningGates: readonly boolean[] = [false],
-  slowplayMixInLightningGates: readonly boolean[] = [false]
+  slowplayMixInLightningGates: readonly boolean[] = [false],
+  bluffPricedGates: readonly boolean[] = [false]
 ): string | null {
   let first: string | null = null;
   let seen = false;
-  for (const slowplayGate of slowplayMixInLightningGates.length > 0
-    ? slowplayMixInLightningGates
-    : [false]) {
-    for (const lightningGate of pricedInLightningGates.length > 0
-      ? pricedInLightningGates
+  for (const bluffGate of bluffPricedGates.length > 0 ? bluffPricedGates : [false])
+    for (const slowplayGate of slowplayMixInLightningGates.length > 0
+      ? slowplayMixInLightningGates
       : [false]) {
-      for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
-        const refusal = horseDecisionReceiptRefusalForPlo6Gates(
-          value,
-          expectedVariant,
-          {
-            ...context,
-            ...(gate ? { omahaPricedRaise: true } : {}),
-            ...(lightningGate ? { omahaPricedInLightning: true } : {}),
-            ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
-          },
-          plo6Gates
-        );
-        if (refusal === null) return null;
-        if (!seen) {
-          first = refusal;
-          seen = true;
+      for (const lightningGate of pricedInLightningGates.length > 0
+        ? pricedInLightningGates
+        : [false]) {
+        for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+          const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+            value,
+            expectedVariant,
+            {
+              ...context,
+              ...(gate ? { omahaPricedRaise: true } : {}),
+              ...(lightningGate ? { omahaPricedInLightning: true } : {}),
+              ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
+              ...(bluffGate ? { omahaBluffPricedAgainstTheTarget: true } : {}),
+            },
+            plo6Gates
+          );
+          if (refusal === null) return null;
+          if (!seen) {
+            first = refusal;
+            seen = true;
+          }
         }
       }
     }
-  }
   return first;
 }
 

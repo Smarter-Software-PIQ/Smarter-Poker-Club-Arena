@@ -2898,6 +2898,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetPricesTheRaise: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261116 },
   })),
+  // 2026-11-19 OMAHA BLUFF IS PRICED AGAINST THE TARGET (HorseOmahaBluffPricedAgainstTheTarget,
+  // default OFF; audit hvh48 A classes 2 and 4): every heads-up wager facing no bet priced beside the
+  // check against his measured fold, the flop call and the flop / turn raise against a priced raise.
+  // The live options of 2026-11-18 in both arms; arm A adds the option alone. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bluff_is_priced_against_the_target`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaBluffIsPricedAgainstTheTarget: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-18 OMAHA FLOP BET USES THE MEASURED FOLD SHARE
   // (HorseOmahaFlopBetMeasuredFoldShare, default OFF; WooWoo audit FOLD-SHARE):
   // a person's fold share to every v38 flop bet size is the fitted person model.

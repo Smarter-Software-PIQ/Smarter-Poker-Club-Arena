@@ -513,6 +513,7 @@ import {
   withOmahaPricedMode,
 } from './HorseOmahaPricedMode.js';
 import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
+import { omahaBluffIsPricedAgainstTheTargetRule } from './HorseOmahaBluffPricedAgainstTheTarget.js';
 import {
   omahaPricedBigBetCallRule,
   omahaPricedBlockerBluffAdmits,
@@ -4007,6 +4008,14 @@ export interface HorseDecideOpts {
    * raise is made to the size of highest value. Off: one size, its fold share size-blind (#11212,
    * byte-identical). Default OFF; no league yet. */
   omahaSampledRaiseIsPricedAtEverySize?: boolean;
+  /** HORSE DECISIONS lane 2026-11-19 (lead 01TLQer7J; audit hvh48 A, classes 2 and 4): opt-in (`=== true`).
+   * PLO4/PLO5 cash, at a table and in the Lightning pools (HorseOmahaBluffPricedAgainstTheTarget, the outermost
+   * answer of wager_rules): a wager facing no bet heads-up is kept only when f.P - (1 - f).(b - r.e.(P + 2b))
+   * beats the check r.e_all.P, f his MEASURED fold to a bet on this street (his street record, else his pooled
+   * record, shrunk toward his kind's rate) carried to this price; a final flop call and a flop or turn raise facing
+   * a bet are priced against a raise to each legal size on the sampled spot (omahaPricedSampledRaise at every
+   * size) with the same measured fold. Off: byte-identical. Default OFF; no league or replay yet. */
+  omahaBluffIsPricedAgainstTheTarget?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -15812,6 +15821,16 @@ export class HorseLogic {
         opts,
         tele
       );
+    // omahaBluffIsPricedAgainstTheTarget (default off): the outermost answer of this node in
+    // PLO4/PLO5 cash, after the public size: a wager facing no bet stands only when priced above the
+    // check against his measured fold; a flop call or a flop / turn raise facing a bet is priced
+    // against a raise to each legal size. A raise it makes is legalized as every owner's is. Off:
+    // the decision itself (the same object).
+    const bluffPriced = (d: HorseDecision): HorseDecision => {
+      const priced = omahaBluffIsPricedAgainstTheTargetRule(d, player, gs, opts);
+      if (priced === d || (priced.action !== 'raise' && priced.action !== 'all_in')) return priced;
+      return { ...priced, ...this.legalize(priced, player, gs, vi) };
+    };
     decision = graph.run('wager_rules', decision, () => {
       // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
       // in-position hold'em postflop balance runs first, so every owner rule
@@ -16066,17 +16085,19 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: publicSized(
-            omahaOwnerRuledFinal(
-              omahaDrawRules(
-                onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+          decision: bluffPriced(
+            publicSized(
+              omahaOwnerRuledFinal(
+                omahaDrawRules(
+                  onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+                  player,
+                  gs,
+                  opts
+                ),
                 player,
                 gs,
                 opts
-              ),
-              player,
-              gs,
-              opts
+              )
             )
           ),
         };
@@ -16092,11 +16113,16 @@ export class HorseLogic {
       // it only turns the final raise into a call or the final flop bet into
       // a check, so an owner-ruled check or fold is never its to change.
       return {
-        decision: publicSized(
-          omahaTurnRiverRaiseNeedsNutsRule(
-            omahaOwnerRuledFinal(
-              omahaStrongHandSlowplayMixRule(
-                omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+        decision: bluffPriced(
+          publicSized(
+            omahaTurnRiverRaiseNeedsNutsRule(
+              omahaOwnerRuledFinal(
+                omahaStrongHandSlowplayMixRule(
+                  omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+                  player,
+                  gs,
+                  opts
+                ),
                 player,
                 gs,
                 opts
@@ -16104,10 +16130,7 @@ export class HorseLogic {
               player,
               gs,
               opts
-            ),
-            player,
-            gs,
-            opts
+            )
           )
         ),
       };

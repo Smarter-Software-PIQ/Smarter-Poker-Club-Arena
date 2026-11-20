@@ -369,6 +369,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
+  omahaBluffIsPricedAgainstTheTarget: priced(
+    'every PLO4/PLO5 cash wager facing no bet heads-up priced beside the check against his measured fold at its price, and the flop call and the flop / turn raise facing a bet priced against a raise to each legal size with the same measured fold (table and Lightning); default OFF'
+  ),
   omahaSampledRaiseIsPricedAtEverySize: priced(
     'the sampled raise at every legal size, its fold share and continuing range at the price each raise lays, the raise made at the priced size (an input, not a rule site)'
   ),
