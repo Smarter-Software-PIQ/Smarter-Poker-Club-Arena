@@ -90,9 +90,13 @@ export function omahaMathCoreStreetAdmitted(
 /**
  * "Prove it to change it" (lead 10:55 PM; lane COREWIRE-2): the core replaces today's action only when its best
  * candidate's EV beats the EV of today's action (priced by the core on the same basis) by more than k standard
- * errors of the difference. k is fitted on Nov 17-18 only (never on the Nov 19 holdout): see COREWIRE.md.
+ * errors of the difference. k is fitted on Nov 17-18 only (never on the Nov 19 holdout): exact journal replay of
+ * f827c50ce4a with the margin off (tag r1, 1,848 changed decisions graded vs real cards, always-call metric);
+ * criterion declared before the fit: maximize the smallest per-street sum over the six game x street cells of
+ * Nov 17-18 (the ship gate is per street), ties to the larger total. Grid 0..8: k=5 gives min -55 bb (PLO5
+ * flop), total +1,174 bb; k=4 min -423, k=6 min -96, k=8 min -56. See repairs/EMERG/COREWIRE.md.
  */
-export const OMAHA_MATH_CORE_CHANGE_MARGIN_K: number | null = 2;
+export const OMAHA_MATH_CORE_CHANGE_MARGIN_K: number | null = 5;
 
 export interface OmahaMathCoreDecisionReceipt {
   readonly switch: 'omahaMathCore';
