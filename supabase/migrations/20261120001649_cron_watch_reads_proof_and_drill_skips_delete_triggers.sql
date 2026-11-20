@@ -74,10 +74,12 @@ BEGIN
      AND p.horse_status = 'available'
      AND p.status IS DISTINCT FROM 'deleted'
      AND p.id::text !~ '^(00000000|face0000)-'
-     -- A CLUB WHOSE MEMBER ROWS ARE DELETE-PROTECTED CANNOT BE DRILLED (20261119183127):
+     -- A CLUB WHOSE MEMBER ROWS ARE DELETE-PROTECTED CANNOT BE DRILLED (20261119183127,
+     -- restored by 20261120001649 after 20261119180800 overwrote it with a hardcoded UUID):
      -- arm 7 deletes the subject's row to prove the burn is journaled, and a
      -- BEFORE DELETE trigger on club_members that names the club (Deep Stack
-     -- Society's guard) refuses it first, so the arm could never arm there.
+     -- Society's guard or any future club guard) refuses it first, so the arm
+     -- could never arm there.
      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                       WHERE t.tgrelid = 'public.club_members'::regclass
                         AND NOT t.tgisinternal
