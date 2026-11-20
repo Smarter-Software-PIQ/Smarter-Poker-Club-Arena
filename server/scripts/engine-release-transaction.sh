@@ -279,6 +279,15 @@ die() {
 [ "$BREAK_LOCKED_MIN_BREAK_MS" -gt $((BREAK_ROLLBACK_RESERVE_SECONDS * 1000)) ] \
   || die 'the ordinary locked floor no longer holds the whole rollback reserve'
 
+# ExecStopPost runs the rolling recovery through this same immutable file:
+# engine-release-recover.sh calls `--rolling-recover --run-id RUN` with the
+# engine lock held. Only the two rolling regions below are loaded for it.
+if [ "${1:-}" = --rolling-recover ]; then
+  # shellcheck source=/dev/null
+  source <(sed -n '/^# >>> ROLLING RELEASE /,/^# <<< ROLLING RELEASE /p' "${BASH_SOURCE[0]}")
+  rolling_recover_cli "$@"
+  exit $?
+fi
 [ "$(id -u)" = 0 ] || die 'must run as root'
 [ "$#" = 2 ] && [ "$1" = --run-id ] \
   || die 'usage: engine-release-transaction.sh --run-id RUN_ID-RUN_ATTEMPT'
@@ -812,6 +821,9 @@ recover_on_exit() {
   # A run that is leaving no longer waits at the certificate; an older target
   # must not keep standing aside for it while systemd schedules a retry.
   rm -f -- "$AWAITING_CERTIFICATE_FILE"
+  # A rolling release never froze anything: its runtime is owned by the
+  # rolling state (hand back before retirement, settle forward after).
+  if [ "${RELEASE_MODE:-classic}" = rolling ] && declare -F rolling_recover_on_exit >/dev/null; then rolling_recover_on_exit "$rc"; fi
   recovery_deadline="${BREAK_END_EPOCH:-0}"
   if [ "$recovery_deadline" -le "$(date +%s)" ]; then
     # Recovery is deliberately allowed after the immutable release mutation
@@ -3124,8 +3136,218 @@ recover_pending_owner() {
     || die "pending release $owner was recovered but its abort audit failed"
 }
 
+# >>> ROLLING RELEASE SELECTION
+# ROLLING RELEASE (owner order 2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md)
+# ─────────────────────────────────────────────────────────────────────────────
+# RELEASE_MODE=rolling replaces the serving engine table by table instead of in
+# one global cutover: no break, no freeze, no last-hand notice, no 04:00 clock.
+# The candidate starts as a second container (engine-up.sh --successor) and the
+# serving engine hands each table and tournament over at its own next hand
+# boundary through the lease rows. Two hops keep the steady state identical to
+# a classic release (club-arena-engine on host port 8080, autoheal label,
+# restart always), so nothing that reads port 8080 ever has to change:
+#   hop 1  club-arena-engine (old, 8080) -> club-arena-engine-next (new, 8081)
+#          retirement: Caddy -> 8081, the retired old container is stopped
+#   hop 2  club-arena-engine-next (8081) -> club-arena-engine (new, 8080)
+#          retirement: Caddy -> 8080, the transient successor is stopped
+# Kept from the classic route: actor validation, the engine lock, the exact
+# Backup certificate (plus backup-engine/rolling-handoff = success, the
+# trial_rolling_handoff verdict), installed-migration and window-door checks,
+# the image lease and candidate image validation, the one-use seal token, the
+# fsynced seal commit, local, public and elected-leader proofs, the receipt.
+# Skipped, rolling mode only: the daily clock, the maintenance certificate,
+# the break deadline, the recovery window, the Lightning hold, the 285 s
+# reserve (no break exists). Failure rule: until the old engine retires every
+# failure hands any moved unit back and leaves the old engine serving; after
+# it retires the release can only go forward (the old process owns nothing and
+# has stopped adopting), so the transaction finishes on the newest engine that
+# owns the tables and seals what is actually serving.
+ROLLING_NEXT_CONTAINER=club-arena-engine-next
+ROLLING_HOME_PORT=8080
+ROLLING_NEXT_PORT=8081
+ROLLING_POLL_SECONDS="${ENGINE_ROLLING_POLL_SECONDS:-5}"
+ROLLING_REASK_SECONDS="${ENGINE_ROLLING_REASK_SECONDS:-180}"
+ROLLING_HOP_SECONDS="${ENGINE_ROLLING_HOP_SECONDS:-1800}"
+ROLLING_DRAIN_BACK_SECONDS="${ENGINE_ROLLING_DRAIN_BACK_SECONDS:-600}"
+ROLLING_BOOT_SECONDS="${ENGINE_ROLLING_BOOT_SECONDS:-420}"
+ROLLING_PUBLIC_SECONDS="${ENGINE_ROLLING_PUBLIC_SECONDS:-90}"
+ROLLING_CADDYFILE="${ENGINE_ROLLING_CADDYFILE:-/etc/caddy/Caddyfile}"
+ROLLING_CADDY_BIN="${ENGINE_ROLLING_CADDY_BIN:-caddy}"
+ROLLING_SYSTEMCTL_BIN="${ENGINE_ROLLING_SYSTEMCTL_BIN:-systemctl}"
+ROLLING_STATE_ROOT="${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
+ROLLING_HOME_PENDING_FILE="$ROLLING_STATE_ROOT/engine-rolling-home-pending"
+ROLLING_CERT_CONTEXT=backup-engine/rolling-handoff
+ROLLING_AUTOHEAL=sp-autoheal
+RELEASE_MODE=classic
+ROLLING_PHASE=none
+ROLLING_OLD_INSTANCE=-
+ROLLING_NEXT_INSTANCE=-
+ROLLING_HOME_INSTANCE=-
+ROLLING_STATE_FILE=''
+
+rolling_log() { echo "[engine-release-transaction] rolling: $*" >&2; }
+
+# One host-local control call into a container. The internal key never leaves
+# the container; the route is loopback-only inside it (server/src/router.ts).
+# 0 = 2xx (body on stdout), 4 = route absent (flag off or older build), 1 = other.
+rolling_internal() {
+  local container="$1" method="$2" path="$3" body="${4:-}"
+  case "$path" in
+    /internal/rolling-handoff/status|/internal/rolling-handoff/yield|/internal/rolling-handoff/abort) ;;
+    *) return 1 ;;
+  esac
+  timeout --signal=TERM --kill-after=1s 20s docker exec -i "$container" \
+    env -u NODE_OPTIONS -u NODE_PATH node --no-inspect - "$method" "$path" "$body" <<'ROLLING_NODE'
+const [method, path, body] = process.argv.slice(2);
+const key = process.env.INTERNAL_API_KEY;
+if (!key) process.exit(1);
+fetch('http://127.0.0.1:8080' + path, {
+  method,
+  headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+  body: method === 'POST' ? (body || '{}') : undefined,
+  signal: AbortSignal.timeout(15000),
+}).then(async (r) => {
+  process.stdout.write(await r.text());
+  process.exit(r.status === 404 ? 4 : r.ok ? 0 : 1);
+}).catch(() => process.exit(1));
+ROLLING_NODE
+}
+
+# status JSON on stdin -> "mode owned kept adopting successor instanceId adopted returned"
+rolling_status_fields() {
+  python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if not isinstance(d, dict) or d.get("flag") != "on" or d.get("mode") not in ("serving", "yielding", "retired"):
+    raise SystemExit(1)
+owned = d.get("owned")
+instance = d.get("instanceId")
+if type(owned) is not int or owned < 0 or not isinstance(instance, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", instance):
+    raise SystemExit(1)
+ys = [y for y in (d.get("yields") or []) if isinstance(y, dict)]
+ad = [a for a in (d.get("adoptions") or []) if isinstance(a, dict)]
+successor = d.get("successor") if isinstance(d.get("successor"), str) and d.get("successor") else "-"
+print(d["mode"], owned, sum(y.get("state") == "kept" for y in ys), sum(a.get("state") == "adopting" for a in ad),
+      successor, instance, sum(a.get("state") == "adopted" for a in ad),
+      sum(a.get("state") in ("returned", "abandoned") for a in ad))
+'
+}
+
+rolling_status() {
+  local status
+  status="$(rolling_internal "$1" GET /internal/rolling-handoff/status)" || return 1
+  printf '%s' "$status" | rolling_status_fields
+}
+
+# Local /health identity on a host port. $3 is the accepted liveness pattern:
+# a successor may still answer "standby" before its first adoption.
+rolling_local_instance() {
+  local port="$1" sha="$2" liveness="$3" body
+  body="$(curl -sS --max-time 5 -H 'Cache-Control: no-cache, no-store' "http://127.0.0.1:$port/health" 2>/dev/null)" || return 1
+  printf '%s' "$body" | EXPECTED_SHA="$sha" LIVENESS="$liveness" python3 -c '
+import json, os, re, sys
+d = json.load(sys.stdin)
+i = d.get("instanceId")
+ok = (d.get("running") is True and (os.environ["EXPECTED_SHA"] == "-" or d.get("releaseSha") == os.environ["EXPECTED_SHA"])
+      and re.fullmatch(os.environ["LIVENESS"], str(d.get("liveness")))
+      and isinstance(i, str) and re.fullmatch(r"[1-9][0-9]*-[0-9a-f]{8}", i))
+if not ok:
+    raise SystemExit(1)
+print(i)
+' 2>/dev/null
+}
+
+rolling_public_instance() {
+  local body
+  body="$(curl -sS --max-time 5 -H 'Cache-Control: no-cache, no-store' "$PUBLIC_URL/health?nocache=$(date +%s%N)" 2>/dev/null)" || return 1
+  printf '%s' "$body" | python3 -c 'import json,sys; i=json.load(sys.stdin).get("instanceId"); print(i) if isinstance(i,str) and i else sys.exit(1)' 2>/dev/null
+}
+
+# THE CAPABILITY. A serving engine can hand over only when its own handoff
+# status route answers (the code is present AND ENGINE_ROLLING_HANDOFF=on),
+# it is serving, and the instance it names is the one /health names.
+rolling_capable() {
+  local container="$1" port="$2" fields mode owned kept adopting successor instance health
+  fields="$(rolling_status "$container")" || return 1
+  read -r mode owned kept adopting successor instance _ <<<"$fields"
+  [ "$mode" = serving ] || return 1
+  health="$(rolling_local_instance "$port" - 'ok|standby')" || return 1
+  [ "$health" = "$instance" ] || return 1
+  printf '%s\n' "$instance"
+}
+
+# The Backup verdict of trial_rolling_handoff for this exact SHA.
+rolling_certificate() {
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || return 1
+  curl --disable --fail --silent --show-error --proto '=https' --connect-timeout 3 --max-time 8 \
+    "https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/commits/$SHA/statuses?per_page=100" \
+    | CONTEXT="$ROLLING_CERT_CONTEXT" python3 -c '
+import json, os, sys
+rows = json.load(sys.stdin)
+if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+    raise SystemExit(1)
+latest = next((r for r in rows if r.get("context") == os.environ["CONTEXT"]), {})
+raise SystemExit(0 if latest.get("state") == "success" else 1)
+'
+}
+
+# Which route this run takes. No record = classic (the request bytes are
+# unchanged). A run that has rolling state stays rolling across systemd
+# retries. auto = rolling only when the serving engine offers the handoff AND
+# the exact target carries a passing trial_rolling_handoff, or a home leg is
+# pending; otherwise classic, with no human step either way.
+rolling_select_mode() {
+  local file="$REQUEST_ROOT/$RUN_ID.mode" requested
+  if [ -e "$REQUEST_ROOT/$RUN_ID.rolling-state" ]; then RELEASE_MODE=rolling; return 0; fi
+  [ -e "$file" ] || [ -L "$file" ] || { RELEASE_MODE=classic; return 0; }
+  [ -f "$file" ] && [ ! -L "$file" ] || die 'release mode record is not a regular file'
+  [ "$(stat -c '%u:%a' "$file")" = '0:600' ] || die 'release mode record ownership or mode is invalid'
+  mapfile -t ROLLING_MODE_LINES < "$file" || die 'release mode record is unreadable'
+  [ "${#ROLLING_MODE_LINES[@]}" = 4 ] && [ "${ROLLING_MODE_LINES[0]}" = engine-release-mode-v1 ] \
+    || die 'release mode record schema is unknown'
+  [ "${ROLLING_MODE_LINES[2]}" = "$SHA" ] && [ "${ROLLING_MODE_LINES[3]}" = "$CONTROL_SHA" ] \
+    || die 'release mode record names a different target or control commit'
+  requested="${ROLLING_MODE_LINES[1]}"
+  # An engine drill exercises the classic cutover; it never takes the rolling route.
+  if [ -n "${DRILL_MODE:-}" ]; then
+    [ "$requested" != rolling ] || die 'an engine drill runs on the classic route only'
+    RELEASE_MODE=classic
+    echo "[engine-release-transaction] release mode: classic (engine drill $DRILL_MODE; requested $requested)"
+    return 0
+  fi
+  case "$requested" in
+    classic|rolling) RELEASE_MODE="$requested" ;;
+    auto)
+      if [ -f "$ROLLING_HOME_PENDING_FILE" ]; then
+        RELEASE_MODE=rolling
+      elif rolling_capable "$CONTAINER" "$ROLLING_HOME_PORT" >/dev/null && rolling_certificate; then
+        RELEASE_MODE=rolling
+      else
+        RELEASE_MODE=classic
+      fi
+      ;;
+    *) die 'release mode is unknown' ;;
+  esac
+  echo "[engine-release-transaction] release mode: $RELEASE_MODE (requested $requested)"
+}
+# <<< ROLLING RELEASE SELECTION
+
 # A floor-aware fresh request has no authority to restore a live predecessor.
 # Classify it from exact immutable capability before taking an engine lock.
+# A rolling release has no activation floor: it opens no break, so the daily
+# clock that the floor enforces does not apply (owner order 2026-11-19).
+rolling_select_mode
+if [ "${RELEASE_MODE:-classic}" = rolling ]; then
+FLOOR_DISPOSITION=never-entered
+ACTIVATION_FLOOR_END_EPOCH=0
+export ACTIVATION_FLOOR_OWNER_WINDOW=
+ACTIVATION_FLOOR_JSON=null
+PHASE1_FLOOR_SELECTED=0
+export PHASE1_FLOOR_SELECTED
+else
 FLOOR_DISPOSITION="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" entry-check \
   --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" \
   --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" \
@@ -3147,6 +3369,7 @@ if [ "$FLOOR_DISPOSITION" = never-entered ] || [ "$FLOOR_DISPOSITION" = announce
   ACTIVATION_FLOOR_OWNER_WINDOW="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ownerWindowId") or "")')"
   PHASE1_FLOOR_SELECTED="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get("schema")=="engine-release-activation-floor/v3-phase1" else 0)')"
   export PHASE1_FLOOR_SELECTED
+fi
 fi
 
 record_floor_runtime_entry() {
@@ -3287,7 +3510,7 @@ if [ -z "${DRILL_MODE:-}" ]; then
   validate_candidate_image
 fi
 require_backup_certificate || die 'exact target Backup certificate is not currently successful; no cycle reserved'
-initialise_phase1_cycle
+[ "${RELEASE_MODE:-classic}" = rolling ] || initialise_phase1_cycle
 if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
   emit_already_released "$EXACT_INSTANCE"
 fi
@@ -3323,6 +3546,7 @@ NEXT_FRESHNESS_CHECK=$(( $(date +%s) + 60 ))
 # The receiver/intake already enforced the no-write floor. Rebind it here
 # before checkpoint/certificate work; existing interrupted-owner recovery above
 # retains its original authority and is never blocked by a later expiry.
+if [ "${RELEASE_MODE:-classic}" != rolling ]; then
 ACTIVATION_FLOOR_JSON="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" admit \
   --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" \
   --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" || die 'immutable daily activation intent refused'
@@ -3332,6 +3556,7 @@ PHASE1_FLOOR_SELECTED="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'impo
 export PHASE1_FLOOR_SELECTED
 if [ "$ACTIVATION_FLOOR_END_EPOCH" -gt 0 ] && [ "$CERTIFICATE_DEADLINE" -gt "$ACTIVATION_FLOOR_END_EPOCH" ]; then
   CERTIFICATE_DEADLINE="$ACTIVATION_FLOOR_END_EPOCH"
+fi
 fi
 # This is a compatibility operation for three pinned immutable predecessors, not a
 # general checkpoint API. The helper rebinds the seal/image/process under the
@@ -3490,6 +3715,546 @@ CERTIFIED_INSTALLED_RC=$?
 set -e
 [ "$CERTIFIED_INSTALLED_RC" = 0 ] && [[ "$CERTIFIED_INSTALLED_MIGRATIONS" =~ ^[0-9a-f]{64}$ ]] \
   || die "INSTALLED MIGRATIONS UNKNOWN - the certificate of $SHA names no installed migration set (status $CERTIFIED_INSTALLED_RC); refusing before any cutover"
+# >>> ROLLING RELEASE ROUTE
+# The rolling route itself; the selection and route record are read above,
+# before the activation floor.
+rolling_state_write() {
+  ROLLING_PHASE="$1"
+  [ -n "$ROLLING_STATE_FILE" ] || return 0
+  python3 - "$ROLLING_STATE_FILE" "$ROLLING_PHASE" "$SHA" "${TARGET_IMAGE_ID:--}" \
+    "$ROLLING_OLD_INSTANCE" "$ROLLING_NEXT_INSTANCE" "$ROLLING_HOME_INSTANCE" <<'ROLLING_STATE'
+import os, sys
+path, phase, sha, image, old, nxt, home = sys.argv[1:]
+body = f"engine-rolling-state-v1\nphase={phase}\nsha={sha}\nimage={image}\nold={old}\nnext={nxt}\nhome={home}\n"
+tmp = path + ".tmp"
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+try:
+    os.write(fd, body.encode()); os.fsync(fd)
+finally:
+    os.close(fd)
+os.replace(tmp, path)
+d = os.open(os.path.dirname(path), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+try: os.fsync(d)
+finally: os.close(d)
+ROLLING_STATE
+  rolling_log "phase $ROLLING_PHASE"
+}
+
+rolling_state_read() {
+  local fields
+  [ -f "$ROLLING_STATE_FILE" ] && [ ! -L "$ROLLING_STATE_FILE" ] || return 1
+  fields="$(python3 - "$ROLLING_STATE_FILE" <<'ROLLING_READ'
+import re, sys
+lines = open(sys.argv[1]).read().splitlines()
+if not lines or lines[0] != "engine-rolling-state-v1":
+    raise SystemExit(1)
+kv = dict(l.split("=", 1) for l in lines[1:] if "=" in l)
+pattern = {"phase": r"[a-z0-9-]{1,40}", "sha": r"[0-9a-f]{40}", "image": r"sha256:[0-9a-f]{64}|-",
+           "old": r"[A-Za-z0-9._-]{1,80}", "next": r"[A-Za-z0-9._-]{1,80}", "home": r"[A-Za-z0-9._-]{1,80}"}
+if set(kv) != set(pattern) or any(not re.fullmatch(p, kv[k]) for k, p in pattern.items()):
+    raise SystemExit(1)
+print(kv["phase"], kv["sha"], kv["image"], kv["old"], kv["next"], kv["home"])
+ROLLING_READ
+  )" || return 1
+  read -r ROLLING_PHASE ROLLING_STATE_SHA ROLLING_STATE_IMAGE ROLLING_OLD_INSTANCE ROLLING_NEXT_INSTANCE ROLLING_HOME_INSTANCE <<<"$fields"
+}
+
+rolling_yield() {
+  local from="$1" to_instance="$2"
+  [[ "$to_instance" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || return 1
+  rolling_internal "$from" POST /internal/rolling-handoff/yield "{\"successorInstanceId\":\"$to_instance\"}" >/dev/null
+}
+
+rolling_running() {
+  [ "$(timeout --signal=TERM --kill-after=1s 10s docker container inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]
+}
+
+# Ask $1 to hand everything to the instance $3 (container $2) and wait.
+# 0 = $1 retired; with $5=drain also 0 once $1 owns nothing and nothing is in
+# flight for three polls. 1 = refused or aborted, 2 = deadline, 3 = the
+# receiving container stopped. Kept units are offered again every
+# ROLLING_REASK_SECONDS; nothing is ever forced.
+rolling_roll() {
+  local from="$1" to="$2" to_instance="$3" deadline="$4" drain="${5:-}" fields mode owned kept adopting successor
+  local next_reask failures=0 empty=0 last_report=0 now
+  rolling_yield "$from" "$to_instance" || { rolling_log "$from refused to yield to $to_instance"; return 1; }
+  next_reask=$(( $(date +%s) + ROLLING_REASK_SECONDS ))
+  while true; do
+    now="$(date +%s)"
+    if fields="$(rolling_status "$from")"; then
+      failures=0
+      read -r mode owned kept adopting successor _ <<<"$fields"
+      [ "$mode" = retired ] && return 0
+      if [ "$mode" != yielding ] || [ "$successor" != "$to_instance" ]; then
+        rolling_log "$from is $mode toward $successor, not yielding to $to_instance"
+        return 1
+      fi
+      if [ -n "$drain" ] && [ "$owned" = 0 ] && [ "$adopting" = 0 ]; then
+        empty=$((empty + 1))
+        [ "$empty" -lt 3 ] || return 0
+      else
+        empty=0
+      fi
+      if [ "$kept" -gt 0 ] && [ "$now" -ge "$next_reask" ]; then
+        rolling_log "$from kept $kept unit(s) at their boundary deadline; asking again"
+        rolling_yield "$from" "$to_instance" || rolling_log "re-ask refused; polling on"
+        next_reask=$((now + ROLLING_REASK_SECONDS))
+      fi
+      if [ $((now - last_report)) -ge 30 ]; then
+        rolling_log "$from -> $to: mode=$mode owned=$owned kept=$kept"
+        last_report="$now"
+      fi
+    else
+      failures=$((failures + 1))
+      [ "$failures" -lt 12 ] || { rolling_log "$from status unreadable for a minute"; return 1; }
+    fi
+    rolling_running "$to" || { rolling_log "$to stopped while receiving tables"; return 3; }
+    [ "$now" -lt "$deadline" ] || { rolling_log "$from did not finish handing over before its deadline"; return 2; }
+    sleep "$ROLLING_POLL_SECONDS"
+  done
+}
+
+# Point the engine.smarter.poker upstream at one local port: validate, swap
+# atomically, graceful reload, and restore the previous file on any failure.
+rolling_caddy_upstream() {
+  local port="$1" dir candidate backup
+  [[ "$port" =~ ^(8080|8081)$ ]] || return 1
+  [ -f "$ROLLING_CADDYFILE" ] && [ ! -L "$ROLLING_CADDYFILE" ] || { rolling_log 'Caddy config is missing or a symlink'; return 1; }
+  dir="$(dirname "$ROLLING_CADDYFILE")"
+  candidate="$(mktemp "$dir/.Caddyfile.rolling.XXXXXX")" || return 1
+  cp -p "$ROLLING_CADDYFILE" "$candidate"
+  if ! python3 - "$ROLLING_CADDYFILE" "$candidate" "$port" <<'ROLLING_CADDY'
+import re, sys
+source, target, port = sys.argv[1:]
+text = open(source).read()
+start = re.search(r"(?m)^[ \t]*engine\.smarter\.poker[ \t]*\{", text)
+if not start:
+    raise SystemExit("engine.smarter.poker site block not found")
+depth, i = 0, start.end() - 1
+while i < len(text):
+    if text[i] == "{": depth += 1
+    elif text[i] == "}":
+        depth -= 1
+        if depth == 0: break
+    i += 1
+if depth != 0:
+    raise SystemExit("engine.smarter.poker site block is unbalanced")
+block = text[start.start():i + 1]
+upstream = re.compile(r"(reverse_proxy[ \t]+(?:localhost|127\.0\.0\.1):)(8080|8081)\b")
+if len(upstream.findall(block)) != 1:
+    raise SystemExit("expected exactly one engine reverse_proxy upstream on 8080 or 8081")
+block = upstream.sub(lambda m: m.group(1) + port, block)
+open(target, "w").write(text[:start.start()] + block + text[i + 1:])
+ROLLING_CADDY
+  then
+    rm -f -- "$candidate"; return 1
+  fi
+  if cmp -s "$ROLLING_CADDYFILE" "$candidate"; then
+    rm -f -- "$candidate"; rolling_log "Caddy already serves port $port"; return 0
+  fi
+  if ! timeout --signal=TERM --kill-after=1s 30s "$ROLLING_CADDY_BIN" validate --adapter caddyfile --config "$candidate" >/dev/null 2>&1; then
+    rm -f -- "$candidate"; rolling_log 'candidate Caddy config failed validation; live config untouched'; return 1
+  fi
+  backup="$ROLLING_CADDYFILE.pre-rolling.$(date -u +%Y%m%dT%H%M%SZ).$$"
+  cp -p "$ROLLING_CADDYFILE" "$backup"
+  mv -f -- "$candidate" "$ROLLING_CADDYFILE"
+  if timeout --signal=TERM --kill-after=1s 30s "$ROLLING_SYSTEMCTL_BIN" reload caddy \
+    && timeout --signal=TERM --kill-after=1s 10s "$ROLLING_SYSTEMCTL_BIN" is-active --quiet caddy; then
+    rolling_log "Caddy now serves engine port $port (previous config kept at $backup)"
+    return 0
+  fi
+  cp -p "$backup" "$ROLLING_CADDYFILE"
+  timeout --signal=TERM --kill-after=1s 30s "$ROLLING_SYSTEMCTL_BIN" reload caddy >/dev/null 2>&1 || true
+  rolling_log 'Caddy reload failed; previous config restored'
+  return 1
+}
+
+# Switch Caddy and prove the public endpoint names the expected instance.
+rolling_route_to() {
+  local port="$1" instance="$2" attempt end
+  for attempt in 1 2 3; do
+    rolling_caddy_upstream "$port" && break
+    [ "$attempt" = 3 ] && return 1
+    sleep 5
+  done
+  end=$(( $(date +%s) + ROLLING_PUBLIC_SECONDS ))
+  while [ "$(date +%s)" -lt "$end" ]; do
+    [ "$(rolling_public_instance || true)" = "$instance" ] && return 0
+    sleep 1
+  done
+  rolling_log "public endpoint does not name $instance after the switch to port $port"
+  return 1
+}
+
+# Stop a container that owns nothing (retired) and rename it into the
+# outgoing namespace engine-up.sh already retires (log dump, then removal).
+rolling_retire_container() {
+  local name="$1" id
+  id="$(timeout --signal=TERM --kill-after=1s 10s docker container inspect -f '{{.Id}}' "$name" 2>/dev/null)" || return 0
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]] || return 1
+  timeout --signal=TERM --kill-after=1s 10s docker update --restart no "$id" >/dev/null 2>&1 || true
+  timeout --signal=TERM --kill-after=5s 60s docker stop -t 45 "$id" >/dev/null 2>&1 || true
+  timeout --signal=TERM --kill-after=1s 10s docker rename "$id" "club-arena-engine-outgoing-${id:0:12}" >/dev/null 2>&1 \
+    || timeout --signal=TERM --kill-after=1s 20s docker rm "$id" >/dev/null 2>&1 || true
+  rolling_log "stopped $name (${id:0:12})"
+}
+
+rolling_autoheal() {
+  local action="$1" id
+  id="$(timeout --signal=TERM --kill-after=1s 10s docker container inspect -f '{{.Id}}' "$ROLLING_AUTOHEAL" 2>/dev/null)" || return 1
+  case "$action" in
+    stop) timeout --signal=TERM --kill-after=1s 20s docker stop -t 15 "$id" >/dev/null ;;
+    start) timeout --signal=TERM --kill-after=1s 10s docker start "$id" >/dev/null ;;
+  esac
+}
+
+# Start a successor container through the canonical run-spec. $4 is the token
+# or empty (the sealed desired image needs none).
+rolling_start_successor() {
+  local name="$1" port="$2" autoheal="$3" token="${4:-}" image="$5"
+  if [ -n "$token" ]; then
+    timeout --signal=TERM --kill-after=5s 180s env ENGINE_UP_LOCK_HELD=1 ENGINE_RELEASE_TOKEN_FD=3 \
+      IMAGE="$image" CONTAINER="$name" PORT="$port" SUCCESSOR_AUTOHEAL="$autoheal" ENV_FILE="$ENV_FILE" \
+      "$ENGINE_UP" --successor 3<<<"$token" >/dev/null
+  else
+    timeout --signal=TERM --kill-after=5s 180s env ENGINE_UP_LOCK_HELD=1 \
+      IMAGE="$image" CONTAINER="$name" PORT="$port" SUCCESSOR_AUTOHEAL="$autoheal" ENV_FILE="$ENV_FILE" \
+      "$ENGINE_UP" --successor >/dev/null
+  fi
+}
+
+# Wait for a successor's exact identity and its handoff route.
+rolling_await_successor() {
+  local name="$1" port="$2" sha="$3" end instance fields mode
+  end=$(( $(date +%s) + ROLLING_BOOT_SECONDS ))
+  while [ "$(date +%s)" -lt "$end" ]; do
+    rolling_running "$name" || { rolling_log "$name stopped during boot"; return 1; }
+    if instance="$(rolling_local_instance "$port" "$sha" 'ok|standby')" \
+      && fields="$(rolling_status "$name")"; then
+      read -r mode _ _ _ _ status_instance _ <<<"$fields"
+      if [ "$mode" = serving ] && [ "$status_instance" = "$instance" ]; then
+        printf '%s\n' "$instance"
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+  rolling_log "$name never presented exact release health and its handoff route"
+  return 1
+}
+
+rolling_prepare_token() {
+  local out
+  out="$(timeout --signal=TERM --kill-after=1s 10s "$RELEASE_SEAL" prepare \
+    --sha "$SHA" --image "$TARGET_IMAGE_ID" --mode "$SEAL_MODE" --repo "$REPO_DIR" \
+    --run-id "$RUN_ID" --run-url "$RUN_URL" --actor "$ACTOR" \
+    --reason "rolling handoff release: $1" 2>/dev/null)" || return 1
+  [[ "$out" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf '%s\n' "$out"
+}
+
+# Seal what actually serves. The seal itself re-proves the running image and
+# the Horse journal mounts of this exact container generation.
+rolling_commit() {
+  local name="$1" reason="$2" cid started image
+  cid="$(timeout --signal=TERM --kill-after=1s 10s docker container inspect -f '{{.Id}}' "$name")" || return 1
+  started="$(timeout --signal=TERM --kill-after=1s 10s docker container inspect -f '{{.State.StartedAt}}' "$name")" || return 1
+  image="$(timeout --signal=TERM --kill-after=1s 10s docker container inspect -f '{{.Image}}' "$name")" || return 1
+  [[ "$cid" =~ ^[0-9a-f]{64}$ ]] && [ -n "$started" ] && [ "$image" = "$TARGET_IMAGE_ID" ] || return 1
+  timeout --signal=TERM --kill-after=1s 10s "$RELEASE_SEAL" commit \
+    --sha "$SHA" --image "$TARGET_IMAGE_ID" --container "$name" \
+    --container-id "$cid" --started-at "$started" \
+    --run-id "$RUN_ID" --run-url "$RUN_URL" --actor "$ACTOR" --reason "$reason" \
+    || rolling_log 'seal response uncertain; requiring the fsynced receipt'
+  timeout --signal=TERM --kill-after=1s 10s "$RELEASE_SEAL" attest-commit \
+    --sha "$SHA" --image-id "$TARGET_IMAGE_ID" --run-id "$RUN_ID" >/dev/null || return 1
+  timeout --signal=TERM --kill-after=1s 10s docker tag "$TARGET_IMAGE_ID" "$IMAGE_REPO:current" || true
+  timeout --signal=TERM --kill-after=1s 10s docker update --restart always "$name" >/dev/null || return 1
+}
+
+rolling_home_pending_write() {
+  printf 'engine-rolling-home-pending-v1\n%s\n%s\n%s\n' "$SHA" "$TARGET_IMAGE_ID" "$RUN_ID" > "$ROLLING_HOME_PENDING_FILE.tmp" \
+    && mv -f -- "$ROLLING_HOME_PENDING_FILE.tmp" "$ROLLING_HOME_PENDING_FILE" \
+    && sync -f "$ROLLING_HOME_PENDING_FILE" 2>/dev/null || true
+}
+
+# Before the old engine retires: hand back anything that moved, stop the
+# successor, leave the old engine serving. Never reached after retirement.
+rolling_rollback() {
+  local fields mode owned adopting adopted deadline
+  rolling_log "rolling back: the old engine $ROLLING_OLD_INSTANCE keeps serving"
+  rolling_internal "$CONTAINER" POST /internal/rolling-handoff/abort >/dev/null 2>&1 \
+    || rolling_log 'abort answer unknown; returns are adopted either way'
+  if rolling_running "$ROLLING_NEXT_CONTAINER" && [ "$ROLLING_OLD_INSTANCE" != - ] \
+    && fields="$(rolling_status "$ROLLING_NEXT_CONTAINER")"; then
+    read -r mode owned _ adopting _ _ adopted _ <<<"$fields"
+    if [ "$owned" -gt 0 ] || [ "$adopting" -gt 0 ] || [ "$adopted" -gt 0 ]; then
+      deadline=$(( $(date +%s) + ROLLING_DRAIN_BACK_SECONDS ))
+      rolling_roll "$ROLLING_NEXT_CONTAINER" "$CONTAINER" "$ROLLING_OLD_INSTANCE" "$deadline" drain \
+        || rolling_log 'successor did not hand everything back in time; its graceful stop releases the rest to ordinary recovery'
+    fi
+  fi
+  rolling_retire_container "$ROLLING_NEXT_CONTAINER"
+  rolling_autoheal start >/dev/null 2>&1 || true
+}
+
+# After the old engine retired: settle on the newest engine that owns the
+# tables. A home container that has not taken over hands back to the
+# successor; Caddy points at whichever serves; the seal follows it.
+rolling_forward() {
+  local why="$1" fields mode owned adopting adopted serving port instance deadline
+  serving="$ROLLING_NEXT_CONTAINER"; port="$ROLLING_NEXT_PORT"; instance="$ROLLING_NEXT_INSTANCE"
+  case "$ROLLING_PHASE" in
+    hop2-retired|caddy-home|home-done)
+      serving="$CONTAINER"; port="$ROLLING_HOME_PORT"; instance="$ROLLING_HOME_INSTANCE" ;;
+    home-started|hop2-yielding)
+      if fields="$(rolling_status "$ROLLING_NEXT_CONTAINER")" && [ "${fields%% *}" = retired ]; then
+        serving="$CONTAINER"; port="$ROLLING_HOME_PORT"; instance="$ROLLING_HOME_INSTANCE"
+      else
+        rolling_internal "$ROLLING_NEXT_CONTAINER" POST /internal/rolling-handoff/abort >/dev/null 2>&1 || true
+        if rolling_running "$CONTAINER" && fields="$(rolling_status "$CONTAINER")"; then
+          read -r mode owned _ adopting _ _ adopted _ <<<"$fields"
+          if [ "$owned" -gt 0 ] || [ "$adopting" -gt 0 ] || [ "$adopted" -gt 0 ]; then
+            deadline=$(( $(date +%s) + ROLLING_DRAIN_BACK_SECONDS ))
+            rolling_roll "$CONTAINER" "$ROLLING_NEXT_CONTAINER" "$ROLLING_NEXT_INSTANCE" "$deadline" drain \
+              || rolling_log 'home container did not hand everything back in time'
+          fi
+        fi
+        rolling_retire_container "$CONTAINER"
+      fi
+      ;;
+  esac
+  rolling_log "forward settlement ($why): $serving on port $port serves"
+  rolling_route_to "$port" "$instance" || rolling_log "FATAL: could not route the public endpoint to $serving"
+  if [ "$serving" = "$CONTAINER" ]; then
+    rolling_retire_container "$ROLLING_NEXT_CONTAINER"
+  else
+    # The retired old engine (if still present) owns nothing.
+    if [ "$(timeout 10s docker container inspect -f '{{index .Config.Labels "sp.engine-up.successor"}}' "$CONTAINER" 2>/dev/null)" != 1 ]; then
+      rolling_retire_container "$CONTAINER"
+    fi
+    rolling_home_pending_write
+  fi
+  rolling_autoheal start >/dev/null 2>&1 || true
+  rolling_commit "$serving" "rolling handoff release settled forward ($why); $serving owns every table" \
+    || { rolling_log "FATAL: could not seal $serving"; return 1; }
+  FORWARD_CONTAINER="$serving"
+  FORWARD_INSTANCE="$instance"
+  rolling_state_write "forward-$( [ "$serving" = "$CONTAINER" ] && echo home || echo next)"
+}
+
+# Phase-driven recovery shared by the transaction's exit trap and ExecStopPost.
+rolling_recover() {
+  local fields
+  rolling_state_read || { rolling_log 'no rolling state; nothing to recover'; return 0; }
+  case "$ROLLING_PHASE" in
+    sealed|recovered|forward-home|forward-next) return 0 ;;
+    prepared|successor-started|hop1-yielding)
+      if fields="$(rolling_status "$CONTAINER")" && [ "${fields%% *}" = retired ]; then
+        ROLLING_PHASE=hop1-retired
+      else
+        rolling_rollback
+        rolling_state_write recovered
+        return 0
+      fi
+      ;;
+  esac
+  rolling_forward "recovery after $ROLLING_PHASE"
+}
+
+# Resume a home leg a previous rolling release had to leave on 8081. The
+# successor is the sealed desired release, so engine-up authorizes it without
+# a token. Failure hands back to the successor and keeps the marker.
+rolling_resume_home() {
+  local pending desired_sha desired_image home deadline
+  [ -f "$ROLLING_HOME_PENDING_FILE" ] || return 0
+  mapfile -t pending < "$ROLLING_HOME_PENDING_FILE" || return 1
+  desired_sha="$("$RELEASE_SEAL" get desired-sha)" || return 1
+  desired_image="$("$RELEASE_SEAL" get desired-image-id)" || return 1
+  [ "${#pending[@]}" = 4 ] && [ "${pending[0]}" = engine-rolling-home-pending-v1 ] \
+    && [ "${pending[1]}" = "$desired_sha" ] && [ "${pending[2]}" = "$desired_image" ] \
+    || { rolling_log 'home-pending marker does not name the sealed desired release'; return 1; }
+  rolling_running "$ROLLING_NEXT_CONTAINER" || { rolling_log 'home-pending marker without a running successor'; return 1; }
+  ! timeout 10s docker container inspect "$CONTAINER" >/dev/null 2>&1 \
+    || { rolling_log "$CONTAINER exists beside a pending home leg; refusing"; return 1; }
+  ROLLING_NEXT_INSTANCE="$(rolling_local_instance "$ROLLING_NEXT_PORT" "$desired_sha" ok)" || return 1
+  rolling_log "resuming the home leg of $desired_sha from port $ROLLING_NEXT_PORT"
+  rolling_autoheal stop || true
+  if ! rolling_start_successor "$CONTAINER" "$ROLLING_HOME_PORT" true '' "$desired_image" \
+    || ! home="$(rolling_await_successor "$CONTAINER" "$ROLLING_HOME_PORT" "$desired_sha")"; then
+    rolling_retire_container "$CONTAINER"; rolling_autoheal start || true; return 1
+  fi
+  deadline=$(( $(date +%s) + ROLLING_HOP_SECONDS ))
+  if ! rolling_roll "$ROLLING_NEXT_CONTAINER" "$CONTAINER" "$home" "$deadline"; then
+    rolling_internal "$ROLLING_NEXT_CONTAINER" POST /internal/rolling-handoff/abort >/dev/null 2>&1 || true
+    rolling_roll "$CONTAINER" "$ROLLING_NEXT_CONTAINER" "$ROLLING_NEXT_INSTANCE" $(( $(date +%s) + ROLLING_DRAIN_BACK_SECONDS )) drain || true
+    rolling_retire_container "$CONTAINER"; rolling_autoheal start || true; return 1
+  fi
+  rolling_route_to "$ROLLING_HOME_PORT" "$home" || { rolling_autoheal start || true; return 1; }
+  rolling_retire_container "$ROLLING_NEXT_CONTAINER"
+  rolling_autoheal start || true
+  rm -f -- "$ROLLING_HOME_PENDING_FILE"
+  rolling_log "home leg resumed: $home serves on port $ROLLING_HOME_PORT"
+}
+
+# The rolling route from the locked admission to the receipt. Called once the
+# candidate image is built or validated, prewarmed and its installed
+# migration set read; it never returns (it seals and exits, or dies into
+# recover_on_exit, whose rolling branch owns the runtime from here).
+rolling_release() {
+  local deadline token instance local_now public_now cid started image label
+  ROLLING_STATE_FILE="$REQUEST_ROOT/$RUN_ID.rolling-state"
+  [ -z "${DRILL_MODE:-}" ] || die 'an engine drill is a classic release; rolling mode refused before any change'
+  require_backup_certificate || die 'exact target Backup certificate is not currently successful; nothing was started'
+  rolling_certificate \
+    || die "rolling release requires $ROLLING_CERT_CONTEXT = success (trial_rolling_handoff) on $SHA; nothing was started and the old engine keeps serving"
+  if [ -n "$WINDOW_DOOR_NAMES" ]; then
+    WINDOW_DOORS_RC=0
+    window_doors_ready || WINDOW_DOORS_RC=$?
+    [ "$WINDOW_DOORS_RC" = 0 ] \
+      || die "WINDOW MIGRATION DOORS REFUSED: $WINDOW_DOOR_NAMES are installed only inside the daily break; a rolling release cannot carry this build"
+  fi
+  [ -z "${INSTALLED_MIGRATIONS:-}" ] || installed_migrations_unchanged
+  acquire_engine_lock 'rolling release'
+  rolling_resume_home || die 'a pending home leg could not be finished; the successor keeps serving and nothing new was started'
+  source_target_is_current
+  if EXACT_INSTANCE="$(exact_runtime_instance)"; then emit_already_released "$EXACT_INSTANCE"; fi
+  ROLLING_DESIRED_SHA="$("$RELEASE_SEAL" get desired-sha)" || die 'sealed desired release is unreadable'
+  ROLLING_OLD_INSTANCE="$(rolling_capable "$CONTAINER" "$ROLLING_HOME_PORT")" \
+    || die 'the serving engine does not offer the rolling handoff (ENGINE_ROLLING_HANDOFF off or an older build); nothing was started'
+  [ "$(source_instance_for_sha "http://127.0.0.1:$ROLLING_HOME_PORT/health" "$ROLLING_DESIRED_SHA" || true)" = "$ROLLING_OLD_INSTANCE" ] \
+    || die 'the serving engine is not the exact sealed desired release; nothing was started'
+  [ "$(rolling_public_instance || true)" = "$ROLLING_OLD_INSTANCE" ] \
+    || die 'the public endpoint does not name the serving engine; nothing was started'
+  STRANGERS="$(docker ps -a --filter label=sp.role=engine --format '{{.Names}}' | grep -Ev "^($CONTAINER|club-arena-engine-outgoing-[0-9a-f]{12}|club-arena-engine-incoming-[0-9a-f]{12}-[1-9][0-9]*)$" || true)"
+  [ -z "$STRANGERS" ] || die "an unmanaged engine container exists on this host ($STRANGERS); nothing was started"
+  validate_candidate_image
+  token="$(rolling_prepare_token hop1)" || die 'release seal refused the rolling candidate; nothing was started'
+  PREPARED=1
+  MUTATION_STARTED=1
+  rolling_state_write prepared
+  rolling_start_successor "$ROLLING_NEXT_CONTAINER" "$ROLLING_NEXT_PORT" false "$token" "$TARGET_IMAGE_ID" \
+    || die 'the successor container could not be started beside the serving engine'
+  token=''
+  rolling_state_write successor-started
+  ROLLING_NEXT_INSTANCE="$(rolling_await_successor "$ROLLING_NEXT_CONTAINER" "$ROLLING_NEXT_PORT" "$SHA")" \
+    || die 'the successor never proved exact release health and its handoff route'
+  rolling_state_write hop1-yielding
+  deadline=$(( $(date +%s) + ROLLING_HOP_SECONDS ))
+  rolling_roll "$CONTAINER" "$ROLLING_NEXT_CONTAINER" "$ROLLING_NEXT_INSTANCE" "$deadline" \
+    || die 'the old engine did not hand every table over; the moved tables were handed back and the old engine keeps serving'
+  # ── The old engine retired: it owns nothing and has stopped adopting. ──
+  rolling_state_write hop1-retired
+  if ! rolling_route_to "$ROLLING_NEXT_PORT" "$ROLLING_NEXT_INSTANCE"; then
+    rolling_finish_forward 'public route to the successor'
+  fi
+  rolling_state_write caddy-next
+  rolling_retire_container "$CONTAINER"
+  rolling_state_write old-stopped
+  rolling_autoheal stop || rolling_finish_forward 'autoheal did not stop before the home leg'
+  token="$(rolling_prepare_token hop2)" || rolling_finish_forward 'release seal refused the home leg'
+  if ! rolling_start_successor "$CONTAINER" "$ROLLING_HOME_PORT" true "$token" "$TARGET_IMAGE_ID"; then
+    # Keep the seal's authorization consumed (a no-op when engine-up already
+    # used it) so the forward settlement can seal the successor that serves.
+    printf '%s' "$token" | timeout --signal=TERM --kill-after=1s 10s "$RELEASE_SEAL" authorize \
+      --image "$TARGET_IMAGE_ID" --token-stdin >/dev/null 2>&1 || true
+    rolling_state_write home-started
+    rolling_finish_forward 'the home container could not start'
+  fi
+  token=''
+  rolling_state_write home-started
+  ROLLING_HOME_INSTANCE="$(rolling_await_successor "$CONTAINER" "$ROLLING_HOME_PORT" "$SHA")" \
+    || rolling_finish_forward 'the home container never proved exact release health'
+  rolling_state_write hop2-yielding
+  deadline=$(( $(date +%s) + ROLLING_HOP_SECONDS ))
+  rolling_roll "$ROLLING_NEXT_CONTAINER" "$CONTAINER" "$ROLLING_HOME_INSTANCE" "$deadline" \
+    || rolling_finish_forward 'the successor did not hand every table to the home container'
+  rolling_state_write hop2-retired
+  rolling_route_to "$ROLLING_HOME_PORT" "$ROLLING_HOME_INSTANCE" \
+    || rolling_finish_forward 'public route back to port 8080'
+  rolling_state_write caddy-home
+  rolling_retire_container "$ROLLING_NEXT_CONTAINER"
+  # The elected-leader witness, then the seal, exactly as the classic route.
+  timeout --signal=TERM --kill-after=1s 62s \
+    "$DATABASE_PROOF" --sha "$SHA" --env-file "$ENV_FILE" --instance-id "$ROLLING_HOME_INSTANCE" \
+    --timeout-seconds 60 --poll-seconds 5 --max-heartbeat-age-seconds 15 \
+    || rolling_finish_forward 'the home engine is not yet the freshly elected database leader'
+  source_target_is_current local-main
+  cid="$(docker container inspect -f '{{.Id}}' "$CONTAINER")"
+  image="$(docker container inspect -f '{{.Image}}' "$CONTAINER")"
+  label="$(docker container inspect -f '{{index .Config.Labels "sp.release.sha"}}' "$CONTAINER")"
+  [ "$image" = "$TARGET_IMAGE_ID" ] && [ "$label" = "$SHA" ] && [[ "$cid" =~ ^[0-9a-f]{64}$ ]] \
+    || rolling_finish_forward 'home container identity changed before the seal'
+  local_now="$(rolling_local_instance "$ROLLING_HOME_PORT" "$SHA" ok)" || local_now=''
+  public_now="$(rolling_public_instance)" || public_now=''
+  [ "$local_now" = "$ROLLING_HOME_INSTANCE" ] && [ "$public_now" = "$ROLLING_HOME_INSTANCE" ] \
+    || rolling_finish_forward 'home engine identity changed before the seal'
+  rolling_commit "$CONTAINER" 'rolling handoff release: every table and tournament moved at its own hand boundary; local, public and elected-leader proofs passed' \
+    || die 'durable seal does not attest this exact rolling release'
+  rolling_autoheal start || die 'original autoheal container did not restart after the rolling release'
+  rolling_state_write sealed
+  persist_result sealed "$ROLLING_HOME_INSTANCE"
+  timeout --signal=TERM --kill-after=3s 65s "$CONTROL_DIR/retain-engine-images.sh" \
+    || echo '[engine-release-transaction] WARN: post-receipt image retention failed' >&2
+  exit 0
+}
+
+# After the old engine retired, a failure can only settle forward: seal the
+# engine that owns the tables, record the receipt, and leave a home-pending
+# marker when that engine still serves from port 8081 (the next rolling
+# release finishes the home leg first). Never returns.
+rolling_finish_forward() {
+  rolling_log "settling forward after the old engine retired: $1"
+  FORWARD_CONTAINER=''
+  rolling_forward "$1" || die "rolling release could not settle forward after $1"
+  CONTAINER="$FORWARD_CONTAINER" persist_result sealed "$FORWARD_INSTANCE"
+  if [ "$FORWARD_CONTAINER" = "$ROLLING_NEXT_CONTAINER" ]; then
+    echo "ENGINE_ROLLING_HOME_PENDING=$ROLLING_NEXT_PORT"
+    rolling_log "WARN: sealed on $ROLLING_NEXT_CONTAINER (port $ROLLING_NEXT_PORT); the next rolling release finishes the home leg first"
+  fi
+  exit 0
+}
+
+# recover_on_exit's rolling branch: the runtime is owned by the rolling state.
+rolling_recover_on_exit() {
+  local rc="$1"
+  if [ "$LOCK_HELD" = 1 ] && [ -n "$ROLLING_STATE_FILE" ]; then
+    rolling_recover || echo '[engine-release-transaction] FATAL: rolling recovery did not complete' >&2
+  fi
+  if [ "$PREPARED" = 1 ] && [ "$ROLLING_PHASE" = recovered ]; then
+    timeout --signal=TERM --kill-after=1s 10s "$RELEASE_SEAL" abort --run-id "$RUN_ID" \
+      || echo '[engine-release-transaction] FATAL: seal abort failed after rolling recovery' >&2
+  fi
+  if [ "$LOCK_HELD" = 1 ]; then
+    flock -u 9
+    LOCK_HELD=0
+  fi
+  exit "$rc"
+}
+
+# ExecStopPost entry: engine-release-recover.sh calls
+#   engine-release-transaction.sh --rolling-recover --run-id RUN
+# with the engine lock already held. It reads only the run's own files.
+rolling_recover_cli() {
+  [ "$#" = 3 ] && [ "$1" = --rolling-recover ] && [ "$2" = --run-id ] || { echo '[engine-release-transaction] usage: --rolling-recover --run-id RUN' >&2; exit 64; }
+  RUN_ID="$3"
+  [[ "$RUN_ID" =~ ^[1-9][0-9]*(-[1-9][0-9]*)?$ ]] || exit 64
+  REQUEST_ROOT="${ENGINE_RELEASE_REQUEST_ROOT:-/var/lib/club-arena/engine-release-requests}"
+  ROLLING_STATE_FILE="$REQUEST_ROOT/$RUN_ID.rolling-state"
+  rolling_state_read || { rolling_log 'no rolling state; nothing to recover'; exit 0; }
+  mapfile -t ROLLING_REQUEST < "$REQUEST_ROOT/$RUN_ID.request" || exit 1
+  [ "${#ROLLING_REQUEST[@]}" = 6 ] || exit 1
+  SHA="$ROLLING_STATE_SHA"
+  [ "${ROLLING_REQUEST[0]}" = "$SHA" ] || { rolling_log 'rolling state names another target'; exit 1; }
+  RUN_URL="${ROLLING_REQUEST[1]}"
+  ACTOR="${ROLLING_REQUEST[2]}"
+  TARGET_IMAGE_ID="$ROLLING_STATE_IMAGE"
+  ROLLING_DRAIN_BACK_SECONDS="${ENGINE_ROLLING_DRAIN_BACK_SECONDS:-150}"
+  rolling_recover
+}
+# <<< ROLLING RELEASE ROUTE
+# Rolling releases leave here: no certificate wait, no break (rolling_release).
+if [ "${RELEASE_MODE:-classic}" = rolling ]; then rolling_release; fi
 if [ "$WINDOW_DOORS_READY" != 1 ]; then
   echo "[engine-release-transaction] window-migration doors this build calls, re-read inside the break before any cutover: $WINDOW_DOOR_NAMES"
 fi

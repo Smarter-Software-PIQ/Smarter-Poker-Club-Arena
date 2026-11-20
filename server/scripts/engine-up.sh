@@ -30,6 +30,42 @@
 #
 set -euo pipefail
 
+# ── Rolling successor mode (docs/ENGINE-ROLLING-HANDOFF.md) ─────────────────
+# `engine-up.sh --successor` starts the certified candidate as a SECOND
+# container next to the serving engine and never stops, renames or touches the
+# serving container. The release transaction then asks the serving engine to
+# hand its tables over one hand boundary at a time. The image, the release
+# authority, the env file, the journals and the run-spec flags are exactly the
+# classic ones; only the name, the host port, the boot role and the handoff
+# flag differ. Classic mode (no argument) is unchanged.
+SUCCESSOR_MODE=0
+if [ "${1:-}" = --successor ]; then
+  SUCCESSOR_MODE=1
+  shift
+  [ "$#" = 0 ] || { echo "[engine-up] FATAL: unknown successor arguments: $*"; exit 64; }
+fi
+# The flag and role names the engine reads (server/src/handoff/rollingHandoffFlag.ts
+# and the handoff-successor boot role). BOOTSTRAP: the classic run-spec below
+# carries the flag too, so the next classic release (the daily route) starts a
+# serving engine that can later yield; with the flag on and no yield request
+# the only added work is one handed-leases read per second (proven in
+# tests/a-rolling-handoff-flag-with-no-yield-changes-nothing.law.test.ts). An
+# older image ignores the variable. Docker applies --env after --env-file, so
+# this run-spec, not the host env file, decides it.
+# Names match server/src/handoff/handoffSuccessorRole.ts (#11493) exactly:
+# ENGINE_ROLE=handoff-successor and ENGINE_HANDOFF_PEER_PORT (the OTHER
+# engine's port: 8081 for the serving engine, the serving engine's port for a
+# successor). Both are read only with the flag on.
+ROLLING_HANDOFF_FLAG_ENV='ENGINE_ROLLING_HANDOFF=on'
+SUCCESSOR_ROLE_ENV='ENGINE_ROLE=handoff-successor'
+HANDOFF_PEER_PORT_ENV="ENGINE_HANDOFF_PEER_PORT=8081"
+# The two engines are separate bridged containers, so a container's own
+# loopback is never its peer. Each reaches the other's PUBLISHED host port
+# through the host gateway (--add-host below); Caddy keeps proxying to the
+# same host ports, so its one-line upstream switch is unchanged.
+HANDOFF_PEER_HOST_ENV='ENGINE_HANDOFF_PEER_HOST=host.docker.internal'
+HANDOFF_PEER_HOST_GATEWAY='host.docker.internal:host-gateway'
+
 # ── Mutual exclusion ─────────────────────────────────────────────────────────
 # The release transaction owns this lock across every stop/run mutation. Its
 # one-shot recovery receives ENGINE_UP_LOCK_HELD=1 and reuses that ownership;
@@ -44,6 +80,16 @@ if [ "${ENGINE_UP_LOCK_HELD:-0}" != "1" ]; then
   flock -w 180 9 || { echo "[engine-up] FATAL: could not acquire $LOCK_FILE within 180s"; exit 1; }
 fi
 
+if [ "$SUCCESSOR_MODE" = 1 ]; then
+  # The successor's own name and port. The home leg of a rolling release
+  # passes CONTAINER=club-arena-engine PORT=8080 once the old engine is gone.
+  CONTAINER="${CONTAINER:-club-arena-engine-next}"
+  PORT="${PORT:-8081}"
+  SUCCESSOR_AUTOHEAL="${SUCCESSOR_AUTOHEAL:-false}"
+  case "$SUCCESSOR_AUTOHEAL" in true|false) ;; *) echo '[engine-up] FATAL: SUCCESSOR_AUTOHEAL must be true or false'; exit 64 ;; esac
+  [[ "$PORT" =~ ^(8080|8081)$ ]] || { echo '[engine-up] FATAL: a successor binds 8080 or 8081 only'; exit 64; }
+  [[ "$CONTAINER" =~ ^club-arena-engine(-next)?$ ]] || { echo '[engine-up] FATAL: a successor is club-arena-engine-next or club-arena-engine'; exit 64; }
+fi
 CONTAINER="${CONTAINER:-club-arena-engine}"
 IMAGE="${IMAGE:-club-arena-engine:current}"
 ENV_FILE="${ENV_FILE:-/opt/club-arena/server/.env}"
@@ -348,6 +394,30 @@ trap cleanup_prepared_container EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# The successor differs from the classic run-spec only in these arguments; the
+# single container creation below serves both modes, so the run-spec cannot drift.
+ENGINE_AUTOHEAL_LABEL=true
+SUCCESSOR_CREATE_ARGS=()
+if [ "$SUCCESSOR_MODE" = 1 ]; then
+  ENGINE_AUTOHEAL_LABEL="$SUCCESSOR_AUTOHEAL"
+  HANDOFF_PEER_PORT_ENV="ENGINE_HANDOFF_PEER_PORT=$([ "$PORT" = 8081 ] && echo 8080 || echo 8081)"
+  SUCCESSOR_CREATE_ARGS=(--label sp.engine-up.successor=1 --env "$SUCCESSOR_ROLE_ENV")
+  # Never replace anything: a container already holding the successor name is
+  # a refusal (the release transaction retires a stale successor itself), and
+  # the port must be free so the serving engine can never lose its socket.
+  # Because the name does not exist, the classic flow below stops nothing and
+  # renames nothing: it only creates, names and starts this container.
+  if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
+    log "FATAL: $CONTAINER already exists; a successor never replaces a container"
+    exit 1
+  fi
+  if docker ps --format '{{.Ports}}' | grep -Eq "(^|[ ,:])${PORT}->"; then
+    log "FATAL: host port $PORT is already published; the successor starts beside the serving engine, never on its port"
+    exit 1
+  fi
+  log "starting successor $CONTAINER beside the serving engine with $AUTHORIZED_CLASS image $AUTHORIZED_IMAGE_ID ($AUTHORIZED_SHA) on port $PORT"
+fi
+
 log "replacing $CONTAINER with $AUTHORIZED_CLASS image $AUTHORIZED_IMAGE_ID ($AUTHORIZED_SHA; requested as $IMAGE)"
 # STOP, then remove. NOT `docker rm -f`, which is SIGKILL with no grace period.
 # The engine drains its table engines and flushes hand-state snapshots on
@@ -464,14 +534,19 @@ STARTED_CONTAINER_ID="$(docker create \
   --health-retries="$HEALTH_RETRIES" \
   --health-cmd="node -e \"const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);fetch('http://0.0.0.0:8080/health').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))\"" \
   --label sp.engine-up.prepared=1 \
-  --label autoheal=true \
+  --label "autoheal=$ENGINE_AUTOHEAL_LABEL" \
   --label sp.role=engine \
   --label "sp.release.sha=$AUTHORIZED_SHA" \
+  ${SUCCESSOR_CREATE_ARGS[@]+"${SUCCESSOR_CREATE_ARGS[@]}"} \
   --log-driver json-file \
   --log-opt "max-size=$LOG_WINDOW_FILE_SIZE" \
   --log-opt "max-file=$LOG_WINDOW_FILES" \
   -p "${PORT}:8080" \
   --env-file "$ENV_FILE" \
+  --env "$ROLLING_HANDOFF_FLAG_ENV" \
+  --env "$HANDOFF_PEER_PORT_ENV" \
+  --env "$HANDOFF_PEER_HOST_ENV" \
+  --add-host "$HANDOFF_PEER_HOST_GATEWAY" \
   --env "ENGINE_ALERT_JOURNAL_DIR=$ALERT_JOURNAL_CONTAINER_DIR" \
   --mount "type=bind,source=$ALERT_JOURNAL_HOST_DIR,target=$ALERT_JOURNAL_CONTAINER_DIR" \
   --env "HORSE_DECISION_JOURNAL_DIR=$HORSE_JOURNAL_CONTAINER_DIR" \

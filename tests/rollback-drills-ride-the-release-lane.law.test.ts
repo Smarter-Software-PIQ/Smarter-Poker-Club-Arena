@@ -207,7 +207,19 @@ describe('the transaction runs a drill under every release control', () => {
       'persist_result sealed',
       'record_drill_receipt sealed "$FINAL_LOCAL_INSTANCE"',
     ]);
-    expect(transactionCode.match(/"\$RELEASE_SEAL" prepare/g)).toHaveLength(1);
+    // The classic cutover's prepare, plus the rolling route's own token
+    // (rolling_prepare_token); a drill never takes the rolling route.
+    expect(transactionCode.match(/"\$RELEASE_SEAL" prepare/g)).toHaveLength(2);
+    const rollingToken = transactionCode.slice(
+      transactionCode.indexOf('rolling_prepare_token() {'),
+      transactionCode.indexOf('\n}\n', transactionCode.indexOf('rolling_prepare_token() {'))
+    );
+    expect(rollingToken).toContain('"$RELEASE_SEAL" prepare');
+    const select = transactionCode.slice(
+      transactionCode.indexOf('rolling_select_mode() {'),
+      transactionCode.indexOf('\n}\n', transactionCode.indexOf('rolling_select_mode() {'))
+    );
+    expect(select).toContain('if [ -n "${DRILL_MODE:-}" ]; then');
     expect(transactionCode.match(/^\s*record_drill_receipt /gm)).toHaveLength(1);
   });
 

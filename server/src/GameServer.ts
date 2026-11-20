@@ -395,7 +395,11 @@ import {
 // 2026-11-19: rolling engine handoff (docs/ENGINE-ROLLING-HANDOFF.md). Inert
 // unless ENGINE_ROLLING_HANDOFF=on: the coordinator is never constructed.
 import { rollingHandoffEnabled } from './handoff/rollingHandoffFlag.js';
-import { bootsAsHandoffSuccessor, handoffPeerPort } from './handoff/handoffSuccessorRole.js';
+import {
+  bootsAsHandoffSuccessor,
+  handoffPeerHost,
+  handoffPeerPort,
+} from './handoff/handoffSuccessorRole.js';
 import { HandoffRelay } from './handoff/handoffRelay.js';
 import {
   RollingHandoffCoordinator,
@@ -15098,6 +15102,7 @@ export class GameServer {
     if (peerPort === null) return null;
     return new HandoffRelay({
       peerPort,
+      peerHost: handoffPeerHost(),
       relaysTable: (tableId) => this.handoffRelaysTable(tableId),
       relaysEverything: () => this.rollingHandoff?.getMode() === 'retired',
       active: () => {

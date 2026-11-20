@@ -400,6 +400,16 @@ jobs:
                -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; then
             inherited=true
             echo "INHERITED: $description. Nothing built; the Backup host is free for the next candidate."
+            # The identical source also inherits its rolling handoff verdict
+            # (docs/ENGINE-ROLLING-HANDOFF.md); anything but success is not copied.
+            rolling=$(gh api "repos/$GITHUB_REPOSITORY/commits/$source/statuses?per_page=100" \
+              --jq '[.[] | select(.context == "backup-engine/rolling-handoff")][0].state // "missing"' 2>/dev/null) || rolling=unreadable
+            if [ "$rolling" = success ]; then
+              gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=success -f context=backup-engine/rolling-handoff \
+                -f description="Inherited from $source: identical engine source" \
+                -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
+                || echo "could not write the inherited rolling handoff verdict on $SHA; a rolling release stays classic"
+            fi
             { echo "### Backup Engine"; echo ""; echo "- INHERITED \`$SHA\` <- \`$source\`: identical engine source \`$identity\`; nothing built, success certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           else
             echo "could not write the inherited certificate on $SHA; certifying in full"
@@ -783,3 +793,28 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
+      # ROLLING HANDOFF VERDICT (docs/ENGINE-ROLLING-HANDOFF.md). The Backup
+      # rehearsal trial_rolling_handoff (rollback, then every table moved to
+      # this release at its own hand boundary, old engine retired) writes
+      # certificate.rollingHandoff. A rolling release requires this status;
+      # the classic verdict above never depends on it.
+      - name: Publish the rolling handoff verdict on the exact commit
+        if: always() && steps.certify.outputs.rc != ''
+        env:
+          {
+            GH_TOKEN: '${{ github.token }}',
+            SHA: '${{ needs.plan.outputs.sha }}',
+            RC: '${{ steps.certify.outputs.rc }}',
+          }
+        run: |
+          set -euo pipefail
+          summary=$(python3 -c 'import json; d=json.load(open("certificate.json")).get("rollingHandoff") or {}; print(d.get("verdict","missing"), d.get("moved",0), d.get("returned",0), str(d.get("reasons") or "")[:80].replace(" ","_") or "-")' 2>/dev/null) || summary='missing 0 0 -'
+          read -r verdict moved returned reasons <<< "$summary"
+          if [ "$RC" = 0 ] && [ "$verdict" = pass ]; then
+            state=success; desc="Rolling handoff rehearsed on the Backup Engine: $moved moved, $returned handed back in the rollback"
+          else
+            state=failure; desc="Rolling handoff not certified ($verdict: $reasons); releases of this SHA use the classic route"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context=backup-engine/rolling-handoff \
+            -f description="${desc:0:140}" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+          echo "$state: $desc"

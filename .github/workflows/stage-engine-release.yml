@@ -45,6 +45,12 @@ on:
         required: false
         default: false
         type: boolean
+      release_mode:
+        description: 'Engine release route: auto (rolling handoff once the serving engine offers it and the Backup certified trial_rolling_handoff, classic until then), rolling (table-by-table handoff, no break), or classic (04:00 cutover)'
+        required: false
+        default: auto
+        type: choice
+        options: [auto, rolling, classic]
   push:
     branches: [main]
   schedule:
@@ -754,10 +760,16 @@ jobs:
           CONTROL_SHA: ${{ needs.selection.outputs.control }}
           OWNER_WINDOW_ID: ${{ needs.detect.outputs.owner_window_id }}
           REPO: ${{ github.repository }}
+          # docs/ENGINE-ROLLING-HANDOFF.md: every automatic offer asks for
+          # auto, which the receiver and the host resolve to the rolling
+          # handoff only once the serving engine offers it and this exact SHA
+          # carries backup-engine/rolling-handoff = success; classic until then.
+          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode || 'auto' }}
         run: |
           set -euo pipefail
           [[ "$REF_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || { echo "::error::Protected-main push did not provide one full lowercase commit SHA."; exit 1; }
+          case "$RELEASE_MODE" in auto|rolling|classic) ;; *) echo "::error::release_mode must be auto, rolling or classic"; exit 1 ;; esac
           SENT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
           # A 204 proves only that GitHub accepted the HTTP request. Perform at
@@ -772,7 +784,8 @@ jobs:
               -F "client_payload[ref_sha]=$REF_SHA" \
               -F "client_payload[control_sha]=$CONTROL_SHA" \
               -F "client_payload[selection_run_id]=$GITHUB_RUN_ID" \
-              -F "client_payload[owner_window_id]=$OWNER_WINDOW_ID"
+              -F "client_payload[owner_window_id]=$OWNER_WINDOW_ID" \
+              -F "client_payload[release_mode]=$RELEASE_MODE"
             echo "Dispatch delivery $delivery accepted for Club Arena engine release $REF_SHA"
             for _ in $(seq 1 12); do
               RECEIVER_ID=$(gh api \

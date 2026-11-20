@@ -19,6 +19,10 @@
 #   trial regression-replay <sha>    the day's incidents replayed against the
 #                                    candidate's source and the copy (below);
 #                                    also run by every certification.
+#   trial rolling-handoff <from> <to> the rolling release rehearsed: <to> starts
+#                                    beside <from>, a rollback hands moved tables
+#                                    back, then every table moves to <to> at its
+#                                    own hand boundary and <from> retires.
 
 engine_key() { docker exec "$CONTAINER" printenv INTERNAL_API_KEY; }
 fault_token() { docker exec "$CONTAINER" printenv FAULT_INJECTION_TOKEN; }
@@ -758,6 +762,142 @@ print(",".join(r["check"] for r in rows if r["verdict"] not in ("pass", "not_arm
   trial_verdict regression-replay "$v" ",\"sha\":\"$sha\",\"seconds\":$(( $(date +%s) - t0 )),\"clock\":\"$clock\",\"checks\":$checks,\"reasons\":\"${reasons#,}\""
 }
 
+# ── trial rolling-handoff <from_sha> <to_sha> (docs/ENGINE-ROLLING-HANDOFF.md) ──
+# The rolling release rehearsed exactly as engine-release-transaction.sh runs
+# it, on the Backup copy: <from> serves and deals with ENGINE_ROLLING_HANDOFF=on,
+# <to> starts beside it as the handoff successor. First the rollback the
+# pipeline uses before the old engine retires (yield, abort, hand everything
+# back, stop the successor), then the forward handoff to retirement. Asserted
+# from the Backup database: every move settled adopted (returns included), no
+# move abandoned or returned on a fingerprint mismatch, seats unchanged,
+# tournament level clocks unchanged, the old engine retired, the successor
+# deals. The verdict feeds certificate.rollingHandoff and the commit status
+# backup-engine/rolling-handoff that a rolling release requires.
+ROLLING_NEXT=club-arena-engine-standby-next
+ROLLING_NEXT_PORT=127.0.0.1:18081
+ROLLING_TRIAL_HOP_SECONDS=${ROLLING_TRIAL_HOP_SECONDS:-900}
+
+rolling_trial_call() { # container method path [body]
+  docker exec -i "$1" env -u NODE_OPTIONS node - "$2" "$3" "${4:-}" <<'NODE'
+const [method, path, body] = process.argv.slice(2);
+fetch('http://127.0.0.1:8080' + path, {method,
+  headers: {authorization: `Bearer ${process.env.INTERNAL_API_KEY}`, 'content-type': 'application/json'},
+  body: method === 'POST' ? (body || '{}') : undefined, signal: AbortSignal.timeout(15000)})
+  .then(async r => { process.stdout.write(await r.text()); process.exit(r.ok ? 0 : 1); })
+  .catch(() => process.exit(1));
+NODE
+}
+rolling_trial_field() { # status-json expr: mode|owned|adopted|kept|instance
+  python3 -c 'import json,sys
+d=json.loads(sys.argv[1]); k=sys.argv[2]
+ad=[a for a in d.get("adoptions") or [] if isinstance(a,dict)]
+ys=[y for y in d.get("yields") or [] if isinstance(y,dict)]
+print({"mode":d.get("mode"),"owned":d.get("owned"),"instance":d.get("instanceId"),
+       "adopted":sum(a.get("state")=="adopted" for a in ad),
+       "adopting":sum(a.get("state")=="adopting" for a in ad),
+       "kept":sum(y.get("state")=="kept" for y in ys)}[k])' "$1" "$2"
+}
+rolling_trial_start_next() { # sha
+  docker rm -f "$ROLLING_NEXT" >/dev/null 2>&1 || true
+  docker run -d --name "$ROLLING_NEXT" --network "$NETWORK" -p "$ROLLING_NEXT_PORT:8080" \
+    --restart no --cpus 7 --memory 26g \
+    --log-driver json-file --log-opt max-size=50m --log-opt max-file=5 \
+    --env-file "$STATE_DIR/engine.env" --env ENGINE_ROLLING_HANDOFF=on --env ENGINE_ROLE=handoff-successor --env ENGINE_HANDOFF_PEER_PORT=8080 --env ENGINE_HANDOFF_PEER_HOST=club-arena-engine-standby \
+    --mount "type=bind,source=$STATE_DIR/engine-alerts,target=/var/lib/club-arena/engine-alerts" \
+    --mount "type=bind,source=$STATE_DIR/horse-journal,target=/var/lib/club-arena/horse-journal" \
+    --label "com.smarterpoker.standby.sha=$1" --label com.smarterpoker.standby.role=successor \
+    "$IMAGE_REPO:$1" >/dev/null || return 1
+  local deadline=$(( $(date +%s) + 600 )) h st
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    h=$(curl -fsS -m 5 "http://$ROLLING_NEXT_PORT/health" 2>/dev/null || true)
+    if [ "$(printf '%s' "$h" | health_field releaseSha)" = "$1" ] \
+      && st=$(rolling_trial_call "$ROLLING_NEXT" GET /internal/rolling-handoff/status 2>/dev/null) \
+      && [ "$(rolling_trial_field "$st" mode)" = serving ]; then
+      rolling_trial_field "$st" instance; return 0
+    fi
+    [ "$(docker inspect -f '{{.State.Running}}' "$ROLLING_NEXT" 2>/dev/null)" = true ] || return 1
+    sleep 3
+  done
+  return 1
+}
+rolling_trial_wait() { # from-container to-instance deadline drain(0|1)
+  local st empty=0
+  while [ "$(date +%s)" -lt "$3" ]; do
+    if st=$(rolling_trial_call "$1" GET /internal/rolling-handoff/status 2>/dev/null); then
+      [ "$(rolling_trial_field "$st" mode)" = retired ] && return 0
+      if [ "$4" = 1 ] && [ "$(rolling_trial_field "$st" owned)" = 0 ] && [ "$(rolling_trial_field "$st" adopting)" = 0 ]; then
+        empty=$((empty+1)); [ "$empty" -lt 3 ] || return 0
+      else empty=0; fi
+      [ "$(rolling_trial_field "$st" kept)" = 0 ] || rolling_trial_call "$1" POST /internal/rolling-handoff/yield "{\"successorInstanceId\":\"$2\"}" >/dev/null 2>&1 || true
+    fi
+    sleep 5
+  done
+  return 1
+}
+rolling_trial_clocks() {
+  psql_db -Atc "select coalesce(json_agg(json_build_object('id',id,'level',current_level,'startedAt',extract(epoch from level_started_at)) order by id),'[]') from public.tournaments where level_started_at is not null"
+}
+trial_rolling_handoff() {
+  local from="$1" to="$2" reasons="" t0 old new st seats_before clocks_before moved=0 returned=0 kept=0 bad started_ms
+  valid_sha "$from"; valid_sha "$to"
+  started_ms=$(date +%s%3N)
+  cmd_run "$from" || { trial_verdict rolling-handoff fail ',"reason":"from_boot_failed"'; return 1; }
+  wait_live 600 >/dev/null || { trial_verdict rolling-handoff fail ',"reason":"from_never_live"'; return 1; }
+  wait_pretrial_dealing "$from" || { trial_verdict rolling-handoff fail ',"reason":"from_never_dealt"'; return 1; }
+  st=$(rolling_trial_call "$CONTAINER" GET /internal/rolling-handoff/status 2>/dev/null) \
+    || { trial_verdict rolling-handoff fail ',"reason":"serving_lacks_handoff"'; return 1; }
+  old=$(rolling_trial_field "$st" instance)
+  cmd_build "$to" >/dev/null || { trial_verdict rolling-handoff fail ',"reason":"to_build_failed"'; return 1; }
+  t0=$(psql_db -Atc "select clock_timestamp()") || return 1
+  seats_before=$(seat_fingerprint); clocks_before=$(rolling_trial_clocks)
+  # 1. Rollback rehearsal (before retirement): move some units, then hand them back.
+  new=$(rolling_trial_start_next "$to") || { docker rm -f "$ROLLING_NEXT" >/dev/null 2>&1; trial_verdict rolling-handoff fail ',"reason":"successor_never_ready"'; return 1; }
+  rolling_trial_call "$CONTAINER" POST /internal/rolling-handoff/yield "{\"successorInstanceId\":\"$new\"}" >/dev/null || reasons="$reasons,yield_refused"
+  local d=$(( $(date +%s) + 300 )) adopted_seen=0
+  while [ "$(date +%s)" -lt "$d" ]; do
+    if st=$(rolling_trial_call "$ROLLING_NEXT" GET /internal/rolling-handoff/status 2>/dev/null); then
+      adopted_seen=$(rolling_trial_field "$st" adopted 2>/dev/null || echo 0)
+      [ "$adopted_seen" -gt 0 ] && break
+    fi
+    sleep 3
+  done
+  [ "$adopted_seen" -gt 0 ] || reasons="$reasons,nothing_moved_before_rollback"
+  rolling_trial_call "$CONTAINER" POST /internal/rolling-handoff/abort >/dev/null || reasons="$reasons,abort_refused"
+  rolling_trial_call "$ROLLING_NEXT" POST /internal/rolling-handoff/yield "{\"successorInstanceId\":\"$old\"}" >/dev/null || reasons="$reasons,rollback_yield_refused"
+  rolling_trial_wait "$ROLLING_NEXT" "$old" $(( $(date +%s) + ROLLING_TRIAL_HOP_SECONDS )) 1 || reasons="$reasons,rollback_did_not_drain"
+  docker stop -t 45 "$ROLLING_NEXT" >/dev/null 2>&1; docker rm "$ROLLING_NEXT" >/dev/null 2>&1 || true
+  st=$(rolling_trial_call "$CONTAINER" GET /internal/rolling-handoff/status 2>/dev/null) || st='{}'
+  [ "$(rolling_trial_field "$st" mode 2>/dev/null)" = serving ] || reasons="$reasons,old_not_serving_after_rollback"
+  wait_dealing 300 || reasons="$reasons,old_did_not_deal_after_rollback"
+  # 2. Forward handoff to retirement.
+  new=$(rolling_trial_start_next "$to") || reasons="$reasons,successor_never_ready_forward"
+  if [ -n "$new" ]; then
+    rolling_trial_call "$CONTAINER" POST /internal/rolling-handoff/yield "{\"successorInstanceId\":\"$new\"}" >/dev/null || reasons="$reasons,forward_yield_refused"
+    rolling_trial_wait "$CONTAINER" "$new" $(( $(date +%s) + ROLLING_TRIAL_HOP_SECONDS )) 0 || reasons="$reasons,old_did_not_retire"
+    local h deadline=$(( $(date +%s) + 300 )) dealt=0
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+      h=$(curl -fsS -m 5 "http://$ROLLING_NEXT_PORT/health" 2>/dev/null || true)
+      n=$(printf '%s' "$h" | health_field dealRate.handsInWindow); [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt 0 ] && { dealt=1; break; }
+      sleep 10
+    done
+    [ "$dealt" = 1 ] || reasons="$reasons,successor_did_not_deal"
+  fi
+  # 3. Database assertions over every move of this trial.
+  bad=$(psql_db -Atc "select count(*) from public.engine_lease_handoffs where handed_at >= '$t0'::timestamptz and state <> 'adopted'") || bad=unknown
+  [ "$bad" = 0 ] || reasons="$reasons,moves_not_adopted:$bad"
+  moved=$(psql_db -Atc "select count(*) from public.engine_lease_handoffs where handed_at >= '$t0'::timestamptz and kind='handoff'") || moved=0
+  returned=$(psql_db -Atc "select count(*) from public.engine_lease_handoffs where handed_at >= '$t0'::timestamptz and kind='return'") || returned=0
+  [ "${moved:-0}" -gt 0 ] || reasons="$reasons,nothing_moved"
+  [ "$(seat_fingerprint)" = "$seats_before" ] || reasons="$reasons,seats_changed"
+  python3 -c 'import json,sys
+before={t["id"]:t for t in json.loads(sys.argv[1])}; after={t["id"]:t for t in json.loads(sys.argv[2])}
+bad=[i for i,t in before.items() if i in after and after[i]["level"]==t["level"] and abs((after[i]["startedAt"] or 0)-(t["startedAt"] or 0))>1]
+sys.exit(1 if bad else 0)' "$clocks_before" "$(rolling_trial_clocks)" || reasons="$reasons,tournament_clock_changed"
+  docker rm -f "$ROLLING_NEXT" >/dev/null 2>&1 || true
+  local v=pass; [ -z "$reasons" ] || v=fail
+  trial_verdict rolling-handoff "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"moved\":${moved:-0},\"returned\":${returned:-0},\"kept\":$kept,\"durationMs\":$(( $(date +%s%3N) - started_ms )),\"reasons\":\"${reasons#,}\""
+}
+
 cmd_trial() {
   local name="${1:?trial name}"; shift
   assert_isolated
@@ -766,6 +906,7 @@ cmd_trial() {
     break)      trial_break "${1:?sha}" ;;
     table-kill) trial_table_kill "${1:?sha}" "${2:-3}" ;;
     regression-replay) trial_regression_replay "${1:?sha}" ;;
+    rolling-handoff) trial_rolling_handoff "${1:?from}" "${2:?to}" ;;
     all)        local rc=0
                 trial_swap "${1:?from}" "${2:?to}" || rc=1
                 trial_table_kill "$2" 3 || rc=1

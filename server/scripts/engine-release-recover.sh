@@ -85,11 +85,39 @@ mapfile -t FLOOR_REQUEST < "$REQUEST_ROOT/$RUN_ID.request" \
 [ "${FLOOR_REQUEST[3]}" = "$CONTROL_DIR" ] \
   && [ "${FLOOR_REQUEST[4]}" = "$(tr -d '\r\n' < "$CONTROL_DIR/control-sha")" ] \
   || { echo '[engine-release-recover] floor request belongs to another generation' >&2; exit 1; }
+# A ROLLING RELEASE (docs/ENGINE-ROLLING-HANDOFF.md) opened no break and never
+# replaced the serving container in place, so desired-image restoration is not
+# its recovery: its own phase record is. Before the old engine retired, any
+# moved table is handed back and the old engine keeps serving; after, the run
+# settles on the engine that owns the tables and seals it. Idempotent: a run
+# the transaction already recovered or sealed reads as done.
+ROLLING_STATE_FILE="$REQUEST_ROOT/$RUN_ID.rolling-state"
+# The ordinary classification is written first: recovery classifies runtime
+# entry before any engine-lock write (engine-release-activation-floor.py).
+if [ ! -e "$ROLLING_STATE_FILE" ] && [ ! -L "$ROLLING_STATE_FILE" ]; then
 FLOOR_DISPOSITION="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" disposition \
   --repo "${REPO_DIR:-/opt/club-arena}" --target "${FLOOR_REQUEST[0]}" --control "${FLOOR_REQUEST[4]}" \
   --deadline "${FLOOR_REQUEST[5]}" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" \
   || { echo '[engine-release-recover] runtime entry disposition unknown; preserving state' >&2; exit 1; }
+else
+  [ -f "$ROLLING_STATE_FILE" ] && [ ! -L "$ROLLING_STATE_FILE" ] \
+    || { echo '[engine-release-recover] FATAL: rolling state is not a regular file' >&2; exit 1; }
+  exec 9>"$ENGINE_LOCK"
+  flock -w 5 9 || { echo '[engine-release-recover] FATAL: engine lock unavailable for rolling recovery; state retained' >&2; exit 1; }
+  ROLLING_BUDGET="$(recovery_remaining)" \
+    || { echo '[engine-release-recover] FATAL: recovery deadline expired before rolling recovery' >&2; exit 1; }
+  bounded_recovery_command "$ROLLING_BUDGET" env ENGINE_RELEASE_REQUEST_ROOT="$REQUEST_ROOT" \
+    ENGINE_URL="$PUBLIC_URL" ENV_FILE="$ENV_FILE" CONTAINER="$CONTAINER" \
+    "$CONTROL_DIR/engine-release-transaction.sh" --rolling-recover --run-id "$RUN_ID" \
+    || { echo '[engine-release-recover] FATAL: rolling recovery did not complete; state retained' >&2; exit 1; }
+  set +e
+  bounded_recovery_command 10 "$CONTROL_DIR/engine-release-seal.py" abort --run-id "$RUN_ID"
+  ABORT_RC=$?
+  set -e
+  FLOOR_DISPOSITION=rolling-recovered
+fi
 case "$FLOOR_DISPOSITION" in
+  rolling-recovered) ;;
   never-entered) ABORT_RC=0 ;;
   announced)
     # An unknown/live announcement retains ownership. Only its own expired,
@@ -234,6 +262,13 @@ fsync_directory "$REQUEST_ROOT"
 # request, never before it: a replay must never find a drill's request without
 # the record that names it a drill. Its evidence lives on in
 # engine-rollback-drill-results/, written by the transaction itself.
+for ROLLING_RECORD in "$REQUEST_ROOT/$RUN_ID.mode" "$REQUEST_ROOT/$RUN_ID.rolling-state"; do
+  [[ "$ROLLING_RECORD" =~ ^"$REQUEST_ROOT"/[1-9][0-9]*(-[1-9][0-9]*)?\.(mode|rolling-state)$ ]] \
+    || { echo '[engine-release-recover] FATAL: refusing unsafe rolling-record cleanup' >&2; exit 1; }
+  bounded_recovery_command 10 rm -f -- "$ROLLING_RECORD"
+done
+fsync_directory "$REQUEST_ROOT"
+
 DRILL_FILE="$REQUEST_ROOT/$RUN_ID.drill"
 [[ "$DRILL_FILE" =~ ^"$REQUEST_ROOT"/[1-9][0-9]*(-[1-9][0-9]*)?\.drill$ ]] \
   || { echo '[engine-release-recover] FATAL: refusing unsafe drill-record cleanup' >&2; exit 1; }

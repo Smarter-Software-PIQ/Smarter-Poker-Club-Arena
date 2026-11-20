@@ -169,6 +169,8 @@ jobs:
       target_sha: ${{ steps.target.outputs.sha }}
       image_id: ${{ steps.preparation.outputs.image_id }}
       rollback_image_id: ${{ steps.preparation.outputs.rollback_image_id }}
+      release_mode: ${{ steps.daily_release.outputs.mode }}
+      clock_free: ${{ steps.daily_release.outputs.clock_free }}
     steps:
       - name: Checkout the requested immutable commit
         uses: actions/checkout@v4
@@ -232,13 +234,50 @@ jobs:
           echo "Backup Engine certified $CERTIFIED_SHA (backup-engine/certified = success)."
           echo "certified=true" >> "$GITHUB_OUTPUT"
 
+      # ROLLING HANDOFF (docs/ENGINE-ROLLING-HANDOFF.md, owner order
+      # 2026-11-19). client_payload.release_mode: classic keeps the 04:00
+      # cutover exactly as before; rolling replaces the engine table by table
+      # with no break; auto (the default) is rolling only when this exact SHA
+      # carries backup-engine/rolling-handoff = success AND the serving engine
+      # offers the handoff (the host checks that), classic otherwise. This step
+      # resolves the route first (outputs mode and clock_free); only a
+      # clock-free route skips the daily gating. The Backup certificate gate
+      # above, the host engine lock and the seal are never skipped.
       - name: Require daily preparation or the protected November 7 owner window
         id: daily_release
         env:
           TARGET_SHA: ${{ steps.target.outputs.sha }}
           CONTROL_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REQUESTED_MODE: ${{ github.event.client_payload.release_mode || 'auto' }}
         run: |
           set -euo pipefail
+          # Unset only outside a dispatch (a harness): the classic route, unchanged.
+          REQUESTED_MODE="${REQUESTED_MODE:-classic}"
+          case "$REQUESTED_MODE" in classic|rolling|auto) ;; *) echo "::error::client_payload.release_mode must be classic, rolling or auto"; exit 1 ;; esac
+          ROLLING_STATE=missing
+          if [ "$REQUESTED_MODE" != classic ]; then
+            ROLLING_STATE="$(gh api "repos/$REPO/commits/$TARGET_SHA/statuses?per_page=100" \
+              --jq '[.[] | select(.context == "backup-engine/rolling-handoff")][0].state // "missing"')" || ROLLING_STATE=unreadable
+          fi
+          CLOCK_FREE=false
+          if [ "$REQUESTED_MODE" = rolling ]; then
+            [ "$ROLLING_STATE" = success ] \
+              || { echo "::error title=Rolling handoff certificate::$TARGET_SHA has backup-engine/rolling-handoff = $ROLLING_STATE; a rolling release requires a passing trial_rolling_handoff. Nothing was released."; exit 1; }
+            CLOCK_FREE=true
+          elif [ "$REQUESTED_MODE" = auto ] && [ "$ROLLING_STATE" = success ]; then
+            CLOCK_FREE=true
+          fi
+          echo "mode=$REQUESTED_MODE" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "clock_free=$CLOCK_FREE" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "Release route: requested $REQUESTED_MODE, backup-engine/rolling-handoff = $ROLLING_STATE, clock-free = $CLOCK_FREE."
+          # A clock-free route (rolling, or auto with a passing rolling
+          # verdict) opens no break, so the daily window does not gate it.
+          if [ "${CLOCK_FREE:-false}" = true ]; then
+            echo 'Clock-free release route: the daily 03:30-03:50 gate does not apply; the Backup certificate gate above still did.'
+            exit 0
+          fi
           gate_status=0
           python3 - <<'PYTHON' || gate_status=$?
           from datetime import datetime
@@ -494,6 +533,8 @@ jobs:
       CONTROL_SHA: ${{ github.sha }}
       RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
       RUN_ACTOR: ${{ github.actor }}
+      RELEASE_MODE: ${{ needs.preflight.outputs.release_mode || 'classic' }}
+      CLOCK_FREE: ${{ needs.preflight.outputs.clock_free || 'false' }}
 
     steps:
       - name: Establish one absolute deploy-job deadline
@@ -567,6 +608,7 @@ jobs:
         id: admit
         run: |
           set -euo pipefail
+          if [ "${CLOCK_FREE:-false}" = true ]; then echo 'Clock-free release route: no activation floor applies.'; exit 0; fi
           python3 server/scripts/engine-release-activation-floor.py prepare \
             --repo . --target "$SHA" --control "$CONTROL_SHA" \
             --deadline "$RELEASE_DISPATCH_DEADLINE_EPOCH" \
@@ -716,7 +758,9 @@ jobs:
           ROLLBACK_IMAGE: ${{ needs.preflight.outputs.rollback_image_id }}
         run: |
           set -euo pipefail
-          if python3 - "$RUNNER_TEMP/engine-activation-floor-$RUN_KEY.json" "$SHA" <<'PYTHON'
+          # A clock-free (rolling or auto) route has no activation floor file;
+          # it always prepares the same immutable image through the same door.
+          if [ "${CLOCK_FREE:-false}" = true ] || python3 - "$RUNNER_TEMP/engine-activation-floor-$RUN_KEY.json" "$SHA" <<'PYTHON'
           import json, subprocess, sys
           floor = json.load(open(sys.argv[1])).get('schema')
           scheduled = floor in ('engine-release-activation-floor/v1', 'engine-release-activation-floor/v2-owner-window')
@@ -735,11 +779,11 @@ jobs:
             [ "$REMAINING" -gt 0 ]
             [ "$REMAINING" -le 3450 ] || REMAINING=3450
             timeout --signal=TERM --kill-after=5s "${REMAINING}s" \
-              "$HSSH" "PREPARED_IMAGE='$PREPARED_IMAGE' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' REPO_DIR='$REPO_DIR' bash -se" \
+              "$HSSH" "PREPARED_IMAGE='$PREPARED_IMAGE' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' REPO_DIR='$REPO_DIR' CLOCK_FREE='$CLOCK_FREE' bash -se" \
               <<'REMOTE' | tee "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log"
           set -euo pipefail
           STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
-          python3 "$STAGE/server/scripts/engine-release-activation-floor.py" prepare \
+          [ "${CLOCK_FREE:-false}" = true ] || python3 "$STAGE/server/scripts/engine-release-activation-floor.py" prepare \
             --repo "$REPO_DIR" --target "$TARGET_SHA" --control "$CONTROL_SHA" --deadline "$NOT_AFTER_EPOCH"
           [[ "$(docker image inspect -f '{{.Id}}' "club-arena-engine:$TARGET_SHA")" = "$PREPARED_IMAGE" ]]
           [[ "$(docker image inspect -f '{{.Id}}' "$ROLLBACK_IMAGE")" = "$ROLLBACK_IMAGE" ]]
@@ -779,6 +823,7 @@ jobs:
         id: floor
         run: |
           set -euo pipefail
+          if [ "${CLOCK_FREE:-false}" = true ]; then echo 'Clock-free release route: no activation floor to wait for.'; exit 0; fi
           python3 server/scripts/engine-release-activation-floor.py wait \
             --repo . --target "$SHA" --control "$CONTROL_SHA" \
             --deadline "$RELEASE_DISPATCH_DEADLINE_EPOCH"
@@ -849,14 +894,26 @@ jobs:
             transport_timeout=$((remaining - 5))
             [ "$transport_timeout" -le 360 ] || transport_timeout=360
             timeout --signal=TERM --kill-after=5s "${transport_timeout}s" \
-              "$HSSH" "TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' ACTOR_B64='$ACTOR_B64' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' GIT_NO_REPLACE_OBJECTS=1 bash -se" <<'REMOTE'
+              "$HSSH" "TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' ACTOR_B64='$ACTOR_B64' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' RELEASE_MODE='$RELEASE_MODE' CLOCK_FREE='$CLOCK_FREE' GIT_NO_REPLACE_OBJECTS=1 bash -se" <<'REMOTE'
           set -euo pipefail
           export GIT_NO_REPLACE_OBJECTS=1
           STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
           ACTOR="$(printf '%s' "$ACTOR_B64" | base64 -d)"
           [[ "$NOT_AFTER_EPOCH" =~ ^[1-9][0-9]*$ ]]
-          python3 "$STAGE/server/scripts/engine-release-activation-floor.py" admit \
+          case "$RELEASE_MODE" in classic|rolling|auto) ;; *) exit 64 ;; esac
+          [ "${CLOCK_FREE:-false}" = true ] || python3 "$STAGE/server/scripts/engine-release-activation-floor.py" admit \
             --repo /opt/club-arena --target "$TARGET_SHA" --control "$CONTROL_SHA" --deadline "$NOT_AFTER_EPOCH"
+          # The route record sits beside the request, root-only, exactly like
+          # an engine drill record; no record is the classic route.
+          if [ "$RELEASE_MODE" != classic ]; then
+            REQUEST_ROOT=/var/lib/club-arena/engine-release-requests
+            [ -d "$REQUEST_ROOT" ] || install -d -m 0700 "$REQUEST_ROOT"
+            umask 077
+            printf 'engine-release-mode-v1\n%s\n%s\n%s\n' "$RELEASE_MODE" "$TARGET_SHA" "$CONTROL_SHA" > "$REQUEST_ROOT/.$RUN_KEY.mode.$$"
+            sync -f "$REQUEST_ROOT/.$RUN_KEY.mode.$$"
+            mv -f -- "$REQUEST_ROOT/.$RUN_KEY.mode.$$" "$REQUEST_ROOT/$RUN_KEY.mode"
+            sync -f "$REQUEST_ROOT"
+          fi
           "$STAGE/server/scripts/install-engine-intake.sh" \
             --target-sha "$TARGET_SHA" --control-sha "$CONTROL_SHA" \
             --run-id "$RUN_KEY" --actor "$ACTOR" \
