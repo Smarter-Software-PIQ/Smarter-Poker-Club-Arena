@@ -64,6 +64,7 @@ import {
 } from './OmahaMathCorePreflop.js';
 import type { PublicStreetAction } from './OmahaMathCoreRangeTrack.js';
 import { RAISE_FOLD_CREDIT_MIN_N } from './OmahaMathCoreValue.js';
+import { CURRENT_NUTS_CALL_FLOOR, holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import {
   PREFLOP_REALIZATION_ADMITTED,
   selectionScore,
@@ -185,6 +186,8 @@ export interface CoreReceipt {
   opponents: { seat: number; range: string }[];
   evs: CoreActionEv[];
   choice: { action: CoreActionEv['action']; amount: number | null; ev: number };
+  /** lane CORE-POOLED-2: set when the current-nuts call floor removed the fold (flop/turn, facing a wager) */
+  nutFloor?: string | null;
   /** lane DRAWS: the hero's exact draw profile (PLO4/PLO5 flop and turn) */
   draw?: {
     cls: string;
@@ -1299,6 +1302,22 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     }
   }
 
+  // current-nuts call floor (OmahaMathCoreNutsFloor.ts): flop/turn, facing a wager, a call available
+  let nutFloor: string | null = null;
+  if (CURRENT_NUTS_CALL_FLOOR && !pre && street !== 'river' && toCall > 0.005) {
+    const callLike = evs.some(
+      (e) => e.action === 'call' || (e.action === 'all_in' && e.adds <= toCall + 0.005)
+    );
+    if (
+      callLike &&
+      evs.some((e) => e.action === 'fold') &&
+      holdsCurrentNuts(state.hole, state.board)
+    ) {
+      for (let i = evs.length - 1; i >= 0; i--) if (evs[i].action === 'fold') evs.splice(i, 1);
+      nutFloor =
+        'current nuts facing a wager (flop/turn): fold not a candidate, call or raise only';
+    }
+  }
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');
   if (!pre) applyRealizationCalibration(evs, String(state.variant).toLowerCase(), street);
   // ranked by the lower confidence bound (selectionScore, OmahaMathCoreWire.ts); ties: fewer chips
@@ -1330,6 +1349,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         se: r4(a.se),
       })),
       choice: { action: best.action, amount: best.amount, ev: round2(best.ev) },
+      nutFloor,
       draw: drawF
         ? {
             cls: drawF.cls,

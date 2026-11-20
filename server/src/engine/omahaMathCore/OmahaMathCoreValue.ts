@@ -286,6 +286,12 @@ function bandEquity(eqAt: (s: number) => number, share: number, lo: number, hi: 
 }
 
 /** planValue: prices the check line and every wager size; null outside PLO4/PLO5 postflop. */
+/**
+ * Lane CORE-POOLED-2 (owner 9:52 AM Nov 20: FIND THE LEAKS AND FIX IT): a call whose immediate EV is positive is
+ * never priced below the fold by the multi-street plan alone (see the call candidate in planValue).
+ */
+export const CALL_SHOWDOWN_FLOOR = true;
+
 export function planValue(spot: ValueSpot): ValueReceipt | null {
   if (spot.variant !== 'plo4' && spot.variant !== 'plo5') return null;
   const st0 = STREETS.indexOf(spot.street);
@@ -631,6 +637,19 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       ev = b.ev - callAdds;
       plan = `call > ${b.plan}`;
       seLater = b.se ?? 0;
+    }
+    // Call showdown floor (lane CORE-POOLED-2, hands 60252841 / 60256424): the later-street plan may lower the
+    // call below its showdown price, never below folding. When the call's immediate EV (equity now against the
+    // whole field x the pot after the call, minus the call) is positive, a continuation that prices the call
+    // below 0 is the plan's own later-street model (a multiway field's any-player lead rate, the whole field
+    // conditioned on the bettor's top share) overriding equity vs price; the call is then priced at its
+    // showdown EV. A better line (a raise) must still beat it on its own price; a measured calibration applied
+    // later by the core stays in force.
+    const immediate = eqNow * net(potC) - callAdds;
+    if (CALL_SHOWDOWN_FLOOR && ev < 0 && immediate > 0) {
+      plan = `call > showdown floor (plan ${plan} priced ${r2(ev)})`;
+      ev = immediate;
+      seLater = 0;
     }
     cands.push({
       kind: 'call',
