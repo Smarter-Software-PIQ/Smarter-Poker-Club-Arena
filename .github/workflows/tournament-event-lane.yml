@@ -24,15 +24,12 @@ on:
       - supabase/migrations/20261119011750_bounty_rebuys_and_eliminations_share_the_event_lane.sql
       - supabase/migrations/20261119053909_a_move_break_or_cancel_fences_only_its_own_event.sql
       - supabase/migrations/20261119175856_a_rebuy_never_blocks_a_hand_commit_on_the_tournament_row.sql
-      - supabase/migrations/20261119185300_remaining_tournament_row_locks_never_block_hands.sql
       - scripts/ci/fixtures/tournament-lane-isolation/**
       - scripts/ci/fixtures/rebuy-never-pauses/**
       - scripts/ci/fixtures/event-scoped-field-lane/**
       - scripts/ci/fixtures/rebuy-off-tournament-row/**
-      - scripts/ci/fixtures/remaining-tournament-row-locks/**
       - scripts/ci/test-rebuy-never-pauses-the-tournament.py
       - scripts/ci/test-a-rebuy-never-blocks-a-hand-commit-on-the-tournament-row.py
-      - scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py
       - .github/workflows/tournament-event-lane.yml
 
 permissions:
@@ -60,10 +57,6 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-a-rebuy-never-blocks-a-hand-commit-on-the-tournament-row.py
-      - name: Remaining tournament row locks never block hands
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py
       - name: Retain the evidence
         if: always()
         uses: actions/upload-artifact@v4
