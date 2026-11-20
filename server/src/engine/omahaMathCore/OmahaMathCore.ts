@@ -221,6 +221,14 @@ export const INTERIM_WAGER_FREQUENCY = 0.5;
 /** The core's whole time budget per decision (inside the 250 ms Lightning floor with the reference work). */
 export const OMAHA_MATH_CORE_BUDGET_MS = 150;
 const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000, maxMs: 40 };
+/**
+ * Deterministic work budget per decision (lane COREWIRE-2, PROVE-2 gate G6): equity draws x opponents. The
+ * 150 ms clock box cannot bind when the clock does not move (exact replay freezes performance.now) and a wall
+ * clock makes the answer depend on machine load; this budget bounds the work the same way everywhere. Measured
+ * on the exact replay: heads-up decisions use ~2,400 draws (unaffected); five-way flops used up to 11,600 draws x
+ * 5 opponents (200-254 ms). Past the budget every equity call takes the reduced floor (150-600 draws).
+ */
+export const OMAHA_MATH_CORE_WORK_BUDGET = 12000;
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -368,7 +376,17 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   // anytime (lane COREWIRE): inside the last 40 ms of the box every equity call takes the core sampler
   // at a reduced sample floor (150 draws, SE ~0.04), so a wide decision still answers on time
   let lateCalls = 0;
-  const late = () => deadline - clock.now() < 40;
+  let work = 0;
+  const late = () => deadline - clock.now() < 40 || work >= OMAHA_MATH_CORE_WORK_BUDGET;
+  // draws this call may take inside the work budget (at least the reduced floor's 150)
+  const drawCap = (k: number) =>
+    Math.max(
+      150,
+      Math.min(
+        EQ_OPTS.maxSamples,
+        Math.floor((OMAHA_MATH_CORE_WORK_BUDGET - work) / Math.max(1, k))
+      )
+    );
   const coreSampler = (ranges: RangeSpec[]) =>
     equityVsPools(
       state.hole,
@@ -378,7 +396,13 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       seededRng(`${state.seed}|eq`),
       late()
         ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, maxMs: 3, now: clock.now }
-        : { ...EQ_OPTS, maxMs: remaining(), now: clock.now }
+        : {
+            ...EQ_OPTS,
+            minSamples: Math.min(EQ_OPTS.minSamples, drawCap(ranges.length)),
+            maxSamples: drawCap(ranges.length),
+            maxMs: remaining(),
+            now: clock.now,
+          }
     );
   const eq = (ranges: RangeSpec[]): EquityResult => {
     // lane EQUITY's equityVsRanges; the core's own exact 2+3 sampler when equityVsRanges declines (it returns null rather than throw, e.g. on repeated joint collisions)
@@ -392,7 +416,12 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
             pool,
             ranges,
             seedNumber(`${state.seed}|eq`),
-            { ...EQ_OPTS, now: clock.now }
+            {
+              ...EQ_OPTS,
+              minSamples: Math.min(EQ_OPTS.minSamples, drawCap(ranges.length)),
+              maxSamples: drawCap(ranges.length),
+              now: clock.now,
+            }
           )
         : coreSampler(ranges);
     if (!Number.isFinite(r.equity)) r = coreSampler(ranges);
@@ -407,6 +436,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     if (!Number.isFinite(r.equity)) throw new Error('omahaMathCore: equity unavailable');
     if (late()) lateCalls++;
     samples += r.samples;
+    work += r.samples * Math.max(1, ranges.length);
     return r;
   };
 
