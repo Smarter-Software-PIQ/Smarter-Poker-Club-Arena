@@ -493,6 +493,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaMadeHandCallFloor: priced(
+    'a heads-up turn or river fold facing the first bet of half pot to pot becomes the call only in the made-hand cells where folding gave up chips on the real cards (measured on production hands, fit Oct 12 - Nov 16, validated Nov 17-20); it changes only a fold (default OFF)'
+  ),
   omahaFacingBetValueShareIsMeasured: priced(
     "the facing-bet verdicts' bettor range from his measured street record and, for a person's heads-up turn or river bet, his line-conditioned range weighted by the measured density of people's bets; the priced verdicts decide where they price (default OFF)"
   ),

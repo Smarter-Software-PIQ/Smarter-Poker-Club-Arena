@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaMadeHandCallFloor.law.test.ts
+
+With omahaMadeHandCallFloor on (default OFF), in PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot), heads-up on the turn or river facing the street's first bet of more than half the pot up to 1.05 pots, no Horse folds a made hand in the measured cells (OMAHA_MADE_HAND_CALL_FLOOR_CELLS): the final fold becomes the legal call for the exact chips owed (all in when the call is the stack), the response validator admits only that call, nothing but a fold changes, no identity is read, the engine source imports no JSON, and it is out of scope multiway, facing a raise, on the flop, in PLO6, PLO8, tournaments, bomb pots and multi-board hands; off, decisions are unchanged.

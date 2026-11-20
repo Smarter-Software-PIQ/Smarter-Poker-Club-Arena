@@ -97,6 +97,7 @@ import {
   OMAHA_FACING_EQUITY_VARIANTS,
   omahaFacingEquityAdmitsCall,
 } from '../HorseOmahaFacingBetEquity.js';
+import { omahaMadeHandCallFloorAdmitsCall } from '../HorseOmahaMadeHandCallFloor.js';
 import {
   OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
   omahaMultiwayWeakHandSpot,
@@ -1675,6 +1676,23 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFacingEquityAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane RIVER-FLOOR 2026-11-20 (HorseOmahaMadeHandCallFloor, option
+    // omahaMadeHandCallFloor): in PLO4/PLO5 cash, heads-up on the turn or river
+    // facing the street's first bet of half pot to pot, the node's final fold
+    // becomes the call when hero's made-hand cell is in the measured set. The
+    // floor is a pure function of the request (cards, board, pot, bets, the
+    // street's public actions), so it is re-run here: fold -> call is admitted
+    // only where it holds, for the exact chips the call puts in. Its
+    // whole-stack form is an all-in, a wager action.
+    const omahaMadeHandFloorCalled =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaMadeHandCallFloorAdmitsCall(context.player, context.gameState, transition.after.amount);
     // HORSE DECISIONS lane 2026-11-19 (HorsePlo6FacingBetIsPriced, option
     // plo6FacingBetIsPriced, default off): in PLO6 cash facing a bet on the
     // flop, the turn or the river, a fold (or a raise the paired-board fold
@@ -1983,6 +2001,7 @@ function policyGraphIsValidInScope(
       !omahaFacingBetEvCalled &&
       !omahaFlopFacingBetEvCalled &&
       !omahaFacingEquityCalled &&
+      !omahaMadeHandFloorCalled &&
       !plo6FacingBetPricedCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&

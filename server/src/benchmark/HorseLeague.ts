@@ -3532,6 +3532,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane RIVER-FLOOR (default OFF, PLO4/PLO5 cash): omahaMadeHandCallFloor (a heads-up turn or
+  // river fold facing the first bet of half pot to pot with a made hand in the measured cells becomes the call);
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_made_hand_call_floor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaMadeHandCallFloor: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane RAKE (default OFF, PLO4/PLO5 cash): omahaFacingBetPaysTheWholeDeduction (the facing-bet
   // call verdicts deduct the whole projected deduction of the pot after the call instead of the marginal rake
   // rate); both arms carry omahaFacingBetEv, a adds the option.

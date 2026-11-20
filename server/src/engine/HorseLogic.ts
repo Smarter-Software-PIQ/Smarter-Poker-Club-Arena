@@ -64,6 +64,7 @@ import {
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
+import { omahaMadeHandCallFloorRule } from './HorseOmahaMadeHandCallFloor.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -3615,6 +3616,12 @@ export interface HorseDecideOpts {
    * Outermost wrapper of wager_rules, so it also covers decisions whose
    * Omaha pack was refused for depth. Never changes a non-fold. Default OFF. */
   omahaFacingBetIsPricedByEquity?: boolean;
+  /** EMERG lane RIVER-FLOOR 2026-11-20 (HorseOmahaMadeHandCallFloor.ts): in PLO4/PLO5 cash, heads-up on
+   * the turn or river facing the street's first bet of more than half the pot up to about the pot, the
+   * node's final fold becomes the legal call when hero's made-hand cell (street, class, board paired) is
+   * in the measured set. An answer of wager_rules after every owner rule; never changes a non-fold.
+   * Default OFF (read === true). */
+  omahaMadeHandCallFloor?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -18118,7 +18125,21 @@ export class HorseLogic {
         noteFire('omaha_open_measured_fold');
         noteDecisionRuleReceipt('omaha_open_measured_fold', coldCallMeasured, openMeasured);
       }
-      return { decision: openMeasured };
+      // EMERG lane RIVER-FLOOR 2026-11-20 (omahaMadeHandCallFloor, default off): a final heads-up
+      // turn or river fold facing the street's first bet of half pot to pot, with a made hand in the
+      // measured cells, becomes the legal call (HorseOmahaMadeHandCallFloor.ts). It changes only a fold.
+      const madeHandFloored = omahaMadeHandCallFloorRule(
+        openMeasured,
+        player,
+        gs,
+        opts.omahaMadeHandCallFloor === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (madeHandFloored !== openMeasured && tele) {
+        noteFire('omaha_made_hand_call_floor');
+        noteDecisionRuleReceipt('omaha_made_hand_call_floor', openMeasured, madeHandFloored);
+      }
+      return { decision: madeHandFloored };
     };
     decision = graph.run('wager_rules', decision, () => {
       const ruled = riverNoBlocker(wagerRulesNode());
