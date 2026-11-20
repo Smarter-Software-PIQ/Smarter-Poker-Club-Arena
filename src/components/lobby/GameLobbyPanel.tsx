@@ -19,9 +19,12 @@ import { payoutSharePercent } from '../../utils/tournamentPrizeFunding';
  * plain PanelSection: a lit heading, rows on hairline rules, no chassis.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
+import { gameInviteText, gameInviteUrl, shareLink } from '../../lib/share';
+import { ShareLinkFallback } from '../common/ShareLinkFallback';
+import { InviteLinkIcon } from '../table/TableMenuIcons';
 import ArenaGameCard from './game-cards/ArenaGameCard';
 import { useSatelliteDestination } from './game-cards/useTournamentCardText';
 import { arenaGameCardDataFromEntry } from './game-cards/arenaGameCardAdapter';
@@ -784,6 +787,46 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   // ── Detailed rules list (complete explanations under the plaque) ──
   const settings = isCash ? parseTableSettings(cashRaw?.settings) : null;
 
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteFallbackUrl, setInviteFallbackUrl] = useState('');
+  const inviteCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setInviteCopied(false);
+    setInviteFallbackUrl('');
+    if (inviteCopiedTimerRef.current) {
+      clearTimeout(inviteCopiedTimerRef.current);
+      inviteCopiedTimerRef.current = null;
+    }
+  }, [entry.id]);
+
+  useEffect(
+    () => () => {
+      if (inviteCopiedTimerRef.current) clearTimeout(inviteCopiedTimerRef.current);
+    },
+    []
+  );
+
+  const handleInviteToGame = useCallback(async () => {
+    const url = gameInviteUrl(
+      isCash ? { kind: 'table', id: entry.id } : { kind: 'tournament', id: entry.id }
+    );
+    setInviteFallbackUrl('');
+    const outcome = await shareLink({
+      source: 'GameLobbyPanel.inviteToGame',
+      title: entry.name || 'Club Arena Game',
+      text: gameInviteText(entry.name),
+      url,
+    });
+    if (outcome === 'copied') {
+      setInviteCopied(true);
+      if (inviteCopiedTimerRef.current) clearTimeout(inviteCopiedTimerRef.current);
+      inviteCopiedTimerRef.current = setTimeout(() => setInviteCopied(false), 2400);
+    } else if (outcome === 'failed') {
+      setInviteFallbackUrl(url);
+    }
+  }, [entry.id, entry.name, isCash]);
+
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.
   return createPortal(
@@ -823,6 +866,19 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
             presentation="auto"
             className="glp__arena-card"
           />
+          <div className="glp__invite-bar">
+            <button
+              type="button"
+              className="glp__invitebtn"
+              onClick={() => void handleInviteToGame()}
+            >
+              <InviteLinkIcon />
+              <span>{inviteCopied ? 'Invite Link Copied' : 'Invite To Game'}</span>
+            </button>
+            {inviteFallbackUrl && (
+              <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
+            )}
+          </div>
           {cta.needsAuth && !currentUserId && <p className="sc-copy">Sign In To Play</p>}
           {cta.note && (
             <p className="sc-copy" role="status">

@@ -1,0 +1,255 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *  HEADS UP WAITING MODAL — Empty Heads-Up Sit N Go Opponent Choice & Invite
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * When a player sits down at an empty Heads-Up Sit N Go, asks whether they are
+ * waiting for a specific player to join or want to play against anyone.
+ * Choosing "Specific Player" immediately surfaces the table's direct invite
+ * link with Copy / Share routed through src/lib/share.ts.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  copyText,
+  gameInviteText,
+  hasShareSheet,
+  shareButtonLabel,
+  shareLink,
+} from '../../lib/share';
+import { ShareLinkFallback } from '../common/ShareLinkFallback';
+import { SpadeConsole } from '../console/SpadeConsole';
+import './HeadsUpWaitingModal.css';
+
+export type HeadsUpWaitMode = 'specific' | 'anyone';
+
+export interface HeadsUpWaitingModalProps {
+  isOpen: boolean;
+  /** 'choice' asks specific vs anyone; 'invite' jumps straight to the invite link. */
+  initialStep?: 'choice' | 'invite';
+  tableName: string;
+  inviteUrl: string;
+  onChooseSpecific: () => void;
+  onChooseAnyone: () => void;
+  onClose: () => void;
+  onNotify?: (kind: 'success' | 'info', message: string) => void;
+}
+
+export function HeadsUpWaitingModal({
+  isOpen,
+  initialStep = 'choice',
+  tableName,
+  inviteUrl,
+  onChooseSpecific,
+  onChooseAnyone,
+  onClose,
+  onNotify,
+}: HeadsUpWaitingModalProps) {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const [step, setStep] = useState<'choice' | 'invite'>(initialStep);
+  const [copied, setCopied] = useState(false);
+  const [fallbackUrl, setFallbackUrl] = useState('');
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setStep(initialStep);
+      setCopied(false);
+      setFallbackUrl('');
+    }
+  }, [isOpen, initialStep, inviteUrl]);
+
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    },
+    []
+  );
+
+  // Sync open state with the native top-layer <dialog> API.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (isOpen) {
+      if (!dialog.open && typeof dialog.showModal === 'function') {
+        dialog.showModal();
+      }
+    } else if (dialog.open && typeof dialog.close === 'function') {
+      dialog.close();
+    }
+  }, [isOpen]);
+
+  // Listen for native close (Esc, backdrop light dismiss, programmatic close).
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const handleClose = () => {
+      dialog.returnValue = '';
+      onClose();
+    };
+    dialog.addEventListener('close', handleClose);
+    return () => dialog.removeEventListener('close', handleClose);
+  }, [onClose]);
+
+  // Progressive enhancement fallback for Safari where <dialog closedby="any">
+  // is not yet implemented: require press AND release outside the dialog box.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || typeof HTMLDialogElement === 'undefined') return;
+    if ('closedBy' in HTMLDialogElement.prototype) return;
+
+    const outside = (e: PointerEvent) => {
+      const r = dialog.getBoundingClientRect();
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    };
+    let pressedOutside = false;
+    const onPointerDown = (e: PointerEvent) => {
+      pressedOutside = outside(e);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (pressedOutside && outside(e) && dialog.open) {
+        dialog.close();
+      }
+      pressedOutside = false;
+    };
+    dialog.addEventListener('pointerdown', onPointerDown);
+    dialog.addEventListener('pointerup', onPointerUp);
+    return () => {
+      dialog.removeEventListener('pointerdown', onPointerDown);
+      dialog.removeEventListener('pointerup', onPointerUp);
+    };
+  }, []);
+
+  const markCopied = useCallback(() => {
+    setCopied(true);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopied(false), 2400);
+  }, []);
+
+  const handleCopyOnly = useCallback(async () => {
+    setFallbackUrl('');
+    const ok = await copyText(inviteUrl, 'HeadsUpWaitingModal.copy');
+    if (ok) {
+      markCopied();
+      onNotify?.('success', 'Game Invite Link Copied');
+    } else {
+      setFallbackUrl(inviteUrl);
+    }
+  }, [inviteUrl, markCopied, onNotify]);
+
+  const handlePrimaryShare = useCallback(async () => {
+    setFallbackUrl('');
+    const outcome = await shareLink({
+      source: 'HeadsUpWaitingModal.share',
+      title: tableName || 'Heads Up Sit N Go',
+      text: gameInviteText(tableName || 'this Heads Up Sit N Go'),
+      url: inviteUrl,
+    });
+    if (outcome === 'copied') {
+      markCopied();
+      onNotify?.('success', 'Game Invite Link Copied');
+    } else if (outcome === 'shared') {
+      onNotify?.('success', 'Game Invite Link Shared');
+    } else if (outcome === 'failed') {
+      setFallbackUrl(inviteUrl);
+    }
+  }, [inviteUrl, markCopied, onNotify, tableName]);
+
+  const handlePickSpecific = useCallback(() => {
+    onChooseSpecific();
+    setStep('invite');
+  }, [onChooseSpecific]);
+
+  const handlePickAnyone = useCallback(() => {
+    onChooseAnyone();
+    onClose();
+  }, [onChooseAnyone, onClose]);
+
+  const showShareSheet = hasShareSheet();
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="hu-waiting-dialog"
+      aria-labelledby="hu-waiting-title"
+      {...({ closedby: 'any' } as Record<string, string>)}
+    >
+      {isOpen && (
+        <div className="hu-waiting-dialog__shell">
+          {step === 'choice' ? (
+            <SpadeConsole
+              as="div"
+              onClose={onClose}
+              eyebrow="Heads Up Sit N Go"
+              title="Waiting For Opponent"
+              titleId="hu-waiting-title"
+              pill="1 / 2 Seated"
+              pillInk="gold"
+              plates={{
+                secondary: {
+                  label: 'Play Anyone',
+                  onClick: handlePickAnyone,
+                },
+                primary: {
+                  ink: 'white',
+                  label: 'Specific Player',
+                  onClick: handlePickSpecific,
+                },
+              }}
+            >
+              <p className="hu-waiting-dialog__prompt">
+                Are You Waiting For A Specific Player To Join, Or Do You Want To Play Against
+                Anyone?
+              </p>
+              <p className="hu-waiting-dialog__hint">
+                Choose Specific Player To Get An Invite Link You Can Send Directly To Your Opponent.
+              </p>
+            </SpadeConsole>
+          ) : (
+            <SpadeConsole
+              as="div"
+              onClose={onClose}
+              eyebrow="Heads Up Sit N Go"
+              title="Invite Player"
+              titleId="hu-waiting-title"
+              pill="Holding Seat"
+              pillInk="blue"
+              plates={{
+                secondary: {
+                  label: 'Done',
+                  onClick: onClose,
+                },
+                primary: {
+                  ink: 'white',
+                  label: copied ? 'Link Copied' : shareButtonLabel(),
+                  onClick: () => void handlePrimaryShare(),
+                },
+              }}
+            >
+              <p className="hu-waiting-dialog__prompt">
+                Send This Invite Link To Your Opponent So They Can Sit Directly Across From You.
+              </p>
+              <div className="hu-waiting-dialog__linkbox">
+                <span className="hu-waiting-dialog__url">{inviteUrl}</span>
+                {showShareSheet && (
+                  <button
+                    type="button"
+                    className="hu-waiting-dialog__copy-inline"
+                    onClick={() => void handleCopyOnly()}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                )}
+              </div>
+              {fallbackUrl && (
+                <div className="hu-waiting-dialog__fallback">
+                  <ShareLinkFallback url={fallbackUrl} label="Game Invite Link" />
+                </div>
+              )}
+            </SpadeConsole>
+          )}
+        </div>
+      )}
+    </dialog>
+  );
+}
