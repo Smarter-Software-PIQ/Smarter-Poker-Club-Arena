@@ -34,12 +34,12 @@ export const HUD_FAMILIES = ['plo4', 'plo5'] as const;
 export type HudFamily = (typeof HUD_FAMILIES)[number];
 export const HUD_RECENCY_HALF_LIFE_MS = 7 * 24 * 3600 * 1000;
 export const HUD_LIFETIME_FLOOR = 0.25;
-export const HUD_RECENT_IDS = 192;
+export const HUD_RECENT_IDS = 128;
 export const HUD_LATE_WINDOW_MS = 15 * 60 * 1000;
-export const HUD_LAST_INSTANCES = 40;
+export const HUD_LAST_INSTANCES = 20;
 /** detailed (level 2) recall cells kept per profile; past it the least observed detailed cell is dropped (its
  *  coarser cells keep every instance) */
-export const HUD_RECALL_MAX_FINE = 800;
+export const HUD_RECALL_MAX_FINE = 300;
 
 export type HudStreet = 'preflop' | 'flop' | 'turn' | 'river';
 export type HudPosition = 'BTN' | 'CO' | 'EP' | 'SB' | 'BB';

@@ -51,9 +51,12 @@ import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../engine/Hor
 export const HUD_DB_TIMEOUT_MS = 2_000;
 export const HUD_RETRY_MS = 15_000;
 export const HUD_CACHE_MAX = 6_000;
-export const HUD_RING_MS = 15 * 60 * 1000;
+export const HUD_RING_MS = 45 * 60 * 1000;
 export const HUD_RING_MAX = 20_000;
-export const HUD_PERSIST_MS = 120_000;
+/** a profile is a few tens of KB of JSON: it is written at most every 30 minutes (and caught up from hand_history at
+ *  boot, HUD_BOOT_CATCHUP_MS), so the write volume stays small and a restart loses nothing */
+export const HUD_PERSIST_MS = 30 * 60_000;
+export const HUD_BOOT_CATCHUP_MS = 45 * 60_000;
 export const HUD_BOOT_WINDOW_MS = 6 * 3600 * 1000;
 export const HUD_READY_DEADLINE_MS = 15_000;
 export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
@@ -79,6 +82,13 @@ export interface OpponentHudStoreDeps {
     signal: AbortSignal
   ): Promise<HudStoredRow[]>;
   upsert(rows: object[], signal: AbortSignal): Promise<string[]>;
+  /** public-fields hand rows after (afterAt, afterId), oldest first (fn_opponent_hud_hands_page); optional */
+  handsPage?(
+    afterAt: string,
+    afterId: string,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<{ id: string; created_at: string }[]>;
   now(): number;
   warn?(message: string): void;
 }
@@ -427,7 +437,50 @@ export class OpponentHudStore {
       }
     }
     noteFire('opponent_hud_event_boot');
+    // catch up the hands accepted since the last persistence (a restart loses no hand: applyHudHand counts each once)
+    await this.catchUp(new Date(this.deps.now() - HUD_BOOT_CATCHUP_MS).toISOString());
     return n;
+  }
+
+  /** Apply every PLO4/PLO5 cash hand since `sinceIso` to the warm profiles (bounded pages; never throws). */
+  async catchUp(sinceIso: string): Promise<number> {
+    if (!this.deps.handsPage) return 0;
+    let afterAt = sinceIso;
+    let afterId = '00000000-0000-0000-0000-000000000000';
+    let applied = 0;
+    for (let page = 0; page < 40; page++) {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
+      (t as { unref?: () => void }).unref?.();
+      try {
+        const rows = await this.deps.handsPage(afterAt, afterId, 1000, ac.signal);
+        if (!Array.isArray(rows) || !rows.length) break;
+        for (const r of rows) {
+          const rec = handRecordFromRow(r);
+          if (typeof rec === 'string') continue;
+          // kept for the profiles loaded later (a player not prewarmed is caught up when he is warmed)
+          this.ring.push(rec);
+          if (this.ring.length > HUD_RING_MAX) this.ring.shift();
+          const deltas = extractHandDeltas(rec);
+          for (const d of deltas) {
+            const e = this.cache.get(key(rec.family, d.user));
+            if (e?.state === 'ready' && applyHudHand(e.profile, rec, deltas) === null) {
+              e.dirty = true;
+              applied += 1;
+            }
+          }
+        }
+        afterAt = rows[rows.length - 1].created_at;
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < 1000) break;
+      } catch {
+        noteFire('opponent_hud_catchup_failed');
+        break;
+      } finally {
+        clearTimeout(t);
+      }
+    }
+    return applied;
   }
 
   /** Population priors of both families (the '*' rows). */
@@ -614,6 +667,20 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
         .abortSignal(signal);
       if (error) throw new Error('opponent hud recent failed');
       return (data ?? []) as HudStoredRow[];
+    },
+    async handsPage(afterAt, afterId, limit, signal) {
+      const { data, error } = await (
+        await client()
+      )
+        .rpc('fn_opponent_hud_hands_page', {
+          p_after_at: afterAt,
+          p_after_id: afterId,
+          p_until: new Date().toISOString(),
+          p_limit: limit,
+        })
+        .abortSignal(signal);
+      if (error) throw new Error('opponent hud hands page failed');
+      return (data ?? []) as { id: string; created_at: string }[];
     },
     async upsert(rows, signal) {
       const { data, error } = await (await client())

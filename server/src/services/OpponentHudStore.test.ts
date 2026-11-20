@@ -1,5 +1,6 @@
 /** OPPONENT HUD STORE (2026-11-20, lane OPPONENT-HUD): event loading, the 15-second deadline, hardening. */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
 import {
   HUD_READY_DEADLINE_MS,
   OpponentHudStore,
@@ -46,6 +47,7 @@ function fakeDeps(
   let now = T0;
   const upserts: object[][] = [];
   const deps: OpponentHudStoreDeps & { tick(ms: number): void; upserts: object[][] } = {
+    handsPage: undefined,
     async read(ids, family) {
       if (opts.fail) throw new Error('down');
       if (opts.hang) return new Promise(() => {});
@@ -201,15 +203,14 @@ describe('OpponentHudStore', () => {
     expect(store.profile(U(1), 'plo5')!.hands).toBeGreaterThanOrEqual(50);
   });
 
-  it('an opponent still not ready 15 seconds after he was asked for is counted late', async () => {
-    const notes: string[] = [];
-    vi.doMock('../engine/BrainTelemetry.js', () => ({ noteFire: (f: string) => notes.push(f) }));
+  it('an opponent still not ready 15 seconds after he was asked for is counted late; before that, missing', async () => {
+    enableBrainTelemetry();
+    drainFires();
     const deps = fakeDeps(new Map(), { hang: true });
     const store = new OpponentHudStore(deps);
     store.setArmed(true);
     store.warm([U(1)], 'plo5', 'sit');
-    deps.tick(HUD_READY_DEADLINE_MS + 1);
-    const f = store.packetFor({
+    store.packetFor({
       family: 'plo5',
       cash: true,
       heroId: U(9),
@@ -217,8 +218,38 @@ describe('OpponentHudStore', () => {
       street: 'flop',
       atMs: T0,
     });
-    expect(f.opponentHud).toBeDefined();
-    vi.doUnmock('../engine/BrainTelemetry.js');
+    deps.tick(HUD_READY_DEADLINE_MS + 1);
+    store.packetFor({
+      family: 'plo5',
+      cash: true,
+      heroId: U(9),
+      opponentIds: [U(1)],
+      street: 'flop',
+      atMs: T0,
+    });
+    const fires = drainFires().map((f) => f.feature);
+    expect(fires).toContain('opponent_hud_packet_opponent_missing');
+    expect(fires).toContain('opponent_hud_packet_opponent_late');
+  });
+
+  it('a restart loses no hand: boot catches up hand_history since before the last persistence, each hand once', async () => {
+    const stored = new Map([[`plo5|${U(1)}`, lifetime(1, 10)]]);
+    const deps = fakeDeps(stored);
+    deps.tick(86_400_000);
+    const late = [
+      row(50_001, 1, 2, T0 + 86_400_000 - 60_000),
+      row(50_002, 1, 2, T0 + 86_400_000 - 30_000),
+    ];
+    deps.handsPage = async (afterAt: string) => late.filter((r) => r.created_at > afterAt);
+    const store = new OpponentHudStore(deps);
+    await store.prewarm();
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(12);
+    await store.catchUp(new Date(T0).toISOString());
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(12);
+    // a player warmed after boot gets the caught-up hands from the ring
+    store.warm([U(2)], 'plo5', 'sit');
+    await flush();
+    expect(store.profile(U(2), 'plo5')!.hands).toBe(2);
   });
 
   it('boot prewarm loads stored profiles and the population priors', async () => {
