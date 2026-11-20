@@ -56,6 +56,14 @@ describe('the controller runs recovery runbooks', () => {
     expect(spin).toContain('public.fn_seat_horse_in_seat_first_game(b.id, h.id)');
     expect(spin).toContain('public.fn_horses_at_tournament_reservation_budget()');
     expect(spin).toContain("'skipped_human_present'");
+    expect(spin).toContain('public.union_clubs uc WHERE uc.union_id = b.union_id');
+    expect(spin.match(/reliability_horse_active_now\(p\.id, v_hour\)/g)?.length).toBe(2);
+    // The same arithmetic as the engine's horseHash / isActiveNow.
+    const behavior = fs.readFileSync('server/src/services/HorseBehavior.ts', 'utf8');
+    expect(behavior).toContain('h = (h * 31 + id.charCodeAt(i)) >>> 0;');
+    expect(behavior).toContain('const len = 10 + ((h >>> 5) % 8);');
+    expect(sql).toContain('h := (h * 31 + ascii(substr(v_text, i, 1))) % 4294967296;');
+    expect(sql).toContain('RETURN ((p_hour_utc - (h % 24) + 24) % 24) < 10 + ((h >> 5) % 8);');
     expect(spin).not.toMatch(/INSERT INTO public\.(tournaments|table_seats|tournament_players)/);
     expect(sql).not.toMatch(/INSERT INTO public\.tournaments/);
   });

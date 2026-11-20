@@ -19,8 +19,9 @@
 --   spin_seat_first_fill v1      (spin_lifecycle / SpinFleetProducingNothing)
 --     A horse-only Spin board whose next ladder rung is overdue gets ONE horse
 --     through the seat door fn_seat_horse_in_seat_first_game, which stays the
---     authority. Offered horses are idle (no open seat anywhere), active members
---     of the host club, not benched, and not at the tournament reservation
+--     authority. Offered horses are idle (no open seat anywhere), members of the
+--     event's clubs (host club plus its union, the engine's scope), inside
+--     their active hours (HorseBehavior.isActiveNow), not benched, and not at the tournament reservation
 --     budget (fn_horses_at_tournament_reservation_budget, the door's own
 --     predicate). A board with any human seated or registered is never touched
 --     (the engine's human-fill rules own it). It creates no board, so Spin
@@ -186,6 +187,28 @@ $function$;
 -- ---------------------------------------------------------------------------
 -- 3. Runbook: spin_seat_first_fill.
 -- ---------------------------------------------------------------------------
+-- The engine offers a horse only inside its daily active hours
+-- (server/src/services/HorseBehavior.ts isActiveNow over horseHash); this is
+-- the same arithmetic, so the runbook never seats a horse the engine would not.
+CREATE OR REPLACE FUNCTION smarter_private.reliability_horse_active_now(p_horse_id uuid, p_hour_utc integer)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ IMMUTABLE
+ SET search_path TO 'pg_catalog'
+AS $function$
+DECLARE
+  v_text text := p_horse_id::text;
+  h bigint := 0;
+  i integer;
+BEGIN
+  FOR i IN 1 .. length(v_text) LOOP
+    h := (h * 31 + ascii(substr(v_text, i, 1))) % 4294967296;
+  END LOOP;
+  RETURN ((p_hour_utc - (h % 24) + 24) % 24) < 10 + ((h >> 5) % 8);
+END
+$function$;
+REVOKE ALL ON FUNCTION smarter_private.reliability_horse_active_now(uuid, integer) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION smarter_private.reliability_runbook_spin_seat_first_fill(
   p_incident_id uuid, p_dry_run boolean, p_limits jsonb, p_now timestamptz)
  RETURNS jsonb
@@ -208,24 +231,26 @@ DECLARE
   v_seated integer := 0;
   v_tried integer;
   v_idle integer;
+  v_scope uuid[];
+  v_hour integer := extract(hour FROM p_now AT TIME ZONE 'UTC')::integer;
 BEGIN
   v_budget := coalesce(public.fn_horses_at_tournament_reservation_budget(), '{}'::uuid[]);
   FOR b IN
     WITH open_board AS (
-      SELECT t.id, t.club_id, coalesce(t.max_players, 3) AS seats, public.fn_tournament_primary_table(t.id) AS table_id
+      SELECT t.id, t.club_id, t.union_id, coalesce(t.max_players, 3) AS seats, public.fn_tournament_primary_table(t.id) AS table_id
         FROM public.tournaments t
        WHERE t.tournament_type = 'SPIN'
          AND t.status IN ('ANNOUNCED', 'REGISTERING')
          AND t.prize_pool_finalized IS NOT TRUE
     ), seated AS (
-      SELECT o.id, o.club_id, o.seats, o.table_id,
+      SELECT o.id, o.club_id, o.union_id, o.seats, o.table_id,
              count(s.id) AS paid,
              max(s.joined_at) AS last_seat_at,
              bool_or(p.is_horse IS NOT TRUE) AS human_seated
         FROM open_board o
         JOIN public.table_seats s ON s.table_id = o.table_id AND s.left_at IS NULL
         LEFT JOIN public.profiles p ON p.id = s.user_id
-       GROUP BY o.id, o.club_id, o.seats, o.table_id
+       GROUP BY o.id, o.club_id, o.union_id, o.seats, o.table_id
     )
     SELECT x.*,
            EXISTS (SELECT 1 FROM public.tournament_players tp
@@ -248,15 +273,24 @@ BEGIN
         'why', 'a person is seated or registered; the engine human-fill rules own this board'));
       CONTINUE;
     END IF;
+    -- WHO MAY ENTER: the engine's own scope (TournamentRecurringService
+    -- clubMemberIdsForScope): the host club, plus every club of the event's
+    -- union. A standalone club is its own members only, so the Diamond Arena
+    -- (which holds no horses) is never filled from here.
+    v_scope := ARRAY[b.club_id]
+      || CASE WHEN b.union_id IS NULL THEN '{}'::uuid[] ELSE
+           coalesce((SELECT array_agg(c.id) FROM public.clubs c WHERE c.union_id = b.union_id), '{}'::uuid[])
+           || coalesce((SELECT array_agg(uc.club_id) FROM public.union_clubs uc WHERE uc.union_id = b.union_id), '{}'::uuid[]) END;
     SELECT count(*) INTO v_idle
       FROM public.profiles p
-      JOIN public.club_members cm ON cm.user_id = p.id AND cm.club_id = b.club_id AND cm.status = 'active'
-     WHERE p.is_horse IS TRUE AND coalesce(p.horse_status, '') <> 'disabled'
+     WHERE p.is_horse IS TRUE
+       AND smarter_private.reliability_horse_active_now(p.id, v_hour)
+       AND EXISTS (SELECT 1 FROM public.club_members cm WHERE cm.user_id = p.id AND cm.club_id = ANY (v_scope)) AND coalesce(p.horse_status, '') <> 'disabled'
        AND NOT (p.id = ANY (v_budget))
        AND NOT EXISTS (SELECT 1 FROM public.table_seats s WHERE s.user_id = p.id AND s.left_at IS NULL);
     IF v_idle < c_floor THEN
       v_boards := v_boards || (v_board || jsonb_build_object('result', 'skipped_pool_too_small', 'idle_horses', v_idle,
-        'why', format('fewer than %s idle eligible horses in the host club; the cash room keeps them', c_floor)));
+        'why', format('fewer than %s idle eligible horses in the event clubs; the cash room keeps them', c_floor)));
       CONTINUE;
     END IF;
     IF p_dry_run THEN
@@ -268,8 +302,9 @@ BEGIN
     FOR h IN
       SELECT p.id
         FROM public.profiles p
-        JOIN public.club_members cm ON cm.user_id = p.id AND cm.club_id = b.club_id AND cm.status = 'active'
-       WHERE p.is_horse IS TRUE AND coalesce(p.horse_status, '') <> 'disabled'
+       WHERE p.is_horse IS TRUE
+         AND smarter_private.reliability_horse_active_now(p.id, v_hour)
+         AND EXISTS (SELECT 1 FROM public.club_members cm WHERE cm.user_id = p.id AND cm.club_id = ANY (v_scope)) AND coalesce(p.horse_status, '') <> 'disabled'
          AND NOT (p.id = ANY (v_budget))
          AND NOT EXISTS (SELECT 1 FROM public.table_seats s WHERE s.user_id = p.id AND s.left_at IS NULL)
          AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id = b.id AND tp.user_id = p.id)

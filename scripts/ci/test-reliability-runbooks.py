@@ -46,7 +46,7 @@ MIGRATION = ROOT / 'supabase/migrations/20261119234324_the_controller_runs_recov
 PLATFORM = r"""
 ALTER TABLE public.profiles ADD COLUMN is_horse boolean, ADD COLUMN horse_status text;
 CREATE TABLE public.tournaments (id uuid PRIMARY KEY, tournament_type text, status text, prize_pool_finalized boolean,
-  max_players integer, club_id uuid, break_started_at timestamptz, break_ends_at timestamptz,
+  max_players integer, club_id uuid, union_id uuid, break_started_at timestamptz, break_ends_at timestamptz,
   is_rebuy boolean DEFAULT false, is_reentry boolean DEFAULT false);
 CREATE TABLE public.tables (id uuid PRIMARY KEY, tournament_id uuid);
 CREATE FUNCTION public.fn_tournament_primary_table(p uuid) RETURNS uuid LANGUAGE sql STABLE AS
@@ -55,6 +55,8 @@ CREATE TABLE public.table_seats (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), 
   joined_at timestamptz, left_at timestamptz);
 CREATE TABLE public.tournament_players (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, user_id uuid, status text);
 CREATE TABLE public.club_members (club_id uuid, user_id uuid, status text);
+CREATE TABLE public.clubs (id uuid PRIMARY KEY, union_id uuid);
+CREATE TABLE public.union_clubs (union_id uuid, club_id uuid);
 CREATE TABLE public.stub_budget (user_id uuid);
 CREATE FUNCTION public.fn_horses_at_tournament_reservation_budget() RETURNS uuid[] LANGUAGE sql STABLE AS
   $$ SELECT coalesce(array_agg(user_id), '{}') FROM public.stub_budget $$;
@@ -109,6 +111,8 @@ END $$;
 OWED = 'b' * 40
 SERVING = 'a' * 40
 CLUB = '00000000-0000-0000-0000-0000000000c1'
+UNION = '00000000-0000-0000-0000-0000000000a1'
+OUTSIDE = '00000000-0000-0000-0000-0000000000c9'
 
 
 def pg_bin(name):
@@ -215,17 +219,35 @@ def main():
         # ------------------------------------------------------------- spin
         # 19:00 UTC = 13:00 Chicago (open hours).
         T0 = '2026-11-19 19:00:00+00'
-        horses = [f'00000000-0000-0000-0000-0000000001{n:02d}' for n in range(20)]
+        def horse_hash(text):
+            h = 0
+            for ch in text:
+                h = (h * 31 + ord(ch)) % 4294967296
+            return h
+
+        def active(hid, hour):  # server/src/services/HorseBehavior.ts isActiveNow
+            h = horse_hash(hid)
+            return (hour - h % 24 + 24) % 24 < 10 + ((h >> 5) % 8)
+        pool = [f'00000000-0000-0000-0000-000000{n:06d}' for n in range(400)]
+        for hid in pool[:60]:
+            for hour in (0, 7, 13, 19, 23):
+                assert sql(f"SELECT smarter_private.reliability_horse_active_now('{hid}', {hour})") == ('t' if active(hid, hour) else 'f'), (hid, hour)
+        sleeper = next(h for h in pool if not active(h, 19) and not active(h, 20))
+        horses = [h for h in pool if all(active(h, hr) for hr in (19, 20))][:20]
+        ok('the active-hours arithmetic equals the engine\'s HorseBehavior.isActiveNow')
         human = '00000000-0000-0000-0000-000000000999'
         sql("INSERT INTO public.profiles (id, is_horse, horse_status) VALUES " + ','.join(f"('{h}', true, 'available')" for h in horses)
             + f", ('{human}', false, NULL)")
+        # Spins are hosted by the union's own club; the horses are members of a union club (the engine's scope).
+        sql(f"INSERT INTO public.clubs VALUES ('{UNION}', '{UNION}'), ('{OUTSIDE}', NULL)")
+        sql(f"INSERT INTO public.union_clubs VALUES ('{UNION}', '{CLUB}')")
         sql("INSERT INTO public.club_members (club_id, user_id, status) VALUES " + ','.join(f"('{CLUB}', '{h}', 'active')" for h in horses))
         boards = {}
         joined_at = {'overdue': "'2026-11-19 17:30+00'", 'fresh': "'2026-11-19 18:30+00'", 'human': "'2026-11-19 16:00+00'",
                      'one': "'2026-11-19 17:00+00'"}
         for name, seats in (('overdue', [horses[0], horses[1]]), ('fresh', [horses[2], horses[3]]), ('human', [horses[4], human]), ('one', [horses[5]])):
-            tid = sql(f"INSERT INTO public.tournaments (id, tournament_type, status, prize_pool_finalized, max_players, club_id) VALUES "
-                      f"(gen_random_uuid(), 'SPIN', 'REGISTERING', false, 3, '{CLUB}') RETURNING id")
+            tid = sql(f"INSERT INTO public.tournaments (id, tournament_type, status, prize_pool_finalized, max_players, club_id, union_id) VALUES "
+                      f"(gen_random_uuid(), 'SPIN', 'REGISTERING', false, 3, '{UNION}', '{UNION}') RETURNING id")
             sql(f"INSERT INTO public.tables VALUES (gen_random_uuid(), '{tid}')")
             for u in seats:
                 sql(f"INSERT INTO public.table_seats (table_id, user_id, joined_at) VALUES (public.fn_tournament_primary_table('{tid}'), '{u}', {joined_at[name]})")
@@ -235,7 +257,9 @@ def main():
         sql("INSERT INTO public.table_seats (table_id, user_id, joined_at) VALUES " + ','.join(f"(gen_random_uuid(), '{h}', now())" for h in horses[6:9]))
         sql(f"UPDATE public.profiles SET horse_status = 'disabled' WHERE id = '{horses[9]}'")
         sql(f"INSERT INTO public.stub_budget VALUES ('{horses[10]}')")
-        sql(f"UPDATE public.club_members SET status = 'departed' WHERE user_id = '{horses[11]}'")
+        sql(f"UPDATE public.club_members SET club_id = '{OUTSIDE}' WHERE user_id = '{horses[11]}'")
+        sql(f"INSERT INTO public.profiles (id, is_horse, horse_status) VALUES ('{sleeper}', true, 'available')")
+        sql(f"INSERT INTO public.club_members (club_id, user_id, status) VALUES ('{CLUB}', '{sleeper}', 'active')")
         spin = incident('spin_lifecycle', 'SpinFleetProducingNothing')
         tournaments_before = num('SELECT count(*) FROM public.tournaments')
 
@@ -256,7 +280,7 @@ def main():
         assert len(a) == 1 and a[0]['outcome'] == 'acted' and a[0]['mode'] == 'enabled', a
         assert num('SELECT count(*) FROM public.stub_door_calls') == 2
         offered = sql("SELECT string_agg(user_id::text, ',') FROM public.stub_door_calls").split(',')
-        assert not (set(offered) & set(horses[:12])), offered
+        assert not (set(offered) & (set(horses[:12]) | {sleeper})), offered
         assert (seated('overdue'), seated('one'), seated('fresh'), seated('human')) == (3, 2, 2, 2)
         assert num('SELECT count(*) FROM public.tournaments') == tournaments_before
         assert events(spin, 'runbook_attempt') == 1 and events(spin, 'runbook_containment') == 1
