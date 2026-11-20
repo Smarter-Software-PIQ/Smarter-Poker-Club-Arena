@@ -65,9 +65,12 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'v16_ratio_rescale',
         'v18_exploit_size',
         'v31_gto_suit_aware',
-        // Fixed-Limit lane (2026-11-14): default-off fixed-limit options this
-        // league cannot deal (no fixed-limit betting); each reason states it.
-        'flh_river_full_bet_read',
+        // Fixed-Limit lane (2026-11-14): default-off fixed-limit options. Since
+        // 2026-11-20 the league deals legal fixed-limit hold'em, so
+        // flh_river_full_bet_read and flh_priced_preflop are on the card; a
+        // hold'em arm still here changes no decision (or one in hundreds of
+        // pairs) in a Horse mirror, and a flo8 arm has no hi-lo hand to be
+        // dealt. Each reason states its own count.
         'flo8_river_full_bet_read',
         'flo8_nut_low_river_bet',
         'flh_river_one_bet_value_raise',
@@ -113,7 +116,6 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // it would open is unfinished (off-only).
         'plo6_omaha_strategy_in_plo6',
         // Fixed-Limit lane W5 (2026-11-15): priced preflop and the steal.
-        'flh_priced_preflop',
         'flo8_priced_preflop',
         'flh_steal_vs_tight_blinds',
         'flo8_steal_vs_tight_blinds',
