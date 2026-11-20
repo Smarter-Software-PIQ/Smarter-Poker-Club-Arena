@@ -318,6 +318,7 @@ import {
   type StyleShadowEngagement,
 } from '../HorseStyleShadow.js';
 import {
+  type DecisionRuleReceipt,
   decisionRuleReceiptsSoFar,
   noteSecondLookFires,
   withBrainTelemetrySuspended,
@@ -4006,7 +4007,10 @@ export class HorseDecisionWorkerRuntime {
     let decision;
     let rngAfter: number | null = null;
     let governorScale!: number;
-    const secondLook: { fired: ReadonlySet<string> | null } = { fired: null };
+    const secondLook: {
+      fired: ReadonlySet<string> | null;
+      ruleReceipts: readonly DecisionRuleReceipt[] | null;
+    } = { fired: null, ruleReceipts: null };
     try {
       const player = deepFreeze(request.player);
       const gameState = deepFreeze(request.gameState);
@@ -4060,6 +4064,7 @@ export class HorseDecisionWorkerRuntime {
             )
           );
           secondLook.fired = captured.fired;
+          secondLook.ruleReceipts = captured.ruleReceipts;
           return captured.value;
         })
       );
@@ -4128,6 +4133,15 @@ export class HorseDecisionWorkerRuntime {
           readiness: this.deps.workerReadiness(),
           runtimePins: 'incomplete',
           lifecycleVersion: 1,
+          ...(secondLook.ruleReceipts && secondLook.ruleReceipts.length > 0
+            ? {
+                ruleReceipts: secondLook.ruleReceipts.map((r) => ({
+                  receipt: r.receipt,
+                  before: r.before === null ? null : { ...r.before },
+                  after: { ...r.after },
+                })),
+              }
+            : {}),
         });
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');

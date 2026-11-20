@@ -158,12 +158,15 @@ describe('per-decision rule receipts', () => {
     ]);
   });
 
-  it('records nothing inside a DEEP second-look capture, and the scope records again after it', () => {
+  it('captures DEEP second-look rule receipts on the capture without leaking into the outer FAST scope', () => {
     const run = telemetry.withDecisionFireScope(() => {
       const deep = telemetry.withSecondLookFireCapture(() =>
         telemetry.noteDecisionRuleReceipt('omaha_river_non_nut_raise_flatted', raise, call)
       );
       expect(deep.fired.size).toBe(0);
+      expect(deep.ruleReceipts.map((r) => r.receipt)).toEqual([
+        'omaha_river_non_nut_raise_flatted',
+      ]);
       telemetry.noteDecisionRuleReceipt('v81_river_set_big_bet_fold', call, fold);
     });
     expect(run.ruleReceipts.map((r) => r.receipt)).toEqual(['v81_river_set_big_bet_fold']);

@@ -930,6 +930,8 @@ describe('private execution witness', () => {
 
   it.each([
     'second_look_unchanged',
+    'second_look_wager_ignored',
+    'second_look_math_core_kept',
     'second_look_replaced',
     'response_fence',
     'caller_settled',
