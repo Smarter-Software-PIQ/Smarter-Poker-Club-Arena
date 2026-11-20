@@ -36,6 +36,8 @@ import publicTables from './publicTables.v3.json' with { type: 'json' };
 import {
   OMAHA_MATH_CORE_ALL_STREETS,
   OMAHA_MATH_CORE_CHANGE_MARGIN_K,
+  OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K,
+  omahaMathCoreChangeMarginK,
   omahaMathCoreStreetAdmitted,
 } from './OmahaMathCoreRule.js';
 
@@ -597,6 +599,48 @@ describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) an
       }
     }
     expect(kept + changed).toBeGreaterThan(0);
+  });
+});
+
+describe('omahaMathCore class margin (CORE-3 criterion 1: call -> raise below all-in graded +326 +- 104 bb on Nov 18)', () => {
+  it('a raise instead of a call needs k = 2 standard errors; call -> all-in and every other change keep k = 5', () => {
+    expect(OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K).toBe(2);
+    expect(omahaMathCoreChangeMarginK('call', 'raise')).toBe(2);
+    expect(omahaMathCoreChangeMarginK('call', 'all_in')).toBe(OMAHA_MATH_CORE_CHANGE_MARGIN_K);
+    expect(omahaMathCoreChangeMarginK('fold', 'raise')).toBe(OMAHA_MATH_CORE_CHANGE_MARGIN_K);
+    expect(omahaMathCoreChangeMarginK('fold', 'call')).toBe(OMAHA_MATH_CORE_CHANGE_MARGIN_K);
+    expect(omahaMathCoreChangeMarginK('check', 'bet')).toBe(OMAHA_MATH_CORE_CHANGE_MARGIN_K);
+    expect(omahaMathCoreChangeMarginK('raise', 'call')).toBe(OMAHA_MATH_CORE_CHANGE_MARGIN_K);
+  });
+  it('facing a bet with call as today action, a kept call states k = 2 and a change to raise beats call by more than 2 SE', () => {
+    let seen = 0;
+    for (const r of RECORDED_FLOP_FACING_BETS.slice(0, 12)) {
+      const { fx, node } = expandFlop(r);
+      const st = stateAt(fx, node);
+      const incoming = { action: 'call' as const, thinkTime: 1 };
+      const out = omahaMathCoreRule(
+        incoming,
+        st.hero,
+        st.gs,
+        { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
+        (d) => d
+      );
+      const rc = out.omahaMathCore!;
+      if (!rc.applied) continue;
+      seen++;
+      const k = rc.core!.kept;
+      if (k && k.best.startsWith('raise')) expect(k.k).toBe(2);
+      if (!k && out.action === 'raise') {
+        const best = rc.core!.evs.find(
+          (e) => e.action === 'raise' && Math.abs((e.amount ?? 0) - (out.amount ?? 0)) <= 0.011
+        )!;
+        const call = rc.core!.evs.find((e) => e.action === 'call')!;
+        expect(best.ev - call.ev).toBeGreaterThan(
+          2 * Math.hypot(best.se ?? 0, call.se ?? 0) - 1e-9
+        );
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
   });
 });
 

@@ -98,6 +98,26 @@ export function omahaMathCoreStreetAdmitted(
  */
 export const OMAHA_MATH_CORE_CHANGE_MARGIN_K: number | null = 5;
 
+/**
+ * Class margin (lane CORE-3, criterion repairs/EMERG/CORE3 CRITERIA-CORE3-1, sha256 cdb4808a...): when today's action
+ * is a CALL and the core's best is a RAISE below all-in (raise for value / raise a combo draw instead of flatting),
+ * the margin is k = 2. Fit (Nov 18 only, r1 = margin off): that class with 2 <= z < 5 summed +210 +- 84 bb vs real
+ * cards (always-call metric), K >= 2 +326 +- 104 bb, positive on flop, turn and river; call -> all-in is NOT in the
+ * class (r1 Nov 18 -329 +- 158 bb) and keeps k = 5 like every other change.
+ */
+export const OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K = 2;
+
+/** the margin that applies to replacing `incoming` by `best` (call -> sub-all-in raise: class margin; else K) */
+export function omahaMathCoreChangeMarginK(
+  incomingAction: HorseDecision['action'],
+  bestAction: HorseDecision['action']
+): number | null {
+  if (OMAHA_MATH_CORE_CHANGE_MARGIN_K === null) return null;
+  if (incomingAction === 'call' && bestAction === 'raise')
+    return Math.min(OMAHA_MATH_CORE_CHANGE_MARGIN_K, OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K);
+  return OMAHA_MATH_CORE_CHANGE_MARGIN_K;
+}
+
 export interface OmahaMathCoreDecisionReceipt {
   readonly switch: 'omahaMathCore';
   readonly applied: boolean;
@@ -475,7 +495,7 @@ export function omahaMathCoreRule(
           (e.action === 'all_in' || Math.abs((e.amount ?? 0) - (legal!.amount ?? 0)) <= 0.011)
       );
       const inc = incumbentOf(receipt.evs, incoming);
-      const K = OMAHA_MATH_CORE_CHANGE_MARGIN_K;
+      const K = omahaMathCoreChangeMarginK(incoming.action, legal.action);
       if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
         const se = Math.sqrt(
           Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
