@@ -1727,6 +1727,11 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/run_launch_reset_accounting_fixture.py --fixture scripts/ci/fixtures/hand-prune-one-page.sql --candidate supabase/migrations/20261029154153_hand_history_pruning_commits_one_raw_page_before_releasing_m.sql --work-root "${{ runner.temp }}" --pg-bin "$PG_BIN"
+      - name: Retention prunes new hands while the retained prefix is rescanned
+        if: matrix.shard == 4
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/run_launch_reset_accounting_fixture.py --fixture scripts/ci/fixtures/hand-prune-frontier.sql --candidate supabase/migrations/20261118061009_new_hand_history_prunes_while_the_retained_prefix_is_rescanned.sql --work-root "${{ runner.temp }}" --pg-bin "$PG_BIN"
       - name: Mystery award pages retain every tied reveal exactly once
         if: matrix.shard == 2
         env:

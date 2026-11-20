@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146079,
-      "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      "bytes": 146550,
+      "sha256": "29d34a13c9926edabc0fdaffa0f73e55cc956c5ef3a450951a387d58f9ab22ce"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77087,
@@ -7301,5 +7301,24 @@
         }
       }
     }
+  },
+  "pruneFrontierAccountingShard4_20261118": {
+    "reason": "Required accounting shard 4 gains one additive step that runs the throwaway PostgreSQL 17 proof that new hand_history rows prune while the retained prefix is rescanned (scripts/ci/fixtures/hand-prune-frontier.sql against migration 20261118061009, PR #11259, Production Alerts incident retention/hand-history-prune-cursor-full-rescan). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 146079,
+        "current": 146550
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003",
+        "current": "29d34a13c9926edabc0fdaffa0f73e55cc956c5ef3a450951a387d58f9ab22ce"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
   }
 }

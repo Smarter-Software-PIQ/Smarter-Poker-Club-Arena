@@ -298,8 +298,8 @@
       "sha256": "0d963d68abc79558029bd3a44069f851c03ccfa882b041dc785e280261027b54"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146079,
-      "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      "bytes": 146550,
+      "sha256": "29d34a13c9926edabc0fdaffa0f73e55cc956c5ef3a450951a387d58f9ab22ce"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2938,5 +2938,24 @@
     },
     "review": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files that an accounting_postgres harness names (a path spelled out in full, or a quoted relative name joined to a directory the same harness spells out; never a whole directory; routing law tests and test files are not followed as reads), followed through the scripts/ci|dev/test-* harnesses one of them starts; unit-suite admission is unchanged. ci-admission-inputs.json changes only in 34 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification.",
     "reason": "2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect."
+  },
+  "pruneFrontierAccountingShard4_20261118": {
+    "reason": "Required accounting shard 4 gains one additive step that runs the throwaway PostgreSQL 17 proof that new hand_history rows prune while the retained prefix is rescanned (scripts/ci/fixtures/hand-prune-frontier.sql against migration 20261118061009, PR #11259, Production Alerts incident retention/hand-history-prune-cursor-full-rescan). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 146079,
+        "current": 146550
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003",
+        "current": "29d34a13c9926edabc0fdaffa0f73e55cc956c5ef3a450951a387d58f9ab22ce"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
   }
 }

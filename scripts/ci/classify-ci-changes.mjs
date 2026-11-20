@@ -681,7 +681,7 @@ export function classifyChangedPaths(paths) {
       matches(qualificationProjections) ||
       matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||
-      matches(/^scripts\/ci\/fixtures\/hand-prune-one-page\.sql$/) ||
+      matches(/^scripts\/ci\/fixtures\/hand-prune-(?:one-page|frontier)\.sql$/) ||
       matches(
         /^scripts\/ci\/(?:test-club-promo-journal-source\.py|fixtures\/club-promo-journal-[^/]+\.(?:json|sql))$/
       ) ||
@@ -757,7 +757,7 @@ export function classifyChangedPaths(paths) {
       matches(qualificationProjections) ||
       matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||
-      matches(/^scripts\/ci\/fixtures\/hand-prune-one-page\.sql$/) ||
+      matches(/^scripts\/ci\/fixtures\/hand-prune-(?:one-page|frontier)\.sql$/) ||
       privateRecordHosting ||
       matches(nativeAlerts) ||
       matches(nativeAlertSql) ||
