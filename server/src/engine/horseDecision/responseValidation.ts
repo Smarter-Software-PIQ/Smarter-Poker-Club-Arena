@@ -2079,6 +2079,24 @@ export function horseDecisionReceiptRefusalForPlo6Gates(
 }
 
 /** The two options whose raise -> call the validator admits (context.omahaPricedRaise). */
+/**
+ * THE GAME SCOPE OF AN OMAHA OPTION (lane PLO4-FIX 2026-11-20, HorseOmahaOptionGameScope.ts): when the request's own
+ * omahaOptionGameScope confines one of `names` to a game, the worker ran a decision of the other game with that
+ * option off, whatever the switch row says. So `false` is one of the values the worker may have run with. With no
+ * scope in the request (the compiled defaults) this is false and the candidates are exactly what they were.
+ */
+function omahaOptionGameScoped(
+  requestOpts: { omahaOptionGameScope?: unknown } | null | undefined,
+  names: readonly string[]
+): boolean {
+  const scope = requestOpts?.omahaOptionGameScope;
+  if (!scope || typeof scope !== 'object') return false;
+  return names.some((name) => {
+    const only = (scope as Readonly<Record<string, unknown>>)[name];
+    return only === 4 || only === 5;
+  });
+}
+
 export const OMAHA_PRICED_RAISE_GATE_OPTIONS = Object.freeze([
   'omahaTurnRiverRaiseIsPriced',
   'omahaBigBetCallsArePriced',
@@ -2123,6 +2141,7 @@ export function omahaPricedRaiseGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, OMAHA_PRICED_RAISE_GATE_OPTIONS)) add(false);
   return out;
 }
 
@@ -2134,7 +2153,10 @@ export function omahaPricedRaiseGateCandidates(
  * still counts.
  */
 export function omahaPricedInLightningGateCandidates(
-  requestOpts: { omahaPricedInLightning?: unknown } | null | undefined,
+  requestOpts:
+    | { omahaPricedInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean[] {
@@ -2154,6 +2176,7 @@ export function omahaPricedInLightningGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, ['omahaPricedInLightning'])) add(false);
   return out;
 }
 
@@ -2165,7 +2188,10 @@ export function omahaPricedInLightningGateCandidates(
  * while it still counts.
  */
 export function omahaSlowplayMixInLightningGateCandidates(
-  requestOpts: { omahaSlowplayMixInLightning?: unknown } | null | undefined,
+  requestOpts:
+    | { omahaSlowplayMixInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean[] {
@@ -2187,6 +2213,7 @@ export function omahaSlowplayMixInLightningGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, ['omahaSlowplayMixInLightning'])) add(false);
   return out;
 }
 

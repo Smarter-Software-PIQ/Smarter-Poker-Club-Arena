@@ -579,6 +579,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaEvFoldModelSkipsPlo45: outside('a model scope switch (PLO4 / PLO5 cash only)'),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
+  omahaOptionGameScope: outside(
+    'a scope parameter (the game an omaha* option may be on in, from the runtime settings horse.omahaGameScope.<option>): it decides no action, it passes an option scoped to the other game as off'
+  ),
   omahaNoCategoricalRules: outside(
     'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'
   ),

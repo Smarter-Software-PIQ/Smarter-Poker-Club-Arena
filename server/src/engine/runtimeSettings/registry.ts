@@ -11,7 +11,7 @@
  * - A key is registered with its kind, its inclusive range and its compiled default. A published value outside the
  *   range, of the wrong kind, or a key not listed here makes the whole published version invalid: the engine refuses it
  *   and the last good version keeps serving (snapshot.ts parseRuntimeSettings).
- * - compiledDefault is the value the code uses today. It is a literal on purpose (no import of the consuming module,
+ * - compiledDefault is the value the code uses today. It is a literal on purpose (no import of the consuming module; the one import, HorseOmahaOptionGameScope.ts, is a leaf,
  *   so this file can be read from anywhere without an import cycle); compiledDefaultsMatchTheCode.law.test.ts holds
  *   every literal equal to the constant the code reads, and the seed version of the migration equal to this list.
  * - Changing a compiledDefault is a behaviour change and needs a release like any other code change. Publishing a
@@ -22,9 +22,15 @@
  * worker); they keep their own table, authority rules and fail-safe, and this list carries only numeric parameters.
  */
 
+import {
+  OMAHA_OPTION_GAME_SCOPE_OPTIONS,
+  OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX,
+} from '../HorseOmahaOptionGameScope.js';
+
 /** Where a setting is consumed. */
 export type RuntimeSettingConsumer =
   | 'horse_decision'
+  | 'horse_option_game_scope'
   | 'lightning_fast_fold'
   | 'horse_stack_management';
 
@@ -163,6 +169,17 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       description:
         'PLO4/PLO5 Cash: The Stack, In Big Blinds, Above Which A Horse Books Its Win And Leaves (0 = Off)',
     },
+    // ---- The game scope of the omaha* options (HorseOmahaOptionGameScope.ts): one key per listed option ----
+    ...OMAHA_OPTION_GAME_SCOPE_OPTIONS.map((option) => ({
+      key: OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX + option,
+      kind: 'integer',
+      min: 0,
+      max: 5,
+      compiledDefault: 0,
+      consumer: 'horse_option_game_scope',
+      source: `HorseOmahaOptionGameScope.ts (opts.omahaOptionGameScope['${option}']; 0 is no scope)`,
+      description: `PLO4/PLO5 Cash: The Game ${option} May Be On In (0 = Both, 4 = PLO4 Only, 5 = PLO5 Only)`,
+    })),
   ].map((spec) => Object.freeze(spec as RuntimeSettingSpec))
 );
 
@@ -195,4 +212,13 @@ export const RUNTIME_SETTINGS_CROSS_RULES: readonly ((v: RuntimeSettingValues) =
       v['lightning.fastFoldTempoMin']! <= v['lightning.fastFoldTempoMax']!
         ? null
         : 'lightning.fastFoldTempoMin must not exceed lightning.fastFoldTempoMax',
+    // an option's game scope is 0 (both), 4 (PLO4 only) or 5 (PLO5 only): nothing else is a game
+    (v) => {
+      for (const option of OMAHA_OPTION_GAME_SCOPE_OPTIONS) {
+        const key = OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX + option;
+        const value = v[key];
+        if (value !== 0 && value !== 4 && value !== 5) return `${key} must be 0, 4 or 5`;
+      }
+      return null;
+    },
   ]);

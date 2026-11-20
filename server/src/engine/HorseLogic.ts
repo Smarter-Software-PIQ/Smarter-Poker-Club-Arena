@@ -184,6 +184,10 @@ import {
   withoutOmahaCategoricalRules,
 } from './HorseOmahaNoCategoricalRules.js';
 import {
+  withOmahaOptionGameScope,
+  type OmahaOptionGameScope,
+} from './HorseOmahaOptionGameScope.js';
+import {
   omahaStrongHandRaiseVerdict,
   omahaStrongHandValueDecision,
 } from './HorseOmahaStrongHandValue.js';
@@ -4123,6 +4127,12 @@ export interface HorseDecideOpts {
    * path is off for that decision (OMAHA_NO_CATEGORICAL_RULES_OFF, the hidden default-on ones included) and
    * the V81 / V84 / V86 / V87 big-bet call cells stand aside. Off (absent or false): byte-identical. */
   omahaNoCategoricalRules?: boolean;
+  /** The game scope of the omaha* options (EMERG lane PLO4-FIX 2026-11-20; HorseOmahaOptionGameScope.ts). A
+   * parameter, not an on/off option: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime
+   * settings `horse.omahaGameScope.<option>` (absent at the compiled defaults). In a PLO4 or PLO5 cash decision
+   * every listed option scoped to the other game is passed false (its off path) before anything reads it. Absent:
+   * byte-identical. PLO6, PLO8, hold'em and tournaments are never in scope. */
+  omahaOptionGameScope?: OmahaOptionGameScope;
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
@@ -14794,6 +14804,9 @@ export class HorseLogic {
     gameState: HorseGameStateV2,
     opts: HorseDecideOpts = {}
   ): void {
+    // The game scope of the omaha* options (HorseOmahaOptionGameScope; absent: the same object). The identity when
+    // decide already applied it.
+    if (opts.omahaOptionGameScope) opts = withOmahaOptionGameScope(opts, player, gameState);
     // V45 SCOPED READS: every read in this decision sees the bucket for
     // this card family and table size (HorseMind.readStats). Cleared on
     // every exit, including a throw.
@@ -14910,6 +14923,18 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // THE GAME SCOPE OF THE OMAHA OPTIONS (lane PLO4-FIX 2026-11-20, HorseOmahaOptionGameScope.ts; absent at the
+    // compiled defaults): the ONE read site. In a PLO4/PLO5 cash decision an option scoped to the other game is
+    // off for this decision, before any rule (omahaNoCategoricalRules included) reads it; the receipt names the
+    // option and the game. No scope, PLO6 or any other game: the same opts object runs.
+    if (opts.omahaOptionGameScope) {
+      const scopedOff: [string, number][] = [];
+      opts = withOmahaOptionGameScope(opts, player, gameState, (option, game) => {
+        scopedOff.push([option, game]);
+      });
+      for (const [option, game] of scopedOff)
+        if (telemetryOn(opts)) noteFire(`omaha_option_game_scope_${option}_off_in_plo${game}_seen`);
+    }
     // omahaNoCategoricalRules (default OFF, lane UNBLOCK 2026-11-19): in a PLO4/PLO5 cash decision every
     // categorical rule's option is off for this decision; off or out of scope the same opts object runs.
     if (opts.omahaNoCategoricalRules === true)

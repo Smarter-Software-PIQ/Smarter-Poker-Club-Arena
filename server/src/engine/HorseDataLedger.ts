@@ -1347,6 +1347,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOptionGameScope',
+    "EMERG lane PLO4-FIX 2026-11-20 (lane PLO4-AUDIT: an option switch row is global, and several omaha* options grade positive or neutral in PLO5 and negative in PLO4, and others the other way). A PARAMETER, not an on/off option, absent at the compiled defaults: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime settings horse.omahaGameScope.<option> (0 = both games; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover; the option switch rows and their validation are untouched). In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every listed option scoped to the other game as false (its off path) before anything reads it (HorseOmahaOptionGameScope.withOmahaOptionGameScope, the one read site), so an option scoped to PLO5 decides a PLO4 hand exactly as if it were off. Listed: every registered omaha* switch option except the omahaMathCore family (own per-game street flags), the PLO6 options and the tournament-only options. Never PLO6, PLO8, hold'em or a tournament: the same options object runs. Receipt omaha_option_game_scope_<option>_off_in_plo<4|5>_seen.",
+    'V94'
+  ),
+  flag(
     'omahaTournamentsExcludeCategoricalRules',
     'Horse Switch lane 2026-11-18 (ROWFIX; owner 2026-11-17 11:49: a blanket rule must not affect a decision, every decision by math, ranges, equity and EV). Default off (read === true), unevaluated. omahaStrategyInTournaments (on in production) opens every cash-scoped PLO4/PLO5 rule of 2026-11-15 to tournament hands inside its public scope, the twelve rules HorseOmahaRuleSites classes categorical among them (the nut-raise scope, the draw-raise bar, the five out-of-position checks, the pressure label, the bluff-catcher fold against a value leader, the underpair multiway fold, the value-leader made-hand defence, the reachable river blocker bluff), although their evaluations were cash-only. With this on, those categorical rules stay cash-only in every tournament hand (HorseOmahaTournamentScope.omahaCategoricalCashOnlyExcludes); the priced rules, the street plan and the survival premium keep the extension. Off: byte-identical. Changing live tournament play, it is a new option rather than a change to omahaStrategyInTournaments.',
     'V94'
@@ -8424,6 +8429,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_ev_fold_model_priced',
     'HorseMind.omahaEvFoldMulOf (omahaEvFoldModel)',
     'the Omaha EV fold model priced one opponent fold for the EV bet engine at a PLO4, PLO5 or PLO6 cash table (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  // Zero in production by design: no option has a game scope at the compiled defaults, so a fire means a scope was published.
+  receipt(
+    'omaha_option_game_scope_*',
+    'HorseLogic.decide (HorseOmahaOptionGameScope, runtime settings horse.omahaGameScope.<option>)',
+    'omaha_option_game_scope_<option>_off_in_plo<4|5>_seen: in a PLO4 or PLO5 cash decision the named omaha* option is confined to the other game by its published game scope and was passed off for this decision (one count per option per decision; the option and the decision game in the name)',
     'Omaha threshold calibration'
   ),
   // Zero in production by design: omahaEvFoldModelHeadsUp is default off, so a fire means the option was turned on.
