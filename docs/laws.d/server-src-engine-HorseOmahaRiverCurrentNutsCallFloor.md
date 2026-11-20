@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaRiverCurrentNutsCallFloor.law.test.ts
+
+With omahaRiverCurrentNutsCallFloor on (default OFF), in PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot) no Horse folds the exact current river nuts facing a wager where a full chop with every live opponent still returns the call: the final fold becomes the legal call for the exact chips owed (all in when the call is the stack), the response validator admits only that call, nothing but a fold changes, no identity is read, and it is out of scope on the turn, in PLO6, PLO8, tournaments, bomb pots and multi-board hands; off, decisions are byte-identical.
