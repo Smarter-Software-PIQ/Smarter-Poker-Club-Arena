@@ -368,20 +368,8 @@ export function exactEquityVsHands(
   for (let i = 0; i < 52; i++) if (!dead[i]) rest.push(i);
   const need = 5 - board.length;
   if (need === 5) return null; // preflop: too many runouts for an exact reference
-  const { loadTriples, newTriples, omahaHiFast, omahaHiTable, rankPairTable } = omahaSamplerScoring;
+  const { loadTriples, newTriples, omahaHiFast } = omahaSamplerScoring;
   const tri = newTriples();
-  const publicTri = newTriples();
-  let publicTable: Int32Array | null = null;
-  if (board.length >= 3) {
-    loadTriples(
-      publicTri,
-      board.map((c) => codeOfIndex(indexOf(c))),
-      board.length
-    );
-    publicTable = rankPairTable(publicTri);
-  }
-  const proposalCodes = new Array<number>(holes);
-  const weightCtx = { publicHigh: 0 };
   const heroCodes = hero.map((c) => codeOfIndex(indexOf(c)));
   const oppCodes = opponents.map((o) => o.map((c) => codeOfIndex(indexOf(c))));
   const codes = board.map((c) => codeOfIndex(indexOf(c)));
