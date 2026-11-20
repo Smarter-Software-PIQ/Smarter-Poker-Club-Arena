@@ -65,7 +65,14 @@ export async function resolveJackpotSiblingClubIds(clubId: string): Promise<stri
  * so retrying is free, and NOT retrying is how a detected jackpot goes unpaid.
  */
 const BBJ_PAYOUT_RETRYABLE =
-  /timeout|timed out|fetch failed|socket hang up|ECONNRESET|ECONNREFUSED|EAI_AGAIN|network|502|503|504|57014|too many connections|schema cache|PGRST002|PGRST001|PLATFORM_FROZEN|payout_frozen|P0404|deadlock|could not serialize|40001|40P01/i;
+  /timeout|timed out|fetch failed|socket hang up|ECONNRESET|ECONNREFUSED|EAI_AGAIN|network|502|503|504|57014|too many connections|schema cache|PGRST002|PGRST001|PLATFORM_FROZEN|payout_frozen|P0404|deadlock|could not serialize|40001|40P01|bbj_drop_banking_pending/i;
+/**
+ * The hand's own BBJ drop is stored in hand_bank_obligation_pending and has
+ * not been banked into its pool yet (a concurrent banker holds the union's
+ * pool for a moment). The destination is known to exist and the money is on
+ * disk; it is a wait, never a failure. See bankThisHandsPendingDrop.
+ */
+export const BBJ_DROP_BANKING_PENDING = 'bbj_drop_banking_pending';
 const BBJ_PAYOUT_ATTEMPTS = 4;
 /** 400ms, 1.2s, 3.6s - long enough to outlive a schema-cache reload retry loop, short enough to keep the felt moving. */
 const BBJ_PAYOUT_BACKOFF_MS = (attempt: number): number => 400 * 3 ** (attempt - 1);
@@ -386,8 +393,10 @@ export async function processBBJPayout(
   }
 
   let lastError = '';
+  let attemptsMade = 0;
 
   for (let attempt = 1; attempt <= BBJ_PAYOUT_ATTEMPTS; attempt++) {
+    attemptsMade = attempt;
     try {
       const outcome = await attemptBBJPayoutOnce(params, options.fromQueue === true);
       if (owned) {
@@ -438,6 +447,21 @@ export async function processBBJPayout(
       (await queueSafely(() => bbjPayoutQueue!.claim(params, lastError), 'claim')) ||
       claimConfirmed;
   }
+  /* A DROP STILL BEING BANKED IS A WAIT, NOT A LOST JACKPOT (efde14dc).
+     The destination exists (the hand's stored obligation), the claim is on
+     disk, and the reconciler's re-drive banks the drop through the same
+     door before it pays. Paging CRITICAL here would be the always-on alarm
+     the maintenance-freeze deferral above was built to avoid. If banking
+     itself is stuck, fn_post_commit_stranded_watchdog pages that by name,
+     and a queue row that exhausts its re-drives still raises below. */
+  if (owned && claimConfirmed && lastError.startsWith(BBJ_DROP_BANKING_PENDING)) {
+    console.warn(
+      `[processBBJPayout] deferring ${params.kind === 'mini' ? 'mini ' : ''}jackpot for ` +
+        `${params.tableId}#${params.handNumber} after ${attemptsMade} attempt(s): ${lastError}; ` +
+        `the claim is on disk and the reconciler banks the drop and pays it`
+    );
+    return { status: 'queued', lastError };
+  }
   const detail =
     `[BBJ] Jackpot payout FAILED for table ${params.tableId} hand #${params.handNumber} ` +
     `(club ${params.clubId}, bad beat ${params.loserUserId} with ${params.loserHandName} ` +
@@ -454,12 +478,68 @@ export async function processBBJPayout(
   if (owned) {
     await raiseFinancialAlert('critical', 'processBBJPayout.exhausted', detail, {
       ...params,
-      attempts: BBJ_PAYOUT_ATTEMPTS,
+      attempts: attemptsMade,
       lastError,
       queued: claimConfirmed,
     });
   }
   return { status: 'queued', lastError };
+}
+
+/**
+ * A JACKPOT HAND BANKS ITS OWN DROP BEFORE IT ASKS WHERE THE DROP WENT
+ * (incident efde14dc, 2026-11-19).
+ *
+ * Since 20261118071736 the hand's post-commit envelope no longer banks the
+ * BBJ drop: it stores the obligation in hand_bank_obligation_pending and
+ * fn_ca_bank_pending_hand_obligations banks it from the hand's projection
+ * continuation, so a cash hand never queues on the union's pool lock. The
+ * payout, which runs moments after the envelope, reads the destination from
+ * the bbj_contributions receipt that banking writes - so on every jackpot hand
+ * since that change the payout asked before the receipt existed, refused
+ * "no confirmed payout destination", and paged CRITICAL while the reconciler
+ * paid it 90 seconds later (hand 60218398, Midway Union, $425).
+ *
+ * The receipt is the only destination this path trusts (never the club's
+ * current pool), so the hand banks its own stored drop first, through the
+ * same idempotent function the continuation calls, with the same union read
+ * at hand time. That function never waits on the pool: if another banker
+ * holds it for a moment, the obligation stays pending and this throws the
+ * retryable BBJ_DROP_BANKING_PENDING, so the next attempt banks it. Returns
+ * the receipt's pool, or null when this hand has no stored drop at all.
+ */
+async function bankThisHandsPendingDrop(params: BBJPayoutParams): Promise<string | null> {
+  const { data: pending, error: pendingErr } = await supabase
+    .from('hand_bank_obligation_pending')
+    .select('hand_id')
+    .eq('table_id', params.tableId)
+    .eq('hand_number', params.handNumber)
+    .eq('kind', 'bbj_contribution')
+    .maybeSingle();
+  if (pendingErr) {
+    throw new Error(`hand_bank_obligation_pending read failed: ${pendingErr.message}`);
+  }
+  if (!pending?.hand_id) return null;
+
+  const { error: bankErr } = await supabase.rpc('fn_ca_bank_pending_hand_obligations', {
+    p_hand_id: pending.hand_id,
+  });
+  if (bankErr) {
+    throw new Error(`${BBJ_DROP_BANKING_PENDING}: banking refused (${bankErr.message})`);
+  }
+  const { data: banked, error: bankedErr } = await supabase
+    .from('bbj_contributions')
+    .select('pool_id')
+    .eq('table_id', params.tableId)
+    .eq('hand_number', params.handNumber)
+    .maybeSingle();
+  if (bankedErr) {
+    throw new Error(`bbj_contributions destination read failed: ${bankedErr.message}`);
+  }
+  if (!banked?.pool_id) {
+    throw new Error(`${BBJ_DROP_BANKING_PENDING}: the hand's drop is stored and not yet banked`);
+  }
+  return banked.pool_id;
 }
 
 /**
@@ -494,6 +574,7 @@ async function attemptBBJPayoutOnce(
       throw new Error(`bbj_contributions destination read failed: ${contributionErr.message}`);
     }
     poolId = contribution?.pool_id;
+    if (!poolId) poolId = await bankThisHandsPendingDrop(params);
   }
   if (!poolId) throw new Error('BBJ hand has no confirmed payout destination');
 
