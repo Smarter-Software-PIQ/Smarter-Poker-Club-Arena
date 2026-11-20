@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/075013fd/w3-lifecycle-retention-s1",
+  "_comment": "Migration 20261120213600: owner-only bounded 30-day rolling retention pruner for public.engine_lifecycle_logs.",
+  "functions": ["fn_ca_prune_engine_lifecycle_logs"]
+}
