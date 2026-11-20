@@ -10,7 +10,11 @@
   "lanes": {
     "release-custody": {
       "description": "Engine release controls: staging, certification, cutover transaction, seal, rollback, Backup engine and the owner windows. One custodian at a time (AGENTS.md).",
-      "sources": ["AGENTS.md", "docs/ENGINE-RELEASE-RUNBOOK.md", "docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"]
+      "sources": [
+        "AGENTS.md",
+        "docs/ENGINE-RELEASE-RUNBOOK.md",
+        "docs/reliability-controller/RECOVERY-OWNERSHIP-MAP.md"
+      ]
     },
     "migration-install": {
       "description": "How merged migrations reach production: Apply Merged Migration, its dispatcher and the applied-migration ledger.",
@@ -196,12 +200,22 @@
     },
     {
       "lane": "lightning",
-      "paths": ["server/src/lightning/**", "src/lightning/**", "docs/lightning/**", "tests/lightning/**"],
+      "paths": [
+        "server/src/lightning/**",
+        "src/lightning/**",
+        "docs/lightning/**",
+        "tests/lightning/**"
+      ],
       "functions": ["fn_lightning_*", "fn_cash_cluster_*"]
     },
     {
       "lane": "tournaments",
-      "paths": ["server/src/tournament/**", "scripts/tournament-schedules/**", "docs/tournament-schedules/**", "ops/tournament-monitor/**"],
+      "paths": [
+        "server/src/tournament/**",
+        "scripts/tournament-schedules/**",
+        "docs/tournament-schedules/**",
+        "ops/tournament-monitor/**"
+      ],
       "functions": [
         "fn_ca_tournament_*",
         "fn_ca_satellite_*",
@@ -244,7 +258,13 @@
     {
       "lane": "table-engine",
       "paths": ["server/src/**", "server/Dockerfile", "server/native/**"],
-      "functions": ["fn_cash_seat_*", "fn_cash_game_*", "fn_ca_hand_*", "fn_ca_fleet_*", "fn_ca_engine_*"]
+      "functions": [
+        "fn_cash_seat_*",
+        "fn_cash_game_*",
+        "fn_ca_hand_*",
+        "fn_ca_fleet_*",
+        "fn_ca_engine_*"
+      ]
     },
     {
       "lane": "club-arena-client",

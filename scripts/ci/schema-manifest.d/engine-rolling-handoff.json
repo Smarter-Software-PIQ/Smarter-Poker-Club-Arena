@@ -1,0 +1,10 @@
+{
+  "_owner": "Rolling engine handoff (docs/ENGINE-ROLLING-HANDOFF.md), installed by migration 20261119211200_an_engine_hands_a_table_on_at_its_own_hand_boundary.sql.",
+  "tables": ["engine_lease_handoffs"],
+  "functions": [
+    "fn_engine_hand_off_lease_v1",
+    "fn_engine_handed_leases_v1",
+    "fn_engine_open_lease_handoffs_v1",
+    "fn_engine_settle_lease_handoff_v1"
+  ]
+}
