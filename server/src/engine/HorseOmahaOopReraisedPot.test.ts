@@ -1931,6 +1931,75 @@ describe('omahaPreflopJamFacingReraiseIsPriced in the decision (default OFF)', (
   });
 });
 
+describe('omahaPreflopJamFacingReraiseIsPriced: an all-in short of a full raise is the raise it prices (AUDIT48-PREFLOP)', () => {
+  // Synthetic spot (made-up cards, no recorded identity) with the shape of the four recorded heads-up calls of
+  // aces facing a 5-bet where only the all-in was legal: six-handed, the Horse (seat 3) opened, 4-bet to 80 over a
+  // 3-bet, the button 5-bet to 230; the Horse's all-in (300 in all) is short of the 380 minimum raise.
+  const RULES: HorseDecideOpts = {
+    omahaOopReraisedPotStrongRange: true,
+    omahaReraiseRangeOutOfPosition: true,
+    omahaReraiseRangeEarlyPosition: true,
+  };
+  const ON: HorseDecideOpts = { ...RULES, omahaPreflopJamFacingReraiseIsPriced: true };
+  const shortJam = (hole: string): Recorded => ({
+    hand: 0,
+    variant: 'plo5',
+    bb: 2,
+    dealer: 6,
+    seat: 3,
+    hole,
+    stacks: '1:199,2:198,3:300,4:200,5:200,6:1000',
+    actions: '1ps1,2pb2,3pR7,4pF,5pF,6pR24,1pF,2pF,3pR80,6pR230',
+  });
+  // the engine's public node when the all-in cannot make a full raise: no raise range, only the all-in
+  const build = (hole: string) => () => {
+    const st = stateAt(shortJam(hole), 3);
+    const g = st.gs as unknown as {
+      maxRaiseTo?: number;
+      legalActions: string[];
+      minRaiseTo: number;
+    };
+    expect(st.hero.stack + st.hero.bet).toBeLessThan(g.minRaiseTo);
+    delete g.maxRaiseTo;
+    g.legalActions = ['fold', 'call', 'all_in'];
+    return st;
+  };
+  it('on: every standing call is priced against the all-in; aces jam, and the played action is the largest lower-bound EV', () => {
+    for (const hole of ['AsAhKsQh7d', 'AsAdKhJc9s']) {
+      const rules = playMany(build(hole), RULES);
+      const on = playMany(build(hole), ON);
+      expect(on.next, hole).toEqual(rules.next);
+      let priced = 0;
+      on.bytes.forEach((b, k) => {
+        const d = JSON.parse(b) as {
+          action: string;
+          omahaPreflopThreeWay?: { verdict: string; evCallLow: number; evRaiseLow: number | null };
+        };
+        if (rules.actions[k] !== 'call') return;
+        const r = d.omahaPreflopThreeWay!;
+        expect(r, hole).toBeDefined();
+        priced++;
+        expect(r.evRaiseLow, hole).not.toBeNull();
+        expect(r.evRaiseLow!, hole).toBeGreaterThan(r.evCallLow);
+        expect(r.verdict, hole).toBe('raise');
+        expect(d.action, hole).toBe('all_in');
+      });
+      expect(priced, hole).toBeGreaterThan(0);
+    }
+  });
+  it('unset and false stay byte-identical in the short all-in spot', () => {
+    for (const base of [{}, RULES]) {
+      const unset = playMany(build('AsAhKsQh7d'), base);
+      const off = playMany(build('AsAhKsQh7d'), {
+        ...base,
+        omahaPreflopJamFacingReraiseIsPriced: false,
+      });
+      expect(off.bytes).toEqual(unset.bytes);
+      expect(off.next).toEqual(unset.next);
+    }
+  });
+});
+
 describe('omahaOopReraisedPotStrongRange off: the re-raise range rules no longer run its call cell', () => {
   const STACKS = '1:199,2:198,3:200,4:200,5:200,6:200';
   // six-handed, dealer seat 6: under the gun (seat 3) opens to 7, the button 3-bets to 24, the blinds fold;

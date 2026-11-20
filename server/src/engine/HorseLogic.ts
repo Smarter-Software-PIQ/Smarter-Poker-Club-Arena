@@ -8983,6 +8983,25 @@ function omahaPreflopFacingReraiseThreeWay(
       (!legal || legal.includes('raise') || legal.includes('all_in'))
     )
       raiseTo = Math.min(allIn, gs.maxRaiseTo as number);
+    else if (
+      // AUDIT48-PREFLOP (2026-11-19): hero's all-in is short of a full raise, so the
+      // engine offers no raise range (maxRaiseTo absent or below minRaiseTo) and only
+      // the all-in. The all-in is still the raise to price against the call: without
+      // this the jam was never priced and the standing call of aces stood at a
+      // stack-to-pot ratio of 0.03 to 0.33 (4 of 19 recorded heads-up calls facing a
+      // 4-bet or more; the other 15 have a raise range and are already priced).
+      kind === 'call' &&
+      legal !== null &&
+      legal.includes('all_in') &&
+      !legal.includes('raise') &&
+      allIn > heroBet + Math.min(toCall, stack) + 0.005 &&
+      !(
+        Number.isFinite(gs.maxRaiseTo) &&
+        Number.isFinite(gs.minRaiseTo) &&
+        (gs.maxRaiseTo as number) >= (gs.minRaiseTo as number)
+      )
+    )
+      raiseTo = allIn;
     const raiserBet = Number.isFinite(raiser.bet) ? Math.max(0, raiser.bet ?? 0) : 0;
     const raiserStack = Number.isFinite(raiser.stack) ? Math.max(0, raiser.stack) : 0;
     const receipt = omahaThreeWayPriced({
