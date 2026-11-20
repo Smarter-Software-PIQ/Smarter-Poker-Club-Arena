@@ -42,6 +42,8 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'scripts/ci/fixtures/reliability-controller-production-objects.sql'
 STAGE_B = ROOT / 'supabase/migrations/20261110000020_reliability_controller_stage_b.sql'
 MIGRATION = ROOT / 'supabase/migrations/20261119234324_the_controller_runs_recovery_runbooks.sql'
+# Installed after it: a cron proof's fix evidence is a migration that redefines the function.
+FOLLOW_UPS = [ROOT / 'supabase/migrations/20261120011743_a_cron_proof_needs_a_migration_that_redefines_the_function.sql']
 
 PLATFORM = r"""
 ALTER TABLE public.profiles ADD COLUMN is_horse boolean, ADD COLUMN horse_status text;
@@ -205,6 +207,11 @@ def main():
         assert num('SELECT count(*) FROM smarter_private.reliability_runbooks') == 4
         assert num("SELECT count(*) FROM cron.job WHERE jobname = 'reliability-controller-runbooks'") == 1
         ok('the migration is idempotent')
+        for follow in FOLLOW_UPS:
+            r = psql(['-f', str(follow)])
+            assert r.returncode == 0, f'{follow}\n{r.stderr}'
+            proof = re.search(r'^-- @live-proof: (.+)$', follow.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', f'live proof must hold after {follow.name}'
 
         for role in ('anon', 'authenticated'):
             for fn in ('reliability_runbooks_run(timestamptz,boolean,uuid)', 'reliability_runbook_select(uuid)',
@@ -329,6 +336,8 @@ def main():
         noscope = incident('database', 'fn_ca_cron_failure_watch', '{}')
         assert sql(f"SELECT (smarter_private.reliability_runbook_select('{noscope}')).key IS NULL") == 't'
         W = '2026-11-20 10:10:00+00'  # 04:10 Chicago
+        # A migration that only NAMES the function (as the controller's own install does) is not a fix.
+        sql("INSERT INTO supabase_migrations.schema_migrations VALUES ('20261119234324', ARRAY['... SELECT public.fn_ca_alarm_drill() ... \"allow_functions\": [\"fn_ca_alarm_drill\"] ...'], 'names it')")
         run('2026-11-20 03:00:00+00', incident=cron)
         a = attempts(cron)
         assert a[-1]['outcome'] == 'nothing_to_do' and 'not shown fixed' in a[-1]['summary'], a
