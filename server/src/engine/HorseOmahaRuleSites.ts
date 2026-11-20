@@ -422,6 +422,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaClassCapsRespectEquity: priced(
+    'facing a bet in PLO4/PLO5 cash, the V40 pressure cap and the V15 flush/straight cap lower the equity only down to the measured equity against the bettor range for this line and size, never below it; a raise the floor would make is held to the call (default OFF)'
+  ),
   omahaFlopDefenceIsPriced: priced(
     'the heads-up flop fold or call facing his first bet is the flop expected-value verdict with the call priced as a two-street tree (his measured barrel and river bet rates, the Horse priced turn and river answers); alone it answers only that spot (default OFF)'
   ),

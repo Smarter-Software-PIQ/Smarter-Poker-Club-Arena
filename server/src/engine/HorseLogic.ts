@@ -118,6 +118,12 @@ import { omahaFacingBetValueRangeOver } from './HorseOmahaFacingBetValueRange.js
 import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
 import { omahaTurnStabSpot } from './HorseOmahaTurnStabDefence.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
+import {
+  classCapFloorKeepsTheCall,
+  classCapRespectingEquity,
+  OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES,
+  omahaClassCapsRespectEquityInScope,
+} from './HorseOmahaClassCapsRespectEquity.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
@@ -3447,6 +3453,14 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_flop_facing_bet_ev. */
   omahaFlopFacingBetEv?: boolean;
+  /**
+   * V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1; HorseOmahaClassCapsRespectEquity.ts). Default OFF, read
+   * `=== true`. PLO4/PLO5 cash (table and Lightning), one board, high only, facing a bet: the V40 Omaha pressure
+   * cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured
+   * equity against the bettor's public-information range for this line and size (>= 400 non-adaptive samples),
+   * never below it. PLO6 and every other game are untouched.
+   */
+  omahaClassCapsRespectEquity?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -7834,6 +7848,9 @@ const nearNutChosenRaises = new WeakSet<HorseDecision>();
 // omahaOnePairDiscipline: the reference brain chose a river bluff wager in
 // this decision (private provenance; reset at every decision).
 let riverBluffDeclaredPending = false;
+// omahaClassCapsRespectEquity: the measured-equity floor lifted a class cap in this decision (reset at every
+// postflop decision; the reference's raise is then held to the call, HorseOmahaClassCapsRespectEquity.ts).
+let classCapFloorHeldPending = false;
 /** The v86 nut-blocker river bluff (omahaRiverNutBlockerBluffReachable's path) made this
  * decision's bet: omahaNoRiverBluffIntoValueLeader leaves that spot to it. Cleared at the
  * start of every decision; it changes no decision by itself. */
@@ -15329,6 +15346,7 @@ export class HorseLogic {
       } else {
         // The opportunity count for the postflop upgrade counters (01, 02, 06).
         if (tele) noteFire('decide_postflop');
+        classCapFloorHeldPending = false;
         decision = this.decidePostflop(
           player,
           gs,
@@ -15342,6 +15360,18 @@ export class HorseLogic {
           rangeCapture,
           planReadCapture
         );
+        if (classCapFloorHeldPending) {
+          classCapFloorHeldPending = false;
+          const kept = classCapFloorKeepsTheCall(
+            decision,
+            Math.max(0, Number(gs.currentBet ?? 0) - Number(player.bet ?? 0)),
+            Number(player.stack ?? 0)
+          );
+          if (kept !== decision) {
+            decision = kept as HorseDecision;
+            if (tele) noteFire('omaha_class_cap_floor_raise_kept_to_call');
+          }
+        }
         // barrelContinuationOutlook receipt: a river decision read the turn
         // outlook but an earlier river owner decided before the V7 continuation.
         if (barrelOutlookRiverPending) {
@@ -25546,6 +25576,64 @@ export class HorseLogic {
         dominationPenalty += dominationPenaltyV15;
       }
     }
+    // omahaClassCapsRespectEquity (V40CAP lane 2026-11-19, default OFF): the class caps below (V15, V40) may lower
+    // the equity only down to the Horse's measured equity against the bettor's range for this line and size. The
+    // floor is measured once, lazily (only when a cap binds), on its own saved random stream so a decision the
+    // floor does not change is today's decision draw for draw. PLO4/PLO5 cash only.
+    let classCapFloorMemo: number | null | undefined;
+    const classCapFloor = (): number | null => {
+      if (classCapFloorMemo !== undefined) return classCapFloorMemo;
+      classCapFloorMemo = null;
+      if (
+        !omahaClassCapsRespectEquityInScope({
+          enabled: opts.omahaClassCapsRespectEquity === true,
+          gameVariant: gs.gameVariant,
+          tournament: isTournamentMode(gs),
+          hiLo: vi.isHiLo === true,
+          extraBoards: extraBoards.length,
+          bombPot: gs.bombPot === true,
+          toCall,
+        })
+      )
+        return null;
+      const rngCap = saveFastRandom();
+      try {
+        const measuredCap = simulateEquity(
+          player.cards,
+          gs.communityCards,
+          mcOpps,
+          vi,
+          Math.max(OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES, vi.iterations),
+          bands,
+          false,
+          undefined,
+          oppReads,
+          undefined,
+          player.knownDeadCards,
+          undefined
+        );
+        if (
+          equitySampleSizeOfLastCall() >= OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES &&
+          Number.isFinite(measuredCap)
+        )
+          classCapFloorMemo = measuredCap;
+        else if (tele15) noteFire('omaha_class_cap_floor_undersampled');
+      } catch {
+        /* no floor: the caps act as today */
+      } finally {
+        restoreFastRandom(rngCap);
+      }
+      return classCapFloorMemo;
+    };
+    const classCapHeldAtMeasuredEquity = (before: number, capped: number): number => {
+      if (!(capped < before)) return capped;
+      const held = classCapRespectingEquity(before, capped, classCapFloor());
+      if (held > capped) {
+        classCapFloorHeldPending = true;
+        if (tele15) noteFire('omaha_class_cap_held_at_measured_equity');
+      }
+      return held;
+    };
     // ═══ V15 EQUITY CAP — a subtraction cannot fix a 50-point lie ═══
     // Against a RANDOM plo6 hand a nine-high flush on a three-flush river
     // reads ~80% — the MC has no way to know the raiser's range is bigger
@@ -25574,6 +25662,7 @@ export class HorseLogic {
         if (oppCount >= 2) cap -= 0.05; // a raise INTO A FIELD is more nutted
         eq15 = Math.min(equity, Math.max(0.05, cap));
         if (tele15 && eq15 < equity) noteFire('v15_eq_capped');
+        eq15 = classCapHeldAtMeasuredEquity(equity, eq15);
       }
     }
     // ═══ V15 CAP AND PENALTY PRICE ONE LINE ONCE (2026-11-19) ═══ The cap
@@ -25696,6 +25785,7 @@ export class HorseLogic {
           )
             noteFire('fixed_limit_hilo_low_half_kept_seen');
           eq15 = hiLoCappedRiverShare(eq15, cap40, lowHalf40);
+          eq15 = classCapHeldAtMeasuredEquity(before40, eq15);
           if (opts.v87DeepDiveDiscipline !== false)
             noteHorseDeepDiveRule(
               'flop_cap',

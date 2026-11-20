@@ -1082,6 +1082,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaClassCapsRespectEquity',
+    "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
+    'V40'
+  ),
+  flag(
     'omahaFlopFacingBetEv',
     "PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the hand, the equity, the opponent's range and the price, never on the size of the bet alone, and no blanket rule may block a correct decision): in PLO4/PLO5 cash, high only, one board, on the FLOP facing a bet or a raise, a fold or a call (the whole-stack call included) is replaced by one expected-value verdict (HorseOmahaFlopFacingBetEv.ts): the hand's showdown result on two-card runouts sampled with a seed taken from the cards (a balanced set of runouts, every unseen card the turn card and the river card of the same number of them, three opponent holdings per runout; never the brain's random stream), against the bettor's value region (the strongest share of holdings on the flop, set by the bet's share of the pot, a raise, a lead into the preflop aggressor or a stab after he checked) and his other holdings at a non-value share moved by his measured read, with every other player counted together on the same runouts (a caller's hand to beat as well; a player still to act priced as folding or as continuing with his call in the pot, at the measured continue rate), times a realization factor read from the hand's own runouts (equity on runouts where the hand can call the turn and the river is realized, bluff-catcher equity only on streets he checks) and corrected by what flop calls of that hand class and position returned in production (shrunk by sample size; docs/horse-option-authority.d/omahaFlopFacingBetEv.CONSTANTS.md), against the price and the one margin of omahaFacingBetEv. The flop had no such rule: the stack-share paired-board fold and the 20 big blind big-bet mark decided it; with the option on they no longer decide a spot the verdict covers. A raise is left alone; the bare-overpair continuation keeps its own verdict; tournaments, PLO6, hi-lo, bomb pots and capped wagers are outside it. Independent of omahaFacingBetEv. The realization cells, the continue rate and the sampling error are measured; the value shares are stated. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_flop_facing_bet_ev",
     'V94'
@@ -5267,6 +5272,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaFacingBetIsPricedByEquity)',
     "a PLO4/PLO5 cash postflop decision facing a person's bet or raise whose final fold became the call because the calibrated equity times the measured realization beat the price (counted once per changed decision)",
     'V94'
+  ),
+  receipt(
+    'omaha_class_cap_held_at_measured_equity',
+    'HorseLogic.decidePostflop (V15 / V40 class caps, omahaClassCapsRespectEquity)',
+    'a PLO4/PLO5 cash decision facing a bet in which a class cap would have pushed the equity below the measured equity against the bettor range and the measured equity was used instead',
+    'V40'
+  ),
+  receipt(
+    'omaha_class_cap_floor_raise_kept_to_call',
+    'HorseLogic.decide (reference postflop, omahaClassCapsRespectEquity)',
+    'the floor lifted a class cap in this decision and the reference chose a raise or an all-in larger than the call; the call was kept instead (the floor protects the call only)',
+    'V40'
+  ),
+  receipt(
+    'omaha_class_cap_floor_undersampled',
+    'HorseLogic.decidePostflop (V15 / V40 class caps, omahaClassCapsRespectEquity)',
+    'the same decision in which the governor allowed fewer than 400 samples for the measured equity, so no floor was applied and the cap acted as before',
+    'V40'
   ),
   receipt(
     'omaha_flop_facing_bet_ev_call',
