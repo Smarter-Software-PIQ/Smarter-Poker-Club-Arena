@@ -608,15 +608,12 @@ import {
   shortAllInCallFloor,
   shortAllInSpot,
 } from './HorseShortAllInCallFloor.js';
+import { tournamentCrumbsCallFloor } from './HorseTournamentCrumbsCallFloor.js';
 import {
-  tournamentCrumbsCallFloor,
-  tournamentCrumbsSpot,
-} from './HorseTournamentCrumbsCallFloor.js';
-import {
-  omahaMwBetSpot,
   omahaMwBetVerdict,
   omahaMwCallOffSpot,
   omahaMwCallOffVerdict,
+  omahaMwTourneyRuleSpot,
 } from './HorseOmahaMultiwayPricedInTournaments.js';
 import {
   classifyTournamentPreflopBranch,
@@ -8829,11 +8826,10 @@ function omahaMultiwayIsPricedInTournamentsRule(
   if (opts.omahaMultiwayIsPricedInTournaments !== true) return decision;
   const tele = telemetryOn(opts);
   try {
-    if (String(gs.stage ?? '') === 'preflop') {
-      const spot = omahaMwCallOffSpot(player, gs, decision);
-      if (!spot) return decision;
-      if (shortAllInSpot(player, gs) !== null || tournamentCrumbsSpot(player, gs) !== null)
-        return decision;
+    const where = omahaMwTourneyRuleSpot(player, gs, decision);
+    if (where === null) return decision;
+    if (where === 'call_off') {
+      const spot = omahaMwCallOffSpot(player, gs, decision)!;
       const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
       let bf: number | null = null;
       try {
@@ -8855,7 +8851,6 @@ function omahaMultiwayIsPricedInTournamentsRule(
       delete folded.amount;
       return folded;
     }
-    if (!omahaMwBetSpot(player, gs, decision)) return decision;
     const verdict = omahaMwBetVerdict(player, gs, decision);
     if (verdict === null) {
       if (tele) noteFire('omaha_mw_tourney_unpriced');

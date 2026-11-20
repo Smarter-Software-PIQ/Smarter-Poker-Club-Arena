@@ -244,7 +244,7 @@ describe('plo6FacingBetIsPriced off is the brain as it was', () => {
 });
 
 describe('plo6FacingBetIsPriced: the receipt validator admits every decision it makes', () => {
-  it('each on decision passes horseDecisionReceiptRefusal on its own request', () => {
+  it('each on decision passes horseDecisionReceiptRefusal on its own request, under its own option', () => {
     for (const n of NODES) {
       const on = play(n, ON);
       const st = stateAt(n.hand, n.node);
@@ -253,8 +253,42 @@ describe('plo6FacingBetIsPriced: the receipt validator admits every decision it 
           horseDecisionReceiptRefusal(structuredClone(d), 'plo6', {
             player: st.hero,
             gameState: st.gs,
+            plo6FacingBetIsPriced: true,
           })
         ).toBeNull();
     }
+  });
+
+  it("review N4: its fold -> call is admitted only under the decision's own option", () => {
+    // A fold -> call that the option made, validated without the option (a decision the worker ran with the
+    // option off), is refused: the verdict's superset no longer admits a PLO6 call from another cause.
+    let gated = 0;
+    for (const n of NODES) {
+      const on = play(n, ON);
+      const st = stateAt(n.hand, n.node);
+      for (const d of on.decisions) {
+        const ctx = { player: st.hero, gameState: st.gs };
+        const graph = (d as { policyGraph?: { transitions: Array<Record<string, unknown>> } })
+          .policyGraph;
+        const node = graph?.transitions.find((t) => t.node === 'wager_rules');
+        const before = node?.before as { action?: string } | null | undefined;
+        const after = node?.after as { action?: string } | undefined;
+        if (
+          after?.action !== 'call' ||
+          !before ||
+          !['fold', 'raise', 'all_in'].includes(String(before.action))
+        )
+          continue;
+        if (horseDecisionReceiptRefusal(structuredClone(d), 'plo6', ctx) === null) continue;
+        gated++;
+        expect(
+          horseDecisionReceiptRefusal(structuredClone(d), 'plo6', {
+            ...ctx,
+            plo6FacingBetIsPriced: true,
+          })
+        ).toBeNull();
+      }
+    }
+    expect(gated).toBeGreaterThan(0);
   });
 });

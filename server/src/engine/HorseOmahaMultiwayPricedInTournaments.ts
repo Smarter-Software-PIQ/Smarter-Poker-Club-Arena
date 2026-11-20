@@ -25,8 +25,10 @@
  * WHAT IT DECIDES (Omaha tournaments only: PLO4, PLO5, PLO6, PLO8 pot limit,
  * one board; cash, fixed limit and every other game are untouched).
  *
- * 1. PREFLOP CALL-OFF. The Horse continues (call, raise or all in) facing a
- *    bet, two or more opponents are already in the pot (players still to act
+ * 1. PREFLOP CALL-OFF. The Horse calls (a call, or an all-in that puts in no
+ *    more than the call) facing a bet (review N2: a raise or an all-in raise
+ *    is worth its fold equity, which this price does not see, so it is left
+ *    to the rules that price raises), two or more opponents are already in the pot (players still to act
  *    are not counted, which only overstates the call's equity), and the call
  *    leaves no more than the pot after it behind (stack-to-pot after the call
  *    at most 1: from there the equity is realised in full, so no realisation
@@ -90,6 +92,8 @@ import {
   scoreOmahaLowPartial,
   variantInfo,
 } from './HorseEval.js';
+import { shortAllInSpot } from './HorseShortAllInCallFloor.js';
+import { tournamentCrumbsSpot } from './HorseTournamentCrumbsCallFloor.js';
 
 /** The games of the option: pot-limit Omaha with four, five or six cards, and PLO8. */
 export const OMAHA_MW_TOURNEY_VARIANTS: ReadonlySet<string> = new Set([
@@ -465,8 +469,11 @@ export function omahaMwCallOffSpot(
   if (String(gs.stage ?? '') !== 'preflop') return null;
   const game = omahaMwTourneyGame(gs);
   if (!game) return null;
+  // Review N2 (2026-11-19): only the call is priced here. A raise or an all-in that raises is worth its
+  // fold equity and its extra chips, which this call price does not see, so it is left to the rules that
+  // price raises; an all-in is priced only when it puts in no more than the call (an all-in call).
   const act = String(decision.action);
-  if (act !== 'call' && act !== 'raise' && act !== 'all_in') return null;
+  if (act !== 'call' && act !== 'all_in') return null;
   if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return null;
   if (!Array.isArray(hero.cards) || hero.cards.length !== game.holeCount) return null;
   const stack = fin(hero.stack) ? Math.max(0, hero.stack) : 0;
@@ -475,6 +482,7 @@ export function omahaMwCallOffSpot(
     ? Math.max(0, gs.toCall)
     : Math.max(0, (fin(gs.currentBet) ? gs.currentBet : 0) - heroBet);
   if (!(toCall > EPS) || !(stack > 0)) return null;
+  if (act === 'all_in' && stack > toCall + EPS) return null;
   const pot = fin(gs.pot) ? Math.max(0, gs.pot) : 0;
   if (!(pot > 0)) return null;
   const call = Math.min(toCall, stack);
@@ -645,4 +653,62 @@ export function omahaMwBetVerdict(
     allFold: Math.round((allFold / n) * 10000) / 10000,
     margin: Math.round(margin * 100) / 100,
   };
+}
+
+/**
+ * Where the rule may turn `decision` around: 'call_off' (preflop, the call-off spot, and neither the short
+ * all-in floor nor the crumbs floor owns it), 'bet' (postflop, the multiway own-bet spot), else null. Pure,
+ * reads only the request. The rule (HorseLogic.omahaMultiwayIsPricedInTournamentsRule) prices only here, and
+ * the receipt validator admits its conversions only here (omahaMwTourneyAdmits), so the two cannot drift.
+ */
+export function omahaMwTourneyRuleSpot(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  decision: HorseDecision
+): 'call_off' | 'bet' | null {
+  if (String(gs.stage ?? '') === 'preflop') {
+    if (!omahaMwCallOffSpot(hero, gs, decision)) return null;
+    if (shortAllInSpot(hero, gs) !== null || tournamentCrumbsSpot(hero, gs) !== null) return null;
+    return 'call_off';
+  }
+  return omahaMwBetSpot(hero, gs, decision) ? 'bet' : null;
+}
+
+/**
+ * The receipt validator's admission of the rule's two conversions (review N1, 2026-11-19), read only under
+ * the decision's own option (HorseDecisionReceiptContext.omahaMultiwayPricedInTournaments):
+ *  - preflop, a call (the node may have entered as a raise or an all-in that an owner inside it made the
+ *    call) -> the fold, where the call-off spot re-derived on the request holds for the call;
+ *  - postflop, a bet, raise or all-in facing no bet -> the check, where the multiway own-bet spot
+ *    re-derived on the request holds for that wager.
+ * The verdict itself is not re-run: the node may resize a bet before the rule prices it (the public size),
+ * and the call-off price reads the engine's pay-jump bubble factor. A fold and a check put no chip in.
+ */
+export function omahaMwTourneyAdmits(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  previous: { action: string; amount?: number | null },
+  after: string
+): boolean {
+  try {
+    if (after === 'fold')
+      return (
+        String(gs.stage ?? '') === 'preflop' &&
+        ['call', 'raise', 'all_in'].includes(previous.action) &&
+        omahaMwTourneyRuleSpot(hero, gs, { action: 'call', thinkTime: 0 }) === 'call_off'
+      );
+    if (after === 'check')
+      return (
+        String(gs.stage ?? '') !== 'preflop' &&
+        ['bet', 'raise', 'all_in'].includes(previous.action) &&
+        omahaMwTourneyRuleSpot(hero, gs, {
+          action: previous.action as HorseDecision['action'],
+          ...(fin(previous.amount) ? { amount: previous.amount } : {}),
+          thinkTime: 0,
+        }) === 'bet'
+      );
+    return false;
+  } catch {
+    return false;
+  }
 }
