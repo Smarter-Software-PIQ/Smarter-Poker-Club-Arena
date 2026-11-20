@@ -2,10 +2,17 @@ import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { withoutValueSizeStamp } from '../engine/HorseOmahaValueSizeBand.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
+import { horseCashStackCeilingChips } from '../services/HorseCashStackCeiling.js';
+import { horseCashStackCeilingBBFrom } from '../engine/runtimeSettings/apply.js';
 import { priceLightningRunout } from './LightningRunoutEquity.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
 import { recheckHorseQualifiedBeforeAcceptance } from '../engine/HorseQualifiedAcceptance.js';
+import {
+  keepOmahaMathCoreDecision,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
 
 import { publicHandStatsFrame } from '../engine/presentation/publicHandStats.js';
 import {
@@ -2713,6 +2720,10 @@ export class LightningHandHost {
       retireHorseExecutionWitness(decision.fast.decision.executionWitness, 'turn_abandoned');
       return null;
     }
+    // COREGUARD (owner 2026-11-19 8:48 PM): the decision as the core issued it.
+    // The rechecks below record their verdicts; an applied omahaMathCore choice
+    // is never reverted to a pack baseline nor folded by a feature withdrawal.
+    const coreIssued = decision.fast.decision;
     const qualified = recheckHorseQualifiedBeforeAcceptance(decision.fast.decision, {
       player: hero,
       gameState: {
@@ -2731,8 +2742,11 @@ export class LightningHandHost {
       } as import('../engine/HorseLogic.js').HorseGameStateV2,
     });
     const beforeFeatureCheck = recheckHorsePhase14BeforeAcceptance(qualified);
-    const checked = recheckHorseFeaturesBeforeAcceptance(beforeFeatureCheck, auth.toCall);
-    const featureRefused = checked !== beforeFeatureCheck && !!checked.featureAuthority;
+    const featureChecked = recheckHorseFeaturesBeforeAcceptance(beforeFeatureCheck, auth.toCall);
+    const coreOwned = omahaMathCoreOwns(coreIssued);
+    const checked = keepOmahaMathCoreDecision(coreIssued, featureChecked, 'lightning_door');
+    const featureRefused =
+      !coreOwned && featureChecked !== beforeFeatureCheck && !!featureChecked.featureAuthority;
     decision.fast.decision = checked;
     return { checked, featureRefused };
   }
@@ -2843,14 +2857,68 @@ export class LightningHandHost {
       if (!r.success && this.hc) {
         intended = false;
         const auth = this.hc.getAuthoritativeActionState(userId);
-        applied = this.applyAction(
-          userId,
-          auth?.legalActions.includes('check') ? 'check' : 'fold',
-          undefined,
-          'horse_fallback',
-          undefined,
-          observe
-        ).success;
+        // COREGUARD: a refused core choice facing a bet is priced by the minimal
+        // exact computation on the fresh price (call when the equity beats it),
+        // never an automatic fold; then check, then fold, as before.
+        const coreChoice = fast?.decision ?? decision;
+        let coreCall: { action: ActionType; amount?: number } | null = null;
+        if (
+          omahaMathCoreOwns(coreChoice) &&
+          auth?.canAct &&
+          !auth.legalActions.includes('check') &&
+          (auth.toCall ?? 0) > 0
+        ) {
+          const st = this.hc.getState();
+          const me = st.players.find((p) => p.user_id === userId);
+          const priced = me
+            ? omahaMathCoreRecover({
+                player: me as unknown as import('../types.js').SeatPlayer,
+                gs: {
+                  players: st.players,
+                  communityCards: st.communityCards,
+                  stage: st.stage,
+                  currentBet: st.currentBet,
+                  pot: st.pot,
+                  minRaise: st.minRaise,
+                  ...this.hc.getBlindSnapshot(),
+                  gameMode: 'cash',
+                  gameVariant: String(this.rules?.game_variant ?? 'nlh'),
+                  toCall: auth.toCall,
+                  legalActions: [...auth.legalActions],
+                } as unknown as import('../engine/HorseLogic.js').HorseGameStateV2,
+                on: true,
+                from: 'controller_refused',
+                error: 'controller_refused',
+                runCore: false,
+                budgetMs: 15,
+              })
+            : null;
+          if (priced && (priced.action === 'call' || priced.action === 'all_in'))
+            coreCall = {
+              action: priced.action,
+              ...(priced.action === 'call' ? { amount: auth.toCall } : {}),
+            };
+        }
+        if (coreCall) {
+          applied = this.applyAction(
+            userId,
+            coreCall.action,
+            coreCall.amount,
+            'horse_fallback',
+            undefined,
+            observe
+          ).success;
+          if (applied) noteFire('omaha_math_core_refused_choice_priced_call');
+        }
+        if (!applied)
+          applied = this.applyAction(
+            userId,
+            auth?.legalActions.includes('check') ? 'check' : 'fold',
+            undefined,
+            'horse_fallback',
+            undefined,
+            observe
+          ).success;
       }
       // After the commit decision, so an accepted batch is already committing
       // and only a non-exact one is retired by the finalizer.
@@ -3468,6 +3536,13 @@ export class LightningHandHost {
       noteLightningHandForBankTheWin({
         clusterId: this.clusterId,
         maxBuyIn: Number.isFinite(max) && max > 0 ? max : bb * 200,
+        // HorseCashStackCeiling (horse.cashStackCeilingBB, 0 = off): PLO4/PLO5 cash pools only, else null.
+        stackCeiling: horseCashStackCeilingChips({
+          ceilingBB: horseCashStackCeilingBBFrom(this.runtimeSettings),
+          variant: this.rules?.game_variant,
+          bigBlind: bb,
+          maxBuyIn: max,
+        }),
         participants: [...this.participants.values()],
         stacksAfter: new Map(results.map((r) => [r.playerId, Number(r.stackAfter)])),
       });
@@ -3539,6 +3614,21 @@ export class LightningHandHost {
     );
   }
 
+  /** omahaBetReadIsPerOpponent's learner: the holdings revealed at showdown (not mucked; the same ones the hand row
+   *  stores as hole_cards) and the board, or nothing when none was revealed. */
+  private betReadReveal(): {
+    betReadShown?: Record<string, Array<{ rank: string; suit: string }>>;
+    betReadBoard?: string[];
+  } {
+    const shown: Record<string, Array<{ rank: string; suit: string }>> = {};
+    for (const sd of this.showdown)
+      if (!this.isMucked(sd.userId) && sd.holeCards?.length) shown[sd.userId] = sd.holeCards;
+    const board = this.boards[0] ?? [];
+    return Object.keys(shown).length > 0 && board.length > 0
+      ? { betReadShown: shown, betReadBoard: [...board] }
+      : {};
+  }
+
   /** LightningHorseObservation: teach the live horse lane this committed hand. */
   private observeForHorses(
     state: GameState,
@@ -3567,6 +3657,7 @@ export class LightningHandHost {
         hasHuman: this.hasHumanParticipant(),
         actions: acceptedActions,
         showdown: this.showdown,
+        ...this.betReadReveal(),
         ...(results ? { results } : {}),
       },
       {

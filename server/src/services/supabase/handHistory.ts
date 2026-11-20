@@ -1163,6 +1163,16 @@ export async function logHandHistory(params: {
       horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
       bigBlind: params.bigBlind,
       showdown: params.showdownReveal ?? null,
+      // omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead): the revealed holdings this row stores as
+      // hole_cards and its board, for a one-board non-bomb hand only.
+      ...(holeCardsPayload &&
+      boardPayload &&
+      !params.bombPot &&
+      !params.communityCards2?.length &&
+      !params.communityCards3?.length &&
+      !params.ritBoards?.length
+        ? { betReadShown: holeCardsPayload, betReadBoard: boardPayload }
+        : {}),
       riverCallContext: {
         variant: params.gameVariant,
         boardCount: Math.max(

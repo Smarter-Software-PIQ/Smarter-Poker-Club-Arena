@@ -1,4 +1,5 @@
 import { horseSavedProfilePresence } from '../../services/HorseSavedProfilePresence.js';
+import { noteOmahaMathCoreSwitchDelivered } from '../omahaMathCore/OmahaMathCoreSwitchState.js';
 import { HorseRequestRetentionBudget, horseRequestAllowance } from './requestRetentionBudget.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { HorseOwnPublicHistoryLoader } from './ownPublicHistoryProvenance.js';
@@ -131,6 +132,7 @@ import {
   deliveredSwitchConfigsNote,
   deliveredSwitchConfigsPrevious,
   horseDecisionReceiptRefusalForGates,
+  omahaMathCoreGate,
   omahaPricedRaiseGateCandidates,
   omahaPricedInLightningGateCandidates,
   omahaSlowplayMixInLightningGateCandidates,
@@ -1722,6 +1724,8 @@ export class LiveHorseDecisionWorkerClient {
         message.status === 'ok' ? message.config : null,
         Date.now()
       );
+      // COREGUARD: the worker-failure doors read whether the core owned a failed decision.
+      noteOmahaMathCoreSwitchDelivered(message.status === 'ok' ? message.config : null);
       return true;
     } catch {
       return false;
@@ -2224,6 +2228,11 @@ export class LiveHorseDecisionWorkerClient {
         {
           player: active.request.player,
           gameState: active.request.gameState,
+          omahaMathCore: omahaMathCoreGate(
+            active.request.opts as Readonly<Record<string, unknown>> | undefined,
+            this.deliveredSwitchConfigs.current,
+            previous
+          ),
         },
         omahaStrategyInPlo6GateCandidates(
           active.request.opts,

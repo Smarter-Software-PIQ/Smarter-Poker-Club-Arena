@@ -621,6 +621,9 @@ export interface PreflopCtx {
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
+  /** EMERG AUDIT-05 2026-11-19: the V21 deep discipline reads the effective depth (PLO4/PLO5 high cash only; the
+   *  caller sets it). Absent or false: the Horse's own stack, as before. */
+  deepDisciplineEffectiveDepth?: boolean;
   /** PLO6-AUDIT-004 (2026-11-12): the VPIP floor multiplier already folded
    *  into `tightness` (HorseLogic.vpipFloorMul), a number in (0, 1) on a
    *  floored table where the seat is still steering up to its target. Given
@@ -4045,8 +4048,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // stack-offs of 150bb or more, -63,663bb. The M-zones still own short
     // play - deepT is zero at 120bb and below, so nothing under that depth
     // changes, spins and SNGs included.
+    // EFFECTIVE DEPTH (2026-11-19, EMERG AUDIT-05): the war is fought for the chips BOTH sides can lose, so the
+    // depth is the smaller of hero's stack and the deepest live opponent's (effectiveStackBB), never hero's own
+    // stack alone. Reading `stackBB` here tightened a 400bb Horse facing a 100bb person's 3-bet as if 400bb deep
+    // (Omaha always takes this branch: the V73 read is hold'em only). The V73 read already uses effective depth.
+    const deepDepthBB =
+      ctx.deepDisciplineEffectiveDepth === true
+        ? Math.min(stackBB, ctx.effectiveStackBB ?? stackBB)
+        : stackBB;
     const deepT =
-      ctx.deepDiscipline === true && stackBB > 120 ? Math.min(0.05, (stackBB - 120) / 2600) : 0;
+      ctx.deepDiscipline === true && deepDepthBB > 120
+        ? Math.min(0.05, (deepDepthBB - 120) / 2600)
+        : 0;
     let fourBetThresh = phase6CapBar(
       t53(0.93 - (fourBetAggression - 1) * 0.04, 'fourBet') -
         0.04 * hunted3 -

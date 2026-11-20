@@ -315,7 +315,7 @@ describe('the table floor limp of a short hold’em stack (vpipFloorLimpOnly)', 
     expect(underCap).toBeGreaterThan(5);
   });
 
-  it('admits it only under the line, on a floored table, with the option on', () => {
+  it('admits it only under the line, on a floored table; the request opts need not carry the option', () => {
     const limp = {
       route: 'chart_open_jam',
       referenceProposal: { action: 'call', amount: BB },
@@ -329,8 +329,13 @@ describe('the table floor limp of a short hold’em stack (vpipFloorLimpOnly)', 
       return referenceReturnShape(limp, { player: hero, gameState: gs, opts });
     };
     expect(at(OWN, TABLE_ON)).toBe(true);
-    expect(at(OWN, PRODUCTION_28372C9A)).toBe(false);
-    expect(at(OWN, POOL_ON)).toBe(false);
+    // The switch delivers vpipFloorLimpOnly inside the worker after the request
+    // is built (as #11491 found for the pool option): silent request opts must
+    // not refuse the table floor's limp. The public conditions below still do.
+    expect(at(OWN, PRODUCTION_28372C9A)).toBe(true);
+    expect(at(OWN, POOL_ON)).toBe(true);
+    expect(at(OWN, PRODUCTION_28372C9A, (g) => delete g.vpipFloor)).toBe(false);
+    expect(at({ hands: 30, vpip: 60 }, PRODUCTION_28372C9A)).toBe(false);
     expect(at({ hands: 30, vpip: 60 }, TABLE_ON)).toBe(false); // over the line
     expect(at({ hands: 2, vpip: 0 }, TABLE_ON)).toBe(false); // no judged sample yet
     expect(at(OWN, TABLE_ON, (g) => delete g.vpipFloor)).toBe(false); // no floor

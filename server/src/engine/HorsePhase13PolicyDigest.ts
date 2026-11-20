@@ -108,6 +108,8 @@ export const HORSE_PHASE13_POLICY_SOURCE_REASONS: Readonly<Record<string, string
   'src/engine/plo4/Plo4LivePolicy.ts':
     'plo4BlindSeatsStatus and plo4ButtonOffset: the posted-blind check and button offset behind the action order and the binding',
   'src/engine/plo4/Plo4PolicyPack.ts': 'plo4HandShape, the PLO4 range prior the sampler reads',
+  'src/engine/omaha/OmahaPackDepth.ts':
+    'the depth the PLO4 and PLO5 pack gates read (2026-11-19: omahaPackEffectiveDepth, omahaPackClampDeepDepth); imported at runtime by Plo4LivePolicy, so it is bound with it',
   'src/engine/omaha/OmahaVariantPolicyPack.ts':
     'omahaVariantHandShape, the PLO5/PLO6/PLO8 range prior the sampler reads',
   'src/engine/remainingVariants/RemainingVariantPolicyPack.ts':
@@ -155,8 +157,8 @@ export const HORSE_PHASE13_POLICY_EXCLUDED_CLOSURE_FILES: Readonly<Record<string
       'write-only feature counters HorseMind notes when a read is corroborated or presumed; it returns nothing any decision reads',
     'src/engine/remainingVariants/RemainingVariantActionEconomics.ts':
       'boundary: the Phase 12 post-decision net-action economics; no joint call reaches it',
-    'src/engine/omaha/OmahaVariantEquity.ts':
-      'the Phase 11 and 12 equity summaries; neither choosePineappleFlopPair nor remainingVariantChipUnit calls it',
+    // (OmahaVariantEquity.ts is hashed since 2026-11-19: the math core reaches it through lane EQUITY's
+    // scoring, HorseReferenceDecisionSources.ts; hashed beats excluded)
     'src/engine/omaha/OmahaCardFacts.ts':
       'the Phase 10 card facts the PLO4 policy reads; plo4BlindSeatsStatus and plo4ButtonOffset read nothing from it',
     'src/engine/CryptoRandom.ts':

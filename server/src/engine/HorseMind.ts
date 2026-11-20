@@ -457,6 +457,13 @@ export interface DecisionReadOptions {
    *  the measured Omaha fold-over-MDF ratio scaled by the opponent's shrunk
    *  postflop fold-to-bet read (see OMAHA_EV_FOLD_MODEL below). */
   omahaEvFoldModel?: boolean;
+  /** omahaEvFoldModelHeadsUp (2026-11-19, default OFF): with omahaEvFoldModel on, a PLO4/PLO5 cash flop or turn
+   *  bet into ONE opponent is priced on the heads-up cell (OMAHA_EV_FOLD_MODEL_HEADS_UP) and his street read.
+   *  Present only when true. */
+  omahaEvFoldModelHeadsUp?: boolean;
+  /** NOV8 (default off): the Omaha EV fold model does not price PLO4 / PLO5; those games keep the
+   *  exploit bluff multiplier (the pre-#10104 price). PLO6 is unchanged. */
+  omahaEvFoldModelSkipsPlo45?: boolean;
   /** Owner directive 2026-11-13: an unknown Omaha opponent receives a neutral,
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
@@ -735,6 +742,66 @@ export const OMAHA_EV_FOLD_MODEL: Readonly<
 });
 /** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
 export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
+
+/**
+ * OMAHA EV FOLD MODEL, HEADS-UP POT (2026-11-19, lane HU-OMAHA; rebuild of the intent of 2301473c493, which added
+ * unsourced plo4_hu / plo5_hu cells 1.0 / 0.311 that nothing selected). Read only by HorseMind.omahaEvFoldMulOf with
+ * omahaEvFoldModelHeadsUp on (default OFF, opt-in `=== true`).
+ *
+ * OMAHA_EV_FOLD_MODEL pools every seat of every pot, and most of its responses are multiway, where each respondent
+ * folds well above MDF. When the Horse's first flop or turn bet faces ONE opponent, people fold at about MDF.
+ * Measured on the FOLD-MODEL lane's extract (audit archive repairs/FOLD-MODEL/work/events-fit.jsonl, sha256
+ * 7cf63f9ad512bf35...; PLO4/PLO5 cash, one board, no bomb pot, a person seated, 2026-11-04 10:00Z to 2026-11-18
+ * 10:06Z): a person's first answer to a Horse's first bet on the flop or turn (nothing bet before it on that
+ * street, the bet not all-in, no raise before his answer) with exactly two players on the street. `fold` is his
+ * fold share, `foldOverMdf` that share over the mean break-even share s / (P + s) of the sizes he faced:
+ *
+ *   PLO4 flop  n 1,127  fold 0.3185 [0.291, 0.346]  mean s/(P+s) 0.3289  foldOverMdf 0.9684
+ *   PLO4 turn  n   777  fold 0.3411 [0.308, 0.374]  mean s/(P+s) 0.3554  foldOverMdf 0.9596
+ *   PLO5 flop  n   860  fold 0.3000 [0.269, 0.331]  mean s/(P+s) 0.3145  foldOverMdf 0.9539
+ *   PLO5 turn  n   623  fold 0.3579 [0.320, 0.396]  mean s/(P+s) 0.3693  foldOverMdf 0.9693
+ *   (multiway, same extract: people 1.27-1.57 over MDF, which is what the pooled model carries.)
+ *
+ * A cell is used only with at least OMAHA_EV_FOLD_HEADS_UP_MIN_N person answers; otherwise the variant's pooled
+ * flop+turn cell (PLO4 n 1,904 fold 0.3277 foldOverMdf 0.9646; PLO5 n 1,483 fold 0.3243 foldOverMdf 0.9610) is the
+ * fallback, and below that the pooled model stands. Nothing is keyed to a hand class, a bet size or an account.
+ */
+export type OmahaEvFoldHeadsUpStreet = 'flop' | 'turn';
+export interface OmahaEvFoldHeadsUpCell {
+  foldOverMdf: number;
+  population: number;
+  n: number;
+}
+export const OMAHA_EV_FOLD_HEADS_UP_MIN_N = 300;
+export const OMAHA_EV_FOLD_MODEL_HEADS_UP: Readonly<
+  Record<
+    'plo4' | 'plo5',
+    Readonly<Record<OmahaEvFoldHeadsUpStreet | 'pooled', Readonly<OmahaEvFoldHeadsUpCell>>>
+  >
+> = Object.freeze({
+  plo4: Object.freeze({
+    flop: Object.freeze({ foldOverMdf: 0.9684, population: 0.3185, n: 1127 }),
+    turn: Object.freeze({ foldOverMdf: 0.9596, population: 0.3411, n: 777 }),
+    pooled: Object.freeze({ foldOverMdf: 0.9646, population: 0.3277, n: 1904 }),
+  }),
+  plo5: Object.freeze({
+    flop: Object.freeze({ foldOverMdf: 0.9539, population: 0.3, n: 860 }),
+    turn: Object.freeze({ foldOverMdf: 0.9693, population: 0.3579, n: 623 }),
+    pooled: Object.freeze({ foldOverMdf: 0.961, population: 0.3243, n: 1483 }),
+  }),
+});
+/** The heads-up cell for one variant and street (the pooled cell below the minimum n; null below that too). */
+export function omahaEvFoldHeadsUpCell(
+  variant: string | null | undefined,
+  street: OmahaEvFoldHeadsUpStreet
+): OmahaEvFoldHeadsUpCell | null {
+  const v = (variant ?? '').toLowerCase();
+  if (v !== 'plo4' && v !== 'plo5') return null;
+  const cells = OMAHA_EV_FOLD_MODEL_HEADS_UP[v];
+  if (cells[street].n >= OMAHA_EV_FOLD_HEADS_UP_MIN_N) return cells[street];
+  if (cells.pooled.n >= OMAHA_EV_FOLD_HEADS_UP_MIN_N) return cells.pooled;
+  return null;
+}
 
 /** Exploit multipliers derived from a specific opponent's tendencies. */
 export interface ExploitProfile {
@@ -5339,8 +5406,12 @@ export class HorseMind {
    * fold-to-bet read shrunk toward the game's population. A proven winner
    * keeps its bluff respect.
    */
-  static evFoldMul(userId: string, recencyBlend: boolean = true): number {
-    const model = this.omahaEvFoldMulOf(userId);
+  static evFoldMul(
+    userId: string,
+    recencyBlend: boolean = true,
+    headsUpStreet: OmahaEvFoldHeadsUpStreet | null = null
+  ): number {
+    const model = this.omahaEvFoldMulOf(userId, headsUpStreet);
     if (model !== null) return model;
     return this.exploit(userId, recencyBlend).bluffMod;
   }
@@ -5365,13 +5436,30 @@ export class HorseMind {
   /** The Omaha EV fold model's multiplier, or null when the option is off,
    *  outside a decision, at a tournament table, or in a game it was not
    *  measured on. */
-  static omahaEvFoldMulOf(userId: string): number | null {
+  static omahaEvFoldMulOf(
+    userId: string,
+    headsUpStreet: OmahaEvFoldHeadsUpStreet | null = null
+  ): number | null {
     if (this.decisionReadOptions.omahaEvFoldModel !== true || !this.decisionScope) return null;
     // Cash only: tournament Omaha players fold about MDF (see the model note).
     if (this.decisionMode !== 'cash') return null;
+    // omahaEvFoldModelHeadsUp (default off): a bet into one opponent is priced on the heads-up cell.
+    if (this.decisionReadOptions.omahaEvFoldModelHeadsUp === true && headsUpStreet !== null) {
+      const hu = this.omahaEvFoldHeadsUpMulOf(userId, headsUpStreet);
+      if (hu !== null) return hu;
+    }
     const v = (this.decisionVariant ?? '').toLowerCase() as OmahaEvFoldVariant;
     const cell = OMAHA_EV_FOLD_MODEL[v];
     if (!cell) return null;
+    // NOV8 (omahaEvFoldModelSkipsPlo45, default off): PLO4 / PLO5 cash return to the exploit bluff
+    // multiplier they priced with before #10104 went live (Nov 9 2026 1:41 PM Chicago); PLO6 never reads it.
+    if (
+      (v === 'plo4' || v === 'plo5') &&
+      this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true
+    ) {
+      noteFire('omaha_ev_fold_model_skipped_plo45');
+      return null;
+    }
     const c = this.decisionExploitCounters(userId);
     const n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
     const k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
@@ -5386,6 +5474,44 @@ export class HorseMind {
     // Receipt: live proof the model priced an opponent (one count per
     // opponent pricing, not per decision). Counting never decides.
     noteFire('omaha_ev_fold_model_priced');
+    return mul;
+  }
+
+  /**
+   * omahaEvFoldModelHeadsUp: the fold multiplier of one opponent facing the Horse's flop or turn bet heads-up, or
+   * null outside PLO4/PLO5 (the caller then keeps the pooled model). foldMul = foldOverMdf x his fold / population
+   * of the heads-up cell, where his fold is his measured fold to a bet on that street (the street record,
+   * HorseMind.omahaStreetReadOf) when it has opportunities, else his postflop fold-to-bet counters, either shrunk
+   * toward the cell's person population with OMAHA_EV_FOLD_PRIOR_STRENGTH pseudo-observations: a stranger is the
+   * heads-up population, a long record speaks for itself. A proven winner keeps its bluff respect, as in the pooled
+   * model. Public actions only; pure apart from the receipt.
+   */
+  private static omahaEvFoldHeadsUpMulOf(
+    userId: string,
+    street: OmahaEvFoldHeadsUpStreet
+  ): number | null {
+    const cell = omahaEvFoldHeadsUpCell(this.decisionVariant, street);
+    if (!cell) return null;
+    const streetCell = this.omahaStreetReadOf(userId)?.counters.foldToBet[street];
+    let n: number;
+    let k: number;
+    if (streetCell && Number.isFinite(streetCell.opp) && streetCell.opp > 0) {
+      n = streetCell.opp;
+      k = Math.max(0, Math.min(n, Number.isFinite(streetCell.hit) ? streetCell.hit : 0));
+    } else {
+      const c = this.decisionExploitCounters(userId);
+      n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
+      k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
+    }
+    const m = OMAHA_EV_FOLD_PRIOR_STRENGTH;
+    const fold =
+      Number.isFinite(n) && Number.isFinite(k)
+        ? (k + m * cell.population) / (n + m)
+        : cell.population;
+    let mul = (cell.foldOverMdf * fold) / cell.population;
+    if (isProvenWinner(userId, this.activeWinnerScope()) && !this.isLagBully(userId))
+      mul *= WINNER_BLUFF_MOD;
+    noteFire('omaha_ev_fold_model_heads_up_priced');
     return mul;
   }
 

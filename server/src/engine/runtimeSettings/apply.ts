@@ -58,3 +58,12 @@ export function lightningFastFoldTuningFrom(
     tempoMax: v['lightning.fastFoldTempoMax']!,
   });
 }
+
+/**
+ * HorseCashStackCeiling: the ceiling in big blinds a hand's snapshot sets, 0 when off (the compiled default, an
+ * engine without a pinned snapshot, or a value that is not a positive number).
+ */
+export function horseCashStackCeilingBBFrom(snapshot: RuntimeSettingsSnapshot | undefined): number {
+  const value = (snapshot ?? COMPILED_RUNTIME_SETTINGS).values?.['horse.cashStackCeilingBB'];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}

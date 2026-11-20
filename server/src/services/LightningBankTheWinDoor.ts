@@ -42,7 +42,7 @@ async function readFacts(
 export function startLightningBankTheWin(
   getEngine: (tableId: string) => LeaveDoorEngine | null | undefined
 ): void {
-  onLightningBankTheWin(({ clusterId, playerId, settle }) => {
+  onLightningBankTheWin(({ clusterId, playerId, stackCeiling, settle }) => {
     void (async () => {
       let facts: LightningBankReading | null = null;
       try {
@@ -52,7 +52,7 @@ export function startLightningBankTheWin(
       }
       if (!facts) return settle('not_ready'); // could not tell: ask again on a later hand
       const basis = facts.start_basis ?? null;
-      const verdict = decideLightningBankTheWin(playerId, facts);
+      const verdict = decideLightningBankTheWin(playerId, facts, stackCeiling);
       if (verdict !== 'leave') return settle(verdict, basis);
       const tableId = facts.table_id;
       const engine = tableId ? getEngine(tableId) : undefined;

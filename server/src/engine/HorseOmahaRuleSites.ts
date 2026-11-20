@@ -419,11 +419,29 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBigBetIsPotShare: open(
     'a pot-share size line: a turn or river wager under 70% of the pot it went into is tiered by its pot share instead of the 20 big blind mark, and the option also gates the limped-pot minimum bet (a bet under 2 BB into 4 BB or more becomes max(2 BB, 40% of the pot)); neither is priced. With omahaSmallBetIsPriced on, the minimum bet replaces a bet that option placed only through its priced size comparison. Owner: PLO Strategy lane 013U37'
   ),
+  omahaFacingBetIsPricedByEquity: priced(
+    "a final fold facing a person's wager becomes the call when the recomputed equity, calibrated by street against persons' real cards, times the measured realization beats the price (default OFF; EMERG lane FACING 2026-11-19)"
+  ),
+  omahaTurnStrongHandRealizationIsMeasured: priced(
+    'inside omahaFacingBetIsPricedByEquity: a Lightning heads-up turn fold of a strong made hand is priced with the realization measured for those calls on public information (default OFF; EMERG lane OPEN-ITEMS 2026-11-19)'
+  ),
+  omahaBetReadIsPerOpponent: priced(
+    "heads-up on the river and a later turn barrel, the facing-bet verdicts price the bettor's non-value share from his own measured first-bet composition of that street, size and barrel (shown hands against the other persons' shown hands, and his bet frequency), one rule for every opponent, the population prior below the minimum sample (default OFF; EMERG lane CR2 2026-11-20)"
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaClassCapsRespectEquity: priced(
+    'facing a bet in PLO4/PLO5 cash, the V40 pressure cap and the V15 flush/straight cap lower the equity only down to the measured equity against the bettor range for this line and size, never below it; a raise the floor would make is held to the call (default OFF)'
+  ),
   omahaFlopDefenceIsPriced: priced(
     'the heads-up flop fold or call facing his first bet is the flop expected-value verdict with the call priced as a two-street tree (his measured barrel and river bet rates, the Horse priced turn and river answers); alone it answers only that spot (default OFF)'
+  ),
+  omahaTurnStabDefenceIsPriced: priced(
+    "the non-value prior of a person's turn stab after a checked-through flop, measured for that line, inside the facing-bet EV (default OFF; an input, not a rule site)"
+  ),
+  omahaTurnStabLightningRow: priced(
+    "the Lightning-measured non-value prior of a person's turn stab after a checked-through flop, inside the facing-bet EV, with omahaTurnStabDefenceIsPriced and omahaPricedInLightning on (default OFF; an input, not a rule site)"
   ),
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
@@ -505,11 +523,19 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   // outside PLO4/PLO5 cash postflop decisions
   ploSuitedAcesFourBet: outside(PREFLOP),
+  // EMERG lane PACK 2026-11-19: the depth the pack gates admit at, not a decision rule
+  omahaPackEffectiveDepth: outside(
+    'the depth at which the PLO4/PLO5 strategy pack admits a decision (omaha/OmahaPackDepth.ts); it decides no action'
+  ),
+  omahaPackClampDeepDepth: outside(
+    'the depth at which the PLO4/PLO5 strategy pack admits a decision (omaha/OmahaPackDepth.ts); it decides no action'
+  ),
   omahaSmallBlindSteal: outside(PREFLOP),
   omahaReraisedPotDiscipline: outside(PREFLOP),
   omahaReraisedPotStackOffFold: outside(PREFLOP),
   omahaReraisedPotStackOffRealistic: outside(PREFLOP),
   omahaReraisedCallVsRaisePriced: outside(PREFLOP),
+  omahaPreflopJamFacingReraiseIsPriced: outside(PREFLOP),
   omahaReraisedFoldVsTight: outside(PREFLOP),
   omahaReraisedPositionInLightning: outside(PREFLOP),
   omahaEliteContinuesVsMeasuredWideThreeBettor: outside(PREFLOP),
@@ -527,6 +553,8 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaReraiseRangeEarlyPosition: outside(PREFLOP),
   omahaNoCallColdFourBetWithoutPremium: outside(PREFLOP),
   omahaVpipFloorByLimp: outside(PREFLOP),
+  omahaColdCallOutsideBigBlindIsMeasured: outside(PREFLOP),
+  omahaOpenNeedsMeasuredStrength: outside(PREFLOP),
   omahaManiacReRaiseWidthMeasured: outside('a read (re-raise width), not a rule'),
   omahaPreflopStackPlan: outside(PREFLOP + '; off-only under the preflop range hold'),
   omahaBetSizeByPublicState: outside(
@@ -541,7 +569,39 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTightOpponent: outside('a read response, preflop'),
   omahaTightOpponentSteal: outside(PREFLOP),
   omahaEvFoldModel: outside('a model switch'),
+  omahaEvFoldModelHeadsUp: priced(
+    'the EV bet engine fold multiplier of one opponent heads-up: the measured heads-up fold share over MDF scaled by his shrunk fold to a bet on the street (default OFF)'
+  ),
+  omahaEvFoldModelSkipsPlo45: outside('a model scope switch (PLO4 / PLO5 cash only)'),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
+  omahaNoCategoricalRules: outside(
+    'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'
+  ),
+  omahaBandFallbackInBandUnit: outside(
+    'an equity sampler unit (the PLO4/PLO5 band fallback measures in the band percentile; default OFF): it decides no action'
+  ),
+  omahaMathCore: priced(
+    'the math-first PLO4/PLO5 cash core (default OFF): the expected-value maximum over every legal action from exact 2+3 equity against public ranges, measured fold and response frequencies and the price; the outermost owner of wager_rules'
+  ),
+  omahaMathCorePreflop: outside(PREFLOP),
+  omahaMathCorePlo4Flop: outside(
+    'a scope gate of omahaMathCore (PLO4 cash flop admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo4Turn: outside(
+    'a scope gate of omahaMathCore (PLO4 cash turn admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo4River: outside(
+    'a scope gate of omahaMathCore (PLO4 cash river admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo5Flop: outside(
+    'a scope gate of omahaMathCore (PLO5 cash flop admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo5Turn: outside(
+    'a scope gate of omahaMathCore (PLO5 cash turn admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo5River: outside(
+    'a scope gate of omahaMathCore (PLO5 cash river admission; off = shadow receipt only)'
+  ),
   omahaTournamentsExcludeCategoricalRules: outside(
     'a scope gate (tournaments): with it on the categorical rules here stay cash-only'
   ),

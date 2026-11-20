@@ -117,7 +117,7 @@ import {
   omahaPricedCardImpactRead,
   type OmahaPricedRead,
 } from './HorseOmahaPricedRules.js';
-import { omahaPricedInScope } from './HorseOmahaPricedWiring.js';
+import { omahaPricedInScope, type OmahaPricedScopeOpts } from './HorseOmahaPricedWiring.js';
 import { omahaOpponentKindOf, type OmahaOpponentKind } from './HorseOmahaPricedMode.js';
 
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
@@ -143,10 +143,12 @@ export interface OmahaCheckedToScope {
 /** The option's spot: public information and the Horse's own cards. Null outside it. */
 export function omahaCheckedToBetScope(
   hero: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  /** the decision's options: a Lightning pool is in scope only with omahaPricedInLightning (AUDIT-02, 2026-11-19) */
+  opts?: OmahaPricedScopeOpts | null
 ): OmahaCheckedToScope | null {
   try {
-    if (!omahaPricedInScope(hero, gs)) return null;
+    if (!omahaPricedInScope(hero, gs, opts)) return null;
     const street = String(gs.stage ?? '');
     // v2 (REDESIGN-PLAN section 2): the river only. The turn is priced as a whole line by the
     // street plan, which this arithmetic lacks (no river betting after a called turn bet).
@@ -524,11 +526,12 @@ export function omahaCheckedToBetDecision(
   hero: SeatPlayer,
   gs: HorseGameStateV2,
   readOf: (seat: number) => OmahaCheckedToRead | null,
-  rake: number
+  rake: number,
+  opts?: OmahaPricedScopeOpts | null
 ): OmahaCheckedToResult {
   const same: OmahaCheckedToResult = { decision, priced: false, changed: null, bluff: false };
   if (decision.action !== 'check') return same;
-  const scope = omahaCheckedToBetScope(hero, gs);
+  const scope = omahaCheckedToBetScope(hero, gs, opts);
   if (!scope) return same;
   const verdict = omahaCheckedToBet(hero, gs, scope, readOf, rake);
   if (!verdict) return same;

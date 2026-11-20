@@ -3032,6 +3032,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaCheckedToBetIsPriced: true },
     b: {},
   })),
+  // 2026-11-19 lane RIVER-BLOCK (owner order 16:47 Chicago: "REMOVE BLOCKER BETS ON THE RIVER FOR HORSES"):
+  // horseRiverNoBlockerBet, default OFF. PLO: both arms carry production's live Omaha set with the priced small
+  // bets on (live since 2026-11-18 19:18Z), a adds the option. Hold'em: the bare base, a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_horse_river_no_blocker_bet`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaSmallBetIsPriced: true,
+      horseRiverNoBlockerBet: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
+  })),
+  {
+    name: 'nlh_horse_river_no_blocker_bet',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { horseRiverNoBlockerBet: true },
+    b: {},
+  },
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
   // barrel only against measured postflop value leaders, and the bare overpair
@@ -3487,6 +3510,76 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaReraiseRangeEarlyPosition: true,
     },
   })),
+  // 2026-11-19 (hand #60156608, owner 15:34 Chicago; lane CALL-OR-RAISE-2, default OFF): facing two or more
+  // preflop raises heads-up, fold, call and raise (a 4-bet, a 5-bet, a jam) are each priced against the measured
+  // ranges; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_jam_facing_reraise_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaPreflopJamFacingReraiseIsPriced: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane PREFLOP-AUDIT (default OFF, PLO4/PLO5 cash tables only): omahaColdCallOutsideBigBlindIsMeasured
+  // (a final cold call of one open from a seat without a big blind posted becomes a fold for the hand classes measured
+  // to lose against folding); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_cold_call_outside_big_blind_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaColdCallOutsideBigBlindIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane PREFLOP-AUDIT (default OFF, PLO4/PLO5 cash only): omahaOpenNeedsMeasuredStrength (a final
+  // first-in raise from a seat that is not the button with a hand below the measured strength cut becomes a fold);
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_open_needs_measured_strength`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaOpenNeedsMeasuredStrength: true },
+    b: {},
+  })),
+  // 2026-11-19 EMERG lanes FACING and V40CAP (default OFF, PLO4/PLO5 cash only): omahaFacingBetIsPricedByEquity (a
+  // final fold facing a person's wager priced by calibrated equity) and omahaClassCapsRespectEquity (the V15 and V40
+  // class caps never push equity below the measured equity); a switches each on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_facing_bet_is_priced_by_equity`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetIsPricedByEquity: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_turn_strong_hand_realization_is_measured`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetIsPricedByEquity: true, omahaTurnStrongHandRealizationIsMeasured: true },
+      b: { omahaFacingBetIsPricedByEquity: true },
+    },
+    {
+      name: `${variant}_omaha_bet_read_is_per_opponent`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetEv: true, omahaBetReadIsPerOpponent: true },
+      b: { omahaFacingBetEv: true },
+    },
+    {
+      name: `${variant}_omaha_class_caps_respect_equity`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaClassCapsRespectEquity: true },
+      b: {},
+    },
+  ]),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher
@@ -3875,6 +3968,56 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-20 lane NOV8 / HIDDEN-ON (omahaEvFoldModelSkipsPlo45, default OFF; HIDDEN-ON grade PASS, fit +130.2 +- 44.3
+  // bb, holdout +124.2 +- 80.5): both arms carry production's live Omaha set; a also skips the EV fold model for
+  // PLO4/PLO5. 100 bb cash. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_ev_fold_model_skips_plo45`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true, omahaEvFoldModelSkipsPlo45: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true },
+  })),
+  // 2026-11-20 CORE-LAND (omahaBandFallbackInBandUnit, default OFF, unevaluated): both arms carry production's live
+  // Omaha set; a also measures the equity sampler's band fallback in the band's percentile unit. 100 bb cash.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_band_fallback_in_band_unit`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaBandFallbackInBandUnit: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 lane MATHCORE / COREWIRE (omahaMathCore, default OFF, graded by lane PROVE): both arms carry
+  // production's live Omaha set; a also switches the math-first core on (every street admitted). 100 bb cash.
+  ...(['plo4', 'plo5'] as const).map((variant) => {
+    const street = variant === 'plo4' ? 'Plo4' : 'Plo5';
+    return {
+      name: `${variant}_omaha_math_core`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: {
+        ...OMAHA_LIVE_OPTIONS_20261118,
+        omahaMathCore: true,
+        [`omahaMathCore${street}Flop`]: true,
+        [`omahaMathCore${street}Turn`]: true,
+        [`omahaMathCore${street}River`]: true,
+      },
+      b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+    };
+  }),
+  // 2026-11-19 lane UNBLOCK (omahaNoCategoricalRules, default OFF, unevaluated): both arms carry production's
+  // live Omaha set; a also switches every categorical PLO4/PLO5 cash rule off. 100 bb cash. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_no_categorical_rules`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaNoCategoricalRules: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-18 ROWFIX (omahaTournamentsExcludeCategoricalRules, default OFF, unevaluated): both arms carry
   // production's live Omaha set (OMAHA_LIVE_OPTIONS_20261118, the tournament extension on); a also keeps the
   // categorical rules cash-only, so the card measures the categorical rules' tournament reach alone. 6-max
@@ -4469,6 +4612,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaEvFoldModel: true },
     b: { omahaEvFoldModel: false },
   })),
+  // OMAHA EV FOLD MODEL, HEADS-UP POT (2026-11-19, lane HU-OMAHA; HorseMind
+  // OMAHA_EV_FOLD_MODEL_HEADS_UP, default OFF): a flop or turn EV bet into one
+  // opponent is priced on the heads-up cell. Both arms carry production's live
+  // Omaha set (the pooled model on), a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_ev_fold_model_heads_up`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true, omahaEvFoldModelHeadsUp: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true },
+  })),
   // No tournament card: the model is cash only (tournament Omaha players fold
   // about MDF), so a tournament table is inert by construction (0 of 12,000
   // plo4 40bb tournament pairs diverged).
@@ -4900,6 +5055,31 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-19 (EMERG lane PACK): omahaPackEffectiveDepth and
+  // omahaPackClampDeepDepth, default off. Refused, not dealt: they move only
+  // the depth the PLO4/PLO5 pack gates read, and league stacks never reach it.
+  ...(
+    [
+      ['omahaPackEffectiveDepth', 'effective_depth'],
+      ['omahaPackClampDeepDepth', 'clamp_deep_depth'],
+    ] as const
+  ).flatMap(([option, tag]) =>
+    (['plo4', 'plo5'] as const).map((variant) => ({
+      name: `${variant}_omaha_pack_${tag}`,
+      variant,
+      seats: 6,
+      a: { [option]: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option changes only the depth at which the Omaha strategy pack ' +
+        '(Phase 10 PLO4, Phase 11 PLO5) admits a decision (omaha/OmahaPackDepth.ts); league stacks sit inside ' +
+        'the pack band (at most 250 bb) with one depth for every seat, so the gate never refuses a league ' +
+        'decision and the two arms play the same hands. The pack itself deviates from the reference only ' +
+        'heads-up at a two-seat table (plo4ReferenceDeviation). Measured instead on the 48-hour production ' +
+        'dataset (EMERG/PACK.md, 2026-11-19); in this league 0 of 0 pairs were dealt for it (not run: no seat can reach the gate). The option is DEFAULT OFF (read as === true). What would change ' +
+        'this: league stacks above 250 bb, or different stacks per seat.',
+    }))
+  ),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
   {
@@ -5392,6 +5572,52 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'LIGHTNING_EVAL_CANDIDATE) on a live-base baseline (PASS-BAR in the PLO lane evidence, ' +
       'plo-handoff-review-01a1cbbd/lightning-013U37). What would change this: a league context that deals the ' +
       'Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    // TURN-STAB lane 2026-11-19: the live Omaha set (which runs omahaFacingBetEv) in BOTH arms; the one-arm
+    // question is the turn-stab prior.
+    name: 'plo5_omaha_turn_stab_defence_is_priced',
+    variant: 'plo5',
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnStabDefenceIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+    reason:
+      'No person in the league table. omahaTurnStabDefenceIsPriced is DEFAULT OFF (HorseLogic.omahaFacingBetEvCount: ' +
+      'opts.omahaTurnStabDefenceIsPriced === true) and it changes one input: the non-value prior of the facing-bet ' +
+      'EV when the bettor is a PERSON (HorseOmahaPricedMode.omahaOpponentKindOf) making the first wager of the turn ' +
+      'after a checked-through flop. Every league seat is a Horse, so the line never holds in either arm, both arms ' +
+      'play identical poker (omaha_turn_stab_defence_priced_seen never fires) and the card would report 0.00 +/- 0.00. ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261119, status inert). ' +
+      'It is measured where persons play: the declared replay of journaled production decisions ' +
+      '(woowoo-48h-audit-01BNteGYgf/repairs/TURN-STAB/EVAL-DECLARATION.md). What would change this: a league field ' +
+      'that seats a person model with a measured turn-stab line.',
+  },
+  {
+    // AUDIT48-TURN lane 2026-11-19: the live Omaha set plus the turn-stab option and the Lightning opening in BOTH
+    // arms; the one-arm question is the Lightning-measured stab row.
+    name: 'plo5_omaha_turn_stab_lightning_row',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaTurnStabDefenceIsPriced: true,
+      omahaPricedInLightning: true,
+      omahaTurnStabLightningRow: true,
+    },
+    b: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaTurnStabDefenceIsPriced: true,
+      omahaPricedInLightning: true,
+    },
+    reason:
+      'No person and no Lightning domain in the league table. omahaTurnStabLightningRow is DEFAULT OFF ' +
+      '(HorseLogic.omahaFacingBetEvCount: opts.omahaTurnStabLightningRow === true, only with ' +
+      'omahaTurnStabDefenceIsPriced and omahaPricedInLightning on) and it changes one input in the Lightning pools ' +
+      "only: the non-value prior of a PERSON's first turn wager after a checked-through flop. Every league seat is a " +
+      'Horse and the league deals no Lightning, so the line never holds in either arm and the card would report ' +
+      '0.00 +/- 0.00. Measured 2026-11-19 by running this refused matchup through runMatchup: 0 of 300 pairs ' +
+      'diverged (run seed 20261119, status inert). It is measured where persons play Lightning: the replay of journaled production decisions ' +
+      '(docs/horse-option-authority.d/omahaTurnStabLightningRow.md, archive woowoo-48h-audit-01BNteGYgf/repairs/' +
+      'AUDIT48/TURN.md). What would change this: a league field that seats a person model in a Lightning domain.',
   },
   {
     // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the

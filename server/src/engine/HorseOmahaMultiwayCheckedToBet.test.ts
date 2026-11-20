@@ -433,7 +433,10 @@ describe('omahaMultiwayCheckedToBetIsPriced on, through decide', () => {
   });
   it('a strong multiway check becomes a priced bet; legal, admitted, and the receipt names the final bet', () => {
     // PLO5 four-way flop, top two pair checked to the Horse with one player behind: today's brain checks.
-    const build = () => flop4('Ts7h8h5d3c');
+    // 2026-11-19: the hand is Ts7h9d4c3s. With the Omaha band fallback measuring in the band's unit
+    // (AUDIT-FILES-B) the brain's own mixed flop bet takes Ts7h8h5d3c on seed 1 without the option; this
+    // top two pair is checked on every seed, so the bet below is the option's.
+    const build = () => flop4('Ts7h9d4c3s');
     const off = decide(build, {}, 1);
     expect(off.d.action).toBe('check');
     const on = decide(build, { omahaMultiwayCheckedToBetIsPriced: true }, 1);

@@ -447,8 +447,23 @@ describe('an opponent is read by street and by flop texture', () => {
     expect(measuredGuard).toBeGreaterThan(-1);
     expect(measuredGuard).toBeLessThan(logicReads[0]);
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
-    expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(3);
-    expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(2);
+    // since 2026-11-19 (lane HU-OMAHA, omahaEvFoldModelHeadsUp, default off) HorseMind reads it once more, inside
+    // omahaEvFoldHeadsUpMulOf, whose only call sits behind `omahaEvFoldModelHeadsUp === true`
+    expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(4);
+    expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(3);
+    const huDef = mind.indexOf('private static omahaEvFoldHeadsUpMulOf(');
+    const huCalls = [...mind.matchAll(/this\.omahaEvFoldHeadsUpMulOf\(/g)].map(
+      (m) => m.index ?? -1
+    );
+    expect(huDef).toBeGreaterThan(-1);
+    expect(huCalls).toHaveLength(1);
+    const huGuard = mind.lastIndexOf('omahaEvFoldModelHeadsUp === true', huCalls[0]);
+    expect(huGuard).toBeGreaterThan(-1);
+    expect(huCalls[0] - huGuard).toBeLessThan(200);
+    const mindReads = [...mind.matchAll(/this\.omahaStreetReadOf\(/g)].map((m) => m.index ?? -1);
+    expect(mindReads.filter((i) => i > huDef && i < mind.indexOf('\n  }\n', huDef))).toHaveLength(
+      1
+    );
     // the decision's carried state is touched only by its owner, the observer reads that fill it and the frame
     expect(naming(/pooledStreetRead/)).toEqual([
       // the league's stand-in for the accepted-hand learner (2026-11-18), filling a league sandbox only
