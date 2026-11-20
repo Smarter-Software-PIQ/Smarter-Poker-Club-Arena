@@ -401,9 +401,12 @@ BEGIN
     FROM smarter_private.reliability_runbook_attempts a
    WHERE a.incident_id = p_incident_id AND a.runbook_key = 'cron_proof_run' AND a.outcome = 'acted'
    ORDER BY a.started_at DESC LIMIT 1;
-  SELECT max(m.version) INTO v_fix FROM supabase_migrations.schema_migrations m
-   WHERE m.version > to_char(v_failed_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS')
-     AND strpos(array_to_string(m.statements, ' '), v_fn) > 0;
+  -- Dynamic on purpose: supabase_migrations is Supabase's own schema, which the
+  -- static plpgsql check's copy of production does not carry.
+  EXECUTE 'SELECT max(m.version) FROM supabase_migrations.schema_migrations m'
+       || ' WHERE m.version > $1 AND strpos(array_to_string(m.statements, '' ''), $2) > 0'
+     INTO v_fix
+    USING to_char(v_failed_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS'), v_fn;
   v_base := v_base || jsonb_build_object('failed_run_at', v_failed_at, 'fix_migration', v_fix, 'last_proof_at', v_last_proof,
                                          'function_md5', v_md5);
   IF v_fix IS NULL THEN
@@ -473,6 +476,7 @@ DECLARE
   v_text text;
   f jsonb;
   v_version text;
+  v_installed boolean;
 BEGIN
   SELECT (i.latest_evidence->>'inbox_event_id')::bigint INTO v_alert FROM smarter_private.reliability_incidents i WHERE i.id = p_incident_id;
   SELECT * INTO d FROM smarter_private.ca_engine_cutover_days c WHERE c.alert_id = v_alert;
@@ -507,7 +511,10 @@ BEGIN
       CONTINUE WHEN f->>'filename' !~ '^supabase/migrations/[0-9]{14}_[^/]+\.sql$' OR f->>'status' = 'removed';
       v_carried := v_carried + 1;
       v_version := substring(f->>'filename' FROM 'migrations/([0-9]{14})_');
-      IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations m WHERE m.version = v_version) THEN
+      -- Dynamic on purpose: Supabase's own schema (see cron_proof_run).
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations m WHERE m.version = $1)'
+         INTO v_installed USING v_version;
+      IF NOT v_installed THEN
         v_missing := v_missing || v_version;
       END IF;
     END LOOP;

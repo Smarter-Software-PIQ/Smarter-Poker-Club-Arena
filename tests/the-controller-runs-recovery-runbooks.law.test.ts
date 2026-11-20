@@ -72,12 +72,15 @@ describe('the controller runs recovery runbooks', () => {
     const cron = body('reliability_runbook_cron_proof_run');
     expect(sql).toContain('"allow_functions": ["fn_ca_alarm_drill"]');
     expect(sql).toContain('"window_from": "04:05", "window_to": "05:55"');
-    expect(cron).toContain('supabase_migrations.schema_migrations');
     expect(cron).toContain(
       "v_md5 := md5(pg_get_functiondef(to_regprocedure('public.' || v_fn || '()')));"
     );
     expect(cron).toContain("IF v_fn = 'fn_ca_alarm_drill' THEN");
-    expect(cron).not.toMatch(/EXECUTE\s/);
+    // The only dynamic statement reads Supabase's migration history.
+    expect(cron.match(/EXECUTE\s/g)?.length).toBe(1);
+    expect(cron).toContain(
+      "EXECUTE 'SELECT max(m.version) FROM supabase_migrations.schema_migrations m'"
+    );
   });
 
   it('the cutover runbook only reads: no engine swap, no dispatch', () => {
