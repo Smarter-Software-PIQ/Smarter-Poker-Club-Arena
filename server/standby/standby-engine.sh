@@ -513,6 +513,13 @@ cmd_certify() {
   record() { reasons+=("$1"); verdict=fail; log "certify $sha: FAIL $1"; }
 
   assert_valid_copy || return 1
+  # TODAY'S INCIDENTS NEVER COME BACK (2026-11-19): replayed on the restored
+  # copy before the engine boots; a regression withholds the certificate.
+  if declare -F trial_regression_replay >/dev/null; then
+    trial_regression_replay "$sha" >&2 || record 'regression_replay_failed'
+  else
+    record 'regression_replay_unavailable'
+  fi
   cmd_run "$sha" || { record 'boot_or_build_failed'; return 1; }
   t0=$(date +%s)
   if l=$(wait_live 600); then boot1=$(( $(date +%s) - t0 )); log "certify $sha: live ($l) in ${boot1}s"
