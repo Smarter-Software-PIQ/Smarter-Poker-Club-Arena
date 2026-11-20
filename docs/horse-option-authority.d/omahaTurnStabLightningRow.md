@@ -31,7 +31,8 @@ The league seats no person and deals no Lightning: refused matchup `plo5_omaha_t
 ## Replay
 
 - Journaled production decisions (TURN-STAB held-out journal, 2026-11-18 13:34Z to 2026-11-19 01:18Z, 564 Lightning turn decisions, this branch's working tree, one process): 27 priced in the line, row receipt on all 27; against the pooled arm 3 changed, all fold -> call, all inside the line with the receipt; against the Lightning-only arm 4 changed (fold -> call); 0 errors. Judged against the persons' real cards the 4 flips gain +1.09, +0.43, +0.80, +0.04 pot (+117 bb). These hands lie inside the constants' window: in-sample, not a value verdict.
-- Value: NOT MET (not run on a held-out window). The declared evaluation needs Lightning stabs after 2026-11-20 00:49Z.
+- Held-out verdict replay (declared archive repairs/AUDIT48/TURN-LTROW-EVAL-DECLARATION.md before the run; results TURN-LTROW-EVAL-RESULTS.md): 26 Lightning stabs of 2026-11-19 00:00Z to 2026-11-20 00:49Z, 15 Horse folds (10 measure positive vs real cards). This row: 8 fold -> call, 0 call -> fold, flips +0.461 pot (bootstrap 95% +0.037 to +0.896); 4 of the 10 positive folds become calls, 5 of 5 negative folds stay folds. INSUFFICIENT (fewer than 10 flips). A refit on 2026-11-18 alone ([0.421, 0.633, 0.513, 0.513]) flipped 5 and was not adopted.
+- Value: NOT MET (INSUFFICIENT). Needs a larger held-out window of Lightning stabs.
 
 ## Evidence rows
 
