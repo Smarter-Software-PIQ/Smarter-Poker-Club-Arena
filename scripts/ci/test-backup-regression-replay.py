@@ -271,6 +271,18 @@ trial_regression_replay {candidate['sha']}
         assert sql('SELECT count(*) FROM tournaments') == '6'
         untouched()
         ok('nothing the replay writes survives, and no live-table trigger ever ran')
+
+        # ---- the restored Backup copy carries no migration history (Backup
+        # certify 44673040919, 2026-11-20 04:15 UTC): every history-armed check
+        # waits, and the replay never errors.
+        sql('ALTER SCHEMA supabase_migrations RENAME TO supabase_migrations_hidden')
+        try:
+            v = replay()
+            assert v['verdict'] != 'fail', v
+            assert by(v, 'spin_reservation_budget') == 'not_armed', v
+            ok('a copy with no supabase_migrations schema arms nothing by history and does not withhold the certificate')
+        finally:
+            sql('ALTER SCHEMA supabase_migrations_hidden RENAME TO supabase_migrations')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)
         shutil.rmtree(scratch, ignore_errors=True)
