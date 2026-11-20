@@ -109,6 +109,32 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
     'src/engine/HorseOmahaFlopFacingBetEv.ts':
       "the default-off Omaha flop facing-bet expected-value verdict (PLO Strategy lane 2026-11-17, omahaFlopFacingBetEv): in PLO4/PLO5 cash on the flop, the spot, the sampled two-card runout counts (a seed taken from the cards, never the brain's random stream), the realization factor read from the runouts and the EV verdict against the bettor's range by pot share, line and measured read",
+    'src/engine/omahaMathCore/OmahaMathCore.ts':
+      'the default-off math-first PLO4/PLO5 cash core (lane MATHCORE 2026-11-19, omahaMathCore): the expected value of every legal action from the cards, the board, the chips and public ranges and response frequencies; the largest is the decision',
+    'src/engine/omahaMathCore/OmahaMathCoreRule.ts':
+      'the wiring of the default-off math core (omahaMathCore): its scope, the state read from the request only, legality through the legalizer, the error fallback to the incoming decision',
+    'src/engine/omahaMathCore/OmahaMathCoreEquity.ts':
+      'the math core pools of concrete holdings (card removal, strength by equity against the pool) and the equity of the hero against weighted ranges, to the river',
+    'src/engine/omahaMathCore/OmahaMathCoreEval.ts':
+      'the math core exact Omaha high evaluator (two hole plus three board) on integer cards',
+    'src/engine/omahaMathCore/OmahaMathCoreTables.ts':
+      'the math core public tables (provenance public_actions): response frequencies to wagers, preflop action frequencies, fold facing a Horse raise',
+    'src/engine/omahaMathCore/MeasuredRanges.ts':
+      'lane RANGES table lookups (back-off by key, person shrink k+20pop/(n+20)) used by the math core on its public sections',
+    'src/config/tableSeating.ts':
+      'the seat count per variant read by the Omaha variant pack that lane EQUITY equityVsRanges scores with (reached from the math core through OmahaVariantSampler)',
+    'src/engine/omaha/OmahaVariantSampler.ts':
+      'the integer Omaha scoring (omahaSamplerScoring) lane EQUITY equityVsRanges ranks hands with, for the math core',
+    'src/engine/omaha/OmahaVariantEquity.ts':
+      'imported by the Omaha sampler whose integer scoring the math core equity uses (no decision of its own there)',
+    'src/engine/multiway/DealtSeatCensus.ts':
+      'imported by the Omaha sampler whose integer scoring the math core equity uses (dealt-seat census)',
+    'src/engine/plo4/Plo4PolicyPack.ts':
+      'imported through the Omaha variant pack reached from the sampler scoring the math core equity uses',
+    'src/engine/omahaMathCore/publicTables.v1.json':
+      'the math core public tables (provenance public_actions): response frequencies to wagers, preflop action frequencies, fold facing a Horse raise, per-user public facing rows',
+    'src/engine/omaha/OmahaRangeEquity.ts':
+      'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
     'src/engine/HorseOmahaFlopFacingBetEvRule.ts':
       'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
     'src/engine/HorseOmahaReadByStreet.ts':

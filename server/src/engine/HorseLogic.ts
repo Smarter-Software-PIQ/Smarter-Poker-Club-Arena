@@ -115,6 +115,7 @@ import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardI
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
+import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
 import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   omahaBetVsCheckEv,
@@ -3411,6 +3412,14 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_flop_facing_bet_ev. */
   omahaFlopFacingBetEv?: boolean;
+  /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
+   * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
+   * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
+   * live opponent run to the river (Monte Carlo, SE in the receipt) x measured realization, plus measured fold
+   * equity, net of rake (omahaMathCore/OmahaMathCore.ts; tables with n and source in OmahaMathCoreTables.ts).
+   * The decision the owner rules produced is never an input; it stands only if the core throws (receipted).
+   * Default OFF (read === true); the lead switches it. */
+  omahaMathCore?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -15163,105 +15172,116 @@ export class HorseLogic {
         tele
       );
     decision = graph.run('wager_rules', decision, () => {
-      // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
-      // in-position hold'em postflop balance runs first, so every owner rule
-      // below still judges the action it leaves.
-      const huBalanced = holdemHeadsUpPostflopBalance(
-        decision,
-        player,
-        gs,
-        opts.holdemHeadsUpPostflopBalance === true,
-        (d) => this.legalize(d, player, gs, vi)
-      );
-      if (tele && huBalanced.changed === 'flop_cbet') noteFire('hu_postflop_balance_flop_cbet');
-      if (tele && huBalanced.changed === 'check_raise_defend')
-        noteFire('hu_postflop_balance_check_raise_defend');
-      if (tele && huBalanced.changed === 'later_street')
-        noteFire('hu_postflop_balance_later_street');
-      const shoveDisciplined = tournamentShoveDiscipline(huBalanced.decision, player, gs);
-      const blockTrap87 =
-        v87RiverBlockTrapPending &&
-        opts.v87HoldemOverhaul !== false &&
-        gs.stage === 'river' &&
-        shoveDisciplined.action === 'bet' &&
-        Number.isFinite(shoveDisciplined.amount) &&
-        (shoveDisciplined.amount as number) <= Math.max(0, gs.pot) * 0.36;
-      v87RiverBlockTrapPending = false;
-      const nutsRaised = blockTrap87
-        ? shoveDisciplined
-        : riverNutsRaise(shoveDisciplined, player, gs);
-      // Receipt (#7780, #7788): the exact river nuts raised, bet or sized up.
-      if (nutsRaised !== shoveDisciplined && tele) noteFire('river_nuts_wager');
-      else if (
-        tele &&
-        gs.stage === 'river' &&
-        gs.stateSchemaVersion === 1 &&
-        gs.wagersCapped !== true &&
-        (shoveDisciplined.action === 'bet' || shoveDisciplined.action === 'raise') &&
-        riverNutsAlreadyFull(player, gs)
-      )
-        // Receipt (#7780, #7788), valid no-change: the nuts already wagered full.
-        noteFire('river_nuts_wager_already_full');
-      const currentNutsRaised = omahaCurrentNutsRaise(nutsRaised, player, gs, opts);
-      // V58/V59: PLO6 river nut discipline, after every strategy owner.
-      const nutDisciplined = plo6RiverNutDiscipline(
-        currentNutsRaised,
-        player,
-        gs,
-        opts,
-        retainedNearNutAmount
-      );
-      const wagered = fullPotNearPotWager(nutDisciplined, player, gs);
-      // Receipt (#7780): a 90 to 100 percent pot wager went full pot.
-      if (wagered !== nutDisciplined && tele) noteFire('near_pot_wager_full_pot');
-      // Receipt (#7780, #7788), precedence: a later owner replaced the nut wager.
-      if (tele && nutsRaised !== shoveDisciplined && nutDisciplined !== nutsRaised)
-        noteFire('river_nuts_wager_superseded');
-      // Dan 2026-11-14 (hand 59401453): an Omaha high river raise facing a
-      // wager stands only with the nuts or an effective-nut hand. It runs
-      // after every owner that can raise and before the call-discipline
-      // folds below, so they judge the call it leaves.
-      const nutRaise = omahaRiverNutRaiseOnly(
-        wagered,
-        player,
-        gs,
-        opts.omahaRiverNutRaiseOnly !== false &&
-          !nearNutChosen &&
-          !omahaPricedOwnsTurnRiverRaise(player, gs, opts),
-        beforePhase10
-      );
-      if (tele && nutRaise.changed === 'flatted') {
-        noteFire('omaha_river_non_nut_raise_flatted');
-        // 2026-11-18: six-card share of the shared key.
-        if (String(gs.gameVariant) === 'plo6') noteFire('omaha_river_non_nut_raise_flatted_plo6');
-        noteDecisionRuleReceipt('omaha_river_non_nut_raise_flatted', wagered, nutRaise.decision);
-      }
-      if (tele && nutRaise.changed === 'fold_restored') {
-        noteFire('omaha_river_non_nut_raise_fold_restored');
-        noteDecisionRuleReceipt(
-          'omaha_river_non_nut_raise_fold_restored',
-          wagered,
-          nutRaise.decision
+      // omahaMathCore (default OFF, lane MATHCORE 2026-11-19): the math-first
+      // PLO4/PLO5 cash core is the outermost owner of this node. Every owner
+      // rule below runs as before; with the option on, the core's EV choice
+      // replaces whatever they leave (it never reads it) and is final: the
+      // commit door keeps it and the response validator admits it. Any error
+      // keeps the rules' decision with an error receipt.
+      const ruled = ((): { decision: HorseDecision } => {
+        // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
+        // in-position hold'em postflop balance runs first, so every owner rule
+        // below still judges the action it leaves.
+        const huBalanced = holdemHeadsUpPostflopBalance(
+          decision,
+          player,
+          gs,
+          opts.holdemHeadsUpPostflopBalance === true,
+          (d) => this.legalize(d, player, gs, vi)
         );
-      }
-      const prePremium = omahaOwnerRuledFinal(
-        omahaDrawRules(
-          omahaFacingBetEvRule(
-            omahaRiverMediumBetStrongHandCalls(
-              omahaOopReraisedPotStrongRange(
-                omahaOutermostCallDiscipline(
-                  omahaReraisedPotFold(
-                    omahaBigBetCallFold(
-                      omahaOwnBetRules(
-                        pairedBoardRiverCheck(
-                          pairedBoardFold(
-                            omahaMadeHandDefenseRules(
-                              nutRaise.decision,
+        if (tele && huBalanced.changed === 'flop_cbet') noteFire('hu_postflop_balance_flop_cbet');
+        if (tele && huBalanced.changed === 'check_raise_defend')
+          noteFire('hu_postflop_balance_check_raise_defend');
+        if (tele && huBalanced.changed === 'later_street')
+          noteFire('hu_postflop_balance_later_street');
+        const shoveDisciplined = tournamentShoveDiscipline(huBalanced.decision, player, gs);
+        const blockTrap87 =
+          v87RiverBlockTrapPending &&
+          opts.v87HoldemOverhaul !== false &&
+          gs.stage === 'river' &&
+          shoveDisciplined.action === 'bet' &&
+          Number.isFinite(shoveDisciplined.amount) &&
+          (shoveDisciplined.amount as number) <= Math.max(0, gs.pot) * 0.36;
+        v87RiverBlockTrapPending = false;
+        const nutsRaised = blockTrap87
+          ? shoveDisciplined
+          : riverNutsRaise(shoveDisciplined, player, gs);
+        // Receipt (#7780, #7788): the exact river nuts raised, bet or sized up.
+        if (nutsRaised !== shoveDisciplined && tele) noteFire('river_nuts_wager');
+        else if (
+          tele &&
+          gs.stage === 'river' &&
+          gs.stateSchemaVersion === 1 &&
+          gs.wagersCapped !== true &&
+          (shoveDisciplined.action === 'bet' || shoveDisciplined.action === 'raise') &&
+          riverNutsAlreadyFull(player, gs)
+        )
+          // Receipt (#7780, #7788), valid no-change: the nuts already wagered full.
+          noteFire('river_nuts_wager_already_full');
+        const currentNutsRaised = omahaCurrentNutsRaise(nutsRaised, player, gs, opts);
+        // V58/V59: PLO6 river nut discipline, after every strategy owner.
+        const nutDisciplined = plo6RiverNutDiscipline(
+          currentNutsRaised,
+          player,
+          gs,
+          opts,
+          retainedNearNutAmount
+        );
+        const wagered = fullPotNearPotWager(nutDisciplined, player, gs);
+        // Receipt (#7780): a 90 to 100 percent pot wager went full pot.
+        if (wagered !== nutDisciplined && tele) noteFire('near_pot_wager_full_pot');
+        // Receipt (#7780, #7788), precedence: a later owner replaced the nut wager.
+        if (tele && nutsRaised !== shoveDisciplined && nutDisciplined !== nutsRaised)
+          noteFire('river_nuts_wager_superseded');
+        // Dan 2026-11-14 (hand 59401453): an Omaha high river raise facing a
+        // wager stands only with the nuts or an effective-nut hand. It runs
+        // after every owner that can raise and before the call-discipline
+        // folds below, so they judge the call it leaves.
+        const nutRaise = omahaRiverNutRaiseOnly(
+          wagered,
+          player,
+          gs,
+          opts.omahaRiverNutRaiseOnly !== false &&
+            !nearNutChosen &&
+            !omahaPricedOwnsTurnRiverRaise(player, gs, opts),
+          beforePhase10
+        );
+        if (tele && nutRaise.changed === 'flatted') {
+          noteFire('omaha_river_non_nut_raise_flatted');
+          // 2026-11-18: six-card share of the shared key.
+          if (String(gs.gameVariant) === 'plo6') noteFire('omaha_river_non_nut_raise_flatted_plo6');
+          noteDecisionRuleReceipt('omaha_river_non_nut_raise_flatted', wagered, nutRaise.decision);
+        }
+        if (tele && nutRaise.changed === 'fold_restored') {
+          noteFire('omaha_river_non_nut_raise_fold_restored');
+          noteDecisionRuleReceipt(
+            'omaha_river_non_nut_raise_fold_restored',
+            wagered,
+            nutRaise.decision
+          );
+        }
+        const prePremium = omahaOwnerRuledFinal(
+          omahaDrawRules(
+            omahaFacingBetEvRule(
+              omahaRiverMediumBetStrongHandCalls(
+                omahaOopReraisedPotStrongRange(
+                  omahaOutermostCallDiscipline(
+                    omahaReraisedPotFold(
+                      omahaBigBetCallFold(
+                        omahaOwnBetRules(
+                          pairedBoardRiverCheck(
+                            pairedBoardFold(
+                              omahaMadeHandDefenseRules(
+                                nutRaise.decision,
+                                player,
+                                gs,
+                                opts,
+                                beforePhase10,
+                                nearNutChosen
+                              ),
                               player,
                               gs,
-                              opts,
-                              beforePhase10,
-                              nearNutChosen
+                              opts
                             ),
                             player,
                             gs,
@@ -15302,116 +15322,144 @@ export class HorseLogic {
           player,
           gs,
           opts
-        ),
-        player,
-        gs,
-        opts
-      );
-      if (preflopAuthority) prePremium.preflopAuthority = preflopAuthority;
-      const ruled = holdemPremiumAggression(prePremium, player, gs, opts);
-      const floored = shortAllInCallFloor(ruled, player, gs, () =>
-        shortAllInDeadCheckEquity(player, gs, vi)
-      );
-      if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
-      const checkRaised = riverBluffCheckRaise(floored, player, gs, opts);
-      const finalWager = callLargeRiverBoatWager(
-        checkRaised,
-        player,
-        gs,
-        opts.v86MultiStreetUnblocked !== false
-      );
-      // Owner 2026-11-15 (omahaStrongHandValue, default off): the node's
-      // final river check or call with a strong hand, priced against the
-      // value bets and the value raises. Where it answered the spot, its
-      // answer stands over the half-pot checked-to bet below.
-      const strongHand = omahaStrongHandValueRule(finalWager, player, gs, opts);
-      // Dan 2026-11-14 (HorseOmahaOnePair.ts): the one-pair rules judge the
-      // node's final answer, after every owner that can bet, raise or call
-      // (the checked-to pricing below included); a declared river bluff, or
-      // the river bluff check-raise, keeps its wager.
-      const onePair = (d: HorseDecision): HorseDecision => {
-        const r = omahaOnePairDiscipline(d, player, gs, opts.omahaOnePairDiscipline === true, {
-          declaredBluff: riverBluffDeclared || checkRaised !== floored,
-          bettorOverBluffs: (seat) => {
-            const bettor = gs.players.find((p) => p.seat === seat);
-            if (!bettor || opts.mind === false) return false;
-            const read = HorseMind.opponentRead(bettor.user_id);
-            return read !== null && read.presumed !== true && isPostflopManiac(read);
-          },
-        });
-        if (tele && r.changed === 'river_value_bet_checked')
-          noteFire('omaha_one_pair_river_value_bet_checked');
-        if (tele && r.changed === 'river_value_raise_flatted')
-          noteFire('omaha_one_pair_river_value_raise_flatted');
-        if (tele && r.changed === 'river_beaten_call_folded')
-          noteFire('omaha_one_pair_river_beaten_call_folded');
-        if (tele && r.changed === 'one_pair_raise_flatted')
-          noteFire('omaha_one_pair_raise_flatted');
-        if (tele && r.changed === 'one_pair_raise_folded') noteFire('omaha_one_pair_raise_folded');
-        if (tele && r.changed === 'one_pair_stack_off_folded')
-          noteFire('omaha_one_pair_stack_off_folded');
-        return r.decision;
-      };
-      // Price missed checked-to turn boat and river value against the controller's menu
-      // (including any undersized <25%-pot lead left by an earlier node).
-      const missedOrUndersizedValue =
-        finalWager.action === 'check' ||
-        (finalWager.action === 'bet' &&
-          Number.isFinite(finalWager.amount) &&
+        );
+        if (preflopAuthority) prePremium.preflopAuthority = preflopAuthority;
+        const ruled = holdemPremiumAggression(prePremium, player, gs, opts);
+        const floored = shortAllInCallFloor(ruled, player, gs, () =>
+          shortAllInDeadCheckEquity(player, gs, vi)
+        );
+        if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
+        const checkRaised = riverBluffCheckRaise(floored, player, gs, opts);
+        const finalWager = callLargeRiverBoatWager(
+          checkRaised,
+          player,
+          gs,
+          opts.v86MultiStreetUnblocked !== false
+        );
+        // Owner 2026-11-15 (omahaStrongHandValue, default off): the node's
+        // final river check or call with a strong hand, priced against the
+        // value bets and the value raises. Where it answered the spot, its
+        // answer stands over the half-pot checked-to bet below.
+        const strongHand = omahaStrongHandValueRule(finalWager, player, gs, opts);
+        // Dan 2026-11-14 (HorseOmahaOnePair.ts): the one-pair rules judge the
+        // node's final answer, after every owner that can bet, raise or call
+        // (the checked-to pricing below included); a declared river bluff, or
+        // the river bluff check-raise, keeps its wager.
+        const onePair = (d: HorseDecision): HorseDecision => {
+          const r = omahaOnePairDiscipline(d, player, gs, opts.omahaOnePairDiscipline === true, {
+            declaredBluff: riverBluffDeclared || checkRaised !== floored,
+            bettorOverBluffs: (seat) => {
+              const bettor = gs.players.find((p) => p.seat === seat);
+              if (!bettor || opts.mind === false) return false;
+              const read = HorseMind.opponentRead(bettor.user_id);
+              return read !== null && read.presumed !== true && isPostflopManiac(read);
+            },
+          });
+          if (tele && r.changed === 'river_value_bet_checked')
+            noteFire('omaha_one_pair_river_value_bet_checked');
+          if (tele && r.changed === 'river_value_raise_flatted')
+            noteFire('omaha_one_pair_river_value_raise_flatted');
+          if (tele && r.changed === 'river_beaten_call_folded')
+            noteFire('omaha_one_pair_river_beaten_call_folded');
+          if (tele && r.changed === 'one_pair_raise_flatted')
+            noteFire('omaha_one_pair_raise_flatted');
+          if (tele && r.changed === 'one_pair_raise_folded')
+            noteFire('omaha_one_pair_raise_folded');
+          if (tele && r.changed === 'one_pair_stack_off_folded')
+            noteFire('omaha_one_pair_stack_off_folded');
+          return r.decision;
+        };
+        // Price missed checked-to turn boat and river value against the controller's menu
+        // (including any undersized <25%-pot lead left by an earlier node).
+        const missedOrUndersizedValue =
+          finalWager.action === 'check' ||
+          (finalWager.action === 'bet' &&
+            Number.isFinite(finalWager.amount) &&
+            Number.isFinite(gs.pot) &&
+            gs.pot > 0 &&
+            Number.isFinite(player.stack) &&
+            (finalWager.amount as number) < gs.pot * 0.25 - 0.005 &&
+            (finalWager.amount as number) < player.stack - 0.005);
+        if (
+          !strongHand.priced &&
+          missedOrUndersizedValue &&
+          (gs.stage === 'turn' || gs.stage === 'river') &&
+          gs.stateSchemaVersion === 1 &&
+          !gs.wagersCapped &&
+          gs.toCall === 0 &&
           Number.isFinite(gs.pot) &&
           gs.pot > 0 &&
-          Number.isFinite(player.stack) &&
-          (finalWager.amount as number) < gs.pot * 0.25 - 0.005 &&
-          (finalWager.amount as number) < player.stack - 0.005);
-      if (
-        !strongHand.priced &&
-        missedOrUndersizedValue &&
-        (gs.stage === 'turn' || gs.stage === 'river') &&
-        gs.stateSchemaVersion === 1 &&
-        !gs.wagersCapped &&
-        gs.toCall === 0 &&
-        Number.isFinite(gs.pot) &&
-        gs.pot > 0 &&
-        Number.isFinite(gs.minRaiseTo) &&
-        gs.minRaiseTo! > 0 &&
-        Number.isFinite(gs.maxRaiseTo) &&
-        gs.maxRaiseTo! >= gs.minRaiseTo! &&
-        gs.maxRaiseTo! <= player.bet + player.stack + 0.005 &&
-        gs.players.some(
-          (p) =>
-            p.seat !== player.seat &&
-            !p.is_folded &&
-            !p.is_sitting_out &&
-            !p.is_all_in &&
-            p.stack > 0
-        ) &&
-        (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs)) &&
-        // omahaSmallBetIsPriced owns the size of the bet it placed (verifier D1): the half-pot bet replaces it only by price.
-        omahaSmallBetYieldsToSize(
-          finalWager,
-          Math.min(gs.maxRaiseTo!, Math.max(gs.minRaiseTo!, Math.round(gs.pot * 50) / 100)),
-          player,
-          gs,
-          opts,
-          () => noteFire('omaha_small_bet_checked_to_size_priced_taken'),
-          () => noteFire('omaha_small_bet_checked_to_size_priced_kept')
-        )
-      ) {
-        const amount = Math.min(
-          gs.maxRaiseTo!,
-          Math.max(gs.minRaiseTo!, Math.round(gs.pot * 50) / 100)
-        );
-        const legal = this.legalize(
-          { action: 'bet', amount, thinkTime: finalWager.thinkTime },
-          player,
-          gs,
-          vi
-        );
+          Number.isFinite(gs.minRaiseTo) &&
+          gs.minRaiseTo! > 0 &&
+          Number.isFinite(gs.maxRaiseTo) &&
+          gs.maxRaiseTo! >= gs.minRaiseTo! &&
+          gs.maxRaiseTo! <= player.bet + player.stack + 0.005 &&
+          gs.players.some(
+            (p) =>
+              p.seat !== player.seat &&
+              !p.is_folded &&
+              !p.is_sitting_out &&
+              !p.is_all_in &&
+              p.stack > 0
+          ) &&
+          (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs)) &&
+          // omahaSmallBetIsPriced owns the size of the bet it placed (verifier D1): the half-pot bet replaces it only by price.
+          omahaSmallBetYieldsToSize(
+            finalWager,
+            Math.min(gs.maxRaiseTo!, Math.max(gs.minRaiseTo!, Math.round(gs.pot * 50) / 100)),
+            player,
+            gs,
+            opts,
+            () => noteFire('omaha_small_bet_checked_to_size_priced_taken'),
+            () => noteFire('omaha_small_bet_checked_to_size_priced_kept')
+          )
+        ) {
+          const amount = Math.min(
+            gs.maxRaiseTo!,
+            Math.max(gs.minRaiseTo!, Math.round(gs.pot * 50) / 100)
+          );
+          const legal = this.legalize(
+            { action: 'bet', amount, thinkTime: finalWager.thinkTime },
+            player,
+            gs,
+            vi
+          );
+          return {
+            decision: publicSized(
+              omahaOwnerRuledFinal(
+                omahaDrawRules(
+                  onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+                  player,
+                  gs,
+                  opts
+                ),
+                player,
+                gs,
+                opts
+              )
+            ),
+          };
+        }
+        // Owner 2026-11-15 12:52 / 12:53 (omahaTurnRiverRaiseNeedsNuts): the
+        // outermost conversion of this node on the turn and river facing-bet
+        // path, after every owner that can raise (omahaOwnerRuledFinal and
+        // omahaNoDrawRaiseFinal included); nothing after it raises. The
+        // strong-hand value answer (omahaStrongHandValue) is inside it and
+        // inside omahaOwnerRuledFinal, so an owner-ruled check stands over its
+        // value bet and its value raise needs the nuts. The slowplay mix
+        // (omahaStrongHandSlowplayMix, owner 2026-11-15 14:13) is inside both:
+        // it only turns the final raise into a call or the final flop bet into
+        // a check, so an owner-ruled check or fold is never its to change.
         return {
           decision: publicSized(
-            omahaOwnerRuledFinal(
-              omahaDrawRules(
-                onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+            omahaTurnRiverRaiseNeedsNutsRule(
+              omahaOwnerRuledFinal(
+                omahaStrongHandSlowplayMixRule(
+                  omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+                  player,
+                  gs,
+                  opts
+                ),
                 player,
                 gs,
                 opts
@@ -15422,35 +15470,10 @@ export class HorseLogic {
             )
           ),
         };
-      }
-      // Owner 2026-11-15 12:52 / 12:53 (omahaTurnRiverRaiseNeedsNuts): the
-      // outermost conversion of this node on the turn and river facing-bet
-      // path, after every owner that can raise (omahaOwnerRuledFinal and
-      // omahaNoDrawRaiseFinal included); nothing after it raises. The
-      // strong-hand value answer (omahaStrongHandValue) is inside it and
-      // inside omahaOwnerRuledFinal, so an owner-ruled check stands over its
-      // value bet and its value raise needs the nuts. The slowplay mix
-      // (omahaStrongHandSlowplayMix, owner 2026-11-15 14:13) is inside both:
-      // it only turns the final raise into a call or the final flop bet into
-      // a check, so an owner-ruled check or fold is never its to change.
+      })();
       return {
-        decision: publicSized(
-          omahaTurnRiverRaiseNeedsNutsRule(
-            omahaOwnerRuledFinal(
-              omahaStrongHandSlowplayMixRule(
-                omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
-                player,
-                gs,
-                opts
-              ),
-              player,
-              gs,
-              opts
-            ),
-            player,
-            gs,
-            opts
-          )
+        decision: omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
+          this.legalize(d, player, gs, vi)
         ),
       };
     }).decision;

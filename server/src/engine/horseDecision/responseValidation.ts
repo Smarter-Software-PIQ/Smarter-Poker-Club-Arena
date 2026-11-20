@@ -70,6 +70,10 @@ import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopRerais
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import {
+  OMAHA_MATH_CORE_VARIANTS,
+  omahaMathCoreInScope,
+} from '../omahaMathCore/OmahaMathCoreRule.js';
+import {
   OMAHA_FACING_BET_EV_VARIANTS,
   omahaFacingBetEvSpot,
   omahaPlo6FacingBetEvFoldStands,
@@ -1021,6 +1025,13 @@ export interface HorseDecisionReceiptContext {
    */
   omahaPricedRaise?: boolean;
   /**
+   * omahaMathCore (lane MATHCORE 2026-11-19): true when the worker may have run
+   * this decision with omahaMathCore on (the request's option, or the switch
+   * row last delivered, or the one before it while it still counts). Absent
+   * or false, the validator is exactly as before.
+   */
+  omahaMathCore?: boolean;
+  /**
    * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
    * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
    * option). Absent or false, the validator is exactly as before.
@@ -1219,6 +1230,20 @@ function policyGraphIsValidInScope(
       return false;
     const changed = previous !== null && !same(previous, transition.after);
     if (transition.changed !== changed || (transition.node === 'timing' && changed)) return false;
+    // omahaMathCore (lane MATHCORE 2026-11-19, default OFF): the math-first
+    // core is the outermost owner of wager_rules; its EV choice may be any
+    // legal action. Admitted only under the option the worker may have run
+    // (context.omahaMathCore), in the core's scope on the request, with the
+    // decision's own applied core receipt naming exactly this action, and only
+    // when the action is legal on the request.
+    if (
+      transition.node === 'wager_rules' &&
+      changed &&
+      omahaMathCoreAdmits(value, transition.after, expectedVariant, context)
+    ) {
+      previous = transition.after;
+      continue;
+    }
     // Wager rules add aggression or apply a named owner discipline. Two rules of
     // 2026-10-25 turn a call, raise or jam into a fold. The PLO4/5/6
     // paired-board fold (HorsePloPairedBoardFold) and the no-limit hold'em
@@ -1821,6 +1846,55 @@ function policyGraphIsValidInScope(
   );
 }
 
+/**
+ * omahaMathCore admission: the wager_rules result is the core's applied
+ * choice. The core reads only the request and its measured tables, so the
+ * choice is checked against the request: scope, the receipt naming exactly
+ * this action, and legality (a listed legal action; a call of exactly the
+ * chips owed; a bet or raise inside the request's bounds).
+ */
+export function omahaMathCoreAdmits(
+  value: RecordValue,
+  after: HorsePolicyAction,
+  expectedVariant: string | undefined,
+  context: HorseDecisionReceiptContext | undefined
+): boolean {
+  try {
+    if (context === undefined || context.omahaMathCore !== true) return false;
+    const variant = String(expectedVariant ?? '').toLowerCase();
+    if (!OMAHA_MATH_CORE_VARIANTS.has(variant)) return false;
+    const gs = context.gameState;
+    if (String(gs.gameVariant).toLowerCase() !== variant) return false;
+    if (!omahaMathCoreInScope(context.player, gs)) return false;
+    const receipt = value.omahaMathCore;
+    if (!record(receipt) || receipt.applied !== true || receipt.switch !== 'omahaMathCore')
+      return false;
+    if (receipt.action !== after.action || (receipt.amount ?? null) !== (after.amount ?? null))
+      return false;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes(after.action)) return false;
+    const player = context.player;
+    const toCall = Number.isFinite(gs.toCall)
+      ? (gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+    const eps = 0.005;
+    if (after.action === 'call')
+      return (
+        after.amount !== null && Math.abs(after.amount - Math.min(toCall, player.stack)) <= eps
+      );
+    if (after.action === 'check') return toCall <= eps;
+    if (after.action === 'fold') return toCall > eps;
+    if (after.action === 'bet' || after.action === 'raise') {
+      if (after.amount === null || !Number.isFinite(after.amount)) return false;
+      const lo = Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : 0;
+      const hi = Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : Infinity;
+      return after.amount >= lo - eps && after.amount <= hi + eps;
+    }
+    return after.action === 'all_in';
+  } catch {
+    return false;
+  }
+}
+
 /** Finite refusal names only: no player identity, cards or raw receipt data. */
 /**
  * The omahaStrategyInPlo6 values the worker may have run this decision with
@@ -2014,6 +2088,30 @@ export function omahaPricedInLightningGateCandidates(
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
   return out;
+}
+
+/**
+ * omahaMathCore (lane MATHCORE 2026-11-19): whether the worker may have run
+ * this decision with omahaMathCore on: the request's own option, the switch
+ * row this client last delivered, or the configuration before the last change
+ * while it still counts. Any of them on admits the core's choice (the choice
+ * is still checked against its own receipt and the request).
+ */
+export function omahaMathCoreGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean {
+  if (requestOpts?.omahaMathCore === true) return true;
+  const on = (config: unknown): boolean => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaMathCore === true;
+    } catch {
+      return false;
+    }
+  };
+  return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
 }
 
 /**

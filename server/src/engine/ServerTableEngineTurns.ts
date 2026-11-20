@@ -5191,9 +5191,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // omahaValueSizeIsUnreadable (default off): a nut-class wager sized in the owner's
               // 80-95% band stays as sized while it is still legal and in the band on the fresh
               // state; the nut and near-pot roundings would only put the full pot back.
+              // omahaMathCore: the core's applied EV choice is final; the
+              // commit-door wager rules never re-decide it.
+              const mathCoreOwned = decision.omahaMathCore?.applied === true;
               const wagerGuarded =
                 safeWorkerFallback ||
                 decision.policyFallback === 'brain_exception' ||
+                mathCoreOwned ||
                 omahaValueSizeBandHolds(decision, privateHero, commitState)
                   ? decision
                   : fullPotNearPotWager(
@@ -5215,9 +5219,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // tournament. Last at the door too, on the controller's fresh
               // state, so no withdrawal above and no liveness fallback can fold
               // that spot. No equity is measured here, so it calls.
-              const guarded = brainChoseFold
-                ? wagerGuarded
-                : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
+              const guarded =
+                brainChoseFold || mathCoreOwned
+                  ? wagerGuarded
+                  : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
               if (guarded !== wagerGuarded) noteFire('short_all_in_call_floor_commit');
               if (guarded !== decision) {
                 decision = { ...decision, ...guarded };

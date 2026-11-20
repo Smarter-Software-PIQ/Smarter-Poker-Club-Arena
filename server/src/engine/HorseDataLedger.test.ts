@@ -53,6 +53,8 @@ const ALL_SOURCE: string = walk(SRC)
 
 const BRAIN_FILES = [
   'engine/HorseLogic.ts',
+  // omahaMathCore (2026-11-19, default off): the rule reads its option (HorseLogic hands it the wager_rules result).
+  'engine/omahaMathCore/OmahaMathCoreRule.ts',
   // The V31 certified consult and the solver miss helpers moved verbatim out
   // of HorseLogic.ts (2026-11-06) and fire the same receipts and read the
   // same controls there.
