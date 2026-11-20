@@ -2686,6 +2686,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemValueAndCallsArePriced: true },
     b: {},
   },
+  // 2026-11-20 Hold'em Strategy lane (holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced, default OFF,
+  // unevaluated): the priced rebuilds of the Antigravity ace-high jam gate and board discipline. a prices, b is the
+  // live line. Declared, not run; a Horse field is not the people the measured constants describe.
+  {
+    name: 'nlh_committed_no_pair_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemCommittedNoPairIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_danger_board_equity_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemDangerBoardEquityIsPriced: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
