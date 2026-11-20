@@ -3521,6 +3521,15 @@ export interface HorseDecideOpts {
    * PLO4/PLO5 cash PREFLOP decisions. Off (default), the core computes and receipts its preflop EV (shadow) and
    * today's preflop action stands. Read === true. */
   omahaMathCorePreflop?: boolean;
+  /** omahaMathCore per-street admission (lead 2026-11-19 10:55 PM: the core ships street by street; lane
+   * COREWIRE-2): with omahaMathCore on, the core owns that game's street only when its flag is on; elsewhere it
+   * computes and receipts in shadow and today's action stands. Read === true, default OFF; PLO6 never. */
+  omahaMathCorePlo4Flop?: boolean;
+  omahaMathCorePlo4Turn?: boolean;
+  omahaMathCorePlo4River?: boolean;
+  omahaMathCorePlo5Flop?: boolean;
+  omahaMathCorePlo5Turn?: boolean;
+  omahaMathCorePlo5River?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -15004,6 +15013,14 @@ export class HorseLogic {
             error: err,
             runCore: true,
             preflopOwned: opts.omahaMathCorePreflop === true,
+            streetOpts: {
+              omahaMathCorePlo4Flop: opts.omahaMathCorePlo4Flop === true,
+              omahaMathCorePlo4Turn: opts.omahaMathCorePlo4Turn === true,
+              omahaMathCorePlo4River: opts.omahaMathCorePlo4River === true,
+              omahaMathCorePlo5Flop: opts.omahaMathCorePlo5Flop === true,
+              omahaMathCorePlo5Turn: opts.omahaMathCorePlo5Turn === true,
+              omahaMathCorePlo5River: opts.omahaMathCorePlo5River === true,
+            },
           });
       if (coreRecovered) {
         let coreThink = 1500;

@@ -71,6 +71,8 @@ export interface ValueWagerWhenChecked {
    * absent: the wager is taken as the strongest p of his range (no bluffs credited)
    */
   valueShare?: number;
+  /** observations behind p (its binomial error is part of the check line's standard error); absent: not counted */
+  n?: number;
   source: string;
 }
 
@@ -192,6 +194,7 @@ const STREETS: readonly ValueStreet[] = ['flop', 'turn', 'river'];
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 const r2 = (x: number) => Math.round(x * 100) / 100;
+const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
 function hash32(s: string): number {
   let h = 0x811c9dc5;
@@ -274,6 +277,8 @@ interface Node {
 interface Best {
   ev: number;
   plan: string;
+  /** standard error of ev (sampling, measured-cell binomial error, unmeasured-response spread); absent: 0 */
+  se?: number;
 }
 
 /** Equity against the band of the range between the strongest `hi x share` and the strongest `lo x share` (callers below the raisers). */
@@ -345,92 +350,133 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       (isRaise && !((measured.n ?? 0) >= RAISE_FOLD_CREDIT_MIN_N)) ||
       (n.off > 0 && n.capped === true);
     if (!measured && !isRaise) return null; // an unmeasured bet stays unpriced (the core prices its own bets)
-    const r0: ValueResponse = noFoldCredit
-      ? {
-          fold: 0,
-          raise: measured ? measured.raise : 0,
-          callers: measured ? Math.max(1, measured.callers) : Math.max(1, spot.nOpp),
-          n: measured?.n,
-          source: `${measured ? measured.source : 'no measured cell'}; no fold credit (${n.off > 0 && n.capped === true ? 'later street after a called raise: capped range, unmeasured' : `raise line, n < ${RAISE_FOLD_CREDIT_MIN_N} or none`})`,
-        }
-      : measured;
-    let fold = r0.fold;
-    let raise = r0.raise;
-    let src = r0.source;
-    const xb = spot.bluffCtx;
-    if (xb?.exploitBack && !noFoldCredit) {
-      const e = xb.exploitBack(line);
-      fold = clamp01(fold * e.foldMult);
-      raise = clamp01(raise * e.raiseMult);
-      src += `; ${e.source}`;
-    }
-    if (xb?.blockerShift && !noFoldCredit) {
-      const cont = clamp01(xb.blockerShift(clamp01(1 - fold)));
-      fold = 1 - cont;
-      src += '; blockers';
-    }
-    const r = { ...r0, fold, raise, source: src };
-    const pf = clamp01(r.fold);
-    const pr = allIn ? 0 : clamp01(Math.min(r.raise, 1 - pf));
-    const pc = clamp01(1 - pf - pr);
-    const callers = Math.max(1, r.callers);
-    const evFold = pf * net(n.pot);
-    // raised: the raisers are the strongest pr of what was in; the hero folds or stacks off, whichever is worth more
-    let evRaise = 0;
-    if (pr > 0) {
-      // he raises the pot (capped by the stacks); the hero folds or calls, whichever is worth more, against the
-      // raising share; the hero's total from now if he calls is H (the opponent's earlier bet covers toCall)
-      const all = toCall + n.stack;
-      const H = Math.min(all, adds + (n.pot + 2 * adds - toCall));
-      const eR = eqAt(n.share * pr);
-      const callRaise = eR * net(n.pot + 2 * H - toCall) - H;
-      evRaise = pr * Math.max(-adds, callRaise);
-    }
-    // called: the callers are the band below the raisers
-    let evCall = 0;
-    let plan = 'showdown';
-    if (pc > 0) {
-      const eC = bandEquity(eqAt, n.share, pr, pr + pc);
-      const potAfter = n.pot + adds + callers * (adds - toCall);
-      const stackAfter = n.stack - (adds - toCall);
-      if (n.st >= 2 || allIn || stackAfter <= 1e-9 || !future || noFoldCredit) {
-        evCall = pc * (eC * net(potAfter) - adds);
-        plan = allIn ? 'all-in' : 'showdown';
-      } else {
-        const next: Node = {
-          pot: potAfter,
-          stack: stackAfter,
-          share: n.share * (pr + pc),
-          st: n.st + 1,
-          off: n.off + 1,
-          capped: n.capped === true || isRaise,
-        };
-        const b = bestPlan(next);
-        evCall = pc * (b.ev - adds);
-        plan = b.plan;
+    // Prices the wager for one response hypothesis (fold / raise / callers before the hero's blockers and the
+    // exploit-back scaling, which apply only where fold credit is taken).
+    const priceWith = (r0: ValueResponse, credit: boolean) => {
+      let fold = r0.fold;
+      let raise = r0.raise;
+      let src = r0.source;
+      const xb = spot.bluffCtx;
+      if (xb?.exploitBack && credit) {
+        const e = xb.exploitBack(line);
+        fold = clamp01(fold * e.foldMult);
+        raise = clamp01(raise * e.raiseMult);
+        src += `; ${e.source}`;
       }
-    }
-    // error of this EV: the fold rate's binomial error moves chips between the fold branch (the pot) and the call
-    // branch; the equity error moves the call branch's share of the final pot
-    const seFold = r.n && r.n > 0 ? Math.sqrt((pf * (1 - pf)) / r.n) : 0;
-    const callValue = pc > 0 ? evCall / pc : 0;
-    const se = Math.sqrt(
-      Math.pow(seFold * Math.abs(net(n.pot) - callValue), 2) +
-        Math.pow(Math.max(0, spot.equitySe) * pc * net(n.pot + 2 * adds), 2)
+      if (xb?.blockerShift && credit) {
+        const cont = clamp01(xb.blockerShift(clamp01(1 - fold)));
+        fold = 1 - cont;
+        src += '; blockers';
+      }
+      const r = { ...r0, fold, raise, source: src };
+      const pf = clamp01(r.fold);
+      const pr = allIn ? 0 : clamp01(Math.min(r.raise, 1 - pf));
+      const pc = clamp01(1 - pf - pr);
+      const callers = Math.max(1, r.callers);
+      const evFold = pf * net(n.pot);
+      // raised: the raisers are the strongest pr of what was in; the hero folds or stacks off, whichever is worth more
+      let evRaise = 0;
+      if (pr > 0) {
+        // he raises the pot (capped by the stacks); the hero folds or calls, whichever is worth more, against the
+        // raising share; the hero's total from now if he calls is H (the opponent's earlier bet covers toCall)
+        const all = toCall + n.stack;
+        const H = Math.min(all, adds + (n.pot + 2 * adds - toCall));
+        const eR = eqAt(n.share * pr);
+        const callRaise = eR * net(n.pot + 2 * H - toCall) - H;
+        evRaise = pr * Math.max(-adds, callRaise);
+      }
+      // called: the callers are the band below the raisers
+      let evCall = 0;
+      let plan = 'showdown';
+      let seLater = 0;
+      if (pc > 0) {
+        const eC = bandEquity(eqAt, n.share, pr, pr + pc);
+        const potAfter = n.pot + adds + callers * (adds - toCall);
+        const stackAfter = n.stack - (adds - toCall);
+        if (n.st >= 2 || allIn || stackAfter <= 1e-9 || !future || !credit) {
+          evCall = pc * (eC * net(potAfter) - adds);
+          plan = allIn ? 'all-in' : 'showdown';
+        } else {
+          const next: Node = {
+            pot: potAfter,
+            stack: stackAfter,
+            share: n.share * (pr + pc),
+            st: n.st + 1,
+            off: n.off + 1,
+            capped: n.capped === true || isRaise,
+          };
+          const b = bestPlan(next);
+          evCall = pc * (b.ev - adds);
+          plan = b.plan;
+          seLater = pc * (b.se ?? 0);
+        }
+      }
+      // error of this EV: the fold rate's binomial error moves chips between the fold branch (the pot) and the call
+      // branch; the equity error moves the call branch's share of the final pot
+      const seFold = r.n && r.n > 0 ? Math.sqrt((pf * (1 - pf)) / r.n) : 0;
+      const callValue = pc > 0 ? evCall / pc : 0;
+      const se = Math.sqrt(
+        Math.pow(seFold * Math.abs(net(n.pot) - callValue), 2) +
+          Math.pow(Math.max(0, spot.equitySe) * pc * net(n.pot + 2 * adds), 2) +
+          seLater * seLater
+      );
+      return {
+        ev: evFold + evRaise + evCall,
+        se,
+        allIn,
+        adds,
+        fold: pf,
+        raise: pr,
+        call: pc,
+        evFold,
+        evRaise,
+        evCall,
+        plan,
+        source: r.source,
+      };
+    };
+    if (!noFoldCredit) return priceWith(measured as ValueResponse, true);
+    // No measured fold rate for this response (lane COREWIRE-2, PROVE-2 c4: river/turn bet->check, the trap
+    // check-raise priced as called by the bettor's whole wagering range, bluffs included). An unmeasured response
+    // is priced under both hypotheses and the wager takes the WORSE one: called by everything (what a bluff
+    // fears) or folded to at the best available estimate (what a value raise fears): the borrowed cell's fold rate
+    // when one exists, else the self-consistent defence s/(1+s) at this size. Neither side gets credit the data
+    // does not carry.
+    const callers0 = measured ? Math.max(1, measured.callers) : Math.max(1, spot.nOpp);
+    const reason =
+      n.off > 0 && n.capped === true
+        ? 'later street after a called raise: capped range, unmeasured'
+        : `raise line, n < ${RAISE_FOLD_CREDIT_MIN_N} or none`;
+    const called = priceWith(
+      {
+        fold: 0,
+        raise: measured ? measured.raise : 0,
+        callers: callers0,
+        n: measured?.n,
+        source: `${measured ? measured.source : 'no measured cell'}; no fold credit (${reason})`,
+      },
+      false
     );
+    const sAlt = Math.max(0, realFrac);
+    const foldAlt = measured ? clamp01(measured.fold) : clamp01(sAlt / (1 + sAlt));
+    const folded = priceWith(
+      {
+        fold: foldAlt,
+        raise: measured ? measured.raise : 0,
+        callers: callers0,
+        n: measured?.n,
+        source: `${measured ? measured.source : 'no measured cell'}; unmeasured response (${reason}): worse of called-by-all and fold ${r3(foldAlt)} (${measured ? 'borrowed cell' : 'defence s/(1+s)'})`,
+      },
+      false
+    );
+    // the two hypotheses bracket the unmeasured truth: half their spread is this EV's model error
+    const spread = Math.abs(called.ev - folded.ev) / 2;
+    if (folded.ev < called.ev)
+      return { ...folded, se: Math.sqrt(folded.se * folded.se + spread * spread) };
     return {
-      ev: evFold + evRaise + evCall,
-      se,
-      allIn,
-      adds,
-      fold: pf,
-      raise: pr,
-      call: pc,
-      evFold,
-      evRaise,
-      evCall,
-      plan,
-      source: r.source,
+      ...called,
+      se: Math.sqrt(called.se * called.se + spread * spread),
+      source: `${called.source}; worse of called-by-all and fold ${r3(foldAlt)}`,
     };
   };
 
@@ -438,9 +484,14 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   const checkEv = (n: Node, closes: boolean, eqHere: number, afterHisCheck?: () => Best): Best => {
     const goOn = (): Best => {
       if (afterHisCheck) return afterHisCheck();
-      if (n.st >= 2 || n.stack <= 1e-9) return { ev: eqHere * net(n.pot), plan: 'check down' };
+      if (n.st >= 2 || n.stack <= 1e-9)
+        return {
+          ev: eqHere * net(n.pot),
+          plan: 'check down',
+          se: Math.max(0, spot.equitySe) * net(n.pot),
+        };
       const b = bestPlan({ ...n, st: n.st + 1, off: n.off + 1 });
-      return { ev: b.ev, plan: `check > ${b.plan}` };
+      return { ev: b.ev, plan: `check > ${b.plan}`, se: b.se };
     };
     if (closes) return goOn();
     const w = spot.wagerWhenChecked(n.off);
@@ -462,7 +513,11 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     let call: Best;
     const stackAfter = n.stack - bet;
     if (n.st >= 2 || stackAfter <= 1e-9)
-      call = { ev: eqVsWager * net(potFacing + bet) - bet, plan: 'check-call' };
+      call = {
+        ev: eqVsWager * net(potFacing + bet) - bet,
+        plan: 'check-call',
+        se: Math.max(0, spot.equitySe) * net(potFacing + bet),
+      };
     else {
       // later streets against the wagering range: its value part (bluffs give up), the conservative continuation
       const b = bestPlan({
@@ -472,21 +527,30 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
         st: n.st + 1,
         off: n.off + 1,
       });
-      call = { ev: b.ev - bet, plan: `check-call > ${b.plan}` };
+      call = { ev: b.ev - bet, plan: `check-call > ${b.plan}`, se: b.se };
     }
-    let reply: Best = call.ev > 0 ? call : { ev: 0, plan: 'check-fold' };
+    let reply: Best = call.ev > 0 ? call : { ev: 0, plan: 'check-fold', se: 0 };
     // the check-raise prices the shared menu and the all-in (decision street); later streets the pot and the all-in
     const crNode: Node = { ...n, pot: potFacing, stack: stackAfter, share: n.share * p };
     const crAllIn = stackAfter / (potFacing + bet);
     const crSizes = [...(n.off === 0 ? menuSizes : [1]), ...(crAllIn <= 1 + 1e-9 ? [crAllIn] : [])];
     for (const f of crSizes) {
       const cr = wagerEv(crNode, f, bet, 'check_raise', true);
-      if (cr && cr.ev > reply.ev) reply = { ev: cr.ev, plan: `check-raise ${r2(f)} > ${cr.plan}` };
+      if (cr && cr.ev > reply.ev)
+        reply = { ev: cr.ev, plan: `check-raise ${r2(f)} > ${cr.plan}`, se: cr.se };
     }
     const behind = goOn();
+    // the check line's error: its branches' errors and the binomial error of his measured wager rate
+    const seP = w.n && w.n > 0 ? Math.sqrt((p * (1 - p)) / w.n) : 0;
+    const se = Math.sqrt(
+      Math.pow(p * (reply.se ?? 0), 2) +
+        Math.pow((1 - p) * (behind.se ?? 0), 2) +
+        Math.pow(seP * (reply.ev - behind.ev), 2)
+    );
     return {
       ev: p * reply.ev + (1 - p) * behind.ev,
       plan: `check (${r2(p)} ${reply.plan} | ${behind.plan})`,
+      se,
     };
   };
 
@@ -502,12 +566,17 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     for (const f of fr) {
       const w = wagerEv(n, f, 0, 'bet', true);
       if (w && w.ev > best.ev)
-        best = { ev: w.ev, plan: `${STREETS[n.st]} ${w.allIn ? 'all-in' : r2(f)} > ${w.plan}` };
+        best = {
+          ev: w.ev,
+          plan: `${STREETS[n.st]} ${w.allIn ? 'all-in' : r2(f)} > ${w.plan}`,
+          se: w.se,
+        };
     }
     const allInFrac = n.stack / n.pot;
     if (allInFrac <= 1 + 1e-9) {
       const w = wagerEv(n, allInFrac, 0, 'bet', true);
-      if (w && w.ev > best.ev) best = { ev: w.ev, plan: `${STREETS[n.st]} all-in > ${w.plan}` };
+      if (w && w.ev > best.ev)
+        best = { ev: w.ev, plan: `${STREETS[n.st]} all-in > ${w.plan}`, se: w.se };
     }
     return best;
   };
@@ -531,7 +600,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       evRaise: 0,
       evCall: 0,
       plan: c.plan,
-      se: 0,
+      se: c.se ?? 0,
       source: 'measured wager-when-checked cell',
     });
   }
@@ -564,6 +633,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     const potC = spot.pot + callAdds;
     let ev: number;
     let plan: string;
+    let seLater = 0;
     if (st0 >= 2 || root.stack <= 1e-9 || callAdds >= spot.heroStack - 1e-9) {
       ev = eqNow * net(potC) - callAdds;
       plan = 'call > showdown';
@@ -572,6 +642,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       const b = spot.ip ? checkEv(next, false, eqAt(1), () => bestPlan(next)) : bestPlan(next);
       ev = b.ev - callAdds;
       plan = `call > ${b.plan}`;
+      seLater = b.se ?? 0;
     }
     cands.push({
       kind: 'call',
@@ -586,7 +657,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       evRaise: 0,
       evCall: 0,
       plan,
-      se: Math.max(0, spot.equitySe) * net(potC),
+      se: Math.sqrt(Math.pow(Math.max(0, spot.equitySe) * net(potC), 2) + seLater * seLater),
       source: spot.ip
         ? 'call: his next-street lead at the measured rate, else float'
         : 'call: next street out of position',

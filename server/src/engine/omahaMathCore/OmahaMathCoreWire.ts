@@ -755,6 +755,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         : c.live.filter((o) => !o.allIn);
     if (who.length === 0) return null;
     let pNone = 1;
+    let nMinW = Infinity;
     let fracSum = 0;
     let fracW = 0;
     let nv: number | undefined;
@@ -785,6 +786,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       });
       if (!br) continue;
       pNone *= 1 - br.b;
+      if (Number.isFinite(br.n) && br.n > 0) nMinW = Math.min(nMinW, br.n);
       srcs.push(`s${o.seat}: ${r3(br.b)} ${br.source}`);
       // measured size mix of such wagers (public bet bands)
       const bands =
@@ -811,6 +813,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       p,
       frac,
       valueShare: nv === undefined ? undefined : 1 - nv,
+      n: Number.isFinite(nMinW) ? nMinW : undefined,
       source: srcs.join(' | '),
     };
   };

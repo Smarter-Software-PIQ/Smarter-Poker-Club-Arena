@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { HandController } from '../engine/HandController.js';
 import { decideLightningHorse, shapeLightningHorseAction } from './LightningHorse.js';
 import type { Card, GameState, SeatPlayer } from '../types.js';
+import { OMAHA_MATH_CORE_ALL_STREETS } from '../engine/omahaMathCore/OmahaMathCoreRule.js';
 
 const cards = (text: string): Card[] =>
   text.split(' ').map((c) => ({
@@ -124,7 +125,7 @@ describe('a Lightning worker failure in the core scope is priced, never an autom
   it('switch on (the request option): the nut flush facing a bet calls; the receipt names the failure', async () => {
     const { hc, hero } = incident(10);
     const answer = await decideLightningHorse(
-      turnOf(hc, hero, { omahaMathCore: true }),
+      turnOf(hc, hero, { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS }),
       new AbortController().signal,
       () => failing
     );

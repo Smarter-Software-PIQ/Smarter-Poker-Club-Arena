@@ -185,6 +185,11 @@ export interface CoreReceipt {
   equityFallbacks?: number;
   /** set by the rule when the legalizer restated the wager size */
   legalized?: { from: number | null; to: number | null; action: string };
+  /**
+   * set by the rule (lane COREWIRE-2, lead 10:55 PM "prove it to change it"): today's action was kept because the
+   * core's best did not beat it by more than the change margin (k x the combined standard error)
+   */
+  kept?: { incoming: string; best: string; gap: number; se: number; k: number };
   /** component wiring (lane COREWIRE): which components priced this decision */
   wire?: {
     track: string | null;

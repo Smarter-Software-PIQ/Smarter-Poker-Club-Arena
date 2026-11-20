@@ -30,6 +30,70 @@ const STREETS = ['preflop', 'flop', 'turn', 'river'] as const;
 const WAGERS = new Set(['bet', 'raise', 'all_in']);
 const ACTS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
 
+/**
+ * Per-street admission (lead decision 2026-11-19 10:55 PM: the core ships street by street). With omahaMathCore
+ * on, the core OWNS a postflop decision only on a street whose flag is on for that game; on every other street it
+ * still computes and writes its receipt (shadow) and today's action stands. Default all OFF (read === true).
+ */
+export const OMAHA_MATH_CORE_STREET_FLAGS = {
+  plo4: {
+    flop: 'omahaMathCorePlo4Flop',
+    turn: 'omahaMathCorePlo4Turn',
+    river: 'omahaMathCorePlo4River',
+  },
+  plo5: {
+    flop: 'omahaMathCorePlo5Flop',
+    turn: 'omahaMathCorePlo5Turn',
+    river: 'omahaMathCorePlo5River',
+  },
+} as const;
+export type OmahaMathCoreStreetFlag =
+  (typeof OMAHA_MATH_CORE_STREET_FLAGS)[keyof typeof OMAHA_MATH_CORE_STREET_FLAGS][
+    | 'flop'
+    | 'turn'
+    | 'river'];
+export const OMAHA_MATH_CORE_STREET_FLAG_NAMES: readonly OmahaMathCoreStreetFlag[] = [
+  'omahaMathCorePlo4Flop',
+  'omahaMathCorePlo4Turn',
+  'omahaMathCorePlo4River',
+  'omahaMathCorePlo5Flop',
+  'omahaMathCorePlo5Turn',
+  'omahaMathCorePlo5River',
+];
+/** every street admitted (tests and the full-core grading arm) */
+export const OMAHA_MATH_CORE_ALL_STREETS: Readonly<Record<OmahaMathCoreStreetFlag, true>> = {
+  omahaMathCorePlo4Flop: true,
+  omahaMathCorePlo4Turn: true,
+  omahaMathCorePlo4River: true,
+  omahaMathCorePlo5Flop: true,
+  omahaMathCorePlo5Turn: true,
+  omahaMathCorePlo5River: true,
+};
+export type OmahaMathCoreOpts = {
+  omahaMathCore?: boolean;
+  omahaMathCorePreflop?: boolean;
+} & Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
+
+/** True when the core owns this street's decision (preflop: omahaMathCorePreflop; postflop: the street flag). */
+export function omahaMathCoreStreetAdmitted(
+  variant: string,
+  street: string,
+  opts: OmahaMathCoreOpts
+): boolean {
+  if (street === 'preflop') return opts.omahaMathCorePreflop === true;
+  const g = OMAHA_MATH_CORE_STREET_FLAGS[variant as 'plo4' | 'plo5'];
+  if (!g) return false;
+  const flag = g[street as 'flop' | 'turn' | 'river'];
+  return flag !== undefined && opts[flag] === true;
+}
+
+/**
+ * "Prove it to change it" (lead 10:55 PM; lane COREWIRE-2): the core replaces today's action only when its best
+ * candidate's EV beats the EV of today's action (priced by the core on the same basis) by more than k standard
+ * errors of the difference. k is fitted on Nov 17-18 only (never on the Nov 19 holdout): see COREWIRE.md.
+ */
+export const OMAHA_MATH_CORE_CHANGE_MARGIN_K: number | null = 2;
+
 export interface OmahaMathCoreDecisionReceipt {
   readonly switch: 'omahaMathCore';
   readonly applied: boolean;
@@ -40,7 +104,8 @@ export interface OmahaMathCoreDecisionReceipt {
   readonly incoming: { action: HorseDecision['action']; amount: number | null };
   readonly error: string | null;
   readonly core: CoreReceipt | null;
-  /** preflop with omahaMathCorePreflop off: computed and receipted only; today's action stands */
+  /** a street the core does not own (preflop: omahaMathCorePreflop off; postflop: its street flag off): computed
+   * and receipted only; today's action stands */
   readonly shadow?: boolean;
 }
 
@@ -300,6 +365,30 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
   };
 }
 
+function sameAction(
+  a: { action: string; amount: number | null },
+  b: { action: string; amount?: number }
+): boolean {
+  return (
+    a.action === b.action &&
+    (a.action === 'all_in' || Math.abs((a.amount ?? 0) - (b.amount ?? 0)) <= 0.011)
+  );
+}
+
+/** Today's action among the core's priced candidates: the same action, the nearest size for a wager. */
+function incumbentOf(
+  evs: CoreReceipt['evs'],
+  incoming: { action: string; amount: number | null }
+): CoreReceipt['evs'][number] | null {
+  const same = evs.filter((e) => e.action === incoming.action);
+  if (same.length === 0) return null;
+  if (incoming.action !== 'bet' && incoming.action !== 'raise') return same[0];
+  const amt = incoming.amount ?? 0;
+  return same.reduce((x, y) =>
+    Math.abs((y.amount ?? 0) - amt) < Math.abs((x.amount ?? 0) - amt) ? y : x
+  );
+}
+
 // (toDecision kept for tests)
 export function toDecision(receipt: CoreReceipt, base: HorseDecision): HorseDecision {
   const { action, amount } = receipt.choice;
@@ -317,7 +406,7 @@ export function omahaMathCoreRule(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  opts: { omahaMathCore?: boolean; omahaMathCorePreflop?: boolean },
+  opts: OmahaMathCoreOpts,
   legalize: (d: HorseDecision) => HorseDecision,
   now: () => number = () => performance.now()
 ): HorseDecision {
@@ -374,10 +463,45 @@ export function omahaMathCoreRule(
       throw new Error(
         `omahaMathCore: no priced candidate is legal as proposed${legalizeError ? ` (legalizer: ${legalizeError})` : ''}`
       );
+    // prove it to change it: today's action stands unless the core's best beats it by more than the margin
+    {
+      const best = receipt.evs.find(
+        (e) =>
+          e.action === legal!.action &&
+          (e.action === 'all_in' || Math.abs((e.amount ?? 0) - (legal!.amount ?? 0)) <= 0.011)
+      );
+      const inc = incumbentOf(receipt.evs, incoming);
+      const K = OMAHA_MATH_CORE_CHANGE_MARGIN_K;
+      if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
+        const se = Math.sqrt(
+          Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
+        );
+        const gap = best.ev - inc.ev;
+        if (!(gap > K * se)) {
+          // today's action, exactly as it reached the core (already legal on this state)
+          const kept: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+          if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+            kept.amount = incoming.amount;
+          receipt.kept = {
+            incoming: `${incoming.action}${incoming.amount !== null ? ' ' + incoming.amount : ''}`,
+            best: `${best.action}${best.amount !== null ? ' ' + best.amount : ''}`,
+            gap: Math.round(gap * 100) / 100,
+            se: Math.round(se * 100) / 100,
+            k: K,
+          };
+          receipt.choice = {
+            action: inc.action,
+            amount: incoming.amount,
+            ev: Math.round(inc.ev * 100) / 100,
+          };
+          legal = kept;
+        }
+      }
+    }
     // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
     // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
     // preflop action stands.
-    if (gs.stage === 'preflop' && opts.omahaMathCorePreflop !== true)
+    if (!omahaMathCoreStreetAdmitted(String(gs.gameVariant).toLowerCase(), String(gs.stage), opts))
       return {
         ...decision,
         omahaMathCore: {
