@@ -7,21 +7,23 @@ import { createHash } from 'node:crypto';
  * (Dan, 2026-08-30); "i just don't want any 'un intended delays'"
  * (Dan, 2026-11-18). Incident 075013fd, lag-finish lane 6.
  *
- * After lane 3 (20261119175856) moved hand commits & hand retention to
- * FOR KEY SHARE on public.tournaments and downgraded the 8 rebuy/bounty/money-core
- * writers to FOR NO KEY UPDATE, six remaining shared-lane paths still took
- * FOR UPDATE (5) or FOR SHARE (1) on public.tournaments:
+ * Migration 20261119181500 (#11437 / #11451) already downgraded
+ * fn_sweep_pending_tournament_bounties (a0c5e323a496d8630894d1cb4866c76b)
+ * and fn_move_tournament_player (272f9aeeee9ba5a63069b54ff565f1ba) to
+ * FOR NO KEY UPDATE on public.tournaments.
+ *
+ * Four remaining shared-lane paths still took FOR UPDATE (3) or FOR SHARE (1):
  *   - fn_register_for_tournament_before_atomic_capacity_20260907
  *   - fn_register_horse_for_tournament_before_maintenance_gate
  *   - trg_refuse_finalized_tournament_entry
- *   - fn_sweep_pending_tournament_bounties
- *   - fn_move_tournament_player
  *   - fn_terminal_tournament_seat_is_immutable (BEFORE INSERT FOR SHARE on tournaments & tables)
  *
- * Migration 20261119185300 downgrades the 5 FOR UPDATE locks to FOR NO KEY UPDATE
- * (none updates any primary or unique key column on public.tournaments) and the
- * 1 FOR SHARE BEFORE INSERT guard to FOR KEY SHARE. Executed natively on
- * PostgreSQL by scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py.
+ * Migration 20261119185300 requires 20261119181500's post-images for sweep &
+ * move, downgrades the 3 remaining FOR UPDATE locks to FOR NO KEY UPDATE
+ * (none updates any primary or unique key column on public.tournaments), and
+ * downgrades the 1 FOR SHARE BEFORE INSERT guard to FOR KEY SHARE. Executed
+ * natively on PostgreSQL by
+ * scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py.
  */
 const file = '20261119185300_remaining_tournament_row_locks_never_block_hands.sql';
 const migration = readFileSync(`supabase/migrations/${file}`, 'utf8');
@@ -39,9 +41,14 @@ const NO_KEY_UPDATE_WRITERS = [
   'public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)',
   'public.fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid)',
   'public.trg_refuse_finalized_tournament_entry()',
-  'public.fn_sweep_pending_tournament_bounties(uuid,integer)',
-  'public.fn_move_tournament_player(uuid,uuid,uuid,uuid,integer,uuid,text)',
 ];
+const REQUIRED_20261119181500 = [
+  ['public.fn_sweep_pending_tournament_bounties(uuid,integer)', 'a0c5e323a496d8630894d1cb4866c76b'],
+  [
+    'public.fn_move_tournament_player(uuid,uuid,uuid,uuid,integer,uuid,text)',
+    '272f9aeeee9ba5a63069b54ff565f1ba',
+  ],
+] as const;
 const IMMUTABLE_SEAT_GUARD = 'public.fn_terminal_tournament_seat_is_immutable()';
 
 function postImages() {
@@ -75,21 +82,29 @@ function postImages() {
 }
 
 describe('Remaining tournament row locks never block hands', () => {
-  it('is one bounded function-only transaction with @live-proof for all 6 post-images', () => {
+  it('is one bounded function-only transaction requiring 20261119181500 with @live-proof for all 4 rewritten post-images', () => {
     expect(migration.match(/^BEGIN;$/gm)).toHaveLength(1);
     expect(migration.trimEnd().endsWith('COMMIT;')).toBe(true);
     expect(migration).not.toMatch(
       /@install-window|LOCK TABLE|ALTER TABLE|CREATE INDEX|CREATE TABLE/
     );
+    const reqBlock = migration.match(/DO \$requires\$([\s\S]*?)END \$requires\$;/)![1];
+    for (const [sig, hash] of REQUIRED_20261119181500) {
+      expect(reqBlock).toContain(sig);
+      expect(reqBlock).toContain(hash);
+      const fixture = fixtures.functions.find((f) => f.signature === sig)!;
+      expect(fixture.md5).toBe(hash);
+      expect(md5(fixture.definition)).toBe(hash);
+    }
     const imgs = postImages();
-    expect(imgs.size).toBe(6);
+    expect(imgs.size).toBe(4);
     const liveProof = migration.match(/^-- @live-proof: (.+)$/m)![1];
     for (const [, { post }] of imgs) {
       expect(liveProof).toContain(post);
     }
   });
 
-  it('downgrades all 5 shared-lane tournament row writers from FOR UPDATE to FOR NO KEY UPDATE', () => {
+  it('downgrades all 3 remaining shared-lane tournament row writers from FOR UPDATE to FOR NO KEY UPDATE', () => {
     const imgs = postImages();
     for (const sig of NO_KEY_UPDATE_WRITERS) {
       const body = imgs.get(sig)!.body;
@@ -121,7 +136,7 @@ describe('Remaining tournament row locks never block hands', () => {
       'BEFORE: fn_terminal_tournament_seat_is_immutable FOR SHARE blocks pool writer FOR NO KEY UPDATE',
       'BEFORE: human register FOR UPDATE blocks hand commit FOR KEY SHARE',
       'BEFORE: horse register FOR UPDATE blocks hand commit FOR KEY SHARE',
-      'BEFORE: fn_sweep_pending_tournament_bounties FOR UPDATE blocks hand commit FOR KEY SHARE',
+      'PREREQ 20261119181500: fn_sweep_pending_tournament_bounties FOR NO KEY UPDATE does NOT block hand commit FOR KEY SHARE',
       'AFTER: trg_refuse_finalized_tournament_entry + non-key UPDATE does NOT block hand commit FOR KEY SHARE',
       'AFTER: fn_terminal_tournament_seat_is_immutable FOR KEY SHARE does NOT block pool writer FOR NO KEY UPDATE',
       'AFTER: human register FOR NO KEY UPDATE does NOT block hand commit FOR KEY SHARE',
