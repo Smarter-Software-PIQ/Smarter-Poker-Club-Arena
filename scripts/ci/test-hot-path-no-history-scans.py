@@ -46,6 +46,7 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,12 @@ LOAD_PREFIXES = (
     "process_tournament_rebuy",
     "fn_ca_promo_",
 )
+
+
+def pick_ephemeral_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
 
 
 def find_pg_bin() -> pathlib.Path:
@@ -427,7 +434,7 @@ def main() -> int:
     data_dir = cluster / "data"
     sock_dir = "127.0.0.1"
     log_file = cluster / "postgres.log"
-    port = 55400 + (os.getpid() % 1000)
+    port = pick_ephemeral_port()
 
     results: dict = {
         "ok": False,
