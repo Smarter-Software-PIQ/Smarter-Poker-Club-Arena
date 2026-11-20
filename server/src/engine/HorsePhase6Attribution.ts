@@ -689,8 +689,8 @@ function v58ShortStackJamShape(snapshot: Phase6Snapshot): boolean {
  * exactly this call, in the reference node's own order (the table option
  * first, else the pool option). Selection 'every' tests that the limp is
  * possible without pricing it: no equity draw, no RNG, no chart replay.
- * Public facts and the request's own options only; with both options off it
- * is false and every decision is checked exactly as before. */
+ * Public facts only. The table half asks possibility (see below): the option
+ * reaches the worker through the switch, not through the request. */
 function vpipFloorLimpOnlyShape(amount: number | null, snapshot: Phase6Snapshot): boolean {
   if (typeof amount !== 'number') return false;
   const s = snapshot.gameState,
@@ -701,7 +701,20 @@ function vpipFloorLimpOnlyShape(amount: number | null, snapshot: Phase6Snapshot)
     : s.tournament != null || (s.bigBlind ?? 0) >= 10;
   const fold: HorseDecision = { action: 'fold', thinkTime: 0 };
   let limp: HorseDecision;
-  if (vpipFloorLimpOnlyApplies(s, o, tournament)) {
+  // The switch delivers vpipFloorLimpOnly (and vpipFloorLimpOnlyTenHandWindow)
+  // inside the worker, after this request was built, exactly as it delivers
+  // the pool option (#11491): the request's opts cannot say whether the table
+  // option was on. So the question asked is whether the table floor COULD
+  // limp this hand - a floored cash table in the option's scope, short of its
+  // line, an unraised pot - and whether this call is exactly that limp.
+  // Without that a table floor limp on a jam/check/fold chart route was
+  // refused as reference_shape and the seat folded on the liveness fallback.
+  const possible: HorseDecideOpts = {
+    ...o,
+    vpipFloorLimpOnly: true,
+    vpipFloorLimpOnlyTenHandWindow: true,
+  };
+  if (vpipFloorLimpOnlyApplies(s, possible, tournament)) {
     limp = vpipFloorLimpOnlyStep(fold, p, s, () => 0, 'every').decision;
   } else {
     const pool = lightningVpipFloorLimpOnlyInputs(s, o, tournament);
