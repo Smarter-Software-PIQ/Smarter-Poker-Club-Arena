@@ -296,8 +296,24 @@ export function equityVsPools(
     sumSq = 0,
     n = 0;
   if (ranges.length === 0) return { equity: 1, se: 0, samples: 0, ms: 0 };
+  // Termination never rests on the wall clock alone (a frozen replay clock would spin): the
+  // number of draws is bounded, so the result is deterministic for a given seed; the clock is
+  // only an extra cap.
+  const maxDraws = Math.max(opts.maxSamples, opts.minSamples) * 4;
+  let draws = 0;
   for (;;) {
+    if (draws >= maxDraws) {
+      if (n === 0) return { equity: NaN, se: NaN, samples: 0, ms: opts.now() - t0 };
+      const mean = sum / n;
+      return {
+        equity: mean,
+        se: Math.sqrt(Math.max(0, sumSq / n - mean * mean) / n),
+        samples: n,
+        ms: opts.now() - t0,
+      };
+    }
     for (let batch = 0; batch < 64; batch++) {
+      draws++;
       used.fill(0);
       const picks: number[] = [];
       let ok = true;

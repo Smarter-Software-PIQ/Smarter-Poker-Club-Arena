@@ -465,3 +465,33 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
     expect(s.aggressorSeat).not.toBeNull();
   });
 });
+
+describe('omahaMathCore equity terminates without the clock (frozen replay clock)', () => {
+  it('returns with a frozen clock even when no joint draw can succeed', async () => {
+    const { equityVsPools, buildPool, seededRng: rng } = await import('./OmahaMathCoreEquity.js');
+    const hero = parseCardString('AhKhQs7d2c');
+    const board = parseCardString('Jh8s2s4c9d');
+    const pool = buildPool(hero, board, 5, 40, 1, rng('frozen'));
+    const one = {
+      parts: [{ idx: Int32Array.from([pool.order[0]]), weight: 1 }],
+      label: 'one holding',
+    };
+    // two seats that must hold the same single holding: every joint draw collides
+    const r = equityVsPools(hero, board, pool, [one, one], rng('x'), {
+      targetSe: 0.01,
+      minSamples: 400,
+      maxSamples: 4000,
+      maxMs: 40,
+      now: () => 0,
+    });
+    expect(Number.isNaN(r.equity)).toBe(true);
+    const s = equityVsPools(hero, board, pool, [one], rng('y'), {
+      targetSe: 0.01,
+      minSamples: 400,
+      maxSamples: 4000,
+      maxMs: 40,
+      now: () => 0,
+    });
+    expect(Number.isFinite(s.equity)).toBe(true);
+  });
+});
