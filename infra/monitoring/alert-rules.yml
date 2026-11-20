@@ -2040,11 +2040,15 @@ groups:
       # serving engine's complete daily body/seat/variant policy (2026-11-16).
       # Actual seats/hands never enter this identity: a real capacity loss must
       # still compare against the same planned population.
+      # Fresh by the policy's OWN collection timestamp (club_arena_admission_policy.prom),
+      # never the money snapshot's: a slow snapshot is MoneyHealthBlind's fact, and on
+      # 2026-11-19 (incident 3aabeee7) it paged this as "policy cannot be read" while
+      # the policy RPC was answering.
       - record: sp:lightning_admission_policy:readable
         expr: |
           (
             (max(poker_lightning_admission_policy_collect_ok) == bool 1)
-            * (time() - max(poker_health_collected_timestamp_seconds) < bool 180)
+            * (time() - max(poker_lightning_admission_policy_collected_timestamp_seconds) < bool 180)
             * (count(poker_lightning_admission_policy_fingerprint) == bool 1)
           ) or on() vector(0)
 
