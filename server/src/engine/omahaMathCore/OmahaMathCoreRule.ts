@@ -110,10 +110,13 @@ export const OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K = 2;
 /** the margin that applies to replacing `incoming` by `best` (call -> sub-all-in raise: class margin; else K) */
 export function omahaMathCoreChangeMarginK(
   incomingAction: HorseDecision['action'],
-  bestAction: HorseDecision['action']
+  bestAction: HorseDecision['action'],
+  variant: string
 ): number | null {
   if (OMAHA_MATH_CORE_CHANGE_MARGIN_K === null) return null;
-  if (incomingAction === 'call' && bestAction === 'raise')
+  // PLO5 only: the fit evidence is PLO5 (+326 +- 104 bb); PLO4 had 3 such decisions on Nov 18 and its graded
+  // replay (c3a) moved PLO4 turn by one decision (-21 bb): PLO4 keeps k = 5 until it has its own evidence.
+  if (variant === 'plo5' && incomingAction === 'call' && bestAction === 'raise')
     return Math.min(OMAHA_MATH_CORE_CHANGE_MARGIN_K, OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K);
   return OMAHA_MATH_CORE_CHANGE_MARGIN_K;
 }
@@ -495,7 +498,11 @@ export function omahaMathCoreRule(
           (e.action === 'all_in' || Math.abs((e.amount ?? 0) - (legal!.amount ?? 0)) <= 0.011)
       );
       const inc = incumbentOf(receipt.evs, incoming);
-      const K = omahaMathCoreChangeMarginK(incoming.action, legal.action);
+      const K = omahaMathCoreChangeMarginK(
+        incoming.action,
+        legal.action,
+        String(gs.gameVariant).toLowerCase()
+      );
       if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
         const se = Math.sqrt(
           Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
