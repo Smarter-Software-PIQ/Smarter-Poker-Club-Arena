@@ -51,6 +51,8 @@ describe("LAW: a Horse's dealt hole cards are kept and never reach a player", ()
       [
         MIGRATION,
         'docs/laws.d/tests-horse-dealt-hole-cards-stay-private.md',
+        // the generated list of files the accounting harnesses read (it lists the migration's path)
+        'scripts/ci/accounting-harness-reads.json',
         'scripts/ci/schema-manifest.d/horse-dealt-hole-cards.json',
         'scripts/ci/test-horse-dealt-hole-cards.py',
         'server/src/services/supabase/handFacts.ts',
