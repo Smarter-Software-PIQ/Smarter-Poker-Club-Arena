@@ -135,7 +135,6 @@ describe('the parser', () => {
   it.each([
     ['shadow for an option without a shadow arm', v2({ v16Hu: 'shadow' })],
     ['canary for an option without a shadow arm', v2({ commitUnderPot: 'canary' })],
-    ['an unknown option', v2({ notAnOption: 'on' })],
     ['on for an off-only option (measured harm)', v2({ commitUnderPot: 'on' })],
     [
       'on for an off-only option beside a valid off',
@@ -154,6 +153,14 @@ describe('the parser', () => {
     ['options as an array', { version: 2, style: {}, options: [] }],
   ])('rejects %s', (_name, raw) => {
     expect(parseOptionSwitchConfig(raw)).toEqual({ ok: false });
+  });
+
+  it('a row for a name this build does not know is skipped alone (anUnknownOptionRowIsSkippedAlone.law)', () => {
+    expect(parseOptionSwitchConfig(v2({ notAnOption: 'on' }))).toEqual({ ok: true, states: {} });
+    expect(parseOptionSwitchConfig(v2({ notAnOption: 'on', v16Hu: 'off' }))).toEqual({
+      ok: true,
+      states: { v16Hu: 'off' },
+    });
   });
 
   it('styleConfigOf hands StyleSwitchHolder the style half of a version 2 answer and a version 1 answer whole', () => {

@@ -1091,15 +1091,40 @@ export function optionSwitchNothingSwitched(
 }
 
 /**
+ * A name this build does not know at all: not a registered option (style or not), not a parameter or plumbing
+ * name (OPTION_SWITCH_NOT_A_SWITCH) and not a name this switch refuses (an authority-gated option, an owner hold). It is the row of another build: an option a
+ * newer release registers, written while this release is serving, or one a later release removed.
+ */
+export function optionSwitchNameIsUnknown(name: string): boolean {
+  return (
+    !PLAIN_BY_NAME.has(name) &&
+    !(STYLE_SWITCH_OPTIONS as readonly string[]).includes(name) &&
+    !Object.hasOwn(OPTION_SWITCH_NOT_A_SWITCH, name) &&
+    optionSwitchRefusal(name) === null
+  );
+}
+
+/** The unknown names of a delivered non-style set, in the order delivered; [] when there is none or no set. */
+export function optionSwitchUnknownNames(value: unknown): readonly string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.keys(value as Record<string, unknown>).filter(optionSwitchNameIsUnknown);
+}
+
+/**
  * A valid switched set (registered non-style names, each in a state it supports), in registry order; null when it
- * is not one. A name that is refused, a parameter or unknown, or `on` for an off-only option, makes the whole set
- * invalid: every non-style option then runs
- * at its release default.
+ * is not one. A name that is refused or a parameter, a style name, or a state the option does not support (`on`
+ * for an off-only option) makes the whole set invalid: every non-style option then runs at its release default.
+ *
+ * AN UNKNOWN NAME IS SKIPPED ALONE (2026-11-20, lead order). A row for a name this build does not know at all
+ * (optionSwitchNameIsUnknown) used to void the whole set, so one row written for another build silently returned
+ * every switched option to its release default. That row is now left out and every other row stands; the holder
+ * still raises option_switch_config_invalid_seen while such a row is delivered.
  */
 export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   for (const [k, s] of Object.entries(v)) {
+    if (optionSwitchNameIsUnknown(k)) continue;
     const entry = PLAIN_BY_NAME.get(k);
     if (!entry || typeof s !== 'string' || !(entry.states as readonly string[]).includes(s))
       return null;
@@ -1114,7 +1139,8 @@ export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | nul
  * The configuration as fn_ca_horse_option_switch_effective answers:
  *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on' | 'shadow', ... } }
  * `style` belongs to StyleSwitchHolder and is not judged here. `options` may name registered non-style options
- * only, each in a state it supports; anything else is invalid.
+ * only, each in a state it supports; anything else is invalid, except a name this build does not know at all,
+ * whose row alone is skipped (optionSwitchStatesFrom; optionSwitchConfigUnknownNames lists them).
  *
  * The version 1 answer of fn_ca_horse_style_switch_effective ({ version: 1, options }) is also accepted: it is what
  * the engine reads from a database that does not have the wider function yet, it carries no non-style option, and
@@ -1133,6 +1159,13 @@ export function parseOptionSwitchConfig(
   if (keys !== 'options,style,version' || r.version !== 2) return { ok: false };
   const states = optionSwitchStatesFrom(r.options);
   return states ? { ok: true, states } : { ok: false };
+}
+
+/** The unknown non-style names a version 2 answer delivers (their rows are skipped alone); [] otherwise. */
+export function optionSwitchConfigUnknownNames(raw: unknown): readonly string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  const r = raw as Record<string, unknown>;
+  return r.version === 2 ? optionSwitchUnknownNames(r.options) : [];
 }
 
 /** The style half of a delivered configuration: a version 2 answer carries it under `style`. */
@@ -1210,6 +1243,10 @@ export class OptionSwitchHolder {
           if (parsed.ok) {
             next = parsed.states;
             receivedAt = reading.receivedAtMs;
+            // A row for a name this build does not know is skipped alone; the alarm still fires at
+            // every read that delivers one, so the row is seen and removed.
+            if (optionSwitchConfigUnknownNames(reading.raw).length > 0)
+              this.note('option_switch_config_invalid_seen');
           } else this.note('option_switch_config_invalid_seen');
         } else this.note('option_switch_config_invalid_seen');
       } catch {
