@@ -387,7 +387,7 @@ import {
  * budgeted to stay under ~15ms even for 6-card PLO.
  */
 
-import { horseCallDeductionFraction } from './HorseCallDeductions.js';
+import { horseCallDeductionFraction, horseWholeDeductionOfTheCall } from './HorseCallDeductions.js';
 import type {
   Card,
   SeatPlayer,
@@ -3666,6 +3666,19 @@ export interface HorseDecideOpts {
    * facing an open (level with the call: -0.14 +/- 5.23 / -1.87 +/- 8.29). Default OFF (read
    * `=== true`). */
   omahaRundownReraiseRangeTrial?: boolean;
+  /** EMERG lane RAKE 2026-11-20 (omahaFacingBetDeduction): in PLO4/PLO5 cash the Omaha facing-bet
+   * call verdicts whose win is the pot before the call (omahaFacingBetEv, the bare-overpair flop
+   * verdict, the multiway river call, the paired-river and value-range reads; not the flop tree,
+   * which multiplies later pots) deduct the WHOLE projected deduction of the
+   * pot after the call (capped rake plus the jackpot drop) instead of the marginal rake rate, which
+   * is zero at the cap and never holds the drop. Default OFF (read `=== true`). */
+  omahaFacingBetPaysTheWholeDeduction?: boolean;
+  /** EMERG lane RAKE 2026-11-20 (omahaMathCore/OmahaMathCore.ts rakeNet): with omahaMathCore on, the core
+   * nets every pot it prices of the WHOLE deduction: the cap of the dealt-player tier, the fixed jackpot
+   * drop, and both on a preflop line that reaches a flop (a preflop fold-out still pays nothing). Off, the
+   * core nets the percentage and the table cap after the flop only and prices preflop rake-free. Default
+   * OFF (read `=== true`); nothing without omahaMathCore. */
+  omahaMathCoreNetsTheWholeDeduction?: boolean;
   /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
    * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
    * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
@@ -8086,6 +8099,39 @@ function rakeDrag(
 }
 
 /**
+ * omahaFacingBetPaysTheWholeDeduction (EMERG lane RAKE 2026-11-20; default OFF, read `=== true`).
+ * The Omaha facing-bet verdicts deduct `rakeDrag` from the pot a call wins: the MARGINAL rate, which
+ * is zero once the pot has reached the rake cap and never holds the jackpot drop. A call wins the
+ * pot less the WHOLE deduction of the hand (the capped rake plus the fixed drop); a fold pays none
+ * of it, so for the call against the fold nothing of that deduction is sunk. With the option on, in
+ * PLO4/PLO5 cash, the same verdicts deduct the controller's own projected deduction of the pot
+ * after this call (horseCallDeductionFraction: percentage, heads-up rate, player-count cap, jackpot
+ * drop, side pots), expressed as a share of the pot before the call because that is what the
+ * verdicts multiply. Public rules only: no cards, no opponent. PLO6, hi-lo, hold'em, tournaments and
+ * Diamond tables keep the marginal rate, as does a state whose deduction cannot be projected.
+ */
+function omahaFacingBetDeduction(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): number {
+  const marginal = rakeDrag(
+    gs.pot,
+    gs.bigBlind,
+    gs.rakeConfig,
+    dealtHorseTableSize(gs, player.seat)
+  );
+  if (opts.omahaFacingBetPaysTheWholeDeduction !== true) return marginal;
+  if (isTournamentMode(gs) || !isPlo45High(variantInfo(String(gs.gameVariant ?? ''))))
+    return marginal;
+  const whole = horseWholeDeductionOfTheCall(player, gs);
+  if (whole === null) return marginal;
+  if (telemetryOn(opts) && Math.abs(whole - marginal) > 1e-9)
+    noteFire('omaha_facing_bet_whole_deduction_priced');
+  return whole;
+}
+
+/**
  * Last-mile Phase 5 legality. Strategy may express intent, but the immutable
  * HandController menu is the authority for reopening rights, structure caps
  * and table commitment caps. When intent cannot be represented legally, this
@@ -11565,9 +11611,7 @@ export function omahaBareOverpairFlopFacingBetRule(
         }
       }
       verdict = omahaBareOverpairFlopFacingBetVerdict(spot, player, gs, read, {
-        rake: isTournamentMode(gs)
-          ? 0
-          : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        rake: isTournamentMode(gs) ? 0 : omahaFacingBetDeduction(player, gs, opts),
         realization: realizationFactor({ street: 'flop', inPosition: false }),
       });
       omahaBareOverpairContMemo = { player, gs, mind, verdict };
@@ -11915,7 +11959,7 @@ function omahaMultiwayRiverCallRule(
       }
     }
     const verdict = omahaMultiwayRiverCallVerdict(player, gs, mw, bettorRead, fieldReads, {
-      rake: rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+      rake: omahaFacingBetDeduction(player, gs, opts),
     });
     if (!verdict) return null;
     const tele = telemetryOn(opts);
@@ -13149,9 +13193,7 @@ function omahaFacingBetEvCount(
         player.knownDeadCards ?? [],
         r,
         {
-          rake: isTournamentMode(gs)
-            ? 0
-            : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+          rake: isTournamentMode(gs) ? 0 : omahaFacingBetDeduction(player, gs, opts),
           riskPremium: omahaTournamentIcmPremium(player, gs, spot.paid),
           realization:
             modeTurnRealization ??
@@ -13233,7 +13275,7 @@ function omahaFacingBetEvCount(
         player.knownDeadCards ?? [],
         gs.actionHistory,
         gs.pot,
-        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        omahaFacingBetDeduction(player, gs, opts),
         player.seat
       );
       if (priced) {
@@ -13282,7 +13324,7 @@ function omahaFacingBetEvCount(
         gs.communityCards ?? [],
         player.knownDeadCards ?? [],
         gs.actionHistory,
-        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+        omahaFacingBetDeduction(player, gs, opts)
       );
       if (ranged) verdict = withoutBluffCatch(ranged);
     }
@@ -16245,6 +16287,7 @@ export class HorseLogic {
             error: err,
             runCore: true,
             preflopOwned: opts.omahaMathCorePreflop === true,
+            wholeDeduction: opts.omahaMathCoreNetsTheWholeDeduction === true,
             streetOpts: {
               omahaMathCorePlo4Flop: opts.omahaMathCorePlo4Flop === true,
               omahaMathCorePlo4Turn: opts.omahaMathCorePlo4Turn === true,
