@@ -561,6 +561,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaEvFoldModelHeadsUp: priced(
     'the EV bet engine fold multiplier of one opponent heads-up: the measured heads-up fold share over MDF scaled by his shrunk fold to a bet on the street (default OFF)'
   ),
+  omahaEvFoldModelSkipsPlo45: outside('a model scope switch (PLO4 / PLO5 cash only)'),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
   omahaNoCategoricalRules: outside(
     'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'

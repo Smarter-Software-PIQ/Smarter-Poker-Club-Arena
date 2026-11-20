@@ -2363,6 +2363,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha threshold calibration'
   ),
   flag(
+    'omahaEvFoldModelSkipsPlo45',
+    '2026-11-19 (lane NOV8, emergency PLO4/PLO5 programme) with it on, the Omaha EV fold model (omahaEvFoldModel) does not price PLO4 or PLO5 cash bets: those games price each opponent fold with the exploit bluff multiplier exactly as before release bff6eed3 (Nov 9 2026 1:41 PM Chicago, #10104); PLO6, tournaments and every other game are unchanged. Measured at that release, PLO5 Horse flop c-bet 0.539 to 0.740, probe 0.271 to 0.366, showdown share after a flop 0.326 to 0.198 (ca_hand_facts); exact journal replay on the Nov 17-19 PLO4/PLO5 cash decisions with the model off graded the changed flop bets vs real cards at PLO5 +101 bb (SE 41) and PLO4 +30 bb (SE 10) on Nov 17-18, PLO5 +122 bb (SE 77) on the Nov 19 holdout. Default OFF; the lead switches it.',
+    'Omaha threshold calibration'
+  ),
+  flag(
     'omahaNeutralUnknown',
     '2026-11-13 owner directive: an unknown Omaha opponent receives a neutral, explicitly uncertain read; the shared aggressive raise presumption (presumedAggressorRead) is skipped and only the opponent own measured read applies. Default off until its league comparison is accepted.',
     'Omaha neutral unknown'
@@ -8332,6 +8337,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_ev_fold_model_heads_up_priced',
     'HorseMind.omahaEvFoldMulOf (omahaEvFoldModelHeadsUp)',
     'the heads-up cell of the Omaha EV fold model priced the one opponent of a PLO4 or PLO5 cash flop or turn EV bet (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  receipt(
+    'omaha_ev_fold_model_skipped_plo45',
+    'HorseMind.omahaEvFoldMulOf (omahaEvFoldModelSkipsPlo45)',
+    'at a PLO4 or PLO5 cash table the Omaha EV fold model was skipped and the exploit bluff multiplier priced the opponent fold (default off)',
     'Omaha threshold calibration'
   ),
   // Zero in production by design: readBreakEvenBluff is default off, so a fire means the flag was turned on.

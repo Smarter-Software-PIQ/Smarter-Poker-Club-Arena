@@ -461,6 +461,9 @@ export interface DecisionReadOptions {
    *  bet into ONE opponent is priced on the heads-up cell (OMAHA_EV_FOLD_MODEL_HEADS_UP) and his street read.
    *  Present only when true. */
   omahaEvFoldModelHeadsUp?: boolean;
+  /** NOV8 (default off): the Omaha EV fold model does not price PLO4 / PLO5; those games keep the
+   *  exploit bluff multiplier (the pre-#10104 price). PLO6 is unchanged. */
+  omahaEvFoldModelSkipsPlo45?: boolean;
   /** Owner directive 2026-11-13: an unknown Omaha opponent receives a neutral,
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
@@ -5448,6 +5451,15 @@ export class HorseMind {
     const v = (this.decisionVariant ?? '').toLowerCase() as OmahaEvFoldVariant;
     const cell = OMAHA_EV_FOLD_MODEL[v];
     if (!cell) return null;
+    // NOV8 (omahaEvFoldModelSkipsPlo45, default off): PLO4 / PLO5 cash return to the exploit bluff
+    // multiplier they priced with before #10104 went live (Nov 9 2026 1:41 PM Chicago); PLO6 never reads it.
+    if (
+      (v === 'plo4' || v === 'plo5') &&
+      this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true
+    ) {
+      noteFire('omaha_ev_fold_model_skipped_plo45');
+      return null;
+    }
     const c = this.decisionExploitCounters(userId);
     const n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
     const k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));

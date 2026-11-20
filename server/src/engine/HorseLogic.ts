@@ -5262,6 +5262,11 @@ export interface HorseDecideOpts {
    *  significantly negative); explicit false is the old multiplier, and the
    *  league matchups plo*_omaha_ev_fold keep measuring it. */
   omahaEvFoldModel?: boolean;
+  /** NOV8 (2026-11-19, lane NOV8, default OFF): with it on, the Omaha EV fold model (omahaEvFoldModel)
+   *  does not price PLO4 / PLO5 cash bets; those games price each opponent's fold with the exploit bluff
+   *  multiplier exactly as before release bff6eed3 (Nov 9 2026 1:41 PM Chicago, #10104). PLO6 and every
+   *  other game are unchanged (the model keeps pricing PLO6). Only an explicit true engages. */
+  omahaEvFoldModelSkipsPlo45?: boolean;
   /** WooWoo audit FOLD-MODEL (HorseOmahaFoldModelFittedOnPeople): PLO4/PLO5 cash in the priced scope,
    *  flop or turn, heads-up against a person, nothing to call: his fold share to every v38 bet size is the
    *  fold model fitted on people only (variant x street x pot type x bet-size bucket, shrunk to
@@ -14643,6 +14648,7 @@ export class HorseLogic {
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
       // omahaEvFoldModelHeadsUp (default off): the key exists only when it is true.
       ...(opts.omahaEvFoldModelHeadsUp === true ? { omahaEvFoldModelHeadsUp: true } : {}),
+      omahaEvFoldModelSkipsPlo45: opts.omahaEvFoldModelSkipsPlo45 === true,
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
       ...(opts.omahaManiacReRaiseWidthMeasured === true &&
       omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gameState, opts) &&
