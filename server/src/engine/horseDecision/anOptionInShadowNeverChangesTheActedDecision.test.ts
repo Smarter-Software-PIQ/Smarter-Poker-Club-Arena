@@ -34,6 +34,7 @@ import {
 } from './workerRuntime.js';
 import {
   OPTION_SWITCH_SHADOW_NAMES,
+  optionSwitchShadowFlip,
   OptionSwitchHolder,
   optionSwitchSourceFromStates,
   type OptionSwitchStates,
@@ -191,6 +192,41 @@ afterEach(() => {
 // streetIQ is on by default (the flip passes false); omahaTurnRiverRaiseIsPriced is off by default (the flip passes true).
 const ON_BY_DEFAULT = 'streetIQ';
 const OFF_BY_DEFAULT = 'omahaTurnRiverRaiseIsPriced';
+
+/** Classified release default ON on 2026-11-19 from their reads (they had been 'code', refused shadow). */
+const DEFAULT_ON_20261119 = [
+  'v9',
+  'v10',
+  'v86PloOverhaul',
+  'omahaEvFoldModel',
+  'facingClosedAllIn',
+] as const;
+
+describe('2026-11-19: a default-on option in shadow re-decides with false and acts with the source default', () => {
+  it('the five options classified ON from their reads take shadow and flip to false', () => {
+    for (const option of DEFAULT_ON_20261119) {
+      expect(OPTION_SWITCH_SHADOW_NAMES, option).toContain(option);
+      expect(optionSwitchShadowFlip(option, {}), option).toBe(false);
+      // an explicit value carried by the decision options is what is flipped
+      expect(optionSwitchShadowFlip(option, { [option]: false }), option).toBe(true);
+    }
+  });
+  for (const option of DEFAULT_ON_20261119)
+    it(`${option}: the acted decision carries no value for it, the one re-decision carries false`, async () => {
+      const r = await run([fastRequest(riverSnapshot())], scripted(option, false, FOLD, CALL), {
+        [option]: 'shadow',
+      } as OptionSwitchStates);
+      expect(r.fasts[0]!.decision.action).toBe('fold');
+      expect(r.calls).toHaveLength(2);
+      expect(Object.hasOwn(r.calls[0]!, option)).toBe(false);
+      expect(r.calls[1]).toMatchObject({ [option]: false, telemetry: false, observeMind: false });
+      expect(r.fasts[0]!.decision.optionShadowReceipt).toMatchObject({
+        option,
+        flippedTo: false,
+        changed: true,
+      });
+    });
+});
 
 describe('the registry offers shadow to the options it can re-decide', () => {
   it('the two options of these tests take shadow', () => {
@@ -362,7 +398,14 @@ describe('the production brain over every recorded FAST decision: shadow never c
   });
   const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
 
-  for (const option of [ON_BY_DEFAULT, OFF_BY_DEFAULT, 'handReading', 'v12River'])
+  for (const option of [
+    ON_BY_DEFAULT,
+    OFF_BY_DEFAULT,
+    'handReading',
+    'v12River',
+    // 2026-11-19: classified release default ON from their reads (DEFAULT-ON-AUDIT), so they take shadow
+    ...DEFAULT_ON_20261119,
+  ])
     it(`${option} in shadow: every acted decision, RNG position and effect is that of no row`, async () => {
       const requests = fixtures.map((f, i) => fastRequest(f.snapshot, i + 1));
       const plain = await run(requests, decide, null);

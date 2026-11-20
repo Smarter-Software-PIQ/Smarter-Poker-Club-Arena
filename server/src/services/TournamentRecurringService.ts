@@ -413,7 +413,10 @@ import {
 } from '../config/headsUpSpec.js';
 import { secureRandomInt } from '../engine/CryptoRandom.js';
 import { HorseEntryRefusalBackoff, databaseDidNotAnswer } from './horseEntryRefusalBackoff.js';
-import { HorseReservationBudget, HORSE_RESERVATION_BUDGET_REASON } from './horseReservationBudget.js';
+import {
+  HorseReservationBudget,
+  HORSE_RESERVATION_BUDGET_REASON,
+} from './horseReservationBudget.js';
 import { horseEntryCapRefusalContext } from './horseEntryCapRefusalContext.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
 import { isRestDayFor, tagBook } from './StableHandTags.js';
@@ -7289,7 +7292,8 @@ export class TournamentRecurringService {
             const why = String(outcome?.reason ?? 'no_reason');
             // The read was a pass old: remember the door's answer so this
             // horse is not offered again before the next read knows it.
-            if (why === HORSE_RESERVATION_BUDGET_REASON) this.horseReservationBudget.noteRefused(horse);
+            if (why === HORSE_RESERVATION_BUDGET_REASON)
+              this.horseReservationBudget.noteRefused(horse);
             otherReasons.set(why, (otherReasons.get(why) ?? 0) + 1);
           }
 

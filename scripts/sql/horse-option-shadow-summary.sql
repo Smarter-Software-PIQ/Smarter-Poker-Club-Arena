@@ -3,6 +3,8 @@
 -- For every option in shadow, per day over the window: how many re-decisions with the option flipped would have
 -- changed the acted action or amount, split person-present (a seat that is not a Horse was dealt in) vs Horse-only,
 -- and the budget skips of the day. One SELECT, no write. Edit the two dates of the window below.
+-- An option in on_shadow (2026-11-19: acted with true exactly as on, re-decided with false) counts under the same
+-- names; the journal receipt's flippedTo (false) and the switch audit tell which state the option was in.
 --   option_shadow_<option>_changed_seen / _same_seen                 every re-decision
 --   option_shadow_<option>_changed_person_seen / _same_person_seen   the person-present subset
 -- Horse-only = all - person. Per-decision detail (action pairs, street, variant) is in the decision journal:
