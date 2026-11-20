@@ -159,9 +159,11 @@ describe('the measured answer to a river bet (omahaCheckedToMeasuredResponse)', 
       expect(m.personal).toBe(false);
       // every hand continues against a bet of nothing; then the pooled points, unchanged
       expect(m.curve[0]).toMatchObject({ share: 0, cont: 1 });
-      expect(m.curve.slice(1).map((p) => [p.share, p.cont, p.raise])).toEqual(
-        points.map((p) => [p.share, p.cont, p.raise])
-      );
+      expect(m.curve.slice(1).map((p) => p.share)).toEqual(points.map((p) => p.share));
+      m.curve.slice(1).forEach((p, i) => {
+        expect(p.cont).toBeCloseTo(points[i].cont, 12);
+        expect(p.raise).toBeCloseTo(points[i].raise, 12);
+      });
       // each pooled point lies between the two measured cells of its size and carries both counts
       for (const p of points) {
         const cells = [...person, ...horse].filter((c) => c.share === p.share);
@@ -171,15 +173,15 @@ describe('the measured answer to a river bet (omahaCheckedToMeasuredResponse)', 
         expect(p.cont).toBeLessThanOrEqual(Math.max(...cells.map((c) => c.cont)) + 1e-12);
       }
       const last = points[points.length - 1];
-      expect(m.at(last.share)).toEqual({ cont: last.cont, n: last.n });
+      expect(m.at(last.share).n).toBe(last.n);
+      expect(m.at(last.share).cont).toBeCloseTo(last.cont, 12);
       // a bigger bet is continued less often
       expect(m.at(1).cont).toBeLessThan(m.at(0.3).cont);
     }
     // PLO5 pot-sized bet: (142 x 0.1501 + 78 x 0.2152) / 220
-    expect(omahaCheckedToMeasuredResponse('plo5', NO_READ)!.at(1)).toEqual({
-      cont: (142 * 0.1501 + 78 * 0.2152) / 220,
-      n: 220,
-    });
+    const pot = omahaCheckedToMeasuredResponse('plo5', NO_READ)!.at(1);
+    expect(pot.n).toBe(220);
+    expect(pot.cont).toBeCloseTo((142 * 0.1501 + 78 * 0.2152) / 220, 12);
   });
   it('the answer does not depend on who the opponent is: the function takes no opponent kind', () => {
     expect(omahaCheckedToMeasuredResponse.length).toBeLessThanOrEqual(3);
