@@ -5959,6 +5959,15 @@ export default function MultiTablePage() {
                     const tileAllIn = tileAllInTo(table.allInTo, tileBounds);
                     const draft = tileRaiseDraft[table.id];
                     const sliderOpen = hasBounds && draft !== undefined;
+                    /* Dan 2026-11-19: "two actions for all in, never just one".
+                       Nothing on the tile shoves on one tap. ALL IN, and a
+                       ½ Pot / Pot preset that would put hero all in, open the
+                       slider at that amount; the confirm button, now reading
+                       "All In N", is the second action. */
+                    const draftIsAllIn =
+                      sliderOpen && tileAllIn !== null && (draft ?? 0) + 0.005 >= tileAllIn;
+                    const openTileAt = (amt: number) =>
+                      setTileRaiseDraft((p) => ({ ...p, [table.id]: Math.min(maxTo, amt) }));
                     const unit = sliderUnitFor(!!table.isTournament, bb, bb / 2 || 0.01);
                     const step = betSliderStep(minTo, maxTo, unit);
                     const fmt = (n: number) =>
@@ -5990,11 +5999,13 @@ export default function MultiTablePage() {
                             </span>
                             <button
                               type="button"
-                              className="multi-table-grid__raise multi-table-grid__raise--confirm"
+                              className={`multi-table-grid__raise multi-table-grid__raise--confirm${
+                                draftIsAllIn ? ' multi-table-grid__raise--allin' : ''
+                              }`}
                               disabled={pending}
                               onClick={() => handleTileAction(table.id, 'raise', draft)}
                             >
-                              Raise {fmt(draft ?? minTo)}
+                              {draftIsAllIn ? 'All In' : 'Raise'} {fmt(draft ?? minTo)}
                             </button>
                           </div>
                         )}
@@ -6021,7 +6032,11 @@ export default function MultiTablePage() {
                                 type="button"
                                 className="multi-table-grid__raise"
                                 disabled={pending}
-                                onClick={() => handleTileAction(table.id, 'raise', capped)}
+                                onClick={() =>
+                                  tileAllIn !== null && capped + 0.005 >= tileAllIn
+                                    ? openTileAt(capped)
+                                    : handleTileAction(table.id, 'raise', capped)
+                                }
                               >
                                 {label}
                               </button>
@@ -6046,7 +6061,7 @@ export default function MultiTablePage() {
                               type="button"
                               className="multi-table-grid__raise multi-table-grid__raise--allin"
                               disabled={pending}
-                              onClick={() => handleTileAction(table.id, 'raise', tileAllIn)}
+                              onClick={() => openTileAt(tileAllIn)}
                             >
                               All In
                             </button>

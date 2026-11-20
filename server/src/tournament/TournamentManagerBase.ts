@@ -6764,8 +6764,57 @@ export abstract class TournamentManagerBase {
     this.advanceHandForHandBarrier();
   }
 
+  /**
+   * HAND-FOR-HAND IS AN OWED WAIT, AND THE DATABASE MUST SEE IT (incident
+   * 1e532243, 2026-11-19). The bubble barrier holds every table until all have
+   * finished the hand, which the hand-gap watch graded as an unintended delay
+   * because the interval lived only in this process. The start and end are
+   * recorded in ca_tournament_hand_for_hand (fn_ca_note_hand_for_hand) so the
+   * grader leaves them out exactly as it leaves out a tournament break.
+   * Fire-and-forget: never awaited, never on the deal path; a failed write is
+   * reported and costs only a graded window, never a hand.
+   */
+  private handForHandRecorded = false;
+  private recordHandForHand(active: boolean): void {
+    if (this.handForHandRecorded === active) return;
+    this.handForHandRecorded = active;
+    const report = (why: unknown) => {
+      // Never throws: a reporting failure must not reach the bubble barrier.
+      try {
+        const text =
+          why instanceof Error
+            ? why.message
+            : why && typeof why === 'object' && 'message' in why
+              ? String((why as { message: unknown }).message)
+              : String(why);
+        reportError(
+          new Error(
+            `[Tournament:${String(this.tournamentId).slice(0, 8)}] hand-for-hand ${active ? 'start' : 'end'} not recorded: ${text}`
+          ),
+          'Tournament.hand_for_hand_record_failed'
+        );
+      } catch {
+        /* reporting is best-effort */
+      }
+    };
+    try {
+      Promise.resolve(
+        supabase.rpc('fn_ca_note_hand_for_hand', {
+          p_tournament_id: this.tournamentId,
+          p_active: active,
+        })
+      ).then((res) => {
+        const error = (res as { error?: unknown } | undefined)?.error;
+        if (error) report(error);
+      }, report);
+    } catch (error) {
+      report(error);
+    }
+  }
+
   /** Arm the edge-driven barrier and cover an engine already parked. */
   protected startHandForHandSync(): void {
+    this.recordHandForHand(true);
     if (this.handForHandTableIds.size === 0) {
       for (const tableId of this.tableEngines.keys()) this.handForHandTableIds.add(tableId);
       // Recovery attempts outlive their timer while the replacement lookup or
@@ -6780,6 +6829,7 @@ export abstract class TournamentManagerBase {
 
   /** Stop hand-for-hand and cancel the one causal next-hand re-pause. */
   protected stopHandForHandSync(): void {
+    this.recordHandForHand(false);
     this.handForHandTableIds.clear();
     // Bubble burst calls this and then resumes
     // engines permanently; a surviving re-pause timer would immediately freeze

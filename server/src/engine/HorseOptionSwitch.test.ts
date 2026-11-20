@@ -28,6 +28,7 @@ import {
   parseOptionSwitchConfig,
   styleConfigOf,
   type OptionSwitchReading,
+  optionSwitchOnShadowRefusal,
   optionSwitchShadowRefusal,
 } from './HorseOptionSwitch.js';
 
@@ -70,15 +71,21 @@ describe('the registry', () => {
       // owner order 2026-11-14 22:01: every registered option has an on/off switch
       // owner 23:10: an off-only option (hold, harm, superseded) offers off alone
       // 2026-11-18: an option that is re-decided in shadow (optionSwitchShadowRefusal null) offers shadow too
+      // 2026-11-19: an option that is re-decided in on_shadow (optionSwitchOnShadowRefusal null) offers on_shadow
       expect(e.states, e.name).toEqual(
         optionSwitchOffOnly(e.name)
           ? ['off']
           : optionSwitchShadowRefusal(e.name) === null
-            ? ['off', 'shadow', 'on']
-            : ['off', 'on']
+            ? ['off', 'shadow', 'on_shadow', 'on']
+            : optionSwitchOnShadowRefusal(e.name) === null
+              ? ['off', 'on_shadow', 'on']
+              : ['off', 'on']
       );
       expect(e.shadowArm, e.name).toBe(false);
       expect(e.shadowRedecide === true, e.name).toBe(optionSwitchShadowRefusal(e.name) === null);
+      expect(e.onShadowRedecide === true, e.name).toBe(
+        optionSwitchOnShadowRefusal(e.name) === null
+      );
       expect(['off', 'on', 'code'], e.name).toContain(e.releaseDefault);
       expect(e.owner.length, e.name).toBeGreaterThan(0);
       expect(e.scope.length, e.name).toBeGreaterThan(0);
@@ -100,7 +107,18 @@ describe('the registry', () => {
     expect(optionSwitchOnNoteCites('readScopedShrink', note)).toBe(true);
     expect(optionSwitchOnNoteCites('readShrinkResponse', note)).toBe(false);
     // 2026-11-18: an on/off option with a plain release default also takes shadow (a worker re-decision)
-    expect(optionSwitchStatesOf('omahaHiLoTournamentFirstIn')).toEqual(['off', 'shadow', 'on']);
+    expect(optionSwitchStatesOf('omahaHiLoTournamentFirstIn')).toEqual([
+      'off',
+      'shadow',
+      'on_shadow',
+      'on',
+    ]);
+    // 2026-11-19: a 'code' option (off in source, on by row) takes on_shadow, never shadow
+    expect(optionSwitchStatesOf('omahaBareOverpairOopFlopCheck')).toEqual([
+      'off',
+      'on_shadow',
+      'on',
+    ]);
     expect(optionSwitchStatesOf('decisionTimeMs')).toBeNull();
     expect(optionSwitchStatesOf('styleFoldBluff')).toEqual(['off', 'shadow', 'canary', 'on']);
     expect(optionSwitchStatesOf('v54RiverBluff')).toBeNull();

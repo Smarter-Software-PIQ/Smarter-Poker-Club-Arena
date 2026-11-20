@@ -27,6 +27,11 @@ import {
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
 import {
+  boardCardCounts,
+  boardCardCountsFromKey,
+  gateEquityDisplay,
+} from '../lib/equityDisplayGate';
+import {
   fetchStoppedLightningAnchor,
   rememberLightningLeaveAnchor,
   rememberedLightningLeaveAnchor,
@@ -3792,6 +3797,11 @@ function LiveTablePage({
   const closeRaisePanel = useCallback(() => {
     setRaiseIntent((prev) => ({ nonce: prev.nonce + 1, open: false }));
   }, []);
+  /* The A key's all-in, handed to ActionPanel as a nonce (Dan 2026-11-19:
+     "two actions for all in, never just one"). ActionPanel turns the first
+     press into "slider all the way up" (or an armed ALL IN) and only the second
+     press into the shove, through the same onAction path the buttons use. */
+  const [allInIntent, setAllInIntent] = useState(0);
   /* AUDIT 2026-08-25: a SECOND `actionError` / `setActionError` pair lived
      here, typed ActionErrorData, written by nothing and read by nothing. The
      live one is `actionErrorData` / `setActionErrorData` — that is the pair
@@ -10358,19 +10368,25 @@ function LiveTablePage({
       if (b === ritChooserId) return 1;
       return 0;
     });
+    const liveBoards = [
+      tableState.communityCards,
+      tableState.communityCards2,
+      tableState.communityCards3,
+    ];
+    const liveKey = allInEquityBoardKey(liveBoards);
+    // Dan 2026-11-19: on the river only a split pot's shares are shown
+    // (lib/equityDisplayGate.ts), never 0% or 100%.
+    const shownEquities = gateEquityDisplay(
+      allInEquities.filter(
+        (e) =>
+          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) && e.boardKey === liveKey
+      ),
+      boardCardCounts(liveBoards),
+      (e) => e.equity
+    );
     return ordered.map((pid) => {
       const p = tableState.players.find((pp) => pp?.id === pid);
-      const eq = allInEquities.find(
-        (e) =>
-          e.userId === pid &&
-          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) &&
-          e.boardKey ===
-            allInEquityBoardKey([
-              tableState.communityCards,
-              tableState.communityCards2,
-              tableState.communityCards3,
-            ])
-      );
+      const eq = shownEquities.find((e) => e.userId === pid);
       return {
         id: pid,
         name: p?.name || eq?.username || 'Player',
@@ -27453,7 +27469,11 @@ function LiveTablePage({
        armed a legacy client-side RIT prompt the button never armed — so a shove
        meant something different depending on which control you used. Deleted;
        see the gravestone where it stood. */
-    onAllIn: () => void handleActionPanelAction('allin'),
+    /* Dan 2026-11-19: the A key is NEVER a one-press shove. It used to call
+       handleActionPanelAction('allin') directly. Now it hands ActionPanel an
+       intent; ActionPanel runs the slider to the top (or arms ALL IN) on the
+       first press and shoves, through handleActionPanelAction, on the second. */
+    onAllIn: () => setAllInIntent((n) => n + 1),
     onToggleSound: () => setIsSoundEnabled(!isSoundEnabled),
     // FIX 199: onToggleHandStrength REMOVED — not allowed for live online gameplay
     onBetPreset: (preset: number) => {
@@ -31272,6 +31292,7 @@ function LiveTablePage({
               allInEquities except while THIS viewer's squeezed card is still
               face down (see squeezeHolding). */}
           <EquityBadgeLayer
+            boardCardCounts={boardCardCountsFromKey(displayedEquities[0]?.boardKey ?? '')}
             remeasureKey={`${tableState.boardStage}:${tableState.communityCards.length}:${tableState.communityCards2.length}:${tableState.communityCards3.length}:${tableState.handNumber ?? 0}`}
             badges={
               displayedEquities.length === 0
@@ -32216,6 +32237,7 @@ function LiveTablePage({
                            keys arrive here. Before 2026-08-20 they set a
                            `showRaiseSlider` flag that nothing rendered. */
                         raiseIntent={raiseIntent}
+                        allInIntent={allInIntent}
                         /* Dan 2026-08-25 (binding): amounts are ACTUAL TOTALS
                            unless this player turned BB on. The panel used to
                            print BB unconditionally while every seat next to it

@@ -86,6 +86,9 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaRundownReraiseRangeTrial',
   'omahaClassCapsRespectEquity',
   'omahaNoMadeClassCap',
+  // main 2026-11-20 (#11511, Horse Decisions batch 1): both PLO4/PLO5 cash, default OFF
+  'omahaBluffIsPricedAgainstTheTarget',
+  'omahaFacingBetValueShareIsMeasured',
   'omahaFlopFacingBetEv',
   'omahaFlopVerdictReadsTheBettor',
   'omahaReadIsByStreetAndTexture',

@@ -288,6 +288,7 @@ import {
   optionSwitchDecisionOpts,
   optionSwitchShadowFlip,
   optionSwitchShadowOptions,
+  type OptionSwitchValue,
 } from '../HorseOptionSwitch.js';
 import {
   OptionShadowBudget,
@@ -3362,6 +3363,8 @@ export class HorseDecisionWorkerRuntime {
     // OPTION SHADOW (2026-11-18): an option in shadow passed nothing to the brain above, so the acted decision is the
     // release default's. ONE of the options in shadow is re-decided flipped, never acted on; the same skip rules as
     // the action receipt plus a per-minute budget. No option in shadow: nothing runs and nothing is counted.
+    // ON_SHADOW (2026-11-19): an option in on_shadow passed true above (exactly as on) and takes its turn here with
+    // the shadow options; its re-decision passes false.
     const shadowOptions = optionSwitchShadowOptions(optionStates);
     if (
       shadowOptions.length === 0 ||
@@ -3393,6 +3396,7 @@ export class HorseDecisionWorkerRuntime {
           gameState,
           fastOpts,
           pick,
+          optionStates[pick],
           captured.value,
           rngBefore,
           governorScale
@@ -3753,11 +3757,16 @@ export class HorseDecisionWorkerRuntime {
     gameState: FastHorseDecisionRequest['gameState'],
     base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>,
     option: string,
+    state: OptionSwitchValue | undefined,
     committed: HorseDecision,
     rngBefore: number,
     committedScale: number
   ): void {
-    const flippedTo = optionSwitchShadowFlip(option, base as Readonly<Record<string, unknown>>);
+    const flippedTo = optionSwitchShadowFlip(
+      option,
+      base as Readonly<Record<string, unknown>>,
+      state
+    );
     if (flippedTo === null) return;
     const saved = this.deps.saveRng();
     const t0 = performance.now();

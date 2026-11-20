@@ -1,0 +1,3 @@
+# server/src/engine/AnAdmittedPressureRaiseIsMadeAtItsPricedSize.law.test.ts
+
+With omahaPressureIsPriced and omahaSampledRaiseIsPricedAtEverySize on (both default OFF), a pressure raise admitted because a priced size beats the call is made at a priced size, never at the brain's own unpriced size: omahaPricedPressureRaiseSized prices the raise again and makes it at the size of highest value, and where it cannot be priced again or no longer stands above the call it is made at the size its admission priced (the admission carries that size); a draw the draw-raise rule owns is made at that rule's priced size or becomes the call.

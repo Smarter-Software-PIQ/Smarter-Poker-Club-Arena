@@ -70,11 +70,20 @@ interface ActionPanelProps {
   connectionStale?: boolean;
   showPotOdds?: boolean;
   /**
-   * @deprecated Dan 2026-08-19, bug list item 12: "do NOT add a confirm-all-in
-   * button - accept the action." Accepted and ignored so that callers still
-   * passing it do not break; there is no confirmation step any more.
+   * @deprecated Ignored. Dan 2026-11-19 superseded the 2026-08-19 "accept the
+   * action" rule: ALL-IN ALWAYS TAKES TWO ACTIONS, for every player, so it is
+   * no longer a setting. Either the slider goes all the way up and the player
+   * taps All In, or the ALL IN button is tapped and then confirmed. Accepted
+   * so callers still passing it do not break.
    */
   confirmAllIn?: boolean;
+  /**
+   * Keyboard all-in (the A key). A nonce: each bump is one press. It is NEVER
+   * a shove on its own (Dan 2026-11-19, "two actions for all in, never just
+   * one"). The first press puts the slider at the top (or arms the ALL IN
+   * button when there is no slider); the second press confirms.
+   */
+  allInIntent?: number;
   showBetSizePresets?: boolean;
   /** Phase 2 T1-02 hint — drives preflop 2X/3X/4X/5X presets vs postflop fraction presets. */
   isPreflop?: boolean;
@@ -226,6 +235,13 @@ function roundToChip(amount: number, smallestChip: number, min: number, max: num
  * Two thousand is already far more positions than a phone has pixels, so this
  * only ever engages on tournament-sized ranges.
  */
+/**
+ * How long an armed ALL IN stays armed waiting for its confirming tap (Dan
+ * 2026-11-19: all-in is always two actions). Long enough to confirm on a
+ * phone, short enough that a stray tap much later is not a shove.
+ */
+export const ALL_IN_ARM_MS = 4000;
+
 export const MAX_SLIDER_POSITIONS = 2000;
 
 /**
@@ -555,6 +571,7 @@ export default function ActionPanel({
   currentBet = 0,
 
   raiseIntent,
+  allInIntent,
   isTournament = false,
   verticalSlider: _verticalSliderDeprecated,
   // Chips is the default and the rule — see the prop's docstring.
@@ -656,6 +673,44 @@ export default function ActionPanel({
   const [isRaiseMode, setIsRaiseMode] = useState(false);
   const [raiseAmount, setRaiseAmount] = useState(minRaise);
   const [turnPulse, setTurnPulse] = useState(false);
+
+  /* ─── ALL-IN IS ALWAYS TWO ACTIONS (Dan 2026-11-19) ──────────────────────
+     "either the slider goes all the way up and you click all in, or if the all
+     in button is clicked, they need to confirm all in. either way, two actions
+     for all in, never just one."
+
+     No control in this panel dispatches `allin` on a single tap:
+       - bet-sizing ALL IN preset → moves the slider to the top. The confirm
+         button then reads "All In For N" and is the second action.
+       - main-row ALL IN button (shove-or-fold, or all-in is the only wager) and
+         the fixed-limit wager that is hero's whole stack → the first tap ARMS
+         ("Confirm All In"), the second tap shoves. The arm lapses after
+         ALL_IN_ARM_MS, when the turn ends, or when the amount changes.
+       - the A key → the same two steps, see `allInIntent`.
+     The only path to an `allin` dispatch is a control that is already armed or
+     a confirm button whose amount is already at the top. */
+  const [allInArmed, setAllInArmed] = useState(false);
+  const allInArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmAllIn = useCallback(() => {
+    if (allInArmTimerRef.current) {
+      clearTimeout(allInArmTimerRef.current);
+      allInArmTimerRef.current = null;
+    }
+    setAllInArmed(false);
+  }, []);
+  useEffect(() => {
+    if (!isMyTurn) disarmAllIn();
+  }, [isMyTurn, disarmAllIn]);
+  // A confirmation is for ONE amount. If the shove size moves, ask again.
+  useEffect(() => {
+    disarmAllIn();
+  }, [allInThreshold, disarmAllIn]);
+  useEffect(
+    () => () => {
+      if (allInArmTimerRef.current) clearTimeout(allInArmTimerRef.current);
+    },
+    []
+  );
 
   /**
    * Dan 2026-08-18 (screenshot review): the raise panel is tall, and the
@@ -1044,16 +1099,32 @@ export default function ActionPanel({
     // slider with a zero-length track and a preset row where every button reads
     // the same number. The tap IS the bet.
     if (isFixedLimit) {
+      // Dan 2026-11-19: when the one legal wager is hero's whole stack it is
+      // an all-in, and an all-in is never one tap - arm, then confirm.
+      if (minRaise >= allInThreshold) {
+        armOrConfirmAllIn();
+        return;
+      }
       haptic.medium();
-      if (minRaise >= allInThreshold) onAction('allin', allInThreshold);
-      else onAction('raise', minRaise);
+      onAction('raise', minRaise);
       return;
     }
     haptic.light();
+    disarmAllIn();
     setIsRaiseMode(true);
     setRaiseAmount(minRaise);
     lastSnapRef.current = minRaise;
-  }, [canRaise, canAllIn, minRaise, isFixedLimit, allInThreshold, onAction, isRaiseMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    canRaise,
+    canAllIn,
+    minRaise,
+    isFixedLimit,
+    allInThreshold,
+    onAction,
+    isRaiseMode,
+    allInArmed,
+  ]);
 
   const handleConfirmRaise = useCallback(() => {
     haptic.medium(); // FIX 196: Bible V8 §5.4 — raise = medium haptic (was strong/heavy, reserved for all_in)
@@ -1068,17 +1139,79 @@ export default function ActionPanel({
     setIsRaiseMode(false);
   }, [raiseAmount, allInThreshold, onAction]);
 
-  const handleAllIn = useCallback(() => {
+  /**
+   * The main-row ALL IN button (and the fixed-limit all-in wager). First tap
+   * arms, second tap shoves - Dan 2026-11-19, superseding the 2026-08-19 "the
+   * tap IS the action" rule.
+   *
+   * AUDIT 2026-08-19 still holds: the amount is allInThreshold, not maxRaise,
+   * which in POT-LIMIT is the pot cap, not the stack.
+   */
+  function armOrConfirmAllIn() {
+    if (!allInArmed) {
+      haptic.light();
+      setAllInArmed(true);
+      if (allInArmTimerRef.current) clearTimeout(allInArmTimerRef.current);
+      allInArmTimerRef.current = setTimeout(() => {
+        allInArmTimerRef.current = null;
+        setAllInArmed(false);
+      }, ALL_IN_ARM_MS);
+      return;
+    }
+    disarmAllIn();
     haptic.strong();
-    // Dan 2026-08-19, bug 12: no confirmation step. The tap IS the action.
-    // AUDIT 2026-08-19: was maxRaise, which in POT-LIMIT is the pot cap, not
-    // the stack - an "ALL IN" tap would report a pot-sized amount. The server
-    // derives the real all-in from the stack so no chips were ever wrong, but
-    // sending an amount that contradicts the action is a trap for anything
-    // that reads it (optimistic UI, telemetry).
     onAction('allin', allInThreshold);
     setIsRaiseMode(false);
-  }, [allInThreshold, onAction]);
+  }
+  const handleAllIn = armOrConfirmAllIn;
+
+  /**
+   * The bet-sizing panel's ALL IN preset. It does NOT shove: it runs the
+   * slider all the way up, and the confirm button (now "All In For N") is the
+   * second action. If the slider cannot reach the shove (a pot-limit cap below
+   * the stack) the slider would read a pot raise, not an all-in, so fall back
+   * to arm-then-confirm on the ALL IN preset itself.
+   */
+  const handleAllInPreset = () => {
+    if (!canAllIn) return;
+    if (maxRaise + 0.005 < allInThreshold) {
+      armOrConfirmAllIn();
+      return;
+    }
+    haptic.light();
+    disarmAllIn();
+    const top = cleanChips(maxRaise);
+    setRaiseAmount(top);
+    lastSnapRef.current = top;
+  };
+
+  // The A key. Never a shove on the first press.
+  const allInIntentRef = useRef(allInIntent);
+  useEffect(() => {
+    if (allInIntent === undefined || allInIntent === allInIntentRef.current) return;
+    allInIntentRef.current = allInIntent;
+    if (!isMyTurn) return;
+    // Second press with the slider already at the shove: that is the confirm.
+    if (isRaiseMode && raiseAmount >= allInThreshold) {
+      handleConfirmRaise();
+      return;
+    }
+    // No slider to run up (shove-or-fold, all-in is the only wager, fixed
+    // limit) or a slider that cannot reach the shove: arm, then confirm.
+    if (shoveOrFold || !canRaise || isFixedLimit || maxRaise + 0.005 < allInThreshold) {
+      if (shoveOrFold || canAllIn) armOrConfirmAllIn();
+      return;
+    }
+    if (!canAllIn) return;
+    // First press: open the sizing panel with the slider all the way up.
+    disarmAllIn();
+    setIsRaiseMode(true);
+    const top = cleanChips(maxRaise);
+    setRaiseAmount(top);
+    lastSnapRef.current = top;
+    haptic.light();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allInIntent]);
 
   /**
    * The +/- nudges move by ONE slider step, not by one big blind.
@@ -1402,16 +1535,18 @@ export default function ActionPanel({
                 </button>
               ))}
               <button
-                className="raise-preset raise-preset--allin"
-                onClick={handleAllIn}
+                className={`raise-preset raise-preset--allin${
+                  allInArmed ? ' raise-preset--allin-armed' : ''
+                }`}
+                onClick={handleAllInPreset}
                 // Never offer a shove hero is not entitled to make. The
                 // server would reject it, but a button that produces an
                 // error toast is a broken button.
                 disabled={!canAllIn}
                 title={`All In For ${wagerAmount(allInThreshold)}`}
-                aria-label={`Bet All In For ${wagerAmount(allInThreshold)}`}
+                aria-label={`${allInArmed ? 'Confirm' : 'Bet'} All In For ${wagerAmount(allInThreshold)}`}
               >
-                ALL IN
+                {allInArmed ? 'CONFIRM' : 'ALL IN'}
                 <TapHaptic disabled={!canAllIn} radius="10px" />
               </button>
             </div>
@@ -1627,12 +1762,15 @@ export default function ActionPanel({
             round) the bar is Fold and Call only - no disabled Raise. */}
         {noWager && !shoveOrFold ? null : shoveOrFold || (canAllIn && !canRaise) ? (
           <button
-            className="action-btn action-btn--allin"
+            className={`action-btn action-btn--allin${
+              allInArmed ? ' action-btn--allin-armed' : ''
+            }`}
             onClick={handleAllIn}
-            title={isDesktop ? 'Raise/Bet (R Or E)' : undefined}
-            aria-label="All In"
+            title={isDesktop ? 'All In (A), Press Again To Confirm' : undefined}
+            aria-label={allInArmed ? 'Confirm All In' : 'All In'}
+            aria-pressed={allInArmed}
           >
-            <span className="action-btn__label">All In</span>
+            <span className="action-btn__label">{allInArmed ? 'Confirm All In' : 'All In'}</span>
             {/* 2026-08-20: this printed `maxRaise`. In POT-LIMIT maxRaise is
                 the POT CAP, not the stack — so in PLO the button read
                 "All In 47" and the tap shoved 300. handleAllIn was fixed to
@@ -1640,12 +1778,14 @@ export default function ActionPanel({
                 an amount that contradicts the action is a trap"; the LABEL
                 kept the trap, and the label is the part the player reads. */}
             <span className="action-btn__amount">{wagerAmount(allInThreshold)}</span>
-            {isDesktop && <span className="action-btn__shortcut">R</span>}
+            {isDesktop && <span className="action-btn__shortcut">A</span>}
             <TapHaptic radius="10px" />
           </button>
         ) : (
           <button
-            className={`action-btn action-btn--raise${isRaiseMode ? ' action-btn--on' : ''}`}
+            className={`action-btn action-btn--raise${isRaiseMode ? ' action-btn--on' : ''}${
+              allInArmed ? ' action-btn--allin-armed' : ''
+            }`}
             onClick={handleRaiseClick}
             disabled={!canRaise}
             title={isDesktop ? 'Raise/Bet (R Or E)' : undefined}
@@ -1653,7 +1793,13 @@ export default function ActionPanel({
                item 5), so it is a disclosure control rather than a one-way
                door: say which way the next tap goes. */
             aria-expanded={isRaiseMode}
-            aria-label={`${isRaiseMode ? 'Close' : 'Open'} ${wagerVerb} Panel`}
+            aria-label={
+              allInArmed
+                ? 'Confirm All In'
+                : isFixedLimit && minRaise >= allInThreshold
+                  ? 'All In'
+                  : `${isRaiseMode ? 'Close' : 'Open'} ${wagerVerb} Panel`
+            }
           >
             {/* Per PokerBros spec §5.1: the Raise button itself shows ONLY
                 the word "Raise" (or "Bet" when no current bet). The actual
@@ -1661,7 +1807,13 @@ export default function ActionPanel({
                 postflop presets — lives in the bet-sizing panel that opens
                 when this button is tapped. We removed the prior "{N} BB"
                 sub-label which the user explicitly flagged as wrong. */}
-            <span className="action-btn__label">{wagerVerb}</span>
+            <span className="action-btn__label">
+              {allInArmed
+                ? 'Confirm All In'
+                : isFixedLimit && minRaise >= allInThreshold
+                  ? 'All In'
+                  : wagerVerb}
+            </span>
             {/* 2026-08-23: in fixed limit the amount is NOT a choice the player
                 is about to make in a sizing panel — it is the only legal wager
                 on this street. Hiding it (correct for no-limit, per the spec

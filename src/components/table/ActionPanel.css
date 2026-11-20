@@ -940,6 +940,30 @@
   animation: allinPulse 1.8s ease-in-out infinite;
 }
 
+/* Dan 2026-11-19: all-in is two actions. The armed state (first tap done,
+   waiting for the confirming tap) must be unmistakable: red, white ring, fast
+   pulse. Applies to the main ALL IN button, the fixed-limit all-in wager and
+   the sizing panel's ALL IN preset when it falls back to arm-then-confirm. */
+.action-panel .action-btn--allin-armed,
+.action-panel .raise-preset--allin-armed {
+  background: linear-gradient(180deg, #e5484d 0%, #b4232a 100%) !important;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 4px 0 #5c0f13,
+    0 6px 22px rgba(229, 72, 77, 0.6) !important;
+  animation: allinArmedPulse 0.7s ease-in-out infinite;
+}
+
+@keyframes allinArmedPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
 @keyframes allinPulse {
   0%,
   100% {

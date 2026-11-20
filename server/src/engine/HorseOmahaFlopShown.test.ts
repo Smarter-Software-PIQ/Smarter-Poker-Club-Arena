@@ -196,6 +196,28 @@ describe("one hand's evidence, from the public record only", () => {
     expect(noList[A][callAt('person', 'unshown')]).toBe(1);
   });
 
+  it('a showdown entry shows a hand only with mucked: false written out (review note N4, 20261119213206)', () => {
+    // no key, null, the string "false", 0: not shown, exactly as if he were not listed at all
+    expect(
+      engineFlopShownIncrements(named('a showdown entry shows a hand only with mucked: false'))
+    ).toEqual(engineFlopShownIncrements(named('cards without a showdown entry')));
+    // the bettor listed with mucked: false is classed; the caller listed with mucked: null is unshown
+    expect(engineFlopShownIncrements(named('the bettor shown with mucked: false'))).toEqual(
+      engineFlopShownIncrements(named('the caller mucks'))
+    );
+    for (const mucked of [undefined, null, 'false', 0, true]) {
+      const h = named('the bettor shown with mucked: false');
+      const showdown = (h.showdown as Record<string, unknown>[]).map((e) => ({ ...e }));
+      if (mucked === undefined) delete showdown[0].mucked;
+      else showdown[0].mucked = mucked;
+      const got = engineFlopShownIncrements({ ...h, showdown });
+      expect(
+        got[A].slice(0, FLOP_SHOWN_BET_LENGTH).every((v) => v === 0),
+        String(mucked)
+      ).toBe(true);
+    }
+  });
+
   it('the cards of a player the record does not show change nothing, whatever they are', () => {
     const base = named('the caller mucks');
     const want = engineFlopShownIncrements(base);
