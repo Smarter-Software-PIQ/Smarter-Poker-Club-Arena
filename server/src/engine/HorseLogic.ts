@@ -116,6 +116,11 @@ import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmah
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
+import {
+  omahaMathCoreExactLegalize,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from './omahaMathCore/OmahaMathCoreAcceptance.js';
 import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   omahaBetVsCheckEv,
@@ -13627,6 +13632,12 @@ export class HorseLogic {
         deepDiveCapture
       );
       if (String(first.action) !== 'fold') return first;
+      // COREGUARD (owner 2026-11-19 8:48 PM): an omahaMathCore fold is the core's
+      // EV choice on the real frame; no hypothetical frame re-asks it.
+      if (omahaMathCoreOwns(first)) {
+        if (telemetryOn(opts)) noteFire('lightning_fold_through_math_core_owned');
+        return first;
+      }
       // A malformed state, or a frame ask that fails, keeps the early fold (the option-off answer).
       let through: HorseDecision;
       try {
@@ -13886,6 +13897,50 @@ export class HorseLogic {
       phase12DecisionEquityCeiling = null;
       const toCall = Math.max(0, (gameState.currentBet || 0) - (player.bet || 0));
       if (telemetryOn(opts)) noteFire('phase15_brain_exception');
+      // COREGUARD B4 (owner 2026-11-19 8:48 PM): in the core's scope with
+      // omahaMathCore on, an exception anywhere in the brain is never an
+      // automatic fold. The core runs standalone on the request (public state
+      // and the Horse's own cards); if it fails too, the minimal exact
+      // computation decides (equity vs random holdings against the price).
+      // The receipt names the error. Null otherwise (PLO6, switch off): the
+      // safety net below, as before. A Lightning fold-through frame ask is a
+      // side ask and keeps its own path.
+      const coreRecovered = lightningFoldThroughFrameAsk
+        ? null
+        : omahaMathCoreRecover({
+            player,
+            gs: gameState,
+            on: opts.omahaMathCore === true,
+            from: 'brain_exception',
+            error: err,
+            runCore: true,
+            preflopOwned: opts.omahaMathCorePreflop === true,
+          });
+      if (coreRecovered) {
+        let coreThink = 1500;
+        if (opts.horseActionTimeIsPublicOnly === true) {
+          try {
+            coreThink = horsePublicActionTimeMs(
+              HorseLogic.publicTimingSpot(
+                gameState,
+                player.user_id,
+                coreRecovered.action,
+                coreRecovered.amount,
+                [1400, 4200],
+                {
+                  useTiming: (opts.v9Timing ?? opts.v9) !== false,
+                  useGravity: opts.decisionGravityTiming !== false,
+                  hollywoodRaise: false,
+                  holdemHollywood: false,
+                }
+              )
+            );
+          } catch {
+            coreThink = 1500;
+          }
+        }
+        return { ...coreRecovered, thinkTime: coreThink };
+      }
       // 2026-11-15: on FIXED LIMIT the safety net is price-aware - a call at a
       // price of 4 to 1 or better when the menu offers `call`, else fold
       // (BettingStructure.failureFallbackAction). Other structures fold.
@@ -15476,8 +15531,12 @@ export class HorseLogic {
         };
       })();
       return {
+        // COREGUARD (owner 2026-11-19 8:48 PM): the core's proposal is legalized
+        // by cent / chip-unit rounding only (omahaMathCoreExactLegalize), never by
+        // this.legalize's near-pot snap, 92% / 95% stack jam or whole-dollar
+        // rounding: the size the core priced is the size the table plays.
         decision: omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
-          this.legalize(d, player, gs, vi)
+          omahaMathCoreExactLegalize(d, player, gs)
         ),
       };
     }).decision;
