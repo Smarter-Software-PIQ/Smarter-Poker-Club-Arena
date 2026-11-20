@@ -4,7 +4,8 @@
  * `provenance` in OMAHA_MATH_CORE_ALLOWED_PROVENANCE (law test); nothing built
  * from hole cards that were never shown is shipped.
  *
- * publicTables.v1.json: lane RANGES' public-action sections (responses to
+ * publicTables.v3.json: lane RANGES' measured-ranges-public-v3 (every cell provenance public_actions or
+ * showdown_only; source sha256 3bdd8ce1...), earlier: public-action sections (responses to
  * wagers by street/line/size/players/actor, preflop action frequencies by
  * position and level, fold facing a Horse raise preflop, VPIP/PFR, per-user
  * public facing rows), PLO4/PLO5 cash with a person, Nov 1 to Nov 19 6:49 PM
@@ -12,7 +13,7 @@
  * removed). Each lookup returns its key and n for the receipt; a missing cell
  * is "no measurement" and is said so in the receipt.
  */
-import publicTables from './publicTables.v1.json' with { type: 'json' };
+import publicTables from './publicTables.v3.json' with { type: 'json' };
 import {
   lookupResponse,
   personFoldRate,
@@ -25,15 +26,31 @@ export const OMAHA_MATH_CORE_ALLOWED_PROVENANCE: ReadonlySet<string> = new Set([
   'public_actions',
   'showdown_only',
 ]);
-const RAW = publicTables as unknown as MeasuredRanges & { provenance: string };
-/** Every table the core loads, by name, with its provenance (law: each in the allowed set). */
-export const OMAHA_MATH_CORE_TABLES: ReadonlyArray<{ name: string; provenance: string }> = [
-  { name: 'publicTables.v1.json', provenance: RAW.provenance },
-];
-if (!OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(RAW.provenance))
-  throw new Error('omahaMathCore: a table without public provenance cannot load');
+const RAW = publicTables as unknown as MeasuredRanges & { version: string; sourceSha256: string };
+
+/** Every cell's provenance (each section's cells carry one): the set the core loads. */
+function provenanceOf(t: Record<string, unknown>): string[] {
+  const seen = new Set<string>();
+  for (const [section, value] of Object.entries(t)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    for (const cell of Object.values(value as Record<string, unknown>))
+      if (cell && typeof cell === 'object' && 'provenance' in (cell as object))
+        seen.add(`${String((cell as { provenance: unknown }).provenance)}`);
+    void section;
+  }
+  return [...seen].sort();
+}
+/** Every table the core loads, by name, with the provenance of its cells (law: each in the allowed set). */
+export const OMAHA_MATH_CORE_TABLES: ReadonlyArray<{ name: string; provenance: string }> =
+  provenanceOf(RAW as unknown as Record<string, unknown>).map((provenance) => ({
+    name: 'publicTables.v3.json',
+    provenance,
+  }));
+for (const t of OMAHA_MATH_CORE_TABLES)
+  if (!OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(t.provenance))
+    throw new Error('omahaMathCore: a table cell without public provenance cannot load');
 export const TABLE = RAW;
-export const OMAHA_MATH_CORE_TABLE_VERSION = `${RAW.version}-public@54ab0460`;
+export const OMAHA_MATH_CORE_TABLE_VERSION = `${RAW.version}@${String(RAW.sourceSha256).slice(0, 8)}`;
 export type Street = 'preflop' | 'flop' | 'turn' | 'river';
 export type Mode = 'table' | 'lightning';
 export type Actor = 'person' | 'horse';
@@ -127,5 +144,79 @@ export function preflopFoldToHorse(k: {
         const c = t[key];
         if (c && c.n >= MIN_N) return { p: c.fold, n: c.n, source: `${key} (n=${c.n})` };
       }
+  return null;
+}
+
+/** How often this kind of player wagers on this line when he can (public action log; persons shrunk to population). */
+export function betRate(k: {
+  game: 'plo4' | 'plo5';
+  mode: Mode;
+  street: Exclude<Street, 'preflop'>;
+  line: Line;
+  players: 'hu' | 'mw';
+  actor: Actor;
+  user: string | null;
+}): { b: number; n: number; source: string } | null {
+  const t =
+    (TABLE as unknown as { betFrequency?: Record<string, { betRate: number; n: number }> })
+      .betFrequency ?? {};
+  for (const pl of [k.players, 'all'])
+    for (const ln of k.line === 'all' ? ['all'] : [k.line, 'all'])
+      for (const g of [k.game, 'pooled'])
+        for (const m of [k.mode, 'all'])
+          for (const o of ['horse_present', 'any']) {
+            const key = [g, m, k.street, ln, pl, o, k.actor].join('|');
+            const c = t[key];
+            if (!c || c.n < MIN_N) continue;
+            if (k.actor === 'person' && k.user) {
+              const row = (
+                TABLE.persons?.[k.user] as unknown as
+                  | { betOpportunities?: Record<string, Record<string, number>> }
+                  | undefined
+              )?.betOpportunities?.[[k.game, k.street, k.line, k.players].join('|')];
+              if (row) {
+                const n = Object.values(row).reduce((x, y) => x + y, 0);
+                const bets = row.bet ?? 0;
+                if (n > 0)
+                  return {
+                    b: (bets + 20 * c.betRate) / (n + 20),
+                    n,
+                    source: `person shrunk (n=${n}) to ${key} (n=${c.n})`,
+                  };
+              }
+            }
+            return { b: c.betRate, n: c.n, source: `${key} (n=${c.n})` };
+          }
+  return null;
+}
+
+/** The non-value share of a wager on this line and size, from hands shown at showdown (lead decision: shownNonValue). */
+export function wagerNonValue(k: {
+  game: 'plo4' | 'plo5';
+  mode: Mode;
+  street: Exclude<Street, 'preflop'>;
+  line: Line;
+  band: Band;
+  players: 'hu' | 'mw';
+  bettor: Actor;
+}): { nv: number; n: number; source: string } | null {
+  const t =
+    (TABLE as unknown as { ranges?: Record<string, { shownNonValue?: number; nShown?: number }> })
+      .ranges ?? {};
+  for (const pl of [k.players, 'all'])
+    for (const ln of k.line === 'all' ? ['all'] : [k.line, 'all'])
+      for (const g of [k.game, 'pooled'])
+        for (const b of k.band === 'all' ? ['all'] : [k.band, 'all'])
+          for (const m of [k.mode, 'all'])
+            for (const o of ['horse_present', 'any']) {
+              const key = [g, m, k.street, ln, b, pl, o, k.bettor].join('|');
+              const c = t[key];
+              if (c && typeof c.shownNonValue === 'number' && (c.nShown ?? 0) >= 20)
+                return {
+                  nv: c.shownNonValue,
+                  n: c.nShown ?? 0,
+                  source: `${key} shown (n=${c.nShown})`,
+                };
+            }
   return null;
 }

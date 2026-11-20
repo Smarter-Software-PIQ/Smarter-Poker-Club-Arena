@@ -22,11 +22,11 @@ The decision the owner rules produced is never an input, prior or tie-break: it 
 
 ## Tables (Public Information Only)
 
-`server/src/engine/omahaMathCore/publicTables.v1.json`, provenance `public_actions`: the public-action sections of lane RANGES' measured-ranges-v1 (source sha256 54ab046027c1411ffc4f7ef412c56b6a4f466d1898847ccac817a164f4c3e947; PLO4/PLO5 cash with a person, Nov 1 to Nov 19 6:49 PM Chicago, 14,170 hands): responses to wagers, preflop action frequencies, fold facing a Horse raise, VPIP/PFR, per-user public facing rows (user ids only). Every section built from cards that were never shown (range composition, passive composition, preflop strength, realization) is removed. A law test pins that every table the core loads has provenance `public_actions` or `showdown_only`.
+`server/src/engine/omahaMathCore/publicTables.v3.json`: lane RANGES' measured-ranges-public-v3 (source sha256 3bdd8ce18147098f040f05480ef69ee0695f9b0d8c2d77fd0c00ed68c7dd4c42; PLO4/PLO5 cash with a person, Nov 1 to Nov 19 6:49 PM Chicago; person names removed, user ids only). Every cell carries its provenance: `public_actions` (responses to wagers, wager frequency by line, preflop action frequencies, fold facing a Horse raise, VPIP/PFR, per-user public rows) or `showdown_only` (the share of a line's wagers shown at showdown that were not value, `shownNonValue`, the estimator the lead chose). The earlier v1 table (sha256 54ab0460, built partly from cards never shown) is not shipped. A law test pins that every cell the core loads has provenance `public_actions` or `showdown_only`.
 
 ## Known Interim Items (Stated, Not Hidden)
 
-- A line's wager frequency is not yet in the public table: `INTERIM_WAGER_FREQUENCY` = 0.5 is used and named in every receipt that uses it, until lane RANGES ships public bet-frequency cells.
+- A wager's range: value from the top of the pool, non-value from the bottom at the measured `shownNonValue` share of that line and size (the break-even share s/(1+2s) only where no cell has 20 shown hands), at the line's measured wager frequency (`INTERIM_WAGER_FREQUENCY` = 0.5 only where no cell exists; named in the receipt).
 - No public realization measurement exists yet: no realization factor is applied (receipt says so).
 - Postflop ranges do not yet carry the preflop action forward (each street's range is built on that street's public line).
 

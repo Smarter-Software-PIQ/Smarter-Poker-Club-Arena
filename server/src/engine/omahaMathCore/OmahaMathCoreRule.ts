@@ -289,7 +289,8 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
   };
 }
 
-function toDecision(receipt: CoreReceipt, base: HorseDecision): HorseDecision {
+// (toDecision kept for tests)
+export function toDecision(receipt: CoreReceipt, base: HorseDecision): HorseDecision {
   const { action, amount } = receipt.choice;
   const d: HorseDecision = { action, thinkTime: base.thinkTime };
   if (action !== 'fold' && action !== 'check' && amount !== null) d.amount = amount;
@@ -320,24 +321,33 @@ export function omahaMathCoreRule(
   const incoming = { action: decision.action, amount: decision.amount ?? null };
   try {
     const { receipt } = decideOmahaMathCore(omahaMathCoreState(player, gs), { now });
-    const proposed = toDecision(receipt, decision);
-    const legal = legalize(proposed);
-    if (legal.action !== proposed.action || (legal.amount ?? null) !== (proposed.amount ?? null)) {
-      // The legalizer may restate a wager's size (the all-in amount; a 90-100% pot wager made the
-      // full pot; cent rounding): the same kind of action stands, with the legal size, recorded.
-      // Any other rewrite (a wager becoming a call, a call a fold) is an error and falls back.
-      const wager = (a: HorseDecision['action']) => a === 'bet' || a === 'raise' || a === 'all_in';
-      if (wager(proposed.action) && wager(legal.action))
-        receipt.legalized = {
-          from: proposed.amount ?? null,
-          to: legal.amount ?? null,
-          action: legal.action,
+    // The executed action is a priced candidate exactly as the legalizer leaves it: the best EV
+    // whose legal form is itself (cent rounding and the all-in amount aside). A candidate the
+    // legalizer would resize (a 90-100% pot wager made the full pot, a wager of nearly the whole
+    // stack made all-in, the pot-limit cap) is not executed at a size the core did not price.
+    const same = (a: HorseDecision, b: HorseDecision) =>
+      a.action === b.action &&
+      (a.action === 'all_in' || Math.abs((a.amount ?? 0) - (b.amount ?? 0)) <= 0.011);
+    const ranked = [...receipt.evs].sort((x, y) => y.ev - x.ev || x.adds - y.adds);
+    let legal: HorseDecision | null = null;
+    for (const cand of ranked) {
+      const proposed: HorseDecision = { action: cand.action, thinkTime: decision.thinkTime };
+      if (cand.action !== 'fold' && cand.action !== 'check' && cand.amount !== null)
+        proposed.amount = cand.amount;
+      const l = legalize(proposed);
+      if (same(l, proposed)) {
+        legal = l;
+        if (cand !== ranked[0])
+          receipt.legalized = { from: ranked[0].amount, to: cand.amount, action: cand.action };
+        receipt.choice = {
+          action: cand.action,
+          amount: cand.amount,
+          ev: Math.round(cand.ev * 100) / 100,
         };
-      else if (!(proposed.action === 'all_in' && legal.action === 'all_in'))
-        throw new Error(
-          `omahaMathCore: illegal ${proposed.action} ${proposed.amount ?? ''} -> ${legal.action} ${legal.amount ?? ''}`
-        );
+        break;
+      }
     }
+    if (!legal) throw new Error('omahaMathCore: no priced candidate is legal as proposed');
     const out: HorseDecision = {
       ...decision,
       action: legal.action,

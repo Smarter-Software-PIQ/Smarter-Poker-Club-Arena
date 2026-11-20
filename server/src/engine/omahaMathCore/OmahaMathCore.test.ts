@@ -27,7 +27,7 @@ import {
   OMAHA_MATH_CORE_ALLOWED_PROVENANCE,
   OMAHA_MATH_CORE_TABLES,
 } from './OmahaMathCoreTables.js';
-import publicTables from './publicTables.v1.json' with { type: 'json' };
+import publicTables from './publicTables.v3.json' with { type: 'json' };
 
 const now = () => performance.now();
 const DECK: Card[] = Array.from({ length: 52 }, (_, i) => ({
@@ -279,10 +279,26 @@ describe('omahaMathCore tables: public information only (lead ruling 2026-11-19)
     for (const t of OMAHA_MATH_CORE_TABLES)
       expect(OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(t.provenance)).toBe(true);
   });
-  it('the shipped table carries no section built from unshown hole cards', () => {
-    const keys = Object.keys(publicTables);
-    for (const hidden of ['ranges', 'passive', 'preflopStrength', 'realization'])
-      expect(keys).not.toContain(hidden);
+  it('every cell of the shipped table names its provenance, and each is public_actions or showdown_only', () => {
+    let cells = 0;
+    for (const section of Object.values(publicTables as Record<string, unknown>)) {
+      if (!section || typeof section !== 'object' || Array.isArray(section)) continue;
+      for (const cell of Object.values(section as Record<string, unknown>)) {
+        if (
+          !cell ||
+          typeof cell !== 'object' ||
+          !('n' in (cell as object) || 'hands' in (cell as object) || 'betRate' in (cell as object))
+        )
+          continue;
+        cells++;
+        expect(
+          OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(
+            String((cell as { provenance?: unknown }).provenance)
+          )
+        ).toBe(true);
+      }
+    }
+    expect(cells).toBeGreaterThan(1000);
   });
 });
 
