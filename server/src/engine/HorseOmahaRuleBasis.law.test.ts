@@ -170,9 +170,6 @@ describe('the blanket backlog only shrinks: a categorical rule cannot be registe
         'omahaReraisedPotStackOffFold',
         'omahaRiverNutBlockerBluffReachable',
         'omahaRiverNutRaiseOnly',
-        'omahaStreetPlan',
-        'omahaStreetPlanFlop',
-        'omahaStreetPlanThreeWay',
         'omahaStrongHandSlowplayMix',
         'omahaTightOpponent',
         'omahaTightOpponentSteal',
@@ -225,6 +222,9 @@ describe('the blanket backlog only shrinks: a categorical rule cannot be registe
         'v38_river_fold',
         'v40Omaha',
         'v40_omaha_pressure_cap',
+        'omahaStreetPlan',
+        'omahaStreetPlanFlop',
+        'omahaStreetPlanThreeWay',
       ].sort()
     );
   });

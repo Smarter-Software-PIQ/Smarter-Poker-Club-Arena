@@ -418,17 +418,17 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   ),
   omahaStrategyInPlo6: exempt('scope', 'decides where a rule applies, never the action'),
   omahaStrategyInTournaments: exempt('scope', 'decides where a rule applies, never the action'),
-  omahaStreetPlan: blanket(
+  omahaStreetPlan: partly(
     ['omahaNoCategoricalRules'],
-    'street-plan priors (unmeasured) decide the bet or check; removal: omahaMathCore (CORE-POOLED-2 / MATHCORE-2)'
+    'the heads-up turn check and each bet priced as whole lines over every exact river card (HorseOmahaStreetPlan.ts), but the range falls back to a fixed keep share of a fixed sample and the responses to population priors where unmeasured; omahaNoCategoricalRules switches this priced plan off'
   ),
-  omahaStreetPlanFlop: blanket(
+  omahaStreetPlanFlop: partly(
     ['omahaNoCategoricalRules'],
-    'street-plan priors on the flop; failed its evaluation; removal: delete (off-only)'
+    'the flop bet priced as a two-street line with the turn by card class (failed its evaluation; off-only): delete'
   ),
-  omahaStreetPlanThreeWay: blanket(
+  omahaStreetPlanThreeWay: partly(
     ['omahaNoCategoricalRules'],
-    'three-way street-plan priors; removal: omahaMathCore (CORE-POOLED-2 / MATHCORE-2)'
+    'the three-way turn line priced against two independent ranges, with the same fallback keep share and population priors'
   ),
   omahaStrongHandSlowplayMix: blanket(
     ['omahaNoCategoricalRules'],
