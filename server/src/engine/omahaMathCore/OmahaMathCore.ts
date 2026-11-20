@@ -465,6 +465,18 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       responder: actorOf(o),
       user: o.person ? o.user : null,
     });
+    if (!o.person) {
+      // A Horse responder: the table measures Horses of the pre-core brain (they over-folded). A
+      // Horse on this core defends to the price, folding s / (1 + s) of his range to a wager of
+      // pot share s; pricing core Horses with the old cells would make cores bluff each other
+      // without end (PROVE self-play). The raise share stays the measured one.
+      const sc = Math.max(0, frac) / (1 + Math.max(0, frac));
+      return {
+        p: sc,
+        r: c ? Math.max(0, Math.min(1 - sc, c.raise)) : 0,
+        source: `self-consistent Horse defence: fold s/(1+s) = ${round2(sc)} at s = ${round2(frac)}${c ? ` (old Horse cell ${round2(c.fold)}: ${c.source})` : ''}`,
+      };
+    }
     return c
       ? { p: c.fold, r: Math.max(0, Math.min(1 - c.fold, c.raise)), source: c.source }
       : { p: 0, r: 0, source: 'no measured cell: no fold credit' };

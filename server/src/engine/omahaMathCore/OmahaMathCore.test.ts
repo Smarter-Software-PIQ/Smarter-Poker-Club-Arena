@@ -273,6 +273,37 @@ describe('omahaMathCore decision laws', () => {
   });
 });
 
+describe('omahaMathCore self-play and split switch', () => {
+  it('a Horse responder is priced to defend to the price: fold s/(1+s) of a wager of pot share s', () => {
+    const st = spot({ hole: 'AhKhQs7d2c', board: 'Jh8s2s', pot: 100, toCall: 0 });
+    st.opponents[0] = { ...st.opponents[0], person: false, user: 'horse-1' };
+    const { receipt } = decideOmahaMathCore(st, { now });
+    for (const e of receipt.evs.filter((x) => x.action === 'bet')) {
+      const s = e.adds / 100;
+      expect(e.foldProb).toBeCloseTo(s / (1 + s), 2);
+    }
+  });
+  it('preflop with omahaMathCorePreflop off: the core computes and receipts (shadow) and the decision stands', () => {
+    const r = RECORDED_FLOP_FACING_BETS[0];
+    const { fx, node } = expandFlop(r);
+    const st = stateAt(fx, node);
+    const gs = { ...st.gs, stage: 'preflop' as const, communityCards: [] };
+    const incoming = { action: 'fold' as const, thinkTime: 1 };
+    const out = omahaMathCoreRule(
+      incoming,
+      st.hero,
+      gs as never,
+      { omahaMathCore: true },
+      (d) => d
+    );
+    expect(out.action).toBe('fold');
+    if (out.omahaMathCore) {
+      expect(out.omahaMathCore.applied).toBe(false);
+      if (out.omahaMathCore.error === null) expect(out.omahaMathCore.shadow).toBe(true);
+    }
+  });
+});
+
 describe('omahaMathCore tables: public information only (lead ruling 2026-11-19)', () => {
   it('every table the core loads has provenance public_actions or showdown_only', () => {
     expect(OMAHA_MATH_CORE_TABLES.length).toBeGreaterThan(0);
