@@ -26,11 +26,33 @@
  * named in the source string with its key and n, or a combinatoric of the cards. Pure and total:
  * never throws (a missing cell means "no measurement": full band / no fold credit, said in the source).
  */
-import pfTablesJson from './preflopTables.v1.json' with { type: 'json' };
-import pfRealJson from './preflopRealization.v1.json' with { type: 'json' };
-import pfStrengthJson from './preflopStrength.v1.json' with { type: 'json' };
+import { readFileSync } from 'node:fs';
 import { fullRange, topOf, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
 import type { CoreOpponent, CoreState } from './OmahaMathCore.js';
+
+// The table is read from the source tree at load, not imported: the engine image is compiled by
+// tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
+// emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
+// image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
+// the server root is three levels above this module in both trees.
+const pfTablesJson: unknown = JSON.parse(
+  readFileSync(
+    new URL('../../../src/engine/omahaMathCore/preflopTables.v1.json', import.meta.url),
+    'utf8'
+  )
+);
+const pfRealJson: unknown = JSON.parse(
+  readFileSync(
+    new URL('../../../src/engine/omahaMathCore/preflopRealization.v1.json', import.meta.url),
+    'utf8'
+  )
+);
+const pfStrengthJson: unknown = JSON.parse(
+  readFileSync(
+    new URL('../../../src/engine/omahaMathCore/preflopStrength.v1.json', import.meta.url),
+    'utf8'
+  )
+);
 
 export const PREFLOP_MODEL_VERSION = 'preflop-ev-model-v1';
 const MIN_N = 30;

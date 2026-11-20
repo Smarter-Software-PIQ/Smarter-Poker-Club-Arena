@@ -15,7 +15,19 @@
  *
  * Pure, never throws: no cell (base n < 30) or bad input returns p unchanged with the reason.
  */
-import textureJson from './playbookTexture.v1.json' with { type: 'json' };
+import { readFileSync } from 'node:fs';
+
+// The table is read from the source tree at load, not imported: the engine image is compiled by
+// tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
+// emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
+// image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
+// the server root is three levels above this module in both trees.
+const textureJson: unknown = JSON.parse(
+  readFileSync(
+    new URL('../../../src/engine/omahaMathCore/playbookTexture.v1.json', import.meta.url),
+    'utf8'
+  )
+);
 
 export const PLAYBOOK_TEXTURE_VERSION = 'playbook-texture-v1';
 
