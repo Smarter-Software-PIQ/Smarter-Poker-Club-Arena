@@ -123,7 +123,8 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 73 since 2026-11-19: HorseMind carries what a flop bet showed (HorseOmahaFlopShown) and the price behind a
     // fold-to-raise cell (HorseOmahaStreetReadPrice).
     // 74 since 2026-11-19: both Omaha pack gates read their depth from omaha/OmahaPackDepth.
-    expect(closure).toHaveLength(74);
+    // 75 since 2026-11-19: HorseEval reads the PLO4/PLO5 high-only scope from HorsePlo45High.
+    expect(closure).toHaveLength(75);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');

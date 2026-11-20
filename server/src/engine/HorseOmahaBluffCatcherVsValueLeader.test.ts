@@ -53,7 +53,11 @@ const SUITS: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts'
 const cards = (text: string): Card[] =>
   (text.match(/../g) ?? []).map((x) => ({ rank: x[0] as CardRank, suit: SUITS[x[1]] }));
 
-const SEEDS = Array.from({ length: 16 }, (_, i) => 3000 + i);
+// Sixteen seeds on which today's brain calls both turn nodes. The call with top set and the king
+// redraw is a close one for the reference brain: seed 3036 folded it before 2026-11-19, and since the
+// Omaha band fallback measures in the band's unit (AUDIT-FILES-B) seed 3001 folds it too (2 of 40
+// seeds from 3000). The option's laws below are about the seeds that call, so 3001 is left out.
+const SEEDS = Array.from({ length: 17 }, (_, i) => 3000 + i).filter((s) => s !== 3001);
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
 
 interface Variation {

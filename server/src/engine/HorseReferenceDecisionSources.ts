@@ -243,6 +243,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "how a re-raiser answers a raise of his own re-raise (2026-11-18): the two nodes of the opponent's durable record, its validation and wire row, and the posterior the default-off option omahaReraisedCallVsRaisePriced prices a raise with",
     'src/engine/HorseOmahaFlopShown.ts':
       "what a flop bet showed and what calling it returned (2026-11-19): the class of a shown hand on a flop, the cells of the opponent's durable flop-shown record, its validation and wire row, and the readers HorseMind.omahaFlopShownOf serves; carried into Omaha decisions and read by none",
+    'src/engine/HorsePlo45High.ts':
+      'the PLO4/PLO5 high-only scope test (2026-11-19) the shared-code fixes of the emergency batch read: the band fallback unit in simulateEquity, the V15 cap priced once, the V21 effective depth and the raise-needs-nuts failure call',
     'src/engine/HorseOmahaStreetReadPrice.ts':
       'the price behind a fold-to-raise cell (2026-11-19): per street, the sum of the prices of the raises an opponent faced after betting or raising and how many had one, its validation and wire row, and the mean HorseMind.omahaFoldToRaisePriceOf answers; carried into Omaha decisions and read only as the price of the street fold-to-raise cell with the default-off omahaReadIsByStreetAndTexture and omahaSampledRaiseIsPricedAtEverySize both on',
     'src/engine/HorseOmahaStreetRead.ts':
