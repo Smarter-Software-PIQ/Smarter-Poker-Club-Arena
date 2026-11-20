@@ -6763,13 +6763,25 @@ export abstract class TournamentManagerBase {
   private recordHandForHand(active: boolean): void {
     if (this.handForHandRecorded === active) return;
     this.handForHandRecorded = active;
-    const report = (why: unknown) =>
-      reportError(
-        new Error(
-          `[Tournament:${String(this.tournamentId).slice(0, 8)}] hand-for-hand ${active ? 'start' : 'end'} not recorded: ${describeError(why)}`
-        ),
-        'Tournament.hand_for_hand_record_failed'
-      );
+    const report = (why: unknown) => {
+      // Never throws: a reporting failure must not reach the bubble barrier.
+      try {
+        const text =
+          why instanceof Error
+            ? why.message
+            : why && typeof why === 'object' && 'message' in why
+              ? String((why as { message: unknown }).message)
+              : String(why);
+        reportError(
+          new Error(
+            `[Tournament:${String(this.tournamentId).slice(0, 8)}] hand-for-hand ${active ? 'start' : 'end'} not recorded: ${text}`
+          ),
+          'Tournament.hand_for_hand_record_failed'
+        );
+      } catch {
+        /* reporting is best-effort */
+      }
+    };
     try {
       Promise.resolve(
         supabase.rpc('fn_ca_note_hand_for_hand', {
