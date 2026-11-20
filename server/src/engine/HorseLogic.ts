@@ -13871,6 +13871,20 @@ function pairedBoardFoldOutsideGraph(
 
 /** Physical high-only single-board combo draws. Only the acting holding
  * and public board are used; a naked dominated flush draw is not a combo. */
+/**
+ * The domination penalty a CALL is judged with. When the V15 Omaha equity cap
+ * bound, the V15 share of the penalty is already inside the capped equity and
+ * is not charged a second time; every other share (hold'em V11/V20) stands.
+ */
+export function omahaDominationPenaltyForCall(
+  dominationPenalty: number,
+  v15Share: number,
+  v15CapBound: boolean
+): number {
+  if (!v15CapBound || !(v15Share > 0)) return dominationPenalty;
+  return Math.max(0, dominationPenalty - v15Share);
+}
+
 export function hasStrongPressureDraw(
   hole: Card[],
   board: Card[],
@@ -25346,6 +25360,9 @@ export class HorseLogic {
     // it pays an explicit equity premium that grows with each overcard and
     // with bet size. Top pair (zero overcards above it) pays nothing.
     let dominationPenalty = 0;
+    // The V15 Omaha share of dominationPenalty, kept apart so the V15 equity
+    // cap below can retire it when the cap already priced the same line.
+    let dominationPenaltyV15 = 0;
     if (useV11 && useIQ && cat === 2 && !vi.isOmaha && betRatio >= 0.45) {
       const pr = onePairRank(player.cards, board);
       if (pr > 0) {
@@ -25458,7 +25475,8 @@ export class HorseLogic {
         if (betRatio >= 0.9) pen *= 1.35;
         if (raisedAfterAggr) pen *= 1.3;
         if (oppCount >= 2) pen *= 1.15;
-        dominationPenalty += Math.min(pen, 0.26);
+        dominationPenaltyV15 = Math.min(pen, 0.26);
+        dominationPenalty += dominationPenaltyV15;
       }
     }
     // ═══ V15 EQUITY CAP — a subtraction cannot fix a 50-point lie ═══
@@ -25491,6 +25509,20 @@ export class HorseLogic {
         if (tele15 && eq15 < equity) noteFire('v15_eq_capped');
       }
     }
+    // ═══ V15 CAP AND PENALTY PRICE ONE LINE ONCE (2026-11-19) ═══ The cap
+    // and the V15 domination penalty above model the same fact (the range
+    // that bet big or raised holds the bigger flush or straight). Where the
+    // cap bound, the equity the call is judged on is already the class's
+    // ceiling against that range; subtracting the penalty again priced the
+    // line twice. Executed on aec0d93b40cd: a PLO5 nine-high flush facing a
+    // pot-sized river bet read 0.78, was capped to 0.42 (above the 0.333
+    // price) and then cut to 0.277 by the penalty: fold, 40 of 40 seeds.
+    // The call/fold comparisons use this; raise bars keep the full penalty.
+    const dominationPenaltyCall = omahaDominationPenaltyForCall(
+      dominationPenalty,
+      dominationPenaltyV15,
+      eq15 < equity
+    );
 
     // ═══ V40 OMAHA PRESSURE CAP (Dan 2026-09-04) ═══
     // The V15 cap stopped at straights and flushes; V20's pressure cap was
@@ -26434,7 +26466,7 @@ export class HorseLogic {
       const requiredAtFullPremium =
         potOdds +
         0.02 +
-        dominationPenalty * 0.5 +
+        dominationPenaltyCall * 0.5 +
         commit20 +
         scare21 -
         bounty23 +
@@ -27901,7 +27933,7 @@ export class HorseLogic {
         eq15 +
           impliedBonus68 +
           readShift38 -
-          dominationPenalty -
+          dominationPenaltyCall -
           shadeDeep86 -
           (loOnly23 ? 0.03 : 0)
       );
@@ -28193,7 +28225,7 @@ export class HorseLogic {
       // so the same line that always decided this call still decides it;
       // the three are exclusive by their gates.
       eq15 + impliedBonus68 - shade65 - shade66 - shade68 - shadeDeep86 - shade87Omaha >=
-      potOdds + 0.03 * respect + sizingPenalty + posEdge + dominationPenalty
+      potOdds + 0.03 * respect + sizingPenalty + posEdge + dominationPenaltyCall
     ) {
       return { action: 'call', amount: toCall, thinkTime: 0 };
     }
