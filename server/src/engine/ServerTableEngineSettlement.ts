@@ -1988,6 +1988,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       cadence: this.currentHandCadence,
       startedAt: this.currentHandStartedAt,
       winners: [...this.currentHandWinners],
+      // HORSE CASH STACK CEILING: this hand's pinned runtime settings, read after the snapshot.
+      runtimeSettings: this.currentHandRuntimeSettings,
       pots: this.currentHandPots,
       actions: [...this.currentHandActions],
       contributions: new Map(this.currentHandContributions),
@@ -4419,7 +4421,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         }
 
         const stackCeiling = horseCashStackCeilingChips({
-          ceilingBB: horseCashStackCeilingBBFrom(this.currentHandRuntimeSettings),
+          ceilingBB: horseCashStackCeilingBBFrom(snap.runtimeSettings),
           variant: this.tableInfo?.game_variant,
           bigBlind: this.tableInfo?.big_blind,
           maxBuyIn,

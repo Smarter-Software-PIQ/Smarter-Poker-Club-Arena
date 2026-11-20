@@ -210,7 +210,7 @@ describe('the table exit', () => {
       /shouldBankTheWin\(\{ \.\.\.bank, stackCeiling \}\) &&\s*ceilingExitKeepsTheGame\(/
     );
     expect(s).toMatch(
-      /horseCashStackCeilingChips\(\{\s*ceilingBB: horseCashStackCeilingBBFrom\(this\.currentHandRuntimeSettings\),\s*variant: this\.tableInfo\?\.game_variant,/
+      /horseCashStackCeilingChips\(\{\s*ceilingBB: horseCashStackCeilingBBFrom\(snap\.runtimeSettings\),\s*variant: this\.tableInfo\?\.game_variant,/
     );
     // the hit-and-run count still comes first, and the exit is the ordinary voluntary door (no rathole)
     const filter = s.slice(s.indexOf('const cashedOutHorses = players.filter'), at);

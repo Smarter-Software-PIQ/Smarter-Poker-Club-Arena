@@ -15031,31 +15031,6 @@ export class HorseLogic {
               omahaMathCorePlo5River: opts.omahaMathCorePlo5River === true,
             },
           });
-      if (coreRecovered) {
-        let coreThink = 1500;
-        if (opts.horseActionTimeIsPublicOnly === true) {
-          try {
-            coreThink = horsePublicActionTimeMs(
-              HorseLogic.publicTimingSpot(
-                gameState,
-                player.user_id,
-                coreRecovered.action,
-                coreRecovered.amount,
-                [1400, 4200],
-                {
-                  useTiming: (opts.v9Timing ?? opts.v9) !== false,
-                  useGravity: opts.decisionGravityTiming !== false,
-                  hollywoodRaise: false,
-                  holdemHollywood: false,
-                }
-              )
-            );
-          } catch {
-            coreThink = 1500;
-          }
-        }
-        return { ...coreRecovered, thinkTime: coreThink };
-      }
       // 2026-11-15: on FIXED LIMIT the safety net is price-aware - a call at a
       // price of 4 to 1 or better when the menu offers `call`, else fold
       // (BettingStructure.failureFallbackAction). Other structures fold.
@@ -15070,8 +15045,8 @@ export class HorseLogic {
             });
       const fallbackAmount =
         fallbackAction === 'call' ? Math.min(toCall, Math.max(0, player.stack || 0)) : undefined;
-      // PUBLIC-ONLY ACTION TIME: the safety net's fixed 1,500 ms is a mark of
-      // which path answered. With the option on it is paced like any other
+      // PUBLIC-ONLY ACTION TIME (also for the core's recovered decision above):
+      // the safety net's fixed 1,500 ms is a mark of which path answered. With the option on it is paced like any other
       // action in this public spot (labelled with the action actually taken).
       let netThinkTime = 1500;
       if (opts.horseActionTimeIsPublicOnly === true) {
@@ -15080,8 +15055,8 @@ export class HorseLogic {
             HorseLogic.publicTimingSpot(
               gameState,
               player.user_id,
-              fallbackAction,
-              fallbackAmount,
+              coreRecovered ? coreRecovered.action : fallbackAction,
+              coreRecovered ? coreRecovered.amount : fallbackAmount,
               [1400, 4200],
               {
                 useTiming: (opts.v9Timing ?? opts.v9) !== false,
@@ -15095,6 +15070,8 @@ export class HorseLogic {
           netThinkTime = 1500;
         }
       }
+      // COREGUARD B4: the core's recovered decision, paced by the same public timing step.
+      if (coreRecovered) return { ...coreRecovered, thinkTime: netThinkTime };
       return fallbackAction === 'call'
         ? {
             action: 'call',
