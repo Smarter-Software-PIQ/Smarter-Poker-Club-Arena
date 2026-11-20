@@ -1455,7 +1455,8 @@ export function playHand(
         seats.some(
           (_, i) =>
             configOf(i).omahaReadIsByStreetAndTexture === true ||
-            configOf(i).omahaFlopVerdictReadsTheBettor === true
+            configOf(i).omahaFlopVerdictReadsTheBettor === true ||
+            configOf(i).omahaFacingBetValueShareIsMeasured === true
         )
       )
         leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
@@ -2964,6 +2965,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFlopVerdictReadsTheBettor: true,
     },
     b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFlopFacingBetEv: true },
+  })),
+  // 2026-11-19 THE FACING-BET VALUE SHARE IS MEASURED (HorseOmahaFacingBetValueShareMeasured,
+  // default OFF): the facing-bet verdicts' bettor range from his street record and, for a person's
+  // heads-up turn or river bet, his line-conditioned measured range; the priced verdicts decide where
+  // they price. It decides by itself, so arm B is production's live set (OMAHA_LIVE_OPTIONS_20261118)
+  // and arm A adds the option. The street record is learned inside the card (HorseLeagueStreetRead).
+  // The league seats no person, so part (2) is not dealt here; the card measures parts (1), (3), (4).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_value_share_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFacingBetValueShareIsMeasured: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is

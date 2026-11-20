@@ -1058,6 +1058,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetValueShareIsMeasured',
+    "HORSE DECISIONS lane 2026-11-19 (owner: no blanket rule; every Horse decision priced by range, equity and EV; bet size never triggers a decision by itself; audits A and B of the 48-hour human-versus-Horse slice, archive plo-handoff-review-01a1cbbd/hvh48-audit-01TLQer7J: the largest loss class is a fold with the price met, because the facing-bet verdict's value region is a stated top share of ALL holdings, on PLO5 boards straights or better, narrowed by 0.8 per earlier street, whoever bets): in PLO4/PLO5 cash (tables and Lightning), high only, one board, facing a bet or a raise. (1) The turn and river facing-bet verdict's value share is moved by the bettor's MEASURED street record (HorseMind.omahaStreetReadOf: his first-bet rate on this street, and on each earlier street he opened, beside his kind's rate, shrunk by his sample with the kind's measured pseudo-opportunities, raised to the measured elasticity of a bet range's width in its rate, person 0.95 and Horse 0.47 from the flop slopes; STATED for the turn and river): this street's share times g, each earlier street's 0.8 becomes 0.8^(1/g); exactly the stated share with no opportunity. (2) A person's heads-up turn or river bet is priced on his line-conditioned range: his holdings drawn from the unseen cards, cut to his preflop line (a 3-bet or more), each holding's strength percentile in that range on this board weighted by the MEASURED density of people's bets of that street by earlier aggressor streets and size (river: OMAHA_VALUE_RANGE_FIT, 1,201 bets; turn: OMAHA_TURN_RANGE_FIT, 161 showdown-selected bets of the two audit slices; a raise takes the most aggressive measured row, stated), tilted by his street record (density^(1/g)); his bluffs are inside the density, no separate bluff prior; turn equity counted exactly over every river card; EV(call) at the actual price against the verdict's one margin. (3) The flop verdict reads the bettor (as omahaFlopVerdictReadsTheBettor). (4) The priced facing-bet verdicts decide wherever they price (as with omahaFacingBetEv and omahaFlopFacingBetEv on), and the priced raise sites take their call or fold from that verdict, so the paired-board fold, the big-bet cells (v81, v87) and every earlier call-discipline fold are inputs there, never the decider. PLO6, tournaments, hi-lo and multi-board untouched (HorseOmahaFacingBetValueShareMeasured.ts; HorseLogic.omahaFacingBetEvCount). Receipts omaha_facing_bet_value_share_measured and omaha_facing_bet_measured_range_priced. Default OFF (opt-in, read `=== true`); NOT EVALUATED (docs/horse-option-authority.d/omahaFacingBetValueShareIsMeasured.md); league cards plo4/plo5 _omaha_facing_bet_value_share_is_measured.",
+    'V94'
+  ),
+  flag(
     'omahaReadIsByStreetAndTexture',
     "PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every decision from the opponent's range and the math): in PLO4/PLO5 cash, one board, no bomb pot, on the flop, the turn and the river, the opponent read #11215 keeps by street and flop texture (HorseMind.omahaStreetReadOf, the exact profile street record) is used (HorseOmahaReadByStreet.ts, installed per decision by HorseOmahaReadByStreetRule.ts): the value-leader label every value-leader rule reads (HorseMind.omahaReadConditionalOf) is read on the decision's street (the flop's texture cell on the flop) as a continuous quantity, the bettor's bet rate beside the Horse mean (the facing-bet bluff-share input, HorseMind.omahaFacingBetEvReadOf) is his street rate, and the priced comparisons' fold to a bet and fold to a raise are his street cells (omahaPricedStreetRatesOf); each blended with the pooled figure by the cell's own decayed opportunities (omahaPricedShrunk), no opportunity threshold. With no street record every decision is byte-identical. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_read_is_by_street_and_texture",
     'V94'
@@ -5242,6 +5247,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_flop_verdict_read_the_bettor',
     'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopVerdictReadsTheBettor)',
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_value_share_measured',
+    'HorseLogic wager_rules (omahaFacingBetEvRule, omahaFacingBetValueShareIsMeasured)',
+    "a PLO4/PLO5 cash turn or river fold-or-call decision in which the facing-bet verdict that answered read a street record of the bettor (his first-bet rates beside his kind moved the value share); fired with the verdict's own call or fold receipt, changed or not",
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_measured_range_priced',
+    'HorseLogic wager_rules (omahaFacingBetEvRule, omahaFacingBetValueShareIsMeasured)',
+    "a PLO4/PLO5 cash heads-up turn or river fold-or-call decision facing a person's bet in which the facing-bet verdict was priced on his line-conditioned range weighted by the measured density of people's bets (HorseOmahaFacingBetValueShareMeasured); fired with the verdict's own call or fold receipt, changed or not",
     'V94'
   ),
   receipt(

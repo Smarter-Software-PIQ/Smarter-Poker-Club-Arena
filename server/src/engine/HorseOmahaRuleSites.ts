@@ -460,6 +460,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaFacingBetValueShareIsMeasured: priced(
+    "the facing-bet verdicts' bettor range from his measured street record and, for a person's heads-up turn or river bet, his line-conditioned range weighted by the measured density of people's bets; the priced verdicts decide where they price (default OFF)"
+  ),
   omahaFlopVerdictReadsTheBettor: priced(
     "the flop facing-bet verdict's bettor range and realization read from that bettor's own street record beside his kind, moved continuously by his sample (an input of the omahaFlopFacingBetEv verdict, not a rule site; default OFF)"
   ),

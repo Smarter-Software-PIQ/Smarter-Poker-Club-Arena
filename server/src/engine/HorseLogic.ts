@@ -115,6 +115,12 @@ import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardI
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFacingBetValueRangeOver } from './HorseOmahaFacingBetValueRange.js';
+import {
+  omahaFacingBetMeasuredRangeOver,
+  omahaMeasuredStreetFactor,
+  omahaMeasuredValueShare,
+} from './HorseOmahaFacingBetValueShareMeasured.js';
+import { omahaMeasuredBettorRecord } from './HorseOmahaFacingBetValueShareMeasuredRule.js';
 import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
@@ -3467,6 +3473,28 @@ export interface HorseDecideOpts {
    * omahaFlopFacingBetEv's. Needs the mind on. Default OFF, not evaluated;
    * league cards plo4/plo5 _omaha_flop_verdict_reads_the_bettor. */
   omahaFlopVerdictReadsTheBettor?: boolean;
+  /** HORSE DECISIONS lane 2026-11-19 (audits A and B of the 48-hour slice: the
+   * largest loss class is a fold with the price met; the facing-bet verdict's
+   * value region is a stated top share of ALL holdings, on PLO5 boards
+   * straights or better, whoever bets and whatever his line): opt-in
+   * (`=== true`), PLO4/PLO5 cash (tables and Lightning), flop / turn / river
+   * facing a bet or a raise. (1) The turn and river verdict's value share is
+   * moved by the bettor's measured street record (his first-bet rate on this
+   * street and on each earlier street he opened, beside his kind, shrunk by
+   * his sample; HorseOmahaFacingBetValueShareMeasured.ts) in place of the
+   * fixed share times 0.8 per earlier street; (2) a person's heads-up first
+   * turn or river bet is priced on his line-conditioned range (preflop width,
+   * earlier aggressor streets, size) weighted by the measured density of
+   * people's bets, tilted by his street record; (3) the flop verdict reads the
+   * bettor (as omahaFlopVerdictReadsTheBettor); (4) the priced facing-bet
+   * verdicts decide wherever they price (as omahaFacingBetEv and
+   * omahaFlopFacingBetEv on), so the paired-board fold, the big-bet cells and
+   * every earlier call-discipline fold are inputs there, never the decider.
+   * PLO6, tournaments, hi-lo and multi-board are untouched. With no record
+   * for the bettor the value share is the stated one exactly. Needs the mind
+   * on for (1) to (3). Default OFF, not evaluated; league cards plo4/plo5
+   * _omaha_facing_bet_value_share_is_measured. */
+  omahaFacingBetValueShareIsMeasured?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -8646,7 +8674,7 @@ function omahaPostflopPressureWithheld(
         player,
         gs,
         opts,
-        omahaPricedDeps(player, gs),
+        omahaPricedDeps(player, gs, opts),
         admission
       );
       if (priced !== null) return priced;
@@ -10061,7 +10089,8 @@ function omahaBigBetCallFold(
     // Unpriceable: the decision given is kept (#11212); the cells never decide it, whatever
     // omahaPricedPriorsByOpponentKind says (ROWFIX 2026-11-18: no fall closed).
     return (
-      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ?? decision
+      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs, opts)) ??
+      decision
     );
   }
   return omahaBigBetCallFoldCells(decision, player, gs, opts);
@@ -11771,10 +11800,11 @@ function omahaFacingBetEvRule(
   // answers the flop.
   // omahaFlopDefenceIsPriced (default off) alone reaches the same rule and
   // answers only its heads-up first-bet spot (flopDefenceOnly).
-  if (
-    (opts.omahaFlopFacingBetEv === true || opts.omahaFlopDefenceIsPriced === true) &&
-    gs.stage === 'flop'
-  )
+  // omahaFacingBetValueShareIsMeasured (default off): the flop verdict decides as with
+  // omahaFlopFacingBetEv on, and reads the bettor.
+  const valueShareMeasured = opts.omahaFacingBetValueShareIsMeasured === true;
+  const flopVerdictOn = opts.omahaFlopFacingBetEv === true || valueShareMeasured;
+  if ((flopVerdictOn || opts.omahaFlopDefenceIsPriced === true) && gs.stage === 'flop')
     return omahaFlopFacingBetEvRule(decision, player, gs, {
       mind: opts.mind !== false,
       telemetry: telemetryOn(opts),
@@ -11784,10 +11814,10 @@ function omahaFacingBetEvRule(
       inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
       bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
       ...(opts.omahaFlopDefenceIsPriced === true ? { flopDefenceTree: true } : {}),
-      ...(opts.omahaFlopFacingBetEv !== true ? { flopDefenceOnly: true } : {}),
-      readsTheBettor: opts.omahaFlopVerdictReadsTheBettor === true,
+      ...(!flopVerdictOn ? { flopDefenceOnly: true } : {}),
+      readsTheBettor: opts.omahaFlopVerdictReadsTheBettor === true || valueShareMeasured,
     });
-  if (opts.omahaFacingBetEv !== true) return decision;
+  if (!omahaFacingBetEvOn(opts)) return decision;
   try {
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
     const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
@@ -11809,7 +11839,7 @@ function omahaFacingBetEvRule(
     // does not run, and the call is still blocked: the safe direction.)
     const liveFoldBlocks = verdict.call && plo6RiverLiveFoldStands(player, gs, opts);
     const evCall = verdict.call && !liveFoldBlocks;
-    if (tele)
+    if (tele) {
       noteFire(
         liveFoldBlocks
           ? 'omaha_facing_bet_ev_call_blocked_by_plo6_river_fold'
@@ -11817,6 +11847,9 @@ function omahaFacingBetEvRule(
             ? 'omaha_facing_bet_ev_call'
             : 'omaha_facing_bet_ev_fold'
       );
+      if (ev.measured?.read) noteFire('omaha_facing_bet_value_share_measured');
+      if (ev.measured?.ranged) noteFire('omaha_facing_bet_measured_range_priced');
+    }
     if (evCall === legacyCall) return decision;
     if (tele) noteFire('omaha_facing_bet_ev_changed');
     if (evCall) {
@@ -11840,7 +11873,15 @@ function omahaFacingBetEvRule(
 type OmahaFacingBetEvAnswer = {
   spot: NonNullable<ReturnType<typeof omahaFacingBetEvSpot>>;
   verdict: NonNullable<ReturnType<typeof omahaFacingBetEvVerdict>>;
+  /** omahaFacingBetValueShareIsMeasured only: a street record of the bettor was read (read) and the verdict
+   *  was priced on his line-conditioned measured range (ranged) */
+  measured?: { read: boolean; ranged: boolean; factor: number };
 };
+
+/** The turn and river facing-bet verdict decides (omahaFacingBetEv, or omahaFacingBetValueShareIsMeasured). */
+function omahaFacingBetEvOn(opts: HorseDecideOpts): boolean {
+  return opts.omahaFacingBetEv === true || opts.omahaFacingBetValueShareIsMeasured === true;
+}
 /** The facing-bet verdict of the decision in progress, computed once: the
  *  rules that yield to it and the rule itself ask the same answer. Cleared at
  *  the start of every decision (decideInternal). */
@@ -11866,12 +11907,17 @@ let omahaFacingBetEvCountMemo: {
   riverBluffCatch: boolean;
   valueRangeRelative: boolean;
   pairedRiverPriced: boolean;
+  valueShareMeasured: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
 /** What the priced rule sites (HorseOmahaPricedWiring.ts) take of this file's private helpers. */
-function omahaPricedDeps(player: SeatPlayer, gs: HorseGameStateV2): OmahaPricedDeps {
-  return {
+function omahaPricedDeps(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts?: HorseDecideOpts
+): OmahaPricedDeps {
+  const deps: OmahaPricedDeps = {
     rake: isTournamentMode(gs)
       ? 0
       : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
@@ -11880,6 +11926,14 @@ function omahaPricedDeps(player: SeatPlayer, gs: HorseGameStateV2): OmahaPricedD
       inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
     }),
   };
+  // omahaFacingBetValueShareIsMeasured: the priced raise sites take their call or fold from the
+  // facing-bet verdict (the bettor's measured range).
+  if (opts?.omahaFacingBetValueShareIsMeasured === true)
+    deps.facingVerdict = () => {
+      const a = omahaFacingBetEvCount(player, gs, opts);
+      return a ? { call: a.verdict.call, ev: a.verdict.ev } : null;
+    };
+  return deps;
 }
 
 /**
@@ -11902,6 +11956,11 @@ function omahaFacingBetEvCount(
   const riverBluffCatch = opts.omahaRiverBluffCatchIsPriced === true && !isTournamentMode(gs);
   const valueRangeRelative = opts.omahaFacingBetValueIsRangeRelative === true;
   const pairedRiverPriced = opts.omahaPairedBoardRiverIsPriced === true;
+  // omahaFacingBetValueShareIsMeasured (default off): PLO4/PLO5 cash only (PLO6 and tournaments untouched).
+  const valueShareMeasured =
+    opts.omahaFacingBetValueShareIsMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -11914,11 +11973,43 @@ function omahaFacingBetEvCount(
     memo.shownField === shownField &&
     memo.riverBluffCatch === riverBluffCatch &&
     memo.valueRangeRelative === valueRangeRelative &&
-    memo.pairedRiverPriced === pairedRiverPriced
+    memo.pairedRiverPriced === pairedRiverPriced &&
+    memo.valueShareMeasured === valueShareMeasured
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
-  const spot = omahaFacingBetEvSpot(player, gs);
+  let spotIn = omahaFacingBetEvSpot(player, gs);
+  // omahaFacingBetValueShareIsMeasured: the bettor's street record and kind, read once.
+  let measured: OmahaFacingBetEvAnswer['measured'] | undefined;
+  let measuredG = 1;
+  let measuredKind: ReturnType<typeof omahaOpponentKindOf> = null;
+  if (spotIn && valueShareMeasured) {
+    measured = { read: false, ranged: false, factor: 1 };
+    try {
+      const bettor = (gs.players ?? []).find((p) => p.seat === spotIn!.bettorSeat);
+      measuredKind = bettor ? omahaOpponentKindOf(gs, bettor.user_id) : null;
+      // his street record is opponent memory: read only with the mind on
+      const counters =
+        mind && bettor && measuredKind ? omahaMeasuredBettorRecord(bettor.user_id) : null;
+      const moved = omahaMeasuredValueShare(
+        spotIn,
+        counters,
+        measuredKind,
+        gs.actionHistory,
+        gs.communityCards ?? []
+      );
+      if (moved && counters && measuredKind) {
+        measured = { read: true, ranged: false, factor: moved.factor };
+        if (!spotIn.isRaise)
+          measuredG = omahaMeasuredStreetFactor(counters, measuredKind, spotIn.street, null).g;
+        if (moved.valueShare !== spotIn.valueShare)
+          spotIn = { ...spotIn, valueShare: moved.valueShare };
+      }
+    } catch {
+      measured = { read: false, ranged: false, factor: 1 };
+    }
+  }
+  const spot = spotIn;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     if (mind) {
@@ -12038,10 +12129,32 @@ function omahaFacingBetEvCount(
     }
     // omahaFacingBetValueIsRangeRelative (default off): on the river, heads-up against a person's
     // first bet, his bets are his measured betting range on this board, not a share of all holdings.
+    // omahaFacingBetValueShareIsMeasured: a person's heads-up first turn or river bet is priced on his
+    // line-conditioned range weighted by the measured density of people's bets, tilted by his street
+    // record. It takes the place of omahaFacingBetValueIsRangeRelative (the same river density, untilted).
+    let measuredActed = false;
+    if (verdict && valueShareMeasured && !pairedRiverActed && measuredKind === 'person') {
+      const ranged = omahaFacingBetMeasuredRangeOver(
+        spot,
+        verdict,
+        player.cards ?? [],
+        gs.communityCards ?? [],
+        player.knownDeadCards ?? [],
+        gs.actionHistory,
+        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        measuredG
+      );
+      if (ranged) {
+        verdict = withoutBluffCatch(ranged);
+        measuredActed = true;
+        if (measured) measured = { ...measured, ranged: true };
+      }
+    }
     if (
       verdict &&
       valueRangeRelative &&
       !pairedRiverActed &&
+      !measuredActed &&
       !isTournamentMode(gs) &&
       omahaOpponentKindOf(
         gs,
@@ -12060,7 +12173,7 @@ function omahaFacingBetEvCount(
       if (ranged) verdict = withoutBluffCatch(ranged);
     }
     if (verdict) {
-      answer = { spot, verdict };
+      answer = measured ? { spot, verdict, measured } : { spot, verdict };
       // Receipt: the continuous inputs changed the verdict the stepped tables and the label cap give.
       omahaPricedNoteFacingInputs(opts, verdict.call, () => {
         const stepped = omahaFacingBetEvSpot(player, gs);
@@ -12079,6 +12192,7 @@ function omahaFacingBetEvCount(
     riverBluffCatch,
     valueRangeRelative,
     pairedRiverPriced,
+    valueShareMeasured,
     answer,
   };
   return answer;
@@ -12101,7 +12215,7 @@ function omahaFacingBetEvOf(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): OmahaFacingBetEvAnswer | null {
-  if (opts.omahaFacingBetEv !== true) return null;
+  if (!omahaFacingBetEvOn(opts)) return null;
   const memo = omahaFacingBetEvMemo;
   if (memo && memo.player === player && memo.gs === gs && memo.opts === opts) return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -12156,7 +12270,7 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
       player,
       gs,
       opts,
-      omahaPricedDeps(player, gs)
+      omahaPricedDeps(player, gs, opts)
     );
     if (priced !== null) return priced;
   }
@@ -12540,7 +12654,13 @@ function omahaStreetPlanCallVeto(
   // ran the exact-hand count once per river card and bet size (conflict sweep
   // 2026-11-15, B3: up to 2.5 s for one heads-up turn decision), and it
   // displaced the real decision's memo entry.
-  const quiet: HorseDecideOpts = { ...opts, telemetry: false, omahaFacingBetEv: false };
+  // omahaFacingBetValueShareIsMeasured switches the same verdict on (omahaFacingBetEvOn): off here too.
+  const quiet: HorseDecideOpts = {
+    ...opts,
+    telemetry: false,
+    omahaFacingBetEv: false,
+    omahaFacingBetValueShareIsMeasured: false,
+  };
   const board = gs.communityCards ?? [];
   const num = (v: unknown): number => (Number.isFinite(v) ? Number(v) : 0);
   // PLO6 only (below): the share of random six-card hands that beat the
