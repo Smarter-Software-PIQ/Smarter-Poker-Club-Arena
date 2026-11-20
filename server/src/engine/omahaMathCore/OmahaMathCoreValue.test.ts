@@ -190,6 +190,58 @@ describe('omahaMathCore value: facing a wager (XR-BLUFF review)', () => {
   });
 });
 
+describe('omahaMathCore value: raises without measured fold-to-raise (lead decision)', () => {
+  it('the river nuts raise for value with no fold credit when the fold-to-raise cell is thin', () => {
+    const r = planValue(
+      base({
+        street: 'river',
+        toCall: 30,
+        pot: 90,
+        equityAtShare: () => 0.98,
+        response: () => ({ fold: 0.8, raise: 0, callers: 1, n: 8, source: 'thin' }),
+      })
+    )!;
+    expect(r.choice.kind).toBe('wager');
+    for (const c of r.candidates.filter((x) => x.kind === 'wager')) expect(c.fold).toBe(0);
+  });
+  it('a bluff raise gets no fold equity below n 30 (it folds or calls instead)', () => {
+    const r = planValue(
+      base({
+        street: 'river',
+        toCall: 30,
+        pot: 90,
+        equityAtShare: () => 0.05,
+        response: () => ({ fold: 0.8, raise: 0, callers: 1, n: 12, source: 'thin' }),
+      })
+    )!;
+    expect(r.choice.kind).not.toBe('wager');
+  });
+  it('with n >= 30 measured fold-to-raise the fold credit counts', () => {
+    const r = planValue(
+      base({
+        street: 'river',
+        toCall: 30,
+        pot: 90,
+        equityAtShare: () => 0.05,
+        response: () => ({ fold: 0.8, raise: 0, callers: 1, n: 200, source: 'measured' }),
+      })
+    )!;
+    expect(r.candidates.filter((x) => x.kind === 'wager').some((c) => c.fold > 0.5)).toBe(true);
+  });
+  it('a value raise with no cell at all is still priced (called, showdown)', () => {
+    const r = planValue(
+      base({
+        street: 'river',
+        toCall: 30,
+        pot: 90,
+        equityAtShare: () => 0.98,
+        response: (f, a, o, line) => (line === 'bet' ? curve(RIVER_HU)(f, a) : null),
+      })
+    )!;
+    expect(r.candidates.some((c) => c.kind === 'wager')).toBe(true);
+  });
+});
+
 describe('omahaMathCore value: river', () => {
   it('thin value: bets when the calling band is still beaten often enough, checks when it is not', () => {
     const thin = planValue(
@@ -335,6 +387,37 @@ describe('omahaMathCore value: range-level sizing (lead decision; owner 11-18: s
   });
   it('PLO6 answers null', () => {
     expect(planRangeSize({ ...spot, variant: 'plo6' }, [nuts], nuts)).toBeNull();
+  });
+  it('the receipt monitors the nut share of the wagering range at the node size', () => {
+    const r = planRangeSize(
+      spot,
+      [
+        { ...nuts, nut: true },
+        { ...medium, nut: false },
+        { ...air, nut: false },
+      ],
+      nuts
+    )!;
+    expect(r.monitor.nutShareOfRange).toBeCloseTo(0.25, 6);
+    expect(r.monitor.nutShareOfWagersAtSize).not.toBeNull();
+  });
+  it('the trap follows the opponent tracker: a player who stops stabbing stops being trapped', () => {
+    const trapSpot = (p: number) =>
+      planValue(
+        base({
+          street: 'river',
+          ip: false,
+          checkCloses: false,
+          pot: 100,
+          heroStack: 1000,
+          oppStack: 1000,
+          equityAtShare: () => 0.97,
+          response: (f: number, a: boolean) => curve(RIVER_HU)(f, a),
+          wagerWhenChecked: () => ({ p, frac: 0.7, valueShare: 0.3, source: 'tracker' }),
+        })
+      )!;
+    expect(trapSpot(0.9).choice.kind).toBe('check');
+    expect(trapSpot(0.05).choice.kind).toBe('wager');
   });
   it('shared-runout equity curves: a holding that always wins has equity 1 against every share', () => {
     // constructed evaluator: holding [i] scores i on every runout

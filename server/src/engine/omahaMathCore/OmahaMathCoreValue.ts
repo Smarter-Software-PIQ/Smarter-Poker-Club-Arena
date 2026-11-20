@@ -170,6 +170,14 @@ export interface ValueReceipt {
   };
 }
 
+/**
+ * Fold credit on a raise or a check-raise needs this many measured responses to raises (lead decision 9:2x PM
+ * Chicago: bluff raises need n >= 30 measured fold-to-raise). Below it, or with no cell at all, the raise is
+ * priced with no fold credit: the opponents call, and the called branch is a showdown against the calling
+ * range (no later-street barrel credit). A value raise loses nothing by it; a bluff raise loses its fold equity.
+ */
+export const RAISE_FOLD_CREDIT_MIN_N = 30;
+
 /** The shared size menu (pot shares); every hand prices the same menu. */
 export const VALUE_SIZE_MENU: readonly number[] = Object.freeze([
   1 / 4,
@@ -323,19 +331,31 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     if (adds <= toCall + 1e-9) return null;
     const allIn = adds >= cap - 1e-9;
     const realFrac = (adds - toCall) / (n.pot + toCall);
-    const r0 = spot.response(realFrac, allIn, n.off, line);
-    if (!r0) return null;
+    const measured = spot.response(realFrac, allIn, n.off, line);
+    const isRaise = line !== 'bet';
+    // no fold credit: no cell at all, or a raise line whose fold-to-raise rests on fewer than RAISE_FOLD_CREDIT_MIN_N
+    const noFoldCredit = !measured || (isRaise && !((measured.n ?? 0) >= RAISE_FOLD_CREDIT_MIN_N));
+    if (!measured && !isRaise) return null; // an unmeasured bet stays unpriced (the core prices its own bets)
+    const r0: ValueResponse = noFoldCredit
+      ? {
+          fold: 0,
+          raise: measured ? measured.raise : 0,
+          callers: measured ? Math.max(1, measured.callers) : Math.max(1, spot.nOpp),
+          n: measured?.n,
+          source: `${measured ? measured.source : 'no measured cell'}; no fold credit (raise line, n < ${RAISE_FOLD_CREDIT_MIN_N} or none)`,
+        }
+      : measured;
     let fold = r0.fold;
     let raise = r0.raise;
     let src = r0.source;
     const xb = spot.bluffCtx;
-    if (xb?.exploitBack) {
+    if (xb?.exploitBack && !noFoldCredit) {
       const e = xb.exploitBack(line);
       fold = clamp01(fold * e.foldMult);
       raise = clamp01(raise * e.raiseMult);
       src += `; ${e.source}`;
     }
-    if (xb?.blockerShift) {
+    if (xb?.blockerShift && !noFoldCredit) {
       const cont = clamp01(xb.blockerShift(clamp01(1 - fold)));
       fold = 1 - cont;
       src += '; blockers';
@@ -364,7 +384,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       const eC = bandEquity(eqAt, n.share, pr, pr + pc);
       const potAfter = n.pot + adds + callers * (adds - toCall);
       const stackAfter = n.stack - (adds - toCall);
-      if (n.st >= 2 || allIn || stackAfter <= 1e-9 || !future) {
+      if (n.st >= 2 || allIn || stackAfter <= 1e-9 || !future || noFoldCredit) {
         evCall = pc * (eC * net(potAfter) - adds);
         plan = allIn ? 'all-in' : 'showdown';
       } else {
@@ -669,6 +689,8 @@ function pick(w: {
 export interface RangeMember {
   /** the range weight of this holding (any positive scale) */
   weight: number;
+  /** the holding is nut class on this board (for the readability monitor only; never an input to the size) */
+  nut?: boolean;
   /** this holding's equity against the strongest share of the opponents' range */
   equityAtShare: (share: number) => number;
   equitySe: number;
@@ -678,7 +700,23 @@ export interface RangeSizingReceipt {
   version: string;
   members: number;
   /** range EV per size: sum of weight x max(check, EV at the size), normalised by total weight */
-  rangeEv: { frac: number; allIn: boolean; ev: number; wagerShare: number }[];
+  rangeEv: {
+    frac: number;
+    allIn: boolean;
+    ev: number;
+    wagerShare: number;
+    nutShareOfWagers: number | null;
+  }[];
+  /**
+   * readability monitor (lead decision): the nut-class share of the range's wagering weight at the node size, and
+   * the share of nut-class weight in the whole range (the node's base rate); a live tell shows as these two
+   * drifting apart across nodes of the same size band. null when no member is marked.
+   */
+  monitor: {
+    nutShareOfWagersAtSize: number | null;
+    nutShareOfRange: number | null;
+    trapShareOfNuts: number | null;
+  };
   rangeCheckEv: number;
   /** the node's size for every wagering hand (null: the whole range checks) */
   size: { frac: number; allIn: boolean } | null;
@@ -718,11 +756,11 @@ export function planRangeSize(
   const live = members.filter((m) => m.weight > 0);
   if (live.length === 0) return null;
   let total = 0;
-  const plans: { w: number; r: ValueReceipt }[] = [];
+  const plans: { w: number; r: ValueReceipt; nut: boolean }[] = [];
   for (const m of live) {
     const r = planValue({ ...spot, equityAtShare: m.equityAtShare, equitySe: m.equitySe });
     if (!r) continue;
-    plans.push({ w: m.weight, r });
+    plans.push({ w: m.weight, r, nut: m.nut === true });
     total += m.weight;
   }
   if (plans.length === 0 || !(total > 0)) return null;
@@ -741,10 +779,12 @@ export function planRangeSize(
   };
   let rangeCheckEv = 0;
   for (const p of plans) rangeCheckEv += (p.w / total) * Math.max(0, checkOf(p.r));
+  const anyMarked = live.some((m) => m.nut !== undefined);
   const rangeEv: RangeSizingReceipt['rangeEv'] = [];
   for (const [k, s] of keys) {
     let ev = 0;
     let wagering = 0;
+    let nutW = 0;
     for (const p of plans) {
       const c = p.r.candidates.find((x) => x.kind === 'wager' && sizeKey(x) === k);
       const alt = checkOf(p.r);
@@ -752,9 +792,16 @@ export function planRangeSize(
       if (c && c.ev > alt0) {
         ev += (p.w / total) * c.ev;
         wagering += p.w / total;
+        if (p.nut) nutW += p.w / total;
       } else ev += (p.w / total) * alt0;
     }
-    rangeEv.push({ frac: s.frac, allIn: s.allIn, ev: r2(ev), wagerShare: r4(wagering) });
+    rangeEv.push({
+      frac: s.frac,
+      allIn: s.allIn,
+      ev: r2(ev),
+      wagerShare: r4(wagering),
+      nutShareOfWagers: anyMarked && wagering > 0 ? r4(nutW / wagering) : null,
+    });
   }
   rangeEv.sort((a, b) => b.ev - a.ev || keys.get(sizeKey(a))!.adds - keys.get(sizeKey(b))!.adds);
   const top = rangeEv.find((x) => x.wagerShare > 0) ?? null;
@@ -765,12 +812,24 @@ export function planRangeSize(
     : null;
   const heroCheck = Number.isFinite(hc) ? hc : 0;
   const wagerWins = hw !== null && hw.ev > heroCheck;
+  const atSize = size ? (rangeEv.find((x) => sizeKey(x) === sizeKey(size)) ?? null) : null;
+  const nutTotal = plans.reduce((a, p) => a + (p.nut ? p.w : 0), 0) / total;
+  const monitor = {
+    nutShareOfWagersAtSize: atSize ? atSize.nutShareOfWagers : null,
+    nutShareOfRange: anyMarked ? r4(nutTotal) : null,
+    // the share of the range's nut weight that checks (the trap) at the node size
+    trapShareOfNuts:
+      anyMarked && nutTotal > 0 && atSize && atSize.nutShareOfWagers !== null
+        ? r4(Math.max(0, 1 - (atSize.nutShareOfWagers * atSize.wagerShare) / nutTotal))
+        : null,
+  };
   return {
     version: OMAHA_MATH_CORE_VALUE_VERSION + '+range-size',
     members: plans.length,
     rangeEv,
     rangeCheckEv: r2(rangeCheckEv),
     size,
+    monitor,
     hero: wagerWins
       ? {
           kind: 'wager',
