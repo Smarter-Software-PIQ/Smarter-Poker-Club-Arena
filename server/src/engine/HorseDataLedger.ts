@@ -2352,6 +2352,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'AofClosingSeat'
   ),
   flag(
+    'holdemTournamentAllInCallIsPriced',
+    "2026-11-19 default OFF (Horse Decisions audit E: 1,522 NLH tournament hands with humans, 10,937 Horse decisions, 48 hours to 2026-11-19 18:45 CST; HorseHoldemTournamentAllInCall.ts): two-card no-limit hold'em tournament hands, one board, no straddle, no bomb pot. Preflop, every all-in call decision (All-In-Or-Fold or not, any seat, a lone jam, a jam over the Horse's own open, a re-jam, a multiway all-in, a jam with flat callers, or a call that is the Horse's whole stack) at an effective 25 big blinds or less, or by a committed stack (half or more of the chips it started the hand with already in) at any depth, is answered before the Nash caller table and the All-In-Or-Fold strength bar: call when EV(call) - EV(fold) = sum of p x (equity x W - BF x (1 - equity) x C) is above zero, else fold; equity by seeded Monte Carlo with exact card removal against each opponent's range (an open-jam: the Nash V2 jam range for his players behind, depth and dead ante; a jam over one raise: the top 18% at 8bb to 6% at 25bb; over two or more raises: 5% to 3.5%; a raise not all in: the open width by players behind, 3-bet 8% (14% six-handed or less), 4-bet 4%; a caller of an open-jam: the Nash first-caller range capped at 25%, of a re-jam the top half of the re-jam range), a player still to act behind priced as an overcaller with the top half of his calling range (nobody wakes up, or the widest one behind overcalls), W the contestable pot (dead money, side pots capped at the Horse's stack), C the call, BF the Horse's bubble factor where a pay jump is live (payJumpBubbleFactor; 1 in a PKO, a mystery bounty, a bounty-only event, with no pay jump or no context). The Phase 7 arbiter and Phase 8 may not reverse the priced call or fold when the margin (EV over W + BF x C, equity minus required equity with nobody behind) is beyond 5 equity points, any positive margin for a committed call (the arbiter's choice is refused with tournamentUtilityRefusal priced_all_in_call; Phase 8's ledger reason priced_all_in_call). Postflop, facing an all-in or a call of the whole stack, or on the river, where the call closes the action: with the equity the engine already computed for the decision (Phase 7 equity evidence), a fold more than 5 points above the price becomes a call (any positive margin for a committed stack) and a call more than 5 points below it a fold. A raise is never made or removed. Measured before (audit E): All-In-Or-Fold seats called a lone jam at 8bb or less 10-30% against a Nash 56-68%; fold vs jam too tight 191 decisions (101 CLEAR/LIKELY, 211 bb), jam overcall folds 99 (42.6 bb), committed-stack folds 11 (40.7 bb), postflop all-in folds at a good price 4 (54.1 bb), river calls too light 9 (25.9 bb). Off-only under the owner preflop range hold (it changes preflop calling ranges). League card mtt6_holdem_tournament_all_in_call_is_priced_12bb (declared, not run); docs/horse-option-authority.d/holdemTournamentAllInCallIsPriced.md",
+    'TourneyAllInPriced'
+  ),
+  flag(
     'nashPushFoldIcm',
     "default OFF (owner preflop range hold; the option switch registers it off-only). 2026-11-15 (hand 59441335: a 2.1bb in-the-money final-table cutoff open-jammed 85o from the chip-EV table): with explicit true, a no-limit hold'em tournament short stack in the money, hand for hand or near the bubble, with stacks, payouts and its identity in the trusted context, not in a satellite, PKO or mystery bounty and with a payout weight above zero, prices the V71 folded-to jam and the nashCallVsJam call at its own bubble factor (a bust valued at the place it finishes, IcmModel bubbleFactor since 2026-11-15; the call priced on the chips contested) moved toward 1 by prize / (prize + bounty) (HorseLogic payJumpBubbleFactor; receipt pay_jump_push_fold_seen), and every other spot reads the V2 table at a bubble factor of 1; nashPushFoldIcm on implies the paid-bust valuation of icmBustPaysPlace for the decision (HorseLogic.decide, Hand Analysis D1), so the short stack never reads the cap of 5 from a zero-valued bust; unset or false is chip EV, as before; league card mtt6_ft_pay_jump_push_fold_12bb; prepared evidence for lifting the hold docs/horse-default-on.d/nashPushFoldIcm.md; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md. 2026-11-07 shipped as an opt-in: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -7975,6 +7980,60 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (aofClosingSeatNashCall)',
     'default-off aofClosingSeatNashCall: an All-In-Or-Fold closing seat facing a lone all-in at 12 big blinds or less was answered by the Nash caller table; occurrence counter, named *_seen',
     'AofClosingSeat'
+  ),
+  receipt(
+    'holdem_tournament_all_in_call_priced_call_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    "default-off holdemTournamentAllInCallIsPriced: a preflop all-in call decision in a hold'em tournament was answered call by its price (margin above zero), ahead of the Nash caller table and the All-In-Or-Fold strength bar; occurrence counter, named *_seen",
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_all_in_call_priced_fold_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    "default-off holdemTournamentAllInCallIsPriced: a preflop all-in call decision in a hold'em tournament was answered fold by its price (margin zero or below); occurrence counter, named *_seen",
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_all_in_call_unpriced_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    'default-off holdemTournamentAllInCallIsPriced: a preflop all-in call decision in the domain could not be priced (no combo left in a range, no pot); the paths it had decide; occurrence counter, named *_seen',
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_all_in_call_reference_kept_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    'default-off holdemTournamentAllInCallIsPriced: a later layer of the reference turned the priced preflop call or fold around and the priced answer was restored at the end of the reference; occurrence counter, named *_seen',
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_all_in_call_arbiter_reversal_refused_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    'default-off holdemTournamentAllInCallIsPriced: the Phase 7 tournament utility arbiter chose to turn a priced call or fold around beyond the lock (5 equity points; any margin for a committed call); its choice was refused (tournamentUtilityRefusal priced_all_in_call) and the priced answer stands; occurrence counter, named *_seen',
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_all_in_call_phase8_reversal_refused_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    'default-off holdemTournamentAllInCallIsPriced: Phase 8 chose to turn a priced call or fold around beyond the lock; refused (ledger reason priced_all_in_call); occurrence counter, named *_seen',
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_committed_stack_call_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    'default-off holdemTournamentAllInCallIsPriced: a committed stack (half or more of its starting chips in) kept or took a call the price favours by 5 equity points or less, which the arbiter or the reference would have folded; occurrence counter, named *_seen',
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_postflop_all_in_call_priced_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    "default-off holdemTournamentAllInCallIsPriced: a postflop fold facing an all-in, a whole-stack call or a river bet, with the call closing the action, became a call: the engine's own equity cleared the price by more than 5 points; occurrence counter, named *_seen",
+    'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_postflop_call_priced_fold_seen',
+    'HorseLogic (holdemTournamentAllInCallIsPriced)',
+    "default-off holdemTournamentAllInCallIsPriced: a postflop call facing an all-in, a whole-stack call or a river bet, with the call closing the action, became a fold: the engine's own equity was more than 5 points below the price; occurrence counter, named *_seen",
+    'TourneyAllInPriced'
   ),
   receipt(
     'nash_call_vs_jam',

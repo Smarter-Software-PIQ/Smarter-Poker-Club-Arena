@@ -93,6 +93,12 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
   { owner: 'maniacCallDown', kind: 'post_route', proof: 'maniacCallDown' },
   { owner: 'maniacShortStackJam', kind: 'post_route', proof: 'acts on a raise only' },
   { owner: 'fixedLimitRiverStrongHandLead', kind: 'postflop', proof: 'river only' },
+  {
+    owner: 'holdemAllInCallReference',
+    kind: 'post_route',
+    proof:
+      'holdemTournamentAllInCallIsPriced (default OFF): preflop it acts only on the verdict its own block in decidePreflopV7Glue wrote, and that block returns before any named route is noted (legacy_preflop, always admitted); postflop no preflop receipt exists (AHoldemTournamentAllInCallIsPriced.law.test.ts)',
+  },
 ];
 
 describe('the ledger is the source', () => {

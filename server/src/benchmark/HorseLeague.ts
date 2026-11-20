@@ -3966,6 +3966,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { committedStackPricedIn: true },
     b: {},
   },
+  // 2026-11-19 A HOLD'EM TOURNAMENT ALL-IN CALL IS PRICED
+  // (holdemTournamentAllInCallIsPriced, default OFF, off-only under the owner
+  // preflop range hold; Horse Decisions audit E). A 12bb six-handed
+  // big-blind-ante MTT with the live M state: open-jams, re-jams and calls of
+  // jams are the common decision at this depth, so arm A prices every all-in
+  // call and lets no arbiter reverse it beyond 5 equity points. Declared, not
+  // run: the audit fixtures are the law test's
+  // (AHoldemTournamentAllInCallIsPriced.law.test.ts). The default is unchanged.
+  {
+    name: 'mtt6_holdem_tournament_all_in_call_is_priced_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttWithMContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentAllInCallIsPriced: true },
+    b: {},
+  },
   // 2026-11-14 PLO6 COMMITMENT-ZONE RE-RAISE PRICE RELIEF
   // (omahaCommitZoneThreeBetPriceRelief, default OFF; PLO6 tournament-folds
   // study, docs/changelog/2026-11-14-plo6-commit-zone-price-relief.md). Six-

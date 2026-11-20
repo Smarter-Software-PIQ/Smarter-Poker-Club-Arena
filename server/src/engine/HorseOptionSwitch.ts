@@ -371,6 +371,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'huOpenerDefendsToPrice',
   'huLimpDefendsToPrice',
   'committedStackPricedIn',
+  'holdemTournamentAllInCallIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -498,6 +499,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also not significant in its evaluation, stays off (manifest section 4)`
   ),
   committedStackPricedIn: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-19 Horse Decisions audit E: prices every hold'em tournament all-in call (it changes preflop calling
+  // ranges, as committedStackPricedIn and nashPushFoldIcm do), so it sits under the same hold until lifted by name.
+  holdemTournamentAllInCallIsPriced: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   vs3BetShortStack: hold(
     PREFLOP_HOLD_SOURCE,
     `${PREFLOP_HOLD_REASON}; also one seed below -2 SE (manifest section 4)`
@@ -778,6 +782,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
+  holdemTournamentAllInCallIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop all-in and river calls",
+    'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
+  ],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],
   v23ShortDeck: [HOLDEM, 'Short deck', 'the short-deck half of the V23 variant polish'],
   v32FacingDefense: [HOLDEM, 'NLH solver facing-bet defence', 'solver facing-bet defence'],
