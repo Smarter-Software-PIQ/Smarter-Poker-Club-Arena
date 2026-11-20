@@ -25,6 +25,8 @@ import {
 export const OMAHA_MATH_CORE_ALLOWED_PROVENANCE: ReadonlySet<string> = new Set([
   'public_actions',
   'showdown_only',
+  // lead ruling 2026-11-19: a Horse's own cards in its own past hands (never an opponent's hidden cards)
+  'own_cards_history',
 ]);
 const RAW = publicTables as unknown as MeasuredRanges & { version: string; sourceSha256: string };
 

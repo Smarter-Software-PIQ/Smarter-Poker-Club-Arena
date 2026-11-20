@@ -1,6 +1,7 @@
 {
   "version": "preflop-ev-realization-v1",
   "provenance": {
+    "class": "own_cards_history",
     "definition": "R = sum(chips collected gross of rake minus postflop chips invested) / sum(E x pot at the flop); E = exact-run equity of the HORSE own hole cards on the actual flop vs each live opponent drawn from his PUBLIC-frequency band (top-x% by equity vs one random hand; band from his public preflop actions and the public action frequencies of that node). No opponent hole cards are read.",
     "rows": 21933,
     "cut": null,
