@@ -77,6 +77,7 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaBandFallbackInBandUnit',
   'omahaTurnStrongHandRealizationIsMeasured',
   'omahaBetReadIsPerOpponent',
+  'omahaBetReadIsModeSplit',
   'omahaColdCallOutsideBigBlindIsMeasured',
   'omahaOpenNeedsMeasuredStrength',
   'omahaAcesReraiseIsMeasured',

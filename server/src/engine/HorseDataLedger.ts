@@ -1127,6 +1127,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V40'
   ),
   flag(
+    'omahaBetReadIsModeSplit',
+    "EMERG lane MODE-READ 2026-11-20 (owner 1:55 AM: build with all data; LIGHTNING-AUDIT: heads-up turn facing a person's bet Lightning costs +7.35 +/- 2.61 bb per decision more than tables, the same bettor's Lightning bets lighter while omahaBetReadIsPerOpponent pools the modes). Default OFF (read === true); acts only with omahaBetReadIsPerOpponent on. PLO4/PLO5 cash heads-up turn and river facing a wager: the bettor is read in the decision's MODE (HorseOmahaBetRead.omahaBetReadModeOf: his table or Lightning cell shrunk toward his own pooled cell, the population the other persons of the same mode), with a cell per previous-street line (the turn stab after a checked-through flop, the later barrel, every other first bet; first turn bets included) and a cell for his raise, the frequency signal through a calibrated slope (OMAHA_BET_READ_FREQ_SLOPE, population_all_cards_capped), and a turn call where the read acts priced with the measured realization (in position .84, out of position .60). One rule for every opponent; public information only (his actions, his showdown reveals). Offline grade INSUFFICIENT (MODE-READ.md). Never PLO6.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5423,6 +5428,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_bet_read_person_priced',
     'HorseLogic omahaBetReadForDecision (omahaBetReadIsPerOpponent)',
     "a PLO4/PLO5 cash heads-up river or later-barrel facing-bet verdict (omahaFacingBetEv, omahaFacingBetIsPricedByEquity) priced the bettor's non-value share from his own measured first-bet composition of that street and size (at least 4 shown bets); the per-decision rule receipt omaha_bet_read.* names the cell, the shown and bet counts and the share",
+    'V94'
+  ),
+  receipt(
+    'omaha_bet_read_mode_split_priced',
+    'HorseLogic omahaBetReadForDecision (omahaBetReadIsModeSplit)',
+    "a PLO4/PLO5 cash heads-up turn or river facing-bet verdict priced the bettor's non-value share from his read in the decision's mode (table or Lightning) and previous-street line or raise cell (omahaBetReadModeOf), with enough of his own evidence to act",
     'V94'
   ),
   receipt(

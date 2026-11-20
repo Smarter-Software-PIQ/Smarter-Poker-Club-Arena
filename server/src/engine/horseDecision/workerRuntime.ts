@@ -718,6 +718,9 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     shown: new Map(Object.entries(request.betReadShown ?? {})),
     showdown: request.showdown ?? null,
     boardCount: request.riverCallContext?.boardCount ?? 1,
+    // omahaBetReadIsModeSplit: the hand's public memory domain speed (table / Lightning) files it into that mode's
+    // rows too; absent, the pooled rows only
+    speed: styleSpeedOf(request) ?? null,
   });
 }
 

@@ -14,6 +14,8 @@ AUDIT-48 turn lane (archive woowoo-48h-audit-01BNteGYgf/repairs/AUDIT48/TURN.md;
 
 ## Constants
 
+Re-fit 2026-11-20 (EMERG lane MODE-READ): OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING is now [0.156, 0.428, 0.385, 0.385], provenance population_all_cards_capped, shrunk toward the re-fitted pooled row; top player share after the cap .08 / .20 / .20 (before: .08 / .30 / .51; the old .532 big row was one bettor's). Offline 5-week grade in Lightning, rows fitted to Nov 14: fit n 0 changes, holdout +16.8 +/- 12.9 bb (n 2): INSUFFICIENT. Archive repairs/EMERG/MODE-READ.md.
+
 Same method and data as OMAHA_TURN_STAB_PERSON_BLUFF (every player's cards from the hand facts, no showdown selection; q makes the predicted win share from the engine's omahaEvHandCounts equal the Horse's share against the bettor's real cards), PLO4/PLO5, 2026-11-05 22:00Z to 2026-11-19 22:00Z, split by pool: Lightning under 40: 0.539 +/- 0.209 (n 11); 40-70: 0.800 +/- 0.162 (n 15); 70-110: 0.566 +/- 0.114 (n 47); table for comparison 0.465 (n 8), 0.556 (n 21), 0.334 +/- 0.071 (n 69). Each Lightning row shrunk with 8 pseudo-bets toward the pooled row. Fit-window-only Lightning (before 2026-11-18): 0.413 +/- 0.138 at 70-110 (n 30); held-out Lightning 70-110 0.82 (n 17): the Lightning stab range widened over the window.
 
 ## Receipts

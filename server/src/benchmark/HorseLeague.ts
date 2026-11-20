@@ -3567,6 +3567,14 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: { omahaFacingBetEv: true },
     },
     {
+      name: `${variant}_omaha_bet_read_is_mode_split`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetEv: true, omahaBetReadIsPerOpponent: true, omahaBetReadIsModeSplit: true },
+      b: { omahaFacingBetEv: true, omahaBetReadIsPerOpponent: true },
+    },
+    {
       name: `${variant}_omaha_class_caps_respect_equity`,
       variant,
       pairs: 6000,

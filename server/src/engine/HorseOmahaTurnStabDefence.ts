@@ -36,13 +36,34 @@
 import type { SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { OmahaFacingBetEvSpot } from './HorseOmahaFacingBetEv.js';
-import { omahaOpponentKindOf, omahaPricedBySize } from './HorseOmahaPricedMode.js';
+import { omahaPricedBySize } from './HorseOmahaPricedMode.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 
-/** The non-value share of a person's turn stab after a checked-through flop, by size row (under 40, 40-70,
- *  70-110, over 110 percent of the pot), measured and shrunk as stated above. */
+/**
+ * RE-FIT (EMERG lane MODE-READ 2026-11-20, lead rulings 1:42 AM and 2:00 AM): the rows above were fitted on every
+ * player's cards with one frequent bettor carrying up to 68% of a cell, and the line was keyed on the bettor being a
+ * person. Now: provenance population_all_cards_capped, one anonymous population for every bettor (person or Horse;
+ * the line no longer asks which), every player's cards from the hand facts used only to FIT the population constant
+ * (offline), with no single player above 20% of any row's weight (iterative down-weighting), never keyed by player.
+ * Data: every heads-up PLO4/PLO5 cash turn stab after a checked-through flop into a Horse in position, Oct 15 to
+ * Nov 19 2026 (24,861 hands with a person; MODE-READ work/stab.py, fd.jsonl). The same win-share method (q makes
+ * q x share vs the rest + (1 - q) x share vs the value region equal the Horse's share vs his real cards), clamped
+ * to [.02, .9], shrunk toward OMAHA_PRICED_MEASURED_BLUFF.turn with 8 pseudo-bets over the capped effective n:
+ *   under 40 percent: q .260 (n 48, 41 players, top share .08 -> .08, n_eff 48.0) -> .275
+ *   40 to 70:         q .522 (n 70, 37 players, top share .26 -> .20, n_eff 68.8) -> .512
+ *   70 to 110:        q .475 (n 192, 59 players, top share .26 -> .20, n_eff 183.8) -> .468; over 110 reads it.
+ * The shown-hands-only version (the bettor tabled his hand) has 5 / 13 / 14 hands in the three rows (q 1.14 /
+ * .55 / .48, uncorrected): too few to fit; reported in MODE-READ.md, not shipped.
+ */
+export const OMAHA_TURN_STAB_PROVENANCE = 'population_all_cards_capped';
+/** The largest share of any one player in any shipped row after the cap (law: never above 0.2). */
+export const OMAHA_TURN_STAB_TOP_PLAYER_SHARE: readonly [number, number, number] = Object.freeze([
+  0.083, 0.2, 0.2,
+]) as unknown as readonly [number, number, number];
+/** The non-value share of a turn stab after a checked-through flop, by size row (under 40, 40-70, 70-110, over 110
+ *  percent of the pot), re-fitted as stated above (the name is kept for the option's wiring). */
 export const OMAHA_TURN_STAB_PERSON_BLUFF: readonly [number, number, number, number] =
-  Object.freeze([0.532, 0.626, 0.336, 0.336]) as unknown as readonly [
+  Object.freeze([0.275, 0.512, 0.468, 0.468]) as unknown as readonly [
     number,
     number,
     number,
@@ -62,8 +83,17 @@ export const OMAHA_TURN_STAB_PERSON_BLUFF: readonly [number, number, number, num
  * call value against the persons' real cards, and the pooled row flips 1 of 20 of them on replay: the Lightning
  * pools carry more non-value stabs than the pooled row prices. Table play is untouched by this option.
  */
+/**
+ * RE-FIT (MODE-READ 2026-11-20): the Lightning stabs alone, same data, method, cap and provenance as the re-fitted
+ * pooled row, shrunk with 8 pseudo-bets toward that row:
+ *   under 40 percent: q .076 (n 12, 12 players, top .08) -> .156; 40 to 70: q .357 (n 10, 8 players, top .30 -> .20,
+ *   n_eff 9.6) -> .428; 70 to 110: q .362 (n 41, 17 players, top .51 -> .20, n_eff 29.5) -> .385.
+ * Uncapped the 70-110 row was .557: one bettor's Lightning stabs carried it (the old row's .532).
+ */
+export const OMAHA_TURN_STAB_LIGHTNING_TOP_PLAYER_SHARE: readonly [number, number, number] =
+  Object.freeze([0.083, 0.2, 0.2]) as unknown as readonly [number, number, number];
 export const OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING: readonly [number, number, number, number] =
-  Object.freeze([0.536, 0.74, 0.532, 0.532]) as unknown as readonly [
+  Object.freeze([0.156, 0.428, 0.385, 0.385]) as unknown as readonly [
     number,
     number,
     number,
@@ -75,7 +105,8 @@ const WAGERS = new Set(['bet', 'raise', 'all_in']);
 /**
  * True when the spot is the line this option prices: turn, not a raise, heads-up (no caller, nobody all in
  * from an earlier street, nobody behind), nobody wagered on the flop, the bettor's wager is the first action
- * of the turn, and the bettor is a person. Public state only.
+ * of the turn. Every bettor, person or Horse (MODE-READ 2026-11-20: no rule keys on the opponent's kind). Public
+ * state only.
  */
 export function omahaTurnStabLine(
   spot: OmahaFacingBetEvSpot,
@@ -99,8 +130,7 @@ export function omahaTurnStabLine(
     const first = turn[0];
     if (!first || first.seat !== spot.bettorSeat || !WAGERS.has(String(first.action))) return false;
     const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
-    if (!bettor || bettor.seat === hero.seat) return false;
-    return omahaOpponentKindOf(gs, bettor.user_id) === 'person';
+    return !!bettor && bettor.seat !== hero.seat;
   } catch {
     return false;
   }

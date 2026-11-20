@@ -23,6 +23,8 @@ Measured (archive woowoo-48h-audit-01BNteGYgf/repairs/TURN-STAB/MEASURE.md; prod
 
 ## Constants
 
+Re-fit 2026-11-20 (EMERG lane MODE-READ; lead rulings 1:42 AM and 2:00 AM Chicago): OMAHA_TURN_STAB_PERSON_BLUFF is now [0.275, 0.512, 0.468, 0.468], provenance population_all_cards_capped (OMAHA_TURN_STAB_PROVENANCE): every heads-up PLO4/PLO5 cash turn stab after a checked-through flop into a Horse in position, Oct 15 to Nov 19, every bettor (person or Horse), every player's cards used only to fit the anonymous population row, no player above 20% of a row's weight (top shares .08 / .20 / .20 after the cap; .08 / .26 / .26 before). The line no longer asks whether the bettor is a person (no rule keys on the opponent's kind). Offline 5-week grade of the option with the re-fitted rows against the population prior, real chips: tables fit -26.3 +/- 28.9 bb (n 14), holdout -38.6 +/- 31.5 (n 6): keep OFF. Archive repairs/EMERG/MODE-READ.md.
+
 OMAHA_TURN_STAB_PERSON_BLUFF, fit window 2026-11-05 22:00Z to 2026-11-18 00:00Z (the evaluation window is after it): per size row the share q that makes the predicted win share (q x the Horse's share against the rest of his range + (1 - q) x its share against the value region, both from the engine's omahaEvHandCounts) equal the Horse's share against his real cards over every river; bootstrap standard errors; shrunk toward the person table with its 8 pseudo-bets (the method of OMAHA_PRICED_MEASURED_BLUFF): under 40: 0.627 +/- 0.181 (n 14) -> 0.532; 40-70: 0.685 +/- 0.113 (n 26) -> 0.626; 70-110: 0.341 +/- 0.075 (n 66) -> 0.336; over 110 has no stab and reads the 70-110 row. Held-out (Nov 18 00:00Z to Nov 19 22:00Z): 0.519 over all sizes (n 65), 70-110 0.548 +/- 0.107 (n 50).
 
 ## Receipts

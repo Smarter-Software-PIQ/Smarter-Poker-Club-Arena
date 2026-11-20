@@ -143,7 +143,11 @@ import {
   OMAHA_BET_READ_VARIANTS,
   omahaBetReadBluffShare,
   omahaBetReadIsLaterBarrel,
+  omahaBetReadLineOf,
+  omahaBetReadModeOf,
+  omahaBetReadSpeedOf,
   omahaBetReadOf,
+  OMAHA_BET_READ_TURN_REALIZATION,
   type OmahaBetRead,
 } from './HorseOmahaBetRead.js';
 import { omahaColdCallOutsideBigBlindRule } from './HorseOmahaColdCallMeasured.js';
@@ -3619,6 +3623,15 @@ export interface HorseDecideOpts {
    * prior exactly below the minimum sample. Public information only. Never
    * PLO6. Default OFF. */
   omahaBetReadIsPerOpponent?: boolean;
+  /** EMERG lane MODE-READ 2026-11-20 (owner order 1:55 AM: build with all data). Acts only with
+   * omahaBetReadIsPerOpponent on. PLO4/PLO5 cash heads-up turn and river facing a wager: the bettor is read in
+   * the MODE of the decision (table / Lightning; HorseOmahaBetRead.omahaBetReadModeOf: his mode cell shrunk toward
+   * his own pooled cell, the population the other persons of the same mode), with a cell per previous-street line
+   * (the turn stab after a checked-through flop, the later barrel, every other first bet) and a cell for his
+   * raise, the frequency signal through the calibrated slope (population_all_cards_capped), and a turn call
+   * priced with the measured realization (in position .84, out of position .60) when the read acts. One rule for
+   * every opponent. Public information only. Never PLO6. Default OFF. */
+  omahaBetReadIsModeSplit?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -12407,6 +12420,8 @@ let omahaFacingBetEvCountMemo: {
   turnStabLightningRow: boolean;
   /** omahaBetReadIsPerOpponent */
   betRead: boolean;
+  /** omahaBetReadIsModeSplit */
+  betReadModeSplit: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -12440,14 +12455,35 @@ function omahaBetReadForDecision(
     ).length;
     if (live !== 1) return null;
     const bettorSeat = (gs.players ?? []).find((p) => p.user_id === userId)?.seat;
-    const read = omahaBetReadOf(
-      userId,
-      variant,
-      street,
-      potFrac,
-      isRaise,
-      bettorSeat !== undefined && omahaBetReadIsLaterBarrel(gs.actionHistory, street, bettorSeat)
-    );
+    // omahaBetReadIsModeSplit (default off): the bettor read in this decision's mode, by his previous-street line,
+    // turn and river, first bets and raises (HorseOmahaBetRead.omahaBetReadModeOf)
+    const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+    const modeSplit =
+      opts.omahaBetReadIsModeSplit === true &&
+      bettorSeat !== undefined &&
+      (street === 'turn' || street === 'river') &&
+      omahaBetReadSpeedOf(speed) !== null;
+    const read = modeSplit
+      ? omahaBetReadModeOf(
+          userId,
+          variant,
+          street,
+          potFrac,
+          isRaise,
+          omahaBetReadLineOf(gs.actionHistory, street, bettorSeat as number),
+          speed
+        )
+      : omahaBetReadOf(
+          userId,
+          variant,
+          street,
+          potFrac,
+          isRaise,
+          bettorSeat !== undefined &&
+            omahaBetReadIsLaterBarrel(gs.actionHistory, street, bettorSeat)
+        );
+    if (read && read.modeSplit === true && read.source === 'person' && telemetryOn(opts))
+      noteFire('omaha_bet_read_mode_split_priced');
     if (read && telemetryOn(opts)) {
       if (read.source === 'person') noteFire('omaha_bet_read_person_priced');
       else noteFire('omaha_bet_read_population_priced');
@@ -12501,6 +12537,7 @@ function omahaFacingBetEvCount(
   const turnStabLightning = turnStab && opts.omahaPricedInLightning === true;
   const turnStabLightningRow = turnStabLightning && opts.omahaTurnStabLightningRow === true;
   const betReadOn = opts.omahaBetReadIsPerOpponent === true;
+  const betReadModeSplit = betReadOn && opts.omahaBetReadIsModeSplit === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -12517,7 +12554,8 @@ function omahaFacingBetEvCount(
     memo.turnStab === turnStab &&
     memo.turnStabLightning === turnStabLightning &&
     memo.turnStabLightningRow === turnStabLightningRow &&
-    memo.betRead === betReadOn
+    memo.betRead === betReadOn &&
+    memo.betReadModeSplit === betReadModeSplit
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -12530,6 +12568,7 @@ function omahaFacingBetEvCount(
       : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    let modeTurnRealization: number | null = null;
     if (mind) {
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
@@ -12568,6 +12607,17 @@ function omahaFacingBetEvCount(
         spot.priorBluff
       );
       if (betRead) read = { ...(read ?? OMAHA_EV_UNKNOWN_READ), betRead };
+      // omahaBetReadIsModeSplit (default off): where the mode-split read acts on the turn, the call is priced with
+      // the realization measured for the Horses' heads-up turn calls (LIVEGRADE-2: in position .84, out of .60)
+      if (
+        betRead?.modeSplit === true &&
+        betRead.source === 'person' &&
+        spot.street === 'turn' &&
+        !spot.final
+      )
+        modeTurnRealization = actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? [])
+          ? OMAHA_BET_READ_TURN_REALIZATION.inPosition
+          : OMAHA_BET_READ_TURN_REALIZATION.outOfPosition;
     }
     const verdictOf = (
       s: typeof spot,
@@ -12584,10 +12634,12 @@ function omahaFacingBetEvCount(
             ? 0
             : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
           riskPremium: omahaTournamentIcmPremium(player, gs, spot.paid),
-          realization: realizationFactor({
-            street: 'turn',
-            inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
-          }),
+          realization:
+            modeTurnRealization ??
+            realizationFactor({
+              street: 'turn',
+              inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+            }),
           // PLO6 six-card guard: off where the live river fold rule is off.
           plo6RiverNuts,
           plo6RiverUnpaired,
@@ -12717,6 +12769,7 @@ function omahaFacingBetEvCount(
     turnStabLightning,
     turnStabLightningRow,
     betRead: betReadOn,
+    betReadModeSplit,
     answer,
   };
   return answer;
@@ -16906,6 +16959,10 @@ export class HorseLogic {
                 q0
               );
               if (!read || read.source !== 'person') return 0;
+              // omahaBetReadIsModeSplit: this calibrated-share path keeps the per-opponent read's own scope (the
+              // river and a later turn barrel), so its receipt validator stays exact; the mode-split first-turn-bet
+              // cells act through omahaFacingBetEv only
+              if (read.modeSplit === true && spot.street === 'turn' && read.line !== 'b') return 0;
               return omahaFacingEquityBettorShift(
                 spot,
                 player.cards ?? [],

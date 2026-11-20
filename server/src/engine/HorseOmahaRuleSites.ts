@@ -431,6 +431,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBetReadIsPerOpponent: priced(
     "heads-up on the river and a later turn barrel, the facing-bet verdicts price the bettor's non-value share from his own measured first-bet composition of that street, size and barrel (shown hands against the other persons' shown hands, and his bet frequency), one rule for every opponent, the population prior below the minimum sample (default OFF; EMERG lane CR2 2026-11-20)"
   ),
+  omahaBetReadIsModeSplit: priced(
+    "with omahaBetReadIsPerOpponent on, heads-up on the turn and the river the bettor is read in the decision's mode (table or Lightning), by his previous-street line and for his raise, the frequency signal through a calibrated population slope, and a turn call where the read acts priced with the measured realization (default OFF; EMERG lane MODE-READ 2026-11-20)"
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
