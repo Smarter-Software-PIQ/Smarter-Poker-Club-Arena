@@ -4,7 +4,7 @@
  * h1..h3, no real hole cards); only the column layouts are the audits' real formats.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,7 @@ import {
   parseReplayBarRows,
   parseReplayFile,
   parseReplayJsonl,
+  plo6Decisions,
   replayBarLine,
   replayBarRows,
   replayRefusals,
@@ -654,6 +655,394 @@ describe('audited decision replay: validity of the arms and the authority Replay
       const bare = run(w('bare.jsonl', body.join('\n')), ['--row', 'on', '--set', 'synthetic two']);
       expect(bare.status).toBe(2);
       expect(bare.stderr).toContain('declares no option set');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 300_000);
+});
+
+// ── 2026-11-20: the PLO6 audit set (HVH48 auditor C). Synthetic six-card hands in the extracted-hand shape ──
+describe('audited decision replay: the PLO6 audit set', () => {
+  const c = (rank: string, suit: string) => ({ rank, suit });
+  const SIX_A = [
+    c('A', 'spades'),
+    c('A', 'hearts'),
+    c('K', 'spades'),
+    c('Q', 'hearts'),
+    c('J', 'diamonds'),
+    c('T', 'clubs'),
+  ];
+  const SIX_B = [
+    c('9', 'spades'),
+    c('9', 'hearts'),
+    c('8', 'spades'),
+    c('7', 'hearts'),
+    c('6', 'diamonds'),
+    c('5', 'clubs'),
+  ];
+  const act = (
+    ord: number,
+    seat: number,
+    stage: string,
+    origin: string,
+    action: string,
+    amount = 0
+  ) => ({
+    ord,
+    seat,
+    stage,
+    origin,
+    action,
+    amount,
+    userId: `u${seat}`,
+    publicNode: { boards: ['Td2sTc'], toCall: amount },
+  });
+  // Hand 910001 (PLO6): seat 2 and seat 4 are Horses, seat 1 a person.
+  //   flop: seat 2 checks (k 0), the person bets, seat 4 calls (k 0), seat 2 folds (k 1);
+  //   turn: the person bets, seat 4 folds (k 0);
+  //   river: nobody audited. A pre_action row and the person's rows are never a node.
+  const HAND_1 = {
+    handId: 'h-910001',
+    variant: 'plo6',
+    handNumber: 910001,
+    bigBlind: 1,
+    smallBlind: 0.5,
+    board: ['Tdiamonds', '2spades', 'Tclubs', '5clubs'],
+    players: [
+      { seat: 1, userId: 'u1', isHorse: false },
+      { seat: 2, userId: 'u2', isHorse: true },
+      { seat: 4, userId: 'u4', isHorse: true },
+    ],
+    horseHoleCards: { u2: SIX_A, u4: SIX_B },
+    actions: [
+      act(0, 1, 'preflop', 'forced', 'bb', 1),
+      act(1, 2, 'preflop', 'horse_policy', 'call', 1),
+      act(2, 4, 'preflop', 'pre_action', 'call', 1),
+      act(3, 2, 'flop', 'horse_policy', 'check'),
+      act(4, 1, 'flop', 'player', 'bet', 3),
+      act(5, 4, 'flop', 'horse_policy', 'call', 3),
+      act(6, 2, 'flop', 'horse_policy', 'fold'),
+      act(7, 1, 'turn', 'player', 'bet', 9),
+      act(8, 4, 'turn', 'horse_policy', 'fold'),
+    ],
+  };
+  // Hand 910002 (PLO6), given in the {hand: ...} wrapper: seat 3 calls a river bet, then a river raise.
+  const HAND_2 = {
+    handId: 'h-910002',
+    variant: 'plo6',
+    handNumber: 910002,
+    bigBlind: 1,
+    smallBlind: 0.5,
+    players: [
+      { seat: 1, userId: 'u1', isHorse: false },
+      { seat: 3, userId: 'u3', isHorse: true },
+    ],
+    horseHoleCards: { u3: SIX_B },
+    actions: [
+      act(0, 1, 'river', 'player', 'bet', 10),
+      act(1, 3, 'river', 'horse_policy', 'raise', 30),
+      act(2, 1, 'river', 'player', 'raise', 90),
+      act(3, 3, 'river', 'horse_policy', 'call', 60),
+    ],
+  };
+  // A five-card hand that is not PLO6, and a hand whose actions carry no ord.
+  const HAND_PLO5 = { ...HAND_2, handId: 'h-910003', handNumber: 910003, variant: 'plo5' };
+  const HAND_NO_ORD = {
+    ...HAND_2,
+    handId: 'h-910004',
+    handNumber: 910004,
+    actions: HAND_2.actions.map(({ ord: _ord, ...rest }) => rest),
+  };
+  const HANDS = [HAND_1, { hand: HAND_2 }, HAND_PLO5, HAND_NO_ORD]
+    .map((h) => JSON.stringify(h))
+    .join('\n');
+  const HEADER = 'id,hand,ord,seat,street,action,flag,verdict';
+  const CSV = [
+    HEADER,
+    'd1,910001,6,2,flop,fold,POTODDS-FOLD,CLEAR',
+    'd2,910001,8,4,turn,fold,ALLIN-FOLD-PRICED,LIKELY',
+    'd3,910001,5,4,flop,call,,OK',
+    'd4,910001,3,,,,,',
+    'd5,910002,3,3,river,call,,OK',
+    'd6,910002,1,3,river,raise,,',
+  ].join('\n');
+
+  it('places a row by its action ordinal: k counts the seat own Horse decisions, and no card is kept', () => {
+    const r = plo6Decisions(CSV, HANDS);
+    expect(r.unplaced).toEqual([]);
+    expect(
+      r.decisions.map((d) => [d.at?.id, nodeKey(d.node), d.recorded.action, d.cls, d.finding])
+    ).toEqual([
+      ['d1', '910001:2:flop:1', 'fold', 'bad', 'POTODDS-FOLD'],
+      ['d2', '910001:4:turn:0', 'fold', 'bad', 'ALLIN-FOLD-PRICED'],
+      ['d3', '910001:4:flop:0', 'call', 'ok', undefined],
+      ['d4', '910001:2:flop:0', 'check', 'unjudged', undefined],
+      ['d5', '910002:3:river:1', 'call', 'ok', undefined],
+      ['d6', '910002:3:river:0', 'raise', 'unjudged', undefined],
+    ]);
+    expect(r.decisions.every((d) => d.source === 'plo6' && d.judge === undefined)).toBe(true);
+    expect(r.decisions[4].recorded.amount).toBe(60);
+    // The firewall: the hands file holds six hole cards a Horse and a board; none of it leaves the adapter.
+    const out = JSON.stringify(r);
+    for (const word of ['spades', 'hearts', 'diamonds', 'clubs', 'rank', 'Td2sTc', 'HoleCards'])
+      expect(out).not.toContain(word);
+  });
+
+  it('scores verdict-only: a flagged fold that becomes a call is fixed, a change away from an OK action is newly wrong', () => {
+    const r = plo6Decisions(CSV, HANDS);
+    const row = (hand: number, seat: number, street: string, k: number, off: object, on: object) =>
+      JSON.stringify({ hand, seat, street, k, arms: { off, on } });
+    const replay = parseReplayJsonl(
+      [
+        // Two flagged folds flip to the call: fixed.
+        row(
+          910001,
+          2,
+          'flop',
+          1,
+          { action: 'fold' },
+          { action: 'call', amount: 3, receipts: ['plo6_facing_bet_priced_called'] }
+        ),
+        row(
+          910001,
+          4,
+          'turn',
+          0,
+          { action: 'fold' },
+          { action: 'call', amount: 9, receipts: ['plo6_facing_bet_priced_called'] }
+        ),
+        // An OK river call becomes a fold: newly wrong.
+        row(
+          910002,
+          3,
+          'river',
+          1,
+          { action: 'call', amount: 60 },
+          { action: 'fold', receipts: ['plo6_facing_bet_priced_folded'] }
+        ),
+        // An OK call the arm leaves alone, and an unflagged check the arm changes (unjudged).
+        row(910001, 4, 'flop', 0, { action: 'call', amount: 3 }, { action: 'call', amount: 3 }),
+        row(910001, 2, 'flop', 0, { action: 'check' }, { action: 'bet', amount: 2 }),
+        // A node no audit row names: counted, never scored.
+        row(910001, 2, 'preflop', 0, { action: 'call' }, { action: 'fold' }),
+      ].join('\n')
+    );
+    const report = scoreReplay([{ source: 'plo6', decisions: r.decisions }], replay);
+    const s = report.sources[0];
+    expect([s.source, s.method]).toEqual(['plo6', 'verdict-only']);
+    expect([s.audited, s.auditedBad, s.replayed, s.notReplayed, s.baseReproducesRecorded]).toEqual([
+      6, 2, 5, 1, 5,
+    ]);
+    expect([report.replayRowsWithoutAudit, report.changedWithoutAudit.on]).toEqual([1, 1]);
+    const on = s.arms[0];
+    expect([
+      on.changed,
+      on.fixed,
+      on.newlyWrong,
+      on.changedUnjudged,
+      on.unchanged,
+      on.evPriced,
+    ]).toEqual([4, 2, 1, 1, 1, 0]);
+    expect(on.fixedNodes).toEqual(['910001:2:flop:1', '910001:4:turn:0']);
+    expect(on.newlyWrongNodes).toEqual(['910002:3:river:1']);
+    expect(on.perReceipt['plo6_facing_bet_priced_called']).toMatchObject({ changed: 2, fixed: 2 });
+    expect(on.perReceipt['plo6_facing_bet_priced_folded']).toMatchObject({
+      changed: 1,
+      newlyWrong: 1,
+    });
+    expect(replayBarLine(report, 'on')).toContain('no bb (the audit declares no EV model)');
+    const rows = replayBarRows(report, 'on', { set: 'synthetic plo6', scorer: 'abcdef01234' });
+    expect(rows).toEqual([
+      '- Replay: fixed 2; newlyWrong 1; changed 4; unchanged 1; unjudged 1; set synthetic plo6; scorer abcdef01234; source plo6 verdict-only; arm on vs off; replayed 5 of 6',
+    ]);
+    expect(parseReplayBarRows(rows[0]).rows[0]).toMatchObject({
+      state: 'RUN',
+      fixed: 2,
+      newlyWrong: 1,
+    });
+  });
+
+  it('a flagged fold the base arm does not reproduce is unjudged, never counted as fixed', () => {
+    const r = plo6Decisions(CSV, HANDS);
+    const replay = parseReplayJsonl(
+      JSON.stringify({
+        hand: 910001,
+        seat: 2,
+        street: 'flop',
+        k: 1,
+        arms: { off: { action: 'call', amount: 3 }, on: { action: 'raise', amount: 12 } },
+      })
+    );
+    const s = scoreReplay([{ source: 'plo6', decisions: r.decisions }], replay).sources[0];
+    expect(s.baseDiffers).toEqual(['910001:2:flop:1']);
+    expect([s.arms[0].fixed, s.arms[0].newlyWrong, s.arms[0].changedUnjudged]).toEqual([0, 0, 1]);
+  });
+
+  it('refuses a malformed row with its reason and never places it at a neighbour', () => {
+    expect(() => plo6Decisions('id,hand,verdict\nd1,910001,CLEAR\n', HANDS)).toThrow(/lacks ord/);
+    expect(() => plo6Decisions(`${HEADER}\nd1,910001,6,2,flop\n`, HANDS)).toThrow(
+      /csv row has 5 fields/
+    );
+    expect(() => plo6Decisions(CSV, '{"variant":"plo6","actions":[]}')).toThrow(/line 1/);
+    expect(() =>
+      plo6Decisions(CSV, `${JSON.stringify(HAND_1)}\n${JSON.stringify(HAND_1)}`)
+    ).toThrow(/given twice/);
+    const bad = [
+      HEADER,
+      'd10,910001,6,2,flop,fold,,WRONG', // a verdict word outside the declared ones
+      'd11,910001,six,2,flop,fold,,CLEAR', // ord is not a whole number
+      'd12,910001,4,,,,,CLEAR', // the person's bet
+      'd13,910001,2,,,,,CLEAR', // a pre-action, not a decision of the brain
+      'd14,910001,99,,,,,CLEAR', // no such action
+      'd15,919999,1,,,,,CLEAR', // hand absent
+      'd16,910003,3,,,,,CLEAR', // not PLO6
+      'd17,910004,3,,,,,CLEAR', // the hand has no ord
+      'd18,910001,6,4,flop,fold,,CLEAR', // the seat is another seat
+      'd19,910001,6,2,turn,fold,,CLEAR', // the street is another street
+      'd20,910001,6,2,flop,call,,CLEAR', // the action is another action
+      ',910001,6,2,flop,fold,,CLEAR', // no decision id
+      'd21,910001,8,4,turn,fold,,CLEAR', // placed
+      'd22,910001,8,4,turn,fold,,LIKELY', // the same node again
+    ].join('\n');
+    const r = plo6Decisions(bad, HANDS);
+    expect(r.decisions.map((d) => d.at?.id)).toEqual(['d21']);
+    expect(r.unplaced.map((u) => [u.row, u.name, u.reason])).toEqual([
+      [2, 'd10', 'verdict "WRONG" is not CLEAR, LIKELY, OK or empty'],
+      [3, 'd11', 'ord "six" is not a whole number'],
+      [4, 'd12', 'the action at ord 4 is not a voluntary Horse decision'],
+      [5, 'd13', 'the action at ord 2 is not a voluntary Horse decision'],
+      [6, 'd14', 'no action at ord 99'],
+      [7, 'd15', 'hand not in hands file'],
+      [8, 'd16', 'hand is not plo6 (variant plo5)'],
+      [9, 'd17', 'the hand has an action without a whole-number ord'],
+      [10, 'd18', 'seat 4 is not the seat at ord 6 (2)'],
+      [11, 'd19', 'street turn is not the street at ord 6 (flop)'],
+      [12, 'd20', 'action call is not the action at ord 6 (fold)'],
+      [13, '', 'no decision id'],
+      [15, 'd22', 'the node is already audited by row 14'],
+    ]);
+  });
+
+  it('places the committed anonymised sample of the audit set (Plo6FacingBetIsPriced.fixture.json)', () => {
+    const fixture = JSON.parse(
+      readFileSync(join(SERVER_DIR, 'src/engine/Plo6FacingBetIsPriced.fixture.json'), 'utf8')
+    ) as { hands: { hand: { handNumber: number }; ords: number[]; ids: Record<string, string> }[] };
+    // The fixture carries the audit's decision id and ordinal, not its verdict word: the rows are unjudged here.
+    // d2690 is seat 6 folding the turn after its own turn check, so k is 1.
+    const csv = [
+      'id,hand,ord,verdict',
+      ...fixture.hands.flatMap((h) =>
+        h.ords.map((ord) => `${h.ids[String(ord)]},${h.hand.handNumber},${ord},`)
+      ),
+    ].join('\n');
+    const r = plo6Decisions(csv, fixture.hands.map((h) => JSON.stringify(h)).join('\n'));
+    expect(r.unplaced).toEqual([]);
+    expect(r.decisions).toHaveLength(12);
+    expect(r.decisions.map((d) => [d.at?.id, nodeKey(d.node), d.recorded.action])).toContainEqual([
+      'd2690',
+      '59973455:6:turn:1',
+      'fold',
+    ]);
+    expect(new Set(r.decisions.map((d) => d.recorded.action))).toEqual(new Set(['fold', 'call']));
+    expect(r.decisions.every((d) => d.cls === 'unjudged')).toBe(true);
+    expect(JSON.stringify(r)).not.toMatch(/spades|hearts|diamonds|clubs/);
+  });
+
+  it('the CLI reads --plo6, emits nodes with the audit id and ordinal, writes the Replay row, and exits 1 on a row it cannot place', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'audited-replay-plo6-'));
+    try {
+      const w = (name: string, text: string) => {
+        writeFileSync(join(dir, name), text);
+        return join(dir, name);
+      };
+      const hands = w('hands.jsonl', HANDS);
+      const csv = w('decisions.csv', CSV);
+      const run = (extra: string[]) =>
+        spawnSync(
+          process.execPath,
+          [
+            '--import',
+            'tsx',
+            'scripts/audited-decision-replay.ts',
+            '--plo6-hands',
+            hands,
+            ...extra,
+          ],
+          { cwd: SERVER_DIR, encoding: 'utf8', timeout: 240_000 }
+        );
+      const nodes = join(dir, 'nodes.jsonl');
+      const emitted = run(['--plo6', csv, '--emit-nodes', nodes]);
+      expect(emitted.status, emitted.stderr).toBe(0);
+      expect(emitted.stdout).toContain('plo6: 6 audited decisions placed at a node, 0 not placed');
+      const text = readFileSync(nodes, 'utf8');
+      expect(JSON.parse(text.split('\n')[0])).toEqual({
+        hand: '910001',
+        seat: 2,
+        street: 'flop',
+        k: 1,
+        id: 'd1',
+        ord: 6,
+        key: '910001:2:flop:1',
+        source: 'plo6',
+        recorded: { action: 'fold', amount: 0 },
+        verdict: 'CLEAR',
+      });
+      expect(text).not.toMatch(/spades|hearts|diamonds|clubs/);
+
+      const OPTION = 'plo6FacingBetIsPriced';
+      expect(OPTION_SWITCH_ON_OFF_NAMES).toContain(OPTION);
+      const replay = w(
+        'replay.jsonl',
+        [
+          JSON.stringify({
+            meta: {
+              arms: { off: { options: { [OPTION]: 'off' } }, on: { options: { [OPTION]: 'on' } } },
+            },
+          }),
+          JSON.stringify({
+            hand: 910001,
+            seat: 2,
+            street: 'flop',
+            k: 1,
+            arms: { off: { action: 'fold' }, on: { action: 'call', amount: 3 } },
+          }),
+          JSON.stringify({
+            hand: 910002,
+            seat: 3,
+            street: 'river',
+            k: 1,
+            arms: { off: { action: 'call', amount: 60 }, on: { action: 'call', amount: 60 } },
+          }),
+        ].join('\n')
+      );
+      const scored = run([
+        '--plo6',
+        csv,
+        '--replay',
+        replay,
+        '--row',
+        'on',
+        '--set',
+        'synthetic plo6',
+        '--scorer-commit',
+        'abcdef01234',
+      ]);
+      expect(scored.status, scored.stderr).toBe(0);
+      expect(scored.stdout).toContain(`on vs base: ${OPTION}; differs from base on 1 of 2 rows`);
+      expect(scored.stdout).toContain(
+        '- Replay: fixed 1; newlyWrong 0; changed 1; unchanged 1; unjudged 0; set synthetic plo6; scorer abcdef01234; source plo6 verdict-only; arm on vs off; replayed 2 of 6'
+      );
+
+      const broken = run([
+        '--plo6',
+        w('broken.csv', `${CSV}\nd9,910001,4,,,,,CLEAR\n`),
+        '--emit-nodes',
+        join(dir, 'nodes2.jsonl'),
+      ]);
+      expect(broken.status).toBe(1);
+      expect(broken.stdout).toContain(
+        'not placed: row 8 decision d9 hand 910001 : the action at ord 4 is not a voluntary Horse decision'
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

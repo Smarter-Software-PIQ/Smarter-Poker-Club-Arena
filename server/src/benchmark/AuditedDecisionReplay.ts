@@ -29,6 +29,12 @@
  *    questionable counts as fixed (verdict-only), a change away from an action
  *    it judged correct or acceptable_close as newly wrong (verdict-only); no
  *    bb is claimed for it.
+ *  - A third source since 2026-11-20: the PLO6 audit set (HVH48 auditor C,
+ *    six-card Omaha), read by plo6Decisions from a decisions CSV placed at its
+ *    nodes by the audit's extracted hands, and scored verdict-only by the same
+ *    rule as the WooWoo audit. ASSUMPTION, stated where it is read: the column
+ *    layout of the auditor's own decisions.csv is not recorded in this
+ *    repository, so plo6Decisions reads a declared minimal layout (below).
  *  - Every count is also split per rule receipt the replayed arm carried
  *    (the per-decision rule receipts of BrainTelemetry.noteDecisionRuleReceipt
  *    or the decision's fired receipt keys), so a reviewer sees which rule made
@@ -76,6 +82,8 @@ export interface DecisionNode {
 export const nodeKey = (n: DecisionNode): string => `${n.hand}:${n.seat}:${n.street}:${n.k}`;
 
 export type VerdictClass = 'bad' | 'ok' | 'unjudged';
+/** The audit sets the scorer reads. Only audit2 has an action-level judge; the others are scored verdict-only. */
+export type AuditSource = 'audit2' | 'woowoo' | 'plo6';
 
 /** The inputs of the audit2 judge (columns of its decisions.csv; chips unless named _bb). */
 export interface Audit2JudgeInputs {
@@ -96,7 +104,9 @@ export interface Audit2JudgeInputs {
 
 export interface AuditedDecision {
   node: DecisionNode;
-  source: 'audit2' | 'woowoo';
+  source: AuditSource;
+  /** plo6: the audit's own decision id and the action ordinal in the hand, for the replay harness. */
+  at?: { id: string; ord: number };
   recorded: { action: string; amount: number | null };
   /** The audit's verdict word as written, and its class. */
   verdict: string;
@@ -199,7 +209,8 @@ const audit2KindMatches = (kind: string, action: string): boolean =>
 
 export interface AdapterResult {
   decisions: AuditedDecision[];
-  /** Audit rows no node could be found for (hand missing from the hands file, or no matching action). */
+  /** Audit rows no node could be found for (hand missing from the hands file, or no matching action); plo6
+   * puts the audit's decision id in `name`. */
   unplaced: { row: number; hand: string; name: string; street: string; reason: string }[];
   /** audit2: rows placed where more than one decision matched and the amount to call did not single one out
    * (placed at the first in order). */
@@ -449,6 +460,162 @@ export function wooWooDecisions(decisionsFullCsv: string, findingsCsv: string): 
   return { decisions, unplaced };
 }
 
+// ── PLO6 audit set (HVH48 auditor C, six-card Omaha) ───────────────────────
+/**
+ * ASSUMPTION (2026-11-20). The audit set is named in docs/horse-option-authority.d/plo6FacingBetIsPriced.md
+ * (archive plo-handoff-review-01a1cbbd/hvh48-audit-01TLQer7J/C-plo6: REPORT.md and decisions.csv, 11,558 PLO6
+ * Horse decisions against people) and sampled by engine/Plo6FacingBetIsPriced.fixture.json, which shows two
+ * things only: an audit decision has an id ("d2690") and sits at one action ordinal (`ord`) of an extracted
+ * hand (HorseComplaintReplay.ExtractedHand). The column layout of the auditor's decisions.csv is recorded
+ * nowhere in this repository and the archive is not readable from a build, so this adapter reads the DECLARED
+ * MINIMAL LAYOUT below, not a layout it guessed. If the auditor's file names its columns otherwise, export
+ * these columns from it; nothing here is inferred from a column that is absent.
+ *
+ *   decisions CSV (header required; further columns are ignored):
+ *     id       the audit's decision id, as the audit wrote it
+ *     hand     the hand number (ExtractedHand.handNumber)
+ *     ord      the action ordinal of the audited decision in that hand (ExtractedHand.actions[].ord)
+ *     verdict  CLEAR or LIKELY (the audit flagged the recorded action a mistake: bad), OK (the audit judged the
+ *              recorded action and did not fault it: ok), or empty (the audit made no judgement: unjudged).
+ *              Any other word places nothing (the row is listed as not placed). An unflagged decision is NOT
+ *              ok by default: only the audit's own judgement makes a row OK.
+ *     seat, street, action   optional; when given, each must equal the action at `ord` or the row is not placed
+ *     flag     optional; the audit's class (POTODDS-FOLD, ALLIN-FOLD-PRICED, ...), kept as the finding
+ *   hands JSONL: one extracted hand per line, as HorseComplaintReplay reads it (the hand itself or
+ *     {"hand": {...}}). Only handNumber, variant and actions[].{ord, seat, stage, origin, action, amount} are
+ *     read. NO CARD IS READ OR KEPT: hole cards and boards in the file never enter an AuditedDecision, a node
+ *     or a Replay row (the firewall of this programme: cards are for offline scoring by the audit, not here).
+ *
+ * The node is (hand, seat, street, k) with k counted exactly as audit2 counts it: the 0-based index of that
+ * seat's own voluntary horse_policy decision on that street, walked in the hand's action order. Scoring is
+ * verdict-only, the WooWoo rule: a change away from a CLEAR or LIKELY action is fixed, away from an OK action
+ * newly wrong, anything else unjudged, and no bb is claimed (the auditor's pricing is not ported).
+ */
+export const PLO6_AUDIT_COLUMNS = ['id', 'hand', 'ord', 'verdict'] as const;
+const PLO6_BAD = new Set(['CLEAR', 'LIKELY']);
+const PLO6_OK = new Set(['OK']);
+
+interface Plo6HandAction {
+  ord?: unknown;
+  seat?: unknown;
+  stage?: unknown;
+  origin?: unknown;
+  action?: unknown;
+  amount?: unknown;
+}
+interface Plo6Hand {
+  handNumber?: unknown;
+  variant?: unknown;
+  actions?: Plo6HandAction[];
+}
+
+export function plo6Decisions(decisionsCsv: string, handsJsonl: string): AdapterResult {
+  const header = (decisionsCsv.split(/\r?\n/).find((l) => l.trim() !== '') ?? '').split(',');
+  const missing = PLO6_AUDIT_COLUMNS.filter((c) => !header.includes(c));
+  if (missing.length)
+    throw new Error(
+      `plo6 decisions csv: the header lacks ${missing.join(', ')} (it needs ${PLO6_AUDIT_COLUMNS.join(', ')})`
+    );
+  type Slot = {
+    node: DecisionNode;
+    action: string;
+    amount: number | null;
+    voluntaryHorse: boolean;
+  };
+  const hands = new Map<string, { variant: string; byOrd: Map<number, Slot> | null }>();
+  handsJsonl.split('\n').forEach((line, i) => {
+    if (!line.trim()) return;
+    const parsed = JSON.parse(line) as Plo6Hand | { hand?: Plo6Hand };
+    const h = (
+      parsed && typeof parsed === 'object' && 'hand' in parsed && parsed.hand ? parsed.hand : parsed
+    ) as Plo6Hand;
+    if (
+      !h ||
+      (typeof h.handNumber !== 'number' && typeof h.handNumber !== 'string') ||
+      !Array.isArray(h.actions)
+    )
+      throw new Error(`plo6 hands line ${i + 1}: needs handNumber and actions`);
+    const key = String(h.handNumber);
+    if (hands.has(key)) throw new Error(`plo6 hands line ${i + 1}: hand ${key} is given twice`);
+    // A hand whose actions do not all carry a whole-number ord cannot place a row: no ord is guessed from position.
+    const ordered = h.actions.every((a) => Number.isInteger(a.ord));
+    let byOrd: Map<number, Slot> | null = null;
+    if (ordered) {
+      byOrd = new Map();
+      const k = new Map<string, number>();
+      for (const a of h.actions) {
+        const street = String(a.stage ?? '');
+        const action = String(a.action ?? '');
+        const seat = Number(a.seat);
+        const voluntaryHorse =
+          a.origin === 'horse_policy' && VOLUNTARY_ACTIONS.has(action) && isStreet(street);
+        let idx = -1;
+        if (voluntaryHorse) {
+          const ks = `${seat}:${street}`;
+          idx = k.get(ks) ?? 0;
+          k.set(ks, idx + 1);
+        }
+        if (byOrd.has(a.ord as number))
+          throw new Error(`plo6 hands line ${i + 1}: hand ${key} repeats ord ${String(a.ord)}`);
+        byOrd.set(a.ord as number, {
+          node: {
+            hand: key,
+            seat,
+            street: (isStreet(street) ? street : 'preflop') as Street,
+            k: idx,
+          },
+          action,
+          amount: num(a.amount === null || a.amount === undefined ? '' : String(a.amount)),
+          voluntaryHorse,
+        });
+      }
+    }
+    hands.set(key, { variant: String(h.variant ?? ''), byOrd });
+  });
+  const decisions: AuditedDecision[] = [];
+  const unplaced: AdapterResult['unplaced'] = [];
+  const taken = new Map<string, number>();
+  parseCsv(decisionsCsv).forEach((r, i) => {
+    const row = i + 2;
+    const refuse = (reason: string) =>
+      unplaced.push({ row, hand: r.hand, name: r.id, street: r.street ?? '', reason });
+    if (!r.id.trim()) return refuse('no decision id');
+    const hand = hands.get(r.hand);
+    if (!hand) return refuse('hand not in hands file');
+    if (hand.variant !== 'plo6')
+      return refuse(`hand is not plo6 (variant ${hand.variant || 'not stated'})`);
+    if (!hand.byOrd) return refuse('the hand has an action without a whole-number ord');
+    if (!/^\d+$/.test(r.ord)) return refuse(`ord "${r.ord}" is not a whole number`);
+    const slot = hand.byOrd.get(Number(r.ord));
+    if (!slot) return refuse(`no action at ord ${r.ord}`);
+    if (!slot.voluntaryHorse)
+      return refuse(`the action at ord ${r.ord} is not a voluntary Horse decision`);
+    if (r.seat !== undefined && r.seat !== '' && Number(r.seat) !== slot.node.seat)
+      return refuse(`seat ${r.seat} is not the seat at ord ${r.ord} (${slot.node.seat})`);
+    if (r.street !== undefined && r.street !== '' && r.street !== slot.node.street)
+      return refuse(`street ${r.street} is not the street at ord ${r.ord} (${slot.node.street})`);
+    if (r.action !== undefined && r.action !== '' && r.action !== slot.action)
+      return refuse(`action ${r.action} is not the action at ord ${r.ord} (${slot.action})`);
+    const v = r.verdict.trim();
+    if (v !== '' && !PLO6_BAD.has(v) && !PLO6_OK.has(v))
+      return refuse(`verdict "${v}" is not CLEAR, LIKELY, OK or empty`);
+    const key = nodeKey(slot.node);
+    const first = taken.get(key);
+    if (first !== undefined) return refuse(`the node is already audited by row ${first}`);
+    taken.set(key, row);
+    decisions.push({
+      node: slot.node,
+      source: 'plo6',
+      at: { id: r.id.trim(), ord: Number(r.ord) },
+      recorded: { action: slot.action, amount: slot.amount },
+      verdict: v,
+      cls: PLO6_BAD.has(v) ? 'bad' : PLO6_OK.has(v) ? 'ok' : 'unjudged',
+      finding: r.flag ? r.flag : undefined,
+    });
+  });
+  return { decisions, unplaced };
+}
+
 // ── replay rows ────────────────────────────────────────────────────────────
 /** Arm-wide facts a harness declares once, on a line `{"meta": {"arms": {"<arm>": {...}}}}`. */
 export interface ReplayArmMeta {
@@ -528,7 +695,7 @@ export interface ArmReport extends OutcomeCounts {
   newlyWrongNodes: string[];
 }
 export interface SourceReport {
-  source: 'audit2' | 'woowoo';
+  source: AuditSource;
   method: 'audit-judge' | 'verdict-only';
   audited: number;
   auditedBad: number;
@@ -594,7 +761,7 @@ const sameAmount = (a: number | null | undefined, b: number | null | undefined) 
   (a == null && b == null);
 
 export function scoreReplay(
-  audits: { source: 'audit2' | 'woowoo'; decisions: AuditedDecision[] }[],
+  audits: { source: AuditSource; decisions: AuditedDecision[] }[],
   replay: ReplayRow[],
   base = 'off'
 ): ReplayReport {
