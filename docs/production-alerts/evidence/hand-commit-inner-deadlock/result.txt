@@ -1,0 +1,1 @@
+PASS: a deadlocked hand settlement answers the retryable rolled-back envelope

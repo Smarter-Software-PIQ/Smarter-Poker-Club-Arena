@@ -16,6 +16,7 @@ import { readLocalSession } from '../lib/authUtils';
 import { DIAMOND_ARENA_CLUB_ID } from '../lib/constants';
 import {
   fetchLightningRecentHands,
+  fetchLightningSessionHandsPage,
   LIGHTNING_RECENT_HANDS_LIMIT,
 } from '../lightning/lightningSessionApi';
 
@@ -426,7 +427,8 @@ class HandHistoryServiceClass {
     deal: { id: string | null; number: number },
     receipt?: { archiveId: string | null }
   ): Promise<{ state: 'pending' | 'unavailable' } | { state: 'ready'; hand: HandRecord }> {
-    if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+    if (readLocalSession({ allowExpired: true })?.userId !== viewer)
+      throw new Error('Lightning viewer changed');
     let archiveId = receipt?.archiveId;
     let settled = !!receipt;
     if (!receipt) {
@@ -441,10 +443,12 @@ class HandHistoryServiceClass {
       // still apply, including when a legacy row has a different archive id.
       if (!exact && recent.length === LIGHTNING_RECENT_HANDS_LIMIT) archiveId = deal.id;
     }
-    if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+    if (readLocalSession({ allowExpired: true })?.userId !== viewer)
+      throw new Error('Lightning viewer changed');
     if (archiveId) {
       const [hand] = await this.getHandsByIds([archiveId]);
-      if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+      if (readLocalSession({ allowExpired: true })?.userId !== viewer)
+        throw new Error('Lightning viewer changed');
       if (
         hand?.hand_number === deal.number &&
         hand.players.some((player) => player.user_id === viewer)
@@ -538,19 +542,37 @@ class HandHistoryServiceClass {
       // Resolve this viewer's settled session hands through the existing
       // authenticated door. Physical instances change between Lightning hands;
       // filtering their records by the pool-room UUID can never find them.
-      if (readLocalSession()?.userId !== userId || offset >= LIGHTNING_RECENT_HANDS_LIMIT)
+      const beforeHandNumber =
+        typeof opts.beforeHandNumber === 'number' &&
+        Number.isFinite(opts.beforeHandNumber) &&
+        opts.beforeHandNumber > 0
+          ? Math.floor(opts.beforeHandNumber)
+          : null;
+      if (
+        readLocalSession({ allowExpired: true })?.userId !== userId ||
+        (beforeHandNumber === null && offset >= LIGHTNING_RECENT_HANDS_LIMIT)
+      )
         return [];
       try {
-        const references = await fetchLightningRecentHands({
-          poolSessionId: opts.lightningPoolSessionId,
-          limit: Math.min(LIGHTNING_RECENT_HANDS_LIMIT, offset + Math.max(1, Math.floor(limit))),
-        });
-        if (readLocalSession()?.userId !== userId) return [];
+        const pageSize = Math.max(1, Math.floor(limit));
+        const references =
+          beforeHandNumber !== null
+            ? await fetchLightningSessionHandsPage({
+                poolSessionId: opts.lightningPoolSessionId,
+                limit: Math.min(LIGHTNING_RECENT_HANDS_LIMIT, pageSize),
+                beforeHandNumber,
+              })
+            : await fetchLightningRecentHands({
+                poolSessionId: opts.lightningPoolSessionId,
+                limit: Math.min(LIGHTNING_RECENT_HANDS_LIMIT, offset + pageSize),
+              });
+        if (readLocalSession({ allowExpired: true })?.userId !== userId) return [];
+        const sliceStart = beforeHandNumber !== null ? 0 : offset;
         const ids = references
-          .slice(offset, offset + Math.max(1, Math.floor(limit)))
+          .slice(sliceStart, sliceStart + pageSize)
           .flatMap((hand) => (hand.handHistoryId ? [hand.handHistoryId] : []));
         const hands = await this.getHandsByIds(ids);
-        if (readLocalSession()?.userId !== userId) return [];
+        if (readLocalSession({ allowExpired: true })?.userId !== userId) return [];
         // getHandsByIds retains canonical RLS, private-card reads and the common
         // mapper. A missing/pruned history row is never fabricated from stats.
         return hands

@@ -925,7 +925,7 @@ initialise_phase1_cycle() {
     [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
   fi
   phase1_custody_admission
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-19-owner-no-notice-engine-1510z ]; then
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-19-owner-no-notice-engine-2030z ]; then
     [ "$prior_cycle" = none ] || die 'Nov 7 owner cannot retarget a reserved routine cycle'
     return 0
   fi
@@ -1407,8 +1407,8 @@ raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
 # The Nov 7 order has exactly one predecessor, one protected floor and one
 # finite wall-clock interval. The seal binds the run's reservation separately.
 nov7_owner_admitted() {
-  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-19-owner-no-notice-engine-1510z ] || return 1
-  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = f3e99378ccbba4071e342b1de9137cc42bfce7ae ] || return 1
+  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-19-owner-no-notice-engine-2030z ] || return 1
+  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = dfaa9717f826e8035919a4b232f5f64afcc440f6 ] || return 1
   [ "${PHASE1_CYCLE_START:-0}" = 0 ] && [ -z "${DRILL_MODE:-}" ] || return 1
   python3 "$CONTROL_DIR/engine-release-activation-floor.py" nov7-owner \
     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH"
@@ -2054,8 +2054,8 @@ v = json.load(sys.stdin).get("releaseSha")
 print(v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v) else "")
 ' 2>/dev/null)" || return 0
   [ -n "$serving" ] || return 0
-  if [ "$id" = 2026-11-19-owner-no-notice-engine-1510z ]; then
-    [ "$serving" = f3e99378ccbba4071e342b1de9137cc42bfce7ae ] || return 0
+  if [ "$id" = 2026-11-19-owner-no-notice-engine-2030z ]; then
+    [ "$serving" = dfaa9717f826e8035919a4b232f5f64afcc440f6 ] || return 0
   fi
   if [ "$witness_path" != '-' ]; then
     # An immutable feature witness cannot be consumed by an unrelated release
@@ -2407,7 +2407,7 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
   if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
     reserve_args+=(--certified-policy "$CERTIFIED_RECOVERY_POLICY" --predecessor-sha "$CHECKPOINT_EED_SHA" --control-sha "$CONTROL_SHA")
   fi
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-19-owner-no-notice-engine-1510z ]; then
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-19-owner-no-notice-engine-2030z ]; then
     reserve_args+=(--nov7-owner --control-sha "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH")
   fi
   reserve_args+=(--include-eligibility)
@@ -2441,6 +2441,11 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
     return 0
   fi
   RECOVERY_CHECKED_CAUSE="$cause_key"
+  if [[ "$stamp" == owner-claim-consumed:* ]]; then
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
+    release_engine_lock
+    die "single-use owner window claim already belongs to run ${stamp#owner-claim-consumed:}; refusing duplicate attempt $RUN_ID"
+  fi
   if [ "$stamp" = unavailable ]; then
     if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
@@ -3939,10 +3944,31 @@ CANDIDATE_STARTED_AT="$(bounded_break_command 10 docker container inspect -f '{{
 # rollback reserve and rolled back. The candidate is polled every second; the
 # total windows (180 s local, 90 s public), every proof and every budget are
 # unchanged. A poll is one bounded loopback or public health read.
+assert_candidate_container_alive() {
+  local state_line status exit_code oom_killed restart_count current_cid current_started_at tail_log='' last_line=''
+  state_line="$(bounded_break_command 5 docker container inspect -f \
+    '{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}} {{.RestartCount}} {{.Id}} {{.State.StartedAt}}' \
+    "$CONTAINER" 2>/dev/null)" || return 0
+  read -r status exit_code oom_killed restart_count current_cid current_started_at <<< "$state_line"
+  if [ "$status" = exited ] || [ "$status" = dead ] || [ "$status" = restarting ] \
+    || [ "${restart_count:-0}" -gt 0 ] 2>/dev/null \
+    || { [ -n "${CANDIDATE_CID:-}" ] && [ "$current_cid" != "$CANDIDATE_CID" ]; } \
+    || { [ -n "${CANDIDATE_STARTED_AT:-}" ] && [ "$current_started_at" != "$CANDIDATE_STARTED_AT" ]; }; then
+    tail_log="$(bounded_break_command 5 docker logs --tail 40 "$CONTAINER" 2>&1 || true)"
+    if [ -n "$tail_log" ]; then
+      printf '[engine-release-transaction] candidate container last logs (status=%s exit=%s oom=%s restarts=%s):\n%s\n' \
+        "$status" "$exit_code" "$oom_killed" "$restart_count" "$tail_log" >&2
+    fi
+    last_line="$(printf '%s\n' "$tail_log" | awk 'NF { line = $0 } END { print substr(line, 1, 240) }')"
+    die "candidate container exited before serving local release health (status=${status} exit_code=${exit_code} oom=${oom_killed} restarts=${restart_count}${last_line:+; last_log=${last_line}})"
+  fi
+}
+
 for attempt in $(seq 1 180); do
   assert_time_remaining
   assert_break_proof_time
   CANDIDATE_INSTANCE="$(health_instance 'http://127.0.0.1:8080/health')" && break
+  assert_candidate_container_alive
   [ "$attempt" = 180 ] && die 'candidate never served exact local release health'
   bounded_sleep 1
 done

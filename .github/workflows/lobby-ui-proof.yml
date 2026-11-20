@@ -65,8 +65,7 @@ jobs:
       - name: Install the project and mobile fixture browsers
         timeout-minutes: 5
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium webkit
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium webkit
 
       - name: Require installed scoped cleanup before production fixtures
         env:

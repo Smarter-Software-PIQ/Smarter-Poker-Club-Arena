@@ -205,6 +205,56 @@ describe('Share Video', () => {
     /* The bytes were read once and kept. */
     expect(fetchClip).toHaveBeenCalledTimes(1);
   });
+
+  it('waits for a pending short link on a file-capable device so the mp4 is never shared without it', async () => {
+    device('files');
+    const onShared = vi.fn();
+    const view = await panel({ shortUrl: null, shortPending: true, onShared });
+    const waiting = screen.getByRole('button', { name: 'Preparing Link' }) as HTMLButtonElement;
+    expect(waiting.disabled).toBe(true);
+    fireEvent.click(waiting);
+    expect(fetchClip).not.toHaveBeenCalled();
+    expect(share).not.toHaveBeenCalled();
+    /* Download never waits on the link. */
+    expect((screen.getByRole('button', { name: 'Download' }) as HTMLButtonElement).disabled).toBe(
+      false
+    );
+
+    view.again({ shortUrl: SHORT, shortPending: false, onShared });
+    const ready = screen.getByRole('button', { name: 'Share Video' }) as HTMLButtonElement;
+    expect(ready.disabled).toBe(false);
+    fireEvent.click(ready);
+    expect(await screen.findByText('Shared')).toBeTruthy();
+    expect(share.mock.calls[0][0].text).toBe(`Big pot ${SHORT}`);
+    expect(onShared).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onShared when file share falls back to saved or copied with a short link', async () => {
+    device('files');
+    share.mockRejectedValueOnce(new DOMException('refused', 'NotAllowedError'));
+    const onShared = vi.fn();
+    await panel({ onShared });
+    fireEvent.click(screen.getByRole('button', { name: 'Share Video' }));
+    expect(await screen.findByText('Saved')).toBeTruthy();
+    expect(onShared).toHaveBeenCalledTimes(1);
+  });
+
+  it('every button in the panel carries share-hand__video-btn--plate', async () => {
+    device('files');
+    await panel();
+    const readyButtons = screen.getAllByRole('button');
+    expect(readyButtons.length).toBeGreaterThanOrEqual(3);
+    for (const btn of readyButtons) {
+      expect(btn.classList.contains('share-hand__video-btn--plate')).toBe(true);
+    }
+
+    cleanup();
+    row = null;
+    const { default: ShareAsVideoPanel } = await import('@/components/table/ShareAsVideoPanel');
+    render(<ShareAsVideoPanel handId={HAND} handNumber={56019216} shortUrl={SHORT} />);
+    const idleBtn = await screen.findByRole('button', { name: 'Share As Video' });
+    expect(idleBtn.classList.contains('share-hand__video-btn--plate')).toBe(true);
+  });
 });
 
 describe('where the sheet cannot take a file', () => {

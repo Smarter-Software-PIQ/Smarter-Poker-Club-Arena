@@ -235,17 +235,17 @@ import {
   stopHorseUpgradeEvidenceFlush,
 } from '../../services/HorseUpgradeEvidenceFlush.js';
 import {
-  loadGtoCharts,
+  loadGtoChartsForBoot,
   startGtoChartLoader,
   stopGtoChartLoader,
 } from '../../services/GtoChartLoader.js';
 import {
-  loadGtoPostflop,
+  loadGtoPostflopForBoot,
   startGtoPostflopLoader,
   stopGtoPostflopLoader,
 } from '../../services/GtoPostflopLoader.js';
 import {
-  loadGtoPostflopV31,
+  loadGtoPostflopV31ForBoot,
   requireGtoV31ServingBinding,
   startGtoPostflopV31Loader,
   stopGtoPostflopV31Loader,
@@ -285,7 +285,17 @@ import {
   ABSENT_OPTION_SWITCH_SOURCE,
   OptionSwitchHolder,
   optionSwitchDecisionOpts,
+  optionSwitchShadowFlip,
+  optionSwitchShadowOptions,
 } from '../HorseOptionSwitch.js';
+import {
+  OptionShadowBudget,
+  optionShadowCounterKeys,
+  optionShadowPerMinute,
+  optionShadowPersonPresence,
+  optionShadowPick,
+  optionShadowReceiptOf,
+} from '../HorseOptionShadow.js';
 import {
   clearStyleOptionsApplied,
   clearStyleShadowEngaged,
@@ -344,6 +354,11 @@ export interface HorseDecisionWorkerDependencies {
    * (HorseOptionSwitch). Absent: a holder over the absent source, so every option runs at its release default.
    */
   optionSwitch?: OptionSwitchHolder;
+  /**
+   * 2026-11-18 OPTION SHADOW: shadow re-decisions allowed per clock minute in this worker (HorseOptionShadow).
+   * Absent: HORSE_OPTION_SHADOW_PER_MINUTE, else OPTION_SHADOW_PER_MINUTE_DEFAULT. 0 stops them.
+   */
+  optionShadowPerMinute?: number;
   admitFeatureAuthority?(): HorseAuthorityAdmission;
   /** v53PloTourneyIcm activation: the shipped tournament-flag selection only. */
   admitTournamentFlagAuthority?(): HorseTournamentFlagAdmission;
@@ -581,12 +596,12 @@ export async function startOwnedServices(shard?: {
         exploitFloorBootstrap = await hydrateHorseExploitReads();
         return exploitFloorBootstrap;
       }),
-      step('gto_charts', () => loadGtoCharts()),
-      step('gto_postflop', () => loadGtoPostflop()),
+      step('gto_charts', () => loadGtoChartsForBoot()),
+      step('gto_postflop', () => loadGtoPostflopForBoot()),
       step('gto_postflop_v31', () => {
         // Live workers serve a promoted V31 dataset only on a bound engine commit.
         requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);
-        return loadGtoPostflopV31();
+        return loadGtoPostflopV31ForBoot();
       }),
     ]);
     // A failed load must not drain writers while another load can still
@@ -1020,6 +1035,15 @@ export class HorseDecisionWorkerRuntime {
       new OptionSwitchHolder(ABSENT_OPTION_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
   }
   private optionSwitchHolder: OptionSwitchHolder | undefined;
+  private get optionShadowBudget(): OptionShadowBudget {
+    return (this.optionShadowBudgetHolder ??= new OptionShadowBudget(
+      this.deps.optionShadowPerMinute ??
+        optionShadowPerMinute(
+          typeof process !== 'undefined' ? process.env?.HORSE_OPTION_SHADOW_PER_MINUTE : undefined
+        )
+    ));
+  }
+  private optionShadowBudgetHolder: OptionShadowBudget | undefined;
   /**
    * 2026-11-15 (owner rule 11:26, every option switchable live): the registered options that are PROCESS switches
    * rather than decision options. One today: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
@@ -3268,6 +3292,46 @@ export class HorseDecisionWorkerRuntime {
         rngBefore,
         governorScale
       );
+    // OPTION SHADOW (2026-11-18): an option in shadow passed nothing to the brain above, so the acted decision is the
+    // release default's. ONE of the options in shadow is re-decided flipped, never acted on; the same skip rules as
+    // the action receipt plus a per-minute budget. No option in shadow: nothing runs and nothing is counted.
+    const shadowOptions = optionSwitchShadowOptions(optionStates);
+    if (
+      shadowOptions.length === 0 ||
+      !fastOpts ||
+      captured.value.policyFallback === 'brain_exception'
+    ) {
+      /* nothing in shadow: no receipt */
+    } else if (this.pendingRequestIds.size > 1)
+      this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+    else if (!(Math.max(0, this.deps.now() - startedAt) <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
+      this.deps.noteFeature('option_shadow_skipped_budget_seen');
+    else {
+      let shadowScaleMoved = true;
+      try {
+        shadowScaleMoved = this.deps.governorScale() !== governorScale;
+      } catch {
+        /* an unreadable scale is a moved scale: skip */
+      }
+      if (shadowScaleMoved) this.deps.noteFeature('option_shadow_skipped_scale_seen');
+      else if (!this.optionShadowBudget.take(this.deps.now()))
+        this.deps.noteFeature('option_shadow_skipped_rate_seen');
+      else {
+        const pick = optionShadowPick(shadowOptions, request.decisionKey)!;
+        for (let i = 1; i < shadowOptions.length; i++)
+          this.deps.noteFeature('option_shadow_rotated_out_seen');
+        this.optionShadowReceipt(
+          request,
+          player,
+          gameState,
+          fastOpts,
+          pick,
+          captured.value,
+          rngBefore,
+          governorScale
+        );
+      }
+    }
     if (!horseDecisionEffectsAreValid(captured.effects)) {
       throw new Error('Horse decision captured invalid plan effects');
     }
@@ -3605,6 +3669,83 @@ export class HorseDecisionWorkerRuntime {
       case 'styleStealTightBlinds':
         this.deps.noteFeature('style_steal_tight_blinds_changed_action_seen');
         break;
+    }
+  }
+
+  /**
+   * OPTION SHADOW RECEIPT (2026-11-18, HorseOptionShadow). The style action-receipt re-decision (styleActionReceipt
+   * above) with ONE option in shadow flipped instead of an applied style option taken out: same RNG position,
+   * committed governor scale, counters suspended, once-per-decision receipts suppressed, observation off, no style
+   * shadow list, Horse-memory effects captured and discarded; the RNG and per-decision registries restored after.
+   * The committed decision is not changed except for the journal field optionShadowReceipt. Counted
+   * option_shadow_<option>_<changed|same>_seen (+ _person_seen when a person was dealt in).
+   */
+  private optionShadowReceipt(
+    request: FastHorseDecisionRequest,
+    player: FastHorseDecisionRequest['player'],
+    gameState: FastHorseDecisionRequest['gameState'],
+    base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>,
+    option: string,
+    committed: HorseDecision,
+    rngBefore: number,
+    committedScale: number
+  ): void {
+    const flippedTo = optionSwitchShadowFlip(option, base as Readonly<Record<string, unknown>>);
+    if (flippedTo === null) return;
+    const saved = this.deps.saveRng();
+    const t0 = performance.now();
+    let would: HorseDecision | null = null;
+    try {
+      this.deps.restoreRng(rngBefore);
+      const opts = {
+        ...base,
+        [option]: flippedTo,
+        styleShadow: [],
+        telemetry: false,
+        observeMind: false,
+      } as typeof base;
+      const run = this.atGovernorScale(() =>
+        withBrainTelemetrySuspended(() =>
+          withOncePerDecisionReceiptsSuppressed(
+            () =>
+              this.deps.captureDecisionEffects(() =>
+                this.deps.decide(player, gameState, request.style, request.mods, opts)
+              ).value
+          )
+        )
+      );
+      if (run.scale === committedScale) would = run.value;
+      else this.deps.noteFeature('option_shadow_scale_mismatch_seen');
+    } catch {
+      would = null;
+      this.deps.noteFeature('option_shadow_redecide_failed_seen');
+    } finally {
+      this.deps.restoreRng(saved);
+      // the re-decision's own registry entries belong to no decision
+      clearStyleOptionsApplied();
+      clearStyleShadowEngaged();
+      takeStyleReadMs();
+      this.deps.noteDecision('option_shadow_redecide', performance.now() - t0);
+    }
+    try {
+      const presence = optionShadowPersonPresence(
+        gameState as unknown as Parameters<typeof optionShadowPersonPresence>[0],
+        request.player.user_id
+      );
+      const receipt = optionShadowReceiptOf({
+        option,
+        flippedTo,
+        actual: committed,
+        would,
+        street: gameState.stage,
+        variant: gameState.gameVariant || 'nlh',
+        format: gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash',
+        ...presence,
+      });
+      committed.optionShadowReceipt = receipt;
+      for (const key of optionShadowCounterKeys(receipt)) this.deps.noteFeature(key);
+    } catch {
+      this.deps.noteFeature('option_shadow_unencodable_seen');
     }
   }
 

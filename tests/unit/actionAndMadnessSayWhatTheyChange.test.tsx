@@ -41,7 +41,8 @@ vi.mock('../../src/hooks/useSpinTierAvailability', () => ({
 
 // Dan 2026-10-16: the real minimum VPIP, not "VPIP Floor" / "High VPIP Floor",
 // and bombs every 20 minutes for Action and every 10 for Madness.
-const ACTION_NOTE = 'Big Blind Ante, 40% Minimum VPIP';
+// Dan 2026-11-19: every Lightning game keeps a 25% floor.
+const ACTION_NOTE = 'Big Blind Ante, 25% Minimum VPIP';
 const MADNESS_NOTE = ACTION_NOTE;
 
 const table = (over: Partial<LobbyTableRow>): LobbyTableRow =>
@@ -235,15 +236,13 @@ describe('the desktop board prints the note after the style word', () => {
     );
     /* Dan 2026-11-08: a Lightning game's style bay says just "Lightning",
        and its rules print as the second line under the title:
-       "BIG BLIND ANTE - 40% MIN VPIP". */
+       "BIG BLIND ANTE - 40% MIN VPIP" (25% since 2026-11-19). */
     const titleLine = MADNESS_NOTE.split(/,\s*/)
       .map((part) => part.replace(/\bMinimum\b/g, 'Min'))
       .join(' - ');
     for (const id of ['a', 'm']) {
       const heading = document.querySelector(`tr[data-game-heading="${id}"]`);
-      expect(heading?.querySelector('.lt-tournament-heading__format')?.textContent).toBe(
-        titleLine
-      );
+      expect(heading?.querySelector('.lt-tournament-heading__format')?.textContent).toBe(titleLine);
       const style = document.querySelector(`tr[data-id="${id}"] .premium-cash-style`);
       expect(style?.textContent).toBe('Lightning');
       expect(style?.classList.contains('premium-cash-style--single')).toBe(true);

@@ -79,6 +79,7 @@ on:
       - 'scripts/ci/recorded-migrations.manifest.json'
       - 'scripts/ci/record-engine-deploy-attempt.mjs'
       - 'scripts/ci/record-engine-deploy-exit.mjs'
+      - 'scripts/ci/record-engine-release-alert.mjs'
   schedule:
     # Nightly refresh after midnight America/Chicago (05 UTC is CDT, 06 UTC
     # is CST). GitHub has delivered schedules hours late or not at all, so
@@ -104,9 +105,15 @@ permissions:
   actions: read
 
 concurrency:
-  # A client-only E2E event has no sealed engine and must never queue on the Backup host.
-  group: ${{ github.event_name == 'repository_dispatch' && !github.event.client_payload.release_run_key && format('backup-no-seal-{0}', github.run_id) || 'backup-engine' }}
-  queue: max
+  # UNRELATED PUSHES NEVER CANCEL A CERTIFICATION (incident 075013fd, Lane 1).
+  # GitHub Actions concurrency groups hold at most 1 running + 1 pending run
+  # (ignoring any unsupported `queue: max` key) and cancel the pending run when
+  # a third arrives. Using a shared 'backup-engine' group caused unrelated
+  # pushes to cancel pending manual/scheduled/post-seal certifications before
+  # `plan` even ran. Each run therefore owns its own concurrency group with
+  # cancel-in-progress: false, and exclusive access to STANDBY_HOST is
+  # serialized across refresh -> certify by the standby host run-lease.
+  group: ${{ github.event_name == 'repository_dispatch' && !github.event.client_payload.release_run_key && format('backup-no-seal-{0}', github.run_id) || format('backup-engine-{0}-{1}', github.event_name, github.run_id) }}
   cancel-in-progress: false
 
 env:
@@ -180,6 +187,33 @@ jobs:
           set -euo pipefail
           sha="${INPUT_SHA:-$GITHUB_SHA}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "not an exact sha: $sha"; exit 1; }
+          # THE 04:00 BUILD IS CERTIFIED AGAINST THE FROZEN COPY (incident
+          # 076ff467, 2026-11-19). Inside tonight's release schema freeze the
+          # one shippable build is the newest server commit merged before the
+          # freeze began, and only a certificate made on a copy restored after
+          # the freeze began can pass the 03:30 contents judge. A push run is
+          # otherwise superseded or retargeted to main's newest commit, which
+          # the freeze makes unshippable, so the 04:00 cutover kept serving.
+          # The first push or schedule run of the night certifies that build
+          # once, refresh forced, never superseded (scripts/ci/backup-freeze-baseline.py).
+          # Any answer but `due` plans exactly as before.
+          if [ "$EVENT" = push ] || [ "$EVENT" = schedule ]; then
+            tool=$(mktemp); baseline_state=unknown; baseline=''
+            if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-freeze-baseline.py?ref=main" > "$tool" 2>/dev/null; then
+              verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" 2>/dev/null) || verdict=''
+              baseline_state=$(printf '%s\n' "$verdict" | sed -n 's/^state=//p')
+              baseline=$(printf '%s\n' "$verdict" | sed -n 's/^baseline=//p')
+            fi
+            rm -f "$tool"
+            echo "freeze baseline: ${baseline_state:-unknown}${baseline:+ ($baseline)}"
+            if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "FREEZE BASELINE: $baseline is tonight's shippable 04:00 build; certifying it on a copy restored now, not superseded, not retargeted."
+              { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\`: certified on tonight's frozen copy (refresh forced)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=$baseline" >> "$GITHUB_OUTPUT"
+              echo "refresh=force" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           # A queued push run whose commit a newer push has already replaced
           # is superseded: a newer push run of this workflow (any state) exists.
           # Runs are serialized FIFO, so a newer run can only be queued or
@@ -364,7 +398,7 @@ jobs:
     if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
         if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
@@ -385,6 +419,66 @@ jobs:
           done
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+      - name: Acquire exclusive Backup host turn
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+          printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+          deadline=$(($(date +%s) + 4500))
+          reclaim=''
+          while true; do
+            verdict=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+              "python3 - '$RUN_ID' '$RUN_ATTEMPT' '$reclaim'" <<'PY'
+          import fcntl, json, os, sys, time
+          run_id, attempt, reclaim = sys.argv[1], sys.argv[2], sys.argv[3]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lib/club-arena-standby', exist_ok=True)
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              now = int(time.time())
+              cur = None
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+              if (cur is None
+                  or (str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt)
+                  or int(cur.get('expiresAt', 0)) <= now
+                  or (reclaim and str(cur.get('runId')) == reclaim)):
+                  tmp = lease_path + '.tmp'
+                  with open(tmp, 'w') as f:
+                      json.dump({'runId': run_id, 'attempt': attempt, 'acquiredAt': now, 'expiresAt': now + 7200}, f)
+                  os.replace(tmp, lease_path)
+                  print('acquired')
+              else:
+                  print('held:' + str(cur.get('runId', 'unknown')))
+          PY
+            )
+            reclaim=''
+            if [ "$verdict" = acquired ]; then
+              echo "Acquired exclusive Backup host turn for run $RUN_ID-$RUN_ATTEMPT."
+              break
+            fi
+            holder="${verdict#held:}"
+            if [[ "$holder" =~ ^[0-9]+$ ]]; then
+              holder_status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$holder" --jq '.status // ""' 2>/dev/null || echo '')
+              if [ "$holder_status" = completed ]; then
+                echo "Stale Backup host lease from completed run $holder; reclaiming."
+                reclaim="$holder"
+                continue
+              fi
+            fi
+            [ "$(date +%s)" -lt "$deadline" ] || { echo "::error::timed out waiting for exclusive Backup host turn (held by run $holder)"; exit 1; }
+            echo "Backup host busy with active run $holder; waiting 20s without cancelling."
+            sleep 20
+          done
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -393,6 +487,9 @@ jobs:
           sparse-checkout: |
             .github/pgdg
             .github/actions/install-postgres-17
+            scripts/ci/ubuntu-apt.sh
+            scripts/ci/ubuntu-apt-mirror.py
+            scripts/ci/ubuntu-apt-mirrors.txt
             scripts/dr
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
@@ -627,3 +724,29 @@ jobs:
           fi
           echo "$state: $desc"
           [ "$state" = success ]
+      - name: Release exclusive Backup host turn
+        if: always()
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+          printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+            "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY

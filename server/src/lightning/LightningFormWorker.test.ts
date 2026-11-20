@@ -437,6 +437,13 @@ describe('a player freed in another Cluster (2026-10-24)', () => {
     expect(w.peerReleased(seen)).toBe(true);
     await vi.advanceTimersByTimeAsync(300);
     expect(at).toEqual([0, 350]);
+    // And their idle-deadline passes (5-handed 1s, 4-handed 1.5s) are armed
+    // rather than waiting another full pass interval after the 350 ms pass.
+    await vi.advanceTimersByTimeAsync(1_400);
+    const fiveDeadline = 100 + LIGHTNING_FORMATION_MAX_WAIT_MS + LIGHTNING_IDLE_DEADLINE_MARGIN_MS;
+    const fourDeadline = 100 + LIGHTNING_FOUR_HANDED_WAIT_MS + LIGHTNING_IDLE_DEADLINE_MARGIN_MS;
+    expect(at).toContain(fiveDeadline);
+    expect(at).toContain(fourDeadline);
     await w.stop();
   });
 

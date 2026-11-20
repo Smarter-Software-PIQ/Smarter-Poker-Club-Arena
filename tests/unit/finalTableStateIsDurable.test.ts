@@ -185,7 +185,9 @@ describe('the Final Table database rollout is safe and ordered', () => {
     expect(POST_DEPLOY).toContain('seal-phase1-customization-cutover.mjs');
     expect(CUTOVER_SEALER).toContain('fn_seal_phase_one_customization_cutover');
 
-    const sealJob = POST_DEPLOY.slice(POST_DEPLOY.indexOf('  phase1-customization-cutover-seal:'));
+    const sealStart = POST_DEPLOY.indexOf('  phase1-customization-cutover-seal:');
+    const nextJob = POST_DEPLOY.indexOf('\n  post-deploy-verdict:', sealStart);
+    const sealJob = POST_DEPLOY.slice(sealStart, nextJob > sealStart ? nextJob : undefined);
     expect(sealJob).toContain('needs: [publication-gate, production-e2e, live-table-e2e]');
     expect(sealJob).not.toContain("needs.production-e2e.outputs.certified == 'true'");
     expect(sealJob).toContain("needs.production-e2e.outputs.phase1_certified == 'true'");

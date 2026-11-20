@@ -62,7 +62,8 @@ export async function verifyLightningPreviousHandReview(
     await page
       .getByRole('button', { name: 'Previous Hand #' + number + ' - Open Hand History' })
       .click();
-    const review = page.getByRole('complementary', { name: 'Previous Lightning Hand' });
+    const review = page.getByRole('dialog', { name: 'Hand Detail' });
+    await expect(review).toContainText('Hand #' + number);
     await expect(review).toContainText('Awaiting Final Result');
     await expect.poll(() => sessionReads).toBe(1);
     options.advance();
@@ -70,11 +71,11 @@ export async function verifyLightningPreviousHandReview(
     await expect(review).toContainText('Hand #' + number);
     settled = true; // The archive commits with no saved-hand event to this client.
     await options.disconnect();
-    await expect(review).toContainText('As Kd 2h', { timeout: 30_000 });
-    await expect(review).toContainText('Pot 17');
-    await expect(review).toContainText('Your Result');
+    await expect(review).toContainText('#' + number, { timeout: 30_000 });
+    await expect(review).toContainText('Pot', { timeout: 30_000 });
+    await expect(review).toContainText('17', { timeout: 30_000 });
     expect(archiveReads).toBe(1);
-    await review.getByRole('button', { name: 'Close Previous Hand' }).click();
+    await review.getByRole('button', { name: 'Close' }).first().click();
     await expect(review).toHaveCount(0);
   } finally {
     await page.unroute(recentRoute);

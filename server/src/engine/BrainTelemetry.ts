@@ -106,6 +106,9 @@ const ONCE_PER_DECISION_RECEIPTS: ReadonlySet<string> = new Set([
   'style_pre_repair_fold_rate_discounted_seen',
   'style_read_released_seen',
   'style_long_participation_seen',
+  // omahaPricedInLightning (PLO Strategy lane 2026-11-18): the priced scope is consulted at several places in one
+  // decision; the receipt says only that a Lightning decision was inside it.
+  'omaha_priced_in_lightning_scope_seen',
 ]);
 const ONCE_PER_DECISION_PREFIXES: readonly string[] = ['style_label_'];
 export function isOncePerDecisionReceipt(feature: string): boolean {

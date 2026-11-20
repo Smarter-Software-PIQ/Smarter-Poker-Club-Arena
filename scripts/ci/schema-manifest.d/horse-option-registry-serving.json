@@ -1,0 +1,6 @@
+{
+  "_owner": "agent/horse-switch-013U37bWh/feat/switch-reset-trap-guard-and-raise-ladder-alarm",
+  "_comment": "Migration 20261119053236 (not installed at submission): the serving engine publishes its option registry; the switch writers refuse what it does not register.",
+  "tables": ["ca_horse_option_registry_serving"],
+  "functions": ["fn_ca_horse_option_registry_publish", "fn_ca_horse_option_registry_refusal"]
+}

@@ -52,7 +52,6 @@ permissions:
 # GitHub's finite queue rejects overflow; it never certifies an omitted run.
 concurrency:
   group: horse-strength-hosted-capacity
-  queue: max
   cancel-in-progress: false
 
 env:

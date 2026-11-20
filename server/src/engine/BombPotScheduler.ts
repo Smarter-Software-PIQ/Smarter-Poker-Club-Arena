@@ -302,11 +302,6 @@ export class BombPotScheduler {
       return { isBombPot: false };
     }
 
-    // The size of the field this hand — the length of an orbit, and so the
-    // denominator of the once_per_orbit countdown. Recorded for every mode
-    // because a table can be reconfigured between hands.
-    this.lastDealtInCount = dealtInCount;
-
     switch (s.triggerMode) {
       case 'bomb_pot_only': {
         // Every valid hand is a bomb; no token bookkeeping needed. Below the
@@ -355,6 +350,12 @@ export class BombPotScheduler {
       }
 
       case 'once_per_orbit': {
+        // The size of the field this hand — the denominator of the
+        // once_per_orbit countdown. Only recorded in once_per_orbit mode so
+        // player-count fluctuations on timed or bomb_pot_only tables do not
+        // dirty exportState() and trigger no-op UPDATEs on `tables` (a
+        // 154-column supabase_realtime published table).
+        this.lastDealtInCount = dealtInCount;
         // The felt countdown's numerator. Counted before the arc test so the
         // hand that completes the orbit is included in the orbit it completes.
         this.handsSinceAnchor++;
@@ -655,4 +656,53 @@ export class BombPotScheduler {
     this.anchorAdvancePending = false;
     this.armedHands = null;
   }
+}
+
+/**
+ * PostgREST `.or(...)` guard for clearing bomb-pot scheduler columns on
+ * `public.tables`. If both columns are already NULL in Postgres, zero rows
+ * match and no WAL / supabase_realtime record is emitted.
+ */
+export const BOMB_POT_CLEAR_CHANGED_FILTER =
+  'bomb_pot_sched_state.not.is.null,bomb_pot_next_due_at.not.is.null';
+
+function normalizeIsoTimestampMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Canonical persistence key for `(tables.bomb_pot_sched_state,
+ * tables.bomb_pot_next_due_at)`.
+ *
+ * - Returns `'null'` when both fields are empty (preserves compatibility with
+ *   existing unit tests that pre-seed `bombPotSchedPersistedJson = 'null'`).
+ * - Sorts top-level object keys so Postgres `jsonb` key reordering never
+ *   triggers a false diff against JS object insertion order after restart.
+ * - Normalizes `dueAtIso` to epoch ms so Postgres `+00:00` and JS `.000Z`
+ *   timestamps compare equal.
+ */
+export function canonicalBombPotPersistKey(
+  state: unknown,
+  dueAtIso: string | null | undefined
+): string {
+  const dueAtMs = normalizeIsoTimestampMs(dueAtIso);
+  if ((state === null || state === undefined) && dueAtMs === null) {
+    return 'null';
+  }
+  let canonicalState: unknown = null;
+  if (state !== null && state !== undefined) {
+    if (typeof state === 'object' && !Array.isArray(state)) {
+      const src = state as Record<string, unknown>;
+      const sorted: Record<string, unknown> = {};
+      for (const k of Object.keys(src).sort()) {
+        sorted[k] = src[k];
+      }
+      canonicalState = sorted;
+    } else {
+      canonicalState = state;
+    }
+  }
+  return JSON.stringify({ s: canonicalState, d: dueAtMs });
 }

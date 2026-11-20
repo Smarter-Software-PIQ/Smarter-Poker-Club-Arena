@@ -314,6 +314,36 @@ describe('with every priced option on, no registered categorical rule decides', 
     ])
       expect(reached).toContain(audit);
   }, 600000);
+  /** Categorical receipts that decided (violations) or that fired beside an _unpriced_kept receipt (fellClosed). */
+  function categoricalDecided(decisions: Played[]): { violations: string[]; fellClosed: string[] } {
+    const violations: string[] = [];
+    const fellClosed: string[] = [];
+    for (const p of decisions)
+      for (const site of OMAHA_CATEGORICAL_RULE_SITES) {
+        const fired = siteFired(site, p.fires);
+        if (fired.length === 0) continue;
+        if (site.sharedWith && p.fires.some((f) => site.sharedWith!.includes(f))) continue;
+        const unpriced = UNPRICED_KEPT[site.pricedBy] ?? [];
+        if (unpriced.some((u) => p.fires.includes(u))) {
+          fellClosed.push(`${p.where}: audit ${site.audit}`);
+          continue;
+        }
+        violations.push(`${p.where}: audit ${site.audit} (${site.rule}) fired ${fired.join(', ')}`);
+      }
+    return { violations, fellClosed };
+  }
+  it('with omahaPricedPriorsByOpponentKind on as well, none fires and no unpriceable spot falls closed (ROWFIX 2026-11-18)', () => {
+    const withPriors: HorseDecideOpts = { ...ON, omahaPricedPriorsByOpponentKind: true };
+    const played = [...play(withPriors), ...play(withPriors, true)];
+    const { violations, fellClosed } = categoricalDecided(played);
+    // eslint-disable-next-line no-console
+    console.log(`[law] priors on: decisions ${played.length}; fell closed ${fellClosed.length}`);
+    expect(
+      fellClosed,
+      'the priors option handed an unpriceable spot to a categorical rule'
+    ).toEqual([]);
+    expect(violations, 'a categorical rule decided with the priors option on').toEqual([]);
+  }, 600000);
   it('with the options on none of them fires: every changed action carries a priced receipt', () => {
     on = [...play(ON), ...play(ON, true)];
     const violations: string[] = [];
@@ -336,6 +366,10 @@ describe('with every priced option on, no registered categorical rule decides', 
     console.log(
       `[law] unpriceable spots that fell closed: ${fellClosed.length} ${fellClosed.join(' | ')}`
     );
+    // ROWFIX 2026-11-18: no priced family falls closed any more (omahaPricedPriorsByOpponentKind no longer
+    // hands an unpriceable spot to the categorical rule), so a categorical receipt beside an _unpriced_kept
+    // one is a violation too.
+    expect(fellClosed, 'an unpriceable spot fell closed to a categorical rule').toEqual([]);
     expect(
       violations,
       'a categorical rule decided a PLO4/PLO5 cash action with its priced option on'

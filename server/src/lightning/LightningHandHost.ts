@@ -193,6 +193,14 @@ import {
   type LightningHorseVpipLedger,
 } from './LightningHorseVpipLedger.js';
 import type { HorseReviewInput } from '../services/HorseHandReview.js';
+import type { LiveHorseDecideOpts } from '../engine/horseDecision/protocol.js';
+import {
+  horseDecideOptsFromRuntimeSettings,
+  lightningFastFoldTuningFrom,
+  pinEngineRuntimeSettings,
+  type LightningFastFoldTuning,
+  type RuntimeSettingsSnapshot,
+} from '../engine/runtimeSettings/index.js';
 import {
   horseOpponentMemorySchema,
   readHorseOpponentProfiles,
@@ -378,6 +386,11 @@ export class LightningTimeBankLedger {
 }
 
 export interface LightningHandHostDeps {
+  /**
+   * ENGINE RUNTIME SETTINGS (2026-11-19): the settings this hand reads to its end. Absent: pinned from the process
+   * channel when the host is built (runtimeSettings/index.ts pinEngineRuntimeSettings, scope the Cluster).
+   */
+  runtimeSettings?: RuntimeSettingsSnapshot;
   backend: LightningHandBackend;
   hub: LightningHub;
   /** The verified cash lease on the host table, if this process holds it. */
@@ -645,6 +658,10 @@ export class LightningHandHost {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
   private readonly random: () => number;
+  /** ENGINE RUNTIME SETTINGS (2026-11-19): pinned at construction, the hand boundary; read for the whole hand. */
+  private readonly runtimeSettings: RuntimeSettingsSnapshot;
+  private readonly fastFoldTuning: LightningFastFoldTuning;
+  private readonly runtimeHorseOpts: LiveHorseDecideOpts | undefined;
   private actionLock = false;
   private finished: Promise<void>;
   private resolveFinished!: () => void;
@@ -667,6 +684,11 @@ export class LightningHandHost {
     this.logger = deps.logger ?? defaultLogger;
     this.now = deps.now ?? Date.now;
     this.random = deps.random ?? Math.random;
+    this.runtimeSettings =
+      deps.runtimeSettings ??
+      pinEngineRuntimeSettings(`lightning:${formed.clusterId}`, formed.handId);
+    this.fastFoldTuning = lightningFastFoldTuningFrom(this.runtimeSettings);
+    this.runtimeHorseOpts = horseDecideOptsFromRuntimeSettings(this.runtimeSettings);
     this.sleep =
       deps.sleep ??
       ((ms) =>
@@ -734,6 +756,14 @@ export class LightningHandHost {
       const participantsP = this.deps.backend.loadParticipants(this.handId, this.formed.players);
       handNumberP.catch(() => undefined);
       participantsP.catch(() => undefined);
+      // HIT AND RUN: who of these is being blinded off. Chain directly off
+      // participantsP so fn_lightning_blind_off_players runs in parallel with
+      // beginDealing / bindHandNumber instead of adding a third sequential DB
+      // round-trip to every Lightning hand's match_to_hand.
+      const blindOffP = participantsP.then((ps) =>
+        this.fetchBlindOff(ps.map((p) => p.poolSessionId))
+      );
+      blindOffP.catch(() => undefined);
       const hint = isUuidLike(this.formed.hostTableHint) ? this.formed.hostTableHint : null;
       const hintedRulesP = hint ? this.deps.backend.loadHostRules(hint) : null;
       hintedRulesP?.catch(() => undefined);
@@ -789,11 +819,6 @@ export class LightningHandHost {
         this.participants.set(p.playerId, p);
         this.watching.set(p.playerId, p.poolSessionId);
       }
-      // HIT AND RUN: who of these is being blinded off. Read beside the deal,
-      // in parallel with the existing rule/bank reads. The deal must know
-      // who needs automatic actions before it can publish the first turn.
-      const blindOffP = this.loadBlindOff(participants.map((p) => p.poolSessionId));
-      blindOffP.catch(() => undefined);
       this.rules = await rulesP;
       timing.mark('rules');
       const variantRefusal = this.checkVariant(this.rules);
@@ -830,12 +855,13 @@ export class LightningHandHost {
       }
       // Asked above for the matcher's list, which the formation check has
       // just proved is exactly these participants.
-      await Promise.all([banksP, blindOffP]);
+      const [, blindOffIds] = await Promise.all([banksP, blindOffP]);
       timing.mark('time_banks');
       if (this.state !== 'starting') {
         outcome = 'aborted_while_reading';
         return; // aborted while reading
       }
+      for (const id of blindOffIds) if (this.participants.has(id)) this.blindOff.add(id);
 
       this.configureClocks(this.rules);
       const btn = participants.find((p) => p.position === 'btn')!;
@@ -1889,7 +1915,12 @@ export class LightningHandHost {
       abort: null,
       startedAt: carried?.startedAt ?? this.now(),
       reactionMs:
-        carried?.reactionMs ?? lightningHorseFastFoldReactionMs({ userId, random: this.random }),
+        carried?.reactionMs ??
+        lightningHorseFastFoldReactionMs({
+          userId,
+          random: this.random,
+          tuning: this.fastFoldTuning,
+        }),
     });
     return true;
   }
@@ -1942,7 +1973,11 @@ export class LightningHandHost {
     const abort = new AbortController();
     this.horseLooks.get(userId)?.abort?.abort();
     const decisionAt = this.now();
-    const reactionMs = lightningHorseFastFoldReactionMs({ userId, random: this.random });
+    const reactionMs = lightningHorseFastFoldReactionMs({
+      userId,
+      random: this.random,
+      tuning: this.fastFoldTuning,
+    });
     this.horseLooks.set(userId, { stage, abort, startedAt: decisionAt, reactionMs });
     const generation = ++this.horseGeneration;
     const lane = this.deps.horseLane ?? getLiveHorseDecisionWorker;
@@ -1988,6 +2023,7 @@ export class LightningHandHost {
         }),
         turnStartMs: decisionAt,
         now: decisionAt,
+        ...(this.runtimeHorseOpts ? { horseOpts: this.runtimeHorseOpts } : {}),
         earlyLook: true,
       },
       abort.signal,
@@ -2111,12 +2147,10 @@ export class LightningHandHost {
   /** HIT AND RUN: players whose seats this hand blinds off. */
   private readonly blindOff = new Set<string>();
 
-  private async loadBlindOff(poolSessionIds: readonly string[]): Promise<void> {
+  private async fetchBlindOff(poolSessionIds: readonly string[]): Promise<ReadonlySet<string>> {
     const read = this.deps.blindOffPlayers;
-    if (!read || poolSessionIds.length === 0) return;
-    const ids = await read(poolSessionIds);
-    if (this.isTerminal()) return;
-    for (const id of ids) if (this.participants.has(id)) this.blindOff.add(id);
+    if (!read || poolSessionIds.length === 0) return new Set();
+    return await read(poolSessionIds);
   }
 
   /** Check if free, fold otherwise. True when the action landed. */
@@ -2592,6 +2626,7 @@ export class LightningHandHost {
         }),
         turnStartMs: this.turnStartMs,
         now: decisionAt,
+        ...(this.runtimeHorseOpts ? { horseOpts: this.runtimeHorseOpts } : {}),
       },
       abort.signal,
       lane,

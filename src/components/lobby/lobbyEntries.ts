@@ -1484,7 +1484,7 @@ type StyleRuleRow = { cluster_template?: string | null } & Partial<
   >
 >;
 
-/** "Big Blind Ante, 50% Minimum VPIP" for a Classic table that enforces both, else null. */
+/** "Big Blind Ante, <floor>% Minimum VPIP" (the table's own maintain_percent_min) for a Classic table that enforces both, else null. */
 function classicAnteFloorNoteOf(t: StyleRuleRow): string | null {
   if (cashTemplateKey(String(t.cluster_template ?? '')) !== 'classic') return null;
   const floor = Number(t.maintain_percent_min) || 0;

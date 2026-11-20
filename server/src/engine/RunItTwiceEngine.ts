@@ -73,8 +73,6 @@ export interface RITState {
    * with the DEFAULT run count, silently discarding the chooser's pick.
    */
   chooserDecided: boolean;
-  /** Consent may be complete before the ten-second decision window closes. */
-  decisionWindowClosed: boolean;
   deadlineTs: number;
   board1: string[];
   board2: string[];
@@ -255,7 +253,6 @@ export class RunItTwiceEngine {
       maxRuns: runs,
       chosenRuns: runs,
       chooserDecided: true,
-      decisionWindowClosed: true,
       deadlineTs: 0,
       board1: [],
       board2: [],
@@ -308,7 +305,6 @@ export class RunItTwiceEngine {
       maxRuns: config.maxRuns || 2,
       chosenRuns: config.maxRuns || 2,
       chooserDecided: false,
-      decisionWindowClosed: false,
       deadlineTs: Date.now() + this.offerTimeoutSeconds(tableId) * 1000,
       board1: [],
       board2: [],
@@ -322,10 +318,7 @@ export class RunItTwiceEngine {
       deadlineMs: state.deadlineTs,
       callback: () => {
         if (this.activeOffers.get(tableId) !== state) return;
-        state.decisionWindowClosed = true;
-        if (state.status === 'accepted') {
-          this.emitEvent({ type: 'RIT_ACCEPTED', tableId, handId: state.handId });
-        } else if (state.status === 'offered') {
+        if (state.status === 'offered') {
           // 'timeout', not 'player': nobody declined here, the window closed.
           // The host forwards THIS case to the wire (see
           // ServerTableEngineRunout.wireRunItTwiceEvents) — a player decline
@@ -382,9 +375,11 @@ export class RunItTwiceEngine {
     const everyoneAccepted = state.allPlayerIds.every((id) => state.acceptedBy.has(id));
     if (!everyoneAccepted) return false;
     state.status = 'accepted';
-    // Record unanimous consent now, but only the original deadline may
-    // announce completion and release the runout. No/Run Once can end early.
-    // Keep the scheduler entry so weekly pauses preserve the remaining time.
+    // Unanimous consent settles the decision immediately: cancel the countdown
+    // timer and announce RIT_ACCEPTED right away so the hand proceeds without
+    // waiting for the decision window to expire.
+    this.scheduler.cancel(state.tableId, RunItTwiceEngine.OFFER_EVENT_ID);
+    this.emitEvent({ type: 'RIT_ACCEPTED', tableId: state.tableId, handId: state.handId });
     return true;
   }
 
@@ -480,13 +475,10 @@ export class RunItTwiceEngine {
     return this.activeOffers.get(tableId)?.deadlineTs ?? 0;
   }
 
-  /** Accepted answers do not shorten the decision clock. */
+  /** True only while the offer is still awaiting player decisions. */
   isDecisionPending(tableId: string): boolean {
     const state = this.activeOffers.get(tableId);
-    return (
-      !!state &&
-      (state.status === 'offered' || (state.status === 'accepted' && !state.decisionWindowClosed))
-    );
+    return !!state && state.status === 'offered';
   }
 
   isActive(tableId: string): boolean {

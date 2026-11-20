@@ -15,6 +15,10 @@ import { useAuthUser } from '../../hooks/useAuthUser';
 import { formatRelativeShort as formatTime } from '@/lib/date';
 import styles from './NotificationDropdown.module.css';
 import { leaveForHub } from '../../lib/openExternal';
+import {
+  CHAT_MESSAGE_TYPE_EXCLUSION_OR,
+  isChatMessageNotificationType,
+} from '../../lib/notificationFilters';
 
 interface Notification {
   id: string;
@@ -103,16 +107,18 @@ export default function NotificationDropdown({ onNavigate }: NotificationDropdow
         if (res.ok) {
           const json = await res.json();
           if (json?.success && Array.isArray(json.notifications)) {
-            mapped = json.notifications.map((n: any) => ({
-              id: n.id,
-              type: n.type,
-              title: n.title,
-              message: n.message,
-              data: n.data,
-              isRead: !!(n.read || n.is_read),
-              createdAt: n.created_at,
-              link: n.link || null,
-            }));
+            mapped = json.notifications
+              .filter((n: any) => !isChatMessageNotificationType(n?.type))
+              .map((n: any) => ({
+                id: n.id,
+                type: n.type,
+                title: n.title,
+                message: n.message,
+                data: n.data,
+                isRead: !!(n.read || n.is_read),
+                createdAt: n.created_at,
+                link: n.link || null,
+              }));
           }
         }
       }
@@ -128,6 +134,7 @@ export default function NotificationDropdown({ onNavigate }: NotificationDropdow
         .from('notifications')
         .select('id, type, title, message, data, read, created_at, action_url, link')
         .eq('user_id', user?.id)
+        .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR)
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -165,6 +172,7 @@ export default function NotificationDropdown({ onNavigate }: NotificationDropdow
     event: 'INSERT',
     onPayload: (payload) => {
       const n = payload.new as any;
+      if (!n || isChatMessageNotificationType(n.type)) return;
       setNotifications((prev) =>
         [
           {

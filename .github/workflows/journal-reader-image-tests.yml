@@ -1,0 +1,26 @@
+name: Journal reader image publisher tests
+
+# Hermetic (fake docker, fake seal): scripts/ops/journal-reader/tests/test_publish_reader_image.sh.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    paths:
+      - 'scripts/ops/journal-reader/**'
+      - '.github/workflows/journal-reader-image.yml'
+      - '.github/workflows/journal-reader-image-tests.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: journal-reader-image-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  publisher:
+    name: Reader publisher refuses, defers and proves as declared
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: bash scripts/ops/journal-reader/tests/test_publish_reader_image.sh

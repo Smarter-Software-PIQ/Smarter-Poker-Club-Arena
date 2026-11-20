@@ -401,6 +401,8 @@ rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
+  # Give back a heavy-job slot this hook took (none when agent-push holds it).
+  if declare -F hq_release >/dev/null; then hq_release; fi
   if [ -n "${CA_PUSH_TMP:-}" ] && [ ! -d "$CA_PUSH_TMP" ]; then
     echo "[club-arena pre-push] BLOCKED: this run's scratch $CA_PUSH_TMP vanished during the run (the drive dropped or was remounted). Failures above are environmental; push again once the drive is back." >&2
     policy_exit=1
@@ -1065,6 +1067,72 @@ if [ "$CASH_INPUT_CHANGED" = yes ]; then
   fi
 fi
 
+# LOCAL TEST SCOPE (Dan, 2026-11-19 12:54 Chicago). The owner order, verbatim:
+# "WHAT CAN WE DO TO CHANGE THE 7 LAYER VERIFICATIONS BEFORE EVERYTHING IS
+# PUSHED AND PUBLISHED?! THAT SEEMS HIGHLY EXCESSIVE AND CAN BE OPTIMIZED AND
+# ENHANCED BETTER. EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER
+# VERIFICATIONS"
+#
+# Measured that day: a push changing scripts/ci, one workflow, two documents
+# and two small tests waited on the Mac's load and then ran for more than
+# twenty minutes here, because one changed workflow selected every test that
+# mentions the workflow directory (438 client files, 14 engine files) and the
+# required hosted checks then ran the same suites again on the same commit.
+#
+# The rule now. Every static guard above still runs on every push. For tests,
+# a push that changes no engine, database or dependency-manifest path, and
+# whose client suite the required hosted check is admitted to run, executes
+# here ONLY the tests directly related to it: the changed test files, and the
+# tests that name a changed file by its repository path. A file named by more
+# than CA_LOCAL_CONTRACT_LIMIT tests is a widely read input; its readers are
+# the hosted Client Unit Tests job, not a second local copy of it. The engine
+# suite, PostgreSQL accounting and the isolated simulations are never started
+# from here for such a push. Anything else (an engine or database path, a
+# dependency manifest, a diff that could not be classified, or a push whose
+# client suite hosted CI would NOT run) keeps the full local selection below.
+# Hosted CI, the protected merge, publication and live proof stay mandatory.
+CA_HEAVY_PATHS='^(server/|supabase/|package(-lock)?\.json$)'
+CA_LOCAL_CONTRACT_LIMIT=60
+CA_LOCAL_SCOPE=full
+CA_HOSTED_SERVER=no
+if [ -n "$FILES" ] && ! printf '%s\n' $FILES | grep -qE "$CA_HEAVY_PATHS"; then
+  # The same classifier the hosted workflow uses to admit its jobs. Any error
+  # prints nothing, which keeps the full local selection.
+  CA_HOSTED=$(node --input-type=module -e '
+    import { pathToFileURL } from "node:url";
+    import { resolve } from "node:path";
+    const { classifyChangedPaths } = await import(pathToFileURL(resolve("scripts/ci/classify-ci-changes.mjs")).href);
+    const flags = classifyChangedPaths(process.argv.slice(1));
+    console.log([flags.src || flags.tests ? "client" : "", flags.server ? "server" : ""].join(" "));
+  ' $FILES 2>/dev/null) || CA_HOSTED=""
+  case "$CA_HOSTED" in *client*) CA_LOCAL_SCOPE=related ;; esac
+  case "$CA_HOSTED" in *server*) CA_HOSTED_SERVER=yes ;; esac
+fi
+echo "[club-arena pre-push] local test scope: $CA_LOCAL_SCOPE"
+
+# THE HOST-WIDE HEAVY-JOB QUEUE (Dan, 2026-11-19 17:26 Chicago). On a full
+# local selection the suites below are the heaviest thing an agent runs on
+# the shared Mac, and dozens of them at once drove the load to 60-90 and
+# failed correct pushes on test timeouts. Before the first suite starts, this
+# hook takes a FIFO slot in the machine's queue (scripts/lib/heavy-queue.sh,
+# slots = cores / 7) and gives it back when it exits. Under
+# scripts/agent-push.sh the helper already holds the slot and this is a
+# no-op. The queue only decides WHEN the suites start: every suite below runs
+# exactly as before, and a broken or missing queue warns and runs them at
+# once. A related-scope push runs a handful of tests and does not queue.
+ca_heavy_slot() {
+  [ "$CA_LOCAL_SCOPE" = full ] || return 0
+  [ "$(uname -s)" = Darwin ] || [ -n "${CA_HEAVY_QUEUE_DIR:-}" ] || return 0
+  [ -z "${CA_HEAVY_SLOT_TAKEN:-}" ] || return 0
+  CA_HEAVY_SLOT_TAKEN=1
+  if [ -f "$CA_TREE_TOP/scripts/lib/heavy-queue.sh" ] && . "$CA_TREE_TOP/scripts/lib/heavy-queue.sh" 2>/dev/null; then
+    hq_acquire "pre-push $(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo detached)" || true
+  else
+    echo "[club-arena pre-push] WARNING: scripts/lib/heavy-queue.sh is missing or unreadable; running the suites without the heavy-job queue (no check is skipped)." >&2
+  fi
+  return 0
+}
+
 # BEGIN TARGETED CLIENT PREFLIGHT
 # Select executable contracts for every changed path, including documents,
 # workflows, scripts and deleted files. Import tracing alone misses readFileSync.
@@ -1084,6 +1152,41 @@ for f in $FILES; do
     esac
   fi
 done
+if [ "$CA_LOCAL_SCOPE" = related ]; then
+  # Directly related only: one pass over tests/ for every changed path (and,
+  # for client source, the same path without its extension, which is how an
+  # import names it). Deleted paths stay in the set. No import-graph tracing:
+  # the hosted suite covers transitive importers on this same commit.
+  CHANGED_SRC=""
+  UNCHANGED_NATIVE_CONTRACTS=$(node "$CA_TREE_TOP/scripts/ci/source-contract-inventory.mjs" $FILES) || exit 1
+  UNCHANGED_NATIVE_CONTRACTS=$(printf '%s\n' "$UNCHANGED_NATIVE_CONTRACTS" | tr '\n' ' ')
+  CA_PATH_PATTERNS=()
+  for f in $FILES; do
+    CA_PATH_PATTERNS+=(-e "$f")
+    case "$f" in
+      *.test.ts|*.test.tsx|*.d.ts) ;;
+      src/*.ts|src/*.tsx) CA_PATH_PATTERNS+=(-e "${f%.*}") ;;
+    esac
+  done
+  CA_READERS=$(grep -rHoF --include='*.test.ts' --include='*.test.tsx' --include='*.test.mjs' "${CA_PATH_PATTERNS[@]}" tests/ 2>/dev/null \
+    | awk -v limit="$CA_LOCAL_CONTRACT_LIMIT" '
+        { i = index($0, ":"); t = substr($0, 1, i - 1); k = substr($0, i + 1)
+          if (k ~ /^src\//) sub(/\.tsx?$/, "", k)
+          if (!((k SUBSEP t) in seen)) { seen[k SUBSEP t] = 1; n[k]++; list[k] = list[k] " " t } }
+        END { for (k in n) if (n[k] > limit) print "WIDE " k " " n[k]; else { m = split(list[k], a, " "); for (j = 1; j <= m; j++) print "RUN " a[j] } }' \
+    | sort -u) || CA_READERS=""
+  printf '%s\n' "$CA_READERS" | sed -n 's/^WIDE \([^ ]*\) \(.*\)$/[club-arena pre-push] \1 is named by \2 tests: left to the required hosted Client Unit Tests job./p'
+  for t in $(printf '%s\n' "$CA_READERS" | sed -n 's/^RUN //p'); do
+    case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
+    case "$t" in
+      *.test.mjs)
+        if grep -q 'node:test' "$t"; then
+          case " $NODE_TESTS " in *" $t "*) ;; *) NODE_TESTS="$NODE_TESTS $t" ;; esac
+        fi ;;
+      *) case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac ;;
+    esac
+  done
+else
 # Evidence packs repeat names across hundreds of shard directories. A source
 # contract depends on the basename, so search each distinct name exactly once.
 # Keep deleted paths in this set: their consumers still need verification.
@@ -1114,6 +1217,7 @@ if [ "${#CONTRACT_PATTERNS[@]}" -gt 0 ]; then
     fi
   done
 fi
+fi
 # CENSUSES OF THE TEST TREE (2026-11-14). Two contracts read every file under
 # tests/ rather than naming one: the law registry (a new *.law.test.* needs its
 # docs/laws.d entry) and the source-window rule (no test may bound a source pin
@@ -1132,6 +1236,8 @@ fi
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)
 if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
+  # declare -F: sections of this hook also run alone in the guard tests.
+  if declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
   if [ "$CLIENT_DEPENDENCY_MODE" != local ]; then
     echo "[club-arena pre-push] BLOCKED: required local client dependencies are incomplete."
     echo "  remedy: (cd \"$CA_TREE_TOP\" && npm ci --ignore-scripts --no-audit --no-fund)"
@@ -1181,6 +1287,7 @@ fi
 # Compile the engine inputs before submission, using its own package root.
 if echo "$FILES" | grep -qE '^server/(src/.*\.ts|tsconfig[^/]*\.json|package(-lock)?\.json)$'; then
   SERVER_TSC="$CA_TREE_TOP/server/node_modules/.bin/tsc"
+  if declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
   if [ "$SERVER_DEPENDENCY_MODE" != local ] || [ ! -x "$SERVER_TSC" ]; then
     echo "[club-arena pre-push] BLOCKED: the required local server compiler is unavailable."
     echo "  remedy: (cd \"$CA_TREE_TOP/server\" && npm ci --ignore-scripts --no-audit --no-fund)"
@@ -1228,6 +1335,10 @@ if [ -f server/package.json ]; then
   # Workflow readers live in the server Vitest project too. A CI-only edit
   # must exercise their literal contracts before hosted qualification starts.
   SERVER_WORKFLOW_BASENAMES=$(printf '%s\n' $FILES | sed -n '/^\.github\/workflows\//s#.*/##p' | sort -u)
+  # Owner order 2026-11-19: with no engine path in the push and the required
+  # hosted Server Engine check admitted for it, the engine project is not
+  # started from here. A client or tooling push never runs the server gate.
+  if [ "$CA_HOSTED_SERVER" = yes ]; then SERVER_WORKFLOW_BASENAMES=""; fi
   if [ -n "$SERVER_WORKFLOW_BASENAMES" ]; then
     SERVER_WORKFLOW_BASENAMES="$SERVER_WORKFLOW_BASENAMES .github/workflows"
   fi
@@ -1237,6 +1348,7 @@ if [ -f server/package.json ]; then
     done
   done
   SRV_TESTS=$(printf '%s\n' $SRV_TESTS | sort -u)
+  if [ -n "$SRV_TESTS$SRV_SRC" ] && declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
 
   # THE NATIVE EVALUATOR IS BUILT BEFORE THE SERVER TESTS (2026-11-05). It is a
   # build product, not a committed file; CI builds it in `pretest`. A fresh

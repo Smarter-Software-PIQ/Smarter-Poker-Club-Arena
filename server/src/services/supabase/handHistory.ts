@@ -556,6 +556,13 @@ export async function logHandHistory(params: {
    * pseudo-entries, which replayers had to parse back out.
    */
   ritBoards?: string[][];
+  /**
+   * Actual between-hand pause times measured after the previous hand on this
+   * table (hold_ms, rest_ms, rebuy_pause_ms, and rit_reveal_ms on RIT hands).
+   * Written to hand_history.cadence when present; omitted when null/absent so
+   * first hands and pre-migration databases stay byte-identical.
+   */
+  cadence?: import('../../engine/handCadenceSpec.js').HandCadenceRecord | null;
   // Round 38 — wall-clock timestamps. startedAt is captured at HAND_START
   // in ServerTableEngine; endedAt is stamped here at write time.
   startedAt?: number;
@@ -854,6 +861,7 @@ export async function logHandHistory(params: {
     // []) on single-run hands so historical rows and normal hands look
     // identical. Column added by migration 20260826_hand_history_rit_boards.
     rit_boards: params.ritBoards?.length ? params.ritBoards : null,
+    ...(params.cadence ? { cadence: params.cadence } : {}),
     started_at: startedAtIso,
     ended_at: endedAtIso,
     winners: params.winners,
@@ -1086,7 +1094,14 @@ export async function logHandHistory(params: {
                   mode: 'cash' | 'tournament',
                   size: 'hu' | 'short' | 'full'
                 ) =>
-                  readHorseOpponentProfiles(ids, v, mode, size, undefined, admitCompletedHandExactRead)
+                  readHorseOpponentProfiles(
+                    ids,
+                    v,
+                    mode,
+                    size,
+                    undefined,
+                    admitCompletedHandExactRead
+                  )
               : (
                   ids: string[],
                   v: string,

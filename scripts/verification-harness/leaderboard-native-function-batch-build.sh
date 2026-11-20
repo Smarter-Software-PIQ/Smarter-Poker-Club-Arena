@@ -7,6 +7,8 @@ if [[ "${1:-}" == --check ]]; then
   bash -n "${BASH_SOURCE[0]}"
   node --check "$here/leaderboard-native-function-batch.mjs"
   test -s "$here/leaderboard-native-function-batch.Dockerfile"
+  bash -n "$here/../ci/ubuntu-apt.sh"
+  test -s "$here/../ci/ubuntu-apt-mirrors.txt"
   exit 0
 fi
 [[ $# == 1 && -d "$1" ]] || { echo 'Owned Build Scratch Parent Required.' >&2; exit 1; }
@@ -20,6 +22,9 @@ printf '%s  %s\n' dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d429
 tar -xOf "$scratch/postgresql-17.11.tar.bz2" postgresql-17.11/src/bin/pg_dump/pg_dump.c > "$scratch/pg_dump.c"
 node "$here/leaderboard-native-function-batch.mjs" "$scratch/pg_dump.c" "$scratch/pg_dump-batched.c"
 cp "$here/leaderboard-native-function-batch.Dockerfile" "$scratch/Dockerfile"
+# The image installs its Ubuntu packages through the one CI entry point and
+# its one mirror list, never a private copy (2026-11-19).
+cp "$here/../ci/ubuntu-apt.sh" "$here/../ci/ubuntu-apt-mirrors.txt" "$scratch/"
 # Bounded inside the step's 8 minutes so a stalled build names its stage instead of
 # being killed silently by the runner with the log still in scratch.
 build_status=0

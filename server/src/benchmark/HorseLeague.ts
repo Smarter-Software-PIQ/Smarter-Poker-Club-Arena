@@ -2624,6 +2624,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverFullHouseValue: true },
     b: {},
   },
+  // 2026-11-18 ROWFIX (holdemRiverFullHouseValueIsPriced, default OFF, unevaluated): both arms lead
+  // qualifying river boats (holdemRiverFullHouseValue, live); a prices the lead against the check by EV from
+  // the aggressor's measured river call and checked-to bet shares, b keeps the fixed 70%. Declared, not run.
+  {
+    name: 'nlh_river_full_house_value_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemRiverFullHouseValue: true, holdemRiverFullHouseValueIsPriced: true },
+    b: { holdemRiverFullHouseValue: true },
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
@@ -3594,6 +3604,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-18 ROWFIX (omahaTournamentsExcludeCategoricalRules, default OFF, unevaluated): both arms carry
+  // production's live Omaha set (OMAHA_LIVE_OPTIONS_20261118, the tournament extension on); a also keeps the
+  // categorical rules cash-only, so the card measures the categorical rules' tournament reach alone. 6-max
+  // MTT, 40 BB (deeper than the 14 BB push/fold line). Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_mtt_6max_omaha_tournaments_exclude_categorical_rules_40bb`,
+    variant,
+    seats: 6,
+    stackBB: 40,
+    context: bigBlindAnteMttContext(6, 40),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTournamentsExcludeCategoricalRules: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and
@@ -4950,6 +4976,31 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
       'big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    // PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 20:08:21Z): the live Omaha set (with the priced
+    // turn/river raise and the priced small bets on) in BOTH arms; the one-arm question is the Lightning scope.
+    name: 'plo5_omaha_priced_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaSmallBetIsPriced: true,
+      omahaPricedInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
+    reason:
+      'No Lightning domain in the league table. omahaPricedInLightning is DEFAULT OFF (HorseOmahaPricedWiring: ' +
+      'opts.omahaPricedInLightning === true) and it changes one thing: omahaPricedInScope (and, for the two priced ' +
+      'raise owners, omahaRaiseNeedsNutsScope) no longer refuses a decision whose gs.publicMemoryDomain.speed is ' +
+      '"lightning". The league deals its own tables and no league context carries a public memory domain, so every ' +
+      'league decision is already inside the priced scope in both arms, both arms play identical poker ' +
+      '(omaha_priced_in_lightning_scope_seen never fires) and the card would report 0.00 +/- 0.00 every night. ' +
+      'Measured 2026-11-18 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261118, status inert). ' +
+      'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
+      'LIGHTNING_EVAL_CANDIDATE) on a live-base baseline (PASS-BAR in the PLO lane evidence, ' +
+      'plo-handoff-review-01a1cbbd/lightning-013U37). What would change this: a league context that deals the ' +
+      'Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and sets the domain.',
   },
   {
     // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the

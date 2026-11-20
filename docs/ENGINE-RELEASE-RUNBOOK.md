@@ -1,3 +1,5 @@
+**2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-2030z.** Window 1510z was consumed at 17:33 UTC: receiver run 44577448928 sealed dfaa9717f826 and every table resumed. On the owner's 11:50 Chicago order to cut over again as soon as possible so that everything merged after that seal is activated and tested, this books one more no-notice activation of protected main dee22dec9ecd: admission 20:30 UTC November 19 through fixed 02:00 UTC November 20, serving dfaa9717f826. No player notice; the engine finishes and settles every hand before freezing.
+
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-1510z.** Window 1030z was consumed at 14:11 UTC: certified 7add8b42c83b swapped in but the long drain had used the proof and rollback reserve, so sealed f3e99378ccbb was restored. Per the owner's emergency order this books one more no-notice activation of protected main 7add8b42c83b: admission 15:10 UTC through fixed 21:00 UTC November 19, serving f3e99378ccbb. No player notice; the engine finishes and settles every hand before freezing.
 
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-1030z.** The November 19 04:00 Chicago daily preparation kept serving f3e99378ccbb (no candidate's Backup copy matched production, and later candidates carried migrations held by the nightly schema freeze). Per the owner's standing orders this books one no-notice off-cycle activation of everything on protected main up to 5552ddaa3c13: admission 10:30 UTC through fixed 16:20 UTC November 19, serving f3e99378ccbb. No player notice; the engine finishes and settles every hand before freezing.
@@ -126,7 +128,7 @@ Everything in this document. Specifically, without asking anyone:
 | Never                                                                                   | Why, and where it is written                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Edit the live engine, its container, image tag or `.env` by hand, or the running Backup | Owner direction 2026-11-06 (top of `CLAUDE.md`); `.claude/skills/deploy-hetzner/SKILL.md` ("never replace the container, repoint its image tag, prune retained rollback images, reduce the proof reserve or extend a live freeze by hand")                                                                                                                                                                                           |
-| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1398 `daily_cutover_clock` (hour 4, minute under 5) and line 3908; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`                                                                                                                                                           |
+| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1398 `daily_cutover_clock` (hour 4, minute under 5) and line 3913; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`                                                                                                                                                           |
 | Send a release for a SHA without `backup-engine/certified = success`                    | Receiver step `backup_certificate`; host `require_backup_certificate` (transaction line 1367); `tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts`                                                                                                                                                                                                                                                          |
 | Apply a migration from a branch, a local file or the Supabase MCP `apply_migration`     | `CLAUDE.md` section 2 rules 8 and 11; `PUBLISHING.md`; `tests/unit/migrationsInstallFromMain.test.ts`                                                                                                                                                                                                                                                                                                                                |
 | Apply a `-- @install-window: daily-maintenance` file by hand                            | `CLAUDE.md` section 2 rule 10; `tests/a-window-migration-waits-for-the-daily-break.law.test.ts`                                                                                                                                                                                                                                                                                                                                      |
@@ -153,11 +155,33 @@ to production; the current engine keeps running by design.
 | Receipt sealed but the GitHub run is red                                                      | Trust the receipt and `/health`, not the colour. Confirm the SHA and instance at `/health` match `/var/lib/club-arena/engine-release-results/<run>-<attempt>.json`. Reattach the observer to the original run (section 4.9). Check the Backup run ID recorded by the sealed receiver and its physical restore. If the provider lost the handoff, use the single Backup-only recovery (section 7.2). Do not re-run the cutover.                                                              | `backup-engine.yml` job `plan` (step `seal`); `PUBLISHING.md`; `docs/changelog/2026-11-07-observer-retired-completion-invocation.md`                                                                   |
 | Health never comes back after 04:05                                                           | Read the receipt. `ENGINE_RELEASE_RESULT` absent and the container down means the transaction's recovery ran or is running (`engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1`). Watch `/health` for the previously sealed SHA. If still down after `NON_BREAK_RECOVERY_MAX_SECONDS` (300 s, line 105), it is an incident: the supervisor and the container's own restart policy are the only levers; record every timestamp, and fix the boot cause in a PR. No hand restart. | `engine-release-transaction.sh` lines 105 and 806; `server/scripts/engine-up.sh` is the single start path                                                                                              |
 | Freeze never confirmed (`fn_platform_frozen` false through the break)                         | Nothing cut over: `maintenance_certificate` (line 1451) refuses without `readyForRestart` and the database row. The installer also refuses. Read `engine_maintenance_break` and the engine log for why the announcement failed (a lock timeout on the row write is the known cause). Fix at the root.                                                                                                                                                                                       | `server/src/maintenance/MaintenanceBreak.ts`; `CLAUDE.md` section 13 invariant 1                                                                                                                       |
-| Rollback happened (receipt `result` not `sealed`, `/health` shows the previous SHA)           | The previous engine is serving by design. Read the transaction log for the failed witness (candidate proof, database leader proof, window doors). Fix at the root; the next window retries with a new certificate. Never shorten a reserve.                                                                                                                                                                                                                                                 | `engine-release-transaction.sh` lines 52-53 and 2735 `prove_rollback_readiness`                                                                                                                        |
+| Rollback happened (receipt `result` not `sealed`, `/health` shows the previous SHA)           | The previous engine is serving by design. Read the transaction log for the failed witness (candidate proof, database leader proof, window doors). Fix at the root; the next window retries with a new certificate. Never shorten a reserve.                                                                                                                                                                                                                                                 | `engine-release-transaction.sh` lines 52-53 and 2740 `prove_rollback_readiness`                                                                                                                        |
 
 ### Every ordinary candidate migration must be installed before dispatch
 
 Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-ready --repo . --serving SERVING_SHA --sha TARGET_SHA` using the configured read-only `DATABASE_URL`, or supply `--production FRESH_SCHEMA_EVIDENCE_JSON` from a fresh installed listing. It checks all ordinary added or changed candidate files, including byte-bound recordings whose installed name differs from their filename. Missing versions, wrong installed names and malformed or ambiguous recording claims refuse. Retain the separate certified-copy equality and required-function checks. A changed recording manifest requires fresh release and physical Backup qualification; this command never installs or replays SQL.
+
+### 1.4 Freezing main for an owner window says when it ends
+
+**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live, as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
+
+No tool applies a freeze of `refs/heads/main` any more (the hand-made `RELEASE FREEZE` repository ruleset, id 27627940, stays disabled). The engine window is published and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
+
+```bash
+node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the variable it will write
+node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Variables: write; main stays open
+node scripts/ci/main-freeze.mjs thaw --apply                         # enforcement=disabled, same ruleset id
+```
+
+Freezing renames the ruleset to `RELEASE FREEZE until <notAfter>Z (<window id>) <sha8 of contains>` and writes the repository variable `MAIN_RELEASE_FREEZE` (JSON: `state`, `windowId`, `notBefore`, `notAfter`, `release`, `rulesetId`). It refuses a window that is not booked or has already ended, so a freeze never claims an end the bookings do not support. Thawing disables the same ruleset (the id stays stable), resets its name to the bare prefix and marks the variable `lifted`. Neither touches the database freeze `smarter_private.ca_release_freeze`, the engine or any bypass list.
+
+Any session reads the state with one command, read-only:
+
+```bash
+node scripts/ci/main-freeze-status.mjs          # or --json
+```
+
+It prints `main: OPEN`, `main: FROZEN` (ruleset, window, until, release) or `main: UNKNOWN` (rulesets unreadable; never reported as open), any booked windows open now, and the next booked window. A ruleset applied by hand without a label is still bounded: the helper reports the latest-ending booked window covering now, marked `INFERRED`. `OVERDUE` means the booked `notAfter` has passed and the ruleset is still active; the custodian thaws it, nothing lifts it on a clock. Do not poll the ruleset to learn when merges resume: read the `until` line and come back then. Tests: `node --test tests/operations/main-freeze-status.test.mjs` (fixtures only, no network).
 
 ## 2. Adding to the engine
 
@@ -227,6 +251,50 @@ Engine shard N/4` jobs and the accounting job joined by `Server Engine
 Done for this section: the squash commit is on `main`; `backup-engine/certified`
 on that commit (or a newer main commit containing it) reads `success`; nothing
 has touched production.
+
+## 2a. Engine settings change without a cutover (runtime settings)
+
+Owner order, November 19, 2026, 12:54 Chicago: stop requiring an engine cutover
+for upgrades, improvements and fixes. A change to a VALUE the engine already
+reads is now a settings change, not a release.
+
+- **What is live without a cutover.** Every key in
+  `server/src/engine/runtimeSettings/registry.ts`: the Horse river raise shade
+  (`horse.v67RiverRaiseShade`), turn shade cap (`horse.v65TurnShadeCap`), air
+  shade scale (`horse.v68AirShadeScale`) and tournament call bar bump
+  (`horse.tournamentFlatBump`), and the Lightning Horse fast-fold timing
+  (`lightning.fastFold*`: floor, median, spread, ceiling, tempo range). The
+  Horse on/off option switches (`server/src/engine/HorseOptionSwitch.ts`,
+  every registered option including the per-variant strategy toggles) were
+  already live without a cutover and keep their own table and authority rules.
+- **How to publish.** Either a migration that calls
+  `fn_ca_engine_runtime_settings_publish(settings, note, actor)` (the reviewed
+  route; `npx tsx scripts/runtime-settings-publish.ts --sql <file> --note "<why>"`
+  from `server/` prints the line), or the publisher script with
+  `--publish <file> --note "<why>" --actor "<who>"`. Check a file first with
+  `--check <file>`. A key left out keeps its compiled default. Roll back with
+  `--rollback <version>` (or `fn_ca_engine_runtime_settings_rollback`), which
+  publishes that version's values as a new version.
+- **When it goes live.** The engine reads the active version every 30 seconds
+  and applies it at each table's next hand boundary: a hand already dealt
+  finishes on the version it started with. No cutover, no restart, no notice.
+- **What the engine refuses.** A version with a key the serving release does
+  not register, a value of the wrong kind or outside its range, or a broken
+  cross rule (floor below ceiling, tempo min not above max) is refused whole,
+  and the last good version keeps serving. A failed read keeps the current
+  settings. Before the first good read after a restart the compiled defaults
+  serve. So publish only keys the serving release registers.
+- **Audit.** `ca_engine_runtime_settings_hand_use` gets one row each time a
+  table (scope `table:<id>`, hand number) or a Lightning Cluster (scope
+  `lightning:<cluster>`, hand id) starts pinning a different version; a hand
+  used the version of the latest row of its scope at or before it.
+- **What still needs a cutover.** New code: a new setting key, a new option, a
+  new code path, a changed compiled default, or any change to how a value is
+  used. Adding a key is a normal engine change; once it ships, its value is
+  live-tunable from then on. Version 1 (migration
+  `supabase/migrations/20261119211354_engine_settings_change_at_the_next_hand_without_a_cutover.sql`)
+  equals the compiled values exactly; the engine code that reads the channel
+  ships in the first engine release after it merges.
 
 ## 3. The Backup (clone) engine, step by step
 
@@ -327,8 +395,8 @@ Readers accept only `success`, newest status first:
   from the owed SHA (60 commits) and offers the newest `success`;
 - `auto-deploy-hetzner.yml` step `backup_certificate` refuses any request
   whose SHA is not `success`;
-- the host transaction re-reads it at line 3284 (before the cycle), line 3851 (before preparation) and line
-  3907 (before the replacement).
+- the host transaction re-reads it at line 3289 (before the cycle), line 3856 (before preparation) and line
+  3912 (before the replacement).
 
 Read it yourself:
 
@@ -503,13 +571,13 @@ flight and no payout is mid-settlement.
 
 | Phase              | What                                                                                                                                                                                                                                                                                                                                                                                    | Budget                                                                                                   |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Cycle reservation  | the Backup certificate re-read at line 3284, image lease and candidate validation (`create_image_lease` line 2945, `validate_candidate_image` line 2992, `prewarm_candidate_image` line 3028)                                                                                                                                                                                           | Before the window                                                                                        |
+| Cycle reservation  | the Backup certificate re-read at line 3289, image lease and candidate validation (`create_image_lease` line 2950, `validate_candidate_image` line 2997, `prewarm_candidate_image` line 3033)                                                                                                                                                                                           | Before the window                                                                                        |
 | Window doors       | `window_doors_ready` (line 356) re-reads pg_proc and PostgREST's cache for every door a queued window migration creates (`docs/changelog/2026-11-07-release-window-resilience.md`)                                                                                                                                                                                                      | Inside the break, before the lock                                                                        |
 | Certificate        | `maintenance_certificate` (line 1451): `daily_cutover_clock` true, `readyForRestart` true, `unparkedTables == 0`, the durable break row, and enough break left: the strict `MIN_BREAK_REMAINING_MS` for a legacy checkpoint, otherwise `BREAK_ADMISSION_MIN_BREAK_MS` = 285000 minus a 25 s certificate lag = 260000 ms (lines 167 and 185), because the countdown is never read at t=0 | `MIN_BREAK_REMAINING_MS` = (150 + 135 + 0) s = 285000 ms of the 300000 ms break (lines 52, 53, 109, 115) |
-| Rollback readiness | `prove_rollback_readiness` (line 2735): the sealed engine is the exact live local and public process and the fresh database leader                                                                                                                                                                                                                                                      | Inside the 150 s proof                                                                                   |
+| Rollback readiness | `prove_rollback_readiness` (line 2740): the sealed engine is the exact live local and public process and the fresh database leader                                                                                                                                                                                                                                                      | Inside the 150 s proof                                                                                   |
 | Cutover            | `server/scripts/engine-up.sh` under the engine lock: stop the old container at a hand boundary (already parked), start the candidate, prove local `/health`, public `/health` and the database leader (`server/scripts/engine-release-database-proof.py`)                                                                                                                               | `BREAK_CUTOVER_PROOF_SECONDS` = 150                                                                      |
 | Rollback reserve   | If any witness fails before the seal, `recover_on_exit` (line 806) aborts the seal and runs `engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1` to restore the previously sealed desired state                                                                                                                                                                              | `BREAK_ROLLBACK_RESERVE_SECONDS` = 135, always held                                                      |
-| Seal               | `persist_result sealed` (line 4051 via `persist_result` line 2576): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
+| Seal               | `persist_result sealed` (line 4077 via `persist_result` line 2581): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
 | Thaw               | The new engine reads the break row, re-parks until `break_ends_at`, then `end()` thaws every deadline (`fn_thaw_platform`) and resumes in `RESUME_WAVES` waves; `/health.maintenance.resumeWaves` shows the rollout                                                                                                                                                                     | 04:05                                                                                                    |
 
 Receipt path on the host: `/var/lib/club-arena/engine-release-results/<run-id>-<attempt>.json`
@@ -709,7 +777,7 @@ queue is not one (`CLAUDE.md` section 13). Since the owner direction of
 2026-11-06 that reason cannot admit a replacement outside 04:00-04:05: the
 receiver's `daily_release` step admits only the 03:30-03:50 preparation (or the
 recorded November 7 owner window), the host's `daily_cutover_clock` is checked
-again at line 3908, and `stage-engine-release.yml` offers nothing outside the
+again at line 3913, and `stage-engine-release.yml` offers nothing outside the
 daily preparation. A degraded engine during the day is therefore an incident
 to diagnose and fix at the root (section 10.11), with the container's own
 `unless-stopped` restart policy and the host supervisor as the only recovery
@@ -768,7 +836,7 @@ each needs its own PR, law and changelog.
    receiver's `prepare` step runs `server/scripts/build-engine-image.sh` on the
    production host before the window and `server/scripts/prewarm-engine-image.sh`
    loads it, and the transaction re-checks with `validate_candidate_image` and
-   `prewarm_candidate_image` (lines 2992, 3028). Not pre-warmed: the node
+   `prewarm_candidate_image` (lines 2997, 3033). Not pre-warmed: the node
    process itself (module load, snapshot rebuild of every table, the first
    Monte Carlo sample). A warm-standby process on the production host is the
    remaining idea. Deferred: two engines on one host contend for the single

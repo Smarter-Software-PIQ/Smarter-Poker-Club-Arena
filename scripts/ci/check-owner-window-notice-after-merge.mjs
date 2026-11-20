@@ -168,7 +168,138 @@ export function bookingViolations(doc, bookedAt, now, witnessDoc = null) {
   return out;
 }
 
-function gitBookedAt(base) {
+/**
+ * Count non-overlapping occurrences of `needle` in `line`, the way `git log -S`
+ * counts them.
+ */
+function occurrences(line, needle) {
+  let n = 0;
+  for (let at = line.indexOf(needle); at !== -1; at = line.indexOf(needle, at + needle.length)) n++;
+  return n;
+}
+
+/**
+ * The merge instant of every id on main, from ONE pass over the file's
+ * first-parent history (2026-11-19). The previous form ran one
+ * `git log -S<id>` per window, re-walking the whole history 150+ times: 65 s
+ * locally and about 85 s on every pull request, the slowest repository check
+ * in its job. The answer is unchanged: `git log -S<id>` reports the commits in
+ * which the number of occurrences of <id> in the file changes, and with a
+ * zero-context patch that change is exactly (occurrences on added lines) minus
+ * (occurrences on removed lines). The earliest such first-parent commit is the
+ * one that added the window. Any git failure (an unknown base, missing
+ * history) throws, so the check still fails closed.
+ */
+export function bookedAtFromPatchLog(log, ids) {
+  const found = new Map();
+  const pending = new Set(ids);
+  let when = null;
+  let net = null;
+  let inHunk = false;
+  const settle = () => {
+    if (net === null) return;
+    for (const [id, delta] of net) {
+      if (delta !== 0 && pending.has(id)) {
+        found.set(id, when);
+        pending.delete(id);
+      }
+    }
+  };
+  for (const line of log.split('\n')) {
+    if (line.startsWith('\u0001')) {
+      settle();
+      when = Date.parse(line.slice(1));
+      net = new Map();
+      inHunk = false;
+      continue;
+    }
+    if (net === null) continue;
+    if (line.startsWith('diff --git ')) {
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith('@@')) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    const sign = line[0] === '+' ? 1 : line[0] === '-' ? -1 : 0;
+    if (sign === 0) continue;
+    for (const id of pending) {
+      const n = occurrences(line, id);
+      if (n) net.set(id, (net.get(id) ?? 0) + sign * n);
+    }
+  }
+  settle();
+  return (id) => (found.has(id) ? found.get(id) : null);
+}
+
+/**
+ * A CI checkout is a blob:none partial clone, where every historical version
+ * of the file is fetched lazily, one network round trip each. Ask for all of
+ * them in ONE fetch first, exactly as git's own promisor fetch does. Best
+ * effort only: if it fails, the log below still fetches lazily and stays
+ * correct.
+ */
+function prefetchFileHistory(base) {
+  let promisor = '';
+  try {
+    promisor = execFileSync('git', ['config', '--get', 'remote.origin.promisor'], { encoding: 'utf8' }).trim();
+  } catch {
+    return;
+  }
+  if (promisor !== 'true') return;
+  try {
+    const raw = execFileSync(
+      'git',
+      ['log', '--first-parent', '--no-renames', '--raw', '--no-abbrev', '--format=', base, '--', FILE],
+      { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
+    );
+    const oids = new Set();
+    for (const line of raw.split('\n')) {
+      const fields = line.split(/\s+/);
+      for (const oid of [fields[2], fields[3]]) {
+        if (oid && /^[0-9a-f]{40,64}$/.test(oid) && !/^0+$/.test(oid)) oids.add(oid);
+      }
+    }
+    if (!oids.size) return;
+    const missing = execFileSync(
+      'git',
+      ['cat-file', '--batch-check=%(objectname) %(objecttype)'],
+      { encoding: 'utf8', input: [...oids].join('\n') + '\n', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } }
+    )
+      .split('\n')
+      .filter((l) => l.endsWith(' missing'))
+      .map((l) => l.split(' ')[0]);
+    if (!missing.length) return;
+    execFileSync(
+      'git',
+      [
+        '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', 'origin', '--no-tags',
+        '--no-write-fetch-head', '--recurse-submodules=no', '--filter=blob:none', '--stdin',
+      ],
+      { input: missing.join('\n') + '\n', stdio: ['pipe', 'ignore', 'ignore'] }
+    );
+  } catch {
+    // The log below fetches anything still missing, one object at a time.
+  }
+}
+
+export function gitBookedAt(base, ids) {
+  prefetchFileHistory(base);
+  const log = execFileSync(
+    'git',
+    [
+      'log', '--first-parent', '--reverse', '--no-renames', '--no-color', '--no-ext-diff',
+      '-p', '-U0', '--format=%x01%cI', base, '--', FILE,
+    ],
+    { encoding: 'utf8', maxBuffer: 1024 * 1024 * 1024 }
+  );
+  return bookedAtFromPatchLog(log, ids);
+}
+
+/** The original per-id form, kept as the reference the single pass is proven against. */
+export function gitBookedAtPerId(base) {
   return (id) => {
     const out = execFileSync(
       'git',
@@ -184,7 +315,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const base = process.env.CI_BASE_SHA || 'origin/main';
   const doc = JSON.parse(readFileSync(FILE, 'utf8'));
   const witnessDoc = existsSync(WITNESS_FILE) ? JSON.parse(readFileSync(WITNESS_FILE, 'utf8')) : null;
-  const failures = bookingViolations(doc, gitBookedAt(base), Date.now(), witnessDoc);
+  const ids = [...(doc.windows ?? []), ...(doc.databaseWindows ?? [])]
+    .filter((w) => w && typeof w.id === 'string')
+    .map((w) => w.id);
+  const failures = bookingViolations(doc, gitBookedAt(base, ids), Date.now(), witnessDoc);
   if (failures.length) {
     console.error('A booked owner window cannot give notice in the past:');
     for (const f of failures) console.error(`  - ${f}`);

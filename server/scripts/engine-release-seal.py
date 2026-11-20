@@ -691,14 +691,14 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 # Written under SealLock before the per-run reservation. An interrupted write
 # consumes the exception conservatively. Existing release recovery reads keep
 # their original run identity and never request a second announcement.
-NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-19-owner-no-notice-engine-1510z.json'
-NOV7_PREDECESSOR = 'f3e99378ccbba4071e342b1de9137cc42bfce7ae'
+NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-19-owner-no-notice-engine-2030z.json'
+NOV7_PREDECESSOR = 'dfaa9717f826e8035919a4b232f5f64afcc440f6'
 
 
 def require_nov7_reservation_authority(args, target, stamp):
     # The installed seal and its policy reader belong to the same pinned control generation.
     deadline = getattr(args, 'deadline', None)
-    expiry = int(datetime.fromisoformat('2026-11-19T21:00:00+00:00').timestamp())
+    expiry = int(datetime.fromisoformat('2026-11-20T02:00:00+00:00').timestamp())
     if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
             or not 330 <= (stamp // 1000) % 3600 <= 2940):
         die('Nov 7 announcement cannot fit the authorized window')
@@ -2777,8 +2777,24 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             if (state['desired']['sha'] != NOV7_PREDECESSOR or args.cause != 'urgent'
                     or args.scheduled_cycle_start is not None or getattr(args, 'certified_policy', None)):
                 die('Nov 7 release predecessor or cause differs')
-            if os.path.lexists(STATE_DIR / NOV7_OWNER_CLAIM) or os.path.lexists(path):
-                # Known or unknown outcome: observe the original reservation.
+            claim_path = STATE_DIR / NOV7_OWNER_CLAIM
+            if os.path.lexists(claim_path):
+                owner_run = 'unknown'
+                try:
+                    existing_claim = json.loads(claim_path.read_text(encoding='utf-8'))
+                    if isinstance(existing_claim, dict) and isinstance(existing_claim.get('runId'), str):
+                        owner_run = existing_claim['runId']
+                except (OSError, ValueError):
+                    owner_run = 'unreadable'
+                if owner_run == run_id:
+                    # Same run (known or unknown outcome): observe the original reservation.
+                    print('unavailable')
+                else:
+                    # Single-use owner window claim already belongs to another run: refuse immediately.
+                    print(f'owner-claim-consumed:{owner_run}')
+                return
+            if os.path.lexists(path):
+                # Known or unknown outcome for this run: observe the original reservation.
                 print('unavailable')
                 return
         if path.exists():
