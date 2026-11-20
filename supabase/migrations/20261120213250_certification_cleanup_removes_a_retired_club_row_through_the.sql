@@ -33,6 +33,8 @@
 -- Preimage: the function as installed by 20261114163238 (md5 below, read live
 -- 2026-11-20). A function changed since then is a different decision; refuse.
 -- Pinned by tests/unit/certificationCleanupRetiredClubRow.test.ts.
+--
+-- @live-proof: position('v_previous_final_retirement_maintenance' IN pg_get_functiondef('public.cleanup_reserved_certification_account(uuid)'::regprocedure)) > 0
 
 BEGIN;
 SET LOCAL lock_timeout = '4s';
@@ -78,5 +80,35 @@ BEGIN
   END IF;
 END
 $door$;
+
+-- The patched door runs once on a stale identity of exactly the refused shape
+-- (no ledger history, a zero-balance player row in a retired club) and must
+-- succeed; the subtransaction is always undone. With no such identity left it
+-- still executes the new body on an absent id.
+-- @probe-for: public.cleanup_reserved_certification_account
+DO $probe$
+DECLARE
+  v_id uuid;
+  v_res jsonb;
+BEGIN
+  SELECT u.id INTO v_id
+    FROM auth.users u
+   WHERE u.email LIKE 'ca-customization-cert-postdeploy-%@example.invalid'
+     AND NOT EXISTS (SELECT 1 FROM public.chip_ledger l WHERE l.performed_by = u.id)
+     AND EXISTS (
+       SELECT 1 FROM public.club_members m JOIN public.clubs c ON c.id = m.club_id
+        WHERE m.user_id = u.id AND m.role = 'player' AND c.lifecycle_status = 'retired'
+          AND COALESCE(m.chip_balance, 0) = 0 AND COALESCE(m.promo_balance, 0) = 0
+          AND COALESCE(m.held_chips, 0) = 0 AND COALESCE(m.locked_chips, 0) = 0)
+   ORDER BY u.created_at
+   LIMIT 1;
+  v_res := public.cleanup_reserved_certification_account(COALESCE(v_id, gen_random_uuid()));
+  IF v_id IS NOT NULL AND (v_res->>'success') IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'CERTIFICATION_RETIRED_ROW_PROBE_REFUSED %', v_res USING ERRCODE = 'P0002';
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;
