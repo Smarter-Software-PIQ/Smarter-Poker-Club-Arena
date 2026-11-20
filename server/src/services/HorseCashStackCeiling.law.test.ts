@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { sliceEnclosingBlock, sliceMethod } from '../testHelpers/sourceWindow.js';
 import {
   HORSE_CASH_STACK_CEILING_COMPILED_BB,
   HORSE_CASH_STACK_CEILING_KEY,
@@ -201,7 +202,9 @@ describe('the table exit', () => {
     const s = src('engine/ServerTableEngineSettlement.ts');
     const at = s.indexOf('if (shouldBankTheWin(bank)) return true;');
     expect(at).toBeGreaterThan(0);
-    const tail = s.slice(at, at + 900);
+    // the filter callback that holds the owner line, bounded by its own braces
+    const block = sliceEnclosingBlock(s, 'if (shouldBankTheWin(bank)) return true;');
+    const tail = block.slice(block.indexOf('if (shouldBankTheWin(bank)) return true;'));
     expect(tail).toContain('if (stackCeiling === null) return false;');
     expect(tail).toMatch(
       /shouldBankTheWin\(\{ \.\.\.bank, stackCeiling \}\) &&\s*ceilingExitKeepsTheGame\(/
@@ -212,8 +215,8 @@ describe('the table exit', () => {
     // the hit-and-run count still comes first, and the exit is the ordinary voluntary door (no rathole)
     const filter = s.slice(s.indexOf('const cashedOutHorses = players.filter'), at);
     expect(filter).toContain('if (row && hitRunHandsRemaining(row, p.stack) > 0) return false;');
-    const exit = s.slice(s.indexOf('protected async bankTheWinExit('));
-    expect(exit.slice(0, 900)).toContain('await this.cashoutVoluntaryStay(horse)');
+    const exit = sliceMethod(s, 'protected async bankTheWinExit(');
+    expect(exit).toContain('await this.cashoutVoluntaryStay(horse)');
     // tournaments and Diamond cash never reach it
     const step = s.slice(s.indexOf("runStep('horse_cashouts'"), at);
     expect(step).toContain(
