@@ -1348,6 +1348,38 @@ export function omahaThreeWayPriced(i: OmahaThreeWayInput): OmahaThreeWayReceipt
     const best = ev[verdict];
     if (v !== null && (best === null || v > best + 1e-9)) verdict = a;
   }
+  // EMERG lane PREFLOP-AUDIT 2026-11-20 (plain fix inside the default-OFF option): THIS PRICING DOES NOT FOLD
+  // A HAND THE STANDING RULES CONTINUE WITH. Two defects met in its fold verdict. (1) The fold is exact (0, no
+  // sampling error) while the call and the raise are priced at their estimate minus two standard errors, so a
+  // close hand always tipped to the fold. (2) Its realization out of position with deep stacks (0.50 for the
+  // call, 0.70 for the raise at 400 bb) prices bare aces facing a single 3-bet below zero even at the estimate,
+  // while aces in exactly that spot realised +15.0 +/- 13.0 bb (call) and +15.8 +/- 24.4 bb (4-bet) from
+  // 2026-10-15 to 2026-11-19. Exact replay of all 1,643 journaled decisions facing a 3-bet or more (2026-11-18
+  // and 11-19) with the option on: 55 standing calls and raises moved to a fold, and every class and transition
+  // of those moves graded negative against the real cards (call to fold -8.5 aces, -8.1 queens/jacks, -4.8 the
+  // rest; raise to fold -17.6 aces, -9.0 kings; 22 of them aces folded to one 3-bet), -496 bb in all; the 36
+  // that remained after fixing (1) alone still graded -385 +/- 28. So a standing call or raise is never
+  // replaced by a fold here: the better of the call and the raise at the lower bound stands (the standing one
+  // on a tie). Folding those hands stays with the rules that own the fold. A standing fold still needs a lower
+  // bound above zero to become a call or a raise.
+  if (verdict === 'fold' && i.standing !== 'fold') {
+    let kept: 'call' | 'raise' | null = null;
+    for (const a of ['call', 'raise'] as const) {
+      const low = ev[a];
+      if (low === null) continue;
+      const best = kept === null ? null : (ev[kept] as number);
+      if (best === null || low > best + 1e-9 || (a === i.standing && low >= best - 1e-9)) kept = a;
+    }
+    if (kept !== null) verdict = kept;
+  }
+  // A STANDING RE-RAISE OF ACES STANDS (same lane, same day). The raise branch is realized on the curve
+  // measured for CALLS of a re-raise, which prices the re-raise of aces under the call out of position and
+  // deep. Measured the other way twice: over 2026-10-15 to 2026-11-19 the Horses' re-raise of aces was worth
+  // +18.8 +/- 4.7 bb more than the flat call (stratified by spot and stack band; fit +20.7 +/- 6.9, held out
+  // +14.7 +/- 6.6), and in the exact replay every downgrade of a standing aces re-raise by this pricing graded
+  // negative against the real cards. Aces are still priced from a fold or a call upward.
+  if (i.standing === 'raise' && verdict !== 'raise' && rankCount(i.hole, 'A') >= 2)
+    verdict = 'raise';
   return {
     verdict,
     standing: i.standing,
