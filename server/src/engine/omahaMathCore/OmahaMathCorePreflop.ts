@@ -341,7 +341,7 @@ function bandRange(
   if (a === 0 && z === pool.size) return fullRange(pool, `${label} full [${b.source}]`);
   return {
     parts: [{ idx: pool.order.slice(a, z), weight: 1 }],
-    label: `${label} top ${r3(b.lo)}-${r3(b.hi)} [${b.source}]`,
+    label: `${label} Top ${r3(b.lo)}-${r3(b.hi)} [${b.source}]`,
   };
 }
 

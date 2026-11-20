@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import FIXTURE from './classifier-parity.synthetic.fixture.json';
-import TABLE from './measuredRanges.public.v3.engine.json';
+import { readFileSync } from 'node:fs';
 import {
   classifyOmahaHolding,
   lookupRange,
@@ -10,6 +9,12 @@ import {
   type MeasuredRanges,
 } from './measuredRanges.js';
 
+// Read at run time, not imported: a 4.6 MB JSON import makes tsc type the whole literal and
+// pushes the server compile past the default 4 GB heap (CI native-smoke OOM on #11515).
+const readJson = (name: string): unknown =>
+  JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
+const FIXTURE = readJson('./classifier-parity.synthetic.fixture.json');
+const TABLE = readJson('./measuredRanges.public.v3.engine.json');
 const t = TABLE as unknown as MeasuredRanges;
 const raw = TABLE as unknown as Record<string, unknown>;
 const c = (rank: string, suit: string) => ({ rank, suit });

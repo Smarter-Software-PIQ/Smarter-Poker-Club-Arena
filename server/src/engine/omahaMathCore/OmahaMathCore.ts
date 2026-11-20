@@ -268,7 +268,7 @@ function wagerRange(
   if (bluffN > 0) parts.push({ idx: pool.order.slice(pool.size - bluffN), weight: alpha });
   return {
     parts,
-    label: `${label} value ${round2(1 - alpha)} / bluff ${round2(alpha)} at frequency ${round2(b)}`,
+    label: `${label} Value ${round2(1 - alpha)} / Bluff ${round2(alpha)} At Frequency ${round2(b)}`,
   };
 }
 

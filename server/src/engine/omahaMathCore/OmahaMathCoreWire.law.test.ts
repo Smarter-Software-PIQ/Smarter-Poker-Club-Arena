@@ -146,7 +146,7 @@ describe('COREWIRE: every component prices a postflop decision', () => {
     const b = decideOmahaMathCore(s, fixed).receipt;
     expect(a.wire?.track).toMatch(/rangeadv tracked 1 seats/);
     expect(a.wire?.value?.value).toMatch(/omaha-math-core-value/);
-    expect(a.opponents[0].range).toMatch(/tracked effN/);
+    expect(a.opponents[0].range).toMatch(/Tracked EffN/);
     expect(a.evs.some((e) => e.action === 'check')).toBe(true);
     expect(a.evs.filter((e) => e.action === 'bet').length).toBeGreaterThan(1);
     expect(a.evs.some((e) => e.action === a.choice.action && e.amount === a.choice.amount)).toBe(
