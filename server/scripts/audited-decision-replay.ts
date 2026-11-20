@@ -6,10 +6,13 @@
  *   npx tsx scripts/audited-decision-replay.ts \
  *     [--audit2 <PLO5-...-DECISIONS.csv> --audit2-hands <audit2 hands.jsonl>] \
  *     [--woowoo <decision-audit/decisions-full.csv> --woowoo-findings <spec/decision-to-finding.csv>] \
+ *     [--placed <nodes.jsonl>] \
  *     (--replay <replay.jsonl> [--base off] [--json <report.json>] [--line <arm>]
  *        [--allow-unchanged <arm>[,<arm>]] [--row <arm> --set <set name> [--scorer-commit <sha>]]
  *      | --emit-nodes <nodes.jsonl>)
  *
+ * --placed reads audited decisions already placed at their node (scripts/hvh48-audit-nodes.py writes them for the
+ * HVH48 audits; one JSON line each, see placedDecisions), scored verdict-only.
  * --emit-nodes writes the audited nodes ({hand, seat, street, k, source, recorded, verdict}) for a replay harness
  * to re-decide; the harness writes one JSON line per node: {hand, seat, street, k, arms: {off: {action, amount,
  * legal, refusal, receipts}, <arm>: {...}}}. --line prints the authority-file replay line for one arm.
@@ -34,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import {
   audit2Decisions,
   nodeKey,
+  placedDecisions,
   parseReplayFile,
   replayBarLine,
   replayBarRows,
@@ -42,6 +46,7 @@ import {
   scoreReplay,
   wooWooDecisions,
   type AdapterResult,
+  type AuditSource,
   type AuditedDecision,
 } from '../src/benchmark/AuditedDecisionReplay.js';
 
@@ -71,16 +76,16 @@ function scorerCommit(): string {
   return git('log', '-1', '--format=%H', '--', ...files).slice(0, 11);
 }
 
-const audits: { source: 'audit2' | 'woowoo'; decisions: AuditedDecision[] }[] = [];
+const audits: { source: AuditSource; decisions: AuditedDecision[] }[] = [];
 let problems = 0;
-const take = (source: 'audit2' | 'woowoo', r: AdapterResult) => {
+const take = (source: AuditSource, r: AdapterResult) => {
   audits.push({ source, decisions: r.decisions });
   console.log(
     `${source}: ${r.decisions.length} audited decisions placed at a node, ${r.unplaced.length} not placed${r.ambiguous ? `, ${r.ambiguous} placed ambiguously (first in order)` : ''}`
   );
   for (const u of r.unplaced.slice(0, 20))
     console.log(`  not placed: row ${u.row} hand ${u.hand} ${u.street}: ${u.reason}`);
-  if (r.unplaced.length && source === 'audit2') problems++;
+  if (r.unplaced.length && source !== 'woowoo') problems++;
 };
 const a2 = opt('audit2');
 if (a2) {
@@ -94,7 +99,9 @@ if (ww) {
   if (!f) throw new Error('--woowoo needs --woowoo-findings');
   take('woowoo', wooWooDecisions(read(ww), read(f)));
 }
-if (audits.length === 0) throw new Error('give --audit2 and/or --woowoo');
+const pl = opt('placed');
+if (pl) take('placed', placedDecisions(read(pl)));
+if (audits.length === 0) throw new Error('give --audit2, --woowoo and/or --placed');
 
 const emit = opt('emit-nodes');
 if (emit) {
