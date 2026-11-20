@@ -135,6 +135,8 @@ describe('law: one formula for every opponent; no kind branch, no named player',
       JSON.stringify({
         ...p,
         user: '',
+        days: undefined,
+        daysSince: undefined,
         ids: [],
         wm: 0,
         recAt: 0,

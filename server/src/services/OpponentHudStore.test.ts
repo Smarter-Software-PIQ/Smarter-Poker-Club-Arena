@@ -15,7 +15,7 @@ import {
 } from '../engine/opponentHud/OpponentHudProfile.js';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const H = (n: number) => `${n.toString(16).padStart(8, '0')}-0000-4000-8000-000000000003`;
+const H = (n: number) => `30000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const T0 = 1_800_000_000_000;
 function row(id: number, a: number, b: number, at = T0 + id * 1000) {
   return {

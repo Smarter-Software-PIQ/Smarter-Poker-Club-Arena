@@ -382,7 +382,7 @@ export interface OpponentHudProfile {
   recall: Record<string, HudRecallCell>;
   last: HudInstance[];
   /**
-   * The hands applied on each of the last HUD_DAYS_KEPT Chicago days, as the first 8 hex digits of each hand id
+   * The hands applied on each of the last HUD_DAYS_KEPT Chicago days, as the last 12 hex digits of each hand id
    * (the nightly reconciliation compares them with hand_history and applies any hand that is missing). Absent on
    * rows written before it existed.
    */
@@ -402,8 +402,8 @@ const chicagoDay = new Intl.DateTimeFormat('en-CA', {
 export function hudDayOf(at: number): string {
   return chicagoDay.format(new Date(at));
 }
-/** The id prefix the day lists keep (8 hex digits, 32 bits). */
-export const hudIdPrefix = (id: string): string => id.slice(0, 8).toLowerCase();
+/** The id key the day lists keep: the last 12 hex digits of the hand id (48 random bits of a v4 uuid). */
+export const hudIdPrefix = (id: string): string => id.replace(/-/g, '').slice(-12).toLowerCase();
 
 export function emptyHudProfile(user: string, family: HudFamily): OpponentHudProfile {
   return {
@@ -916,7 +916,8 @@ export function applyHudHand(
   if (rec.family !== profile.family) return 'family';
   const day = hudDayOf(rec.at);
   const prefix = hudIdPrefix(rec.id);
-  if (profile.ids.includes(rec.id) || profile.days?.[day]?.includes(prefix)) return 'duplicate';
+  if (profile.ids.includes(rec.id) || (repair && profile.days?.[day]?.includes(prefix)))
+    return 'duplicate';
   if (!repair && profile.wm >= 0 && rec.at < profile.wm - HUD_LATE_WINDOW_MS) return 'stale';
   const d = deltas.find((x) => x.user === profile.user);
   if (!d) return 'not_dealt';
