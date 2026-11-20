@@ -158,6 +158,10 @@ describe('explicit synthetic Omaha stress', () => {
         ['--import', 'tsx', 'src/scripts/omahaAdversarialStress.ts', '--unknown=1'],
         { encoding: 'utf8', timeout: CLI_CHILD_TIMEOUT_MS }
       );
+      expect(
+        invalid.error,
+        'the invalid-argument offline CLI child was killed by its timeout'
+      ).toBeUndefined();
       expect(invalid.status).toBe(1);
       expect(invalid.stdout).toBe('');
       expect(invalid.stderr).toContain('Unknown or duplicate stress argument');
