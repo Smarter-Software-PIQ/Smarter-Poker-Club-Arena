@@ -26,7 +26,8 @@
  * named in the source string with its key and n, or a combinatoric of the cards. Pure and total:
  * never throws (a missing cell means "no measurement": full band / no fold credit, said in the source).
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fullRange, topOf, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
 import type { CoreOpponent, CoreState } from './OmahaMathCore.js';
@@ -35,32 +36,27 @@ import type { CoreOpponent, CoreState } from './OmahaMathCore.js';
 // tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
 // emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
 // image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
-// the server root is three levels above this module in both trees. The path goes through fileURLToPath of the
-// href so it is a plain path whatever URL class the test environment (happy-dom) puts in the global scope.
-const pfTablesJson: unknown = JSON.parse(
-  readFileSync(
-    fileURLToPath(
-      new URL('../../../src/engine/omahaMathCore/preflopTables.v1.json', import.meta.url).href
-    ),
-    'utf8'
-  )
-);
-const pfRealJson: unknown = JSON.parse(
-  readFileSync(
-    fileURLToPath(
-      new URL('../../../src/engine/omahaMathCore/preflopRealization.v1.json', import.meta.url).href
-    ),
-    'utf8'
-  )
-);
-const pfStrengthJson: unknown = JSON.parse(
-  readFileSync(
-    fileURLToPath(
-      new URL('../../../src/engine/omahaMathCore/preflopStrength.v1.json', import.meta.url).href
-    ),
-    'utf8'
-  )
-);
+// the server root is three levels above this module in both trees. Where the module's own URL is not a file
+// URL (the root test suite runs under happy-dom), the table is found from the working directory: the server
+// root, or the repository root above it.
+function omahaMathCoreTable(name: string): unknown {
+  const at = `src/engine/omahaMathCore/${name}`;
+  const here = String(import.meta.url);
+  const candidates = [
+    ...(here.startsWith('file:') ? [fileURLToPath(new URL(`../../../${at}`, here).href)] : []),
+    join(process.cwd(), at),
+    join(process.cwd(), 'server', at),
+  ];
+  const found = candidates.find((path) => existsSync(path));
+  if (!found)
+    throw new Error(
+      `omahaMathCore: table ${name} is not beside the engine (${candidates.join(', ')})`
+    );
+  return JSON.parse(readFileSync(found, 'utf8'));
+}
+const pfTablesJson: unknown = omahaMathCoreTable('preflopTables.v1.json');
+const pfRealJson: unknown = omahaMathCoreTable('preflopRealization.v1.json');
+const pfStrengthJson: unknown = omahaMathCoreTable('preflopStrength.v1.json');
 
 export const PREFLOP_MODEL_VERSION = 'preflop-ev-model-v1';
 const MIN_N = 30;
