@@ -928,8 +928,7 @@ export function omahaPricedSampledCandidates(
     if (to >= total - 0.005 ? !canShove : !canRaise) return;
     if (!tos.includes(to)) tos.push(to);
   };
-  const short = hi + 0.005 < lo;
-  if (short) {
+  if (hi + 0.005 < lo) {
     // less than a full raise is left: only the Horse's own stack can go in
     if (total <= cap + 0.005) add(total);
   } else {
@@ -939,18 +938,7 @@ export function omahaPricedSampledCandidates(
     }
   }
   const to = i.to;
-  // With less than a full raise left, no raise short of the Horse's whole stack is legal: the
-  // proposed size goes in only as the all-in itself, and only when that all-in is within the deepest
-  // cover. (Before 2026-11-19 a proposed size at or above the minimum was clipped to the deepest
-  // cover below the minimum, a raise the rules refuse; review N2 of cd08c4d5315.)
-  // When the deepest opponent is the short one (the Horse holds more than his cover), clipping any
-  // size to that cover gives a raise below the minimum that is not the Horse's all-in; nothing is
-  // priced there and the decision stays with the rules that own it.
-  if (
-    fin(to) &&
-    (short ? total <= cap + 0.005 && to >= total - 0.005 : to >= lo - 0.005 || to >= total - 0.005)
-  )
-    add(to);
+  if (fin(to) && (to >= lo - 0.005 || to >= total - 0.005)) add(to);
   return tos.sort((a, b) => a - b);
 }
 
