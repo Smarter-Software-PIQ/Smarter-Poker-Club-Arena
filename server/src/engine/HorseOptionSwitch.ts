@@ -311,6 +311,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v86MultiStreetUnblocked',
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
+  'omahaCurrentNutsRaise',
   // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
   'fixedLimitBetsAreNeverProbes',
 ]);
@@ -341,6 +342,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetEvShownField',
   'omahaRiverBluffCatchIsPriced',
   'omahaCheckedToBetIsPriced',
+  'omahaCheckedToBetResponseIsMeasured',
+  'omahaCheckedToBetInLightning',
   'omahaReraisedCallVsRaisePriced',
   'omahaPreflopJamFacingReraiseIsPriced',
   'omahaFoldModelFittedOnPeople',

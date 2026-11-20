@@ -392,6 +392,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaCheckedToBetIsPriced: priced(
     'the check priced beside every bet when every opponent has checked the river, the showdown share fitted (default OFF)'
   ),
+  omahaCheckedToBetResponseIsMeasured: priced(
+    "inside omahaCheckedToBetIsPriced, heads-up on the river: the share of the checker's range that continues against each bet size is the measured answer of his kind moved by his own evidence, in place of the pot odds scaled by his all-street rate; an input, not a rule site (default OFF; EMERG lane OPEN-ITEMS-3 2026-11-20)"
+  ),
+  omahaCheckedToBetInLightning: priced(
+    'a scope option: the game of omahaCheckedToBetIsPriced includes the Lightning pools without omahaPricedInLightning; switches the rule on nowhere by itself (default OFF; EMERG lane OPEN-ITEMS-3 2026-11-20)'
+  ),
   omahaFoldModelFittedOnPeople: priced(
     'every v38 flop or turn bet size, heads-up against a person facing no bet, is priced with his fold share from the fold model fitted on people (measured cells by variant, street, pot type and bet-size bucket, shrunk to OMAHA_EV_FOLD_MODEL where thin, scaled by his own read); default OFF'
   ),
@@ -512,6 +518,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'the flop continue in a re-raised pot by hand shape; the flop belongs to the flop facing-bet EV build (plo-flopev-01BNteGZ)'
   ),
   omahaTurnSetPound: categorical('omahaTurnSetSizeIsPriced'),
+  omahaCurrentNutsRaise: open(
+    'the flop or turn call with the exact current nuts and a redraw (or an untieable nut hand) becomes the pot raise by hand category (owner ruling 2026-11-06, hand 55690261); registered 2026-11-20 (EMERG ledger L43), no priced replacement on the flop yet: on the turn omahaTurnRiverRaiseIsPriced judges the raise it makes'
+  ),
   omahaNoRiverBluffIntoValueLeader: open(
     'the river bluff is withheld by an opponent label (measured value leader); off-only in the live switch until it is rewritten as a priced bluff from the fold-to-bet read'
   ),

@@ -915,6 +915,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaCurrentNutsRaise',
+    "Dan 2026-11-06 (hand 55690261): an Omaha high, one-board hand on the flop or turn that holds the exact current nuts (every unseen two-card holding enumerated on the Horse's own cards, the board and its known dead cards) with a redraw of four or more next cards to a higher hand category, or a nut hand no other two cards can tie, raises a bet it was about to call (the pot; all in when that is the stack), HorseOmahaCurrentNuts.ts; a chop-locked nut hand without a redraw and a call-once raise plan keep the call. Default on (read !== false); false was the complaint law's control and, since the EMERG ledger item L43 of 2026-11-20 registered it, the lead's switch (owner 2026-11-14 22:01: every feature has an on/off switch). No behaviour change by the registration",
+    'V78'
+  ),
+  flag(
     'omahaBeatenMadeHandDefense',
     'Dan 2026-11-14 (hands 59414191, 59416584): PLO4/PLO5/PLO6 high on one board, a two pair, set, non-nut straight or non-nut flush that a possible straight or flush beats never raises a turn wager (it calls), checks the turn or river card that made it possible when a player still acts behind, and does not bet the river into a player who bet or raised a street on which it was already possible (HorseOmahaMadeHandDefense.ts). Default OFF (opt-in): its declared evaluation failed (LAG-value PLO4 -23.73, PLO5 -16.17 bb/100)',
     'V94'
@@ -1476,6 +1481,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaCheckedToBetIsPriced',
     "WooWoo audit repair programme 2026-11-18, lane CHECKED-TO-BET, on the owner ruling of 2026-11-17 (\"DONT' MAKE ANY BLANKET RULES, EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS\"). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). On the river (any number of opponents; v2: the turn is out), when every opponent has checked this street, nobody is all in and the node's answer is a check, the check is priced beside every bet size the engine considers (HorseOmahaCheckedToBet.ts on the card-impact model): each opponent's checking range from his line, the share of it that continues from his measured continue rate (the priced read: a posterior mean shrunk to the population by its opportunities; the pot-odds share with no read), the Horse's equity against the hands that continue and his showdown share against the checking range each mapped through a logistic calibration fitted on production river spots (v2, HorseOmahaCheckedToBet OMAHA_CHECKED_TO_SHOWDOWN_FIT / OMAHA_CHECKED_TO_CONTINUE_FIT), the raise priced, the rake taken; with several opponents every one folds with the product of their fold rates. The bet of highest expected value replaces the check when it is worth more than the check by more than the standard error of the comparison (the read's, the sample's). No hand-class, position or size rule. The owner-ruled checks, the one-pair rules and the draw rules still judge the bet. The audit measured 35 of 43 heads-up river check-backs with air or a weak pair against a player who folded 140 of 177 times to a river bet, and 0 of 93 such bets multiway (archive woowoo-48h-audit-01BNteGYgf repairs/FLOP-DEFENCE/ATTRIBUTION.md section 3). Opt-in until its declared evaluation passes; league cards plo4/plo5 _omaha_checked_to_bet_is_priced.",
+    'V94'
+  ),
+  flag(
+    'omahaCheckedToBetResponseIsMeasured',
+    "EMERG lane OPEN-ITEMS-3 2026-11-20 (owner 2026-11-19: value and bluffs missed on the river; decisions from the math and the measured statistics, public information only, the same rule against every opponent). Default OFF (read === true); acts only inside omahaCheckedToBetIsPriced. PLO4/PLO5 cash, one board, high only, heads-up on the river after the one opponent has checked: the share of his checking range that continues against each bet size, and the share that raises, are the measured answer of his kind to a river bet (HorseOmahaSmallBetConstants OMAHA_SMALL_BET_RESPONSE, public actions on 5,379 PLO4/PLO5 cash hands 2026-11-13..17: a person continues against a pot-sized bet 15% of the time in PLO5 and 27% in PLO4, a Horse 22% and 13%), moved in log-odds at every size alike by logit(his own rate) - logit(the population mean of the same statistic) (his river call rate, else his continue rate; no evidence or no population figure: exactly his kind's curve), in place of the pot odds scaled by his all-street continue rate taken as observed at 0.6 pot (about half with no river evidence, where the measured river answer is 0.20 to 0.33); the error is the binomial error of the measured cell joined with the error of his own rate. The checking range, the fitted showdown share and continue equity, the raise branch, the rake and the margin (the comparison's own standard error) are unchanged; several opponents, the turn, PLO6 and tournaments are untouched (HorseOmahaCheckedToBet.omahaCheckedToMeasuredResponse). Graded on the journal replay of 2026-11-18..19 against the opponents' real cards (offline only): archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md",
+    'V94'
+  ),
+  flag(
+    'omahaCheckedToBetInLightning',
+    "EMERG lane OPEN-ITEMS-3 2026-11-20. A scope option, default OFF (read === true): with it on, the game of omahaCheckedToBetIsPriced (HorseLogic omahaCheckedToBetIsPricedRule) includes the Lightning pools (gs.publicMemoryDomain.speed === 'lightning') without omahaPricedInLightning, which opens every priced family there at once and graded negative facing a wager on the journal replay of 2026-11-18..19 (fit -334 bb, SE 161). It switches the rule on nowhere by itself and changes no other rule; the bet it makes is a wager of the wager_rules node and needs no admission of its own. PLO6 untouched (the rule's scope is PLO4/PLO5). Graded with omahaCheckedToBetIsPriced on the same replay against the opponents' real cards (offline only): archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md",
     'V94'
   ),
   flag(
@@ -6458,6 +6473,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_flop_bet_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_checked_to_bet_measured_response',
+    'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetResponseIsMeasured)',
+    "a PLO4/PLO5 cash heads-up river check that the opponent had checked to was priced with the measured answer to a river bet (his kind's curve, moved by his own evidence) in place of the pot odds; fires with omaha_checked_to_bet_priced_bet or omaha_checked_to_bet_priced_check_kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_checked_to_bet_in_lightning',
+    'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetInLightning)',
+    'the checked-to river comparison was priced in a Lightning pool because omahaCheckedToBetInLightning opened the pool to that one rule (omahaPricedInLightning off); fires with omaha_checked_to_bet_priced_bet or omaha_checked_to_bet_priced_check_kept',
     'V94'
   ),
   receipt(

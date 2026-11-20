@@ -256,6 +256,8 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
     expect(openRules).toEqual(
       [
         'omahaBigBetIsPotShare',
+        // registered 2026-11-20 (EMERG ledger L43): the rule is from 2026-11-06 and was a hidden default-on read
+        'omahaCurrentNutsRaise',
         'omahaNoRiverBluffIntoValueLeader',
         'omahaOnePairDiscipline',
         'omahaReraisedPotFlopContinueNeedsEquityShape',

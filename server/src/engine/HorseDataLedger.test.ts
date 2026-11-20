@@ -94,6 +94,9 @@ const BRAIN_FILES = [
   // fire their own receipts where they answer.
   'engine/HorseOmahaPricedWiring.ts',
   'engine/HorseOmahaPricedSites.ts',
+  // The Omaha current-nuts raise (2026-11-06) reads its own option where it answers; registered 2026-11-20
+  // (EMERG ledger L43).
+  'engine/HorseOmahaCurrentNuts.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit

@@ -181,6 +181,28 @@ export function omahaPricedReadOfUser(
   }
 }
 /**
+ * The population means an opponent's own rates are read beside (the envelope of the decision's read scope and game:
+ * the figures his posterior shrinks toward). Null with the mind off, no scope or no envelope. Used by
+ * omahaCheckedToBetResponseIsMeasured; reads nothing about any player.
+ */
+export function omahaPricedPopulationRates(
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): { continueRate: number | null; riverCall: number | null } | null {
+  if (opts.mind === false) return null;
+  try {
+    const scope = HorseMind.currentScope();
+    const env = scope ? exploitEnvelopeFor(scope, String(gs.gameVariant ?? '')) : undefined;
+    if (!env) return null;
+    const rate = (x: unknown): number | null =>
+      typeof x === 'number' && Number.isFinite(x) && x > 0 && x < 1 ? x : null;
+    const fold = rate(env.foldToBet?.mean);
+    return { continueRate: fold === null ? null : 1 - fold, riverCall: rate(env.riverCall?.mean) };
+  } catch {
+    return null;
+  }
+}
+/**
  * A spot a priced family cannot price never falls back to the categorical rule it replaces (ROWFIX
  * 2026-11-18; owner 2026-11-17 11:49, no blanket rules): the decision given is kept, the #11212 handling,
  * whatever omahaPricedPriorsByOpponentKind says. Until 2026-11-18 that option also switched the families

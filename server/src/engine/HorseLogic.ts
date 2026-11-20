@@ -566,6 +566,7 @@ import {
   omahaPricedOwnsTurnRiverRaise,
   omahaPricedPairedBoardBetRule,
   omahaPricedPressureWithheld,
+  omahaPricedPopulationRates,
   omahaPricedReadOfUser,
   omahaPricedTurnRiverRaiseRule,
   omahaPricedUnderpairFolds,
@@ -4400,6 +4401,30 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_checked_to_bet_is_priced. */
   omahaCheckedToBetIsPriced?: boolean;
+  /** EMERG lane OPEN-ITEMS-3 2026-11-20 (owner 2026-11-19: value and bluffs
+   * missed on the river; math first, public information, global): opt-in
+   * (`=== true`), acts only inside omahaCheckedToBetIsPriced. Heads-up on the
+   * river, the one opponent has checked: the share of his range that
+   * continues against each bet size is the MEASURED answer to a river bet
+   * (HorseOmahaSmallBetConstants: a person continues against a pot-sized bet
+   * 15% of the time in PLO5, 27% in PLO4; a Horse 22% and 13%) in place of
+   * the pot odds scaled by his all-street continue rate, moved in log-odds
+   * by how far his own measured rate sits from the population mean of the
+   * same statistic (no evidence: exactly his kind's curve), with the error
+   * of the measured cell and of his own rate
+   * (HorseOmahaCheckedToBet.omahaCheckedToMeasuredResponse). Several
+   * opponents, the turn and PLO6 are untouched. Default OFF; league cards
+   * plo4/plo5 _omaha_checked_to_bet_response_is_measured. */
+  omahaCheckedToBetResponseIsMeasured?: boolean;
+  /** EMERG lane OPEN-ITEMS-3 2026-11-20: a scope option, opt-in
+   * (`=== true`). With it on, the game of omahaCheckedToBetIsPriced includes
+   * the Lightning pools (gs.publicMemoryDomain.speed === 'lightning')
+   * without omahaPricedInLightning, which opens every priced family there
+   * at once. It switches the rule on nowhere by itself and changes no other
+   * rule. PLO6 untouched (the rule's scope is PLO4/PLO5). Default OFF;
+   * league note _omaha_checked_to_bet_in_lightning (no Lightning domain in
+   * the league). */
+  omahaCheckedToBetInLightning?: boolean;
   /** Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR
    * JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN'T ALWAYS RAISE 100% OF THE
    * TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS";
@@ -13805,6 +13830,12 @@ function omahaCheckedToBetIsPricedRule(
   if (opts.omahaCheckedToBetIsPriced !== true) return same;
   if (decision.action !== 'check') return same;
   try {
+    // omahaCheckedToBetInLightning (default off): this rule's own scope includes the Lightning pools. The scope
+    // receipt of omahaPricedInLightning is not fired for it (that option did not open the pool).
+    const ownLightning =
+      opts.omahaCheckedToBetInLightning === true && opts.omahaPricedInLightning !== true;
+    const measuredResponse = opts.omahaCheckedToBetResponseIsMeasured === true;
+    const population = measuredResponse ? omahaPricedPopulationRates(gs, opts) : null;
     const result = omahaCheckedToBetDecision(
       decision,
       player,
@@ -13820,14 +13851,27 @@ function omahaCheckedToBetIsPricedRule(
             riverOpportunities = null;
           }
         }
-        return { read, riverOpportunities };
+        return measuredResponse
+          ? { read, riverOpportunities, population }
+          : { read, riverOpportunities };
       },
       omahaPricedDeps(player, gs).rake,
-      opts
+      ownLightning ? { omahaPricedInLightning: true, telemetry: false } : opts,
+      // omahaCheckedToBetResponseIsMeasured (default off): heads-up, his answer to a bet is the measured one.
+      measuredResponse
     );
     if (telemetryOn(opts)) {
       if (result.changed === 'bet') noteFire('omaha_checked_to_bet_priced_bet');
       else if (result.priced) noteFire('omaha_checked_to_bet_priced_check_kept');
+      if (result.priced && result.verdict?.measured)
+        noteFire('omaha_checked_to_bet_measured_response');
+      if (
+        result.priced &&
+        ownLightning &&
+        (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed ===
+          'lightning'
+      )
+        noteFire('omaha_checked_to_bet_in_lightning');
     }
     return { decision: result.decision, changed: result.changed === 'bet', bluff: result.bluff };
   } catch {
