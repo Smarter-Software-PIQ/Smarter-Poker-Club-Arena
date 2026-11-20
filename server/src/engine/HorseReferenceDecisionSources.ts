@@ -213,6 +213,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'lane PREFLOP-EV two-card additive equity model (computed from random holdings only)',
     'src/engine/omahaMathCore/OmahaMathCoreValue.ts':
       'lane VALUE postflop plan: check node, raised branch, multi-street continuation and the size menu, priced by the math core',
+    'src/engine/omahaMathCore/OmahaMathCoreNutsFloor.ts':
+      'lane CORE-POOLED-2 current-nuts call floor of the math core: exact enumeration of whether any two unseen cards beat the own hand on this board (own cards and board only); facing a flop/turn wager with a call available, the fold is not a candidate',
     'src/engine/omahaMathCore/OmahaMathCoreBluff.ts':
       'lane XR-BLUFF check-raise and bluff context (blockers by card removal; no per-opponent term)',
     'src/engine/omahaMathCore/MultiwayTerms.ts':
