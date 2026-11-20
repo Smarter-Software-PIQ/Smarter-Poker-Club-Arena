@@ -313,6 +313,12 @@ import {
   fixedLimitRiverLeadStrength,
   fixedLimitRiverStrongHandLeads,
 } from './HorseFixedLimitRiverLead.js';
+import {
+  fixedLimitRaiseOverLimpTo,
+  fixedLimitReraisedPositionOf,
+  fixedLimitVpipFloorAllowsCall,
+  isFixedLimitGameVariant,
+} from './HorseFixedLimitStructure.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -1658,6 +1664,7 @@ function vpipLimpEvAt(
     limpers,
     behind,
     potLimit: vi.isPotLimit === true,
+    fixedLimit: vi.isFixedLimit === true,
     // The FAST decision and its DEEP second look must price the same limp:
     // the second look's larger sample (setEquityDepth) is held at 1 here.
     equity: (bands) => {
@@ -5995,6 +6002,7 @@ type VpipFloorCallDownState = {
   vpipFloor?: number;
   vpipWindowHands?: number;
   gameVariant?: string;
+  bettingStructure?: string | null;
   ownVpip?: { hands: number; vpip: number | null };
   allInOrFold?: boolean;
 };
@@ -6021,6 +6029,15 @@ function vpipFloorCallDownSpot(
   const stack = Number(player.stack);
   if (!(toCall > 0) || !(bb > 0) || !(stack > toCall)) return null;
   if (toCall > VPIP_CALLDOWN_MAX_BB * bb || toCall > VPIP_CALLDOWN_MAX_STACK_SHARE * stack)
+    return null;
+  if (
+    !fixedLimitVpipFloorAllowsCall({
+      isFixedLimit: isFixedLimitGameVariant(gs.gameVariant, gs.bettingStructure),
+      currentBet: Number(gs.currentBet),
+      toCall,
+      bigBlind: bb,
+    })
+  )
     return null;
   const own = gs.ownVpip;
   const windowHands = vpipStrategyWindow(gs);
@@ -6417,6 +6434,7 @@ export interface VpipLimpEvInput {
   /** players still to act behind the hero, preflop order */
   behind: VpipLimpOpponent[];
   potLimit: boolean;
+  fixedLimit?: boolean;
   /** equity of the hero's cards against opponents of these bands (null = uniform) */
   equity: (bands: Array<[number, number] | null>) => number;
 }
@@ -6456,8 +6474,12 @@ export function vpipFloorLimpEv(i: VpipLimpEvInput): VpipLimpEv {
     if (pFirst > 0) {
       const potNow = i.pot + c;
       const callersBefore = limpersIn + 1;
-      // a pot raise: the current bet plus the pot after his own call
-      const raiseTo = i.potLimit ? bb + potNow + j.owes : bb * (4 + callersBefore);
+      // a pot raise: the current bet plus the pot after his own call; in fixed limit a raise over limps is 2 BB
+      const raiseTo = i.fixedLimit
+        ? fixedLimitRaiseOverLimpTo(bb)
+        : i.potLimit
+          ? bb + potNow + j.owes
+          : bb * (4 + callersBefore);
       const call = Math.max(0, raiseTo - bb);
       const potAfter = potNow + (raiseTo - (bb - j.owes)) + call;
       const eq = i.equity([j.raiseBand]);
@@ -18680,6 +18702,50 @@ export class HorseLogic {
         action.seat === player.seat && action.action !== 'fold' && action.action !== 'check'
     );
     const heroWasInitialRaiser = firstRaiserSeat === player.seat;
+    const heroRaisedPreflop = history.some(
+      (action) =>
+        action.seat === player.seat &&
+        (action.action === 'raise' ||
+          action.action === 'bet' ||
+          (action.action === 'all_in' && action.isFullRaise !== undefined))
+    );
+    const flReraisedPos =
+      vi.isFixedLimit && raises >= 2 && lastRaiserSeat >= 0 && gs.dealerSeat !== undefined
+        ? (() => {
+            const raisedSeats = new Set(
+              history
+                .filter(
+                  (a) =>
+                    a.action === 'raise' ||
+                    a.action === 'bet' ||
+                    (a.action === 'all_in' && a.isFullRaise !== undefined)
+                )
+                .map((a) => a.seat)
+            );
+            const others = gs.players
+              .filter(
+                (p) =>
+                  p.seat !== player.seat &&
+                  p.seat !== lastRaiserSeat &&
+                  !p.is_folded &&
+                  (!p.is_sitting_out || p.is_all_in)
+              )
+              .map((p) => ({
+                seat: p.seat,
+                bet: Number(p.bet ?? 0),
+                allIn: p.is_all_in === true,
+                raisedPreflop: raisedSeats.has(p.seat),
+              }));
+            return fixedLimitReraisedPositionOf(
+              player.seat,
+              lastRaiserSeat,
+              gs.dealerSeat,
+              others,
+              gs.currentBet,
+              bb
+            );
+          })()
+        : null;
     const squeezed =
       (opts.v18Squeeze ?? true) !== false &&
       raises === 2 &&
@@ -21106,6 +21172,22 @@ export class HorseLogic {
       dealerSeat: gs.dealerSeat,
       heroPreviouslyActed,
       heroWasInitialRaiser,
+      ...(vi.isFixedLimit
+        ? {
+            fixedLimitHeroRaisedPreflop: heroRaisedPreflop,
+            fixedLimitWagersCapped:
+              gs.wagersCapped === true ||
+              (Array.isArray(gs.legalActions) &&
+                !gs.legalActions.includes('raise') &&
+                !gs.legalActions.includes('all_in')),
+            ...(flReraisedPos
+              ? {
+                  fixedLimitReraisedInPosition: flReraisedPos.inPosition,
+                  fixedLimitReraisedPendingBehind: flReraisedPos.raisersPendingBehind,
+                }
+              : {}),
+          }
+        : {}),
       straddleActive: gs.straddleActive === true,
       // FACING A CLOSED ALL-IN RE-RAISE (2026-11-08): the raise hero faces
       // was made all in and every other live opponent is all in or folded,
@@ -22519,10 +22601,13 @@ export class HorseLogic {
       const wagers91 = streetWagerSignal(gs.actionHistory, 'river');
       let marked91 = false;
       oppReads = oppReads.map((read, i) => {
-        const kind91 = read ? wagers91.byUser.get(opponents[i]?.user_id) : undefined;
+        const oppId91 = opponents[i]?.user_id;
+        const kind91 = read && oppId91 ? wagers91.byUser.get(oppId91) : undefined;
         if (!read || !kind91) return read;
-        marked91 = true;
-        return fixedLimitFullBetRead(read, kind91, vi.isOmaha);
+        const profile91 = useMind && oppId91 ? HorseMind.opponentRead(oppId91) : null;
+        const nextRead91 = fixedLimitFullBetRead(read, kind91, vi.isOmaha, profile91);
+        if (nextRead91.fullBet === true || nextRead91.raised === true) marked91 = true;
+        return nextRead91;
       });
       if (marked91 && tele15) noteFire('fixed_limit_river_full_bet_read_seen');
     }

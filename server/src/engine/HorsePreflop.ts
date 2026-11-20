@@ -61,7 +61,10 @@ import {
   huOpenerRequiredEquity,
 } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
-import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
+import {
+  fixedLimitHasNoJamOrFold,
+  fixedLimitRaiserContinuesVsOneBet,
+} from './HorseFixedLimitStructure.js';
 import {
   fixedLimitPricedPreflopIntent,
   type FixedLimitPricedCtx,
@@ -472,6 +475,14 @@ export interface PreflopCtx {
    * unchanged.
    */
   fixedLimitStealOpenWiden?: number;
+  /** E3: true when hero voluntarily raised earlier on this preflop street. */
+  fixedLimitHeroRaisedPreflop?: boolean;
+  /** E4: exact postflop seat-order position in a multi-raised fixed-limit pot. */
+  fixedLimitReraisedInPosition?: boolean;
+  /** E4: earlier preflop raisers behind hero who have not yet answered the re-raise. */
+  fixedLimitReraisedPendingBehind?: number;
+  /** True when preflop wagers are capped so no further raise can reopen action. */
+  fixedLimitWagersCapped?: boolean;
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -1402,6 +1413,60 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
       if (priced.intent.a !== 'fold') return priced.intent;
       out = priced.intent;
+    }
+  }
+  // ═══ FIXED-LIMIT E3: RAISER FACING ONE 1-SMALL-BET RE-RAISE ═══
+  // A fixed-limit opener facing a 3-bet (2 BB -> 3 BB) or 3-bettor facing a
+  // 4-bet cap (3 BB -> 4 BB) owes at most one small bet into 5 to 8.5 small
+  // bets. Rescue an unpriced fold whenever realized equity against the
+  // re-raiser's range covers the raw 1-bet price plus survival risk.
+  if (
+    out.a === 'fold' &&
+    ctx.isFixedLimit === true &&
+    ctx.raises >= 2 &&
+    ctx.straddleActive !== true
+  ) {
+    const flVariantE3 = ctx.isOmaha
+      ? ctx.omahaHiLo === true
+        ? ('flo8' as const)
+        : null
+      : ctx.isShortDeck === true
+        ? null
+        : ('flh' as const);
+    const heroRaisedE3 =
+      ctx.fixedLimitHeroRaisedPreflop === true ||
+      ctx.heroWasInitialRaiser === true ||
+      ctx.heroPriorAction === 'open_raise' ||
+      ctx.heroPriorAction === 'three_bet' ||
+      ctx.heroPriorAction === 'four_bet_plus';
+    const pricePotE3 = Number.isFinite(ctx.contestablePot)
+      ? Math.max(0, ctx.contestablePot as number)
+      : ctx.pot;
+    const inPosE3 =
+      ctx.fixedLimitReraisedInPosition !== undefined
+        ? ctx.fixedLimitReraisedInPosition
+        : ctx.position === 'late';
+    const verdictE3 = fixedLimitRaiserContinuesVsOneBet({
+      isFixedLimit: ctx.isFixedLimit,
+      variant: flVariantE3,
+      dealt: ctx.tableSize ?? ctx.oppsLeft + 1,
+      raises: ctx.raises,
+      heroRaisedPreflop: heroRaisedE3,
+      strength: ctx.strength,
+      toCall: ctx.toCall,
+      stack: ctx.stack,
+      bigBlind: ctx.bigBlind,
+      pricePot: pricePotE3,
+      riskAdd: ctx.riskAdd,
+      inPosition: inPosE3,
+      wagersCapped: ctx.fixedLimitWagersCapped === true || ctx.reopenAllowed === false,
+      pendingRaisersBehind: ctx.fixedLimitReraisedPendingBehind ?? 0,
+      wideReRaiser: ctx.exploitReRaiser !== undefined || ctx.evidencedWideRaiser === true,
+      tightReRaiserBump:
+        (ctx.styleTightReRaiser?.callBump ?? 0) + (ctx.omahaTightReRaiser?.callBump ?? 0),
+    });
+    if (verdictE3?.calls === true) {
+      return { a: 'call' };
     }
   }
   // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
@@ -4021,7 +4086,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
   // ── Facing a 3-bet or bigger ──
   {
-    const ip = position === 'late';
+    const ip =
+      ctx.isFixedLimit === true && ctx.fixedLimitReraisedInPosition !== undefined
+        ? ctx.fixedLimitReraisedInPosition
+        : position === 'late';
     // V12 ANTI-EXPLOIT: a hunter's 3-bets get 4-bet and called wider.
     const hunted3 = Math.max(0, Math.min(1, ctx.targeted ?? 0));
     // V18: a squeeze is bluff-heavier than a cold 3-bet - the squeezer is
