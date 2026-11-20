@@ -21,7 +21,7 @@ describe('the owner preflop range hold lift', () => {
     // Shadow mode (2026-11-19, Horse SWITCH integration): a registered non-style option whose every read is a
     // decision option takes `shadow` (a worker re-decision with the option flipped). horsePlayStyles is read only
     // through HorseDecideOpts (HorseLogic horsePlayStyleOf), so it takes shadow; on and off are unchanged.
-    expect(optionSwitchStatesOf('horsePlayStyles')).toEqual(['off', 'shadow', 'on']);
+    expect(optionSwitchStatesOf('horsePlayStyles')).toEqual(['off', 'shadow', 'on_shadow', 'on']);
     expect(optionSwitchShadowRefusal('horsePlayStyles')).toBeNull();
     expect(OPTION_SWITCH_SHADOW_NAMES).toContain('horsePlayStyles');
     expect(optionSwitchOffOnly('horsePlayStyles')).toBeNull();
@@ -35,8 +35,10 @@ describe('the owner preflop range hold lift', () => {
   });
 
   it('omahaPreflopReraiseDefencePricedInPosition is switchable on and off; its parent option stays off-only', () => {
+    // 2026-11-19: a 'code' option that is not off-only takes on_shadow (acted true, re-decided false), never shadow
     expect(optionSwitchStatesOf('omahaPreflopReraiseDefencePricedInPosition')).toEqual([
       'off',
+      'on_shadow',
       'on',
     ]);
     expect(optionSwitchOffOnly('omahaPreflopReraiseDefencePricedInPosition')).toBeNull();

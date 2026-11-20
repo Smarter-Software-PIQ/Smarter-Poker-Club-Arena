@@ -71,6 +71,7 @@ import {
   OMAHA_EV_CALLER_SHARE,
   OMAHA_EV_UNKNOWN_READ,
   omahaEvHandCounts,
+  omahaEvHandCountsSixCardTurn,
   omahaFacingBetEvSpot,
   omahaFacingBetEvVerdict,
   type OmahaEvHandCounts,
@@ -456,6 +457,12 @@ export interface OmahaPricedRaiseContext {
   proposedTo?: number;
   /** omahaRaiseEvCountsLossesOnce (off-only): the re-raisers' losses counted once; absent/false: #11212 */
   lossesOnce?: boolean;
+  /**
+   * plo6FacingBetIsPriced's own caller (HorsePlo6FacingBetIsPriced.ts): the PLO6 cash turn or river spot
+   * (omahaFacingBetEvSpot scope plo6Priced), the six-card exact count on the turn as on the river, and
+   * no random-hand fold guard (plo6RiverNuts / plo6RiverUnpaired false). Absent: exactly as before.
+   */
+  plo6Priced?: boolean;
 }
 
 /**
@@ -471,7 +478,10 @@ export function omahaPricedRaise(
   ctx: OmahaPricedRaiseContext = {}
 ): OmahaPricedRaiseVerdict | null {
   try {
-    const spot = omahaFacingBetEvSpot(hero, gs);
+    const plo6Priced = ctx.plo6Priced === true;
+    const spot = plo6Priced
+      ? omahaFacingBetEvSpot(hero, gs, { plo6Priced: true })
+      : omahaFacingBetEvSpot(hero, gs);
     if (!spot) return null;
     const hole: Card[] = hero.cards ?? [];
     const board: Card[] = gs.communityCards ?? [];
@@ -479,10 +489,13 @@ export function omahaPricedRaise(
     const call = omahaFacingBetEvVerdict(spot, hole, board, dead, ctx.bettorRead ?? null, {
       rake: ctx.rake,
       realization: ctx.realization,
+      ...(plo6Priced ? { sixCardTurn: true, plo6RiverNuts: false, plo6RiverUnpaired: false } : {}),
     });
     let counts: OmahaEvHandCounts | null = null;
     try {
-      counts = omahaEvHandCounts(hole, board, dead, spot.valueShare);
+      counts = plo6Priced
+        ? omahaEvHandCountsSixCardTurn(hole, board, dead, spot.valueShare)
+        : omahaEvHandCounts(hole, board, dead, spot.valueShare);
     } catch {
       counts = null;
     }
@@ -1127,12 +1140,16 @@ export function omahaPricedBet(
   gs: HorseGameStateV2,
   readOf: (seat: number) => OmahaPricedRead | null,
   proposedAmount?: number,
-  margin: number = 0
+  margin: number = 0,
+  scope?: { plo6Priced?: boolean }
 ): OmahaPricedBetVerdict | null {
   try {
     const stage = String(gs.stage ?? '');
     if (stage !== 'turn' && stage !== 'river') return null;
-    if (!OMAHA_PRICED_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase())) return null;
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    // plo6FacingBetIsPriced's own caller (the paired-river check, HorsePlo6FacingBetIsPriced.ts) opens PLO6.
+    if (!(scope?.plo6Priced === true && variant === 'plo6') && !OMAHA_PRICED_VARIANTS.has(variant))
+      return null;
     if (!fin(gs.pot) || !(gs.pot > 0) || !fin(hero.stack) || !(hero.stack > 0)) return null;
     const toCall = fin(gs.toCall)
       ? Math.max(0, gs.toCall)

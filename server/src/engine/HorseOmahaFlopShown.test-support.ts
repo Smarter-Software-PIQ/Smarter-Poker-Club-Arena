@@ -437,6 +437,26 @@ export const FLOP_SHOWN_VECTOR_NAMED: { name: string; hand: FlopShownVectorHand 
       [[C, 1e300]]
     ),
   },
+  {
+    name: 'a showdown entry shows a hand only with mucked: false written out; no flag, null or a string is not shown',
+    hand: {
+      ...hand(cbetCalled(), BOARD, { [A]: SET, [B]: PAIR }, [], [[A, 30.5]]),
+      showdown: [
+        { user_id: A, seat: 0, reveal_order: 0 },
+        { user_id: B, seat: 1, reveal_order: 1, mucked: 'false' },
+      ],
+    },
+  },
+  {
+    name: 'the bettor shown with mucked: false; the caller listed with mucked: null is counted unshown',
+    hand: {
+      ...hand(cbetCalled(), BOARD, { [A]: SET, [B]: PAIR }, [], [[A, 30.5]]),
+      showdown: [
+        { user_id: A, seat: 0, reveal_order: 0, mucked: false },
+        { user_id: B, seat: 1, reveal_order: 1, mucked: null },
+      ],
+    },
+  },
 ];
 
 /** What the engine computes for one action log and pot size: per player, [sum, opp] of the flop, turn and river. */

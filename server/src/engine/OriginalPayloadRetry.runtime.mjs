@@ -89,6 +89,7 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     // This VM models an older projector, so it keeps the legacy writer.
     process: { env: {} },
     horseDailyRollupContract: async () => false,
+    horseHoleCardsBasisContract: async () => false,
     Math,
     Number,
     Boolean,

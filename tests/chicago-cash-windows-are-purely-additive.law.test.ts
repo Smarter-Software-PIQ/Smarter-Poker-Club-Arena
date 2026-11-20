@@ -74,6 +74,8 @@ describe('Chicago calendar reporting windows are purely additive (never subtract
     expect(body, `${name} must not subtract removed edge sums`).not.toMatch(
       /coalesce\s*\(\s*d\.net\s*,\s*0\s*\)\s*-\s*coalesce/i
     );
-    expect(body).toMatch(/coalesce\s*\(\s*d\.net\s*,\s*0\s*\)\s*\+\s*coalesce\s*\(\s*a\.net\s*,\s*0\s*\)/i);
+    expect(body).toMatch(
+      /coalesce\s*\(\s*d\.net\s*,\s*0\s*\)\s*\+\s*coalesce\s*\(\s*a\.net\s*,\s*0\s*\)/i
+    );
   });
 });

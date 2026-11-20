@@ -22,6 +22,7 @@ on:
       - supabase/migrations/20261118023000_exact_profile_keeps_reraiser_answers.sql
       - scripts/ci/fixtures/horse-reraise-response-vectors.json
       - supabase/migrations/20261119192551_the_exact_opponent_profile_keeps_what_a_flop_bet_showed.sql
+      - supabase/migrations/20261119213206_the_flop_shown_learner_reads_omaha_only_shown_only_when_unmu.sql
       - scripts/ci/fixtures/horse-flop-shown-vectors.json
 concurrency:
   group: horse-public-memory-${{ github.event.pull_request.number || github.ref }}
