@@ -402,7 +402,7 @@ policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
   # Give back a heavy-job slot this hook took (none when agent-push holds it).
-  if command -v hq_release >/dev/null 2>&1; then hq_release; fi
+  if declare -F hq_release >/dev/null; then hq_release; fi
   if [ -n "${CA_PUSH_TMP:-}" ] && [ ! -d "$CA_PUSH_TMP" ]; then
     echo "[club-arena pre-push] BLOCKED: this run's scratch $CA_PUSH_TMP vanished during the run (the drive dropped or was remounted). Failures above are environmental; push again once the drive is back." >&2
     policy_exit=1
@@ -1236,7 +1236,8 @@ fi
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)
 if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
-  ca_heavy_slot
+  # declare -F: sections of this hook also run alone in the guard tests.
+  if declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
   if [ "$CLIENT_DEPENDENCY_MODE" != local ]; then
     echo "[club-arena pre-push] BLOCKED: required local client dependencies are incomplete."
     echo "  remedy: (cd \"$CA_TREE_TOP\" && npm ci --ignore-scripts --no-audit --no-fund)"
@@ -1286,7 +1287,7 @@ fi
 # Compile the engine inputs before submission, using its own package root.
 if echo "$FILES" | grep -qE '^server/(src/.*\.ts|tsconfig[^/]*\.json|package(-lock)?\.json)$'; then
   SERVER_TSC="$CA_TREE_TOP/server/node_modules/.bin/tsc"
-  ca_heavy_slot
+  if declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
   if [ "$SERVER_DEPENDENCY_MODE" != local ] || [ ! -x "$SERVER_TSC" ]; then
     echo "[club-arena pre-push] BLOCKED: the required local server compiler is unavailable."
     echo "  remedy: (cd \"$CA_TREE_TOP/server\" && npm ci --ignore-scripts --no-audit --no-fund)"
@@ -1347,7 +1348,7 @@ if [ -f server/package.json ]; then
     done
   done
   SRV_TESTS=$(printf '%s\n' $SRV_TESTS | sort -u)
-  if [ -n "$SRV_TESTS$SRV_SRC" ]; then ca_heavy_slot; fi
+  if [ -n "$SRV_TESTS$SRV_SRC" ] && declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
 
   # THE NATIVE EVALUATOR IS BUILT BEFORE THE SERVER TESTS (2026-11-05). It is a
   # build product, not a committed file; CI builds it in `pretest`. A fresh
