@@ -23,8 +23,11 @@ import {
 import { omahaBest, parseCardString } from './OmahaMathCoreEval.js';
 import { seededRng } from './OmahaMathCoreEquity.js';
 import {
+  applyRealizationCalibration,
   decideOmahaMathCore,
+  OMAHA_MATH_CORE_REALIZATION_CALIBRATION,
   OMAHA_MATH_CORE_WORK_BUDGET,
+  realizationCalibrationCell,
   type CoreState,
 } from './OmahaMathCore.js';
 import { omahaMathCoreRule, omahaMathCoreState } from './OmahaMathCoreRule.js';
@@ -38,6 +41,7 @@ import {
   OMAHA_MATH_CORE_CHANGE_MARGIN_K,
   OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K,
   omahaMathCoreChangeMarginK,
+  omahaMathCoreFoldBoundaryRawOk,
   omahaMathCoreStreetAdmitted,
 } from './OmahaMathCoreRule.js';
 
@@ -689,5 +693,108 @@ describe('omahaMathCore deterministic work budget (COREWIRE-2, gate G6: five-way
     expect(a.choice).toEqual(b.choice);
     // past the budget each call takes at most the 600-draw floor; the core makes a bounded number of calls
     expect(a.samples * 5).toBeLessThan(OMAHA_MATH_CORE_WORK_BUDGET + 60 * 600 * 5);
+  });
+});
+
+describe('omahaMathCore realization calibration (CORE-4: the core prices only what its lines realise)', () => {
+  it('provenance is own_cards_history (allowed), every cell is measured (n >= minN) and positive', () => {
+    const C = OMAHA_MATH_CORE_REALIZATION_CALIBRATION;
+    expect(OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(C.provenance)).toBe(true);
+    for (const [k, c] of Object.entries(C.cells)) {
+      expect(c.n, k).toBeGreaterThanOrEqual(C.minN);
+      expect(c.r, k).toBeGreaterThan(0);
+      expect(k.split('|')[0]).not.toBe('plo6');
+    }
+  });
+  it('fold is never calibrated; PLO6, preflop and the river are never calibrated', () => {
+    for (const a of ['fold', 'check', 'call', 'bet', 'raise', 'all_in'])
+      for (const st of ['preflop', 'river'])
+        expect(realizationCalibrationCell('plo5', st, a)).toBeNull();
+    for (const a of ['check', 'call', 'bet', 'raise', 'all_in'])
+      for (const st of ['flop', 'turn'])
+        expect(realizationCalibrationCell('plo6', st, a)).toBeNull();
+    expect(realizationCalibrationCell('plo5', 'flop', 'fold')).toBeNull();
+    // criterion 2: PLO5 turn and PLO4 failed the cross-validated grade and are not calibrated
+    for (const a of ['check', 'call', 'bet', 'raise']) {
+      expect(realizationCalibrationCell('plo5', 'turn', a)).toBeNull();
+      expect(realizationCalibrationCell('plo4', 'flop', a)).toBeNull();
+    }
+  });
+  it('ev = r x (raw + adds) - adds and se = r x se, with the raw price on the receipt', () => {
+    const evs = [
+      {
+        action: 'fold',
+        amount: null,
+        adds: 0,
+        ev: 0,
+        equity: null,
+        se: 0,
+        foldProb: 0,
+        foldSource: null,
+        range: null,
+      },
+      {
+        action: 'call',
+        amount: 10,
+        adds: 10,
+        ev: 20,
+        equity: 0.5,
+        se: 4,
+        foldProb: 0,
+        foldSource: null,
+        range: null,
+      },
+    ] as never[];
+    applyRealizationCalibration(evs, 'plo5', 'flop');
+    const r = realizationCalibrationCell('plo5', 'flop', 'call')!.r;
+    const [f, c] = evs as unknown as { ev: number; se: number; calibration?: { raw: number } }[];
+    expect(f.ev).toBe(0);
+    expect(c.ev).toBeCloseTo(r * 30 - 10, 9);
+    expect(c.se).toBeCloseTo(r * 4, 9);
+    expect(c.calibration!.raw).toBe(20);
+  });
+  it('a PLO5 flop decision carries the calibration on every non-fold candidate; a river decision on none', () => {
+    const flop = decideOmahaMathCore(
+      spot({ hole: 'AsKdQh9c8c', board: 'Ts7h2d', pot: 60, toCall: 20 }),
+      {
+        now: () => 0,
+      }
+    ).receipt;
+    for (const e of flop.evs) {
+      if (e.action === 'fold') expect(e.calibration ?? null).toBeNull();
+      else expect(e.calibration?.r).toBeGreaterThan(0);
+    }
+    const river = decideOmahaMathCore(
+      spot({ hole: 'AsKdQh9c8c', board: 'Ts7h2d3c4s', street: 'river', pot: 60, toCall: 20 }),
+      { now: () => 0 }
+    ).receipt;
+    for (const e of river.evs) expect(e.calibration ?? null).toBeNull();
+  });
+});
+
+describe('omahaMathCore fold boundary (CORE-4: a calibrated price alone never folds a call nor adds a call)', () => {
+  const cal = (ev: number, se: number, raw: number, rawSe: number) => ({
+    ev,
+    se,
+    calibration: { raw, rawSe },
+  });
+  it('continue -> fold needs the raw price too: a call worth +10 raw is not folded by its calibrated -3', () => {
+    const fold = { ev: 0, se: 0 };
+    const call = cal(-3, 0.2, 10, 1);
+    expect(omahaMathCoreFoldBoundaryRawOk(fold, call, 'call', 'fold', 5)).toBe(false);
+    expect(omahaMathCoreFoldBoundaryRawOk(fold, cal(-3, 0.2, -8, 1), 'call', 'fold', 5)).toBe(true);
+  });
+  it('fold -> call needs the raw price too, and the calibrated test still applies in the rule', () => {
+    const fold = { ev: 0, se: 0 };
+    expect(omahaMathCoreFoldBoundaryRawOk(cal(4, 0.5, 20, 2), fold, 'fold', 'call', 5)).toBe(true);
+    expect(omahaMathCoreFoldBoundaryRawOk(cal(4, 0.5, 2, 2), fold, 'fold', 'call', 5)).toBe(false);
+  });
+  it('changes between continuing actions are not touched by the raw test', () => {
+    expect(
+      omahaMathCoreFoldBoundaryRawOk(cal(9, 1, -50, 1), cal(1, 1, 99, 1), 'call', 'raise', 5)
+    ).toBe(true);
+    expect(
+      omahaMathCoreFoldBoundaryRawOk(cal(9, 1, -50, 1), cal(1, 1, 99, 1), 'check', 'bet', 5)
+    ).toBe(true);
   });
 });

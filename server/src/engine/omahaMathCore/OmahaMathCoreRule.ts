@@ -121,6 +121,29 @@ export function omahaMathCoreChangeMarginK(
   return OMAHA_MATH_CORE_CHANGE_MARGIN_K;
 }
 
+type PricedEv = {
+  ev: number;
+  se: number | null;
+  calibration?: { raw: number; rawSe: number | null } | null;
+};
+/**
+ * CORE-4: a change across the fold boundary (fold -> continue, continue -> fold) must also beat today's action by
+ * more than k standard errors at the RAW (uncalibrated) price; changes between continuing actions use the
+ * calibrated price only. True when the raw test passes or does not apply.
+ */
+export function omahaMathCoreFoldBoundaryRawOk(
+  best: PricedEv,
+  inc: PricedEv,
+  incomingAction: string,
+  bestAction: string,
+  k: number
+): boolean {
+  if ((incomingAction === 'fold') === (bestAction === 'fold')) return true;
+  const raw = (e: PricedEv) => (e.calibration ? e.calibration.raw : e.ev);
+  const rse = (e: PricedEv) => Math.max(0, (e.calibration ? e.calibration.rawSe : e.se) ?? 0);
+  return raw(best) - raw(inc) > k * Math.sqrt(rse(best) ** 2 + rse(inc) ** 2);
+}
+
 export interface OmahaMathCoreDecisionReceipt {
   readonly switch: 'omahaMathCore';
   readonly applied: boolean;
@@ -508,7 +531,8 @@ export function omahaMathCoreRule(
           Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
         );
         const gap = best.ev - inc.ev;
-        if (!(gap > K * se)) {
+        const rawOk = omahaMathCoreFoldBoundaryRawOk(best, inc, incoming.action, legal.action, K);
+        if (!(gap > K * se) || !rawOk) {
           // today's action, exactly as it reached the core (already legal on this state)
           const kept: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
           if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
