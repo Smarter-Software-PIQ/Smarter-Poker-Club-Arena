@@ -2,7 +2,13 @@
  * Captures the lookup actually performed; does not certify causal influence. */
 import type { HorseDecision, SeatPlayer } from '../types.js';
 import { isDeepStrictEqual as samePhase6Provenance } from 'node:util';
-import { vpipFloorCallDown, SHORT_STACK_NO_FLAT_BB, type HorseGameStateV2 } from './HorseLogic.js';
+import {
+  lightningVpipFloorLimpOnlyInputs,
+  vpipFloorCallDown,
+  vpipFloorLimpOnlyStep,
+  SHORT_STACK_NO_FLAT_BB,
+  type HorseGameStateV2,
+} from './HorseLogic.js';
 import {
   horseTournamentProvenanceIsValid,
   horseTournamentProvenanceMatchesSnapshot,
@@ -660,6 +666,54 @@ function v58ShortStackJamShape(snapshot: Phase6Snapshot): boolean {
         (a.action === 'all_in' && a.isFullRaise !== undefined))
   );
 }
+/** A LIGHTNING POOL'S FLOOR LIMP IS A REFERENCE RETURN (2026-11-19).
+ * lightningVpipFloorLimpOnly turns an unraised preflop fold of a floored
+ * Lightning pool into the limp (HorseLogic lightningVpipFloorLimpOnlyInputs +
+ * vpipFloorLimpOnlyStep), inside the reference, after the named source route
+ * returned - exactly like the table floor's call-down above. The pool floor is
+ * not the table floor (gs.lightningVpipFloor, never vpipFloor), so the
+ * call-down question above answers no, and every such limp on chart_open_jam
+ * (a short stack's jam/check/fold chart) was refused as reference_shape: 8 of
+ * 8 refusals on dfaa9717f826 between 18:27Z and 18:55Z 2026-11-19, all with
+ * the option on, 0 before and 0 after its rollback (Lightning NLH 0.50/1,
+ * route chart_open_jam, call 1 = the big blind, hero 8.92 behind). The switch
+ * delivers the option inside the worker, after this request was built, so the
+ * request cannot say whether it was on: the question asked is whether the pool
+ * floor COULD limp this hand - a floored pool short of its window (or one hand
+ * early), an unraised pot at most the big blind, chips behind - and whether
+ * this call is exactly that limp. Public facts and the pool count only; no
+ * equity drawn (the forced selection is 'every', the preempt is tested at its
+ * one-hand bar with a constant zero price, positive probability). */
+function lightningPoolFloorLimpShape(amount: number | null, snapshot: Phase6Snapshot): boolean {
+  const s = snapshot.gameState,
+    p = snapshot.player;
+  if (s.stage !== 'preflop') return false;
+  const tournament = s.gameMode
+    ? s.gameMode === 'tournament'
+    : s.tournament != null || (s.bigBlind ?? 0) >= 10;
+  const pool = lightningVpipFloorLimpOnlyInputs(
+    s,
+    { lightningVpipFloorLimpOnly: true },
+    tournament
+  );
+  if (pool === null || !(pool.shortfallHands > 0 || pool.preempt)) return false;
+  const forced = pool.shortfallHands > 0;
+  const limp = vpipFloorLimpOnlyStep(
+    { action: 'fold', thinkTime: 0 },
+    p,
+    {
+      stage: s.stage,
+      currentBet: s.currentBet,
+      bigBlind: s.bigBlind,
+      straddleActive: s.straddleActive,
+      actionHistory: s.actionHistory,
+    },
+    () => 0,
+    forced ? 'every' : 'priced',
+    forced ? pool.shortfallHands : 1
+  );
+  return limp.decision.action === 'call' && amount === limp.decision.amount;
+}
 export function referenceReturnShape(r: HorsePhase6Attribution, snapshot: Phase6Snapshot): boolean {
   if (r.route === 'intent_engine' || r.route === 'legacy_preflop') return true;
   const s = snapshot.gameState,
@@ -676,6 +730,7 @@ export function referenceReturnShape(r: HorsePhase6Attribution, snapshot: Phase6
   if (action === 'call') {
     const floorCall = vpipFloorCallDown({ action: 'fold', thinkTime: 0 }, p, s, () => 0);
     if (floorCall.action === 'call' && amount === floorCall.amount) return true;
+    if (lightningPoolFloorLimpShape(amount, snapshot)) return true;
   }
   if (action === 'all_in' && amount === null && v58ShortStackJamShape(snapshot)) return true;
   // The reference's maniac call-down answers a call that is the whole stack
