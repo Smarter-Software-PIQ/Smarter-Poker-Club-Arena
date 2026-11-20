@@ -5251,6 +5251,20 @@ export interface HorseDecideOpts {
   phase8Postflop?: Phase8Mode;
   /** Internal qualified-worker/isolated-evaluator family; live request values are overwritten. */
   phase8PolicyFamily?: 'continuation_v2' | 'catastrophe_guard_v1';
+  /** EMERG lane PACK 2026-11-19 (owner 7:31 PM Chicago: stop the PLO4/PLO5
+   * bleeding; 7:38 PM: math first): opt-in (`=== true`). The PLO4 and
+   * PLO5/6/8 Omaha pack gates take the depth against the opponents still in
+   * the hand against the bet (facing a bet: the aggressor and every live
+   * opponent who still owes action; otherwise every live opponent) instead of
+   * the deepest live opponent, a caller included (hand 5e9a7188).
+   * omaha/OmahaPackDepth.ts. Default OFF. */
+  omahaPackEffectiveDepth?: boolean;
+  /** EMERG lane PACK 2026-11-19: opt-in (`=== true`). An effective depth
+   * above the pack's deepest band (domain.maxStackBB, 250 bb) is played in
+   * that band instead of refusing the pack (depth_or_ante_outside_pack:
+   * 5,809 PLO5 cash decisions in 48 hours). The pack's numbers saturate at
+   * 100 bb. omaha/OmahaPackDepth.ts. Default OFF. */
+  omahaPackClampDeepDepth?: boolean;
   /** Phase 10 complete baseline runs in shadow until its own promotion gate passes. */
   phase10Plo4?: Plo4LiveMode;
   /** Offline fixed-work evaluation only; rejected at the live worker boundary. */
@@ -15374,6 +15388,12 @@ export class HorseLogic {
         /* reads are best-effort */
       }
     }
+    // EMERG PACK 2026-11-19 (both default off, read === true): the depth the
+    // PLO4 and PLO5/6/8 pack gates read (omaha/OmahaPackDepth.ts).
+    const omahaPackDepthOptions = {
+      effective: opts.omahaPackEffectiveDepth === true,
+      clamp: opts.omahaPackClampDeepDepth === true,
+    };
     const variants = graph.run('variant_policy', decision, () => {
       const phase10 =
         registration.owner === 'phase10' && opts.phase10Plo4 !== 'off'
@@ -15385,7 +15405,8 @@ export class HorseLogic {
               opts.phase10Plo4 ?? 'shadow',
               opts.phase10EvidenceMode && !teleLive ? () => 0 : undefined,
               (d) => this.legalize(d, player, gs, vi),
-              readStation
+              readStation,
+              omahaPackDepthOptions
             )
           : null;
       if (phase10) {
@@ -15413,7 +15434,8 @@ export class HorseLogic {
               phase11DecisionEquityCeiling ?? 1,
               true,
               (d) => this.legalize(d, player, gs, vi),
-              readStation
+              readStation,
+              omahaPackDepthOptions
             )
           : null;
       if (phase11) {

@@ -1,4 +1,11 @@
 import type { HorseDecision, SeatPlayer } from '../../types.js';
+import {
+  omahaAggressorSeat,
+  omahaPackDepth,
+  omahaPackDepthBindingIsConsistent,
+  type OmahaPackDepthBasis,
+  type OmahaPackDepthOptions,
+} from '../omaha/OmahaPackDepth.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import type { ReadScope } from '../HorseMind.js';
 import { omahaNutStatus } from '../HorseEval.js';
@@ -189,7 +196,7 @@ export interface Plo4InputBinding {
     effectiveBB: number;
     heroCoverBB: number;
     deepestOpponentCoverBB: number;
-    basis: 'stack_plus_street_bet_vs_deepest_contesting_opponent';
+    basis: OmahaPackDepthBasis;
   }>;
   readonly board: Readonly<{
     street: 'preflop' | 'flop' | 'turn' | 'river';
@@ -965,7 +972,13 @@ export function plo4InputBindingIsValid(value: unknown): value is Plo4InputBindi
     ![depth.effectiveBB, depth.heroCoverBB, depth.deepestOpponentCoverBB].every(finite) ||
     !(depth.effectiveBB as number) ||
     (depth.effectiveBB as number) > PLO4_POLICY_PACK.domain.maxStackBB ||
-    depth.basis !== 'stack_plus_street_bet_vs_deepest_contesting_opponent' ||
+    !omahaPackDepthBindingIsConsistent(
+      depth.effectiveBB as number,
+      depth.heroCoverBB as number,
+      depth.deepestOpponentCoverBB as number,
+      depth.basis,
+      PLO4_POLICY_PACK.domain.maxStackBB
+    ) ||
     !exact(board, ['street', 'cards', 'paired', 'flushBoard', 'features']) ||
     !['preflop', 'flop', 'turn', 'river'].includes(street as string) ||
     board.cards !== { preflop: 0, flop: 3, turn: 4, river: 5 }[street as 'flop'] ||
@@ -1057,7 +1070,10 @@ export function evaluatePlo4LivePolicy(
   /** 2026-10-16: a live opponent's read is a credible station
    * (HorseOpponentExploit.isStation). The pack's deviations are wagers into
    * an opponent-blind horse field; against a station the reference stays. */
-  opponentStation = false
+  opponentStation = false,
+  /** EMERG PACK 2026-11-19: omahaPackEffectiveDepth / omahaPackClampDeepDepth
+   * (both default off; OmahaPackDepth.ts). */
+  packDepth: OmahaPackDepthOptions = {}
 ) {
   const start = now();
   const receipt: Plo4LiveReceipt = {
@@ -1214,8 +1230,20 @@ export function evaluatePlo4LivePolicy(
   const active = seats.filter(
     (p) => p.user_id !== hero.user_id && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
   );
-  const deepestOpponentCover = Math.max(...active.map((p) => p.stack + p.bet));
-  const depth = Math.min(hero.stack + hero.bet, deepestOpponentCover) / s.bigBlind;
+  // EMERG PACK 2026-11-19: the depth the pack gate reads (OmahaPackDepth.ts;
+  // omahaPackEffectiveDepth and omahaPackClampDeepDepth, both default off:
+  // with both off this is the legacy deepest-live-opponent number exactly).
+  const packDepthResult = omahaPackDepth(
+    hero,
+    active,
+    s.currentBet,
+    s.bigBlind,
+    omahaAggressorSeat(hero.user_id, s.stage, s.actionHistory),
+    PLO4_POLICY_PACK.domain.maxStackBB,
+    packDepth
+  );
+  const deepestOpponentCover = packDepthResult.opponentCover;
+  const depth = packDepthResult.depth;
   // Reachability 2026-10-08: with every live opponent away (sitting out, not
   // all-in) no seat can cover, the depth is -Infinity and the pack refuses it
   // below. The receipt records that as an unavailable depth: a non-finite
@@ -1382,7 +1410,7 @@ export function evaluatePlo4LivePolicy(
         effectiveBB: depth,
         heroCoverBB: stackRaiseTo / s.bigBlind,
         deepestOpponentCoverBB: deepestOpponentCover / s.bigBlind,
-        basis: 'stack_plus_street_bet_vs_deepest_contesting_opponent',
+        basis: packDepthResult.basis,
       }),
       board: Object.freeze({
         street,

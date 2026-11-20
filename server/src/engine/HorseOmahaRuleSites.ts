@@ -505,6 +505,13 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   // outside PLO4/PLO5 cash postflop decisions
   ploSuitedAcesFourBet: outside(PREFLOP),
+  // EMERG lane PACK 2026-11-19: the depth the pack gates admit at, not a decision rule
+  omahaPackEffectiveDepth: outside(
+    'the depth at which the PLO4/PLO5 strategy pack admits a decision (omaha/OmahaPackDepth.ts); it decides no action'
+  ),
+  omahaPackClampDeepDepth: outside(
+    'the depth at which the PLO4/PLO5 strategy pack admits a decision (omaha/OmahaPackDepth.ts); it decides no action'
+  ),
   omahaSmallBlindSteal: outside(PREFLOP),
   omahaReraisedPotDiscipline: outside(PREFLOP),
   omahaReraisedPotStackOffFold: outside(PREFLOP),

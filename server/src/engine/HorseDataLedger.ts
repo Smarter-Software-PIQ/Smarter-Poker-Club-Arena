@@ -1282,6 +1282,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPackEffectiveDepth',
+    'EMERG lane PACK 2026-11-19 (owner 7:31 PM Chicago: stop the PLO4/PLO5 bleeding; 7:38 PM: math first): the PLO4 (Phase 10) and PLO5/6/8 (Phase 11) Omaha pack gates take the depth against the opponents still in the hand against the bet (facing a bet: the aggressor and every live opponent who still owes action; otherwise every live opponent; heads-up the one opponent) instead of the deepest live opponent, a caller included (hand 5e9a7188: a 104 bb person bet the flop heads-up, the depth recorded 253 bb against a Horse who had only called). omaha/OmahaPackDepth.ts; receipt depth basis stack_plus_street_bet_vs_opponents_contesting_this_bet. Default OFF (opt-in, read === true)',
+    'EMERG-PACK',
+    'HorseLogic -> evaluatePlo4LivePolicy / evaluateOmahaVariantPolicy'
+  ),
+  flag(
+    'omahaPackClampDeepDepth',
+    'EMERG lane PACK 2026-11-19: an effective depth above the Omaha pack deepest band (domain.maxStackBB, 250 bb) is played in that band instead of refusing the whole pack (reason depth_or_ante_outside_pack: 5,809 PLO5 cash decisions in the 48-hour dataset, every one with the Horse itself deeper than 250 bb); the pack numbers saturate at 100 bb (depth weight clamp((depth - 8) / 92)), so admission is the only change. omaha/OmahaPackDepth.ts; receipt depth basis suffix _clamped_to_deepest_band. Default OFF (opt-in, read === true)',
+    'EMERG-PACK',
+    'HorseLogic -> evaluatePlo4LivePolicy / evaluateOmahaVariantPolicy'
+  ),
+  flag(
     'omahaBluffShareFromBetRate',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the facing-bet expected value the bettor bluff share is the population prior moved continuously by his posterior-mean bet rate beside the population (HorseOmahaPricedMode.omahaPricedBluffFactor), with no sample threshold; the value-leader cap of 0.65 and the maniac floor of 1.3 do not act.',
     'V94'

@@ -4856,6 +4856,31 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-19 (EMERG lane PACK): omahaPackEffectiveDepth and
+  // omahaPackClampDeepDepth, default off. Refused, not dealt: they move only
+  // the depth the PLO4/PLO5 pack gates read, and league stacks never reach it.
+  ...(
+    [
+      ['omahaPackEffectiveDepth', 'effective_depth'],
+      ['omahaPackClampDeepDepth', 'clamp_deep_depth'],
+    ] as const
+  ).flatMap(([option, tag]) =>
+    (['plo4', 'plo5'] as const).map((variant) => ({
+      name: `${variant}_omaha_pack_${tag}`,
+      variant,
+      seats: 6,
+      a: { [option]: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option changes only the depth at which the Omaha strategy pack ' +
+        '(Phase 10 PLO4, Phase 11 PLO5) admits a decision (omaha/OmahaPackDepth.ts); league stacks sit inside ' +
+        'the pack band (at most 250 bb) with one depth for every seat, so the gate never refuses a league ' +
+        'decision and the two arms play the same hands. The pack itself deviates from the reference only ' +
+        'heads-up at a two-seat table (plo4ReferenceDeviation). Measured instead on the 48-hour production ' +
+        'dataset (EMERG/PACK.md, 2026-11-19). The option is DEFAULT OFF (read as === true). What would change ' +
+        'this: league stacks above 250 bb, or different stacks per seat.',
+    }))
+  ),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
   {
