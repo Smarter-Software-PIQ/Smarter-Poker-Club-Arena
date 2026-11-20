@@ -101,10 +101,10 @@ export function namingProblems(file) {
  * the base defines: give it a version above that one. Returns one line per
  * offending function.
  */
-const FN_DEF = /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+(?:"?([a-z_][a-z0-9_]*)"?\.)?"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
+const FN_DEF = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?([a-z_][a-z0-9_]*)"?\.)?"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
 const FN_REWRITE = /pg_get_functiondef\(\s*'(?:([a-z_][a-z0-9_]*)\.)?([a-z_][a-z0-9_]*)\s*\(/gi;
 export function definedFunctions(sql) {
-  const code = sql.replace(/--[^\n]*/g, ' ');
+  const code = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
   const out = new Set();
   for (const re of [FN_DEF, FN_REWRITE]) {
     re.lastIndex = 0;
