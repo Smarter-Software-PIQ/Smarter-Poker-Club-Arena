@@ -16,15 +16,19 @@
  * Pure, never throws: no cell (base n < 30) or bad input returns p unchanged with the reason.
  */
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 // The table is read from the source tree at load, not imported: the engine image is compiled by
 // tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
 // emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
 // image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
-// the server root is three levels above this module in both trees.
+// the server root is three levels above this module in both trees. The path goes through fileURLToPath of the
+// href so it is a plain path whatever URL class the test environment (happy-dom) puts in the global scope.
 const textureJson: unknown = JSON.parse(
   readFileSync(
-    new URL('../../../src/engine/omahaMathCore/playbookTexture.v1.json', import.meta.url),
+    fileURLToPath(
+      new URL('../../../src/engine/omahaMathCore/playbookTexture.v1.json', import.meta.url).href
+    ),
     'utf8'
   )
 );

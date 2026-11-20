@@ -374,6 +374,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'readBreakEvenBluff',
   'omahaNeutralUnknown',
   'omahaEvFoldModelSkipsPlo45',
+  'omahaNoMadeClassCap',
   'omahaTightOpponent',
   'readScopedShrink',
   'huBbDefendsToPrice',
@@ -836,6 +837,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'PLO Strategy',
     'Omaha (all), unknown opponent read',
     'an unknown Omaha opponent gets a neutral read',
+  ],
+  omahaNoMadeClassCap: [
+    'PLO Strategy',
+    'PLO4 / PLO5 cash, facing a wager with a weak made class (PLO6 untouched)',
+    'the V40 made-hand class cap on equity does not run',
   ],
   omahaEvFoldModelSkipsPlo45: [
     'PLO Strategy',

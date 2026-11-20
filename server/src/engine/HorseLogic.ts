@@ -127,6 +127,7 @@ import {
   classCapRespectingEquity,
   OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES,
   omahaClassCapsRespectEquityInScope,
+  omahaNoMadeClassCapInScope,
 } from './HorseOmahaClassCapsRespectEquity.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
@@ -3500,6 +3501,13 @@ export interface HorseDecideOpts {
    * never below it. PLO6 and every other game are untouched.
    */
   omahaClassCapsRespectEquity?: boolean;
+  /**
+   * Lane HIDDEN-ON 2026-11-20 (EMERG/HIDDEN-ON.md; HorseOmahaClassCapsRespectEquity.ts). Default OFF, read
+   * `=== true`. PLO4/PLO5 cash (table and Lightning): the V40 Omaha pressure cap (a fixed equity ceiling per
+   * made-hand class) does not run; the decision uses the equity that entered it. PLO6, tournaments and every
+   * other game are untouched.
+   */
+  omahaNoMadeClassCap?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -26144,7 +26152,18 @@ export class HorseLogic {
         return false;
       }
     })();
-    if (useV40 && vi.isOmaha && made40 != null && made40.weak) {
+    // omahaNoMadeClassCap (lane HIDDEN-ON 2026-11-20, default OFF): in PLO4/PLO5 cash the V40 pressure cap below
+    // does not run. PLO6, tournaments and every other game take the block exactly as before.
+    const noMadeClassCap =
+      opts.omahaNoMadeClassCap === true &&
+      omahaNoMadeClassCapInScope({
+        enabled: true,
+        gameVariant: gs.gameVariant,
+        tournament: isTournamentMode(gs),
+      });
+    if (noMadeClassCap && tele15 && useV40 && vi.isOmaha && made40 != null && made40.weak)
+      noteFire('omaha_made_class_cap_not_applied');
+    if (!noMadeClassCap && useV40 && vi.isOmaha && made40 != null && made40.weak) {
       const heat40 =
         barrels40 +
         (potFrac >= 0.85 ? 1 : 0) +

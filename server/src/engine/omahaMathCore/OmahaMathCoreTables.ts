@@ -14,6 +14,7 @@
  * is "no measurement" and is said so in the receipt.
  */
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   lookupResponse,
   personFoldRate,
@@ -26,10 +27,13 @@ import {
 // tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
 // emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
 // image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
-// the server root is three levels above this module in both trees.
+// the server root is three levels above this module in both trees. The path goes through fileURLToPath of the
+// href so it is a plain path whatever URL class the test environment (happy-dom) puts in the global scope.
 const publicTables: unknown = JSON.parse(
   readFileSync(
-    new URL('../../../src/engine/omahaMathCore/publicTables.v3.json', import.meta.url),
+    fileURLToPath(
+      new URL('../../../src/engine/omahaMathCore/publicTables.v3.json', import.meta.url).href
+    ),
     'utf8'
   )
 );

@@ -434,6 +434,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaNoMadeClassCap: priced(
+    'in PLO4/PLO5 cash the V40 pressure cap (a fixed equity ceiling per made-hand class) does not run and the decision uses the equity that entered it (default OFF; removes a categorical cap, adds no rule)'
+  ),
   omahaClassCapsRespectEquity: priced(
     'facing a bet in PLO4/PLO5 cash, the V40 pressure cap and the V15 flush/straight cap lower the equity only down to the measured equity against the bettor range for this line and size, never below it; a raise the floor would make is held to the call (default OFF)'
   ),

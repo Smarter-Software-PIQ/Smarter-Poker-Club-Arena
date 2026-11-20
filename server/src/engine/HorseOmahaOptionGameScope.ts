@@ -82,6 +82,7 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaAcesReraiseIsMeasured',
   'omahaReraiseRangeIsMeasured',
   'omahaClassCapsRespectEquity',
+  'omahaNoMadeClassCap',
   'omahaFlopFacingBetEv',
   'omahaFlopVerdictReadsTheBettor',
   'omahaReadIsByStreetAndTexture',

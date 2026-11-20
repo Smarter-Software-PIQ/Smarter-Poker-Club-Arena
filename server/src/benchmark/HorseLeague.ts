@@ -3574,6 +3574,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       a: { omahaClassCapsRespectEquity: true },
       b: {},
     },
+    // 2026-11-20 EMERG lane HIDDEN-ON (default OFF, PLO4/PLO5 cash only): omahaNoMadeClassCap, the V40
+    // made-hand class cap on equity does not run; a switches it on, b is today's brain.
+    {
+      name: `${variant}_omaha_no_made_class_cap`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaNoMadeClassCap: true },
+      b: {},
+    },
   ]),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn

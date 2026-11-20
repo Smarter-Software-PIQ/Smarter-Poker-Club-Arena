@@ -1122,6 +1122,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaNoMadeClassCap',
+    'Lane HIDDEN-ON 2026-11-20 (EMERG/HIDDEN-ON.md, owner 2026-11-20 12:01 AM: every rule is kept or removed on its real-card grade). Default OFF (read === true). PLO4/PLO5 cash (table and Lightning): the V40 Omaha pressure cap (a fixed equity ceiling per made-hand class when a bet of 0.6 pot or more, a barrel, a raise or a second opponent is faced; it has no option of its own and runs under v40Omaha) does not run, and the decision uses the equity that entered it. Leave-one-out exact journal replay on the live image aec0d93b40cd with the live switch set, decisions facing a wager, graded on the opponents real cards: 27 actions change, fit day +469.4 bb (SE 306.4, 18 hands), holdout +569.8 bb (SE 354.0, 9 hands); all-in grade +205.6 / +282.7. PLO6, PLO8, tournaments and every other game are byte-identical.',
+    'V40'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5431,6 +5436,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseExploitHydrator.hydrateOmahaBetRead',
     'the boot rebuild of the per-opponent bet read (omahaBetReadIsPerOpponent) threw; the read starts empty and learns from live hands',
     'V94'
+  ),
+  receipt(
+    'omaha_made_class_cap_not_applied',
+    'HorseLogic.decidePostflop (V40 pressure cap, omahaNoMadeClassCap)',
+    'a PLO4/PLO5 cash decision holding a weak made class in which the V40 Omaha pressure cap block was not run because omahaNoMadeClassCap is on (default off)',
+    'V40'
   ),
   receipt(
     'omaha_class_cap_held_at_measured_equity',
