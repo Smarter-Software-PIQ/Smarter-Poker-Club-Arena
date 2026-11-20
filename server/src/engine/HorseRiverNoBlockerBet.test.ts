@@ -4,7 +4,7 @@
  * BLOCK BETTING TO A BIG RAISE". Spots from the anonymised fixtures shared with HorseOmahaSmallBet.test.ts.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fastRandom, seedFastRandom } from './HorseEval.js';
+import { fastRandom, seedFastRandom, variantInfo } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { omahaCardImpactResetCache } from './HorseOmahaCardImpact.js';
@@ -14,6 +14,7 @@ import {
   riverNoBlockerBetVerdict,
 } from './HorseRiverNoBlockerBet.js';
 import { OPTION_SWITCH_NAMES } from './HorseOptionSwitch.js';
+import { LIVE_OPTIONS } from './HorseOmahaPricedRules.test-support.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { replayProfiles, stateAt, type ComplaintFixture } from './HorseComplaintReplay.js';
@@ -184,6 +185,49 @@ describe('horseRiverNoBlockerBet: the verdict', () => {
   });
 });
 
+describe('horseRiverNoBlockerBet: the rule keeps the decision it replaces', () => {
+  // AUDIT-48 river lane (2026-11-19): on the live switch set every PLO4/PLO5 heads-up blocker bet the option resized to the
+  // threshold bet came back from legalize as {action, amount, thinkTime} only, so its Phase 10/11 policy receipt was gone,
+  // horsePolicyOwnership threw and the safety net checked (phase15_brain_exception) instead of the verdict.
+  it('a resized or checked blocker bet keeps every other field of the decision (the policy receipts)', () => {
+    const rule = (HorseLogic as unknown as Record<string, (...a: unknown[]) => HorseDecision>)[
+      'riverNoBlockerBetRule'
+    ].bind(HorseLogic);
+    let resized = 0;
+    let checked = 0;
+    for (const build of RIVERS) {
+      const st = build();
+      const receipt = { marker: 'phase11-receipt' };
+      const input = {
+        ...bet(Math.max(1, Math.floor(0.1 * st.gs.pot))),
+        omahaVariantPolicy: receipt,
+      } as unknown as HorseDecision;
+      HorseMind.reset();
+      const out = rule(
+        input,
+        st.hero,
+        st.gs,
+        variantInfo('plo5'),
+        { horseRiverNoBlockerBet: true, mind: false },
+        false
+      );
+      if (out === input) continue;
+      expect((out as unknown as { omahaVariantPolicy?: unknown }).omahaVariantPolicy).toBe(receipt);
+      if (out.action === 'check') {
+        checked++;
+        expect(out.amount).toBeUndefined();
+      } else {
+        resized++;
+        expect(['bet', 'all_in']).toContain(out.action);
+        if (out.action === 'bet')
+          expect(out.amount! / st.gs.pot).toBeGreaterThanOrEqual(0.4 - 1e-9);
+      }
+    }
+    expect(resized).toBeGreaterThan(0);
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
 describe('horseRiverNoBlockerBet off', () => {
   it('unset, false and a truthy non-boolean decide byte-identically and draw the same randoms', () => {
     const base: HorseDecideOpts = { omahaCardImpact: true, omahaSmallBetIsPriced: true };
@@ -234,6 +278,33 @@ describe('horseRiverNoBlockerBet on (decide level)', () => {
     expect(offSmall).toBeGreaterThan(0);
     expect(onSmall).toBe(0);
     expect(changed).toBe(offSmall);
+  });
+  // AUDIT-48 river lane (2026-11-19): replaying the 48 hours of Horse river bets against persons on the live switch set,
+  // every PLO4/PLO5 heads-up spot the option changed lost its Phase 10/11 policy receipt (legalize returns only
+  // action, amount and think time), so horsePolicyOwnership threw and the safety net checked instead of the
+  // rule's verdict (phase15_brain_exception). A changed decision keeps every field of the decision it replaces.
+  it('a changed decision keeps its policy receipts: no brain exception, the verdict reaches the table', () => {
+    let changed = 0;
+    // the production option set of 2026-11-16 (LIVE_OPTIONS) with the priced small bet, the base the receipts come from
+    const live: HorseDecideOpts = { ...LIVE_OPTIONS, omahaSmallBetIsPriced: true };
+    for (const build of RIVERS)
+      for (const seed of SEEDS) {
+        const off = decide(build, live, seed);
+        const on = decide(build, { ...live, horseRiverNoBlockerBet: true }, seed);
+        expect(on.fires).not.toContain('phase15_brain_exception');
+        if (on.bytes === off.bytes) continue;
+        changed++;
+        expect(on.d.policyOwnership).toBeDefined();
+        expect(on.d.omahaVariantPolicy !== undefined).toBe(off.d.omahaVariantPolicy !== undefined);
+        expect(on.d.plo4Policy !== undefined).toBe(off.d.plo4Policy !== undefined);
+        if (
+          on.fires.includes('river_no_blocker_bet_resized_priced') ||
+          on.fires.includes('river_no_blocker_bet_resized_nuts')
+        )
+          expect(['bet', 'all_in']).toContain(on.d.action);
+        if (on.fires.includes('river_no_blocker_bet_checked')) expect(on.d.action).toBe('check');
+      }
+    expect(changed).toBeGreaterThan(0);
   });
   it('the turn is unchanged with the option on', () => {
     for (const seed of SEEDS) {

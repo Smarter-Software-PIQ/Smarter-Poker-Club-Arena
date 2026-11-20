@@ -28665,7 +28665,12 @@ export class HorseLogic {
       }
       const verdict = riverNoBlockerBetVerdict(decision, player, gs, read);
       if (verdict.changed === null) return decision;
-      const legal = this.legalize(verdict.decision, player, gs, vi);
+      // legalize returns only action, amount and think time: the decision keeps every other field it carried (the
+      // Phase 10-13 policy receipts above all; without them horsePolicyOwnership throws and the safety net checks).
+      const legalized = this.legalize(verdict.decision, player, gs, vi);
+      const legal: HorseDecision = { ...verdict.decision, action: legalized.action };
+      if (legalized.amount === undefined) delete legal.amount;
+      else legal.amount = legalized.amount;
       if (tele) {
         if (verdict.changed === 'checked') noteFire('river_no_blocker_bet_checked');
         else if (verdict.changed === 'resized_priced')
