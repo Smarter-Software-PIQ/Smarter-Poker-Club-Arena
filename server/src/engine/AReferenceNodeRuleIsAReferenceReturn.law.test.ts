@@ -90,6 +90,12 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
   },
   { owner: 'vpipFloorCallDown', kind: 'post_route', proof: 'callDown' },
   { owner: 'decidePostflop', kind: 'postflop', proof: 'no preflop receipt exists postflop' },
+  {
+    owner: 'classCapFloorKeepsTheCall',
+    kind: 'postflop',
+    proof:
+      'postflop only (omahaClassCapsRespectEquity): a raise the lifted cap produced stays the call',
+  },
   { owner: 'maniacCallDown', kind: 'post_route', proof: 'maniacCallDown' },
   { owner: 'maniacShortStackJam', kind: 'post_route', proof: 'acts on a raise only' },
   { owner: 'fixedLimitRiverStrongHandLead', kind: 'postflop', proof: 'river only' },
