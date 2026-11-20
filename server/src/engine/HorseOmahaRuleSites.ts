@@ -565,6 +565,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaNoCategoricalRules: outside(
     'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'
   ),
+  omahaBandFallbackInBandUnit: outside(
+    'an equity sampler unit (the PLO4/PLO5 band fallback measures in the band percentile; default OFF): it decides no action'
+  ),
   omahaMathCore: priced(
     'the math-first PLO4/PLO5 cash core (default OFF): the expected-value maximum over every legal action from exact 2+3 equity against public ranges, measured fold and response frequencies and the price; the outermost owner of wager_rules'
   ),

@@ -3883,6 +3883,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-20 CORE-LAND (omahaBandFallbackInBandUnit, default OFF, unevaluated): both arms carry production's live
+  // Omaha set; a also measures the equity sampler's band fallback in the band's percentile unit. 100 bb cash.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_band_fallback_in_band_unit`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaBandFallbackInBandUnit: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-19 lane MATHCORE / COREWIRE (omahaMathCore, default OFF, graded by lane PROVE): both arms carry
   // production's live Omaha set; a also switches the math-first core on (every street admitted). 100 bb cash.
   ...(['plo4', 'plo5'] as const).map((variant) => {

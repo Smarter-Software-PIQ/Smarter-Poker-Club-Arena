@@ -744,6 +744,7 @@ import {
   estimateRiverRangeComposition,
   saveFastRandom,
   restoreFastRandom,
+  setOmahaBandFallbackInBandUnit,
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
 import {
@@ -3509,6 +3510,11 @@ export interface HorseDecideOpts {
    * Outermost wrapper of wager_rules, so it also covers decisions whose
    * Omaha pack was refused for depth. Never changes a non-fold. Default OFF. */
   omahaFacingBetIsPricedByEquity?: boolean;
+  /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
+   * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
+   * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
+   * untouched at any value. */
+  omahaBandFallbackInBandUnit?: boolean;
   /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
    * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
    * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
@@ -14891,6 +14897,11 @@ export class HorseLogic {
     // omahaBetSizeByPublicState: the outermost decision owns the size draw.
     if (omahaDecideDepth === 0) omahaPublicSizeUnit = null;
     omahaDecideDepth++;
+    // omahaBandFallbackInBandUnit (default OFF): the equity sampler's PLO4/PLO5 band fallback unit, for this
+    // decision only (restored in the finally below).
+    const bandUnitBefore = setOmahaBandFallbackInBandUnit(
+      opts.omahaBandFallbackInBandUnit === true
+    );
     try {
       if (
         !horsePolicyRegistration(
@@ -15082,6 +15093,7 @@ export class HorseLogic {
         : { action: fallbackAction, thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
       omahaDecideDepth = Math.max(0, omahaDecideDepth - 1);
+      setOmahaBandFallbackInBandUnit(bandUnitBefore);
       if (omahaDecideDepth === 0) omahaPublicSizeUnit = null;
       omahaProposedReceipts = [];
       omahaClearDecisionMemos();
@@ -16596,14 +16608,9 @@ export class HorseLogic {
         );
         return {
           decision: publicSized(
-            omahaTurnRiverRaiseNeedsNutsRule(
-              omahaOwnerRuledFinal(
-                omahaStrongHandSlowplayMixRule(
-                  omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
-                  player,
-                  gs,
-                  opts
-                ),
+            omahaOwnerRuledFinal(
+              omahaDrawRules(
+                onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
                 player,
                 gs,
                 opts

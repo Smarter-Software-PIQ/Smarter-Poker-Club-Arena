@@ -3256,12 +3256,29 @@ export interface HorseEquityOutcomeCollector {
 export { isPlo45High };
 
 /**
+ * omahaBandFallbackInBandUnit (default OFF; CORE-LAND 2026-11-20 after lane DEPTH-GRADE): whether the PLO4/PLO5
+ * high fallback below measures in the band's percentile unit. Set by HorseLogic.decide from the decision's options
+ * for the length of the decision and restored after it; every other caller sees the live default (off: the raw
+ * score, the baseline every live decision was made under). Exact replay: with it on, two very strong hands
+ * (60178985 turn, 60167078 flop) lose the value raise the reference brain chose live (v53 pressure value raise,
+ * priced raise kept) and 5 of 56 recorded PLO5 decisions move, with no real-card grade yet, so the unit change
+ * ships behind a switch instead of as a no-switch delta.
+ */
+let omahaBandFallbackInBandUnitOn = false;
+/** Sets the decision-scoped flag and returns the previous value (to restore). */
+export function setOmahaBandFallbackInBandUnit(on: boolean): boolean {
+  const prev = omahaBandFallbackInBandUnitOn;
+  omahaBandFallbackInBandUnitOn = on;
+  return prev;
+}
+
+/**
  * The strength an Omaha band hand is measured in by simulateEquity's rejection fallback. AUDIT-FILES-B (2026-11-19):
- * the band is percentile-intent, so PLO4/PLO5 high measure the percentile; every other Omaha game (PLO6, hi-lo) keeps
- * the raw score exactly as before.
+ * the band is percentile-intent, so PLO4/PLO5 high measure the percentile (with omahaBandFallbackInBandUnit on);
+ * every other Omaha game (PLO6, hi-lo), and PLO4/PLO5 with the option off, keep the raw score exactly as before.
  */
 export function omahaBandFallbackScore(cards: Card[], vi: VariantInfo): number {
-  return isPlo45High(vi)
+  return omahaBandFallbackInBandUnitOn && isPlo45High(vi)
     ? omahaPreflopPercentile(cards, vi.isHiLo)
     : omahaPreflopScore(cards, vi.isHiLo);
 }

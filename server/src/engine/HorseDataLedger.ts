@@ -1082,6 +1082,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBandFallbackInBandUnit',
+    "CORE-LAND 2026-11-20 (lead order 12:23 AM Chicago after lane DEPTH-GRADE): default OFF (read === true). simulateEquity's PLO4/PLO5 high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead of the raw preflop score every live decision was made under. Off (default) the raw score, exactly as live. Shipped as a switch, not a no-switch delta: on exact replay it moves 5 of 56 recorded PLO5 decisions and takes the value raise from two very strong hands (60178985 turn, 60167078 flop) with no real-card grade yet. PLO6, hi-lo and every other game untouched at any value.",
+    'V94'
+  ),
+  flag(
     'omahaTurnStrongHandRealizationIsMeasured',
     "EMERG lane OPEN-ITEMS 2026-11-19 (lead order 10:55 PM Chicago after BLEED-NOW: Horses fold strong made hands to a person's turn bet; deciding rule by exact replay = the omahaFacingBetEv turn verdict). Default OFF (read === true); acts only with omahaFacingBetIsPricedByEquity on. PLO4/PLO5 cash, Lightning, heads-up, turn, facing a person's bet or raise, final fold: a made hand that at most 10% of the two-card holdings the unseen cards allow beat (the Horse's own cards and the board) is priced with the realization measured for exactly those calls on public information (the chips the Horses' own heads-up Lightning turn calls of that class won back over their calibrated public equity: 1.02 on 44 calls Nov 17-18, shipped as 1; held-out Nov 19 0.73 on 15) in place of the flat turn 0.64 (HorseOmahaFacingBetEquity.omahaFacingStrongTurnCell). Tables (0.36 on 26 calls) and multiway keep the flat figure. Changes only a fold into the call; PLO6 untouched; off byte-identical.",
     'V94'

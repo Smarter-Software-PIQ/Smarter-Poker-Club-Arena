@@ -112,16 +112,16 @@
     "did": "check",
     "audit": null,
     "expect": {
-      "off": { "a": "check", "amt": null },
-      "omahaTurnRiverRaiseIsPriced": { "a": "check", "amt": null },
-      "omahaDrawRaiseIsPriced": { "a": "check", "amt": null },
-      "omahaOopTurnBarrelIsPriced": { "a": "check", "amt": null },
+      "off": { "a": "bet", "amt": 42 },
+      "omahaTurnRiverRaiseIsPriced": { "a": "bet", "amt": 42 },
+      "omahaDrawRaiseIsPriced": { "a": "bet", "amt": 42 },
+      "omahaOopTurnBarrelIsPriced": { "a": "bet", "amt": 42 },
       "omahaPairedBoardBetIsPriced": { "a": "check", "amt": null },
-      "omahaBluffShareFromBetRate": { "a": "check", "amt": null },
-      "omahaFacingBetRangeIsContinuous": { "a": "check", "amt": null },
-      "omahaPressureIsPriced": { "a": "check", "amt": null },
-      "omahaBigBetCallsArePriced": { "a": "check", "amt": null },
-      "omahaUnderpairMultiwayIsPriced": { "a": "check", "amt": null },
+      "omahaBluffShareFromBetRate": { "a": "bet", "amt": 42 },
+      "omahaFacingBetRangeIsContinuous": { "a": "bet", "amt": 42 },
+      "omahaPressureIsPriced": { "a": "bet", "amt": 42 },
+      "omahaBigBetCallsArePriced": { "a": "bet", "amt": 42 },
+      "omahaUnderpairMultiwayIsPriced": { "a": "bet", "amt": 42 },
       "all": { "a": "check", "amt": null }
     }
   },
@@ -240,7 +240,7 @@
     "expect": {
       "off": { "a": "call", "amt": 30 },
       "omahaTurnRiverRaiseIsPriced": { "a": "call", "amt": 30 },
-      "omahaDrawRaiseIsPriced": { "a": "raise", "amt": 103 },
+      "omahaDrawRaiseIsPriced": { "a": "all_in", "amt": null },
       "omahaOopTurnBarrelIsPriced": { "a": "call", "amt": 30 },
       "omahaPairedBoardBetIsPriced": { "a": "call", "amt": 30 },
       "omahaBluffShareFromBetRate": { "a": "call", "amt": 30 },
@@ -248,7 +248,7 @@
       "omahaPressureIsPriced": { "a": "call", "amt": 30 },
       "omahaBigBetCallsArePriced": { "a": "call", "amt": 30 },
       "omahaUnderpairMultiwayIsPriced": { "a": "call", "amt": 30 },
-      "all": { "a": "raise", "amt": 103 }
+      "all": { "a": "all_in", "amt": null }
     }
   },
   {
@@ -497,10 +497,10 @@
       "omahaPairedBoardBetIsPriced": { "a": "call", "amt": 52 },
       "omahaBluffShareFromBetRate": { "a": "call", "amt": 52 },
       "omahaFacingBetRangeIsContinuous": { "a": "call", "amt": 52 },
-      "omahaPressureIsPriced": { "a": "raise", "amt": 197 },
+      "omahaPressureIsPriced": { "a": "raise", "amt": 185 },
       "omahaBigBetCallsArePriced": { "a": "call", "amt": 52 },
       "omahaUnderpairMultiwayIsPriced": { "a": "call", "amt": 52 },
-      "all": { "a": "raise", "amt": 197 }
+      "all": { "a": "raise", "amt": 185 }
     }
   },
   {
@@ -1224,17 +1224,17 @@
       "cause": "missed bet after his check (bluff/semi-bluff)"
     },
     "expect": {
-      "off": { "a": "bet", "amt": 17 },
-      "omahaTurnRiverRaiseIsPriced": { "a": "bet", "amt": 17 },
-      "omahaDrawRaiseIsPriced": { "a": "bet", "amt": 17 },
-      "omahaOopTurnBarrelIsPriced": { "a": "bet", "amt": 17 },
-      "omahaPairedBoardBetIsPriced": { "a": "bet", "amt": 17 },
-      "omahaBluffShareFromBetRate": { "a": "bet", "amt": 17 },
-      "omahaFacingBetRangeIsContinuous": { "a": "bet", "amt": 17 },
-      "omahaPressureIsPriced": { "a": "bet", "amt": 17 },
-      "omahaBigBetCallsArePriced": { "a": "bet", "amt": 17 },
-      "omahaUnderpairMultiwayIsPriced": { "a": "bet", "amt": 17 },
-      "all": { "a": "bet", "amt": 17 }
+      "off": { "a": "check", "amt": null },
+      "omahaTurnRiverRaiseIsPriced": { "a": "check", "amt": null },
+      "omahaDrawRaiseIsPriced": { "a": "check", "amt": null },
+      "omahaOopTurnBarrelIsPriced": { "a": "check", "amt": null },
+      "omahaPairedBoardBetIsPriced": { "a": "check", "amt": null },
+      "omahaBluffShareFromBetRate": { "a": "check", "amt": null },
+      "omahaFacingBetRangeIsContinuous": { "a": "check", "amt": null },
+      "omahaPressureIsPriced": { "a": "check", "amt": null },
+      "omahaBigBetCallsArePriced": { "a": "check", "amt": null },
+      "omahaUnderpairMultiwayIsPriced": { "a": "check", "amt": null },
+      "all": { "a": "check", "amt": null }
     }
   },
   {
@@ -1900,17 +1900,17 @@
       "cause": "missed bet after his check (bluff/semi-bluff)"
     },
     "expect": {
-      "off": { "a": "bet", "amt": 15 },
-      "omahaTurnRiverRaiseIsPriced": { "a": "bet", "amt": 15 },
-      "omahaDrawRaiseIsPriced": { "a": "bet", "amt": 15 },
-      "omahaOopTurnBarrelIsPriced": { "a": "bet", "amt": 15 },
-      "omahaPairedBoardBetIsPriced": { "a": "bet", "amt": 15 },
-      "omahaBluffShareFromBetRate": { "a": "bet", "amt": 15 },
-      "omahaFacingBetRangeIsContinuous": { "a": "bet", "amt": 15 },
-      "omahaPressureIsPriced": { "a": "bet", "amt": 15 },
-      "omahaBigBetCallsArePriced": { "a": "bet", "amt": 15 },
-      "omahaUnderpairMultiwayIsPriced": { "a": "bet", "amt": 15 },
-      "all": { "a": "bet", "amt": 15 }
+      "off": { "a": "bet", "amt": 18 },
+      "omahaTurnRiverRaiseIsPriced": { "a": "bet", "amt": 18 },
+      "omahaDrawRaiseIsPriced": { "a": "bet", "amt": 18 },
+      "omahaOopTurnBarrelIsPriced": { "a": "bet", "amt": 18 },
+      "omahaPairedBoardBetIsPriced": { "a": "bet", "amt": 18 },
+      "omahaBluffShareFromBetRate": { "a": "bet", "amt": 18 },
+      "omahaFacingBetRangeIsContinuous": { "a": "bet", "amt": 18 },
+      "omahaPressureIsPriced": { "a": "bet", "amt": 18 },
+      "omahaBigBetCallsArePriced": { "a": "bet", "amt": 18 },
+      "omahaUnderpairMultiwayIsPriced": { "a": "bet", "amt": 18 },
+      "all": { "a": "bet", "amt": 18 }
     }
   },
   {

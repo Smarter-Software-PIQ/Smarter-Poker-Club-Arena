@@ -13,7 +13,9 @@
  * percentile must land in the band it was asked for.
  */
 import { describe, it, expect } from 'vitest';
+import { afterEach } from 'vitest';
 import {
+  setOmahaBandFallbackInBandUnit,
   seedFastRandom,
   simulateEquity,
   variantInfo,
@@ -85,11 +87,35 @@ function shareInBand(band: [number, number]): number {
   return inside / out.samples.length;
 }
 
-describe('simulateEquity Omaha band fallback (AUDIT-FILES-B)', () => {
+describe('simulateEquity Omaha band fallback (AUDIT-FILES-B; omahaBandFallbackInBandUnit on)', () => {
+  afterEach(() => setOmahaBandFallbackInBandUnit(false));
   it('a bottom-30% read draws bottom-30% opponents, not almost any hand', () => {
+    setOmahaBandFallbackInBandUnit(true);
     expect(shareInBand([0, 0.3])).toBeGreaterThan(0.7);
   });
   it('a top-30% read draws top-30% opponents', () => {
+    setOmahaBandFallbackInBandUnit(true);
     expect(shareInBand([0.7, 1])).toBeGreaterThan(0.7);
+  });
+});
+
+describe('omahaBandFallbackInBandUnit off (default): the live raw-score fallback', () => {
+  // CORE-LAND 2026-11-20 (lane DEPTH-GRADE): hands 60178985 (turn) and 60167078 (flop) keep the value raise the
+  // reference brain chose live only with the raw-score fallback; exact replay on the batch tree with the unit
+  // change unconditional turned both into calls. Off, PLO5 and PLO4 measure the raw score exactly as live.
+  it('PLO5 and PLO4 measure the raw score unless the option is on; PLO6 always does', async () => {
+    const { omahaBandFallbackScore } = await import('./HorseEval.js');
+    for (const v of ['plo5', 'plo4', 'plo6'] as const) {
+      const hand =
+        v === 'plo4' ? hero.slice(0, 4) : v === 'plo6' ? [...hero, c('9', 'diamonds')] : hero;
+      expect(omahaBandFallbackScore(hand, variantInfo(v))).toBe(omahaPreflopScore(hand, false));
+    }
+    setOmahaBandFallbackInBandUnit(true);
+    expect(omahaBandFallbackScore(hero, variantInfo('plo5'))).toBe(
+      omahaPreflopPercentile(hero, false)
+    );
+    const six = [...hero, c('9', 'diamonds')];
+    expect(omahaBandFallbackScore(six, variantInfo('plo6'))).toBe(omahaPreflopScore(six, false));
+    setOmahaBandFallbackInBandUnit(false);
   });
 });
