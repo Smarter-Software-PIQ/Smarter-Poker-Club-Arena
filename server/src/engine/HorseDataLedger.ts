@@ -7448,6 +7448,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V44'
   ),
   receipt(
+    'v44_declined_math_core_owned',
+    'ServerTableEngineTurns.secondLookPlan',
+    'no second look: omahaMathCore decided this action (its EV choice is final; no deep re-run replaces it)',
+    'V94'
+  ),
+  receipt(
+    'lightning_fold_through_math_core_owned',
+    'HorseLogic.decide (lightningEarlyFoldNeedsFoldThrough)',
+    'the Lightning fold-through re-ask stood aside: omahaMathCore owns this decision',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_refused_choice_priced_call',
+    'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD)',
+    'a refused or failed worker answer on an omahaMathCore decision was replaced by the priced call or check, never a fold',
+    'V94'
+  ),
+  receipt(
     'v44_declined_action_shape',
     'ServerTableEngineTurns.secondLookPlan',
     'no second look: the fast answer was a bet or raise, which the equity sample does not decide',
