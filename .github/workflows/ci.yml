@@ -2133,6 +2133,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-horse-daily-counts.py
 
+      - name: Every Horse's dealt hole cards are kept, service role only
+        if: matrix.shard == 4
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-horse-dealt-hole-cards.py
+
       - name: Individual horse history restores only original public observations
         if: matrix.shard == 4
         env:
