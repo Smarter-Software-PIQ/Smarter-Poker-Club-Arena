@@ -3913,6 +3913,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-20 lane NOV8 / HIDDEN-ON (omahaEvFoldModelSkipsPlo45, default OFF; HIDDEN-ON grade PASS, fit +130.2 +- 44.3
+  // bb, holdout +124.2 +- 80.5): both arms carry production's live Omaha set; a also skips the EV fold model for
+  // PLO4/PLO5. 100 bb cash. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_ev_fold_model_skips_plo45`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true, omahaEvFoldModelSkipsPlo45: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true },
+  })),
   // 2026-11-20 CORE-LAND (omahaBandFallbackInBandUnit, default OFF, unevaluated): both arms carry production's live
   // Omaha set; a also measures the equity sampler's band fallback in the band's percentile unit. 100 bb cash.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

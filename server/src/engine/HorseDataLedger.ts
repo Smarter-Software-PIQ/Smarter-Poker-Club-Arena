@@ -2379,7 +2379,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaEvFoldModelSkipsPlo45',
-    '2026-11-19 (lane NOV8, emergency PLO4/PLO5 programme) with it on, the Omaha EV fold model (omahaEvFoldModel) does not price PLO4 or PLO5 cash bets: those games price each opponent fold with the exploit bluff multiplier exactly as before release bff6eed3 (Nov 9 2026 1:41 PM Chicago, #10104); PLO6, tournaments and every other game are unchanged. Measured at that release, PLO5 Horse flop c-bet 0.539 to 0.740, probe 0.271 to 0.366, showdown share after a flop 0.326 to 0.198 (ca_hand_facts); exact journal replay on the Nov 17-19 PLO4/PLO5 cash decisions with the model off graded the changed flop bets vs real cards at PLO5 +101 bb (SE 41) and PLO4 +30 bb (SE 10) on Nov 17-18, PLO5 +122 bb (SE 77) on the Nov 19 holdout. Default OFF; the lead switches it.',
+    '2026-11-19 (lane NOV8, emergency PLO4/PLO5 programme; default OFF) with it on, the Omaha EV fold model (omahaEvFoldModel) does not price PLO4 or PLO5 cash bets: those games price each opponent fold with the exploit bluff multiplier exactly as before release bff6eed3 (Nov 9 2026 1:41 PM Chicago, #10104); PLO6, tournaments and every other game are unchanged. Measured at that release, PLO5 Horse flop c-bet 0.539 to 0.740, probe 0.271 to 0.366, showdown share after a flop 0.326 to 0.198 (ca_hand_facts); exact journal replay on the Nov 17-19 PLO4/PLO5 cash decisions with the model off graded the changed flop bets vs real cards at PLO5 +101 bb (SE 41) and PLO4 +30 bb (SE 10) on Nov 17-18, PLO5 +122 bb (SE 77) on the Nov 19 holdout. Default OFF; the lead switches it.',
     'Omaha threshold calibration'
   ),
   flag(

@@ -471,8 +471,12 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         1,
         'omahaTurnStabDefenceIsPriced receipt: the pure facing-bet verdict (omahaFacingBetEvVerdict: no random draw, no telemetry, no memory) on the unadjusted spot, compared to name a receipt; the decision is the same either way',
       ],
+      omahaBetReadBluffShare: [
+        1,
+        'omahaBetReadIsPerOpponent receipt (lane CR2): the pure bluff-share arithmetic of the read already taken (no random draw, no telemetry, no memory), only to write the receipt amount',
+      ],
       noteDecisionRuleReceipt: [
-        9,
+        10,
         'BrainTelemetry: copies the action a receipted rule was given and the one it left into the open decision scope; records nothing inside a second-look capture (refused by name), never read before the decision is made',
       ],
     },
