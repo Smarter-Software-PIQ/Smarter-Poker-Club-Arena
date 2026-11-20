@@ -4035,6 +4035,28 @@ export abstract class TournamentManagerBase {
   /** Called as every admitted sweep settles; the balancing manager drains its edge work here. */
   protected onEliminationSweepSettled(): void {}
 
+  /**
+   * THE BOARD THIS MANAGER CAN STILL TRUST (2026-11-20, incident 1e532243).
+   *
+   * Bumped on every event this manager sees that can change the seat board:
+   * every admitted sweep, every batch of seat moves, every newly observed
+   * bust. A boundary plan prepared during a source's completion hold is used
+   * at the park only when this has not moved since its reads began; anything
+   * else falls back to reading the board fresh at the boundary.
+   */
+  protected balanceBoardEpoch = 0;
+
+  /**
+   * A managed table settled a hand (the hand-complete edge, which fires
+   * before the completion hold plays). The balancing manager overrides this;
+   * the base manager balances nothing.
+   */
+  protected onManagedHandSettled(
+    _tableId: string,
+    _engine: ServerTableEngine,
+    _finalStacks: { user_id: string; stack: number }[]
+  ): void {}
+
   protected declareConsolidationOutstanding(outstanding: boolean): void {
     if (this.consolidationDeclared === outstanding) return;
     if (tournamentEliminationScheduler.setConsolidating(this.tournamentId, outstanding)) {
@@ -4195,6 +4217,10 @@ export abstract class TournamentManagerBase {
       this.gameServer.getTableEngine(tableId) === engine;
     engine.onHandComplete((_tableId, finalStacks, acceptedHand) => {
       if (!ownsEdge(_tableId)) return;
+      // The hand is settled and its completion hold is about to play. A
+      // balancing manager prepares the boundary plan for a fenced source
+      // now, under the hold, instead of after the table parks.
+      this.onManagedHandSettled(_tableId, engine, finalStacks);
       if (acceptedHand)
         this.observeSatelliteBoundary({ kind: 'hand', tableId: _tableId, ...acceptedHand }, () =>
           ownsEdge(_tableId)
