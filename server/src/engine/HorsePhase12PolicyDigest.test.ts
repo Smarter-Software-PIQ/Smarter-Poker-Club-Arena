@@ -103,7 +103,8 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 53 since 2026-11-18: HorseMind carries how a re-raiser answers being re-raised (HorseOmahaReraiseResponse).
     // 55 since 2026-11-19: HorseMind carries what a flop bet showed (HorseOmahaFlopShown) and the price behind a
     // fold-to-raise cell (HorseOmahaStreetReadPrice).
-    expect(closure).toHaveLength(55);
+    // 56 since 2026-11-19: both Omaha pack gates read their depth from omaha/OmahaPackDepth.
+    expect(closure).toHaveLength(56);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');

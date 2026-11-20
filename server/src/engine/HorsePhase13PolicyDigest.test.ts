@@ -118,7 +118,8 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 71 since 2026-11-18: HorseMind carries how a re-raiser answers being re-raised (HorseOmahaReraiseResponse).
     // 73 since 2026-11-19: HorseMind carries what a flop bet showed (HorseOmahaFlopShown) and the price behind a
     // fold-to-raise cell (HorseOmahaStreetReadPrice).
-    expect(closure).toHaveLength(73);
+    // 74 since 2026-11-19: both Omaha pack gates read their depth from omaha/OmahaPackDepth.
+    expect(closure).toHaveLength(74);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');
@@ -152,8 +153,9 @@ describe('P13.3 Phase 13 policy digest', () => {
         ...HORSE_REFERENCE_DECISION_SOURCE_FILES.filter((f) => !closure.includes(f)),
       ].sort()
     );
+    // 37 since 2026-11-19: omaha/OmahaPackDepth (the depth both Omaha pack gates read) is hashed.
     expect(hashed.size).toBe(
-      36 +
+      37 +
         HORSE_REFERENCE_DECISION_SOURCE_FILES.filter(
           (f) => !HORSE_P13_BASE_REFERENCE_OVERLAP.includes(f)
         ).length
