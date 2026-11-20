@@ -294,6 +294,18 @@ function specs(variants: Spec['variant'][], count: number): Spec[] {
   return out.slice(0, count);
 }
 
+/**
+ * A clock that does not move, as the exact replay runs the core. The core boxes its equity sampling with the
+ * wall clock (OMAHA_MATH_CORE_BUDGET_MS deadline, per-call maxMs, the late() reduced draw floor); under a loaded
+ * host a stall moves that clock between two runs of the same state, the runs take different draw counts and a
+ * borderline call/fold flips (B4 failed an engine release prequalification on Nov 20 with 'call' vs 'fold';
+ * reproduced on the B4 states 1007, 1011, 1012 with a clock advancing 37 ms per read). With the clock frozen
+ * the deterministic work budget (OMAHA_MATH_CORE_WORK_BUDGET) and the seeded samplers alone bound the
+ * work, so two runs of the same state are the same computation and a comparison between them is exact.
+ * Restored by the file's afterEach (vi.restoreAllMocks).
+ */
+const freezeClock = () => vi.spyOn(performance, 'now').mockReturnValue(0);
+
 const decide = (st: ReturnType<typeof stateAt>, opts: Record<string, unknown>) => {
   HorseMind.reset();
   seedFastRandom(1);
@@ -529,6 +541,8 @@ describe('COREGUARD B3: the size the core priced is the size played', () => {
 
 describe('COREGUARD B4: an exception is never an automatic fold', () => {
   it("a throw inside the brain: the decision is the core's own choice run standalone (receipt names the error)", () => {
+    // both runs on the same frozen clock: the comparison below is exact, never load-dependent
+    freezeClock();
     let n = 0;
     for (const spec of SPECS.filter((s) => s.facing).slice(0, 24)) {
       const { st } = gen(spec);
@@ -539,18 +553,17 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
         { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS, omahaMathCorePreflop: true },
         (d) => omahaMathCoreExactLegalize(d, st.hero, st.gs)
       );
-      vi.spyOn(
-        HorseLogic as unknown as { decideInternal: () => never },
-        'decideInternal'
-      ).mockImplementation(() => {
-        throw new Error('injected');
-      });
+      const brain = vi
+        .spyOn(HorseLogic as unknown as { decideInternal: () => never }, 'decideInternal')
+        .mockImplementation(() => {
+          throw new Error('injected');
+        });
       const d = decide(st, {
         omahaMathCore: true,
         ...OMAHA_MATH_CORE_ALL_STREETS,
         omahaMathCorePreflop: true,
       });
-      vi.restoreAllMocks();
+      brain.mockRestore();
       const rec = d.omahaMathCore as OmahaMathCoreRecoveredReceipt;
       expect(d.policyFallback).toBeUndefined();
       expect(rec.applied).toBe(true);
@@ -635,6 +648,8 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
 
 describe('COREGUARD B5: the Lightning fold-through never re-asks a core fold', () => {
   it('with lightningEarlyFoldNeedsFoldThrough on, every core decision is identical to the option off', () => {
+    // both arms on the same frozen clock (see freezeClock): identical means the same computation
+    freezeClock();
     for (const spec of SPECS.filter((s) => s.lightning && s.n >= 3).slice(0, 24)) {
       const { st } = gen(spec);
       const a = decide(st, {
