@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaRuleBasis.law.test.ts
+
+Every PLO4/PLO5 Cash Decision Rule Declares Its Pricing Basis (Range, Equity Method, Realization, Price) Or A Named Exemption (Arithmetic Invariant, Legality, Owner Game Rule, Scope, Input, Other Game) In HorseOmahaRuleBasis.ts; Every Option Of The Register, Every Option A Rule Site Names And Every Option omahaNoCategoricalRules Switches Off Has One; The Blanket, Partly-Blanket And Unreviewed Backlogs May Only Shrink, So A Categorical Rule Cannot Be Registered For PLO4/PLO5 Cash; And A New omaha*/plo* Receipt Fired From Engine Source Without A Declaration Fails The Build (Owner 2026-11-20 3:28 PM: "THERE SHOULD NEVER EVER EVER BY ANY BLANKET RULES"; BLANKET-AUDIT, 2026-11-20).
