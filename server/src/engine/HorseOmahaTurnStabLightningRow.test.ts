@@ -21,6 +21,7 @@ import {
   omahaTurnStabSpot,
 } from './HorseOmahaTurnStabDefence.js';
 import { expand, type RecordedFacingBet } from './HorseOmahaFacingBetEv.test-support.js';
+import { horseDecisionReceiptRefusalForGates } from './horseDecision/responseValidation.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
 const SEEDS = [1, 2, 3, 4];
@@ -174,5 +175,61 @@ describe('the decision', () => {
       });
     }
     expect(seen).toBeGreaterThan(0);
+  });
+});
+
+// MATHCORE ask (INTEGRATE-6, 2026-11-19): every Lightning decision the row changes, and every decision the stab
+// defence changes in Lightning, passes the worker receipt validator under the gates the lane tries for it
+// (omahaPricedInLightning is on: the row acts only with it).
+describe('omahaTurnStabLightningRow: every changed Lightning decision passes the worker receipt validator', () => {
+  const HANDS = [
+    '9h8h7c6d5s',
+    'Kc8s7h3d2s',
+    'QhJhTd8c3s',
+    'As9c8d5h3h',
+    'Ts9h8c6c2d',
+    'JcTc7s6h4d',
+  ];
+  const NO_STAB: HorseDecideOpts = { omahaFacingBetEv: true, omahaPricedInLightning: true };
+  const decideAt = (r: RecordedFacingBet, opts: HorseDecideOpts, seed: number) => {
+    HorseMind.reset();
+    seedFastRandom(seed);
+    const st = stateOf(r, true);
+    const d = structuredClone(
+      HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        observeMind: false,
+        ...opts,
+      } as never)
+    );
+    return { st, d };
+  };
+  it('Lightning: no stab -> stab -> row, every change is admitted', () => {
+    let changed = 0;
+    for (const hole of HANDS)
+      for (const bet of [6, 12, 14])
+        for (const seed of SEEDS) {
+          const none = decideAt(stab(hole, bet), NO_STAB, seed);
+          const stabbed = decideAt(stab(hole, bet), STAB_ON, seed);
+          const row = decideAt(stab(hole, bet), ROW_ON, seed);
+          for (const [label, from, to] of [
+            ['stab', none, stabbed],
+            ['row', none, row],
+          ] as const) {
+            if (to.d.action === from.d.action && to.d.amount === from.d.amount) continue;
+            changed++;
+            expect(
+              horseDecisionReceiptRefusalForGates(
+                structuredClone(to.d),
+                'plo5',
+                { player: to.st.hero, gameState: to.st.gs },
+                [false],
+                [false],
+                [true]
+              ),
+              `${label} ${hole} bet ${bet} seed ${seed} ${from.d.action}->${to.d.action}`
+            ).toBeNull();
+          }
+        }
+    expect(changed).toBeGreaterThan(0);
   });
 });

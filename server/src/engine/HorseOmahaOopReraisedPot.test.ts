@@ -2078,3 +2078,82 @@ describe('omahaOopReraisedPotStrongRange off: the re-raise range rules no longer
     });
   }
 });
+
+// ─── MATHCORE ask (INTEGRATE-6, 2026-11-19): every transition the option makes is admitted by the worker validator ───
+// responseValidation admits a wager_rules change only from an enumerated list; a change it does not admit is an
+// invalid response, and the lane plays its CHECK/FOLD fallback. Here every decision the option changes, at the
+// table and in Lightning cash, is run through the validator with the decision's own request and no gate set.
+describe('omahaPreflopJamFacingReraiseIsPriced: every changed decision passes the worker receipt validator', () => {
+  const RULES: HorseDecideOpts = {
+    omahaOopReraisedPotStrongRange: true,
+    omahaReraiseRangeOutOfPosition: true,
+    omahaReraiseRangeEarlyPosition: true,
+  };
+  const ON: HorseDecideOpts = { ...RULES, omahaPreflopJamFacingReraiseIsPriced: true };
+  const lightning = (build: () => ReturnType<typeof stateAt>) => () => {
+    const st = build();
+    (st.gs as unknown as { publicMemoryDomain: object }).publicMemoryDomain = {
+      version: 1,
+      speed: 'lightning',
+      ante: 'none',
+    };
+    return st;
+  };
+  const shortJam = (hole: string) => () => {
+    const st = stateAt(
+      {
+        hand: 0,
+        variant: 'plo5',
+        bb: 2,
+        dealer: 6,
+        seat: 3,
+        hole,
+        stacks: '1:199,2:198,3:300,4:200,5:200,6:1000',
+        actions: '1ps1,2pb2,3pR7,4pF,5pF,6pR24,1pF,2pF,3pR80,6pR230',
+      },
+      3
+    );
+    const g = st.gs as unknown as { maxRaiseTo?: number; legalActions: string[] };
+    delete g.maxRaiseTo;
+    g.legalActions = ['fold', 'call', 'all_in'];
+    return st;
+  };
+  const builds: Array<[string, () => ReturnType<typeof stateAt>]> = [];
+  for (const hole of ['KsKhQs9h4d', 'AsAhKsQh7d', 'Ts9s8h7h6d', 'AsKsQhJh9d', 'QsQhJsTh3c'])
+    builds.push([`3-bet ${hole}`, () => stateAt(withHole(RECORDED.h59407629, hole), 2)]);
+  for (const hole of ['KsKhQs9h4d', 'AsAhKsQh7d', 'JsJhTs9h8d', 'AsKdQsQd9h'])
+    builds.push([`4-bet ${hole}`, () => stateAt(withHole(RECORDED.h59462734, hole), 2)]);
+  for (const hole of ['AsAhKsQh7d', 'AsAdKhJc9s'])
+    builds.push([`short all-in ${hole}`, shortJam(hole)]);
+  it('table and Lightning cash: every decision the option changes (fold, call, raise, all-in) is admitted', () => {
+    let changed = 0;
+    const kinds = new Set<string>();
+    for (const [name, build0] of builds)
+      for (const [where, build] of [
+        ['table', build0],
+        ['lightning', lightning(build0)],
+      ] as const)
+        for (const s of SEEDS.slice(0, 4)) {
+          HorseMind.reset();
+          let st = build();
+          seedFastRandom(s);
+          const rules = HorseLogic.decide(st.hero, st.gs, 'balanced', {}, RULES);
+          HorseMind.reset();
+          st = build();
+          seedFastRandom(s);
+          const d = structuredClone(HorseLogic.decide(st.hero, st.gs, 'balanced', {}, ON));
+          if (d.action === rules.action && d.amount === rules.amount) continue;
+          changed++;
+          kinds.add(`${rules.action}->${d.action}`);
+          expect(
+            horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+              player: st.hero,
+              gameState: st.gs,
+            }),
+            `${where} ${name} seed ${s} ${rules.action}->${d.action}`
+          ).toBeNull();
+        }
+    expect(changed).toBeGreaterThan(0);
+    expect([...kinds].some((k) => k.endsWith('->all_in') || k.endsWith('->raise'))).toBe(true);
+  });
+});

@@ -165,7 +165,17 @@ describe('a short all in is called by a big stack in a tournament (Dan 2026-10-2
   it('is the last action rule in the brain and at the commit door', () => {
     const here = fileURLToPath(new URL('.', import.meta.url));
     const brain = readFileSync(here + 'HorseLogic.ts', 'utf8');
-    const node = brain.slice(brain.indexOf("graph.run('wager_rules'"));
+    // the wager_rules node's body is the wagerRulesNode closure that graph.run('wager_rules', ...) runs
+    // (horseRiverNoBlockerBet wraps its answer); it runs through to the timing node
+    const node = brain.slice(
+      brain.indexOf('const wagerRulesNode = (): { decision: HorseDecision } =>')
+    );
+    expect(
+      brain.indexOf('const wagerRulesNode = (): { decision: HorseDecision } =>')
+    ).toBeGreaterThan(0);
+    expect(node).toContain(
+      "graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode()))"
+    );
     const nodeBody = node.slice(0, node.indexOf("graph.run('timing'"));
     expect(nodeBody).toContain('shortAllInCallFloor(');
     expect(nodeBody.indexOf('shortAllInCallFloor(')).toBeGreaterThan(

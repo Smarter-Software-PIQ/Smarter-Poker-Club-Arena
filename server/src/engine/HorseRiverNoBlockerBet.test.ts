@@ -328,3 +328,23 @@ describe('horseRiverNoBlockerBet on (decide level)', () => {
       }
   });
 });
+
+// MATHCORE ask (INTEGRATE-6, 2026-11-19): responseValidation admits a wager_rules change only from an enumerated
+// list; a change it does not admit is an invalid response and the lane plays its CHECK/FOLD fallback. The option's
+// two changes (a small river bet -> the check; a small river bet -> the threshold bet) must both be admitted.
+describe('horseRiverNoBlockerBet: both of its changes pass the worker receipt validator', () => {
+  const base: HorseDecideOpts = { omahaCardImpact: true, omahaSmallBetIsPriced: true };
+  it('PLO: every changed decision is admitted, and the check is among them', () => {
+    const kinds = new Map<string, number>();
+    for (const build of RIVERS)
+      for (const seed of SEEDS) {
+        const off = decide(build, base, seed);
+        const on = decide(build, { ...base, horseRiverNoBlockerBet: true }, seed);
+        if (on.bytes === off.bytes) continue;
+        const k = `${off.d.action}->${on.d.action}`;
+        kinds.set(k, (kinds.get(k) ?? 0) + 1);
+        expect(on.refused, `${k} seed ${seed}`).toBeNull();
+      }
+    expect(kinds.get('bet->check') ?? 0).toBeGreaterThan(0);
+  });
+});

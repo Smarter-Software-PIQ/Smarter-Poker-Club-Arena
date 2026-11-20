@@ -463,6 +463,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       withHorseDeepDiveCapture: [2, 'detaches the deep-dive collector for a counterfactual'],
       withBrainTelemetrySuspended: [1, 'pauses the counters for the tight-read counterfactual'],
       inSecondLookCapture: [1, 'the live test itself'],
+      verdictOf: [
+        1,
+        'omahaTurnStabDefenceIsPriced receipt: the pure facing-bet verdict (omahaFacingBetEvVerdict: no random draw, no telemetry, no memory) on the unadjusted spot, compared to name a receipt; the decision is the same either way',
+      ],
       noteDecisionRuleReceipt: [
         6,
         'BrainTelemetry: copies the action a receipted rule was given and the one it left into the open decision scope; records nothing inside a second-look capture (refused by name), never read before the decision is made',
@@ -554,8 +558,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',
       ],
       'tele: boolean': [
-        3,
-        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule and holdemRiverBoatLeadPriced, read there only to count',
+        4,
+        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule, holdemRiverBoatLeadPriced and riverNoBlockerBetRule, read there only to count',
       ],
       tele15: [
         1,
@@ -566,6 +570,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'passes the gate to the public bet size rule, which only counts with it; the size is the same either way',
       ],
       'tele15,': [1, 'the gate passed in the v31 input, read there to count'],
+      '? { ...r, decision: this.riverNoBlockerBetRule(r.decision, player, gs, vi, opts, tele) }': [
+        1,
+        'passes the gate to the river no-blocker-bet rule (horseRiverNoBlockerBet), which only counts with it; the decision is the same either way',
+      ],
     },
   };
 

@@ -13568,7 +13568,8 @@ function omahaCheckedToBetIsPricedRule(
         }
         return { read, riverOpportunities };
       },
-      omahaPricedDeps(player, gs).rake
+      omahaPricedDeps(player, gs).rake,
+      opts
     );
     if (telemetryOn(opts)) {
       if (result.changed === 'bet') noteFire('omaha_checked_to_bet_priced_bet');

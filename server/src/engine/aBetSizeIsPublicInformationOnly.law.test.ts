@@ -117,11 +117,15 @@ describe('a Horse bet size is public information only', () => {
     for (const r of reads) expect(r).toMatch(/^opts\.omahaBetSizeByPublicState [!=]== true\b/);
     const node = body(
       LOGIC,
-      "decision = graph.run('wager_rules'",
+      'const wagerRulesNode = (): { decision: HorseDecision } =>',
       "reconcileHorsePhaseReceipts(phaseReceiptsBeforeLaterOwners, decision, 'wager_rules'"
     );
-    // Both of the node's answers pass through it, outermost.
+    // Both of the node's answers pass through it, outermost of the owner rules (only the default-off
+    // horseRiverNoBlockerBet, riverNoBlocker, wraps the node's answer after it: a river first bet only).
     expect(node.match(/decision: publicSized\(/g)).toHaveLength(2);
     expect(node.match(/return \{\s*decision:/g)).toHaveLength(2);
+    expect(node).toContain(
+      "graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode()))"
+    );
   });
 });

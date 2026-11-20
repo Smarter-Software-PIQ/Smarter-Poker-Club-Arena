@@ -62,4 +62,6 @@ Shown hands only (a pot that ends before a showdown is not counted: 180 of 351 p
 
 ## Replay
 
+- Replay: NOT RUN (as of 2026-11-19 the declared evaluation (repairs/CALL-OR-RAISE-2/EVAL-DECLARATION-JAM.md) has not produced a scorer --row run row)
+
 Pending the evaluation declared in `repairs/CALL-OR-RAISE-2/EVAL-DECLARATION-JAM.md`; the scorer lines are written there and in LANE-REPORT.md once it runs (the audited WooWoo window precedes the held-out set, so the scorer joins no node of it).

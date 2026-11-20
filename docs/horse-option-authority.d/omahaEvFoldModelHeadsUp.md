@@ -46,7 +46,7 @@ server/src/engine/HorseMindOmahaEvFoldModelHeadsUp.test.ts: the cells and their 
 
 ## Replay
 
-- Replay: NOT RUN (declared in `repairs/HU-OMAHA/EVAL-DECLARATION.md`; it runs only after the CUTOVER-5 booking has merged, by the fixed per-option replay driver).
+- Replay: NOT RUN (declared in `repairs/HU-OMAHA/EVAL-DECLARATION.md`; it runs only after the CUTOVER-5 booking has merged, by the fixed per-option replay driver)
 
 ## Evidence rows
 

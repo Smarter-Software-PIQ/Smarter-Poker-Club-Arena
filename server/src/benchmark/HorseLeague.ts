@@ -3472,6 +3472,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaReraiseRangeEarlyPosition: true,
     },
   })),
+  // 2026-11-19 (hand #60156608, owner 15:34 Chicago; lane CALL-OR-RAISE-2, default OFF): facing two or more
+  // preflop raises heads-up, fold, call and raise (a 4-bet, a 5-bet, a jam) are each priced against the measured
+  // ranges; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_jam_facing_reraise_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaPreflopJamFacingReraiseIsPriced: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher

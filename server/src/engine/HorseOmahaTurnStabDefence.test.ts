@@ -24,6 +24,7 @@ import {
   omahaTurnStabSpot,
 } from './HorseOmahaTurnStabDefence.js';
 import { expand, type RecordedFacingBet } from './HorseOmahaFacingBetEv.test-support.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
 const SEEDS = [1, 2, 3, 4];
@@ -214,6 +215,51 @@ describe('the decision', () => {
         }
       });
     }
+    expect(changed).toBeGreaterThan(0);
+  });
+});
+
+// MATHCORE ask (INTEGRATE-6, 2026-11-19): responseValidation admits a wager_rules change only from an enumerated
+// list; a change it does not admit is an invalid response and the lane plays its CHECK/FOLD fallback. Every
+// decision the option changes is run through the worker validator with the decision's own request.
+describe('omahaTurnStabDefenceIsPriced: every changed decision passes the worker receipt validator', () => {
+  const HANDS = [
+    '9h8h7c6d5s',
+    'Kc8s7h3d2s',
+    'QhJhTd8c3s',
+    'As9c8d5h3h',
+    'Ts9h8c6c2d',
+    'JcTc7s6h4d',
+  ];
+  const decideAt = (r: RecordedFacingBet, opts: HorseDecideOpts, seed: number) => {
+    HorseMind.reset();
+    seedFastRandom(seed);
+    const st = stateOf(r);
+    const d = structuredClone(
+      HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        observeMind: false,
+        ...opts,
+      } as never)
+    );
+    return { st, d };
+  };
+  it('a fold the base makes that the priced stab defence calls (or raises) is admitted', () => {
+    let changed = 0;
+    for (const hole of HANDS)
+      for (const bet of [6, 12, 14])
+        for (const seed of SEEDS) {
+          const base = decideAt(stab(hole, { bet }), BASE, seed);
+          const on = decideAt(stab(hole, { bet }), ON, seed);
+          if (on.d.action === base.d.action && on.d.amount === base.d.amount) continue;
+          changed++;
+          expect(
+            horseDecisionReceiptRefusal(structuredClone(on.d), 'plo5', {
+              player: on.st.hero,
+              gameState: on.st.gs,
+            }),
+            `${hole} bet ${bet} seed ${seed} ${base.d.action}->${on.d.action}`
+          ).toBeNull();
+        }
     expect(changed).toBeGreaterThan(0);
   });
 });

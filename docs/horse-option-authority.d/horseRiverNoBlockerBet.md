@@ -36,6 +36,8 @@ Archive `woowoo-48h-audit-01BNteGYgf/repairs/RIVER-BLOCK/MEASURE.md`: every Hors
 
 ## Replay
 
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it; its switch-on rests on the owner order of 2026-11-19 16:47 America/Chicago)
+
 | audit source | arm                    | line    |
 | ------------ | ---------------------- | ------- |
 | audit2       | horseRiverNoBlockerBet | not run |
