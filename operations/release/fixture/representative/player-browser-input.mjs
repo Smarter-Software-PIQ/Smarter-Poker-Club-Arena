@@ -16,11 +16,18 @@ export async function submitLegalAllInThroughUI({ page, isCurrentTurn, timeout =
     await page.locator(`.action-panel ${selector}`).click({ timeout });
     return true;
   };
-  if (await click('.action-btn--allin')) return true;
+  /* Dan 2026-11-19: all-in is always two actions. The main ALL IN button
+     arms on the first click and shoves on the second; the sizing panel's ALL
+     IN preset runs the slider to the top and the "All In" confirm shoves. */
+  const shoveFromPreset = async () =>
+    (await click('.raise-preset--allin')) && (await click('.raise-confirm--allin'));
+  if (await click('.action-btn--allin')) {
+    if (await click('.action-btn--allin-armed')) return true;
+  }
   // A prior interrupted UI step may already have opened this same panel.
-  if (await click('.raise-preset--allin')) return true;
+  if (await shoveFromPreset()) return true;
   if (await click('.action-btn--raise')) {
-    if (await click('.raise-preset--allin')) return true;
+    if (await shoveFromPreset()) return true;
     // A visible but disabled shove is not legal. Close only this UI overlay
     // before trying an ordinary enabled Call/Check in the same current turn.
     await click('.raise-cancel');
