@@ -323,6 +323,40 @@ export interface OmahaPricedSitesFlopVerdict {
   callsRaise: boolean;
 }
 
+export interface OmahaPricedSitesFlopRaiseAnswer {
+  /** his raise: to the pot, at most the effective stack */
+  raiseTo: number;
+  /** the Horse's call of the raise, in chips of the pot before the bet */
+  evCall: number;
+  callsRaise: boolean;
+  /** the better of the call and the fold (the fold loses the bet) */
+  ev: number;
+}
+/**
+ * THE ONE RAISE ANSWER of a heads-up flop bet: he raises a bet `bet` into
+ * `pot` to the pot (P + 3b, at most `effective`) and the Horse takes the
+ * better of the call (his equity against the raising share, realized with
+ * `realization` unless the raise is all in) and the fold. Owned here; read by
+ * omahaPricedSitesFlopBetEv and by the v38 flop bet's raise branch
+ * (omahaFlopBetPricesTheRaise, HorseOmahaFlopBetRaiseBranch). `rake`: the
+ * marginal rake on the called pot; 0 (this site's own price) leaves the
+ * arithmetic exactly as it was.
+ */
+export function omahaPricedSitesFlopRaiseAnswer(
+  pot: number,
+  bet: number,
+  effective: number,
+  equityRaise: number,
+  realization: number,
+  rake = 0
+): OmahaPricedSitesFlopRaiseAnswer {
+  const raiseTo = Math.min(effective, pot + 3 * bet);
+  const won = equityRaise * (pot + 2 * raiseTo) * (raiseTo >= effective - 0.005 ? 1 : realization);
+  const evCall = (rake > 0 ? won * (1 - rake) : won) - raiseTo;
+  const callsRaise = evCall > -bet;
+  return { raiseTo, evCall, callsRaise, ev: Math.max(-bet, evCall) };
+}
+
 /**
  * Bet or check on the flop, heads-up, priced in chips of the pot now. He
  * folds the weakest `foldToBet` of his range, raises with the strongest
@@ -350,10 +384,9 @@ export function omahaPricedSitesFlopBetEv(
   const eqCall = cont - rz > 1e-9 ? (cont * eqCont - rz * eqRaise) / (cont - rz) : eqCont;
   if (![eqAll, eqCont, eqRaise, eqCall].every(fin)) return null;
   const callReal = allInNow ? 1 : real;
-  const raiseTo = Math.min(eff, P + 3 * b);
-  const evCallRaise = eqRaise * (P + 2 * raiseTo) * (raiseTo >= eff - 0.005 ? 1 : real) - raiseTo;
-  const callsRaise = evCallRaise > -b;
-  const evFacingRaise = Math.max(-b, evCallRaise);
+  const facing = omahaPricedSitesFlopRaiseAnswer(P, b, eff, eqRaise, real);
+  const callsRaise = facing.callsRaise;
+  const evFacingRaise = facing.ev;
   const evBet = f * P + (cont - rz) * (eqCall * (P + 2 * b) * callReal - b) + rz * evFacingRaise;
   const evCheck = eqAll * P * omahaPricedSitesFlopRealization(i.inPosition, P, 0, eff);
   return {

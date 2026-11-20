@@ -67,3 +67,9 @@ The fold rates by size were measured while the full pot was readable; what an un
 ## What the activation row must contain
 
 `option = 'omahaValueSizeIsUnreadable'`, `state = 'on'`, note `authority: omahaValueSizeIsUnreadable docs/horse-option-authority.d/omahaValueSizeIsUnreadable.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set` (service role, audited actor), after the follow-up option-switch migration that registers the name is installed and a build carrying the option serves. Rollback: the same function with `off`.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

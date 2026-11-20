@@ -34,10 +34,32 @@
  *    or the decision's fired receipt keys), so a reviewer sees which rule made
  *    each fix and each new mistake.
  *
+ *  - AN ARM MUST BE THE OPTION SET IT IS NAMED FOR (2026-11-19). A journaled
+ *    option set replayed on today's source is refused whole by the registry
+ *    when it names an option that is off-only or unregistered today
+ *    (HorseOptionSwitch.optionSwitchStatesFrom): nothing is switched, every
+ *    arm plays the release defaults and the "result" is four identical arms.
+ *    replayValidity reads the option set each arm declares and compares each
+ *    arm with the base; replayRefusals turns an invalid set, an arm identical
+ *    to the base, or (for an authority row) an undeclared set into a refusal.
+ *    The CLI exits non-zero on any of them and scores nothing.
+ *  - The machine-read Replay row of an option authority file
+ *    (docs/horse-option-authority.d/<option>.md) is written and parsed here
+ *    (replayBarRows, parseReplayBarRows), one format for the scorer and the
+ *    law that reads it (engine/EveryHorseOptionRecordsItsReplay.law.test.ts).
+ *
  * It decides nothing and reads no production data by itself: the CLI
  * (server/scripts/audited-decision-replay.ts) is pointed at local evidence
  * files. Tests use synthetic, anonymized rows in the real formats.
  */
+
+import {
+  OPTION_SWITCH_PLAIN_NAMES,
+  optionSwitchOffOnly,
+  optionSwitchRefusal,
+  optionSwitchStatesFrom,
+  optionSwitchStatesOf,
+} from '../engine/HorseOptionSwitch.js';
 
 export type Street = 'preflop' | 'flop' | 'turn' | 'river';
 export const STREETS: readonly Street[] = ['preflop', 'flop', 'turn', 'river'];
@@ -89,6 +111,11 @@ export interface ReplayArm {
   refusal?: boolean;
   receipts?: readonly string[];
   error?: string;
+  /**
+   * The option-switch set the harness handed the brain for this arm at this node ({option: 'on' | 'off'}), after
+   * any sanitizing. Read by replayValidity: a set today's registry refuses switches nothing (an inert arm).
+   */
+  options?: Readonly<Record<string, unknown>>;
 }
 export interface ReplayRow extends DecisionNode {
   arms: Record<string, ReplayArm>;
@@ -422,11 +449,34 @@ export function wooWooDecisions(decisionsFullCsv: string, findingsCsv: string): 
 }
 
 // ── replay rows ────────────────────────────────────────────────────────────
-export function parseReplayJsonl(text: string): ReplayRow[] {
-  const out: ReplayRow[] = [];
+/** Arm-wide facts a harness declares once, on a line `{"meta": {"arms": {"<arm>": {...}}}}`. */
+export interface ReplayArmMeta {
+  /** The option-switch set handed to the brain for this arm at every node (a row's own `options` wins). */
+  options?: Readonly<Record<string, unknown>>;
+  /** What the harness rewrote in the journaled sets, e.g. {"omahaX:on>off": 563}. Reported, never judged. */
+  sanitized?: Readonly<Record<string, number>>;
+}
+export interface ReplayMeta {
+  arms: Record<string, ReplayArmMeta>;
+}
+export interface ReplayFile {
+  rows: ReplayRow[];
+  meta: ReplayMeta;
+}
+
+export function parseReplayFile(text: string): ReplayFile {
+  const rows: ReplayRow[] = [];
+  const meta: ReplayMeta = { arms: {} };
   text.split('\n').forEach((line, i) => {
     if (!line.trim()) return;
-    const o = JSON.parse(line) as Partial<ReplayRow>;
+    const o = JSON.parse(line) as Partial<ReplayRow> & { meta?: Partial<ReplayMeta> | null };
+    if (o.meta !== undefined) {
+      const arms = o.meta?.arms;
+      if (!arms || typeof arms !== 'object' || Array.isArray(arms))
+        throw new Error(`replay line ${i + 1}: a meta line needs arms`);
+      for (const [arm, m] of Object.entries(arms)) meta.arms[arm] = { ...meta.arms[arm], ...m };
+      return;
+    }
     if (
       o.hand === undefined ||
       typeof o.seat !== 'number' ||
@@ -437,9 +487,12 @@ export function parseReplayJsonl(text: string): ReplayRow[] {
       typeof o.arms !== 'object'
     )
       throw new Error(`replay line ${i + 1}: needs hand, seat, street, k and arms`);
-    out.push({ hand: String(o.hand), seat: o.seat, street: o.street, k: o.k, arms: o.arms });
+    rows.push({ hand: String(o.hand), seat: o.seat, street: o.street, k: o.k, arms: o.arms });
   });
-  return out;
+  return { rows, meta };
+}
+export function parseReplayJsonl(text: string): ReplayRow[] {
+  return parseReplayFile(text).rows;
 }
 
 // ── scoring ────────────────────────────────────────────────────────────────
@@ -460,6 +513,8 @@ export interface OutcomeCounts {
   changedUnjudged: number;
   unchangedBad: number;
   unchangedOk: number;
+  /** Every compared decision the arm left at the base action (judged or not). */
+  unchanged: number;
   evPriced: number;
   evSumBb: number;
   evMeanBb: number;
@@ -509,6 +564,7 @@ const emptyCounts = (): OutcomeCounts & { _ev: number[] } => ({
   changedUnjudged: 0,
   unchangedBad: 0,
   unchangedOk: 0,
+  unchanged: 0,
   evPriced: 0,
   evSumBb: 0,
   evMeanBb: 0,
@@ -624,6 +680,7 @@ export function scoreReplay(
           if (a.legal === false) c.illegal++;
           if (a.refusal) c.refused++;
           if (a.action === b.action) {
+            c.unchanged++;
             if (!sameAmount(a.amount, b.amount)) c.resized++;
             if (baseJ.cls === 'bad') c.unchangedBad++;
             if (baseJ.cls === 'ok') c.unchangedOk++;
@@ -723,4 +780,293 @@ export function replayBarLine(report: ReplayReport, arm: string): string {
       return `${head}: arm ${arm} changed ${a.changed} (${a.moreAggressive} more aggressive, ${a.morePassive} more passive), resized ${a.resized}, illegal ${a.illegal}, refused ${a.refused}, errors ${a.errors}; fixed ${a.fixed}, newly wrong ${a.newlyWrong}, still wrong ${a.stillWrong}, ok to ok ${a.okToOk}, unjudged ${a.changedUnjudged}; judged bad left unchanged ${a.unchangedBad}${ev}${receipts ? `; per receipt: ${receipts}` : ''}.`;
     })
     .join(' ');
+}
+
+// ── replay validity: an arm must be the option set it is named for ─────────
+export interface OptionSetProblem {
+  option: string;
+  state: string;
+  problem: 'unregistered' | 'off-only' | 'unsupported state';
+  detail: string;
+}
+/** Why the option registry refuses an option set as a whole; [] when it accepts it. */
+export type OptionSetJudge = (set: Readonly<Record<string, unknown>>) => OptionSetProblem[];
+
+/**
+ * Today's registry (HorseOptionSwitch). The whole-set rule is optionSwitchStatesFrom's: one name that is not a
+ * registered non-style option, or one state the option does not support (`on` for an off-only option), refuses
+ * the set and every option then runs at its release default. This names the options that caused it.
+ */
+export const todaysOptionSetProblems: OptionSetJudge = (set) => {
+  const out: OptionSetProblem[] = [];
+  for (const [option, raw] of Object.entries(set)) {
+    const state = typeof raw === 'string' ? raw : String(JSON.stringify(raw));
+    if (!OPTION_SWITCH_PLAIN_NAMES.includes(option)) {
+      out.push({
+        option,
+        state,
+        problem: 'unregistered',
+        detail: optionSwitchRefusal(option) ?? 'not a registered option of the live switch today',
+      });
+      continue;
+    }
+    const states: readonly string[] = optionSwitchStatesOf(option) ?? [];
+    if (typeof raw === 'string' && states.includes(raw)) continue;
+    const offOnly = optionSwitchOffOnly(option);
+    if (raw === 'on' && offOnly)
+      out.push({
+        option,
+        state,
+        problem: 'off-only',
+        detail: `${offOnly.status}: ${offOnly.source}`,
+      });
+    else
+      out.push({
+        option,
+        state,
+        problem: 'unsupported state',
+        detail: `the option supports ${states.join(' / ')}`,
+      });
+  }
+  if ((optionSwitchStatesFrom(set) === null) !== out.length > 0)
+    throw new Error(
+      'audited replay: the option-set diagnosis disagrees with HorseOptionSwitch.optionSwitchStatesFrom'
+    );
+  return out;
+};
+
+export interface ArmValidity {
+  arm: string;
+  isBase: boolean;
+  /** The base arm every other arm is compared with. */
+  base: string;
+  rows: number;
+  /** Rows whose option set is declared (on the row's arm or on the meta line). */
+  rowsWithOptions: number;
+  /** Rows whose declared set the registry refuses: nothing was switched there. */
+  invalidRows: number;
+  problems: (OptionSetProblem & { rows: number })[];
+  /** Options named on in this arm at a node where the base arm does not name them on (what the arm tests). */
+  switchedOn: string[];
+  /** Options the base arm names on and this arm does not. */
+  switchedOff: string[];
+  comparedRows: number;
+  /** Compared rows where the arm differs from the base in action, amount, legality, refusal, error or receipts. */
+  differingRows: number;
+  sanitized: Record<string, number>;
+}
+
+const sameDecision = (a: ReplayArm, b: ReplayArm): boolean =>
+  a.action === b.action &&
+  sameAmount(a.amount, b.amount) &&
+  (a.legal === false) === (b.legal === false) &&
+  !!a.refusal === !!b.refusal &&
+  (a.error ?? null) === (b.error ?? null) &&
+  [...new Set(a.receipts ?? [])].sort().join('\n') ===
+    [...new Set(b.receipts ?? [])].sort().join('\n');
+
+export function replayValidity(
+  file: ReplayFile,
+  base = 'off',
+  judge: OptionSetJudge = todaysOptionSetProblems
+): ArmValidity[] {
+  const names = [
+    ...new Set([
+      base,
+      ...file.rows.flatMap((r) => Object.keys(r.arms)),
+      ...Object.keys(file.meta.arms),
+    ]),
+  ];
+  const cache = new Map<string, OptionSetProblem[]>();
+  const judged = (set: Readonly<Record<string, unknown>>) => {
+    const key = JSON.stringify(set);
+    let p = cache.get(key);
+    if (!p) cache.set(key, (p = judge(set)));
+    return p;
+  };
+  const setOf = (row: ReplayRow, arm: string) =>
+    row.arms[arm]?.options ?? file.meta.arms[arm]?.options;
+  return names.map((arm) => {
+    const problems = new Map<string, OptionSetProblem & { rows: number }>();
+    const on = new Set<string>();
+    const off = new Set<string>();
+    let rows = 0;
+    let rowsWithOptions = 0;
+    let invalidRows = 0;
+    let comparedRows = 0;
+    let differingRows = 0;
+    for (const row of file.rows) {
+      const a = row.arms[arm];
+      if (!a) continue;
+      rows++;
+      const set = setOf(row, arm);
+      if (set) {
+        rowsWithOptions++;
+        const found = judged(set);
+        if (found.length) invalidRows++;
+        for (const p of found) {
+          const key = `${p.option}\n${p.state}`;
+          const have = problems.get(key);
+          if (have) have.rows++;
+          else problems.set(key, { ...p, rows: 1 });
+        }
+        const baseSet = arm === base ? undefined : setOf(row, base);
+        if (baseSet)
+          for (const o of new Set([...Object.keys(set), ...Object.keys(baseSet)])) {
+            if (set[o] === 'on' && baseSet[o] !== 'on') on.add(o);
+            if (set[o] !== 'on' && baseSet[o] === 'on') off.add(o);
+          }
+      }
+      const b = arm === base ? undefined : row.arms[base];
+      if (b) {
+        comparedRows++;
+        if (!sameDecision(a, b)) differingRows++;
+      }
+    }
+    return {
+      arm,
+      isBase: arm === base,
+      base,
+      rows,
+      rowsWithOptions,
+      invalidRows,
+      problems: [...problems.values()],
+      switchedOn: [...on].sort(),
+      switchedOff: [...off].sort(),
+      comparedRows,
+      differingRows,
+      sanitized: { ...file.meta.arms[arm]?.sanitized },
+    };
+  });
+}
+
+export interface ReplayRefusalOptions {
+  /** Arms declared to change nothing on this set (a control arm, or an option out of scope on it). */
+  allowUnchanged?: readonly string[];
+  /** Arms whose option set must be declared on every row (the arms an authority Replay row is written from). */
+  requireOptionsFor?: readonly string[];
+}
+
+/**
+ * Why this replay must not be scored; [] when it may. Three refusals: an option set today's registry refuses (the
+ * arm switched nothing: an off-only or unregistered journaled option), an arm identical to the base on every
+ * compared row that was not declared so, and an authority row asked from an arm whose option set is not declared.
+ */
+export function replayRefusals(validity: ArmValidity[], o: ReplayRefusalOptions = {}): string[] {
+  const allow = new Set(o.allowUnchanged ?? []);
+  const need = new Set(o.requireOptionsFor ?? []);
+  const out: string[] = [];
+  for (const v of validity) {
+    const who = v.isBase ? `base arm "${v.arm}"` : `arm "${v.arm}"`;
+    if (v.rows === 0) {
+      if (v.isBase || need.has(v.arm)) out.push(`${who} has no replay row`);
+      continue;
+    }
+    if (v.invalidRows > 0) {
+      const why = v.problems
+        .map((p) => `${p.option} ${p.state}: ${p.problem} (${p.detail}), ${p.rows} rows`)
+        .join('; ');
+      out.push(
+        `${who} is INERT on ${v.invalidRows} of ${v.rows} rows: today's option registry refuses its option set, so nothing in it was switched and the brain played its release defaults [${why}]. Sanitize the journaled set in the harness (an off-only option goes off, as production holds it today; an unregistered one is dropped), declare the rewrite under meta.arms.${v.arm}.sanitized, and replay again.`
+      );
+    }
+    if (!v.isBase && v.comparedRows === 0)
+      out.push(`${who} shares no row with the base arm "${v.base}"`);
+    else if (!v.isBase && v.differingRows === 0 && !allow.has(v.arm))
+      out.push(
+        `${who} is identical to the base arm "${v.base}" on all ${v.comparedRows} compared rows (action, amount, legality, refusal, receipts): an inert arm. If the option is truly out of scope on this set, declare it with --allow-unchanged ${v.arm}.`
+      );
+    if (need.has(v.arm) && v.rowsWithOptions < v.rows)
+      out.push(
+        `${who} declares no option set on ${v.rows - v.rowsWithOptions} of ${v.rows} rows: the off-only / unregistered check cannot be made, so no authority Replay row is written from it. Have the harness declare the set it handed the brain (a line {"meta": {"arms": {"${v.arm}": {"options": {...}}}}}, or options on each row's arm).`
+      );
+  }
+  return out;
+}
+
+// ── the machine-read Replay row of an option authority file ────────────────
+/**
+ * docs/horse-option-authority.d/<option>.md carries one or more lines `- Replay: ...`:
+ *   - Replay: fixed 1; newlyWrong 4; changed 11; unchanged 552; unjudged 6; set <name>; scorer <commit>; ...
+ *   - Replay: NOT RUN (<reason>)
+ *   - Replay: LEGACY (<reason>)      a replay recorded in prose only, before this row existed
+ * A run row needs fixed, newlyWrong, changed (whole numbers), set (the name of the audited decision set) and scorer
+ * (the commit of this scorer, 7 to 40 hex characters); further `key value` fields are kept as written.
+ */
+export type ReplayBarRow =
+  | {
+      state: 'RUN';
+      fixed: number;
+      newlyWrong: number;
+      changed: number;
+      set: string;
+      scorer: string;
+      fields: Record<string, string>;
+    }
+  | { state: 'NOT RUN' | 'LEGACY'; reason: string };
+
+export const REPLAY_BAR_ROW_PREFIX = '- Replay: ';
+
+export function parseReplayBarRows(markdown: string): {
+  rows: ReplayBarRow[];
+  malformed: string[];
+} {
+  const rows: ReplayBarRow[] = [];
+  const malformed: string[] = [];
+  for (const line of markdown.split('\n')) {
+    if (!line.startsWith(REPLAY_BAR_ROW_PREFIX)) continue;
+    const body = line.slice(REPLAY_BAR_ROW_PREFIX.length).trim();
+    const not = /^(NOT RUN|LEGACY) \((.+)\)$/.exec(body);
+    if (not) {
+      if (not[2].trim().length < 10) malformed.push(`${line} [the reason is too short]`);
+      else rows.push({ state: not[1] as 'NOT RUN' | 'LEGACY', reason: not[2].trim() });
+      continue;
+    }
+    const fields: Record<string, string> = {};
+    let bad = '';
+    for (const part of body.split(';')) {
+      const m = /^\s*([A-Za-z][A-Za-z-]*)\s+(\S.*?)\s*$/.exec(part);
+      if (!m) bad = `"${part.trim()}" is not "key value"`;
+      else if (Object.hasOwn(fields, m[1])) bad = `${m[1]} is given twice`;
+      else fields[m[1]] = m[2];
+    }
+    for (const k of ['fixed', 'newlyWrong', 'changed'])
+      if (!bad && !/^\d+$/.test(fields[k] ?? '')) bad = `${k} must be a whole number`;
+    if (!bad && !fields.set) bad = 'set (the audited decision set) is missing';
+    if (!bad && !/^[0-9a-f]{7,40}$/.test(fields.scorer ?? ''))
+      bad = 'scorer must be the scorer commit (7 to 40 hex characters)';
+    if (bad) malformed.push(`${line} [${bad}]`);
+    else
+      rows.push({
+        state: 'RUN',
+        fixed: Number(fields.fixed),
+        newlyWrong: Number(fields.newlyWrong),
+        changed: Number(fields.changed),
+        set: fields.set,
+        scorer: fields.scorer,
+        fields,
+      });
+  }
+  return { rows, malformed };
+}
+
+/** The Replay rows for one arm of a scored replay, one per audit source, as parseReplayBarRows reads them. */
+export function replayBarRows(
+  report: ReplayReport,
+  arm: string,
+  o: { set: string; scorer: string }
+): string[] {
+  if (!o.set.trim() || /[;\n]/.test(o.set))
+    throw new Error('replay row: the set name is one phrase without ";"');
+  if (!/^[0-9a-f]{7,40}$/.test(o.scorer))
+    throw new Error('replay row: the scorer commit is 7 to 40 hex characters');
+  const lines = report.sources.map((s) => {
+    const a = s.arms.find((x) => x.arm === arm);
+    if (!a) throw new Error(`replay row: arm ${arm} is absent from source ${s.source}`);
+    return `${REPLAY_BAR_ROW_PREFIX}fixed ${a.fixed}; newlyWrong ${a.newlyWrong}; changed ${a.changed}; unchanged ${a.unchanged}; unjudged ${a.changedUnjudged}; set ${o.set.trim()}; scorer ${o.scorer}; source ${s.source} ${s.method}; arm ${arm} vs ${report.base}; replayed ${s.replayed} of ${s.audited}`;
+  });
+  for (const line of lines)
+    if (parseReplayBarRows(line).rows.length !== 1)
+      throw new Error(`replay row: not machine-readable: ${line}`);
+  return lines;
 }

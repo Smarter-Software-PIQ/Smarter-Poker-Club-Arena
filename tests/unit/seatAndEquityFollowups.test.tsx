@@ -92,7 +92,7 @@ function Felt({ badges, revealed = false }: { badges: EquityBadge[]; revealed?: 
         </div>
         <div className="seat__avatar" />
       </div>
-      <EquityBadgeLayer badges={badges} />
+      <EquityBadgeLayer badges={badges} boardCardCounts={[3]} />
     </div>
   );
 }

@@ -51,3 +51,9 @@ Every opponent figure a priced comparison reads now comes from his own KIND's pr
 ## Limits
 
 The card-impact model prices a check as a line in which the Horse only calls or folds afterwards (no check-raise), so the check is undervalued and the comparison leans toward betting. An opponent all in from an earlier street leaves the decision as given.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

@@ -46,6 +46,20 @@ import {
   type ReraiseResponseCounters,
 } from './HorseOmahaReraiseResponse.js';
 import {
+  FLOP_SHOWN_ROW_LENGTH,
+  flopShownFromRow,
+  flopShownRow,
+  validFlopShown,
+  type FlopShownCounters,
+} from './HorseOmahaFlopShown.js';
+import {
+  STREET_PRICE_ROW_LENGTH,
+  streetPriceFromRow,
+  streetPriceRow,
+  validStreetPrice,
+  type StreetPriceCounters,
+} from './HorseOmahaStreetReadPrice.js';
+import {
   normalizeHorseObservationWindow,
   type HorseObservationWindow,
 } from './HorseObservationWindow.js';
@@ -73,7 +87,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v16'
     | 'horse-decision-reads-v17'
     | 'horse-decision-reads-v18'
-    | 'horse-decision-reads-v19';
+    | 'horse-decision-reads-v19'
+    | 'horse-decision-reads-v20';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -167,9 +182,23 @@ const STREET_READ_VERSION = 'horse-decision-reads-v18';
  * carries the v17 lists and the v18 street list; they may be empty, and it carries at least one response row. */
 const RERAISE_RESPONSE_VERSION = 'horse-decision-reads-v19';
 const reraiseResponseCarried = (version: unknown) => version === RERAISE_RESPONSE_VERSION;
-/** The body carries a `streetRead` list (v18: at least one row; v19: possibly empty). */
+/** 2026-11-19: v19 plus two records of the pooled exact rows' players: what they showed after betting a flop and
+ * what calls of those bets returned (`flopShown`: per Omaha row with a durable record, its 80 integers,
+ * HorseOmahaFlopShown.flopShownRow), and the price behind their fold-to-raise cells (`streetPrice`: per Omaha row
+ * with a durable record, [sum, opp] of each street, HorseOmahaStreetReadPrice.streetPriceRow), so a `DECIDE_DEEP`
+ * second look and an exact replay carry the same records `DECIDE_FAST` did. Written only when the view carries
+ * such a row (never for a Hold'em decision, never before a column holds a record), so every snapshot without one
+ * keeps its exact v1-v19 bytes. A v20 body always carries the v17 lists, the v18 street list, the v19 response
+ * list and both of its own lists; any of them may be empty, but not both of its own. No decision reads either
+ * record. */
+const FLOP_SHOWN_VERSION = 'horse-decision-reads-v20';
+const flopShownCarried = (version: unknown) => version === FLOP_SHOWN_VERSION;
+/** The body carries a `reraiseResponse` list (v19: at least one row; v20: possibly empty). */
+const reraiseResponseListed = (version: unknown) =>
+  reraiseResponseCarried(version) || flopShownCarried(version);
+/** The body carries a `streetRead` list (v18: at least one row; v19 and v20: possibly empty). */
 const streetReadListed = (version: unknown) =>
-  version === STREET_READ_VERSION || reraiseResponseCarried(version);
+  version === STREET_READ_VERSION || reraiseResponseListed(version);
 const streetReadCarried = (version: unknown) => version === STREET_READ_VERSION;
 const profileCompleted = (version: unknown) =>
   version === PROFILE_COMPLETENESS_VERSION || streetReadListed(version);
@@ -300,7 +329,10 @@ type Body = {
     | typeof SHOWN_RIVER_VERSION
     | typeof PROFILE_COMPLETENESS_VERSION
     | typeof STREET_READ_VERSION
-    | typeof RERAISE_RESPONSE_VERSION;
+    | typeof RERAISE_RESPONSE_VERSION
+    | typeof FLOP_SHOWN_VERSION;
+  flopShown?: Rows<number[]>;
+  streetPrice?: Rows<number[]>;
   reraiseResponse?: Rows<number[]>;
   streetRead?: Rows<number[]>;
   incompleteProfiles?: Rows<number[]>;
@@ -428,7 +460,8 @@ function validateBody(
       ...(shownRivered(value.version) ? ['shownRiver'] : []),
       ...(profileCompleted(value.version) ? ['incompleteProfiles'] : []),
       ...(streetReadListed(value.version) ? ['streetRead'] : []),
-      ...(reraiseResponseCarried(value.version) ? ['reraiseResponse'] : []),
+      ...(reraiseResponseListed(value.version) ? ['reraiseResponse'] : []),
+      ...(flopShownCarried(value.version) ? ['flopShown', 'streetPrice'] : []),
       ...(flopStabbed(value.version) ? ['scopedFlopStab'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
@@ -617,15 +650,37 @@ function validateBody(
     )
       return fail();
   }
-  if (reraiseResponseCarried(value.version)) {
+  if (flopShownCarried(value.version)) {
+    // flopShown, 80 integers: every row is a valid flop-shown record. streetPrice, [sum, opp] per street: every row
+    // is a valid price record. Every row names an exploit row this same frame carries, and a v20 body carries at
+    // least one row in one of the two lists (or it would have been v19 or older).
+    const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
+    // (a return can be negative, so the row is held to the record's own validation, not to `numbers`)
+    const shownValid = (v: unknown) =>
+      Array.isArray(v) && v.length === FLOP_SHOWN_ROW_LENGTH && flopShownFromRow(v) !== null;
+    const priceValid = (v: unknown) =>
+      numbers(v, STREET_PRICE_ROW_LENGTH) && streetPriceFromRow(v as number[]) !== null;
+    if (
+      !Array.isArray(value.flopShown) ||
+      !Array.isArray(value.streetPrice) ||
+      value.flopShown.length + value.streetPrice.length === 0 ||
+      !validRows(value.flopShown, b.exploit, shownValid) ||
+      !validRows(value.streetPrice, b.exploit, priceValid) ||
+      (value.flopShown as Rows<number[]>).some(([id]) => !carried.has(id)) ||
+      (value.streetPrice as Rows<number[]>).some(([id]) => !carried.has(id))
+    )
+      return fail();
+  }
+  if (reraiseResponseListed(value.version)) {
     // [opp, fold, call, raise] per node: every row is a valid record, names an exploit row this same frame carries,
-    // and a v19 body carries at least one (or it would have been v18 or older).
+    // and a v19 body carries at least one (or it would have been v18 or older; a v20 body may carry none: it exists
+    // for its flop-shown rows).
     const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
     const responseValid = (v: unknown) =>
       numbers(v, RERAISE_RESPONSE_ROW_LENGTH) && reraiseResponseFromRow(v as number[]) !== null;
     if (
       !Array.isArray(value.reraiseResponse) ||
-      value.reraiseResponse.length === 0 ||
+      (reraiseResponseCarried(value.version) && value.reraiseResponse.length === 0) ||
       !validRows(value.reraiseResponse, b.exploit, responseValid) ||
       (value.reraiseResponse as Rows<number[]>).some(([id]) => !carried.has(id))
     )
@@ -775,7 +830,22 @@ export function encodeHorseDecisionReads(
     if (!validReraiseResponse(row)) return fail();
     return [id, reraiseResponseRow(row)];
   });
-  const hasReraiseResponse = reraiseRows.length > 0;
+  const flopShownRows: Rows<number[]> = bounded(
+    view.pooledFlopShown ?? new Map<string, FlopShownCounters>(),
+    b.exploit.size
+  ).map(([id, row]: [string, FlopShownCounters]): [string, number[]] => {
+    if (!validFlopShown(row)) return fail();
+    return [id, flopShownRow(row)];
+  });
+  const streetPriceRows: Rows<number[]> = bounded(
+    view.pooledStreetPrice ?? new Map<string, StreetPriceCounters>(),
+    b.exploit.size
+  ).map(([id, row]: [string, StreetPriceCounters]): [string, number[]] => {
+    if (!validStreetPrice(row)) return fail();
+    return [id, streetPriceRow(row)];
+  });
+  const hasFlopShown = flopShownRows.length > 0 || streetPriceRows.length > 0;
+  const hasReraiseResponse = reraiseRows.length > 0 || hasFlopShown;
   const hasStreetRead = streetRows.length > 0 || hasReraiseResponse;
   const hasIncomplete = incompleteRows.length > 0 || hasStreetRead;
   const hasShownRiver = shownRiverRows.length > 0 || hasIncomplete;
@@ -877,6 +947,7 @@ export function encodeHorseDecisionReads(
       .filter(([, row]) => row.lrOpps !== undefined)
       .map(([id, row]) => [id, LIMP_RERAISE_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
+    ...(hasFlopShown ? { flopShown: flopShownRows, streetPrice: streetPriceRows } : {}),
     ...(hasReraiseResponse ? { reraiseResponse: reraiseRows } : {}),
     ...(hasStreetRead ? { streetRead: streetRows } : {}),
     ...(hasIncomplete ? { incompleteProfiles: incompleteRows } : {}),
@@ -892,43 +963,45 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasReraiseResponse
-      ? RERAISE_RESPONSE_VERSION
-      : hasStreetRead
-        ? STREET_READ_VERSION
-        : hasIncomplete
-          ? PROFILE_COMPLETENESS_VERSION
-          : hasShownRiver
-            ? SHOWN_RIVER_VERSION
-            : hasLong
-              ? LONG_PARTICIPATION_VERSION
-              : hasPreRepair
-                ? PRE_REPAIR_VERSION
-                : hasFlopStab
-                  ? FLOP_STAB_VERSION
-                  : hasLimpReraise
-                    ? LIMP_RERAISE_VERSION
-                    : hasProbes
-                      ? PROBE_VERSION
-                      : hasFastCalldown
-                        ? FAST_CALLDOWN_VERSION
-                        : hasMultiwayRiver
-                          ? MULTIWAY_RIVER_VERSION
-                          : hasRiverRaise
-                            ? RIVER_RAISE_VERSION
-                            : hasRiverPosition
-                              ? RIVER_POSITION_VERSION
-                              : hasRiverCalls
-                                ? RIVER_CALL_VERSION
-                                : hasWinner
-                                  ? WINNER_VERSION
-                                  : hasExploit
-                                    ? EXPLOIT_VERSION
-                                    : hasWindows
-                                      ? WINDOW_VERSION
-                                      : planContext === undefined
-                                        ? VERSION
-                                        : ALLOCATED_VERSION,
+    version: hasFlopShown
+      ? FLOP_SHOWN_VERSION
+      : hasReraiseResponse
+        ? RERAISE_RESPONSE_VERSION
+        : hasStreetRead
+          ? STREET_READ_VERSION
+          : hasIncomplete
+            ? PROFILE_COMPLETENESS_VERSION
+            : hasShownRiver
+              ? SHOWN_RIVER_VERSION
+              : hasLong
+                ? LONG_PARTICIPATION_VERSION
+                : hasPreRepair
+                  ? PRE_REPAIR_VERSION
+                  : hasFlopStab
+                    ? FLOP_STAB_VERSION
+                    : hasLimpReraise
+                      ? LIMP_RERAISE_VERSION
+                      : hasProbes
+                        ? PROBE_VERSION
+                        : hasFastCalldown
+                          ? FAST_CALLDOWN_VERSION
+                          : hasMultiwayRiver
+                            ? MULTIWAY_RIVER_VERSION
+                            : hasRiverRaise
+                              ? RIVER_RAISE_VERSION
+                              : hasRiverPosition
+                                ? RIVER_POSITION_VERSION
+                                : hasRiverCalls
+                                  ? RIVER_CALL_VERSION
+                                  : hasWinner
+                                    ? WINNER_VERSION
+                                    : hasExploit
+                                      ? EXPLOIT_VERSION
+                                      : hasWindows
+                                        ? WINDOW_VERSION
+                                        : planContext === undefined
+                                          ? VERSION
+                                          : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -1138,9 +1211,19 @@ export function decodeHorseDecisionReads(
     view.pooledStreetRead = new Map(
       body.streetRead!.map(([id, v]) => [id, streetReadFromRow(v) ?? fail()])
     );
-  if (reraiseResponseCarried(body.version))
+  // A v20 body may carry an empty response list: it decodes like a frame without one.
+  if (reraiseResponseListed(body.version) && body.reraiseResponse!.length > 0)
     view.pooledReraiseResponse = new Map(
       body.reraiseResponse!.map(([id, v]) => [id, reraiseResponseFromRow(v) ?? fail()])
+    );
+  // A v20 body may carry either of its own lists empty: an empty one decodes like a frame without it.
+  if (flopShownCarried(body.version) && body.flopShown!.length > 0)
+    view.pooledFlopShown = new Map(
+      body.flopShown!.map(([id, v]) => [id, flopShownFromRow(v) ?? fail()])
+    );
+  if (flopShownCarried(body.version) && body.streetPrice!.length > 0)
+    view.pooledStreetPrice = new Map(
+      body.streetPrice!.map(([id, v]) => [id, streetPriceFromRow(v) ?? fail()])
     );
   if (winnered(body.version))
     view.winnerReads = { rows: new Map(body.winnerReads), seen: new Set() };

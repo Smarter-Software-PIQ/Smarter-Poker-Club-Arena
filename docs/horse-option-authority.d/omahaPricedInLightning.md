@@ -36,3 +36,9 @@ The league deals no Lightning domain. Refused matchup `plo5_omaha_priced_in_ligh
 - Replay of the real audited decisions (fixed / unchanged / newly wrong): NOT RUN. Which of the journaled PLO5 decisions were dealt in a Lightning pool is not determined.
 - Value in Lightning: NOT MET. No Lightning result exists. The harness needs its live-base baseline extension first (its baseline is frozen to the seven style options of 2026-11-14 and its seed classes are closed; LightningPairedEval.test-support.ts :143, :221, :320).
 - Do not switch on without a WIN under the pre-written bar.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

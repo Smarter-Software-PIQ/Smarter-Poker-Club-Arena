@@ -43,3 +43,9 @@ One definition (`omahaComboDrawForRaise`, `HorseOmahaBigDrawAggression.ts`) serv
 ## Live change on this head (review B2, 2026-11-16)
 
 This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: For this option the in-position bar on a PLO4/PLO5 cash flop or turn now turns into a call every raise by a hand below two pair that holds a flush draw without an eight-out straight draw, a pair or not: a pair with the nut flush draw (with or without a gutshot) that raised in position live today now calls. An open-ender with a flush draw whose flush-suit straight cards were left out now passes the bar and keeps its raise. Out of position nothing changes (every draw raise below two pair becomes a call, as before); two pair or better is never barred.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -9,6 +9,7 @@ import {
   OPTION_SWITCH_PREFLOP_HELD_NAMES,
   OPTION_SWITCH_PREFLOP_HOLD_LIFTED,
   OPTION_SWITCH_REGISTRY,
+  OPTION_SWITCH_SHADOW_NAMES,
   optionSwitchDecisionOpts,
   optionSwitchOffOnly,
   optionSwitchStatesOf,
@@ -22,6 +23,7 @@ describe('the owner preflop range hold lift', () => {
     // through HorseDecideOpts (HorseLogic horsePlayStyleOf), so it takes shadow; on and off are unchanged.
     expect(optionSwitchStatesOf('horsePlayStyles')).toEqual(['off', 'shadow', 'on']);
     expect(optionSwitchShadowRefusal('horsePlayStyles')).toBeNull();
+    expect(OPTION_SWITCH_SHADOW_NAMES).toContain('horsePlayStyles');
     expect(optionSwitchOffOnly('horsePlayStyles')).toBeNull();
     expect(optionSwitchDecisionOpts({ horsePlayStyles: 'on' })).toEqual({ horsePlayStyles: true });
     expect(optionSwitchDecisionOpts({ horsePlayStyles: 'off' })).toEqual({
@@ -29,6 +31,7 @@ describe('the owner preflop range hold lift', () => {
     });
     // shadow acts as off: nothing reaches the acted decision
     expect(optionSwitchDecisionOpts({ horsePlayStyles: 'shadow' }).horsePlayStyles).not.toBe(true);
+    expect(optionSwitchDecisionOpts({ horsePlayStyles: 'shadow' })).toEqual({});
   });
 
   it('omahaPreflopReraiseDefencePricedInPosition is switchable on and off; its parent option stays off-only', () => {

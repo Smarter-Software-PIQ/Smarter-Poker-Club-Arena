@@ -47,3 +47,9 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 **OFF-ONLY** (ploFailed in HorseOptionSwitch.ts): the replay on audited real decisions FAILED its bar (sites-013U37/REPLAY-20261118.md: pooled 3 fixed, 5 newly wrong; judge +159 bb, n 14). Do not switch on.
 
 League cards (HorseLeague.ts, declared, not run): plo4_omaha_made_hand_bet_is_priced and plo5_omaha_made_hand_bet_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaMadeHandBetIsPriced.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

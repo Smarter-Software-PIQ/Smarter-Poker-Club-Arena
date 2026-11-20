@@ -62,6 +62,37 @@ No pool session is ended by the floor today, for a person or for a Horse. The ru
 - Option unset or false (or a truthy non-boolean): decisions identical to the base, draw for draw (test), and recorded decisions replay identically against main (lane report).
 - Declared evaluation (audit archive `repairs/LIGHTNING/EVAL-DECLARATION-lightningVpipFloorLimpOnly.md`) run on journal-3: B0-B2 met, B6 INSUFFICIENT (118 sittings, 273 limp-eligible folds). For the redesigned line, the replay and its cost are in `repairs/LIGHTNING/EVAL-RESULTS.md`. Effect on pool speed and on the people in the pool: reported, no bar.
 
+## The 28-minute live run of 2026-11-19 and why it was rolled back
+
+Switched on 2026-11-19 18:27:30Z on engine build dfaa9717f826; rolled back to off at 18:55:37Z on two declared triggers.
+
+Trigger 1, refused decisions. `/health` `liveHorseDecision.recoverableRequestErrors` rose from 0 (18:09Z) to 8, every one `DECIDE_FAST`, `invalid policy receipt: reference_shape`, the last at 18:38:22.516Z. Root cause: a hold'em stack of 15 big blinds or less that is folded to is answered on the route `chart_open_jam` (jam, check or fold). This option turned that fold into the limp inside the reference node, after the route had returned, and `HorsePhase6Attribution.referenceReturnShape` did not know that limp, so the receipt was refused and the engine folded the seat on the liveness fallback. Proven for the three refusals that reached a real turn: the only `horse_fallback` folds on any table between 15:00Z and 19:10Z are NLH 0.50/1.00 fast-table hands 60140196, 60140303 and 60140317 (one Horse on 8.92, 6.92 and 6.92 big blinds, non-blind seat, folded to, one big blind to call; the last at the `/health` timestamp to the millisecond). The other five left no action row and fit that Horse's early looks; only the engine log can show them. `omahaValueSizeIsUnreadable`, switched on at 18:16:58Z and left on, is not involved: the counter has not moved since. The PLO pools never had this defect (an Omaha decision is never on a chart route).
+
+The fix (2026-11-19): `referenceReturnShape` admits exactly the limp `vpipFloorLimpOnlyStep` could produce for this option (and for `vpipFloorLimpOnly`, which had the same hole under 6.67 big blinds), from public facts and the request's options, with no draw. Tests: `server/src/engine/aVpipFloorLimpIsAReferenceReturn.guard.test.ts` and the law `server/src/engine/AReferenceNodeRuleIsAReferenceReturn.law.test.ts`. The option must not be switched on again on a build without that fix.
+
+Trigger 2, pool pace. Declared: hands per 20 minutes within 15% of the baseline, trigger at 25%. Measured from production (`lightning_hand`, `hand_history`, `lightning_hand_player`; before = 17:47:30Z to 18:27:30Z, on = 18:27:30Z to 18:55:37Z, after = the 20 minutes from 18:55:37Z):
+
+| Pool           | Hands per 20 min before / on / after | Change | Mean hand, s       | Horse VPIP %       | Early-look folds % | Flop seen %        | Flop with 3+ players % |
+| -------------- | ------------------------------------ | ------ | ------------------ | ------------------ | ------------------ | ------------------ | ---------------------- |
+| PLO4 0.25/0.50 | 113.5 / 72.6 / 123.0                 | -36%   | 15.0 / 23.0 / 15.2 | 24.7 / 43.0 / 25.1 | 72.6 / 55.5 / 72.8 | 33.9 / 52.9 / 34.1 | 5.3 / 12.7 / 2.4       |
+| PLO4 0.50/1.00 | 85.0 / 63.3 / 106.0                  | -26%   | 21.9 / 30.0 / 16.7 | 28.1 / 44.4 / 25.4 | 71.5 / 55.1 / 72.7 | 38.8 / 59.6 / 34.9 | 2.4 / 13.5 / 3.8       |
+| PLO5 1.00/2.00 | 103.0 / 79.0 / 123.0                 | -23%   | 16.8 / 28.4 / 19.0 | 27.0 / 44.1 / 26.1 | 72.3 / 57.7 / 73.0 | 35.0 / 64.9 / 44.7 | 1.0 / 18.9 / 3.3       |
+| NLH 0.25/0.50  | 67.5 / 50.5 / 65.0                   | -25%   | 26.8 / 34.0 / 26.9 | 35.0 / 44.1 / 38.4 | 61.6 / 46.2 / 61.6 | 48.9 / 45.1 / 56.9 | 7.4 / 12.7 / 12.3      |
+| NLH 0.50/1.00  | 177.5 / 147.2 / 175.0                | -17%   | 22.3 / 24.3 / 24.5 | 32.0 / 41.8 / 33.0 | 65.1 / 47.0 / 65.7 | 51.8 / 36.7 / 54.3 | 8.5 / 11.1 / 10.3      |
+| NLH 1.00/2.00  | 77.0 / 68.3 / 80.0                   | -11%   | 22.2 / 23.4 / 22.0 | 37.3 / 43.3 / 38.8 | 63.4 / 49.4 / 60.7 | 56.5 / 43.8 / 52.5 | 11.0 / 18.8 / 6.3      |
+
+The floor was met: Horse VPIP landed at 42-44% in every pool. The wait between hands that the pool records (`waited_ms`) moved little for Horses (median 2.0-2.6 s before, 2.0-3.6 s on, in every pool). One person played, in PLO5 1/2, only while the option was on and just after: 17 hands on (median wait 1.96 s, mean 6.79 s, 95th percentile 29.7 s), 16 hands after (1.23 s, 2.62 s, 7.8 s); there is no before figure for a person.
+
+The lower hand rate is the floor itself, not a second fault. A fast-table pool deals at the speed its players come free. A Horse at its natural 25-28% in PLO folds 72% of its hands on the early look and is free within seconds; to hold 40% over every ten hands it must stay in at least 12 to 15 more hands of each hundred until its turn, and most of those limps see a flop (limped flops rose from 1-2% to 17-20% of PLO hands). In all six pools the measured rate on is within 15% of the baseline rate multiplied by (mean hand before / mean hand on), so the longer hands account for all of it. With the same Horses seated, a PLO pool whose Horses hold the floor by limp-fold cannot stay within 15% of the unfloored rate. The pace can be restored only by seating more Horses in a floored pool (a fill decision), not by this option.
+
+Proposed pass bar for the next activation (the lead decides): (a) 0 refused decisions and 0 `horse_fallback` folds attributable to the option; (b) Horse VPIP per pool 40-46%; (c) per pool, hands per 20 minutes at least 85% of baseline x (mean hand before / mean hand on), which catches any slowdown the longer hands do not explain; (d) for people, median `waited_ms` at most 5 s and no pool with a person seated under 50% of its baseline hand rate (trigger). The raw 15%/25% bar is retired as unattainable for PLO by the ruling's own arithmetic.
+
 ## What the activation row must contain
 
 `option = 'lightningVpipFloorLimpOnly'`, `state = 'on'`, note `authority: lightningVpipFloorLimpOnly docs/horse-option-authority.d/lightningVpipFloorLimpOnly.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set`, only after the serving engine build knows the option name and the switch-list migration that adds it is installed.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

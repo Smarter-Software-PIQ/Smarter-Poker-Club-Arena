@@ -1,0 +1,6 @@
+{
+  "_owner": "agent/woowoo-audit-013U37bY/hand-engine-build. Migration 20261118073245_a_hand_names_the_engine_build_that_dealt_it (daily-maintenance window; not applied by the lane). Adds hand_history.engine_build text NULL, written by logHandHistory inside the existing accepted-hand transaction.",
+  "columns": {
+    "hand_history": ["engine_build"]
+  }
+}

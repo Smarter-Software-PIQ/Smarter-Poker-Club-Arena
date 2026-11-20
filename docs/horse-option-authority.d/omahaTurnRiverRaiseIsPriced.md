@@ -53,3 +53,9 @@ Lead ruling (2026-11-18, review R2 of priced2): this option is NOT off-only. Its
 ## Fold to a raise is priced at the raise's price (2026-11-19, plo-truncation-013U37)
 
 Found by BLANKET-LOO-1 (HORSE SWITCH lane) and reproduced at f3e99378ccbb: with omahaReadIsByStreetAndTexture on, the street read's fold-to-raise cell (counted over raises of every size) replaced the size-aware minimum-defence fold (1 - price) once it had a few opportunities, so a minimum raise bought the fold share of a pot raise for 2 bb. Two Horses facing each other's minimum raise re-raised by the minimum until the stacks were in (the league's 48-action street cap: 18-65 truncated hands per 100,000 in every Horse-only cell; production has no cap in pot limit). Fix: the fold priced is the smaller of the size-blind read (as before) and the read taken at this price, the minimum-defence fold times his fold-to-raise rate over the population's measured 14/54 (OMAHA_PRICED_FOLD_TO_RAISE_POPULATION, the same measurement as OMAHA_PRICED_RERAISE_SHARE). With no street cell (omahaReadIsByStreetAndTexture off, production on 2026-11-19) both readings are the minimum-defence fold: decisions are byte-identical. Evidence: plo-handoff-review-01a1cbbd/truncation-013U37/FINDINGS.md.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)
