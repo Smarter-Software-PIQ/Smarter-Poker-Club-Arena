@@ -1302,9 +1302,9 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     }
   }
 
-  // current-nuts call floor (OmahaMathCoreNutsFloor.ts): flop/turn, facing a wager, a call available
+  // current-nuts call floor (OmahaMathCoreNutsFloor.ts): every postflop street, facing a wager, a call available
   let nutFloor: string | null = null;
-  if (CURRENT_NUTS_CALL_FLOOR && !pre && street !== 'river' && toCall > 0.005) {
+  if (CURRENT_NUTS_CALL_FLOOR && !pre && toCall > 0.005) {
     const callLike = evs.some(
       (e) => e.action === 'call' || (e.action === 'all_in' && e.adds <= toCall + 0.005)
     );
@@ -1314,8 +1314,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       holdsCurrentNuts(state.hole, state.board)
     ) {
       for (let i = evs.length - 1; i >= 0; i--) if (evs[i].action === 'fold') evs.splice(i, 1);
-      nutFloor =
-        'current nuts facing a wager (flop/turn): fold not a candidate, call or raise only';
+      nutFloor = `current nuts facing a wager (${street}): fold not a candidate, call or raise only`;
     }
   }
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');

@@ -13,6 +13,7 @@
 import type { HorseDecision, SeatPlayer } from '../../types.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
+import { CURRENT_NUTS_CALL_FLOOR, holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import { publicHistoryOf, selectionScore } from './OmahaMathCoreWire.js';
 import {
   decideOmahaMathCore,
@@ -557,10 +558,12 @@ export function omahaMathCoreRule(
   if (!inScope) return decision;
   const incoming = { action: decision.action, amount: decision.amount ?? null };
   try {
-    const { receipt } = decideOmahaMathCore(
-      omahaMathCoreState(player, gs, opts.omahaMathCoreNetsTheWholeDeduction === true),
-      { now }
+    const coreState = omahaMathCoreState(
+      player,
+      gs,
+      opts.omahaMathCoreNetsTheWholeDeduction === true
     );
+    const { receipt } = decideOmahaMathCore(coreState, { now });
     // The executed action is a priced candidate exactly as the legalizer leaves it: the best EV
     // whose legal form is itself (cent rounding and the all-in amount aside). A candidate the
     // legalizer would resize (a 90-100% pot wager made the full pot, a wager of nearly the whole
@@ -682,6 +685,44 @@ export function omahaMathCoreRule(
         ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
       };
       legal = narrowed;
+    }
+    // Current-nuts call floor, last word (lane CORE-POOLED-2 phase 2): whatever path reached a fold - the
+    // change margin keeping today's fold, the PLO5 river fold -> call narrowing keeping it (an all-in call or
+    // a fold that is no longer a priced candidate) - the exact current nuts facing a wager is called when a
+    // call (or an all-in for no more than the call) is legal. Public information only: the hero's own cards
+    // and the board, the same for every player.
+    if (
+      CURRENT_NUTS_CALL_FLOOR &&
+      legal.action === 'fold' &&
+      coreState.board.length >= 3 &&
+      coreState.toCall > 0.005 &&
+      holdsCurrentNuts(coreState.hole, coreState.board)
+    ) {
+      const stack = Math.max(0, player.stack ?? 0);
+      const tries: HorseDecision[] =
+        coreState.toCall < stack - 0.005
+          ? [{ action: 'call', amount: coreState.toCall, thinkTime: decision.thinkTime }]
+          : [];
+      tries.push({ action: 'all_in', thinkTime: decision.thinkTime });
+      for (const t of tries) {
+        let l: HorseDecision;
+        try {
+          l = legalize(t);
+        } catch {
+          continue;
+        }
+        if (l.action === 'fold') continue;
+        if (l.action === 'all_in' && Math.max(0, stack) > coreState.toCall + 0.005) continue;
+        const chosen = receipt.evs.find((e) => e.action === l.action);
+        receipt.nutFloor = `current nuts facing a wager (${String(gs.stage)}): fold replaced by ${l.action}`;
+        receipt.choice = {
+          action: l.action as CoreReceipt['choice']['action'],
+          amount: l.amount ?? null,
+          ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
+        };
+        legal = l;
+        break;
+      }
     }
     // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
     // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
