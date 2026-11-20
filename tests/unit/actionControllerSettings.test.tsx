@@ -154,5 +154,8 @@ it('offers a direct All In button in a shove-or-fold tournament even when regula
   render(<ActionPanel {...panel} shoveOrFold onAction={action} />);
   expect(screen.queryByLabelText('Open Raise Panel')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'All In' }));
+  expect(action).not.toHaveBeenCalled();
+  // Dan 2026-11-19: all-in is two actions - tap, then confirm.
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm All In' }));
   expect(action).toHaveBeenCalledWith('allin', expect.any(Number));
 });
