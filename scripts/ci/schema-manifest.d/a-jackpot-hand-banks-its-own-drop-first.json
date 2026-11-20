@@ -1,0 +1,7 @@
+{
+  "_owner": "fix/bbj-drop-banked",
+  "_comment": "Live since 20261118071728/20261118071736: the hand's stored BBJ drop and the door that banks it. processBBJPayout now banks its own hand's drop first (incident efde14dc).",
+  "tables": ["hand_bank_obligation_pending"],
+  "functions": ["fn_ca_bank_pending_hand_obligations"],
+  "columns": {}
+}
