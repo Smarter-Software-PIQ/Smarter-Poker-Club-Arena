@@ -126,9 +126,13 @@ describe('a Horse bet size is public information only', () => {
     // become the call: omahaFacingBetIsPricedByEquity, default off.)
     expect(node.match(/decision: publicSized\(/g)).toHaveLength(1);
     expect(node.match(/const ownersFinal = publicSized\(/g)).toHaveLength(1);
-    expect(node.match(/return \{\s*decision:/g)).toHaveLength(2);
-    expect(node).toContain(
-      "graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode()))"
+    // (omahaMathCore, default OFF, 2026-11-19: the node's third return is the core's, outermost over
+    // riverNoBlocker(wagerRulesNode()); with the switch off it returns that answer unchanged.)
+    expect(node.match(/return \{\s*decision:/g)).toHaveLength(3);
+    expect(node.match(/return \{\s*(?:\/\/[^\n]*\s*)*decision: omahaMathCoreRule\(/g)).toHaveLength(
+      1
     );
+    expect(node).toContain("graph.run('wager_rules', decision, () => {");
+    expect(node).toContain('const ruled = riverNoBlocker(wagerRulesNode());');
   });
 });

@@ -562,6 +562,28 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaNoCategoricalRules: outside(
     'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'
   ),
+  omahaMathCore: priced(
+    'the math-first PLO4/PLO5 cash core (default OFF): the expected-value maximum over every legal action from exact 2+3 equity against public ranges, measured fold and response frequencies and the price; the outermost owner of wager_rules'
+  ),
+  omahaMathCorePreflop: outside(PREFLOP),
+  omahaMathCorePlo4Flop: outside(
+    'a scope gate of omahaMathCore (PLO4 cash flop admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo4Turn: outside(
+    'a scope gate of omahaMathCore (PLO4 cash turn admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo4River: outside(
+    'a scope gate of omahaMathCore (PLO4 cash river admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo5Flop: outside(
+    'a scope gate of omahaMathCore (PLO5 cash flop admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo5Turn: outside(
+    'a scope gate of omahaMathCore (PLO5 cash turn admission; off = shadow receipt only)'
+  ),
+  omahaMathCorePlo5River: outside(
+    'a scope gate of omahaMathCore (PLO5 cash river admission; off = shadow receipt only)'
+  ),
   omahaTournamentsExcludeCategoricalRules: outside(
     'a scope gate (tournaments): with it on the categorical rules here stay cash-only'
   ),

@@ -3875,6 +3875,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-19 lane MATHCORE / COREWIRE (omahaMathCore, default OFF, graded by lane PROVE): both arms carry
+  // production's live Omaha set; a also switches the math-first core on (every street admitted). 100 bb cash.
+  ...(['plo4', 'plo5'] as const).map((variant) => {
+    const street = variant === 'plo4' ? 'Plo4' : 'Plo5';
+    return {
+      name: `${variant}_omaha_math_core`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: {
+        ...OMAHA_LIVE_OPTIONS_20261118,
+        omahaMathCore: true,
+        [`omahaMathCore${street}Flop`]: true,
+        [`omahaMathCore${street}Turn`]: true,
+        [`omahaMathCore${street}River`]: true,
+      },
+      b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+    };
+  }),
   // 2026-11-19 lane UNBLOCK (omahaNoCategoricalRules, default OFF, unevaluated): both arms carry production's
   // live Omaha set; a also switches every categorical PLO4/PLO5 cash rule off. 100 bb cash. Declared, not run.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

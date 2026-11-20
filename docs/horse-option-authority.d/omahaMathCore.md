@@ -41,3 +41,7 @@ The decision the owner rules produced is never an input, prior or tie-break: it 
 ## Evaluation
 
 Exact replay over every PLO4/PLO5 cash decision of the 48-hour dataset (base vs ON) and the Horse-vs-Horse league are run by lane PROVE (S/emerg/PROVE); their numbers are the evidence for switching. Hidden cards are used there for offline grading only.
+
+## Replay
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it; lane PROVE's exact journal replay and holdout grades are in repairs/EMERG/PROVE.md)

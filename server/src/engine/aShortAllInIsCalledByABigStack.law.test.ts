@@ -173,9 +173,11 @@ describe('a short all in is called by a big stack in a tournament (Dan 2026-10-2
     expect(
       brain.indexOf('const wagerRulesNode = (): { decision: HorseDecision } =>')
     ).toBeGreaterThan(0);
-    expect(node).toContain(
-      "graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode()))"
-    );
+    // (omahaMathCore, default OFF, 2026-11-19: the core is the outermost owner of the node's answer;
+    // with the switch off it returns that answer unchanged)
+    expect(node).toContain("graph.run('wager_rules', decision, () => {");
+    expect(node).toContain('const ruled = riverNoBlocker(wagerRulesNode());');
+    expect(node).toContain('decision: omahaMathCoreRule(ruled.decision, player, gs, opts,');
     const nodeBody = node.slice(0, node.indexOf("graph.run('timing'"));
     expect(nodeBody).toContain('shortAllInCallFloor(');
     expect(nodeBody.indexOf('shortAllInCallFloor(')).toBeGreaterThan(
