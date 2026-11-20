@@ -145,6 +145,7 @@ import {
   classCapRespectingEquity,
   OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES,
   omahaClassCapsRespectEquityInScope,
+  omahaNoMadeClassCapInScope,
 } from './HorseOmahaClassCapsRespectEquity.js';
 import {
   plo6FacingBetPriced,
@@ -166,11 +167,23 @@ import {
   OMAHA_BET_READ_VARIANTS,
   omahaBetReadBluffShare,
   omahaBetReadIsLaterBarrel,
+  omahaBetReadLineOf,
+  omahaBetReadModeOf,
+  omahaBetReadSpeedOf,
   omahaBetReadOf,
+  OMAHA_BET_READ_TURN_REALIZATION,
   type OmahaBetRead,
 } from './HorseOmahaBetRead.js';
 import { omahaColdCallOutsideBigBlindRule } from './HorseOmahaColdCallMeasured.js';
 import { omahaOpenMeasuredRule } from './HorseOmahaOpenMeasured.js';
+import {
+  omahaAcesReraiseMeasuredRule,
+  omahaReraiseRangeMeasuredRule,
+} from './HorseOmahaReraiseMeasured.js';
+import {
+  omahaRundownReraiseMeasuredRule,
+  omahaRundownReraiseTrialRule,
+} from './HorseOmahaRundownReraiseMeasured.js';
 import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
 import {
   omahaMathCoreExactLegalize,
@@ -203,6 +216,10 @@ import {
   omahaNoCategoricalRulesHolds,
   withoutOmahaCategoricalRules,
 } from './HorseOmahaNoCategoricalRules.js';
+import {
+  withOmahaOptionGameScope,
+  type OmahaOptionGameScope,
+} from './HorseOmahaOptionGameScope.js';
 import {
   omahaStrongHandRaiseVerdict,
   omahaStrongHandValueDecision,
@@ -591,6 +608,7 @@ import {
   omahaPricedOwnsTurnRiverRaise,
   omahaPricedPairedBoardBetRule,
   omahaPricedPressureWithheld,
+  omahaPricedPopulationRates,
   omahaPricedReadOfUser,
   omahaPricedTurnRiverRaiseRule,
   omahaPricedUnderpairFolds,
@@ -3554,6 +3572,13 @@ export interface HorseDecideOpts {
    */
   omahaClassCapsRespectEquity?: boolean;
   /**
+   * Lane HIDDEN-ON 2026-11-20 (EMERG/HIDDEN-ON.md; HorseOmahaClassCapsRespectEquity.ts). Default OFF, read
+   * `=== true`. PLO4/PLO5 cash (table and Lightning): the V40 Omaha pressure cap (a fixed equity ceiling per
+   * made-hand class) does not run; the decision uses the equity that entered it. PLO6, tournaments and every
+   * other game are untouched.
+   */
+  omahaNoMadeClassCap?: boolean;
+  /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
    * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
@@ -3608,6 +3633,39 @@ export interface HorseDecideOpts {
    * -2.24 +/- 0.72 bb an open against folding, n 2,968, 2026-10-15 to 2026-11-19) becomes a fold; aces
    * and rundowns keep the open. Default OFF (read `=== true`). */
   omahaOpenNeedsMeasuredStrength?: boolean;
+  /** EMERG lane PREFLOP-2 2026-11-20 (HorseOmahaReraiseMeasured.ts): PLO4/PLO5 cash (tables and
+   * Lightning), preflop, a final call or fold of a pair of aces facing a 3-bet with a stack of 250 bb
+   * or less and a raise legal becomes the pot-size re-raise: the one aces cell where the re-raise
+   * earned more than the call in real chips (chips to and from persons) on fit and held-out data,
+   * 2026-10-15 to 2026-11-19 (fit +13.06 +/- 9.11 bb, held out +37.03 +/- 11.67; against the fold
+   * +15.11 +/- 6.33 and +28.40 +/- 10.25). Default OFF (read `=== true`). */
+  omahaAcesReraiseIsMeasured?: boolean;
+  /** EMERG lane PREFLOP-2 2026-11-20 (HorseOmahaReraiseMeasured.ts): PLO4/PLO5 cash, preflop, a final
+   * call of a pair of kings facing a 3-bet, acting after the 3-bettor, becomes the pot-size 4-bet:
+   * the one cell of the re-raise range for hands that are not aces that passes in real chips on fit
+   * and held-out data (fit +26.65 +/- 18.00 bb, held out +73.89 +/- 29.58). Default OFF (read
+   * `=== true`). */
+  omahaReraiseRangeIsMeasured?: boolean;
+  /** EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured.ts): PLO4/PLO5 cash, preflop,
+   * the measured rundown re-raise range. Rundowns classified by structure from the Horse's own
+   * cards, the re-raise graded against the call in real chips on fit and held-out data
+   * (2026-10-15 to 2026-11-19, 290 class-by-spot cells). No cell where the re-raise beats the call
+   * passes; one cell where the CALL beats the re-raise does: the squeeze from a blind (an open and a
+   * caller) with a high rundown and more than 250 bb (re-raise minus call -27.35 +/- 11.40 bb fit,
+   * -34.99 +/- 16.58 held out). There a final re-raise becomes the call. Default OFF (read
+   * `=== true`). */
+  omahaRundownReraiseRangeIsMeasured?: boolean;
+  /** EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured.ts): PLO4/PLO5 cash, preflop,
+   * the TRIAL cells of the rundown re-raise range (not proven by the Horses' own record; supported
+   * by persons' shown hands and by position pricing; a watched live trial to get the data): a final
+   * call becomes the pot-size re-raise with (1) a double-suited no-gap rundown with no pair 3-betting
+   * in position an open nobody called, (2) a PLO5 five-connected rundown with nut potential and no
+   * pair 4-betting in position as the opener, (3) a tier A or B rundown in position with 250 bb or
+   * less: the squeeze and the 4-bet as the opener (Horses' record +23.60 +/- 14.48 / +18.05 +/-
+   * 11.31 and +20.68 +/- 16.10 / +50.51 +/- 30.75 bb, a pooling made after the grade) and the 3-bet
+   * facing an open (level with the call: -0.14 +/- 5.23 / -1.87 +/- 8.29). Default OFF (read
+   * `=== true`). */
+  omahaRundownReraiseRangeTrial?: boolean;
   /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
    * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
    * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
@@ -3651,6 +3709,15 @@ export interface HorseDecideOpts {
    * prior exactly below the minimum sample. Public information only. Never
    * PLO6. Default OFF. */
   omahaBetReadIsPerOpponent?: boolean;
+  /** EMERG lane MODE-READ 2026-11-20 (owner order 1:55 AM: build with all data). Acts only with
+   * omahaBetReadIsPerOpponent on. PLO4/PLO5 cash heads-up turn and river facing a wager: the bettor is read in
+   * the MODE of the decision (table / Lightning; HorseOmahaBetRead.omahaBetReadModeOf: his mode cell shrunk toward
+   * his own pooled cell, the population the other persons of the same mode), with a cell per previous-street line
+   * (the turn stab after a checked-through flop, the later barrel, every other first bet) and a cell for his
+   * raise, the frequency signal through the calibrated slope (population_all_cards_capped), and a turn call
+   * priced with the measured realization (in position .84, out of position .60) when the read acts. One rule for
+   * every opponent. Public information only. Never PLO6. Default OFF. */
+  omahaBetReadIsModeSplit?: boolean;
   /** HORSE DECISIONS lane 2026-11-19 (audits A and B of the 48-hour slice: the
    * largest loss class is a fold with the price met; the facing-bet verdict's
    * value region is a stated top share of ALL holdings, on PLO5 boards
@@ -4189,6 +4256,12 @@ export interface HorseDecideOpts {
    * path is off for that decision (OMAHA_NO_CATEGORICAL_RULES_OFF, the hidden default-on ones included) and
    * the V81 / V84 / V86 / V87 big-bet call cells stand aside. Off (absent or false): byte-identical. */
   omahaNoCategoricalRules?: boolean;
+  /** The game scope of the omaha* options (EMERG lane PLO4-FIX 2026-11-20; HorseOmahaOptionGameScope.ts). A
+   * parameter, not an on/off option: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime
+   * settings `horse.omahaGameScope.<option>` (absent at the compiled defaults). In a PLO4 or PLO5 cash decision
+   * every listed option scoped to the other game is passed false (its off path) before anything reads it. Absent:
+   * byte-identical. PLO6, PLO8, hold'em and tournaments are never in scope. */
+  omahaOptionGameScope?: OmahaOptionGameScope;
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
@@ -4501,6 +4574,30 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_checked_to_bet_is_priced. */
   omahaCheckedToBetIsPriced?: boolean;
+  /** EMERG lane OPEN-ITEMS-3 2026-11-20 (owner 2026-11-19: value and bluffs
+   * missed on the river; math first, public information, global): opt-in
+   * (`=== true`), acts only inside omahaCheckedToBetIsPriced. Heads-up on the
+   * river, the one opponent has checked: the share of his range that
+   * continues against each bet size is the MEASURED answer to a river bet
+   * (HorseOmahaSmallBetConstants: a person continues against a pot-sized bet
+   * 15% of the time in PLO5, 27% in PLO4; a Horse 22% and 13%) in place of
+   * the pot odds scaled by his all-street continue rate, moved in log-odds
+   * by how far his own measured rate sits from the population mean of the
+   * same statistic (no evidence: exactly his kind's curve), with the error
+   * of the measured cell and of his own rate
+   * (HorseOmahaCheckedToBet.omahaCheckedToMeasuredResponse). Several
+   * opponents, the turn and PLO6 are untouched. Default OFF; league cards
+   * plo4/plo5 _omaha_checked_to_bet_response_is_measured. */
+  omahaCheckedToBetResponseIsMeasured?: boolean;
+  /** EMERG lane OPEN-ITEMS-3 2026-11-20: a scope option, opt-in
+   * (`=== true`). With it on, the game of omahaCheckedToBetIsPriced includes
+   * the Lightning pools (gs.publicMemoryDomain.speed === 'lightning')
+   * without omahaPricedInLightning, which opens every priced family there
+   * at once. It switches the rule on nowhere by itself and changes no other
+   * rule. PLO6 untouched (the rule's scope is PLO4/PLO5). Default OFF;
+   * league note _omaha_checked_to_bet_in_lightning (no Lightning domain in
+   * the league). */
+  omahaCheckedToBetInLightning?: boolean;
   /** Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR
    * JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN'T ALWAYS RAISE 100% OF THE
    * TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS";
@@ -12792,6 +12889,8 @@ let omahaFacingBetEvCountMemo: {
   turnStabLightningRow: boolean;
   /** omahaBetReadIsPerOpponent */
   betRead: boolean;
+  /** omahaBetReadIsModeSplit */
+  betReadModeSplit: boolean;
   valueShareMeasured: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
@@ -12826,14 +12925,35 @@ function omahaBetReadForDecision(
     ).length;
     if (live !== 1) return null;
     const bettorSeat = (gs.players ?? []).find((p) => p.user_id === userId)?.seat;
-    const read = omahaBetReadOf(
-      userId,
-      variant,
-      street,
-      potFrac,
-      isRaise,
-      bettorSeat !== undefined && omahaBetReadIsLaterBarrel(gs.actionHistory, street, bettorSeat)
-    );
+    // omahaBetReadIsModeSplit (default off): the bettor read in this decision's mode, by his previous-street line,
+    // turn and river, first bets and raises (HorseOmahaBetRead.omahaBetReadModeOf)
+    const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+    const modeSplit =
+      opts.omahaBetReadIsModeSplit === true &&
+      bettorSeat !== undefined &&
+      (street === 'turn' || street === 'river') &&
+      omahaBetReadSpeedOf(speed) !== null;
+    const read = modeSplit
+      ? omahaBetReadModeOf(
+          userId,
+          variant,
+          street,
+          potFrac,
+          isRaise,
+          omahaBetReadLineOf(gs.actionHistory, street, bettorSeat as number),
+          speed
+        )
+      : omahaBetReadOf(
+          userId,
+          variant,
+          street,
+          potFrac,
+          isRaise,
+          bettorSeat !== undefined &&
+            omahaBetReadIsLaterBarrel(gs.actionHistory, street, bettorSeat)
+        );
+    if (read && read.modeSplit === true && read.source === 'person' && telemetryOn(opts))
+      noteFire('omaha_bet_read_mode_split_priced');
     if (read && telemetryOn(opts)) {
       if (read.source === 'person') noteFire('omaha_bet_read_person_priced');
       else noteFire('omaha_bet_read_population_priced');
@@ -12899,6 +13019,7 @@ function omahaFacingBetEvCount(
   const turnStabLightning = turnStab && opts.omahaPricedInLightning === true;
   const turnStabLightningRow = turnStabLightning && opts.omahaTurnStabLightningRow === true;
   const betReadOn = opts.omahaBetReadIsPerOpponent === true;
+  const betReadModeSplit = betReadOn && opts.omahaBetReadIsModeSplit === true;
   // omahaFacingBetValueShareIsMeasured (default off): PLO4/PLO5 cash only (PLO6 and tournaments untouched).
   const valueShareMeasured =
     opts.omahaFacingBetValueShareIsMeasured === true &&
@@ -12921,6 +13042,7 @@ function omahaFacingBetEvCount(
     memo.turnStabLightning === turnStabLightning &&
     memo.turnStabLightningRow === turnStabLightningRow &&
     memo.betRead === betReadOn &&
+    memo.betReadModeSplit === betReadModeSplit &&
     memo.valueShareMeasured === valueShareMeasured
   )
     return memo.answer;
@@ -12965,6 +13087,7 @@ function omahaFacingBetEvCount(
       : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    let modeTurnRealization: number | null = null;
     if (mind) {
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
@@ -13003,6 +13126,17 @@ function omahaFacingBetEvCount(
         spot.priorBluff
       );
       if (betRead) read = { ...(read ?? OMAHA_EV_UNKNOWN_READ), betRead };
+      // omahaBetReadIsModeSplit (default off): where the mode-split read acts on the turn, the call is priced with
+      // the realization measured for the Horses' heads-up turn calls (LIVEGRADE-2: in position .84, out of .60)
+      if (
+        betRead?.modeSplit === true &&
+        betRead.source === 'person' &&
+        spot.street === 'turn' &&
+        !spot.final
+      )
+        modeTurnRealization = actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? [])
+          ? OMAHA_BET_READ_TURN_REALIZATION.inPosition
+          : OMAHA_BET_READ_TURN_REALIZATION.outOfPosition;
     }
     const verdictOf = (
       s: typeof spot,
@@ -13019,10 +13153,12 @@ function omahaFacingBetEvCount(
             ? 0
             : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
           riskPremium: omahaTournamentIcmPremium(player, gs, spot.paid),
-          realization: realizationFactor({
-            street: 'turn',
-            inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
-          }),
+          realization:
+            modeTurnRealization ??
+            realizationFactor({
+              street: 'turn',
+              inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+            }),
           // PLO6 six-card guard: off where the live river fold rule is off.
           plo6RiverNuts,
           plo6RiverUnpaired,
@@ -13174,6 +13310,7 @@ function omahaFacingBetEvCount(
     turnStabLightning,
     turnStabLightningRow,
     betRead: betReadOn,
+    betReadModeSplit,
     valueShareMeasured,
     answer,
   };
@@ -14330,6 +14467,12 @@ function omahaCheckedToBetIsPricedRule(
   if (opts.omahaCheckedToBetIsPriced !== true) return same;
   if (decision.action !== 'check') return same;
   try {
+    // omahaCheckedToBetInLightning (default off): this rule's own scope includes the Lightning pools. The scope
+    // receipt of omahaPricedInLightning is not fired for it (that option did not open the pool).
+    const ownLightning =
+      opts.omahaCheckedToBetInLightning === true && opts.omahaPricedInLightning !== true;
+    const measuredResponse = opts.omahaCheckedToBetResponseIsMeasured === true;
+    const population = measuredResponse ? omahaPricedPopulationRates(gs, opts) : null;
     const result = omahaCheckedToBetDecision(
       decision,
       player,
@@ -14345,14 +14488,27 @@ function omahaCheckedToBetIsPricedRule(
             riverOpportunities = null;
           }
         }
-        return { read, riverOpportunities };
+        return measuredResponse
+          ? { read, riverOpportunities, population }
+          : { read, riverOpportunities };
       },
       omahaPricedDeps(player, gs).rake,
-      opts
+      ownLightning ? { omahaPricedInLightning: true, telemetry: false } : opts,
+      // omahaCheckedToBetResponseIsMeasured (default off): heads-up, his answer to a bet is the measured one.
+      measuredResponse
     );
     if (telemetryOn(opts)) {
       if (result.changed === 'bet') noteFire('omaha_checked_to_bet_priced_bet');
       else if (result.priced) noteFire('omaha_checked_to_bet_priced_check_kept');
+      if (result.priced && result.verdict?.measured)
+        noteFire('omaha_checked_to_bet_measured_response');
+      if (
+        result.priced &&
+        ownLightning &&
+        (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed ===
+          'lightning'
+      )
+        noteFire('omaha_checked_to_bet_in_lightning');
     }
     return { decision: result.decision, changed: result.changed === 'bet', bluff: result.bluff };
   } catch {
@@ -15639,6 +15795,9 @@ export class HorseLogic {
     gameState: HorseGameStateV2,
     opts: HorseDecideOpts = {}
   ): void {
+    // The game scope of the omaha* options (HorseOmahaOptionGameScope; absent: the same object). The identity when
+    // decide already applied it.
+    if (opts.omahaOptionGameScope) opts = withOmahaOptionGameScope(opts, player, gameState);
     // V45 SCOPED READS: every read in this decision sees the bucket for
     // this card family and table size (HorseMind.readStats). Cleared on
     // every exit, including a throw.
@@ -15755,6 +15914,18 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // THE GAME SCOPE OF THE OMAHA OPTIONS (lane PLO4-FIX 2026-11-20, HorseOmahaOptionGameScope.ts; absent at the
+    // compiled defaults): the ONE read site. In a PLO4/PLO5 cash decision an option scoped to the other game is
+    // off for this decision, before any rule (omahaNoCategoricalRules included) reads it; the receipt names the
+    // option and the game. No scope, PLO6 or any other game: the same opts object runs.
+    if (opts.omahaOptionGameScope) {
+      const scopedOff: [string, number][] = [];
+      opts = withOmahaOptionGameScope(opts, player, gameState, (option, game) => {
+        scopedOff.push([option, game]);
+      });
+      for (const [option, game] of scopedOff)
+        if (telemetryOn(opts)) noteFire(`omaha_option_game_scope_${option}_off_in_plo${game}_seen`);
+    }
     // omahaNoCategoricalRules (default OFF, lane UNBLOCK 2026-11-19): in a PLO4/PLO5 cash decision every
     // categorical rule's option is off for this decision; off or out of scope the same opts object runs.
     if (opts.omahaNoCategoricalRules === true)
@@ -17805,6 +17976,10 @@ export class HorseLogic {
                 q0
               );
               if (!read || read.source !== 'person') return 0;
+              // omahaBetReadIsModeSplit: this calibrated-share path keeps the per-opponent read's own scope (the
+              // river and a later turn barrel), so its receipt validator stays exact; the mode-split first-turn-bet
+              // cells act through omahaFacingBetEv only
+              if (read.modeSplit === true && spot.street === 'turn' && read.line !== 'b') return 0;
               return omahaFacingEquityBettorShift(
                 spot,
                 player.cards ?? [],
@@ -17825,15 +18000,67 @@ export class HorseLogic {
       // preflop only, so it never meets the postflop owners above. A final cold call of one raise
       // from a seat without a big blind posted, with a hand class measured to lose against folding,
       // becomes a fold (HorseOmahaColdCallMeasured.ts). It changes only a call.
-      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+      // EMERG lane PREFLOP-2 2026-11-20 (omahaAcesReraiseIsMeasured, omahaReraiseRangeIsMeasured,
+      // each default off): preflop only, before the cold-call rule so a call that the measurement
+      // makes a re-raise is never folded by it. A final call in a measured cell becomes the
+      // pot-size re-raise (HorseOmahaReraiseMeasured.ts). Each changes only a call; the aces rule
+      // also a fold (aces facing a 3-bet at 250 bb or less).
+      const acesReraised = omahaAcesReraiseMeasuredRule(
         equityPriced,
+        player,
+        gs,
+        opts.omahaAcesReraiseIsMeasured === true
+      );
+      if (acesReraised !== equityPriced && tele) {
+        noteFire('omaha_aces_measured_reraise');
+        noteDecisionRuleReceipt('omaha_aces_measured_reraise', equityPriced, acesReraised);
+      }
+      const rangeReraised = omahaReraiseRangeMeasuredRule(
+        acesReraised,
+        player,
+        gs,
+        opts.omahaReraiseRangeIsMeasured === true
+      );
+      if (rangeReraised !== acesReraised && tele) {
+        noteFire('omaha_range_measured_reraise');
+        noteDecisionRuleReceipt('omaha_range_measured_reraise', acesReraised, rangeReraised);
+      }
+      // EMERG lane RUNDOWNS 2026-11-20 (omahaRundownReraiseRangeIsMeasured and
+      // omahaRundownReraiseRangeTrial, each default off): preflop only, the rundown re-raise range
+      // cell by cell (HorseOmahaRundownReraiseMeasured.ts). The measured set turns a re-raise the
+      // node entered with into the call in the one cell where the call earned more real chips (the
+      // squeeze from a blind with a high rundown above 250 bb); the trial set turns a call into the
+      // pot-size re-raise in its cells. The two sets never share a spot.
+      const rundownMeasured = omahaRundownReraiseMeasuredRule(
+        rangeReraised,
+        player,
+        gs,
+        opts.omahaRundownReraiseRangeIsMeasured === true,
+        decision.action
+      );
+      if (rundownMeasured !== rangeReraised && tele) {
+        noteFire('omaha_rundown_measured_call');
+        noteDecisionRuleReceipt('omaha_rundown_measured_call', rangeReraised, rundownMeasured);
+      }
+      const rundownTrial = omahaRundownReraiseTrialRule(
+        rundownMeasured,
+        player,
+        gs,
+        opts.omahaRundownReraiseRangeTrial === true
+      );
+      if (rundownTrial !== rundownMeasured && tele) {
+        noteFire('omaha_rundown_trial_reraise');
+        noteDecisionRuleReceipt('omaha_rundown_trial_reraise', rundownMeasured, rundownTrial);
+      }
+      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+        rundownTrial,
         player,
         gs,
         opts.omahaColdCallOutsideBigBlindIsMeasured === true
       );
-      if (coldCallMeasured !== equityPriced && tele) {
+      if (coldCallMeasured !== rundownTrial && tele) {
         noteFire('omaha_cold_call_measured_fold');
-        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', equityPriced, coldCallMeasured);
+        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', rundownTrial, coldCallMeasured);
       }
       // EMERG lane PREFLOP-AUDIT 2026-11-20 (omahaOpenNeedsMeasuredStrength, default off): preflop
       // only. A final first-in raise from a seat that is not the button, with a hand below the
@@ -27050,7 +27277,18 @@ export class HorseLogic {
         return false;
       }
     })();
-    if (useV40 && vi.isOmaha && made40 != null && made40.weak) {
+    // omahaNoMadeClassCap (lane HIDDEN-ON 2026-11-20, default OFF): in PLO4/PLO5 cash the V40 pressure cap below
+    // does not run. PLO6, tournaments and every other game take the block exactly as before.
+    const noMadeClassCap =
+      opts.omahaNoMadeClassCap === true &&
+      omahaNoMadeClassCapInScope({
+        enabled: true,
+        gameVariant: gs.gameVariant,
+        tournament: isTournamentMode(gs),
+      });
+    if (noMadeClassCap && tele15 && useV40 && vi.isOmaha && made40 != null && made40.weak)
+      noteFire('omaha_made_class_cap_not_applied');
+    if (!noMadeClassCap && useV40 && vi.isOmaha && made40 != null && made40.weak) {
       const heat40 =
         barrels40 +
         (potFrac >= 0.85 ? 1 : 0) +

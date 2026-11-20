@@ -10379,8 +10379,7 @@ function LiveTablePage({
     const shownEquities = gateEquityDisplay(
       allInEquities.filter(
         (e) =>
-          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) &&
-          e.boardKey === liveKey
+          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) && e.boardKey === liveKey
       ),
       boardCardCounts(liveBoards),
       (e) => e.equity

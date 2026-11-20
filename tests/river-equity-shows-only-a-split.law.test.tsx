@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
+import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
@@ -176,7 +177,6 @@ describe('source guard: every equity render site goes through the gate', () => {
   });
 
   it('no other source file renders an equity overlay or the layer', () => {
-    const { execSync } = require('node:child_process') as typeof import('node:child_process');
     const hits = execSync(
       `grep -rlE "equity-overlay|<EquityBadgeLayer|equityPct=|<StreetEquity" src --include=*.tsx`,
       { cwd: root, encoding: 'utf8' }

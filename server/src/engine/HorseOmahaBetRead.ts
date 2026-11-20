@@ -49,6 +49,14 @@
  * (HorseExploitHydrator: 72 h, up to 12,000 hands; hole_cards and the board are added to that read), so the read
  * survives the daily restart without a table or a migration. PLO6, PLO8, tournaments, bomb pots and multi-board
  * hands are never learned, so they never have a read.
+ *
+ * MODE SPLIT (omahaBetReadIsModeSplit, default OFF; EMERG lane MODE-READ, 2026-11-20). The learner also files each
+ * hand into the rows of its own public mode (table / Lightning) and keeps two more cells per street: the first bet
+ * after a checked-through street (the turn stab) and his first raise of a wager he did not make. omahaBetReadModeOf
+ * reads his mode cell shrunk toward his own pooled cell against the same-mode persons; omahaBetReadModeBluffShare
+ * turns it into a share with the shown signal above and a CALIBRATED frequency signal (OMAHA_BET_READ_FREQ_SLOPE,
+ * provenance population_all_cards_capped: an anonymous population curve fitted offline on every player's cards with
+ * no player above 20% of a cell, never keyed by player). Still public only: no card argument, no unshown card.
  */
 import type { Card } from '../types.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
@@ -100,6 +108,13 @@ interface Row {
    *  chance to fire the next barrel), and the first bets he made on them, by size */
   seen2: Record<OmahaBetReadStreet, number>;
   cells2: Record<OmahaBetReadStreet, Record<OmahaBetReadBucket, Cell>>;
+  /** omahaBetReadIsModeSplit: the streets that came after a checked-through street (nobody wagered on the street
+   *  before) and the first bets he made on them, by size (the turn stab) */
+  seenX: Record<OmahaBetReadStreet, number>;
+  cellsX: Record<OmahaBetReadStreet, Record<OmahaBetReadBucket, Cell>>;
+  /** omahaBetReadIsModeSplit: the streets on which he faced a wager he had not made, and his first raise on them */
+  seenR: Record<OmahaBetReadStreet, number>;
+  cellR: Record<OmahaBetReadStreet, Cell>;
 }
 function cell0(): Cell {
   return { bets: 0, shown: 0, value: 0 };
@@ -114,6 +129,10 @@ const emptyRow = (): Row => ({
   cells: streetCells(),
   seen2: { flop: 0, turn: 0, river: 0 },
   cells2: streetCells(),
+  seenX: { flop: 0, turn: 0, river: 0 },
+  cellsX: streetCells(),
+  seenR: { flop: 0, turn: 0, river: 0 },
+  cellR: { flop: cell0(), turn: cell0(), river: cell0() },
 });
 
 /** The clocks in use: the exported constants; omahaBetReadFitDecay changes them for an offline fit only. */
@@ -134,6 +153,14 @@ const handsSeen = new Set<string>();
 const HANDS_SEEN_MAX = 50000;
 
 const rowKey = (userId: string, variant: string): string => `${userId.toLowerCase()}|${variant}`;
+/** omahaBetReadIsModeSplit: the opponent's row of one mode (`${userId lower}|${variant}|${speed}`). */
+const modeKey = (userId: string, variant: string, speed: OmahaBetReadSpeed): string =>
+  `${userId.toLowerCase()}|${variant}|${speed}`;
+export type OmahaBetReadSpeed = 'table' | 'lightning';
+/** The hand's or decision's mode for the split read: 'table' or 'lightning', null for anything else. */
+export function omahaBetReadSpeedOf(speed: unknown): OmahaBetReadSpeed | null {
+  return speed === 'table' || speed === 'lightning' ? speed : null;
+}
 function rowOf(k: string): Row {
   let r = rows.get(k);
   if (r) rows.delete(k);
@@ -169,6 +196,9 @@ export interface OmahaBetReadHand {
   showdown?: ReadonlyArray<{ user_id: string; mucked?: boolean }> | null;
   bombPot?: boolean;
   boardCount?: number;
+  /** omahaBetReadIsModeSplit: the hand's public memory domain speed ('table' or 'lightning'); absent or anything
+   *  else: the hand is learned into the pooled rows only */
+  speed?: string | null;
 }
 
 const RANKS = '23456789TJQKA';
@@ -259,6 +289,12 @@ export interface OmahaBetReadIncrement {
   barrelOpp: boolean;
   street: OmahaBetReadStreet;
   bet: { bucket: OmahaBetReadBucket; shown: boolean; value: boolean } | null;
+  /** omahaBetReadIsModeSplit: nobody wagered on the previous postflop street (always false on the flop) */
+  checkedThrough?: boolean;
+  /** omahaBetReadIsModeSplit: he acted facing a wager he had not made (not the first bettor of the street) */
+  facedWager?: boolean;
+  /** omahaBetReadIsModeSplit: his first raise of the street, shown and value as for a bet */
+  raise?: { shown: boolean; value: boolean } | null;
 }
 
 /** What one completed hand adds: per player, per street he acted on, the first bet of the street he made. Pure. */
@@ -285,6 +321,20 @@ export function omahaBetReadIncrementsOf(hand: OmahaBetReadHand): OmahaBetReadIn
   const horses = new Set<string>();
   let prevFirst: string | null = null;
   let curFirst: string | null = null;
+  // omahaBetReadIsModeSplit: whether the previous postflop street was checked through, who faced a wager, and
+  // each player's first raise of the street (shown / value exactly as for a bet)
+  let checkedThrough = false;
+  let faced = new Set<string>();
+  let raisers = new Map<string, { shown: boolean; value: boolean }>();
+  const valueOf = (uid: string, need: number): { shown: boolean; value: boolean } => {
+    const cards = shownOf(uid);
+    let value = false;
+    if (cards && boardOk && board.length >= need) {
+      const share = omahaBetReadBeatsShare(cards, board.slice(0, need) as Card[]);
+      value = share !== null && share >= OMAHA_BET_READ_VALUE_BEATS;
+    }
+    return { shown: cards !== null, value };
+  };
   const flush = (): void => {
     if (STREET_BOARD[stage])
       for (const uid of acted)
@@ -295,18 +345,25 @@ export function omahaBetReadIncrementsOf(hand: OmahaBetReadHand): OmahaBetReadIn
             barrelOpp: prevFirst === uid,
             street: stage as OmahaBetReadStreet,
             bet: null,
+            checkedThrough,
+            facedWager: faced.has(uid),
+            raise: raisers.get(uid) ?? null,
           });
   };
   for (const a of hand.actions) {
     if (!a || typeof a.stage !== 'string') continue;
     if (a.stage !== stage) {
       flush();
+      checkedThrough =
+        STREET_BOARD[stage] !== undefined && STREET_BOARD[a.stage] !== undefined && !streetBet;
       prevFirst = STREET_BOARD[stage] ? curFirst : null;
       curFirst = null;
       stage = a.stage;
       streetBet = false;
       acted = new Set();
       betters = new Set();
+      faced = new Set();
+      raisers = new Map();
     }
     const uid = a.userId ?? a.user_id;
     if (uid && HORSE_ORIGINS.has(String(a.origin ?? ''))) horses.add(uid);
@@ -323,12 +380,7 @@ export function omahaBetReadIncrementsOf(hand: OmahaBetReadHand): OmahaBetReadIn
         !streetBet &&
         (a.action === 'bet' || (a.action === 'all_in' && (toCall === null || toCall <= 0.005)));
       if (isFirstBet && potBefore > 0 && amount > 0 && !betters.has(uid)) {
-        const cards = shownOf(uid);
-        let value = false;
-        if (cards && boardOk && board.length >= need) {
-          const share = omahaBetReadBeatsShare(cards, board.slice(0, need) as Card[]);
-          value = share !== null && share >= OMAHA_BET_READ_VALUE_BEATS;
-        }
+        const v = valueOf(uid, need);
         betters.add(uid);
         curFirst = uid;
         out.push({
@@ -336,8 +388,18 @@ export function omahaBetReadIncrementsOf(hand: OmahaBetReadHand): OmahaBetReadIn
           horse: horses.has(uid),
           barrelOpp: prevFirst === uid,
           street: stage as OmahaBetReadStreet,
-          bet: { bucket: omahaBetReadBucketOf(amount / potBefore), shown: cards !== null, value },
+          bet: { bucket: omahaBetReadBucketOf(amount / potBefore), shown: v.shown, value: v.value },
+          checkedThrough,
+          facedWager: false,
+          raise: null,
         });
+      } else if (streetBet && !betters.has(uid)) {
+        // he acts facing a wager he did not make (omahaBetReadIsModeSplit's raise cell)
+        faced.add(uid);
+        const isRaise =
+          amount > 0 &&
+          (a.action === 'raise' || (a.action === 'all_in' && (toCall === null || toCall > 0.005)));
+        if (isRaise && !raisers.has(uid)) raisers.set(uid, valueOf(uid, need));
       }
       if (['bet', 'raise', 'all_in'].includes(a.action) && amount > 0) streetBet = true;
       acted.add(uid);
@@ -361,15 +423,20 @@ export function omahaBetReadLearn(hand: OmahaBetReadHand): boolean {
     while (handsSeen.size > HANDS_SEEN_MAX) handsSeen.delete(handsSeen.values().next().value!);
     const incs = omahaBetReadIncrementsOf(hand);
     const pop = rowOf(`*|${variant}`);
+    // omahaBetReadIsModeSplit: the same hand is also kept in the rows of its own mode (table / Lightning), the
+    // opponent's and the persons' population's; a hand without a known speed goes to the pooled rows only
+    const speed = omahaBetReadSpeedOf(hand.speed);
+    const popMode = speed ? rowOf(`*|${variant}|${speed}`) : null;
     for (const inc of incs) {
       const me = rowOf(rowKey(inc.userId, variant));
       if (!inc.horse) mePerson.add(rowKey(inc.userId, variant));
-      for (const [r, d] of (inc.horse
-        ? [[me, decay.person]]
-        : [
-            [me, decay.person],
-            [pop, decay.pop],
-          ]) as ReadonlyArray<readonly [Row, number]>) {
+      const meMode = speed ? rowOf(modeKey(inc.userId, variant, speed)) : null;
+      if (meMode && !inc.horse && speed) mePerson.add(modeKey(inc.userId, variant, speed));
+      const targets: Array<readonly [Row, number]> = [[me, decay.person]];
+      if (!inc.horse) targets.push([pop, decay.pop]);
+      if (meMode) targets.push([meMode, decay.person]);
+      if (popMode && !inc.horse) targets.push([popMode, decay.pop]);
+      for (const [r, d] of targets) {
         // one clock per row and street: every cell of the street ages with the street's opportunity count, so
         // bets / seen stays a frequency and shown / value stay on the same clock
         r.seen[inc.street] = r.seen[inc.street] * d + 1;
@@ -384,6 +451,33 @@ export function omahaBetReadLearn(hand: OmahaBetReadHand): boolean {
           c.bets += 1;
           if (inc.bet.shown) c.shown += 1;
           if (inc.bet.value) c.value += 1;
+        }
+        if (inc.checkedThrough === true) {
+          r.seenX[inc.street] = r.seenX[inc.street] * d + 1;
+          for (const b of OMAHA_BET_READ_BUCKETS) {
+            const c = r.cellsX[inc.street][b];
+            c.bets *= d;
+            c.shown *= d;
+            c.value *= d;
+          }
+          if (inc.bet) {
+            const c = r.cellsX[inc.street][inc.bet.bucket];
+            c.bets += 1;
+            if (inc.bet.shown) c.shown += 1;
+            if (inc.bet.value) c.value += 1;
+          }
+        }
+        if (inc.facedWager === true) {
+          r.seenR[inc.street] = r.seenR[inc.street] * d + 1;
+          const c = r.cellR[inc.street];
+          c.bets *= d;
+          c.shown *= d;
+          c.value *= d;
+          if (inc.raise) {
+            c.bets += 1;
+            if (inc.raise.shown) c.shown += 1;
+            if (inc.raise.value) c.value += 1;
+          }
         }
         if (inc.barrelOpp) {
           r.seen2[inc.street] = r.seen2[inc.street] * d + 1;
@@ -423,6 +517,15 @@ export interface OmahaBetRead {
   popValue: number;
   popBets: number;
   popSeen: number;
+  /** omahaBetReadIsModeSplit: the read is the mode-split one (omahaBetReadModeOf); its share follows
+   *  omahaBetReadModeBluffShare */
+  modeSplit?: true;
+  /** omahaBetReadIsModeSplit: the bettor's previous-street line ('x' checked through, 'b' he made the first wager,
+   *  'c' another player did) or 'r' for his raise */
+  line?: OmahaBetReadLine;
+  speed?: OmahaBetReadSpeed | null;
+  /** omahaBetReadIsModeSplit: the frequency-to-composition slope of the cell (OMAHA_BET_READ_FREQ_SLOPE) */
+  beta?: number;
 }
 
 /** The read of one bettor's first bet of a street at this size. Null outside PLO4 / PLO5 or for a raise. */
@@ -501,6 +604,7 @@ export function omahaBetReadBluffShare(
   params: Readonly<OmahaBetReadParams> = OMAHA_BET_READ_DEFAULT_PARAMS
 ): number {
   if (!read || !(q0 > 0) || !(q0 < 1)) return q0;
+  if (read.modeSplit === true) return omahaBetReadModeBluffShare(q0, read, params);
   if (read.shown < params.minShown - 1e-9) return q0;
   let qS = q0;
   if (read.popShown >= OMAHA_BET_READ_POP_MIN_SHOWN) {
@@ -516,6 +620,194 @@ export function omahaBetReadBluffShare(
     if (fHim > 0) qF = 1 - ((1 - q0) * fPop) / fHim;
   }
   const q = (qS + qF) / 2;
+  return Math.max(OMAHA_BET_READ_Q_MIN, Math.min(OMAHA_BET_READ_Q_MAX, q));
+}
+
+// ───────────────────────── omahaBetReadIsModeSplit (default OFF) ─────────────────────────
+
+export type OmahaBetReadLine = 'x' | 'b' | 'c' | 'r';
+
+/**
+ * omahaBetReadIsModeSplit: his mode cell is shrunk toward his own pooled cell by this many pseudo-chances (bet
+ * frequency) and OMAHA_BET_READ_MODE_PRIOR_SHOWN pseudo-shown bets (composition); the population he is read
+ * against is the persons' population OF THE SAME MODE (leave one out). Builder's choice, compared offline
+ * (MODE-READ.md: 20 and 60 graded alike).
+ */
+export const OMAHA_BET_READ_MODE_PRIOR_SEEN = 20;
+export const OMAHA_BET_READ_MODE_PRIOR_SHOWN = 4;
+/** The frequency signal acts alone once his mode cell has this many chances (shrinkage included). */
+export const OMAHA_BET_READ_MODE_MIN_SEEN = 20;
+
+/**
+ * FREQUENCY -> COMPOSITION CALIBRATION (provenance population_all_cards_capped). For a cell (street, his
+ * previous-street line), the slope of a player's TRUE non-value share of his first bets (every player's cards
+ * from the hand facts, offline) on his fire rate relative to the persons' population (his rate / theirs), one
+ * point per person and week, weighted by his bets with no person above 20% of a cell's weight (the frequent
+ * bettor is capped), PLO4/PLO5 cash heads-up, Oct 15 to Nov 14 2026 (MODE-READ.md, work/m2.py). Anonymous and
+ * never keyed by player: a population curve. The read uses it as q = q0 + slope x (fHim / fPop - 1).
+ * The raise cell has no calibrated slope (0: composition from shown raises only).
+ */
+export const OMAHA_BET_READ_FREQ_SLOPE: Readonly<
+  Record<'turn' | 'river', Readonly<Record<OmahaBetReadLine, number>>>
+> = Object.freeze({
+  turn: Object.freeze({ x: 0.218, b: 0.475, c: 0.06, r: 0 }),
+  river: Object.freeze({ x: 0.167, b: 0.187, c: 0.249, r: 0 }),
+});
+export const OMAHA_BET_READ_FREQ_SLOPE_PROVENANCE = 'population_all_cards_capped';
+
+/**
+ * omahaBetReadIsModeSplit: the realization of a heads-up turn call where the mode-split read acts (provenance
+ * own_cards_history: the chips the Horses' own heads-up turn calls of persons' bets won back over their all-in
+ * equity, Nov 17 to Nov 20 12:13 AM, LIVEGRADE-2: in position .84 +/- .14, out of position .60 +/- .15).
+ */
+export const OMAHA_BET_READ_TURN_REALIZATION: Readonly<{
+  inPosition: number;
+  outOfPosition: number;
+}> = Object.freeze({ inPosition: 0.84, outOfPosition: 0.6 });
+
+/**
+ * omahaBetReadIsModeSplit: the bettor's previous-street line from the public action log: 'b' when he made the first
+ * wager of the previous postflop street, 'c' when another player made it, 'x' when nobody wagered on it.
+ */
+export function omahaBetReadLineOf(
+  history:
+    | ReadonlyArray<{ stage?: string; seat?: number; action?: string; amount?: number }>
+    | undefined,
+  street: string,
+  seat: number
+): 'x' | 'b' | 'c' {
+  const prev = street === 'river' ? 'turn' : street === 'turn' ? 'flop' : null;
+  if (!prev || !Array.isArray(history)) return 'x';
+  for (const a of history) {
+    if (a?.stage !== prev) continue;
+    if (
+      (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') &&
+      Number(a.amount) > 0
+    )
+      return a.seat === seat ? 'b' : 'c';
+  }
+  return 'x';
+}
+
+/**
+ * omahaBetReadIsModeSplit: the read of one bettor's wager in one MODE (table or Lightning), on the turn or the river:
+ * his first bet of the street by his previous-street line (checked through: the stab cell; he bet before: the
+ * barrel cell; otherwise every first bet of the street) and size, or his raise. His mode cell is shrunk toward his
+ * own pooled cell (OMAHA_BET_READ_MODE_PRIOR_SEEN / _SHOWN); the population is the other persons of the same mode.
+ * Public only (his actions and his showdown reveals). Null outside PLO4 / PLO5, off the turn and river, or when the
+ * mode is unknown.
+ */
+export function omahaBetReadModeOf(
+  userId: string | null | undefined,
+  variant: string,
+  street: string,
+  potFrac: number,
+  isRaise: boolean,
+  line: 'x' | 'b' | 'c',
+  speed: unknown
+): OmahaBetRead | null {
+  const v = String(variant ?? '').toLowerCase();
+  const sp = omahaBetReadSpeedOf(speed);
+  if (!userId || !sp || !OMAHA_BET_READ_VARIANTS.has(v) || !Number.isFinite(potFrac)) return null;
+  if (street !== 'turn' && street !== 'river') return null;
+  const st: 'turn' | 'river' = street;
+  const bucket = omahaBetReadBucketOf(potFrac);
+  const useLine: OmahaBetReadLine = isRaise ? 'r' : line;
+  const cellOf = (r: Row | undefined): Cell =>
+    !r
+      ? cell0()
+      : useLine === 'r'
+        ? r.cellR[st]
+        : useLine === 'x'
+          ? r.cellsX[st][bucket]
+          : useLine === 'b'
+            ? r.cells2[st][bucket]
+            : r.cells[st][bucket];
+  const seenOf = (r: Row | undefined): number =>
+    !r
+      ? 0
+      : useLine === 'r'
+        ? r.seenR[st]
+        : useLine === 'x'
+          ? r.seenX[st]
+          : useLine === 'b'
+            ? r.seen2[st]
+            : r.seen[st];
+  const mineM = rows.get(modeKey(userId, v, sp));
+  const mineP = rows.get(rowKey(userId, v));
+  const popM = rows.get(`*|${v}|${sp}`);
+  const cM = cellOf(mineM);
+  const cP = cellOf(mineP);
+  const sM = seenOf(mineM);
+  const sP = seenOf(mineP);
+  // the hierarchy: his mode cell, shrunk toward his own pooled cell
+  const kSeen = sP > 0 ? OMAHA_BET_READ_MODE_PRIOR_SEEN : 0;
+  const kShown = cP.shown > 0 ? Math.min(OMAHA_BET_READ_MODE_PRIOR_SHOWN, cP.shown) : 0;
+  const seen = sM + kSeen;
+  const bets = cM.bets + (kSeen > 0 ? (kSeen * cP.bets) / sP : 0);
+  const shown = cM.shown + kShown;
+  const value = cM.value + (kShown > 0 ? (kShown * cP.value) / cP.shown : 0);
+  // the persons of the same mode, leave one out
+  const inPop = mePerson.has(modeKey(userId, v, sp));
+  const pAll = cellOf(popM);
+  const popSeenAll = seenOf(popM);
+  const p = inPop
+    ? {
+        bets: Math.max(0, pAll.bets - cM.bets),
+        shown: Math.max(0, pAll.shown - cM.shown),
+        value: Math.max(0, pAll.value - cM.value),
+      }
+    : pAll;
+  const popSeen = inPop ? Math.max(0, popSeenAll - sM) : popSeenAll;
+  const acts =
+    shown >= OMAHA_BET_READ_MIN_SHOWN - 1e-9 || sM + kSeen >= OMAHA_BET_READ_MODE_MIN_SEEN - 1e-9;
+  return {
+    source: acts ? 'person' : 'population',
+    street: st,
+    bucket,
+    barrel: useLine === 'b' ? 2 : 1,
+    shown,
+    value,
+    bets,
+    seen,
+    popShown: p.shown,
+    popValue: p.value,
+    popBets: p.bets,
+    popSeen,
+    modeSplit: true,
+    line: useLine,
+    speed: sp,
+    beta: OMAHA_BET_READ_FREQ_SLOPE[st][useLine],
+  };
+}
+
+/**
+ * omahaBetReadIsModeSplit's ONE RULE for every bettor: q0 exactly while the read is 'population'; otherwise the mean
+ * of the signals present: the SHOWN signal of CR2 (his shown non-value share against the same-mode persons', shrunk,
+ * at least OMAHA_BET_READ_MIN_SHOWN shown and OMAHA_BET_READ_POP_MIN_SHOWN for the population) and the CALIBRATED
+ * FREQUENCY signal q0 + slope x (fHim / fPop - 1) (fHim shrunk toward fPop by priorSeen), clamped.
+ */
+export function omahaBetReadModeBluffShare(
+  q0: number,
+  read: OmahaBetRead,
+  params: Readonly<OmahaBetReadParams> = OMAHA_BET_READ_DEFAULT_PARAMS
+): number {
+  if (!(q0 > 0) || !(q0 < 1) || read.source !== 'person') return q0;
+  const qs: number[] = [];
+  if (read.shown >= params.minShown - 1e-9 && read.popShown >= OMAHA_BET_READ_POP_MIN_SHOWN) {
+    const sPop = Math.max(0.02, Math.min(0.98, (read.popShown - read.popValue) / read.popShown));
+    const sHim =
+      (sPop * params.priorShown + (read.shown - read.value)) / (params.priorShown + read.shown);
+    qs.push((q0 * sHim) / sPop);
+  }
+  const beta = Number.isFinite(read.beta) ? (read.beta as number) : 0;
+  if (beta !== 0 && read.popSeen > 0 && read.popBets > 0) {
+    const fPop = read.popBets / read.popSeen;
+    const fHim = (fPop * params.priorSeen + read.bets) / (params.priorSeen + read.seen);
+    if (fPop > 0) qs.push(q0 + beta * (fHim / fPop - 1));
+  }
+  if (qs.length === 0) return q0;
+  const q = qs.reduce((a, b) => a + b, 0) / qs.length;
   return Math.max(OMAHA_BET_READ_Q_MIN, Math.min(OMAHA_BET_READ_Q_MAX, q));
 }
 

@@ -58,6 +58,7 @@ import {
   optionSwitchOffOnly,
   optionSwitchRefusal,
   optionSwitchStatesFrom,
+  optionSwitchUnknownNames,
   optionSwitchStatesOf,
 } from '../engine/HorseOptionSwitch.js';
 
@@ -828,7 +829,11 @@ export const todaysOptionSetProblems: OptionSetJudge = (set) => {
         detail: `the option supports ${states.join(' / ')}`,
       });
   }
-  if ((optionSwitchStatesFrom(set) === null) !== out.length > 0)
+  // The live holder skips a row for a name the build does not know at all and keeps the rest (2026-11-20). A
+  // replay arm is stricter on purpose: a name it cannot apply is a problem of the arm, never a silent skip.
+  const refusedHere =
+    optionSwitchStatesFrom(set) === null || optionSwitchUnknownNames(set).length > 0;
+  if (refusedHere !== out.length > 0)
     throw new Error(
       'audited replay: the option-set diagnosis disagrees with HorseOptionSwitch.optionSwitchStatesFrom'
     );

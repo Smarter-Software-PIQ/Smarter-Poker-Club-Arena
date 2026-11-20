@@ -6803,13 +6803,10 @@ export abstract class TournamentManagerBase {
           p_tournament_id: this.tournamentId,
           p_active: active,
         })
-      ).then(
-        (res) => {
-          const error = (res as { error?: unknown } | undefined)?.error;
-          if (error) report(error);
-        },
-        report
-      );
+      ).then((res) => {
+        const error = (res as { error?: unknown } | undefined)?.error;
+        if (error) report(error);
+      }, report);
     } catch (error) {
       report(error);
     }

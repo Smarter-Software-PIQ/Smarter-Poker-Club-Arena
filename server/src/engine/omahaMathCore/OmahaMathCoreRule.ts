@@ -98,6 +98,121 @@ export function omahaMathCoreStreetAdmitted(
  */
 export const OMAHA_MATH_CORE_CHANGE_MARGIN_K: number | null = 5;
 
+/**
+ * Class margin (lane CORE-3, criterion repairs/EMERG/CORE3 CRITERIA-CORE3-1, sha256 cdb4808a...): when today's action
+ * is a CALL and the core's best is a RAISE below all-in (raise for value / raise a combo draw instead of flatting),
+ * the margin is k = 2. Fit (Nov 18 only, r1 = margin off): that class with 2 <= z < 5 summed +210 +- 84 bb vs real
+ * cards (always-call metric), K >= 2 +326 +- 104 bb, positive on flop, turn and river; call -> all-in is NOT in the
+ * class (r1 Nov 18 -329 +- 158 bb) and keeps k = 5 like every other change.
+ */
+export const OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K = 2;
+
+/** the margin that applies to replacing `incoming` by `best` (call -> sub-all-in raise: class margin; else K) */
+export function omahaMathCoreChangeMarginK(
+  incomingAction: HorseDecision['action'],
+  bestAction: HorseDecision['action'],
+  variant: string
+): number | null {
+  if (OMAHA_MATH_CORE_CHANGE_MARGIN_K === null) return null;
+  // PLO5 only: the fit evidence is PLO5 (+326 +- 104 bb); PLO4 had 3 such decisions on Nov 18 and its graded
+  // replay (c3a) moved PLO4 turn by one decision (-21 bb): PLO4 keeps k = 5 until it has its own evidence.
+  if (variant === 'plo5' && incomingAction === 'call' && bestAction === 'raise')
+    return Math.min(OMAHA_MATH_CORE_CHANGE_MARGIN_K, OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K);
+  return OMAHA_MATH_CORE_CHANGE_MARGIN_K;
+}
+
+/**
+ * River all-in commit margin (lane RIVER-CORE, criterion repairs/EMERG/CRITERIA-RIVER-CORE-2.md, sha256 f8f01229...):
+ * on the PLO5 river a change from FOLD to a continue that commits the Horse's whole stack (all-in, or a call / raise
+ * whose amount is the whole stack, incl. a call-off where the only legal continue is all-in) must beat folding by
+ * more than K_allin standard errors of the difference; when the priced SE is 0 (exact), by more than K_allin % of the
+ * chips committed. Measured (exact journal replay of the next-branch core, real chips to persons): every such change
+ * on Nov 18-19 (7 of 7) met real equity 0 (persons' river all-ins are value); K_allin fitted on Nov 18 only over the
+ * declared grid {5, 8, 10, 15, 20, 25, 30, 40, 60} (max class sum, ties to the smallest K): 25 (Nov 18 z of the four
+ * changes 5.2 / 5.7 / 16.1 / 21.7, sum -846 chips at K = 5, 0 at K >= 25). fold -> call that does not commit the
+ * stack is unchanged (K = 5). PLO4 / PLO6 / flop / turn: never.
+ */
+export const OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K = 25;
+
+/** true when the change may stand under the river all-in commit margin (or the margin does not apply) */
+export function omahaMathCoreRiverAllInCommitOk(
+  variant: string,
+  street: string,
+  incomingAction: string,
+  best: { action: string; amount: number | null },
+  gap: number,
+  se: number,
+  heroStack: number,
+  heroBet: number
+): boolean {
+  if (variant !== 'plo5' || street !== 'river' || incomingAction !== 'fold') return true;
+  const eps = 0.005;
+  const stack = Math.max(0, heroStack);
+  const commits =
+    best.action === 'all_in' ||
+    (best.action === 'call' && (best.amount ?? 0) >= stack - eps) ||
+    ((best.action === 'bet' || best.action === 'raise') &&
+      (best.amount ?? 0) >= Math.max(0, heroBet) + stack - eps);
+  if (!commits) return true;
+  const k = OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K;
+  if (se > 0) return gap > k * se;
+  return gap > (k / 100) * stack;
+}
+
+/**
+ * PLO5 river scope (lane RIVER-CORE, criterion repairs/EMERG/CRITERIA-RIVER-CORE-3.md, sha256 8b77e342...): the full
+ * river core graded FAIL in real chips to persons (third journal day -1,883 +- 1,185: its new leads, shoves and
+ * call-offs). On the PLO5 cash river the core may only turn today's FOLD into a plain CALL that leaves chips behind,
+ * when EV(call) - EV(fold) beats K standard errors (SE 0: any positive gap) and the raw fold-boundary test passes;
+ * every other PLO5 river decision is today's action. Returns the call candidate, or null (today's action stands).
+ */
+export function omahaMathCorePlo5RiverFoldToCall(
+  incomingAction: string,
+  evs: ReadonlyArray<{
+    action: string;
+    amount: number | null;
+    ev: number;
+    se: number | null;
+    calibration?: { raw: number; rawSe: number | null } | null;
+  }>,
+  heroStack: number,
+  k: number
+): { action: 'call'; amount: number | null } | null {
+  if (incomingAction !== 'fold') return null;
+  const fold = evs.find((e) => e.action === 'fold');
+  const call = evs.find((e) => e.action === 'call');
+  if (!fold || !call) return null;
+  if (!((call.amount ?? 0) < Math.max(0, heroStack) - 0.005)) return null;
+  const se = Math.sqrt(Math.max(0, call.se ?? 0) ** 2 + Math.max(0, fold.se ?? 0) ** 2);
+  const gap = call.ev - fold.ev;
+  if (!(gap > k * se) || !(gap > 0)) return null;
+  if (!omahaMathCoreFoldBoundaryRawOk(call, fold, 'fold', 'call', k)) return null;
+  return { action: 'call', amount: call.amount };
+}
+
+type PricedEv = {
+  ev: number;
+  se: number | null;
+  calibration?: { raw: number; rawSe: number | null } | null;
+};
+/**
+ * CORE-4: a change across the fold boundary (fold -> continue, continue -> fold) must also beat today's action by
+ * more than k standard errors at the RAW (uncalibrated) price; changes between continuing actions use the
+ * calibrated price only. True when the raw test passes or does not apply.
+ */
+export function omahaMathCoreFoldBoundaryRawOk(
+  best: PricedEv,
+  inc: PricedEv,
+  incomingAction: string,
+  bestAction: string,
+  k: number
+): boolean {
+  if ((incomingAction === 'fold') === (bestAction === 'fold')) return true;
+  const raw = (e: PricedEv) => (e.calibration ? e.calibration.raw : e.ev);
+  const rse = (e: PricedEv) => Math.max(0, (e.calibration ? e.calibration.rawSe : e.se) ?? 0);
+  return raw(best) - raw(inc) > k * Math.sqrt(rse(best) ** 2 + rse(inc) ** 2);
+}
+
 export interface OmahaMathCoreDecisionReceipt {
   readonly switch: 'omahaMathCore';
   readonly applied: boolean;
@@ -475,13 +590,28 @@ export function omahaMathCoreRule(
           (e.action === 'all_in' || Math.abs((e.amount ?? 0) - (legal!.amount ?? 0)) <= 0.011)
       );
       const inc = incumbentOf(receipt.evs, incoming);
-      const K = OMAHA_MATH_CORE_CHANGE_MARGIN_K;
+      const K = omahaMathCoreChangeMarginK(
+        incoming.action,
+        legal.action,
+        String(gs.gameVariant).toLowerCase()
+      );
       if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
         const se = Math.sqrt(
           Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
         );
         const gap = best.ev - inc.ev;
-        if (!(gap > K * se)) {
+        const rawOk = omahaMathCoreFoldBoundaryRawOk(best, inc, incoming.action, legal.action, K);
+        const allInOk = omahaMathCoreRiverAllInCommitOk(
+          String(gs.gameVariant).toLowerCase(),
+          String(gs.stage),
+          incoming.action,
+          { action: legal.action, amount: legal.amount ?? null },
+          gap,
+          se,
+          player.stack ?? 0,
+          player.bet ?? 0
+        );
+        if (!(gap > K * se) || !rawOk || !allInOk) {
           // today's action, exactly as it reached the core (already legal on this state)
           const kept: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
           if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
@@ -501,6 +631,36 @@ export function omahaMathCoreRule(
           legal = kept;
         }
       }
+    }
+    // RIVER-CORE criterion 3: on the PLO5 cash river the core may only turn today's fold into a plain call
+    if (String(gs.gameVariant).toLowerCase() === 'plo5' && String(gs.stage) === 'river') {
+      const keep: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+        keep.amount = incoming.amount;
+      const pick = omahaMathCorePlo5RiverFoldToCall(
+        incoming.action,
+        receipt.evs,
+        player.stack ?? 0,
+        OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5
+      );
+      let narrowed: HorseDecision = keep;
+      if (pick) {
+        const proposed: HorseDecision = { action: 'call', thinkTime: decision.thinkTime };
+        if (pick.amount !== null) proposed.amount = pick.amount;
+        try {
+          const l = legalize(proposed);
+          if (l.action === 'call') narrowed = l;
+        } catch {
+          narrowed = keep;
+        }
+      }
+      const chosen = receipt.evs.find((e) => e.action === narrowed.action);
+      receipt.choice = {
+        action: narrowed.action as CoreReceipt['choice']['action'],
+        amount: narrowed.amount ?? null,
+        ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
+      };
+      legal = narrowed;
     }
     // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
     // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's

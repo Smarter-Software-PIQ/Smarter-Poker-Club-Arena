@@ -94,6 +94,9 @@ const BRAIN_FILES = [
   // fire their own receipts where they answer.
   'engine/HorseOmahaPricedWiring.ts',
   'engine/HorseOmahaPricedSites.ts',
+  // The Omaha current-nuts raise (2026-11-06) reads its own option where it answers; registered 2026-11-20
+  // (EMERG ledger L43).
+  'engine/HorseOmahaCurrentNuts.ts',
   // Omaha bluff priced against the target (2026-11-19, default off): the outermost wager_rules
   // answer reads its own option and fires its own receipts where it answers.
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',

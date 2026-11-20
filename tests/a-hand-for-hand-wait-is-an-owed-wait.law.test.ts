@@ -21,7 +21,9 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(__dirname, '..');
 const base = readFileSync(join(ROOT, 'server/src/tournament/TournamentManagerBase.ts'), 'utf8');
 const dir = join(ROOT, 'supabase/migrations');
-const migrations = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+const migrations = readdirSync(dir)
+  .filter((f) => f.endsWith('.sql'))
+  .sort();
 const newest = (needle: string) => {
   const f = migrations.filter((m) => readFileSync(join(dir, m), 'utf8').includes(needle)).pop();
   if (!f) throw new Error(`no migration carries ${needle}`);
@@ -35,11 +37,15 @@ const method = (src: string, sig: string) => {
 
 describe('a hand-for-hand wait is an owed wait', () => {
   it('arming the bubble barrier records its start', () => {
-    expect(method(base, 'protected startHandForHandSync(): void {')).toMatch(/this\.recordHandForHand\(true\);/);
+    expect(method(base, 'protected startHandForHandSync(): void {')).toMatch(
+      /this\.recordHandForHand\(true\);/
+    );
   });
 
   it('stopping the barrier records its end', () => {
-    expect(method(base, 'protected stopHandForHandSync(): void {')).toMatch(/this\.recordHandForHand\(false\);/);
+    expect(method(base, 'protected stopHandForHandSync(): void {')).toMatch(
+      /this\.recordHandForHand\(false\);/
+    );
   });
 
   it('the record is fire-and-forget and names its failure', () => {
@@ -52,18 +58,30 @@ describe('a hand-for-hand wait is an owed wait', () => {
   it('the grader leaves out a pair overlapping a recorded interval of its own tournament', () => {
     const sql = newest('FROM ca_tournament_hand_for_hand h4h').replace(/\s+/g, ' ');
     expect(sql).toContain('FROM ca_tournament_hand_for_hand h4h');
-    expect(sql).toContain("WHERE h4h.tournament_id = p.tournament_id AND h4h.started_at < nx.started_at");
+    expect(sql).toContain(
+      'WHERE h4h.tournament_id = p.tournament_id AND h4h.started_at < nx.started_at'
+    );
     expect(sql).toContain("AND COALESCE(h4h.ended_at, ''infinity'') > p.ended_at)");
     // The break exclusions stay: the new clause is inserted before the tournament-break one.
     expect(sql).toContain("|| chr(10) || ' AND NOT EXISTS (SELECT 1 FROM tournaments t';");
-    expect(sql).toContain("pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone, integer)'::regprocedure)");
+    expect(sql).toContain(
+      "pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone, integer)'::regprocedure)"
+    );
   });
 
   it('the interval table and its writer are service_role only', () => {
     const sql = newest('CREATE TABLE IF NOT EXISTS public.ca_tournament_hand_for_hand');
-    expect(sql).toContain('ALTER TABLE public.ca_tournament_hand_for_hand ENABLE ROW LEVEL SECURITY;');
-    expect(sql).toContain('REVOKE ALL ON TABLE public.ca_tournament_hand_for_hand FROM PUBLIC, anon, authenticated, service_role;');
-    expect(sql).toContain('REVOKE ALL ON FUNCTION public.fn_ca_note_hand_for_hand(uuid, boolean) FROM PUBLIC, anon, authenticated;');
-    expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.fn_ca_note_hand_for_hand(uuid, boolean) TO service_role;');
+    expect(sql).toContain(
+      'ALTER TABLE public.ca_tournament_hand_for_hand ENABLE ROW LEVEL SECURITY;'
+    );
+    expect(sql).toContain(
+      'REVOKE ALL ON TABLE public.ca_tournament_hand_for_hand FROM PUBLIC, anon, authenticated, service_role;'
+    );
+    expect(sql).toContain(
+      'REVOKE ALL ON FUNCTION public.fn_ca_note_hand_for_hand(uuid, boolean) FROM PUBLIC, anon, authenticated;'
+    );
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.fn_ca_note_hand_for_hand(uuid, boolean) TO service_role;'
+    );
   });
 });

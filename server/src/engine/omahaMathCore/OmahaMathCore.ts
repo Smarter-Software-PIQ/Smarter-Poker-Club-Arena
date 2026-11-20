@@ -150,6 +150,11 @@ export interface CoreActionEv {
   foldSource: string | null;
   range: string | null;
   /** lane DRAWS: later-street chips the showdown equity leaves out (implied / reverse implied / barrel); null = none */
+  /**
+   * lane CORE-4: measured realization of the core's own priced EV for this street and action (flop and turn);
+   * ev above is the calibrated value r x (raw + adds) - adds; raw is the uncalibrated price
+   */
+  calibration?: { r: number; raw: number; rawSe: number | null; cell: string } | null;
   future?: {
     chips: number;
     implied: number;
@@ -331,6 +336,102 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
 }
 
 /** The core decision. Throws on any inconsistency (the caller keeps its decision with an error receipt). */
+/**
+ * Realization calibration of the core's own priced EV (lane CORE-4, Nov 20 2026; brief item 2).
+ *
+ * Measured (exact journal replay of the core tree c3c = 1fd33508abd on every journaled PLO4/PLO5 cash decision,
+ * Nov 18 1 PM to Nov 19): for each decision the live Horse took, the core's priced EV of THAT action against the
+ * chips the Horse actually got back from that point (own result + chips already in; a fold is 0). Ratio
+ * r = sum(realised + adds) / sum(priced + adds) per game | street | action (n >= 20), else game | street (cells for
+ * PLO4 and the turn are kept for the record; only the streets listed apply). PLO5
+ * flop: priced +43.8 bb per call, realised +1.1 +- 6.1 (r 0.34); turn +44.6 vs +9.8 +- 6.6; PLO4 is close to 1.
+ * The core's multi-street plan prices later streets the live Horses (and the core's own later decisions) do not
+ * bank, worst on the passive lines (check, call) and least on raises.
+ *
+ * Provenance class own_cards_history (lead ruling 2026-11-19): the inputs are the Horse's own priced EV (its own
+ * cards, the board, public actions) and its own chips won; no opponent's hidden card is read.
+ * Applied to every non-fold candidate on the streets listed (fold stays 0): ev' = r x (ev + adds) - adds,
+ * se' = r x se. PLO6 never reaches the core (scope gate); the river is not calibrated here.
+ * The calibrated prices rank the continuing actions. A change across the fold boundary (fold -> continue or
+ * continue -> fold) must win under BOTH the raw and the calibrated price (OmahaMathCoreRule.ts): r is an average
+ * over the calls the Horses made, not a per-hand realization, so it may not by itself fold a call (CORE-4 CV replay:
+ * calibrated-only call -> fold on the PLO5 flop graded -1,986 +- 648 bb all-in, -483 +- 297 realised, Nov 19).
+ */
+export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
+  version: 'core4-realization-calibration-v1',
+  provenance: 'own_cards_history' as const,
+  source:
+    'core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19 (both days), n >= 20 per cell',
+  minN: 20,
+  // CORE-4 criterion 2 (CRITERIA-CORE4-2.md sha b95d08ec..., exact-replay cross-validation by day vs c3c, delta M1 all-in
+  // / M2 realised): PLO5 flop PASS (Nov 19 +644 +- 255 realised, -77 +- 364 all-in; Nov 18 +288 +- 196, -163 +- 183);
+  // PLO5 turn FAIL (Nov 19 -564 +- 451 realised); PLO4 flop FAIL (Nov 19 -113 +- 60). Only PASS streets are listed.
+  streets: { plo4: [], plo5: ['flop'] } as Record<string, readonly string[]>,
+  cells: {
+    'plo4|flop': { r: 0.896, n: 369 },
+    'plo4|flop|bet': { r: 0.696, n: 103 },
+    'plo4|flop|call': { r: 1.133, n: 38 },
+    'plo4|flop|check': { r: 1.285, n: 155 },
+    'plo4|turn': { r: 0.85, n: 203 },
+    'plo4|turn|bet': { r: 0.952, n: 63 },
+    'plo4|turn|check': { r: 0.894, n: 77 },
+    'plo5|flop': { r: 0.51, n: 2196 },
+    'plo5|flop|bet': { r: 0.61, n: 553 },
+    'plo5|flop|call': { r: 0.343, n: 279 },
+    'plo5|flop|check': { r: 0.31, n: 882 },
+    'plo5|flop|raise': { r: 0.903, n: 47 },
+    'plo5|turn': { r: 0.655, n: 1310 },
+    'plo5|turn|all_in': { r: 0.697, n: 35 },
+    'plo5|turn|bet': { r: 0.663, n: 468 },
+    'plo5|turn|call': { r: 0.532, n: 156 },
+    'plo5|turn|check': { r: 0.573, n: 363 },
+    'plo5|turn|raise': { r: 0.885, n: 32 },
+  } as Record<string, { r: number; n: number }>,
+};
+
+/** the calibration cell for a candidate (game | street | action, else game | street), null when not calibrated */
+export function realizationCalibrationCell(
+  variant: string,
+  street: string,
+  action: string
+): { r: number; cell: string } | null {
+  const C = OMAHA_MATH_CORE_REALIZATION_CALIBRATION;
+  if (action === 'fold') return null;
+  const streets = C.streets[variant];
+  if (!streets || !streets.includes(street)) return null;
+  for (const key of [`${variant}|${street}|${action}`, `${variant}|${street}`]) {
+    const c = C.cells[key];
+    if (c && c.n >= C.minN && Number.isFinite(c.r) && c.r > 0)
+      return { r: c.r, cell: `${key} r=${c.r} n=${c.n}` };
+  }
+  return null;
+}
+
+/** applies the realization calibration in place (pure arithmetic on the priced candidates) */
+export function applyRealizationCalibration(
+  evs: CoreActionEv[],
+  variant: string,
+  street: string
+): number {
+  let applied = 0;
+  for (const a of evs) {
+    const c = realizationCalibrationCell(variant, street, a.action);
+    if (!c) continue;
+    const raw = a.ev;
+    const rawSe = a.se;
+    a.ev = c.r * (raw + a.adds) - a.adds;
+    if (a.se !== null && Number.isFinite(a.se)) a.se = c.r * a.se;
+    a.calibration = {
+      r: c.r,
+      raw: Math.round(raw * 100) / 100,
+      rawSe: rawSe === null ? null : Math.round(rawSe * 1e4) / 1e4,
+      cell: c.cell,
+    };
+    applied++;
+  }
+  return applied;
+}
+
 export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: CoreReceipt } {
   const t0 = clock.now();
   const rng = seededRng(state.seed);
@@ -1216,6 +1317,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   }
 
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');
+  if (!pre) applyRealizationCalibration(evs, String(state.variant).toLowerCase(), street);
   // ranked by the lower confidence bound (selectionScore, OmahaMathCoreWire.ts); ties: fewer chips
   let best = evs[0];
   for (const a of evs) {

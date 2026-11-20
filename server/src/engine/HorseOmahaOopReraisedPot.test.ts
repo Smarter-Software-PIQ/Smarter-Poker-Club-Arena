@@ -1859,7 +1859,7 @@ describe('omahaPreflopJamFacingReraiseIsPriced in the decision (default OFF)', (
       }
     }
   });
-  it('on: draws no random number; every priced decision plays the largest lower-bound EV of fold, call and raise', () => {
+  it('on: draws no random number; every priced decision plays the largest lower-bound EV it may play (never a fold over a standing call or raise; a standing re-raise of aces stands)', () => {
     let priced = 0;
     for (const [name, rec, nth] of SPOTS) {
       const build = () => stateAt(rec, nth);
@@ -1889,8 +1889,17 @@ describe('omahaPreflopJamFacingReraiseIsPriced in the decision (default OFF)', (
           call: r.evCallLow,
           raise: r.evRaiseLow,
         };
-        for (const v of Object.values(evs))
-          if (v !== null) expect(evs[r.verdict]!, name).toBeGreaterThanOrEqual(v - 1e-9);
+        // EMERG lane PREFLOP-AUDIT 2026-11-20 (HorseOmahaThreeWayDoesNotFoldAStandingContinue.law.test.ts):
+        // a standing call or raise is never replaced by a fold and a standing re-raise of aces stands;
+        // everywhere else the largest lower bound among the actions it may play is played.
+        const aces = (rec.hole.match(/A/g) ?? []).length >= 2;
+        if (r.standing === 'raise' && aces) expect(r.verdict, name).toBe('raise');
+        else {
+          if (r.standing !== 'fold') expect(r.verdict, name).not.toBe('fold');
+          for (const [a, v] of Object.entries(evs))
+            if (v !== null && !(a === 'fold' && r.standing !== 'fold'))
+              expect(evs[r.verdict]!, name).toBeGreaterThanOrEqual(v - 1e-9);
+        }
         if (r.verdict === r.standing) {
           const { omahaPreflopThreeWay: _receipt, ...rest } = JSON.parse(b);
           void _receipt;

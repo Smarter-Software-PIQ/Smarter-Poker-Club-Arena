@@ -2,6 +2,7 @@
  * Lane PREFLOP-EV law tests (synthetic cards only; no real hand's cards).
  * Card index = rank * 4 + suit, rank 0 = '2' .. 12 = 'A', suit c d h s.
  */
+import { selectionScore } from './OmahaMathCoreWire.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -263,20 +264,23 @@ describe('PREFLOP-EV behaviour through the core (one path for table and Lightnin
     expect(receipt.choice.action).not.toBe('fold');
     expect(receipt.evs.some((e) => e.action === 'all_in' || e.action === 'raise')).toBe(true);
   });
-  // COREWIRE-2 (realization admitted 2026-11-19): still fails on the v1 preflop model in this tree (call 31.6 <
-  // 5-bet 43.8 for AKQQ rainbow facing a 4-bet); PREFLOP-EV pass 3 (65fe22750dd, not merged: preflop latency) is
-  // the fix. Preflop stays behind omahaMathCorePreflop OFF. Kept visible as a skip, never passed by tuning.
-  it.skip('AKQQ rainbow does not 5-bet a 4-bet when calling is worth more; aces do; the choice is always the max-EV action', () => {
+  // CORE-4 (2026-11-20, owner 12:01 AM: the math decides, no standing strategy order protects a rule): the old law
+  // "AKQQ rainbow calls a 4-bet" is REMOVED. Real cards contradict it: AcKdQhQs7c's all-in equity vs persons' REAL
+  // PLO5 4-bet holdings is 0.542 +- 0.009 (n 95; CORE-3), and PREFLOP-AUDIT's 5-week realised grade of the class
+  // (re-raise minus call facing a 3-bet+) is -6.4 +- 12.0 bb: INSUFFICIENT either way. What remains is the law that
+  // holds for every holding: the choice is the core's max of its selection score (EV minus one SE), never a class.
+  it('facing a 4-bet the choice is the max-EV action for every holding (no hand-class rule); aces never fold', () => {
     const akqq = decideOmahaMathCore(facing4bet('AcKdQhQs7c', 'table', 400, 400), clock).receipt;
     const aces = decideOmahaMathCore(facing4bet('AsAhKsQhJd', 'table', 400, 400), clock).receipt;
     const run = decideOmahaMathCore(facing4bet('JhTh9s8s7d', 'table', 400, 400), clock).receipt;
-    const ev = (r: typeof akqq, a: string) =>
-      Math.max(...r.evs.filter((e) => e.action === a).map((e) => e.ev));
-    expect(ev(akqq, 'call')).toBeGreaterThan(ev(akqq, 'raise'));
-    expect(akqq.choice.action).toBe('call');
-    expect(['raise', 'all_in']).toContain(aces.choice.action);
-    for (const r of [akqq, aces, run])
-      expect(r.choice.ev).toBe(Math.max(...r.evs.map((e) => e.ev)));
+    for (const r of [akqq, aces, run]) {
+      const best = Math.max(...r.evs.map((e) => selectionScore(e)));
+      const chosen = r.evs.find(
+        (e) => e.action === r.choice.action && (e.amount ?? null) === (r.choice.amount ?? null)
+      )!;
+      expect(selectionScore(chosen)).toBeCloseTo(best, 6);
+    }
+    expect(aces.choice.action).not.toBe('fold');
   });
   it('strength order is the two-card equity model, not a hand-class chart: aces > AKQQ rainbow > rags', () => {
     const a = preflopStrength('plo5', H('AsAhKsQhJd'))!;

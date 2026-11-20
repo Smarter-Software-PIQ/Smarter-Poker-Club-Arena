@@ -915,6 +915,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaCurrentNutsRaise',
+    "Dan 2026-11-06 (hand 55690261): an Omaha high, one-board hand on the flop or turn that holds the exact current nuts (every unseen two-card holding enumerated on the Horse's own cards, the board and its known dead cards) with a redraw of four or more next cards to a higher hand category, or a nut hand no other two cards can tie, raises a bet it was about to call (the pot; all in when that is the stack), HorseOmahaCurrentNuts.ts; a chop-locked nut hand without a redraw and a call-once raise plan keep the call. Default on (read !== false); false was the complaint law's control and, since the EMERG ledger item L43 of 2026-11-20 registered it, the lead's switch (owner 2026-11-14 22:01: every feature has an on/off switch). No behaviour change by the registration",
+    'V78'
+  ),
+  flag(
     'omahaBeatenMadeHandDefense',
     'Dan 2026-11-14 (hands 59414191, 59416584): PLO4/PLO5/PLO6 high on one board, a two pair, set, non-nut straight or non-nut flush that a possible straight or flush beats never raises a turn wager (it calls), checks the turn or river card that made it possible when a player still acts behind, and does not bet the river into a player who bet or raised a street on which it was already possible (HorseOmahaMadeHandDefense.ts). Default OFF (opt-in): its declared evaluation failed (LAG-value PLO4 -23.73, PLO5 -16.17 bb/100)',
     'V94'
@@ -1107,6 +1112,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaAcesReraiseIsMeasured',
+    "EMERG lane PREFLOP-2 2026-11-20 (owner 2026-11-20 12:01 AM Chicago: everything depends on the math and the conclusions it comes to; lead 1:42 AM: the metric is real chips, the chips that go to persons). Default OFF (read === true). PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop: the node's final answer is a call or a fold of a pair of aces facing two raises (a 3-bet) with an own stack of 250 bb or less, the engine offers a raise, and the decision is not one that omahaPreflopJamFacingReraiseIsPriced priced. With the option on it becomes the pot-size re-raise. Measured on every Horse preflop decision with aces facing a raise in hands with a person, 2026-10-15 to 2026-11-19 (677 flats, 1,648 re-raises, 102 folds), the re-raise against the call inside the same spot, fit to 11-14 and held out 11-15 to 11-19, in real chips (the part of the hand result that went to or came from persons plus 1.9% of deductions, all-in adjusted where the sign holds): fit +13.06 +/- 9.11 bb a decision, held out +37.03 +/- 11.67 (net +37.89 +/- 10.13 and +45.34 +/- 12.71); against the fold +15.11 +/- 6.33 and +28.40 +/- 10.25. Measured and not in the rule: facing one raise multiway above 100 bb (net +14.29 +/- 4.06 and +7.96 +/- 6.52 but real +5.92 +/- 2.84 and -1.52 +/- 4.76), the big blind heads-up against one open (real held out -24.81 +/- 12.81), above 250 bb facing a 3-bet (real +8.13 +/- 16.94 and +7.67 +/- 20.66), every call facing a 4-bet or more. Public information only (own cards, public actions, chips, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaAcesReraiseIsMeasured.md.",
+    'V94'
+  ),
+  flag(
+    'omahaReraiseRangeIsMeasured',
+    "EMERG lane PREFLOP-2 2026-11-20 (owner 2026-11-20 12:01 AM Chicago: everything depends on the math; lead item: the Horses' re-raise range is face-up, aces 47 to 84% of their re-raises facing a 3-bet; lead 1:42 AM: the metric is real chips). Default OFF (read === true). PLO4/PLO5 cash, high only, one board, no bomb pot, preflop: the node's final answer is a call of a pair of kings (no pair of aces) facing two raises (a 3-bet), the Horse acts after the last raiser on later streets, the engine offers a raise, and the call is not one that omahaPreflopJamFacingReraiseIsPriced priced. With the option on the call becomes the pot-size 4-bet. The re-raise against the call was measured by hand class and position on every Horse preflop decision in hands with a person, 2026-10-15 to 2026-11-19, fit to 11-14 and held out 11-15 to 11-19, in real chips (chips to and from persons plus 1.9% of deductions): kings in position facing a 3-bet fit +26.65 +/- 18.00 bb a decision, held out +73.89 +/- 29.58, the one cell positive in both periods by more than one standard error. Measured and not in the range: kings out of position (real held out -56.84 +/- 32.68), kings in the small blind 3-betting one raise (real fit +3.53 +/- 5.09), double-suited hands 4-betting on a table in position (real fit -6.02 +/- 18.38; net fit +16.52 +/- 14.91), queens or jacks with broadway (3-bet real held out -9.30 +/- 5.66), double-suited rundowns (4-bet real held out -47.58 +/- 47.64). Public information only (own cards, public actions, chips, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaReraiseRangeIsMeasured.md.",
+    'V94'
+  ),
+  flag(
+    'omahaNoMadeClassCap',
+    'Lane HIDDEN-ON 2026-11-20 (EMERG/HIDDEN-ON.md, owner 2026-11-20 12:01 AM: every rule is kept or removed on its real-card grade). Default OFF (read === true). PLO4/PLO5 cash (table and Lightning): the V40 Omaha pressure cap (a fixed equity ceiling per made-hand class when a bet of 0.6 pot or more, a barrel, a raise or a second opponent is faced; it has no option of its own and runs under v40Omaha) does not run, and the decision uses the equity that entered it. Leave-one-out exact journal replay on the live image aec0d93b40cd with the live switch set, decisions facing a wager, graded on the opponents real cards: 27 actions change, fit day +469.4 bb (SE 306.4, 18 hands), holdout +569.8 bb (SE 354.0, 9 hands); all-in grade +205.6 / +282.7. PLO6, PLO8, tournaments and every other game are byte-identical.',
+    'V40'
+  ),
+  flag(
+    'omahaBetReadIsModeSplit',
+    "EMERG lane MODE-READ 2026-11-20 (owner 1:55 AM: build with all data; LIGHTNING-AUDIT: heads-up turn facing a person's bet Lightning costs +7.35 +/- 2.61 bb per decision more than tables, the same bettor's Lightning bets lighter while omahaBetReadIsPerOpponent pools the modes). Default OFF (read === true); acts only with omahaBetReadIsPerOpponent on. PLO4/PLO5 cash heads-up turn and river facing a wager: the bettor is read in the decision's MODE (HorseOmahaBetRead.omahaBetReadModeOf: his table or Lightning cell shrunk toward his own pooled cell, the population the other persons of the same mode), with a cell per previous-street line (the turn stab after a checked-through flop, the later barrel, every other first bet; first turn bets included) and a cell for his raise, the frequency signal through a calibrated slope (OMAHA_BET_READ_FREQ_SLOPE, population_all_cards_capped), and a turn call where the read acts priced with the measured realization (in position .84, out of position .60). One rule for every opponent; public information only (his actions, his showdown reveals). Offline grade INSUFFICIENT (MODE-READ.md). Never PLO6.",
+    'V94'
+  ),
+  flag(
+    'omahaRundownReraiseRangeIsMeasured',
+    "EMERG lane RUNDOWNS 2026-11-20 (owner 2026-11-20 1:50 AM Chicago: add in the rundown 3-bet / 4-bet ranges as well; 12:01 AM: everything depends on the math; lead 1:42 AM: the metric is real chips, the chips that go to persons). Default OFF (read === true). PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop, three or more dealt in. Rundowns were classified by structure from the Horse's own cards (connectedness and where the gap is, height, suits, pairs, the fifth card in PLO5, nut potential), the classes declared before any result was read (archive repairs/EMERG/CRITERIA-RUNDOWNS.md), and the re-raise was graded against the call inside each spot on every Horse preflop decision facing a raise in hands with a person, 2026-10-15 to 2026-11-19 (11,620 rundown decisions, 290 class-by-spot cells), fit to 11-14 and held out 11-15 to 11-19, in real chips. No cell where the re-raise beats the call passes beyond chance (in position the two are level: 3-bet +2.82 +/- 3.41 bb, squeeze +6.57 +/- 5.82, 4-bet -3.75 +/- 13.96). One cell where the CALL beats the re-raise passes: the squeeze from a blind out of position (one raise and a caller or more, the Horse has not acted) with a high rundown (top card of the core ten or higher) and an own stack above 250 bb: re-raise minus call -27.35 +/- 11.40 bb fit (50 re-raises, 218 calls) and -34.99 +/- 16.58 held out (42, 176); net -19.08 +/- 12.06 and -22.55 +/- 17.99; the same squeeze at 100 to 250 bb is level and is not touched. With the option on a re-raise the wager_rules node entered with becomes the call there. Public information only (own cards, public actions, chips, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaRundownReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaRundownReraiseRangeIsMeasured.md.",
+    'V94'
+  ),
+  flag(
+    'omahaRundownReraiseRangeTrial',
+    "EMERG lane RUNDOWNS 2026-11-20 (owner 2026-11-20 1:50 AM Chicago: add in the rundown 3-bet / 4-bet ranges; players re-raise in position to build pots and get information). Default OFF (read === true). A TRIAL, not a measured gain. PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop, three or more dealt in: the node's final answer is a call, the engine offers a raise, the call is not one that omahaPreflopJamFacingReraiseIsPriced priced, and the hand and spot are a trial cell: (1) facing one raise nobody has called, the Horse has not acted and acts after the raiser on later streets, a rundown with no gap, double suited, no pair, top card seven or higher, and in PLO5 the fifth card inside the run (the declared no-gap cell: Horses' re-raise minus call in real chips +4.54 +/- 18.48 bb fit and +15.28 +/- 11.76 held out on 73 re-raises; persons' shown re-raises +36.9 +/- 36.8 on 17); (2) PLO5, the Horse opened and faces a 3-bet in position, five connected cards with no gap or one gap, no pair, and a suited ace or a top card ten or higher (the remainder of the declared 4-bet cell less its failing parts: +59.98 +/- 25.78 fit and +94.62 +/- 84.54 held out on 11 re-raises and 35 calls; persons' shown 4-bets with rundowns in position +35.9 +/- 24.9 on 36). (3) DEPTH, pooled over the in-position spots after the grade: a tier A or B rundown (double suited, or single suited with no gap or one gap and a top card ten or higher; never a low one) with an own stack of 250 bb or less, in position: the squeeze (one raise and a caller, the Horse has not acted; +23.60 +/- 14.48 fit and +18.05 +/- 11.31 held out on 33 re-raises and 104 calls), the 4-bet as the opener (+20.68 +/- 16.10 and +50.51 +/- 30.75 on 40 and 149) and the 3-bet facing an open nobody called, which is LEVEL with the call (-0.14 +/- 5.23 and -1.87 +/- 8.29 on 144 and 405) and is in the trial for the data and the range, not as a gain; the three together +7.83 +/- 5.26 and +8.51 +/- 7.88. With the option on the call becomes the pot-size re-raise. The Horses' own record does not prove cells (1) and (2) (too few re-raises); the position pricing estimate did not validate against the cells that have data (sign agreement 14 of 26); cell (3) was pooled after the grade and the hands that re-raised in the record were the ones the brain chose. Switched on only as a watched live trial to get the data. Public information only; the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaRundownReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaRundownReraiseRangeTrial.md.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -1138,7 +1173,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCorePlo5River',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning), narrowed by lane RIVER-CORE (CRITERIA-RIVER-CORE-3, after the full river core graded FAIL in real chips): it may only turn today's fold into a plain call that leaves chips behind, when the call beats the fold by the change margin; every other PLO5 river decision is today's action. Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
@@ -1337,6 +1372,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOptionGameScope',
+    "EMERG lane PLO4-FIX 2026-11-20 (lane PLO4-AUDIT: an option switch row is global, and several omaha* options grade positive or neutral in PLO5 and negative in PLO4, and others the other way). A PARAMETER, not an on/off option, absent at the compiled defaults: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime settings horse.omahaGameScope.<option> (0 = both games; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover; the option switch rows and their validation are untouched). In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every listed option scoped to the other game as false (its off path) before anything reads it (HorseOmahaOptionGameScope.withOmahaOptionGameScope, the one read site), so an option scoped to PLO5 decides a PLO4 hand exactly as if it were off. Listed: every registered omaha* switch option except the omahaMathCore family (own per-game street flags), the PLO6 options and the tournament-only options. Never PLO6, PLO8, hold'em or a tournament: the same options object runs. Receipt omaha_option_game_scope_<option>_off_in_plo<4|5>_seen.",
+    'V94'
+  ),
+  flag(
     'omahaTournamentsExcludeCategoricalRules',
     'Horse Switch lane 2026-11-18 (ROWFIX; owner 2026-11-17 11:49: a blanket rule must not affect a decision, every decision by math, ranges, equity and EV). Default off (read === true), unevaluated. omahaStrategyInTournaments (on in production) opens every cash-scoped PLO4/PLO5 rule of 2026-11-15 to tournament hands inside its public scope, the twelve rules HorseOmahaRuleSites classes categorical among them (the nut-raise scope, the draw-raise bar, the five out-of-position checks, the pressure label, the bluff-catcher fold against a value leader, the underpair multiway fold, the value-leader made-hand defence, the reachable river blocker bluff), although their evaluations were cash-only. With this on, those categorical rules stay cash-only in every tournament hand (HorseOmahaTournamentScope.omahaCategoricalCashOnlyExcludes); the priced rules, the street plan and the survival premium keep the extension. Off: byte-identical. Changing live tournament play, it is a new option rather than a change to omahaStrategyInTournaments.',
     'V94'
@@ -1491,6 +1531,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaCheckedToBetIsPriced',
     "WooWoo audit repair programme 2026-11-18, lane CHECKED-TO-BET, on the owner ruling of 2026-11-17 (\"DONT' MAKE ANY BLANKET RULES, EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS\"). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). On the river (any number of opponents; v2: the turn is out), when every opponent has checked this street, nobody is all in and the node's answer is a check, the check is priced beside every bet size the engine considers (HorseOmahaCheckedToBet.ts on the card-impact model): each opponent's checking range from his line, the share of it that continues from his measured continue rate (the priced read: a posterior mean shrunk to the population by its opportunities; the pot-odds share with no read), the Horse's equity against the hands that continue and his showdown share against the checking range each mapped through a logistic calibration fitted on production river spots (v2, HorseOmahaCheckedToBet OMAHA_CHECKED_TO_SHOWDOWN_FIT / OMAHA_CHECKED_TO_CONTINUE_FIT), the raise priced, the rake taken; with several opponents every one folds with the product of their fold rates. The bet of highest expected value replaces the check when it is worth more than the check by more than the standard error of the comparison (the read's, the sample's). No hand-class, position or size rule. The owner-ruled checks, the one-pair rules and the draw rules still judge the bet. The audit measured 35 of 43 heads-up river check-backs with air or a weak pair against a player who folded 140 of 177 times to a river bet, and 0 of 93 such bets multiway (archive woowoo-48h-audit-01BNteGYgf repairs/FLOP-DEFENCE/ATTRIBUTION.md section 3). Opt-in until its declared evaluation passes; league cards plo4/plo5 _omaha_checked_to_bet_is_priced.",
+    'V94'
+  ),
+  flag(
+    'omahaCheckedToBetResponseIsMeasured',
+    "EMERG lane OPEN-ITEMS-3 2026-11-20 (owner 2026-11-19: value and bluffs missed on the river; decisions from the math and the measured statistics, public information only, the same rule against every opponent). Default OFF (read === true); acts only inside omahaCheckedToBetIsPriced. PLO4/PLO5 cash, one board, high only, heads-up on the river after the one opponent has checked: the share of his checking range that continues against each bet size, and the share that raises, are the measured answer of his kind to a river bet (HorseOmahaSmallBetConstants OMAHA_SMALL_BET_RESPONSE, public actions on 5,379 PLO4/PLO5 cash hands 2026-11-13..17: a person continues against a pot-sized bet 15% of the time in PLO5 and 27% in PLO4, a Horse 22% and 13%), moved in log-odds at every size alike by logit(his own rate) - logit(the population mean of the same statistic) (his river call rate, else his continue rate; no evidence or no population figure: exactly his kind's curve), in place of the pot odds scaled by his all-street continue rate taken as observed at 0.6 pot (about half with no river evidence, where the measured river answer is 0.20 to 0.33); the error is the binomial error of the measured cell joined with the error of his own rate. The checking range, the fitted showdown share and continue equity, the raise branch, the rake and the margin (the comparison's own standard error) are unchanged; several opponents, the turn, PLO6 and tournaments are untouched (HorseOmahaCheckedToBet.omahaCheckedToMeasuredResponse). Graded on the journal replay of 2026-11-18..19 against the opponents' real cards (offline only): archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md",
+    'V94'
+  ),
+  flag(
+    'omahaCheckedToBetInLightning',
+    "EMERG lane OPEN-ITEMS-3 2026-11-20. A scope option, default OFF (read === true): with it on, the game of omahaCheckedToBetIsPriced (HorseLogic omahaCheckedToBetIsPricedRule) includes the Lightning pools (gs.publicMemoryDomain.speed === 'lightning') without omahaPricedInLightning, which opens every priced family there at once and graded negative facing a wager on the journal replay of 2026-11-18..19 (fit -334 bb, SE 161). It switches the rule on nowhere by itself and changes no other rule; the bet it makes is a wager of the wager_rules node and needs no admission of its own. PLO6 untouched (the rule's scope is PLO4/PLO5). Graded with omahaCheckedToBetIsPriced on the same replay against the opponents' real cards (offline only): archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md",
     'V94'
   ),
   flag(
@@ -2013,7 +2063,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'option_switch_*',
     'HorseOptionSwitch (every decision upgrade has a live switch)',
-    'option_switch_<option>_<on|off|shadow|on_shadow|default>_seen: a registered non-style decision option changed its switched value at a configuration read in this worker (on and on_shadow: passed true; off: passed false; shadow: passed nothing; default: its row went away or the configuration failed, so the code default decides), the option and the new value in the name; option_switch_config_invalid_seen / option_switch_config_unreadable_seen / option_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every non-style option went back to its RELEASE DEFAULT (not to off; the seven style options keep their own rule, style_switch_*: off); occurrence counters; named *_seen',
+    'option_switch_<option>_<on|off|shadow|on_shadow|default>_seen: a registered non-style decision option changed its switched value at a configuration read in this worker (on and on_shadow: passed true; off: passed false; shadow: passed nothing; default: its row went away or the configuration failed, so the code default decides), the option and the new value in the name; option_switch_config_invalid_seen / option_switch_config_unreadable_seen / option_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every non-style option went back to its RELEASE DEFAULT (not to off; the seven style options keep their own rule, style_switch_*: off); option_switch_config_invalid_seen also fires at every read that delivers a row for a name this build does not know at all: that row alone is skipped and every other row stands (2026-11-20); occurrence counters; named *_seen',
     '2026-11-14'
   ),
   receipt(
@@ -5385,6 +5435,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_aces_measured_reraise',
+    'HorseLogic wager_rules (omahaAcesReraiseMeasuredRule, omahaAcesReraiseIsMeasured)',
+    'a PLO4/PLO5 cash preflop decision whose final call or fold of a pair of aces facing a 3-bet with a stack of 250 bb or less became the pot-size re-raise because the re-raise was measured to earn more real chips there on fit and held-out data (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_range_measured_reraise',
+    'HorseLogic wager_rules (omahaReraiseRangeMeasuredRule, omahaReraiseRangeIsMeasured)',
+    'a PLO4/PLO5 cash preflop decision whose final call of a pair of kings facing a 3-bet in position became the pot-size 4-bet because that is the cell of the measured re-raise range (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_rundown_measured_call',
+    'HorseLogic wager_rules (omahaRundownReraiseMeasuredRule, omahaRundownReraiseRangeIsMeasured)',
+    'a PLO4/PLO5 cash preflop decision whose final re-raise, a squeeze from a blind out of position with a high rundown and a stack above 250 bb, became the call because the call was measured to earn more real chips there on fit and held-out data (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_rundown_trial_reraise',
+    'HorseLogic wager_rules (omahaRundownReraiseTrialRule, omahaRundownReraiseRangeTrial)',
+    'a PLO4/PLO5 cash preflop decision whose final call with a rundown in a trial cell of the rundown re-raise range (the 3-bet in position with a double-suited no-gap rundown, the 4-bet in position with five connected cards in PLO5, a tier A or B rundown in position with 250 bb or less) became the pot-size re-raise (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
     'omaha_facing_bet_equity_call',
     'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaFacingBetIsPricedByEquity)',
     "a PLO4/PLO5 cash postflop decision facing a person's bet or raise whose final fold became the call because the calibrated equity times the measured realization beat the price (counted once per changed decision)",
@@ -5409,6 +5483,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_bet_read_mode_split_priced',
+    'HorseLogic omahaBetReadForDecision (omahaBetReadIsModeSplit)',
+    "a PLO4/PLO5 cash heads-up turn or river facing-bet verdict priced the bettor's non-value share from his read in the decision's mode (table or Lightning) and previous-street line or raise cell (omahaBetReadModeOf), with enough of his own evidence to act",
+    'V94'
+  ),
+  receipt(
     'omaha_bet_read_population_priced',
     'HorseLogic omahaBetReadForDecision (omahaBetReadIsPerOpponent)',
     "a PLO4/PLO5 cash facing-bet verdict asked the bettor's first-bet read of that street and size and found fewer than 4 shown bets: priced at the population prior exactly",
@@ -5419,6 +5499,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseExploitHydrator.hydrateOmahaBetRead',
     'the boot rebuild of the per-opponent bet read (omahaBetReadIsPerOpponent) threw; the read starts empty and learns from live hands',
     'V94'
+  ),
+  receipt(
+    'omaha_made_class_cap_not_applied',
+    'HorseLogic.decidePostflop (V40 pressure cap, omahaNoMadeClassCap)',
+    'a PLO4/PLO5 cash decision holding a weak made class in which the V40 Omaha pressure cap block was not run because omahaNoMadeClassCap is on (default off)',
+    'V40'
   ),
   receipt(
     'omaha_class_cap_held_at_measured_equity',
@@ -6644,6 +6730,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_flop_bet_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_checked_to_bet_measured_response',
+    'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetResponseIsMeasured)',
+    "a PLO4/PLO5 cash heads-up river check that the opponent had checked to was priced with the measured answer to a river bet (his kind's curve, moved by his own evidence) in place of the pot odds; fires with omaha_checked_to_bet_priced_bet or omaha_checked_to_bet_priced_check_kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_checked_to_bet_in_lightning',
+    'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetInLightning)',
+    'the checked-to river comparison was priced in a Lightning pool because omahaCheckedToBetInLightning opened the pool to that one rule (omahaPricedInLightning off); fires with omaha_checked_to_bet_priced_bet or omaha_checked_to_bet_priced_check_kept',
     'V94'
   ),
   receipt(
@@ -8621,6 +8719,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_ev_fold_model_priced',
     'HorseMind.omahaEvFoldMulOf (omahaEvFoldModel)',
     'the Omaha EV fold model priced one opponent fold for the EV bet engine at a PLO4, PLO5 or PLO6 cash table (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  // Zero in production by design: no option has a game scope at the compiled defaults, so a fire means a scope was published.
+  receipt(
+    'omaha_option_game_scope_*',
+    'HorseLogic.decide (HorseOmahaOptionGameScope, runtime settings horse.omahaGameScope.<option>)',
+    'omaha_option_game_scope_<option>_off_in_plo<4|5>_seen: in a PLO4 or PLO5 cash decision the named omaha* option is confined to the other game by its published game scope and was passed off for this decision (one count per option per decision; the option and the decision game in the name)',
     'Omaha threshold calibration'
   ),
   // Zero in production by design: omahaEvFoldModelHeadsUp is default off, so a fire means the option was turned on.

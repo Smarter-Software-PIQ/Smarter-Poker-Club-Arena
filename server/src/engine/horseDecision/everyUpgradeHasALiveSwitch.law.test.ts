@@ -1182,9 +1182,20 @@ describe('the refused options are refused on both sides', () => {
   });
 
   it('the worker ignores them: a delivery naming one switches nothing, and no key reaches the brain', () => {
-    for (const name of [...REFUSED_NAMES, 'notAnOption', '__proto__', 'constructor']) {
+    for (const name of REFUSED_NAMES) {
       expect(parseOptionSwitchConfig(v2({ [name]: 'on' })), name).toEqual({ ok: false });
       expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toBeNull();
+    }
+    // A name this build does not know at all is skipped alone since 2026-11-20
+    // (anUnknownOptionRowIsSkippedAlone.law.test.ts): it still switches nothing.
+    for (const name of ['notAnOption', '__proto__', 'constructor']) {
+      expect(parseOptionSwitchConfig(v2({ [name]: 'on' })), name).toEqual({ ok: true, states: {} });
+      expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toEqual({});
+      expect(optionSwitchStatesFrom({ [name]: 'on', v16Hu: 'off' }), name).toEqual({
+        v16Hu: 'off',
+      });
+    }
+    for (const name of [...REFUSED_NAMES, 'notAnOption', '__proto__', 'constructor']) {
       expect(optionSwitchDecisionOpts({ [name]: 'on' } as never), name).toEqual({});
       expect(optionSwitchDecisionOpts({ [name]: 'on', v16Hu: 'off' } as never), name).toEqual({
         v16Hu: false,

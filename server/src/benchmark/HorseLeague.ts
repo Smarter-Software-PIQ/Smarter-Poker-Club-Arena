@@ -3032,6 +3032,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaCheckedToBetIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane OPEN-ITEMS-3: omahaCheckedToBetResponseIsMeasured (default OFF), an input of the rule
+  // above: heads-up on the river the checker's answer to each bet size is the measured one. Both arms carry the
+  // parent; a adds the input.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_checked_to_bet_response_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCheckedToBetIsPriced: true, omahaCheckedToBetResponseIsMeasured: true },
+    b: { omahaCheckedToBetIsPriced: true },
+  })),
   // 2026-11-19 lane RIVER-BLOCK (owner order 16:47 Chicago: "REMOVE BLOCKER BETS ON THE RIVER FOR HORSES"):
   // horseRiverNoBlockerBet, default OFF. PLO: both arms carry production's live Omaha set with the priced small
   // bets on (live since 2026-11-18 19:18Z), a adds the option. Hold'em: the bare base, a adds the option.
@@ -3543,6 +3554,51 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaOpenNeedsMeasuredStrength: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane PREFLOP-2 (default OFF, PLO4/PLO5 cash only): omahaAcesReraiseIsMeasured (a final call
+  // or fold of a pair of aces facing a 3-bet at 250 bb or less becomes the pot-size re-raise); a switches it on,
+  // b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_aces_reraise_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaAcesReraiseIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane PREFLOP-2 (default OFF, PLO4/PLO5 cash only): omahaReraiseRangeIsMeasured (a final call
+  // of kings facing a 3-bet in position becomes the pot-size 4-bet, the one cell of the measured re-raise range);
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraise_range_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraiseRangeIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane RUNDOWNS (default OFF, PLO4/PLO5 cash only): omahaRundownReraiseRangeIsMeasured (a final
+  // squeeze from a blind with a high rundown above 250 bb becomes the call, the one measured cell of the rundown
+  // re-raise range); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_rundown_reraise_range_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRundownReraiseRangeIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane RUNDOWNS (default OFF, PLO4/PLO5 cash only): omahaRundownReraiseRangeTrial (a final call
+  // with a rundown in a trial cell becomes the pot-size re-raise: the 3-bet in position with a double-suited no-gap
+  // rundown, the PLO5 4-bet in position with five connected cards, a tier A or B rundown in position with 250 bb or
+  // less); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_rundown_reraise_range_trial`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRundownReraiseRangeTrial: true },
+    b: {},
+  })),
   // 2026-11-19 EMERG lanes FACING and V40CAP (default OFF, PLO4/PLO5 cash only): omahaFacingBetIsPricedByEquity (a
   // final fold facing a person's wager priced by calibrated equity) and omahaClassCapsRespectEquity (the V15 and V40
   // class caps never push equity below the measured equity); a switches each on, b is today's brain.
@@ -3572,11 +3628,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: { omahaFacingBetEv: true },
     },
     {
+      name: `${variant}_omaha_bet_read_is_mode_split`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetEv: true, omahaBetReadIsPerOpponent: true, omahaBetReadIsModeSplit: true },
+      b: { omahaFacingBetEv: true, omahaBetReadIsPerOpponent: true },
+    },
+    {
       name: `${variant}_omaha_class_caps_respect_equity`,
       variant,
       pairs: 6000,
       productionStyles: true,
       a: { omahaClassCapsRespectEquity: true },
+      b: {},
+    },
+    // 2026-11-20 EMERG lane HIDDEN-ON (default OFF, PLO4/PLO5 cash only): omahaNoMadeClassCap, the V40
+    // made-hand class cap on equity does not run; a switches it on, b is today's brain.
+    {
+      name: `${variant}_omaha_no_made_class_cap`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaNoMadeClassCap: true },
       b: {},
     },
   ]),
@@ -5509,6 +5583,31 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
       'deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and ' +
       'sets the domain.',
+  },
+  {
+    // EMERG lane OPEN-ITEMS-3 2026-11-20: omahaCheckedToBetIsPriced on in BOTH arms; the one-arm question is its
+    // own Lightning scope.
+    name: 'plo5_omaha_checked_to_bet_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaCheckedToBetIsPriced: true,
+      omahaCheckedToBetInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaCheckedToBetIsPriced: true },
+    reason:
+      'No Lightning domain in the league table. omahaCheckedToBetInLightning is DEFAULT OFF (HorseLogic ' +
+      'omahaCheckedToBetIsPricedRule: opts.omahaCheckedToBetInLightning === true) and it changes one thing: the ' +
+      'scope of omahaCheckedToBetIsPriced no longer refuses a decision whose gs.publicMemoryDomain.speed is ' +
+      '"lightning". The league deals its own tables and no league context carries a public memory domain, so every ' +
+      'league decision is already inside that rule in both arms and both arms play identical poker ' +
+      '(omaha_checked_to_bet_in_lightning never fires): inert by construction (the one read of the option only ' +
+      'opens the speed test). Measured 2026-11-20 by running this refused matchup through runMatchup: 0 of 300 ' +
+      'pairs diverged (run seed 20261120, status inert, 0.00 bb/100). It is measured where the ' +
+      'domain exists: the exact journal replay of the production Lightning pools of 2026-11-18..19, graded against ' +
+      'the real cards (archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md). What would change this: ' +
+      'a league context that deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new ' +
+      'table every hand) and sets the domain.',
   },
   {
     // PLO Strategy lane 2026-11-19 (lead 01TLQer7J): omahaBetSizeByPublicState on in BOTH arms; the one-arm

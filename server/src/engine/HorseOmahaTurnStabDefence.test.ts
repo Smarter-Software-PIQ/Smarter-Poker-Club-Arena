@@ -113,22 +113,24 @@ afterEach(() => {
 
 describe('the measured line', () => {
   it('the table is the measured line shrunk toward the person table, and differs from the prior in force', () => {
-    expect(OMAHA_TURN_STAB_PERSON_BLUFF).toEqual([0.532, 0.626, 0.336, 0.336]);
-    // shrunk toward the person table with its 8 pseudo-bets: (q n + prior 8) / (n + 8)
+    // MODE-READ re-fit 2026-11-20 (population_all_cards_capped): shrunk toward the person table with its 8
+    // pseudo-bets over the capped effective n: (q n_eff + prior 8) / (n_eff + 8)
+    expect(OMAHA_TURN_STAB_PERSON_BLUFF).toEqual([0.275, 0.512, 0.468, 0.468]);
     const t = OMAHA_PRICED_MEASURED_BLUFF.turn;
-    expect((0.627 * 14 + t.under40 * 8) / 22).toBeCloseTo(0.532, 2);
-    expect((0.685 * 26 + t.mid * 8) / 34).toBeCloseTo(0.626, 2);
-    expect((0.341 * 66 + t.big * 8) / 74).toBeCloseTo(0.336, 2);
+    expect((0.2596 * 48 + t.under40 * 8) / 56).toBeCloseTo(0.275, 2);
+    expect((0.5218 * 68.82 + t.mid * 8) / 76.82).toBeCloseTo(0.512, 2);
+    expect((0.4749 * 183.81 + t.big * 8) / 191.81).toBeCloseTo(0.468, 2);
     expect(OMAHA_EV_PRIOR_BLUFF.turn.big).toBe(0.22);
   });
 
-  it('holds only for a person first to wager on the turn after a checked-through flop, heads-up', () => {
+  it('holds for any bettor first to wager on the turn after a checked-through flop, heads-up', () => {
     const { spot, st } = spotOf(stab('9h8h7c6d5s'));
     expect(spot.street).toBe('turn');
     expect(spot.aggressorStreets).toBe(0);
     expect(omahaTurnStabLine(spot, st.hero, st.gs as never, false)).toBe(true);
+    // MODE-READ 2026-11-20: one rule for every opponent (the line never asks whether the bettor is a person)
     const horse = spotOf(stab('9h8h7c6d5s', { bettor: 'H' }));
-    expect(omahaTurnStabLine(horse.spot, horse.st.hero, horse.st.gs as never, false)).toBe(false);
+    expect(omahaTurnStabLine(horse.spot, horse.st.hero, horse.st.gs as never, false)).toBe(true);
     const flopBet = spotOf(stab('9h8h7c6d5s', { flopBet: true }));
     expect(omahaTurnStabLine(flopBet.spot, flopBet.st.hero, flopBet.st.gs as never, false)).toBe(
       false
@@ -165,9 +167,9 @@ describe('the measured line', () => {
       expect({ ...priced, priorBluff: spot.priorBluff }).toEqual(spot);
     }
     const horse = spotOf(stab('9h8h7c6d5s', { bettor: 'H' }));
-    expect(omahaTurnStabSpot(horse.spot, horse.st.hero, horse.st.gs as never, false)).toBe(
-      horse.spot
-    );
+    expect(
+      omahaTurnStabSpot(horse.spot, horse.st.hero, horse.st.gs as never, false).priorBluff
+    ).toBeCloseTo(omahaPricedBySize(OMAHA_TURN_STAB_PERSON_BLUFF, horse.spot.potFrac), 9);
   });
 });
 
@@ -194,11 +196,20 @@ describe('the decision', () => {
 
   it('on, outside the line nothing changes and no receipt fires', () => {
     for (const hole of HANDS)
-      for (const r of [stab(hole, { bettor: 'H' }), stab(hole, { flopBet: true })]) {
+      for (const r of [stab(hole, { flopBet: true })]) {
         const on = play(r, ON);
         expect(on.bytes).toEqual(play(r, BASE).bytes);
         expect(on.fires.flat().some((f) => f.startsWith('omaha_turn_stab_defence'))).toBe(false);
       }
+  });
+
+  it('on, a Horse bettor is in the line too: one rule for every opponent (MODE-READ 2026-11-20)', () => {
+    let priced = false;
+    for (const hole of HANDS) {
+      const on = play(stab(hole, { bettor: 'H' }), ON);
+      if (on.fires.flat().some((f) => f === 'omaha_turn_stab_defence_priced_seen')) priced = true;
+    }
+    expect(priced).toBe(true);
   });
 
   it('on, in the line the stab is priced (receipt), it never folds a hand the base calls, and it calls more', () => {

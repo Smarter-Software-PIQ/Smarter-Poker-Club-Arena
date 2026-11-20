@@ -1,9 +1,11 @@
 /**
  * THE SERVING ENGINE PUBLISHES WHAT ITS SWITCH REGISTERS (2026-11-18, Horse Switch lane, SAFETY).
  *
- * THE RESET TRAP. A switch row (even 'off') for an option the SERVING engine does not register makes that engine's
+ * THE RESET TRAP. A switch row (even 'off') for an option the SERVING engine does not register made that engine's
  * parser reject the whole configuration (HorseOptionSwitch.ts optionSwitchStatesFrom): every switched non-style
- * option then runs at its release default. The database cannot see this on its own: fn_ca_horse_option_switch_set
+ * option then ran at its release default. Since 2026-11-20 the parser skips a row for a name it does not know at
+ * all and keeps the rest (the alarm still fires); a state the serving engine does not support for a name it does
+ * register still voids the set, so this guard stays. The database cannot see this on its own: fn_ca_horse_option_switch_set
  * checks the database whitelist, which is written from main and can be AHEAD of the release that is serving (a
  * follow-up migration installed before the engine that registers its options is deployed, or a rollback).
  *

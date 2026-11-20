@@ -56,7 +56,13 @@ describe('main-row ALL IN: tap, then confirm', () => {
     // PLO shape: maxRaise is the pot cap (120), allInTo is the stack (500).
     const onAction = vi.fn();
     render(
-      <ActionPanel {...baseProps} canRaise={false} maxRaise={120} allInTo={500} onAction={onAction} />
+      <ActionPanel
+        {...baseProps}
+        canRaise={false}
+        maxRaise={120}
+        allInTo={500}
+        onAction={onAction}
+      />
     );
     fireEvent.click(screen.getByLabelText('All In'));
     fireEvent.click(screen.getByLabelText('Confirm All In'));

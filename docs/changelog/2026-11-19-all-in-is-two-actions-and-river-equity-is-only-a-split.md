@@ -12,6 +12,7 @@ The first ruling supersedes the 2026-08-19 "do NOT add a confirm-all-in button" 
 Root cause: `ActionPanel.handleAllIn` dispatched `allin` on the first tap from the main ALL IN button and from the bet-sizing ALL IN preset; the fixed-limit wager that equals the stack, the A key (`onAllIn` -> `handleActionPanelAction('allin')`) and the multi-table tile ALL IN did the same.
 
 Now:
+
 - Main ALL IN button and fixed-limit all-in wager: first tap arms (red "Confirm All In"), second tap shoves. The arm lapses after `ALL_IN_ARM_MS` (4 s), at the end of the turn, or when the all-in amount changes.
 - Bet-sizing ALL IN preset: moves the slider to the top; the confirm button reads "All In For N" and is the second action. Where a pot-limit cap keeps the slider below the shove, the preset arms and confirms instead.
 - A key: `allInIntent` nonce handed to ActionPanel; first press opens the slider at the top (or arms), second press confirms through the same `onAction` path.

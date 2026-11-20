@@ -24,8 +24,11 @@ import {
 import { omahaBest, parseCardString } from './OmahaMathCoreEval.js';
 import { seededRng } from './OmahaMathCoreEquity.js';
 import {
+  applyRealizationCalibration,
   decideOmahaMathCore,
+  OMAHA_MATH_CORE_REALIZATION_CALIBRATION,
   OMAHA_MATH_CORE_WORK_BUDGET,
+  realizationCalibrationCell,
   type CoreState,
 } from './OmahaMathCore.js';
 import { omahaMathCoreRule, omahaMathCoreState } from './OmahaMathCoreRule.js';
@@ -36,6 +39,12 @@ import {
 import {
   OMAHA_MATH_CORE_ALL_STREETS,
   OMAHA_MATH_CORE_CHANGE_MARGIN_K,
+  OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K,
+  omahaMathCoreChangeMarginK,
+  omahaMathCoreRiverAllInCommitOk,
+  omahaMathCorePlo5RiverFoldToCall,
+  OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K,
+  omahaMathCoreFoldBoundaryRawOk,
   omahaMathCoreStreetAdmitted,
 } from './OmahaMathCoreRule.js';
 
@@ -605,6 +614,67 @@ describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) an
   });
 });
 
+describe('omahaMathCore class margin (CORE-3 criterion 1: call -> raise below all-in graded +326 +- 104 bb on Nov 18)', () => {
+  it('in PLO5 a raise instead of a call needs k = 2 standard errors; PLO4, call -> all-in and every other change keep k = 5', () => {
+    expect(OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K).toBe(2);
+    expect(omahaMathCoreChangeMarginK('call', 'raise', 'plo5')).toBe(2);
+    expect(omahaMathCoreChangeMarginK('call', 'raise', 'plo4')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+    expect(omahaMathCoreChangeMarginK('call', 'raise', 'plo6')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+    expect(omahaMathCoreChangeMarginK('call', 'all_in', 'plo5')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+    expect(omahaMathCoreChangeMarginK('fold', 'raise', 'plo5')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+    expect(omahaMathCoreChangeMarginK('fold', 'call', 'plo5')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+    expect(omahaMathCoreChangeMarginK('check', 'bet', 'plo5')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+    expect(omahaMathCoreChangeMarginK('raise', 'call', 'plo5')).toBe(
+      OMAHA_MATH_CORE_CHANGE_MARGIN_K
+    );
+  });
+  it('facing a bet with call as today action, a kept call states k = 2 and a change to raise beats call by more than 2 SE', () => {
+    let seen = 0;
+    for (const r of RECORDED_FLOP_FACING_BETS.slice(0, 12)) {
+      const { fx, node } = expandFlop(r);
+      const st = stateAt(fx, node);
+      const incoming = { action: 'call' as const, thinkTime: 1 };
+      const out = omahaMathCoreRule(
+        incoming,
+        st.hero,
+        st.gs,
+        { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
+        (d) => d
+      );
+      const rc = out.omahaMathCore!;
+      if (!rc.applied) continue;
+      seen++;
+      const k = rc.core!.kept;
+      if (k && k.best.startsWith('raise'))
+        expect(k.k).toBe(
+          String(st.gs.gameVariant).toLowerCase() === 'plo5' ? 2 : OMAHA_MATH_CORE_CHANGE_MARGIN_K
+        );
+      if (!k && out.action === 'raise') {
+        const best = rc.core!.evs.find(
+          (e) => e.action === 'raise' && Math.abs((e.amount ?? 0) - (out.amount ?? 0)) <= 0.011
+        )!;
+        const call = rc.core!.evs.find((e) => e.action === 'call')!;
+        expect(best.ev - call.ev).toBeGreaterThan(
+          2 * Math.hypot(best.se ?? 0, call.se ?? 0) - 1e-9
+        );
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});
+
 describe('omahaMathCore deterministic work budget (COREWIRE-2, gate G6: five-way flops 60166976 took 200-254 ms unboxed)', () => {
   it('a five-way flop under a frozen clock finishes inside the work budget and decides identically twice', () => {
     const opp = (seat: number) => ({
@@ -631,5 +701,303 @@ describe('omahaMathCore deterministic work budget (COREWIRE-2, gate G6: five-way
     expect(a.choice).toEqual(b.choice);
     // past the budget each call takes at most the 600-draw floor; the core makes a bounded number of calls
     expect(a.samples * 5).toBeLessThan(OMAHA_MATH_CORE_WORK_BUDGET + 60 * 600 * 5);
+  });
+});
+
+describe('omahaMathCore realization calibration (CORE-4: the core prices only what its lines realise)', () => {
+  it('provenance is own_cards_history (allowed), every cell is measured (n >= minN) and positive', () => {
+    const C = OMAHA_MATH_CORE_REALIZATION_CALIBRATION;
+    expect(OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(C.provenance)).toBe(true);
+    for (const [k, c] of Object.entries(C.cells)) {
+      expect(c.n, k).toBeGreaterThanOrEqual(C.minN);
+      expect(c.r, k).toBeGreaterThan(0);
+      expect(k.split('|')[0]).not.toBe('plo6');
+    }
+  });
+  it('fold is never calibrated; PLO6, preflop and the river are never calibrated', () => {
+    for (const a of ['fold', 'check', 'call', 'bet', 'raise', 'all_in'])
+      for (const st of ['preflop', 'river'])
+        expect(realizationCalibrationCell('plo5', st, a)).toBeNull();
+    for (const a of ['check', 'call', 'bet', 'raise', 'all_in'])
+      for (const st of ['flop', 'turn'])
+        expect(realizationCalibrationCell('plo6', st, a)).toBeNull();
+    expect(realizationCalibrationCell('plo5', 'flop', 'fold')).toBeNull();
+    // criterion 2: PLO5 turn and PLO4 failed the cross-validated grade and are not calibrated
+    for (const a of ['check', 'call', 'bet', 'raise']) {
+      expect(realizationCalibrationCell('plo5', 'turn', a)).toBeNull();
+      expect(realizationCalibrationCell('plo4', 'flop', a)).toBeNull();
+    }
+  });
+  it('ev = r x (raw + adds) - adds and se = r x se, with the raw price on the receipt', () => {
+    const evs = [
+      {
+        action: 'fold',
+        amount: null,
+        adds: 0,
+        ev: 0,
+        equity: null,
+        se: 0,
+        foldProb: 0,
+        foldSource: null,
+        range: null,
+      },
+      {
+        action: 'call',
+        amount: 10,
+        adds: 10,
+        ev: 20,
+        equity: 0.5,
+        se: 4,
+        foldProb: 0,
+        foldSource: null,
+        range: null,
+      },
+    ] as never[];
+    applyRealizationCalibration(evs, 'plo5', 'flop');
+    const r = realizationCalibrationCell('plo5', 'flop', 'call')!.r;
+    const [f, c] = evs as unknown as { ev: number; se: number; calibration?: { raw: number } }[];
+    expect(f.ev).toBe(0);
+    expect(c.ev).toBeCloseTo(r * 30 - 10, 9);
+    expect(c.se).toBeCloseTo(r * 4, 9);
+    expect(c.calibration!.raw).toBe(20);
+  });
+  it('a PLO5 flop decision carries the calibration on every non-fold candidate; a river decision on none', () => {
+    const flop = decideOmahaMathCore(
+      spot({ hole: 'AsKdQh9c8c', board: 'Ts7h2d', pot: 60, toCall: 20 }),
+      {
+        now: () => 0,
+      }
+    ).receipt;
+    for (const e of flop.evs) {
+      if (e.action === 'fold') expect(e.calibration ?? null).toBeNull();
+      else expect(e.calibration?.r).toBeGreaterThan(0);
+    }
+    const river = decideOmahaMathCore(
+      spot({ hole: 'AsKdQh9c8c', board: 'Ts7h2d3c4s', street: 'river', pot: 60, toCall: 20 }),
+      { now: () => 0 }
+    ).receipt;
+    for (const e of river.evs) expect(e.calibration ?? null).toBeNull();
+  });
+});
+
+describe('omahaMathCore fold boundary (CORE-4: a calibrated price alone never folds a call nor adds a call)', () => {
+  const cal = (ev: number, se: number, raw: number, rawSe: number) => ({
+    ev,
+    se,
+    calibration: { raw, rawSe },
+  });
+  it('continue -> fold needs the raw price too: a call worth +10 raw is not folded by its calibrated -3', () => {
+    const fold = { ev: 0, se: 0 };
+    const call = cal(-3, 0.2, 10, 1);
+    expect(omahaMathCoreFoldBoundaryRawOk(fold, call, 'call', 'fold', 5)).toBe(false);
+    expect(omahaMathCoreFoldBoundaryRawOk(fold, cal(-3, 0.2, -8, 1), 'call', 'fold', 5)).toBe(true);
+  });
+  it('fold -> call needs the raw price too, and the calibrated test still applies in the rule', () => {
+    const fold = { ev: 0, se: 0 };
+    expect(omahaMathCoreFoldBoundaryRawOk(cal(4, 0.5, 20, 2), fold, 'fold', 'call', 5)).toBe(true);
+    expect(omahaMathCoreFoldBoundaryRawOk(cal(4, 0.5, 2, 2), fold, 'fold', 'call', 5)).toBe(false);
+  });
+  it('changes between continuing actions are not touched by the raw test', () => {
+    expect(
+      omahaMathCoreFoldBoundaryRawOk(cal(9, 1, -50, 1), cal(1, 1, 99, 1), 'call', 'raise', 5)
+    ).toBe(true);
+    expect(
+      omahaMathCoreFoldBoundaryRawOk(cal(9, 1, -50, 1), cal(1, 1, 99, 1), 'check', 'bet', 5)
+    ).toBe(true);
+  });
+});
+
+describe('omahaMathCore river all-in commit margin (RIVER-CORE criterion 2: 7 of 7 fold -> all-in river changes met real equity 0)', () => {
+  const K = OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K;
+  it('a PLO5 river fold -> all-in (or a call / raise of the whole stack) needs K_allin standard errors', () => {
+    expect(K).toBe(25);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        21.7 * 10,
+        10,
+        200,
+        0
+      )
+    ).toBe(false);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        25.1 * 10,
+        10,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'call', amount: 200 },
+        100,
+        10,
+        200,
+        0
+      )
+    ).toBe(false);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'raise', amount: 250 },
+        100,
+        10,
+        200,
+        50
+      )
+    ).toBe(false);
+  });
+  it('with an exact price (SE 0) the gap must exceed K_allin % of the stack committed', () => {
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        49,
+        0,
+        200,
+        0
+      )
+    ).toBe(false);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        51,
+        0,
+        200,
+        0
+      )
+    ).toBe(true);
+  });
+  it('never applies to a call that leaves chips behind, to other streets, to PLO4 / PLO6, or to changes not from a fold', () => {
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'call', amount: 80 },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'turn',
+        'fold',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo4',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo6',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'call',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'check',
+        { action: 'bet', amount: 200 },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+  });
+});
+
+describe('omahaMathCore PLO5 river scope (RIVER-CORE criterion 3: fold -> plain call only)', () => {
+  const ev = (action: string, amount: number | null, e: number, se: number | null) => ({
+    action,
+    amount,
+    ev: e,
+    se,
+  });
+  it('turns a fold into a plain call only when the call beats the fold by K standard errors', () => {
+    const evs = [ev('fold', null, 0, 0), ev('call', 40, 30, 5), ev('raise', 160, 90, 5)];
+    expect(omahaMathCorePlo5RiverFoldToCall('fold', evs, 200, 5)).toEqual({
+      action: 'call',
+      amount: 40,
+    });
+    expect(omahaMathCorePlo5RiverFoldToCall('fold', evs, 200, 7)).toBeNull();
+  });
+  it('never calls off a stack, never acts unless today folds, and an exact price needs a positive gap', () => {
+    const offs = [ev('fold', null, 0, 0), ev('call', 200, 80, 1)];
+    expect(omahaMathCorePlo5RiverFoldToCall('fold', offs, 200, 5)).toBeNull();
+    const evs = [ev('fold', null, 0, 0), ev('call', 40, 30, 1)];
+    for (const today of ['check', 'call', 'bet', 'raise', 'all_in'])
+      expect(omahaMathCorePlo5RiverFoldToCall(today, evs, 200, 5)).toBeNull();
+    expect(
+      omahaMathCorePlo5RiverFoldToCall(
+        'fold',
+        [ev('fold', null, 0, 0), ev('call', 40, 0.5, 0)],
+        200,
+        5
+      )
+    ).toEqual({ action: 'call', amount: 40 });
+    expect(
+      omahaMathCorePlo5RiverFoldToCall(
+        'fold',
+        [ev('fold', null, 0, 0), ev('call', 40, -0.5, 0)],
+        200,
+        5
+      )
+    ).toBeNull();
   });
 });

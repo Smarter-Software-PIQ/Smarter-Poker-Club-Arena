@@ -101,11 +101,12 @@ afterEach(() => {
 
 describe('the Lightning-measured row', () => {
   it('is the Lightning measurement shrunk with 8 pseudo-bets toward the pooled row', () => {
-    expect(OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING).toEqual([0.536, 0.74, 0.532, 0.532]);
+    // MODE-READ re-fit 2026-11-20 (population_all_cards_capped): capped q over the capped effective n
+    expect(OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING).toEqual([0.156, 0.428, 0.385, 0.385]);
     const [u, m, b] = OMAHA_TURN_STAB_PERSON_BLUFF;
-    expect((0.539 * 11 + u * 8) / 19).toBeCloseTo(0.536, 2);
-    expect((0.8 * 15 + m * 8) / 23).toBeCloseTo(0.74, 2);
-    expect((0.566 * 47 + b * 8) / 55).toBeCloseTo(0.532, 2);
+    expect((0.0758 * 12 + u * 8) / 20).toBeCloseTo(0.156, 2);
+    expect((0.3567 * 9.55 + m * 8) / 17.55).toBeCloseTo(0.428, 2);
+    expect((0.3623 * 29.49 + b * 8) / 37.49).toBeCloseTo(0.385, 2);
   });
 
   it('in the Lightning line it reads the Lightning row; at the table, or with the row off, the pooled row', () => {

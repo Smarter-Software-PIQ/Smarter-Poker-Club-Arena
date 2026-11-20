@@ -20,6 +20,17 @@
  * Rule as graded: fit +14,878 +/- 2,563 bb over 3,655 hands, held out +5,354 +/- 1,667 bb over 1,847
  * hands (per-hand clustered). docs/horse-option-authority.d/omahaColdCallOutsideBigBlindIsMeasured.md.
  *
+ * REAL CHIPS (EMERG lane PREFLOP-2, 2026-11-20; lead 1:42 AM: the metric is the chips that go to
+ * persons, rake and Horse-to-Horse chips are internal). Re-graded on that metric (each hand's loss
+ * split pro rata over its winners, plus 1.9% of deductions; all-in adjusted where the sign holds) the
+ * calls above cost 0.89 +/- 0.25 bb each (fit -0.78 +/- 0.32, held out -1.11 +/- 0.41): real, but a
+ * third of the net figure, for 11.7 points of table VPIP. The cost is concentrated in one cell: the
+ * SMALL BLIND calling when NOBODY ELSE HAS CALLED the raise, with a hand BELOW THE STRONGEST 20% of
+ * the two-card strength order: -2.20 +/- 0.48 bb a call in real chips (n 1,023; fit -2.61 +/- 0.61,
+ * held out -1.23 +/- 0.74), 11.2% of the calls. The same seat with a hand in the strongest 20% did
+ * not lose (+0.55 +/- 0.87); every other cell cost 0.75 +/- 0.29 a call. The rule now acts in that
+ * cell alone (omahaColdCallRealCell).
+ *
  * It changes only a call into a fold: a raise (the 3-bet), a fold and every other spot stand. PUBLIC
  * INFORMATION ONLY: the Horse's own cards, the public action history, the chips. The same rule against
  * every opponent, a person or a Horse. Pure: no opponent memory, no draw from the brain's random
@@ -30,6 +41,8 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANK_VALUES } from './PokerEngine.js';
 import { preflopRaiseCount } from './HorseOmahaReraisedPot.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
+import { cardToInt } from './omahaMathCore/OmahaMathCoreEval.js';
+import { preflopStrength } from './omahaMathCore/OmahaMathCorePreflop.js';
 
 export const OMAHA_COLD_CALL_MEASURED_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -106,9 +119,53 @@ export function omahaColdCallClassFolds(cls: OmahaColdCallClass): boolean {
   return m.valueBB + m.seBB < 0;
 }
 
+/**
+ * The 80th percentile of the two-card strength (omahaMathCore preflopStrength) of random holdings,
+ * the same cut as OMAHA_OPEN_MEASURED_CUT (the law test holds the two equal).
+ */
+export const OMAHA_COLD_CALL_STRENGTH_CUT: Readonly<Record<string, number>> = Object.freeze({
+  plo4: 0.539794,
+  plo5: 0.541004,
+});
+
+/**
+ * The real-chip grade of the one cell the rule acts in (chips to persons, bb a call; n calls).
+ * Source: archive repairs/EMERG/PREFLOP-2.md, script emerg/preflop-2/work/rg.py cc2.
+ */
+export const OMAHA_COLD_CALL_REAL_CELL = Object.freeze({
+  n: 1023,
+  fitBB: -2.61,
+  fitSeBB: 0.61,
+  heldOutBB: -1.23,
+  heldOutSeBB: 0.74,
+});
+
 export interface OmahaColdCallSpot {
   toCall: number;
   cls: OmahaColdCallClass;
+  /** the Horse has the small blind posted (chips in front, less than a big blind) */
+  smallBlind: boolean;
+  /** other players who have called the raise */
+  callers: number;
+  /** the two-card strength of the hand, or null */
+  strength: number | null;
+  /** the 80th percentile of that strength for the game */
+  strengthCut: number;
+}
+
+/**
+ * The cell measured to cost real chips: the small blind, nobody else has called the raise, a hand
+ * below the strongest 20%.
+ */
+export function omahaColdCallRealCell(spot: OmahaColdCallSpot): boolean {
+  return (
+    OMAHA_COLD_CALL_REAL_CELL.fitBB + OMAHA_COLD_CALL_REAL_CELL.fitSeBB < 0 &&
+    OMAHA_COLD_CALL_REAL_CELL.heldOutBB + OMAHA_COLD_CALL_REAL_CELL.heldOutSeBB < 0 &&
+    spot.smallBlind &&
+    spot.callers === 0 &&
+    spot.strength !== null &&
+    spot.strength < spot.strengthCut
+  );
 }
 
 /** The covered spot, or null. Reads only the request. */
@@ -144,8 +201,11 @@ export function omahaColdCallOutsideBigBlindSpot(
     const history = gs.actionHistory ?? [];
     if (preflopRaiseCount(history) !== 1) return null;
     let raiserSeat = -1;
+    let callers = 0;
     for (const a of history) {
       if (a.stage !== 'preflop') continue;
+      // a call by another player after the raise (a limp before it is not a call of the raise)
+      if (a.seat !== player.seat && a.action === 'call' && raiserSeat >= 0) callers++;
       // the Horse has not acted voluntarily in this hand
       if (
         a.seat === player.seat &&
@@ -165,7 +225,15 @@ export function omahaColdCallOutsideBigBlindSpot(
     if (raiserSeat < 0) return null;
     const raiser = (gs.players ?? []).find((p) => p.seat === raiserSeat);
     if (!raiser || raiser.is_folded || raiser.is_all_in) return null;
-    return { toCall, cls: omahaColdCallClass(hole) };
+    const strength = preflopStrength(variant, hole.map(cardToInt));
+    return {
+      toCall,
+      cls: omahaColdCallClass(hole),
+      smallBlind: heroBet > 0.005,
+      callers,
+      strength: strength !== null && Number.isFinite(strength) ? strength : null,
+      strengthCut: OMAHA_COLD_CALL_STRENGTH_CUT[variant] as number,
+    };
   } catch {
     return null;
   }
@@ -182,7 +250,8 @@ export function omahaColdCallOutsideBigBlindRule<
   if (!on || decision.action !== 'call') return decision;
   try {
     const spot = omahaColdCallOutsideBigBlindSpot(player, gs);
-    if (!spot || !omahaColdCallClassFolds(spot.cls)) return decision;
+    if (!spot || !omahaColdCallClassFolds(spot.cls) || !omahaColdCallRealCell(spot))
+      return decision;
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
     const folded = { ...decision, action: 'fold' } as D;
     delete folded.amount;

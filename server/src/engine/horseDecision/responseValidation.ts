@@ -73,6 +73,10 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import {
+  OMAHA_RUNDOWN_RERAISE_VARIANTS,
+  omahaRundownMeasuredAdmitsCall,
+} from '../HorseOmahaRundownReraiseMeasured.js';
 import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
@@ -1886,6 +1890,22 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured, option
+    // omahaRundownReraiseRangeIsMeasured): in PLO4/PLO5 cash preflop a re-raise
+    // in a measured cell where the call earned more real chips (the squeeze
+    // from a blind with a high rundown above 250 bb) becomes the call. The
+    // cell is a pure function of the request (own cards, public actions,
+    // chips, seats), so it is re-run here: raise -> call is admitted only with
+    // the request, only in that cell and only for the exact chips of the call.
+    const omahaRundownMeasuredCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RUNDOWN_RERAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRundownMeasuredAdmitsCall(context.player, context.gameState, transition.after.amount);
     // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
     // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
     // more preflop, a fold or a re-raise becomes a call when the expected
@@ -1986,6 +2006,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !omahaRundownMeasuredCalled &&
       !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&
@@ -2177,6 +2198,24 @@ export function horseDecisionReceiptRefusalForPlo6Gates(
 }
 
 /** The two options whose raise -> call the validator admits (context.omahaPricedRaise). */
+/**
+ * THE GAME SCOPE OF AN OMAHA OPTION (lane PLO4-FIX 2026-11-20, HorseOmahaOptionGameScope.ts): when the request's own
+ * omahaOptionGameScope confines one of `names` to a game, the worker ran a decision of the other game with that
+ * option off, whatever the switch row says. So `false` is one of the values the worker may have run with. With no
+ * scope in the request (the compiled defaults) this is false and the candidates are exactly what they were.
+ */
+function omahaOptionGameScoped(
+  requestOpts: { omahaOptionGameScope?: unknown } | null | undefined,
+  names: readonly string[]
+): boolean {
+  const scope = requestOpts?.omahaOptionGameScope;
+  if (!scope || typeof scope !== 'object') return false;
+  return names.some((name) => {
+    const only = (scope as Readonly<Record<string, unknown>>)[name];
+    return only === 4 || only === 5;
+  });
+}
+
 export const OMAHA_PRICED_RAISE_GATE_OPTIONS = Object.freeze([
   'omahaTurnRiverRaiseIsPriced',
   'omahaBigBetCallsArePriced',
@@ -2221,6 +2260,7 @@ export function omahaPricedRaiseGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, OMAHA_PRICED_RAISE_GATE_OPTIONS)) add(false);
   return out;
 }
 
@@ -2232,7 +2272,10 @@ export function omahaPricedRaiseGateCandidates(
  * still counts.
  */
 export function omahaPricedInLightningGateCandidates(
-  requestOpts: { omahaPricedInLightning?: unknown } | null | undefined,
+  requestOpts:
+    | { omahaPricedInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean[] {
@@ -2252,6 +2295,7 @@ export function omahaPricedInLightningGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, ['omahaPricedInLightning'])) add(false);
   return out;
 }
 
@@ -2263,7 +2307,10 @@ export function omahaPricedInLightningGateCandidates(
  * while it still counts.
  */
 export function omahaSlowplayMixInLightningGateCandidates(
-  requestOpts: { omahaSlowplayMixInLightning?: unknown } | null | undefined,
+  requestOpts:
+    | { omahaSlowplayMixInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean[] {
@@ -2285,6 +2332,7 @@ export function omahaSlowplayMixInLightningGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, ['omahaSlowplayMixInLightning'])) add(false);
   return out;
 }
 

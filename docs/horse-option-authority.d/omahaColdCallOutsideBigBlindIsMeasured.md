@@ -55,6 +55,20 @@ Why the call loses: once a flop is seen the pot pays the rake (10 percent, cap 2
 
 Evidence NOT MET for a default-on; a lead switch decision only.
 
+## Amendment 2026-11-20 (EMERG Lane PREFLOP-2): Narrowed To The Cell That Costs Real Chips
+
+The lead's metric of 2026-11-20 1:42 AM: the only real cost of a Horse decision is the chips that go to persons (plus 1.9% of deductions); rake and chips between Horses are internal. Re-graded on that metric (each hand's loss split pro rata over its winners, all-in adjusted where the sign holds), with the change in Horse VPIP on tables (11-15 to 11-19, hands with a person):
+
+| Set Of Calls                                           | Calls | Real, bb A Call | Real Fit       | Real Held Out  | Net, bb A Call | Table VPIP |
+| ------------------------------------------------------ | ----- | --------------- | -------------- | -------------- | -------------- | ---------- |
+| The rule as first built (every seat but the big blind) | 7,837 | -0.89 +/- 0.25  | -0.78 +/- 0.32 | -1.11 +/- 0.41 | -2.58 +/- 0.42 | -11.7 pts  |
+| Small blind, nobody else has called                    | 1,315 | -1.59 +/- 0.42  | -1.78 +/- 0.54 | -1.13 +/- 0.64 | -3.67 +/- 0.70 | -1.7 pts   |
+| The same, hand below the strongest 20% (THE RULE NOW)  | 1,023 | -2.20 +/- 0.48  | -2.61 +/- 0.61 | -1.23 +/- 0.74 | -4.17 +/- 0.74 | -1.3 pts   |
+| The same, hand in the strongest 20%                    | 292   | +0.55 +/- 0.87  | +1.10 +/- 1.11 | -0.79 +/- 1.28 | -1.91 +/- 1.79 |            |
+| Everything else the first rule folded                  | 6,522 | -0.75 +/- 0.29  | -0.55 +/- 0.37 | -1.11 +/- 0.46 | -2.36 +/- 0.48 | -10.0 pts  |
+
+As first built the rule saved real chips (fit +3,972 +/- 1,642 bb, held out +3,034 +/- 1,106) but two thirds of its net figure was rake and Horse-to-Horse chips, and it took 11.7 points of table VPIP (48.9% to 37.2%; small blind -22.5, button -18.5, cutoff -16.5, hijack -11.4) and 8.9 points of flops seen. The rule now acts only where the real cost a call is largest: the small blind, nobody else has called the raise, a hand below the strongest 20% of the two-card strength order (`omahaColdCallRealCell`, `OMAHA_COLD_CALL_REAL_CELL`). Folding there saves real fit +1,877 +/- 441 bb and held out +373 +/- 225 bb for 1.3 points of table VPIP (the small blind 44.3% to 36.9%) and 1.0 point of flops seen: about 1,700 real bb per VPIP point against about 600 for the first rule. By the opener's seat inside that cell: a button open -2.10 +/- 0.58 real a call (757 calls), a cutoff open -0.66 +/- 0.77, earlier -1.37 +/- 1.05. Also measured in real chips and not folded: the other seats' weakest fifth (-0.80 +/- 0.36 a call, 14.9% of calls) and the unsuited no-pair class outside the cell (-0.67 +/- 0.28, 13.8% of calls): real but small a call for the VPIP they cost, a lead decision if wanted. Three broadway cards in the small blind lose 5.72 +/- 2.71 net and 0.52 +/- 0.86 real: rake, not chips to persons, so they keep the call. Small blind 3-bet or fold for the folded hands: the recorded small-blind 3-bets of those classes are +0.54 +/- 3.71 net against folding (n 373): INSUFFICIENT, the fold stands.
+
 ## Replay
 
 Machine-read (README.md, "The Replay row").

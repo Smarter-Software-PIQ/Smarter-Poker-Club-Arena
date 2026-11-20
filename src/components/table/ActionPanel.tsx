@@ -1115,7 +1115,16 @@ export default function ActionPanel({
     setRaiseAmount(minRaise);
     lastSnapRef.current = minRaise;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canRaise, canAllIn, minRaise, isFixedLimit, allInThreshold, onAction, isRaiseMode, allInArmed]);
+  }, [
+    canRaise,
+    canAllIn,
+    minRaise,
+    isFixedLimit,
+    allInThreshold,
+    onAction,
+    isRaiseMode,
+    allInArmed,
+  ]);
 
   const handleConfirmRaise = useCallback(() => {
     haptic.medium(); // FIX 196: Bible V8 §5.4 — raise = medium haptic (was strong/heavy, reserved for all_in)
@@ -1799,7 +1808,11 @@ export default function ActionPanel({
                 when this button is tapped. We removed the prior "{N} BB"
                 sub-label which the user explicitly flagged as wrong. */}
             <span className="action-btn__label">
-              {allInArmed ? 'Confirm All In' : isFixedLimit && minRaise >= allInThreshold ? 'All In' : wagerVerb}
+              {allInArmed
+                ? 'Confirm All In'
+                : isFixedLimit && minRaise >= allInThreshold
+                  ? 'All In'
+                  : wagerVerb}
             </span>
             {/* 2026-08-23: in fixed limit the amount is NOT a choice the player
                 is about to make in a sizing panel — it is the only legal wager
