@@ -58,21 +58,26 @@ function rules(css: string): Array<{ selector: string; body: string }> {
 
 /** True when a selector list addresses the `.table-chat` element itself. */
 const targetsSheet = (selector: string) => /\.table-chat(?![\w-])/.test(selector);
+/** True when a selector list addresses any part of the sheet: the panel, its
+ *  backdrop or a `.table-chat__*` child. Only TableChat.css styles those. */
+const targetsSheetFamily = (selector: string) => /\.table-chat(?![\w])/.test(selector);
 
 describe('table chat has one stylesheet', () => {
-  it('no stylesheet but TableChat.css styles the .table-chat element', () => {
+  it('no stylesheet but TableChat.css styles the sheet, its backdrop or its parts', () => {
     const offenders: string[] = [];
     for (const file of cssFiles(SRC)) {
       const rel = relative(ROOT, file).split('\\').join('/');
       if (rel === OWNER) continue;
       for (const { selector, body } of rules(stripComments(readFileSync(file, 'utf8')))) {
-        if (!targetsSheet(selector)) continue;
+        if (!targetsSheetFamily(selector)) continue;
         if (rel === CHASSIS) {
           // Paint only: the chassis may never move or place the sheet.
           expect(
             body,
             `${CHASSIS} may paint .table-chat but never position or move it`
-          ).not.toMatch(/(^|[;\s])(transform|animation|left|right|top|bottom|inset|width|height|display|visibility)\s*:/);
+          ).not.toMatch(
+            /(^|[;\s])(transform|animation|left|right|top|bottom|inset|width|height|display|visibility)\s*:/
+          );
           continue;
         }
         offenders.push(`${rel}: ${selector.replace(/\s+/g, ' ').slice(0, 120)}`);
@@ -98,6 +103,8 @@ describe('table chat has one stylesheet', () => {
     expect(anim, '.table-chat names its entry animation').toBeTruthy();
     const kf = new RegExp(`@keyframes\\s+${anim}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(css)?.[1] ?? '';
     const to = /\bto\s*\{([^}]*)\}/.exec(kf)?.[1] ?? '';
-    expect(to, `${anim} must end with the sheet in place`).toMatch(/translate[XY]?\(\s*0(px)?\s*\)|transform\s*:\s*none/);
+    expect(to, `${anim} must end with the sheet in place`).toMatch(
+      /translate[XY]?\(\s*0(px)?\s*\)|transform\s*:\s*none/
+    );
   });
 });
