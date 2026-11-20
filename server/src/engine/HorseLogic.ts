@@ -152,6 +152,10 @@ import {
   withOmahaTournamentScope,
 } from './HorseOmahaTournamentScope.js';
 import {
+  omahaNoCategoricalRulesHolds,
+  withoutOmahaCategoricalRules,
+} from './HorseOmahaNoCategoricalRules.js';
+import {
   omahaStrongHandRaiseVerdict,
   omahaStrongHandValueDecision,
 } from './HorseOmahaStrongHandValue.js';
@@ -4009,6 +4013,12 @@ export interface HorseDecideOpts {
    * omahaCategoricalCashOnlyExcludes); the priced rules and the survival premium keep the extension. Off
    * (absent or false): byte-identical. */
   omahaTournamentsExcludeCategoricalRules?: boolean;
+  /** omahaNoCategoricalRules (lane UNBLOCK 2026-11-19; owner 8:37 PM: "No law or rule should ever prevent the
+   * correct decision from happening"): opt-in (`=== true`), default OFF. In a PLO4 or PLO5 cash decision
+   * (HorseOmahaNoCategoricalRules.omahaNoCategoricalRulesInScope; never PLO6) every categorical rule of the old
+   * path is off for that decision (OMAHA_NO_CATEGORICAL_RULES_OFF, the hidden default-on ones included) and
+   * the V81 / V84 / V86 / V87 big-bet call cells stand aside. Off (absent or false): byte-identical. */
+  omahaNoCategoricalRules?: boolean;
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
@@ -10445,6 +10455,9 @@ function omahaBigBetCallFoldCells(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaNoCategoricalRules (default OFF): the V81 / V84 / V86 / V87 cells fold a call by a size, a
+  // stack depth, a hand class or a label; in a PLO4/PLO5 cash decision with the option on none of them runs.
+  if (omahaNoCategoricalRulesHolds(opts, player, gs)) return decision;
   try {
     const v81On = opts.v81OmahaBigBetCalls !== false;
     const v84On = opts.v84OmahaRiverReraiseCalls !== false;
@@ -14669,6 +14682,10 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // omahaNoCategoricalRules (default OFF, lane UNBLOCK 2026-11-19): in a PLO4/PLO5 cash decision every
+    // categorical rule's option is off for this decision; off or out of scope the same opts object runs.
+    if (opts.omahaNoCategoricalRules === true)
+      opts = withoutOmahaCategoricalRules(opts, player, gameState);
     // LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
     // HorseLightningFoldThrough.ts): the decision is asked as before; only a
     // fold with live seats still to act before the Horse is asked once more,

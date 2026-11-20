@@ -3854,6 +3854,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-19 lane UNBLOCK (omahaNoCategoricalRules, default OFF, unevaluated): both arms carry production's
+  // live Omaha set; a also switches every categorical PLO4/PLO5 cash rule off. 100 bb cash. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_no_categorical_rules`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaNoCategoricalRules: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-18 ROWFIX (omahaTournamentsExcludeCategoricalRules, default OFF, unevaluated): both arms carry
   // production's live Omaha set (OMAHA_LIVE_OPTIONS_20261118, the tournament extension on); a also keeps the
   // categorical rules cash-only, so the card measures the categorical rules' tournament reach alone. 6-max

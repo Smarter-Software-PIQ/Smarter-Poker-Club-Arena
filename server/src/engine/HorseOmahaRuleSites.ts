@@ -559,6 +559,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'the EV bet engine fold multiplier of one opponent heads-up: the measured heads-up fold share over MDF scaled by his shrunk fold to a bet on the street (default OFF)'
   ),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
+  omahaNoCategoricalRules: outside(
+    'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'
+  ),
   omahaTournamentsExcludeCategoricalRules: outside(
     'a scope gate (tournaments): with it on the categorical rules here stay cash-only'
   ),
