@@ -5,12 +5,14 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { openState } from './state.mjs';
 import { createIntake, CODEX, TOPIC } from './core.mjs';
+import { createNativeTurnProbe } from './native-turn.mjs';
 const execute = promisify(execFile);
 export function createPlugin({
   clientFactory = createClient,
   executeCommand = execute,
   statPath = stat,
   stateFactory = openState,
+  nativeTurnEnded = createNativeTurnProbe(),
 } = {}) {
   return {
     id: 'production-alerts-native-wakeup',
@@ -115,6 +117,7 @@ export function createPlugin({
               intake = createIntake({
                 load: store.load,
                 save: store.save,
+                nativeTurnEnded,
                 async pending(ids) {
                   const { data, error } = await client.rpc('fn_ca_native_alert_pending', {
                     p_active: ids,
