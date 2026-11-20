@@ -18,7 +18,6 @@ describe('Horse strength demand leaves hosted capacity for required checks and p
       // A per-phase, per-SHA or per-variant group multiplies the runner cap.
       expect(workflow.concurrency, file).toEqual({
         group: capacityGroup,
-        queue: 'max',
         'cancel-in-progress': false,
       });
       expect(Object.keys(workflow.on), file).toEqual(['workflow_dispatch']);
