@@ -156,6 +156,10 @@ import {
   omahaAcesReraiseMeasuredRule,
   omahaReraiseRangeMeasuredRule,
 } from './HorseOmahaReraiseMeasured.js';
+import {
+  omahaRundownReraiseMeasuredRule,
+  omahaRundownReraiseTrialRule,
+} from './HorseOmahaRundownReraiseMeasured.js';
 import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
 import {
   omahaMathCoreExactLegalize,
@@ -3580,6 +3584,26 @@ export interface HorseDecideOpts {
    * and held-out data (fit +26.65 +/- 18.00 bb, held out +73.89 +/- 29.58). Default OFF (read
    * `=== true`). */
   omahaReraiseRangeIsMeasured?: boolean;
+  /** EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured.ts): PLO4/PLO5 cash, preflop,
+   * the measured rundown re-raise range. Rundowns classified by structure from the Horse's own
+   * cards, the re-raise graded against the call in real chips on fit and held-out data
+   * (2026-10-15 to 2026-11-19, 290 class-by-spot cells). No cell where the re-raise beats the call
+   * passes; one cell where the CALL beats the re-raise does: the squeeze from a blind (an open and a
+   * caller) with a high rundown and more than 250 bb (re-raise minus call -27.35 +/- 11.40 bb fit,
+   * -34.99 +/- 16.58 held out). There a final re-raise becomes the call. Default OFF (read
+   * `=== true`). */
+  omahaRundownReraiseRangeIsMeasured?: boolean;
+  /** EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured.ts): PLO4/PLO5 cash, preflop,
+   * the TRIAL cells of the rundown re-raise range (not proven by the Horses' own record; supported
+   * by persons' shown hands and by position pricing; a watched live trial to get the data): a final
+   * call becomes the pot-size re-raise with (1) a double-suited no-gap rundown with no pair 3-betting
+   * in position an open nobody called, (2) a PLO5 five-connected rundown with nut potential and no
+   * pair 4-betting in position as the opener, (3) a tier A or B rundown in position with 250 bb or
+   * less: the squeeze and the 4-bet as the opener (Horses' record +23.60 +/- 14.48 / +18.05 +/-
+   * 11.31 and +20.68 +/- 16.10 / +50.51 +/- 30.75 bb, a pooling made after the grade) and the 3-bet
+   * facing an open (level with the call: -0.14 +/- 5.23 / -1.87 +/- 8.29). Default OFF (read
+   * `=== true`). */
+  omahaRundownReraiseRangeTrial?: boolean;
   /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
    * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
    * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
@@ -17008,15 +17032,42 @@ export class HorseLogic {
         noteFire('omaha_range_measured_reraise');
         noteDecisionRuleReceipt('omaha_range_measured_reraise', acesReraised, rangeReraised);
       }
-      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+      // EMERG lane RUNDOWNS 2026-11-20 (omahaRundownReraiseRangeIsMeasured and
+      // omahaRundownReraiseRangeTrial, each default off): preflop only, the rundown re-raise range
+      // cell by cell (HorseOmahaRundownReraiseMeasured.ts). The measured set turns a re-raise the
+      // node entered with into the call in the one cell where the call earned more real chips (the
+      // squeeze from a blind with a high rundown above 250 bb); the trial set turns a call into the
+      // pot-size re-raise in its cells. The two sets never share a spot.
+      const rundownMeasured = omahaRundownReraiseMeasuredRule(
         rangeReraised,
+        player,
+        gs,
+        opts.omahaRundownReraiseRangeIsMeasured === true,
+        decision.action
+      );
+      if (rundownMeasured !== rangeReraised && tele) {
+        noteFire('omaha_rundown_measured_call');
+        noteDecisionRuleReceipt('omaha_rundown_measured_call', rangeReraised, rundownMeasured);
+      }
+      const rundownTrial = omahaRundownReraiseTrialRule(
+        rundownMeasured,
+        player,
+        gs,
+        opts.omahaRundownReraiseRangeTrial === true
+      );
+      if (rundownTrial !== rundownMeasured && tele) {
+        noteFire('omaha_rundown_trial_reraise');
+        noteDecisionRuleReceipt('omaha_rundown_trial_reraise', rundownMeasured, rundownTrial);
+      }
+      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+        rundownTrial,
         player,
         gs,
         opts.omahaColdCallOutsideBigBlindIsMeasured === true
       );
-      if (coldCallMeasured !== rangeReraised && tele) {
+      if (coldCallMeasured !== rundownTrial && tele) {
         noteFire('omaha_cold_call_measured_fold');
-        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', rangeReraised, coldCallMeasured);
+        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', rundownTrial, coldCallMeasured);
       }
       // EMERG lane PREFLOP-AUDIT 2026-11-20 (omahaOpenNeedsMeasuredStrength, default off): preflop
       // only. A final first-in raise from a seat that is not the button, with a hand below the

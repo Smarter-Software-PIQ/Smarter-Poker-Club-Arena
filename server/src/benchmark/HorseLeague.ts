@@ -3538,6 +3538,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraiseRangeIsMeasured: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane RUNDOWNS (default OFF, PLO4/PLO5 cash only): omahaRundownReraiseRangeIsMeasured (a final
+  // squeeze from a blind with a high rundown above 250 bb becomes the call, the one measured cell of the rundown
+  // re-raise range); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_rundown_reraise_range_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRundownReraiseRangeIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane RUNDOWNS (default OFF, PLO4/PLO5 cash only): omahaRundownReraiseRangeTrial (a final call
+  // with a rundown in a trial cell becomes the pot-size re-raise: the 3-bet in position with a double-suited no-gap
+  // rundown, the PLO5 4-bet in position with five connected cards, a tier A or B rundown in position with 250 bb or
+  // less); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_rundown_reraise_range_trial`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRundownReraiseRangeTrial: true },
+    b: {},
+  })),
   // 2026-11-19 EMERG lanes FACING and V40CAP (default OFF, PLO4/PLO5 cash only): omahaFacingBetIsPricedByEquity (a
   // final fold facing a person's wager priced by calibrated equity) and omahaClassCapsRespectEquity (the V15 and V40
   // class caps never push equity below the measured equity); a switches each on, b is today's brain.

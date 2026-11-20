@@ -69,6 +69,10 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import {
+  OMAHA_RUNDOWN_RERAISE_VARIANTS,
+  omahaRundownMeasuredAdmitsCall,
+} from '../HorseOmahaRundownReraiseMeasured.js';
 import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
@@ -1806,6 +1810,22 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured, option
+    // omahaRundownReraiseRangeIsMeasured): in PLO4/PLO5 cash preflop a re-raise
+    // in a measured cell where the call earned more real chips (the squeeze
+    // from a blind with a high rundown above 250 bb) becomes the call. The
+    // cell is a pure function of the request (own cards, public actions,
+    // chips, seats), so it is re-run here: raise -> call is admitted only with
+    // the request, only in that cell and only for the exact chips of the call.
+    const omahaRundownMeasuredCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RUNDOWN_RERAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRundownMeasuredAdmitsCall(context.player, context.gameState, transition.after.amount);
     // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
     // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
     // more preflop, a fold or a re-raise becomes a call when the expected
@@ -1888,6 +1908,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !omahaRundownMeasuredCalled &&
       !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&

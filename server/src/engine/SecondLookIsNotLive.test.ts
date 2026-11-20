@@ -476,7 +476,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'omahaBetReadIsPerOpponent receipt (lane CR2): the pure bluff-share arithmetic of the read already taken (no random draw, no telemetry, no memory), only to write the receipt amount',
       ],
       noteDecisionRuleReceipt: [
-        12,
+        14,
         'BrainTelemetry: copies the action a receipted rule was given and the one it left into the open decision scope; records nothing inside a second-look capture (refused by name), never read before the decision is made',
       ],
     },

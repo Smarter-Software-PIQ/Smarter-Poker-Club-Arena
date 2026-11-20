@@ -1132,6 +1132,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRundownReraiseRangeIsMeasured',
+    "EMERG lane RUNDOWNS 2026-11-20 (owner 2026-11-20 1:50 AM Chicago: add in the rundown 3-bet / 4-bet ranges as well; 12:01 AM: everything depends on the math; lead 1:42 AM: the metric is real chips, the chips that go to persons). Default OFF (read === true). PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop, three or more dealt in. Rundowns were classified by structure from the Horse's own cards (connectedness and where the gap is, height, suits, pairs, the fifth card in PLO5, nut potential), the classes declared before any result was read (archive repairs/EMERG/CRITERIA-RUNDOWNS.md), and the re-raise was graded against the call inside each spot on every Horse preflop decision facing a raise in hands with a person, 2026-10-15 to 2026-11-19 (11,620 rundown decisions, 290 class-by-spot cells), fit to 11-14 and held out 11-15 to 11-19, in real chips. No cell where the re-raise beats the call passes beyond chance (in position the two are level: 3-bet +2.82 +/- 3.41 bb, squeeze +6.57 +/- 5.82, 4-bet -3.75 +/- 13.96). One cell where the CALL beats the re-raise passes: the squeeze from a blind out of position (one raise and a caller or more, the Horse has not acted) with a high rundown (top card of the core ten or higher) and an own stack above 250 bb: re-raise minus call -27.35 +/- 11.40 bb fit (50 re-raises, 218 calls) and -34.99 +/- 16.58 held out (42, 176); net -19.08 +/- 12.06 and -22.55 +/- 17.99; the same squeeze at 100 to 250 bb is level and is not touched. With the option on a re-raise the wager_rules node entered with becomes the call there. Public information only (own cards, public actions, chips, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaRundownReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaRundownReraiseRangeIsMeasured.md.",
+    'V94'
+  ),
+  flag(
+    'omahaRundownReraiseRangeTrial',
+    "EMERG lane RUNDOWNS 2026-11-20 (owner 2026-11-20 1:50 AM Chicago: add in the rundown 3-bet / 4-bet ranges; players re-raise in position to build pots and get information). Default OFF (read === true). A TRIAL, not a measured gain. PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop, three or more dealt in: the node's final answer is a call, the engine offers a raise, the call is not one that omahaPreflopJamFacingReraiseIsPriced priced, and the hand and spot are a trial cell: (1) facing one raise nobody has called, the Horse has not acted and acts after the raiser on later streets, a rundown with no gap, double suited, no pair, top card seven or higher, and in PLO5 the fifth card inside the run (the declared no-gap cell: Horses' re-raise minus call in real chips +4.54 +/- 18.48 bb fit and +15.28 +/- 11.76 held out on 73 re-raises; persons' shown re-raises +36.9 +/- 36.8 on 17); (2) PLO5, the Horse opened and faces a 3-bet in position, five connected cards with no gap or one gap, no pair, and a suited ace or a top card ten or higher (the remainder of the declared 4-bet cell less its failing parts: +59.98 +/- 25.78 fit and +94.62 +/- 84.54 held out on 11 re-raises and 35 calls; persons' shown 4-bets with rundowns in position +35.9 +/- 24.9 on 36). (3) DEPTH, pooled over the in-position spots after the grade: a tier A or B rundown (double suited, or single suited with no gap or one gap and a top card ten or higher; never a low one) with an own stack of 250 bb or less, in position: the squeeze (one raise and a caller, the Horse has not acted; +23.60 +/- 14.48 fit and +18.05 +/- 11.31 held out on 33 re-raises and 104 calls), the 4-bet as the opener (+20.68 +/- 16.10 and +50.51 +/- 30.75 on 40 and 149) and the 3-bet facing an open nobody called, which is LEVEL with the call (-0.14 +/- 5.23 and -1.87 +/- 8.29 on 144 and 405) and is in the trial for the data and the range, not as a gain; the three together +7.83 +/- 5.26 and +8.51 +/- 7.88. With the option on the call becomes the pot-size re-raise. The Horses' own record does not prove cells (1) and (2) (too few re-raises); the position pricing estimate did not validate against the cells that have data (sign agreement 14 of 26); cell (3) was pooled after the grade and the hands that re-raised in the record were the ones the brain chose. Switched on only as a watched live trial to get the data. Public information only; the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaRundownReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaRundownReraiseRangeTrial.md.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5404,6 +5414,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_range_measured_reraise',
     'HorseLogic wager_rules (omahaReraiseRangeMeasuredRule, omahaReraiseRangeIsMeasured)',
     'a PLO4/PLO5 cash preflop decision whose final call of a pair of kings facing a 3-bet in position became the pot-size 4-bet because that is the cell of the measured re-raise range (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_rundown_measured_call',
+    'HorseLogic wager_rules (omahaRundownReraiseMeasuredRule, omahaRundownReraiseRangeIsMeasured)',
+    'a PLO4/PLO5 cash preflop decision whose final re-raise, a squeeze from a blind out of position with a high rundown and a stack above 250 bb, became the call because the call was measured to earn more real chips there on fit and held-out data (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_rundown_trial_reraise',
+    'HorseLogic wager_rules (omahaRundownReraiseTrialRule, omahaRundownReraiseRangeTrial)',
+    'a PLO4/PLO5 cash preflop decision whose final call with a rundown in a trial cell of the rundown re-raise range (the 3-bet in position with a double-suited no-gap rundown, the 4-bet in position with five connected cards in PLO5, a tier A or B rundown in position with 250 bb or less) became the pot-size re-raise (counted once per changed decision)',
     'V94'
   ),
   receipt(
