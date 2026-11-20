@@ -1,0 +1,627 @@
+/**
+ * OPPONENT HUD STORE (2026-11-20, PLO-OWNER lane OPPONENT-HUD): the engine main thread's warm shared memory of every
+ * opponent's lifetime public profile (engine/opponentHud/OpponentHudProfile.ts).
+ *
+ * Owner 3:20 PM Chicago Nov 20: "ALL HORSES SHOULD START THIS AS SOON AS A PLAYER JOINS A TABLE, FOR LIGHTNING GAMES
+ * AS WELL ... AS WELL AS WHEN THEY MOVE TABLES ... THIS ALL NEEDS TO HAPPEN IN THE FIRST 15 SECONDS". So profiles are
+ * loaded by EVENT, ahead of any decision: a player seated at a PLO4/PLO5 cash table (warmHud 'sit'), every dealt
+ * player at each hand start (table and Lightning: a Lightning hand is a new table every hand), and at engine boot the
+ * profiles updated in the last HUD_BOOT_WINDOW_MS (prewarm). A decision never waits for the database: it takes what is
+ * warm (packetFor) and the decision proceeds on the population prior for an opponent that is not.
+ *
+ * One shared memory for every Horse: the cache is keyed by player and family, not by table or Horse, and every
+ * accepted PLO4/PLO5 cash hand is applied to the profiles of everyone dealt in (onAcceptedHand), so a hand any Horse
+ * played against him counts for all of them. Persons and Horses are loaded, updated and served identically (nothing
+ * here reads a kind flag).
+ *
+ * Hardening ("SO THEY NEVER BREAK, REGRESS OR MAKE MISTAKES"):
+ * - nothing here throws to a caller and nothing blocks one: every database call is bounded (HUD_DB_TIMEOUT_MS), runs
+ *   behind the caller and failures are counted (opponent_hud_load_failed / _persist_failed) and retried after a
+ *   cool-down;
+ * - a hand is applied exactly once (OpponentHudProfile.applyHudHand: id ring and watermark); a profile that failed to
+ *   load is never updated (so a partial profile can never be written over the lifetime row); the database upsert
+ *   refuses any row with fewer hands or an older watermark than the stored one, and a refused profile is reloaded;
+ * - hands accepted while a profile loads are kept in a bounded ring (HUD_RING_MS) and applied to it once it arrives;
+ * - the cache is bounded (HUD_CACHE_MAX profiles, least recently used evicted after persisting);
+ * - stored rows carry the profile version: a row of another version is ignored (rebuilt by the backfill).
+ */
+import {
+  HUD_FAMILIES,
+  applyHudHand,
+  emptyHudProfile,
+  extractHandDeltas,
+  handRecordFromRow,
+  validHudProfile,
+  type HudFamily,
+  type HudHandRecord,
+  type HudStreet,
+  type OpponentHudProfile,
+} from '../engine/opponentHud/OpponentHudProfile.js';
+import {
+  OPPONENT_HUD_OPTION,
+  buildHudPacket,
+  buildHudPacketOpponent,
+  type HudPacketOpponent,
+  type HudPriors,
+  type OpponentHudPacket,
+} from '../engine/opponentHud/OpponentHud.js';
+import { noteFire } from '../engine/BrainTelemetry.js';
+import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../engine/HorseOptionSwitch.js';
+
+export const HUD_DB_TIMEOUT_MS = 2_000;
+export const HUD_RETRY_MS = 15_000;
+export const HUD_CACHE_MAX = 6_000;
+export const HUD_RING_MS = 15 * 60 * 1000;
+export const HUD_RING_MAX = 20_000;
+export const HUD_PERSIST_MS = 120_000;
+export const HUD_BOOT_WINDOW_MS = 6 * 3600 * 1000;
+export const HUD_READY_DEADLINE_MS = 15_000;
+export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
+
+export type HudEvent = 'sit' | 'move' | 'lightning' | 'boot' | 'hand' | 'decision';
+const EVENTS: readonly HudEvent[] = ['sit', 'move', 'lightning', 'boot', 'hand', 'decision'];
+
+export interface HudStoredRow {
+  user_id: string;
+  family: string;
+  version: number;
+  hands: number;
+  wm_ms: number;
+  profile: unknown;
+}
+export interface OpponentHudStoreDeps {
+  read(userIds: string[], family: HudFamily, signal: AbortSignal): Promise<HudStoredRow[]>;
+  recent(
+    family: HudFamily,
+    sinceIso: string,
+    afterUser: string | null,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<HudStoredRow[]>;
+  upsert(rows: object[], signal: AbortSignal): Promise<string[]>;
+  now(): number;
+  warn?(message: string): void;
+}
+
+type Entry =
+  | { state: 'ready'; profile: OpponentHudProfile; dirty: boolean; since: number }
+  | { state: 'loading'; requestedAt: number }
+  | { state: 'failed'; retryAt: number };
+
+const key = (family: HudFamily, user: string) => `${family}|${user}`;
+const UUIDISH = /^[0-9a-f-]{8,64}$/i;
+
+function bucket(ms: number): string {
+  return ms <= 100
+    ? 'le100'
+    : ms <= 1000
+      ? 'le1000'
+      : ms <= 5000
+        ? 'le5000'
+        : ms <= 15000
+          ? 'le15000'
+          : 'gt15000';
+}
+
+export class OpponentHudStore {
+  private readonly cache = new Map<string, Entry>();
+  /** first time each player was asked for (event time), cleared when ready: the 15-second clock */
+  private readonly asked = new Map<string, { at: number; event: HudEvent }>();
+  private readonly ring: HudHandRecord[] = [];
+  private readonly priors: Record<HudFamily, HudPriors> = { plo4: {}, plo5: {} };
+  private armedState = false;
+  /** the migration is not installed: nothing is read or written until this time (re-probed every 10 minutes) */
+  private disabledUntil = 0;
+  private persisting = false;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  /** per-opponent packet entries by (user, family, hands, watermark, street, minute): the main thread builds an
+   *  opponent's entry once per minute and street, not once per decision */
+  private readonly packetCache = new Map<string, HudPacketOpponent>();
+  /** event -> ready latencies (ms) of the last loads, for the operator report */
+  readonly readyLatencies: number[] = [];
+
+  constructor(private readonly deps: OpponentHudStoreDeps) {}
+
+  /** Main-side option state (lane.ts feeds the switch reading the workers get). Off: no packet is ever attached, so
+   *  decisions and their keys are byte-identical to a build without this store. Profiles still warm and update. */
+  setArmed(on: boolean): void {
+    this.armedState = on === true;
+  }
+  armed(): boolean {
+    return this.armedState;
+  }
+
+  /** Warm the named players' profiles for a family (event-driven, fire and forget, never throws). */
+  warm(userIds: readonly string[], family: HudFamily, event: HudEvent): void {
+    try {
+      if (!HUD_FAMILIES.includes(family)) return;
+      if (this.deps.now() < this.disabledUntil) return;
+      noteFire(`opponent_hud_event_${EVENTS.includes(event) ? event : 'hand'}`);
+      const now = this.deps.now();
+      const want: string[] = [];
+      for (const u of new Set(userIds)) {
+        if (typeof u !== 'string' || !UUIDISH.test(u)) continue;
+        const k = key(family, u);
+        const e = this.cache.get(k);
+        if (e?.state === 'ready') {
+          this.touch(k, e);
+          continue;
+        }
+        if (!this.asked.has(k)) this.asked.set(k, { at: now, event });
+        if (e?.state === 'loading' && now - e.requestedAt < HUD_DB_TIMEOUT_MS * 2) continue;
+        if (e?.state === 'failed' && now < e.retryAt) continue;
+        want.push(u);
+      }
+      for (let i = 0; i < want.length; i += 50) void this.load(want.slice(i, i + 50), family);
+    } catch {
+      noteFire('opponent_hud_warm_error');
+    }
+  }
+
+  private touch(k: string, e: Entry): void {
+    this.cache.delete(k);
+    this.cache.set(k, e);
+  }
+
+  private async load(users: string[], family: HudFamily): Promise<void> {
+    const startedAt = this.deps.now();
+    for (const u of users)
+      this.cache.set(key(family, u), { state: 'loading', requestedAt: startedAt });
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS);
+    (t as { unref?: () => void }).unref?.();
+    try {
+      const rows = await this.deps.read(users, family, ac.signal);
+      const byUser = new Map<string, OpponentHudProfile>();
+      for (const r of Array.isArray(rows) ? rows : []) {
+        if (r && r.family === family && validHudProfile(r.profile) && r.profile.user === r.user_id)
+          byUser.set(r.user_id, r.profile);
+      }
+      const now = this.deps.now();
+      for (const u of users) {
+        // a player without a stored row (new, or not yet backfilled) starts empty: the population prior
+        const profile = byUser.get(u) ?? emptyHudProfile(u, family);
+        for (const h of this.ring) if (h.family === family) applyHudHand(profile, h);
+        this.setReady(family, u, profile, now);
+      }
+      noteFire('opponent_hud_load_ok');
+    } catch (error) {
+      const now = this.deps.now();
+      if (error instanceof Error && error.message === HUD_SCHEMA_MISSING) {
+        this.disabledUntil = now + 10 * 60_000;
+        noteFire('opponent_hud_schema_missing');
+      }
+      for (const u of users)
+        this.cache.set(key(family, u), { state: 'failed', retryAt: now + HUD_RETRY_MS });
+      noteFire(ac.signal.aborted ? 'opponent_hud_load_timeout' : 'opponent_hud_load_failed');
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  private setReady(family: HudFamily, u: string, profile: OpponentHudProfile, now: number): void {
+    const k = key(family, u);
+    const prev = this.cache.get(k);
+    this.cache.delete(k);
+    this.cache.set(k, {
+      state: 'ready',
+      profile,
+      dirty: prev?.state === 'ready' ? prev.dirty : false,
+      since: now,
+    });
+    const asked = this.asked.get(k);
+    if (asked) {
+      const ms = Math.max(0, now - asked.at);
+      noteFire(`opponent_hud_ready_ms_${bucket(ms)}`);
+      noteFire(`opponent_hud_ready_${asked.event}_ms_${bucket(ms)}`);
+      this.readyLatencies.push(ms);
+      if (this.readyLatencies.length > 5000) this.readyLatencies.splice(0, 1000);
+      this.asked.delete(k);
+    }
+    this.evict();
+  }
+
+  private evict(): void {
+    if (this.cache.size <= HUD_CACHE_MAX) return;
+    for (const [k, e] of this.cache) {
+      if (this.cache.size <= HUD_CACHE_MAX) break;
+      if (e.state === 'ready' && e.dirty) continue; // persisted first, evicted on a later pass
+      this.cache.delete(k);
+      noteFire('opponent_hud_cache_evicted');
+    }
+  }
+
+  /** Is this player's profile warm (test and metric use). */
+  ready(userId: string, family: HudFamily): boolean {
+    return this.cache.get(key(family, userId))?.state === 'ready';
+  }
+  profile(userId: string, family: HudFamily): OpponentHudProfile | null {
+    const e = this.cache.get(key(family, userId));
+    return e?.state === 'ready' ? e.profile : null;
+  }
+  setPriors(family: HudFamily, priors: HudPriors): void {
+    this.priors[family] = { ...priors };
+  }
+
+  /**
+   * The snapshot field for one decision: `{ opponentHud }` with every live opponent's warm profile, or `{}` when the
+   * option is not armed or the game is not PLO4/PLO5 cash (then the snapshot and its key are exactly as before).
+   * Counts, per opponent, whether his profile was ready and whether he has waited past the 15-second deadline.
+   */
+  packetFor(input: {
+    family: string | null | undefined;
+    cash: boolean;
+    heroId: string;
+    opponentIds: readonly string[];
+    street: HudStreet;
+    atMs: number;
+  }): { opponentHud?: OpponentHudPacket } {
+    try {
+      if (!this.armedState || !input.cash) return {};
+      const family = input.family === 'plo4' || input.family === 'plo5' ? input.family : null;
+      if (!family) return {};
+      const ids = [...new Set(input.opponentIds)].filter((u) => u !== input.heroId).sort();
+      const profiles: OpponentHudProfile[] = [];
+      const now = this.deps.now();
+      const missing: string[] = [];
+      for (const u of ids) {
+        const p = this.profile(u, family);
+        if (p) {
+          profiles.push(p);
+          noteFire('opponent_hud_packet_opponent_ready');
+        } else {
+          missing.push(u);
+          const asked = this.asked.get(key(family, u));
+          noteFire(
+            asked && now - asked.at > HUD_READY_DEADLINE_MS
+              ? 'opponent_hud_packet_opponent_late'
+              : 'opponent_hud_packet_opponent_missing'
+          );
+        }
+      }
+      if (missing.length) this.warm(missing, family, 'decision');
+      noteFire('opponent_hud_packet_attached');
+      return {
+        opponentHud: buildHudPacket(
+          family,
+          profiles,
+          this.priors[family],
+          input.atMs,
+          input.street,
+          (p, minute, street) => {
+            const k = `${p.family}|${p.user}|${p.hands}|${p.wm}|${street}|${minute}`;
+            let e = this.packetCache.get(k);
+            if (!e) {
+              e = buildHudPacketOpponent(p, minute, street);
+              this.packetCache.set(k, e);
+              while (this.packetCache.size > 4000)
+                this.packetCache.delete(this.packetCache.keys().next().value!);
+            }
+            return e;
+          }
+        ),
+      };
+    } catch {
+      noteFire('opponent_hud_packet_error');
+      return {};
+    }
+  }
+
+  /**
+   * Apply an accepted hand (the hand_history row as written) to every warm profile of a player dealt in, and keep it
+   * in the ring for profiles still loading. Never throws. Returns how many profiles it updated.
+   */
+  onAcceptedHand(row: unknown): number {
+    try {
+      const rec = handRecordFromRow(row);
+      if (typeof rec === 'string') return 0;
+      this.ring.push(rec);
+      const cutoff = rec.at - HUD_RING_MS;
+      while (this.ring.length && (this.ring.length > HUD_RING_MAX || this.ring[0].at < cutoff))
+        this.ring.shift();
+      const deltas = extractHandDeltas(rec);
+      let updated = 0;
+      for (const d of deltas) {
+        const e = this.cache.get(key(rec.family, d.user));
+        if (e?.state !== 'ready') continue;
+        const why = applyHudHand(e.profile, rec, deltas);
+        if (why === null) {
+          e.dirty = true;
+          updated += 1;
+        } else if (why === 'stale') noteFire('opponent_hud_apply_stale');
+      }
+      noteFire('opponent_hud_hand_applied');
+      // everyone dealt in is warmed for his next hand (a new player is loaded now, not at his first decision)
+      this.warm(
+        rec.seats.map((s) => s.userId),
+        rec.family,
+        'hand'
+      );
+      return updated;
+    } catch {
+      noteFire('opponent_hud_apply_error');
+      return 0;
+    }
+  }
+
+  /** Persist every dirty profile (bounded batches); refused rows are dropped from the cache and reloaded. */
+  async persist(): Promise<void> {
+    if (this.persisting) return;
+    this.persisting = true;
+    try {
+      const dirty: [string, OpponentHudProfile][] = [];
+      for (const [k, e] of this.cache)
+        if (e.state === 'ready' && e.dirty) dirty.push([k, e.profile]);
+      for (let i = 0; i < dirty.length; i += 200) {
+        const batch = dirty.slice(i, i + 200);
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 5);
+        (t as { unref?: () => void }).unref?.();
+        try {
+          const refused = await this.deps.upsert(
+            batch.map(([, p]) => ({
+              user_id: p.user,
+              family: p.family,
+              version: p.v,
+              hands: p.hands,
+              wm_ms: Math.round(p.wm),
+              profile: p,
+            })),
+            ac.signal
+          );
+          const refusedSet = new Set(Array.isArray(refused) ? refused : []);
+          for (const [k] of batch) {
+            const e = this.cache.get(k);
+            if (refusedSet.has(k)) {
+              this.cache.delete(k);
+              noteFire('opponent_hud_persist_refused');
+            } else if (e?.state === 'ready') e.dirty = false;
+          }
+          noteFire('opponent_hud_persist_ok');
+        } catch {
+          noteFire('opponent_hud_persist_failed');
+        } finally {
+          clearTimeout(t);
+        }
+      }
+      this.evict();
+    } finally {
+      this.persisting = false;
+    }
+  }
+
+  /** Engine boot: warm every profile updated in the last HUD_BOOT_WINDOW_MS, both families, in pages. */
+  async prewarm(): Promise<number> {
+    let n = 0;
+    const since = new Date(this.deps.now() - HUD_BOOT_WINDOW_MS).toISOString();
+    for (const family of HUD_FAMILIES) {
+      let after: string | null = null;
+      for (let page = 0; page < 40; page++) {
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 5);
+        (t as { unref?: () => void }).unref?.();
+        try {
+          const rows = await this.deps.recent(family, since, after, 500, ac.signal);
+          if (!Array.isArray(rows) || !rows.length) break;
+          const now = this.deps.now();
+          for (const r of rows) {
+            after = r.user_id;
+            if (r.user_id === '*') {
+              if (r.profile && typeof r.profile === 'object')
+                this.setPriors(family, r.profile as HudPriors);
+              continue;
+            }
+            if (r.family !== family || !validHudProfile(r.profile) || r.profile.user !== r.user_id)
+              continue;
+            if (this.cache.get(key(family, r.user_id))?.state === 'ready') continue;
+            this.setReady(family, r.user_id, r.profile, now);
+            n += 1;
+          }
+          if (rows.length < 500) break;
+        } catch {
+          noteFire('opponent_hud_prewarm_failed');
+          break;
+        } finally {
+          clearTimeout(t);
+        }
+      }
+    }
+    noteFire('opponent_hud_event_boot');
+    return n;
+  }
+
+  /** Population priors of both families (the '*' rows). */
+  async loadPriors(): Promise<void> {
+    for (const family of HUD_FAMILIES) {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS);
+      (t as { unref?: () => void }).unref?.();
+      try {
+        const rows = await this.deps.read(['*'], family, ac.signal);
+        const r = rows.find((x) => x.user_id === '*');
+        if (r && r.profile && typeof r.profile === 'object')
+          this.setPriors(family, r.profile as HudPriors);
+      } catch {
+        noteFire('opponent_hud_priors_failed');
+      } finally {
+        clearTimeout(t);
+      }
+    }
+  }
+
+  start(): void {
+    if (this.timer) return;
+    void this.loadPriors().then(() => this.prewarm());
+    this.timer = setInterval(() => void this.persist(), HUD_PERSIST_MS);
+    (this.timer as { unref?: () => void }).unref?.();
+  }
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** Operator / metrics snapshot. */
+  stats(): { ready: number; loading: number; failed: number; dirty: number; ring: number } {
+    let ready = 0,
+      loading = 0,
+      failed = 0,
+      dirty = 0;
+    for (const e of this.cache.values()) {
+      if (e.state === 'ready') {
+        ready += 1;
+        if (e.dirty) dirty += 1;
+      } else if (e.state === 'loading') loading += 1;
+      else failed += 1;
+    }
+    return { ready, loading, failed, dirty, ring: this.ring.length };
+  }
+}
+
+export { OPPONENT_HUD_OPTION };
+
+let shared: OpponentHudStore | null = null;
+const familyOf = (variant: unknown): HudFamily | null => {
+  const v = String(variant ?? '').toLowerCase();
+  return v === 'plo4' || v === 'plo5' ? v : null;
+};
+
+/**
+ * Seat events (a roster adopted at a table: sit-down, must-move arrival, table move; a Lightning hand formed; a hand
+ * started): warm every seated player's profile for every Horse at the table. PLO4/PLO5 cash only; never throws; a
+ * no-op before the store is started (tests, scripts) or for any other game.
+ */
+export function warmOpponentHudSeats(
+  userIds: readonly string[],
+  variant: unknown,
+  tournament: boolean,
+  event: HudEvent
+): void {
+  try {
+    const family = familyOf(variant);
+    if (!shared || !family || tournament) return;
+    shared.warm(userIds, family, event);
+  } catch {
+    /* never into a seat path */
+  }
+}
+
+/** The decision snapshot field (ServerTableEngineTurns, LightningHorse): `{ opponentHud }` while armed for a PLO4/PLO5
+ *  cash decision, `{}` otherwise (then the snapshot is byte-identical). Never throws. */
+export function opponentHudSnapshotField(
+  gs: {
+    gameVariant?: unknown;
+    gameMode?: unknown;
+    tournament?: unknown;
+    stage?: unknown;
+    players?: readonly { user_id?: string; is_folded?: boolean }[];
+  },
+  heroId: string,
+  atMs: number
+): { opponentHud?: OpponentHudPacket } {
+  try {
+    if (!shared || !shared.armed()) return {};
+    const stage = String(gs.stage ?? 'preflop');
+    const street: HudStreet =
+      stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'preflop';
+    return shared.packetFor({
+      family: familyOf(gs.gameVariant),
+      cash: gs.gameMode !== 'tournament' && !gs.tournament,
+      heroId,
+      opponentIds: (gs.players ?? [])
+        .filter((p) => p && p.is_folded !== true && typeof p.user_id === 'string')
+        .map((p) => p.user_id as string),
+      street,
+      atMs,
+    });
+  } catch {
+    return {};
+  }
+}
+
+/** Arm or disarm from the switch reading the workers get (lane.ts): armed exactly while the option reads on. */
+export function armOpponentHudFromSwitch(message: { status?: unknown; config?: unknown }): void {
+  try {
+    if (!shared) return;
+    if (message.status !== 'ok') {
+      shared.setArmed(false);
+      return;
+    }
+    const parsed = parseOptionSwitchConfig(message.config);
+    shared.setArmed(
+      parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaOpponentLifetimeHud === true
+    );
+  } catch {
+    shared?.setArmed(false);
+  }
+}
+
+/** The accepted hand (handHistory.ts, after the authoritative commit): applied to every warm profile of a player
+ *  dealt in, once. Never throws; a no-op before the store is started. */
+export function opponentHudOnAcceptedHand(row: unknown): void {
+  try {
+    shared?.onAcceptedHand(row);
+  } catch {
+    /* never into settlement */
+  }
+}
+
+/** Production start (lane.ts, once): create the store, load priors, prewarm, persist on its timer. */
+export function startOpponentHudStore(): void {
+  try {
+    opponentHudStore().start();
+  } catch {
+    /* the engine runs without the HUD */
+  }
+}
+
+/** The process's one store (lazy; the database deps come from the Supabase client). */
+export function opponentHudStore(): OpponentHudStore {
+  if (!shared) shared = new OpponentHudStore(supabaseHudDeps());
+  return shared;
+}
+/** Test hook. */
+export function setOpponentHudStoreForTest(store: OpponentHudStore | null): void {
+  shared = store;
+}
+
+/** PostgREST (PGRST202) and Postgres (42883) both say "no such function" when the migration is not installed. */
+const missing = (error: { code?: string; message?: string }): boolean =>
+  error.code === 'PGRST202' ||
+  error.code === '42883' ||
+  /could not find the function|function .* does not exist/i.test(error.message ?? '');
+
+function supabaseHudDeps(): OpponentHudStoreDeps {
+  // imported lazily so engine tests that never touch the store need no database client
+  const client = async () => (await import('./supabase.js')).supabase;
+  return {
+    async read(userIds, family, signal) {
+      const { data, error } = await (await client())
+        .rpc('fn_opponent_hud_profiles_read', { p_user_ids: userIds, p_family: family })
+        .abortSignal(signal);
+      if (error) throw new Error(missing(error) ? HUD_SCHEMA_MISSING : 'opponent hud read failed');
+      return (data ?? []) as HudStoredRow[];
+    },
+    async recent(family, sinceIso, afterUser, limit, signal) {
+      const { data, error } = await (
+        await client()
+      )
+        .rpc('fn_opponent_hud_profiles_recent', {
+          p_family: family,
+          p_since: sinceIso,
+          p_after_user: afterUser,
+          p_limit: limit,
+        })
+        .abortSignal(signal);
+      if (error) throw new Error('opponent hud recent failed');
+      return (data ?? []) as HudStoredRow[];
+    },
+    async upsert(rows, signal) {
+      const { data, error } = await (await client())
+        .rpc('fn_opponent_hud_profiles_upsert', { p_rows: rows })
+        .abortSignal(signal);
+      if (error) throw new Error('opponent hud upsert failed');
+      return (data ?? []) as string[];
+    },
+    now: () => Date.now(),
+  };
+}

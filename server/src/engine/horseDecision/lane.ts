@@ -1,4 +1,8 @@
 import { horseRequestAllowance } from './requestRetentionBudget.js';
+import {
+  armOpponentHudFromSwitch,
+  startOpponentHudStore,
+} from '../../services/OpponentHudStore.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
 import {
@@ -883,6 +887,14 @@ export async function startLiveHorseDecisionWorker(
         ? null
         : (options.optionRegistryPublish ??
           (options.styleSwitchRead === undefined ? publishOptionRegistryToDatabase : null));
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while this reading
+    // has omahaOpponentLifetimeHud on (armOpponentHudFromSwitch never throws and changes no delivery).
+    const switchReadOnly = switchRead;
+    const switchReadAndArm = (): Promise<unknown> =>
+      Promise.resolve(switchReadOnly()).then((config) => {
+        armOpponentHudFromSwitch({ status: 'ok', config });
+        return config;
+      });
     styleSwitchDelivery = createStyleSwitchDelivery({
       // The registry publish rides the same tick and is never awaited by the read: a failed publish cannot delay,
       // fail or change a delivery (optionRegistryPublisher.ts).
@@ -891,12 +903,14 @@ export async function startLiveHorseDecisionWorker(
             void Promise.resolve()
               .then(publishRegistry)
               .catch(() => undefined);
-            return switchRead();
+            return switchReadAndArm();
           }
-        : switchRead,
+        : switchReadAndArm,
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
       broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
+    // the production boot (no injected reader) starts the Horses' shared opponent memory
+    if (options.styleSwitchRead === undefined) startOpponentHudStore();
     styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
   }
   if (styleSwitchFirstDelivery) await styleSwitchFirstDelivery;

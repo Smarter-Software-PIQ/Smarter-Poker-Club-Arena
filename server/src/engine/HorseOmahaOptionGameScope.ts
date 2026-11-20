@@ -92,6 +92,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaFacingBetValueShareIsMeasured',
   // EMERG lane RANGE-MODEL-2 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaRiverCurrentNutsCallFloor',
+  // PLO-OWNER lane OPPONENT-HUD 2026-11-20: PLO4/PLO5 cash, default OFF
+  'omahaOpponentLifetimeHud',
   'omahaFlopFacingBetEv',
   'omahaFlopVerdictReadsTheBettor',
   'omahaReadIsByStreetAndTexture',

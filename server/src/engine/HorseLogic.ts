@@ -3621,6 +3621,12 @@ export interface HorseDecideOpts {
    * current nuts and a full chop with every live opponent still returns the call. The outermost answer
    * of wager_rules; never changes a non-fold. Default OFF (read === true). */
   omahaRiverCurrentNutsCallFloor?: boolean;
+  /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
+   * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
+   * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
+   * for every opponent, person or Horse, no unshown card. Default OFF (read === true); scopable by
+   * horse.omahaGameScope.omahaOpponentLifetimeHud. */
+  omahaOpponentLifetimeHud?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -15890,6 +15896,14 @@ export class HorseLogic {
         ? { omahaManiacReRaiseMeasured: true, omahaManiacReRaiseReceipt: telemetryOn(opts) }
         : {}),
       fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, default off): PLO4/PLO5 cash only (never PLO6, never a
+      // tournament); the key exists only when it is on, so with it off the read options are exactly what they were.
+      ...(opts.omahaOpponentLifetimeHud === true &&
+      (String(gameState.gameVariant).toLowerCase() === 'plo4' ||
+        String(gameState.gameVariant).toLowerCase() === 'plo5') &&
+      !(gameState.gameMode === 'tournament' || gameState.tournament)
+        ? { opponentLifetimeHud: true }
+        : {}),
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),

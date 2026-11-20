@@ -366,6 +366,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBluffIsPricedAgainstTheTarget',
   // 2026-11-20 EMERG lane RANGE-MODEL-2: the river current-nuts call floor (ships dark)
   'omahaRiverCurrentNutsCallFloor',
+  // 2026-11-20 PLO-OWNER lane OPPONENT-HUD: the lifetime opponent profile read from hand one (ships dark)
+  'omahaOpponentLifetimeHud',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',

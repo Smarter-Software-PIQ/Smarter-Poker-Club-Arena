@@ -1,4 +1,5 @@
 import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { withoutValueSizeStamp } from '../engine/HorseOmahaValueSizeBand.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
@@ -829,6 +830,14 @@ export class LightningHandHost {
       }
       this.rules = await rulesP;
       timing.mark('rules');
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): a Lightning hand is a new table: every participant's lifetime
+      // profile is warmed for every Horse dealt here, before the deal (fire and forget; PLO4/PLO5 only).
+      warmOpponentHudSeats(
+        [...this.participants.keys()],
+        this.rules?.game_variant,
+        false,
+        'lightning'
+      );
       const variantRefusal = this.checkVariant(this.rules);
       if (variantRefusal) {
         outcome = variantRefusal;
