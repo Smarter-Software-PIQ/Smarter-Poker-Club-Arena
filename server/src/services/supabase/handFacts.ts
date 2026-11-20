@@ -1018,7 +1018,30 @@ export interface HandFactsInput {
    * protocol-2 commits; legacy callers continue through the direct writer.
    */
   collectOnly?: boolean;
+  /**
+   * The installed hand-content retention basis accepts stats_facts.horse_hole_cards (review B1,
+   * 2026-11-19): only then is the key attached. The caller asks the database once per refresh
+   * (HorseStatsBasisContract.horseHoleCardsBasisContract); absent or false, the payload carries exactly the
+   * keys an older basis accepts, so an engine that reaches the VPS before migration 20261120025753 never
+   * stops hand_history retention the way the horse_rollups key did on 2026-10-25.
+   */
+  horseHoleCardsAccepted?: boolean;
 }
+
+/**
+ * The top-level stats_facts keys the engine sends (review B1). ALWAYS: every payload. GATED: each only
+ * behind a database capability the caller reads first: horse_rollups behind HorseDailyRollupContract (the
+ * projector's contract; the retention basis accepts it since 20261105174453), horse_hole_cards behind
+ * HorseStatsBasisContract (public.horse_stats_basis_accepted_keys(), 20261120025753). Pinned against the
+ * database side by tests/a-stats-key-ships-only-where-the-retention-basis-accepts-it.law.test.ts.
+ */
+export const STATS_FACTS_ALWAYS_KEYS = Object.freeze(['version', 'facts', 'transfers'] as const);
+export const HORSE_HOLE_CARDS_STATS_KEY = 'horse_hole_cards' as const;
+export const STATS_FACTS_GATED_KEYS = Object.freeze([
+  'horse_rollups',
+  HORSE_HOLE_CARDS_STATS_KEY,
+] as const);
+export type StatsFactsGatedKey = (typeof STATS_FACTS_GATED_KEYS)[number];
 
 export interface DurableStatsFactPayload {
   horse_rollups?: import('../HorseDailyRollupFacts.js').HorseDailyRollupFacts;
@@ -1509,7 +1532,10 @@ export async function writeHandFacts(
       transfers,
     };
     const horseHoleCards = horseDealtHoleCards(input.holeCardsAll, input.roster);
-    if (horseHoleCards.length > 0) payload.horse_hole_cards = horseHoleCards;
+    // Only where the installed retention basis accepts the key (review B1): an older basis refuses
+    // any unknown top-level key and would stop hand_history retention.
+    if (horseHoleCards.length > 0 && input.horseHoleCardsAccepted === true)
+      payload.horse_hole_cards = horseHoleCards;
     if (input.collectOnly) return payload;
 
     const { error: factErr } = await supabase

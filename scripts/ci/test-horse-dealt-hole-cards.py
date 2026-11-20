@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Real PG17: every Horse's dealt hole cards reach the service-only table.
 
-Migration 20261120014240. Builds the accepted-hand stats projector and the
-horse retention basis from the exact repository migrations that produced the
-production bodies (md5-pinned to production, read 2026-11-19), applies the new
-migration, and proves: Horses only (never a human's cards, even when the
+Migrations 20261120014240 and 20261120025753 (review B1). Builds the
+accepted-hand stats projector and the horse retention basis from the exact
+repository migrations that produced the production bodies (md5-pinned to
+production, read 2026-11-19), applies 20261120014240 (which no longer touches
+the basis: the basis still refuses the key, so an engine must not send it yet),
+then 20261120025753 (the basis drops the key; public.horse_stats_basis_accepted_keys
+lists it; re-runnable), and proves: Horses only (never a human's cards, even when the
 payload names one), Lightning passes through, replay and rollback keep exactly
 once, a malformed list never fails the projection, the retention basis keeps
 no cards, retention matches hand_history, and no client role can read it.
@@ -30,10 +33,10 @@ LIGHTNING = M / '20261025000729_lightning_hands_reach_the_stats_facts_and_the_co
 BASIS = M / '20261012170919_horse_fact_cards_age_out_without_erasing_player_totals.sql'
 BASIS_ROLLUPS = M / '20261105174453_horse_stats_basis_accepts_horse_rollups.sql'
 MIGRATION = M / '20261120014240_every_horse_dealt_hole_cards_are_kept_for_audit.sql'
+BASIS_KEY = M / '20261120025753_the_horse_stats_basis_drops_the_horse_hole_cards_key.sql'
 PROJECTOR_PRE = '1fbfe441e124bff9317e4f8b1c3def8c'
 BASIS_PRE = '914a8bbaf45776566ea7ca886d26c7fc'
 PROJECTOR_POST = 'a5f235fbec8ac733e2c436e9c7546b71'
-BASIS_POST = '84a8cec90710ca61f34567597666e44d'
 PG = Path(os.environ.get('PG_BIN', '/usr/lib/postgresql/17/bin'))
 BASE = Path(os.environ.get('TMPDIR') or os.environ.get('RUNNER_TEMP') or tempfile.gettempdir())
 if sys.platform == 'darwin' and not str(BASE).startswith('/Volumes/SmarterWork/agent-work/'):
@@ -160,13 +163,39 @@ def main():
             check('old basis refuses the new key (the 2026-10-25 failure mode)',
                   'HORSE_STATS_BASIS_INVALID_SHAPE' in run('SELECT smarter_private.horse_compact_stats_basis(' + literal(payload('x')) + ');', False))
 
+            basis_proof = re.search(r'^-- @live-proof: (.*)$', BASIS_KEY.read_text(), re.M).group(1)
+            check('basis-key live proof is false on the old basis', run('SELECT ' + basis_proof + ';') == 'f')
+
             run(MIGRATION.read_text())
             check('migration cannot replay', 'HORSE_DEALT_HOLE_CARDS_ALREADY_INSTALLED' in run(MIGRATION.read_text(), False))
             post = run("SELECT md5(pg_get_functiondef('ca_project_hand_stats_facts(uuid)'::regprocedure));")
-            basis_post = run("SELECT md5(pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure));")
-            check('postimages are the ones the migration pins', post == PROJECTOR_POST and basis_post == BASIS_POST)
+            check('projector postimage is the one the migration pins', post == PROJECTOR_POST)
             proof = re.search(r'^-- @live-proof: (.*)$', MIGRATION.read_text(), re.M).group(1)
             check('migration live proof is true once installed', run('SELECT ' + proof + ';') == 't')
+            # Review B1: 20261120014240 leaves the basis alone, so the two install in either order.
+            check('20261120014240 does not touch the retention basis',
+                  run("SELECT md5(pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure));") == BASIS_PRE)
+            check('without 20261120025753 the basis still refuses the key (the engine must not send it)',
+                  'HORSE_STATS_BASIS_INVALID_SHAPE' in run('SELECT smarter_private.horse_compact_stats_basis(' + literal(payload('x')) + ');', False))
+            check('without 20261120025753 the engine has nothing to ask (its contract reads off)',
+                  run("SELECT to_regprocedure('public.horse_stats_basis_accepted_keys()') IS NULL;") == 't')
+
+            run(BASIS_KEY.read_text())
+            run(BASIS_KEY.read_text())
+            check('20261120025753 re-runs cleanly and renames the core once',
+                  run("SELECT count(*) FROM pg_proc WHERE proname IN ('horse_compact_stats_basis','horse_compact_stats_basis_core');") == '2')
+            check('basis-key live proof is true once installed', run('SELECT ' + basis_proof + ';') == 't')
+            basis_post = run("SELECT md5(pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure));")
+            check('the engine contract lists both optional keys', json.loads(run(
+                "SET ROLE service_role; SELECT public.horse_stats_basis_accepted_keys();").splitlines()[-1])
+                == {'contract': 1, 'accepted': ['horse_hole_cards', 'horse_rollups']})
+            check('no client role can ask the contract or run the basis', run(
+                "SELECT bool_or(has_function_privilege(r,f,'execute')) FROM unnest(ARRAY['anon','authenticated']) r,"
+                " unnest(ARRAY['public.horse_stats_basis_accepted_keys()','smarter_private.horse_compact_stats_basis(jsonb)',"
+                "'smarter_private.horse_compact_stats_basis_core(jsonb)']) f;") == 'f')
+            check('the contract refuses a client role (enforced)', 'permission denied' in command(
+                [PG / 'psql', '-X', '-qAt', '-h', sock, '-p', PORT, '-U', 'postgres', '-d', 'postgres', '-c',
+                 'SET ROLE anon; SELECT public.horse_stats_basis_accepted_keys();']).stderr)
 
             # Basis: same bytes without the key, no cards with it, refuses a non-array.
             check('basis without the key compacts to the same bytes',
@@ -298,6 +327,7 @@ END $t$; SELECT current_setting('t.out');""").splitlines()[-1])
     print(json.dumps(dict(passed=True, checks=checks, projector_postimage_md5=post, basis_postimage_md5=basis_post,
                           projection_cost=timing,
                           migration_sha256=hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),
+                          basis_key_migration_sha256=hashlib.sha256(BASIS_KEY.read_bytes()).hexdigest(),
                           production_mutations=False), indent=2))
 
 

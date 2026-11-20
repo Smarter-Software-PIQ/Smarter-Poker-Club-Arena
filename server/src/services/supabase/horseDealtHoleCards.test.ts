@@ -103,6 +103,7 @@ describe('horseDealtHoleCards', () => {
         { userId: H2, isHorse: true },
       ],
       collectOnly: true,
+      horseHoleCardsAccepted: true,
     };
     const payload = (await writeHandFacts(base))!;
     expect(payload.horse_hole_cards).toEqual([
@@ -118,6 +119,43 @@ describe('horseDealtHoleCards', () => {
       roster: base.roster.map((p) => ({ ...p, isHorse: false })),
     }))!;
     expect(humansOnly).not.toHaveProperty('horse_hole_cards');
+  });
+
+  it('review B1: the key is attached only where the installed retention basis accepts it', async () => {
+    const base = {
+      handId: '00000000-0000-4000-8000-00000000f011',
+      tableId: '00000000-0000-4000-8000-00000000f012',
+      clubId: '00000000-0000-4000-8000-00000000f013',
+      handNumber: 8,
+      gameVariant: 'nlh',
+      bigBlind: 2,
+      playedAt: '2026-11-19T12:00:00.000Z',
+      buttonSeat: 1,
+      rakeAmount: 0,
+      boardLength: 0,
+      holeCardsAll: new Map<string, { seat: number; cards: unknown }>([
+        [P1, { seat: 1, cards: [c('Q', 'spades'), c('Q', 'hearts')] }],
+        [H1, { seat: 2, cards: [c('A', 'spades'), c('K', 'diamonds')] }],
+      ]),
+      contributions: new Map([
+        [P1, 1],
+        [H1, 1],
+      ]),
+      winners: [{ userId: P1, amount: 2 }],
+      actions: [] as never,
+      roster: [
+        { userId: P1, isHorse: false },
+        { userId: H1, isHorse: true },
+      ],
+      collectOnly: true,
+    };
+    // unknown (absent) or refused (false): exactly the keys an older basis accepts
+    for (const accepted of [undefined, false]) {
+      const payload = (await writeHandFacts({ ...base, horseHoleCardsAccepted: accepted }))!;
+      expect(Object.keys(payload).sort()).toEqual(['facts', 'transfers', 'version']);
+    }
+    const on = (await writeHandFacts({ ...base, horseHoleCardsAccepted: true }))!;
+    expect(Object.keys(on).sort()).toEqual(['facts', 'horse_hole_cards', 'transfers', 'version']);
   });
 
   it('costs microseconds at hand commit (measured)', () => {

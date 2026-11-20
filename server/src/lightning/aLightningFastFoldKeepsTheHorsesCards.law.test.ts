@@ -24,6 +24,10 @@ vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn(), describeE
 vi.mock('../services/HorseDailyRollupContract.js', () => ({
   horseDailyRollupContract: vi.fn(async () => true),
 }));
+// the installed retention basis accepts the key (migration 20261120025753; HorseStatsBasisContract)
+vi.mock('../services/HorseStatsBasisContract.js', () => ({
+  horseHoleCardsBasisContract: vi.fn(async () => true),
+}));
 const { mulberry32 } = await import('../engine/HandFuzzer.js');
 const kit = await import('../testing/lightningHostTestKit.js');
 const { dealtCardCode } = await import('../services/supabase/handFacts.js');

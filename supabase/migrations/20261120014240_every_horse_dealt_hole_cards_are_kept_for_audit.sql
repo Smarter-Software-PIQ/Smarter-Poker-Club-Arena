@@ -1,4 +1,4 @@
--- @live-proof: (to_regclass('smarter_private.horse_dealt_hole_cards') IS NOT NULL AND to_regprocedure('smarter_private.project_horse_dealt_hole_cards(uuid,jsonb,uuid)') IS NOT NULL AND to_regprocedure('smarter_private.prune_horse_dealt_hole_cards(integer)') IS NOT NULL AND strpos(pg_get_functiondef('public.ca_project_hand_stats_facts(uuid)'::regprocedure), 'PERFORM smarter_private.project_horse_dealt_hole_cards(p_hand_id, v_stats, v_table);')>0 AND strpos(pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure), 'RETURN jsonb_set(p_stats-''horse_hole_cards'',''{facts}'',facts);')>0 AND NOT has_table_privilege('anon','smarter_private.horse_dealt_hole_cards','SELECT') AND NOT has_table_privilege('authenticated','smarter_private.horse_dealt_hole_cards','SELECT'))
+-- @live-proof: (to_regclass('smarter_private.horse_dealt_hole_cards') IS NOT NULL AND to_regprocedure('smarter_private.project_horse_dealt_hole_cards(uuid,jsonb,uuid)') IS NOT NULL AND to_regprocedure('smarter_private.prune_horse_dealt_hole_cards(integer)') IS NOT NULL AND strpos(pg_get_functiondef('public.ca_project_hand_stats_facts(uuid)'::regprocedure), 'PERFORM smarter_private.project_horse_dealt_hole_cards(p_hand_id, v_stats, v_table);')>0 AND NOT has_table_privilege('anon','smarter_private.horse_dealt_hole_cards','SELECT') AND NOT has_table_privilege('authenticated','smarter_private.horse_dealt_hole_cards','SELECT'))
 -- 20261120014240_every_horse_dealt_hole_cards_are_kept_for_audit.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
@@ -21,7 +21,8 @@
 -- stats payload from them (server/src/services/supabase/handFacts.ts,
 -- writeHandFacts collectOnly). That payload now carries one more key,
 -- `horse_hole_cards`: [{user_id, seat, cards:['As','Kd',...]}], Horses only
--- (roster isHorse === true), absent when no Horse was dealt in. It is stored
+-- (roster isHorse === true), absent when no Horse was dealt in or while the
+-- installed retention basis does not accept it (below). It is stored
 -- by the same transaction that accepts the hand, in
 -- hand_atomic_commits.post_commit_payload (service_role read only), for cash,
 -- tournament and Lightning hands alike (fn_lightning_hand_stats_facts passes
@@ -50,13 +51,16 @@
 -- hand_history (an FK would take SHARE ROW EXCLUSIVE on it), no trigger on a
 -- live table; only CREATE TABLE in smarter_private and two function bodies.
 --
--- THE HAND-CONTENT RETENTION BASIS. smarter_private.horse_compact_stats_basis
--- refused any unknown top-level stats key; on 2026-10-25 a new key
--- (horse_rollups) stopped sp_prune_hand_history for eleven days (migration
--- 20261105174453). It now accepts horse_hole_cards when it is an array and
--- drops it from the compact copy, exactly as it drops facts[].hole_cards:
--- the compact basis is the content-free reconciliation record. A payload
--- without the key compacts to the same bytes as before.
+-- THE HAND-CONTENT RETENTION BASIS IS NOT TOUCHED HERE (review B1).
+-- smarter_private.horse_compact_stats_basis refuses any unknown top-level
+-- stats key; on 2026-10-25 a new key (horse_rollups) stopped
+-- sp_prune_hand_history for eleven days (migration 20261105174453). Its
+-- acceptance of horse_hole_cards is its own migration, 20261120025753, with no
+-- pin that can refuse, and the engine sends the key only after
+-- public.horse_stats_basis_accepted_keys() (that migration) lists it
+-- (server/src/services/HorseStatsBasisContract.ts). This file can install
+-- before or after it: until the engine sends the key, the projector below
+-- simply finds no list.
 --
 -- RETENTION MATCHES hand_history. hand_history keeps a hand any human was
 -- dealt into forever and prunes horse-only hands after
@@ -83,12 +87,10 @@ BEGIN
      OR to_regclass('public.hand_history') IS NULL THEN
     RAISE EXCEPTION 'HORSE_DEALT_HOLE_CARDS_DEPENDENCY_MISSING' USING ERRCODE = '55000';
   END IF;
-  -- Production bodies read 2026-11-19. A changed body is refused, never
-  -- patched blind.
+  -- Production body read 2026-11-19. A changed body is refused, never
+  -- patched blind. (The retention basis is 20261120025753's, unpinned.)
   IF md5(pg_get_functiondef('public.ca_project_hand_stats_facts(uuid)'::regprocedure))
-       IS DISTINCT FROM '1fbfe441e124bff9317e4f8b1c3def8c'
-     OR md5(pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure))
-       IS DISTINCT FROM '914a8bbaf45776566ea7ca886d26c7fc' THEN
+       IS DISTINCT FROM '1fbfe441e124bff9317e4f8b1c3def8c' THEN
     RAISE EXCEPTION 'HORSE_DEALT_HOLE_CARDS_SOURCE_CHANGED' USING ERRCODE = '55000';
   END IF;
 END
@@ -259,43 +261,6 @@ EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe$;
 
--- The retention basis accepts the new key and keeps no cards.
-DO $basis$
-DECLARE
-  src text := pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure);
-  out text;
-BEGIN
-  out := replace(src,
-    'OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_stats) k WHERE k NOT IN(''version'',''facts'',''transfers'',''horse_rollups''))',
-    'OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_stats) k WHERE k NOT IN(''version'',''facts'',''transfers'',''horse_rollups'',''horse_hole_cards''))
- OR (p_stats ? ''horse_hole_cards'' AND jsonb_typeof(p_stats->''horse_hole_cards'') IS DISTINCT FROM ''array'')');
-  IF out = src THEN RAISE EXCEPTION 'HORSE_DEALT_HOLE_CARDS_BASIS_SHAPE_ANCHOR' USING ERRCODE = '55000'; END IF;
-  src := out;
-  out := replace(src, 'RETURN jsonb_set(p_stats,''{facts}'',facts);',
-                      'RETURN jsonb_set(p_stats-''horse_hole_cards'',''{facts}'',facts);');
-  IF out = src THEN RAISE EXCEPTION 'HORSE_DEALT_HOLE_CARDS_BASIS_RETURN_ANCHOR' USING ERRCODE = '55000'; END IF;
-  EXECUTE out;
-END
-$basis$;
-
--- @probe-for: smarter_private.horse_compact_stats_basis
-DO $probe$
-DECLARE v jsonb;
-BEGIN
-  v := smarter_private.horse_compact_stats_basis(jsonb_build_object(
-    'version', 2, 'transfers', '[]'::jsonb,
-    'facts', jsonb_build_array(jsonb_build_object('user_id', gen_random_uuid(),
-      'hole_cards', jsonb_build_array('As', 'Kd'))),
-    'horse_hole_cards', jsonb_build_array(jsonb_build_object('user_id', gen_random_uuid(),
-      'seat', 1, 'cards', jsonb_build_array('As', 'Kd')))));
-  IF v ? 'horse_hole_cards' OR v::text LIKE '%As%' THEN
-    RAISE EXCEPTION 'HORSE_DEALT_HOLE_CARDS_PROBE_BASIS' USING ERRCODE = '55000';
-  END IF;
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
-
 -- The post-commit projector keeps the cards, in its own transaction.
 DO $projector$
 DECLARE
@@ -328,14 +293,12 @@ EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe$;
 
--- The two bodies are exactly what scripts/ci/test-horse-dealt-hole-cards.py
--- proves on PG17 from the same preimages.
+-- The projector body is exactly what scripts/ci/test-horse-dealt-hole-cards.py
+-- proves on PG17 from the same preimage.
 DO $post$
 BEGIN
   IF md5(pg_get_functiondef('public.ca_project_hand_stats_facts(uuid)'::regprocedure))
-       IS DISTINCT FROM 'a5f235fbec8ac733e2c436e9c7546b71'
-     OR md5(pg_get_functiondef('smarter_private.horse_compact_stats_basis(jsonb)'::regprocedure))
-       IS DISTINCT FROM '84a8cec90710ca61f34567597666e44d' THEN
+       IS DISTINCT FROM 'a5f235fbec8ac733e2c436e9c7546b71' THEN
     RAISE EXCEPTION 'HORSE_DEALT_HOLE_CARDS_POSTIMAGE_CHANGED' USING ERRCODE = '55000';
   END IF;
 END

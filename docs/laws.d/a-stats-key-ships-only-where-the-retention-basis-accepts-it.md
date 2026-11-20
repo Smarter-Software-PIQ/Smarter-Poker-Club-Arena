@@ -1,0 +1,3 @@
+# tests/a-stats-key-ships-only-where-the-retention-basis-accepts-it.law.test.ts
+
+The engine never sends a top-level stats_facts key that the installed hand-content retention basis (smarter_private.horse_compact_stats_basis) would reject: the engine's key list equals the payload type and every key a writer assigns, every always-sent key is one the old basis accepts, every gated key is one the basis accepts after 20261120025753 and one public.horse_stats_basis_accepted_keys() tests, and horse_hole_cards is attached only behind the database's answer (HorseStatsBasisContract), never an md5 pin that can refuse (review B1, 2026-11-19; the horse_rollups key stopped hand_history retention for eleven days in October).

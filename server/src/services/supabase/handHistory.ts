@@ -39,6 +39,7 @@ import {
 import { recordHorseHandReviews, type HorseReviewInput } from '../HorseHandReview.js';
 import { buildHorseDailyRollupFacts } from '../HorseDailyRollupFacts.js';
 import { horseDailyRollupContract } from '../HorseDailyRollupContract.js';
+import { horseHoleCardsBasisContract } from '../HorseStatsBasisContract.js';
 import { readScopeOf } from '../../engine/HorseMind.js';
 import { getLiveHorseDecisionWorker } from '../../engine/horseDecision/index.js';
 import { wakeHandProjection } from './handProjection.js';
@@ -984,7 +985,11 @@ export async function logHandHistory(params: {
   // receipt. The projector persists them before deleting the durable outbox
   // claim. Folded holdings never enter `row`/hand_history.
   if (factsInput && params.atomicCommit.acceptedPostCommitFacts) {
-    const statsFacts = await writeHandFacts({ ...factsInput, collectOnly: true });
+    const statsFacts = await writeHandFacts({
+      ...factsInput,
+      collectOnly: true,
+      horseHoleCardsAccepted: await horseHoleCardsBasisContract(),
+    });
     if (!statsFacts) {
       throw new Error('atomic hand commit refused (stats_facts_unavailable)');
     }
