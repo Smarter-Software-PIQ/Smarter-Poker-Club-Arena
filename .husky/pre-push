@@ -932,10 +932,15 @@ FILES=$(printf '%s\n' "$ALL_FILES" | sort -u)
 # ─────────────────────────────────────────────────────────────────────────────
 # The copy guards parse TypeScript. Missing tooling refuses an applicable
 # source/configuration check before CI; prose-only changes use their own pins.
+# server/src/ is a trigger too (2026-11-20): check-title-case.mjs walks
+# server/src (receipt labels and every string the server says), and a push that
+# touched only server/src skipped it here, so three engine receipt labels
+# (OmahaMathCore.ts, OmahaMathCorePreflop.ts, OmahaMathCoreRangeTrack.ts) were
+# first refused by hosted CI on #11515, an hour after a green local gate.
 copy_case_guard() {
   guard="$1"
   [ -f "$guard" ] || return 0
-  if ! echo "$FILES" | grep -qE '^(src/|package(-lock)?\.json$|scripts/ci/check-(title-case|painted-text-case|nav-title-case)\.mjs$|\.husky/)'; then
+  if ! echo "$FILES" | grep -qE '^(src/|server/src/|package(-lock)?\.json$|scripts/ci/check-(title-case|painted-text-case|nav-title-case)\.mjs$|\.husky/)'; then
     return 0
   fi
   if ! node -e 'require("typescript")' >/dev/null 2>&1; then
