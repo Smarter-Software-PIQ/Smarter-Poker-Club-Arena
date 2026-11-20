@@ -64,6 +64,9 @@ export const HORSE_PHASE11_POLICY_SOURCE_FILES: readonly string[] = Object.freez
     'src/engine/omaha/OmahaCardFacts.ts',
     'src/engine/plo4/Plo4LivePolicy.ts',
     'src/engine/plo4/Plo4PolicyPack.ts',
+    // 2026-11-19: the depth both pack gates read (omahaPackEffectiveDepth, omahaPackClampDeepDepth);
+    // it decides whether a pack is applied, so it is hashed.
+    'src/engine/omaha/OmahaPackDepth.ts',
     'src/engine/HorseLogic.ts',
     'src/engine/HorsePolicyRegistry.ts',
     'src/engine/HorseEval.ts',

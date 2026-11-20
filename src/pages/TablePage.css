@@ -3751,33 +3751,20 @@
 
 /* chat-mail-toggle-btn duplicate override REMOVED */
 
-/* Slide out chat exactly like the attachment */
-.table-chat {
-  right: 0 !important;
-  left: auto !important;
-  top: 0 !important;
-  bottom: 0 !important;
-  /* 2026-08-23 mobile pass: hard 350px overflowed 320px phones; clamp to
-     the viewport. Horizontal-overflow fix only — layout untouched. */
-  width: min(350px, 100vw) !important;
-  height: 100% !important;
-  background: rgba(15, 23, 42, 0.85) !important;
-  backdrop-filter: blur(8px) !important;
-  border-left: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: 0 !important;
-  max-height: 100% !important;
-  transform: translateX(100%);
-  animation: slideInChat 0.3s forwards;
-}
-
-@keyframes slideInChat {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
+/* `.table-chat` IS OWNED BY TableChat.css AND NOTHING ELSE (2026-11-19).
+   A rule sat here from April 2026 that restyled the sheet as a right-hand
+   slide-out: `!important` geometry, `transform: translateX(100%)` as its
+   RESTING state, and `animation: slideInChat 0.3s forwards` as the only thing
+   that brought it on screen. TableChat.css declares its own
+   `animation: chatSlideUp` on the same selector at the same specificity, so
+   which animation won depended on which stylesheet the bundle emitted last.
+   On 2026-11-15 (#11049) SharedTableStage began importing this file, the
+   order flipped, chatSlideUp won, `forwards` was gone, and the resting
+   translateX(100%) parked the open chat one panel-width off the right edge of
+   every table: players tapped Chat and saw nothing to type into. No human
+   table chat reached the database from 22:21 Chicago that night until this
+   fix. Do not style `.table-chat` here again.
+   Pinned by tests/table-chat-has-one-stylesheet.law.test.ts. */
 
 /* ═══════════════════════════════════════════════════════════════════════════
    SEAT-RESERVED OVERLAY (Bible V8 §4.2)

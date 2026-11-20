@@ -422,12 +422,17 @@ describe('pre-review finding 3: no six-card rule turns into a call a hand the li
     // Inside the graph the fold rule (plo6RiverNutDiscipline) is applied to
     // the wager first; the pricing rules wrap what it leaves.
     const first = SRC.indexOf('const nutDisciplined = plo6RiverNutDiscipline(');
-    const wrap = SRC.indexOf(
-      'omahaFacingBetEvRule(\n            omahaRiverMediumBetStrongHandCalls(',
+    // 2026-11-19 (LEAKMAP): the chain is written as named stages, in the same
+    // order: the medium-bet call takes what the earlier rules left, and the EV
+    // rule takes what the medium-bet call left.
+    const medium = SRC.indexOf(
+      'omahaRiverMediumBetStrongHandCalls(reraisedThenCall, player, gs, opts)',
       first
     );
+    const wrap = SRC.indexOf('omahaFacingBetEvRule(riverMediumRuled, player, gs, opts)', medium);
     expect(first).toBeGreaterThan(-1);
-    expect(wrap).toBeGreaterThan(first);
+    expect(medium).toBeGreaterThan(first);
+    expect(wrap).toBeGreaterThan(medium);
   });
   it("both pricing rules ask the one live test (HorsePlo6PricingPort.plo6RiverLiveFoldTest) with the live rule's switches", () => {
     // No behavioural route to "which function a private rule calls": the two

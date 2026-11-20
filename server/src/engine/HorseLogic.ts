@@ -15474,15 +15474,14 @@ export class HorseLogic {
         );
         if (classCapFloorHeldPending) {
           classCapFloorHeldPending = false;
-          const kept = classCapFloorKeepsTheCall(
+          const beforeClassCapHold = decision;
+          decision = classCapFloorKeepsTheCall(
             decision,
             Math.max(0, Number(gs.currentBet ?? 0) - Number(player.bet ?? 0)),
             Number(player.stack ?? 0)
-          );
-          if (kept !== decision) {
-            decision = kept as HorseDecision;
-            if (tele) noteFire('omaha_class_cap_floor_raise_kept_to_call');
-          }
+          ) as HorseDecision;
+          if (decision !== beforeClassCapHold && tele)
+            noteFire('omaha_class_cap_floor_raise_kept_to_call');
         }
         // barrelContinuationOutlook receipt: a river decision read the turn
         // outlook but an earlier river owner decided before the V7 continuation.
