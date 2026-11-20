@@ -25701,10 +25701,16 @@ export class HorseLogic {
     // pot-sized river bet read 0.78, was capped to 0.42 (above the 0.333
     // price) and then cut to 0.277 by the penalty: fold, 40 of 40 seeds.
     // The call/fold comparisons use this; raise bars keep the full penalty.
+    // Only the big-river-bet cap retires the share. Where the cap bound because
+    // the wager was RAISED behind the Horse's bet or two players put chips in
+    // cold (raisedAfterAggr, coldFlushPressure15: hand 45855223, a dominated low
+    // flush facing a bet and a short jam), the penalty prices the second range
+    // the cap does not, and the cold stack-off stays a fold
+    // (HorsePloSmallFlushIncident.test.ts).
     const dominationPenaltyCall = omahaDominationPenaltyForCall(
       dominationPenalty,
       dominationPenaltyV15,
-      eq15 < equity,
+      eq15 < equity && !raisedAfterAggr && !coldFlushPressure15,
       isPlo45High(vi) && !isTournamentMode(gs)
     );
 

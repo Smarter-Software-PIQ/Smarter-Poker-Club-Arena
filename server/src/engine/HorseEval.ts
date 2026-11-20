@@ -41,6 +41,7 @@ import {
 } from './VariantRules.js';
 import { isPotLimitVariant, isFixedLimitVariant } from './BettingStructure.js';
 import { equityGovernor, governedIterations } from './EquityLoadGovernor.js';
+import { isPlo45High } from './HorsePlo45High.js';
 
 /**
  * V13's precision floor for banded multiway Omaha. It applies at FULL
@@ -3251,14 +3252,8 @@ export interface HorseEquityOutcomeCollector {
   samples: HorseEquityOutcomeSample[];
 }
 
-/**
- * PLO SCOPE (owner 2026-11-19 8:26 PM Chicago: the emergency batch is PLO4 and PLO5 only; PLO6 is separate and
- * must stay byte-identical): true for a four- or five-card high-only Omaha game. The batch's shared-code fixes act
- * only where this is true.
- */
-export function isPlo45High(vi: Pick<VariantInfo, 'isOmaha' | 'holeCount' | 'isHiLo'>): boolean {
-  return vi.isOmaha && !vi.isHiLo && (vi.holeCount === 4 || vi.holeCount === 5);
-}
+// isPlo45High (the PLO4/PLO5 high-only scope of the 2026-11-19 batch) lives in HorsePlo45High.ts; re-exported here.
+export { isPlo45High };
 
 /**
  * The strength an Omaha band hand is measured in by simulateEquity's rejection fallback. AUDIT-FILES-B (2026-11-19):
