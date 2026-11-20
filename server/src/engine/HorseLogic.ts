@@ -636,6 +636,7 @@ import {
   inSecondLookCapture,
   noteDecisionMs,
   noteDecisionRuleReceipt,
+  decisionRuleReceiptsSoFar,
   noteFire,
   noteHorseActionClamped,
   noteHorsePlanReevaluated,
@@ -10342,6 +10343,32 @@ export function omahaNoDrawRaiseFinal(
 
 /** The two draw rules of 2026-11-15, outermost in the wager rules: the bar on
  * a draw raise first, then the priced big-draw wager (which obeys the bar). */
+/**
+ * LEAKMAP 2026-11-19 (measurement only, every variant): one stage of the
+ * policy graph's wager_rules node. With telemetry on, a stage that changes the
+ * action or the amount records a per-decision rule receipt
+ * `wager_rules.<stage>` (BrainTelemetry.noteDecisionRuleReceipt) unless the
+ * stage recorded its own named receipt meanwhile. Before this, 1,267 PLO5
+ * decisions in 48 hours were changed by this node with no rule named. The
+ * decision is returned untouched: recording never changes what is decided.
+ */
+export function receiptWagerRuleStage(
+  tele: boolean,
+  stage: string,
+  before: HorseDecision,
+  run: () => HorseDecision
+): HorseDecision {
+  if (!tele) return run();
+  const was = { action: before.action, amount: before.amount };
+  const receiptsBefore = decisionRuleReceiptsSoFar()?.length ?? 0;
+  const after = run();
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const changed = was.action !== after.action || num(was.amount) !== num(after.amount);
+  if (changed && (decisionRuleReceiptsSoFar()?.length ?? 0) === receiptsBefore)
+    noteDecisionRuleReceipt(`wager_rules.${stage}`, was, after);
+  return after;
+}
+
 function omahaDrawRules(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -16325,81 +16352,65 @@ export class HorseLogic {
           nutRaise.decision
         );
       }
-      const prePremium = omahaOwnerRuledFinal(
-        omahaDrawRules(
-          omahaFacingBetEvRule(
-            omahaRiverMediumBetStrongHandCalls(
-              omahaReraisedPotRulesThenCallVsRaise(
-                omahaOutermostCallDiscipline(
-                  omahaReraisedPotFold(
-                    omahaBigBetCallFold(
-                      omahaOwnBetRules(
-                        pairedBoardRiverCheck(
-                          pairedBoardFold(
-                            omahaMadeHandDefenseRules(
-                              nutRaise.decision,
-                              player,
-                              gs,
-                              opts,
-                              beforePhase10,
-                              nearNutChosen
-                            ),
-                            player,
-                            gs,
-                            opts
-                          ),
-                          player,
-                          gs,
-                          opts
-                        ),
-                        player,
-                        gs,
-                        opts
-                      ),
-                      player,
-                      gs,
-                      opts
-                    ),
-                    player,
-                    gs,
-                    opts
-                  ),
-                  player,
-                  gs,
-                  opts
-                ),
-                player,
-                gs,
-                opts
-              ),
-              player,
-              gs,
-              opts
-            ),
-            player,
-            gs,
-            opts
-          ),
-          player,
-          gs,
-          opts
-        ),
-        player,
-        gs,
-        opts
+      // LEAKMAP 2026-11-19 (measurement only): every stage of this chain that
+      // changes the action records a per-decision rule receipt naming the stage
+      // (wager_rules.<stage>) unless the stage already recorded its own named
+      // receipt. The stages run in exactly the order the nested call ran them.
+      const wagerStage = (stage: string, before: HorseDecision, run: () => HorseDecision) =>
+        receiptWagerRuleStage(tele, stage, before, run);
+      const madeDefended = wagerStage('omaha_made_hand_defense', nutRaise.decision, () =>
+        omahaMadeHandDefenseRules(nutRaise.decision, player, gs, opts, beforePhase10, nearNutChosen)
+      );
+      const pairedFolded = wagerStage('paired_board_fold', madeDefended, () =>
+        pairedBoardFold(madeDefended, player, gs, opts)
+      );
+      const pairedRiverChecked = wagerStage('paired_board_river_check', pairedFolded, () =>
+        pairedBoardRiverCheck(pairedFolded, player, gs, opts)
+      );
+      const ownBetRuled = wagerStage('omaha_own_bet_rules', pairedRiverChecked, () =>
+        omahaOwnBetRules(pairedRiverChecked, player, gs, opts)
+      );
+      const bigBetRuled = wagerStage('omaha_big_bet_call_fold', ownBetRuled, () =>
+        omahaBigBetCallFold(ownBetRuled, player, gs, opts)
+      );
+      const reraisedFolded = wagerStage('omaha_reraised_pot_fold', bigBetRuled, () =>
+        omahaReraisedPotFold(bigBetRuled, player, gs, opts)
+      );
+      const outermostRuled = wagerStage('omaha_outermost_call_discipline', reraisedFolded, () =>
+        omahaOutermostCallDiscipline(reraisedFolded, player, gs, opts)
+      );
+      const reraisedThenCall = wagerStage(
+        'omaha_reraised_pot_rules_then_call_vs_raise',
+        outermostRuled,
+        () => omahaReraisedPotRulesThenCallVsRaise(outermostRuled, player, gs, opts)
+      );
+      const riverMediumRuled = wagerStage(
+        'omaha_river_medium_bet_strong_hand_calls',
+        reraisedThenCall,
+        () => omahaRiverMediumBetStrongHandCalls(reraisedThenCall, player, gs, opts)
+      );
+      const facingBetRuled = wagerStage('omaha_facing_bet_ev', riverMediumRuled, () =>
+        omahaFacingBetEvRule(riverMediumRuled, player, gs, opts)
+      );
+      const drawRuled = wagerStage('omaha_draw_rules', facingBetRuled, () =>
+        omahaDrawRules(facingBetRuled, player, gs, opts)
+      );
+      const prePremium = wagerStage('omaha_owner_ruled_final', drawRuled, () =>
+        omahaOwnerRuledFinal(drawRuled, player, gs, opts)
       );
       if (preflopAuthority) prePremium.preflopAuthority = preflopAuthority;
-      const ruled = holdemPremiumAggression(prePremium, player, gs, opts);
-      const floored = shortAllInCallFloor(ruled, player, gs, () =>
-        shortAllInDeadCheckEquity(player, gs, vi)
+      const ruled = wagerStage('holdem_premium_aggression', prePremium, () =>
+        holdemPremiumAggression(prePremium, player, gs, opts)
+      );
+      const floored = wagerStage('short_all_in_call_floor', ruled, () =>
+        shortAllInCallFloor(ruled, player, gs, () => shortAllInDeadCheckEquity(player, gs, vi))
       );
       if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
-      const checkRaised = riverBluffCheckRaise(floored, player, gs, opts);
-      const finalWager = callLargeRiverBoatWager(
-        checkRaised,
-        player,
-        gs,
-        opts.v86MultiStreetUnblocked !== false
+      const checkRaised = wagerStage('river_bluff_check_raise', floored, () =>
+        riverBluffCheckRaise(floored, player, gs, opts)
+      );
+      const finalWager = wagerStage('call_large_river_boat_wager', checkRaised, () =>
+        callLargeRiverBoatWager(checkRaised, player, gs, opts.v86MultiStreetUnblocked !== false)
       );
       // Owner 2026-11-15 (omahaStrongHandValue, default off): the node's
       // final river check or call with a strong hand, priced against the
