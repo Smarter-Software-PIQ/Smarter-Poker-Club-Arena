@@ -487,6 +487,202 @@ count_fatal_logs() {
   echo "$count"
 }
 
+# Zero fatal/shutdown/unexpected leadership_shutdown lifecycle logs during the
+# candidate's boot and soak window (incident 075013fd, Wave 2 Hardening).
+# Returns 0 on pass or not_armed (table not yet installed), 1 when any
+# matching lifecycle failure row was recorded (printing exact error/stack to
+# stderr), and 2 when the database or payload could not be read (fail closed).
+check_engine_lifecycle_logs() {
+  local since="$1" sha="$2" raw
+  [[ "$since" =~ ^[0-9]+$ ]] || return 2
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 2
+  raw=$(psql_db -At -v since="$since" -v sha="$sha" <<'SQL_LIFECYCLE_LOGS'
+\set QUIET on
+SET statement_timeout = '10s';
+SELECT set_config('standby.since', :'since', false) AS _s,
+       set_config('standby.sha', :'sha', false) AS _h \gset
+DO $chk$
+DECLARE
+  v_since bigint := current_setting('standby.since')::bigint;
+  v_sha text := current_setting('standby.sha');
+  v_result json;
+BEGIN
+  IF to_regclass('public.engine_lifecycle_logs') IS NULL THEN
+    v_result := json_build_object('status', 'not_armed', 'count', 0, 'rows', '[]'::json);
+  ELSE
+    SELECT json_build_object(
+      'status', CASE WHEN count(*) = 0 THEN 'pass' ELSE 'fail' END,
+      'count', count(*)::int,
+      'rows', COALESCE(json_agg(
+        json_build_object(
+          'id', id,
+          'createdAt', created_at,
+          'instanceId', instance_id,
+          'releaseSha', release_sha,
+          'level', level,
+          'event', event,
+          'message', message,
+          'kind', detail->>'kind',
+          'errorName', detail->>'errorName',
+          'errorMessage', detail->>'errorMessage',
+          'stack', detail->>'stack'
+        ) ORDER BY created_at ASC, id ASC
+      ), '[]'::json)
+    )
+    INTO v_result
+    FROM (
+      SELECT id, created_at, instance_id, release_sha, level, event, message, detail
+      FROM public.engine_lifecycle_logs
+      WHERE created_at >= to_timestamp(v_since)
+        AND (release_sha = v_sha OR release_sha = left(v_sha, 8) OR release_sha IS NULL)
+        AND (
+          event IN ('fatal_error', 'shutdown_failed', 'shutdown_deadline', 'leadership_shutdown')
+          OR level = 'fatal'
+        )
+      ORDER BY created_at ASC, id ASC
+      LIMIT 20
+    ) bad;
+  END IF;
+  PERFORM set_config('standby.lifecycle_result', v_result::text, false);
+END
+$chk$;
+SELECT current_setting('standby.lifecycle_result');
+SQL_LIFECYCLE_LOGS
+  ) || return 2
+  python3 - "$raw" <<'PY_LIFECYCLE'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    status = data['status']
+    count = data['count']
+    rows = data['rows']
+    assert status in ('pass', 'fail', 'not_armed')
+    assert type(count) is int and count >= 0
+    assert isinstance(rows, list)
+except Exception as exc:
+    print(f'standby-engine: lifecycle_logs_unreadable: {exc}', file=sys.stderr)
+    sys.exit(2)
+summary = {'status': status, 'count': count}
+print(json.dumps(summary))
+if status == 'fail' or count > 0:
+    print(f'standby-engine: FAIL {count} fatal/shutdown lifecycle log row(s) recorded during certification:', file=sys.stderr)
+    for row in rows:
+        print(
+            f"  [{row.get('createdAt')}] event={row.get('event')} level={row.get('level')} "
+            f"instance={row.get('instanceId')} sha={row.get('releaseSha')} "
+            f"kind={row.get('kind')} message={row.get('message')}",
+            file=sys.stderr,
+        )
+        if row.get('errorName') or row.get('errorMessage'):
+            print(f"    error: {row.get('errorName') or 'Error'}: {row.get('errorMessage') or ''}", file=sys.stderr)
+        if row.get('stack'):
+            print(f"    stack:\n{row['stack']}", file=sys.stderr)
+    sys.exit(1)
+sys.exit(0)
+PY_LIFECYCLE
+}
+
+# Unintended between-hand delay gate during Backup soak (incident 075013fd,
+# Wave 2 Hardening). Backup soak deals classic hands into public.hand_history;
+# when fn_ca_hand_gap_unintended_delay is installed on the copy, fail
+# certification if any graded shape with >= 5 graded hands exceeds its
+# unintended_p95_ms budget (250 ms). Returns 0 on pass or not_armed, 1 on
+# breach (printing offending shapes to stderr), and 2 when unreadable.
+check_soak_hand_gap_delay() {
+  local since="$1" window_minutes="${2:-15}" raw
+  [[ "$since" =~ ^[0-9]+$ ]] || return 2
+  [[ "$window_minutes" =~ ^[0-9]+$ ]] || return 2
+  raw=$(psql_db -At -v since="$since" -v window_minutes="$window_minutes" <<'SQL_HAND_GAP'
+\set QUIET on
+SET statement_timeout = '15s';
+SELECT set_config('standby.since', :'since', false) AS _s,
+       set_config('standby.window_minutes', :'window_minutes', false) AS _w \gset
+DO $gap$
+DECLARE
+  v_since bigint := current_setting('standby.since')::bigint;
+  v_win int := LEAST(GREATEST(current_setting('standby.window_minutes')::int, 1), 15);
+  v_result json;
+  v_hands_in_soak int;
+BEGIN
+  IF to_regprocedure('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)') IS NULL THEN
+    v_result := json_build_object(
+      'status', 'not_armed',
+      'windowMinutes', v_win,
+      'handsInSoak', 0,
+      'breaches', '[]'::json,
+      'shapes', '[]'::json
+    );
+  ELSE
+    SELECT count(*)::int INTO v_hands_in_soak
+    FROM public.hand_history
+    WHERE created_at >= to_timestamp(v_since);
+
+    WITH graded_rows AS (
+      SELECT kind, shape, graded, hands, gap_p50_ms, owed_p50_ms,
+             unintended_p50_ms, unintended_p95_ms, unintended_p99_ms,
+             over_budget, COALESCE(budget_ms, 250) AS budget_ms
+      FROM public.fn_ca_hand_gap_unintended_delay(now(), v_win)
+    ),
+    breach_rows AS (
+      SELECT *
+      FROM graded_rows
+      WHERE graded IS TRUE
+        AND hands >= 5
+        AND unintended_p95_ms > budget_ms
+    )
+    SELECT json_build_object(
+      'status', CASE WHEN (SELECT count(*) FROM breach_rows) = 0 THEN 'pass' ELSE 'fail' END,
+      'windowMinutes', v_win,
+      'handsInSoak', v_hands_in_soak,
+      'breaches', COALESCE((SELECT json_agg(row_to_json(b) ORDER BY b.kind, b.shape) FROM breach_rows b), '[]'::json),
+      'shapes', COALESCE((SELECT json_agg(row_to_json(g) ORDER BY g.kind, g.shape) FROM graded_rows g), '[]'::json)
+    )
+    INTO v_result;
+  END IF;
+  PERFORM set_config('standby.hand_gap_result', v_result::text, false);
+END
+$gap$;
+SELECT current_setting('standby.hand_gap_result');
+SQL_HAND_GAP
+  ) || return 2
+  python3 - "$raw" <<'PY_HAND_GAP'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    status = data['status']
+    hands_in_soak = data['handsInSoak']
+    breaches = data['breaches']
+    shapes = data['shapes']
+    window_minutes = data['windowMinutes']
+    assert status in ('pass', 'fail', 'not_armed')
+    assert type(hands_in_soak) is int and hands_in_soak >= 0
+    assert isinstance(breaches, list) and isinstance(shapes, list)
+except Exception as exc:
+    print(f'standby-engine: hand_gap_check_unreadable: {exc}', file=sys.stderr)
+    sys.exit(2)
+summary = {
+    'status': status,
+    'windowMinutes': window_minutes,
+    'handsInSoak': hands_in_soak,
+    'breachCount': len(breaches),
+    'breaches': breaches,
+}
+print(json.dumps(summary))
+if status == 'fail' or len(breaches) > 0:
+    print(f'standby-engine: FAIL unintended hand-gap delay exceeded budget on {len(breaches)} graded shape(s):', file=sys.stderr)
+    for b in breaches:
+        print(
+            f"  kind={b.get('kind')} shape={b.get('shape')} hands={b.get('hands')} "
+            f"unintended_p50_ms={b.get('unintended_p50_ms')} unintended_p95_ms={b.get('unintended_p95_ms')} "
+            f"unintended_p99_ms={b.get('unintended_p99_ms')} budget_ms={b.get('budget_ms')} "
+            f"over_budget={b.get('over_budget')}",
+            file=sys.stderr,
+        )
+    sys.exit(1)
+sys.exit(0)
+PY_HAND_GAP
+}
+
 wait_auto_recovery() {
   local sha="$1" container_id="$2" before="$3" deadline=$(( $(date +%s) + $4 )) count h l
   [[ "$before" =~ ^[0-9]+$ ]] || return 1
@@ -571,8 +767,10 @@ cmd_certify() {
   fi
 
   # Soak: stays up, no restarts, no fatal errors, bounded memory growth.
+  local lifecycle_check='null' hand_gap_check='null' lc_rc hg_rc lc_count soak_started soak_window_min
   if [ "$verdict" = pass ]; then
     sleep 60
+    soak_started=$(date +%s)
     rss0=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
     local end=$(( $(date +%s) + soak ))
     local dealt=0 h
@@ -591,6 +789,18 @@ cmd_certify() {
     if [ "$seats" -gt 0 ] && [ "$dealt" -eq 0 ]; then
       record 'no_hands_dealt_during_soak'
     fi
+    # Unintended between-hand delay check over the steady-state soak window.
+    soak_window_min=$(( ( $(date +%s) - soak_started + 59 ) / 60 ))
+    [ "$soak_window_min" -lt 1 ] && soak_window_min=1
+    [ "$soak_window_min" -gt 15 ] && soak_window_min=15
+    hg_rc=0
+    hand_gap_check=$(check_soak_hand_gap_delay "$soak_started" "$soak_window_min") || hg_rc=$?
+    if [ "$hg_rc" -eq 1 ]; then
+      record 'hand_gap_unintended_delay_exceeded'
+    elif [ "$hg_rc" -ne 0 ]; then
+      hand_gap_check='null'
+      record 'hand_gap_check_unreadable'
+    fi
     rss1=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
   fi
   if [ "$verdict" = pass ]; then
@@ -600,10 +810,21 @@ cmd_certify() {
   restarts=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo -1)
   fatals=$(count_fatal_logs "$started" "$sha") || { record 'container_logs_unreadable'; fatals=-1; }
   [ "$fatals" -eq 0 ] || record "fatal_log_lines:$fatals"
+  # Always check engine_lifecycle_logs so boot/soak fatal crashes print their
+  # exact error and stack from the Backup database and fail closed.
+  lc_rc=0
+  lifecycle_check=$(check_engine_lifecycle_logs "$started" "$sha") || lc_rc=$?
+  if [ "$lc_rc" -eq 1 ]; then
+    lc_count=$(printf '%s' "$lifecycle_check" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count", 1))' 2>/dev/null || echo 1)
+    record "lifecycle_fatal_events:$lc_count"
+  elif [ "$lc_rc" -ne 0 ]; then
+    lifecycle_check='null'
+    record 'lifecycle_logs_unreadable'
+  fi
 
   local reasons_json="[]"
   [ ${#reasons[@]} -eq 0 ] || reasons_json=$(printf '%s\n' "${reasons[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
-  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" <<PY
+  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" <<PY
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -611,6 +832,7 @@ doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": 
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
+       "lifecycleLogCheck": json.loads(sys.argv[6]), "handGapCheck": json.loads(sys.argv[7]),
        "seed": json.load(open("$STATE_DIR/seed.json")) if __import__("os").path.exists("$STATE_DIR/seed.json") else None,
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")
