@@ -1,6 +1,6 @@
 # omahaHiLoTournamentFirstIn: authority for the live switch
 
-**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, tests and off-identity are recorded, and the declared offline evaluation is recorded as SUPPORTED on two seeds and the league card measured +36.54 bb/100 (stderr 4.92) on seed 20261120 against a mirror field; the replay on real audited decisions was not run, no live read exists, and no PASS-BAR for a replay is declared.
+**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, tests and off-identity are recorded, and the declared offline evaluation is recorded as SUPPORTED on two seeds and the league card measured significant and positive on three of three seeds against a mirror field (+36.54, +35.80 and +38.92 bb/100, each stderr about 4.9); the replay on real audited decisions was not run, no live read exists, and no PASS-BAR for a replay is declared.
 
 Written 2026-11-20 from what the repository records (sources named per section). Nothing was run for this file and no number in it was measured on 2026-11-20.
 
@@ -45,8 +45,10 @@ Run 2026-11-20 by a coordinator agent of session 01UxDLnH with the single-card l
 | seed     | card                                            | arm A                               | arm B | variant, seats, depth, format    | field  | pairs (hands) | bb/100 (A minus B) | stderr | block stderr (blocks) | verdict     | engine revision                          | wall    | illegal actions |
 | -------- | ----------------------------------------------- | ----------------------------------- | ----- | -------------------------------- | ------ | ------------- | ------------------ | ------ | --------------------- | ----------- | ---------------------------------------- | ------- | --------------- |
 | 20261120 | plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb | {"omahaHiLoTournamentFirstIn":true} | {}    | plo8, 2 seats, 12 bb, tournament | mirror | 6000 (12000)  | +36.54             | 4.92   | 5.41 (40)             | SIGNIFICANT | 63f3215d2f568bda6ae17682260fcfedc0e20330 | 567.5 s | 0               |
+| 20261121 | plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb | {"omahaHiLoTournamentFirstIn":true} | {}    | plo8, 2 seats, 12 bb, tournament | mirror | 6000 (12000)  | +35.80             | 4.90   | 5.54 (40)             | SIGNIFICANT | 21d1f566062639935cefe04eacb4923a3e54c0f9 | 455.0 s | 0               |
+| 20261122 | plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb | {"omahaHiLoTournamentFirstIn":true} | {}    | plo8, 2 seats, 12 bb, tournament | mirror | 6000 (12000)  | +38.92             | 4.93   | 4.87 (40)             | SIGNIFICANT | 21d1f566062639935cefe04eacb4923a3e54c0f9 | 224.0 s | 0               |
 
-Further seeds: running on 2026-11-20; each is added as one more row of this table, copied from the runner's output unedited. A league card is not the replay on audited decisions and does not change the status of this file.
+Three seeds, each copied from the runner's output (server/src/scripts/horseLeagueCard.ts, PR #11534) unedited. The runs read no database, so the solver stores were empty (charts 0, postflop 0, postflopV31 0); the nightly league fills them, and a nightly row may differ. The 12 bb card is the only league card for this option: no 8 bb or 20 bb card exists. A league card is not the replay on audited decisions and does not change the status of this file.
 
 ## The recorded evaluation (offline, opponents are variants of the Horse brain)
 
@@ -63,7 +65,7 @@ Limits as recorded: "Every opponent is a variant of the Horse brain; no human-ca
 
 - Mechanism, scope, visibility (receipt), tests: recorded (sections above).
 - Option unset or false: decisions identical (the law test above).
-- League card (mirror field, Horse-brain opponents): seed 20261120, +36.54 bb/100, stderr 4.92, SIGNIFICANT (section above); further seeds owed.
+- League card (mirror field, Horse-brain opponents): seeds 20261120, 20261121 and 20261122: +36.54, +35.80 and +38.92 bb/100 (stderr 4.92, 4.90, 4.93), each SIGNIFICANT (section above); offline runs with empty solver stores, not nightly rows.
 - Declared offline evaluation: SUPPORTED on development seed 94101 and on confirmation seed 94202 (changelog). It is an offline result against Horse-brain opponents, not a replay on audited decisions and not a live read.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 - Value against people, live reach of the receipt: NOT MEASURED.
