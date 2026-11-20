@@ -3,6 +3,7 @@
  * hand numbers only; the recorded spots are the existing flop fixtures
  * (HorseOmahaFlopFacingBetEv.test-support.ts, the Horse's own cards).
  */
+import { selectionScore } from './OmahaMathCoreWire.js';
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../../types.js';
 import { evaluateOmahaHand, compareHands } from '../PokerEngine.js';
@@ -128,11 +129,15 @@ describe('omahaMathCore decision laws', () => {
     spot({ hole: 'QsJsTh9h', board: 'KsQh2d', pot: 120, toCall: 60 }),
     spot({ hole: 'AdAcKs7h', board: 'Ah9c4d', pot: 150, toCall: 50 }),
   ];
-  it('the choice is the largest EV of the legal actions priced (argmax law)', () => {
+  it('the choice is the largest lower confidence bound (EV - SE) of the legal actions priced (argmax law)', () => {
+    // COREWIRE (PROVE-2 winner's curse): ranked by EV minus its own standard error
     for (const s of facing) {
       const { receipt } = decideOmahaMathCore(s, { now });
-      const best = Math.max(...receipt.evs.map((e) => e.ev));
-      expect(receipt.choice.ev).toBe(best);
+      const best = Math.max(...receipt.evs.map((e) => selectionScore(e)));
+      const chosen = receipt.evs.find(
+        (e) => e.action === receipt.choice.action && e.amount === receipt.choice.amount
+      )!;
+      expect(selectionScore(chosen)).toBeCloseTo(best, 1);
       for (const e of receipt.evs)
         expect(s.legal.includes(e.action) || e.action === 'bet').toBe(true);
     }

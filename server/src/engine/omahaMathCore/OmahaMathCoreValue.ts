@@ -263,6 +263,12 @@ interface Node {
   st: number;
   /** offset from the decision street */
   off: number;
+  /**
+   * the opponents called a raise to get here (lane COREWIRE, PROVE-2 root cause 2): what such a capped range
+   * folds to a later wager is not measured (the street cells measure ordinary callers), so later streets take
+   * no fold credit on this branch
+   */
+  capped?: boolean;
 }
 
 interface Best {
@@ -334,7 +340,10 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     const measured = spot.response(realFrac, allIn, n.off, line);
     const isRaise = line !== 'bet';
     // no fold credit: no cell at all, or a raise line whose fold-to-raise rests on fewer than RAISE_FOLD_CREDIT_MIN_N
-    const noFoldCredit = !measured || (isRaise && !((measured.n ?? 0) >= RAISE_FOLD_CREDIT_MIN_N));
+    const noFoldCredit =
+      !measured ||
+      (isRaise && !((measured.n ?? 0) >= RAISE_FOLD_CREDIT_MIN_N)) ||
+      (n.off > 0 && n.capped === true);
     if (!measured && !isRaise) return null; // an unmeasured bet stays unpriced (the core prices its own bets)
     const r0: ValueResponse = noFoldCredit
       ? {
@@ -342,7 +351,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
           raise: measured ? measured.raise : 0,
           callers: measured ? Math.max(1, measured.callers) : Math.max(1, spot.nOpp),
           n: measured?.n,
-          source: `${measured ? measured.source : 'no measured cell'}; no fold credit (raise line, n < ${RAISE_FOLD_CREDIT_MIN_N} or none)`,
+          source: `${measured ? measured.source : 'no measured cell'}; no fold credit (${n.off > 0 && n.capped === true ? 'later street after a called raise: capped range, unmeasured' : `raise line, n < ${RAISE_FOLD_CREDIT_MIN_N} or none`})`,
         }
       : measured;
     let fold = r0.fold;
@@ -394,6 +403,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
           share: n.share * (pr + pc),
           st: n.st + 1,
           off: n.off + 1,
+          capped: n.capped === true || isRaise,
         };
         const b = bestPlan(next);
         evCall = pc * (b.ev - adds);

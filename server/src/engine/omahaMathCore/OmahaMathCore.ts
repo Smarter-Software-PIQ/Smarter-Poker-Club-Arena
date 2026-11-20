@@ -61,8 +61,10 @@ import {
   type PreflopPublicAction,
 } from './OmahaMathCorePreflop.js';
 import type { PublicStreetAction } from './OmahaMathCoreRangeTrack.js';
+import { RAISE_FOLD_CREDIT_MIN_N } from './OmahaMathCoreValue.js';
 import {
   horseDefenceFold,
+  selectionScore,
   wiredBetRate as betRate,
   wiredHeroResponse,
   wiredResponse,
@@ -645,6 +647,18 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       // without end (PROVE self-play). The raise share stays the measured one.
       return horseDefenceFold(frac, c);
     }
+    // a raise takes fold credit only from its exact street/line cell with n >= 30 (VALUE
+    // RAISE_FOLD_CREDIT_MIN_N; persons' answers to raises are thin and value-heavy: PROVE river C7)
+    if (
+      c &&
+      (state.heroWagerLine === 'raise' || state.heroWagerLine === 'check_raise') &&
+      c.exactN < RAISE_FOLD_CREDIT_MIN_N
+    )
+      return {
+        p: 0,
+        r: Math.max(0, Math.min(1, c.raise)),
+        source: `${c.source}; no fold credit (raise line, exact n ${c.exactN} < ${RAISE_FOLD_CREDIT_MIN_N})`,
+      };
     return c
       ? { p: c.fold, r: Math.max(0, Math.min(1 - c.fold, c.raise)), source: c.source }
       : { p: 0, r: 0, source: 'no measured cell: no fold credit' };
@@ -1148,9 +1162,12 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   }
 
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');
+  // ranked by the lower confidence bound (selectionScore, OmahaMathCoreWire.ts); ties: fewer chips
   let best = evs[0];
-  for (const a of evs)
-    if (a.ev > best.ev + 1e-9 || (Math.abs(a.ev - best.ev) <= 1e-9 && a.adds < best.adds)) best = a;
+  for (const a of evs) {
+    const d = selectionScore(a) - selectionScore(best);
+    if (d > 1e-9 || (Math.abs(d) <= 1e-9 && a.adds < best.adds)) best = a;
+  }
   const r4 = (x: number | null) => (x === null ? null : Math.round(x * 1e4) / 1e4);
   return {
     receipt: {

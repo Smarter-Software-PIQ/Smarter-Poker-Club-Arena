@@ -13,7 +13,7 @@
 import type { HorseDecision, SeatPlayer } from '../../types.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
-import { publicHistoryOf } from './OmahaMathCoreWire.js';
+import { publicHistoryOf, selectionScore } from './OmahaMathCoreWire.js';
 import {
   decideOmahaMathCore,
   type CoreOpponent,
@@ -339,7 +339,10 @@ export function omahaMathCoreRule(
     const same = (a: HorseDecision, b: HorseDecision) =>
       a.action === b.action &&
       (a.action === 'all_in' || Math.abs((a.amount ?? 0) - (b.amount ?? 0)) <= 0.011);
-    const ranked = [...receipt.evs].sort((x, y) => y.ev - x.ev || x.adds - y.adds);
+    // the core's own ranking: lower confidence bound (EV - SE), ties to fewer chips
+    const ranked = [...receipt.evs].sort(
+      (x, y) => selectionScore(y) - selectionScore(x) || x.adds - y.adds
+    );
     let legal: HorseDecision | null = null;
     let legalizeError: string | null = null;
     for (const cand of ranked) {

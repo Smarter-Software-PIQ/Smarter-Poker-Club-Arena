@@ -65,6 +65,15 @@ import type { CoreActionEv, CoreOpponent, CoreState } from './OmahaMathCore.js';
 export const OMAHA_MATH_CORE_WIRE_VERSION = 'omaha-math-core-wire-v1';
 
 /**
+ * Selection by the lower confidence bound (PROVE-2 root cause 1, winner's curse): candidates are ranked by
+ * EV minus one standard error of their EV (equity sampling and the measured cells' binomial error, as each
+ * candidate reports it), so a candidate whose edge is inside its own noise does not win the argmax.
+ */
+export function selectionScore(a: { ev: number; se: number | null }): number {
+  return a.ev - (a.se !== null && Number.isFinite(a.se) ? Math.max(0, a.se) : 0);
+}
+
+/**
  * Provenance law: preflopRealization.v1.json (lane PREFLOP-EV) is built from the Horses' own hole cards
  * over hands where those cards were never shown at the table. That is neither public_actions nor
  * showdown_only, so the core does not read it (preflop realization = 1) until the lead admits it. The
@@ -102,6 +111,11 @@ export interface WiredResponse {
   fold: number;
   raise: number;
   n: number;
+  /**
+   * observations of this exact street and line (no back-off across street or line): what a raise's fold
+   * credit needs (XR-BLUFF finding 3 / VALUE RAISE_FOLD_CREDIT_MIN_N); 0 when the cell was borrowed
+   */
+  exactN: number;
   source: string;
 }
 
@@ -112,6 +126,9 @@ export function wiredResponse(board: readonly number[], k: ResponseKey): WiredRe
   let fold = clamp01(pop.fold);
   let raise = clamp01(pop.raise);
   let source = pop.source;
+  // the population key is game|mode|street|line|band|players|opp|bettor (MeasuredRanges back-off)
+  const key = (/(\S+\|\S+) \(n=/.exec(pop.source)?.[1] ?? '').split('|');
+  const exactN = key[2] === k.street && key[3] === k.line ? pop.n : 0;
   if (board.length >= 3 && k.band !== 'all') {
     const t = textureFold({
       street: k.street,
@@ -148,7 +165,7 @@ export function wiredResponse(board: readonly number[], k: ResponseKey): WiredRe
     raise = Math.min(clamp01(post.raise), 1 - fold);
     source = post.source;
   }
-  return { fold, raise, n: pop.n, source };
+  return { fold, raise, n: pop.n, exactN, source };
 }
 
 /** The response to the HERO's wager: wiredResponse plus the hero's blockers (PLAYBOOK, exact card removal). */
@@ -167,6 +184,7 @@ export function wiredHeroResponse(
     fold: clamp01(b.p),
     raise: Math.min(clamp01(c.raise * keep), 1 - clamp01(b.p)),
     n: c.n,
+    exactN: c.exactN,
     source: `${c.source}; ${b.source}`,
   };
 }
@@ -591,9 +609,71 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
   ): ValueResponse | null => {
     const mk = `${allIn ? 'A' : r3(frac)}|${off}|${lineAt(off, line)}`;
     if (respMemo.has(mk)) return respMemo.get(mk)!;
-    const v = responseUncached(frac, allIn, off, line);
+    const raw = responseUncached(frac, allIn, off, line);
+    const v = raw ? isotonic(raw, frac, allIn, off, line) : raw;
     respMemo.set(mk, v);
     return v;
+  };
+  // PROVE-2 root cause 1: the size-band cells are measured separately, so the field's fold share is not
+  // monotone in the size and the argmax harvests the noise. The bands are pooled adjacent-violators style
+  // (weights = their counts) into a non-decreasing fold curve; a size's fold share moves by its band's
+  // correction. One curve per (street offset, line).
+  const BAND_REP: readonly [Band, number, boolean][] = [
+    ['small', 1 / 3, false],
+    ['half', 0.5, false],
+    ['twothirds', 0.7, false],
+    ['pot', 1, false],
+    ['allin', 1, true],
+  ];
+  const isoMemo = new Map<string, Map<Band, number> | null>();
+  const isotonic = (
+    raw: ValueResponse,
+    frac: number,
+    allIn: boolean,
+    off: number,
+    line: 'bet' | 'raise' | 'check_raise'
+  ): ValueResponse => {
+    const ik = `${off}|${lineAt(off, line)}`;
+    let corr = isoMemo.get(ik);
+    if (corr === undefined) {
+      const pts = BAND_REP.map(([b, f, a]) => ({ b, r: responseUncached(f, a, off, line) }));
+      if (pts.some((p) => !p.r)) corr = null;
+      else {
+        // pool adjacent violators: blocks of (sum w*fold, sum w, members)
+        const blocks: { s: number; w: number; m: Band[] }[] = [];
+        for (const p of pts) {
+          const w = Math.max(1, p.r!.n ?? 1);
+          blocks.push({ s: w * p.r!.fold, w, m: [p.b] });
+          while (blocks.length > 1) {
+            const z = blocks[blocks.length - 1];
+            const y = blocks[blocks.length - 2];
+            if (y.s / y.w <= z.s / z.w + 1e-12) break;
+            blocks.splice(blocks.length - 2, 2, {
+              s: y.s + z.s,
+              w: y.w + z.w,
+              m: [...y.m, ...z.m],
+            });
+          }
+        }
+        corr = new Map();
+        for (const bl of blocks)
+          for (const b of bl.m) {
+            const p = pts.find((x) => x.b === b)!;
+            corr.set(b, bl.s / bl.w - p.r!.fold);
+          }
+      }
+      isoMemo.set(ik, corr);
+    }
+    if (!corr) return raw;
+    const d = corr.get(sizeBand(frac, allIn)) ?? 0;
+    if (Math.abs(d) < 1e-9) return raw;
+    const fold = clamp01(raw.fold + d);
+    return {
+      ...raw,
+      fold,
+      raise: Math.min(raw.raise, 1 - fold),
+      source: `${raw.source}; monotone fold curve ${d > 0 ? '+' : ''}${r3(d)}`,
+    };
   };
   const responseUncached = (
     frac: number,
@@ -623,11 +703,13 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         off === 0 ? wiredHeroResponse(s.hole, s.board, s.seed, key) : wiredResponse(s.board, key);
       if (!o.person) {
         const h = horseDefenceFold(allIn ? Math.max(frac, 1) : frac, r);
-        r = { fold: h.p, raise: h.r, n: r ? r.n : 0, source: h.source };
+        r = { fold: h.p, raise: h.r, n: r ? r.n : 0, exactN: r ? r.exactN : 0, source: h.source };
       }
       if (r) {
         measured++;
-        nMin = Math.min(nMin, r.n);
+        // a raise line's fold credit rests on the exact street/line cell only (VALUE: n >= 30 or none)
+        const isRaiseLine = key.line === 'raise' || key.line === 'check_raise';
+        nMin = Math.min(nMin, isRaiseLine ? r.exactN : r.n);
       }
       resp.push({
         seat: o.seat,
@@ -678,11 +760,25 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     let nv: number | undefined;
     const srcs: string[] = [];
     for (const o of who) {
+      // PROVE-2 root cause 3: the opponent's wager after the hero's check is his measured rate for that
+      // line (this street: a probe after the hero's earlier aggression, a stab otherwise, his barrel when he
+      // was the aggressor; later streets: his barrel or probe the same way), not his all-lines rate
+      const heroWasAggressor = s.heroWagerLine === 'cbet' || s.heroWagerLine === 'barrel';
+      const wl: Line =
+        off === 0
+          ? o.prevAggressor
+            ? street === 'flop'
+              ? 'cbet'
+              : 'barrel'
+            : heroWasAggressor
+              ? 'probe'
+              : 'stab'
+          : 'probe';
       const br = wiredBetRate({
         game,
         mode,
         street: stName,
-        line: 'all',
+        line: wl,
         players: playersNow,
         actor: actorOf(o),
         user: o.person ? o.user : null,
@@ -768,6 +864,8 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
   const seen = new Set<string>();
   let callNote: string | null = null;
   for (const cd of vr.candidates) {
+    // the core prices the fold itself (0)
+    if (cd.kind === 'fold') continue;
     if (cd.kind === 'check') {
       if (toCall > 0.005 || !c.legalHas('check')) continue;
       evs.push({

@@ -108,7 +108,8 @@ function field(
 const noRake = (p: number) => p;
 
 function cell(fold: number, raise: number, source: string): ValueResponse {
-  return { fold, raise, callers: 1, source };
+  // COREWIRE: a measured cell carries its count (lead: raises need n >= 30 for fold credit; these spots state measured cells)
+  return { fold, raise, callers: 1, n: 100, source };
 }
 
 function spot(
