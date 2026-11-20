@@ -13,7 +13,9 @@
  * removed). Each lookup returns its key and n for the receipt; a missing cell
  * is "no measurement" and is said so in the receipt.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   lookupResponse,
   personFoldRate,
@@ -26,13 +28,25 @@ import {
 // tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
 // emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
 // image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
-// the server root is three levels above this module in both trees.
-const publicTables: unknown = JSON.parse(
-  readFileSync(
-    new URL('../../../src/engine/omahaMathCore/publicTables.v3.json', import.meta.url),
-    'utf8'
-  )
-);
+// the server root is three levels above this module in both trees. Where the module's own URL is not a file
+// URL (the root test suite runs under happy-dom), the table is found from the working directory: the server
+// root, or the repository root above it.
+function omahaMathCoreTable(name: string): unknown {
+  const at = `src/engine/omahaMathCore/${name}`;
+  const here = String(import.meta.url);
+  const candidates = [
+    ...(here.startsWith('file:') ? [fileURLToPath(new URL(`../../../${at}`, here).href)] : []),
+    join(process.cwd(), at),
+    join(process.cwd(), 'server', at),
+  ];
+  const found = candidates.find((path) => existsSync(path));
+  if (!found)
+    throw new Error(
+      `omahaMathCore: table ${name} is not beside the engine (${candidates.join(', ')})`
+    );
+  return JSON.parse(readFileSync(found, 'utf8'));
+}
+const publicTables: unknown = omahaMathCoreTable('publicTables.v3.json');
 
 export const OMAHA_MATH_CORE_ALLOWED_PROVENANCE: ReadonlySet<string> = new Set([
   'public_actions',

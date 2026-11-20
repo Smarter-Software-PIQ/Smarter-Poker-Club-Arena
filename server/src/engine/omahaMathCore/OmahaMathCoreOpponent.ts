@@ -25,19 +25,33 @@
  * population cell unchanged with source "population". Every source string carries
  * the snapshot version.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // The table is read from the source tree at load, not imported: the engine image is compiled by
 // tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
 // emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
 // image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
-// the server root is three levels above this module in both trees.
-const snapshotJson: unknown = JSON.parse(
-  readFileSync(
-    new URL('../../../src/engine/omahaMathCore/opponentModel.v1.json', import.meta.url),
-    'utf8'
-  )
-);
+// the server root is three levels above this module in both trees. Where the module's own URL is not a file
+// URL (the root test suite runs under happy-dom), the table is found from the working directory: the server
+// root, or the repository root above it.
+function omahaMathCoreTable(name: string): unknown {
+  const at = `src/engine/omahaMathCore/${name}`;
+  const here = String(import.meta.url);
+  const candidates = [
+    ...(here.startsWith('file:') ? [fileURLToPath(new URL(`../../../${at}`, here).href)] : []),
+    join(process.cwd(), at),
+    join(process.cwd(), 'server', at),
+  ];
+  const found = candidates.find((path) => existsSync(path));
+  if (!found)
+    throw new Error(
+      `omahaMathCore: table ${name} is not beside the engine (${candidates.join(', ')})`
+    );
+  return JSON.parse(readFileSync(found, 'utf8'));
+}
+const snapshotJson: unknown = omahaMathCoreTable('opponentModel.v1.json');
 
 export type OppTier =
   | 'nutted'
