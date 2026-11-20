@@ -266,6 +266,11 @@ describe('PREFLOP-EV behaviour through the core (one path for table and Lightnin
   // COREWIRE-2 (realization admitted 2026-11-19): still fails on the v1 preflop model in this tree (call 31.6 <
   // 5-bet 43.8 for AKQQ rainbow facing a 4-bet); PREFLOP-EV pass 3 (65fe22750dd, not merged: preflop latency) is
   // the fix. Preflop stays behind omahaMathCorePreflop OFF. Kept visible as a skip, never passed by tuning.
+  // CORE-3 (2026-11-20, offline, real cards): this law as written is contradicted by the data. AcKdQhQs7c's all-in
+  // equity vs persons' REAL PLO5 4-bet holdings (Oct, n 95 without card conflicts) is 0.542 +- 0.009 (only 14% of those
+  // holdings carry AA, n 181); the core prices 0.532 vs the 4-bettor's band, so 5-bet > call is the max-EV answer vs
+  // this population. The owner's order is conditional ("does not 5-bet when call EV is higher"); the choice-is-max-EV
+  // half of this test holds. The unconditional "AKQQ calls" half needs an AA-heavy 4-bettor fixture, not a new constant.
   it.skip('AKQQ rainbow does not 5-bet a 4-bet when calling is worth more; aces do; the choice is always the max-EV action', () => {
     const akqq = decideOmahaMathCore(facing4bet('AcKdQhQs7c', 'table', 400, 400), clock).receipt;
     const aces = decideOmahaMathCore(facing4bet('AsAhKsQhJd', 'table', 400, 400), clock).receipt;
