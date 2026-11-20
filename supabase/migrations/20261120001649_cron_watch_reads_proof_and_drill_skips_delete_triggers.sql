@@ -34,6 +34,10 @@
 BEGIN;
 
 SET LOCAL lock_timeout = '4s';
+-- Deliberately restoring 20261119183127's generic BEFORE DELETE trigger check
+-- and ca_detector_runs record on public.fn_ca_alarm_drill, which lower-versioned
+-- 20261119180800 overwrote at 2026-11-19 21:39:33Z.
+SET LOCAL ca.allow_function_rollback = 'public.fn_ca_alarm_drill';
 
 CREATE OR REPLACE FUNCTION public.fn_ca_alarm_drill()
  RETURNS jsonb
