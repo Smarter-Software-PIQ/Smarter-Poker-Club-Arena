@@ -48,7 +48,10 @@ describe('player-felt latency is recorded hourly', () => {
       expect(code).toContain(`THEN '${reason}'`);
     }
     expect(code).toContain("THEN ''hand_for_hand''");
-    expect(code).toContain("IF to_regclass('public.ca_tournament_hand_for_hand') IS NOT NULL THEN");
+    expect(code).toContain(
+      "v_h4h_rel regclass := to_regclass('public.ca_tournament_hand_for_hand');"
+    );
+    expect(code).toContain('IF v_h4h_rel IS NOT NULL THEN');
     expect(code).toContain("WHEN s.next_start - s.ended_at >= interval '60 seconds' THEN 'idle'");
   });
 

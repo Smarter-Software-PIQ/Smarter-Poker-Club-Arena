@@ -109,15 +109,18 @@ SET search_path TO 'pg_catalog', 'public'
 AS $function$
 DECLARE
   v_h4h text := '';
+  -- Resolved at run time: the hand-for-hand table may not be installed yet,
+  -- and a static checker must not read the clause as a reference to it.
+  v_h4h_rel regclass := to_regclass('public.ca_tournament_hand_for_hand');
 BEGIN
   IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from OR p_to - p_from > interval '2 hours' THEN
     RAISE EXCEPTION 'FELT_LATENCY_WINDOW: a window of more than zero and at most two hours is required (got % to %)', p_from, p_to;
   END IF;
   -- Hand-for-hand intervals are excluded once the engine records them.
-  IF to_regclass('public.ca_tournament_hand_for_hand') IS NOT NULL THEN
-    v_h4h := 'WHEN s.tournament_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.ca_tournament_hand_for_hand h4h'
+  IF v_h4h_rel IS NOT NULL THEN
+    v_h4h := format('WHEN s.tournament_id IS NOT NULL AND EXISTS (SELECT 1 FROM %s h4h'
           || ' WHERE h4h.tournament_id = s.tournament_id AND h4h.started_at < s.next_start'
-          || ' AND COALESCE(h4h.ended_at, ''infinity'') > s.ended_at) THEN ''hand_for_hand''';
+          || ' AND COALESCE(h4h.ended_at, ''infinity'') > s.ended_at) THEN ''hand_for_hand''', v_h4h_rel);
   END IF;
   RETURN QUERY EXECUTE format($q$
     WITH nx AS (
