@@ -152,11 +152,10 @@ BEGIN
     'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal',
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'holdemTournamentAllInCallIsPriced',
-    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'lightningCheapEntryHoldem', 'lightningCheapEntryOmaha',
-    'commitUnderPot'
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'lightningCheapEntryHoldem',
+    'lightningCheapEntryOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     ) THEN
       RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
@@ -205,15 +204,16 @@ BEGIN
     'readBreakEvenBluff', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
     'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise',
     'v70FacingOpenZone', 'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
-    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
-    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
-    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
-    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
-    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
-    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
-    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
-    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
-    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    'holdemTournamentAllInCallIsPriced', 'fixedLimitCallIsNotACommitment',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem', 'limpReraiseIsoRead',
+    'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
+    'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
+    'committedRaiseDiscipline', 'callDeductionPricing', 'flopTurnBluffBaseline',
+    'riverBluffBaseline', 'riverLeadRange', 'riverBluffHiLo', 'riverBluffMultiway',
+    'riverFastCalldown', 'probeAwareAggression', 'riverBluffFixedLimit', 'riverBluffShortDeck',
+    'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo', 'v86UnblockedPreflop',
+    'v86MultiStreetUnblocked'
     -- registry:shadow-options:end
     )) THEN
       RAISE EXCEPTION 'switch row % is % and the option no longer takes it: set it off or clear it before this migration',
@@ -362,11 +362,10 @@ ALTER TABLE public.ca_horse_style_switch
     'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal',
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'holdemTournamentAllInCallIsPriced',
-    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'lightningCheapEntryHoldem', 'lightningCheapEntryOmaha',
-    'commitUnderPot'
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'lightningCheapEntryHoldem',
+    'lightningCheapEntryOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     ))
     OR (state = 'shadow' AND option IN (
@@ -407,15 +406,16 @@ ALTER TABLE public.ca_horse_style_switch
     'readBreakEvenBluff', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
     'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise',
     'v70FacingOpenZone', 'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
-    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
-    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
-    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
-    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
-    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
-    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
-    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
-    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
-    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    'holdemTournamentAllInCallIsPriced', 'fixedLimitCallIsNotACommitment',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem', 'limpReraiseIsoRead',
+    'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
+    'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
+    'committedRaiseDiscipline', 'callDeductionPricing', 'flopTurnBluffBaseline',
+    'riverBluffBaseline', 'riverLeadRange', 'riverBluffHiLo', 'riverBluffMultiway',
+    'riverFastCalldown', 'probeAwareAggression', 'riverBluffFixedLimit', 'riverBluffShortDeck',
+    'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo', 'v86UnblockedPreflop',
+    'v86MultiStreetUnblocked'
     -- registry:shadow-options:end
     ))
     OR option IN (
@@ -455,11 +455,10 @@ AS $function$
     'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal',
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'holdemTournamentAllInCallIsPriced',
-    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'lightningCheapEntryHoldem', 'lightningCheapEntryOmaha',
-    'commitUnderPot'
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'lightningCheapEntryHoldem',
+    'lightningCheapEntryOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     )
       THEN ARRAY['off']
@@ -501,15 +500,16 @@ AS $function$
     'readBreakEvenBluff', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
     'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise',
     'v70FacingOpenZone', 'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
-    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
-    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
-    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
-    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
-    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
-    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
-    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
-    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
-    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    'holdemTournamentAllInCallIsPriced', 'fixedLimitCallIsNotACommitment',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem', 'limpReraiseIsoRead',
+    'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
+    'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
+    'committedRaiseDiscipline', 'callDeductionPricing', 'flopTurnBluffBaseline',
+    'riverBluffBaseline', 'riverLeadRange', 'riverBluffHiLo', 'riverBluffMultiway',
+    'riverFastCalldown', 'probeAwareAggression', 'riverBluffFixedLimit', 'riverBluffShortDeck',
+    'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo', 'v86UnblockedPreflop',
+    'v86MultiStreetUnblocked'
     -- registry:shadow-options:end
     )
       THEN ARRAY['off', 'shadow', 'on']
@@ -640,11 +640,10 @@ BEGIN
     'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal',
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'holdemTournamentAllInCallIsPriced',
-    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'lightningCheapEntryHoldem', 'lightningCheapEntryOmaha',
-    'commitUnderPot'
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'lightningCheapEntryHoldem',
+    'lightningCheapEntryOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
        ]::text[]) AS n
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off'])
@@ -687,15 +686,16 @@ BEGIN
     'readBreakEvenBluff', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
     'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise',
     'v70FacingOpenZone', 'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
-    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
-    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
-    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
-    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
-    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
-    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
-    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
-    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
-    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    'holdemTournamentAllInCallIsPriced', 'fixedLimitCallIsNotACommitment',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem', 'limpReraiseIsoRead',
+    'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
+    'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
+    'committedRaiseDiscipline', 'callDeductionPricing', 'flopTurnBluffBaseline',
+    'riverBluffBaseline', 'riverLeadRange', 'riverBluffHiLo', 'riverBluffMultiway',
+    'riverFastCalldown', 'probeAwareAggression', 'riverBluffFixedLimit', 'riverBluffShortDeck',
+    'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo', 'v86UnblockedPreflop',
+    'v86MultiStreetUnblocked'
     -- registry:shadow-options:end
        ]::text[]) AS n
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off', 'shadow', 'on'])

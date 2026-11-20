@@ -499,9 +499,10 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also not significant in its evaluation, stays off (manifest section 4)`
   ),
   committedStackPricedIn: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
-  // 2026-11-19 Horse Decisions audit E: prices every hold'em tournament all-in call (it changes preflop calling
-  // ranges, as committedStackPricedIn and nashPushFoldIcm do), so it sits under the same hold until lifted by name.
-  holdemTournamentAllInCallIsPriced: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // holdemTournamentAllInCallIsPriced is NOT held: the owner lifted it by name on 2026-11-19 18:42 Chicago
+  // ("investigate every single hand played against humans ... every single horse decision ... i've seen a shit
+  // ton of mistakes that need correcting!"; audit E found its fixed All-In-Or-Fold strength bar a blanket rule).
+  // It stays default OFF and goes on only through its evidence (league card + replay) like every option.
   vs3BetShortStack: hold(
     PREFLOP_HOLD_SOURCE,
     `${PREFLOP_HOLD_REASON}; also one seed below -2 SE (manifest section 4)`
