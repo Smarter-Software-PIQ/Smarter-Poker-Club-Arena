@@ -1,0 +1,3 @@
+# server/src/engine/Plo6FacingBetIsPriced.law.test.ts
+
+With plo6FacingBetIsPriced on (default OFF), a PLO6 cash Horse facing a bet answers by price on its exact six cards against the bettor's line range: the audit's flagged folds that the price calls (#59974054, #59972261, #60060560, #59973455, #60040999, #60067736, #60093920) fold off and call on at every seed; the river answer (#59974302, #59973335, #60069935, #60074744, #60077887) is the priced verdict's, never the random-hand rule's (V58/V59 receipts never fire); every fold facing a bet, on the fixtures and on re-dealt river spots, is the priced fold; off (unset, false, truthy non-boolean) decides byte for byte alike; every decision it makes passes the receipt validator on its own request.
