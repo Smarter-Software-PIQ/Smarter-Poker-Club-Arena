@@ -22,7 +22,11 @@ import {
 } from '../HorseOmahaFlopFacingBetEv.test-support.js';
 import { omahaBest, parseCardString } from './OmahaMathCoreEval.js';
 import { seededRng } from './OmahaMathCoreEquity.js';
-import { decideOmahaMathCore, type CoreState } from './OmahaMathCore.js';
+import {
+  decideOmahaMathCore,
+  OMAHA_MATH_CORE_WORK_BUDGET,
+  type CoreState,
+} from './OmahaMathCore.js';
 import { omahaMathCoreRule, omahaMathCoreState } from './OmahaMathCoreRule.js';
 import {
   OMAHA_MATH_CORE_ALLOWED_PROVENANCE,
@@ -593,5 +597,34 @@ describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) an
       }
     }
     expect(kept + changed).toBeGreaterThan(0);
+  });
+});
+
+describe('omahaMathCore deterministic work budget (COREWIRE-2, gate G6: five-way flops 60166976 took 200-254 ms unboxed)', () => {
+  it('a five-way flop under a frozen clock finishes inside the work budget and decides identically twice', () => {
+    const opp = (seat: number) => ({
+      seat,
+      user: `u${seat}`,
+      person: seat % 2 === 0,
+      stack: 1000,
+      bet: 0,
+      folded: false,
+      allIn: false,
+      streetAction: 'check' as const,
+      calledPrevStreet: false,
+      prevAggressor: false,
+      position: 'BB' as const,
+      preflopLevel: 'call' as const,
+    });
+    const s = spot({
+      hole: 'AsKdQh9c8c',
+      board: 'Ts7h2d',
+      opponents: [1, 2, 3, 4, 6].map(opp) as never,
+    });
+    const a = decideOmahaMathCore(s, { now: () => 0 }).receipt;
+    const b = decideOmahaMathCore(s, { now: () => 0 }).receipt;
+    expect(a.choice).toEqual(b.choice);
+    // past the budget each call takes at most the 600-draw floor; the core makes a bounded number of calls
+    expect(a.samples * 5).toBeLessThan(OMAHA_MATH_CORE_WORK_BUDGET + 60 * 600 * 5);
   });
 });
