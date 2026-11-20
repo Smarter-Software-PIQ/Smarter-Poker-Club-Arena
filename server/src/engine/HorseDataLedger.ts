@@ -1283,6 +1283,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBluffIsPricedAgainstTheTarget',
+    "HORSE DECISIONS lane 2026-11-19 (48-hour audit of PLO5 Lightning cash vs persons, hvh48-audit-01TLQer7J A, classes 2 and 4: 47 bluffs and thin bets into a calling range, 86 missed raises; owner 2026-11-17 11:49: no blanket rules, every decision by range, equity and EV; the bet size only feeds the price). PLO4/PLO5 cash, one board, high only, no bomb pot, not fixed limit, at a table AND in the Lightning pools; default off (read === true). The outermost answer of wager_rules (HorseOmahaBluffPricedAgainstTheTarget): a wager facing no bet heads-up stands only when EV(bet) = f.P - (1 - f).(b - r.e_called.(P + 2b)) beats EV(check) = r.e_all.P, f his fold at this price from his MEASURED fold-to-bet record for the street (else his pooled record carried to the street), shrunk toward his kind's measured rate by 16 pseudo-opportunities and carried from the median bet size of the record to this price by the fitted person size slope; e the Horse's sampled showdown share against the strongest (1 - f) of his holdings and against all of them; else the check. A final flop call, and a flop or turn raise facing a bet, are priced against a raise to each legal size on the sampled spot of omahaPricedSampledRaise (at every size) with the same measured fold. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
+    'V94'
+  ),
+  flag(
     'omahaMadeHandBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the spot where the made-hand defence (omahaBeatenMadeHandDefense, or omahaMadeHandDefenseVsValueLeader against measured value leaders) turns a turn bet into the fresh card out of position or a thin river value bet into a check, the wager is priced beside the check against every live opponent whatever his label (HorseOmahaPricedRules.omahaPricedBet, the card-impact model, the Horse cards removed from every range): it stands when it is priced at least at the check, else it is checked. Unpriceable spots keep the wager. With it on the defence bet half does not decide in this scope.',
     'V94'
@@ -5915,6 +5920,60 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_draw_raise_called',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
     'the same decision: not priced above the call: the raise became the call',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_bet_kept',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a PLO4/PLO5 cash heads-up wager facing no bet priced above the check against his measured fold at its price: kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_checked',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'the same wager priced at or below the check: the check',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_call_kept',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a final flop call facing a bet with no raise priced above it by the sampled margin: kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_call_raised',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a final flop call facing a bet with a raise priced above it: the raise to the legal size of highest value',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_raise_kept',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a flop or turn raise facing a bet priced above the call at the size given: kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_raise_resized',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a flop or turn raise facing a bet priced above the call at another legal size: made at that size',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_raise_called',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a flop or turn raise facing a bet with no raise priced above the call: the call',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_raise_folded',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a flop or turn raise facing a bet with no raise priced above the call and the call worth less than the fold: the fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_priced_against_target_unpriced_kept',
+    'HorseOmahaBluffPricedAgainstTheTarget (HorseLogic wager_rules, outermost; omahaBluffIsPricedAgainstTheTarget)',
+    'a spot in the option scope that could not be priced (no equity sample, no price, an error): the decision given is kept',
     'V94'
   ),
   receipt(

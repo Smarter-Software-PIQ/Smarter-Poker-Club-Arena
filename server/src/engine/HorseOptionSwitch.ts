@@ -330,6 +330,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaPricedPriorsByOpponentKind',
   'omahaRaiseEvCountsLossesOnce',
   'omahaSampledRaiseIsPricedAtEverySize',
+  'omahaBluffIsPricedAgainstTheTarget',
   'omahaMadeHandBetIsPriced',
   'omahaTurnSetSizeIsPriced',
   'omahaBlockerBluffIsPriced',

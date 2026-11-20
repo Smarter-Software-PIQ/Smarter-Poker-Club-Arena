@@ -487,6 +487,27 @@ function sampledSpot(player: SeatPlayer, gs: HorseGameStateV2): SampledSpot | nu
     ),
   };
 }
+/**
+ * omahaBluffIsPricedAgainstTheTarget (default OFF) prices the flop and turn raise beside the call on
+ * this same sampled spot, legal sizes and resizing; exported for it, unchanged for every other caller.
+ */
+export type OmahaPricedSampledSpot = SampledSpot;
+export const omahaPricedSampledSpotOf = (
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): OmahaPricedSampledSpot | null => sampledSpot(player, gs);
+export const omahaPricedLegalSampledSizes = (
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  toCall: number
+): OmahaPricedSampledSizes => legalSampledSizes(player, gs, toCall);
+export const omahaPricedSampledResized = (
+  decision: HorseDecision,
+  player: SeatPlayer,
+  live: SeatPlayer[],
+  to: number,
+  bestTo: number
+): HorseDecision | null => sampledResized(decision, player, live, to, bestTo);
 function sampledVerdict(
   player: SeatPlayer,
   gs: HorseGameStateV2,
