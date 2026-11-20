@@ -4,14 +4,15 @@
  *
  *   npx tsx server/scripts/opponent-hud-build.ts --from-db --since 2026-10-01 [--until ISO] --dry-run --out FILE
  *   npx tsx server/scripts/opponent-hud-build.ts --from-db --since 2026-10-01 --apply          (backfill, rebuild)
- *   npx tsx server/scripts/opponent-hud-build.ts --from-db --since 2026-10-01 --reconcile      (drift report only)
  *   npx tsx server/scripts/opponent-hud-build.ts --from-jsonl FILE --dry-run --out FILE        (offline copy)
  *
  * Source: fn_opponent_hud_hands_page (public fields only; the dealt cards never leave the database) or a JSON-lines
  * copy of the same rows. Every hand goes through the same handRecordFromRow / applyHudHand the engine uses, oldest
  * first, so a backfilled profile is exactly what the live engine would have built hand by hand. The population row
  * ('*') holds fitHudPriors of the result. --apply writes with rebuild=true (a backfill replaces the stored row);
- * --reconcile compares every stored row's lifetime counts with the rebuild and prints the drift (exit 3 on drift).
+ * (The nightly reconciliation runs in the engine: OpponentHudStore.reconcileDay, which compares each profile's day
+ * list with hand_history and repairs any missing hand; a lifetime rebuild cannot reconcile a Horse because hands with
+ * no person are purged after 7 days.)
  * Operators only. Never prints a card (there is none in the input).
  */
 import { readFileSync, writeFileSync, createReadStream } from 'node:fs';
@@ -24,7 +25,12 @@ import {
   type HudFamily,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
-import { fitHudPriors } from '../src/engine/opponentHud/OpponentHud.js';
+import {
+  fitHudPriors,
+  hudStakeBand,
+  type HudPopulation,
+} from '../src/engine/opponentHud/OpponentHud.js';
+import { extractHandDeltas } from '../src/engine/opponentHud/OpponentHudProfile.js';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
@@ -35,6 +41,7 @@ const opt = (n: string) => {
 
 const profiles = new Map<string, OpponentHudProfile>();
 const refusals = new Map<string, number>();
+const stakePools: Record<string, Record<string, Record<string, [number, number]>>> = {};
 let hands = 0;
 const t0 = Date.now();
 
@@ -45,6 +52,18 @@ function take(row: unknown): void {
     return;
   }
   hands += 1;
+  // pooled counts per family and stake band: the stake priors of a new opponent
+  const band = hudStakeBand(rec.bb);
+  if (band) {
+    const fam = (stakePools[rec.family] ??= {});
+    const pool = (fam[band] ??= {});
+    for (const d of extractHandDeltas(rec))
+      for (const [stat, [o, h]] of d.stats) {
+        const c = (pool[stat] ??= [0, 0]);
+        c[0] += o;
+        c[1] += h;
+      }
+  }
   applyHudHandToProfiles(rec, (user) => {
     const k = `${rec.family}|${user}`;
     let p = profiles.get(k);
@@ -93,9 +112,19 @@ function summary() {
   const q = (f: number) => sizes[Math.min(sizes.length - 1, Math.floor(f * sizes.length))] ?? 0;
   const byFamily: Record<string, number> = {};
   for (const p of profiles.values()) byFamily[p.family] = (byFamily[p.family] ?? 0) + 1;
-  const priors: Record<string, Record<string, [number, number]>> = {};
-  for (const fam of ['plo4', 'plo5'] as HudFamily[])
-    priors[fam] = fitHudPriors([...profiles.values()].filter((p) => p.family === fam));
+  const priors: Record<string, HudPopulation> = {};
+  for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+    const stakes: HudPopulation['stakes'] = {};
+    for (const [band, pool] of Object.entries(stakePools[fam] ?? {})) {
+      stakes[band] = {};
+      for (const [stat, [o, h]] of Object.entries(pool))
+        if (o > 0) stakes[band][stat] = [Math.round((h / o) * 1000) / 1000, Math.round(o)];
+    }
+    priors[fam] = {
+      family: fitHudPriors([...profiles.values()].filter((p) => p.family === fam)),
+      stakes,
+    };
+  }
   return {
     hands,
     refusals: Object.fromEntries(refusals),
@@ -128,54 +157,35 @@ async function main(): Promise<void> {
     JSON.stringify({
       ...s,
       priors: undefined,
-      priorsStats: Object.keys(s.priors.plo5 ?? {}).length,
+      priorsStats: Object.keys(s.priors.plo5?.family ?? {}).length,
+      stakeBands: Object.keys(s.priors.plo5?.stakes ?? {}),
     })
   );
-  if (flag('--apply') || flag('--reconcile')) {
+  if (flag('--apply')) {
     const client = await db();
-    if (flag('--reconcile')) {
-      let drift = 0;
-      const list = [...profiles.values()];
-      for (let i = 0; i < list.length; i += 50) {
-        for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
-          const batch = list.slice(i, i + 50).filter((p) => p.family === fam);
-          if (!batch.length) continue;
-          const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
-            p_user_ids: batch.map((p) => p.user),
-            p_family: fam,
-          });
-          if (error) throw new Error(`read failed: ${error.message}`);
-          const stored = new Map(
-            ((data ?? []) as { user_id: string; profile: OpponentHudProfile }[]).map((r) => [
-              r.user_id,
-              r.profile,
-            ])
-          );
-          for (const p of batch) {
-            const sp = stored.get(p.user);
-            const bad =
-              !sp ||
-              sp.hands !== p.hands ||
-              HUD_STATS.some(
-                (k) =>
-                  (sp.life[k]?.[0] ?? 0) !== (p.life[k]?.[0] ?? 0) ||
-                  (sp.life[k]?.[1] ?? 0) !== (p.life[k]?.[1] ?? 0)
-              );
-            if (bad) {
-              drift += 1;
-              console.log(
-                `DRIFT ${fam} ${p.user.slice(0, 8)} stored ${sp?.hands ?? 'none'} rebuilt ${p.hands}`
-              );
-            }
-          }
-        }
+    // A stored profile with MORE hands than this rebuild keeps history hand_history no longer holds (hands with no
+    // person are purged after 7 days): it is never replaced unless --force. Every other row is rebuilt.
+    const storedHands = new Map<string, number>();
+    for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+      const users = [...profiles.values()].filter((p) => p.family === fam).map((p) => p.user);
+      for (let i = 0; i < users.length; i += 50) {
+        const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
+          p_user_ids: users.slice(i, i + 50),
+          p_family: fam,
+        });
+        if (error) throw new Error(`read failed: ${error.message}`);
+        for (const r of (data ?? []) as { user_id: string; hands: number }[])
+          storedHands.set(`${fam}|${r.user_id}`, Number(r.hands));
       }
-      console.log(`RECONCILE profiles ${profiles.size} drift ${drift}`);
-      if (drift) process.exitCode = 3;
-      if (!flag('--apply')) return;
     }
+    let kept = 0;
     const rows: object[] = [];
-    for (const p of profiles.values())
+    for (const p of profiles.values()) {
+      const stored = storedHands.get(`${p.family}|${p.user}`);
+      if (stored !== undefined && stored > p.hands && !flag('--force')) {
+        kept += 1;
+        continue;
+      }
       rows.push({
         user_id: p.user,
         family: p.family,
@@ -185,6 +195,8 @@ async function main(): Promise<void> {
         profile: p,
         rebuild: true,
       });
+    }
+    console.log(`KEPT ${kept} stored profiles that hold more hands than hand_history still has`);
     for (const fam of ['plo4', 'plo5'] as HudFamily[])
       rows.push({
         user_id: '*',

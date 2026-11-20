@@ -17,3 +17,7 @@ Receipts: `opponent_hud_*` (reads by family and source, recall found/none, explo
 - Audit (OPPONENT-HUD.md): the existing memory caps every read at 43.8 effective hands per fragment, is never loaded ahead of a hand, and presumes every Omaha opponent a maniac until 15 decayed hands (24 h: 4,747,996 presumed vs 882,394 disproved).
 - Dry run of the builder on 33,689 PLO4/PLO5 cash hands (Nov 19-20) and both watched persons' lifetime: profiles p50 26 KB, max 60 KB; WooWoo 10,171 PLO5 hands, nevin 943.
 - The profile is infrastructure: the real-chip grade belongs to each consuming rule under its own declared criteria. Replay: exact-replay byte identity with the option off is the release check.
+
+## Follow-Up (Lead 2026-11-20)
+
+With the option on, the shared Omaha presumption (every unknown opponent read as an aggressive raiser until 15 decayed hands disprove it, about 186,000 fires a day) is not used in PLO4/PLO5 cash: an opponent with a lifetime profile is read from it, one with no history is read as the population for his stake band and game (receipts `opponent_hud_presumption_replaced_lifetime` / `_prior`). The store reconciles the previous Chicago day every night against hand_history and repairs any missed hand, and routes load failures, late profiles, persistence failures and drift to Production Alerts (never a phone page). Activation packet: EMERG archive `OPPONENT-HUD-ACTIVATION.md`.

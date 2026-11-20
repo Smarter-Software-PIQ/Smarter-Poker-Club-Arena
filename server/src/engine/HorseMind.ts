@@ -2823,6 +2823,22 @@ export class HorseMind {
         : gated;
     if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; lead 23:1xZ: replace the blanket presumption): with the lifetime
+    // read on, no Omaha opponent is presumed a maniac. An opponent with a lifetime profile is read from it (above);
+    // one with no history is read as the population for his stake and game (no exploit engaged; the accessor's
+    // priors carry the stake). The presumption below is unreachable on this path (AnOpponentIsReadFromHisLifetime law).
+    if (
+      family === 'omaha' &&
+      this.decisionReadOptions.opponentLifetimeHud === true &&
+      (variant === 'plo4' || variant === 'plo5')
+    ) {
+      noteFire(
+        hudCounters
+          ? 'opponent_hud_presumption_replaced_lifetime'
+          : 'opponent_hud_presumption_replaced_prior'
+      );
+      return read;
+    }
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.

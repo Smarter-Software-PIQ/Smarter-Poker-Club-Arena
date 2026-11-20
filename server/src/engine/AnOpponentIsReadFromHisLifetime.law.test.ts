@@ -84,15 +84,51 @@ describe('a PLO4/PLO5 opponent is read from his lifetime public profile from han
     expect(readFor('plo5', true, TIGHT)).toEqual(readFor('plo5', true, TWIN));
   });
 
-  it('on: no profile of him, another family in the packet, or PLO6: the read is what it was', () => {
-    const base5 = readFor('plo5', false);
-    installDecisionHud(buildHudPacket('plo4', [tightLifetime(TIGHT, 'plo4')], {}, T, 'preflop'));
-    expect(readFor('plo5', true)).toEqual(base5);
-    clearDecisionHud();
+  it('on: PLO6 and another family in the packet leave PLO6 exactly as it was', () => {
     const base6 = readFor('plo6', false);
     installDecisionHud(buildHudPacket('plo5', [tightLifetime(TIGHT, 'plo5')], {}, T, 'preflop'));
     expect(readFor('plo6', true)).toEqual(base6);
-    expect(readFor('plo5', true, TWIN)).toEqual(readFor('plo5', false, TWIN));
+  });
+
+  it('on: the presumption branch is unreachable; no history reads as the population (no exploit engaged)', () => {
+    enableBrainTelemetry();
+    drainFires();
+    for (const variant of ['plo4', 'plo5']) {
+      for (const sc of ['omaha:hu', 'omaha:short', 'omaha:full'] as const) {
+        // no packet at all, a packet without him, and a packet of the other family
+        for (const pk of [
+          null,
+          buildHudPacket(
+            variant as 'plo4' | 'plo5',
+            [tightLifetime(TWIN, variant as 'plo4' | 'plo5')],
+            {},
+            T,
+            'flop'
+          ),
+          buildHudPacket(
+            variant === 'plo4' ? 'plo5' : 'plo4',
+            [tightLifetime(TIGHT, variant === 'plo4' ? 'plo5' : 'plo4')],
+            {},
+            T,
+            'flop'
+          ),
+        ]) {
+          installDecisionHud(pk);
+          HorseMind.setDecisionScope(sc, variant, 'cash');
+          HorseMind.setDecisionReadOptions({ opponentLifetimeHud: true });
+          const read = HorseMind.opponentRead(TIGHT);
+          HorseMind.setDecisionScope(null);
+          expect(read?.presumed === true, `${variant} ${sc}`).toBe(false);
+          expect(
+            read === null || !Object.values(read.stats).some((x) => x.engaged),
+            `${variant} ${sc}`
+          ).toBe(true);
+        }
+      }
+    }
+    const fires = drainFires().map((f) => f.feature);
+    expect(fires).not.toContain('plo_opponent_presumed_aggressive');
+    expect(fires).toContain('opponent_hud_presumption_replaced_prior');
   });
 
   it('the decide option reaches the read options as === true, PLO4/PLO5 cash only', () => {

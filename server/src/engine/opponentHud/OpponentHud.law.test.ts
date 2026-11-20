@@ -22,6 +22,9 @@ import {
   hudRecall,
   hudStat,
   installDecisionHud,
+  parseHudPopulation,
+  priorsForStake,
+  HUD_STAKE_PRIOR_MIN_N,
 } from './OpponentHud.js';
 import { hudExploitCounters, HUD_EXPLOIT_HANDS_CAP } from './OpponentHudExploit.js';
 
@@ -247,5 +250,28 @@ describe('law: hand-level recall answers "what has he done here before"', () => 
     installDecisionHud(buildHudPacket('plo5', [p], {}, 1_800_000_000_000 + 800 * 60_000, 'turn'));
     const r = hudRecall(U(2), 'plo5', { street: 'turn', line: 'b1x' }, false);
     expect(r.levels[0]).toMatchObject({ key: 'turn|b1x', instances: 6, did: { fold: 6 } });
+  });
+});
+
+describe('law: a new opponent starts from the population prior of his stake and game', () => {
+  it('the stake band rate replaces the family prior only with evidence; k stays the family k', () => {
+    const pop = parseHudPopulation({
+      family: { 'pf.vpip': [0.41, 11], 'pf.pfr': [0.2, 46] },
+      stakes: { b2: { 'pf.vpip': [0.5, HUD_STAKE_PRIOR_MIN_N], 'pf.pfr': [0.3, 10] } },
+    })!;
+    expect(priorsForStake(pop, 2)).toEqual({ 'pf.vpip': [0.5, 11], 'pf.pfr': [0.2, 46] });
+    expect(priorsForStake(pop, 0.5)).toEqual({ 'pf.vpip': [0.41, 11], 'pf.pfr': [0.2, 46] });
+    expect(priorsForStake(pop, null)).toEqual({ 'pf.vpip': [0.41, 11], 'pf.pfr': [0.2, 46] });
+    // a flat stored map (older row) is the family prior
+    expect(parseHudPopulation({ 'pf.vpip': [0.4, 10] })).toEqual({
+      family: { 'pf.vpip': [0.4, 10] },
+      stakes: {},
+    });
+    expect(parseHudPopulation('x')).toBeNull();
+    installDecisionHud(buildHudPacket('plo5', [], priorsForStake(pop, 2), 0, 'preflop'));
+    expect(hudStat(U(123), 'plo5', 'pf.vpip', undefined, false)).toMatchObject({
+      source: 'prior',
+      p: 0.5,
+    });
   });
 });

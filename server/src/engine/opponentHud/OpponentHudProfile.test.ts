@@ -13,6 +13,8 @@ import {
   hudBand,
   hudHandClass,
   hudTexture,
+  hudDayOf,
+  hudIdPrefix,
   validHudProfile,
   type HudHandRecord,
   type OpponentHudProfile,
@@ -270,6 +272,26 @@ describe('OpponentHudProfile: hand-constructed histories', () => {
     const stale = { ...S1, id: 11, at: 1_800_000_000_000 + 100 * 60_000 - HUD_LATE_WINDOW_MS - 1 };
     expect(applyHudHand(p, rec(stale))).toBe('stale');
     expect(p.hands).toBe(3);
+  });
+
+  it('day lists record each applied hand; the reconciliation repair applies a stale missing hand once', () => {
+    const p = emptyHudProfile(U(5), 'plo5');
+    const t = 1_800_000_000_000;
+    applyHudHand(p, rec({ ...S1, id: 40, at: t }));
+    const day = hudDayOf(t);
+    expect(p.days?.[day]).toEqual([hudIdPrefix(H(40))]);
+    expect(p.daysSince).toBe(t);
+    applyHudHand(p, rec({ ...S1, id: 41, at: t + 3 * 3600_000 }));
+    const missed = rec({ ...S1, id: 42, at: t + 60_000 });
+    expect(applyHudHand(p, missed)).toBe('stale');
+    expect(applyHudHand(p, missed, undefined, undefined, true)).toBeNull();
+    expect(applyHudHand(p, missed, undefined, undefined, true)).toBe('duplicate');
+    expect(p.hands).toBe(3);
+    // only the newest HUD_DAYS_KEPT days are kept
+    applyHudHand(p, rec({ ...S1, id: 43, at: t + 50 * 3600_000 }));
+    applyHudHand(p, rec({ ...S1, id: 44, at: t + 100 * 3600_000 }));
+    expect(Object.keys(p.days ?? {}).length).toBe(2);
+    expect(validHudProfile(p)).toBe(true);
   });
 
   it('recency layer decays, lifetime layer never does', () => {

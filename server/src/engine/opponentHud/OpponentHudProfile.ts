@@ -381,7 +381,29 @@ export interface OpponentHudProfile {
   recAt: number;
   recall: Record<string, HudRecallCell>;
   last: HudInstance[];
+  /**
+   * The hands applied on each of the last HUD_DAYS_KEPT Chicago days, as the first 8 hex digits of each hand id
+   * (the nightly reconciliation compares them with hand_history and applies any hand that is missing). Absent on
+   * rows written before it existed.
+   */
+  days?: Record<string, string[]>;
+  /** when the day lists started (the first hand applied with them): a day before it cannot be reconciled */
+  daysSince?: number;
 }
+
+export const HUD_DAYS_KEPT = 2;
+const chicagoDay = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Chicago',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+/** The Chicago calendar day of a time (YYYY-MM-DD): the reconciliation's unit. */
+export function hudDayOf(at: number): string {
+  return chicagoDay.format(new Date(at));
+}
+/** The id prefix the day lists keep (8 hex digits, 32 bits). */
+export const hudIdPrefix = (id: string): string => id.slice(0, 8).toLowerCase();
 
 export function emptyHudProfile(user: string, family: HudFamily): OpponentHudProfile {
   return {
@@ -411,6 +433,17 @@ export function validHudProfile(x: unknown): x is OpponentHudProfile {
   if (typeof p.wm !== 'number' || typeof p.recAt !== 'number') return false;
   if (!Array.isArray(p.ids) || p.ids.some((i) => typeof i !== 'string')) return false;
   if (!Array.isArray(p.last)) return false;
+  if (p.days !== undefined) {
+    const d = obj(p.days);
+    if (!d) return false;
+    for (const [k, v] of Object.entries(d))
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(k) ||
+        !Array.isArray(v) ||
+        v.some((x) => typeof x !== 'string')
+      )
+        return false;
+  }
   for (const layer of [p.life, p.rec]) {
     const l = obj(layer);
     if (!l) return false;
@@ -876,11 +909,15 @@ export function applyHudHand(
   profile: OpponentHudProfile,
   rec: HudHandRecord,
   deltas: readonly HudHandDelta[] = extractHandDeltas(rec),
-  bands: Map<string, Map<HudStreet, HudBand[]>> = ownBetBands(rec)
+  bands: Map<string, Map<HudStreet, HudBand[]>> = ownBetBands(rec),
+  /** the reconciliation's repair: a hand hand_history holds and the day list proves was never applied */
+  repair = false
 ): HudApplyRefusal | null {
   if (rec.family !== profile.family) return 'family';
-  if (profile.ids.includes(rec.id)) return 'duplicate';
-  if (profile.wm >= 0 && rec.at < profile.wm - HUD_LATE_WINDOW_MS) return 'stale';
+  const day = hudDayOf(rec.at);
+  const prefix = hudIdPrefix(rec.id);
+  if (profile.ids.includes(rec.id) || profile.days?.[day]?.includes(prefix)) return 'duplicate';
+  if (!repair && profile.wm >= 0 && rec.at < profile.wm - HUD_LATE_WINDOW_MS) return 'stale';
   const d = deltas.find((x) => x.user === profile.user);
   if (!d) return 'not_dealt';
   // recency layer: decay to the newer of the two clocks, weigh this hand by its own age
@@ -946,6 +983,12 @@ export function applyHudHand(
   profile.ids.push(rec.id);
   if (profile.ids.length > HUD_RECENT_IDS)
     profile.ids.splice(0, profile.ids.length - HUD_RECENT_IDS);
+  if (profile.daysSince === undefined) profile.daysSince = rec.at;
+  else if (rec.at < profile.daysSince) profile.daysSince = rec.at;
+  const days = (profile.days ??= {});
+  (days[day] ??= []).push(prefix);
+  const keys = Object.keys(days).sort();
+  for (const k of keys.slice(0, Math.max(0, keys.length - HUD_DAYS_KEPT))) delete days[k];
   if (rec.at > profile.wm) profile.wm = rec.at;
   return null;
 }

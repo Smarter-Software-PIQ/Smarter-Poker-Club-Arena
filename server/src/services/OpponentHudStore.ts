@@ -31,6 +31,8 @@ import {
   emptyHudProfile,
   extractHandDeltas,
   handRecordFromRow,
+  hudDayOf,
+  hudIdPrefix,
   validHudProfile,
   type HudFamily,
   type HudHandRecord,
@@ -43,6 +45,9 @@ import {
   buildHudPacketOpponent,
   type HudPacketOpponent,
   type HudPriors,
+  type HudPopulation,
+  parseHudPopulation,
+  priorsForStake,
   type OpponentHudPacket,
 } from '../engine/opponentHud/OpponentHud.js';
 import { noteFire } from '../engine/BrainTelemetry.js';
@@ -60,6 +65,18 @@ export const HUD_BOOT_CATCHUP_MS = 45 * 60_000;
 export const HUD_BOOT_WINDOW_MS = 6 * 3600 * 1000;
 export const HUD_READY_DEADLINE_MS = 15_000;
 export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
+
+export type HudAlertName =
+  | 'OpponentHudLoadFailing'
+  | 'OpponentHudProfileLate'
+  | 'OpponentHudPersistFailing'
+  | 'OpponentHudDrift';
+/** load failures (timeouts and errors) in one alert window that raise OpponentHudLoadFailing */
+export const HUD_ALERT_LOAD_FAILURES = 5;
+export const HUD_ALERT_WINDOW_MS = 5 * 60_000;
+/** the nightly reconciliation runs for the previous Chicago day from this Chicago hour */
+export const HUD_RECONCILE_HOUR = 4;
+export const HUD_RECONCILE_MINUTE = 40;
 
 export type HudEvent = 'sit' | 'move' | 'lightning' | 'boot' | 'hand' | 'decision';
 const EVENTS: readonly HudEvent[] = ['sit', 'move', 'lightning', 'boot', 'hand', 'decision'];
@@ -87,8 +104,12 @@ export interface OpponentHudStoreDeps {
     afterAt: string,
     afterId: string,
     limit: number,
-    signal: AbortSignal
+    signal: AbortSignal,
+    untilIso?: string
   ): Promise<{ id: string; created_at: string }[]>;
+  /** Production Alerts (engine_alerts -> operational_alert_events; never a phone page): raise or resolve one named
+   *  condition. Optional; absent, conditions are counted only. */
+  alert?(name: HudAlertName, firing: boolean, summary: string): void;
   now(): number;
   warn?(message: string): void;
 }
@@ -118,7 +139,18 @@ export class OpponentHudStore {
   /** first time each player was asked for (event time), cleared when ready: the 15-second clock */
   private readonly asked = new Map<string, { at: number; event: HudEvent }>();
   private readonly ring: HudHandRecord[] = [];
-  private readonly priors: Record<HudFamily, HudPriors> = { plo4: {}, plo5: {} };
+  private readonly priors: Record<HudFamily, HudPopulation> = {
+    plo4: { family: {}, stakes: {} },
+    plo5: { family: {}, stakes: {} },
+  };
+  /** failures and late profiles in the current alert window; the alert states raised */
+  private window = { loadFailed: 0, late: 0, persistFailed: 0, schemaMissing: 0 };
+  private readonly alerting = new Set<HudAlertName>();
+  private reconciledDay: string | null = null;
+  private reconciling = false;
+  private alertTimer: ReturnType<typeof setInterval> | null = null;
+  /** the last reconciliation: day, profiles compared, players with drift, hands repaired */
+  lastReconcile: { day: string; compared: number; drifted: number; repaired: number } | null = null;
   private armedState = false;
   /** the migration is not installed: nothing is read or written until this time (re-probed every 10 minutes) */
   private disabledUntil = 0;
@@ -200,10 +232,12 @@ export class OpponentHudStore {
       if (error instanceof Error && error.message === HUD_SCHEMA_MISSING) {
         this.disabledUntil = now + 10 * 60_000;
         noteFire('opponent_hud_schema_missing');
+        this.window.schemaMissing += 1;
       }
       for (const u of users)
         this.cache.set(key(family, u), { state: 'failed', retryAt: now + HUD_RETRY_MS });
       noteFire(ac.signal.aborted ? 'opponent_hud_load_timeout' : 'opponent_hud_load_failed');
+      this.window.loadFailed += 1;
     } finally {
       clearTimeout(t);
     }
@@ -249,8 +283,10 @@ export class OpponentHudStore {
     const e = this.cache.get(key(family, userId));
     return e?.state === 'ready' ? e.profile : null;
   }
-  setPriors(family: HudFamily, priors: HudPriors): void {
-    this.priors[family] = { ...priors };
+  /** The population of a family: a stored '*' row (current shape or a flat priors map). Malformed: unchanged. */
+  setPriors(family: HudFamily, priors: unknown): void {
+    const pop = parseHudPopulation(priors);
+    if (pop) this.priors[family] = pop;
   }
 
   /**
@@ -265,6 +301,8 @@ export class OpponentHudStore {
     opponentIds: readonly string[];
     street: HudStreet;
     atMs: number;
+    /** the hand's big blind: the stake band of the population prior */
+    bigBlind?: number | null;
   }): { opponentHud?: OpponentHudPacket } {
     try {
       if (!this.armedState || !input.cash) return {};
@@ -287,6 +325,7 @@ export class OpponentHudStore {
               ? 'opponent_hud_packet_opponent_late'
               : 'opponent_hud_packet_opponent_missing'
           );
+          if (asked && now - asked.at > HUD_READY_DEADLINE_MS) this.window.late += 1;
         }
       }
       if (missing.length) this.warm(missing, family, 'decision');
@@ -295,7 +334,7 @@ export class OpponentHudStore {
         opponentHud: buildHudPacket(
           family,
           profiles,
-          this.priors[family],
+          priorsForStake(this.priors[family], input.bigBlind),
           input.atMs,
           input.street,
           (p, minute, street) => {
@@ -390,6 +429,7 @@ export class OpponentHudStore {
           noteFire('opponent_hud_persist_ok');
         } catch {
           noteFire('opponent_hud_persist_failed');
+          this.window.persistFailed += 1;
         } finally {
           clearTimeout(t);
         }
@@ -417,8 +457,7 @@ export class OpponentHudStore {
           for (const r of rows) {
             after = r.user_id;
             if (r.user_id === '*') {
-              if (r.profile && typeof r.profile === 'object')
-                this.setPriors(family, r.profile as HudPriors);
+              if (r.profile && typeof r.profile === 'object') this.setPriors(family, r.profile);
               continue;
             }
             if (r.family !== family || !validHudProfile(r.profile) || r.profile.user !== r.user_id)
@@ -492,8 +531,7 @@ export class OpponentHudStore {
       try {
         const rows = await this.deps.read(['*'], family, ac.signal);
         const r = rows.find((x) => x.user_id === '*');
-        if (r && r.profile && typeof r.profile === 'object')
-          this.setPriors(family, r.profile as HudPriors);
+        if (r && r.profile && typeof r.profile === 'object') this.setPriors(family, r.profile);
       } catch {
         noteFire('opponent_hud_priors_failed');
       } finally {
@@ -507,10 +545,189 @@ export class OpponentHudStore {
     void this.loadPriors().then(() => this.prewarm());
     this.timer = setInterval(() => void this.persist(), HUD_PERSIST_MS);
     (this.timer as { unref?: () => void }).unref?.();
+    this.alertTimer = setInterval(() => {
+      this.tickAlerts();
+      void this.maybeReconcile();
+    }, HUD_ALERT_WINDOW_MS);
+    (this.alertTimer as { unref?: () => void }).unref?.();
   }
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.alertTimer) clearInterval(this.alertTimer);
     this.timer = null;
+    this.alertTimer = null;
+  }
+
+  private setAlert(name: HudAlertName, firing: boolean, summary: string): void {
+    if (firing === this.alerting.has(name)) return;
+    if (firing) this.alerting.add(name);
+    else this.alerting.delete(name);
+    noteFire(firing ? 'opponent_hud_alert_raised' : 'opponent_hud_alert_resolved');
+    try {
+      this.deps.alert?.(name, firing, summary);
+    } catch {
+      /* an alarm never breaks the thing it watches */
+    }
+  }
+
+  /** Close the alert window: raise each condition seen in it, resolve each that stayed clean (never throws). */
+  tickAlerts(): void {
+    try {
+      const w = this.window;
+      this.window = { loadFailed: 0, late: 0, persistFailed: 0, schemaMissing: 0 };
+      this.setAlert(
+        'OpponentHudLoadFailing',
+        w.loadFailed >= HUD_ALERT_LOAD_FAILURES || w.schemaMissing > 0,
+        `opponent profiles failed to load ${w.loadFailed} times in 5 minutes` +
+          (w.schemaMissing ? ' (the opponent_hud_profiles migration is not installed)' : '')
+      );
+      this.setAlert(
+        'OpponentHudProfileLate',
+        w.late > 0,
+        `${w.late} decisions faced an opponent whose profile was not ready 15 seconds after he joined`
+      );
+      this.setAlert(
+        'OpponentHudPersistFailing',
+        w.persistFailed > 0,
+        `opponent profiles could not be saved ${w.persistFailed} times in 5 minutes`
+      );
+    } catch {
+      noteFire('opponent_hud_alert_error');
+    }
+  }
+
+  /** Once a day, from HUD_RECONCILE_HOUR:HUD_RECONCILE_MINUTE Chicago, reconcile the previous Chicago day. */
+  async maybeReconcile(): Promise<void> {
+    const now = this.deps.now();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(now));
+    const hour = Number(parts.find((x) => x.type === 'hour')?.value);
+    const minute = Number(parts.find((x) => x.type === 'minute')?.value);
+    if (hour * 60 + minute < HUD_RECONCILE_HOUR * 60 + HUD_RECONCILE_MINUTE) return;
+    const yesterday = hudDayOf(now - 24 * 3600_000);
+    if (this.reconciledDay === yesterday || this.reconciling) return;
+    this.reconciledDay = yesterday;
+    await this.reconcileDay(yesterday);
+  }
+
+  /**
+   * NIGHTLY RECONCILIATION: compare, for every player dealt into a PLO4/PLO5 cash hand on that Chicago day, the hands
+   * hand_history holds with the hands his profile applied (its day list), apply every missing hand (repair, each
+   * still once), and raise OpponentHudDrift when any player had one (resolved by the next clean night). Hands with no
+   * person are purged after 7 days, so the day is reconciled while all of its hands still exist. A profile whose day
+   * lists started after that day is skipped (it cannot prove what it applied). Never throws.
+   */
+  async reconcileDay(
+    day: string
+  ): Promise<{ compared: number; drifted: number; repaired: number }> {
+    const out = { compared: 0, drifted: 0, repaired: 0 };
+    if (!this.deps.handsPage || this.reconciling) return out;
+    this.reconciling = true;
+    try {
+      // the day's UTC bounds (a Chicago day starts at 05:00Z or 06:00Z)
+      const guess = Date.parse(`${day}T12:00:00Z`);
+      let start = guess - 24 * 3600_000;
+      while (hudDayOf(start) !== day) start += 15 * 60_000;
+      while (hudDayOf(start - 60_000) === day) start -= 60_000;
+      let end = start + 22 * 3600_000;
+      while (hudDayOf(end) === day) end += 60_000;
+      const walk = async (visit: (rec: HudHandRecord) => void): Promise<boolean> => {
+        let afterAt = new Date(start - 1).toISOString();
+        let afterId = '00000000-0000-0000-0000-000000000000';
+        for (let page = 0; page < 400; page++) {
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
+          (t as { unref?: () => void }).unref?.();
+          try {
+            const rows = await this.deps.handsPage!(
+              afterAt,
+              afterId,
+              1000,
+              ac.signal,
+              new Date(end - 1).toISOString()
+            );
+            if (!Array.isArray(rows) || !rows.length) return true;
+            for (const r of rows) {
+              const rec = handRecordFromRow(r);
+              if (typeof rec !== 'string' && hudDayOf(rec.at) === day) visit(rec);
+            }
+            afterAt = rows[rows.length - 1].created_at;
+            afterId = rows[rows.length - 1].id;
+            if (rows.length < 1000) return true;
+          } finally {
+            clearTimeout(t);
+          }
+        }
+        return false;
+      };
+      // pass 1: who was dealt into what
+      const expected = new Map<string, Set<string>>();
+      const ok = await walk((rec) => {
+        for (const seat of rec.seats) {
+          const k = key(rec.family, seat.userId);
+          let set = expected.get(k);
+          if (!set) expected.set(k, (set = new Set()));
+          set.add(hudIdPrefix(rec.id));
+        }
+      });
+      if (!ok) throw new Error('reconciliation page limit');
+      // every player of the day warm (bounded loads), then compare
+      for (const family of HUD_FAMILIES) {
+        // only players not already warm: a warm profile holds hands not yet saved and is never replaced
+        const users = [...expected.keys()]
+          .filter((k) => k.startsWith(`${family}|`) && this.cache.get(k)?.state !== 'ready')
+          .map((k) => k.slice(family.length + 1));
+        for (let i = 0; i < users.length; i += 50) await this.load(users.slice(i, i + 50), family);
+      }
+      const missing = new Map<string, Set<string>>();
+      for (const [k, want] of expected) {
+        const e = this.cache.get(k);
+        if (e?.state !== 'ready') continue;
+        const p = e.profile;
+        if (p.daysSince === undefined || p.daysSince >= start) continue;
+        out.compared += 1;
+        const have = new Set(p.days?.[day] ?? []);
+        const lack = [...want].filter((x) => !have.has(x));
+        if (lack.length) missing.set(k, new Set(lack));
+      }
+      out.drifted = missing.size;
+      // pass 2: apply the missing hands (repair), each once
+      if (missing.size)
+        await walk((rec) => {
+          const prefix = hudIdPrefix(rec.id);
+          const deltas = extractHandDeltas(rec);
+          for (const d of deltas) {
+            const k = key(rec.family, d.user);
+            if (!missing.get(k)?.has(prefix)) continue;
+            const e = this.cache.get(k);
+            if (
+              e?.state === 'ready' &&
+              applyHudHand(e.profile, rec, deltas, undefined, true) === null
+            ) {
+              e.dirty = true;
+              out.repaired += 1;
+            }
+          }
+        });
+      this.lastReconcile = { day, ...out };
+      noteFire(out.drifted ? 'opponent_hud_reconcile_drift' : 'opponent_hud_reconcile_clean');
+      this.setAlert(
+        'OpponentHudDrift',
+        out.drifted > 0,
+        `reconciliation of ${day}: ${out.drifted} of ${out.compared} opponent profiles missed hands (${out.repaired} applied now)`
+      );
+      if (out.repaired) void this.persist();
+    } catch {
+      noteFire('opponent_hud_reconcile_failed');
+      this.setAlert('OpponentHudDrift', true, `reconciliation of ${day} could not complete`);
+    } finally {
+      this.reconciling = false;
+    }
+    return out;
   }
 
   /** Operator / metrics snapshot. */
@@ -567,6 +784,7 @@ export function opponentHudSnapshotField(
     tournament?: unknown;
     stage?: unknown;
     players?: readonly { user_id?: string; is_folded?: boolean }[];
+    bigBlind?: unknown;
   },
   heroId: string,
   atMs: number
@@ -585,6 +803,7 @@ export function opponentHudSnapshotField(
         .map((p) => p.user_id as string),
       street,
       atMs,
+      bigBlind: typeof gs.bigBlind === 'number' ? gs.bigBlind : null,
     });
   } catch {
     return {};
@@ -668,19 +887,35 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
       if (error) throw new Error('opponent hud recent failed');
       return (data ?? []) as HudStoredRow[];
     },
-    async handsPage(afterAt, afterId, limit, signal) {
+    async handsPage(afterAt, afterId, limit, signal, untilIso) {
       const { data, error } = await (
         await client()
       )
         .rpc('fn_opponent_hud_hands_page', {
           p_after_at: afterAt,
           p_after_id: afterId,
-          p_until: new Date().toISOString(),
+          p_until: untilIso ?? new Date().toISOString(),
           p_limit: limit,
         })
         .abortSignal(signal);
       if (error) throw new Error('opponent hud hands page failed');
       return (data ?? []) as { id: string; created_at: string }[];
+    },
+    alert(name, firing, summary) {
+      // Production Alerts: engine_alerts -> operational_alert_events; page false, so never the owner's phone
+      void import('./engineAlerts.js')
+        .then((m) =>
+          firing
+            ? m.raiseEngineAlert({
+                alertname: name,
+                severity: 'warning',
+                component: 'opponent-hud',
+                summary,
+                page: false,
+              })
+            : m.resolveEngineAlert(name, 'opponent-hud', summary)
+        )
+        .catch(() => undefined);
     },
     async upsert(rows, signal) {
       const { data, error } = await (await client())

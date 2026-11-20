@@ -353,3 +353,60 @@ export function fitHudPriors(profiles: readonly OpponentHudProfile[], minOpp = 3
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Priors by stake (the observable context of a new opponent)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** The population of one family: per statistic prior and k over every player, and the pooled rate of each
+ *  statistic per stake band ([rate, opportunities]). */
+export interface HudPopulation {
+  family: HudPriors;
+  stakes: Record<string, Record<string, [number, number]>>;
+}
+/** A stake band's pooled rate replaces the family prior for a statistic only with at least this many opportunities. */
+export const HUD_STAKE_PRIOR_MIN_N = 200;
+
+/** Stake band of a big blind: b025 (<= .25), b05 (<= .5), b1 (<= 1), b2 (<= 2), b5 (above). */
+export function hudStakeBand(bb: number | null | undefined): string | null {
+  if (typeof bb !== 'number' || !(bb > 0)) return null;
+  return bb <= 0.25 ? 'b025' : bb <= 0.5 ? 'b05' : bb <= 1 ? 'b1' : bb <= 2 ? 'b2' : 'b5';
+}
+
+/** A stored population row: the current shape, or a flat priors map (family only). Null when malformed. */
+export function parseHudPopulation(x: unknown): HudPopulation | null {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+  const o = x as Record<string, unknown>;
+  const ok = (m: unknown): m is Record<string, [number, number]> =>
+    !!m &&
+    typeof m === 'object' &&
+    !Array.isArray(m) &&
+    Object.values(m).every(
+      (v) =>
+        Array.isArray(v) &&
+        v.length === 2 &&
+        v.every((n) => typeof n === 'number' && Number.isFinite(n))
+    );
+  if ('family' in o || 'stakes' in o) {
+    if (!ok(o.family)) return null;
+    const stakes: HudPopulation['stakes'] = {};
+    if (o.stakes && typeof o.stakes === 'object' && !Array.isArray(o.stakes))
+      for (const [band, m] of Object.entries(o.stakes as Record<string, unknown>))
+        if (ok(m)) stakes[band] = m;
+    return { family: o.family, stakes };
+  }
+  return ok(o) ? { family: o, stakes: {} } : null;
+}
+
+/** The priors a decision at this big blind uses: each statistic's stake-band rate where the band has the evidence,
+ *  else the family prior; k is always the family's (it measures how players differ, not where they play). */
+export function priorsForStake(pop: HudPopulation, bb: number | null | undefined): HudPriors {
+  const band = hudStakeBand(bb);
+  const s = band ? pop.stakes[band] : undefined;
+  const out: HudPriors = {};
+  for (const [stat, [p, k]] of Object.entries(pop.family)) {
+    const b = s?.[stat];
+    out[stat] = [b && b[1] >= HUD_STAKE_PRIOR_MIN_N ? Math.round(b[0] * 1000) / 1000 : p, k];
+  }
+  return out;
+}

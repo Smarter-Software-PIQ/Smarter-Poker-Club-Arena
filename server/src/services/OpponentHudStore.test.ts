@@ -15,7 +15,7 @@ import {
 } from '../engine/opponentHud/OpponentHudProfile.js';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const H = (n: number) => `30000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const H = (n: number) => `${n.toString(16).padStart(8, '0')}-0000-4000-8000-000000000003`;
 const T0 = 1_800_000_000_000;
 function row(id: number, a: number, b: number, at = T0 + id * 1000) {
   return {
@@ -250,6 +250,102 @@ describe('OpponentHudStore', () => {
     store.warm([U(2)], 'plo5', 'sit');
     await flush();
     expect(store.profile(U(2), 'plo5')!.hands).toBe(2);
+  });
+
+  it("the packet takes the population prior of the hand's stake", async () => {
+    const store = new OpponentHudStore(fakeDeps(new Map()));
+    store.setArmed(true);
+    store.setPriors('plo5', {
+      family: { 'pf.vpip': [0.4, 10] },
+      stakes: { b1: { 'pf.vpip': [0.6, 500] } },
+    });
+    const at1 = store.packetFor({
+      family: 'plo5',
+      cash: true,
+      heroId: U(9),
+      opponentIds: [],
+      street: 'preflop',
+      atMs: T0,
+      bigBlind: 1,
+    });
+    const at5 = store.packetFor({
+      family: 'plo5',
+      cash: true,
+      heroId: U(9),
+      opponentIds: [],
+      street: 'preflop',
+      atMs: T0,
+      bigBlind: 5,
+    });
+    expect(at1.opponentHud!.pri['pf.vpip']).toEqual([0.6, 10]);
+    expect(at5.opponentHud!.pri['pf.vpip']).toEqual([0.4, 10]);
+  });
+
+  it('failures and late profiles go to Production Alerts once and resolve when clean (never a page)', async () => {
+    const alerts: [string, boolean][] = [];
+    const deps = fakeDeps(new Map(), { fail: true });
+    deps.alert = (name, firing) => alerts.push([name, firing]);
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    for (let i = 0; i < 6; i++) {
+      store.warm([U(100 + i)], 'plo5', 'sit');
+      await flush();
+    }
+    store.warm([U(1)], 'plo5', 'sit');
+    deps.tick(HUD_READY_DEADLINE_MS + 1);
+    store.packetFor({
+      family: 'plo5',
+      cash: true,
+      heroId: U(9),
+      opponentIds: [U(1)],
+      street: 'flop',
+      atMs: T0,
+    });
+    store.tickAlerts();
+    store.tickAlerts();
+    store.tickAlerts();
+    expect(alerts).toEqual([
+      ['OpponentHudLoadFailing', true],
+      ['OpponentHudProfileLate', true],
+      ['OpponentHudLoadFailing', false],
+      ['OpponentHudProfileLate', false],
+    ]);
+  });
+
+  it('nightly reconciliation applies a hand the profile missed, raises drift, and resolves on a clean night', async () => {
+    const alerts: [string, boolean][] = [];
+    const stored = new Map<string, HudStoredRow>();
+    const deps = fakeDeps(stored);
+    deps.alert = (name, firing) => alerts.push([name, firing]);
+    const day0 = Date.parse('2027-01-14T18:00:00Z'); // noon Chicago
+    const hands = [
+      row(60_001, 1, 2, day0),
+      row(60_002, 1, 2, day0 + 60_000),
+      row(60_003, 1, 2, day0 + 120_000),
+    ];
+    deps.handsPage = async (
+      afterAt: string,
+      _id: string,
+      _l: number,
+      _s: AbortSignal,
+      until?: string
+    ) => hands.filter((r) => r.created_at > afterAt && (!until || r.created_at <= until));
+    const store = new OpponentHudStore(deps);
+    // the profiles track days from the day before; hand 60_002 never reached the engine
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    await flush();
+    store.onAcceptedHand(row(59_000, 1, 2, day0 - 86_400_000));
+    store.onAcceptedHand(hands[0]);
+    store.onAcceptedHand(hands[2]);
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(3);
+    const r = await store.reconcileDay('2027-01-14');
+    expect(r).toEqual({ compared: 2, drifted: 2, repaired: 2 });
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(4);
+    expect((await store.reconcileDay('2027-01-14')).drifted).toBe(0);
+    expect(alerts).toEqual([
+      ['OpponentHudDrift', true],
+      ['OpponentHudDrift', false],
+    ]);
   });
 
   it('boot prewarm loads stored profiles and the population priors', async () => {
