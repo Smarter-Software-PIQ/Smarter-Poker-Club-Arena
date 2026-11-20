@@ -179,7 +179,12 @@ BEGIN
        AND coalesce(l.status, 'posted') = 'posted'
        AND l.metadata->>'kind' = 'midway_free_buy_promo_head'
        AND l.created_at >= c_cutoff_live
-       AND ((l.idempotency_key LIKE 'tourney:%:promo_head:%'
+       -- Same rows as the live body's  idempotency_key LIKE 'tourney:%:promo_head:%' ,
+       -- written as a literal prefix plus a literal infix after it, so the merge
+       -- gate's chip_ledger LIKE-prefix refusal (scripts/ci/migration-cost-shape.mjs)
+       -- holds; rows are already narrowed by to_entity_id = fb.id above.
+       AND ((left(l.idempotency_key, 8) = 'tourney:'
+             AND strpos(substr(l.idempotency_key, 9), ':promo_head:') > 0
              AND coalesce((l.metadata->>'prize_part')::numeric, l.amount) > 0)
          OR (l.idempotency_key = 'tourney:' || fb.id::text || ':free_buy_cutoff_funding'
              AND NOT fb.fin))

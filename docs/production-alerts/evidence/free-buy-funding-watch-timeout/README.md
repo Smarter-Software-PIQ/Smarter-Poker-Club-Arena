@@ -36,3 +36,36 @@ its calls and reports each event overfunded:
 `tests/the-free-buy-funding-watch-reads-each-guarantee-once.law.test.ts`:
 fails on main without the migration (newest definition is
 20261106194903 and has no MATERIALIZED), passes with it.
+
+## Revision 2 (2026-11-20T07:0xZ): the install-budget gate
+
+CI run 44684058363, job 136114184416 (`Client Unit Tests shard 7`) refused the first revision:
+`tests/unit/aMigrationFitsTheInstallBudget.test.ts` flags `idempotency_key LIKE 'tourney:%:promo_head:%'`
+in a statement that reads `chip_ledger`. The text was copied verbatim from the live body; it runs only
+when the watch runs (never at install time) and is already narrowed by `to_entity_id = fb.id`. The gate is
+static and is not weakened. Instead the predicate is written without LIKE:
+
+    left(l.idempotency_key, 8) = 'tourney:'
+    AND strpos(substr(l.idempotency_key, 9), ':promo_head:') > 0
+
+Equivalence, PostgreSQL 16 (old = live LIKE, new = rewrite):
+
+| key | old | new |
+| --- | --- | --- |
+| `tourney:<uuid>:promo_head:<uuid>` | t | t |
+| `tourney:<uuid>:promo_head:<uuid>:return` | t | t |
+| `tourney:<uuid>:free_buy_cutoff_funding` | f | f |
+| `tourney:promo_head:x` | f | f |
+| `tourney::promo_head:x` | t | t |
+| `tourney:abc:promo_headx` | f | f |
+| `xtourney:a:promo_head:b` | f | f |
+| `tourney:a:promoXhead:b` | t | f |
+| `''` | f | f |
+| NULL | NULL | NULL |
+
+The only disagreement is `promoXhead`, matched by LIKE because `_` is a single-character wildcard. Every
+writer of these keys (`git grep "':promo_head:'"` in supabase/migrations and server/src) builds
+`'tourney:' || <tournament uuid> || ':promo_head:' || <id>[ || ':return']`, so the literal form selects
+the same rows. A production count of both predicates was attempted read-only and cancelled at 50 s, which
+is the full-scan cost the gate exists to keep out of migrations. `migrationCostRisks` now returns `[]`
+for the file.
