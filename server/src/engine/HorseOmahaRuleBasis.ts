@@ -149,8 +149,9 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
 
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
-  omahaAcesReraiseIsMeasured: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaAcesReraiseIsMeasured: partly(
+    [],
+    'aces facing a 3-bet at 250 bb or less: the re-raise: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
   ),
   omahaBandFallbackInBandUnit: exempt('input', 'an input of a priced comparison, not a rule site'),
   omahaBareOverpairOopFlopCheck: blanket(
@@ -193,8 +194,9 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     'an input of a priced comparison, not a rule site'
   ),
   omahaClassCapsRespectEquity: FACING_BET_EV,
-  omahaColdCallOutsideBigBlindIsMeasured: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaColdCallOutsideBigBlindIsMeasured: partly(
+    [],
+    'a cold call outside the big blind by measured class cell: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
   ),
   omahaCommitZoneThreeBetPriceRelief: review(
     'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
@@ -301,8 +303,9 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     ['omahaNoCategoricalRules'],
     'the register classes it categorical; removal: switch-off with omahaNoCategoricalRules in PLO4/PLO5 cash, then delete'
   ),
-  omahaOpenNeedsMeasuredStrength: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaOpenNeedsMeasuredStrength: partly(
+    [],
+    'a first-in raise below the strongest 20% of the two-card strength order becomes a fold: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
   ),
   omahaOptionGameScope: exempt('scope', 'decides where a rule applies, never the action'),
   omahaOverpairNoOopBarrelVsValueLeader: blanket(
@@ -356,8 +359,9 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     ['omahaNoCategoricalRules'],
     're-raise range by position; removal: priced preflop re-raise'
   ),
-  omahaReraiseRangeIsMeasured: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaReraiseRangeIsMeasured: partly(
+    [],
+    'kings facing a 3-bet after the 3-bettor: the pot 4-bet: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
   ),
   omahaReraiseRangeOutOfPosition: blanket(
     ['omahaNoCategoricalRules'],
@@ -401,11 +405,13 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     ['omahaNoCategoricalRules'],
     'the register classes it categorical; removal: switch-off with omahaNoCategoricalRules in PLO4/PLO5 cash, then delete'
   ),
-  omahaRundownReraiseRangeIsMeasured: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaRundownReraiseRangeIsMeasured: partly(
+    [],
+    'a high rundown squeezing from a blind above 250 bb: the call: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
   ),
-  omahaRundownReraiseRangeTrial: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaRundownReraiseRangeTrial: partly(
+    [],
+    'trial rundown re-raise cells by structure and position: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
   ),
   omahaSampledRaiseIsPricedAtEverySize: exempt(
     'input',
@@ -419,16 +425,16 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaStrategyInPlo6: exempt('scope', 'decides where a rule applies, never the action'),
   omahaStrategyInTournaments: exempt('scope', 'decides where a rule applies, never the action'),
   omahaStreetPlan: partly(
-    ['omahaNoCategoricalRules'],
-    'the heads-up turn check and each bet priced as whole lines over every exact river card (HorseOmahaStreetPlan.ts), but the range falls back to a fixed keep share of a fixed sample and the responses to population priors where unmeasured; omahaNoCategoricalRules switches this priced plan off'
+    ['omahaMathCore'],
+    'the heads-up turn check and each bet priced as whole lines over every exact river card (HorseOmahaStreetPlan.ts); its fallback range (a fixed keep share of a fixed sample, by turn strength) and the population priors where unmeasured are categorical: MATHCORE-2 replaces the fallback with the measured range. Kept out of OMAHA_NO_CATEGORICAL_RULES_OFF (replay: off = 366 turn check->bet, all-chip -1,588 +/- 330)'
   ),
   omahaStreetPlanFlop: partly(
     ['omahaNoCategoricalRules'],
     'the flop bet priced as a two-street line with the turn by card class (failed its evaluation; off-only): delete'
   ),
   omahaStreetPlanThreeWay: partly(
-    ['omahaNoCategoricalRules'],
-    'the three-way turn line priced against two independent ranges, with the same fallback keep share and population priors'
+    ['omahaMathCore'],
+    'the three-way turn line priced against two independent ranges, with the same categorical fallback keep share and population priors; kept out of OMAHA_NO_CATEGORICAL_RULES_OFF with omahaStreetPlan'
   ),
   omahaStrongHandSlowplayMix: blanket(
     ['omahaNoCategoricalRules'],
@@ -451,8 +457,9 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     'scope',
     'decides where a rule applies, never the action'
   ),
-  omahaTurnBetNeedsRiverPlan: review(
-    'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  omahaTurnBetNeedsRiverPlan: blanket(
+    ['omahaNoCategoricalRules'],
+    'a turn bet becomes a check when on more than 35% of the river cards the categorical fold rules (paired-board fold, V81/V86 tiers) would fold to an all-in for what is left'
   ),
   omahaTurnCallRealizationByRunout: exempt(
     'input',
@@ -479,9 +486,9 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     ['omahaNoCategoricalRules'],
     'the register classes it categorical; removal: switch-off with omahaNoCategoricalRules in PLO4/PLO5 cash, then delete'
   ),
-  omahaValueSizeIsUnreadable: blanket(
+  omahaValueSizeIsUnreadable: partly(
     [],
-    'a nut-class wager drawn uniformly in a fixed 80-95% pot band when no keep share is measured (owner band of 2026-11-19); removal: priced size from the measured keep share at every size; lead to rule on the owner band'
+    "a nut-class wager keeps the measured full-pot share, else is drawn uniformly in a fixed 80-95% pot band: built on the owner's order (2026-11-18 23:00) to remove a sizing tell that STYLE-STUDY measured as real; stays on (lead ruling 2026-11-20); OFFENCE-BUILD replaces the band with priced sizing"
   ),
   omahaVpipFloorByLimp: exempt(
     'owner_game_rule',

@@ -65,9 +65,12 @@ export const OMAHA_NO_CATEGORICAL_RULES_OFF = Object.freeze([
   'omahaStrongHandSlowplayMix',
   'omahaSlowplayMixInLightning',
   'omahaPricedMix',
-  'omahaStreetPlan',
+  // omahaStreetPlan and omahaStreetPlanThreeWay are NOT here (lead ruling 2026-11-20, lane BLANKET-AUDIT): they
+  // price the turn check and each bet as whole lines over every exact river card (HorseOmahaStreetPlan.ts); only
+  // their fallback range (a fixed keep share of a fixed sample) is categorical, declared 'partly' in
+  // HorseOmahaRuleBasis.ts. Exact replay on the serving build 26c2e74930dd (424 decisions where it fired): off
+  // turned 366 turn checks into bets, all-chip -1,588 +/- 330 on real cards; it was most of this option's turn loss.
   'omahaStreetPlanFlop',
-  'omahaStreetPlanThreeWay',
   'omahaTurnBetNeedsRiverPlan',
   'v9Mood',
 ] as const satisfies readonly (keyof HorseDecideOpts)[]);

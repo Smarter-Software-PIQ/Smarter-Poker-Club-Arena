@@ -132,6 +132,11 @@ describe('every Omaha decision rule declares its pricing basis (HorseOmahaRuleBa
     }
   });
 
+  it('omahaNoCategoricalRules does not switch off the priced turn plans (lead ruling 2026-11-20; replay: off = all-chip -1,588 +/- 330)', () => {
+    for (const o of ['omahaStreetPlan', 'omahaStreetPlanThreeWay'])
+      expect((OMAHA_NO_CATEGORICAL_RULES_OFF as readonly string[]).includes(o), o).toBe(false);
+  });
+
   it('every reference rule site is a receipt the ledger holds', () => {
     for (const r of Object.keys(OMAHA_REFERENCE_RULE_BASIS))
       expect(ledgerReceiptFor(r)?.kind, `${r} is a ledger receipt`).toBe('receipt');
@@ -176,7 +181,6 @@ describe('the blanket backlog only shrinks: a categorical rule cannot be registe
         'omahaTurnRiverRaiseNeedsNuts',
         'omahaTurnSetPound',
         'omahaUnderpairNoMultiwayFlopContinue',
-        'omahaValueSizeIsUnreadable',
         'omaha_big_bet_by_pot_share',
         'omaha_owner_approved_bet_kept',
         'omaha_owner_ruled_check_kept',
@@ -204,6 +208,7 @@ describe('the blanket backlog only shrinks: a categorical rule cannot be registe
         'v86_plo_underboat_fold',
         'v9Mood',
         'v16SizeCond',
+        'omahaTurnBetNeedsRiverPlan',
       ].sort()
     );
   });
@@ -225,31 +230,31 @@ describe('the blanket backlog only shrinks: a categorical rule cannot be registe
         'omahaStreetPlan',
         'omahaStreetPlanFlop',
         'omahaStreetPlanThreeWay',
+        'omahaOpenNeedsMeasuredStrength',
+        'omahaColdCallOutsideBigBlindIsMeasured',
+        'omahaAcesReraiseIsMeasured',
+        'omahaReraiseRangeIsMeasured',
+        'omahaRundownReraiseRangeIsMeasured',
+        'omahaRundownReraiseRangeTrial',
+        'omahaValueSizeIsUnreadable',
       ].sort()
     );
   });
   it('declarations not yet reviewed at the line level are exactly these (each moves to priced, exempt or blanket)', () => {
     expect(namesOfKind('review')).toEqual(
       [
-        'omahaAcesReraiseIsMeasured',
         'omahaBetSizeByPublicState',
         'omahaBigDrawAggression',
-        'omahaColdCallOutsideBigBlindIsMeasured',
         'omahaCommitZoneThreeBetPriceRelief',
         'omahaMultiwayRiverCallNeedsStrength',
         'omahaMultiwayWeakHandNoBet',
         'omahaNutClassValueSize',
-        'omahaOpenNeedsMeasuredStrength',
         'omahaPreflopCallWithActionBehind',
         'omahaPreflopReraiseDefencePricedInPosition',
         'omahaPreflopStackPlan',
         'omahaPricedMix',
-        'omahaReraiseRangeIsMeasured',
         'omahaReraisedPotStackOffRealistic',
-        'omahaRundownReraiseRangeIsMeasured',
-        'omahaRundownReraiseRangeTrial',
         'omahaSmallBlindSteal',
-        'omahaTurnBetNeedsRiverPlan',
       ].sort()
     );
   });
