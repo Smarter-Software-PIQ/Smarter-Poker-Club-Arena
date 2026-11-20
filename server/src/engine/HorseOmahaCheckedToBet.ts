@@ -215,8 +215,9 @@ export interface OmahaCheckedToVerdict {
   rows: OmahaCheckedToRow[];
   /** where the continue rates came from: every opponent's source, the weakest named */
   source: 'street' | 'pooled' | 'prior';
-  /** omahaCheckedToBetResponseIsMeasured: the measured answer priced this comparison ('kind': his kind's curve,
-   *  'personal': his own level on the kind's shape); absent when the model's keep priced it */
+  /** omahaCheckedToBetResponseIsMeasured: the measured answer priced this comparison ('kind': the one pooled
+   *  curve, the same for every opponent; 'personal': his own level on that shape); absent when the model's keep
+   *  priced it */
   measured?: 'kind' | 'personal';
 }
 
@@ -324,11 +325,12 @@ export function omahaCheckedToShowdownCalibrated(
  * CHECKED the river continued against a Horse bet of 0.8 pot or more 4 of 48 times on Nov 17-18 and 4 of 26 on Nov 19.
  *
  * With the option on, heads-up on the river only (one opponent, who has checked), his continue and raise shares at
- * each bet size are the measured curve of his kind (a person or a Horse) for the variant, joined by straight lines,
+ * each bet size are the ONE measured curve of the variant (the person and Horse cells pooled by their counts; the
+ * same curve whoever he is), joined by straight lines,
  * every hand continuing at a bet of nothing, MOVED BY HIS OWN EVIDENCE: the log-odds of continuing shift, at every
  * size alike, by logit(his own rate) - logit(the population mean of the same statistic) (his river call rate beside
  * the population's river call rate; with no river rate his continue rate beside the population's). A player with no
- * evidence is exactly his kind's curve; a measured station continues more at every size and a measured folder less;
+ * evidence is exactly that curve; a measured station continues more at every size and a measured folder less;
  * a player with evidence but no population figure to read it beside is priced by the model as before. The error of the rate is the binomial error of the measured cell joined
  * with the error of his own rate carried through the shift.
  * Everything else is the comparison above: his checking range, the fitted showdown share and continue equity, the
@@ -344,7 +346,7 @@ export interface OmahaCheckedToPopulation {
 }
 export interface OmahaCheckedToMeasuredResponse {
   curve: OmahaCardImpactResponseCurve;
-  /** true: his own evidence moved his kind's curve; false: exactly his kind's curve */
+  /** true: his own evidence moved the pooled curve; false: exactly the pooled curve */
   personal: boolean;
   /** his own rate that moved the curve (null: none) */
   own: number | null;
@@ -355,14 +357,39 @@ const logitOf = (p: number): number => {
   const q = clamp(p, 1e-4, 1 - 1e-4);
   return Math.log(q / (1 - q));
 };
+/**
+ * ONE CURVE FOR EVERY OPPONENT (2026-11-20, binding rule: no rule may key on whether an opponent is a person or a
+ * Horse). The measured table holds a person cell and a Horse cell per bet size; the answer priced here is the two
+ * pooled by their own counts at each size (a size only one of them measured is that cell). Null: no measured river
+ * curve for the variant.
+ */
+export function omahaCheckedToPooledRiverPoints(
+  variant: string
+): Array<{ share: number; cont: number; raise: number; n: number }> | null {
+  const cells = [
+    OMAHA_SMALL_BET_RESPONSE[`${variant}|river|person`],
+    OMAHA_SMALL_BET_RESPONSE[`${variant}|river|horse`],
+  ].filter((c): c is NonNullable<typeof c> => Array.isArray(c) && c.length > 0);
+  if (cells.length === 0) return null;
+  const shares = [...new Set(cells.flatMap((c) => c.map((p) => p.share)))].sort((a, b) => a - b);
+  return shares.map((share) => {
+    const at = cells.flatMap((c) => c.filter((p) => p.share === share));
+    const n = at.reduce((sum, p) => sum + Math.max(0, p.n), 0);
+    const weight = (p: { n: number }): number => (n > 0 ? Math.max(0, p.n) / n : 1 / at.length);
+    return {
+      share,
+      cont: at.reduce((sum, p) => sum + weight(p) * p.cont, 0),
+      raise: at.reduce((sum, p) => sum + weight(p) * p.raise, 0),
+      n,
+    };
+  });
+}
 export function omahaCheckedToMeasuredResponse(
   variant: string,
-  opponentIsHorse: boolean,
   read: OmahaCardImpactRead,
   population: OmahaCheckedToPopulation | null = null
 ): OmahaCheckedToMeasuredResponse | null {
-  const points =
-    OMAHA_SMALL_BET_RESPONSE[`${variant}|river|${opponentIsHorse ? 'horse' : 'person'}`];
+  const points = omahaCheckedToPooledRiverPoints(variant);
   if (!points || points.length === 0) return null;
   // His own evidence beside the population's figure for the same statistic.
   let own: number | null = null;
@@ -396,7 +423,7 @@ export function omahaCheckedToMeasuredResponse(
       .filter((p) => p.share > 0)
       .map((p) => {
         const cont = moved(p.cont);
-        // of the hands that continue, the measured share of his kind at that size raises
+        // of the hands that continue, the measured share at that size raises
         return {
           share: p.share,
           cont,
@@ -455,12 +482,10 @@ export function omahaCheckedToBet(
     if (read.source === 'prior' || (read.source === 'pooled' && source === 'street'))
       source = read.source;
     const cardRead = omahaPricedCardImpactRead(read, scope.street);
-    const kindOfOpp = omahaOpponentKindOf(gs, opp.user_id);
     const measured =
       measuredResponse === true && river && scope.opponents.length === 1
         ? omahaCheckedToMeasuredResponse(
             String(gs.gameVariant ?? '').toLowerCase(),
-            kindOfOpp === 'horse' || (kindOfOpp === null && opp.is_horse === true),
             cardRead,
             given?.population ?? null
           )

@@ -30,6 +30,7 @@ import {
   omahaCheckedToBet,
   omahaCheckedToBetScope,
   omahaCheckedToMeasuredResponse,
+  omahaCheckedToPooledRiverPoints,
   type OmahaCheckedToRead,
 } from './HorseOmahaCheckedToBet.js';
 import { OMAHA_SMALL_BET_RESPONSE } from './HorseOmahaSmallBetConstants.js';
@@ -149,36 +150,54 @@ afterEach(() => {
 });
 
 describe('the measured answer to a river bet (omahaCheckedToMeasuredResponse)', () => {
-  it("no personal read: his kind's measured curve, level and shape, with the cell's own count", () => {
-    for (const variant of ['plo4', 'plo5'])
-      for (const horse of [false, true]) {
-        const points = OMAHA_SMALL_BET_RESPONSE[`${variant}|river|${horse ? 'horse' : 'person'}`];
-        const m = omahaCheckedToMeasuredResponse(variant, horse, NO_READ)!;
-        expect(m.personal).toBe(false);
-        // every hand continues against a bet of nothing; then the measured points, unchanged
-        expect(m.curve[0]).toMatchObject({ share: 0, cont: 1 });
-        expect(m.curve.slice(1).map((p) => [p.share, p.cont, p.raise])).toEqual(
-          points.map((p) => [p.share, p.cont, p.raise])
-        );
-        const last = points[points.length - 1];
-        expect(m.at(last.share)).toEqual({ cont: last.cont, n: last.n });
-        // a bigger bet is continued less often
-        expect(m.at(1).cont).toBeLessThan(m.at(0.3).cont);
+  it('no personal read: ONE measured curve for every opponent (person and Horse cells pooled by their counts)', () => {
+    for (const variant of ['plo4', 'plo5']) {
+      const person = OMAHA_SMALL_BET_RESPONSE[`${variant}|river|person`];
+      const horse = OMAHA_SMALL_BET_RESPONSE[`${variant}|river|horse`];
+      const points = omahaCheckedToPooledRiverPoints(variant)!;
+      const m = omahaCheckedToMeasuredResponse(variant, NO_READ)!;
+      expect(m.personal).toBe(false);
+      // every hand continues against a bet of nothing; then the pooled points, unchanged
+      expect(m.curve[0]).toMatchObject({ share: 0, cont: 1 });
+      expect(m.curve.slice(1).map((p) => [p.share, p.cont, p.raise])).toEqual(
+        points.map((p) => [p.share, p.cont, p.raise])
+      );
+      // each pooled point lies between the two measured cells of its size and carries both counts
+      for (const p of points) {
+        const cells = [...person, ...horse].filter((c) => c.share === p.share);
+        expect(cells.length).toBeGreaterThan(0);
+        expect(p.n).toBe(cells.reduce((sum, c) => sum + c.n, 0));
+        expect(p.cont).toBeGreaterThanOrEqual(Math.min(...cells.map((c) => c.cont)) - 1e-12);
+        expect(p.cont).toBeLessThanOrEqual(Math.max(...cells.map((c) => c.cont)) + 1e-12);
       }
-    // the figures the option's note states
-    expect(omahaCheckedToMeasuredResponse('plo5', false, NO_READ)!.at(1).cont).toBeCloseTo(0.15, 2);
-    expect(omahaCheckedToMeasuredResponse('plo5', true, NO_READ)!.at(1).cont).toBeCloseTo(0.215, 2);
+      const last = points[points.length - 1];
+      expect(m.at(last.share)).toEqual({ cont: last.cont, n: last.n });
+      // a bigger bet is continued less often
+      expect(m.at(1).cont).toBeLessThan(m.at(0.3).cont);
+    }
+    // PLO5 pot-sized bet: (142 x 0.1501 + 78 x 0.2152) / 220
+    expect(omahaCheckedToMeasuredResponse('plo5', NO_READ)!.at(1)).toEqual({
+      cont: (142 * 0.1501 + 78 * 0.2152) / 220,
+      n: 220,
+    });
   });
-  it("his own evidence moves his kind's curve by its distance from the population, at every size alike", () => {
-    const kind = omahaCheckedToMeasuredResponse('plo5', false, NO_READ)!;
+  it('the answer does not depend on who the opponent is: the function takes no opponent kind', () => {
+    expect(omahaCheckedToMeasuredResponse.length).toBeLessThanOrEqual(3);
+    const src = readFileSync(new URL('./HorseOmahaCheckedToBet.ts', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('export function omahaCheckedToMeasuredResponse('));
+    expect(body.slice(0, body.indexOf('\ninterface Leg'))).not.toMatch(
+      /is_horse|opponentIsHorse|KindOf/
+    );
+  });
+  it('his own evidence moves the pooled curve by its distance from the population, at every size alike', () => {
+    const kind = omahaCheckedToMeasuredResponse('plo5', NO_READ)!;
     const withRate = (riverCallRate: number | null, continueRate: number | null = 0.5) =>
       omahaCheckedToMeasuredResponse(
         'plo5',
-        false,
         { ...NO_READ, measured: true, continueRate, riverCallRate },
         POPULATION
       )!;
-    // a rate equal to the population's: exactly his kind's curve
+    // a rate equal to the population's: exactly the pooled curve
     const average = withRate(POPULATION.riverCall);
     expect(average.personal).toBe(false);
     for (const share of [0.3, 0.5, 0.66, 1])
@@ -192,7 +211,7 @@ describe('the measured answer to a river bet (omahaCheckedToMeasuredResponse)', 
       expect(station.at(share).cont).toBeGreaterThan(kind.at(share).cont + 0.05);
       expect(folder.at(share).cont).toBeLessThan(kind.at(share).cont);
       // the raise share stays the measured share of the hands that continue
-      const k = OMAHA_SMALL_BET_RESPONSE['plo5|river|person'].find((p) => p.share === 1)!;
+      const k = kind.curve[kind.curve.length - 1];
       const top = station.curve[station.curve.length - 1];
       expect(top.raise / top.cont).toBeCloseTo(k.raise / k.cont, 9);
     }
@@ -216,15 +235,15 @@ describe('the measured answer to a river bet (omahaCheckedToMeasuredResponse)', 
       continueRate: 0.4,
       riverCallRate: 0.3,
     };
-    expect(omahaCheckedToMeasuredResponse('plo5', false, own)).toBeNull();
-    expect(omahaCheckedToMeasuredResponse('plo5', false, own, null)).toBeNull();
+    expect(omahaCheckedToMeasuredResponse('plo5', own)).toBeNull();
+    expect(omahaCheckedToMeasuredResponse('plo5', own, null)).toBeNull();
     expect(
-      omahaCheckedToMeasuredResponse('plo5', false, own, { continueRate: null, riverCall: null })
+      omahaCheckedToMeasuredResponse('plo5', own, { continueRate: null, riverCall: null })
     ).toBeNull();
   });
   it('PLO6 and every variant without a measured curve: no answer (the comparison is the model as before)', () => {
     for (const variant of ['plo6', 'plo8', 'nlh', ''])
-      expect(omahaCheckedToMeasuredResponse(variant, false, NO_READ)).toBeNull();
+      expect(omahaCheckedToMeasuredResponse(variant, NO_READ)).toBeNull();
   });
 });
 
