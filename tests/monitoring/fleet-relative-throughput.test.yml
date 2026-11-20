@@ -4,6 +4,51 @@
   'tests':
     [
       {
+        'name': 'A stale money snapshot with a fresh policy reading is not PolicyUnknown (incident 3aabeee7)',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x60' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x60' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x60' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x10 600+0x50' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing"}',
+              'eval_time': '40m',
+              'exp_samples': [],
+            },
+            { 'expr': 'sp:lightning_admission_policy:readable', 'eval_time': '40m', 'exp_samples': [{ 'labels': 'sp:lightning_admission_policy:readable', 'value': 1 }] },
+          ],
+      },
+      {
+        'name': 'A policy reading that itself goes stale is PolicyUnknown',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x60' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x60' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x10 600+0x50' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x60' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing"}',
+              'eval_time': '40m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing",component="monitoring",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
         'name': 'A floor that falls to a tenth of its week fires, with only four days retained',
         'interval': '1m',
         'input_series':
@@ -18,7 +63,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -55,7 +100,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -92,7 +137,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -123,7 +168,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -154,7 +199,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -185,7 +230,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -216,7 +261,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -246,7 +291,7 @@
             },
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
           ],
         'promql_expr_test':
           [
@@ -271,7 +316,7 @@
               'values': '1+0x4320 2+0x5759',
             },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
             { 'series': 'poker_maintenance_break_active', 'values': '0+0x12000' },
           ],
         'promql_expr_test':
@@ -302,7 +347,7 @@
               'values': '1+0x5760 2+0x179',
             },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
             { 'series': 'poker_maintenance_break_active', 'values': '0+0x12000' },
           ],
         'promql_expr_test':
@@ -339,7 +384,7 @@
               'values': '1+0x4320 2+0x5759',
             },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x12000' },
             { 'series': 'poker_maintenance_break_active', 'values': '0+0x12000' },
           ],
         'promql_expr_test':
@@ -368,7 +413,7 @@
         'input_series':
           [
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x80' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x80' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x80' },
           ],
         'promql_expr_test':
           [
@@ -402,7 +447,7 @@
           [
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x80' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '0+0x80' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x80' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x80' },
           ],
         'promql_expr_test':
           [
@@ -436,7 +481,7 @@
           [
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x80' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x80' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+0x80' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+0x80' },
           ],
         'promql_expr_test':
           [
@@ -470,7 +515,7 @@
           [
             { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x40 2+0x80' },
             { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x120' },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x120' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x120' },
           ],
         'promql_expr_test':
           [
@@ -496,7 +541,7 @@
               'series': 'poker_lightning_admission_policy_collect_ok',
               'values': '1+0x40 0+0x9 1+0x70',
             },
-            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x120' },
+            { 'series': 'poker_lightning_admission_policy_collected_timestamp_seconds', 'values': '0+60x120' },
           ],
         'promql_expr_test':
           [
@@ -538,7 +583,7 @@
             "values": "1+0x5940"
           },
           {
-            "series": "poker_health_collected_timestamp_seconds",
+            "series": "poker_lightning_admission_policy_collected_timestamp_seconds",
             "values": "0+60x5940"
           }
         ],
@@ -594,7 +639,7 @@
             "values": "1+0x5940"
           },
           {
-            "series": "poker_health_collected_timestamp_seconds",
+            "series": "poker_lightning_admission_policy_collected_timestamp_seconds",
             "values": "0+60x5940"
           }
         ],
@@ -632,7 +677,7 @@
             "values": "1+0x5940"
           },
           {
-            "series": "poker_health_collected_timestamp_seconds",
+            "series": "poker_lightning_admission_policy_collected_timestamp_seconds",
             "values": "0+60x5940"
           }
         ],
@@ -676,7 +721,7 @@
             "values": "1+0x5940"
           },
           {
-            "series": "poker_health_collected_timestamp_seconds",
+            "series": "poker_lightning_admission_policy_collected_timestamp_seconds",
             "values": "0+60x5940"
           }
         ],
@@ -714,7 +759,7 @@
             "values": "1+0x5940"
           },
           {
-            "series": "poker_health_collected_timestamp_seconds",
+            "series": "poker_lightning_admission_policy_collected_timestamp_seconds",
             "values": "0+60x5940"
           }
         ],

@@ -1638,7 +1638,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       name: 'Native alert intake survives actual process death without duplicate queue submission',
       if: '${{ !inputs.connected_ui_observations }}',
       env: { TMPDIR: '${{ runner.temp }}' },
-      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs',
+      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs tools/production-alerts-native-wakeup/native-turn.test.mjs',
     });
     // Qualify the exact additive transport gate, then retain every historical stage/hash.
     alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';
