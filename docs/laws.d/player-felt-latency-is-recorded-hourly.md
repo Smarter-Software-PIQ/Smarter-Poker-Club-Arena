@@ -1,3 +1,0 @@
-# tests/player-felt-latency-is-recorded-hourly.law.test.ts
-
-Player-felt latency is recorded hourly (owner, 2026-11-19). The wait players feel between hands, from the last player action of a hand to the next deal, is computed by `fn_ca_felt_latency` from `hand_history` (index-bounded: one hour of next hands, one previous hand each), recorded every hour at minute 8 into `smarter_private.ca_felt_latency_hourly` as p50/p95/max per table and per kind (cash, tournament, Lightning, the kind rows with a 250 ms histogram), and reported in the Daily Operations Digest under `felt_latency`. Intended waits are excluded and counted, never graded: idle tables (60 s or more), maintenance breaks, tournament breaks, recorded hand-for-hand intervals and cash rebuy windows.
