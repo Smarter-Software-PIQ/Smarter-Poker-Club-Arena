@@ -14809,7 +14809,9 @@ export class HorseLogic {
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
       // omahaEvFoldModelHeadsUp (default off): the key exists only when it is true.
       ...(opts.omahaEvFoldModelHeadsUp === true ? { omahaEvFoldModelHeadsUp: true } : {}),
-      omahaEvFoldModelSkipsPlo45: opts.omahaEvFoldModelSkipsPlo45 === true,
+      // omahaEvFoldModelSkipsPlo45 (NOV8, default off): like every later read option the key exists only when
+      // it is true, so with it off the read options are exactly what they were (HorseMindReadCalibration).
+      ...(opts.omahaEvFoldModelSkipsPlo45 === true ? { omahaEvFoldModelSkipsPlo45: true } : {}),
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
       ...(opts.omahaManiacReRaiseWidthMeasured === true &&
       omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gameState, opts) &&
