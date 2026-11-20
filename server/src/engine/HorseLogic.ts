@@ -17038,9 +17038,9 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: omahaMultiwayIsPricedInTournamentsRule(
-            bluffPriced(
-              publicSized(
+          decision: publicSized(
+            omahaMultiwayIsPricedInTournamentsRule(
+              bluffPriced(
                 omahaOwnerRuledFinal(
                   omahaDrawRules(
                     onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
@@ -17052,11 +17052,11 @@ export class HorseLogic {
                   gs,
                   opts
                 )
-              )
-            ),
-            player,
-            gs,
-            opts
+              ),
+              player,
+              gs,
+              opts
+            )
           ),
         };
       }
@@ -17072,11 +17072,12 @@ export class HorseLogic {
       // a check, so an owner-ruled check or fold is never its to change.
       // plo6FacingBetIsPriced (default off): the outermost facing-bet answer in PLO6 cash, after every
       // owner of this node (a fold stands only where the call is not priced; the river answer is priced).
-      // omahaMultiwayIsPricedInTournaments (default off): outermost, after the public size.
+      // omahaMultiwayIsPricedInTournaments (default off) and the bluff price run inside the public
+      // size, which closes this node (aBetSizeIsPublicInformationOnly).
       return {
-        decision: omahaMultiwayIsPricedInTournamentsRule(
-          bluffPriced(
-            publicSized(
+        decision: publicSized(
+          omahaMultiwayIsPricedInTournamentsRule(
+            bluffPriced(
               plo6FacingBetIsPricedRule(
                 omahaTurnRiverRaiseNeedsNutsRule(
                   omahaOwnerRuledFinal(
@@ -17098,11 +17099,11 @@ export class HorseLogic {
                 gs,
                 opts
               )
-            )
-          ),
-          player,
-          gs,
-          opts
+            ),
+            player,
+            gs,
+            opts
+          )
         ),
       };
     }).decision;

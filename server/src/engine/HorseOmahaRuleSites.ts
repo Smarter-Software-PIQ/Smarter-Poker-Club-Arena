@@ -551,4 +551,8 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   plo6ManiacPriceRefusalToRangePlay: outside('PLO6'),
   plo6TopSetNutRealization: outside('PLO6'),
   plo6NoMultiwayBetWithWeakMadeHand: outside('PLO6'),
+  plo6FacingBetIsPriced: outside('PLO6 (priced facing a bet; owner-held off, audit-fix batch 1)'),
+  omahaMultiwayIsPricedInTournaments: outside(
+    'tournaments, a format outside PLO4/PLO5 cash (prices multiway calls; audit-fix batch 1)'
+  ),
 });
