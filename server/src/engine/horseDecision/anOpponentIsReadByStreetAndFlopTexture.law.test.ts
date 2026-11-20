@@ -417,9 +417,12 @@ describe('an opponent is read by street and by flop texture', () => {
     // and, since 2026-11-19 (omahaFlopVerdictReadsTheBettor, default off) also by the flop facing-bet rule, behind
     // ctx.readsTheBettor === true, for the bettor alone;
     // and, since 2026-11-19 (omahaFacingBetValueShareIsMeasured, default off) by that option's one wiring
-    // function, which HorseLogic's facing-bet count calls behind that option and the mind, for the bettor alone
+    // function, which HorseLogic's facing-bet count calls behind that option and the mind, for the bettor alone;
+    // and, since 2026-11-19 (omahaBluffIsPricedAgainstTheTarget, default off) by that option's module, which reads
+    // the target's foldToBet street cell only when the option is on and its wager is priced
     expect(naming(/omahaStreetReadOf\(/)).toEqual([
       'engine/HorseMind.ts',
+      'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
       'engine/HorseOmahaFacingBetValueShareMeasuredRule.ts',
       'engine/HorseOmahaFlopFacingBetEvRule.ts',
       'engine/HorseOmahaReadByStreetRule.ts',
