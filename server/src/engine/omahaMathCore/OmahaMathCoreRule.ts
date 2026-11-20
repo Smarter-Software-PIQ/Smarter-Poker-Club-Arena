@@ -39,6 +39,8 @@ export interface OmahaMathCoreDecisionReceipt {
   readonly incoming: { action: HorseDecision['action']; amount: number | null };
   readonly error: string | null;
   readonly core: CoreReceipt | null;
+  /** preflop with omahaMathCorePreflop off: computed and receipted only; today's action stands */
+  readonly shadow?: boolean;
 }
 
 /** In scope: PLO4/PLO5 cash, high only, one board, no bomb pot, pot limit, uncapped, a live decision. */
@@ -215,7 +217,10 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
   else heroWagerLine = 'donk';
 
   const seated = gs.players.filter(
-    (p) => !p.is_sitting_out && !(gs.dealtSeatIds && !gs.dealtSeatIds.includes(p.seat))
+    (p) =>
+      // a seat sitting out still counts while he is all-in or has chips in this street
+      (!p.is_sitting_out || p.is_all_in || (p.bet ?? 0) > 0) &&
+      !(gs.dealtSeatIds && !gs.dealtSeatIds.includes(p.seat))
   );
   const pos = positionsOf(
     seated.map((p) => p.seat),
@@ -306,7 +311,7 @@ export function omahaMathCoreRule(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  opts: { omahaMathCore?: boolean },
+  opts: { omahaMathCore?: boolean; omahaMathCorePreflop?: boolean },
   legalize: (d: HorseDecision) => HorseDecision,
   now: () => number = () => performance.now()
 ): HorseDecision {
@@ -348,6 +353,23 @@ export function omahaMathCoreRule(
       }
     }
     if (!legal) throw new Error('omahaMathCore: no priced candidate is legal as proposed');
+    // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
+    // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
+    // preflop action stands.
+    if (gs.stage === 'preflop' && opts.omahaMathCorePreflop !== true)
+      return {
+        ...decision,
+        omahaMathCore: {
+          switch: 'omahaMathCore',
+          applied: false,
+          shadow: true,
+          action: legal.action,
+          amount: legal.amount ?? null,
+          incoming,
+          error: null,
+          core: receipt,
+        },
+      };
     const out: HorseDecision = {
       ...decision,
       action: legal.action,

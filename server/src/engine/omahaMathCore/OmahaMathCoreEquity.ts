@@ -344,14 +344,15 @@ export function equityVsPools(
       sumSq += share * share;
       n++;
     }
-    if (n >= opts.minSamples) {
+    // time-boxed: past maxMs it returns what it has (never spins while samples stay under the minimum)
+    const late = opts.now() - t0 >= opts.maxMs;
+    if (n >= opts.minSamples || (late && n > 0)) {
       const mean = sum / n;
       const se = Math.sqrt(Math.max(0, sumSq / n - mean * mean) / n);
-      if (se <= opts.targetSe || n >= opts.maxSamples || opts.now() - t0 >= opts.maxMs)
+      if (se <= opts.targetSe || n >= opts.maxSamples || late)
         return { equity: mean, se, samples: n, ms: opts.now() - t0 };
     }
-    if (n === 0 && opts.now() - t0 > opts.maxMs)
-      return { equity: NaN, se: NaN, samples: 0, ms: opts.now() - t0 };
+    if (n === 0 && late) return { equity: NaN, se: NaN, samples: 0, ms: opts.now() - t0 };
   }
 }
 

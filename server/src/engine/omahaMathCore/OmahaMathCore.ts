@@ -139,6 +139,8 @@ export interface CoreReceipt {
   choice: { action: CoreActionEv['action']; amount: number | null; ev: number };
   samples: number;
   ms: number;
+  /** equity calls that fell back to the unconditioned pool (narrow ranges colliding) */
+  equityFallbacks?: number;
   /** set by the rule when the legalizer restated the wager size */
   legalized?: { from: number | null; to: number | null; action: string };
 }
@@ -159,6 +161,8 @@ function seedNumber(seed: string): number {
 }
 /** Interim wager frequency of a line until the public table carries it (named in every receipt that uses it). */
 export const INTERIM_WAGER_FREQUENCY = 0.5;
+/** The core's whole time budget per decision (inside the 250 ms Lightning floor with the reference work). */
+export const OMAHA_MATH_CORE_BUDGET_MS = 150;
 const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000, maxMs: 40 };
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
@@ -249,15 +253,20 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const actorOf = (o: CoreOpponent): Actor => (o.person ? 'person' : 'horse');
   const aggressor = live.find((o) => o.seat === state.aggressorSeat) ?? null;
   let samples = 0;
+  let equityFallbacks = 0;
+  // the whole decision is time-boxed (the worker deadline turns a late answer into a fold)
+  const deadline = t0 + OMAHA_MATH_CORE_BUDGET_MS;
+  const remaining = () => Math.max(5, Math.min(EQ_OPTS.maxMs, deadline - clock.now()));
   const coreSampler = (ranges: RangeSpec[]) =>
     equityVsPools(state.hole, state.board, pool, ranges, seededRng(`${state.seed}|eq`), {
       ...EQ_OPTS,
+      maxMs: remaining(),
       now: clock.now,
     });
   const eq = (ranges: RangeSpec[]): EquityResult => {
     // lane EQUITY's equityVsRanges; the core's own exact 2+3 sampler when equityVsRanges declines (it returns null rather than throw, e.g. on repeated joint collisions)
     let r: EquityResult =
-      EQUITY_ENGINE === 'equity-lane'
+      EQUITY_ENGINE === 'equity-lane' && clock.now() < deadline
         ? equityVsPoolsEquityLane(
             state.hole,
             state.board,
@@ -268,6 +277,14 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           )
         : coreSampler(ranges);
     if (!Number.isFinite(r.equity)) r = coreSampler(ranges);
+    // narrow ranges colliding on every draw (four or five live opponents): the same sampler against
+    // the unconditioned pool for every seat, named in the receipt (never today's path silently)
+    if (!Number.isFinite(r.equity)) {
+      r = coreSampler(
+        ranges.map((x) => fullRange(pool, `pool (collision fallback for ${x.label})`))
+      );
+      equityFallbacks++;
+    }
     if (!Number.isFinite(r.equity)) throw new Error('omahaMathCore: equity unavailable');
     samples += r.samples;
     return r;
@@ -557,15 +574,67 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   } else if (legalHas(state, 'check')) {
     const rs = live.map((o) => rangeOf.get(o.seat)!);
     const e = eq(rs);
+    let ev = realized(false) * e.equity * rakeNet(state, P);
+    let note = 'check closes the street';
+    // The check is a line, not a terminal: heads-up, an opponent still to act wagers at his public
+    // rate (his median measured size) with his public wager range; the hero then folds or calls,
+    // the better; when he checks behind, the hero holds his share against the checking range.
+    const toAct = live.filter((o) => o.streetAction === 'none' && !o.allIn);
+    if (!pre && live.length === 1 && toAct.length === 1) {
+      const o = toAct[0];
+      const actor = actorOf(o);
+      const lineIfBet: Line = o.prevAggressor ? (street === 'flop' ? 'cbet' : 'barrel') : 'stab';
+      const br = betRate({
+        game,
+        mode,
+        street: street as Exclude<Street, 'preflop'>,
+        line: lineIfBet,
+        players: playersNow,
+        actor,
+        user: o.person ? o.user : null,
+      });
+      if (br) {
+        const sz = br.size;
+        const B = Math.min(sz * P, o.stack, stack);
+        const nv = wagerNonValue({
+          game,
+          mode,
+          street: street as Exclude<Street, 'preflop'>,
+          line: lineIfBet,
+          band: sizeBand(sz, false),
+          players: playersNow,
+          bettor: actor,
+        });
+        const range = rangeOf.get(o.seat)!;
+        const betRange = wagerRange(
+          pool,
+          sz,
+          Math.max(0.02, br.b),
+          `if he wagers ${round2(sz)} pot`,
+          nv ? nv.nv : undefined
+        );
+        const checkRange = band(pool, br.b, 1, 'if he checks behind');
+        void range;
+        const eBet = eq([betRange]);
+        const eCheck = eq([checkRange]);
+        const heroAllIn = B >= stack - 0.005;
+        const callEv =
+          realized(heroAllIn || street === 'river') * eBet.equity * rakeNet(state, P + 2 * B) - B;
+        const evIfBet = Math.max(0, callEv);
+        const evIfCheck = realized(street === 'river') * eCheck.equity * rakeNet(state, P);
+        ev = br.b * evIfBet + (1 - br.b) * evIfCheck;
+        note = `he wagers ${round2(br.b)} [${br.source}] -> hero ${callEv > 0 ? 'calls' : 'folds'} (eq ${round2(eBet.equity)}); checks behind -> eq ${round2(eCheck.equity)}`;
+      }
+    }
     evs.push({
       action: 'check',
       amount: null,
       adds: 0,
-      ev: realized(false) * e.equity * rakeNet(state, P),
+      ev,
       equity: e.equity,
       se: e.se,
       foldProb: 0,
-      foldSource: null,
+      foldSource: note,
       range: label(rs),
     });
   }
@@ -710,6 +779,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       })),
       choice: { action: best.action, amount: best.amount, ev: round2(best.ev) },
       samples,
+      equityFallbacks,
       ms: Math.round((clock.now() - t0) * 10) / 10,
     },
   };
