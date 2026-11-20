@@ -22,6 +22,8 @@ on:
       - scripts/ci/test-snapshot-prune-bounded-candidates.py
       - supabase/migrations/20261119173316_snapshot_retention_pages_by_covered_index.sql
       - scripts/ci/test-snapshot-retention-pages-by-covered-index.py
+      - supabase/migrations/20261119185027_batch_daily_cash_retention_pruners.sql
+      - scripts/ci/test-batch-daily-cash-retention-pruners.py
 
 permissions:
   contents: read
@@ -74,5 +76,17 @@ jobs:
         with:
           name: snapshot-retention-covered-index-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/snapshot-retention-covered-index/RESULTS.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Daily cash retention pruners delete in bounded batches
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-batch-daily-cash-retention-pruners.py
+      - name: Retain bounded daily cash retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-daily-cash-retention-pruners-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/batch-daily-cash-retention-pruners/RESULTS.json
           retention-days: 7
           if-no-files-found: error
