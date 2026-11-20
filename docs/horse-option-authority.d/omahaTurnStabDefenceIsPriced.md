@@ -39,6 +39,8 @@ The league seats no person, so the line never holds in either arm. Refused match
 
 ## Replay
 
+- Replay: NOT RUN (the audited-decision windows lie inside this option's fit window; the held-out verdict replay below is NOT MET)
+
 - Audited decisions (scripts/audited-decision-replay.ts, audit2 and the WooWoo audit): NOT RUN. The audit windows (WooWoo: 2026-11-15 17:02Z to 2026-11-17 17:01Z) lie inside this option's fit window, and the journals available offline for them were not joined to this line; a replay there would score decisions the constants were fit on.
 - Journaled production decisions of the held-out window (journal exports of 2026-11-18 13:34Z to 2026-11-19 01:18Z, 8,524 decisions, fixed per-option driver; archive repairs/TURN-STAB/EVAL-RESULTS.md): base reproduces the recorded action 8,495 of 8,512; option off vs base 0 differences; on: 4 table decisions priced, 2 changed (one decision journaled twice), 0 outside the line; with omahaPricedInLightning: 27 Lightning decisions priced, 3 changed, 0 outside the line; all changes fold -> call; judged against the bettor's real cards: 3 flips, mean +0.26 pot, INSUFFICIENT.
 - Held-out verdict replay (65 stabs, 2026-11-18 00:00Z to 2026-11-19 22:00Z): 11 fold -> call, 0 call -> fold; gain against his real cards +0.331 pot per flip with realization 0.92, bootstrap 95% [-0.026, +0.717]: NOT MET (raw +0.430, [+0.041, +0.853]).

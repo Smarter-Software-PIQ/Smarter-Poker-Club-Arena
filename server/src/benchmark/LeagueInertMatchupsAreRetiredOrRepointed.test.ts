@@ -115,6 +115,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flo8_priced_preflop',
         'flh_steal_vs_tight_blinds',
         'flo8_steal_vs_tight_blinds',
+        // EMERG lane PACK (2026-11-19): the pack-depth gate is never reached by a league stack.
+        'plo4_omaha_pack_effective_depth',
+        'plo5_omaha_pack_effective_depth',
+        'plo4_omaha_pack_clamp_deep_depth',
+        'plo5_omaha_pack_clamp_deep_depth',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

@@ -3483,6 +3483,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-19 EMERG lanes FACING and V40CAP (default OFF, PLO4/PLO5 cash only): omahaFacingBetIsPricedByEquity (a
+  // final fold facing a person's wager priced by calibrated equity) and omahaClassCapsRespectEquity (the V15 and V40
+  // class caps never push equity below the measured equity); a switches each on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_facing_bet_is_priced_by_equity`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetIsPricedByEquity: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_class_caps_respect_equity`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaClassCapsRespectEquity: true },
+      b: {},
+    },
+  ]),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher
@@ -4887,7 +4908,7 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'the pack band (at most 250 bb) with one depth for every seat, so the gate never refuses a league ' +
         'decision and the two arms play the same hands. The pack itself deviates from the reference only ' +
         'heads-up at a two-seat table (plo4ReferenceDeviation). Measured instead on the 48-hour production ' +
-        'dataset (EMERG/PACK.md, 2026-11-19). The option is DEFAULT OFF (read as === true). What would change ' +
+        'dataset (EMERG/PACK.md, 2026-11-19); in this league 0 of 0 pairs were dealt for it (not run: no seat can reach the gate). The option is DEFAULT OFF (read as === true). What would change ' +
         'this: league stacks above 250 bb, or different stacks per seat.',
     }))
   ),

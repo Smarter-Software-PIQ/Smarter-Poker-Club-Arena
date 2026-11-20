@@ -122,7 +122,10 @@ describe('a Horse bet size is public information only', () => {
     );
     // Both of the node's answers pass through it, outermost of the owner rules (only the default-off
     // horseRiverNoBlockerBet, riverNoBlocker, wraps the node's answer after it: a river first bet only).
-    expect(node.match(/decision: publicSized\(/g)).toHaveLength(2);
+    // (EMERG FACING 2026-11-19: the facing-bet answer is publicSized as ownersFinal, then only a final fold may
+    // become the call: omahaFacingBetIsPricedByEquity, default off.)
+    expect(node.match(/decision: publicSized\(/g)).toHaveLength(1);
+    expect(node.match(/const ownersFinal = publicSized\(/g)).toHaveLength(1);
     expect(node.match(/return \{\s*decision:/g)).toHaveLength(2);
     expect(node).toContain(
       "graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode()))"

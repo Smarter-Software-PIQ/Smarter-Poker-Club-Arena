@@ -10368,7 +10368,7 @@ export function receiptWagerRuleStage(
   before: HorseDecision,
   run: () => HorseDecision
 ): HorseDecision {
-  if (!tele) return run();
+  if (tele !== true) return run();
   const was = { action: before.action, amount: before.amount };
   const receiptsBefore = decisionRuleReceiptsSoFar()?.length ?? 0;
   const after = run();

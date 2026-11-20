@@ -430,6 +430,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
   /** Everything telemetry-gated in HorseLogic.ts that is not a counting call: [sites today, why it is safe]. */
   const ALLOW: LawAllow = {
     calls: {
+      run: [
+        1,
+        'receiptWagerRuleStage runs its stage behind the gate exactly as it runs it without (the same call, the same arguments)',
+      ],
       isTournamentMode: [10, 'pure read of the game state; chooses a receipt name'],
       omahaIsWager: [1, 'pure predicate on a decision'],
       omahaSameWager: [4, 'pure predicate on two decisions'],
@@ -560,6 +564,14 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       'tele: boolean': [
         4,
         'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule, holdemRiverBoatLeadPriced and riverNoBlockerBetRule, read there only to count',
+      ],
+      'tele: boolean,': [
+        1,
+        'the gate as the parameter of receiptWagerRuleStage (LEAKMAP), read there only to name a stage receipt; the stage runs the same either way',
+      ],
+      'receiptWagerRuleStage(tele, stage, before, run);': [
+        1,
+        'passes the gate to receiptWagerRuleStage, which runs the stage either way and only counts with it',
       ],
       tele15: [
         1,

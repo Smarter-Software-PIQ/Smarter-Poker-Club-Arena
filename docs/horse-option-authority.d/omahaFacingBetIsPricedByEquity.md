@@ -22,3 +22,9 @@ Default OFF in source (read `=== true`). Registered in the option switch by foll
 ## What Was Measured
 
 See `omahaFacingBetIsPricedByEquity.CONSTANTS.md`.
+
+## Replay
+
+Machine-read (README.md, "The Replay row").
+
+- Replay: NOT RUN (no server/scripts/audited-decision-replay.ts --row run is recorded; the graded 48-hour and held-out verdict replays are in omahaFacingBetIsPricedByEquity.CONSTANTS.md and archive repairs/EMERG/FACING.md)
