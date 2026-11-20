@@ -71,6 +71,12 @@ export interface OmahaPricedDeps {
   rake: number;
   /** the engine's realization factor for a turn call or raise with chips behind */
   realization: number;
+  /**
+   * omahaFacingBetValueShareIsMeasured only (default absent): the facing-bet verdict of the decision
+   * (HorseLogic.omahaFacingBetEvCount, the bettor's measured range), whose call or fold is then the
+   * priced comparisons' call-versus-fold answer; null when it does not price the spot.
+   */
+  facingVerdict?: () => { call: boolean; ev: number } | null;
 }
 
 const num = (v: unknown): number =>
@@ -326,7 +332,26 @@ function raiseVerdictOf(
     proposedTo,
     lossesOnce,
   });
-  return verdict ? { verdict, read } : null;
+  if (!verdict) return null;
+  // omahaFacingBetValueShareIsMeasured: the call or fold is the facing-bet verdict's (the bettor's measured
+  // range), so no priced raise site folds a call that verdict prices above the margin, or calls a fold.
+  const facing = deps.facingVerdict?.() ?? null;
+  if (facing && (facing.call !== verdict.callStands || facing.ev !== verdict.evCall))
+    return {
+      verdict: {
+        ...verdict,
+        callStands: facing.call,
+        evCall: Math.round(facing.ev * 100) / 100,
+        action:
+          verdict.action === 'raise' || verdict.action === 'all_in'
+            ? verdict.action
+            : facing.call
+              ? 'call'
+              : 'fold',
+      },
+      read,
+    };
+  return { verdict, read };
 }
 
 /**
