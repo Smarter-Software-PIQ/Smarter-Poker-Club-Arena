@@ -1,0 +1,38 @@
+name: The 3 AM cutover readiness check
+
+# fn_ca_cutover_readiness_watch() and its owner page (migration
+# 20261119234116). Runs scripts/ci/test-the-three-am-cutover-readiness-check.py
+# against a throwaway PostgreSQL 17 cluster, never production. No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261119234116_the_3_am_check_says_whether_the_4_am_cutover_will_ship.sql
+      - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
+      - supabase/migrations/20261109182123_a_merged_migration_still_uninstalled_after_an_hour_pages_the.sql
+      - scripts/ci/test-the-three-am-cutover-readiness-check.py
+      - scripts/ci/test-a-missed-engine-cutover-is-paged.py
+      - scripts/ci/fixtures/engine-cutover-preimages.json
+      - .github/workflows/the-three-am-cutover-readiness-check.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: the-three-am-cutover-readiness-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  the-three-am-cutover-readiness-check:
+    name: At 3 AM the database says whether the 4 AM cutover will ship
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: At 3 AM the database says whether the 4 AM cutover will ship
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-the-three-am-cutover-readiness-check.py
