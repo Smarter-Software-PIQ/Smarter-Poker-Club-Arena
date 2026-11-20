@@ -788,8 +788,11 @@ import {
   omahaPreflopReraiseDefenceRule,
 } from './HorseOmahaPreflopReraiseDefenceRule.js';
 import {
+  omahaReraisedRaiseMultiwayPriced,
   omahaReraisedRaisePriced,
+  omahaThreeWayPriced,
   reraiseResponseRatesForTheRaise,
+  type OmahaReraisedOtherPlayer,
 } from './HorseOmahaReraisedRaisePriced.js';
 import { reraiseResponseNodeOf } from './HorseOmahaReraiseResponse.js';
 import {
@@ -4130,6 +4133,15 @@ export interface HorseDecideOpts {
    * decision. Default OFF (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_reraised_call_vs_raise_priced. */
   omahaReraisedCallVsRaisePriced?: boolean;
+  /** 2026-11-19 (hand #60156608; owner 15:34 Chicago): PLO4/PLO5 cash, preflop,
+   * facing two or more raises heads-up with chips behind: fold, call and raise
+   * (a 4-bet, a 5-bet, a jam) each priced at the lower bound of hero's equity
+   * against the MEASURED ranges at that raise and one raise higher
+   * (HorseOmahaReraisedRaisePriced, omahaThreeWayPriced); the largest EV is
+   * played. Nothing keyed to a hand class, the strength percentile or an
+   * account. Default OFF (opt-in, read `=== true`). Authority:
+   * docs/horse-option-authority.d/omahaPreflopJamFacingReraiseIsPriced.md. */
+  omahaPreflopJamFacingReraiseIsPriced?: boolean;
   /** 2026-11-14 (HorseOmahaTournamentFirstIn, V90 item 4): PLO4/PLO5
    * tournaments, four to eight dealt, the small blind folded to at 20 BB or
    * less raises the pot with its top 40 percent of Omaha hands instead of the
@@ -8865,6 +8877,80 @@ export function omahaReraisedCallPricingOf(
 }
 
 /**
+ * The other players still in a hand in which hero faces a re-raise, as the
+ * priced call-or-raise needs them (omahaReraisedCallVsRaisePriced): what each
+ * has in and behind, the band of his line, what he had done when the raise
+ * would come, and whether he acts after hero. An empty list: heads-up. Null:
+ * a band could not be read, so the spot is not priced.
+ */
+function omahaReraisedOtherPlayersOf(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  raiser: SeatPlayer
+): OmahaReraisedOtherPlayer[] | null {
+  const live = (gs.players ?? []).filter(
+    (p) => p.seat !== player.seat && p.seat !== raiser.seat && !p.is_folded && !p.is_sitting_out
+  );
+  if (live.length === 0) return [];
+  if (opts.mind === false) return null;
+  try {
+    const history = gs.actionHistory ?? [];
+    const bb = gs.bigBlind || 1;
+    const price = gs.currentBet || 0;
+    const preflop = history.filter((a) => a.stage === 'preflop');
+    const raisedBefore = new Set(
+      preflop
+        .filter(
+          (a) =>
+            a.action === 'raise' ||
+            a.action === 'bet' ||
+            (a.action === 'all_in' && a.isFullRaise !== undefined)
+        )
+        .map((a) => a.seat)
+    );
+    const acted = new Set(
+      preflop
+        .filter((a) => ['call', 'check', 'raise', 'bet', 'all_in'].includes(String(a.action)))
+        .map((a) => a.seat)
+    );
+    const money = HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined;
+    const mine = postflopOrder(player.seat, gs.dealerSeat);
+    const out: OmahaReraisedOtherPlayer[] = [];
+    for (const p of live) {
+      const bet = Number.isFinite(p.bet) ? Math.max(0, p.bet ?? 0) : 0;
+      const stack = Number.isFinite(p.stack) ? Math.max(0, p.stack) : 0;
+      const allIn = p.is_all_in === true;
+      const called = bet >= price - 0.005;
+      let band: readonly [number, number] | null = null;
+      if (acted.has(p.seat)) {
+        const b = HorseMind.bandFor(p.user_id, gs.actionHistory, bb, true, null, undefined, money);
+        if (b !== null && Number.isFinite(b[0]) && Number.isFinite(b[1]) && b[1] > b[0])
+          band = [b[0], b[1]];
+      } else band = [0, 1]; // no voluntary action yet: any hand he was dealt
+      if (band === null) return null;
+      out.push({
+        kind: allIn
+          ? 'allIn'
+          : called
+            ? 'caller'
+            : raisedBefore.has(p.seat)
+              ? 'pendingRaiser'
+              : 'pending',
+        bet,
+        stack,
+        band,
+        inForPrice: called || (allIn && bet > bb + 0.005),
+        afterHero: postflopOrder(p.seat, gs.dealerSeat) > mine,
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The re-raised-pot rules (omahaOopReraisedPotStrongRange and the rules it
  * runs), then the priced call-or-raise on what they leave standing
  * (omahaReraisedCallVsRaisePriced, default OFF: with it off the rules' own
@@ -8876,11 +8962,182 @@ function omahaReraisedPotRulesThenCallVsRaise(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  const standing = omahaOopReraisedPotStrongRange(decision0, player, gs, opts);
+  const ruled = omahaOopReraisedPotStrongRange(decision0, player, gs, opts);
+  // omahaPreflopJamFacingReraiseIsPriced (default OFF): fold, call and raise
+  // all priced facing a 3-bet or more. With the option off it returns `ruled`.
+  const standing = omahaPreflopFacingReraiseThreeWay(decision0, ruled, player, gs, opts);
   // omahaReraisedCallVsRaisePriced (default OFF): the standing call, or a
   // reference raise those rules lowered, priced as call against raise. With
   // the option off this line returns `standing` itself.
   return omahaReraisedCallVsRaise(decision0, standing, player, gs, opts);
+}
+
+/**
+ * omahaPreflopJamFacingReraiseIsPriced (2026-11-19, default OFF, read `=== true`;
+ * hand #60156608): PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot,
+ * preflop, facing two or more raises heads-up with the re-raiser not
+ * all in and chips behind after a call. The standing fold, call or raise (a 4-bet,
+ * a 5-bet, a jam) is replaced by the largest of EV(fold) = 0, EV(call) and
+ * EV(raise) at the lower bound of hero's equity against the measured ranges
+ * (HorseOmahaReraisedRaisePriced, omahaThreeWayPriced). A call that
+ * omahaPreflopReraiseDefencePricedInPosition made of a fold stays that option's.
+ * A standing raise that cannot be priced stands. Draws no number from the brain's
+ * random stream.
+ */
+function omahaPreflopFacingReraiseThreeWay(
+  reference: HorseDecision,
+  standing: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaPreflopJamFacingReraiseIsPriced !== true) return standing;
+  try {
+    if (String(gs.stage ?? '') !== 'preflop') return standing;
+    const act = standing.action;
+    const kind: 'fold' | 'call' | 'raise' | null =
+      act === 'fold'
+        ? 'fold'
+        : act === 'call'
+          ? 'call'
+          : act === 'raise' || act === 'all_in'
+            ? 'raise'
+            : null;
+    if (kind === null) return standing;
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    if (variant !== 'plo4' && variant !== 'plo5') return standing;
+    // Lightning (fast-fold) cash is priced too: the owner's aces question (2026-11-19 16:56 Chicago) is
+    // mostly there (34 of 46 heads-up calls of aces facing a 4-bet or more from a person in the held-out set).
+    if (omahaCashOnlyExcludes(player, gs) || isTournamentMode(gs)) return standing;
+    if (gs.bombPot === true || gs.allInOrFold === true) return standing;
+    if (gs.communityCards2?.length || gs.communityCards3?.length) return standing;
+    if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : variantInfo(gs.gameVariant).isHiLo)
+      return standing;
+    if (
+      kind === 'call' &&
+      opts.omahaPreflopReraiseDefencePriced !== true &&
+      opts.omahaPreflopReraiseDefencePricedInPosition === true &&
+      omahaPreflopReraiseDefenceHeadsUpInPosition(player, gs) &&
+      omahaOopReraisedPotStrongRange(reference, player, gs, {
+        ...opts,
+        omahaPreflopReraiseDefencePricedInPosition: false,
+        telemetry: false,
+      }).action === 'fold'
+    )
+      return standing;
+    const preflopRaises = preflopRaiseCount(gs.actionHistory);
+    if (preflopRaises < 2) return standing;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (toCall <= 0.005 || stack <= toCall + 0.005) return standing;
+    const history = gs.actionHistory ?? [];
+    let raiser: SeatPlayer | undefined;
+    for (let k = history.length - 1; k >= 0; k--) {
+      const a = history[k]!;
+      if (a.stage !== 'preflop' || a.seat === player.seat) continue;
+      if (a.action !== 'raise' && a.action !== 'all_in' && a.action !== 'bet') continue;
+      raiser = gs.players.find((p) => p.seat === a.seat);
+      break;
+    }
+    if (!raiser || raiser.is_folded || raiser.is_all_in) return standing;
+    if (
+      gs.players.some(
+        (p) =>
+          p.seat !== player.seat && p.seat !== raiser!.seat && !p.is_folded && !p.is_sitting_out
+      )
+    )
+      return standing;
+    const pricing = omahaReraisedCallPricingOf(player, gs, opts, raiser, toCall, stack, heroBet);
+    if (!pricing) return standing;
+    const node = reraiseResponseNodeOf(preflopRaises);
+    const record = opts.mind !== false ? HorseMind.omahaReraiseResponseOf(raiser.user_id) : null;
+    const rates = node === null ? null : reraiseResponseRatesForTheRaise(record, node);
+    if (!rates) return standing;
+    const legal = Array.isArray(gs.legalActions) ? gs.legalActions : null;
+    const allIn = heroBet + stack;
+    let raiseTo: number | null = null;
+    if (kind === 'raise')
+      raiseTo =
+        act === 'all_in' || !Number.isFinite(standing.amount)
+          ? allIn
+          : Math.min(allIn, Math.max(0, standing.amount as number));
+    else if (
+      Number.isFinite(gs.maxRaiseTo) &&
+      Number.isFinite(gs.minRaiseTo) &&
+      (gs.maxRaiseTo as number) >= (gs.minRaiseTo as number) &&
+      (!legal || legal.includes('raise') || legal.includes('all_in'))
+    )
+      raiseTo = Math.min(allIn, gs.maxRaiseTo as number);
+    else if (
+      // AUDIT48-PREFLOP (2026-11-19): hero's all-in is short of a full raise, so the
+      // engine offers no raise range (maxRaiseTo absent or below minRaiseTo) and only
+      // the all-in. The all-in is still the raise to price against the call: without
+      // this the jam was never priced and the standing call of aces stood at a
+      // stack-to-pot ratio of 0.03 to 0.33 (4 of 19 recorded heads-up calls facing a
+      // 4-bet or more; the other 15 have a raise range and are already priced).
+      kind === 'call' &&
+      legal !== null &&
+      legal.includes('all_in') &&
+      !legal.includes('raise') &&
+      allIn > heroBet + Math.min(toCall, stack) + 0.005 &&
+      !(
+        Number.isFinite(gs.maxRaiseTo) &&
+        Number.isFinite(gs.minRaiseTo) &&
+        (gs.maxRaiseTo as number) >= (gs.minRaiseTo as number)
+      )
+    )
+      raiseTo = allIn;
+    const raiserBet = Number.isFinite(raiser.bet) ? Math.max(0, raiser.bet ?? 0) : 0;
+    const raiserStack = Number.isFinite(raiser.stack) ? Math.max(0, raiser.stack) : 0;
+    const receipt = omahaThreeWayPriced({
+      hole: player.cards ?? [],
+      dead: player.knownDeadCards ?? [],
+      preflopRaises,
+      call: Math.min(toCall, stack),
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      stack,
+      heroBet,
+      raiseTo,
+      raiserBet,
+      raiserStack,
+      pricing,
+      rates,
+      rakeCalled: pricing.rakeFraction,
+      standing: kind,
+    });
+    if (receipt === null) return standing;
+    if (kind === 'raise' && receipt.evRaiseLow === null) return standing;
+    if (telemetryOn(opts)) {
+      if (receipt.verdict === 'fold') noteFire('omaha_preflop_three_way_fold');
+      else if (receipt.verdict === 'call') noteFire('omaha_preflop_three_way_call');
+      else noteFire('omaha_preflop_three_way_raise');
+    }
+    if (receipt.verdict === kind) return { ...standing, omahaPreflopThreeWay: receipt };
+    if (telemetryOn(opts)) noteFire('omaha_preflop_three_way_changed');
+    const out: HorseDecision = { ...standing, omahaPreflopThreeWay: receipt };
+    if (receipt.verdict === 'fold') {
+      out.action = 'fold';
+      delete out.amount;
+    } else if (receipt.verdict === 'call') {
+      out.action = 'call';
+      out.amount = Math.round(Math.min(toCall, stack) * 100) / 100;
+    } else {
+      const to = raiseTo as number;
+      if (to >= allIn - 0.005 && (!legal || legal.includes('all_in'))) {
+        out.action = 'all_in';
+        delete out.amount;
+      } else {
+        out.action = 'raise';
+        out.amount = Math.round(to * 100) / 100;
+      }
+    }
+    return out;
+  } catch {
+    return standing;
+  }
 }
 
 /**
@@ -8901,6 +9158,22 @@ function omahaReraisedCallVsRaise(
   if (opts.omahaReraisedCallVsRaisePriced !== true) return standing;
   try {
     if (String(gs.stage ?? '') !== 'preflop') return standing;
+    // ONE OWNER PER CELL: a call that omahaPreflopReraiseDefencePricedInPosition
+    // made of a fold (the Horse opened, one person's 3-bet, heads-up, acting
+    // after him) is that option's verdict and is not priced here. A call that
+    // stands in the same spot with that option off is priced as any other.
+    if (
+      standing.action === 'call' &&
+      opts.omahaPreflopReraiseDefencePriced !== true &&
+      opts.omahaPreflopReraiseDefencePricedInPosition === true &&
+      omahaPreflopReraiseDefenceHeadsUpInPosition(player, gs) &&
+      omahaOopReraisedPotStrongRange(reference, player, gs, {
+        ...opts,
+        omahaPreflopReraiseDefencePricedInPosition: false,
+        telemetry: false,
+      }).action === 'fold'
+    )
+      return standing;
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (variant !== 'plo4' && variant !== 'plo5') return standing;
     if (omahaCashOnlyExcludes(player, gs) || omahaReraisedLaneUntouched(gs, opts)) return standing;
@@ -8933,17 +9206,13 @@ function omahaReraisedCallVsRaise(
       break;
     }
     if (!raiser || raiser.is_folded || raiser.is_all_in) return standing;
-    // Heads-up only (review of 59ea78d08f3, B1): no response of a third player
-    // to a raise is measured, so a spot with anyone else still in the hand (in
-    // for the price, still to act, or all in) is not priced at all rather than
-    // priced with an assumed answer from him. Who is in the hand, not a size.
-    if (
-      gs.players.some(
-        (p) =>
-          p.seat !== player.seat && p.seat !== raiser!.seat && !p.is_folded && !p.is_sitting_out
-      )
-    )
-      return standing;
+    // Other players still in the hand (review of 59ea78d08f3, B1, at its root):
+    // each is priced IN the hand, by his own band and the measured answer of a
+    // player in his situation to such a raise (HorseOmahaReraisedRaisePriced,
+    // omahaReraisedRaiseMultiwayPriced). A player whose band cannot be read
+    // leaves the spot unpriced: never an assumed answer from him.
+    const others = omahaReraisedOtherPlayersOf(player, gs, opts, raiser);
+    if (others === null) return standing;
     const node = reraiseResponseNodeOf(preflopRaises);
     if (node === null) return standing;
     // The raise priced: the reference's own raise when it proposed one, else
@@ -8996,7 +9265,10 @@ function omahaReraisedCallVsRaise(
     } catch {
       rakeCalled = pricing.rakeFraction;
     }
-    const receipt = omahaReraisedRaisePriced({
+    // The calling rule could not read a band for a player in for the price
+    // (its equity then stays heads-up with a dilution charge): not priced.
+    if (others.some((o) => o.inForPrice) && !pricing.othersInBands) return standing;
+    const priced = {
       hole: player.cards ?? [],
       dead: player.knownDeadCards ?? [],
       preflopRaises,
@@ -9010,8 +9282,12 @@ function omahaReraisedCallVsRaise(
       pricing,
       rates,
       rakeCalled,
-      standing: standing.action === 'fold' ? 'fold' : 'call',
-    });
+      standing: standing.action === 'fold' ? ('fold' as const) : ('call' as const),
+    };
+    const receipt =
+      others.length > 0
+        ? omahaReraisedRaiseMultiwayPriced({ ...priced, others })
+        : omahaReraisedRaisePriced(priced);
     if (receipt === null) return standing;
     if (receipt.verdict !== 'raise') {
       if (telemetryOn(opts)) noteFire('omaha_reraised_raise_priced_call');

@@ -504,6 +504,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaReraisedPotStackOffFold: outside(PREFLOP),
   omahaReraisedPotStackOffRealistic: outside(PREFLOP),
   omahaReraisedCallVsRaisePriced: outside(PREFLOP),
+  omahaPreflopJamFacingReraiseIsPriced: outside(PREFLOP),
   omahaReraisedFoldVsTight: outside(PREFLOP),
   omahaReraisedPositionInLightning: outside(PREFLOP),
   omahaEliteContinuesVsMeasuredWideThreeBettor: outside(PREFLOP),

@@ -377,6 +377,30 @@ describe('the decision', () => {
     });
   }
 
+  it('ONE OWNER PER CELL with omahaReraisedCallVsRaisePriced: a call this option made of a fold is not priced as call against raise; a call that stood without it is', () => {
+    const BOTH = { ...IN_POS_ON, omahaReraisedCallVsRaisePriced: true };
+    let defenceCalls = 0;
+    let standingCallsPriced = 0;
+    for (const hole of [...HANDS5, ...STRONG5])
+      for (const seed of SEEDS) {
+        const o = { ...IP, variant: 'plo5', speed: 'table' } as const;
+        const off = decide(hole, o, {}, seed);
+        const inPos = decide(hole, o, IN_POS_ON, seed);
+        const both = decide(hole, o, BOTH, seed);
+        if (off.d.action === 'fold' && inPos.d.action !== 'fold') {
+          // the defence's own call: the other option leaves it exactly as it is, with no receipt of its own
+          expect(both.key).toBe(inPos.key);
+          expect(JSON.stringify(both.d).includes('omahaReraisedRaise')).toBe(false);
+          defenceCalls++;
+        } else if (off.d.action === 'call') {
+          // a call that stands with the defence off is an ordinary standing call: priced (a receipt), never lowered
+          expect(['call', 'raise', 'all_in']).toContain(both.d.action);
+          if (JSON.stringify(both.d).includes('omahaReraisedRaise')) standingCallsPriced++;
+        } else if (off.d.action === 'fold') expect(both.key).toBe(inPos.key);
+      }
+    expect(defenceCalls).toBeGreaterThan(0);
+    expect(standingCallsPriced).toBeGreaterThan(0);
+  });
   it('a Horse 3-bettor, a cold 3-bet, a limper still in: on is byte-identical to off', () => {
     for (const hole of HANDS5)
       for (const seed of SEEDS)
