@@ -144,7 +144,9 @@ describe('every runtime-tunable setting has a published default equal to its com
     expect(host.match(/horseOpts: this\.runtimeHorseOpts/g)).toHaveLength(2);
     // the stack ceiling is read from the hand's pinned snapshot at its settlement, and from the pool hand's
     const settlement = read('server/src/engine/ServerTableEngineSettlement.ts');
-    expect(settlement).toContain('horseCashStackCeilingBBFrom(this.currentHandRuntimeSettings)');
+    // (read through the synchronous settlement snapshot, which pins this hand's settings: StaleContinuationSweep law)
+    expect(settlement).toContain('runtimeSettings: this.currentHandRuntimeSettings,');
+    expect(settlement).toContain('horseCashStackCeilingBBFrom(snap.runtimeSettings)');
     expect(host).toContain('horseCashStackCeilingBBFrom(this.runtimeSettings)');
     const lane = read('server/src/engine/horseDecision/lane.ts');
     expect(lane).toContain('startEngineRuntimeSettingsFromDatabase()');
