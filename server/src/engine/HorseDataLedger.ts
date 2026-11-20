@@ -1403,6 +1403,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V93'
   ),
   flag(
+    'plo6FacingBetIsPriced',
+    "HORSE DECISIONS lane 2026-11-19 (audit HVH48 auditor C: 183 PLO6 fold mistakes against people, 156 flipped by switching the six fold rules off; owner: no blanket rules, every Horse decision priced by range, equity and EV, a bet size never triggers a decision by itself). PLO6 cash (a table or Lightning; never a tournament, a bomb pot, All-In-Or-Fold, hi-lo or more than one board), facing a bet or a raise on the flop, the turn or the river; default OFF (read === true). The answer is priced on the exact six cards against the bettor's line range (HorsePlo6FacingBetIsPriced.ts: the exact six-card counts of HorseOmahaFacingBetEv on the turn and the river, the seeded six-card sample of HorseOmahaFlopFacingBetEv on the flop; value region and population bluff share from his bet's share of the pot and his line, the field, the marginal rake) against the exact price, with no opponent memory and no random-hand share. With it on: plo6RiverNutDiscipline (V58/V59, the random-hand river fold and raise flattening) does not run; the paired-board fold stands aside where the call is priced (a flop or turn raise it would have folded becomes the call); the paired-river check stands aside where the bet is worth at least the check (omahaPricedBet, the card-impact model); outermost in wager_rules a fold becomes the call where the call is priced (no class ceiling, V15/V40/V87, decides a fold), and on the river the answer is the priced fold, call or raise (omahaPricedRaise). Off: every decision byte for byte as before. Not covered: PLO6 own bets into better ranges, preflop, turn and flop raises.",
+    'V94'
+  ),
+  flag(
     'plo6NoMultiwayBetWithWeakMadeHand',
     'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, two pair without the top card, the board pair with such a pair, or an overpair: a pocket pair above the top card of an unpaired board) that holds no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 90 such bets in 85 hands, hand net -2,715.1 bb (of them the overpair 28 bets, -1,008.2 bb), in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -5910,6 +5915,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_draw_raise_called',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
     'the same decision: not priced above the call: the raise became the call',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_called',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash facing a bet: the node fold (or a river raise priced below the call) became the call because the call is priced (EV over the margin) on the exact six cards against the bettor line range',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_folded',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash river facing a bet: the node call or raise became the fold because neither the call nor a raise is priced above the fold',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_raise_to_call',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash river facing a bet: the node raise became the call because no raise is priced above the call by the priced-raise margin',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_raised',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash river facing a bet: the answer became the raise at its priced size because EV(raise) beats the call and the fold by the priced-raise margin',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_river_nut_rule_not_run',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash river facing a bet with a call or raise: plo6RiverNutDiscipline (V58/V59, the random-hand fold) did not run; the priced verdict answers outermost',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_paired_fold_priced_out',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash: the paired-board fold held, but the call is priced, so the fold stood aside (a flop or turn raise became the call)',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_paired_river_bet_kept',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash river: the paired-river check held, but EV(bet) is at least EV(check), so the bet stood',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_paired_river_check_priced',
+    'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
+    'PLO6 cash river: the paired-river check held and EV(check) beats EV(bet), so the bet became the check by price',
     'V94'
   ),
   receipt(

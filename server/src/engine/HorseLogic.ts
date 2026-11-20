@@ -117,6 +117,12 @@ import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacin
 import { omahaFacingBetValueRangeOver } from './HorseOmahaFacingBetValueRange.js';
 import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
+import {
+  plo6FacingBetPriced,
+  plo6FacingBetPricedScope,
+  plo6PairedRiverBetPriced,
+  type Plo6FacingBetPricedVerdict,
+} from './HorsePlo6FacingBetIsPriced.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
@@ -4896,6 +4902,21 @@ export interface HorseDecideOpts {
    *  price is tiny), and one beaten 15%+ calls instead of raising. Disable to
    *  ablate (default: enabled; league matchup plo6_v59_river_unpaired). */
   v59Plo6RiverUnpaired?: boolean;
+  /**
+   * plo6FacingBetIsPriced (2026-11-19, HORSE DECISIONS lane; default OFF, read
+   * `=== true`; HorsePlo6FacingBetIsPriced.ts). PLO6 cash (a table or
+   * Lightning), facing a bet on the flop, the turn or the river: the answer is
+   * priced on the exact six cards against the bettor's line range (exact
+   * counts on the turn and river, the seeded six-card sample on the flop)
+   * against the exact price. With it on: the random-hand river fold
+   * (plo6RiverNutDiscipline, V58/V59) does not run; the paired-board fold
+   * stands aside where the call is priced; the paired-river check stands
+   * aside where the bet is worth at least the check; and outermost in the
+   * wager_rules node a fold becomes the call where the call is priced (so no
+   * class ceiling, V15/V40/V87, decides a fold), and on the river the answer
+   * is the priced fold, call or raise. Off: every decision as before.
+   */
+  plo6FacingBetIsPriced?: boolean;
   /** NLH barrel outlook excludes shared board improvements and dirty outs.
    * False retains the previous algorithm for paired offline measurement. */
   drawOutlookQuality?: boolean;
@@ -7808,6 +7829,12 @@ function plo6RiverNutDiscipline(
       return decision;
     if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
       return decision;
+    // plo6FacingBetIsPriced (default off): in its PLO6 cash scope this random-hand rule does not run;
+    // the priced verdict answers outermost (plo6FacingBetIsPricedRule).
+    if (opts.plo6FacingBetIsPriced === true && plo6FacingBetPricedScope(player, gs) !== null) {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_river_nut_rule_not_run');
+      return decision;
+    }
     const board = gs.communityCards ?? [];
     if (board.length !== 5 || (gs.boardCount ?? 1) > 1) return decision;
     const ranks = new Map<string, number>();
@@ -7894,6 +7921,137 @@ function plo6RiverNutDiscipline(
   }
 }
 
+let plo6FacingBetPricedMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  stage: unknown;
+  toCall: unknown;
+  pot: unknown;
+  answer: Plo6FacingBetPricedVerdict | null;
+} | null = null;
+
+/**
+ * plo6FacingBetIsPriced: the priced verdict on this request (HorsePlo6FacingBetIsPriced.plo6FacingBetPriced)
+ * with the request's own marginal rake, position and turn realization; no option is read and no opponent
+ * memory. Null outside the option's PLO6 cash facing-bet scope or when the hand cannot be priced. Quiet.
+ */
+export function plo6FacingBetPricedVerdictOf(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): Plo6FacingBetPricedVerdict | null {
+  const memo = plo6FacingBetPricedMemo;
+  if (
+    memo &&
+    memo.player === player &&
+    memo.gs === gs &&
+    memo.stage === gs.stage &&
+    memo.toCall === gs.toCall &&
+    memo.pot === gs.pot
+  )
+    return memo.answer;
+  let answer: Plo6FacingBetPricedVerdict | null = null;
+  try {
+    if (plo6FacingBetPricedScope(player, gs) !== null) {
+      const inPosition = actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []);
+      answer = plo6FacingBetPriced(player, gs, {
+        rake: rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        inPosition,
+        realization: realizationFactor({ street: 'turn', inPosition }),
+      });
+    }
+  } catch {
+    answer = null;
+  }
+  plo6FacingBetPricedMemo = { player, gs, stage: gs.stage, toCall: gs.toCall, pot: gs.pot, answer };
+  return answer;
+}
+
+/** The verdict with the option on; null with it off. */
+function plo6FacingBetPricedOf(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): Plo6FacingBetPricedVerdict | null {
+  return opts.plo6FacingBetIsPriced === true ? plo6FacingBetPricedVerdictOf(player, gs) : null;
+}
+
+/**
+ * plo6FacingBetIsPriced (default off): the OUTERMOST answer of the wager_rules
+ * node facing a bet in PLO6 cash. Flop and turn: a fold becomes the call where
+ * the call is priced (EV over its margin); a call or a raise the brain made is
+ * left as it is. River: the answer is the priced one, fold, call or raise
+ * (the raise at its priced size). No verdict (out of scope, unpriceable): the
+ * decision as given. Off: the decision object itself.
+ */
+function plo6FacingBetIsPricedRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.plo6FacingBetIsPriced !== true) return decision;
+  let v: Plo6FacingBetPricedVerdict | null = null;
+  try {
+    v = plo6FacingBetPricedOf(player, gs, opts);
+  } catch {
+    v = null;
+  }
+  if (!v) return decision;
+  const tele = telemetryOn(opts);
+  const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const toCall = Number.isFinite(gs.toCall)
+    ? Math.max(0, gs.toCall as number)
+    : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+  const isCall =
+    decision.action === 'call' ||
+    (decision.action === 'all_in' && (player.bet || 0) + stack <= (gs.currentBet || 0) + 0.005);
+  const isRaise = decision.action === 'raise' || (decision.action === 'all_in' && !isCall);
+  const callFor = (): HorseDecision => {
+    const d: HorseDecision =
+      v!.allInCall || toCall >= stack - 0.005
+        ? { ...decision, action: 'all_in' }
+        : { ...decision, action: 'call', amount: Math.round(v!.paid * 100) / 100 };
+    if (d.action === 'all_in') delete d.amount;
+    delete d.continuationGuard;
+    return d;
+  };
+  if (v.street !== 'river') {
+    if (decision.action !== 'fold' || v.action === 'fold') return decision;
+    if (tele) noteFire('plo6_facing_bet_priced_called');
+    return callFor();
+  }
+  if (v.action === 'fold') {
+    if (decision.action === 'fold') return decision;
+    if (tele) noteFire('plo6_facing_bet_priced_folded');
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    delete folded.continuationGuard;
+    return folded;
+  }
+  if (v.action === 'call') {
+    if (isCall) return decision;
+    if (tele)
+      noteFire(isRaise ? 'plo6_facing_bet_priced_raise_to_call' : 'plo6_facing_bet_priced_called');
+    return callFor();
+  }
+  // A raise priced above the call and the fold.
+  const allIn = v.action === 'all_in' || v.raiseTo >= (player.bet || 0) + stack - 0.005;
+  if (
+    isRaise &&
+    (allIn
+      ? decision.action === 'all_in'
+      : decision.action === 'raise' && decision.amount === v.raiseTo)
+  )
+    return decision;
+  if (tele) noteFire('plo6_facing_bet_priced_raised');
+  const raised: HorseDecision = allIn
+    ? { ...decision, action: 'all_in' }
+    : { ...decision, action: 'raise', amount: v.raiseTo };
+  if (allIn) delete raised.amount;
+  delete raised.continuationGuard;
+  return raised;
+}
+
 /**
  * Dan 2026-10-25: in PLO4/PLO5/PLO6 a horse without a full house never calls or
  * raises a committing bet on a paired flop, turn or river. See
@@ -7930,6 +8088,27 @@ function pairedBoardFold(
     v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
   });
   if (!mustFold) return decision;
+  // plo6FacingBetIsPriced (default off): PLO6 cash, the fold is a price test on the exact six cards against
+  // the bettor's line range; where the call is priced the reference decision stands.
+  if (opts.plo6FacingBetIsPriced === true) {
+    const priced = plo6FacingBetPricedOf(player, gs, opts);
+    if (priced && priced.action !== 'fold') {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_paired_fold_priced_out');
+      // The price tests the call: a flop or turn raise this fold would have folded is made the call
+      // (the river answer, raise included, is priced outermost by plo6FacingBetIsPricedRule).
+      const raising =
+        decision.action === 'raise' ||
+        (decision.action === 'all_in' &&
+          (player.bet || 0) + player.stack > (gs.currentBet || 0) + 0.005);
+      if (!raising || priced.street === 'river') return decision;
+      const called: HorseDecision = priced.allInCall
+        ? { ...decision, action: 'all_in' }
+        : { ...decision, action: 'call', amount: Math.round(priced.paid * 100) / 100 };
+      if (called.action === 'all_in') delete called.amount;
+      delete called.continuationGuard;
+      return called;
+    }
+  }
   // omahaPairedBoardFoldRespectsPrice (default off): PLO4/PLO5 cash, a price
   // of 0.25 or better with a straight or flush, or for the rest of a stack
   // 60% in: the reference decision stands.
@@ -10319,6 +10498,30 @@ function pairedBoardRiverCheck(
   });
   if (!mustCheck) return decision;
   if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('check')) return decision;
+  // plo6FacingBetIsPriced (default off): PLO6 cash, the bet is priced beside the check (EV(bet) against
+  // EV(check) on the exact six cards); where the bet is worth at least the check it stands.
+  if (
+    opts.plo6FacingBetIsPriced === true &&
+    String(gs.gameVariant ?? '').toLowerCase() === 'plo6'
+  ) {
+    let priced: ReturnType<typeof plo6PairedRiverBetPriced> = null;
+    try {
+      const amount =
+        decision.action === 'all_in'
+          ? Math.max(0, player.stack)
+          : Number.isFinite(decision.amount)
+            ? Math.max(0, (decision.amount as number) - (player.bet || 0))
+            : 0;
+      priced = plo6PairedRiverBetPriced(player, gs, amount);
+    } catch {
+      priced = null;
+    }
+    if (priced?.betStands) {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_paired_river_bet_kept');
+      return decision;
+    }
+    if (priced && telemetryOn(opts)) noteFire('plo6_facing_bet_priced_paired_river_check_priced');
+  }
   // omahaPairedBoardBetIsPriced (default off): PLO4/PLO5 cash, the river bet is priced beside the check.
   if (opts.omahaPairedBoardBetIsPriced === true) {
     const priced = omahaPricedPairedBoardBetRule(decision, player, gs, opts);
@@ -16091,12 +16294,19 @@ export class HorseLogic {
       // (omahaStrongHandSlowplayMix, owner 2026-11-15 14:13) is inside both:
       // it only turns the final raise into a call or the final flop bet into
       // a check, so an owner-ruled check or fold is never its to change.
+      // plo6FacingBetIsPriced (default off): the outermost facing-bet answer in PLO6 cash, after every
+      // owner of this node (a fold stands only where the call is not priced; the river answer is priced).
       return {
         decision: publicSized(
-          omahaTurnRiverRaiseNeedsNutsRule(
-            omahaOwnerRuledFinal(
-              omahaStrongHandSlowplayMixRule(
-                omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+          plo6FacingBetIsPricedRule(
+            omahaTurnRiverRaiseNeedsNutsRule(
+              omahaOwnerRuledFinal(
+                omahaStrongHandSlowplayMixRule(
+                  omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+                  player,
+                  gs,
+                  opts
+                ),
                 player,
                 gs,
                 opts

@@ -97,6 +97,7 @@ import {
 } from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
+import { plo6FacingBetPricedAdmitsCall } from '../HorsePlo6FacingBetIsPriced.js';
 import {
   OMAHA_TOURNAMENT_SCOPE_ADMISSION,
   withOmahaTournamentScope,
@@ -1593,6 +1594,24 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // HORSE DECISIONS lane 2026-11-19 (HorsePlo6FacingBetIsPriced, option
+    // plo6FacingBetIsPriced, default off): in PLO6 cash facing a bet on the
+    // flop, the turn or the river, a fold (or a raise the paired-board fold
+    // folded) becomes the call where the call is priced on the exact six cards
+    // against the bettor's line range. The verdict reads no option and no
+    // opponent memory, so it is re-run on the request (no rake, either
+    // position: a superset of what the rule can call) and admitted only for
+    // the exact chips the call puts in. Its whole-stack form is an all-in, a
+    // wager action. The river raise -> call is plo6RiverRaiseToCall above.
+    const plo6FacingBetPricedCalled =
+      transition.node === 'wager_rules' &&
+      variant === 'plo6' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      plo6FacingBetPricedAdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
     // river a raise facing a wager with a hand that is not nut class becomes
@@ -1820,6 +1839,7 @@ function policyGraphIsValidInScope(
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
       !omahaFlopFacingBetEvCalled &&
+      !plo6FacingBetPricedCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
       !omahaSampledRaiseResized &&

@@ -3679,6 +3679,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6NoMultiwayBetWithWeakMadeHand: true },
     b: {},
   },
+  // 2026-11-19 (HORSE DECISIONS lane, audit HVH48 auditor C) PLO6 FACING A BET
+  // IS PRICED (plo6FacingBetIsPriced, HorsePlo6FacingBetIsPriced.ts), default
+  // OFF: arm A answers every PLO6 cash facing-bet spot by price on the exact six
+  // cards against the bettor's line range (the random-hand river fold does not
+  // run, the paired-board fold and the paired-river check are price tests, a
+  // fold stands only where the call is not priced, the river raise is priced);
+  // arm B is today's brain. Six seats and the production personas, as the
+  // other PLO6 cash cards. The card only measures; the default is unchanged.
+  {
+    name: 'plo6_facing_bet_is_priced',
+    variant: 'plo6',
+    seats: 6,
+    pairs: 6000,
+    productionStyles: true,
+    a: { plo6FacingBetIsPriced: true },
+    b: {},
+  },
   // 2026-11-16 (PLO6-AUDIT-013) PLO6 MANIAC PRICE REFUSAL TO THE RANGE PLAY
   // (plo6ManiacPriceRefusalToRangePlay), opt-in since 2026-11-16 because its
   // production reach row was not met by the deadline Hand Analysis set: arm A
