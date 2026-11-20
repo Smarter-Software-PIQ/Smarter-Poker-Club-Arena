@@ -142,7 +142,7 @@ def main():
         def replay():
             """The trial itself, from standby-trials.sh, with psql_db on the throwaway cluster."""
             script = f"""
-set -u
+set -Eeuo pipefail  # exactly as standby-engine.sh runs the trial
 die() {{ echo "$*" >&2; exit 1; }}
 valid_sha() {{ [[ "$1" =~ ^[0-9a-f]{{40}}$ ]] || die "not a 40-hex sha: $1"; }}
 psql_db() {{ PGOPTIONS='-c check_function_bodies=off' {' '.join(psql_cmd)} -v ON_ERROR_STOP=1 "$@"; }}
