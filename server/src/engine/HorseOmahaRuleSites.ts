@@ -416,6 +416,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBigBetIsPotShare: open(
     'a pot-share size line: a turn or river wager under 70% of the pot it went into is tiered by its pot share instead of the 20 big blind mark, and the option also gates the limped-pot minimum bet (a bet under 2 BB into 4 BB or more becomes max(2 BB, 40% of the pot)); neither is priced. With omahaSmallBetIsPriced on, the minimum bet replaces a bet that option placed only through its priced size comparison. Owner: PLO Strategy lane 013U37'
   ),
+  omahaFacingBetIsPricedByEquity: priced(
+    "a final fold facing a person's wager becomes the call when the recomputed equity, calibrated by street against persons' real cards, times the measured realization beats the price (default OFF; EMERG lane FACING 2026-11-19)"
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),

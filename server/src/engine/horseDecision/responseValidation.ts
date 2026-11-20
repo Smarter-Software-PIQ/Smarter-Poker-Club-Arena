@@ -82,6 +82,10 @@ import {
   omahaFlopFacingBetEvAdmitsCall,
 } from '../HorseOmahaFlopFacingBetEv.js';
 import {
+  OMAHA_FACING_EQUITY_VARIANTS,
+  omahaFacingEquityAdmitsCall,
+} from '../HorseOmahaFacingBetEquity.js';
+import {
   OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
   omahaMultiwayWeakHandSpot,
   omahaRiverBluffIntoValueLeaderSpot,
@@ -1593,6 +1597,24 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane FACING 2026-11-19 (HorseOmahaFacingBetEquity, option
+    // omahaFacingBetIsPricedByEquity): in PLO4/PLO5 cash postflop (table and
+    // Lightning) the node's final fold facing a person's wager becomes the
+    // call when the calibrated equity times the measured realization beats
+    // the price. The verdict is a pure function of the request (cards, board,
+    // pot, chips to call, live opponents, street; card-seeded sampling), so
+    // it is re-run here: fold -> call is admitted only with the request, only
+    // where the verdict re-run on it calls, and only for the exact chips the
+    // call puts in. Its whole-stack form is an all-in, a wager action.
+    const omahaFacingEquityCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_FACING_EQUITY_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFacingEquityAdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
     // river a raise facing a wager with a hand that is not nut class becomes
@@ -1820,6 +1842,7 @@ function policyGraphIsValidInScope(
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
       !omahaFlopFacingBetEvCalled &&
+      !omahaFacingEquityCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
       !omahaSampledRaiseResized &&

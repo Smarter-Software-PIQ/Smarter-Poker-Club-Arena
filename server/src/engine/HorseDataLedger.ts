@@ -1077,6 +1077,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetIsPricedByEquity',
+    "EMERG lane FACING 2026-11-19 (owner 7:31 PM Chicago: stop the PLO4/PLO5 bleeding; 7:38 PM: math first, no blanket rule): in PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, postflop, facing a bet or a raise whose last aggressor is a person, the node's final fold becomes the call when the call pays (HorseOmahaFacingBetEquity.ts): the Horse's showdown share recomputed with 600 card-seeded Monte Carlo runouts (exactly two hole and three board cards, one holding for every live opponent, never the brain's random stream), mapped through the calibration measured by street (heads-up and multiway) against the persons' real cards in the 48-hour dataset (fit Nov 18, held out Nov 19), times the realization measured from the Horses' own flop and turn calls (river 1), must beat the price paid / (pot + paid) by the measured margin. It runs as the outermost answer of wager_rules, so it covers decisions whose Omaha pack retained the reference or was refused for depth; it never changes a check, a call, a bet or a raise. The response validator re-runs the verdict on the request. Constants: docs/horse-option-authority.d/omahaFacingBetIsPricedByEquity.CONSTANTS.md. Default OFF (opt-in, read === true)",
+    'V94'
+  ),
+  flag(
     'omahaFlopFacingBetEv',
     "PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the hand, the equity, the opponent's range and the price, never on the size of the bet alone, and no blanket rule may block a correct decision): in PLO4/PLO5 cash, high only, one board, on the FLOP facing a bet or a raise, a fold or a call (the whole-stack call included) is replaced by one expected-value verdict (HorseOmahaFlopFacingBetEv.ts): the hand's showdown result on two-card runouts sampled with a seed taken from the cards (a balanced set of runouts, every unseen card the turn card and the river card of the same number of them, three opponent holdings per runout; never the brain's random stream), against the bettor's value region (the strongest share of holdings on the flop, set by the bet's share of the pot, a raise, a lead into the preflop aggressor or a stab after he checked) and his other holdings at a non-value share moved by his measured read, with every other player counted together on the same runouts (a caller's hand to beat as well; a player still to act priced as folding or as continuing with his call in the pot, at the measured continue rate), times a realization factor read from the hand's own runouts (equity on runouts where the hand can call the turn and the river is realized, bluff-catcher equity only on streets he checks) and corrected by what flop calls of that hand class and position returned in production (shrunk by sample size; docs/horse-option-authority.d/omahaFlopFacingBetEv.CONSTANTS.md), against the price and the one margin of omahaFacingBetEv. The flop had no such rule: the stack-share paired-board fold and the 20 big blind big-bet mark decided it; with the option on they no longer decide a spot the verdict covers. A raise is left alone; the bare-overpair continuation keeps its own verdict; tournaments, PLO6, hi-lo, bomb pots and capped wagers are outside it. Independent of omahaFacingBetEv. The realization cells, the continue rate and the sampling error are measured; the value shares are stated. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_flop_facing_bet_ev",
     'V94'
@@ -5255,6 +5260,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_read_by_street_carried',
     'HorseLogic.decide (HorseOmahaReadByStreetRule, omahaReadIsByStreetAndTexture)',
     'a PLO4/PLO5 cash postflop decision with the per-street read on in which at least one live opponent carried a street record (the read the decision then used; counted once per decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_equity_call',
+    'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaFacingBetIsPricedByEquity)',
+    "a PLO4/PLO5 cash postflop decision facing a person's bet or raise whose final fold became the call because the calibrated equity times the measured realization beat the price (counted once per changed decision)",
     'V94'
   ),
   receipt(

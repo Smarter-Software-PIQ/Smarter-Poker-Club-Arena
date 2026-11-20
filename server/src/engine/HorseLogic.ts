@@ -122,6 +122,7 @@ import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
 import { omahaPricedPublicSpotKey } from './HorseOmahaPricedRules.js';
+import { omahaFacingBetIsPricedByEquityRule } from './HorseOmahaFacingBetEquity.js';
 import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import { riverNoBlockerBetVerdict } from './HorseRiverNoBlockerBet.js';
 import {
@@ -3472,6 +3473,16 @@ export interface HorseDecideOpts {
    * omahaFlopFacingBetEv's. Needs the mind on. Default OFF, not evaluated;
    * league cards plo4/plo5 _omaha_flop_verdict_reads_the_bettor. */
   omahaFlopVerdictReadsTheBettor?: boolean;
+  /** EMERG lane FACING 2026-11-19 (owner 7:31 PM: stop the PLO4/PLO5 bleeding;
+   * 7:38 PM: math first): opt-in (`=== true`). PLO4/PLO5 cash (table and
+   * Lightning), high only, one board, postflop, facing a PERSON's bet or
+   * raise: the node's final fold becomes the call when the recomputed
+   * showdown equity (card-seeded Monte Carlo, exact 2+3), calibrated by
+   * street against persons' real cards and times the measured realization,
+   * beats the price by the measured margin (HorseOmahaFacingBetEquity.ts).
+   * Outermost wrapper of wager_rules, so it also covers decisions whose
+   * Omaha pack was refused for depth. Never changes a non-fold. Default OFF. */
+  omahaFacingBetIsPricedByEquity?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -16466,16 +16477,18 @@ export class HorseLogic {
       // (omahaStrongHandSlowplayMix, owner 2026-11-15 14:13) is inside both:
       // it only turns the final raise into a call or the final flop bet into
       // a check, so an owner-ruled check or fold is never its to change.
-      return {
-        decision: publicSized(
-          omahaTurnRiverRaiseNeedsNutsRule(
-            omahaOwnerRuledFinal(
-              omahaStrongHandSlowplayMixRule(
-                omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
-                player,
-                gs,
-                opts
-              ),
+      // EMERG lane FACING 2026-11-19 (omahaFacingBetIsPricedByEquity, default
+      // off): the outermost answer of this node. A final fold facing a
+      // person's wager becomes the call when the calibrated equity times the
+      // measured realization beats the price (HorseOmahaFacingBetEquity.ts).
+      // It changes only a fold, so every owner above keeps its check, call,
+      // bet or raise; it runs after the Omaha pack whether the pack applied,
+      // retained the reference or was refused for depth.
+      const ownersFinal = publicSized(
+        omahaTurnRiverRaiseNeedsNutsRule(
+          omahaOwnerRuledFinal(
+            omahaStrongHandSlowplayMixRule(
+              omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
               player,
               gs,
               opts
@@ -16483,9 +16496,24 @@ export class HorseLogic {
             player,
             gs,
             opts
-          )
-        ),
-      };
+          ),
+          player,
+          gs,
+          opts
+        )
+      );
+      const equityPriced = omahaFacingBetIsPricedByEquityRule(
+        ownersFinal,
+        player,
+        gs,
+        opts.omahaFacingBetIsPricedByEquity === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (equityPriced !== ownersFinal && tele) {
+        noteFire('omaha_facing_bet_equity_call');
+        noteDecisionRuleReceipt('omaha_facing_bet_equity_call', ownersFinal, equityPriced);
+      }
+      return { decision: equityPriced };
     };
     decision = graph.run('wager_rules', decision, () => riverNoBlocker(wagerRulesNode())).decision;
     // Forced-phase authority (2026-11-07): an owner wager rule above may replace
