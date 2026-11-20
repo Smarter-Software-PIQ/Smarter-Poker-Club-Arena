@@ -59,117 +59,6 @@ SERVICE_KEY="$(read_key SUPABASE_SERVICE_ROLE_KEY)"
 [ -n "$SERVICE_KEY" ] || die "SUPABASE_SERVICE_ROLE_KEY is not set in $ENV_FILE"
 SUPABASE_URL="${SUPABASE_URL%/}"
 
-# THE ADMISSION POLICY IS JUDGED ON ITS OWN, BEFORE ANYTHING ELSE CAN FAIL
-# (incident 3aabeee7, 2026-11-19 23:02-23:17 CST). The policy used to be read
-# at the END of this script and published in the money file, and its freshness
-# was the money snapshot's timestamp. So when fn_monitoring_health_snapshot
-# timed out under database load, `die` left nothing written, the snapshot
-# timestamp aged past 180s and HorseFleetThroughputPolicyUnknown paged CRITICAL
-# "policy cannot be read" - while the catalog-only policy RPC was answering in
-# milliseconds the whole time (incident fa23c973, 2026-11-14, was the same
-# shape). The snapshot's own staleness still pages as MoneyHealthBlind and its
-# siblings; it is not this alarm's fact. The policy is now read first, written
-# atomically to its OWN textfile with its OWN collection timestamp, and
-# sp:lightning_admission_policy:readable judges it by that timestamp alone.
-POLICY_OUT="${POLICY_OUT:-$TEXTFILE_DIR/club_arena_admission_policy.prom}"
-# The relative cash baseline must not compare different installed admission
-# contracts. An owner-approved pace change is not a loss of dealing capacity.
-# This catalog-only RPC follows the installed function, including a body change
-# at the same migration version. Failure is unknown, never fingerprint zero.
-CASH_POLICY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
-  -X POST "$SUPABASE_URL/rest/v1/rpc/fn_lightning_admission_policy" \
-  -H "apikey: $SERVICE_KEY" \
-  -H "Authorization: Bearer $SERVICE_KEY" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json' -d '{}' 2>&1) || CASH_POLICY_BODY=''
-# The engine's planned population/seat curve is a separate admission owner.
-# Unknown/missing policy is not an old-policy sample and never becomes zero.
-CASH_POPULATION_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
-  "http://127.0.0.1:8080/health" 2>/dev/null) || CASH_POPULATION_BODY=''
-CASH_POLICY_RENDERED=$(POLICY_COLLECTED_AT="$(date +%s)" python3 - "$CASH_POLICY_BODY" 3<<<"$CASH_POPULATION_BODY" <<'PY'
-import hashlib, json, os, sys
-lines = []
-ok = 0
-try:
-    rows = json.loads(sys.argv[1])
-    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
-        raise ValueError('policy row is unavailable')
-    fingerprint = rows[0].get('fingerprint')
-    if type(fingerprint) is not int or not 0 <= fingerprint < 2**52:
-        raise ValueError('policy fingerprint is unavailable')
-    # Health includes growing diagnostics; never put it in argv (Linux's
-    # per-argument limit is 128 KiB). FD 3 streams it independently of the
-    # Python program on stdin, with no intermediate health file.
-    with os.fdopen(3) as health_stream:
-        health = json.load(health_stream)
-    schedule = health.get('horseWorkSchedule')
-    if not isinstance(schedule, dict):
-        raise ValueError('engine cash population policy is unavailable')
-    # v1 compatibility is selected by a proven immutable release, but its
-    # identity is the admission semantics, not that build. This fingerprint
-    # was calculated with the engine's v1 algorithm over that release's full
-    # 1,440-minute curve and variant/stake matrix (retained regression fixture).
-    legacy_release = '3529e86663daa427b380a8ab9bd09347270c670e'
-    legacy_population = 2624902867899093
-    if 'policyFingerprint' in schedule:
-        population = schedule['policyFingerprint']
-        if type(population) is not int or not 0 <= population < 2**52:
-            raise ValueError('engine cash population policy is unavailable')
-    else:
-        if health.get('releaseSha') != legacy_release:
-            raise ValueError('engine cash population policy is unavailable')
-        population = legacy_population
-    # Keep the already-published key for these exact semantics, including a
-    # routine replacement that adds the fingerprint field and a rollback.
-    # The string is a stable wire alias, never the currently serving SHA.
-    # Different population fingerprints or SQL definitions remain different
-    # cohorts; unknown releases and malformed fields still fail closed.
-    if population == legacy_population:
-        population = 'legacy-release:' + legacy_release
-    contract = schedule.get('cashAdmissionContract')
-    if contract is None and health.get('releaseSha') == legacy_release:
-        contract = 'cash-population/v1'
-    if contract == 'cash-population/v1':
-        # Exactly the existing legacy wire key, including migration-first and rollback.
-        policy_key = f'{fingerprint}:{population}'
-    elif contract == 'cash-hourly-tables/v1':
-        hourly = rows[0].get('hourly_fingerprint')
-        if rows[0].get('hourly_contract') != contract or type(hourly) is not int or not 0 <= hourly < 2**52:
-            raise ValueError('hourly cash admission policy is unavailable')
-        # Adoption is explicit before the first hand-boundary close. Never key
-        # on the current instance, enablement row, wall clock or observed seats.
-        policy_key = f'{fingerprint}:{population}:{contract}:{hourly}'
-    else:
-        raise ValueError('engine cash admission contract is unavailable')
-    fingerprint = int(hashlib.sha256(policy_key.encode()).hexdigest()[:13], 16)
-    lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
-             '# TYPE poker_lightning_admission_policy_fingerprint gauge',
-             f'poker_lightning_admission_policy_fingerprint {fingerprint:d}']
-    ok = 1
-except Exception as exc:
-    sys.stderr.write(f'collect-monitoring-health: cash admission policy unavailable: {exc}\n')
-lines += ['# HELP poker_lightning_admission_policy_collected_timestamp_seconds Unix time this run judged the admission policy; its own freshness, independent of the money snapshot.',
-          '# TYPE poker_lightning_admission_policy_collected_timestamp_seconds gauge',
-          f'poker_lightning_admission_policy_collected_timestamp_seconds {int(os.environ["POLICY_COLLECTED_AT"])}']
-lines += ['# HELP poker_lightning_admission_policy_collect_ok 1 when the installed admission contract was read this run, else 0.',
-          '# TYPE poker_lightning_admission_policy_collect_ok gauge',
-          f'poker_lightning_admission_policy_collect_ok {ok}']
-print('\n'.join(lines))
-PY
-) || CASH_POLICY_RENDERED="poker_lightning_admission_policy_collected_timestamp_seconds $(date +%s)
-poker_lightning_admission_policy_collect_ok 0"
-if [ -n "${DRY_RUN:-}" ]; then
-  printf '%s\n' "$CASH_POLICY_RENDERED"
-else
-  mkdir -p "$TEXTFILE_DIR" || die "cannot create $TEXTFILE_DIR"
-  POLICY_TMP="$POLICY_OUT.$$"
-  if printf '%s\n' "$CASH_POLICY_RENDERED" > "$POLICY_TMP"; then
-    mv -f "$POLICY_TMP" "$POLICY_OUT" || rm -f "$POLICY_TMP"
-  else
-    rm -f "$POLICY_TMP"
-  fi
-fi
-
 BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
   -X POST "$SUPABASE_URL/rest/v1/rpc/fn_monitoring_health_snapshot" \
   -H "apikey: $SERVICE_KEY" \
@@ -558,6 +447,90 @@ PY
 RENDERED="$RENDERED
 $RELEASE_RENDERED"
 
+# The relative cash baseline must not compare different installed admission
+# contracts. An owner-approved pace change is not a loss of dealing capacity.
+# This catalog-only RPC follows the installed function, including a body change
+# at the same migration version. Failure is unknown, never fingerprint zero.
+CASH_POLICY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  -X POST "$SUPABASE_URL/rest/v1/rpc/fn_lightning_admission_policy" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' -d '{}' 2>&1) || CASH_POLICY_BODY=''
+# The engine's planned population/seat curve is a separate admission owner.
+# Unknown/missing policy is not an old-policy sample and never becomes zero.
+CASH_POPULATION_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  "http://127.0.0.1:8080/health" 2>/dev/null) || CASH_POPULATION_BODY=''
+CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" 3<<<"$CASH_POPULATION_BODY" <<'PY'
+import hashlib, json, os, sys
+lines = []
+ok = 0
+try:
+    rows = json.loads(sys.argv[1])
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError('policy row is unavailable')
+    fingerprint = rows[0].get('fingerprint')
+    if type(fingerprint) is not int or not 0 <= fingerprint < 2**52:
+        raise ValueError('policy fingerprint is unavailable')
+    # Health includes growing diagnostics; never put it in argv (Linux's
+    # per-argument limit is 128 KiB). FD 3 streams it independently of the
+    # Python program on stdin, with no intermediate health file.
+    with os.fdopen(3) as health_stream:
+        health = json.load(health_stream)
+    schedule = health.get('horseWorkSchedule')
+    if not isinstance(schedule, dict):
+        raise ValueError('engine cash population policy is unavailable')
+    # v1 compatibility is selected by a proven immutable release, but its
+    # identity is the admission semantics, not that build. This fingerprint
+    # was calculated with the engine's v1 algorithm over that release's full
+    # 1,440-minute curve and variant/stake matrix (retained regression fixture).
+    legacy_release = '3529e86663daa427b380a8ab9bd09347270c670e'
+    legacy_population = 2624902867899093
+    if 'policyFingerprint' in schedule:
+        population = schedule['policyFingerprint']
+        if type(population) is not int or not 0 <= population < 2**52:
+            raise ValueError('engine cash population policy is unavailable')
+    else:
+        if health.get('releaseSha') != legacy_release:
+            raise ValueError('engine cash population policy is unavailable')
+        population = legacy_population
+    # Keep the already-published key for these exact semantics, including a
+    # routine replacement that adds the fingerprint field and a rollback.
+    # The string is a stable wire alias, never the currently serving SHA.
+    # Different population fingerprints or SQL definitions remain different
+    # cohorts; unknown releases and malformed fields still fail closed.
+    if population == legacy_population:
+        population = 'legacy-release:' + legacy_release
+    contract = schedule.get('cashAdmissionContract')
+    if contract is None and health.get('releaseSha') == legacy_release:
+        contract = 'cash-population/v1'
+    if contract == 'cash-population/v1':
+        # Exactly the existing legacy wire key, including migration-first and rollback.
+        policy_key = f'{fingerprint}:{population}'
+    elif contract == 'cash-hourly-tables/v1':
+        hourly = rows[0].get('hourly_fingerprint')
+        if rows[0].get('hourly_contract') != contract or type(hourly) is not int or not 0 <= hourly < 2**52:
+            raise ValueError('hourly cash admission policy is unavailable')
+        # Adoption is explicit before the first hand-boundary close. Never key
+        # on the current instance, enablement row, wall clock or observed seats.
+        policy_key = f'{fingerprint}:{population}:{contract}:{hourly}'
+    else:
+        raise ValueError('engine cash admission contract is unavailable')
+    fingerprint = int(hashlib.sha256(policy_key.encode()).hexdigest()[:13], 16)
+    lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
+             '# TYPE poker_lightning_admission_policy_fingerprint gauge',
+             f'poker_lightning_admission_policy_fingerprint {fingerprint:d}']
+    ok = 1
+except Exception as exc:
+    sys.stderr.write(f'collect-monitoring-health: cash admission policy unavailable: {exc}\n')
+lines += ['# HELP poker_lightning_admission_policy_collect_ok 1 when the installed admission contract was read this run, else 0.',
+          '# TYPE poker_lightning_admission_policy_collect_ok gauge',
+          f'poker_lightning_admission_policy_collect_ok {ok}']
+print('\n'.join(lines))
+PY
+) || CASH_POLICY_RENDERED='poker_lightning_admission_policy_collect_ok 0'
+RENDERED="$RENDERED
+$CASH_POLICY_RENDERED"
 
 if [ -n "${DRY_RUN:-}" ]; then
   printf '%s\n' "$RENDERED"

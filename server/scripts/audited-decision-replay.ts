@@ -6,39 +6,20 @@
  *   npx tsx scripts/audited-decision-replay.ts \
  *     [--audit2 <PLO5-...-DECISIONS.csv> --audit2-hands <audit2 hands.jsonl>] \
  *     [--woowoo <decision-audit/decisions-full.csv> --woowoo-findings <spec/decision-to-finding.csv>] \
- *     (--replay <replay.jsonl> [--base off] [--json <report.json>] [--line <arm>]
- *        [--allow-unchanged <arm>[,<arm>]] [--row <arm> --set <set name> [--scorer-commit <sha>]]
- *      | --emit-nodes <nodes.jsonl>)
+ *     (--replay <replay.jsonl> [--base off] [--json <report.json>] [--line <arm>] | --emit-nodes <nodes.jsonl>)
  *
  * --emit-nodes writes the audited nodes ({hand, seat, street, k, source, recorded, verdict}) for a replay harness
  * to re-decide; the harness writes one JSON line per node: {hand, seat, street, k, arms: {off: {action, amount,
  * legal, refusal, receipts}, <arm>: {...}}}. --line prints the authority-file replay line for one arm.
  * Exit 1 when an audit2 row cannot be placed at a node or a replay node repeats. A base arm that does not
  * reproduce the recorded action is counted and listed (never matched to a neighbour).
- *
- * THE REPLAY MUST BE THE ARMS IT NAMES (2026-11-19). The harness declares the option-switch set it handed the brain,
- * per arm on one line {"meta": {"arms": {"<arm>": {"options": {"<option>": "on" | "off"}, "sanitized": {...}}}}}
- * or per row as arms.<arm>.options. Exit 2, with the reason and NO score, when
- *   - a declared set is refused by today's option registry (a journaled option that is off-only or unregistered
- *     today makes the whole set invalid: nothing is switched and the arm is inert),
- *   - an arm is identical to the base arm on every compared row and was not declared so (--allow-unchanged), or
- *   - --row is asked from arms whose option set is not declared.
- * --row prints the machine-read Replay row(s) of the option's authority file (docs/horse-option-authority.d/README.md)
- * for one arm; the scorer commit is read from git (the last commit of the two scorer files, which must be clean)
- * unless --scorer-commit names it.
  */
-import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   audit2Decisions,
   nodeKey,
-  parseReplayFile,
+  parseReplayJsonl,
   replayBarLine,
-  replayBarRows,
-  replayRefusals,
-  replayValidity,
   scoreReplay,
   wooWooDecisions,
   type AdapterResult,
@@ -51,25 +32,6 @@ const opt = (name: string): string | undefined => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const read = (p: string) => readFileSync(p, 'utf8');
-const list = (name: string): string[] =>
-  (opt(name) ?? '')
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean);
-
-/** The commit the scorer ran at: the last commit of its two files, refused when either has uncommitted changes. */
-function scorerCommit(): string {
-  const given = opt('scorer-commit');
-  if (given) return given;
-  const server = join(dirname(fileURLToPath(import.meta.url)), '..');
-  const files = ['scripts/audited-decision-replay.ts', 'src/benchmark/AuditedDecisionReplay.ts'];
-  const git = (...a: string[]) => execFileSync('git', a, { cwd: server, encoding: 'utf8' }).trim();
-  if (git('status', '--porcelain', '--', ...files))
-    throw new Error(
-      '--row: the scorer files have uncommitted changes, so no commit names this scorer (commit them or pass --scorer-commit)'
-    );
-  return git('log', '-1', '--format=%H', '--', ...files).slice(0, 11);
-}
 
 const audits: { source: 'audit2' | 'woowoo'; decisions: AuditedDecision[] }[] = [];
 let problems = 0;
@@ -114,37 +76,7 @@ if (emit) {
 } else {
   const rp = opt('replay');
   if (!rp) throw new Error('give --replay <replay.jsonl> or --emit-nodes <out>');
-  const base = opt('base') ?? 'off';
-  const rowArm = opt('row');
-  const file = parseReplayFile(read(rp));
-  const validity = replayValidity(file, base);
-  for (const v of validity) {
-    const set =
-      v.rowsWithOptions === 0
-        ? 'option set NOT DECLARED (off-only / unregistered check not made)'
-        : `option set declared on ${v.rowsWithOptions} of ${v.rows} rows, ${v.invalidRows} refused by today's registry`;
-    const versus = v.isBase
-      ? 'base arm'
-      : `on vs base: ${v.switchedOn.join(', ') || '(none named)'}${v.switchedOff.length ? `; off vs base: ${v.switchedOff.join(', ')}` : ''}; differs from base on ${v.differingRows} of ${v.comparedRows} rows`;
-    const sanitized = Object.entries(v.sanitized)
-      .map(([k, n]) => `${k} x${n}`)
-      .join(', ');
-    console.log(
-      `arm ${v.arm}: ${v.rows} rows; ${set}; ${versus}${sanitized ? `; sanitized by the harness: ${sanitized}` : ''}`
-    );
-  }
-  const refusals = replayRefusals(validity, {
-    allowUnchanged: list('allow-unchanged'),
-    requireOptionsFor: rowArm ? [base, rowArm] : [],
-  });
-  if (refusals.length) {
-    for (const r of refusals) console.error(`REFUSED: ${r}`);
-    console.error(
-      `REFUSED: ${refusals.length} reason(s); this replay is not scored and no line, row or report is written.`
-    );
-    process.exit(2);
-  }
-  const report = scoreReplay(audits, file.rows, base);
+  const report = scoreReplay(audits, parseReplayJsonl(read(rp)), opt('base') ?? 'off');
   console.log(
     `replay ${rp}: ${report.replayRows} rows, ${report.replayRowsWithoutAudit} without an audited decision, ${report.duplicateReplayNodes.length} duplicate nodes; base arm "${report.base}"`
   );
@@ -171,7 +103,7 @@ if (emit) {
           ? ` | EV ${a.evSumBb >= 0 ? '+' : ''}${a.evSumBb} bb on ${a.evPriced} (mean ${a.evMeanBb}, se ${a.evSeBb ?? 'n/a'})`
           : '';
       console.log(
-        `  ${a.arm.padEnd(34)} changed ${a.changed} (up ${a.moreAggressive}, down ${a.morePassive}) resized ${a.resized} illegal ${a.illegal} refused ${a.refused} errors ${a.errors} | fixed ${a.fixed} newly wrong ${a.newlyWrong} still wrong ${a.stillWrong} ok->ok ${a.okToOk} unjudged ${a.changedUnjudged} | unchanged ${a.unchanged} (bad unchanged ${a.unchangedBad})${ev}`
+        `  ${a.arm.padEnd(34)} changed ${a.changed} (up ${a.moreAggressive}, down ${a.morePassive}) resized ${a.resized} illegal ${a.illegal} refused ${a.refused} errors ${a.errors} | fixed ${a.fixed} newly wrong ${a.newlyWrong} still wrong ${a.stillWrong} ok->ok ${a.okToOk} unjudged ${a.changedUnjudged} | bad unchanged ${a.unchangedBad}${ev}`
       );
       for (const [r, c] of Object.entries(a.perReceipt))
         if (c.changed || c.unchangedBad)
@@ -182,13 +114,6 @@ if (emit) {
   }
   const line = opt('line');
   if (line) console.log(`\nAuthority replay line (${line}): ${replayBarLine(report, line)}`);
-  if (rowArm) {
-    const set = opt('set');
-    if (!set) throw new Error('--row needs --set <name of the audited decision set>');
-    console.log(`\nAuthority Replay row(s) (${rowArm}), copy unedited:`);
-    for (const row of replayBarRows(report, rowArm, { set, scorer: scorerCommit() }))
-      console.log(row);
-  }
   const json = opt('json');
   if (json) writeFileSync(json, JSON.stringify(report, null, 1) + '\n');
 }
