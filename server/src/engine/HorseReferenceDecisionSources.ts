@@ -131,8 +131,40 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'imported by the Omaha sampler whose integer scoring the math core equity uses (dealt-seat census)',
     'src/engine/plo4/Plo4PolicyPack.ts':
       'imported through the Omaha variant pack reached from the sampler scoring the math core equity uses',
+    'src/engine/omahaMathCore/OmahaMathCoreWire.ts':
+      'the math core component wiring (lane COREWIRE 2026-11-19): adapters from the core state to the delivered components (responses, bet rates, tracked ranges, postflop value plan, public action line)',
+    'src/engine/omahaMathCore/OmahaMathCoreOpponent.ts':
+      'lane OPPMODEL per-opponent posterior over the public population cells (public actions only), read by the math core',
+    'src/engine/omahaMathCore/opponentModel.v1.json':
+      'lane OPPMODEL snapshot (provenance public_actions): per-opponent decayed public response, wager and preflop counts',
+    'src/engine/omahaMathCore/OmahaMathCorePlaybookTexture.ts':
+      'lane PLAYBOOK board-texture fold cells (provenance public_actions) applied to the math core population cell',
+    'src/engine/omahaMathCore/playbookTexture.v1.json':
+      'lane PLAYBOOK board-texture fold table (provenance public_actions)',
+    'src/engine/omahaMathCore/OmahaMathCorePlaybookBlockers.ts':
+      'lane PLAYBOOK blocker-conditioned fold share by exact card removal (the hero cards and the board only)',
+    'src/engine/omahaMathCore/OmahaMathCoreRangeTrack.ts':
+      'lane RANGEADV range tracking over the public action line (Bayes on measured public node frequencies)',
+    'src/engine/omahaMathCore/OmahaMathCorePreflop.ts':
+      'lane PREFLOP-EV preflop strength order, public-frequency bands and size-aware fold / re-raise for the math core',
+    'src/engine/omahaMathCore/preflopTables.v1.json':
+      'lane PREFLOP-EV public preflop action frequencies (no hole cards)',
+    'src/engine/omahaMathCore/preflopRealization.v1.json':
+      'lane PREFLOP-EV preflop realization table: imported, not read by the core until the lead admits its provenance (PREFLOP_REALIZATION_ADMITTED)',
+    'src/engine/omahaMathCore/preflopStrength.v1.json':
+      'lane PREFLOP-EV two-card additive equity model (computed from random holdings only)',
+    'src/engine/omahaMathCore/OmahaMathCoreValue.ts':
+      'lane VALUE postflop plan: check node, raised branch, multi-street continuation and the size menu, priced by the math core',
+    'src/engine/omahaMathCore/OmahaMathCoreBluff.ts':
+      'lane XR-BLUFF check-raise and bluff context (exploit-back multipliers from public answers to the core wagers)',
+    'src/engine/omahaMathCore/MultiwayTerms.ts':
+      'lane HVH-MULTI multiway terms: correlated all-fold continuation outcomes and calls with players behind',
+    'src/engine/omahaMathCore/OmahaDraws.ts':
+      'lane DRAWS exact draw profile and measured later-street term, on the math core one-step fallback path only',
     'src/engine/omahaMathCore/publicTables.v3.json':
       'the math core public tables (provenance public_actions): response frequencies to wagers, preflop action frequencies, fold facing a Horse raise, per-user public facing rows',
+    'src/engine/omahaMathCore/OmahaMathCoreAcceptance.ts':
+      'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
     'src/engine/HorseOmahaFlopFacingBetEvRule.ts':

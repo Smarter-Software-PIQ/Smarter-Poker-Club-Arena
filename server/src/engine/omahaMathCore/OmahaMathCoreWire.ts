@@ -72,6 +72,16 @@ export const OMAHA_MATH_CORE_WIRE_VERSION = 'omaha-math-core-wire-v1';
  */
 export const PREFLOP_REALIZATION_ADMITTED = false;
 
+/**
+ * Test hook: the core's one-step fallback path (planValue off) is where lane DRAWS' later-street term
+ * applies (never on top of a planValue candidate: VALUE already prices the later streets). DRAWS' core
+ * law tests run on that path. Production never calls this.
+ */
+let WIRED_VALUE_ON = true;
+export function setWiredValueForTests(on: boolean): void {
+  WIRED_VALUE_ON = on;
+}
+
 const POST: readonly PostStreet[] = ['flop', 'turn', 'river'];
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -537,6 +547,7 @@ export interface WireValueResult {
 /** Postflop EV of check / call / every wager size from VALUE planValue (null: the core keeps its own loop). */
 export function wiredValue(c: WireValueCtx): WireValueResult | null {
   const s = c.state;
+  if (!WIRED_VALUE_ON) return null;
   if (s.street === 'preflop' || !wireInScope(s) || c.live.length === 0) return null;
   const street = s.street;
   const st0 = POST.indexOf(street);
@@ -769,6 +780,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         foldProb: 0,
         foldSource: `value: ${cd.plan}`,
         range: null,
+        future: null,
       });
     } else if (cd.kind === 'call') {
       if (toCall <= 0.005) continue;
@@ -844,9 +856,14 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         foldProb: 0,
         foldSource: src,
         range: null,
+        future: null,
       });
     } else {
       if (!(stack > toCall + 0.005)) continue;
+      // nobody left to call a wager (every opponent all-in)
+      if (c.live.every((o) => o.allIn)) continue;
+      // an all-in above the pot-limit cap is not a legal size: VALUE's pot-or-smaller sizes stand for it
+      if (cd.allIn && allInTo > maxTo + 0.005) continue;
       let to = cd.allIn ? allInTo : r2(s.heroBet + cd.adds);
       if (!cd.allIn) to = c.onUnit(to, minTo, maxTo, s.chipUnit);
       if (to > allInTo + 0.005) to = allInTo;
@@ -881,6 +898,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
             1500
           ),
         range: null,
+        future: null,
       });
     }
   }

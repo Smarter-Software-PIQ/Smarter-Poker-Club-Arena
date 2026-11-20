@@ -236,7 +236,8 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
       stack: Math.max(0, p.stack || 0),
       bet: Math.max(0, p.bet || 0),
       folded: !!p.is_folded,
-      allIn: !!p.is_all_in,
+      // no chips behind is all-in whether or not the seat carries the flag (PROVE-2 hand 60037957)
+      allIn: !!p.is_all_in || !((p.stack ?? 0) > 0.005),
       streetAction: lastAction.get(p.seat) ?? 'none',
       calledPrevStreet: si > 0 && calledOn[si - 1].has(p.seat),
       prevAggressor: prevAggressor === p.seat,
@@ -340,11 +341,20 @@ export function omahaMathCoreRule(
       (a.action === 'all_in' || Math.abs((a.amount ?? 0) - (b.amount ?? 0)) <= 0.011);
     const ranked = [...receipt.evs].sort((x, y) => y.ev - x.ev || x.adds - y.adds);
     let legal: HorseDecision | null = null;
+    let legalizeError: string | null = null;
     for (const cand of ranked) {
       const proposed: HorseDecision = { action: cand.action, thinkTime: decision.thinkTime };
       if (cand.action !== 'fold' && cand.action !== 'check' && cand.amount !== null)
         proposed.amount = cand.amount;
-      const l = legalize(proposed);
+      // a legalizer that throws on one candidate (e.g. an all-in above the pot-limit cap) rules out that
+      // candidate only; it never discards the core (PROVE-2: hands 59979051, 60015335, 60026456, 60035341)
+      let l: HorseDecision;
+      try {
+        l = legalize(proposed);
+      } catch (e) {
+        legalizeError = String((e as Error)?.message ?? e);
+        continue;
+      }
       if (same(l, proposed)) {
         legal = l;
         if (cand !== ranked[0])
@@ -357,7 +367,10 @@ export function omahaMathCoreRule(
         break;
       }
     }
-    if (!legal) throw new Error('omahaMathCore: no priced candidate is legal as proposed');
+    if (!legal)
+      throw new Error(
+        `omahaMathCore: no priced candidate is legal as proposed${legalizeError ? ` (legalizer: ${legalizeError})` : ''}`
+      );
     // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
     // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
     // preflop action stands.

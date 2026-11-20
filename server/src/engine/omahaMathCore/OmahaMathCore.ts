@@ -41,6 +41,7 @@ import {
   type RangeSpec,
 } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
+import { omahaDrawFeatures, omahaDrawFutureTerm, type OmahaDrawFeatures } from './OmahaDraws.js';
 import {
   OMAHA_MATH_CORE_TABLE_VERSION,
   preflopFoldToHorse,
@@ -144,6 +145,14 @@ export interface CoreActionEv {
   foldProb: number;
   foldSource: string | null;
   range: string | null;
+  /** lane DRAWS: later-street chips the showdown equity leaves out (implied / reverse implied / barrel); null = none */
+  future?: {
+    chips: number;
+    implied: number;
+    reverse: number;
+    miss: number;
+    barrel: number | null;
+  } | null;
 }
 
 export interface CoreReceipt {
@@ -158,6 +167,16 @@ export interface CoreReceipt {
   opponents: { seat: number; person: boolean; range: string }[];
   evs: CoreActionEv[];
   choice: { action: CoreActionEv['action']; amount: number | null; ev: number };
+  /** lane DRAWS: the hero's exact draw profile (PLO4/PLO5 flop and turn) */
+  draw?: {
+    cls: string;
+    outs: number;
+    nutOuts: number;
+    cleanNutOuts: number;
+    wrapSize: number;
+    fd: string;
+    source: string;
+  } | null;
   samples: number;
   ms: number;
   /** equity calls that fell back to the unconditioned pool (narrow ranges colliding) */
@@ -254,12 +273,55 @@ function legalHas(state: CoreState, a: string): boolean {
   return state.legal.includes(a);
 }
 
+/**
+ * Nobody else can win the pot (every opponent folded): the pot is the hero's whatever he does, so the
+ * cheapest legal action is the exact maximum (check, else call, else fold), with a receipt.
+ */
+function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
+  const act: CoreActionEv['action'] = state.legal.includes('check')
+    ? 'check'
+    : state.legal.includes('call')
+      ? 'call'
+      : 'fold';
+  const adds = act === 'call' ? Math.max(0, Math.min(state.toCall, state.heroStack)) : 0;
+  const ev = act === 'fold' ? 0 : state.pot;
+  const a: CoreActionEv = {
+    action: act,
+    amount: act === 'call' ? round2(adds) : null,
+    adds,
+    ev,
+    equity: act === 'fold' ? null : 1,
+    se: 0,
+    foldProb: 0,
+    foldSource: 'uncontested: no opponent can win the pot',
+    range: null,
+  };
+  return {
+    version: OMAHA_MATH_CORE_VERSION,
+    switch: 'omahaMathCore',
+    tables: OMAHA_MATH_CORE_TABLE_VERSION,
+    street: state.street,
+    realization: { value: 1, source: 'uncontested' },
+    price: 0,
+    pot: state.pot,
+    toCall: state.toCall,
+    opponents: [],
+    evs: [a],
+    choice: { action: act, amount: a.amount, ev: round2(ev) },
+    samples: 0,
+    ms: Math.round(ms * 10) / 10,
+  };
+}
+
 /** The core decision. Throws on any inconsistency (the caller keeps its decision with an error receipt). */
 export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: CoreReceipt } {
   const t0 = clock.now();
   const rng = seededRng(state.seed);
-  const live = state.opponents.filter((o) => !o.folded);
-  if (live.length === 0) throw new Error('omahaMathCore: no live opponent');
+  // every opponent still in the hand; when the state marks none live but some are all-in (PROVE-2 hand
+  // 60037957: every other seat all-in), the all-in seats are the field (no fold credit for them)
+  let live = state.opponents.filter((o) => !o.folded);
+  if (live.length === 0) live = state.opponents.filter((o) => o.allIn);
+  if (live.length === 0) return { receipt: uncontestedReceipt(state, clock.now() - t0) };
   if (state.hole.length !== Number(state.variant.slice(-1)))
     throw new Error('omahaMathCore: hole count');
   const street = state.street;
@@ -312,7 +374,9 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const eq = (ranges: RangeSpec[]): EquityResult => {
     // lane EQUITY's equityVsRanges; the core's own exact 2+3 sampler when equityVsRanges declines (it returns null rather than throw, e.g. on repeated joint collisions)
     let r: EquityResult =
-      EQUITY_ENGINE === 'equity-lane' && !late()
+      // (four or more opponents: the core's clock-capped sampler; equityVsRanges has no clock cap and its
+      // joint redraws on narrow multiway preflop ranges measured up to 270 ms, COREWIRE smoke)
+      EQUITY_ENGINE === 'equity-lane' && !late() && ranges.length <= 3
         ? equityVsPoolsEquityLane(
             state.hole,
             state.board,
@@ -483,6 +547,53 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const real = 1;
   const realCell = { source: 'no public realization measurement: none applied' };
   const realized = (_closing: boolean): number => real;
+
+  // ── lane DRAWS: later streets (PLO4/PLO5 flop and turn; PLO6 and the river get none) ──
+  const drawF: OmahaDrawFeatures | null =
+    street === 'flop' || street === 'turn' ? omahaDrawFeatures(state.hole, state.board) : null;
+  const oppBehindMax = Math.max(0, ...live.map((o) => o.stack));
+  let drawSource = '';
+  const future = (potNext: number, heroAdds: number, allIn: boolean, barrelLine: Line | null) => {
+    if (!drawF) return null;
+    const effBehind = Math.min(
+      stack - heroAdds,
+      Math.max(0, oppBehindMax - Math.max(0, heroAdds - toCall))
+    );
+    let turnBarrelFold: { p: number; source: string } | null = null;
+    if (barrelLine && street === 'flop') {
+      let p = 1;
+      const src: string[] = [];
+      for (const o of live) {
+        const c = wiredResponse(state.board, {
+          game,
+          mode,
+          street: 'turn',
+          line: barrelLine,
+          band: sizeBand(2 / 3, false),
+          players: playersNow,
+          bettor: 'horse',
+          responder: actorOf(o),
+          user: o.person ? o.user : null,
+        });
+        if (!c) {
+          p = NaN;
+          break;
+        }
+        p *= c.fold;
+        src.push(`s${o.seat}:${round2(c.fold)} ${c.source}`);
+      }
+      if (Number.isFinite(p)) turnBarrelFold = { p, source: src.join('; ') };
+    }
+    const t = omahaDrawFutureTerm(drawF, {
+      street: street as 'flop' | 'turn',
+      potNext,
+      effBehind,
+      allIn,
+      turnBarrelFold,
+    });
+    drawSource = t.source;
+    return t;
+  };
   // (preflop realization, provenance law: preflopRealization.v1 is built from Horses' unshown own cards
   // and is not admitted until the lead rules on it; see repairs/EMERG/COREWIRE.md)
   const pfReal = (_pot: number, _eff: number, _players: number, _allIn: boolean) => ({
@@ -748,7 +859,10 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           (1 - pAllFold) *
             (r * e2.equity * rakeNet(state, P + toCall + extra - uncovered) - toCall);
       }
+      const futCall = future(P + toCall, toCall, callAllIn, null);
+      if (futCall) ev += futCall.chips;
       evs.push({
+        future: futCall,
         action: callAllIn ? 'all_in' : 'call',
         amount: callAllIn ? round2(state.heroBet + stack) : round2(toCall),
         adds: toCall,
@@ -765,6 +879,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     const e = eq(rs);
     let ev = realized(false) * e.equity * rakeNet(state, P);
     let note = 'check closes the street';
+    const futCheck = future(P, 0, false, null);
     // The check is a line, not a terminal: heads-up, an opponent still to act wagers at his public
     // rate (his median measured size) with his public wager range; the hero then folds or calls,
     // the better; when he checks behind, the hero holds his share against the checking range.
@@ -819,7 +934,8 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       action: 'check',
       amount: null,
       adds: 0,
-      ev,
+      future: futCheck,
+      ev: ev + (futCheck ? futCheck.chips : 0),
       equity: e.equity,
       se: e.se,
       foldProb: 0,
@@ -831,6 +947,8 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   // ── wagers: bet / raise at a half and a full pot, smaller bets unopened, and all-in ──
   if (
     !wired &&
+    // nobody left to call a wager (every opponent all-in): no wager is priced (PROVE-2 hand 60037957)
+    live.some((o) => !o.allIn) &&
     (legalHas(state, 'raise') || legalHas(state, 'bet') || legalHas(state, 'all_in')) &&
     stack > toCall + 0.005
   ) {
@@ -1012,7 +1130,10 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           );
         }
       }
+      const futWager = future(P + adds + calls, adds, anyAllIn, 'barrel');
+      if (futWager) ev += (1 - pAllFold) * futWager.chips;
       evs.push({
+        future: futWager,
         action,
         amount: action === 'bet' ? round2(adds) : round2(to),
         adds,
@@ -1054,6 +1175,17 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         se: r4(a.se),
       })),
       choice: { action: best.action, amount: best.amount, ev: round2(best.ev) },
+      draw: drawF
+        ? {
+            cls: drawF.cls,
+            outs: drawF.outs,
+            nutOuts: drawF.nutOuts,
+            cleanNutOuts: drawF.cleanNutOuts,
+            wrapSize: drawF.wrapSize,
+            fd: drawF.fd,
+            source: drawSource,
+          }
+        : null,
       samples,
       equityFallbacks,
       ms: Math.round((clock.now() - t0) * 10) / 10,
