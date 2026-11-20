@@ -22,7 +22,13 @@ connection), migrations 20261119052955 and 20261119180500 exactly as on disk:
     re-run or 4th breached window, resolves and sends ONE clear notification
     when the shape returns within budget, and sends no duplicate clear
     notification on subsequent windows or re-runs;
-  * the cron job is the one 20261119052955's live proof names.
+  * the cron job is the one 20261119052955's live proof names;
+  * then, on the production pre-image of the owner page route
+    (scripts/ci/fixtures/owner-page-route-preimage-20261120.sql),
+    20261120034809 installs and its live proof holds; the watch sends NO
+    notification of its own on open or on clear (the defect above: one push
+    per flap), and a flapping episode pages the owner ONCE through the page
+    route (kind hand_delay) while the second open is held and counted.
 """
 import argparse
 import datetime as dt
@@ -39,6 +45,9 @@ BASE_FILE = '20261119052955_an_unintended_delay_between_hands_pages_within_minut
 FILE = '20261119180500_sustained_hand_delay_alerts_and_cadence_grading.sql'
 BASE_MIGRATION = ROOT / 'supabase' / 'migrations' / BASE_FILE
 MIGRATION = ROOT / 'supabase' / 'migrations' / FILE
+ROUTE_FILE = '20261120034809_a_hand_delay_pages_through_the_owner_page_route.sql'
+ROUTE_MIGRATION = ROOT / 'supabase' / 'migrations' / ROUTE_FILE
+ROUTE_PREIMAGE = ROOT / 'scripts' / 'ci' / 'fixtures' / 'owner-page-route-preimage-20261120.sql'
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -354,6 +363,51 @@ try:
 
     msgs = run("SELECT count(DISTINCT message) FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'")
     check('watch: the alert message is constant, so one cause is one incident', msgs == '1', msgs)
+
+    # Phase 2 (20261120034809): the watch pages through the owner page route, not around it.
+    run(ROUTE_PREIMAGE.read_text())
+    pre = run("SELECT md5(pg_get_functiondef('public.fn_ca_owner_page_kind(text,text,text)'::regprocedure)) || ','"
+              " || md5(pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure))")
+    check('route fixture is byte-equal to the production pre-image (md5 of pg_get_functiondef)',
+          pre == '0b2e47d5b999a429faa4ad1346c90f52,587e68783be087a0a059d674377a7cc9', pre)
+    direct_before = len(notifs())
+    run(ROUTE_MIGRATION.read_text())
+    route_proof = ROUTE_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261120034809 installs on the pre-image and its live proof holds',
+          run('SELECT ' + route_proof) == 't', route_proof)
+
+    def pages():
+        return json.loads(run("""SELECT COALESCE(jsonb_agg(jsonb_build_array(user_id::text, title, message,
+          data->>'kind', data->>'alert', (data->>'held_since_last_page')::int) ORDER BY created_at, id), '[]')
+          FROM notifications WHERE data->>'source' = 'owner-real-alert'"""))
+
+    tour2 = str(uuid.uuid4())
+    run(f"INSERT INTO tournaments(id) VALUES ('{tour2}')")
+    late = (21, 22, 23, 26, 27, 28)
+    table('fold', lambda k: 600 if k in late else 40, list(range(21, 30)), tournament=tour2)
+    r21, r22, r23 = watch(21), watch(22), watch(23)
+    check('route: the 15-minute breach opens ONE alert and the watch itself notifies nobody',
+          r23['opened'] == 1 and r23.get('paged_via') == 'operational_alert_events'
+          and 'notified_open' not in r23 and len(notifs()) == direct_before, [r21, r22, r23, notifs()])
+    check('route: the open reaches the store once as financial-alerts-backfill/fn_ca_hand_gap_watch/critical',
+          run("SELECT count(*) FROM operational_alert_events WHERE source = 'financial-alerts-backfill' "
+              "AND alertname = 'fn_ca_hand_gap_watch' AND severity = 'critical' AND status = 'firing'") == '1')
+    p1 = pages()
+    check('route: the owner is paged ONCE, titled and summarised from the alert, by the page route',
+          len(p1) == 1 and p1[0][0] == OWNER and p1[0][1] == 'Unintended Delay Between Hands'
+          and p1[0][2] == 'tournament fold hands have been delayed for 15 minutes (p95 +600 ms over the 250 ms budget).'
+          and p1[0][3] == 'hand_delay' and p1[0][4] == 'fn_ca_hand_gap_watch', p1)
+    r24, r25 = watch(24), watch(25)
+    check('route: the clear resolves the alert and pages nobody (no recovery push)',
+          r24['resolved'] == 1 and r25['resolved'] == 0 and len(notifs()) == direct_before and len(pages()) == 1,
+          [r24, r25, pages()])
+    r26, r27, r28 = watch(26), watch(27), watch(28)
+    check('route: the flap re-opens the alert, which is held and counted, not paged again',
+          r28['opened'] == 1 and len(pages()) == 1 and len(notifs()) == direct_before
+          and run("SELECT held_since_page FROM ca_owner_page_state WHERE kind = 'hand_delay'") == '1',
+          [r28, pages()])
+    check('route: a hand delay never touches the dealing clock a stopped table needs',
+          run("SELECT last_firing_at IS NULL AND pages_sent = 0 FROM ca_owner_page_state WHERE kind = 'dealing'") == 't')
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True
 finally:
