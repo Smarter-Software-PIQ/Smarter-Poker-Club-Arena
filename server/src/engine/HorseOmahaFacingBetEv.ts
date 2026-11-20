@@ -48,6 +48,7 @@
  * a memo of exact counts for the last few hands (the same cards give the
  * same counts). The caller (HorseLogic) supplies the measured read.
  */
+import { omahaBetReadBluffShare, type OmahaBetRead } from './HorseOmahaBetRead.js';
 import {
   omahaShownFieldVerdict,
   type OmahaShownFieldVerdict,
@@ -191,6 +192,10 @@ export interface OmahaFacingBetEvRead {
    *  that showed a strong hand and did not win (thin value: half a bluff). Null: the memory has no such read
    *  (today always: see HorseMind.omahaFacingBetEvReadOf) */
   sizeShown: { shown: number; best: number; second?: number } | null;
+  /** omahaBetReadIsPerOpponent (default off): his per-street, per-size bet read (HorseOmahaBetRead). When
+   *  present it alone moves the prior (omahaBetReadBluffShare: the population prior exactly below its minimum
+   *  sample); absent = the reads above, as before */
+  betRead?: OmahaBetRead | null;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -206,6 +211,10 @@ export function omahaEvBluffShare(
   read: OmahaFacingBetEvRead | null,
   street?: 'turn' | 'river'
 ): number {
+  // omahaBetReadIsPerOpponent (default off): ONE rule for every bettor, his measured composition of this street
+  // and size (HorseOmahaBetRead), the population prior exactly while his sample is below the minimum.
+  if (read?.betRead)
+    return Math.max(0.02, Math.min(0.65, omahaBetReadBluffShare(prior, read.betRead)));
   let q = prior;
   // omahaBluffShareFromBetRate (default off): his bet rate beside the population moves the prior
   // continuously; the value-leader and maniac labels do not act (HorseOmahaPricedMode).

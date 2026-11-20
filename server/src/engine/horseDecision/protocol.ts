@@ -265,6 +265,11 @@ export interface CompletedHandObservation extends HorseDecisionFence {
     | undefined;
   bigBlind: number;
   showdown?: Array<{ user_id: string; mucked: boolean; hand_name?: string }> | null;
+  /** omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead), one-board non-bomb hands only: the holdings
+   *  revealed at showdown by user id (the same public reveal hand_history.hole_cards stores; never a mucked or
+   *  folded hand) and the final board. */
+  betReadShown?: Record<string, ReadonlyArray<{ rank: string; suit: string }>>;
+  betReadBoard?: ReadonlyArray<{ rank: string; suit: string } | string>;
   riverCallContext?: import('../HorseRiverCallEvidence.js').RiverCallContext;
   retainedRiverCalls?: import('../HorseRiverCallEvidence.js').RiverCallSample[];
   /** Every dealt player's net (chips out less chips in), for the winner read

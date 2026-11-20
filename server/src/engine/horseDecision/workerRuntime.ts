@@ -1,4 +1,5 @@
 import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
@@ -706,6 +707,18 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.styleHasHuman === true,
     styleSpeedOf(request)
   );
+  // omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead): PLO4/PLO5 cash one-board hands only; memory only,
+  // idempotent per hand; it never throws and changes no decision while the option is off.
+  omahaBetReadLearn({
+    handKey: request.handKey,
+    variant: request.riverCallContext?.variant ?? '',
+    mode: styleMemoryModeOf(request) ?? 'tournament',
+    actions: (request.actions ?? []) as never,
+    board: request.betReadBoard ?? null,
+    shown: new Map(Object.entries(request.betReadShown ?? {})),
+    showdown: request.showdown ?? null,
+    boardCount: request.riverCallContext?.boardCount ?? 1,
+  });
 }
 
 /**

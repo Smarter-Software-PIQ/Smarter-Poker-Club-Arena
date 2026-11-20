@@ -113,7 +113,11 @@ import {
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
-import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_EV_UNKNOWN_READ,
+  omahaFacingBetEvSpot,
+  omahaFacingBetEvVerdict,
+} from './HorseOmahaFacingBetEv.js';
 import { omahaFacingBetValueRangeOver } from './HorseOmahaFacingBetValueRange.js';
 import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
 import { omahaTurnStabSpot } from './HorseOmahaTurnStabDefence.js';
@@ -128,7 +132,19 @@ import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
 import { omahaPricedPublicSpotKey } from './HorseOmahaPricedRules.js';
-import { omahaFacingBetIsPricedByEquityRule } from './HorseOmahaFacingBetEquity.js';
+import {
+  omahaFacingBetIsPricedByEquityRule,
+  omahaFacingEquityBettorShift,
+  omahaFacingEquityFacedFrac,
+  omahaFacingEquityPopulationShare,
+} from './HorseOmahaFacingBetEquity.js';
+import {
+  OMAHA_BET_READ_VARIANTS,
+  omahaBetReadBluffShare,
+  omahaBetReadIsLaterBarrel,
+  omahaBetReadOf,
+  type OmahaBetRead,
+} from './HorseOmahaBetRead.js';
 import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
 import {
   omahaMathCoreExactLegalize,
@@ -3545,6 +3561,19 @@ export interface HorseDecideOpts {
    * (HorseOmahaFacingBetEquity.omahaFacingStrongTurnCell). Changes only a
    * final fold into the call. Never PLO6. Default OFF. */
   omahaTurnStrongHandRealizationIsMeasured?: boolean;
+  /** EMERG lane CR2 2026-11-20 (LIVEGRADE CR-2: PLO5 heads-up folds to one
+   * frequent bettor's wagers forgo +15.9 bb each, n 640; folds to another
+   * person's are correct): opt-in (`=== true`). PLO4/PLO5 cash (table and
+   * Lightning), heads-up, one board, no bomb pot, the river and a later turn
+   * barrel only (never the flop or a first turn bet). Where the facing-bet
+   * verdicts price the bettor's non-value share (omahaFacingBetEv,
+   * omahaFacingBetIsPricedByEquity), the population prior is replaced by his
+   * own measured composition of first bets of that street, size and barrel (HorseOmahaBetRead: hands he showed at showdown after such
+   * a bet, read against the population's shown hands, and his bet frequency
+   * against the population's), one rule for every opponent, the population
+   * prior exactly below the minimum sample. Public information only. Never
+   * PLO6. Default OFF. */
+  omahaBetReadIsPerOpponent?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -12301,8 +12330,64 @@ let omahaFacingBetEvCountMemo: {
   turnStab: boolean;
   turnStabLightning: boolean;
   turnStabLightningRow: boolean;
+  /** omahaBetReadIsPerOpponent */
+  betRead: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
+
+/**
+ * omahaBetReadIsPerOpponent (default OFF; HorseOmahaBetRead): the bettor's measured composition of first bets of
+ * this street and size, for PLO4/PLO5 cash only (one board, no bomb pot, mind on, heads-up), on the river and on a
+ * later barrel of the turn only (HorseOmahaBetRead.omahaBetReadOf). Null elsewhere, and for a
+ * raise (the read keeps first bets only), so PLO6 and every other game never see it. With telemetry on it
+ * records what was read (source, cell, shown and bet counts, the share it gives on the prior `q0`).
+ */
+function omahaBetReadForDecision(
+  opts: HorseDecideOpts,
+  gs: HorseGameStateV2,
+  heroSeat: number,
+  userId: string | null | undefined,
+  street: string,
+  potFrac: number,
+  isRaise: boolean,
+  q0: number | null = null
+): OmahaBetRead | null {
+  if (opts.omahaBetReadIsPerOpponent !== true || opts.mind === false || !userId) return null;
+  try {
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    if (!OMAHA_BET_READ_VARIANTS.has(variant) || isTournamentMode(gs)) return null;
+    if ((gs.boardCount ?? 1) !== 1 || gs.bombPot === true || gs.variantRules?.splitLow8OrBetter)
+      return null;
+    // Heads-up only: offline (CR2.md) the multiway folds the read would have turned into calls lose on both days
+    // (fit -0.4 +/- 3.6 bb, n 36; held out -5.6 +/- 1.8, n 18): the field, not the bettor, decides those.
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== heroSeat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    ).length;
+    if (live !== 1) return null;
+    const bettorSeat = (gs.players ?? []).find((p) => p.user_id === userId)?.seat;
+    const read = omahaBetReadOf(
+      userId,
+      variant,
+      street,
+      potFrac,
+      isRaise,
+      bettorSeat !== undefined && omahaBetReadIsLaterBarrel(gs.actionHistory, street, bettorSeat)
+    );
+    if (read && telemetryOn(opts)) {
+      if (read.source === 'person') noteFire('omaha_bet_read_person_priced');
+      else noteFire('omaha_bet_read_population_priced');
+      const q = q0 !== null ? omahaBetReadBluffShare(q0, read) : null;
+      noteDecisionRuleReceipt(
+        `omaha_bet_read.${read.source}.${read.street}.${read.bucket}.shown${read.shown.toFixed(1)}.bets${read.bets.toFixed(1)}`,
+        null,
+        { action: 'bluff_share', amount: q === null ? null : Math.round(q * 1000) / 1000 }
+      );
+    }
+    return read;
+  } catch {
+    return null;
+  }
+}
 
 /** What the priced rule sites (HorseOmahaPricedWiring.ts) take of this file's private helpers. */
 function omahaPricedDeps(player: SeatPlayer, gs: HorseGameStateV2): OmahaPricedDeps {
@@ -12340,6 +12425,7 @@ function omahaFacingBetEvCount(
   const turnStab = opts.omahaTurnStabDefenceIsPriced === true;
   const turnStabLightning = turnStab && opts.omahaPricedInLightning === true;
   const turnStabLightningRow = turnStabLightning && opts.omahaTurnStabLightningRow === true;
+  const betReadOn = opts.omahaBetReadIsPerOpponent === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -12355,7 +12441,8 @@ function omahaFacingBetEvCount(
     memo.pairedRiverPriced === pairedRiverPriced &&
     memo.turnStab === turnStab &&
     memo.turnStabLightning === turnStabLightning &&
-    memo.turnStabLightningRow === turnStabLightningRow
+    memo.turnStabLightningRow === turnStabLightningRow &&
+    memo.betRead === betReadOn
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -12392,6 +12479,20 @@ function omahaFacingBetEvCount(
       } catch {
         read = steppedRead;
       }
+      // omahaBetReadIsPerOpponent (default off): his measured composition of this street and size replaces the
+      // population prior inside omahaEvBluffShare (one rule; the prior exactly below the minimum sample).
+      const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+      const betRead = omahaBetReadForDecision(
+        opts,
+        gs,
+        player.seat,
+        bettor?.user_id,
+        spot.street,
+        spot.potFrac,
+        spot.isRaise,
+        spot.priorBluff
+      );
+      if (betRead) read = { ...(read ?? OMAHA_EV_UNKNOWN_READ), betRead };
     }
     const verdictOf = (
       s: typeof spot,
@@ -12540,6 +12641,7 @@ function omahaFacingBetEvCount(
     turnStab,
     turnStabLightning,
     turnStabLightningRow,
+    betRead: betReadOn,
     answer,
   };
   return answer;
@@ -16673,7 +16775,37 @@ export class HorseLogic {
           if (verdict.strongTurn === true && tele)
             noteFire('omaha_turn_strong_hand_realization_priced');
         },
-        opts.omahaTurnStrongHandRealizationIsMeasured === true
+        opts.omahaTurnStrongHandRealizationIsMeasured === true,
+        // omahaBetReadIsPerOpponent (default off): heads-up, the bettor's measured composition moves the
+        // calibrated share (HorseOmahaFacingBetEquity.omahaFacingEquityBettorShift)
+        opts.omahaBetReadIsPerOpponent === true
+          ? (spot) => {
+              const faced = omahaFacingEquityFacedFrac(player, gs, spot);
+              if (!faced || faced.isRaise) return 0;
+              const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+              const q0 = omahaFacingEquityPopulationShare(spot.street, faced.potFrac);
+              const read = omahaBetReadForDecision(
+                opts,
+                gs,
+                player.seat,
+                bettor?.user_id,
+                spot.street,
+                faced.potFrac,
+                false,
+                q0
+              );
+              if (!read || read.source !== 'person') return 0;
+              return omahaFacingEquityBettorShift(
+                spot,
+                player.cards ?? [],
+                gs.communityCards ?? [],
+                player.knownDeadCards ?? [],
+                faced.potFrac,
+                q0,
+                omahaBetReadBluffShare(q0, read)
+              );
+            }
+          : null
       );
       if (equityPriced !== ownersFinal && tele) {
         noteFire('omaha_facing_bet_equity_call');

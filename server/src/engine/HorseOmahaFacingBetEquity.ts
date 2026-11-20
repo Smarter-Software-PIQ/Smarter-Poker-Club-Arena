@@ -24,6 +24,18 @@ import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { scoreOmahaHi, scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
+import { OMAHA_BET_READ_Q_MAX, omahaBetReadIsLaterBarrel } from './HorseOmahaBetRead.js';
+import {
+  OMAHA_EV_VALUE_SHARE,
+  omahaBetSizeBucket,
+  omahaEvHandCounts,
+  omahaEvPriorBluffShare,
+} from './HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_FLOP_EV_PRIOR_OTHER,
+  OMAHA_FLOP_EV_VALUE_SHARE,
+  omahaFlopEvCounts,
+} from './HorseOmahaFlopFacingBetEv.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_FACING_EQUITY_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -137,6 +149,61 @@ export interface OmahaFacingEquityVerdict {
   call: boolean;
   /** omahaTurnStrongHandRealizationIsMeasured priced this verdict with the strong-hand turn realization. */
   strongTurn?: boolean;
+  /** omahaBetReadIsPerOpponent: the bettor's measured composition moved the calibrated share by this much
+   *  (omahaFacingEquityBettorShift); absent when it did not act */
+  bettorShift?: number;
+}
+
+/**
+ * omahaBetReadIsPerOpponent (default off): what the bettor's measured bet composition does to the calibrated
+ * share. The calibration maps the raw share to the share against the POPULATION of revealed betting ranges, so
+ * the population's non-value share q0 (the facing-bet verdicts' own prior for this street and size) is built in;
+ * moving his share to q moves the equity by (q - q0) x (the Horse's share against holdings outside his value
+ * region - its share against the value region), counted exactly as the facing-bet verdicts count them
+ * (HorseOmahaFacingBetEv.omahaEvHandCounts on the turn and river, HorseOmahaFlopFacingBetEv.omahaFlopEvCounts on
+ * the flop). Heads-up only (the read is the bettor's; a multiway share is not his alone). 0 when it cannot be
+ * counted. Pure in the cards and the two shares.
+ */
+export function omahaFacingEquityBettorShift(
+  spot: OmahaFacingEquitySpot,
+  hole: readonly Card[],
+  board: readonly Card[],
+  dead: readonly Card[],
+  potFrac: number,
+  q0: number,
+  q: number
+): number {
+  if (spot.opponents !== 1 || !Number.isFinite(q) || !Number.isFinite(q0) || q === q0) return 0;
+  try {
+    const bucket = omahaBetSizeBucket(potFrac);
+    let other: number;
+    let value: number;
+    if (spot.street === 'flop') {
+      const c = omahaFlopEvCounts(
+        [...hole],
+        [...board],
+        [...dead],
+        OMAHA_FLOP_EV_VALUE_SHARE[bucket]
+      );
+      if (!c) return 0;
+      other = c.other.win + c.other.tie / 2;
+      value = c.value.win + c.value.tie / 2;
+    } else {
+      const c = omahaEvHandCounts(
+        [...hole],
+        [...board],
+        [...dead],
+        OMAHA_EV_VALUE_SHARE[spot.street][bucket]
+      );
+      if (!c) return 0;
+      other = c.other.win + c.other.tie / 2;
+      value = c.value.win + c.value.tie / 2;
+    }
+    const shift = (q - q0) * (other - value);
+    return Number.isFinite(shift) ? shift : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** The facing-a-person's-wager spot, or null outside the rule's scope. */
@@ -398,12 +465,16 @@ export function omahaFacingEquityVerdict(
   spot: OmahaFacingEquitySpot,
   hole: readonly Card[],
   board: readonly Card[],
-  strongTurnRealization: boolean = false
+  strongTurnRealization: boolean = false,
+  /** omahaBetReadIsPerOpponent: omahaFacingEquityBettorShift for this spot (0 = the population) */
+  bettorShift: number = 0
 ): OmahaFacingEquityVerdict | null {
   const raw = omahaFacingRawEquity(hole, board, spot.opponents);
   if (raw === null) return null;
-  const calibrated = omahaFacingEquityCalibrated(spot.street, spot.opponents === 1, raw);
-  if (calibrated === null) return null;
+  const base = omahaFacingEquityCalibrated(spot.street, spot.opponents === 1, raw);
+  if (base === null) return null;
+  const shifted = Number.isFinite(bettorShift) && bettorShift !== 0;
+  const calibrated = shifted ? Math.max(0, Math.min(1, base + bettorShift)) : base;
   const strongTurn = strongTurnRealization && omahaFacingStrongTurnCell(spot, hole, board);
   const realized =
     calibrated *
@@ -419,6 +490,7 @@ export function omahaFacingEquityVerdict(
     margin,
     call: realized - spot.price > margin,
     ...(strongTurn ? { strongTurn: true } : {}),
+    ...(shifted ? { bettorShift } : {}),
   };
 }
 
@@ -437,7 +509,9 @@ export function omahaFacingBetIsPricedByEquityRule<
   legalize: (d: D) => D,
   note?: (verdict: OmahaFacingEquityVerdict) => void,
   /** omahaTurnStrongHandRealizationIsMeasured (acts only with `on`). */
-  strongTurnRealization: boolean = false
+  strongTurnRealization: boolean = false,
+  /** omahaBetReadIsPerOpponent (acts only with `on`): the bettor's shift for the spot, from the caller's read */
+  bettorShiftOf: ((spot: OmahaFacingEquitySpot) => number) | null = null
 ): D {
   if (!on || decision.action !== 'fold') return decision;
   try {
@@ -447,7 +521,8 @@ export function omahaFacingBetIsPricedByEquityRule<
       spot,
       player.cards ?? [],
       gs.communityCards ?? [],
-      strongTurnRealization === true
+      strongTurnRealization === true,
+      bettorShiftOf ? bettorShiftOf(spot) : 0
     );
     if (!verdict || !verdict.call) return decision;
     // The legalizer makes the call for the whole stack an all-in.
@@ -479,7 +554,34 @@ export function omahaFacingEquityAdmitsCall(
     // admitted where the rule COULD have made it (the same pure verdict with
     // the measured strong-hand turn realization), for the same exact chips.
     const strong = omahaFacingEquityVerdict(spot, hole, board, true);
-    return strong !== null && strong.strongTurn === true && strong.call;
+    if (strong !== null && strong.strongTurn === true && strong.call) return true;
+    // omahaBetReadIsPerOpponent is delivered inside the worker and reads the opponent memory, which the request
+    // does not carry: the call is admitted where the read COULD have made it, the same pure verdict with the
+    // largest share the read can give this bettor (OMAHA_BET_READ_Q_MAX), for the same exact chips.
+    if (
+      spot.street === 'flop' ||
+      (spot.street === 'turn' &&
+        !omahaBetReadIsLaterBarrel(gs.actionHistory, 'turn', spot.bettorSeat))
+    )
+      return false;
+    const facing = omahaFacingEquityFacedFrac(player, gs, spot);
+    if (facing === null || facing.isRaise) return false;
+    const q0 = omahaFacingEquityPopulationShare(spot.street, facing.potFrac);
+    const most = omahaFacingEquityBettorShift(
+      spot,
+      hole,
+      board,
+      player.knownDeadCards ?? [],
+      facing.potFrac,
+      q0,
+      OMAHA_BET_READ_Q_MAX
+    );
+    if (!(most > 0)) return false;
+    for (const strongTurn of [false, true]) {
+      const v = omahaFacingEquityVerdict(spot, hole, board, strongTurn, most);
+      if (v !== null && v.call) return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -505,4 +607,41 @@ export function omahaFallbackPricedCall(player: SeatPlayer, gs: HorseGameStateV2
   } catch {
     return null;
   }
+}
+
+/**
+ * omahaBetReadIsPerOpponent: the wager the spot faces as a share of the pot before it and whether it raised an
+ * earlier wager of the street (the bet read keeps first bets only). Null when it cannot be read.
+ */
+export function omahaFacingEquityFacedFrac(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  spot: OmahaFacingEquitySpot
+): { potFrac: number; isRaise: boolean } | null {
+  try {
+    const bets = new Map(gs.players.map((p) => [p.seat, p.bet]));
+    const faced = v81StreetWager(gs.actionHistory, spot.street, bets, gs.pot);
+    if (!faced || faced.bettorSeat !== spot.bettorSeat) return null;
+    const potFrac = faced.wager / faced.potBefore;
+    if (!Number.isFinite(potFrac) || !(potFrac > 0)) return null;
+    let wagers = 0;
+    for (const a of gs.actionHistory ?? [])
+      if (
+        String(a.stage) === spot.street &&
+        (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') &&
+        Number(a.amount) > 0
+      )
+        wagers++;
+    return { potFrac, isRaise: wagers >= 2 };
+  } catch {
+    return null;
+  }
+}
+
+/** The facing-bet verdicts' population non-value share for this street and size (the bet read's q0). */
+export function omahaFacingEquityPopulationShare(street: Street, potFrac: number): number {
+  const bucket = omahaBetSizeBucket(potFrac);
+  return street === 'flop'
+    ? OMAHA_FLOP_EV_PRIOR_OTHER[bucket]
+    : omahaEvPriorBluffShare(street, potFrac, false);
 }

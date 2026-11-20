@@ -1092,6 +1092,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBetReadIsPerOpponent',
+    "EMERG lane CR2 2026-11-20 (LIVEGRADE CR-2: PLO5 heads-up Horse folds to one frequent bettor's wagers forgo +15.9 bb each, n 640, folds to another person's are correct; OPEN-ITEMS L13: the per-bettor composition read was a stub). Default OFF (read === true). PLO4/PLO5 cash (table and Lightning), heads-up, one board, no bomb pot, on the river and on a later turn barrel only (lead 12:22 AM: no flop or first turn widening): where omahaFacingBetEv and omahaFacingBetIsPricedByEquity price the bettor's non-value share, the population prior is replaced by his own measured composition of first bets of that street, size and barrel (HorseOmahaBetRead: shown hands value or not on the board of the bet, read against the OTHER persons' shown hands; his bet frequency against theirs), one rule for every opponent (person or Horse), the prior exactly below 4 shown bets. Public information only (showdown reveals); rebuilt at boot from hand_history. Never PLO6.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5343,6 +5348,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_turn_strong_hand_realization_priced',
     'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaTurnStrongHandRealizationIsMeasured)',
     "a PLO4/PLO5 cash Lightning heads-up turn decision facing a person's bet or raise whose final fold became the call with the strong-hand turn realization (a made hand at most 10% of two-card holdings beat); fires with omaha_facing_bet_equity_call",
+    'V94'
+  ),
+  receipt(
+    'omaha_bet_read_person_priced',
+    'HorseLogic omahaBetReadForDecision (omahaBetReadIsPerOpponent)',
+    "a PLO4/PLO5 cash heads-up river or later-barrel facing-bet verdict (omahaFacingBetEv, omahaFacingBetIsPricedByEquity) priced the bettor's non-value share from his own measured first-bet composition of that street and size (at least 4 shown bets); the per-decision rule receipt omaha_bet_read.* names the cell, the shown and bet counts and the share",
+    'V94'
+  ),
+  receipt(
+    'omaha_bet_read_population_priced',
+    'HorseLogic omahaBetReadForDecision (omahaBetReadIsPerOpponent)',
+    "a PLO4/PLO5 cash facing-bet verdict asked the bettor's first-bet read of that street and size and found fewer than 4 shown bets: priced at the population prior exactly",
+    'V94'
+  ),
+  receipt(
+    'omaha_bet_read_boot_failed_seen',
+    'HorseExploitHydrator.hydrateOmahaBetRead',
+    'the boot rebuild of the per-opponent bet read (omahaBetReadIsPerOpponent) threw; the read starts empty and learns from live hands',
     'V94'
   ),
   receipt(

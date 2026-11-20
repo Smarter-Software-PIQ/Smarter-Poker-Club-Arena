@@ -422,6 +422,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnStrongHandRealizationIsMeasured: priced(
     'inside omahaFacingBetIsPricedByEquity: a Lightning heads-up turn fold of a strong made hand is priced with the realization measured for those calls on public information (default OFF; EMERG lane OPEN-ITEMS 2026-11-19)'
   ),
+  omahaBetReadIsPerOpponent: priced(
+    "heads-up on the river and a later turn barrel, the facing-bet verdicts price the bettor's non-value share from his own measured first-bet composition of that street, size and barrel (shown hands against the other persons' shown hands, and his bet frequency), one rule for every opponent, the population prior below the minimum sample (default OFF; EMERG lane CR2 2026-11-20)"
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),

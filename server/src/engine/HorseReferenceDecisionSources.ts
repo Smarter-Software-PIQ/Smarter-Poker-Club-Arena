@@ -197,6 +197,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
+    'src/engine/HorseOmahaBetRead.ts':
+      "the default-off per-opponent bet read (EMERG lane CR2 2026-11-20, omahaBetReadIsPerOpponent): each opponent's first bets by street, size bucket and barrel with the share of the shown ones that were value on the board of the bet (showdown reveals only), the leave-one-out persons' cells, and the one rule that turns them into his non-value share (the population prior exactly below 4 shown bets); read only behind opts.omahaBetReadIsPerOpponent === true on a heads-up PLO4/PLO5 cash river or later turn barrel, so no reference decision depends on it",
     'src/engine/HorseOmahaFlopFacingBetEvRule.ts':
       'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
     'src/engine/HorseOmahaReadByStreet.ts':

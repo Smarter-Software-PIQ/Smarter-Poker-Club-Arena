@@ -3612,6 +3612,21 @@ export class LightningHandHost {
     );
   }
 
+  /** omahaBetReadIsPerOpponent's learner: the holdings revealed at showdown (not mucked; the same ones the hand row
+   *  stores as hole_cards) and the board, or nothing when none was revealed. */
+  private betReadReveal(): {
+    betReadShown?: Record<string, Array<{ rank: string; suit: string }>>;
+    betReadBoard?: string[];
+  } {
+    const shown: Record<string, Array<{ rank: string; suit: string }>> = {};
+    for (const sd of this.showdown)
+      if (!this.isMucked(sd.userId) && sd.holeCards?.length) shown[sd.userId] = sd.holeCards;
+    const board = this.boards[0] ?? [];
+    return Object.keys(shown).length > 0 && board.length > 0
+      ? { betReadShown: shown, betReadBoard: [...board] }
+      : {};
+  }
+
   /** LightningHorseObservation: teach the live horse lane this committed hand. */
   private observeForHorses(
     state: GameState,
@@ -3640,6 +3655,7 @@ export class LightningHandHost {
         hasHuman: this.hasHumanParticipant(),
         actions: acceptedActions,
         showdown: this.showdown,
+        ...this.betReadReveal(),
         ...(results ? { results } : {}),
       },
       {
