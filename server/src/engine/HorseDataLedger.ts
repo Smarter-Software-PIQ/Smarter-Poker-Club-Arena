@@ -1197,6 +1197,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverCurrentNutsCallFloor',
+    "EMERG lane RANGE-MODEL-2 2026-11-20 (owner 9:42 AM Chicago: EVERYTHING DEPENDS ON THE MATH; 9:52 AM: the same corrections against all players, human or Horse; lane RANGE-MODEL graded a facing-bet range read that folded the current river nuts, hand 60226889). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). The outermost answer of the wager_rules node: on the river facing a wager, a final fold becomes the legal call (the whole-stack all-in when the call is the stack) when hero holds the exact current nuts (HorseRiverNuts.hasRiverNuts: every unseen two-card holding enumerated, exactly two hole and three board cards) and a full chop with every live opponent still returns the call, (pot + paid) / (live opponents + 1) >= paid, so the call's expected value is never negative. Public information only; no opponent label, account or person/Horse flag. Near-nut hands are not floored (a range question). The response validator re-runs the floor on the request. PLO6, PLO8, hold'em and tournaments untouched. HorseOmahaRiverCurrentNutsCallFloor.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetValueShareIsMeasured',
     "HORSE DECISIONS lane 2026-11-19 (owner: no blanket rule; every Horse decision priced by range, equity and EV; bet size never triggers a decision by itself; audits A and B of the 48-hour human-versus-Horse slice, archive plo-handoff-review-01a1cbbd/hvh48-audit-01TLQer7J: the largest loss class is a fold with the price met, because the facing-bet verdict's value region is a stated top share of ALL holdings, on PLO5 boards straights or better, narrowed by 0.8 per earlier street, whoever bets): in PLO4/PLO5 cash (tables and Lightning), high only, one board, facing a bet or a raise. (1) The turn and river facing-bet verdict's value share is moved by the bettor's MEASURED street record (HorseMind.omahaStreetReadOf: his first-bet rate on this street, and on each earlier street he opened, beside his kind's rate, shrunk by his sample with the kind's measured pseudo-opportunities, raised to the measured elasticity of a bet range's width in its rate, person 0.95 and Horse 0.47 from the flop slopes; STATED for the turn and river): this street's share times g, each earlier street's 0.8 becomes 0.8^(1/g); exactly the stated share with no opportunity. (2) A person's heads-up turn or river bet is priced on his line-conditioned range: his holdings drawn from the unseen cards, cut to his preflop line (a 3-bet or more), each holding's strength percentile in that range on this board weighted by the MEASURED density of people's bets of that street by earlier aggressor streets and size (river: OMAHA_VALUE_RANGE_FIT, 1,201 bets; turn: OMAHA_TURN_RANGE_FIT, 161 showdown-selected bets of the two audit slices; a raise takes the most aggressive measured row, stated), tilted by his street record (density^(1/g)); his bluffs are inside the density, no separate bluff prior; turn equity counted exactly over every river card; EV(call) at the actual price against the verdict's one margin. (3) The flop verdict reads the bettor (as omahaFlopVerdictReadsTheBettor). (4) The priced facing-bet verdicts decide wherever they price (as with omahaFacingBetEv and omahaFlopFacingBetEv on), and the priced raise sites take their call or fold from that verdict, so the paired-board fold, the big-bet cells (v81, v87) and every earlier call-discipline fold are inputs there, never the decider. PLO6, tournaments, hi-lo and multi-board untouched (HorseOmahaFacingBetValueShareMeasured.ts; HorseLogic.omahaFacingBetEvCount). Receipts omaha_facing_bet_value_share_measured and omaha_facing_bet_measured_range_priced. Default OFF (opt-in, read `=== true`); NOT EVALUATED (docs/horse-option-authority.d/omahaFacingBetValueShareIsMeasured.md); league cards plo4/plo5 _omaha_facing_bet_value_share_is_measured.",
     'V94'
@@ -5570,6 +5575,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_flop_verdict_read_the_bettor',
     'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopVerdictReadsTheBettor)',
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_current_nuts_call_floor',
+    'HorseLogic wager_rules (omahaRiverCurrentNutsCallFloorRule, omahaRiverCurrentNutsCallFloor)',
+    'a PLO4/PLO5 cash river decision facing a wager in which the final fold of the exact current nuts became the legal call (a full chop with every live opponent still returns the call)',
     'V94'
   ),
   receipt(
