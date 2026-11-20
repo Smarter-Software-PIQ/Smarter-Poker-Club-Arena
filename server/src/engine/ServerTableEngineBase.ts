@@ -241,6 +241,10 @@ import {
 import { HEADS_UP_SEATS } from '../config/headsUpSpec.js';
 import type { StateMachine } from './StateMachine.js';
 import type { TableStatus } from '../types.js';
+import {
+  COMPILED_RUNTIME_SETTINGS,
+  type RuntimeSettingsSnapshot,
+} from './runtimeSettings/snapshot.js';
 import { assertDiamondTable } from '../domain/DiamondCashBoundary.js';
 import {
   DiamondCashPolicyClosedError,
@@ -2283,6 +2287,14 @@ export abstract class ServerTableEngineBase {
   // ended_at (was missing — every completed hand_history row had null
   // ended_at, breaking replay timestamps and audit reconciliation).
   protected currentHandStartedAt: number = 0;
+  // Incident 075013fd lane 3: actual between-hand pause times measured after the
+  // prior hand (hold, rest, cash-bust rebuy pause, RIT reveal) and stamped onto
+  // the NEXT hand's hand_history.cadence so cash_bust and rit hands are graded.
+  protected pendingPriorHandCadence: import('./handCadenceSpec.js').HandCadenceRecord | null = null;
+  protected currentHandCadence: import('./handCadenceSpec.js').HandCadenceRecord | null = null;
+  // ENGINE RUNTIME SETTINGS (2026-11-19, runtimeSettings/store.ts): the settings version this hand pinned when it
+  // was dealt. Every read during the hand uses it, so a published change lands at the next hand, never mid-hand.
+  protected currentHandRuntimeSettings: RuntimeSettingsSnapshot = COMPILED_RUNTIME_SETTINGS;
   // chip-std Lane F (2026-09-02): what every dealt player held when the cards
   // went out, keyed by user id. On a tournament table the settled stacks of
   // exactly these players must sum to exactly this - see

@@ -12,6 +12,7 @@ import { masterBus } from '../core/MasterBus';
 import { STORAGE_KEYS } from '../lib/storage';
 import { reportError } from '../utils/errorReporter';
 import { unionRouteRef } from '../utils/unionIdResolver';
+import { CHAT_MESSAGE_TYPE_EXCLUSION_OR } from '../lib/notificationFilters';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -170,6 +171,7 @@ class NotificationServiceClass {
       .from('notifications')
       .select('id, user_id, type, title, message, metadata, data, read, action_url, created_at')
       .eq('user_id', userId)
+      .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR)
       .order('created_at', { ascending: false });
 
     if (options?.unreadOnly) {
@@ -196,7 +198,8 @@ class NotificationServiceClass {
       .from('notifications')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .eq('read', false);
+      .eq('read', false)
+      .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR);
 
     if (error) {
       reportError(error, 'NotificationService.Failed_to_get_count');
@@ -236,7 +239,8 @@ class NotificationServiceClass {
         .from('notifications')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', notif.user_id)
-        .eq('read', false);
+        .eq('read', false)
+        .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR);
       masterBus.emit('NOTIFICATION_COUNT_CHANGED', { count: remaining || 0 });
     }
 

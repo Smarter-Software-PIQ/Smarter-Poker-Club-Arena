@@ -51,6 +51,8 @@ import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadlin
 import type { HandController } from '../engine/HandController.js';
 import type { ActionType, HorseDecision, SeatPlayer } from '../types.js';
 import type { LightningHorseVpipFloorInput } from './LightningHorseVpipLedger.js';
+import type { LiveHorseDecideOpts } from '../engine/horseDecision/protocol.js';
+import type { LightningFastFoldTuning } from '../engine/runtimeSettings/apply.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -97,6 +99,11 @@ export interface LightningHorseTurn {
    * this sitting (LightningHorseVpipLedger). Null or absent: no floor.
    */
   vpipFloor?: LightningHorseVpipFloorInput | null;
+  /**
+   * ENGINE RUNTIME SETTINGS (2026-11-19): the Horse parameters the hand pinned that differ from the compiled defaults
+   * (horseDecideOptsFromRuntimeSettings). Absent at the defaults: the snapshot carries no options, as before.
+   */
+  horseOpts?: LiveHorseDecideOpts;
 }
 
 export interface LightningHorseDecision {
@@ -229,6 +236,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     gameState,
     style,
     mods,
+    ...(turn.horseOpts ? { opts: { ...turn.horseOpts } } : {}),
   };
   snapshot.decisionKey = buildHorseDecisionKey(snapshot);
   return snapshot;
@@ -570,17 +578,27 @@ export const LIGHTNING_HORSE_FAST_FOLD_TEMPO_MIN = 0.8;
 export const LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX = 1.25;
 
 /** A horse's own, stable look-and-press tempo (FNV-1a of its id). */
-export function lightningHorseFastFoldTempo(userId: string): number {
+/** The compiled fast-fold timing; a hand's pinned runtime settings can replace it (runtimeSettings/registry.ts). */
+export const LIGHTNING_HORSE_FAST_FOLD_COMPILED_TUNING: LightningFastFoldTuning = Object.freeze({
+  floorMs: LIGHTNING_HORSE_FAST_FOLD_FLOOR_MS,
+  medianMs: LIGHTNING_HORSE_FAST_FOLD_MEDIAN_MS,
+  sigma: LIGHTNING_HORSE_FAST_FOLD_SIGMA,
+  maxMs: LIGHTNING_HORSE_FAST_FOLD_MAX_MS,
+  tempoMin: LIGHTNING_HORSE_FAST_FOLD_TEMPO_MIN,
+  tempoMax: LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX,
+});
+
+export function lightningHorseFastFoldTempo(
+  userId: string,
+  tuning: LightningFastFoldTuning = LIGHTNING_HORSE_FAST_FOLD_COMPILED_TUNING
+): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < userId.length; i++) {
     h ^= userId.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   const unit = h / 0xffffffff;
-  return (
-    LIGHTNING_HORSE_FAST_FOLD_TEMPO_MIN +
-    unit * (LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX - LIGHTNING_HORSE_FAST_FOLD_TEMPO_MIN)
-  );
+  return tuning.tempoMin + unit * (tuning.tempoMax - tuning.tempoMin);
 }
 
 /**
@@ -591,26 +609,24 @@ export function lightningHorseFastFoldTempo(userId: string): number {
 export function lightningHorseFastFoldReactionMs(input: {
   userId: string;
   random?: () => number;
+  /** The hand's pinned timing (runtime settings); absent, the compiled values. */
+  tuning?: LightningFastFoldTuning;
 }): number {
   const random = input.random ?? Math.random;
-  const median = LIGHTNING_HORSE_FAST_FOLD_MEDIAN_MS * lightningHorseFastFoldTempo(input.userId);
-  const span = LIGHTNING_HORSE_FAST_FOLD_MAX_MS - LIGHTNING_HORSE_FAST_FOLD_FLOOR_MS;
+  const t = input.tuning ?? LIGHTNING_HORSE_FAST_FOLD_COMPILED_TUNING;
+  const median = t.medianMs * lightningHorseFastFoldTempo(input.userId, t);
+  const span = t.maxMs - t.floorMs;
   let draw = span;
   for (let attempt = 0; attempt < 4; attempt++) {
     // Box-Muller: one standard normal from two uniforms.
     const u1 = Math.max(1e-9, 1 - random());
     const u2 = random();
     const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    const candidate = median * Math.exp(LIGHTNING_HORSE_FAST_FOLD_SIGMA * z);
+    const candidate = median * Math.exp(t.sigma * z);
     if (Number.isFinite(candidate) && candidate <= span) {
       draw = candidate;
       break;
     }
   }
-  return Math.round(
-    Math.min(
-      LIGHTNING_HORSE_FAST_FOLD_MAX_MS,
-      Math.max(LIGHTNING_HORSE_FAST_FOLD_FLOOR_MS, LIGHTNING_HORSE_FAST_FOLD_FLOOR_MS + draw)
-    )
-  );
+  return Math.round(Math.min(t.maxMs, Math.max(t.floorMs, t.floorMs + draw)));
 }

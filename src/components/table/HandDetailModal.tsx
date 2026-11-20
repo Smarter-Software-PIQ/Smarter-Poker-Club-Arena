@@ -155,6 +155,8 @@ export interface HandDetailModalProps {
     handNumber: number;
     status: 'pending' | 'unavailable' | 'failed';
   } | null;
+  /** Pool/table display name shown in the modal header (e.g. Lightning cluster title). */
+  tableNameFallback?: string | null;
 }
 
 /** How many face-down cards a muck shows - the variant's own holding size. */
@@ -552,6 +554,7 @@ export function HandDetailModal({
   hasOlderHands = false,
   olderHandsLoading = false,
   pendingLightningDeal = null,
+  tableNameFallback = null,
 }: HandDetailModalProps) {
   /* THE SUBJECT IS A HAND, NOT A POSITION. `hands` is newest-first and can be
      replaced while the modal is open (a hand finishing behind it). Holding an
@@ -897,7 +900,7 @@ export function HandDetailModal({
             onClose={onClose}
             as="div"
             className="hdm-console"
-            eyebrow="This Table"
+            eyebrow={tableNameFallback || 'This Table'}
             title="Hand Detail"
             pill={
               showPendingDeal && pendingLightningDeal
@@ -958,7 +961,7 @@ export function HandDetailModal({
           onClose={onClose}
           as="div"
           className="hdm-console"
-          subtitle={hand.tableName || 'This Table'}
+          subtitle={tableNameFallback || hand.tableName || 'This Table'}
           title="Hand Detail"
           /* Printed beside the game name, without a separate number frame. */
           pill={`#${hand.handNumber}`}

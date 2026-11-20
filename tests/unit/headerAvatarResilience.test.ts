@@ -52,6 +52,10 @@ vi.mock('@/lib/supabase', () => {
       if (table === 'profiles') return chain;
       return Object.assign(Promise.resolve({ count: 0, error: null }), chain);
     });
+    chain.or = vi.fn(() => {
+      if (table === 'profiles') return chain;
+      return Object.assign(Promise.resolve({ count: 0, error: null }), chain);
+    });
     chain.abortSignal = vi.fn(() => chain);
     chain.maybeSingle = vi.fn(() => Promise.resolve(supabaseMock.profileResult));
     void self;

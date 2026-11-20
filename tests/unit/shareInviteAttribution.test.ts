@@ -172,7 +172,7 @@ describe('the lobby button shares the sender’s own link', () => {
 
   it('the share text is signed with the alias', () => {
     expect(inviteShareText('KingFish', 'Club JAQK', 77777)).toBe(
-      'KingFish Invited You To Join Club JAQK On Smarter.Poker!\nClub ID: 77777'
+      'KingFish Invited You To Join Club JAQK On Smarter.Poker!'
     );
   });
 });
