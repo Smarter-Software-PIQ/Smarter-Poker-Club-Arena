@@ -80,7 +80,7 @@ describe('table chat has one stylesheet', () => {
           );
           continue;
         }
-        offenders.push(`${rel}: ${selector.replace(/\s+/g, ' ').slice(0, 120)}`);
+        offenders.push(`${rel}: ${selector.replace(/\s+/g, ' ')}`);
       }
     }
     expect(offenders, 'move these declarations into TableChat.css').toEqual([]);
