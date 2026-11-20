@@ -3483,6 +3483,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane PREFLOP-AUDIT (default OFF, PLO4/PLO5 cash tables only): omahaColdCallOutsideBigBlindIsMeasured
+  // (a final cold call of one open from a seat without a big blind posted becomes a fold for the hand classes measured
+  // to lose against folding); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_cold_call_outside_big_blind_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaColdCallOutsideBigBlindIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane PREFLOP-AUDIT (default OFF, PLO4/PLO5 cash only): omahaOpenNeedsMeasuredStrength (a final
+  // first-in raise from a seat that is not the button with a hand below the measured strength cut becomes a fold);
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_open_needs_measured_strength`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaOpenNeedsMeasuredStrength: true },
+    b: {},
+  })),
   // 2026-11-19 EMERG lanes FACING and V40CAP (default OFF, PLO4/PLO5 cash only): omahaFacingBetIsPricedByEquity (a
   // final fold facing a person's wager priced by calibrated equity) and omahaClassCapsRespectEquity (the V15 and V40
   // class caps never push equity below the measured equity); a switches each on, b is today's brain.

@@ -145,6 +145,8 @@ import {
   omahaBetReadOf,
   type OmahaBetRead,
 } from './HorseOmahaBetRead.js';
+import { omahaColdCallOutsideBigBlindRule } from './HorseOmahaColdCallMeasured.js';
+import { omahaOpenMeasuredRule } from './HorseOmahaOpenMeasured.js';
 import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
 import {
   omahaMathCoreExactLegalize,
@@ -3531,6 +3533,19 @@ export interface HorseDecideOpts {
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
    * untouched at any value. */
   omahaBandFallbackInBandUnit?: boolean;
+  /** EMERG lane PREFLOP-AUDIT 2026-11-20 (HorseOmahaColdCallMeasured.ts): PLO4/PLO5 cash tables (not
+   * Lightning), preflop, facing exactly one raise from a seat with less than a big blind in, a final
+   * call of a hand class whose measured call value is below zero by more than one standard error
+   * (9,236 recorded calls, 2026-10-15 to 2026-11-19: -2.17 +/- 0.40 bb a call against folding) becomes
+   * a fold. Aces, the two classes not measured negative, the big blind and every raise are untouched.
+   * Default OFF (read `=== true`). */
+  omahaColdCallOutsideBigBlindIsMeasured?: boolean;
+  /** EMERG lane PREFLOP-AUDIT 2026-11-20 (HorseOmahaOpenMeasured.ts): PLO4/PLO5 cash (tables and
+   * Lightning), preflop, three or more dealt in, nobody in the pot, the Horse not on the button: a
+   * final first-in raise with a hand below the strongest 20% of the two-card strength order (measured
+   * -2.24 +/- 0.72 bb an open against folding, n 2,968, 2026-10-15 to 2026-11-19) becomes a fold; aces
+   * and rundowns keep the open. Default OFF (read `=== true`). */
+  omahaOpenNeedsMeasuredStrength?: boolean;
   /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
    * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
    * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
@@ -16811,7 +16826,34 @@ export class HorseLogic {
         noteFire('omaha_facing_bet_equity_call');
         noteDecisionRuleReceipt('omaha_facing_bet_equity_call', ownersFinal, equityPriced);
       }
-      return { decision: equityPriced };
+      // EMERG lane PREFLOP-AUDIT 2026-11-20 (omahaColdCallOutsideBigBlindIsMeasured, default off):
+      // preflop only, so it never meets the postflop owners above. A final cold call of one raise
+      // from a seat without a big blind posted, with a hand class measured to lose against folding,
+      // becomes a fold (HorseOmahaColdCallMeasured.ts). It changes only a call.
+      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+        equityPriced,
+        player,
+        gs,
+        opts.omahaColdCallOutsideBigBlindIsMeasured === true
+      );
+      if (coldCallMeasured !== equityPriced && tele) {
+        noteFire('omaha_cold_call_measured_fold');
+        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', equityPriced, coldCallMeasured);
+      }
+      // EMERG lane PREFLOP-AUDIT 2026-11-20 (omahaOpenNeedsMeasuredStrength, default off): preflop
+      // only. A final first-in raise from a seat that is not the button, with a hand below the
+      // measured strength cut, becomes a fold (HorseOmahaOpenMeasured.ts). It changes only a raise.
+      const openMeasured = omahaOpenMeasuredRule(
+        coldCallMeasured,
+        player,
+        gs,
+        opts.omahaOpenNeedsMeasuredStrength === true
+      );
+      if (openMeasured !== coldCallMeasured && tele) {
+        noteFire('omaha_open_measured_fold');
+        noteDecisionRuleReceipt('omaha_open_measured_fold', coldCallMeasured, openMeasured);
+      }
+      return { decision: openMeasured };
     };
     decision = graph.run('wager_rules', decision, () => {
       const ruled = riverNoBlocker(wagerRulesNode());

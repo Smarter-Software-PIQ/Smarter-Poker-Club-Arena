@@ -1097,6 +1097,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaColdCallOutsideBigBlindIsMeasured',
+    "EMERG lane PREFLOP-AUDIT 2026-11-20 (owner 2026-11-19 7:38 PM Chicago: math first; 2026-11-20 12:01 AM: everything depends on the math and the conclusions it comes to). Default OFF (read === true). PLO4/PLO5 cash TABLES (not Lightning), high only, one board, no bomb pot, preflop: the Horse faces exactly one raise from a player who is not all in, has less than one big blind in (nothing or the small blind) and has not acted voluntarily, and the node's final answer is a call that leaves chips behind. Measured on every such call the Horses made in hands with a person, 2026-10-15 to 2026-11-19 (9,236 calls, all-in-adjusted result from the call on, a fold = 0): -2.17 +/- 0.40 bb a call against folding, in every strength decile, every position but the big blind, every stack band, against Horse and person openers, fit (to 11-14) -2.49 +/- 0.50 and held out (11-15 to 11-19) -1.57 +/- 0.66; the big blind's call (+0.59 +/- 0.48) and Lightning (-0.19 +/- 1.12 for folding) are not touched. With the option on the call becomes a fold for the hand classes whose measured call value is below zero by more than one standard error (kings, rundowns, double-suited, a lower pair, the rest); a pair of aces, queens or jacks with three broadway cards and three broadway cards keep the call; a raise is never touched. The exact rule graded fit +14,878 +/- 2,563 bb over 3,655 hands and held out +5,354 +/- 1,667 bb over 1,847 hands. Public information only (own cards, public actions, chips); the same against every opponent; PLO6, PLO8, hold'em, tournaments and Lightning byte-identical (HorseOmahaColdCallMeasured.law.test.ts). docs/horse-option-authority.d/omahaColdCallOutsideBigBlindIsMeasured.md.",
+    'V94'
+  ),
+  flag(
+    'omahaOpenNeedsMeasuredStrength',
+    "EMERG lane PREFLOP-AUDIT 2026-11-20 (owner 2026-11-19 7:38 PM Chicago: math first; 2026-11-20 12:01 AM: everything depends on the math and the conclusions it comes to). Default OFF (read === true). PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop, three or more dealt in: nobody has entered the pot, the Horse is not on the button, and the node's final answer is a raise (the first-in open). Measured on every first-in open the Horses made in hands with a person, 2026-10-15 to 2026-11-19 (10,017 opens, all-in-adjusted result from the open on, a fold = 0), by the hand's place in the two-card strength order (omahaMathCore preflopStrength, equity against one random holding): strongest 10% +2.60 +/- 1.04 bb an open, next 10% +0.61 +/- 0.89, below the strongest 20% from a seat that is not the button -2.24 +/- 0.72 (n 2,968; fit to 11-14 -2.18 +/- 0.90, held out 11-15 to 11-19 -2.38 +/- 1.17); on the button the same opens did not lose (+0.50 +/- 0.88), so the button is not touched. With the option on such an open becomes a fold; a pair of aces and the rundowns (four ranks inside a span of five, undervalued by equity against a random hand and not measured negative) keep the open. Public information only (own cards, public actions, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaOpenMeasured.law.test.ts). docs/horse-option-authority.d/omahaOpenNeedsMeasuredStrength.md.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5330,6 +5340,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_read_by_street_carried',
     'HorseLogic.decide (HorseOmahaReadByStreetRule, omahaReadIsByStreetAndTexture)',
     'a PLO4/PLO5 cash postflop decision with the per-street read on in which at least one live opponent carried a street record (the read the decision then used; counted once per decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_cold_call_measured_fold',
+    'HorseLogic wager_rules (omahaColdCallOutsideBigBlindRule, omahaColdCallOutsideBigBlindIsMeasured)',
+    'a PLO4/PLO5 cash table preflop decision whose final cold call of one raise, from a seat with less than a big blind in, became a fold because the measured value of that call for the hand class is below zero by more than one standard error (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_open_measured_fold',
+    'HorseLogic wager_rules (omahaOpenMeasuredRule, omahaOpenNeedsMeasuredStrength)',
+    'a PLO4/PLO5 cash preflop decision whose final first-in raise, from a seat that is not the button, became a fold because the hand is below the measured strength cut and is neither aces nor a rundown (counted once per changed decision)',
     'V94'
   ),
   receipt(
