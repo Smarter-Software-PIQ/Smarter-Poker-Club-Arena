@@ -29016,7 +29016,6 @@ export class HorseLogic {
     return ploRaiseTo(params.sizingMultiplier, potTo, fastRandom, floorTo);
   }
 
-  /** Build a raise decision to an absolute amount, clamped to legal bounds. */
   /**
    * holdemValueAndCallsArePriced (default off): the postflop decision decidePostflop returned, priced
    * heads-up against the bettor's line range (HorseHoldemValueAndCallsArePriced). Facing a wager the brain's
@@ -29263,6 +29262,7 @@ export class HorseLogic {
     }
   }
 
+  /** Build a raise decision to an absolute amount, clamped to legal bounds. */
   private static raiseTo(
     planHandKey: string | null,
     target: number,
