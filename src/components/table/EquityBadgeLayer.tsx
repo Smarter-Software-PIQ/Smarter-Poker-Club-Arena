@@ -45,6 +45,7 @@
  */
 
 import { formatAllInEquity } from '../../lib/allInEquityDisplay';
+import { gateEquityDisplay } from '../../lib/equityDisplayGate';
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
   placeEquityBadges,
@@ -88,10 +89,17 @@ function relativeBox(el: Element, origin: DOMRect, sx: number, sy: number): Box 
 }
 
 export function EquityBadgeLayer({
-  badges,
+  badges: offered,
+  boardCardCounts,
   remeasureKey = '',
 }: {
   badges: EquityBadge[];
+  /**
+   * Cards per board the equities were computed on. On the river only a split
+   * pot's shares are drawn, never 0% or 100% (Dan 2026-11-19; the rule is
+   * lib/equityDisplayGate.ts).
+   */
+  boardCardCounts: readonly number[];
   /**
    * Changes whenever a card comes onto (or leaves) the felt - the board
    * growing a street, a hand being tabled - so the badges are checked against
@@ -100,6 +108,7 @@ export function EquityBadgeLayer({
    */
   remeasureKey?: string;
 }) {
+  const badges = gateEquityDisplay(offered, boardCardCounts, (b) => b.equity);
   const layerRef = useRef<HTMLDivElement | null>(null);
   const [placements, setPlacements] = useState<Record<string, EquityBadgePlacement>>({});
   const [measureTick, setMeasureTick] = useState(0);

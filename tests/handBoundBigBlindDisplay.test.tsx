@@ -48,6 +48,8 @@ describe('missing hand denomination uses one explicit chip display', () => {
     expect(container.textContent).not.toMatch(/\d\s*BB/);
     expect(screen.getByLabelText('All In').textContent).toContain('4,800');
     fireEvent.click(screen.getByLabelText('All In'));
+    // Dan 2026-11-19: all-in is two actions - tap, then confirm.
+    fireEvent.click(screen.getByLabelText('Confirm All In'));
     expect(onAction).toHaveBeenCalledWith('allin', 4800);
     expect(preference).toBe(true);
   });
@@ -79,6 +81,8 @@ describe('legacy tournament stacks can switch to BB', () => {
     expect(container.querySelector('.pot-display__amount')?.textContent).toBe('2 BB');
     expect(screen.getByLabelText('All In').textContent).toContain('4 BB');
     fireEvent.click(screen.getByLabelText('All In'));
+    // Dan 2026-11-19: all-in is two actions - tap, then confirm.
+    fireEvent.click(screen.getByLabelText('Confirm All In'));
     expect(onAction).toHaveBeenCalledWith('allin', 4800);
     rerender(view(false));
     expect(container.querySelector('.pot-display__amount')?.textContent).toBe('2,400');
