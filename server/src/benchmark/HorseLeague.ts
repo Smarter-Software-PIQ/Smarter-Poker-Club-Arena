@@ -5022,6 +5022,33 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'that seats a person model with a measured turn-stab line.',
   },
   {
+    // AUDIT48-TURN lane 2026-11-19: the live Omaha set plus the turn-stab option and the Lightning opening in BOTH
+    // arms; the one-arm question is the Lightning-measured stab row.
+    name: 'plo5_omaha_turn_stab_lightning_row',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaTurnStabDefenceIsPriced: true,
+      omahaPricedInLightning: true,
+      omahaTurnStabLightningRow: true,
+    },
+    b: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaTurnStabDefenceIsPriced: true,
+      omahaPricedInLightning: true,
+    },
+    reason:
+      'No person and no Lightning domain in the league table. omahaTurnStabLightningRow is DEFAULT OFF ' +
+      '(HorseLogic.omahaFacingBetEvCount: opts.omahaTurnStabLightningRow === true, only with ' +
+      'omahaTurnStabDefenceIsPriced and omahaPricedInLightning on) and it changes one input in the Lightning pools ' +
+      "only: the non-value prior of a PERSON's first turn wager after a checked-through flop. Every league seat is a " +
+      'Horse and the league deals no Lightning, so the line never holds in either arm and the card would report ' +
+      '0.00 +/- 0.00. Measured 2026-11-19 by running this refused matchup through runMatchup: 0 of 300 pairs ' +
+      'diverged (run seed 20261119, status inert). It is measured where persons play Lightning: the replay of journaled production decisions ' +
+      '(docs/horse-option-authority.d/omahaTurnStabLightningRow.md, archive woowoo-48h-audit-01BNteGYgf/repairs/' +
+      'AUDIT48/TURN.md). What would change this: a league field that seats a person model in a Lightning domain.',
+  },
+  {
     // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the
     // Lightning-separate style read itself.
     name: 'nlh_style_lightning_separate',

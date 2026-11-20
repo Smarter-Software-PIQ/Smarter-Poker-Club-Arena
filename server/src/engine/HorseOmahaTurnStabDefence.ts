@@ -49,6 +49,27 @@ export const OMAHA_TURN_STAB_PERSON_BLUFF: readonly [number, number, number, num
     number,
   ];
 
+/**
+ * omahaTurnStabLightningRow (AUDIT48-TURN lane 2026-11-19; default OFF, read `=== true`, only with
+ * omahaTurnStabDefenceIsPriced and omahaPricedInLightning on). The same line measured in the Lightning pools alone,
+ * by the same method and data as the row above (every player's cards from the hand facts, no showdown selection,
+ * archive woowoo-48h-audit-01BNteGYgf/repairs/TURN-STAB ws-out, 2026-11-05 22:00Z to 2026-11-19 22:00Z, PLO4/PLO5):
+ *   Lightning: under 40 percent 0.539 +/- 0.209 (n 11) -> 0.536; 40 to 70: 0.800 +/- 0.162 (n 15) -> 0.740;
+ *              70 to 110: 0.566 +/- 0.114 (n 47) -> 0.532; over 110 has no stab: it reads the 70 to 110 row.
+ *   Table (same window, for comparison): 0.465 (n 8), 0.556 (n 21), 0.334 +/- 0.071 (n 69).
+ * Each Lightning row is shrunk with 8 pseudo-bets toward the pooled row above. The 48-hour audit (repairs/AUDIT48/
+ * TURN.md) measured the Horse's folds to this line in PLO5 Lightning at +0.25 pot (95% +0.07 to +0.44, n 77) of
+ * call value against the persons' real cards, and the pooled row flips 1 of 20 of them on replay: the Lightning
+ * pools carry more non-value stabs than the pooled row prices. Table play is untouched by this option.
+ */
+export const OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING: readonly [number, number, number, number] =
+  Object.freeze([0.536, 0.74, 0.532, 0.532]) as unknown as readonly [
+    number,
+    number,
+    number,
+    number,
+  ];
+
 const WAGERS = new Set(['bet', 'raise', 'all_in']);
 
 /**
@@ -90,9 +111,15 @@ export function omahaTurnStabSpot(
   spot: OmahaFacingBetEvSpot,
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  lightningOpen: boolean
+  lightningOpen: boolean,
+  lightningRow = false
 ): OmahaFacingBetEvSpot {
   if (!omahaTurnStabLine(spot, hero, gs, lightningOpen)) return spot;
-  const priorBluff = omahaPricedBySize(OMAHA_TURN_STAB_PERSON_BLUFF, spot.potFrac);
+  const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+  const table =
+    lightningRow && speed === 'lightning'
+      ? OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING
+      : OMAHA_TURN_STAB_PERSON_BLUFF;
+  const priorBluff = omahaPricedBySize(table, spot.potFrac);
   return Number.isFinite(priorBluff) ? { ...spot, priorBluff } : spot;
 }

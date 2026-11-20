@@ -404,6 +404,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnStabDefenceIsPriced: priced(
     "the non-value prior of a person's turn stab after a checked-through flop, measured for that line, inside the facing-bet EV (default OFF; an input, not a rule site)"
   ),
+  omahaTurnStabLightningRow: priced(
+    "the Lightning-measured non-value prior of a person's turn stab after a checked-through flop, inside the facing-bet EV, with omahaTurnStabDefenceIsPriced and omahaPricedInLightning on (default OFF; an input, not a rule site)"
+  ),
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
   ),

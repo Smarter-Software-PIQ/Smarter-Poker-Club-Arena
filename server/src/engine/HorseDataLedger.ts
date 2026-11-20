@@ -1115,6 +1115,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnStabLightningRow',
+    "AUDIT48-TURN lane 2026-11-19 (owner 2026-11-19 6:44 PM Chicago: audit every Horse decision against persons in the past 48 hours; owner 2026-11-17: no blanket rules, every decision by ranges, equity and EV): with omahaTurnStabDefenceIsPriced and omahaPricedInLightning on, in the Lightning pools only, the turn-stab line's non-value prior is read from the Lightning-measured row (HorseOmahaTurnStabDefence.OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING: 2026-11-05 22:00Z to 2026-11-19 22:00Z, every player's cards from the hand facts, the method of OMAHA_PRICED_MEASURED_BLUFF, shrunk with 8 pseudo-bets toward the pooled row: 0.536 / 0.740 / 0.532 / 0.532 by size row against the pooled 0.532 / 0.626 / 0.336 / 0.336). Table play, Horse or unknown bettors, raises, multiway pots, tournaments, PLO6 and the river are untouched. Default OFF (opt-in, read === true) until its declared evaluation passes; league card refused (the league seats no person and deals no Lightning)",
+    'V94'
+  ),
+  flag(
     'omahaTurnCallRealizationByRunout',
     "PLO Strategy lane 2026-11-17 (owner: Phase 2 PLO4/PLO5 texture-based equity realization; the size of the bet must not decide): inside omahaFacingBetEv only, PLO4/PLO5, one board, high only, a turn call with chips behind. The realization factor of the call is read from the exact per-river counts of the hand against the bettor's value region and his other holdings: the equity on rivers where the hand beats at least half of his value region is realized in full; on rivers where it beats under a fifth it is realized only at the share a non-value holding checks down (0.6 in position, 0.45 out), rising to full as his measured bluff share goes from 0.35 to 0.6 (HorseOmahaRunoutRealization.ts); only that check-down term rises with the bluff share, the factor as a whole is not monotone in it. It replaces the flat 0.85 / 0.92; the three reviewed hand-specific caps still apply after it. No term is the bet size. Constants stated, not measured. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_turn_call_realization_by_runout",
     'V94'
@@ -5448,6 +5453,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_turn_stab_defence_priced_seen',
     'HorseLogic.omahaFacingBetEvCount (HorseOmahaTurnStabDefence, omahaTurnStabDefenceIsPriced)',
     "the facing-bet EV priced a person's turn stab after a checked-through flop against that line's measured non-value share",
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_stab_lightning_row_seen',
+    'HorseLogic.omahaFacingBetEvCount (HorseOmahaTurnStabDefence, omahaTurnStabLightningRow)',
+    "the facing-bet EV priced a person's Lightning turn stab after a checked-through flop against the Lightning-measured non-value row",
     'V94'
   ),
   receipt(

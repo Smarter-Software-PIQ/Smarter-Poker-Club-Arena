@@ -3864,6 +3864,11 @@ export interface HorseDecideOpts {
    * read moves it through the facing-bet EV's own path. Lightning only with omahaPricedInLightning on. Off or
    * unset: byte-identical. Default OFF until its declared evaluation passes. */
   omahaTurnStabDefenceIsPriced?: boolean;
+  /** AUDIT48-TURN lane 2026-11-19: opt-in (`=== true`), only with omahaTurnStabDefenceIsPriced and
+   * omahaPricedInLightning on. In the Lightning pools the turn-stab line reads its Lightning-measured non-value row
+   * (HorseOmahaTurnStabDefence.OMAHA_TURN_STAB_PERSON_BLUFF_LIGHTNING) in place of the pooled row. Table play
+   * untouched. Off or unset: byte-identical. Default OFF until its declared evaluation passes. */
+  omahaTurnStabLightningRow?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -11406,6 +11411,7 @@ let omahaFacingBetEvCountMemo: {
   /** omahaTurnStabDefenceIsPriced, and whether the Lightning pools are open to it (omahaPricedInLightning). */
   turnStab: boolean;
   turnStabLightning: boolean;
+  turnStabLightningRow: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -11440,6 +11446,7 @@ function omahaFacingBetEvCount(
   const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
   const turnStab = opts.omahaTurnStabDefenceIsPriced === true;
   const turnStabLightning = turnStab && opts.omahaPricedInLightning === true;
+  const turnStabLightningRow = turnStabLightning && opts.omahaTurnStabLightningRow === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -11450,7 +11457,8 @@ function omahaFacingBetEvCount(
     memo.plo6RiverUnpaired === plo6RiverUnpaired &&
     memo.runoutRealization === runoutRealization &&
     memo.turnStab === turnStab &&
-    memo.turnStabLightning === turnStabLightning
+    memo.turnStabLightning === turnStabLightning &&
+    memo.turnStabLightningRow === turnStabLightningRow
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -11458,7 +11466,9 @@ function omahaFacingBetEvCount(
   // omahaTurnStabDefenceIsPriced (default off): a person's turn stab after a checked-through flop is priced
   // against that line's measured range (HorseOmahaTurnStabDefence); the same object outside the line.
   const spot =
-    baseSpot && turnStab ? omahaTurnStabSpot(baseSpot, player, gs, turnStabLightning) : baseSpot;
+    baseSpot && turnStab
+      ? omahaTurnStabSpot(baseSpot, player, gs, turnStabLightning, turnStabLightningRow)
+      : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     if (mind) {
@@ -11522,6 +11532,12 @@ function omahaFacingBetEvCount(
       noteFire('omaha_turn_stab_defence_priced_seen');
       if (verdictOf(baseSpot, read)?.call !== verdict.call)
         noteFire('omaha_turn_stab_defence_changed');
+      if (
+        turnStabLightningRow &&
+        (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed ===
+          'lightning'
+      )
+        noteFire('omaha_turn_stab_lightning_row_seen');
     }
     if (verdict) {
       answer = { spot, verdict };
@@ -11541,6 +11557,7 @@ function omahaFacingBetEvCount(
     runoutRealization,
     turnStab,
     turnStabLightning,
+    turnStabLightningRow,
     answer,
   };
   return answer;
