@@ -8,7 +8,9 @@ import {
   OPPONENT_WAGER_TILT_ENABLED,
   opponentFold,
   opponentPassiveMix,
+  opponentBetRate,
   opponentPreflop,
+  opponentResponse,
   opponentWagerMix,
   type OppActor,
 } from './OmahaMathCoreOpponent.js';
@@ -100,7 +102,9 @@ describe('OPPMODEL laws', () => {
     const id = heaviest('person', 'plo5|flop|vs_horse');
     expect(opponentFold(id, 'person', { ...SPOT, game: 'plo6' }, POP).p).toBe(POP.p);
     const pf = { fold: 0.3, call: 0.5, raise: 0.2, check: 0, n: 100, source: 'pop' };
-    expect(opponentPreflop(id, 'person', { game: 'plo6', position: 'BTN', level: 1 }, pf).fold).toBe(0.3);
+    expect(
+      opponentPreflop(id, 'person', { game: 'plo6', position: 'BTN', level: 1 }, pf).fold
+    ).toBe(0.3);
   });
   it('wager tilt is a failed candidate and stays OFF: population mix returned unchanged', () => {
     expect(OPPONENT_WAGER_TILT_ENABLED).toBe(false);
@@ -118,6 +122,24 @@ describe('OPPMODEL laws', () => {
       { fold: 0.3, call: 0.5, raise: 0.2, check: 0, n: 100, source: 'pop' }
     );
     expect(o.fold + o.call + o.raise + o.check).toBeCloseTo(1, 6);
+  });
+  it('bet rate and full response are probabilities from public counts', () => {
+    const id = heaviest('person', 'plo5|flop|vs_horse');
+    const br = opponentBetRate(id, 'person', { game: 'plo5', street: 'flop' }, null);
+    expect(br && br.p > 0 && br.p < 1).toBe(true);
+    expect(br!.source).toContain('public_actions');
+    const r = opponentResponse(id, 'person', SPOT, {
+      fold: 0.4,
+      call: 0.5,
+      raise: 0.1,
+      n: 100,
+      source: 'pop',
+    });
+    expect(r.fold + r.call + r.raise).toBeCloseTo(1, 6);
+    expect(r.fold).toBeCloseTo(
+      opponentFold(id, 'person', SPOT, { p: 0.4, n: 100, source: 'pop' }).p,
+      1
+    );
   });
   it('snapshot is bounded (loaded once, Map lookups only)', () => {
     expect(Object.keys(OPPONENT_MODEL_SNAPSHOT.opponents).length).toBeLessThan(5000);

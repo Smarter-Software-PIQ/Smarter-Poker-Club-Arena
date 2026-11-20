@@ -314,3 +314,97 @@ export function opponentPreflop(
     return pop;
   }
 }
+
+/**
+ * P(he wagers when checked to / no bet faced) on this street: his public bets on
+ * cbet/barrel/stab/probe/donk lines over (those bets + his checks), Beta-shrunk with
+ * the wager m to the population rate the caller passes (or the snapshot's population
+ * bet rate for his seat kind when `pop` is null). No line or size split in v1: the
+ * snapshot counts are per game|street.
+ */
+export function opponentBetRate(
+  user: string | null,
+  actor: OppActor,
+  spot: Pick<OppSpot, 'game' | 'street'>,
+  pop: OppFoldCell | null
+): OppFoldCell | null {
+  try {
+    const sp = OPPONENT_MODEL_SNAPSHOT.population.betRate[`${spot.game}|${spot.street}|${actor}`];
+    const base: OppFoldCell | null =
+      pop && finite(pop.p)
+        ? pop
+        : sp
+          ? {
+              p: sp.p,
+              n: sp.n,
+              source: `${OPPONENT_MODEL_VERSION} population.betRate ${spot.game}|${spot.street}|${actor}`,
+            }
+          : null;
+    if (!base) return pop;
+    const r = row(user, actor, spot.game);
+    const w = r?.wager[`${spot.game}|${spot.street}`];
+    if (!w)
+      return {
+        ...base,
+        source: `${base.source}; opponent ${OPPONENT_MODEL_VERSION}: population (no read)`,
+      };
+    const { m } = OPPONENT_MODEL_SNAPSHOT.params.wager;
+    const p = (w.bets + m * base.p) / (w.opps + m);
+    return {
+      p,
+      n: base.n,
+      source: `${base.source}; opponent ${OPPONENT_MODEL_VERSION} public_actions: bets=${w.bets} opps=${w.opps} m=${m}`,
+    };
+  } catch {
+    return pop;
+  }
+}
+
+/**
+ * His full response (fold / call / raise) facing a wager, same hierarchy as
+ * opponentFold, with the population response split passed in. The snapshot does not
+ * separate a bet from a raise being faced (cell key game|street|band|players|vs).
+ */
+export function opponentResponse(
+  user: string | null,
+  actor: OppActor,
+  spot: OppSpot,
+  pop: { fold: number; call: number; raise: number; n: number; source: string }
+): { fold: number; call: number; raise: number; n: number; source: string } {
+  try {
+    const r = row(user, actor, spot.game);
+    if (!r || !pop)
+      return (
+        pop && {
+          ...pop,
+          source: `${pop.source}; opponent ${OPPONENT_MODEL_VERSION}: population (no read)`,
+        }
+      );
+    const vs = `vs_${spot.vs ?? 'horse'}`;
+    const c = coarseFor(r.response, String(spot.game), (g) => `${g}|${spot.street}|${vs}`);
+    const cats = ['fold', 'call', 'raise'] as const;
+    const base = cats.map((k) => (finite(pop[k]) ? Math.max(0, pop[k]) : 0));
+    const sb = base.reduce((s, x) => s + x, 0);
+    if (!(sb > 0)) return pop;
+    let prior = base.map((x, i) => (x / sb) * (c && finite(c.lift[cats[i]]) ? c.lift[cats[i]] : 1));
+    const sp = prior.reduce((s, x) => s + x, 0);
+    prior = prior.map((x) => x / sp);
+    const cell =
+      r.response[`${spot.game}|${spot.street}|${vs}`]?.cells?.[
+        `${spot.game}|${spot.street}|${spot.band}|${spot.players}|${vs}`
+      ] ?? {};
+    const v = cats.map((k) => Number(cell[k] ?? 0));
+    const n = v.reduce((s, x) => s + x, 0);
+    const { m } = OPPONENT_MODEL_SNAPSHOT.params.response;
+    const post = v.map((x, i) => (x + m * prior[i]) / (n + m));
+    return {
+      fold: post[0],
+      call: post[1],
+      raise: post[2],
+      n: pop.n,
+      source: `${pop.source}; opponent ${OPPONENT_MODEL_VERSION} public_actions: lift ${c ? `${c.key} nEff=${c.nEff.toFixed(1)}` : 'none'}, cell nEff=${n.toFixed(1)}, m=${m}`,
+    };
+  } catch {
+    return pop;
+  }
+}
