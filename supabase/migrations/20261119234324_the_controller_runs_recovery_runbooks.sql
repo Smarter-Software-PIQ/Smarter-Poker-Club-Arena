@@ -361,6 +361,8 @@ DECLARE
   v_fn text;
   v_failed_at timestamptz;
   v_last_proof timestamptz;
+  v_last_md5 text;
+  v_md5 text;
   v_fix text;
   v_running boolean;
   v_local time := (p_now AT TIME ZONE 'America/Chicago')::time;
@@ -391,18 +393,26 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'nothing_to_do',
       'summary', format('%s already recorded a completed run after the failed run at %s; the watch clears the job by itself', v_fn, v_failed_at)) || v_base;
   END IF;
-  -- THE CAUSE HAS BEEN FIXED: a migration naming the function was installed
-  -- after the failure and after the last proof run that recorded nothing.
-  SELECT max(a.started_at) INTO v_last_proof FROM smarter_private.reliability_runbook_attempts a
-   WHERE a.incident_id = p_incident_id AND a.runbook_key = 'cron_proof_run' AND a.outcome = 'acted';
+  -- THE CAUSE HAS BEEN FIXED: a migration naming the function and authored
+  -- after the failure is installed, and the function's body is not the one a
+  -- previous proof run already ran without recording a completed run.
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public.' || v_fn || '()')));
+  SELECT a.started_at, a.detail->>'function_md5' INTO v_last_proof, v_last_md5
+    FROM smarter_private.reliability_runbook_attempts a
+   WHERE a.incident_id = p_incident_id AND a.runbook_key = 'cron_proof_run' AND a.outcome = 'acted'
+   ORDER BY a.started_at DESC LIMIT 1;
   SELECT max(m.version) INTO v_fix FROM supabase_migrations.schema_migrations m
-   WHERE m.version > to_char(greatest(v_failed_at, coalesce(v_last_proof, v_failed_at)) AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS')
+   WHERE m.version > to_char(v_failed_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS')
      AND strpos(array_to_string(m.statements, ' '), v_fn) > 0;
-  v_base := v_base || jsonb_build_object('failed_run_at', v_failed_at, 'fix_migration', v_fix, 'last_proof_at', v_last_proof);
+  v_base := v_base || jsonb_build_object('failed_run_at', v_failed_at, 'fix_migration', v_fix, 'last_proof_at', v_last_proof,
+                                         'function_md5', v_md5);
   IF v_fix IS NULL THEN
     RETURN jsonb_build_object('outcome', 'nothing_to_do',
-      'summary', format('no migration naming %s was installed after %s; the cause is not shown fixed, so no proof run', v_fn,
-                        greatest(v_failed_at, coalesce(v_last_proof, v_failed_at)))) || v_base;
+      'summary', format('no migration naming %s was installed after the failed run at %s; the cause is not shown fixed, so no proof run', v_fn, v_failed_at)) || v_base;
+  END IF;
+  IF v_last_md5 IS NOT DISTINCT FROM v_md5 AND v_last_proof IS NOT NULL THEN
+    RETURN jsonb_build_object('outcome', 'nothing_to_do',
+      'summary', format('%s is unchanged since the proof run at %s recorded nothing; the next proof waits for a new fix to its body', v_fn, v_last_proof)) || v_base;
   END IF;
   IF v_local < c_from OR v_local >= c_to THEN
     RETURN jsonb_build_object('outcome', 'nothing_to_do',

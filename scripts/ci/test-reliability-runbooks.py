@@ -343,11 +343,16 @@ def main():
         assert a[-1]['outcome'] == 'acted' and 'recorded no completed run' in a[-1]['summary'], a
         run('2026-11-20 11:20:00+00', incident=cron)
         a = attempts(cron)
-        assert a[-1]['outcome'] == 'nothing_to_do' and 'not shown fixed' in a[-1]['summary'], a
+        assert a[-1]['outcome'] == 'nothing_to_do' and 'is unchanged since the proof run' in a[-1]['summary'], a
         assert num('SELECT count(*) FROM public.stub_drill_effects') == 1
         ok('the cron proof run waits for fix evidence and the closed window, and a run that recorded nothing needs a newer fix')
 
-        sql("INSERT INTO supabase_migrations.schema_migrations VALUES ('20261121000000', ARRAY['... fn_ca_alarm_drill ...'], 'newer fix')")
+        # A fix to the drill's body (here: a new definition) makes the next proof run due.
+        sql("CREATE OR REPLACE FUNCTION public.fn_ca_alarm_drill() RETURNS jsonb LANGUAGE plpgsql AS $$ "
+            "DECLARE m text := (SELECT mode FROM public.stub_drill); BEGIN INSERT INTO public.stub_drill_effects DEFAULT VALUES; "
+            "IF m = 'raise' THEN RAISE EXCEPTION 'drill arm failed'; END IF; "
+            "IF m = 'record' THEN INSERT INTO public.ca_detector_runs (detector, detail) VALUES ('fn_ca_alarm_drill', '{}'); END IF; "
+            "RETURN jsonb_build_object('pass', true, 'fixed', true); END $$")
         sql("UPDATE public.stub_drill SET mode = 'raise'")
         run('2026-11-21 10:10:00+00', incident=cron)
         a = attempts(cron)

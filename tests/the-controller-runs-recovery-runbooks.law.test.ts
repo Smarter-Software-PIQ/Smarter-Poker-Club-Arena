@@ -73,6 +73,9 @@ describe('the controller runs recovery runbooks', () => {
     expect(sql).toContain('"allow_functions": ["fn_ca_alarm_drill"]');
     expect(sql).toContain('"window_from": "04:05", "window_to": "05:55"');
     expect(cron).toContain('supabase_migrations.schema_migrations');
+    expect(cron).toContain(
+      "v_md5 := md5(pg_get_functiondef(to_regprocedure('public.' || v_fn || '()')));"
+    );
     expect(cron).toContain("IF v_fn = 'fn_ca_alarm_drill' THEN");
     expect(cron).not.toMatch(/EXECUTE\s/);
   });
