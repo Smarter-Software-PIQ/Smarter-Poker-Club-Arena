@@ -120,7 +120,15 @@ describe('the candidate is read from itself', () => {
     expect(trials).toContain(
       "HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'"
     );
-    expect(trials).toContain('this\\.horseReservationBudget\\.atBudget()');
+    expect(trials).toContain("*'this.horseReservationBudget.atBudget()'*");
+    // Never a pipe into grep -q: under standby-engine.sh's pipefail an early
+    // match kills git show with SIGPIPE and reads as a missing fix (Backup
+    // 44680630430).
+    const picker = trials.slice(
+      trials.indexOf('regression_replay_picker() {'),
+      trials.indexOf('\n}\n', trials.indexOf('regression_replay_picker() {'))
+    );
+    expect(picker).not.toMatch(/\|\s*grep -q/);
   });
 });
 

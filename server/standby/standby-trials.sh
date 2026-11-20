@@ -536,11 +536,16 @@ PY_REPLAY_CLOCK
 }
 
 regression_replay_picker() { # sha: the candidate's free-horse picker excludes horses at the budget
-  local repo="${REPO_DIR:-/opt/club-arena}"
-  git -C "$repo" show "$1:server/src/services/horseReservationBudget.ts" 2>/dev/null \
-    | grep -q "HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'" || return 1
-  git -C "$repo" show "$1:server/src/services/TournamentRecurringService.ts" 2>/dev/null \
-    | grep -q 'this\.horseReservationBudget\.atBudget()' || return 1
+  # Read each file whole, then search it. standby-engine.sh runs under
+  # `set -Eeuo pipefail`: piping git show into grep -q let grep exit at the
+  # first match, git show died of SIGPIPE, and pipefail turned a found
+  # pattern into a failure (Backup 44680630430, 2026-11-20 05:27 UTC,
+  # picker_ignores_reservation_budget on a candidate that has the fix).
+  local repo="${REPO_DIR:-/opt/club-arena}" budget recurring
+  budget=$(git -C "$repo" show "$1:server/src/services/horseReservationBudget.ts" 2>/dev/null) || return 1
+  recurring=$(git -C "$repo" show "$1:server/src/services/TournamentRecurringService.ts" 2>/dev/null) || return 1
+  [[ "$budget" == *"HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'"* ]] || return 1
+  [[ "$recurring" == *'this.horseReservationBudget.atBudget()'* ]] || return 1
 }
 
 regression_replay_sql() { # freeze_offset settle -> one JSON array of check verdicts; never commits
