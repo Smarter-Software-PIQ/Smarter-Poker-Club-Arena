@@ -13,7 +13,10 @@ import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
-import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import {
+  horseDecisionReceiptRefusal,
+  horseDecisionReceiptRefusalForGates,
+} from './horseDecision/responseValidation.js';
 import {
   OMAHA_FACING_EQUITY_CALIBRATION,
   OMAHA_FACING_EQUITY_PROVENANCE,
@@ -104,6 +107,45 @@ describe('omahaFacingBetIsPricedByEquity: provenance', () => {
   });
 });
 
+describe('omahaFacingBetIsPricedByEquity: PLO6 is untouched (owner 2026-11-19 8:26 PM)', () => {
+  // Six-card hands on the recorded flops (the hero's own five plus one unseen card).
+  const sixOf = (r: RecordedFlopFacingBet): string | null => {
+    const used = new Set((r.hole + r.board).match(/../g));
+    for (const card of ['2c', '2d', '3c', '3d', '4c', '4d', '5c', '5d'])
+      if (!used.has(card)) return r.hole + card;
+    return null;
+  };
+  it('a PLO6 decision facing a person is byte-identical with the option on', () => {
+    let n = 0;
+    for (const r of RECORDED_FLOP_FACING_BETS) {
+      const hole = sixOf(r);
+      if (hole === null) continue;
+      for (const seed of [1, 2]) {
+        const play = (opts: HorseDecideOpts): string => {
+          enableBrainTelemetry();
+          HorseMind.reset();
+          drainFires();
+          seedFastRandom(seed);
+          const { fx, node } = expandFlop(r, { variant: 'plo6', hole });
+          const st = stateAt(fx, node);
+          for (const p of st.gs.players)
+            if (p.seat !== st.hero.seat) (p as { is_horse?: boolean }).is_horse = false;
+          expect(omahaFacingEquitySpot(st.hero, st.gs)).toBeNull();
+          const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+            telemetry: true,
+            observeMind: false,
+            ...opts,
+          } as never);
+          return JSON.stringify(withoutMeasurements(d));
+        };
+        expect(play(ON)).toBe(play({}));
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(0);
+  });
+});
+
 describe('omahaFacingBetIsPricedByEquity: the law on recorded spots', () => {
   const spots: Spot[] = [
     ...RECORDED_FLOP_FACING_BETS.map((flop) => ({ flop })),
@@ -140,6 +182,19 @@ describe('omahaFacingBetIsPricedByEquity: the law on recorded spots', () => {
             player: on.st.hero,
             gameState: on.st.gs,
           })
+        ).toBeNull();
+        // ... and through the gate loop the worker client runs before the
+        // decision reaches the table (client.ts), so it is never replaced by
+        // the liveness fallback (ServerTableEngineTurns.ts worker_fallback).
+        expect(
+          horseDecisionReceiptRefusalForGates(
+            structuredClone(on.d),
+            String(on.st.gs.gameVariant),
+            { player: on.st.hero, gameState: on.st.gs },
+            [false],
+            [false],
+            [false]
+          )
         ).toBeNull();
       }
     expect(flips).toBeGreaterThan(0);

@@ -2157,3 +2157,31 @@ describe('omahaPreflopJamFacingReraiseIsPriced: every changed decision passes th
     expect([...kinds].some((k) => k.endsWith('->all_in') || k.endsWith('->raise'))).toBe(true);
   });
 });
+
+// OWNER 2026-11-19 8:26 PM Chicago: the emergency batch is PLO4/PLO5 only; PLO6 is separate. The pack-depth options
+// (omahaPackEffectiveDepth, omahaPackClampDeepDepth) and the pre-flop jam pricing leave a PLO6 decision byte-identical,
+// at a normal depth and at a depth above the pack's deepest band (every stack x5).
+describe('PLO6 is untouched by the PLO4/PLO5 batch options (pre-flop, normal and very deep)', () => {
+  const OPTIONS: HorseDecideOpts[] = [
+    { omahaPackEffectiveDepth: true },
+    { omahaPackClampDeepDepth: true },
+    { omahaPackEffectiveDepth: true, omahaPackClampDeepDepth: true },
+    { omahaPreflopJamFacingReraiseIsPriced: true },
+  ];
+  const deep = (build: () => ReturnType<typeof stateAt>) => () => {
+    const st = build();
+    for (const p of st.gs.players ?? []) p.stack *= 5;
+    st.hero.stack *= 5;
+    return st;
+  };
+  it('each option on: every PLO6 decision and receipt is the one with it off', () => {
+    for (const hole of ['KsKhQs9h4d2c', 'AsAhKsQh7d3c', 'Ts9s8h7h6d5c']) {
+      const rec = { ...withHole(RECORDED.h59407629, hole), variant: 'plo6' };
+      for (const build of [() => stateAt(rec, 2), deep(() => stateAt(rec, 2))])
+        for (const o of OPTIONS)
+          expect(playMany(build, o).bytes, `${hole} ${Object.keys(o).join('+')}`).toEqual(
+            playMany(build, {}).bytes
+          );
+    }
+  });
+});

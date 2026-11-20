@@ -11,7 +11,8 @@ const ctx = (
   strength: number,
   effectiveStackBB: number,
   isOmaha: boolean,
-  deepDiscipline: boolean
+  deepDiscipline: boolean,
+  effectiveDepth = true
 ): never =>
   ({
     strength,
@@ -38,13 +39,14 @@ const ctx = (
     riskAdd: 0,
     mode: 'cash',
     deepDiscipline,
+    deepDisciplineEffectiveDepth: effectiveDepth,
     rand: () => 0.99,
   }) as never;
 
-const sweep = (eff: number, isOmaha: boolean, deep: boolean): string =>
+const sweep = (eff: number, isOmaha: boolean, deep: boolean, effectiveDepth = true): string =>
   Array.from(
     { length: 81 },
-    (_, i) => decidePreflopV7(ctx(0.6 + i * 0.005, eff, isOmaha, deep)).a
+    (_, i) => decidePreflopV7(ctx(0.6 + i * 0.005, eff, isOmaha, deep, effectiveDepth)).a
   ).join();
 
 describe('V21 deep discipline reads effective depth', () => {
@@ -54,6 +56,11 @@ describe('V21 deep discipline reads effective depth', () => {
       expect(sweep(100, isOmaha, true)).toBe(sweep(100, isOmaha, false));
     });
   }
+
+  it("without deepDisciplineEffectiveDepth (PLO6, hold'em, tournaments: HorseLogic sets it only in PLO4/PLO5 high cash) the own stack, as before", () => {
+    for (const isOmaha of [true, false])
+      expect(sweep(100, isOmaha, true, false)).not.toBe(sweep(100, isOmaha, false, false));
+  });
 
   it('a truly deep pot (effective 400bb) still carries the discipline', () => {
     expect(sweep(400, true, true)).not.toBe(sweep(400, true, false));

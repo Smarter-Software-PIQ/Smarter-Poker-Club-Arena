@@ -263,3 +263,35 @@ describe('omahaTurnStabDefenceIsPriced: every changed decision passes the worker
     expect(changed).toBeGreaterThan(0);
   });
 });
+
+// OWNER 2026-11-19 8:26 PM Chicago: the emergency batch is PLO4/PLO5 only; PLO6 is separate. Every facing-bet option of
+// the batch, switched on, leaves a PLO6 decision byte-identical (the same line, played with six cards).
+describe('PLO6 is untouched by the PLO4/PLO5 batch options (facing a turn stab)', () => {
+  const HANDS6 = ['9h8h7c6d5s2c', 'Kc8s7h3d2sQd', 'QhJhTd8c3s4h', 'As9c8d5h3hJc'];
+  const plo6 = (hole: string, bet: number): RecordedFacingBet =>
+    ({ ...stab(hole, { bet }), variant: 'plo6' }) as unknown as RecordedFacingBet;
+  const OPTIONS: HorseDecideOpts[] = [
+    { omahaTurnStabDefenceIsPriced: true },
+    {
+      omahaTurnStabDefenceIsPriced: true,
+      omahaPricedInLightning: true,
+      omahaTurnStabLightningRow: true,
+    },
+    { omahaFacingBetIsPricedByEquity: true },
+    { omahaEvFoldModel: true, omahaEvFoldModelHeadsUp: true },
+    { omahaPreflopJamFacingReraiseIsPriced: true },
+    { horseRiverNoBlockerBet: true },
+    { omahaPackEffectiveDepth: true, omahaPackClampDeepDepth: true },
+  ];
+  it('each option on: every PLO6 decision and receipt is the one with it off', () => {
+    for (const hole of HANDS6)
+      for (const bet of [6, 12])
+        for (const o of OPTIONS) {
+          const r = plo6(hole, bet);
+          expect(
+            play(r, { ...BASE, ...o }).bytes,
+            `${hole} ${bet} ${Object.keys(o).join('+')}`
+          ).toEqual(play(r, BASE).bytes);
+        }
+  });
+});

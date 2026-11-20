@@ -1,7 +1,7 @@
 /**
  * omahaFacingBetIsPricedByEquity (default OFF; EMERG lane FACING, 2026-11-19).
  *
- * PLO4/PLO5/PLO6 cash, high only, one board, postflop. The Horse faces a bet or a
+ * PLO4/PLO5 cash, high only, one board, postflop. The Horse faces a bet or a
  * raise whose last aggressor is a person, and the node's final answer is a
  * fold. The fold stands only when the call does not pay: the Horse's showdown
  * equity, recomputed here (exactly two hole cards and three board cards,
@@ -26,7 +26,7 @@ import { scoreOmahaHi } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 
-export const OMAHA_FACING_EQUITY_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
+export const OMAHA_FACING_EQUITY_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Runouts per verdict: SE <= 0.5 / sqrt(600) = 0.020 on the raw share. */
 export const OMAHA_FACING_EQUITY_SAMPLES = 600;
 /** More live opponents than this: no verdict (the fold stands). */
@@ -89,53 +89,6 @@ export const OMAHA_FACING_EQUITY_CALIBRATION: Readonly<
   },
 };
 /**
- * PLO6 (owner 2026-11-19 8:16 PM: same rules for all PLO games): its own
- * public-only fit, each knot shrunk to the PLO4/PLO5 knot at the same raw
- * share by n / (n + 20) revealed spots, realization by n / (n + 50) calls.
- * The PLO6 river had 6 revealed spots (fewer than 20): no verdict, the fold
- * stands (graded offline, the shrunk river verdict lost; CONSTANTS.md).
- */
-export const OMAHA_FACING_EQUITY_CALIBRATION_PLO6: typeof OMAHA_FACING_EQUITY_CALIBRATION = {
-  flop: {
-    hu: [
-      [0.3, 0.206],
-      [0.45, 0.362],
-      [0.6, 0.484],
-      [0.75, 0.608],
-      [0.9, 0.823],
-    ],
-    mw: [
-      [0.3, 0.206],
-      [0.45, 0.362],
-      [0.6, 0.484],
-      [0.75, 0.608],
-      [0.9, 0.823],
-    ],
-  },
-  turn: {
-    hu: [
-      [0.3, 0.216],
-      [0.45, 0.254],
-      [0.6, 0.362],
-      [0.75, 0.581],
-      [0.9, 0.764],
-    ],
-    mw: [
-      [0.3, 0.216],
-      [0.45, 0.254],
-      [0.6, 0.362],
-      [0.75, 0.581],
-      [0.9, 0.764],
-    ],
-  },
-  river: { hu: [], mw: [] },
-};
-export const OMAHA_FACING_EQUITY_REALIZATION_PLO6: Readonly<Record<Street, number>> = {
-  flop: 0.613,
-  turn: 0.752,
-  river: 1,
-};
-/**
  * Where every constant comes from (lead decision 2026-11-19: live inputs are
  * public information only). Hidden hole cards were used only to grade the
  * finished rule offline on the held-out day, never to fit a constant.
@@ -166,7 +119,6 @@ const SUITS: readonly string[] = ['clubs', 'diamonds', 'hearts', 'spades'];
 const key = (c: Card): string => `${c.rank}${c.suit}`;
 
 export interface OmahaFacingEquitySpot {
-  variant: string;
   street: Street;
   paid: number;
   price: number;
@@ -243,7 +195,6 @@ export function omahaFacingEquitySpot(
     if (opponents < 1 || opponents > OMAHA_FACING_EQUITY_FIELD_MAX) return null;
     const paid = Math.min(player.stack, toCall);
     return {
-      variant,
       street,
       paid,
       price: paid / (gs.pot + paid),
@@ -354,12 +305,9 @@ function interpolate(knots: readonly (readonly [number, number])[], x: number): 
 export function omahaFacingEquityCalibrated(
   street: Street,
   headsUp: boolean,
-  raw: number,
-  variant: string = 'plo5'
+  raw: number
 ): number | null {
-  const cell = (
-    variant === 'plo6' ? OMAHA_FACING_EQUITY_CALIBRATION_PLO6 : OMAHA_FACING_EQUITY_CALIBRATION
-  )[street];
+  const cell = OMAHA_FACING_EQUITY_CALIBRATION[street];
   const knots = headsUp ? cell.hu : cell.mw;
   if (knots.length < 3) return null;
   return Math.max(0, Math.min(1, interpolate(knots, raw)));
@@ -372,18 +320,9 @@ export function omahaFacingEquityVerdict(
 ): OmahaFacingEquityVerdict | null {
   const raw = omahaFacingRawEquity(hole, board, spot.opponents);
   if (raw === null) return null;
-  const calibrated = omahaFacingEquityCalibrated(
-    spot.street,
-    spot.opponents === 1,
-    raw,
-    spot.variant
-  );
+  const calibrated = omahaFacingEquityCalibrated(spot.street, spot.opponents === 1, raw);
   if (calibrated === null) return null;
-  const realization =
-    spot.variant === 'plo6'
-      ? OMAHA_FACING_EQUITY_REALIZATION_PLO6
-      : OMAHA_FACING_EQUITY_REALIZATION;
-  const realized = calibrated * realization[spot.street];
+  const realized = calibrated * OMAHA_FACING_EQUITY_REALIZATION[spot.street];
   const margin = OMAHA_FACING_EQUITY_MARGIN[spot.street];
   return {
     raw,

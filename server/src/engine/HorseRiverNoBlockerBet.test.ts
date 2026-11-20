@@ -348,3 +348,19 @@ describe('horseRiverNoBlockerBet: both of its changes pass the worker receipt va
     expect(kinds.get('bet->check') ?? 0).toBeGreaterThan(0);
   });
 });
+
+describe('horseRiverNoBlockerBet: PLO6 is out of scope (owner 2026-11-19 8:26 PM Chicago)', () => {
+  it('a PLO6 river first bet under 40% of the pot is not in scope; PLO5 and hold-em still are', () => {
+    const st = acesRiver();
+    const small = bet(Math.max(1, Math.floor(0.2 * st.gs.pot)));
+    expect(riverNoBlockerBetSpot(small, st.hero, st.gs)).not.toBeNull();
+    const six = acesRiver();
+    six.gs.gameVariant = 'plo6' as never;
+    six.hero.cards = [...(six.hero.cards ?? []), ...cards('2d')];
+    expect(riverNoBlockerBetSpot(small, six.hero, six.gs)).toBeNull();
+    const nlh = holdem(acesRiver, 'AsKd', 'Th9h4c2s3s');
+    expect(
+      riverNoBlockerBetSpot(bet(Math.max(1, Math.floor(0.1 * nlh.gs.pot))), nlh.hero, nlh.gs)
+    ).not.toBeNull();
+  });
+});

@@ -689,6 +689,7 @@ import {
   fastRandom,
   equitySampleSizeOfLastCall,
   variantInfo,
+  isPlo45High,
   type VariantInfo,
   simulateEquity,
   simulateCorrelatedMultiBoardEquity,
@@ -12581,6 +12582,15 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
     try {
       if (!omahaDecisionRaises(decision, player, scope)) return decision;
       if (omahaRaiseNeedsNutsKeeps(player, gs, scope) !== null) return decision;
+      // PLO6 (and any game outside PLO4/PLO5 high) keeps the priced fold of before (owner 2026-11-19 8:26 PM).
+      if (
+        !isPlo45High(variantInfo(String(gs.gameVariant ?? ''))) &&
+        omahaRaiseNeedsNutsPriceFolds(scope, gs)
+      ) {
+        const folded: HorseDecision = { ...decision, action: 'fold' };
+        delete folded.amount;
+        return folded;
+      }
       return omahaRaiseNeedsNutsCall(decision, scope);
     } catch {
       return decision;
@@ -13904,9 +13914,11 @@ function pairedBoardFoldOutsideGraph(
 export function omahaDominationPenaltyForCall(
   dominationPenalty: number,
   v15Share: number,
-  v15CapBound: boolean
+  v15CapBound: boolean,
+  /** PLO4/PLO5 high cash only (owner 2026-11-19 8:26 PM): elsewhere (PLO6 included) the full penalty, as before */
+  plo45Cash: boolean
 ): number {
-  if (!v15CapBound || !(v15Share > 0)) return dominationPenalty;
+  if (!plo45Cash || !v15CapBound || !(v15Share > 0)) return dominationPenalty;
   return Math.max(0, dominationPenalty - v15Share);
 }
 
@@ -15401,9 +15413,12 @@ export class HorseLogic {
     }
     // EMERG PACK 2026-11-19 (both default off, read === true): the depth the
     // PLO4 and PLO5/6/8 pack gates read (omaha/OmahaPackDepth.ts).
+    // PLO4/PLO5 high cash only (owner 2026-11-19 8:26 PM): PLO6 and PLO8 read the legacy depth whatever the switch.
+    const packDepthInScope =
+      isPlo45High(variantInfo(String(gs.gameVariant ?? ''))) && !isTournamentMode(gs);
     const omahaPackDepthOptions = {
-      effective: opts.omahaPackEffectiveDepth === true,
-      clamp: opts.omahaPackClampDeepDepth === true,
+      effective: packDepthInScope && opts.omahaPackEffectiveDepth === true,
+      clamp: packDepthInScope && opts.omahaPackClampDeepDepth === true,
     };
     const variants = graph.run('variant_policy', decision, () => {
       const phase10 =
@@ -19123,6 +19138,8 @@ export class HorseLogic {
       })(),
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
+      // EMERG AUDIT-05: its depth is the effective depth in PLO4/PLO5 high cash only (owner 2026-11-19 8:26 PM).
+      deepDisciplineEffectiveDepth: isPlo45High(vi) && !isTournamentMode(gs),
       // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
       // league pooled plo6_v24_price NEGATIVE (-2.34 +/- 1.12 bb/100 over the
       // 7 runs to 2026-10-30; -2.41 +/- 0.98 over the 9 runs since 2026-10-23)
@@ -25571,7 +25588,8 @@ export class HorseLogic {
     const dominationPenaltyCall = omahaDominationPenaltyForCall(
       dominationPenalty,
       dominationPenaltyV15,
-      eq15 < equity
+      eq15 < equity,
+      isPlo45High(vi) && !isTournamentMode(gs)
     );
 
     // ═══ V40 OMAHA PRESSURE CAP (Dan 2026-09-04) ═══

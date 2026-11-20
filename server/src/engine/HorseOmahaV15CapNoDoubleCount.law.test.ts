@@ -37,10 +37,14 @@ function seat(over: Partial<SeatPlayer> & { seat: number; user_id: string }): Se
 
 describe('omahaDominationPenaltyForCall', () => {
   it('drops only the V15 share, and only when the cap bound', () => {
-    expect(omahaDominationPenaltyForCall(0.14, 0.14, true)).toBe(0);
-    expect(omahaDominationPenaltyForCall(0.14, 0.14, false)).toBe(0.14);
-    expect(omahaDominationPenaltyForCall(0.2, 0, true)).toBe(0.2);
-    expect(omahaDominationPenaltyForCall(0.2, 0.05, true)).toBeCloseTo(0.15, 12);
+    expect(omahaDominationPenaltyForCall(0.14, 0.14, true, true)).toBe(0);
+    expect(omahaDominationPenaltyForCall(0.14, 0.14, false, true)).toBe(0.14);
+    expect(omahaDominationPenaltyForCall(0.2, 0, true, true)).toBe(0.2);
+    expect(omahaDominationPenaltyForCall(0.2, 0.05, true, true)).toBeCloseTo(0.15, 12);
+  });
+  it('outside PLO4/PLO5 high cash (PLO6, hi-lo, tournaments) the full penalty stands, as before', () => {
+    expect(omahaDominationPenaltyForCall(0.14, 0.14, true, false)).toBe(0.14);
+    expect(omahaDominationPenaltyForCall(0.2, 0.05, true, false)).toBe(0.2);
   });
 });
 

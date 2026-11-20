@@ -4,7 +4,7 @@
  * Owner order 2026-11-19 16:47 America/Chicago (verbatim): "REMOVE BLOCKER BETS ON THE RIVER FOR HORSES, THEY ARE ALMOST ALWAYS
  * WEAKNESS AND THEY ALMOST ALWAYS FOLD AFTER BLOCK BETTING TO A BIG RAISE".
  *
- * Scope: hold'em (NLH) and PLO4/PLO5/PLO6 cash, one board, high only, not fixed limit, not All-In-Or-Fold, not a bomb pot; the
+ * Scope: hold'em (NLH) and PLO4/PLO5 cash (PLO6 out: owner 2026-11-19 8:26 PM Chicago), one board, high only, not fixed limit, not All-In-Or-Fold, not a bomb pot; the
  * river; nothing to call; the Horse's final decision is a bet (the first bet of the street) smaller than the stated threshold share
  * of the pot (RIVER_NO_BLOCKER_BET_MIN_SHARE, measured 2026-11-19 on 7 days of production river first bets, see the authority file).
  * Tournaments are excluded by the caller (HorseLogic, isTournamentMode). The turn and every other street are never touched.
@@ -68,7 +68,7 @@ export function riverNoBlockerBetSpot(
     if (vi.isFixedLimit || gs.bettingStructure === 'fixed_limit' || vi.isShortDeck) return null;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
     const family: 'omaha' | 'holdem' | null = vi.isOmaha
-      ? [4, 5, 6].includes(vi.holeCount)
+      ? [4, 5].includes(vi.holeCount) // PLO6 is out (owner 2026-11-19 8:26 PM Chicago)
         ? 'omaha'
         : null
       : vi.holeCount === 2 || !fin(vi.holeCount)
