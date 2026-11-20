@@ -5,11 +5,13 @@
 -- SHOULD NOT PAUSE THE ACTION" (Dan, 2026-08-30); "i just don't want any
 -- 'un intended delays'" (Dan, 2026-11-18).
 --
--- WHAT LANE 3 (20261119175856) LEFT. Lane 3 moved hand commits and hand
--- retention to FOR KEY SHARE on public.tournaments and downgraded the 8 rebuy,
--- add-on, bounty-settle, money-core and launch-proof-parent writers to FOR NO
--- KEY UPDATE. Six remaining shared-lane paths still took FOR UPDATE (5) or
--- FOR SHARE (1) on public.tournaments:
+-- COORDINATION WITH 20261119181500 (#11437 / #11451, installed on production).
+-- Migration 20261119181500 already downgraded fn_sweep_pending_tournament_bounties
+-- (a0c5e323a496d8630894d1cb4866c76b) and fn_move_tournament_player
+-- (272f9aeeee9ba5a63069b54ff565f1ba) to FOR NO KEY UPDATE on public.tournaments.
+--
+-- Four remaining shared-lane paths still took FOR UPDATE (3) or FOR SHARE (1)
+-- on public.tournaments:
 --
 --   1. public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)
 --      locked public.tournaments FOR UPDATE during human late registration and
@@ -22,31 +24,24 @@
 --   3. public.trg_refuse_finalized_tournament_entry()
 --      BEFORE INSERT trigger on public.tournament_players locked
 --      public.tournaments FOR UPDATE (read-only check of prize_pool_finalized).
---   4. public.fn_sweep_pending_tournament_bounties(uuid,integer)
---      locked public.tournaments FOR UPDATE before settling each pending bounty
---      obligation (delegating to fn_collect_bounty, which updates only non-key
---      bounty_pool_paid).
---   5. public.fn_move_tournament_player(uuid,uuid,uuid,uuid,integer,uuid,text)
---      locked public.tournaments FOR UPDATE during a balancing move (read-only
---      on public.tournaments; writes only tournament_players, table_seats, and
---      tables.current_players).
---   6. public.fn_terminal_tournament_seat_is_immutable()
+--   4. public.fn_terminal_tournament_seat_is_immutable()
 --      BEFORE INSERT trigger on public.table_seats locked public.tournaments
 --      and public.tables FOR SHARE, which conflicts with FOR NO KEY UPDATE and
 --      non-key UPDATEs on tournaments (prize_pool/current_players) and tables.
 --
--- THE FIX (PostgreSQL native row-lock hierarchy, completing lane 3).
---   - Downgrade the 5 shared-lane FOR UPDATE locks on public.tournaments to
---     FOR NO KEY UPDATE. None of the 5 functions updates any primary or unique
---     key column on public.tournaments.
+-- THE FIX (PostgreSQL native row-lock hierarchy, completing lanes 3 & 20261119181500).
+--   - Require 20261119181500's post-images for fn_sweep_pending_tournament_bounties
+--     and fn_move_tournament_player without touching them.
+--   - Downgrade the 3 remaining shared-lane FOR UPDATE locks on public.tournaments
+--     to FOR NO KEY UPDATE. None updates any primary or unique key column on
+--     public.tournaments.
 --   - Downgrade the BEFORE INSERT branch of fn_terminal_tournament_seat_is_immutable
 --     from FOR SHARE to FOR KEY SHARE on public.tournaments and public.tables.
 --
 -- SAFETY & INVARIANTS.
 --   - FOR NO KEY UPDATE is 100% compatible with FOR KEY SHARE (hand commits,
---     hand retention, and terminal-seat INSERT guard), so late registration,
---     bounty sweeps and balancing moves never block unrelated tables' hand
---     commits on the tournament row.
+--     hand retention, and terminal-seat INSERT guard), so late registration
+--     never blocks unrelated tables' hand commits on the tournament row.
 --   - FOR NO KEY UPDATE still conflicts with FOR UPDATE, FOR NO KEY UPDATE,
 --     FOR SHARE and UPDATE, so concurrent registrations, pool/bounty writers,
 --     pool finalization (prize_pool_finalized) and every lifecycle/terminal
@@ -64,13 +59,22 @@
 -- LOCK FOOTPRINT. CREATE OR REPLACE FUNCTION only: no table or row lock, no
 -- install window, one bounded transaction.
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)'::regprocedure)) = '37900645f6ca68121485fac99da09c29' AND md5(pg_get_functiondef('public.fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid)'::regprocedure)) = '8c8c58ba94bb0badf32402390385fff2' AND md5(pg_get_functiondef('public.trg_refuse_finalized_tournament_entry()'::regprocedure)) = 'fb1b875a9ee6a36fb37b2ef26ec6e8b4' AND md5(pg_get_functiondef('public.fn_sweep_pending_tournament_bounties(uuid,integer)'::regprocedure)) = 'a0c5e323a496d8630894d1cb4866c76b' AND md5(pg_get_functiondef('public.fn_move_tournament_player(uuid,uuid,uuid,uuid,integer,uuid,text)'::regprocedure)) = '272f9aeeee9ba5a63069b54ff565f1ba' AND md5(pg_get_functiondef('public.fn_terminal_tournament_seat_is_immutable()'::regprocedure)) = 'e6ced6a8a4470861f551d3a0c699040c')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)'::regprocedure)) = '37900645f6ca68121485fac99da09c29' AND md5(pg_get_functiondef('public.fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid)'::regprocedure)) = '8c8c58ba94bb0badf32402390385fff2' AND md5(pg_get_functiondef('public.trg_refuse_finalized_tournament_entry()'::regprocedure)) = 'fb1b875a9ee6a36fb37b2ef26ec6e8b4' AND md5(pg_get_functiondef('public.fn_terminal_tournament_seat_is_immutable()'::regprocedure)) = 'e6ced6a8a4470861f551d3a0c699040c')
 
 BEGIN;
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '30s';
 
--- Exact anchored substitutions on all 6 pinned production pre-images.
+-- Require 20261119181500 (#11437) to be live (already converted sweep and move).
+DO $requires$
+BEGIN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_sweep_pending_tournament_bounties(uuid,integer)'))) IS DISTINCT FROM 'a0c5e323a496d8630894d1cb4866c76b'
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_move_tournament_player(uuid,uuid,uuid,uuid,integer,uuid,text)'))) IS DISTINCT FROM '272f9aeeee9ba5a63069b54ff565f1ba' THEN
+    RAISE EXCEPTION 'remaining-tournament-row-locks: 20261119181500 must be installed first';
+  END IF;
+END $requires$;
+
+-- Exact anchored substitutions on the remaining 4 pinned production pre-images.
 -- Preserves owner, ACL, SECURITY DEFINER and proconfig on every function.
 DO $subs$
 DECLARE
@@ -102,21 +106,9 @@ BEGIN
    WHERE t.id = NEW.tournament_id
    FOR NO KEY UPDATE;$n3$]),
 
-    ('public.fn_sweep_pending_tournament_bounties(uuid,integer)',
-     'c023c1ff8910890f17132fee6d373252', 'a0c5e323a496d8630894d1cb4866c76b',
-     ARRAY[$o4$      PERFORM 1 FROM public.tournaments t WHERE t.id=candidate.tournament_id FOR UPDATE;$o4$],
-     ARRAY[$n4$      PERFORM 1 FROM public.tournaments t WHERE t.id=candidate.tournament_id FOR NO KEY UPDATE;$n4$]),
-
-    ('public.fn_move_tournament_player(uuid,uuid,uuid,uuid,integer,uuid,text)',
-     '6feaec933d08af1aa821d17f3c5dc093', '272f9aeeee9ba5a63069b54ff565f1ba',
-     ARRAY[$o5$  SELECT * INTO v_t FROM public.tournaments t
-   WHERE t.id=p_tournament_id FOR UPDATE;$o5$],
-     ARRAY[$n5$  SELECT * INTO v_t FROM public.tournaments t
-   WHERE t.id=p_tournament_id FOR NO KEY UPDATE;$n5$]),
-
     ('public.fn_terminal_tournament_seat_is_immutable()',
      '10a5d9082f7770127359f9eca7068ed6', 'e6ced6a8a4470861f551d3a0c699040c',
-     ARRAY[$o6$    SELECT upper(COALESCE(t.status::text,'')) INTO v_status
+     ARRAY[$o4$    SELECT upper(COALESCE(t.status::text,'')) INTO v_status
       FROM public.tournaments t
      WHERE t.id = v_new_tournament_id
      FOR SHARE;
@@ -124,8 +116,8 @@ BEGIN
       FROM public.tables tb
      WHERE tb.id = NEW.table_id
        AND tb.tournament_id = v_new_tournament_id
-     FOR SHARE;$o6$],
-     ARRAY[$n6$    SELECT upper(COALESCE(t.status::text,'')) INTO v_status
+     FOR SHARE;$o4$],
+     ARRAY[$n4$    SELECT upper(COALESCE(t.status::text,'')) INTO v_status
       FROM public.tournaments t
      WHERE t.id = v_new_tournament_id
      FOR KEY SHARE;
@@ -133,7 +125,7 @@ BEGIN
       FROM public.tables tb
      WHERE tb.id = NEW.table_id
        AND tb.tournament_id = v_new_tournament_id
-     FOR KEY SHARE;$n6$])
+     FOR KEY SHARE;$n4$])
     ) AS t(sig, pre_md5, post_md5, olds, news)
   LOOP
     v_sig := r.sig::regprocedure;
@@ -171,7 +163,7 @@ BEGIN
   END LOOP;
 END $subs$;
 
--- Install-time probes (always rolled back via probe-unwind).
+-- Install-time probe (always rolled back via probe-unwind).
 
 -- @probe-for: public.fn_register_horse_for_tournament_before_maintenance_gate
 DO $probe$
@@ -186,21 +178,7 @@ EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe$;
 
--- @probe-for: public.fn_sweep_pending_tournament_bounties
-DO $probe$
-DECLARE v_r jsonb;
-BEGIN
-  v_r := public.fn_sweep_pending_tournament_bounties(gen_random_uuid(), 1);
-  IF v_r IS NULL THEN
-    RAISE EXCEPTION 'sweep_pending_tournament_bounties probe returned NULL';
-  END IF;
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
-
 -- @probe-exempt: public.fn_register_for_tournament_before_atomic_capacity_20260907 requires an authenticated caller (auth.uid()) and live MTT admission contract; executed natively by the PG proof harness
--- @probe-exempt: public.fn_move_tournament_player requires engine service authority and live tournament tables; executed natively by the PG proof harness
 -- @probe-exempt: public.trg_refuse_finalized_tournament_entry is a BEFORE INSERT trigger function on tournament_players; executed natively via INSERT in the PG proof harness
 -- @probe-exempt: public.fn_terminal_tournament_seat_is_immutable is a BEFORE INSERT/UPDATE/DELETE trigger function on table_seats; executed natively via INSERT in the PG proof harness
 

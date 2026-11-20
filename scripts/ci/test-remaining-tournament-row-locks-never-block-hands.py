@@ -356,13 +356,7 @@ def main():
         check(f'BEFORE: horse register FOR UPDATE blocks hand commit FOR KEY SHARE ({el:.3f}s >= {HOLD_SEC*0.6:.2f}s)',
               r.returncode == 0 and el >= HOLD_SEC * 0.6)
 
-        # 1e. Move player (raises after locking tournaments FOR UPDATE -> catch in subtx? Wait: exception releases subtx lock,
-        # so prove with successful lock-before-check by testing move with a matching tournament_players row or checking lock mode.
-        # Even better: call move in a tx that catches its own later error? No, subtx rollback releases locks.
-        # Instead, let's check move by running it up to the lock? No: if we give it a tournament_players row that is NOT playing,
-        # it raises an exception. Wait: if we want it to hold the lock without raising, we can test the exact lock mode via
-        # pg_locks inside a trigger or give it a valid path, OR test move's lock directly!)
-        # Actually, fn_sweep_pending_tournament_bounties catches errors in its loop and returns jsonb WITHOUT rolling back the outer tx lock!
+        # 1e. Already-converted 20261119181500 functions (sweep & move) do NOT block FOR KEY SHARE
         holder_sweep = f"""
         BEGIN;
         SELECT public.fn_sweep_pending_tournament_bounties('{TR}', 1);
@@ -370,8 +364,8 @@ def main():
         ROLLBACK;
         """
         el, r = race_holder_vs_runner(holder_sweep, hand_commit_key_share)
-        check(f'BEFORE: fn_sweep_pending_tournament_bounties FOR UPDATE blocks hand commit FOR KEY SHARE ({el:.3f}s >= {HOLD_SEC*0.6:.2f}s)',
-              r.returncode == 0 and el >= HOLD_SEC * 0.6)
+        check(f'PREREQ 20261119181500: fn_sweep_pending_tournament_bounties FOR NO KEY UPDATE does NOT block hand commit FOR KEY SHARE ({el:.3f}s < {HOLD_SEC*0.5:.2f}s)',
+              r.returncode == 0 and el < HOLD_SEC * 0.5)
 
         # ------------------------------------------------------------------
         # 2. INSTALL MIGRATION + VERIFY @live-proof + VERIFY REPLAY REFUSED
