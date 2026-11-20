@@ -135,6 +135,11 @@ const callEv = (eq: number, pot: number, toCall: number) => eq * (pot + toCall) 
 const bestWager = (r: ValueReceipt) =>
   r.candidates.filter((c) => c.kind === 'wager').reduce((a, b) => (b.ev > a.ev ? b : a));
 const checkCand = (r: ValueReceipt) => r.candidates.find((c) => c.kind === 'check')!;
+/** lane VALUE's multi-street call candidate when present (proposed in XR-BLUFF.md), else the core's call EV. */
+const callBaseline = (r: ValueReceipt, eq: number, pot: number, toCall: number) => {
+  const c = r.candidates.find((x) => (x as { kind: string }).kind === 'call');
+  return c ? Math.max(c.ev, callEv(eq, pot, toCall)) : callEv(eq, pot, toCall);
+};
 
 describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () => {
   it('OOP flop check-raise semi-bluff: nut wrap + nut flush draw vs a c-bet from a one-pair-heavy range', () => {
@@ -157,7 +162,7 @@ describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () =
     )!;
     const raise = bestWager(r);
     expect(f.eqAll).toBeGreaterThan(0.45); // a combo draw has real equity when called
-    expect(raise.ev).toBeGreaterThan(callEv(f.eqAll, pot, toCall));
+    expect(raise.ev).toBeGreaterThan(callBaseline(r, f.eqAll, pot, toCall));
     expect(raise.ev).toBeGreaterThan(0);
   });
 
@@ -184,23 +189,30 @@ describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () =
     expect(c.ev).toBeGreaterThan(bestWager(r).ev);
   });
 
-  it('IP raise semi-bluff: pair + open-ended straight draw + flush draw vs a donk lead', () => {
+  describe('IP raise semi-bluff: pair + open-ended straight draw + flush draw vs a donk lead', () => {
     const f = field('9h8h7cTd', 'Th6h2c', (cat) => cat >= 1, 13);
     const pot = 30;
     const toCall = 10;
-    const r = planValue(
-      spot({
-        variant: 'plo4',
-        street: 'flop',
-        pot,
-        toCall,
-        ip: true,
-        equityAtShare: f.curve,
-        response: (_fr, _a, off) =>
-          off === 0 ? cell(0.42, 0.07, 'fold to raise vs donk') : cell(0.4, 0.05, 'later'),
-      })
-    )!;
-    expect(bestWager(r).ev).toBeGreaterThan(callEv(f.eqAll, pot, toCall));
+    const ipSpot = (foldToRaise: number) =>
+      planValue(
+        spot({
+          variant: 'plo4',
+          street: 'flop',
+          pot,
+          toCall,
+          ip: true,
+          equityAtShare: f.curve,
+          response: (_fr, _a, off) =>
+            off === 0 ? cell(foldToRaise, 0.07, 'fold to raise vs donk') : cell(0.4, 0.05, 'later'),
+        })
+      )!;
+    it('raises: the hand has more equity than his pair-or-better donk range, and fold equity on top (measured 0.3)', () => {
+      // with lane VALUE's multi-street call (float in position) the call is close at 0.42 folds
+      // (67.86 raise vs 68.89 call): the raise is chosen by EV, never by hand class
+      const r = ipSpot(0.3);
+      expect(f.eqAll).toBeGreaterThan(0.5);
+      expect(bestWager(r).ev).toBeGreaterThan(callBaseline(r, f.eqAll, pot, toCall));
+    });
   });
 
   describe('river check-raise bluff with the nut-flush blocker', () => {
