@@ -108,7 +108,9 @@ describe('what it judges', () => {
     expect(body).toMatch(/WHEN jsonb_array_length\(v_unknowns\) > 0 THEN 'unknown'/);
     const page = body.indexOf("IF v_verdict = 'not_ready' THEN");
     expect(page).toBeGreaterThan(0);
-    expect(body.slice(page, page + 200)).not.toContain('unknown');
+    const end = body.indexOf("ELSIF v_verdict IN ('ready', 'not_owed') THEN", page);
+    expect(end).toBeGreaterThan(page);
+    expect(body.slice(page, end)).not.toContain("'unknown'");
   });
 });
 
