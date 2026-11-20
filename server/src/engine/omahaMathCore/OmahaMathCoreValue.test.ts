@@ -191,7 +191,7 @@ describe('omahaMathCore value: facing a wager (XR-BLUFF review)', () => {
 });
 
 describe('omahaMathCore value: raises without measured fold-to-raise (lead decision)', () => {
-  it('the river nuts raise for value with no fold credit when the fold-to-raise cell is thin', () => {
+  it('the river nuts raise for value priced at the worse of called-by-all and the thin cell fold rate (COREWIRE-2: an unmeasured response never inflates a value raise)', () => {
     const r = planValue(
       base({
         street: 'river',
@@ -202,7 +202,9 @@ describe('omahaMathCore value: raises without measured fold-to-raise (lead decis
       })
     )!;
     expect(r.choice.kind).toBe('wager');
-    for (const c of r.candidates.filter((x) => x.kind === 'wager')) expect(c.fold).toBe(0);
+    // for the nuts the folded hypothesis is the worse one: every raise is priced with the thin cell's 0.8 folds
+    for (const c of r.candidates.filter((x) => x.kind === 'wager'))
+      expect(c.fold).toBeCloseTo(0.8, 6);
   });
   it('a bluff raise gets no fold equity below n 30 (it folds or calls instead)', () => {
     const r = planValue(
@@ -440,5 +442,44 @@ describe('omahaMathCore value: range-level sizing (lead decision; owner 11-18: s
     );
     expect(c2[0](1 / 3)).toBeCloseTo(0, 9); // the strongest third is holding 3: the hero loses
     expect(c2[0](1)).toBeCloseTo((0 + 0.5 + 1) / 3, 9);
+  });
+});
+
+describe('omahaMathCore value: an unmeasured check-raise never outprices a measured value bet (COREWIRE-2, PROVE-2 c4)', () => {
+  // PROVE-2 c4 bet->check losers (hand ids only): river 60054627 s1, 60060101 s1, 60035127 s4; turn 60128359 s3.
+  // The trap check was priced as a check-raise called by the bettor's WHOLE wagering range (bluffs included)
+  // because the check-raise response had no n >= 30 cell. An unmeasured response now takes the worse hypothesis.
+  const spotOf = (street: 'turn' | 'river') =>
+    base({
+      street,
+      pot: 300,
+      heroStack: 800,
+      oppStack: 800,
+      ip: false,
+      checkCloses: false,
+      equityAtShare: () => 1,
+      response: (f, allIn, _off, line) =>
+        line === 'bet'
+          ? {
+              fold: Math.min(0.85, 0.43 + 0.3 * Math.min(1, f)),
+              raise: 0.05,
+              callers: 1,
+              n: 120,
+              source: 'measured bet',
+            }
+          : { fold: 0.6, raise: 0, callers: 1, n: 4, source: 'thin check-raise cell' },
+      wagerWhenChecked: () => ({ p: 0.33, frac: 0.6, valueShare: 0.5, source: 'measured stab' }),
+    });
+  it('the river nuts bet rather than trap-check under the core selection (EV minus its standard error)', () => {
+    const r = planValue(spotOf('river'))!;
+    console.log('LAWPROBE', JSON.stringify(r.candidates.map((c) => [c.kind, c.frac, c.ev, c.se])));
+    const top = [...r.candidates].sort((x, y) => y.ev - y.se - (x.ev - x.se))[0];
+    expect(top.kind).toBe('wager');
+  });
+  it('the check line prices its check-raise with the thin cell fold rate, not called by every bettor', () => {
+    const r = planValue(spotOf('river'))!;
+    const check = r.candidates.find((c) => c.kind === 'check')!;
+    // check = 0.33 x (best reply) + 0.67 x the pot; called-by-all would give the reply a full stack-off from bluffs too
+    expect(check.ev).toBeLessThan(0.33 * (300 + 180 + 2 * 620) + 0.67 * 300);
   });
 });

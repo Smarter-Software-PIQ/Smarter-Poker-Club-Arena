@@ -39,6 +39,7 @@ import {
   omahaMathCoreRule,
   type OmahaMathCoreDecisionReceipt,
 } from './OmahaMathCoreRule.js';
+import type { OmahaMathCoreStreetFlag } from './OmahaMathCoreRule.js';
 
 type Act = HorseDecision['action'];
 const EPS = 0.005;
@@ -259,6 +260,8 @@ export function omahaMathCoreRecover(input: {
   runCore: boolean;
   /** omahaMathCorePreflop: the core also owns preflop (off: a preflop core run is a shadow and the minimal computation decides) */
   preflopOwned?: boolean;
+  /** per-street admission flags (OmahaMathCoreRule OMAHA_MATH_CORE_STREET_FLAGS): off, a postflop core run is a shadow */
+  streetOpts?: Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
   budgetMs?: number;
   thinkTime?: number;
   now?: () => number;
@@ -279,7 +282,11 @@ export function omahaMathCoreRecover(input: {
         { action: incoming.action, thinkTime },
         player,
         gs,
-        { omahaMathCore: true, omahaMathCorePreflop: input.preflopOwned === true },
+        {
+          omahaMathCore: true,
+          omahaMathCorePreflop: input.preflopOwned === true,
+          ...(input.streetOpts ?? {}),
+        },
         (d) => omahaMathCoreExactLegalize(d, player, gs),
         input.now
       );

@@ -37,6 +37,7 @@ import {
   resetOmahaMathCoreSwitchStateForTests,
 } from './OmahaMathCoreSwitchState.js';
 import { omahaMathCoreRule } from './OmahaMathCoreRule.js';
+import { OMAHA_MATH_CORE_ALL_STREETS } from './OmahaMathCoreRule.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
 const SUIT: Record<string, Card['suit']> = {
@@ -319,7 +320,11 @@ describe('COREGUARD end to end: committed action == the core receipt', () => {
     const errors: string[] = [];
     for (const spec of SPECS) {
       const { st } = gen(spec);
-      const d = decide(st, { omahaMathCore: true, omahaMathCorePreflop: true });
+      const d = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
       const rec = d.omahaMathCore!;
       expect(rec, JSON.stringify(spec)).toBeDefined();
       if (rec.error !== null || rec.applied !== true) {
@@ -337,6 +342,7 @@ describe('COREGUARD end to end: committed action == the core receipt', () => {
         player: st.hero,
         gameState: st.gs,
         omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
       });
       if (refusal !== null) refusals++;
       // every wager the core priced is legal as-is on the engine's own validator
@@ -399,7 +405,11 @@ describe('COREGUARD B1: authority withdrawal records the verdict, never reverts 
     let found: { st: ReturnType<typeof stateAt>; d: HorseDecision } | null = null;
     for (const spec of SPECS.filter((s) => s.street !== 'preflop' && s.facing)) {
       const { st } = gen(spec);
-      const d = decide(st, { omahaMathCore: true, omahaMathCorePreflop: true });
+      const d = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
       if (d.action !== 'fold') {
         found = { st, d };
         break;
@@ -472,7 +482,11 @@ describe('COREGUARD B1: authority withdrawal records the verdict, never reverts 
 describe('COREGUARD B2: one decision', () => {
   it('a core decision never gets a second look and a deep answer never replaces it; other decisions as before', () => {
     const { st } = gen(SPECS.find((s) => s.street === 'turn' && s.facing)!);
-    const d = decide(st, { omahaMathCore: true, omahaMathCorePreflop: true });
+    const d = decide(st, {
+      omahaMathCore: true,
+      ...OMAHA_MATH_CORE_ALL_STREETS,
+      omahaMathCorePreflop: true,
+    });
     expect(ServerTableEngineTurns.secondLookPlan(d, 10, 100, 2, 3000, 10000)).toEqual({
       ok: false,
       reason: 'math_core_owned',
@@ -522,7 +536,7 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
         { action: 'fold', thinkTime: 0 },
         st.hero,
         st.gs,
-        { omahaMathCore: true, omahaMathCorePreflop: true },
+        { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS, omahaMathCorePreflop: true },
         (d) => omahaMathCoreExactLegalize(d, st.hero, st.gs)
       );
       vi.spyOn(
@@ -531,7 +545,11 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
       ).mockImplementation(() => {
         throw new Error('injected');
       });
-      const d = decide(st, { omahaMathCore: true, omahaMathCorePreflop: true });
+      const d = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
       vi.restoreAllMocks();
       const rec = d.omahaMathCore as OmahaMathCoreRecoveredReceipt;
       expect(d.policyFallback).toBeUndefined();
@@ -548,6 +566,7 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
           player: st.hero,
           gameState: st.gs,
           omahaMathCore: true,
+          ...OMAHA_MATH_CORE_ALL_STREETS,
         })
       ).toBeNull();
       n++;
@@ -618,9 +637,14 @@ describe('COREGUARD B5: the Lightning fold-through never re-asks a core fold', (
   it('with lightningEarlyFoldNeedsFoldThrough on, every core decision is identical to the option off', () => {
     for (const spec of SPECS.filter((s) => s.lightning && s.n >= 3).slice(0, 24)) {
       const { st } = gen(spec);
-      const a = decide(st, { omahaMathCore: true, omahaMathCorePreflop: true });
+      const a = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
       const b = decide(st, {
         omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
         omahaMathCorePreflop: true,
         lightningEarlyFoldNeedsFoldThrough: true,
       });
@@ -645,7 +669,11 @@ describe('COREGUARD PLO6 and switch OFF: byte-identical', () => {
     for (const spec of specs(['plo6'], 16)) {
       const { st } = gen(spec);
       const off = decide(st, {});
-      const on = decide(st, { omahaMathCore: true, omahaMathCorePreflop: true });
+      const on = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
       expect(on.omahaMathCore).toBeUndefined();
       expect(sameJson(on, off)).toBe('');
     }

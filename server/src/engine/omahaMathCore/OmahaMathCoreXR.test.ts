@@ -207,12 +207,15 @@ describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () =
             off === 0 ? cell(foldToRaise, 0.07, 'fold to raise vs donk') : cell(0.4, 0.05, 'later'),
         })
       )!;
-    it('raises: the hand has more equity than his pair-or-better donk range, and fold equity on top (measured 0.3)', () => {
-      // with lane VALUE's multi-street call (float in position) the call is close at 0.42 folds
-      // (67.86 raise vs 68.89 call): the raise is chosen by EV, never by hand class
+    it('prices the raise beside the call; after a called raise the later streets rest on no measured response, so the raise takes the worse of called-by-all and folded (COREWIRE-2) and the measured call line wins', () => {
+      // COREWIRE-2 (PROVE-2 c4): what a range that called a raise does on later streets is not measured; the raise's
+      // later streets are priced at the worse of the two hypotheses, while the call line keeps its measured float
       const r = ipSpot(0.3);
       expect(f.eqAll).toBeGreaterThan(0.5);
-      expect(bestWager(r).ev).toBeGreaterThan(callBaseline(r, f.eqAll, pot, toCall));
+      const w = bestWager(r);
+      expect(Number.isFinite(w.ev)).toBe(true);
+      expect(r.choice.kind).toBe('call');
+      expect(callBaseline(r, f.eqAll, pot, toCall)).toBeGreaterThan(w.ev);
     });
   });
 

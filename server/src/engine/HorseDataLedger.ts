@@ -1020,6 +1020,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PLO paired-board fold'
   ),
   flag(
+    'omahaMathCorePlo4Flop',
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash FLOP decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCorePlo4Turn',
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash TURN decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCorePlo4River',
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash RIVER decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCorePlo5Flop',
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash FLOP decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCorePlo5Turn',
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash TURN decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCorePlo5River',
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
     'omahaMathCorePreflop',
     "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core computes and receipts its preflop EV (omahaMathCore.shadow) and today's preflop action stands. Read === true; PLO6 never.",
     'V94'

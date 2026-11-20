@@ -29,6 +29,11 @@ import {
   OMAHA_MATH_CORE_TABLES,
 } from './OmahaMathCoreTables.js';
 import publicTables from './publicTables.v3.json' with { type: 'json' };
+import {
+  OMAHA_MATH_CORE_ALL_STREETS,
+  OMAHA_MATH_CORE_CHANGE_MARGIN_K,
+  omahaMathCoreStreetAdmitted,
+} from './OmahaMathCoreRule.js';
 
 const now = () => performance.now();
 const DECK: Card[] = Array.from({ length: 52 }, (_, i) => ({
@@ -298,7 +303,7 @@ describe('omahaMathCore self-play and split switch', () => {
       incoming,
       st.hero,
       gs as never,
-      { omahaMathCore: true },
+      { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
       (d) => d
     );
     expect(out.action).toBe('fold');
@@ -363,7 +368,10 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
   });
   it(`ON: on every recorded flop spot (hands ${recs.map((r) => r.n).join(', ')}) the final action is the core's choice and the validator admits it`, () => {
     for (const r of recs) {
-      const { d, st } = decide(r, { omahaMathCore: true } as HorseDecideOpts);
+      const { d, st } = decide(r, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+      } as HorseDecideOpts);
       const rec = d.omahaMathCore!;
       expect(rec).toBeDefined();
       expect(rec.error).toBeNull();
@@ -375,13 +383,17 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
         player: st.hero,
         gameState: st.gs,
         omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
       });
       expect(refusal).toBeNull();
     }
   });
   it('the admission needs the gate: a changed wager_rules action without it is not admitted by the core admission', () => {
     for (const r of recs) {
-      const { d, st } = decide(r, { omahaMathCore: true } as HorseDecideOpts);
+      const { d, st } = decide(r, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+      } as HorseDecideOpts);
       const after = { action: d.action, amount: d.amount ?? null };
       expect(
         omahaMathCoreAdmits(d as never, after as never, 'plo5', {
@@ -394,6 +406,7 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
           player: st.hero,
           gameState: st.gs,
           omahaMathCore: true,
+          ...OMAHA_MATH_CORE_ALL_STREETS,
         })
       ).toBe(true);
       // a receipt naming another action is never admitted
@@ -403,6 +416,7 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
           player: st.hero,
           gameState: st.gs,
           omahaMathCore: true,
+          ...OMAHA_MATH_CORE_ALL_STREETS,
         })
       ).toBe(false);
     }
@@ -417,9 +431,15 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
     const { fx, node } = expandFlop(r);
     const st = stateAt(fx, node);
     const incoming = { action: 'call' as const, amount: 10, thinkTime: 1 };
-    const out = omahaMathCoreRule(incoming, st.hero, st.gs, { omahaMathCore: true }, () => {
-      throw new Error('boom');
-    });
+    const out = omahaMathCoreRule(
+      incoming,
+      st.hero,
+      st.gs,
+      { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
+      () => {
+        throw new Error('boom');
+      }
+    );
     expect(out.action).toBe('call');
     expect(out.omahaMathCore?.applied).toBe(false);
     expect(out.omahaMathCore?.error).toContain('boom');
@@ -440,7 +460,7 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
         } as never);
       };
       const off = run({});
-      const on = run({ omahaMathCore: true } as HorseDecideOpts);
+      const on = run({ omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS } as HorseDecideOpts);
       expect(on.omahaMathCore).toBeUndefined();
       expect(on.action).toBe(off.action);
       expect(on.amount).toBe(off.amount);
@@ -455,9 +475,15 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
       const { fx, node } = expandFlop(r, edit);
       const st = stateAt(fx, node);
       const incoming = { action: 'fold' as const, thinkTime: 1 };
-      expect(omahaMathCoreRule(incoming, st.hero, st.gs, { omahaMathCore: true }, (d) => d)).toBe(
-        incoming
-      );
+      expect(
+        omahaMathCoreRule(
+          incoming,
+          st.hero,
+          st.gs,
+          { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
+          (d) => d
+        )
+      ).toBe(incoming);
     }
   });
   it('the state the core reads is built from the request only', () => {
@@ -498,5 +524,74 @@ describe('omahaMathCore equity terminates without the clock (frozen replay clock
       now: () => 0,
     });
     expect(Number.isFinite(s.equity)).toBe(true);
+  });
+});
+
+describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) and prove-it-to-change-it', () => {
+  const recs = RECORDED_FLOP_FACING_BETS.slice(0, 12);
+  it('admits a street only by its own game x street flag; default all OFF; PLO6 never', () => {
+    const none = { omahaMathCore: true };
+    for (const v of ['plo4', 'plo5'])
+      for (const s of ['flop', 'turn', 'river'])
+        expect(omahaMathCoreStreetAdmitted(v, s, none)).toBe(false);
+    const river5 = { omahaMathCore: true, omahaMathCorePlo5River: true };
+    expect(omahaMathCoreStreetAdmitted('plo5', 'river', river5)).toBe(true);
+    expect(omahaMathCoreStreetAdmitted('plo5', 'turn', river5)).toBe(false);
+    expect(omahaMathCoreStreetAdmitted('plo4', 'river', river5)).toBe(false);
+    expect(
+      omahaMathCoreStreetAdmitted('plo6', 'river', { ...river5, ...OMAHA_MATH_CORE_ALL_STREETS })
+    ).toBe(false);
+    expect(omahaMathCoreStreetAdmitted('plo5', 'preflop', OMAHA_MATH_CORE_ALL_STREETS)).toBe(false);
+  });
+  it('a street that is not admitted keeps today action exactly and still writes the core receipt (shadow)', () => {
+    for (const r of recs.slice(0, 6)) {
+      const { fx, node } = expandFlop(r);
+      const st = stateAt(fx, node);
+      const incoming = { action: 'fold' as const, thinkTime: 1 };
+      const out = omahaMathCoreRule(incoming, st.hero, st.gs, { omahaMathCore: true }, (d) => d);
+      expect(out.action).toBe('fold');
+      expect(out.amount).toBeUndefined();
+      expect(out.omahaMathCore?.applied).toBe(false);
+      expect(out.omahaMathCore?.shadow).toBe(true);
+      expect(out.omahaMathCore?.core?.evs.length).toBeGreaterThan(0);
+    }
+  });
+  it('the core changes today action only when its best beats it by more than k standard errors; else the receipt says kept and executes today action', () => {
+    expect(OMAHA_MATH_CORE_CHANGE_MARGIN_K).not.toBeNull();
+    let kept = 0;
+    let changed = 0;
+    for (const r of recs) {
+      const { fx, node } = expandFlop(r);
+      const st = stateAt(fx, node);
+      const incoming = { action: 'fold' as const, thinkTime: 1 };
+      const out = omahaMathCoreRule(
+        incoming,
+        st.hero,
+        st.gs,
+        { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
+        (d) => d
+      );
+      const rc = out.omahaMathCore!;
+      expect(rc.applied).toBe(true);
+      // the executed action is the receipt's, always
+      expect(out.action).toBe(rc.action);
+      const k = rc.core!.kept;
+      if (k) {
+        kept++;
+        expect(out.action).toBe('fold');
+        expect(k.gap).toBeLessThanOrEqual(
+          (OMAHA_MATH_CORE_CHANGE_MARGIN_K as number) * k.se + 0.01
+        );
+      } else if (out.action !== 'fold') {
+        changed++;
+        const best = rc.core!.evs.find((e) => e.action === out.action)!;
+        const fold = rc.core!.evs.find((e) => e.action === 'fold')!;
+        const se = Math.hypot(best.se ?? 0, fold.se ?? 0);
+        expect(best.ev - fold.ev).toBeGreaterThan(
+          (OMAHA_MATH_CORE_CHANGE_MARGIN_K as number) * se - 1e-9
+        );
+      }
+    }
+    expect(kept + changed).toBeGreaterThan(0);
   });
 });
