@@ -1,0 +1,48 @@
+# Manual-only live verifier for public.fn_ca_alarm_drill() and
+# public.fn_ca_cron_failure_watch() (2026-11-20, incident 316ed735).
+# No schedule trigger (CLAUDE.md 10.85): workflow_dispatch only.
+name: Verify Alarm Drill and Cron Watch
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_drill:
+        description: 'Run public.fn_ca_alarm_drill() live before running fn_ca_cron_failure_watch()'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-alarm-drill-and-cron-watch
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: ${{ !(github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]') }}
+    name: Verify live alarm drill and cron watch
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Use Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run alarm drill and cron watch verification
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_DRILL: ${{ inputs.run_drill }}
+        run: |
+          if [ "$RUN_DRILL" = "true" ]; then
+            node scripts/ci/verify-alarm-drill-and-cron-watch.mjs --run-drill
+          else
+            node scripts/ci/verify-alarm-drill-and-cron-watch.mjs
+          fi
