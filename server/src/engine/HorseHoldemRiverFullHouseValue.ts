@@ -61,3 +61,59 @@ export function holdemRiverLeadBoat(hole: readonly Card[], board: readonly Card[
 
 /** The share of qualifying river spots that lead; the rest keep the check (and its check-raise). */
 export const HOLDEM_RIVER_BOAT_LEAD_FREQUENCY = 0.7;
+
+/**
+ * holdemRiverFullHouseValueIsPriced (ROWFIX 2026-11-18, Horse Switch lane; default OFF, read === true,
+ * unevaluated). NLH-CASH improvement I1: the lead above is a fixed 70% on a hand-class gate, priced by
+ * nothing. With this option on (and holdemRiverFullHouseValue on) a qualifying boat leads exactly when the
+ * expected value of the lead beats the expected value of the check, heads-up, from the aggressor's measured
+ * rates; no random number is drawn. HorseLogic passes:
+ *
+ *   pot        the pot before the lead
+ *   lead       the lead the monster branch would size (the midpoint of its mixed size), capped by both stacks
+ *   equity     hero's equity against the aggressor's range (the engine's river figure, 0..1)
+ *   callShare  the aggressor's measured share of river bets he calls or raises (riverCall), posterior mean
+ *   betShare   the aggressor's measured share of spots checked to him that he bets (betCheckedTo), posterior
+ *
+ * Both rates are the exploit layer's Beta posteriors (HorseOpponentExploit.statRead) on his decayed counters,
+ * centred on the population cell of the table's variant and size (OPPONENT_EXPLOIT_ENVELOPE, MEASURED
+ * 2026-10-16 from production, version horse-population-2026-10-16: 1,186,859 hands, the pooled Horse rate per
+ * game and table size; nlh:short riverCall 0.4337, betCheckedTo 0.3115). That population is the Horses', not
+ * the people's: with no read on a person the prior is the Horse figure (stated in the authority file).
+ *
+ *   EV(lead)  = (1 - callShare) * pot + callShare * (equity * (pot + 2 * lead) - lead)
+ *   EV(check) = (1 - betShare) * equity * pot + betShare * (equity * (pot + 2 * lead) - lead)
+ *
+ * The check prices his bet at the lead's own size (an assumption, no measurement: the two lines are
+ * compared at one size) and hero calling it; a raise by either side is left out of both lines alike. With
+ * equity near one the comparison is callShare against betShare: lead into a player who calls more often than
+ * he bets when checked to, check to one who bets more often than he calls.
+ */
+export interface HoldemRiverBoatLeadPriceInput {
+  pot: number;
+  lead: number;
+  equity: number;
+  callShare: number;
+  betShare: number;
+}
+export interface HoldemRiverBoatLeadPrice {
+  evLead: number;
+  evCheck: number;
+  lead: boolean;
+}
+const clamp01 = (x: number): number => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
+/** The lead-or-check comparison above; null when an input is not a usable number. */
+export function holdemRiverBoatLeadPrice(
+  i: HoldemRiverBoatLeadPriceInput
+): HoldemRiverBoatLeadPrice | null {
+  if (!(Number.isFinite(i.pot) && i.pot > 0) || !(Number.isFinite(i.lead) && i.lead > 0))
+    return null;
+  if (![i.equity, i.callShare, i.betShare].every(Number.isFinite)) return null;
+  const eq = clamp01(i.equity);
+  const c = clamp01(i.callShare);
+  const b = clamp01(i.betShare);
+  const called = eq * (i.pot + 2 * i.lead) - i.lead;
+  const evLead = (1 - c) * i.pot + c * called;
+  const evCheck = (1 - b) * eq * i.pot + b * called;
+  return { evLead, evCheck, lead: evLead > evCheck };
+}

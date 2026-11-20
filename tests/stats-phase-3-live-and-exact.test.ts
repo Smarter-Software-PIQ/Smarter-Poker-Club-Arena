@@ -254,7 +254,7 @@ describe('phase 3 engine: EV coverage watched', () => {
     expect(MONITOR).toMatch(/export const STATS_EV_COVERAGE_MIN_RATIO = 0\.99;/);
     expect(MONITOR).toMatch(/export const STATS_EV_COVERAGE_MIN_SAMPLE = 50;/);
     expect(MONITOR).toMatch(
-      /allInShowdowns >= STATS_EV_COVERAGE_MIN_SAMPLE && ratio < STATS_EV_COVERAGE_MIN_RATIO/
+      /allInShowdowns >= STATS_EV_COVERAGE_MIN_SAMPLE &&\s+ratio < STATS_EV_COVERAGE_MIN_RATIO/
     );
   });
 
@@ -265,6 +265,18 @@ describe('phase 3 engine: EV coverage watched', () => {
     expect(rule).toMatch(/poker_stats_ev_coverage_7d < 0\.99/);
     expect(rule).toMatch(/and poker_stats_allin_showdowns_7d >= 50/);
     expect(rule).toMatch(/component: club-arena-stats/);
+  });
+
+  it('2026-11-19: stands down only on a last 24 hours back over the same bar and the same floor', () => {
+    const i = RULES.indexOf('- alert: StatsAllInEquityCoverageLow');
+    const rule = RULES.slice(i, RULES.indexOf('- alert: StatsHealthReadStale'));
+    expect(rule).toMatch(
+      /unless \(poker_stats_ev_coverage_24h >= 0\.99\s+and poker_stats_allin_showdowns_24h >= 50\)/
+    );
+    expect(MONITOR).toContain("'poker_stats_ev_coverage_24h'");
+    expect(MONITOR).toContain("'poker_stats_allin_showdowns_24h'");
+    expect(MONITOR).toMatch(/const ev24 = obj\(r\.evCoverage24h\);/);
+    expect(MONITOR).toMatch(/ratio < STATS_EV_COVERAGE_MIN_RATIO &&\s+!recovered/);
   });
 });
 

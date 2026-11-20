@@ -1,0 +1,3 @@
+# tests/a-newer-function-body-is-never-overwritten.law.test.ts
+
+A newer function body is never overwritten by an older migration version. Incident 316ed735, 2026-11-19: 20261119180800, lower-versioned than 20261119183127 but merged after it, redefined public.fn_ca_alarm_drill from an older body and production lost the drill's run record, so the cron watch kept re-raising a fixed failure. The law pins that scripts/ci/check-new-migration-version-collisions.mjs refuses a new migration that defines or rewrites (pg_get_functiondef anchored edit) a function a higher-versioned base migration already defines, that it would have refused 20261119180800, that it is wired to fail the gate, and that the newest migration touching the drill keeps its run record.

@@ -72,6 +72,29 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     );
   }
 
+  /**
+   * ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): what must be
+   * identical after this table moves to another engine instance. Read by the
+   * yielding instance at a parked hand boundary and by the adopting instance
+   * before it lets the table deal. A pure read: it changes nothing, and no
+   * existing path calls it, so with ENGINE_ROLLING_HANDOFF off it never runs.
+   */
+  public describeHandoffBoundary(): {
+    seats: Array<{ seat: number; userId: string; stack: number }>;
+    lightning: boolean;
+  } {
+    return {
+      seats: (this.seatedPlayers ?? [])
+        .map((p) => ({
+          seat: Number(p.seat_number),
+          userId: String(p.user_id),
+          stack: Number(p.stack),
+        }))
+        .sort((a, b) => a.seat - b.seat),
+      lightning: this.clusterLightningEnabled === true,
+    };
+  }
+
   /** `{ bounty }` from the ledger heads, or nothing when this seat has none. */
   protected seatBountyFields(userId: string): { bounty?: number } {
     const head = this.seatBounties?.get(userId);

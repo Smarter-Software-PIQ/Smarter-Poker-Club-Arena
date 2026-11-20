@@ -4726,6 +4726,7 @@
     "fn_lightning_reservation_end_marks_the_slot_idle",
     "fn_lightning_reservation_is_disciplined",
     "fn_lightning_rollout_readiness",
+    "fn_lightning_session_hands_page",
     "fn_lightning_session_stats",
     "fn_lightning_session_summary",
     "fn_lightning_settle_hand",

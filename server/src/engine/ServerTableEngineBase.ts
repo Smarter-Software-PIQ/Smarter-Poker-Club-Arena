@@ -2283,6 +2283,11 @@ export abstract class ServerTableEngineBase {
   // ended_at (was missing — every completed hand_history row had null
   // ended_at, breaking replay timestamps and audit reconciliation).
   protected currentHandStartedAt: number = 0;
+  // Incident 075013fd lane 3: actual between-hand pause times measured after the
+  // prior hand (hold, rest, cash-bust rebuy pause, RIT reveal) and stamped onto
+  // the NEXT hand's hand_history.cadence so cash_bust and rit hands are graded.
+  protected pendingPriorHandCadence: import('./handCadenceSpec.js').HandCadenceRecord | null = null;
+  protected currentHandCadence: import('./handCadenceSpec.js').HandCadenceRecord | null = null;
   // chip-std Lane F (2026-09-02): what every dealt player held when the cards
   // went out, keyed by user id. On a tournament table the settled stacks of
   // exactly these players must sum to exactly this - see

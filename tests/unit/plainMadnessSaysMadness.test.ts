@@ -86,9 +86,9 @@ describe('a plain Classic game is untouched', () => {
 
   it('only Classic is restyled; Lightning Games keep their own label and note', () => {
     expect(plainMadnessStyleOf(row({ cluster_template: 'madness' }))).toBeNull();
-    const e = cashEntry(row({ cluster_template: 'madness', maintain_percent_min: 40 }));
+    const e = cashEntry(row({ cluster_template: 'madness', maintain_percent_min: 25 }));
     expect(cashTitleLines(e).subtitle).toBe('Lightning Games');
-    expect(cashStyleNote(e)).toBe('Big Blind Ante, 40% Minimum VPIP');
+    expect(cashStyleNote(e)).toBe('Big Blind Ante, 25% Minimum VPIP');
   });
 });
 

@@ -357,6 +357,25 @@ export async function fetchLightningRecentHands(
   return parseLightningRecentHands(data);
 }
 
+/** Keyset page of older settled hands in one Lightning pool session (past the 50-hand recent cap). */
+export async function fetchLightningSessionHandsPage(opts: {
+  poolSessionId: string;
+  limit?: number;
+  beforeHandNumber: number;
+}): Promise<LightningRecentHand[]> {
+  const limit = Math.max(1, Math.min(LIGHTNING_RECENT_HANDS_LIMIT, opts.limit ?? 50));
+  const { data, error } = await supabase.rpc('fn_lightning_session_hands_page', {
+    p_pool_session_id: opts.poolSessionId,
+    p_limit: limit,
+    p_before_hand_number: Math.floor(opts.beforeHandNumber),
+  });
+  if (error) {
+    if (isLightningRpcMissing(error)) return [];
+    throw error;
+  }
+  return parseLightningRecentHands(data);
+}
+
 // ─── fn_lightning_stop_room_playing (LIGHTNING PHASE 10) ────────────────────────
 
 /**

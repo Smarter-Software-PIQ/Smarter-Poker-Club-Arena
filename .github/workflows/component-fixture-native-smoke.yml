@@ -107,9 +107,7 @@ jobs:
           done
           pkg-config --exists openssl 2>/dev/null || diagnostic_build_deps_missing=1
           if [[ "$diagnostic_build_deps_missing" == 1 ]]; then
-            sudo python3 scripts/ci/ubuntu-apt-mirror.py
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends build-essential bison flex pkg-config curl libssl-dev
+            bash scripts/ci/ubuntu-apt.sh install build-essential bison flex pkg-config curl libssl-dev
           fi
           python3 -B operations/release/fixture/native-dump-diagnostic.py --build . "$RUNNER_TEMP/isolated-schema-native"
       - name: Check financial route and fixture ownership boundaries

@@ -468,6 +468,26 @@ const openingBlindFixture =
 const qualificationProjections =
   /^scripts\/(?:ci\/qualification-input-projections\.py|qualification\/ci-(?:accounting|admission)-inputs\.json)$/;
 
+// THE NATIVE QUALIFICATION IMAGE PROVES ITSELF WHEN ITS INPUTS CHANGE
+// (2026-11-19). #11404 changed only
+// scripts/verification-harness/leaderboard-native-function-batch.Dockerfile,
+// and its CI never built the image: the Dockerfile is not a path the
+// accounting job names, so shard 4/7 (the only job that ran
+// leaderboard-native-function-batch-build.sh) was skipped and the fix merged
+// unproven. Every input of that image - the Dockerfile, the transformation and
+// its fixture test, the build script, and the one Ubuntu package entry point
+// and mirror list the image installs through - schedules the dedicated
+// native_qualification_image job in ci.yml, which runs exactly that build.
+// A separate output, not a classifier suite: the five suite keys are pinned by
+// the qualification admission projection.
+export const NATIVE_QUALIFICATION_IMAGE_INPUTS =
+  /^(?:scripts\/verification-harness\/leaderboard-native-function-batch(?:\.Dockerfile|\.mjs|\.test\.mjs|-build\.sh)|scripts\/ci\/ubuntu-apt(?:\.sh|-mirrors\.txt))$/;
+export function nativeQualificationImageChanged(paths) {
+  // Unknown evidence builds the image, like every other suite.
+  if (!Array.isArray(paths)) return true;
+  return paths.some((p) => NATIVE_QUALIFICATION_IMAGE_INPUTS.test(p));
+}
+
 export function classifyChangedPaths(paths) {
   if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string' || !p || p.includes('\0'))) {
     return all();
@@ -862,6 +882,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     Object.entries({
       ...result.flags,
       instructions_only: result.complete && instructionOnlyPaths(result.paths),
+      native_image: !result.complete || nativeQualificationImageChanged(result.paths),
       unit_shards: JSON.stringify(clientUnitShards(result)),
     })
       .map(([key, value]) => `${key}=${value}\n`)

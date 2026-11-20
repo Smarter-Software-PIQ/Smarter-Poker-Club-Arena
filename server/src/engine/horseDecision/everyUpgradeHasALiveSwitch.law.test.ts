@@ -77,6 +77,7 @@ import {
   OPTION_SWITCH_RELEASE_DEFAULT_CODE,
   OPTION_SWITCH_RELEASE_DEFAULT_OFF,
   OPTION_SWITCH_RELEASE_DEFAULT_ON,
+  OPTION_SWITCH_SHADOW_NAMES,
   OptionSwitchHolder,
   optionSwitchDecisionOpts,
   optionSwitchRefusal,
@@ -316,15 +317,21 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     ).toEqual(sorted(OPTION_SWITCH_NAMES));
   });
 
-  it('shadow and canary are accepted only for the seven style options, and on never for an off-only option', () => {
+  it('canary only for the seven style options, shadow for them and the shadow options, and on never for an off-only option', () => {
     const check = constraint('ca_horse_style_switch_state_fits_option');
     const parts =
-      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
+      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
         check
       );
     expect(parts, GENERATOR).not.toBeNull();
     expect(sorted(quoted(parts![1]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
-    expect(sorted(quoted(parts![2]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    expect(sorted(quoted(parts![2]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_SHADOW_NAMES));
+    expect(sorted(quoted(parts![3]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    // never for an off-only name, never for a style option (its shadow is its own arm)
+    for (const name of OPTION_SWITCH_SHADOW_NAMES) {
+      expect(OPTION_SWITCH_OFF_ONLY_NAMES, name).not.toContain(name);
+      expect(STYLE_SWITCH_OPTIONS as readonly string[], name).not.toContain(name);
+    }
   });
 
   it('fn_ca_horse_option_switch_states answers each registered option with its states and anything else with NULL', () => {
@@ -336,6 +343,7 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     expect(arms, GENERATOR).toEqual([
       { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
       { names: sorted(OPTION_SWITCH_OFF_ONLY_NAMES), states: ['off'] },
+      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on'] },
       { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
     ]);
     const answer = (name: string) => arms.find((a) => a.names.includes(name))?.states;
@@ -371,6 +379,15 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     expect(LIST_FUNCTIONS.map((f) => [f.name, f.replaced])).toEqual([
       ['fn_ca_horse_option_switch_states', true],
     ]);
+    // 2026-11-18: a follow-up naming shadow options refuses to install before the switch functions tell the style
+    // options by canary (*_the_horse_option_switch_tells_style_options_by_name.sql), before it changes anything
+    if (OPTION_SWITCH_SHADOW_NAMES.length > 0) {
+      const guard = LIST_SQL.indexOf(
+        'install *_the_horse_option_switch_tells_style_options_by_name.sql first'
+      );
+      expect(guard, GENERATOR).toBeGreaterThan(0);
+      expect(guard).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
+    }
     expect(LIST_SQL).not.toMatch(
       /CREATE\s+TABLE|ADD\s+COLUMN|CREATE\s+(UNIQUE\s+)?INDEX|CREATE\s+TRIGGER|INSERT\s+INTO|UPDATE\s+public|DELETE\s+FROM/i
     );
@@ -487,7 +504,11 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
   it('every registered option offers off, and on unless it is off-only, and its release default is on, off or code from the static lists', () => {
     for (const entry of OPTION_SWITCH_PLAIN_REGISTRY) {
       expect([...entry.states], entry.name).toEqual(
-        optionSwitchOffOnly(entry.name) ? ['off'] : ['off', 'on']
+        optionSwitchOffOnly(entry.name)
+          ? ['off']
+          : OPTION_SWITCH_SHADOW_NAMES.includes(entry.name)
+            ? ['off', 'shadow', 'on']
+            : ['off', 'on']
       );
       expect(entry.offOnly ?? null, entry.name).toEqual(optionSwitchOffOnly(entry.name));
       expect(entry.shadowArm, entry.name).toBe(false);
@@ -516,6 +537,54 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(() => assertOptionSwitchRegistry([{ ...first, name: 'decisionTimeMs' }])).toThrow(
       /a parameter, not an on\/off option/
     );
+  });
+
+  it('2026-11-18: an option the engine reads only `=== true` / `!== true` states release default off, read from the source', () => {
+    // swarm NLH-CASH IMPROVEMENTS I2: these reported 'code', so the switch audit bucketed styleTightMethodLine as on by
+    // default although it is off in source. v46ShortDeck joins them once the unset-under-V86 short-deck path is gone.
+    const offInSource = [
+      'v46ShortDeck',
+      'styleLongShownMemory',
+      'holdemProfileCompletenessCap',
+      'holdemPersonaReRaiseMix',
+      'holdemPersonaPostflop',
+      'holdemManiacSampleGate',
+      'holdemManiacShortHandedReach',
+      'holdemGearShiftReach',
+      'holdemCallDownExcludesCurrentHand',
+      'holdemCallDownNeedsStyleEvidence',
+      'holdemRiverFullHouseValue',
+      'styleTightPlayerExploit',
+      'styleTightMultiSignal',
+      'styleTightMethodLine',
+      'horseActionTimeIsPublicOnly',
+      'horsePlayStyles',
+    ];
+    const sources = [
+      'server/src/engine/HorseLogic.ts',
+      'server/src/engine/HorseMind.ts',
+      'server/src/engine/horseDecision/observerReads.ts',
+    ].map((path) =>
+      read(path)
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+        .join('\n')
+    );
+    for (const name of offInSource) {
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF, name).toContain(name);
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_ON, name).not.toContain(name);
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_CODE, name).not.toContain(name);
+      expect(OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)?.releaseDefault, name).toBe(
+        'off'
+      );
+      const reads = sources.flatMap((text) => [
+        ...text.matchAll(
+          new RegExp(`(?:opts|decisionReadOptions|carriedOpts)\\??\\.${name}\\b([^\\n]{0,12})`, 'g')
+        ),
+      ]);
+      expect(reads.length, `${name} is read`).toBeGreaterThan(0);
+      for (const m of reads) expect(m[1], `${name}${m[1]}`).toMatch(/^\s*[!=]==\s*true\b/);
+    }
   });
 
   it('owner 23:10: an option under an owner hold, measured harmful or superseded is OFF-ONLY, enforced at the registry, the parser and the decision options', () => {
@@ -562,6 +631,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       'omahaOnePairDiscipline',
       'omahaBeatenMadeHandDefense',
       'omahaBluffCatcherRaiseFold',
+      'omahaNutClassValueSize',
     ]) {
       expectStatus(
         name,
@@ -576,7 +646,6 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     for (const name of [
       'omahaReraisedPotStackOffFold',
       'omahaReraisedPotStackOffRealistic',
-      'omahaNutClassValueSize',
       'fixedLimitHiLoNutLowRiverBet',
       'fixedLimitRiverOneBetValueRaise',
       'fixedLimitCallIsNotACommitment',
@@ -781,8 +850,13 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       });
       expect(optionSwitchDecisionOpts({ [name]: 'on' }), name).toEqual({ [name]: true });
       expect(optionSwitchDecisionOpts({ [name]: 'off' }), name).toEqual({ [name]: false });
-      for (const state of ['shadow', 'canary', 'default', '', true, 1, null])
+      for (const state of ['canary', 'default', '', true, 1, null])
         expect(optionSwitchStatesFrom({ [name]: state }), name).toBeNull();
+      // shadow: accepted exactly for the shadow options, and it passes nothing to the decision (release default)
+      if (OPTION_SWITCH_SHADOW_NAMES.includes(name)) {
+        expect(optionSwitchStatesFrom({ [name]: 'shadow' }), name).toEqual({ [name]: 'shadow' });
+        expect(optionSwitchDecisionOpts({ [name]: 'shadow' }), name).toEqual({});
+      } else expect(optionSwitchStatesFrom({ [name]: 'shadow' }), name).toBeNull();
     }
     const notes: string[] = [];
     let raw: unknown = v2({ v16Hu: 'off' });

@@ -20,11 +20,11 @@ describe('an empty-event cancel takes the lane one at a time', () => {
     expect(lane).toContain('this.emptyEventCancelsInFlight.size > 0');
   });
 
-  it('treats only the lane try-lock refusals as busy, by SQLSTATE 55P03 and exact name', () => {
+  it('treats only the lane try-lock and lock-timeout refusals as busy, by SQLSTATE 55P03 and exact name', () => {
     expect(rule).toContain("if (code !== '55P03' || typeof message !== 'string') return false;");
-    expect(rule).toContain(
-      "const LANE_BUSY_REFUSALS = ['CANCELLATION_GLOBAL_LANE_BUSY', 'CANCELLATION_BARRIER_BUSY'];"
-    );
+    expect(rule).toContain("'CANCELLATION_GLOBAL_LANE_BUSY'");
+    expect(rule).toContain("'CANCELLATION_BARRIER_BUSY'");
+    expect(rule).toContain("'canceling statement due to lock timeout'");
   });
 
   it('asks a busy lane again after a minute without an error report', () => {

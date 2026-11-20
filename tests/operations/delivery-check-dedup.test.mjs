@@ -62,7 +62,11 @@ test('invalid cash qualification pins stop before expensive test execution', () 
 
 const serverGate = hook.slice(hook.indexOf('SERVER_VITEST='), hook.indexOf('\nif [ "$FAIL" -ne 0 ]; then'));
 for (const failure of [false, true]) {
-  test(`workflow edits execute server readers once and propagate failure=${failure}`, () => {
+  // Owner order 2026-11-19: this is the FULL local selection, kept for engine,
+  // database, dependency-manifest and unclassified pushes. Any other push
+  // leaves these readers to the required hosted checks
+  // (tests/unit/prePushRunsOnlyRelatedTests.test.ts).
+  test(`full local selection: workflow edits execute server readers once and propagate failure=${failure}`, () => {
     const dir = mkdtempSync(join(tmpdir(), 'server-workflow-reader-'));
     try {
       for (const [file, body] of Object.entries({
@@ -95,7 +99,7 @@ for (const failure of [false, true]) {
 }
 
 for (const failure of [false, true]) {
-  test(`workflow directory readers execute locally once; failure=${failure}`, () => {
+  test(`full local selection: workflow directory readers execute locally once; failure=${failure}`, () => {
     const dir = mkdtempSync(join(tmpdir(), 'client-workflow-reader-'));
     try {
       installInventory(dir);

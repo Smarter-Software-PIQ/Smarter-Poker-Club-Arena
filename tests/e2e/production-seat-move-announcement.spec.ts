@@ -6,6 +6,7 @@ import { openLobbyGameSection } from './support/lobbyGameSections';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
 import { formatPopupText } from '../../src/utils/popupStyle';
+import { isMainTable, SEAT_MOVE_DESTINATION_COLUMNS } from '../../src/utils/clusterTableRole';
 import {
   CASH_SPECTATOR_ACTION,
   CASH_TABLE_CARD_SELECTOR,
@@ -13,12 +14,23 @@ import {
   selectClassicCashCandidate,
 } from './support/cashTableCandidates';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
+import {
+  missingFixtureError,
+  proveClassicCashSourceAbsence,
+  proveSeatMoveDestinationAbsence,
+} from './support/productionFixture';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const ENGINE_HOST = 'engine.smarter.poker';
-const MAIN_NAME = /\bmain(?:\s*\d+)?\b/i;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-type CashTable = { id: string; name: string; cluster_id?: unknown; cluster?: unknown };
+type CashTable = {
+  id: string;
+  name: string;
+  cluster_id?: unknown;
+  cluster?: unknown;
+  role?: unknown;
+  main_index?: unknown;
+};
 type RefusedWrite = { transport: 'http' | 'websocket'; operation: string; path: string };
 
 /** Refuse participation before a request can reach a real seat or chip pool. */
@@ -112,7 +124,10 @@ test('the published table explains controlled seat moves without moving a player
       await route.abort('blockedbyclient');
       return;
     }
-    if (url.pathname.endsWith('/rest/v1/tables') && url.searchParams.get('select') === 'name') {
+    if (
+      url.pathname.endsWith('/rest/v1/tables') &&
+      url.searchParams.get('select') === SEAT_MOVE_DESTINATION_COLUMNS
+    ) {
       const id = url.searchParams.get('id') || '';
       nameReads.set(id, (nameReads.get(id) || 0) + 1);
     }
@@ -256,23 +271,33 @@ test('the published table explains controlled seat moves without moving a player
       .getByRole('button', { name: 'All', exact: true });
     await allStatuses.click();
     await expect(allStatuses).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator(CASH_TABLE_CARD_SELECTOR).first()).toBeVisible({ timeout: 30_000 });
-    const candidates = await page
+    // An empty lobby is not yet an absence: the catalogue below decides.
+    const cardsShown = await page
       .locator(CASH_TABLE_CARD_SELECTOR)
-      .evaluateAll(collectVisibleCashCandidates, CASH_SPECTATOR_ACTION.source);
-    expect(
-      candidates.length,
-      'the reserved club needs an occupied cash spectator subject'
-    ).toBeGreaterThan(0);
+      .first()
+      .waitFor({ state: 'visible', timeout: 30_000 })
+      .then(
+        () => true,
+        () => false
+      );
+    const candidates = cardsShown
+      ? await page
+          .locator(CASH_TABLE_CARD_SELECTOR)
+          .evaluateAll(collectVisibleCashCandidates, CASH_SPECTATOR_ACTION.source)
+      : [];
     const catalogueRead = await cashRead;
     if (catalogueRead.error || !catalogueRead.rows)
       throw new Error(`The cash catalogue was unreadable: ${catalogueRead.error}`);
     const catalogue = catalogueRead.rows;
     const source = selectClassicCashCandidate(candidates, catalogue);
+    // By kind: a must-move cluster table, running with 2+ seated. Only the
+    // catalogue's own count may call it absent; a miss stays red.
     if (!source)
-      throw new Error(
-        'The classic hero proof needs a visible occupied cash table with an exact must_move cluster catalogue row.'
-      );
+      throw missingFixtureError(proveClassicCashSourceAbsence(candidates, catalogue), {
+        selector:
+          'The classic hero proof needs a visible occupied cash table with an exact must_move cluster catalogue row.',
+        candidates,
+      });
     subjectTableId = source.id;
     evidence.subjectMode = {
       tableId: source.id,
@@ -281,22 +306,24 @@ test('the published table explains controlled seat moves without moving a player
       authority: 'existing tables catalogue cash_games foreign-key join',
     };
     expect(observedViewerId, 'the page must use its reserved fixture identity').toBe(fixtureUserId);
-    // A must-move always announces The Main Game, whatever the destination is
-    // named (cluster tables stopped carrying "Main" on 2026-11-19), so any
-    // other catalogue table can carry it; a "Main"-named one is preferred. The
-    // seat change needs a distinct table whose own name is announced.
-    const main =
-      catalogue.find((table) => table.id !== source.id && MAIN_NAME.test(table.name)) ??
-      catalogue.find((table) => table.id !== source.id && table.name.trim());
+    // THE ROLE, NEVER THE NAME (2026-11-19). The catalogue row carries
+    // tables.role; Main 1 wears the bare game name ("NLH 0.50/1 Classic") and
+    // generated names change, so the main destination is a table whose
+    // recorded role is 'main', and the seat change goes to one that is not a
+    // main, whose own name the announcement must then read out.
+    const main = catalogue.find((table) => table.id !== source.id && isMainTable(table));
     const other = catalogue.find(
       (table) =>
-        table.id !== source.id &&
-        table.id !== main?.id &&
-        !MAIN_NAME.test(table.name) &&
-        table.name.trim()
+        table.id !== source.id && table.id !== main?.id && !isMainTable(table) && table.name.trim()
     );
     if (!main || !other)
-      throw new Error('The readable catalogue needs distinct main and other-table destinations.');
+      throw missingFixtureError(
+        proveSeatMoveDestinationAbsence(catalogue, source.id, isMainTable),
+        {
+          selector:
+            'The readable catalogue needs a role=main destination and a distinct non-main destination.',
+        }
+      );
 
     const row = page.locator(`[data-testid="lobby-game-row"][data-id="${source.id}"]`);
     if (await row.isVisible()) {
@@ -404,7 +431,10 @@ test('the published table explains controlled seat moves without moving a player
       sourceTableId: source.id,
       actorId,
       alias,
-      destinations: { main, other },
+      destinations: {
+        main: { id: main.id, name: main.name, role: main.role, main_index: main.main_index },
+        other: { id: other.id, name: other.name, role: other.role ?? null },
+      },
       rendered: {
         main: await systemMessage(mainText).innerText(),
         other: await systemMessage(otherText).innerText(),

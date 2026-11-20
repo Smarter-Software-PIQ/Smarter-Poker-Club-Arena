@@ -3,16 +3,19 @@ description: >-
   The one copy of the PostgreSQL install every workflow uses: signed Ubuntu and
   PGDG sources only, the byte-pinned PGDG key from the checkout, no default
   cluster, and bounded retries around every apt call. Requires a checkout of
-  this repository (with .github/pgdg and .github/actions) first.
+  this repository (with .github/pgdg, .github/actions and scripts/ci/ubuntu-apt*)
+  first.
 inputs:
   packages:
     description: Space-separated packages to install from PGDG.
     required: false
     default: postgresql-17
   ubuntu-mirror:
-    description: "'true' pins the Ubuntu mirror first (scripts/ci/ubuntu-apt-mirror.py)."
+    description: >-
+      Accepted for older callers and ignored: every install selects the shared
+      Ubuntu mirror list through scripts/ci/ubuntu-apt.sh.
     required: false
-    default: 'false'
+    default: 'true'
 runs:
   using: composite
   steps:

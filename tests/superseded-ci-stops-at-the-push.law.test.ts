@@ -64,12 +64,22 @@ const CI_GROUP =
 const HELPER_GROUP =
   "ci-${{ github.event.pull_request.number }}-${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.head.sha }}";
 
-// The ruleset's own list, read from where it is applied.
+// The ruleset's own ci.yml checks, read from where it is applied (required checks
+// produced by separate workflows — money-trigger-recovery.yml, weekly-refusal-cover.yml,
+// window-migrations-install-before-merge.yml — live outside ci.yml).
+const ciJobNames = new Set(
+  Object.values(ci.jobs)
+    .map((job) => job.name)
+    .filter((n): n is string => typeof n === 'string')
+);
 const REQUIRED = [
   ...readFileSync(resolve(root, 'scripts/ci/apply-main-ruleset.mjs'), 'utf8')
     .match(/const REQUIRED_CHECKS = \[([\s\S]*?)\];/)![1]
-    .matchAll(/'([^']+)'/g),
-].map((m) => m[1]);
+    .replace(/\/\/[^\n]*/g, '')
+    .matchAll(/'([^']+)'|"([^"]+)"/g),
+]
+  .map((m) => m[1] ?? m[2])
+  .filter((name) => ciJobNames.has(name));
 
 describe('a replaced pull request head is cancelled when the event arrives', () => {
   it('runs only on the two events that replace or retire a head', () => {
@@ -149,6 +159,7 @@ describe('a cancelled CI run stops its heavy work and still reports red', () => 
   });
 
   it('keeps every required aggregate on always(), so a cancelled run is red, not skipped', () => {
+    expect(REQUIRED.length).toBeGreaterThanOrEqual(5);
     for (const name of REQUIRED) {
       const carriers = Object.values(ci.jobs).filter((job) => job.name === name);
       expect(carriers.length, name).toBe(1);

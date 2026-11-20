@@ -1,3 +1,5 @@
+**2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-2030z.** Window 1510z was consumed at 17:33 UTC: receiver run 44577448928 sealed dfaa9717f826 and every table resumed. On the owner's 11:50 Chicago order to cut over again as soon as possible so that everything merged after that seal is activated and tested, this books one more no-notice activation of protected main dee22dec9ecd: admission 20:30 UTC November 19 through fixed 02:00 UTC November 20, serving dfaa9717f826. No player notice; the engine finishes and settles every hand before freezing.
+
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-1510z.** Window 1030z was consumed at 14:11 UTC: certified 7add8b42c83b swapped in but the long drain had used the proof and rollback reserve, so sealed f3e99378ccbb was restored. Per the owner's emergency order this books one more no-notice activation of protected main 7add8b42c83b: admission 15:10 UTC through fixed 21:00 UTC November 19, serving f3e99378ccbb. No player notice; the engine finishes and settles every hand before freezing.
 
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-1030z.** The November 19 04:00 Chicago daily preparation kept serving f3e99378ccbb (no candidate's Backup copy matched production, and later candidates carried migrations held by the nightly schema freeze). Per the owner's standing orders this books one no-notice off-cycle activation of everything on protected main up to 5552ddaa3c13: admission 10:30 UTC through fixed 16:20 UTC November 19, serving f3e99378ccbb. No player notice; the engine finishes and settles every hand before freezing.
@@ -161,11 +163,13 @@ Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-
 
 ### 1.4 Freezing main for an owner window says when it ends
 
-A freeze of `refs/heads/main` (the `RELEASE FREEZE` repository ruleset, id 27627940) is applied and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
+**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live, as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
+
+No tool applies a freeze of `refs/heads/main` any more (the hand-made `RELEASE FREEZE` repository ruleset, id 27627940, stays disabled). The engine window is published and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
 
 ```bash
-node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the name and variable it will write
-node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Administration: write and Variables: write
+node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the variable it will write
+node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Variables: write; main stays open
 node scripts/ci/main-freeze.mjs thaw --apply                         # enforcement=disabled, same ruleset id
 ```
 

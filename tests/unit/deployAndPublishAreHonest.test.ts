@@ -48,7 +48,9 @@ describe('the required server check joins independent accounting and engine work
   const aggregate = uncommented(job(ci, 'server'));
   it('starts independent jobs together and retains both complete prerequisites', () => {
     expect(aggregate).toMatch(/^ {4}name: Server Engine \(typecheck \+ tests\)$/m);
-    expect(aggregate).toMatch(/^ {4}needs: \[changes, server_shards, accounting_postgres\]$/m);
+    expect(aggregate).toMatch(
+      /^ {4}needs: \[changes, server_shards, accounting_postgres, native_qualification_image\]$/m
+    );
     expect(aggregate).toMatch(/^ {4}if: always\(\)$/m);
     expect(shards).toMatch(/^ {4}needs: changes$/m);
     expect(shards).not.toContain('needs.accounting_postgres');

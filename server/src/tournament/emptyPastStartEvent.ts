@@ -42,12 +42,14 @@ export const EMPTY_PAST_START_CANCEL_RETRY_MS = 30 * 60 * 1000;
 /**
  * ONE EMPTY-EVENT CANCEL AT A TIME, AND A BUSY LANE IS "NOT NOW" (2026-11-07).
  *
- * atomic_cancel_tournament admits a cancellation through the platform's one
- * exclusive terminal-settlement lane (smarter_private.cancellation_lane): a
+ * atomic_cancel_tournament admits a cancellation through
+ * smarter_private.cancellation_lane: for a satellite or multi-event cancel, a
  * try-lock that refuses with SQLSTATE 55P03 CANCELLATION_GLOBAL_LANE_BUSY or
- * CANCELLATION_BARRIER_BUSY rather than queue ahead of hand settlement. The
- * discovery pass used to launch every eligible empty event at once, so all but
- * one were refused by construction, and every refused event then waited the
+ * CANCELLATION_BARRIER_BUSY; for a single plain event (since 20261119053909 /
+ * #11381), that event's own finish lane, whose lock_timeout raises SQLSTATE
+ * 55P03 "canceling statement due to lock timeout" rather than queue forever.
+ * The discovery pass used to launch every eligible empty event at once, so all
+ * but one were refused by construction, and every refused event then waited the
  * full EMPTY_PAST_START_CANCEL_RETRY_MS - together, so they collided again.
  * Measured 2026-11-07 20:05:12 UTC: ~30 refusals in 100 ms from the engine,
  * each reported as an error, while 41 empty Midway Union Sit & Go boards sat
@@ -61,9 +63,13 @@ export const EMPTY_PAST_START_CANCEL_RETRY_MS = 30 * 60 * 1000;
  */
 export const EMPTY_PAST_START_LANE_BUSY_RETRY_MS = 60 * 1000;
 
-const LANE_BUSY_REFUSALS = ['CANCELLATION_GLOBAL_LANE_BUSY', 'CANCELLATION_BARRIER_BUSY'];
+const LANE_BUSY_REFUSALS = [
+  'CANCELLATION_GLOBAL_LANE_BUSY',
+  'CANCELLATION_BARRIER_BUSY',
+  'canceling statement due to lock timeout',
+];
 
-/** True only for the cancellation lane's own try-lock refusal (55P03, by name). */
+/** True only for the cancellation lane's own busy/lock-timeout refusals (55P03, by name). */
 export function isCancellationLaneBusy(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const { code, message } = error as { code?: unknown; message?: unknown };

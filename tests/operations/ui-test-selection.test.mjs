@@ -12,6 +12,8 @@ import {
   configOnly,
   presentationOnly,
   isolatedSimulationsUnchanged,
+  outsideSimulationInputs,
+  simulationInputsUntouched,
   runSelection,
   selectionInputs,
   consumedInputs,
@@ -678,9 +680,6 @@ test('isolated simulations accept exact CSS and binary artwork without narrowing
       ['server/new.ts', 'export const x = 1;'],
       ['supabase/migrations/new.sql', 'SELECT 1;'],
       ['.github/workflows/ci.yml', 'name: changed'],
-      ['src/styles/global.css', 'body {'],
-      ['public/assets/vector.svg', '<svg/>'],
-      ['src/styles/added.css', 'body {}'],
     ]) {
       write(root, file, content);
       git('add', '.');
@@ -688,10 +687,171 @@ test('isolated simulations accept exact CSS and binary artwork without narrowing
       assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false, file);
       git('reset', '--hard', head);
     }
+    // The style and artwork proof itself still refuses these (2026-11-19: the
+    // simulations are released by the complete client-path proof instead).
+    for (const [file, content] of [
+      ['src/styles/global.css', 'body {'],
+      ['public/assets/vector.svg', '<svg/>'],
+      ['src/styles/added.css', 'body {}'],
+    ]) {
+      write(root, file, content);
+      git('add', '.');
+      git('commit', '-qm', 'mixed');
+      assert.equal(selectionInputs(root, base, git('rev-parse', 'HEAD'), true).focused, false, file);
+      git('reset', '--hard', head);
+    }
     git('rm', 'public/assets/table.png');
     git('commit', '-qm', 'delete');
-    assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
+    assert.equal(selectionInputs(root, base, git('rev-parse', 'HEAD'), true).focused, false);
     assert.equal(isolatedSimulationsUnchanged(root, '', head), false);
+  }));
+
+test('a complete client diff outside every simulation input omits only the unrelated simulations', () =>
+  owned((root) => {
+    const git = (...args) =>
+      execFileSync('git', args, {
+        cwd: root,
+        env: gitEnvironmentForCwd(),
+        encoding: 'utf8',
+      }).trim();
+    for (const path of [
+      'src/pages/ClubMembersPage.css',
+      'src/pages/ClubMembersPage.tsx',
+      'src/services/CashierService.ts',
+      'public/assets/vector.svg',
+      'docs/changelog/2026-11-19-members-page.md',
+      'tests/unit/clubMembersPage.test.tsx',
+      'tests/browser/fixtures/rabbit-flow/main.tsx',
+    ])
+      assert.equal(outsideSimulationInputs(path), true, path);
+    for (const path of [
+      'server/src/engine.ts',
+      'supabase/migrations/20261119000000_money.sql',
+      'scripts/ci/probes/chip-journal-atomicity/fixture.sql',
+      'scripts/ci/test-fleet-throughput.sh',
+      'scripts/dev/probe-hand-seat-generation.py',
+      'tests/fixtures/deferred-settlement/schema.sql',
+      'tests/monitoring/fleet-throughput.test.yml',
+      'tests/sql/fixtures/case.sql',
+      'infra/monitoring/alert-rules.yml',
+      '.github/workflows/ci.yml',
+      '.husky/pre-push',
+      'package.json',
+      'package-lock.json',
+      'vite.config.ts',
+      'README.md',
+      'src',
+      'src/',
+      'src/../server/src/engine.ts',
+      'Src/pages/Page.tsx',
+      '/src/pages/Page.tsx',
+      'src\\pages\\Page.tsx',
+      '',
+      undefined,
+    ])
+      assert.equal(outsideSimulationInputs(path), false, String(path));
+    git('init', '-q');
+    git('config', 'user.name', 'Client Diff Fixture');
+    git('config', 'user.email', 'fixture@example.invalid');
+    write(root, '.gitignore', 'node_modules/\nscope-output\n');
+    write(root, 'src/pages/ClubMembersPage.css', '.members { color: red }');
+    write(root, 'src/pages/ClubMembersPage.tsx', 'export const rows = (n: number) => n + 1;\n');
+    write(root, 'src/pages/Retired.tsx', 'export const retired = true;\n');
+    write(root, 'tests/unit/clubMembersPage.test.tsx', 'export {};\n');
+    write(root, 'server/guard.ts', 'export const guard = true;');
+    write(root, 'tests/fixtures/deferred-settlement/schema.sql', 'SELECT 1;');
+    write(root, 'tests/monitoring/fleet-throughput.test.yml', 'tests: []\n');
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    const base = git('rev-parse', 'HEAD');
+    write(root, 'src/pages/ClubMembersPage.css', 'body { color: blue }');
+    write(root, 'src/pages/ClubMembersPage.tsx', 'export const rows = (n: number) => n + 2;\n');
+    write(root, 'tests/unit/clubMembersPage.test.tsx', 'export const changed = true;\n');
+    write(root, 'tests/unit/clubMembersSort.test.tsx', 'export {};\n');
+    write(root, 'docs/changelog/2026-11-19-members-page.md', 'Members page.');
+    git('rm', '-q', 'src/pages/Retired.tsx');
+    git('mv', 'src/pages/ClubMembersPage.css', 'src/pages/ClubMembers.css');
+    git('add', '.');
+    git('commit', '-qm', 'ordinary client change');
+    const head = git('rev-parse', 'HEAD');
+    // Executable client logic is never called presentation; only the two
+    // simulations that cannot read these paths are released.
+    assert.equal(selectionInputs(root, base, head).focused, false);
+    assert.equal(selectionInputs(root, base, head, true).focused, false);
+    assert.equal(selectionInputs(root, base, head, false, true).focused, false);
+    assert.equal(simulationInputsUntouched(root, base, head), true);
+    assert.equal(isolatedSimulationsUnchanged(root, base, head), true);
+    const output = join(root, 'scope-output');
+    runSelection(root, ['scope'], {
+      ...process.env,
+      CI_BASE_SHA: base,
+      CI_HEAD_SHA: head,
+      GITHUB_OUTPUT: output,
+      GITHUB_STEP_SUMMARY: '',
+    });
+    assert.equal(
+      readFileSync(output, 'utf8'),
+      'presentation_only=false\nisolated_simulations_unchanged=true\n'
+    );
+    // The pull request merge checkout proves the same diff.
+    git('checkout', '-q', '-b', 'main-moved', base);
+    write(root, 'server/guard.ts', 'export const guard = false;');
+    git('commit', '-qam', 'main moved');
+    const moved = git('rev-parse', 'HEAD');
+    git('merge', '-q', '--no-ff', '-m', 'merge', head);
+    assert.equal(simulationInputsUntouched(root, moved, head), true);
+    assert.equal(simulationInputsUntouched(root, base, head), false);
+    git('checkout', '-q', '--detach', head);
+    // Missing, abbreviated or reversed inputs, an empty diff and a dirty or
+    // untracked checkout all keep the simulations.
+    assert.equal(simulationInputsUntouched(root, '', head), false);
+    assert.equal(simulationInputsUntouched(root, base, undefined), false);
+    assert.equal(simulationInputsUntouched(root, base.slice(0, 12), head), false);
+    assert.equal(simulationInputsUntouched(root, head, head), false);
+    assert.equal(simulationInputsUntouched(root, head, base), false);
+    assert.equal(simulationInputsUntouched(join(root, 'absent'), base, head), false);
+    write(root, 'src/pages/ClubMembersPage.tsx', 'dirty candidate');
+    assert.equal(simulationInputsUntouched(root, base, head), false);
+    git('restore', '--', 'src/pages/ClubMembersPage.tsx');
+    write(root, 'supabase/migrations/untracked.sql', 'SELECT 1;');
+    assert.equal(simulationInputsUntouched(root, base, head), false);
+    rmSync(join(root, 'supabase'), { recursive: true });
+    assert.equal(simulationInputsUntouched(root, base, head), true);
+    // One simulation input beside the client edit keeps both simulations.
+    for (const [file, content] of [
+      ['server/guard.ts', 'export const guard = 2;'],
+      ['server/new.ts', 'export const x = 1;'],
+      ['supabase/migrations/new.sql', 'SELECT 1;'],
+      ['scripts/ci/probes/chip-journal-atomicity/fixture.sql', 'SELECT 1;'],
+      ['scripts/ci/test-fleet-throughput.sh', 'exit 0'],
+      ['tests/fixtures/deferred-settlement/schema.sql', 'SELECT 2;'],
+      ['tests/monitoring/fleet-throughput.test.yml', 'tests: [1]\n'],
+      ['infra/monitoring/alert-rules.yml', 'groups: []\n'],
+      ['.github/workflows/ci.yml', 'name: changed'],
+      ['package.json', '{}'],
+      ['package-lock.json', '{}'],
+      ['vite.config.ts', 'export default {};'],
+      ['README.md', 'mixed with a client edit'],
+    ]) {
+      write(root, file, content);
+      git('add', '.');
+      git('commit', '-qm', 'mixed');
+      assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false, file);
+      git('reset', '-q', '--hard', head);
+    }
+    git('rm', '-q', 'tests/fixtures/deferred-settlement/schema.sql');
+    git('commit', '-qm', 'deleted fixture');
+    assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
+    git('reset', '-q', '--hard', head);
+    git('mv', 'server/guard.ts', 'src/guard.ts');
+    git('commit', '-qm', 'moved out of the server');
+    assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
+    git('reset', '-q', '--hard', head);
+    // A link under a client path is not a regular file and proves nothing.
+    execFileSync('ln', ['-s', '../../server/guard.ts', join(root, 'src/pages/link.ts')]);
+    git('add', '.');
+    git('commit', '-qm', 'link');
+    assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
   }));
 
 
