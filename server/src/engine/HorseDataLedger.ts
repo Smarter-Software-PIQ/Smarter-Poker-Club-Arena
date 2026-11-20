@@ -1020,6 +1020,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PLO paired-board fold'
   ),
   flag(
+    'omahaMathCorePreflop',
+    "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core computes and receipts its preflop EV (omahaMathCore.shadow) and today's preflop action stands. Read === true; PLO6 never.",
+    'V94'
+  ),
+  flag(
     'omahaMathCore',
     "Lane MATHCORE 2026-11-19 (owner 7:33-8:17 PM Chicago: \"ITS MATH FIRST ... make 100% of the decisions based on the math, the hand, the outs, the board. NEVER pre-determined choices\"; lead ruling: live inputs are public information only): in PLO4/PLO5 cash (table and Lightning; PLO6 never: owner 8:26 PM), high only, one board, every street, the decision is the expected-value maximum over every legal action (fold, check, call, bet or raise at several sizes on the table's chip unit, all-in): exact 2+3 showdown equity (lane EQUITY's equityVsRanges, the core's own exact sampler when it declines) against one range per live opponent built from public information (a wager is value from the top and non-value from the bottom at the share shown at showdown for that line and size, at the line's public wager frequency; a caller is the band between his public raise and fold frequencies; a preflop raiser the top share of his public raise frequency) on a pool of concrete holdings with card removal, plus fold equity from public response frequencies (person rows shrunk to the population), net of rake (omahaMathCore/OmahaMathCore.ts; table publicTables.v3.json, every cell provenance public_actions or showdown_only). The decision the owner rules produced is never an input; it stands only when the core throws (error receipt). Outermost owner of wager_rules, kept by the commit door, admitted by the response validator under the option. Default OFF (read === true); the lead switches it.",
     'V94'

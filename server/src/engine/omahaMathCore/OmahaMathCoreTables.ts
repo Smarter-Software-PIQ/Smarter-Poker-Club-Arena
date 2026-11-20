@@ -156,10 +156,16 @@ export function betRate(k: {
   players: 'hu' | 'mw';
   actor: Actor;
   user: string | null;
-}): { b: number; n: number; source: string } | null {
+}): { b: number; n: number; source: string; size: number } | null {
   const t =
-    (TABLE as unknown as { betFrequency?: Record<string, { betRate: number; n: number }> })
-      .betFrequency ?? {};
+    (
+      TABLE as unknown as {
+        betFrequency?: Record<
+          string,
+          { betRate: number; n: number; betBands?: Record<string, number> }
+        >;
+      }
+    ).betFrequency ?? {};
   for (const pl of [k.players, 'all'])
     for (const ln of k.line === 'all' ? ['all'] : [k.line, 'all'])
       for (const g of [k.game, 'pooled'])
@@ -168,6 +174,7 @@ export function betRate(k: {
             const key = [g, m, k.street, ln, pl, o, k.actor].join('|');
             const c = t[key];
             if (!c || c.n < MIN_N) continue;
+            const size = typicalSize(c.betBands);
             if (k.actor === 'person' && k.user) {
               const row = (
                 TABLE.persons?.[k.user] as unknown as
@@ -181,11 +188,12 @@ export function betRate(k: {
                   return {
                     b: (bets + 20 * c.betRate) / (n + 20),
                     n,
+                    size,
                     source: `person shrunk (n=${n}) to ${key} (n=${c.n})`,
                   };
               }
             }
-            return { b: c.betRate, n: c.n, source: `${key} (n=${c.n})` };
+            return { b: c.betRate, n: c.n, size, source: `${key} (n=${c.n})` };
           }
   return null;
 }
@@ -219,4 +227,18 @@ export function wagerNonValue(k: {
                 };
             }
   return null;
+}
+
+/** The median wager size (share of the pot) of a line's measured size bands. */
+function typicalSize(bands: Record<string, number> | undefined): number {
+  const mid: Record<string, number> = { small: 0.33, half: 0.5, twothirds: 0.7, pot: 1, allin: 1 };
+  const order = ['small', 'half', 'twothirds', 'pot', 'allin'];
+  const total = bands ? order.reduce((x, k) => x + (bands[k] ?? 0), 0) : 0;
+  if (!bands || !(total > 0)) return 0.66;
+  let acc = 0;
+  for (const k of order) {
+    acc += bands[k] ?? 0;
+    if (acc >= total / 2) return mid[k];
+  }
+  return 0.66;
 }

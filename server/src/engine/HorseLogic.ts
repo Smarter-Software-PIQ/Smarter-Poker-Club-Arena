@@ -3420,6 +3420,10 @@ export interface HorseDecideOpts {
    * The decision the owner rules produced is never an input; it stands only if the core throws (receipted).
    * Default OFF (read === true); the lead switches it. */
   omahaMathCore?: boolean;
+  /** omahaMathCorePreflop (lane MATHCORE 2026-11-19, lead decision): with omahaMathCore on, the core also owns
+   * PLO4/PLO5 cash PREFLOP decisions. Off (default), the core computes and receipts its preflop EV (shadow) and
+   * today's preflop action stands. Read === true. */
+  omahaMathCorePreflop?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by

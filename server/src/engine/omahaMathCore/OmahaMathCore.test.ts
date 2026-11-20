@@ -273,6 +273,37 @@ describe('omahaMathCore decision laws', () => {
   });
 });
 
+describe('omahaMathCore self-play and split switch', () => {
+  it('a Horse responder is priced to defend to the price: fold s/(1+s) of a wager of pot share s', () => {
+    const st = spot({ hole: 'AhKhQs7d2c', board: 'Jh8s2s', pot: 100, toCall: 0 });
+    st.opponents[0] = { ...st.opponents[0], person: false, user: 'horse-1' };
+    const { receipt } = decideOmahaMathCore(st, { now });
+    for (const e of receipt.evs.filter((x) => x.action === 'bet')) {
+      const s = e.adds / 100;
+      expect(e.foldProb).toBeCloseTo(s / (1 + s), 2);
+    }
+  });
+  it('preflop with omahaMathCorePreflop off: the core computes and receipts (shadow) and the decision stands', () => {
+    const r = RECORDED_FLOP_FACING_BETS[0];
+    const { fx, node } = expandFlop(r);
+    const st = stateAt(fx, node);
+    const gs = { ...st.gs, stage: 'preflop' as const, communityCards: [] };
+    const incoming = { action: 'fold' as const, thinkTime: 1 };
+    const out = omahaMathCoreRule(
+      incoming,
+      st.hero,
+      gs as never,
+      { omahaMathCore: true },
+      (d) => d
+    );
+    expect(out.action).toBe('fold');
+    if (out.omahaMathCore) {
+      expect(out.omahaMathCore.applied).toBe(false);
+      if (out.omahaMathCore.error === null) expect(out.omahaMathCore.shadow).toBe(true);
+    }
+  });
+});
+
 describe('omahaMathCore tables: public information only (lead ruling 2026-11-19)', () => {
   it('every table the core loads has provenance public_actions or showdown_only', () => {
     expect(OMAHA_MATH_CORE_TABLES.length).toBeGreaterThan(0);
@@ -432,5 +463,35 @@ describe('omahaMathCore wiring: final owner, admitted, OFF byte-identical (recor
     expect(s.street).toBe('flop');
     expect(s.toCall).toBeGreaterThan(0);
     expect(s.aggressorSeat).not.toBeNull();
+  });
+});
+
+describe('omahaMathCore equity terminates without the clock (frozen replay clock)', () => {
+  it('returns with a frozen clock even when no joint draw can succeed', async () => {
+    const { equityVsPools, buildPool, seededRng: rng } = await import('./OmahaMathCoreEquity.js');
+    const hero = parseCardString('AhKhQs7d2c');
+    const board = parseCardString('Jh8s2s4c9d');
+    const pool = buildPool(hero, board, 5, 40, 1, rng('frozen'));
+    const one = {
+      parts: [{ idx: Int32Array.from([pool.order[0]]), weight: 1 }],
+      label: 'one holding',
+    };
+    // two seats that must hold the same single holding: every joint draw collides
+    const r = equityVsPools(hero, board, pool, [one, one], rng('x'), {
+      targetSe: 0.01,
+      minSamples: 400,
+      maxSamples: 4000,
+      maxMs: 40,
+      now: () => 0,
+    });
+    expect(Number.isNaN(r.equity)).toBe(true);
+    const s = equityVsPools(hero, board, pool, [one], rng('y'), {
+      targetSe: 0.01,
+      minSamples: 400,
+      maxSamples: 4000,
+      maxMs: 40,
+      now: () => 0,
+    });
+    expect(Number.isFinite(s.equity)).toBe(true);
   });
 });
