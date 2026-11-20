@@ -802,7 +802,7 @@ rolling_trial_start_next() { # sha
   docker run -d --name "$ROLLING_NEXT" --network "$NETWORK" -p "$ROLLING_NEXT_PORT:8080" \
     --restart no --cpus 7 --memory 26g \
     --log-driver json-file --log-opt max-size=50m --log-opt max-file=5 \
-    --env-file "$STATE_DIR/engine.env" --env ENGINE_ROLLING_HANDOFF=on --env ENGINE_ROLE=handoff-successor --env ENGINE_HANDOFF_PEER_PORT=8080 \
+    --env-file "$STATE_DIR/engine.env" --env ENGINE_ROLLING_HANDOFF=on --env ENGINE_ROLE=handoff-successor --env ENGINE_HANDOFF_PEER_PORT=8080 --env ENGINE_HANDOFF_PEER_HOST=club-arena-engine-standby \
     --mount "type=bind,source=$STATE_DIR/engine-alerts,target=/var/lib/club-arena/engine-alerts" \
     --mount "type=bind,source=$STATE_DIR/horse-journal,target=/var/lib/club-arena/horse-journal" \
     --label "com.smarterpoker.standby.sha=$1" --label com.smarterpoker.standby.role=successor \

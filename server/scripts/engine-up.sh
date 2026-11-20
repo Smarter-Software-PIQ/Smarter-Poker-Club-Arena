@@ -59,6 +59,12 @@ fi
 ROLLING_HANDOFF_FLAG_ENV='ENGINE_ROLLING_HANDOFF=on'
 SUCCESSOR_ROLE_ENV='ENGINE_ROLE=handoff-successor'
 HANDOFF_PEER_PORT_ENV="ENGINE_HANDOFF_PEER_PORT=8081"
+# The two engines are separate bridged containers, so a container's own
+# loopback is never its peer. Each reaches the other's PUBLISHED host port
+# through the host gateway (--add-host below); Caddy keeps proxying to the
+# same host ports, so its one-line upstream switch is unchanged.
+HANDOFF_PEER_HOST_ENV='ENGINE_HANDOFF_PEER_HOST=host.docker.internal'
+HANDOFF_PEER_HOST_GATEWAY='host.docker.internal:host-gateway'
 
 # ── Mutual exclusion ─────────────────────────────────────────────────────────
 # The release transaction owns this lock across every stop/run mutation. Its
@@ -539,6 +545,8 @@ STARTED_CONTAINER_ID="$(docker create \
   --env-file "$ENV_FILE" \
   --env "$ROLLING_HANDOFF_FLAG_ENV" \
   --env "$HANDOFF_PEER_PORT_ENV" \
+  --env "$HANDOFF_PEER_HOST_ENV" \
+  --add-host "$HANDOFF_PEER_HOST_GATEWAY" \
   --env "ENGINE_ALERT_JOURNAL_DIR=$ALERT_JOURNAL_CONTAINER_DIR" \
   --mount "type=bind,source=$ALERT_JOURNAL_HOST_DIR,target=$ALERT_JOURNAL_CONTAINER_DIR" \
   --env "HORSE_DECISION_JOURNAL_DIR=$HORSE_JOURNAL_CONTAINER_DIR" \

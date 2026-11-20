@@ -353,6 +353,21 @@ describe('the rolling route is wired end to end', () => {
     expect(create).toContain('${SUCCESSOR_CREATE_ARGS[@]+"${SUCCESSOR_CREATE_ARGS[@]}"}');
     expect(create).toContain('--env "$ROLLING_HANDOFF_FLAG_ENV"');
     expect(create).toContain('--env "$HANDOFF_PEER_PORT_ENV"');
+    // Bridged containers: each reaches the other's published host port
+    // through the host gateway, never its own loopback.
+    expect(create).toContain('--env "$HANDOFF_PEER_HOST_ENV"');
+    expect(create).toContain('--add-host "$HANDOFF_PEER_HOST_GATEWAY"');
+    expect(up).toContain("HANDOFF_PEER_HOST_ENV='ENGINE_HANDOFF_PEER_HOST=host.docker.internal'");
+    expect(up).toContain("HANDOFF_PEER_HOST_GATEWAY='host.docker.internal:host-gateway'");
+    // The Backup engines share one user-defined network and name each other.
+    const standby = read('server/standby/standby-engine.sh');
+    expect(standby).toContain('ENGINE_HANDOFF_PEER_HOST=club-arena-engine-standby-next\n');
+    expect(standby).toContain('docker run -d --name "$CONTAINER" --network "$NETWORK"');
+    const trials = read('server/standby/standby-trials.sh');
+    expect(trials).toContain('--network "$NETWORK"');
+    expect(trials).toContain(
+      '--env ENGINE_HANDOFF_PEER_PORT=8080 --env ENGINE_HANDOFF_PEER_HOST=club-arena-engine-standby'
+    );
     expect(up).toContain("SUCCESSOR_ROLE_ENV='ENGINE_ROLE=handoff-successor'");
     expect(up).toContain('HANDOFF_PEER_PORT_ENV="ENGINE_HANDOFF_PEER_PORT=8081"');
     expect(spawnSync('bash', ['-n', resolve(ROOT, 'server/scripts/engine-up.sh')]).status).toBe(0);

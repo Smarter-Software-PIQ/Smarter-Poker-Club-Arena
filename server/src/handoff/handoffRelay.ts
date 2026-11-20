@@ -90,8 +90,8 @@ const HOP_BY_HOP = new Set([
 
 export interface HandoffRelayOptions {
   peerPort: number;
-  /** Loopback only; tests may not change it to anything else. */
-  peerHost?: '127.0.0.1' | '::1' | 'localhost';
+  /** ENGINE_HANDOFF_PEER_HOST (handoffPeerHost); 127.0.0.1 when absent. */
+  peerHost?: string;
   /** True when traffic for this table must go to the peer. */
   relaysTable(tableId: string): boolean;
   /** True after retirement: everything but the control routes goes to the peer. */

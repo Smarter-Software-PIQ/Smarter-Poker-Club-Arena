@@ -261,7 +261,7 @@ local to the two WebSocket servers).
   JSON body of the 23 table POST routes (`TABLE_BODY_ROUTES`), and
   `/ws/table/:id`. A body read to decide is handed to the local handler
   unchanged (`http/body.ts prefetchRequestBody`).
-- **How.** HTTP is forwarded to `127.0.0.1:<peer>` and streamed back. A
+- **How.** HTTP is forwarded to `<ENGINE_HANDOFF_PEER_HOST>:<peer>` and streamed back. A
   WebSocket upgrade is spliced at the socket level (request line, headers,
   then every frame both ways), so the owner authenticates and the client gets
   the owner's own handshake, SNAPSHOT and DELTAs. Spectators use the same
@@ -322,13 +322,20 @@ either way it is one upstream line.
 mode is chosen only once the serving engine reports the handoff capability and
 a Backup certification with `rollingHandoff.verdict == "pass"` exists.
 
-**Peer reachability.** The relay and the successor watchdog reach the peer at
-`127.0.0.1:<ENGINE_HANDOFF_PEER_PORT>` inside the engine's own container. The
-engines run as separate bridged containers (`-p <port>:8080`), so that
-loopback is not the other engine: the watchdog then aborts every yield and the
-Backup rehearsal fails, which keeps every release on the classic route. Rolling
-activation needs the two engines to share one network namespace (or a relay
-host setting) first.
+**Peer reachability.** The engines are separate bridged containers
+(`-p <port>:8080`), so a container's own loopback is never its peer. The
+relay, the successor watchdog probe and the tournament channel mirror reach the
+peer at `ENGINE_HANDOFF_PEER_HOST` (default `127.0.0.1`, the original
+behavior). Production (`server/scripts/engine-up.sh`, classic and successor
+run-specs alike): `--add-host host.docker.internal:host-gateway`,
+`ENGINE_HANDOFF_PEER_HOST=host.docker.internal`, and
+`ENGINE_HANDOFF_PEER_PORT` is the peer's published host port (8081 for the
+engine on 8080, 8080 for the engine on 8081). Caddy keeps proxying to the same
+host ports, so its one-line upstream switch is unchanged. Backup: both engines
+are on the user-defined network `supabase_network_standby` and name each other
+(`club-arena-engine-standby` and `club-arena-engine-standby-next`, port 8080),
+because their published ports are bound to the host loopback. A peer port
+equal to the process's own `PORT` is refused only on a loopback host.
 
 Lightning host tables are kept by the old instance in this phase
 (`lightning_cluster_stays`); the old instance does not retire while a Lightning
