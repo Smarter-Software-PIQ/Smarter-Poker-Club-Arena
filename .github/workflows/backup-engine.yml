@@ -206,7 +206,20 @@ jobs:
             fi
             rm -f "$tool"
             echo "freeze baseline: ${baseline_state:-unknown}${baseline:+ ($baseline)}"
+            # ONE CERTIFICATION PER BASELINE (incident 076ff467, 2026-11-20).
+            # `claimed`: an active run is certifying it now; plan as before.
+            # On `due` this run writes its claim (pending, naming this run)
+            # before anything else, so a push merged while it soaks reads
+            # `claimed` instead of queueing a duplicate that can publish a
+            # refusal over the certificate minutes before the 03:30 selection.
+            if [ "$baseline_state" = claimed ]; then
+              echo "FREEZE BASELINE: $baseline is already being certified by an active run; planning as before."
+            fi
             if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/statuses/$baseline" -f state=pending -f context="$STATUS_CONTEXT" \
+                -f description="Backup Engine claimed tonight's freeze baseline (run $RUN_ID)" \
+                -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" >/dev/null \
+                || echo "::warning::could not write the freeze-baseline claim; certifying anyway"
               echo "FREEZE BASELINE: $baseline is tonight's shippable 04:00 build; certifying it on a copy restored now, not superseded, not retargeted."
               { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\`: certified on tonight's frozen copy (refresh forced)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               echo "sha=$baseline" >> "$GITHUB_OUTPUT"
@@ -398,6 +411,10 @@ jobs:
     if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
+    # Whether this run ever held the Backup host. A run that never got its
+    # turn touched no copy and tested nothing (incident 076ff467, 2026-11-20).
+    outputs:
+      turn: ${{ steps.turn.outputs.acquired }}
     timeout-minutes: 120
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
@@ -420,6 +437,7 @@ jobs:
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - name: Acquire exclusive Backup host turn
+        id: turn
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
@@ -464,6 +482,7 @@ jobs:
             reclaim=''
             if [ "$verdict" = acquired ]; then
               echo "Acquired exclusive Backup host turn for run $RUN_ID-$RUN_ATTEMPT."
+              echo "acquired=1" >> "$GITHUB_OUTPUT"
               break
             fi
             holder="${verdict#held:}"
@@ -612,6 +631,9 @@ jobs:
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - name: Mark the certification pending
         id: pending
+        # A run that never held the Backup host tests nothing; it must not
+        # replace another run's certificate with `pending` (076ff467).
+        if: needs.refresh.result == 'success' || needs.refresh.outputs.turn == '1'
         env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
@@ -692,22 +714,33 @@ jobs:
             PENDING: '${{ steps.pending.outcome }}',
             POLICY: '${{ steps.policy.outcome }}',
             REFRESH: '${{ needs.refresh.result }}',
+            TURN: '${{ needs.refresh.outputs.turn }}',
           }
         run: |
           set -euo pipefail
-          write=1
+          write=1; state=''; desc=''
           if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ] && [[ "$INSTALLED" =~ ^[0-9a-f]{64}$ ]]; then state=success; desc="Certified on the Backup Engine; installed migrations $INSTALLED"
           # A refresh that did not succeed is a refusal even when a later
           # provider answer stopped this job before the certify step turned it
           # into rc=1: its copy cannot back an earlier success (review of #10805).
+          # NO TURN, NO VERDICT (incident 076ff467, 2026-11-20). A refresh that
+          # failed because this run never held the Backup host (it timed out
+          # waiting behind another certification) touched no copy and judged
+          # no build. Publishing `failure` from it replaced a valid certificate
+          # 12 minutes before the 03:30 selection. It reports `error` below,
+          # which never replaces a success.
+          elif [ "$REFRESH" != success ] && [ "${TURN:-}" != 1 ] && [ "$POLICY" != failure ]; then state=noturn
           elif [ -n "$RC" ] || [ "$POLICY" = failure ] || [ "$REFRESH" != success ]; then state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"
-          else
+          fi
+          if [ "$state" = noturn ] || { [ "$state" != success ] && [ "$state" != failure ]; }; then
             # NO VERDICT IS NOT A REFUSAL (2026-11-14, run 43565758486). The job
             # failed before the Backup host judged anything (a provider 5xx, the
             # dispatch proof, a checkout), so there is no certificate to report.
             # That is `error`, never `failure`, and it never replaces a success
             # this run did not itself overwrite with `pending`.
+            reason=$state
             state=error; desc='Backup Engine reached no verdict: this run failed before certifying (provider, dispatch proof or checkout). See run.'
+            if [ "$reason" = noturn ]; then desc='Backup Engine reached no verdict: this run never held the Backup host turn, so it tested nothing. See run.'; fi
             if [ "$PENDING" != success ]; then
               current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
                 --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || current=unreadable
