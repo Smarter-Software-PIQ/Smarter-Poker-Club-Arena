@@ -1,0 +1,41 @@
+name: Backup regression replay
+
+# trial_regression_replay (server/standby/standby-trials.sh), run by every
+# Backup certification. Runs scripts/ci/test-backup-regression-replay.py
+# against a throwaway PostgreSQL 17 cluster, never production. No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - server/standby/standby-trials.sh
+      - server/standby/standby-engine.sh
+      - scripts/ci/test-backup-regression-replay.py
+      - scripts/ci/fixtures/backup-regression-replay-production.json
+      - supabase/migrations/20261119231718_the_drill_records_its_completed_run_again.sql
+      - server/src/services/horseReservationBudget.ts
+      - server/src/services/TournamentRecurringService.ts
+      - scripts/ci/merged-migration-dispatch.mjs
+      - scripts/ci/backup-freeze-baseline.py
+      - .github/workflows/backup-regression-replay.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-regression-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backup-regression-replay:
+    name: A Backup certificate replays today's incidents
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A Backup certificate replays today's incidents
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-backup-regression-replay.py
