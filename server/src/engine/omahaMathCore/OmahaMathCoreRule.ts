@@ -121,6 +121,44 @@ export function omahaMathCoreChangeMarginK(
   return OMAHA_MATH_CORE_CHANGE_MARGIN_K;
 }
 
+/**
+ * River all-in commit margin (lane RIVER-CORE, criterion repairs/EMERG/CRITERIA-RIVER-CORE-2.md, sha256 f8f01229...):
+ * on the PLO5 river a change from FOLD to a continue that commits the Horse's whole stack (all-in, or a call / raise
+ * whose amount is the whole stack, incl. a call-off where the only legal continue is all-in) must beat folding by
+ * more than K_allin standard errors of the difference; when the priced SE is 0 (exact), by more than K_allin % of the
+ * chips committed. Measured (exact journal replay of the next-branch core, real chips to persons): every such change
+ * on Nov 18-19 (7 of 7) met real equity 0 (persons' river all-ins are value); K_allin fitted on Nov 18 only over the
+ * declared grid {5, 8, 10, 15, 20, 25, 30, 40, 60} (max class sum, ties to the smallest K): 25 (Nov 18 z of the four
+ * changes 5.2 / 5.7 / 16.1 / 21.7, sum -846 chips at K = 5, 0 at K >= 25). fold -> call that does not commit the
+ * stack is unchanged (K = 5). PLO4 / PLO6 / flop / turn: never.
+ */
+export const OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K = 25;
+
+/** true when the change may stand under the river all-in commit margin (or the margin does not apply) */
+export function omahaMathCoreRiverAllInCommitOk(
+  variant: string,
+  street: string,
+  incomingAction: string,
+  best: { action: string; amount: number | null },
+  gap: number,
+  se: number,
+  heroStack: number,
+  heroBet: number
+): boolean {
+  if (variant !== 'plo5' || street !== 'river' || incomingAction !== 'fold') return true;
+  const eps = 0.005;
+  const stack = Math.max(0, heroStack);
+  const commits =
+    best.action === 'all_in' ||
+    (best.action === 'call' && (best.amount ?? 0) >= stack - eps) ||
+    ((best.action === 'bet' || best.action === 'raise') &&
+      (best.amount ?? 0) >= Math.max(0, heroBet) + stack - eps);
+  if (!commits) return true;
+  const k = OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K;
+  if (se > 0) return gap > k * se;
+  return gap > (k / 100) * stack;
+}
+
 type PricedEv = {
   ev: number;
   se: number | null;
@@ -532,7 +570,17 @@ export function omahaMathCoreRule(
         );
         const gap = best.ev - inc.ev;
         const rawOk = omahaMathCoreFoldBoundaryRawOk(best, inc, incoming.action, legal.action, K);
-        if (!(gap > K * se) || !rawOk) {
+        const allInOk = omahaMathCoreRiverAllInCommitOk(
+          String(gs.gameVariant).toLowerCase(),
+          String(gs.stage),
+          incoming.action,
+          { action: legal.action, amount: legal.amount ?? null },
+          gap,
+          se,
+          player.stack ?? 0,
+          player.bet ?? 0
+        );
+        if (!(gap > K * se) || !rawOk || !allInOk) {
           // today's action, exactly as it reached the core (already legal on this state)
           const kept: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
           if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')

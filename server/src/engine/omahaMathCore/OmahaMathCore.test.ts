@@ -41,6 +41,8 @@ import {
   OMAHA_MATH_CORE_CHANGE_MARGIN_K,
   OMAHA_MATH_CORE_RAISE_OVER_CALL_MARGIN_K,
   omahaMathCoreChangeMarginK,
+  omahaMathCoreRiverAllInCommitOk,
+  OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K,
   omahaMathCoreFoldBoundaryRawOk,
   omahaMathCoreStreetAdmitted,
 } from './OmahaMathCoreRule.js';
@@ -795,6 +797,161 @@ describe('omahaMathCore fold boundary (CORE-4: a calibrated price alone never fo
     ).toBe(true);
     expect(
       omahaMathCoreFoldBoundaryRawOk(cal(9, 1, -50, 1), cal(1, 1, 99, 1), 'check', 'bet', 5)
+    ).toBe(true);
+  });
+});
+
+describe('omahaMathCore river all-in commit margin (RIVER-CORE criterion 2: 7 of 7 fold -> all-in river changes met real equity 0)', () => {
+  const K = OMAHA_MATH_CORE_RIVER_ALLIN_COMMIT_MARGIN_K;
+  it('a PLO5 river fold -> all-in (or a call / raise of the whole stack) needs K_allin standard errors', () => {
+    expect(K).toBe(25);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        21.7 * 10,
+        10,
+        200,
+        0
+      )
+    ).toBe(false);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        25.1 * 10,
+        10,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'call', amount: 200 },
+        100,
+        10,
+        200,
+        0
+      )
+    ).toBe(false);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'raise', amount: 250 },
+        100,
+        10,
+        200,
+        50
+      )
+    ).toBe(false);
+  });
+  it('with an exact price (SE 0) the gap must exceed K_allin % of the stack committed', () => {
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        49,
+        0,
+        200,
+        0
+      )
+    ).toBe(false);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        51,
+        0,
+        200,
+        0
+      )
+    ).toBe(true);
+  });
+  it('never applies to a call that leaves chips behind, to other streets, to PLO4 / PLO6, or to changes not from a fold', () => {
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'fold',
+        { action: 'call', amount: 80 },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'turn',
+        'fold',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo4',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo6',
+        'river',
+        'fold',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'call',
+        { action: 'all_in', amount: null },
+        1,
+        1,
+        200,
+        0
+      )
+    ).toBe(true);
+    expect(
+      omahaMathCoreRiverAllInCommitOk(
+        'plo5',
+        'river',
+        'check',
+        { action: 'bet', amount: 200 },
+        1,
+        1,
+        200,
+        0
+      )
     ).toBe(true);
   });
 });
