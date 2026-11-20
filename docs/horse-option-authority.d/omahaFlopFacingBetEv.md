@@ -25,6 +25,8 @@ Default OFF in source (read `=== true`). Registered in the option switch (follow
 
 Neither is an order to switch this option on. That order, when given, is recorded here with its time before any `on` row cites this file.
 
+- 2026-11-19 18:14 America/Chicago, verbatim: "you need to check and validate and activate everything from the first 2 that happened today! you did not finish those!" This file changed in that day's builds (f3e99378..aec0d93b40cd) and its Value row is MET (declared paired league WIN), so this is the order to switch it on. Switched on 2026-11-20T00:20:13Z by the Horse Decisions lane (session_01TLQer7JfrrxcELJZV5XHPD): evidence row 65, kind evidence, citing this file as served by aec0d93b40cd (sha256 6d874acdaf3872cb5529672e616349e0bf81aefdd195d938856dd56c1fc76e33), reviewed head aec0d93b40cd02d6cae87fd4a11ddbdb5519d553. Picked up 8/8 decision workers by 00:21:45Z. The order was recorded in the switch row's reference at the flip and in this file afterwards; this edit changes the file's sha256, so its evidence is re-recorded once the build carrying it serves.
+
 ## The audits it answers
 
 - `plo-handoff-review-01a1cbbd/rules-audit-01BNteGZ/PLO-BLANKET-RULE-AND-CONFLICT-AUDIT-20261117.md`: rows 1, 2 and 14 and conflict C1 (the flop is decided by a stack share and a chip mark; the turn and river of the same hand by EV against a range).

@@ -1282,6 +1282,27 @@ export function v77JamSeatTighten(widthPct: number): number {
   return Math.min(0.1, Math.max(0, (0.4 - widthPct / 100) * 0.3));
 }
 
+/**
+ * The V11 guard's one-big-blind line: a call of 1 bb or less at 3.5 to 1 or
+ * better (call / (pot + call) <= 1 / 4.5 = 0.2222...). It was written 0.22,
+ * which put exactly 3.5 to 1 (one big blind into 3.5, 0.2222) on the wrong
+ * side by rounding: a big blind folded 1 bb into 3.5 bb heads-up at 79 bb
+ * deep (auditor F, hand 0d1f980b, 2026-11-19; plain bug fix, no option). The
+ * tolerance absorbs floating-point error in chip arithmetic only.
+ */
+export const PRICE_IN_ONE_BB_ODDS = 1 / 4.5 + 1e-9;
+
+/**
+ * The line the guard reads. Pot-limit Omaha (PLO4/PLO5/PLO6/PLO8, the HORSE
+ * DECISIONS lane's games, where the fold was measured) reads the exact 3.5 to
+ * 1; every other game keeps the 0.22 it has played, so its recorded decisions
+ * are unchanged (HorseHoldemPersonaReRaiseMix's main recording moves in
+ * hold'em, short deck and fixed limit with the exact line: their owners
+ * decide whether to take it).
+ */
+export function priceInOneBbOdds(ctx: Pick<PreflopCtx, 'isOmaha' | 'isFixedLimit'>): number {
+  return ctx.isOmaha === true && ctx.isFixedLimit !== true ? PRICE_IN_ONE_BB_ODDS : 0.22;
+}
 /** Own chips in, as a share of the hand's starting stack, that count as committed. */
 export const COMMITTED_STACK_SHARE = 0.5;
 /** Big blinds behind at or under which a stack is crumbs (the guard's own line). */
@@ -1551,7 +1572,7 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const pricedIn =
     ctx.mode !== undefined &&
     (guardOdds <= 0.15 ||
-      (effCall <= bb && guardOdds <= 0.22) ||
+      (effCall <= bb && guardOdds <= priceInOneBbOdds(ctx)) ||
       (isTourney && stackBB <= 2 && guardOdds <= 0.34) ||
       committedAllInPrice);
   if (!pricedIn) return out;
@@ -1992,7 +2013,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     ctx.mode !== undefined && // V11 on — ablation (mode absent) keeps legacy
     toCall > 0 &&
     (guardOdds <= 0.15 || // ~5.7:1 or better — never fold any two cards
-      (effCall <= bb && guardOdds <= 0.22) || // under 1bb more at 3.5:1+
+      (effCall <= bb && guardOdds <= priceInOneBbOdds(ctx)) || // under 1bb more at 3.5:1+
       // Tournament crumbs: with <=2bb behind, the blinds will eat the stack
       // anyway — take the flip instead of blinding out.
       (isTourney && stackBB <= 2 && guardOdds <= 0.34));

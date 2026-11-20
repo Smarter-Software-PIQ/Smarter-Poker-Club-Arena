@@ -298,8 +298,8 @@
       "sha256": "0d963d68abc79558029bd3a44069f851c03ccfa882b041dc785e280261027b54"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146079,
-      "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      "bytes": 146313,
+      "sha256": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2924,6 +2924,25 @@
         "kind": "sha256",
         "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
         "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "horseDealtHoleCardsProofAccountingShard4_20261120": {
+    "reason": "Required accounting shard 4 gains one additive step that runs the throwaway PostgreSQL 17 proof that every Horse's dealt hole cards are kept service role only (scripts/ci/test-horse-dealt-hole-cards.py, Horse Decisions audit-fix batch 1). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 146079,
+        "current": 146313
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003",
+        "current": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
       }
     ],
     "financialRecertification": false,

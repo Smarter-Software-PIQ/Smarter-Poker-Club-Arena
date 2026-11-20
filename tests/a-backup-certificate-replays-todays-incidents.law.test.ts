@@ -27,13 +27,18 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 const engine = read('server/standby/standby-engine.sh');
 const trials = read('server/standby/standby-trials.sh');
 const workflow = read('.github/workflows/backup-regression-replay.yml');
-const replaySql = trials.slice(trials.indexOf("<<'SQL_REGRESSION_REPLAY'"), trials.lastIndexOf('SQL_REGRESSION_REPLAY'));
+const replaySql = trials.slice(
+  trials.indexOf("<<'SQL_REGRESSION_REPLAY'"),
+  trials.lastIndexOf('SQL_REGRESSION_REPLAY')
+);
 
 describe('the certificate is withheld when the replay fails', () => {
   const certify = engine.slice(engine.indexOf('cmd_certify() {'));
   it('runs on the restored copy before the engine boots', () => {
     const copy = certify.indexOf('assert_valid_copy || return 1');
-    const replay = certify.indexOf('trial_regression_replay "$sha" >&2 || record \'regression_replay_failed\'');
+    const replay = certify.indexOf(
+      'trial_regression_replay "$sha" >&2 || record \'regression_replay_failed\''
+    );
     const boot = certify.indexOf('cmd_run "$sha" ||');
     expect(copy).toBeGreaterThan(0);
     expect(replay).toBeGreaterThan(copy);
@@ -44,7 +49,9 @@ describe('the certificate is withheld when the replay fails', () => {
   });
   it('the Backup host already installs standby-trials.sh with every certification', () => {
     const backup = read('.github/workflows/backup-engine.yml');
-    expect(backup).toMatch(/server\/standby\/standby-trials\.sh > \/usr\/local\/share\/club-arena-standby\/standby-trials\.sh/);
+    expect(backup).toMatch(
+      /server\/standby\/standby-trials\.sh > \/usr\/local\/share\/club-arena-standby\/standby-trials\.sh/
+    );
   });
 });
 
@@ -58,7 +65,8 @@ describe('the replay never commits', () => {
     expect(replaySql).toContain("SET LOCAL lock_timeout = '2s';");
   });
   it('its synthetic hands live in the year 2000, outside every real window', () => {
-    for (const ts of replaySql.match(/'(\d{4})-\d\d-\d\d \d\d:\d\d:\d\d\+00'/g) ?? []) expect(ts.slice(1, 5)).toBe('2000');
+    for (const ts of replaySql.match(/'(\d{4})-\d\d-\d\d \d\d:\d\d:\d\d\+00'/g) ?? [])
+      expect(ts.slice(1, 5)).toBe('2000');
   });
 });
 
@@ -70,14 +78,26 @@ describe('each check is armed by the fix it guards', () => {
   };
   for (const [check, version] of Object.entries(armed)) {
     it(`${check} waits for ${version}, which is on main`, () => {
-      expect(replaySql).toContain(`version = '${version}') THEN\n    INSERT INTO replay_verdict VALUES ('${check}', 'not_armed'`);
-      expect(readdirSync(join(ROOT, 'supabase/migrations')).some((f: string) => f.startsWith(version))).toBe(true);
+      expect(replaySql).toContain(
+        `IF NOT pg_temp.replay_installed('${version}') THEN\n    INSERT INTO replay_verdict VALUES ('${check}', 'not_armed'`
+      );
+      expect(
+        readdirSync(join(ROOT, 'supabase/migrations')).some((f: string) => f.startsWith(version))
+      ).toBe(true);
     });
   }
   it('hand-for-hand is graded only once 20261119211558 is installed; breaks always', () => {
-    expect(replaySql).toContain("version = '20261119211558')");
+    expect(replaySql).toContain("pg_temp.replay_installed('20261119211558')");
     expect(replaySql).toContain('engine_maintenance_break_log');
     expect(replaySql).toContain('break_started_at, break_ends_at');
+  });
+  it('history is read only where the restored copy carries it (Backup 44673040919)', () => {
+    expect(replaySql).toContain(
+      "IF to_regclass('supabase_migrations.schema_migrations') IS NULL THEN RETURN false; END IF;"
+    );
+    expect(replaySql).not.toMatch(
+      /FROM supabase_migrations\.schema_migrations WHERE version = '\d/
+    );
   });
   it('only pass and not_armed let a certificate through, and all four checks must answer', () => {
     expect(trials).toContain('if r["verdict"] not in ("pass", "not_armed")');
@@ -93,17 +113,33 @@ describe('the candidate is read from itself', () => {
   it('its free-horse picker must read the reservation budget', () => {
     const budget = read('server/src/services/horseReservationBudget.ts');
     const service = read('server/src/services/TournamentRecurringService.ts');
-    expect(budget).toContain("HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'");
+    expect(budget).toContain(
+      "HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'"
+    );
     expect(service).toContain('this.horseReservationBudget.atBudget()');
-    expect(trials).toContain("HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'");
-    expect(trials).toContain('this\\.horseReservationBudget\\.atBudget()');
+    expect(trials).toContain(
+      "HORSE_RESERVATION_BUDGET_RPC = 'fn_horses_at_tournament_reservation_budget'"
+    );
+    expect(trials).toContain("*'this.horseReservationBudget.atBudget()'*");
+    // Never a pipe into grep -q: under standby-engine.sh's pipefail an early
+    // match kills git show with SIGPIPE and reads as a missing fix (Backup
+    // 44680630430).
+    const picker = trials.slice(
+      trials.indexOf('regression_replay_picker() {'),
+      trials.indexOf('\n}\n', trials.indexOf('regression_replay_picker() {'))
+    );
+    expect(picker).not.toMatch(/\|\s*grep -q/);
   });
 });
 
 describe('its native proof runs on every change to it', () => {
   it('the workflow runs the proof against PostgreSQL 17 on its paths', () => {
-    for (const p of ['server/standby/standby-trials.sh', 'server/standby/standby-engine.sh',
-      'scripts/ci/test-backup-regression-replay.py', 'scripts/ci/fixtures/backup-regression-replay-production.json']) {
+    for (const p of [
+      'server/standby/standby-trials.sh',
+      'server/standby/standby-engine.sh',
+      'scripts/ci/test-backup-regression-replay.py',
+      'scripts/ci/fixtures/backup-regression-replay-production.json',
+    ]) {
       expect(workflow).toContain(p);
     }
     expect(workflow).toContain('python3 -B scripts/ci/test-backup-regression-replay.py');

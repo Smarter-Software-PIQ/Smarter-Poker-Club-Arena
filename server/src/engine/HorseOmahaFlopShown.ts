@@ -406,14 +406,16 @@ export interface FlopShownHand {
 }
 
 /** His cards when the hand's public record shows them: named in the revealed holdings, and listed at the
- *  showdown as not mucked. Null otherwise; a folded or mucked hand is never read. */
+ *  showdown with `mucked: false` written out. Null otherwise: a folded or mucked hand, and an entry whose
+ *  `mucked` is missing or anything but the boolean false, is never read (public.fn_horse_flop_shown_public_class,
+ *  migration 20261119213206 onward, is the twin). */
 function publicHoleCards(hand: FlopShownHand, userId: string): unknown[] | null {
   if (!plainObject(hand.holeCards) || !Object.hasOwn(hand.holeCards, userId)) return null;
   const cards = hand.holeCards[userId];
   if (!Array.isArray(cards)) return null;
   if (!Array.isArray(hand.showdown)) return null;
   const entry = hand.showdown.find((e) => plainObject(e) && e.user_id === userId);
-  if (!plainObject(entry) || entry.mucked === true) return null;
+  if (!plainObject(entry) || entry.mucked !== false) return null;
   return cards;
 }
 
@@ -605,6 +607,21 @@ export function flopShownFromRow(row: readonly number[]): FlopShownCounters | nu
   };
   return validFlopShown(out) ? out : null;
 }
+
+/**
+ * The games the accepted-hand learner keeps the record for: every variant public.fn_horse_exact_accept_hand
+ * admits ('nlh','plo4','plo5','plo6','plo8','flh','flo8','short_deck','pineapple') that flopShownCarriedFor
+ * carries to a decision. Any other game (Hold'em, short deck, pineapple) never accumulates flop_shown or the
+ * fold-to-raise price record: nothing reads them there. The SQL gate in the accepted-hand learner names exactly this list
+ * (whatAFlopBetShowedIsKeptAndDelivered.law.test.ts, law 10, pins the two together).
+ */
+export const FLOP_SHOWN_LEARNED_VARIANTS: readonly string[] = Object.freeze([
+  'plo4',
+  'plo5',
+  'plo6',
+  'plo8',
+  'flo8',
+]);
 
 /** The games whose decisions carry the record: the Omaha family (HorseOmahaStreetRead.streetReadCarriedFor's rule). */
 export function flopShownCarriedFor(variant: string | null | undefined): boolean {

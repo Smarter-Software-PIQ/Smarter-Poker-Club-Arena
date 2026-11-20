@@ -96,6 +96,9 @@ describe('the band uses these and nothing else', () => {
     expect(src).not.toContain("handleTileAction(table.id, 'raise', table.heroStack)");
     expect(src).not.toContain('(pot + toCall * 2) * frac');
     expect(src).toContain('tilePotRaiseTo(');
-    expect(src).toContain("handleTileAction(table.id, 'raise', tileAllIn)");
+    // Dan 2026-11-19: all-in is two actions. The tile ALL IN opens the slider
+    // at the all-in amount; the confirm submits it.
+    expect(src).not.toContain("handleTileAction(table.id, 'raise', tileAllIn)");
+    expect(src).toContain('openTileAt(tileAllIn)');
   });
 });
