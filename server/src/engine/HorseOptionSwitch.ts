@@ -790,7 +790,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
   holdemTournamentAllInCallIsPriced: [
     HOLDEM,
-    "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop all-in and river calls",
+    "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop calls facing a jam",
     'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
   ],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],

@@ -19,7 +19,8 @@ Two-card no-limit hold'em tournament hands only (one board, no straddle, no bomb
    - Players still to act behind the Horse are priced as overcallers: each with the top half of the range he would call the jam with; the call is the mixture of nobody waking up and the widest one behind overcalling (his extra chips, capped by the Horse's call, added to the pot).
    - Equity: seeded Monte Carlo (3,000 deals heads-up, 2,400 multiway), exact card removal, scored by HorseEval.scoreHoldem; the seed is a hash of the public spot and the cards; no shared generator is consumed.
    - Price: EV(call) - EV(fold) = sum of p x (equity x W - BF x (1 - equity) x C); W the contestable pot (dead money, side pots capped at the Horse's stack, the Horse's own chips in), C the call, BF the Horse's bubble factor where a pay jump is live (HorseLogic.payJumpBubbleFactor; 1 in a PKO, a mystery bounty, a bounty-only event, with no pay jump or no context). Margin = EV / (W + BF x C) = equity minus required equity when nobody is behind.
-2. The end of the reference: a later layer of the reference may not turn the preflop priced answer around (receipt holdem_tournament_all_in_call_reference_kept_seen). Postflop the price is taken here, with the equity the engine already computed for the decision (Phase 7 equity evidence of decidePostflop's own pass), facing an all-in or a whole-stack call, or a river bet, where the call closes the action: a fold more than 5 equity points above the price becomes a call (any positive margin for a committed stack), a call more than 5 points below it a fold.
+2. The end of the reference: a later layer of the reference may not turn the preflop priced answer around (receipt holdem_tournament_all_in_call_reference_kept_seen). Postflop the price is taken here, with the equity the engine already computed for the decision (Phase 7 equity evidence of decidePostflop's own pass), only facing an opponent's all-in (a jam) where the call closes the action: a fold more than 5 equity points above the price becomes a call (any positive margin for a committed stack), a call more than 5 points below it a fold.
+   - Postflop scope (review N3, 2026-11-19): the postflop half is restricted to all-in calls facing a jam; the river-bet part and the whole-stack call of a bet that is not all in were dropped. The Phase 7 equity is taken against each opponent's preflop band, with no conditioning on his postflop line; against a jam that band is the closest proxy the engine has, but against a river bet the bettor's line range is much stronger, and pricing it there pushed river folds toward calls (the reverse of audit E's "river calls too light").
 3. Phase 7 (tournament utility arbiter): its choice is refused (tournamentUtilityRefusal `priced_all_in_call`) when it would turn the priced call or fold around and the margin is beyond 5 equity points (HOLDEM_TOURNAMENT_ALL_IN_LOCK_MARGIN), or beyond 0 for a committed call.
 4. Phase 8: the same refusal (ledger reason `priced_all_in_call`, applied false).
 
@@ -40,7 +41,8 @@ server/src/engine/AHoldemTournamentAllInCallIsPriced.law.test.ts (fixtures AHold
 ## Audit fixtures and what changes
 
 - da2d1f44, 95b1c217, 1b51e45d, d325481d, fbfdfc4a: fold -> call (priced margins about +0.12, +0.13, +0.03, +0.22 committed, +0.11).
-- 0f7c778b (TsKh turn, all-in) and 2b5b823c (QQ river on AA board): unchanged. The price check runs, but the engine's own equity for these spots is about 0.25 against a price of 0.34 and about 0.65 against 0.27 (the audit's model: 0.65 and 0.10). The decision follows the engine's equity; the error is in the postflop equity model (the bands and reads of a jam after a 3-bet pot lead, and of a river bet after two check-calls on a paired ace board), not in a missing price check. Not fixed here.
+- 0f7c778b (TsKh turn, all-in): unchanged. The price check runs, but the engine's own equity for this spot is about 0.25 against a price of 0.34 (the audit's model: 0.65).
+- 2b5b823c (QQ river on AA board, a 12.5bb river bet, not all in): out of scope since review N3 (no verdict; the decision is the option-off decision). With the river-bet part the engine's band equity was about 0.65 against 0.27 (the audit's model: 0.10), which is why the river-bet part was dropped. The decision follows the engine's equity; the error is in the postflop equity model (the bands and reads of a jam after a 3-bet pot lead, and of a river bet after two check-calls on a paired ace board), not in a missing price check. Not fixed here.
 - fb6eb2ec (Kd7d flop) and 7a7125e8 (Qc5c heads-up flop): the rebuilt requests are already called by the engine; priced calls with the option on.
 
 ## Evidence rows
@@ -57,7 +59,7 @@ League card (HorseLeague.ts, declared, not run): mtt6_holdem_tournament_all_in_c
 - Side pots are priced as one pot: the Horse must beat every opponent in the pot to win W; a side pot it could win against one of them alone is not credited (a call is priced slightly too tight in multiway pots with unequal stacks).
 - Bounty value is not added to the call.
 - The overcall model prices only the widest player behind waking up, not two.
-- Postflop it uses the engine's equity as it stands (see 0f7c778b and 2b5b823c above).
+- Postflop it uses the engine's equity as it stands, and only facing a jam (see 0f7c778b and 2b5b823c above).
 
 ## Replay
 

@@ -14914,10 +14914,17 @@ function priceHoldemTournamentPreflopAllInCall(
 }
 
 /**
- * THE POSTFLOP PRICE (holdemTournamentAllInCallIsPriced): facing an all-in or a call of the whole stack, or a
- * river bet, where the call closes the action (nobody with chips is still to act). The equity is the one the
- * engine computed for this decision (the Phase 7 equity evidence of decidePostflop's pass, against every live
- * opponent); without it, null.
+ * THE POSTFLOP PRICE (holdemTournamentAllInCallIsPriced): facing an opponent's all-in (a jam), where the call
+ * closes the action (nobody with chips is still to act). The equity is the one the engine computed for this
+ * decision (the Phase 7 equity evidence of decidePostflop's pass, against every live opponent); without it,
+ * null.
+ *
+ * Review N3 (2026-11-19): the Phase 7 equity is taken against each opponent's preflop band, with no
+ * conditioning on his postflop line. Against a jam that band is the closest proxy the engine has; against a
+ * river bet or a whole-stack call of a bet that is not all in, the bettor's line range is much stronger than
+ * his band, so pricing those spots with it pushed correct folds toward calls (the opposite of audit E's
+ * "river calls too light"). Only the jam is priced here; a river bet and a whole-stack call of a non-all-in
+ * bet are left to the paths that decide them.
  */
 function priceHoldemTournamentPostflopCall(
   player: SeatPlayer,
@@ -14934,9 +14941,8 @@ function priceHoldemTournamentPostflopCall(
     (p) => p.seat !== player.seat && !p.is_folded && (p.is_sitting_out !== true || p.is_all_in)
   );
   if (live.some((p) => p.is_all_in !== true && p.bet < gs.currentBet - 1e-9)) return null;
-  const facingAllIn = live.some((p) => p.is_all_in === true);
-  const heroAllInByCall = toCall >= player.stack - 1e-9;
-  if (!facingAllIn && !heroAllInByCall && gs.stage !== 'river') return null;
+  // only facing a jam (review N3): the preflop band is not the bettor's line range for any other bet
+  if (!live.some((p) => p.is_all_in === true)) return null;
   const evidence = currentPhase7Equity();
   if (!evidence || !Number.isFinite(evidence.equity)) return null;
   const ids = new Set(evidence.sampledOpponentIds);

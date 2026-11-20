@@ -325,8 +325,7 @@ describe('postflop: the call is checked against the price with the equity the en
     expect(verdictOf('fb6eb2ec').price.verdict).toBe('call');
     expect(verdictOf('7a7125e8').price.verdict).toBe('call');
     expect(verdictOf('0f7c778b').price.equity).toBeLessThan(0.34);
-    expect(verdictOf('2b5b823c').price.equity).toBeGreaterThan(0.5);
-    for (const name of ['fb6eb2ec', '7a7125e8', '0f7c778b', '2b5b823c']) {
+    for (const name of ['fb6eb2ec', '7a7125e8', '0f7c778b']) {
       const v = verdictOf(name);
       expect(v.street, name).toBe('postflop');
       const answers = caseAnswers(name, true);
@@ -335,6 +334,20 @@ describe('postflop: the call is checked against the price with the equity the en
       if (v.price.margin < -HOLDEM_TOURNAMENT_ALL_IN_LOCK_MARGIN)
         expect(answers, name).toEqual(['fold']);
     }
+  });
+
+  it('review N3: only a jam is priced postflop; a river bet that is not all in (2b5b823c) is not priced and decides as with the option off', () => {
+    // The Phase 7 equity is taken against the preflop bands, not the bettor's line range; against a river bet
+    // after two check-calls that pushed folds toward calls (the reverse of audit E's "river calls too light").
+    const { gs, player } = buildSpot(AUDIT_CASES['2b5b823c'].spec);
+    expect(gs.players.some((p) => p.seat !== player.seat && p.is_all_in === true)).toBe(false);
+    for (const seed of SEEDS) {
+      const on = decide(gs, player, true, seed);
+      expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+      expect(withoutClocks(on)).toBe(withoutClocks(decide(gs, player, 'absent', seed)));
+    }
+    // A jam on the same street keeps its price (the fb6eb2ec flop jam above, 7a7125e8 heads-up).
+    expect(verdictOf('fb6eb2ec').street).toBe('postflop');
   });
 });
 

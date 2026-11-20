@@ -75,8 +75,10 @@
  *     the price; beyond it the priced answer stands. A committed stack (half
  *     or more of the chips it started the hand with already in) whose call
  *     the price favours by any margin calls;
- *   - postflop, facing an all-in (or a call that is the Horse's whole stack)
- *     or a river bet, where the call closes the action: a fold whose margin is
+ *   - postflop, only facing an opponent's all-in (a jam) where the call
+ *     closes the action (review N3: the engine's equity there is against the
+ *     preflop bands, the closest proxy against a jam but not the line range
+ *     of a river bet, so a river bet is not priced): a fold whose margin is
  *     above LOCK_MARGIN becomes a call, a call whose margin is below
  *     -LOCK_MARGIN becomes a fold; a committed stack's fold with any positive
  *     margin becomes a call.
