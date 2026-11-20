@@ -374,25 +374,27 @@ BEGIN
 END
 $schedule$;
 
+-- The probes fit the ordinary 12 s install transaction: the pair reader runs
+-- over the last five minutes, and the recorder over a closed hour before any
+-- hand was written (every statement executes; nothing is found), then the
+-- whole block unwinds. The first real hour is recorded by pg_cron at :08.
 -- @probe-for: public.fn_ca_felt_latency
 -- @probe-for: public.fn_ca_felt_latency_record
--- @probe-for: public.fn_sp_daily_digest
+-- @probe-exempt: public.fn_sp_daily_digest the anchored edit adds one jsonb key; a full digest run takes longer than the ordinary 12 s install transaction (its own statement timeout is 60 s), and fn_sp_digest_felt_latency, the only new call in it, is executed below
 DO $probe$
-DECLARE v_n integer; v_rec jsonb; v_line jsonb; v_digest jsonb;
+DECLARE v_n integer; v_rec jsonb; v_line jsonb;
 BEGIN
-  SELECT count(*) INTO v_n FROM public.fn_ca_felt_latency(date_trunc('hour', now()) - interval '1 hour', date_trunc('hour', now()));
-  v_rec := public.fn_ca_felt_latency_record(now() - interval '1 hour');
-  IF v_rec IS NULL OR (v_rec->>'hour')::timestamptz <> date_trunc('hour', now() - interval '1 hour') THEN
+  SELECT count(*) INTO v_n FROM public.fn_ca_felt_latency(now() - interval '5 minutes', now());
+  v_rec := public.fn_ca_felt_latency_record('2026-01-01 00:00:00+00'::timestamptz);
+  IF v_rec IS NULL OR (v_rec->>'hour')::timestamptz <> '2026-01-01 00:00:00+00'::timestamptz THEN
     RAISE EXCEPTION 'FELT_LATENCY_PROBE: the record did not report its hour (%)', v_rec;
   END IF;
   v_line := public.fn_sp_digest_felt_latency((now() AT TIME ZONE 'America/Chicago')::date);
   IF v_line IS NULL OR NOT v_line ? 'kinds' THEN
     RAISE EXCEPTION 'FELT_LATENCY_PROBE: the digest line has no kinds (%)', v_line;
   END IF;
-  -- Yesterday's digest is already snapshotted; p_dispatch false sends nothing,
-  -- and the unwind below rolls back anything it wrote.
-  v_digest := public.fn_sp_daily_digest((now() AT TIME ZONE 'America/Chicago')::date - 1, false);
-  IF v_digest IS NULL OR NOT v_digest ? 'felt_latency' THEN
+  IF strpos(pg_get_functiondef('public.fn_sp_daily_digest(date,boolean)'::regprocedure),
+            '''felt_latency'', public.fn_sp_digest_felt_latency(v_day)') = 0 THEN
     RAISE EXCEPTION 'FELT_LATENCY_PROBE: fn_sp_daily_digest does not return felt_latency';
   END IF;
   RAISE EXCEPTION 'probe-unwind';

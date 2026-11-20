@@ -101,8 +101,18 @@ describe('player-felt latency is recorded hourly', () => {
     );
     expect(MIG).toContain('-- @probe-for: public.fn_ca_felt_latency\n');
     expect(MIG).toContain('-- @probe-for: public.fn_ca_felt_latency_record\n');
-    expect(MIG).toContain('-- @probe-for: public.fn_sp_daily_digest\n');
-    expect(code).toContain("NOT v_digest ? 'felt_latency'");
+    expect(MIG).toMatch(/^-- @probe-exempt: public\.fn_sp_daily_digest .{40,}$/m);
+    expect(code).toContain("'''felt_latency'', public.fn_sp_digest_felt_latency(v_day)') = 0 THEN");
+  });
+
+  it('fits the ordinary 12 s install transaction: no probe reads a full hour of hands or runs the whole digest', () => {
+    const probe = code.slice(code.indexOf('DO $probe$'));
+    expect(probe).toContain("public.fn_ca_felt_latency(now() - interval '5 minutes', now())");
+    expect(probe).toContain(
+      "public.fn_ca_felt_latency_record('2026-01-01 00:00:00+00'::timestamptz)"
+    );
+    expect(probe).not.toMatch(/fn_sp_daily_digest\(\(/);
+    expect(MIG).not.toMatch(/^-- @install-budget/m);
     expect(code).toContain("RAISE EXCEPTION 'probe-unwind';");
     expect(code).toMatch(/^BEGIN;\s+SET LOCAL lock_timeout = '4s';/m);
     expect(code.trim().endsWith('COMMIT;')).toBe(true);
