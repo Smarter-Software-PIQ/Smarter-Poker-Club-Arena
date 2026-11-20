@@ -130,8 +130,8 @@ export interface ValueSpot {
 }
 
 export interface ValueCandidate {
-  kind: 'check' | 'wager' | 'call';
-  /** share of the pot (null for the check and the call) */
+  kind: 'check' | 'wager' | 'call' | 'fold';
+  /** share of the pot (null for the check, the call and the fold) */
   frac: number | null;
   allIn: boolean;
   /** chips the hero adds now */
@@ -162,7 +162,7 @@ export interface ValueReceipt {
   /** sizes inside two standard errors (equity sampling and response cells) of the best wager */
   indifferent: number[];
   choice: {
-    kind: 'check' | 'wager' | 'call';
+    kind: 'check' | 'wager' | 'call' | 'fold';
     frac: number | null;
     allIn: boolean;
     adds: number;
@@ -560,6 +560,22 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       source: spot.ip
         ? 'call: his next-street lead at the measured rate, else float'
         : 'call: next street out of position',
+    });
+    cands.push({
+      kind: 'fold',
+      frac: null,
+      allIn: false,
+      adds: 0,
+      ev: 0,
+      fold: 0,
+      raise: 0,
+      call: 0,
+      evFold: 0,
+      evRaise: 0,
+      evCall: 0,
+      plan: 'fold',
+      se: 0,
+      source: 'fold',
     });
   }
   if (cands.length === 0) return null;

@@ -176,6 +176,18 @@ describe('omahaMathCore value: facing a wager (XR-BLUFF review)', () => {
     )!;
     expect(r.choice.kind).not.toBe('wager');
   });
+  it('a river bluff-catcher that is beaten by the betting range folds (fold priced at 0)', () => {
+    const r = planValue(
+      base({
+        street: 'river',
+        toCall: 30,
+        pot: 60,
+        equityAtShare: () => 0.1,
+        response: flat(0.2, 0.1),
+      })
+    )!;
+    expect(r.choice.kind).toBe('fold');
+  });
 });
 
 describe('omahaMathCore value: river', () => {
