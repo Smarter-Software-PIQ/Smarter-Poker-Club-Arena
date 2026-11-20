@@ -253,7 +253,17 @@ describe('4. the post-cutover recheck proves against the main it already fetched
 
   it('only bound owner-window observation and the post-cutover recheck use local-main', () => {
     const transaction = TRANSACTION;
-    expect(transaction.match(/source_target_is_current local-main/g)).toHaveLength(2);
+    // Third: the rolling route's own pre-seal recheck (rolling_release), the
+    // same post-replacement proof against the main it already fetched.
+    expect(transaction.match(/source_target_is_current local-main/g)).toHaveLength(3);
+    const rolling = transaction.slice(
+      transaction.indexOf('rolling_release() {'),
+      transaction.indexOf('rolling_finish_forward() {')
+    );
+    expect(rolling.indexOf('  source_target_is_current local-main\n')).toBeGreaterThan(-1);
+    expect(rolling.indexOf('  source_target_is_current local-main\n')).toBeLessThan(
+      rolling.indexOf('  rolling_commit "$CONTAINER"')
+    );
     const binding = transaction.slice(
       transaction.indexOf('bind_phase1_window() {'),
       transaction.indexOf('seconds_to_next_break() {')

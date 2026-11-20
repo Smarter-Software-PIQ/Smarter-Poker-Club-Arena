@@ -380,6 +380,8 @@ TURN_PORT=3478
 TURN_STATIC_AUTH_SECRET=
 FAULT_INJECTION_TOKEN=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 ENGINE_STANDBY_CLONE=1
+ENGINE_ROLLING_HANDOFF=on
+ENGINE_HANDOFF_PEER_PORT=8081
 EOF
 }
 
@@ -557,6 +559,29 @@ cmd_certify() {
       fi
     fi
   fi
+  # The rolling release rehearsed (docs/ENGINE-ROLLING-HANDOFF.md): the
+  # serving release hands every table to this one at its own hand boundary,
+  # after a rehearsed rollback. Recorded as certificate.rollingHandoff and
+  # published as backup-engine/rolling-handoff, which a rolling release
+  # requires. It never changes this certificate's classic verdict: a build
+  # whose handoff is not ready still ships through the classic route.
+  local rolling_json='{"verdict":"skipped","reason":"serving_baseline_unknown"}'
+  if [ "$verdict" = pass ] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && declare -F trial_rolling_handoff >/dev/null; then
+    local rolling_line=''
+    rolling_line=$(trial_rolling_handoff "$serving" "$sha" 2>/dev/null | tail -1) || true
+    rolling_json=$(python3 -c 'import json,sys
+try:
+    d=json.loads(sys.argv[1])
+except ValueError:
+    d={"verdict":"fail","reasons":"trial_output_unreadable"}
+print(json.dumps({"verdict":"pass" if d.get("verdict")=="pass" else "fail","from":d.get("from"),"to":d.get("to"),
+  "moved":d.get("moved",0),"returned":d.get("returned",0),"kept":d.get("kept",0),
+  "durationMs":d.get("durationMs"),"reasons":d.get("reasons") or d.get("reason") or ""}))' "$rolling_line")
+    log "certify $sha: rolling handoff trial $rolling_json"
+    # Back to this release in the canonical container for the crash and soak checks.
+    cmd_run "$sha" || record 'boot_after_rolling_trial_failed'
+    wait_live 600 >/dev/null || record 'never_live_after_rolling_trial'
+  fi
   # An unexpected PID1 exit must recover through Docker's installed policy.
   # docker kill/stop is an intentional operator stop and suppresses that policy.
   if [ "$verdict" = pass ]; then
@@ -603,11 +628,11 @@ cmd_certify() {
 
   local reasons_json="[]"
   [ ${#reasons[@]} -eq 0 ] || reasons_json=$(printf '%s\n' "${reasons[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
-  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" <<PY
+  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$rolling_json" <<PY
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-       "playerReconnectedBothDirections": json.loads(sys.argv[5]), "rehearsedServingSha": sys.argv[2], "rollbackAdoptionSeconds": json.loads(sys.argv[3]), "forwardAdoptionSeconds": json.loads(sys.argv[4]),
+       "playerReconnectedBothDirections": json.loads(sys.argv[5]), "rollingHandoff": json.loads(sys.argv[6]), "rehearsedServingSha": sys.argv[2], "rollbackAdoptionSeconds": json.loads(sys.argv[3]), "forwardAdoptionSeconds": json.loads(sys.argv[4]),
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},

@@ -91,7 +91,13 @@ function runHostGate(body: string, rc = 0, sha = SHA, stopped = false) {
 
 describe('host revalidates the exact Backup certificate before new ownership and mutation', () => {
   it('checks before reservation, prepare and the final clock/mutation boundary', () => {
-    expect(transaction).toMatch(/require_backup_certificate[^\n]+\ninitialise_phase1_cycle/);
+    // The rolling route reserves no break cycle; the certificate still comes first.
+    expect(transaction).toMatch(
+      /require_backup_certificate[^\n]+\n\[ "\$\{RELEASE_MODE:-classic\}" = rolling \] \|\| initialise_phase1_cycle/
+    );
+    expect(transaction).toMatch(
+      /rolling_release\(\) \{\n(?:[^\n]*\n)*? {2}require_backup_certificate \|\| die/
+    );
     expect(transaction).toMatch(
       /require_backup_certificate[^\n]+\n {2}record_floor_runtime_entry\n {2}set \+e\n {2}PREPARE_OUTPUT=/
     );

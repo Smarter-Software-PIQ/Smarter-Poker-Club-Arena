@@ -96,7 +96,9 @@ describe('a degraded engine can still be replaced', () => {
     expect(supervisor).toContain('case "$http_code" in\n    200|503)');
     expect(supervisor).not.toMatch(/curl\s+-[^\n]*f/);
 
-    const engineUp = transaction.indexOf('"$ENGINE_UP"');
+    // The classic replacement (the rolling route's `"$ENGINE_UP" --successor`
+    // starts a second engine and may prove the old one with the rollback read).
+    const engineUp = transaction.indexOf('"$ENGINE_UP" 3<<<"$TOKEN"');
     const candidateCheck = transaction.indexOf(
       'CANDIDATE_INSTANCE="$(health_instance \'http://127.0.0.1:8080/health\')"',
       engineUp

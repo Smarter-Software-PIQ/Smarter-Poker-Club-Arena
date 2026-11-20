@@ -1,0 +1,3 @@
+# tests/a-rolling-release-replaces-the-engine-table-by-table.law.test.ts
+
+A rolling engine release (engine-release-transaction.sh RELEASE_MODE=rolling) is chosen only when the serving engine offers the handoff and the exact SHA carries backup-engine/rolling-handoff = success; it starts the certified candidate beside the serving engine with `engine-up.sh --successor` (ENGINE_ROLE=handoff-successor, ENGINE_HANDOFF_PEER_PORT), moves every table at its own hand boundary, hands everything back and leaves the old engine serving on any failure before retirement, settles forward and seals what serves after it, and recovers through engine-release-recover.sh; without a route record the classic cutover runs unchanged. Drills stay on the classic route.

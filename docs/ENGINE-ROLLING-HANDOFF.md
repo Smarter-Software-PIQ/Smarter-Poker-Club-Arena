@@ -318,10 +318,17 @@ either way it is one upstream line.
 
 ## Still Not Built
 
-**Pipeline wiring** (below), including the Backup rehearsal, is the only
-remaining activation blocker and belongs to the pipeline pull request. The
-flag stays OFF in production until it lands and a Backup certification with
-`rollingHandoff.verdict == "pass"` exists.
+**Pipeline wiring** is built (see "Pipeline Wiring: What Was Built"). Rolling
+mode is chosen only once the serving engine reports the handoff capability and
+a Backup certification with `rollingHandoff.verdict == "pass"` exists.
+
+**Peer reachability.** The relay and the successor watchdog reach the peer at
+`127.0.0.1:<ENGINE_HANDOFF_PEER_PORT>` inside the engine's own container. The
+engines run as separate bridged containers (`-p <port>:8080`), so that
+loopback is not the other engine: the watchdog then aborts every yield and the
+Backup rehearsal fails, which keeps every release on the classic route. Rolling
+activation needs the two engines to share one network namespace (or a relay
+host setting) first.
 
 Lightning host tables are kept by the old instance in this phase
 (`lightning_cluster_stays`); the old instance does not retire while a Lightning
@@ -469,3 +476,54 @@ custody. Classic cutover stays the fallback for every step.
    `docs/ENGINE-RELEASE-RUNBOOK.md` with the status fields above and the
    verification checklist (old retired, successor owns every lease, no open
    moves, public `/health` names the successor, hands dealing).
+
+## Pipeline Wiring: What Was Built
+
+The steps above were built in the release pipeline, with these deliberate
+differences, all in favour of keeping the classic steady state:
+
+- **Two hops, not one rename.** Docker cannot move a running container to
+  another host port, and everything on the host (Prometheus, autoheal,
+  monitoring, the supervisor, every 8080 reader) expects `club-arena-engine` on
+  port 8080. So a rolling release moves the tables twice: old (8080) to
+  `club-arena-engine-next` (8081), then `club-arena-engine-next` to a fresh home
+  container `club-arena-engine` (8080) of the same certified image. Caddy points
+  at 8081 only between the two retirements. The end state is byte-for-byte the
+  container a classic release leaves.
+- **Route selection is automatic.** `release_mode` is `auto` by default and
+  becomes rolling only when the serving engine answers its handoff status
+  route (mode `serving`, same `instanceId` as `/health`) AND the candidate
+  carries `backup-engine/rolling-handoff = success`. Until both hold, the
+  classic cutover runs. The bootstrap flag rides `server/scripts/engine-up.sh`
+  (`--env ENGINE_ROLLING_HANDOFF=on` after the env file), so the next classic
+  release carries it.
+- **The database leader proof runs after the home hop**, because a successor
+  is not the elected leader until the instance it replaces has retired.
+- **Failure rule.** Before the old engine retires, every failure hands moved
+  units back and leaves it serving. After it retires, the transaction settles
+  forward on whichever engine owns the tables and seals it; a home leg that
+  could not finish is resumed by the next rolling release
+  (`/var/lib/club-arena/engine-rolling-home-pending`).
+- **The Backup verdict is separate.** `trial_rolling_handoff` never changes the
+  classic certificate verdict; it is published as its own commit status.
+
+Where it lives: `server/scripts/engine-up.sh` (`--successor`),
+`server/scripts/engine-release-transaction.sh` (the two `ROLLING RELEASE`
+regions, `--rolling-recover`), `server/scripts/engine-release-recover.sh`,
+`.github/workflows/auto-deploy-hetzner.yml` (step `release_mode`),
+`.github/workflows/stage-engine-release.yml` (`release_mode` input and
+payload), `.github/workflows/backup-engine.yml` (status
+`backup-engine/rolling-handoff`), `server/standby/standby-trials.sh`
+(`trial_rolling_handoff`), `server/standby/standby-engine.sh`
+(`rollingHandoff` in the certificate). Procedure:
+`docs/ENGINE-RELEASE-RUNBOOK.md` section 4A. Tests:
+`tests/a-rolling-release-replaces-the-engine-table-by-table.law.test.ts`,
+`tests/a-rolling-handoff-flag-with-no-yield-changes-nothing.law.test.ts`.
+
+Engine-side requirements this route relies on (owned by the engine lane):
+the `ENGINE_ROLE=handoff-successor` boot role (including a successor
+that restarts after its predecessor retired behaving as an ordinary leader),
+the old-to-new client relay while yielding, `GET /internal/rolling-handoff/status`
+answering on a successor before its first adoption, and the old instance
+re-admitting a unit whose successor died before adopting it after an abort.
+Observability (step 6 above) is not part of this change.
