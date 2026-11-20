@@ -49,7 +49,7 @@
 -- LOCK FOOTPRINT. CREATE OR REPLACE FUNCTION only: no table or row lock, no
 -- install window, one bounded transaction.
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_retain_hand_submission(jsonb)'::regprocedure)) = '727394a228663ae69b55a3597691a36e' AND md5(pg_get_functiondef('public.fn_claim_bounty_legacy_candidate_20260907(uuid,uuid,integer,numeric,uuid,uuid,bigint,timestamp with time zone,uuid,jsonb,numeric,boolean)'::regprocedure)) = '21c58bf9251403a57304172f3ce39ae7')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_retain_hand_submission(jsonb)'::regprocedure)) = '727394a228663ae69b55a3597691a36e' AND md5(pg_get_functiondef('public.fn_claim_bounty_legacy_candidate_20260907(uuid,uuid,integer,numeric,uuid,uuid,bigint,timestamp with time zone,uuid,jsonb,numeric,boolean)'::regprocedure)) = 'c68823f888768992d7f6dd8a5062ed05')
 
 BEGIN;
 SET LOCAL lock_timeout = '3s';
@@ -88,7 +88,7 @@ BEGIN
      ARRAY[$n1$ IF tour IS NOT NULL THEN PERFORM 1 FROM public.tournaments WHERE id=tour FOR KEY SHARE; END IF;$n1$]),
 
     ('public.fn_claim_bounty_legacy_candidate_20260907(uuid,uuid,integer,numeric,uuid,uuid,bigint,timestamp with time zone,uuid,jsonb,numeric,boolean)',
-     'd219ceeed1041eed5cf2c543315eb91b', '21c58bf9251403a57304172f3ce39ae7',
+     '7b4725dcb4a512ba8e22addaaecf079e', 'c68823f888768992d7f6dd8a5062ed05',
      ARRAY[$o2$  SELECT * INTO v_t FROM public.tournaments t
    WHERE t.id=p_tournament_id FOR UPDATE;$o2$],
      ARRAY[$n2$  SELECT * INTO v_t FROM public.tournaments t
