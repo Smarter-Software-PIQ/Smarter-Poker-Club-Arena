@@ -5,6 +5,11 @@ import {
   shouldBankTheWin,
   startingStackFor,
 } from '../services/HorseBankTheWin.js';
+import {
+  ceilingExitKeepsTheGame,
+  horseCashStackCeilingChips,
+} from '../services/HorseCashStackCeiling.js';
+import { horseCashStackCeilingBBFrom } from './runtimeSettings/apply.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { noteFire } from './BrainTelemetry.js';
 import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
@@ -4413,11 +4418,17 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           }
         }
 
+        const stackCeiling = horseCashStackCeilingChips({
+          ceilingBB: horseCashStackCeilingBBFrom(this.currentHandRuntimeSettings),
+          variant: this.tableInfo?.game_variant,
+          bigBlind: this.tableInfo?.big_blind,
+          maxBuyIn,
+        });
         const cashedOutHorses = players.filter((p) => {
           if (!p.is_horse) return false;
           const row = this.chipContinuity?.row(p.user_id);
           if (row && hitRunHandsRemaining(row, p.stack) > 0) return false;
-          return shouldBankTheWin({
+          const bank = {
             horseId: p.user_id,
             stack: p.stack,
             startingStack: bankStart(p.user_id),
@@ -4427,7 +4438,20 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
                 : this.horseHandsSinceBigPot.get(p.user_id),
             playersAtTable: players.length,
             nextHandIsBigBlind: p.user_id === nextBbPlayer?.user_id,
-          });
+          };
+          if (shouldBankTheWin(bank)) return true;
+          /* HORSE CASH STACK CEILING (HorseCashStackCeiling, runtime setting
+             horse.cashStackCeilingBB, 0 = off; PLO4/PLO5 cash only). Above
+             the ceiling the same exit is due under the same orbit and big
+             blind rules, and only while the game keeps running without it. */
+          if (stackCeiling === null) return false;
+          return (
+            shouldBankTheWin({ ...bank, stackCeiling }) &&
+            ceilingExitKeepsTheGame(
+              players.length,
+              Number(this.tableInfo?.max_players) || players.length
+            )
+          );
         });
 
         for (const horse of cashedOutHorses) {

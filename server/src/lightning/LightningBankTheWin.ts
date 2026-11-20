@@ -29,6 +29,7 @@
  */
 
 import { bankTheWinMultiple } from '../services/HorseBankTheWin.js';
+import { ceilingExitKeepsTheGame, stackIsAboveCeiling } from '../services/HorseCashStackCeiling.js';
 
 export interface LightningBankParticipant {
   playerId: string;
@@ -56,6 +57,8 @@ export type LightningBankHandler = (req: {
   playerId: string;
   poolSessionId: string;
   maxBuyIn: number;
+  /** HorseCashStackCeiling in chips for this pool, or null when there is none. */
+  stackCeiling: number | null;
   /** One outcome per ask; `startBasis` is the durable basis the door read. */
   settle: (outcome: LightningBankOutcome, startBasis?: number | null) => void;
 }) => void;
@@ -91,6 +94,8 @@ export function noteLightningHandForBankTheWin(
   hand: {
     clusterId: string;
     maxBuyIn: number;
+    /** HorseCashStackCeiling in chips (PLO4/PLO5 cash, setting on), else absent or null. */
+    stackCeiling?: number | null;
     participants: ReadonlyArray<LightningBankParticipant>;
     stacksAfter: ReadonlyMap<string, number>;
   },
@@ -110,7 +115,12 @@ export function noteLightningHandForBankTheWin(
     if (s.finished || !handler) continue;
     if (s.askedAtMs !== null && nowMs - s.askedAtMs < ASK_STALE_MS) continue; // in flight
     // Unknown basis: ask once to learn it. Known: ask only at the line.
-    if (s.start !== null && !(after >= bankTheWinMultiple(p.playerId) * s.start)) continue;
+    if (
+      s.start !== null &&
+      !(after >= bankTheWinMultiple(p.playerId) * s.start) &&
+      !stackIsAboveCeiling(after, hand.stackCeiling)
+    )
+      continue;
     const token = ++nextToken;
     s.askToken = token;
     s.askedAtMs = nowMs;
@@ -133,6 +143,7 @@ export function noteLightningHandForBankTheWin(
         playerId: p.playerId,
         poolSessionId: p.poolSessionId,
         maxBuyIn: hand.maxBuyIn,
+        stackCeiling: hand.stackCeiling ?? null,
         settle,
       });
     } catch {
@@ -164,7 +175,9 @@ export interface LightningBankReading {
  */
 export function decideLightningBankTheWin(
   horseId: string,
-  r: LightningBankReading
+  r: LightningBankReading,
+  /** HorseCashStackCeiling in chips for this pool; absent or null = no ceiling (the owner's line alone). */
+  stackCeiling?: number | null
 ): 'leave' | 'done' | 'not_ready' {
   // Not found is transient (a seat moving between sister tables, a session
   // row mid-replacement): asked again later. Already leaving is final.
@@ -172,9 +185,15 @@ export function decideLightningBankTheWin(
   if (r.leave_pending) return 'done';
   const start = Number(r.start_basis);
   const stack = Number(r.stack);
-  if (!(start > 0) || !(stack >= bankTheWinMultiple(horseId) * start)) return 'not_ready';
+  const atLine = start > 0 && stack >= bankTheWinMultiple(horseId) * start;
+  // Above the ceiling the same exit is due under the same rules below (hands owed, the orbit, the blind order).
+  const overCeiling = !atLine && stackIsAboveCeiling(stack, stackCeiling);
+  if (!atLine && !overCeiling) return 'not_ready';
   if ((r.hands_owed ?? 0) > 0) return 'not_ready';
   const perHand = Math.max(2, Math.floor(Number(r.players_per_hand) || 0));
+  // A ceiling exit never thins the pool: it waits for the refill when the pool is already short.
+  if (overCeiling && !ceilingExitKeepsTheGame(Number(r.pool_players) || 0, perHand))
+    return 'not_ready';
   const since = r.hands_since_big_pot;
   if (since !== null && since !== undefined && since < perHand) return 'not_ready';
   const rank = r.blind_rank;

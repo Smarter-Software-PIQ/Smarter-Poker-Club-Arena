@@ -23,7 +23,10 @@
  */
 
 /** Where a setting is consumed. */
-export type RuntimeSettingConsumer = 'horse_decision' | 'lightning_fast_fold';
+export type RuntimeSettingConsumer =
+  | 'horse_decision'
+  | 'lightning_fast_fold'
+  | 'horse_stack_management';
 
 export interface RuntimeSettingSpec {
   /** Dotted key, `<area>.<name>`, as published in the settings JSON. */
@@ -146,6 +149,19 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       consumer: 'lightning_fast_fold',
       source: 'LightningHorse.ts LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX',
       description: "Lightning: The Most Deliberate Horse's Personal Tempo Factor",
+    },
+    // ---- Horse stack management (HorseCashStackCeiling.ts): not a decision option, read at the hand boundary ----
+    {
+      key: 'horse.cashStackCeilingBB',
+      kind: 'integer',
+      min: 0,
+      max: 2_000,
+      compiledDefault: 0,
+      consumer: 'horse_stack_management',
+      source:
+        'HorseCashStackCeiling.ts HORSE_CASH_STACK_CEILING_COMPILED_BB (0 is off: no ceiling)',
+      description:
+        'PLO4/PLO5 Cash: The Stack, In Big Blinds, Above Which A Horse Books Its Win And Leaves (0 = Off)',
     },
   ].map((spec) => Object.freeze(spec as RuntimeSettingSpec))
 );

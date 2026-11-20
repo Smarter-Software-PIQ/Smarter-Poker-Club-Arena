@@ -2,6 +2,8 @@ import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { withoutValueSizeStamp } from '../engine/HorseOmahaValueSizeBand.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
+import { horseCashStackCeilingChips } from '../services/HorseCashStackCeiling.js';
+import { horseCashStackCeilingBBFrom } from '../engine/runtimeSettings/apply.js';
 import { priceLightningRunout } from './LightningRunoutEquity.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
@@ -3532,6 +3534,13 @@ export class LightningHandHost {
       noteLightningHandForBankTheWin({
         clusterId: this.clusterId,
         maxBuyIn: Number.isFinite(max) && max > 0 ? max : bb * 200,
+        // HorseCashStackCeiling (horse.cashStackCeilingBB, 0 = off): PLO4/PLO5 cash pools only, else null.
+        stackCeiling: horseCashStackCeilingChips({
+          ceilingBB: horseCashStackCeilingBBFrom(this.runtimeSettings),
+          variant: this.rules?.game_variant,
+          bigBlind: bb,
+          maxBuyIn: max,
+        }),
         participants: [...this.participants.values()],
         stacksAfter: new Map(results.map((r) => [r.playerId, Number(r.stackAfter)])),
       });
