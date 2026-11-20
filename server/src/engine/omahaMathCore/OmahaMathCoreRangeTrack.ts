@@ -70,6 +70,11 @@ export interface NodeFreq {
   /** facing a wager: share he folds (0 when checked to) */
   fold: number;
   source: string;
+  /**
+   * measured non-value share of such a wager (lead decision: each cell's shownNonValue); absent: the
+   * break-even bluff share s / (1 + 2s)
+   */
+  nonValue?: number;
 }
 export type NodeFreqFn = (
   seat: number,
@@ -400,7 +405,11 @@ function likelihood(
   const n = F.length;
   const L = new Float64Array(n);
   const s = Math.max(0.05, a.frac);
-  const alpha = s / (1 + 2 * s);
+  // lead decision: a wager's non-value share is the cell's measured shownNonValue when the caller has it
+  const alpha =
+    nf.nonValue !== undefined && Number.isFinite(nf.nonValue)
+      ? Math.min(0.95, Math.max(0, nf.nonValue))
+      : s / (1 + 2 * s);
   if (!a.facing) {
     const b = Math.min(0.98, Math.max(0.02, nf.wager));
     const vTop = (1 - alpha) * b;
@@ -463,6 +472,17 @@ export interface TrackInput {
   pfRefineRuns?: number;
   postRuns?: number;
   now?: () => number;
+  /**
+   * optional cache (lane COREWIRE, latency only): the pool, preflop strengths and per-street strengths
+   * depend on the cards, board, seats and bands only, so a hand-street computes them once
+   */
+  cache?: Map<string, unknown>;
+}
+
+interface TrackCacheEntry {
+  cards: Int8Array;
+  pf: { pct: Float64Array; se: Float64Array };
+  byStreet: Map<PostStreet, { mean: Float64Array; se: Float64Array; cat: Int8Array }>;
 }
 
 /** Track every requested seat's range through the hand. Null outside PLO4/PLO5 or on any failure. */
@@ -476,41 +496,66 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
     const rng = seededRng(`${inp.seed}|rangeadv`);
     const size = inp.size ?? (hc === 4 ? 900 : 700);
     const deckPool = unseen([...inp.hole, ...inp.board]);
-    const cards = new Int8Array(size * hc);
-    const tmp = deckPool.slice();
-    for (let i = 0; i < size; i++)
-      for (let k = 0; k < hc; k++) {
-        const j = k + Math.floor(rng() * (tmp.length - k));
-        const t = tmp[k];
-        tmp[k] = tmp[j];
-        tmp[j] = t;
-        cards[i * hc + k] = tmp[k];
+    const bandKey = inp.seats
+      .map((st) => {
+        const b = inp.preflopBand(st);
+        return b ? `${st}:${r3(b.lo)}-${r3(b.hi)}` : `${st}:-`;
+      })
+      .join(',');
+    const cacheKey = `${inp.variant}|${inp.seed}|${inp.hole.join('.')}|${inp.board.join('.')}|${size}|${inp.pfRuns ?? 24}|${inp.pfRefineRuns ?? 160}|${inp.postRuns ?? 8}|${bandKey}`;
+    const hit = inp.cache?.get(cacheKey) as TrackCacheEntry | undefined;
+    let cards: Int8Array;
+    let pf: { pct: Float64Array; se: Float64Array };
+    let byStreet: Map<PostStreet, { mean: Float64Array; se: Float64Array; cat: Int8Array }>;
+    if (hit) {
+      ({ cards, pf, byStreet } = hit);
+    } else {
+      cards = new Int8Array(size * hc);
+      const tmp = deckPool.slice();
+      for (let i = 0; i < size; i++)
+        for (let k = 0; k < hc; k++) {
+          const j = k + Math.floor(rng() * (tmp.length - k));
+          const t = tmp[k];
+          tmp[k] = tmp[j];
+          tmp[j] = t;
+          cards[i * hc + k] = tmp[k];
+        }
+      // preflop strength: random full boards from every card but the hero's (the board was unknown preflop)
+      const deckPf = unseen(inp.hole);
+      pf = preflopStrength(
+        cards,
+        size,
+        hc,
+        deckPf,
+        inp.pfRuns ?? 24,
+        inp.pfRefineRuns ?? 160,
+        inp.preflopBand,
+        inp.seats,
+        rng
+      );
+      byStreet = new Map();
+      if (inp.cache) {
+        if (inp.cache.size >= 64) inp.cache.delete(inp.cache.keys().next().value as string);
+        inp.cache.set(cacheKey, { cards, pf, byStreet } satisfies TrackCacheEntry);
       }
-    // preflop strength: random full boards from every card but the hero's (the board was unknown preflop)
-    const deckPf = unseen(inp.hole);
-    const pf = preflopStrength(
-      cards,
-      size,
-      hc,
-      deckPf,
-      inp.pfRuns ?? 24,
-      inp.pfRefineRuns ?? 160,
-      inp.preflopBand,
-      inp.seats,
-      rng
-    );
+    }
     const pfPct = pf.pct;
-    // per street strength on the board as it was on that street
-    const byStreet = new Map<
-      PostStreet,
-      { mean: Float64Array; se: Float64Array; cat: Int8Array }
-    >();
+    // per street strength on the board as it was on that street (own stream per street, so a cached
+    // and an uncached call give the same result)
     const boardAt = (st: PostStreet) =>
       inp.board.slice(0, st === 'flop' ? 3 : st === 'turn' ? 4 : 5);
     const streetStrength = (st: PostStreet) => {
       let s = byStreet.get(st);
       if (!s) {
-        s = strengthOn(cards, size, hc, boardAt(st), deckPool, inp.postRuns ?? 8, rng);
+        s = strengthOn(
+          cards,
+          size,
+          hc,
+          boardAt(st),
+          deckPool,
+          inp.postRuns ?? 8,
+          seededRng(`${inp.seed}|rangeadv|${st}`)
+        );
         byStreet.set(st, s);
       }
       return s;

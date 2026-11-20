@@ -13,6 +13,7 @@
 import type { HorseDecision, SeatPlayer } from '../../types.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
+import { publicHistoryOf } from './OmahaMathCoreWire.js';
 import {
   decideOmahaMathCore,
   type CoreOpponent,
@@ -257,6 +258,8 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
       : null;
   const hole = (player.cards ?? []).map(cardToInt);
   const board = (gs.communityCards ?? []).map(cardToInt);
+  // the hand's public line for lanes RANGEADV (postflop) and PREFLOP-EV (preflop bands)
+  const ph = publicHistoryOf(gs, pos);
   const legal = Array.isArray(gs.legalActions)
     ? [...gs.legalActions]
     : toCall > 0
@@ -291,6 +294,8 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
     rake,
     // deterministic per request: the cards and the public node (never the brain's stream)
     seed: `${hole.join('.')}|${board.join('.')}|${gs.pot}|${toCall}|${player.seat}|${history.length}`,
+    history: ph.history,
+    preflopActions: ph.preflopActions,
   };
 }
 

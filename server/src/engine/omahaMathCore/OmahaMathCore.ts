@@ -43,16 +43,33 @@ import {
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
 import {
   OMAHA_MATH_CORE_TABLE_VERSION,
-  betRate,
   preflopFoldToHorse,
   preflopFreq,
-  responseTo,
   wagerNonValue,
   type Actor,
   type PreflopLevel,
   type PreflopPosition,
   type Street,
 } from './OmahaMathCoreTables.js';
+import {
+  PREFLOP_GAMES,
+  behindResponse,
+  preflopOpponentModel,
+  reorderPoolPreflop,
+  sliceOf,
+  type PreflopPublicAction,
+} from './OmahaMathCorePreflop.js';
+import type { PublicStreetAction } from './OmahaMathCoreRangeTrack.js';
+import {
+  horseDefenceFold,
+  wiredBetRate as betRate,
+  wiredHeroResponse,
+  wiredResponse,
+  wiredTrack,
+  wiredValue,
+  type ResponseKey,
+  type WireValueResult,
+} from './OmahaMathCoreWire.js';
 
 export const OMAHA_MATH_CORE_VERSION = 'omaha-math-core-v3-public';
 
@@ -110,6 +127,10 @@ export interface CoreState {
   preflopRaises: number;
   rake: { percent: number; cap: number; noFlopNoDrop: boolean } | null;
   seed: string;
+  /** the hand's public postflop actions in order (lane RANGEADV's tracker; absent: current-street rules) */
+  history?: PublicStreetAction[];
+  /** the hand's public preflop actions in order (lane PREFLOP-EV's bands; absent: preflopLevel) */
+  preflopActions?: PreflopPublicAction[];
 }
 
 export interface CoreActionEv {
@@ -143,6 +164,14 @@ export interface CoreReceipt {
   equityFallbacks?: number;
   /** set by the rule when the legalizer restated the wager size */
   legalized?: { from: number | null; to: number | null; action: string };
+  /** component wiring (lane COREWIRE): which components priced this decision */
+  wire?: {
+    track: string | null;
+    value: WireValueResult['receipt'] | null;
+    preflop: string | null;
+    /** equity calls made in the last 40 ms of the time box (reduced sample floor) */
+    lateEquityCalls: number;
+  };
 }
 
 interface Clock {
@@ -237,15 +266,23 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const game = state.variant;
   const mode = state.mode;
   const pre = street === 'preflop';
-  const pool = buildPool(
-    state.hole,
-    state.board,
-    state.hole.length,
-    // preflop: 30 shared boards per holding so the strength order is not noise (SE ~0.05 per holding)
-    pre ? 300 : street === 'river' ? 500 : 360,
-    pre ? 30 : 6,
-    rng
-  );
+  // postflop: lane RANGEADV's tracked ranges over the whole public line; its pool is the decision's
+  // pool (the core's own pool is built only when tracking declines)
+  const tracked = pre ? null : wiredTrack(state, clock.now);
+  const pool =
+    tracked?.pool ??
+    buildPool(
+      state.hole,
+      state.board,
+      state.hole.length,
+      pre ? 300 : street === 'river' ? 500 : 360,
+      // preflop PLO4/PLO5: lane PREFLOP-EV's model sets the strength order below, so one shared board
+      // is enough here (the 30-board percentile it replaces cost most of the preflop time)
+      pre ? (PREFLOP_GAMES.includes(game) ? 1 : 30) : 6,
+      rng
+    );
+  // preflop strength order: lane PREFLOP-EV's additive two-card equity model (lead decision: unconditional)
+  if (pre && PREFLOP_GAMES.includes(game)) reorderPoolPreflop(pool, game);
   const stack = Math.max(0, state.heroStack);
   const toCall = Math.max(0, Math.min(state.toCall, stack));
   const P = state.pot;
@@ -257,16 +294,25 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   // the whole decision is time-boxed (the worker deadline turns a late answer into a fold)
   const deadline = t0 + OMAHA_MATH_CORE_BUDGET_MS;
   const remaining = () => Math.max(5, Math.min(EQ_OPTS.maxMs, deadline - clock.now()));
+  // anytime (lane COREWIRE): inside the last 40 ms of the box every equity call takes the core sampler
+  // at a reduced sample floor (150 draws, SE ~0.04), so a wide decision still answers on time
+  let lateCalls = 0;
+  const late = () => deadline - clock.now() < 40;
   const coreSampler = (ranges: RangeSpec[]) =>
-    equityVsPools(state.hole, state.board, pool, ranges, seededRng(`${state.seed}|eq`), {
-      ...EQ_OPTS,
-      maxMs: remaining(),
-      now: clock.now,
-    });
+    equityVsPools(
+      state.hole,
+      state.board,
+      pool,
+      ranges,
+      seededRng(`${state.seed}|eq`),
+      late()
+        ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, maxMs: 3, now: clock.now }
+        : { ...EQ_OPTS, maxMs: remaining(), now: clock.now }
+    );
   const eq = (ranges: RangeSpec[]): EquityResult => {
     // lane EQUITY's equityVsRanges; the core's own exact 2+3 sampler when equityVsRanges declines (it returns null rather than throw, e.g. on repeated joint collisions)
     let r: EquityResult =
-      EQUITY_ENGINE === 'equity-lane' && clock.now() < deadline
+      EQUITY_ENGINE === 'equity-lane' && !late()
         ? equityVsPoolsEquityLane(
             state.hole,
             state.board,
@@ -286,6 +332,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       equityFallbacks++;
     }
     if (!Number.isFinite(r.equity)) throw new Error('omahaMathCore: equity unavailable');
+    if (late()) lateCalls++;
     samples += r.samples;
     return r;
   };
@@ -332,7 +379,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       const s = Math.max(0.05, state.wagerFrac);
       if (state.line === 'raise' || state.line === 'check_raise') {
         // a raise: how often this kind of player raises a wager of this size is public
-        const c = responseTo({
+        const c = wiredResponse(state.board, {
           game,
           mode,
           street: st,
@@ -389,7 +436,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         );
       }
     } else if (o.streetAction === 'call' && aggressor && state.line && state.band) {
-      const c = responseTo({
+      const c = wiredResponse(state.board, {
         game,
         mode,
         street: st,
@@ -427,11 +474,21 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     }
     rangeOf.set(o.seat, range ?? fullRange(pool, 'pool (no public cell)'));
   }
+  if (tracked) for (const [seat, r] of tracked.rangeOf) rangeOf.set(seat, r);
+  // preflop: lane PREFLOP-EV's public-frequency bands and size-aware fold / re-raise
+  const pfm = pre ? preflopOpponentModel(state, pool) : null;
+  if (pfm) for (const [seat, r] of pfm.rangeOf) rangeOf.set(seat, r);
 
   // realization: no public measurement yet (the measured tables used exact equity against hidden cards)
   const real = 1;
   const realCell = { source: 'no public realization measurement: none applied' };
   const realized = (_closing: boolean): number => real;
+  // (preflop realization, provenance law: preflopRealization.v1 is built from Horses' unshown own cards
+  // and is not admitted until the lead rules on it; see repairs/EMERG/COREWIRE.md)
+  const pfReal = (_pot: number, _eff: number, _players: number, _allIn: boolean) => ({
+    value: real,
+    source: realCell.source,
+  });
 
   const foldOf = (
     o: CoreOpponent,
@@ -440,6 +497,11 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     level: 'open' | '3bet' | '4bet+'
   ): { p: number; r: number; source: string } => {
     if (o.allIn) return { p: 0, r: 0, source: 'all-in' };
+    if (pfm) {
+      const toSize = state.currentBet + frac * (P + toCall);
+      const f = pfm.foldOf(o, level, allIn ? state.heroBet + stack : toSize);
+      return { p: f.p, r: f.reraise, source: f.source };
+    }
     if (pre) {
       const facing =
         level === 'open' ? 'facing_open' : level === '3bet' ? 'facing_3bet' : 'facing_4bet+';
@@ -454,7 +516,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         ? { p: c.p, r: 0, source: c.source }
         : { p: 0, r: 0, source: 'no measured cell: no fold credit' };
     }
-    const c = responseTo({
+    const c = wiredHeroResponse(state.hole, state.board, state.seed, {
       game,
       mode,
       street: street as Exclude<Street, 'preflop'>,
@@ -464,18 +526,13 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       bettor: 'horse',
       responder: actorOf(o),
       user: o.person ? o.user : null,
-    });
+    } satisfies ResponseKey);
     if (!o.person) {
-      // A Horse responder: the table measures Horses of the pre-core brain (they over-folded). A
+      // A Horse responder (horseDefenceFold, OmahaMathCoreWire.ts: one implementation for both paths): the table measures Horses of the pre-core brain (they over-folded). A
       // Horse on this core defends to the price, folding s / (1 + s) of his range to a wager of
       // pot share s; pricing core Horses with the old cells would make cores bluff each other
       // without end (PROVE self-play). The raise share stays the measured one.
-      const sc = Math.max(0, frac) / (1 + Math.max(0, frac));
-      return {
-        p: sc,
-        r: c ? Math.max(0, Math.min(1 - sc, c.raise)) : 0,
-        source: `self-consistent Horse defence: fold s/(1+s) = ${round2(sc)} at s = ${round2(frac)}${c ? ` (old Horse cell ${round2(c.fold)}: ${c.source})` : ''}`,
-      };
+      return horseDefenceFold(frac, c);
     }
     return c
       ? { p: c.fold, r: Math.max(0, Math.min(1 - c.fold, c.raise)), source: c.source }
@@ -493,9 +550,58 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       o.bet < state.currentBet - 0.005
   );
   const front = live.filter((o) => !behind.includes(o));
+  // preflop (lane PREFLOP-EV): a player still to act who already matched (a big blind facing a limp)
+  // cannot fold but can still raise (iso); he is priced as behind with no fold share
+  const behindPf = pre
+    ? live.filter((o) => o.streetAction === 'none' && !o.allIn && o.seat !== state.aggressorSeat)
+    : behind;
   const label = (rs: RangeSpec[]) => rs.map((r) => r.label).join(' + ');
 
-  if (toCall > 0.005) {
+  // postflop: lane VALUE's planValue prices check / call / every size (the one implementation of the
+  // check node, the raised branch and the multi-street continuation; field response from HVH-MULTI,
+  // players behind priced by HVH-MULTI's squeeze term); the one-step loop below is the fallback
+  let wired: WireValueResult | null = null;
+  let wiredNote: string | null = null;
+  if (!pre) {
+    try {
+      wired = wiredValue({
+        state,
+        pool,
+        live,
+        behind,
+        front,
+        rangeOf,
+        eq,
+        topOf: (r, share, l) => topOf(pool, r, share, l),
+        rakeNet: (f) => rakeNet(state, f),
+        onUnit,
+        legalHas: (a) => legalHas(state, a),
+        deadline,
+        now: clock.now,
+      });
+      if (!wired) wiredNote = 'value: null (core one-step loop)';
+    } catch (e) {
+      wired = null;
+      wiredNote = `value error (${String((e as Error)?.message ?? e).slice(0, 120)}): core one-step loop`;
+    }
+  }
+  if (wired) {
+    if (toCall > 0.005 && legalHas(state, 'fold'))
+      evs.push({
+        action: 'fold',
+        amount: null,
+        adds: 0,
+        ev: 0,
+        equity: null,
+        se: null,
+        foldProb: 0,
+        foldSource: null,
+        range: null,
+      });
+    evs.push(...wired.evs);
+  }
+
+  if (!wired && toCall > 0.005) {
     if (legalHas(state, 'fold'))
       evs.push({
         action: 'fold',
@@ -517,12 +623,83 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         : 0;
       const e1 = eq(base);
       let ev: number;
-      if (behind.length === 0) {
+      let behindNote: string | null = null;
+      if ((pfm ? behindPf : behind).length === 0) {
         ev =
           realized(callAllIn || street === 'river') *
             e1.equity *
             rakeNet(state, P + toCall - uncovered) -
           toCall;
+      } else if (pfm) {
+        // preflop with players still to act (lane PREFLOP-EV): each folds / calls / raises at his public
+        // frequency for his node; a raise behind (iso / squeeze) is priced one step deep
+        let pNoRaise = 1;
+        let worst: { o: CoreOpponent; r: number } | null = null;
+        let extra = 0;
+        const cont: RangeSpec[] = [];
+        const srcs: string[] = [];
+        const basePf = live.filter((o) => !behindPf.includes(o)).map((o) => rangeOf.get(o.seat)!);
+        for (const o of behindPf) {
+          const br0 = behindResponse(state, o);
+          // matched already: his non-raise is a check, never a fold
+          const br =
+            o.bet >= state.currentBet - 0.005
+              ? { ...br0, fold: 0, call: Math.max(0, 1 - br0.raise) }
+              : br0;
+          pNoRaise *= 1 - br.raise;
+          if (br.raise > 0 && (!worst || br.raise > worst.r)) worst = { o, r: br.raise };
+          const pc = br.call / Math.max(1e-9, br.call + br.fold);
+          const r0 = rangeOf.get(o.seat)!;
+          cont.push(
+            sliceOf(
+              pool,
+              r0,
+              br.raise,
+              br.raise + br.call,
+              `behind calls ${round2(br.call)} of ${r0.label}`
+            )
+          );
+          extra += pc * Math.max(0, Math.min(o.stack + o.bet, state.currentBet) - o.bet);
+          srcs.push(
+            `s${o.seat}: fold ${round2(br.fold)} call ${round2(br.call)} raise ${round2(br.raise)} ${br.source}`
+          );
+        }
+        const e2 = eq([...basePf, ...cont]);
+        const potN = P + toCall + extra - uncovered;
+        const effN = Math.min(
+          stack - toCall,
+          Math.max(0, ...live.map((o) => o.stack - Math.max(0, state.currentBet - o.bet)))
+        );
+        const rN = callAllIn
+          ? { value: 1, source: 'all-in' }
+          : pfReal(potN, effN, basePf.length + 1 + behindPf.length, effN <= 0.005);
+        const evNoRaise = rN.value * e2.equity * rakeNet(state, potN) - toCall;
+        let evRaised = -toCall;
+        if (worst && !callAllIn && pNoRaise < 1 - 1e-6) {
+          const o = worst.o;
+          const r0 = rangeOf.get(o.seat)!;
+          const rr = topOf(pool, r0, worst.r, `raises behind ${round2(worst.r)} of ${r0.label}`);
+          const P1 = P + toCall;
+          const oCall = state.currentBet - o.bet;
+          const to2 = Math.min(
+            o.stack + o.bet,
+            state.currentBet + P1 + oCall,
+            state.heroBet + stack
+          );
+          const heroCall = Math.max(0, to2 - (state.heroBet + toCall));
+          const potR = P1 + (to2 - o.bet) + heroCall;
+          const allInR = to2 >= state.heroBet + stack - 0.005 || to2 >= o.stack + o.bet - 0.005;
+          const eR = eq([...basePf, rr]);
+          const effR = Math.min(stack - toCall - heroCall, o.stack + o.bet - to2);
+          const rR = pfReal(potR, effR, basePf.length + 2, allInR);
+          const callR = rR.value * eR.equity * rakeNet(state, potR) - (toCall + heroCall);
+          evRaised = Math.max(-toCall, callR);
+          srcs.push(
+            `raise behind by s${o.seat} to ${round2(to2)}: hero ${callR > -toCall ? 'calls' : 'folds'} ${round2(evRaised)}; ${rR.source}`
+          );
+        }
+        ev = pNoRaise * evNoRaise + (1 - pNoRaise) * evRaised;
+        behindNote = srcs.join('; ');
       } else {
         // players behind face the same price: each folds at his measured rate, else continues (strongest share)
         let pAllFold = 1;
@@ -533,7 +710,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           // a player behind faces the AGGRESSOR's wager (his line, size and kind), not a Horse wager
           const fc =
             !pre && aggressor && state.line && state.band
-              ? responseTo({
+              ? wiredResponse(state.board, {
                   game,
                   mode,
                   street: street as Exclude<Street, 'preflop'>,
@@ -579,11 +756,11 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         equity: e1.equity,
         se: e1.se,
         foldProb: 0,
-        foldSource: null,
+        foldSource: behindNote,
         range: label(base),
       });
     }
-  } else if (legalHas(state, 'check')) {
+  } else if (!wired && legalHas(state, 'check')) {
     const rs = live.map((o) => rangeOf.get(o.seat)!);
     const e = eq(rs);
     let ev = realized(false) * e.equity * rakeNet(state, P);
@@ -653,6 +830,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
 
   // ── wagers: bet / raise at a half and a full pot, smaller bets unopened, and all-in ──
   if (
+    !wired &&
     (legalHas(state, 'raise') || legalHas(state, 'bet') || legalHas(state, 'all_in')) &&
     stack > toCall + 0.005
   ) {
@@ -682,6 +860,92 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         continue;
       const adds = Math.min(stack, to - state.heroBet);
       const frac = (adds - toCall) / Math.max(1e-9, P + toCall);
+      if (pfm) {
+        // preflop (lane PREFLOP-EV): each responder folds / re-raises / calls at his measured rates for
+        // this size; the re-raise branch is priced one step deep (the hero then folds or calls)
+        const P1 = P + adds;
+        let pAll = 1;
+        let pNoRR = 1;
+        let callChips = 0;
+        let worstRR: { o: CoreOpponent; rr: number } | null = null;
+        let anyAll = allIn;
+        const callRanges: RangeSpec[] = [];
+        const srcs: string[] = [];
+        for (const o of live) {
+          const f = pfm.foldOf(o, level, to);
+          const canRR = !allIn && !o.allIn && o.stack + o.bet > to + 0.005;
+          const rr = canRR ? f.reraise : 0;
+          const c = Math.max(0, 1 - f.p - rr);
+          pAll *= f.p;
+          pNoRR *= 1 - rr;
+          const chips = Math.max(0, Math.min(o.stack + o.bet, to) - o.bet);
+          callChips += chips * (c / Math.max(1e-9, c + f.p));
+          if (o.stack + o.bet <= to + 0.005) anyAll = true;
+          const r0 = rangeOf.get(o.seat)!;
+          callRanges.push(
+            sliceOf(
+              pool,
+              r0,
+              rr,
+              rr + c,
+              `calls ${round2(c)} (band ${round2(rr)}-${round2(rr + c)}) of ${r0.label}`
+            )
+          );
+          if (rr > 0 && (!worstRR || rr > worstRR.rr)) worstRR = { o, rr };
+          srcs.push(`s${o.seat}: fold ${round2(f.p)} reraise ${round2(rr)} ${f.source}`);
+        }
+        const pRR = 1 - pNoRR;
+        const pCall = Math.max(0, 1 - pAll - pRR);
+        let evCalled = 0;
+        let eC: EquityResult | null = null;
+        if (pCall > 1e-6) {
+          eC = eq(callRanges);
+          const potC = P1 + callChips;
+          const effB = Math.min(
+            stack - adds,
+            Math.max(0, ...live.map((o) => o.stack - Math.max(0, to - o.bet)))
+          );
+          const rC = pfReal(potC, effB, live.length + 1, anyAll || effB <= 0.005);
+          evCalled = rC.value * eC.equity * rakeNet(state, potC) - adds;
+          srcs.push(`called: ${rC.source}`);
+        }
+        let evRR = -adds;
+        if (worstRR && pRR > 1e-6) {
+          const o = worstRR.o;
+          const r0 = rangeOf.get(o.seat)!;
+          const rrRange = topOf(
+            pool,
+            r0,
+            worstRR.rr,
+            `re-raises ${round2(worstRR.rr)} of ${r0.label}`
+          );
+          const oCall = to - o.bet;
+          const to2 = Math.min(o.stack + o.bet, to + (P1 + oCall), state.heroBet + stack);
+          const heroCall = Math.max(0, to2 - to);
+          const potRR = P1 + (to2 - o.bet) + heroCall;
+          const allInRR = to2 >= state.heroBet + stack - 0.005 || to2 >= o.stack + o.bet - 0.005;
+          const eR = eq([rrRange]);
+          const effR = Math.min(stack - adds - heroCall, o.stack + o.bet - to2);
+          const rR = pfReal(potRR, effR, 2, allInRR);
+          const callRR = rR.value * eR.equity * rakeNet(state, potRR) - (adds + heroCall);
+          evRR = Math.max(-adds, callRR);
+          srcs.push(
+            `re-raise by s${o.seat} to ${round2(to2)}: hero eq ${round2(eR.equity)} -> ${callRR > -adds ? 'call' : 'fold'} ${round2(evRR)}; ${rR.source}`
+          );
+        }
+        evs.push({
+          action,
+          amount: action === 'bet' ? round2(adds) : round2(to),
+          adds,
+          ev: pAll * rakeNet(state, P) + pRR * evRR + pCall * evCalled,
+          equity: eC ? eC.equity : null,
+          se: eC ? eC.se : null,
+          foldProb: pAll,
+          foldSource: srcs.join('; '),
+          range: label(callRanges),
+        });
+        continue;
+      }
       let pAllFold = 1;
       let calls = 0;
       let anyAllIn = allIn;
@@ -793,6 +1057,14 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       samples,
       equityFallbacks,
       ms: Math.round((clock.now() - t0) * 10) / 10,
+      wire: {
+        track: tracked
+          ? `rangeadv tracked ${tracked.rangeOf.size} seats (${Math.round(tracked.ms)} ms)`
+          : null,
+        value: wired ? wired.receipt : null,
+        preflop: pfm ? 'preflop-ev bands and fold / re-raise' : wiredNote,
+        lateEquityCalls: lateCalls,
+      },
     },
   };
 }
