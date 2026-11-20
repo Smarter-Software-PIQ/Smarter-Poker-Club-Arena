@@ -9,21 +9,13 @@ import {
   continuationOutcomes,
   foldCorrelation,
   layeredShowdownValue,
-  selfConsistentFoldShare,
   sidePotLayers,
   wagerEvMultiway,
   type Responder,
 } from './MultiwayTerms.js';
 
-const R = (
-  seat: number,
-  fold: number,
-  raise = 0,
-  callChips = 100,
-  actor: 'person' | 'horse' = 'person'
-): Responder => ({
+const R = (seat: number, fold: number, raise = 0, callChips = 100): Responder => ({
   seat,
-  actor,
   fold,
   raise,
   callChips,
@@ -35,31 +27,30 @@ describe('continuationOutcomes', () => {
   it('sums to one with the raised branch, every responder count 1..4', () => {
     for (let n = 1; n <= 4; n++) {
       const o = continuationOutcomes(
-        Array.from({ length: n }, (_, i) => R(i + 1, 0.3 + 0.1 * i, 0.05 * i)),
-        'horse'
+        Array.from({ length: n }, (_, i) => R(i + 1, 0.3 + 0.1 * i, 0.05 * i))
       )!;
       expect(o.outcomes.reduce((s, x) => s + x.p, 0) + o.pRaise).toBeCloseTo(1, 12);
       expect(o.outcomes).toHaveLength(1 << n);
     }
   });
   it('heads-up has no correlation term (equals the core HU product)', () => {
-    const o = continuationOutcomes([R(1, 0.55)], 'horse')!;
+    const o = continuationOutcomes([R(1, 0.55)])!;
     expect(o.pAllFold).toBeCloseTo(0.55, 12);
     expect(o.correlation).toBe(1);
   });
-  it('a Horse wager into two responders: all-fold = product x shrunk measured ratio (0.86, n=164)', () => {
-    const o = continuationOutcomes([R(1, 0.8), R(2, 0.8)], 'horse')!;
-    const shrunk = (164 * 0.86 + 50) / (164 + 50);
+  it('a wager into two responders (whoever made it): all-fold = product x shrunk pooled ratio (0.913, n=295)', () => {
+    const o = continuationOutcomes([R(1, 0.8), R(2, 0.8)])!;
+    const shrunk = (295 * 0.913 + 50) / (295 + 50);
     expect(o.pAllFoldIndependent).toBeCloseTo(0.64, 12);
     expect(o.pAllFold).toBeCloseTo(0.64 * shrunk, 12);
-    expect(o.source).toContain('n=164');
+    expect(o.source).toContain('n=295');
   });
   it('all-fold never exceeds the no-raise mass', () => {
-    const o = continuationOutcomes([R(1, 0.95, 0.05), R(2, 0.95, 0.05)], 'person')!;
+    const o = continuationOutcomes([R(1, 0.95, 0.05), R(2, 0.95, 0.05)])!;
     expect(o.pAllFold).toBeLessThanOrEqual(1 - o.pRaise + 1e-12);
   });
   it('returns null on non-finite input (core keeps its own term)', () => {
-    expect(continuationOutcomes([R(1, Number.NaN)], 'horse')).toBeNull();
+    expect(continuationOutcomes([R(1, Number.NaN)])).toBeNull();
   });
 });
 
@@ -75,7 +66,7 @@ describe('wagerEvMultiway', () => {
     })!;
     expect(r.ev).toBeCloseTo(0.4 * 100 + 0.6 * (0.9 * 0.35 * 250 - 75), 9);
   });
-  it('the measured correlation turns a multiway air pot bet from +EV to -EV', () => {
+  it('the measured (pooled) correlation lowers the all-fold share and the EV of a multiway air pot bet', () => {
     const base = {
       pot: 100,
       adds: 100,
@@ -84,10 +75,11 @@ describe('wagerEvMultiway', () => {
       potNet,
       realization: 1,
     };
-    const independent = wagerEvMultiway({ ...base, bettor: 'person' })!; // person cell ratio ~1
-    const horse = wagerEvMultiway({ ...base, bettor: 'horse' })!;
-    expect(independent.ev).toBeGreaterThan(0);
-    expect(horse.ev).toBeLessThan(0);
+    const o = continuationOutcomes(base.responders)!;
+    expect(o.pAllFold).toBeLessThan(o.pAllFoldIndependent);
+    const measured = wagerEvMultiway(base)!;
+    const allFoldAtProduct = 0.49 * 100;
+    expect(measured.ev).toBeLessThan(allFoldAtProduct);
   });
   it('isolation: equity is taken against exactly the set that continues', () => {
     const seen: string[] = [];
@@ -195,42 +187,6 @@ describe('law: shipped tables are public', () => {
   it('the correlation table carries public_actions provenance and every cell names its n', () => {
     expect(MULTIWAY_FOLD_CORRELATION.provenance).toBe('public_actions');
     for (const c of Object.values(MULTIWAY_FOLD_CORRELATION.cells)) expect(c.n).toBeGreaterThan(0);
-    expect(foldCorrelation('horse', 1).ratio).toBe(1);
-  });
-});
-
-describe('selfConsistentFoldShare (all Horses on the core)', () => {
-  it('folds exactly the holdings priced out; a bigger wager folds more, never everything vs a balanced range', () => {
-    const eqs = Array.from({ length: 100 }, (_, i) => i / 100);
-    expect(selfConsistentFoldShare(eqs, 1 / 3)!.fold).toBeCloseTo(0.34, 9);
-    expect(selfConsistentFoldShare(eqs, 0.25)!.fold).toBeCloseTo(0.25, 9);
-    expect(selfConsistentFoldShare(eqs, 1 / 3, 0.8)!.fold).toBeGreaterThan(0.34);
-  });
-  it('a pot-size air bet into a self-consistent responder whose range is 40% air / 60% strong is -EV (the stale 84% Horse cell would call it +EV)', () => {
-    const eqs = [...Array(40).fill(0.1), ...Array(60).fill(0.7)];
-    const f = selfConsistentFoldShare(eqs, 1 / 3)!.fold; // 0.4
-    const stale = wagerEvMultiway({
-      pot: 100,
-      adds: 100,
-      responders: [R(1, 0.84, 0, 100, 'horse')],
-      equityVs: () => 0.02,
-      potNet,
-      realization: 1,
-    })!;
-    expect(stale.ev).toBeGreaterThan(0);
-    const r = wagerEvMultiway({
-      pot: 100,
-      adds: 100,
-      responders: [R(1, f, 0, 100, 'horse')],
-      equityVs: () => 0.02,
-      potNet,
-      realization: 1,
-    })!;
-    expect(f).toBeCloseTo(0.4, 9);
-    expect(r.ev).toBeLessThan(0);
-  });
-  it('null on bad input', () => {
-    expect(selfConsistentFoldShare([], 0.3)).toBeNull();
-    expect(selfConsistentFoldShare([0.5], Number.NaN)).toBeNull();
+    expect(foldCorrelation(1).ratio).toBe(1);
   });
 });

@@ -118,16 +118,10 @@ export interface ValueSpot {
   seed: string;
   /**
    * optional (lane XR-BLUFF, OmahaMathCoreBluff.ts): blockerShift maps the field's continuing share to the share
-   * left after the hero's blockers; exploitBack scales the measured fold / raise rates toward this opponent's
-   * observed responses to the hero's wagers of that line
+   * left after the hero's blockers (no per-opponent term: lane CORE-POOLED, identity-free)
    */
   bluffCtx?: {
     blockerShift?: (continueShare: number) => number;
-    exploitBack?: (line: 'bet' | 'raise' | 'check_raise') => {
-      foldMult: number;
-      raiseMult: number;
-      source: string;
-    };
   };
 }
 
@@ -354,15 +348,9 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     // exploit-back scaling, which apply only where fold credit is taken).
     const priceWith = (r0: ValueResponse, credit: boolean) => {
       let fold = r0.fold;
-      let raise = r0.raise;
+      const raise = r0.raise;
       let src = r0.source;
       const xb = spot.bluffCtx;
-      if (xb?.exploitBack && credit) {
-        const e = xb.exploitBack(line);
-        fold = clamp01(fold * e.foldMult);
-        raise = clamp01(raise * e.raiseMult);
-        src += `; ${e.source}`;
-      }
       if (xb?.blockerShift && credit) {
         const cont = clamp01(xb.blockerShift(clamp01(1 - fold)));
         fold = 1 - cont;
