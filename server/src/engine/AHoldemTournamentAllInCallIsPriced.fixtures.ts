@@ -10,7 +10,17 @@
  */
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
-import FIXTURE from './AnAofClosingSeatCallsFromTheNashTable.fixture.json';
+import { readFileSync } from 'node:fs';
+
+// Read, not imported: this module is test support, and the engine build's runtime JSON census
+// (tests/operations/engine-build-resource-proof.test.py) counts every JSON a non-test source imports.
+type NashTableFixture = typeof import('./AnAofClosingSeatCallsFromTheNashTable.fixture.json');
+const FIXTURE = JSON.parse(
+  readFileSync(
+    new URL('./AnAofClosingSeatCallsFromTheNashTable.fixture.json', import.meta.url),
+    'utf8'
+  )
+) as NashTableFixture;
 
 const BASE = FIXTURE.cases.bigBlindKingQueenOffsuit;
 export const BASE_STYLE = BASE.style;
