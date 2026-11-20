@@ -44,6 +44,7 @@ import {
   failureFallbackAction,
   type BettingStructure,
 } from './BettingStructure.js';
+import { omahaFallbackPricedCall } from './HorseOmahaFacingBetEquity.js';
 import { horseVariantRulesFor } from './VariantRules.js';
 import type {
   HandStage,
@@ -4590,17 +4591,28 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           runCore: false,
           budgetMs: 15,
         });
-        const fallbackAction = failureFallbackAction({
+        const livenessAction = failureFallbackAction({
           structure: boundedActions.structure,
           toCall,
           pot: state.pot,
           legalActions: boundedActions.legalActions,
         });
+        // 2026-11-19 (LIVEGRADE CR-1): the liveness fold of a PLO4/PLO5 cash
+        // seat facing a person's wager is priced first; a call that pays is
+        // taken (HorseOmahaFacingBetEquity.omahaFallbackPricedCall). Where the
+        // math core owns the decision (coreRecovered above) COREGUARD's
+        // computation decides and this pricing is not asked.
+        const pricedCall =
+          !coreRecovered && livenessAction === 'fold'
+            ? omahaFallbackPricedCall(decisionSnapshot.player, decisionSnapshot.gameState)
+            : null;
+        if (pricedCall !== null) noteFire('horse_fallback_priced_call');
+        const fallbackAction = pricedCall !== null ? 'call' : livenessAction;
         const safeDecision: HorseDecision = coreRecovered
           ? { ...coreRecovered, thinkTime: 0 }
           : {
               action: fallbackAction,
-              ...(fallbackAction === 'call' ? { amount: toCall } : {}),
+              ...(fallbackAction === 'call' ? { amount: pricedCall ?? toCall } : {}),
               thinkTime: 0,
             };
         safeDecision.executionWitness = createHorseExecutionWitness(

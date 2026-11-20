@@ -27,6 +27,7 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
 import { omahaValueSizeBandHolds } from '../engine/HorseOmahaValueSizeBand.js';
+import { omahaFallbackPricedCall } from '../engine/HorseOmahaFacingBetEquity.js';
 import {
   noteFire,
   noteHorseLegalizerDegraded,
@@ -263,12 +264,14 @@ export async function decideLightningHorse(
   const toCall =
     turn.hc.getAuthoritativeActionState(turn.userId, { asIfToAct: turn.earlyLook === true })
       ?.toCall ?? 0;
+  let asked: LiveHorseDecisionSnapshot | null = null;
   try {
     if (!turn.earlyLook) {
       noteHorseTelemetryOpportunity(turn.variant, 'cash', 'decision_started');
       if (turn.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_seen');
     }
     const snapshot = buildLightningHorseSnapshot(turn);
+    asked = snapshot;
     const fast = await lane().decideFast(snapshot, signal, {
       deadlineMs: horseDecisionDeadlineMs({
         actionTimeSeconds: turn.actionTimeSeconds,
@@ -324,8 +327,17 @@ export async function decideLightningHorse(
         fast: null,
         omahaMathCore: recovered.omahaMathCore,
       });
+    // 2026-11-19 (LIVEGRADE CR-1, hand 60117459): the liveness fold of a
+    // PLO4/PLO5 seat facing a person's wager on its own turn is priced first;
+    // a call that pays is taken. An early look keeps the liveness answer.
+    const pricedCall =
+      toCall > 0 && !turn.earlyLook && asked !== null
+        ? omahaFallbackPricedCall(asked.player, asked.gameState)
+        : null;
+    if (pricedCall !== null) noteFire('horse_fallback_priced_call');
     return startedOnTurn(turn, {
-      action: toCall > 0 ? 'fold' : 'check',
+      action: pricedCall !== null ? 'call' : toCall > 0 ? 'fold' : 'check',
+      ...(pricedCall !== null ? { amount: pricedCall } : {}),
       thinkTime: 0,
       workerFallback: true,
       fast: null,

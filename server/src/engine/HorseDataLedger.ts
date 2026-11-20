@@ -5324,6 +5324,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'horse_fallback_priced_call',
+    'ServerTableEngineTurns worker fallback and LightningHorse.decideLightningHorse catch (HorseOmahaFacingBetEquity.omahaFallbackPricedCall)',
+    "a PLO4/PLO5 cash postflop seat whose policy answer did not arrive while it faced a person's bet or raise, and whose liveness fold became the call because the calibrated equity times the measured realization beat the price (origin stays horse_fallback; LIVEGRADE CR-1, hand 60117459)",
+    'V94'
+  ),
+  receipt(
     'omaha_turn_strong_hand_realization_priced',
     'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaTurnStrongHandRealizationIsMeasured)',
     "a PLO4/PLO5 cash Lightning heads-up turn decision facing a person's bet or raise whose final fold became the call with the strong-hand turn realization (a made hand at most 10% of two-card holdings beat); fires with omaha_facing_bet_equity_call",

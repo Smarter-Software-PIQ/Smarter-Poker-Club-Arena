@@ -484,3 +484,25 @@ export function omahaFacingEquityAdmitsCall(
     return false;
   }
 }
+
+/**
+ * THE LIVENESS FALLBACK IS NEVER A BLIND FOLD OF A PRICED CALL (2026-11-19,
+ * LIVEGRADE CR-1: hand 60117459, PLO5 Lightning turn, origin horse_fallback,
+ * a fold at price 0.20 with 0.895 real equity). When no policy answer arrived
+ * and chips are owed, the engine's liveness action was fold on every
+ * pot-limit seat. In this rule's own spot (PLO4/PLO5 cash, postflop, facing a
+ * person's bet or raise) the same pure verdict is cheap enough to run on the
+ * engine thread (card-seeded, no opponent memory, no brain stream): where it
+ * says the call pays, the fallback is the call for exactly these chips.
+ * Null everywhere else (the liveness action stands, as before). Never PLO6.
+ */
+export function omahaFallbackPricedCall(player: SeatPlayer, gs: HorseGameStateV2): number | null {
+  try {
+    const spot = omahaFacingEquitySpot(player, gs);
+    if (!spot) return null;
+    const verdict = omahaFacingEquityVerdict(spot, player.cards ?? [], gs.communityCards ?? []);
+    return verdict !== null && verdict.call && spot.paid > 0 ? spot.paid : null;
+  } catch {
+    return null;
+  }
+}
