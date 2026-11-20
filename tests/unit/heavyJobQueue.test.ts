@@ -205,6 +205,25 @@ describe('heavy-job queue', () => {
     expect(derived).toBe(Math.max(2, Math.floor(cores / 7)));
   });
 
+  it('outside a Club Arena clone it reads the Club Arena main clone .env, so every repository shares one line', () => {
+    const home = join(dir, 'home');
+    const ssd = join(dir, 'ssd-shared');
+    mkdirSync(join(home, 'Documents', 'club-arena'), { recursive: true });
+    mkdirSync(ssd, { recursive: true });
+    writeFileSync(
+      join(home, 'Documents', 'club-arena', '.env'),
+      `AGENT_SSD_USE_AUTHORIZED=true\nSSD1_WORK_SHARED_DIR=${ssd}\nSECRET_TOKEN=never-read\n`
+    );
+    const outside = join(dir, 'not-a-repo');
+    mkdirSync(outside);
+    const r = spawnSync('bash', ['-c', `. ${lib}; hq_dir`], {
+      encoding: 'utf8',
+      cwd: outside,
+      env: { ...env(), HOME: home, CA_HEAVY_QUEUE_DIR: '', GIT_CEILING_DIRECTORIES: dir },
+    });
+    expect(r.stdout.trim()).toBe(join(ssd, 'heavy-queue'));
+  });
+
   it('reads only the SSD variables it names from the main clone .env, and never sources it', () => {
     const text = readFileSync(lib, 'utf8');
     expect(text).not.toMatch(/^\s*(\.|source)\s+[^\n]*\.env/m);

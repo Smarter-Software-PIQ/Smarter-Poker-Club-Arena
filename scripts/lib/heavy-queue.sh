@@ -37,12 +37,21 @@
 
 hq_say() { printf '[heavy-queue] %s\n' "$*" >&2; }
 
-# The main clone's .env, found from any worktree through the common git dir.
+# The main clone's .env, found from any worktree through the common git dir;
+# from another repository on the Mac (World Hub), the Club Arena main clone's,
+# so every repository on the machine waits in the same line.
 hq_env_file() {
   local common
-  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  [ -n "$common" ] && [ -f "$common/../.env" ] || return 1
-  printf '%s\n' "$common/../.env"
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  if [ -n "$common" ] && [ -f "$common/../.env" ] && grep -q '^SSD1_WORK_SHARED_DIR=' "$common/../.env" 2>/dev/null; then
+    printf '%s\n' "$common/../.env"
+    return 0
+  fi
+  if [ -f "${HOME:-}/Documents/club-arena/.env" ]; then
+    printf '%s\n' "${HOME}/Documents/club-arena/.env"
+    return 0
+  fi
+  return 1
 }
 
 # Value of ONE named variable from that .env (never sourced, never printed whole).
