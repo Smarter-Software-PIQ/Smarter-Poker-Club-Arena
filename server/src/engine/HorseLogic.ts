@@ -71,6 +71,10 @@ import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverN
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { omahaRiverCurrentNutsCallFloorRule } from './HorseOmahaRiverCurrentNutsCallFloor.js';
+import {
+  omahaFourBetFoldPricedCallRule,
+  registerFourBetFoldPricing,
+} from './HorseOmahaFourBetFoldPricedCall.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -3627,6 +3631,11 @@ export interface HorseDecideOpts {
    * current nuts and a full chop with every live opponent still returns the call. The outermost answer
    * of wager_rules; never changes a non-fold. Default OFF (read === true). */
   omahaRiverCurrentNutsCallFloor?: boolean;
+  /** EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (HorseOmahaFourBetFoldPricedCall.ts): in PLO4/PLO5 cash
+   * preflop, after hero's own raise, facing a 4-bet or more heads-up, the node's final fold becomes the
+   * legal call only when the engine's priced call of a re-raise (omahaReraisedCallPriced, its own inputs)
+   * has EV(call) > 0. Never changes a non-fold; never raises. Default OFF (read === true). */
+  omahaFourBetFoldPricedCall?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -9620,6 +9629,14 @@ export function omahaReraisedCallPricingOf(
     return undefined;
   }
 }
+
+// EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (omahaFourBetFoldPricedCall): the fold -> call rule and its
+// validator re-run price the call with these same inputs (mind reads on; tournaments/Lightning keep the
+// prior reading, as for any caller without the Lightning position option). Registered, not imported, so
+// HorseOmahaFourBetFoldPricedCall.ts imports nothing from this file.
+registerFourBetFoldPricing((player, gs, raiser, toCall, stack, heroBet) =>
+  omahaReraisedCallPricingOf(player, gs, {}, raiser, toCall, stack, heroBet)
+);
 
 /**
  * The other players still in a hand in which hero faces a re-raise, as the
@@ -18156,6 +18173,24 @@ export class HorseLogic {
       if (nutsFloored !== openMeasured && tele) {
         noteFire('omaha_river_current_nuts_call_floor');
         noteDecisionRuleReceipt('omaha_river_current_nuts_call_floor', openMeasured, nutsFloored);
+      }
+      // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (omahaFourBetFoldPricedCall, default off): a final
+      // preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only
+      // when the engine's priced call of a re-raise has EV(call) > 0 (HorseOmahaFourBetFoldPricedCall.ts).
+      // It changes only a fold.
+      const fourBetPriced = omahaFourBetFoldPricedCallRule(
+        nutsFloored,
+        player,
+        gs,
+        opts.omahaFourBetFoldPricedCall === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (fourBetPriced !== nutsFloored) {
+        if (tele) {
+          noteFire('omaha_four_bet_fold_priced_call');
+          noteDecisionRuleReceipt('omaha_four_bet_fold_priced_call', nutsFloored, fourBetPriced);
+        }
+        return { decision: fourBetPriced };
       }
       return { decision: nutsFloored };
     };

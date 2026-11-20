@@ -1207,6 +1207,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFourBetFoldPricedCall',
+    "EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (LIVEGRADE-7 duty 5: persons win the hands that end preflop; the channel is re-raises the Horses fold to; Horse folds facing a 4-bet after their own raise, heads-up, gave up EV(call) +346 +/- 50 bb without the most frequent re-raiser, n 26): in PLO4/PLO5 cash a final preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only when omahaReraisedCallPriced (the engine's own priced call, its inputs) is positive. Changes only a fold. Default OFF.",
+    'V94'
+  ),
+  flag(
     'omahaRiverCurrentNutsCallFloor',
     "EMERG lane RANGE-MODEL-2 2026-11-20 (owner 9:42 AM Chicago: EVERYTHING DEPENDS ON THE MATH; 9:52 AM: the same corrections against all players, human or Horse; lane RANGE-MODEL graded a facing-bet range read that folded the current river nuts, hand 60226889). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). The outermost answer of the wager_rules node: on the river facing a wager, a final fold becomes the legal call (the whole-stack all-in when the call is the stack) when hero holds the exact current nuts (HorseRiverNuts.hasRiverNuts: every unseen two-card holding enumerated, exactly two hole and three board cards) and a full chop with every live opponent still returns the call, (pot + paid) / (live opponents + 1) >= paid, so the call's expected value is never negative. Public information only; no opponent label, account or person/Horse flag. Near-nut hands are not floored (a range question). The response validator re-runs the floor on the request. PLO6, PLO8, hold'em and tournaments untouched. HorseOmahaRiverCurrentNutsCallFloor.ts",
     'V94'
@@ -5601,6 +5606,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_flop_verdict_read_the_bettor',
     'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopVerdictReadsTheBettor)',
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
+    'V94'
+  ),
+  receipt(
+    'omaha_four_bet_fold_priced_call',
+    'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
+    "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
     'V94'
   ),
   receipt(
