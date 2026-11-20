@@ -54,3 +54,9 @@ Changes in the batch (reviews R3 of sites 27852aafb40):
 - N5: evCheck values the check at the Horse's realized equity and ignores a bet by him after the check-back (stated limit).
 
 League cards (HorseLeague.ts, declared, not run): plo4_omaha_flop_bet_is_priced and plo5_omaha_flop_bet_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaFlopBetIsPriced.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

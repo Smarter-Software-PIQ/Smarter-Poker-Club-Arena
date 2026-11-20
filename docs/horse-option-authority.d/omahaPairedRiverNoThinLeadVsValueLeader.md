@@ -36,3 +36,9 @@ HorseOmahaOopChecks.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on t
 ## Dependency on the card-impact model (stated 2026-11-16, review note N7)
 
 On the wider paired-board line (`omahaPairedBoardNoBoatSpot`: a paired turn or river, less than a full house, every live opponent a measured value leader) this option acts in two ways. Out of position the bet is a check, with no model. IN POSITION, heads-up, the bet is a check only when a priced comparison of the check and the bet says the check is worth more, and that comparison is the card-impact model (`omahaCardImpactDecision`, `HorseOmahaCardImpact.ts`, called by `omahaPairedBoardPricedCheck` in `HorseLogic.ts`). It runs for this option whether `omahaCardImpact` itself is on or off. The model's response constants (continue share by pot odds, 10% raise share, 45% bet when checked to, 30% bluff share) are UNFITTED PRIORS, not fitted to play (`docs/horse-default-on.d/omahaCardImpact.md`, Value NOT MET). So the in-position half of this option is not measured, and an evaluation of this option is also an evaluation of those priors.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

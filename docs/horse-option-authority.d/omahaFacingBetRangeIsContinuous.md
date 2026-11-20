@@ -57,3 +57,9 @@ Incomplete when SSD1 dropped off the Mac (F5 77 of 80 sessions, M4 14 of 16, M5 
 ## Limits
 
 The ramps (for example 20 to 60 percent of the pot around the old 40 percent line) are stated, not fitted. The exact count still reads the value region at the nearest strength class, so the win share moves in small steps with the holdings, not with the size.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

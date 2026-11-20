@@ -116,3 +116,9 @@ Still pinned as source text because no behavioural route exists in a unit test: 
 - The three registered values are closed-form or class changes from the specifications; none has been measured as strategy in PLO6.
 - The test's states are three synthetic flop nodes and two recorded turn nodes dealt a sixth card; they do not reach every reader of the accessor. The off-identity does not rest on them: with the gate off nothing is registered during the decision.
 - The specification files are cited from the archive by the names the calibration file uses; they were not re-read for this change.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -1,6 +1,6 @@
 # omahaReadIsByStreetAndTexture: authority for the live switch
 
-Built 2026-11-18 by the PLO Strategy lane (readwire). Evidence MET, thin (2026-11-18): the league on the fixed card at source aff6e088a0c is a WIN (section "League evaluation of the fixed card"); the earlier EQUAL (fb900cf162f) and INVALID (eb30ce7a6f9) runs are superseded; the replay bar is MET (reconstructed read). Production reach needs the stored street record (migration 20261117175407, installed). Any switch-on is the PLO lane lead's decision (owner 2026-11-17 18:01 America/Chicago), and only once the engine serving production (`/health` releaseSha) is a build that contains this option and this file; until then no option-switch row may name it (the 2026-11-18T15:37Z hazard: a row for an option the serving build does not know invalidates the whole switch set); this file records the evidence for that decision. It records what the option is, what was measured and what must pass first.
+Built 2026-11-18 by the PLO Strategy lane (readwire). Evidence NOT MET for switch-on (status corrected 2026-11-19; not switched on in production, read 2026-11-19T19:00:33Z: no option-switch row): the league on the fixed card at source aff6e088a0c is a WIN, thin (section "League evaluation of the fixed card": only F4 is above +2 SE, on 72 divergent pairs; the human-like pooled figure is z +1.98), and it was measured without omahaSmallBetIsPriced in the base and before the minimum-raise-ladder fix, so switch-on is held until a build carrying that fix is measured on a Horse-only mirror cell on the full live base with truncated 0 (section "Switch-on hold: minimum-raise ladder"); the earlier EQUAL (fb900cf162f) and INVALID (eb30ce7a6f9) runs are superseded; the replay is recorded in prose only, on a reconstructed read (section "Replay on real audited decisions (reconstructed read)"; Replay row LEGACY below), so the machine-read replay bar is not passed. Production reach needs the stored street record (migration 20261117175407, installed). Any switch-on is the PLO lane lead's decision (owner 2026-11-17 18:01 America/Chicago), and only once the engine serving production (`/health` releaseSha) is a build that contains this option and this file; until then no option-switch row may name it (the 2026-11-18T15:37Z hazard: a row for an option the serving build does not know invalidates the whole switch set); this file records the evidence for that decision. It records what the option is, what was measured and what must pass first.
 
 ## What it does
 
@@ -84,7 +84,7 @@ Main since that source: the option's files (`HorseOmahaReadByStreet.ts`, `HorseO
 - Value (league): MET, thin (WIN on the fixed card at aff6e088a0c, above). The EQUAL run (fb900cf162f, before the B1 fix) and the INVALID run (eb30ce7a6f9, inert card) are superseded.
 - Replay row: MET (above; reconstructed read, not the production read at decision time).
 - Reach row: migration 20261117175407 (the stored street record) is installed. Production reach begins when a build that writes and reads the street record serves and its cells fill; not yet counted in production. With the option on and no street record every decision is byte-identical.
-- Overall: evidence MET (thin). Switch-on is the PLO lane lead's decision, and only once the engine serving production (`/health` releaseSha) is a build that contains this option and this file; until then no option-switch row may name it (the 2026-11-18T15:37Z hazard: a row for an option the serving build does not know invalidates the whole switch set). Rollback: the switch row off.
+- Overall (2026-11-18, before the switch-on hold of 2026-11-19 below and before the machine-read Replay row): evidence MET (thin). As of 2026-11-19 the status paragraph reads Evidence NOT MET for switch-on: the hold's Horse-only mirror cell and a scored replay row are owed. Switch-on is the PLO lane lead's decision, and only once the engine serving production (`/health` releaseSha) is a build that contains this option and this file; until then no option-switch row may name it (the 2026-11-18T15:37Z hazard: a row for an option the serving build does not know invalidates the whole switch set). Rollback: the switch row off.
 
 ## Limits
 
@@ -98,3 +98,9 @@ Note N3: OMAHA_PRICED_SHRINK and priced2's OMAHA_PRICED_READ_PRIOR_STRENGTH are 
 ## Switch-on hold: minimum-raise ladder (2026-11-19, plo-truncation-013U37)
 
 With omahaSmallBetIsPriced and omahaTurnRiverRaiseIsPriced on (both live), this option at f3e99378ccbb produced a Horse-vs-Horse minimum-raise ladder (BLANKET-LOO-1 Horse-only cells; HORSE SWITCH lane inbox 2026-11-19T00:32:26Z). The defect was in the consumer (omahaTurnRiverRaiseIsPriced read the fold-to-raise cell as the fold to every raise size; see that file, same date). The league WIN above was measured without omahaSmallBetIsPriced in the base and before that fix: switch-on needs a build carrying the fix and a Horse-only mirror cell on the full live base with truncated 0.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

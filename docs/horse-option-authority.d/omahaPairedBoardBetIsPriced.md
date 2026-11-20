@@ -51,3 +51,9 @@ Every opponent figure a priced comparison reads now comes from his own KIND's pr
 ## Limits
 
 The measured figures for paired boards (he holds trips or better on 60 / 77 / 72 percent of his flop / turn / river bets there) enter only through the pooled read until the per-street, per-texture read is delivered. The blocker bluff itself still starts from an equity line (0.28) in the reference brain; only its paired-board bar is priced here.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

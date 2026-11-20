@@ -48,6 +48,15 @@
  * a memo of exact counts for the last few hands (the same cards give the
  * same counts). The caller (HorseLogic) supplies the measured read.
  */
+import {
+  omahaShownFieldVerdict,
+  type OmahaShownFieldVerdict,
+} from './HorseOmahaFacingBetEvShownField.js';
+import {
+  omahaRiverBluffCatchVerdict,
+  type OmahaRiverBluffCatchVerdict,
+  type OmahaRiverRow,
+} from './HorseOmahaRiverBluffCatch.js';
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
@@ -1402,10 +1411,17 @@ export interface OmahaFacingBetEvVerdict {
   field: number;
   /** the realization factor applied (1 when final) */
   realization: number;
+  /** omahaFacingBetEvShownField: the C3 verdict, when it decided */
+  shownField?: OmahaShownFieldVerdict;
+  /** omahaRiverBluffCatchIsPriced: the river bluff-catch verdict, when it decided */
+  riverBluffCatch?: OmahaRiverBluffCatchVerdict;
   /** omahaTurnCallRealizationByRunout: the runout factor, when it was the one read */
   runoutRealization?: number;
   /** pot odds of the call, for the record */
   price: number;
+  /** omahaPairedBoardRiverIsPriced: present when call, ev, pWin and pTie were priced on the bettor's
+   *  line-conditioned range (HorseOmahaPairedRiverPriced); the other numbers are the uniform count's */
+  pairedRiverPriced?: { boatShare: number; preflopWidth: number; samples: number };
   /** work done */
   pairsScored: number;
   counts: number;
@@ -1437,6 +1453,22 @@ export interface OmahaFacingBetEvContext {
    * counts (HorseOmahaRunoutRealization) instead of `realization`.
    */
   runoutRealization?: { inPosition: boolean };
+  /**
+   * omahaFacingBetEvShownField (WooWoo F-04/F-11 C3): present only with the
+   * option on. A turn or river call with another player in the hand is then
+   * priced by HorseOmahaFacingBetEvShownField (joint field in the flop form,
+   * measured turn realization, close calls mixed on a public-state draw).
+   * `continueRate` is the rate a player still to act continues; `mixUnit` a
+   * number in [0, 1) drawn from public state only.
+   */
+  shownField?: { inPosition: boolean; continueRate: number; mixUnit: number };
+  /**
+   * omahaRiverBluffCatchIsPriced (WooWoo RIVER-FACING): present only with the
+   * option on. A heads-up first river bet (not a raise) is then priced on the
+   * bettor's measured range composition with the Horse's blockers
+   * (HorseOmahaRiverBluffCatch). `mixUnit` from public state only.
+   */
+  riverBluffCatch?: { mixUnit: number; rows?: readonly OmahaRiverRow[] };
 }
 
 /**
@@ -1599,6 +1631,99 @@ export function omahaFacingBetEvVerdict(
       paired: ctx.plo6RiverNuts !== false,
       unpaired: ctx.plo6RiverUnpaired !== false,
     });
+  // omahaRiverBluffCatchIsPriced (default off): a heads-up first river bet priced on the bettor's measured range.
+  if (
+    ctx.riverBluffCatch &&
+    spot.street === 'river' &&
+    !spot.isRaise &&
+    hole.length !== 6 &&
+    spot.callers + spot.allIns + spot.behind === 0 &&
+    !(premium > 0)
+  ) {
+    let bc: OmahaRiverBluffCatchVerdict | null = null;
+    try {
+      bc = omahaRiverBluffCatchVerdict(hole, board, dead, {
+        potFrac: spot.potFrac,
+        paid: spot.paid,
+        winnable: spot.winnable,
+        rake,
+        margin,
+        readFactor: spot.priorBluff > 0 ? q / spot.priorBluff : 1,
+        mixUnit: ctx.riverBluffCatch.mixUnit,
+        ...(ctx.riverBluffCatch.rows ? { rows: ctx.riverBluffCatch.rows } : {}),
+      });
+    } catch {
+      bc = null;
+    }
+    if (bc)
+      return {
+        call: bc.call,
+        ev: bc.ev,
+        margin,
+        pWin: bc.equity,
+        pTie: 0,
+        bluffShare: q,
+        valueShare: counted.valueShare,
+        vsValue: counted.value.win,
+        vsOther: counted.other.win,
+        field,
+        realization: 1,
+        riverBluffCatch: bc,
+        price,
+        pairsScored: counted.pairsScored,
+        counts: counted.counts,
+      };
+  }
+  // omahaFacingBetEvShownField (default off): the field priced jointly, realization measured, close calls mixed.
+  let shown: OmahaShownFieldVerdict | null = null;
+  if (
+    ctx.shownField &&
+    hole.length !== 6 &&
+    spot.callers + spot.allIns + spot.behind > 0 &&
+    !(premium > 0)
+  ) {
+    try {
+      shown = omahaShownFieldVerdict(hole, board, dead, spot.valueShare, {
+        street: spot.street,
+        paid: spot.paid,
+        winnable: spot.winnable,
+        rake,
+        final: spot.final,
+        bluff: q,
+        always: [
+          ...Array.from({ length: spot.callers }, () => callerShare),
+          ...Array.from({ length: spot.allIns }, () => OMAHA_EV_ALL_IN_SHARE),
+        ],
+        behind: spot.behind,
+        behindShare: callerShare,
+        continueRate: ctx.shownField.continueRate,
+        inPosition: ctx.shownField.inPosition === true,
+        margin,
+        mixUnit: ctx.shownField.mixUnit,
+      });
+    } catch {
+      shown = null;
+    }
+  }
+  if (shown) {
+    return {
+      call: shown.call,
+      ev: shown.ev,
+      margin,
+      pWin: shown.equity,
+      pTie: 0,
+      bluffShare: q,
+      valueShare: counted.valueShare,
+      vsValue: counted.value.win,
+      vsOther: counted.other.win,
+      field,
+      realization: shown.realization,
+      shownField: shown,
+      price,
+      pairsScored: counted.pairsScored,
+      counts: counted.counts,
+    };
+  }
   return {
     call: ev > margin && !plo6FoldStands,
     ...(plo6FoldStands ? { plo6FoldStands: true } : {}),

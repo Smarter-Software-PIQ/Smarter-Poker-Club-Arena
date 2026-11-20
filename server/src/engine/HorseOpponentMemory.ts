@@ -21,6 +21,12 @@ import {
   validReraiseResponse,
   type ReraiseResponseCounters,
 } from './HorseOmahaReraiseResponse.js';
+import { copyFlopShown, validFlopShown, type FlopShownCounters } from './HorseOmahaFlopShown.js';
+import {
+  copyStreetPrice,
+  validStreetPrice,
+  type StreetPriceCounters,
+} from './HorseOmahaStreetReadPrice.js';
 
 export const MEMORY_VARIANTS = [
   'nlh',
@@ -85,6 +91,46 @@ export interface DurableOpponentProfile {
    * Read only by the default-OFF option omahaReraisedCallVsRaisePriced.
    */
   reraise_response?: ReraiseResponseCounters | null;
+  /**
+   * 2026-11-19 what this exact row's player showed after making the first bet of a flop, and what calls of those
+   * bets returned (horse_exact_profiles.flop_shown: shown first flop bets by line, flop texture and the hand's class
+   * on the flop; calls of his first flop bets by the caller's kind, class and position with their price and their
+   * return; integers, each cell aged by its own evidence, written by the accepted-hand learner from the hand after
+   * its column was installed; HorseOmahaFlopShown). Public information only: the action log, the board, the
+   * holdings the showdown revealed and the winners list. Null or absent: none on file (also before the column
+   * exists). Never part of the row's validity: a stored copy keeps it only when it is well formed
+   * (copyFlopShownRecord). No decision reads it yet.
+   */
+  flop_shown?: FlopShownCounters | null;
+  /**
+   * 2026-11-19 the price behind this exact row's fold-to-raise cells (horse_exact_profiles.street_counters_price:
+   * per street, the sum of the prices of the raises he faced after betting or raising and how many had a price,
+   * aged like the street read's cells; HorseOmahaStreetReadPrice). Public actions and the public pot size only.
+   * Null or absent: none on file. Never part of the row's validity (copyStreetPriceRecord). No decision reads it yet.
+   */
+  street_counters_price?: StreetPriceCounters | null;
+}
+
+/** A copy of a profile's fold-to-raise price record for a stored copy of the profile: absent stays absent, null
+ *  stays null, and a malformed record is dropped (absent) rather than failing the row. */
+export function copyStreetPriceRecord(p: {
+  street_counters_price?: unknown;
+}): Pick<DurableOpponentProfile, 'street_counters_price'> {
+  if (p.street_counters_price === undefined) return {};
+  if (p.street_counters_price === null) return { street_counters_price: null };
+  if (!validStreetPrice(p.street_counters_price)) return {};
+  return { street_counters_price: copyStreetPrice(p.street_counters_price) };
+}
+
+/** A copy of a profile's flop-shown record for a stored copy of the profile: absent stays absent, null stays null,
+ *  and a malformed record is dropped (absent) rather than failing the row. */
+export function copyFlopShownRecord(p: {
+  flop_shown?: unknown;
+}): Pick<DurableOpponentProfile, 'flop_shown'> {
+  if (p.flop_shown === undefined) return {};
+  if (p.flop_shown === null) return { flop_shown: null };
+  if (!validFlopShown(p.flop_shown)) return {};
+  return { flop_shown: copyFlopShown(p.flop_shown) };
 }
 
 /** A copy of a profile's re-raise response record for a stored copy of the profile: absent stays absent, null stays

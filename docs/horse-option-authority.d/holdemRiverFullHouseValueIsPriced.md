@@ -30,3 +30,9 @@ The option alone does nothing (it refines `holdemRiverFullHouseValue`). Off (abs
 ## Evaluation (owed)
 
 League card declared, not run: `nlh_river_full_house_value_is_priced` (`server/src/benchmark/HorseLeague.ts`; arm B `holdemRiverFullHouseValue`, arm A adds this option). The audited-hand replay (RIVER-FULL-HOUSE-REPLAY-20261115) has not been run with it. A PASS-BAR must be written before either; nothing has been measured.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -34,3 +34,9 @@ HorseOmahaUnderpair.test.ts (all pass on the PLO strategy head; server tsc 0).
 ## Limits
 
 Multiway (bet and a call) only; heads-up flops untouched.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

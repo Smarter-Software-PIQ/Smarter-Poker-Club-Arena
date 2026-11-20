@@ -32,10 +32,29 @@
  * (HorseMind.omahaFacingBetEvReadOf): with the mind off, or no row for the
  * bettor, the population prior decides.
  *
+ * omahaFlopDefenceIsPriced (WooWoo audit FLOP-DEFENCE 2026-11-18, default OFF):
+ * heads-up facing his first flop bet with chips behind, the verdict's call is
+ * priced as the two-street tree of HorseOmahaFlopDefenceTree.ts. With
+ * omahaFlopFacingBetEv off the rule is reached for that option alone and
+ * answers ONLY where the tree priced the call (flopDefenceOnly); every other
+ * flop decision is returned as given, with no receipt. Receipts:
+ * omaha_flop_defence_priced_call / _fold, _changed (alone), and
+ * omaha_flop_defence_raise_priced_higher (measurement: the unpriced-re-raise
+ * pot raise is worth more than the call by more than the margin).
+ * omahaFlopVerdictReadsTheBettor (2026-11-19, default OFF): the verdict also
+ * reads THIS bettor's durable street record (HorseMind.omahaStreetReadOf):
+ * how often he bets this flop texture on this line and how often he bets the
+ * turn and the river, each beside players of his kind and each moved from
+ * the kind's figure in proportion to his sample (HorseOmahaFlopBettorRead).
+ * With no record for him, the mind off or a kind the decision does not know,
+ * the verdict is exactly the one above.
+ *
  * Receipts: omaha_flop_facing_bet_ev_call / _fold (the verdict, every time it
  * answers) and omaha_flop_facing_bet_ev_changed when it differs from the
  * answer it was given; the rule it replaced is the legacy receipt fired in
- * the same decision (plo_paired_board_fold, ...).
+ * the same decision (plo_paired_board_fold, ...). With
+ * omahaFlopVerdictReadsTheBettor on, omaha_flop_verdict_read_the_bettor when
+ * the verdict that answered used a record of the bettor.
  */
 import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
@@ -48,7 +67,15 @@ import {
   type OmahaFlopFacingBetEvSpot,
   type OmahaFlopFacingBetEvVerdict,
 } from './HorseOmahaFlopFacingBetEv.js';
+import {
+  omahaFlopBettorIsPreflopAggressor,
+  omahaFlopBettorRead,
+  type OmahaFlopBettorRead,
+} from './HorseOmahaFlopBettorRead.js';
 import { omahaBareOverpairFlopFacingBetSpot } from './HorseOmahaOopChecks.js';
+import { omahaFlopDefenceTreeInputs } from './HorseOmahaFlopDefenceTree.js';
+import { omahaOpponentKindOf } from './HorseOmahaPricedMode.js';
+import { flopTextureOf } from './HorseOmahaStreetRead.js';
 
 /** What HorseLogic hands the rule: its own reading of the decision's options and seats. */
 export interface OmahaFlopFacingBetEvRuleContext {
@@ -62,11 +89,28 @@ export interface OmahaFlopFacingBetEvRuleContext {
   inPosition: boolean;
   /** omahaBareOverpairOopFlopCheck is on: its continuation owns its own spot */
   bareOverpairContinuation: boolean;
+  /**
+   * omahaFlopDefenceIsPriced is on (default absent = off): heads-up facing his
+   * first flop bet, the call is priced as a two-street tree from his turn and
+   * river bet rates (HorseOmahaFlopDefenceTree.ts).
+   */
+  flopDefenceTree?: boolean;
+  /**
+   * omahaFlopDefenceIsPriced is on and omahaFlopFacingBetEv is off: the rule
+   * answers only where the tree priced the call (heads-up, his first flop
+   * bet, chips behind); everywhere else the decision it was given stands,
+   * with no receipt.
+   */
+  flopDefenceOnly?: boolean;
+  /** omahaFlopVerdictReadsTheBettor is on: the verdict reads the bettor's street record */
+  readsTheBettor?: boolean;
 }
 
 export interface OmahaFlopFacingBetEvAnswer {
   spot: OmahaFlopFacingBetEvSpot;
   verdict: OmahaFlopFacingBetEvVerdict;
+  /** omahaFlopVerdictReadsTheBettor only: the bettor's read the verdict used (absent when there was none) */
+  bettor?: OmahaFlopBettorRead;
 }
 
 /**
@@ -85,9 +129,10 @@ export function omahaFlopFacingBetEvAnswer(
   if (ctx.bareOverpairContinuation && omahaBareOverpairFlopFacingBetSpot(player, gs) !== null)
     return null;
   let read: OmahaFacingBetEvRead | null = null;
+  let bettorRead: OmahaFlopBettorRead | null = null;
   if (ctx.mind) {
+    const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
     try {
-      const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
       // The read has no flop row of its own: the pooled postflop read of the
       // turn is the one asked (no shown-down size cell is read off the river).
       read = bettor
@@ -96,6 +141,52 @@ export function omahaFlopFacingBetEvAnswer(
     } catch {
       read = null;
     }
+    if (ctx.readsTheBettor === true && bettor) {
+      try {
+        const texture = flopTextureOf(gs.communityCards);
+        bettorRead = omahaFlopBettorRead(
+          HorseMind.omahaStreetReadOf(bettor.user_id, texture)?.counters ?? null,
+          omahaOpponentKindOf(gs, bettor.user_id),
+          texture,
+          spot.isRaise
+            ? null
+            : omahaFlopBettorIsPreflopAggressor(gs.actionHistory, spot.bettorSeat)
+              ? 'cbet'
+              : 'flopBet',
+          spot.valueShare + spot.priorBluff
+        );
+      } catch {
+        bettorRead = null;
+      }
+    }
+  }
+  let tree = null;
+  // Lightning and fixed limit are outside the tree (the priced rules' scope).
+  const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+  if (
+    ctx.flopDefenceTree === true &&
+    speed !== 'lightning' &&
+    gs.bettingStructure !== 'fixed_limit'
+  ) {
+    const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+    let counters = null;
+    if (ctx.mind && bettor) {
+      try {
+        counters = HorseMind.omahaStreetReadOf(bettor.user_id)?.counters ?? null;
+      } catch {
+        counters = null;
+      }
+    }
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    // The effective stack: a later wager is bounded by the smaller of the two stacks behind.
+    const his = bettor && Number.isFinite(bettor.stack) ? Math.max(0, bettor.stack) : Infinity;
+    tree = {
+      inputs: omahaFlopDefenceTreeInputs(
+        bettor ? omahaOpponentKindOf(gs, bettor.user_id) : null,
+        counters
+      ),
+      left: Math.min(Math.max(0, stack - spot.paid), his),
+    };
   }
   const verdict = omahaFlopFacingBetEvVerdict(
     spot,
@@ -103,9 +194,22 @@ export function omahaFlopFacingBetEvAnswer(
     gs.communityCards ?? [],
     player.knownDeadCards ?? [],
     read,
-    { rake: ctx.rake, inPosition: ctx.inPosition }
+    {
+      rake: ctx.rake,
+      inPosition: ctx.inPosition,
+      ...(tree ? { tree } : {}),
+      ...(bettorRead
+        ? {
+            bettor: {
+              rangeFactor: bettorRead.rangeFactor,
+              laterBetFactor: bettorRead.laterBetFactor,
+            },
+          }
+        : {}),
+    }
   );
-  return verdict ? { spot, verdict } : null;
+  if (!verdict) return null;
+  return bettorRead ? { spot, verdict, bettor: bettorRead } : { spot, verdict };
 }
 
 /** The rule: a flop fold or call in the covered spot becomes the verdict. */
@@ -128,10 +232,27 @@ export function omahaFlopFacingBetEvRule(
     const answer = omahaFlopFacingBetEvAnswer(player, gs, ctx);
     if (!answer) return decision;
     const { spot, verdict } = answer;
-    if (ctx.telemetry)
-      noteFire(verdict.call ? 'omaha_flop_facing_bet_ev_call' : 'omaha_flop_facing_bet_ev_fold');
+    const tree = verdict.tree ?? null;
+    if (ctx.flopDefenceOnly === true && !tree) return decision;
+    if (ctx.telemetry) {
+      if (ctx.flopDefenceOnly !== true)
+        noteFire(verdict.call ? 'omaha_flop_facing_bet_ev_call' : 'omaha_flop_facing_bet_ev_fold');
+      if (tree) {
+        noteFire(
+          verdict.call ? 'omaha_flop_defence_priced_call' : 'omaha_flop_defence_priced_fold'
+        );
+        if (tree.raiseEv !== null && tree.raiseEv > Math.max(0, tree.ev) + verdict.margin)
+          noteFire('omaha_flop_defence_raise_priced_higher');
+      }
+      if (answer.bettor) noteFire('omaha_flop_verdict_read_the_bettor');
+    }
     if (verdict.call === legacyCall) return decision;
-    if (ctx.telemetry) noteFire('omaha_flop_facing_bet_ev_changed');
+    if (ctx.telemetry)
+      noteFire(
+        ctx.flopDefenceOnly === true
+          ? 'omaha_flop_defence_priced_changed'
+          : 'omaha_flop_facing_bet_ev_changed'
+      );
     if (verdict.call) {
       const called: HorseDecision = spot.allIn
         ? { ...decision, action: 'all_in' }

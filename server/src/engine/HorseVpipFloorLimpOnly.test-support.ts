@@ -31,7 +31,22 @@ const RECORDED: unknown = JSON.parse(
 );
 
 export type FloorVariant = 'plo4' | 'plo5' | 'plo6' | 'nlh';
-export const HOLE_COUNT: Record<FloorVariant, number> = { nlh: 2, plo4: 4, plo5: 5, plo6: 6 };
+/** Every variant the harness can seat: the four measured by F-10, plus PLO8 and short deck. */
+export type SeatedFloorVariant = FloorVariant | 'plo8' | 'short_deck';
+export const HOLE_COUNT: Record<SeatedFloorVariant, number> = {
+  nlh: 2,
+  plo4: 4,
+  plo5: 5,
+  plo6: 6,
+  plo8: 4,
+  short_deck: 2,
+};
+/** No-limit betting (hold'em and short deck); every other variant here is pot limit. */
+const noLimit = (variant: SeatedFloorVariant): boolean =>
+  variant === 'nlh' || variant === 'short_deck';
+/** The ranks dealt: short deck has no deuce to five. */
+const ranksOf = (variant: SeatedFloorVariant): string =>
+  variant === 'short_deck' ? '6789TJQKA' : '23456789TJQKA';
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 export const cards = (spec: string): Card[] =>
@@ -109,7 +124,7 @@ export interface Spot {
 }
 
 export interface Table {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   /** The table's VPIP floor, percent; 0 = no floor (the field is absent). */
   floor: number;
   window?: number;
@@ -183,7 +198,7 @@ export function buildFixture(spot: Spot, table: Table, hole: Card[]): ComplaintF
       const to =
         act === 'raise'
           ? Number(exactTo)
-          : table.variant === 'nlh'
+          : noLimit(table.variant)
             ? currentBet + Math.max(lastRaise, 3 * BB)
             : currentBet + pot() + toCall;
       const put = to - p.bet;
@@ -198,10 +213,9 @@ export function buildFixture(spot: Spot, table: Table, hole: Card[]): ComplaintF
   const h = st.get(spot.hero)!;
   const toCall = Math.max(0, currentBet - h.bet);
   const potNow = pot();
-  const maxTo =
-    table.variant === 'nlh'
-      ? h.behind + h.bet
-      : Math.min(h.behind + h.bet, currentBet + potNow + toCall);
+  const maxTo = noLimit(table.variant)
+    ? h.behind + h.bet
+    : Math.min(h.behind + h.bet, currentBet + potNow + toCall);
   const pn = {
     ...template,
     pot: potNow,
@@ -221,7 +235,7 @@ export function buildFixture(spot: Spot, table: Table, hole: Card[]): ComplaintF
     legalActions: toCall > 0 ? ['fold', 'call', 'raise', 'all_in'] : ['check', 'raise', 'all_in'],
     actorSeat: spot.hero,
     variant: table.variant,
-    structure: table.variant === 'nlh' ? 'no_limit' : 'pot_limit',
+    structure: noLimit(table.variant) ? 'no_limit' : 'pot_limit',
     vpipWindowHands: table.window ?? 30,
   } as typeof template;
   if (table.floor > 0) pn.vpipFloor = table.floor;
@@ -361,6 +375,19 @@ export const PRODUCTION_MIX: ReadonlyArray<[SpotName, number]> = [
 ];
 export const LIMP_RAISED_SHARE = 0.891;
 
+/**
+ * SITTING_MODE, the way an Action / Madness table is judged (fn_nit_policy:
+ * ruleset_snapshot.vpip_rolling absent = false, vpip_grace_hands absent = 0;
+ * fn_nit_sample with p_rolling false takes EVERY hand of the sitting;
+ * fn_nit_check says maintain_vpip once the sitting holds `window` hands and
+ * its VPIP is under the floor; fn_nit_enforce with grace_hands <= 0 returns
+ * the seat for eviction at that boundary, no warning row). `sittingMode: true`
+ * on sitting() and tableSitting() models exactly that: the Horse's own figure
+ * and the judged figure are the whole sitting, judged at every boundary from
+ * hand `window` on, and under the floor is an eviction on the spot. Production
+ * 2026-11-19: 17 such tables, all window 10 and floor 40 (NLH, PLO4, PLO5,
+ * PLO6, PLO8, short deck).
+ */
 export interface SittingStats {
   hands: number;
   vpipHands: number;
@@ -394,17 +421,20 @@ export interface SittingStats {
  * the sitting ends.
  */
 export function sitting(cfg: {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   floor: number;
   opts: HorseDecideOpts;
   hands: number;
   seed: number;
   window?: number;
   grace?: number;
+  /** The Action / Madness mode (fn_nit_policy: vpip_rolling false, grace 0): see SITTING_MODE. */
+  sittingMode?: boolean;
   mix?: ReadonlyArray<[SpotName, number]>;
 }): SittingStats {
   const window = cfg.window ?? 30;
   const grace = cfg.grace ?? 10;
+  const sample = (p: boolean[]) => (cfg.sittingMode === true ? p : p.slice(-window));
   const mix = cfg.mix ?? PRODUCTION_MIX;
   const total = mix.reduce((s, [, w]) => s + w, 0);
   let s = cfg.seed >>> 0;
@@ -412,12 +442,12 @@ export function sitting(cfg: {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 4294967296;
   };
-  const RANKS = '23456789TJQKA';
+  const RANKS = ranksOf(cfg.variant);
   const SUITS = 'cdhs';
   const deal = (): string => {
     const seen = new Set<string>();
     while (seen.size < HOLE_COUNT[cfg.variant])
-      seen.add(RANKS[Math.floor(rnd() * 13)] + SUITS[Math.floor(rnd() * 4)]);
+      seen.add(RANKS[Math.floor(rnd() * RANKS.length)] + SUITS[Math.floor(rnd() * 4)]);
     return [...seen].join('');
   };
   const played: boolean[] = [];
@@ -458,7 +488,7 @@ export function sitting(cfg: {
     }
     const spot = SPOTS[name] as Spot;
     const continueRoll = rnd();
-    const recent = played.slice(-window);
+    const recent = sample(played);
     const k = recent.filter(Boolean).length;
     const own =
       recent.length > 0
@@ -503,14 +533,19 @@ export function sitting(cfg: {
     if (vpip) out.vpipHands++;
     played.push(vpip);
     // the hand boundary: fn_nit_enforce
-    const win = played.slice(-window);
+    const win = sample(played);
     if (win.length >= window) {
       const kk = win.filter(Boolean).length;
-      const pct = Math.round((1000 * kk) / window) / 10;
+      const pct = Math.round((1000 * kk) / win.length) / 10;
       out.judged++;
       out.windowCounts.push(kk);
       const under = pct < cfg.floor;
       if (under) out.judgedUnder++;
+      if (under && cfg.sittingMode === true) {
+        // no warning, no grace: stood up at this boundary (fn_nit_enforce, grace_hands <= 0)
+        out.evictedAtHand = h + 1;
+        break;
+      }
       if (!under) {
         if (warnedAt !== null) out.recoveries++;
         warnedAt = null;
@@ -583,7 +618,7 @@ export interface SpotRate {
  * Facing a raise this is the only VPIP the limp-only ruling leaves a Horse.
  */
 export function unflooredEntryRates(cfg: {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   opts: HorseDecideOpts;
   hands: number;
   seed: number;
@@ -595,12 +630,12 @@ export function unflooredEntryRates(cfg: {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 4294967296;
   };
-  const RANKS = '23456789TJQKA';
+  const RANKS = ranksOf(cfg.variant);
   const SUITS = 'cdhs';
   const deal = (): string => {
     const seen = new Set<string>();
     while (seen.size < HOLE_COUNT[cfg.variant])
-      seen.add(RANKS[Math.floor(rnd() * 13)] + SUITS[Math.floor(rnd() * 4)]);
+      seen.add(RANKS[Math.floor(rnd() * RANKS.length)] + SUITS[Math.floor(rnd() * 4)]);
     return [...seen].join('');
   };
   return mix.map(([name, weight]) => {
@@ -669,22 +704,25 @@ export interface TableSittingStats {
  * No reads (mind off), so every opponent is the population envelope.
  */
 export function tableSitting(cfg: {
-  variant: FloorVariant;
+  variant: SeatedFloorVariant;
   floor: number;
   opts: HorseDecideOpts;
   hands: number;
   seed: number;
   window?: number;
   grace?: number;
+  /** The Action / Madness mode (fn_nit_policy: vpip_rolling false, grace 0): see SITTING_MODE. */
+  sittingMode?: boolean;
 }): TableSittingStats {
   const window = cfg.window ?? 30;
   const grace = cfg.grace ?? 10;
+  const sample = (p: boolean[]) => (cfg.sittingMode === true ? p : p.slice(-window));
   let s = cfg.seed >>> 0;
   const rnd = () => {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 4294967296;
   };
-  const RANKS = '23456789TJQKA';
+  const RANKS = ranksOf(cfg.variant);
   const SUITS = 'cdhs';
   const DECK: string[] = [];
   for (const r of RANKS) for (const u of SUITS) DECK.push(r + u);
@@ -767,7 +805,7 @@ export function tableSitting(cfg: {
       if (live.length === 1) break; // everybody else folded: no decision is asked
       if (folded.has(seat) || allIn.has(seat)) continue;
       const chair = chairs[chairOfSeat(seat)];
-      const recent = chair.played.slice(-window);
+      const recent = sample(chair.played);
       const k = recent.filter(Boolean).length;
       const own =
         recent.length > 0
@@ -787,8 +825,9 @@ export function tableSitting(cfg: {
       const toCall = currentBet - bet.get(seat)!;
       const potNow = [...total.values()].reduce((x, y) => x + y, 0);
       const stackTo = bet.get(seat)! + behind(seat);
-      const maxTo =
-        cfg.variant === 'nlh' ? stackTo : Math.min(stackTo, currentBet + potNow + toCall);
+      const maxTo = noLimit(cfg.variant)
+        ? stackTo
+        : Math.min(stackTo, currentBet + potNow + toCall);
       const minTo = Math.min(maxTo, currentBet + Math.max(lastRaise, BB));
       let action = a.decision.action as string;
       let to = 0;
@@ -860,12 +899,23 @@ export function tableSitting(cfg: {
       out.horseHands++;
       if (v) out.vpipHands++;
       if (chair.played.length < window) continue;
-      const kk = chair.played.slice(-window).filter(Boolean).length;
-      const pct = Math.round((1000 * kk) / window) / 10;
+      const win = sample(chair.played);
+      const kk = win.filter(Boolean).length;
+      const pct = Math.round((1000 * kk) / win.length) / 10;
       out.judged++;
       out.windowCounts.push(kk);
       const under = pct < cfg.floor;
       if (under) out.judgedUnder++;
+      if (under && cfg.sittingMode === true) {
+        // no warning, no grace: stood up at this boundary, a fresh Horse takes the chair
+        out.evictions++;
+        out.evictedAtHands.push(chair.played.length);
+        closeSitting(chair);
+        chair.played = [];
+        chair.warnedAt = null;
+        out.horseSittings++;
+        continue;
+      }
       if (!under) {
         if (chair.warnedAt !== null) out.recoveries++;
         chair.warnedAt = null;

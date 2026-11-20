@@ -67,3 +67,9 @@ League cards (HorseLeague.ts, declared): plo4_omaha_turn_call_realization_by_run
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
 The component's own follow-up migration 20261118014131 was deleted; the option is in the batch's one regenerated follow-up, 20261118070047_horse_option_switch_omaha_option_batch.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

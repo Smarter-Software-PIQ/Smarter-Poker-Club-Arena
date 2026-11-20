@@ -7,7 +7,9 @@
  *    the decision's street, HorseMind.omahaFacingBetEvReadOf the bettor's street bet rate);
  *  - the priced comparisons' street cells (omahaPricedStreetRatesOf, the seam #11212 left for
  *    this read): his bet / fold-to-bet / fold-to-raise cells of the decision's street, which
- *    omahaPricedRead shrinks toward the pooled figure.
+ *    omahaPricedRead shrinks toward the pooled figure; with omahaSampledRaiseIsPricedAtEverySize
+ *    also on, the fold-to-raise cell carries the mean price of the raises behind it
+ *    (HorseMind.omahaFoldToRaisePriceOf) where his record holds one.
  * Both are put back when the decision returns, so a decision with the option off, or a second
  * decision nested in this one, reads exactly what it read before.
  *
@@ -39,10 +41,21 @@ export function withOmahaReadByStreetDecision<T>(
   const mode: OmahaReadByStreetMode = omahaReadByStreetModeOf(true, gs);
   if (!mode.on) return fn();
   const before = omahaPricedStreetRatesSourceNow();
+  // The price behind a fold-to-raise cell (2026-11-19, horse decisions stack 2): only the sampled
+  // raise priced at every size reads a cell's price (omahaPricedSampledFoldAtPrice), so the record is
+  // asked only with that option on (=== true) and only for a street cell that exists. Off, or with
+  // no record for him, the cells are exactly as before.
+  const priced = opts.omahaSampledRaiseIsPricedAtEverySize === true;
   omahaPricedSetStreetRatesSource((userId) => {
     if (opts.mind === false) return null;
     const read = HorseMind.omahaStreetReadOf(userId, mode.texture);
-    return read ? omahaStreetRatesOf(read.counters, mode.street, mode.texture) : null;
+    if (!read) return null;
+    const rates = omahaStreetRatesOf(read.counters, mode.street, mode.texture);
+    if (!priced || !rates?.foldToRaise || !mode.street) return rates;
+    const price = HorseMind.omahaFoldToRaisePriceOf(userId)?.[mode.street]?.price ?? null;
+    return price === null
+      ? rates
+      : omahaStreetRatesOf(read.counters, mode.street, mode.texture, price);
   });
   try {
     return withOmahaReadByStreet(mode, () => {

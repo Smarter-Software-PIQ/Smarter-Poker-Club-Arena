@@ -818,7 +818,14 @@ export async function logHandHistory(params: {
   });
 
   const opponentDealtCount = params.holeCardsAll?.size;
+  // The exact build serving this hand (hand_history.engine_build, migration
+  // 20261118073245). Only a full 40-hex GIT_COMMIT_SHA is release authority;
+  // otherwise the key is omitted and the column stays NULL. It rides the one
+  // accepted-hand transaction: no extra write, and the insert ignores the key
+  // on a database that does not have the column yet.
+  const engineBuild = resolveReleaseIdentity().releaseSha;
   const row = {
+    ...(engineBuild ? { engine_build: engineBuild } : {}),
     ...(params.observedHands?.length ? { _observed_hands: params.observedHands } : {}),
     // The RLS roster can include non-dealt chairs. Only the authoritative
     // dealt-card map can state the population the opponent read belongs to.

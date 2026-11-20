@@ -1256,6 +1256,39 @@ describe('logHandHistory - accepted-hand transaction', () => {
     expect('kill_pot' in (rpcCalls[0].args.p_hand_row as Record<string, unknown>)).toBe(false);
   });
 
+  it('names the serving engine build on the same authoritative hand payload, and only a full SHA', async () => {
+    // hand_history.engine_build (20261118073245): one short text on the row the
+    // accepted-hand transaction already carries, never a second write.
+    const sha = 'ab12'.repeat(10);
+    try {
+      vi.stubEnv('GIT_COMMIT_SHA', sha.toUpperCase());
+      acceptAtomicHand();
+      await logHandHistory(atomicParams(GLOBAL_HAND + 510));
+      expect(rpcCalls).toHaveLength(1);
+      expect(rpcCalls[0].fn).toBe('fn_ca_commit_hand_settlement');
+      expect((rpcCalls[0].args.p_hand_row as Record<string, unknown>).engine_build).toBe(sha);
+      expect(calls.filter((c) => c.table === 'hand_history')).toHaveLength(0);
+
+      // A short SHA or a bare ENGINE_VERSION is not release authority: no key, column stays NULL.
+      for (const env of [
+        { GIT_COMMIT_SHA: 'ab12ab12' },
+        { GIT_COMMIT_SHA: '', ENGINE_VERSION: 'local' },
+      ]) {
+        rpcCalls.length = 0;
+        vi.stubEnv('GIT_COMMIT_SHA', env.GIT_COMMIT_SHA);
+        if ('ENGINE_VERSION' in env) vi.stubEnv('ENGINE_VERSION', env.ENGINE_VERSION);
+        acceptAtomicHand();
+        await logHandHistory(atomicParams(GLOBAL_HAND + 511));
+        expect(rpcCalls).toHaveLength(1);
+        expect('engine_build' in (rpcCalls[0].args.p_hand_row as Record<string, unknown>)).toBe(
+          false
+        );
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('persists the cadence record in the same authoritative hand payload, and only when present', async () => {
     acceptAtomicHand();
     const cashBustCadence = { hold_ms: 1850, rest_ms: 1500, rebuy_pause_ms: 3420 };

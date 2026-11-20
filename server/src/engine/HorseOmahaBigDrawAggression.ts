@@ -487,6 +487,17 @@ export interface OmahaBigDrawEquities {
 }
 
 /**
+ * The sample behind omahaBigDrawEquities, by range: index 0 any hand, 1 the range that continues
+ * against a bet, 2 the range that continues against a raise (each range holds the next). `got` the
+ * opponent hands counted, `won` the Horse's share summed over them. Filled only when the caller
+ * passes one (omahaSampledRaiseIsPricedAtEverySize); the three shares returned do not depend on it.
+ */
+export interface OmahaBigDrawCounts {
+  got: number[];
+  won: number[];
+}
+
+/**
  * Hero's showdown share (ties half) against one opponent hand, by one seeded
  * sample of opponent hands and run-outs, split by the range the opponent hand
  * is in. A range with too few samples takes the wider range's figure. Null
@@ -496,7 +507,8 @@ export function omahaBigDrawEquities(
   hole: readonly Card[],
   board: readonly Card[],
   dead: readonly Card[] = [],
-  samples: number = OMAHA_BIG_DRAW_SAMPLES
+  samples: number = OMAHA_BIG_DRAW_SAMPLES,
+  counts?: OmahaBigDrawCounts
 ): OmahaBigDrawEquities | null {
   const deck = unseenDeck([...hole, ...board, ...dead]);
   const size = hole.length;
@@ -541,6 +553,10 @@ export function omahaBigDrawEquities(
   const all = won[0]! / got[0]!;
   const bet = got[1]! >= 40 ? won[1]! / got[1]! : all;
   const raise = got[2]! >= 40 ? won[2]! / got[2]! : bet;
+  if (counts) {
+    counts.got = got;
+    counts.won = won;
+  }
   return { all, bet, raise };
 }
 

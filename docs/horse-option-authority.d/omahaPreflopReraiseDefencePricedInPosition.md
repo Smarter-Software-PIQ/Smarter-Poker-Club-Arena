@@ -117,3 +117,9 @@ adds this option. Declared; not run.
 omahaPreflopReraiseDefencePricedInPosition docs/horse-option-authority.d/omahaPreflopReraiseDefencePricedInPosition.md
 sha256 <the sha256 of this file as merged>`, only after its declared evaluation passes, the serving engine build knows
 the option name and the switch-list migration that adds it is installed.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)
