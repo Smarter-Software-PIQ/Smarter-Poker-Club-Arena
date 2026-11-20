@@ -551,6 +551,19 @@ SET LOCAL lock_timeout = '2s';
 SET LOCAL session_replication_role = replica;
 SELECT set_config('replay.freeze_offset', :'freeze_offset', true), set_config('replay.settle', :'settle', true) \g /dev/null
 CREATE TEMP TABLE replay_verdict (check_name text PRIMARY KEY, verdict text NOT NULL, detail text) ON COMMIT DROP;
+-- The restored Backup copy carries no supabase_migrations schema (Backup
+-- certify 44673040919, 2026-11-20 04:15 UTC: "relation
+-- supabase_migrations.schema_migrations does not exist"). A version is
+-- installed only where that history exists and names it; anywhere else the
+-- check reads not installed (not_armed), never an error.
+CREATE FUNCTION pg_temp.replay_installed(p_version text) RETURNS boolean LANGUAGE plpgsql AS $replay_installed$
+DECLARE v boolean;
+BEGIN
+  IF to_regclass('supabase_migrations.schema_migrations') IS NULL THEN RETURN false; END IF;
+  EXECUTE 'SELECT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = $1)' INTO v USING p_version;
+  RETURN v;
+END
+$replay_installed$;
 DO $replay$
 DECLARE
   c_freeze integer := current_setting('replay.freeze_offset')::integer;
@@ -562,7 +575,7 @@ DECLARE
   v_h4h boolean;
 BEGIN
   -- spin_reservation_budget ------------------------------------------------
-  IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261119181143') THEN
+  IF NOT pg_temp.replay_installed('20261119181143') THEN
     INSERT INTO replay_verdict VALUES ('spin_reservation_budget', 'not_armed', '20261119181143 is not installed');
   ELSE
     BEGIN
@@ -607,7 +620,7 @@ BEGIN
   ELSE
     BEGIN
       v_h4h := to_regclass('public.ca_tournament_hand_for_hand') IS NOT NULL
-               AND EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261119211558');
+               AND pg_temp.replay_installed('20261119211558');
       -- Night 1 (2000-01-01): an ordinary cash pair and an ordinary tournament
       -- pair are graded; a tournament-break pair and a hand-for-hand pair are not.
       INSERT INTO public.hand_history (table_id, tournament_id, started_at, ended_at, created_at, actions, players, pots, showdown)
@@ -660,7 +673,7 @@ BEGIN
   END IF;
 
   -- cutover_owes_baseline --------------------------------------------------
-  IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261119182637') THEN
+  IF NOT pg_temp.replay_installed('20261119182637') THEN
     INSERT INTO replay_verdict VALUES ('cutover_owes_baseline', 'not_armed', '20261119182637 is not installed');
   ELSE
     BEGIN
@@ -687,7 +700,7 @@ BEGIN
   END IF;
 
   -- drill_records_its_run --------------------------------------------------
-  IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261119231718') THEN
+  IF NOT pg_temp.replay_installed('20261119231718') THEN
     INSERT INTO replay_verdict VALUES ('drill_records_its_run', 'not_armed', '20261119231718 is not installed');
   ELSE
     BEGIN
