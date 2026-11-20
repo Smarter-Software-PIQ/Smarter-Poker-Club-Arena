@@ -1593,6 +1593,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "6099ac1df9fa97a843d0a682c3649f28849cd16ce106995b9545b93fe6d44318"
       }
+    },
+    {
+      "id": "2026-11-20-owner-no-notice-engine-1730z",
+      "ownerOrder": "Dan, in Claude session_01TLQer8p3UeFunmrx9DRhEW on November 20, 2026 at 09:48 Chicago, ordered verbatim: \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task.\" On November 19 at 15:27 Chicago he ordered verbatim: \"GET THE NEXT ONE STARTED NOW.\" and at 18:43 Chicago, verbatim: \"do not push back this cut over, add another after it!\" Earlier that day at 11:50 Chicago he ordered, verbatim: \"YOUR JOB RIGHT NOW IS TO GET ANYTHING AND EVERYTHING ENGINE CUT OVER RELATED, FULLY FINISHED, PUSHED, PUBLISHED AND ACTIVATED, WE NEED TO SCHEDULE A CUT OVER AS SOON AS POSSIBLE TO GET IT ALL ACTIVATED AND TESTED\". Window 2026-11-20-owner-no-notice-engine-0430z was consumed by receiver run 44699308820, which sealed 5ed440ab83513f9292eff592527b33e3a65ca2aa at 08:10:01 UTC November 20 (break 08:07:34 to 08:12:34 UTC, thaw ok, 33 tables resumed); the daily 04:00 Chicago route of November 20 did not replace it. His standing order of November 17, 2026 20:23 Chicago removes the advance player announcement from every engine cutover, verbatim: \"REMOVE THE ANNOUNCEMENT, I NEVER ASKED FOR IT, AND DON'T WANT IT APART OF ANY FUTURE ENGINE CUT OVER REQUIREMENTS EVER AGAIN!\", and his instruction of 11:05 Chicago that day applies, verbatim: \"For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.\" It does not authorize interrupting an active hand, bypassing settlement, forcing an uncertified replacement or weakening recovery safeguards. One fresh SINGLE-USE engine activation of exact serving 5ed440ab83513f9292eff592527b33e3a65ca2aa (sealed 2026-11-20 under window 2026-11-20-owner-no-notice-engine-0430z), containing at minimum protected main 728ef175fbafc183b9a6dcb1470d35b7a120e2ca. No playerNoticeAt is recorded and no client notice is published; no notice time is invented. The serving engine's own recovery window still announces the last hand internally, lets every table finish its hand and settle, and only then freezes. Operational execution preserves the exact current-schema Backup with the full 1800-second soak and both-direction seated-player rehearsal, immutable image qualification, original Stage and receiver custody, durable drain and freeze, the full 285s admission and rollback reserve, seal, thaw, live gameplay and post-seal Backup. The fixed expiry is not extended; this is one operation, never an automatic retry, renewal, new-start hold or second publisher. No strategy option is switched on or off by this release: horsePlayStyles, Pillar 2, R7/R8, leak maps, held-out packs and default-off strategy options remain disabled; zero opportunities remain explicit evidence gaps. Release-control inputs and ordinary migration installation are held only from booking merge until this operation seals, is abandoned or expires, then the maintained resume route reconciles every missed ordinary migration.",
+      "contains": "728ef175fbafc183b9a6dcb1470d35b7a120e2ca",
+      "ownerNoticeWaiver": "For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.",
+      "notBefore": "2026-11-20T17:30:00Z",
+      "notAfter": "2026-11-20T23:20:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "63faafec264981769d7c767c5077bc0bdb066c99974d5dbc248e79d38a23b5af"
+      }
     }
   ],
   "databaseWindows": [

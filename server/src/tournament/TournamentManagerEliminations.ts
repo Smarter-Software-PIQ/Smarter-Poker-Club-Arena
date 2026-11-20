@@ -804,6 +804,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     }
 
     this.isProcessingEliminations = true;
+    // A sweep may move, break, seat or eliminate: no plan read before it holds.
+    this.balanceBoardEpoch++;
     this.eliminationSweepStartedAt = Date.now();
     this.noteEliminationSweepStep('admitted');
     // A bust that arrived while a later stage held the continuation takes its

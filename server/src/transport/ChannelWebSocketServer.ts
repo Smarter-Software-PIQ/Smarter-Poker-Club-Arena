@@ -377,6 +377,29 @@ export class ChannelWebSocketServer {
     return this.connections.size;
   }
 
+  /**
+   * ROLLING HANDOFF retirement (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md):
+   * every channel socket is closed with 1012 (service restart) so it
+   * reconnects through this engine's relay to the engine that now owns
+   * everything. Never called with ENGINE_ROLLING_HANDOFF off.
+   */
+  closeAllForHandoff(): number {
+    let touched = 0;
+    for (const [ws] of [...this.connections]) {
+      touched++;
+      try {
+        ws.close(1012, 'engine_handoff');
+      } catch {
+        try {
+          ws.terminate();
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+    return touched;
+  }
+
   // ─── Upgrade aftermath ─────────────────────────────────────────────────────
 
   private onUpgraded(ws: WebSocket, userId: string, token = ''): void {

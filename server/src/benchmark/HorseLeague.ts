@@ -3543,6 +3543,38 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverCurrentNutsCallFloor: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane RAKE (default OFF, PLO4/PLO5 cash): omahaFacingBetPaysTheWholeDeduction (the facing-bet
+  // call verdicts deduct the whole projected deduction of the pot after the call instead of the marginal rake
+  // rate); both arms carry omahaFacingBetEv, a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_pays_the_whole_deduction`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetPaysTheWholeDeduction: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-20 EMERG lane RAKE (default OFF, PLO4/PLO5 cash): omahaMathCoreNetsTheWholeDeduction (the math core nets
+  // the dealt-player cap, the jackpot drop and preflop lines that reach a flop); both arms carry the core on every
+  // street and preflop, a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => {
+    const street = variant === 'plo4' ? 'Plo4' : 'Plo5';
+    const core = {
+      omahaMathCore: true,
+      omahaMathCorePreflop: true,
+      [`omahaMathCore${street}Flop`]: true,
+      [`omahaMathCore${street}Turn`]: true,
+      [`omahaMathCore${street}River`]: true,
+    };
+    return {
+      name: `${variant}_omaha_math_core_nets_the_whole_deduction`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...core, omahaMathCoreNetsTheWholeDeduction: true },
+      b: core,
+    };
+  }),
   // 2026-11-20 EMERG lane PREFLOP-AUDIT (default OFF, PLO4/PLO5 cash tables only): omahaColdCallOutsideBigBlindIsMeasured
   // (a final cold call of one open from a seat without a big blind posted becomes a fold for the hand classes measured
   // to lose against folding); a switches it on, b is today's brain.

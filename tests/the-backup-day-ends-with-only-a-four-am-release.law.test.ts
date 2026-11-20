@@ -824,19 +824,49 @@ gh() {
           expect(result.calls).not.toContain('READ ');
       });
       it.each(['failure', 'cancelled', ''])(
-        'a refresh that ended %s is a refusal even when no certify step ran, over any earlier success',
+        'a refresh that held the Backup host and ended %s is a refusal even when no certify step ran, over any earlier success',
         (refresh) => {
           for (const pending of ['skipped', 'failure', 'success']) {
             const result = shell(fakeGh('success') + publish.run, {
               ...env,
               PENDING: pending,
               REFRESH: refresh,
+              TURN: '1',
             });
             expect(result.status).toBe(1);
             expect(result.calls).toContain('-f state=failure');
             expect(result.calls).not.toContain('READ ');
             expect(result.stdout).not.toContain('stands');
           }
+        }
+      );
+      // incident 076ff467 (2026-11-20): a run that timed out waiting for the
+      // Backup host touched no copy and judged no build; its `failure` replaced
+      // the freeze baseline's certificate 12 minutes before the 03:30 selection.
+      it.each(['failure', 'cancelled', ''])(
+        'a refresh that never held the Backup host and ended %s is no verdict, and an earlier success stands',
+        (refresh) => {
+          const kept = shell(
+            fakeGh('success') + publish.run,
+            {
+              ...env,
+              PENDING: 'skipped',
+              REFRESH: refresh,
+              RC: '1',
+            },
+            { 'certificate.json': '{"reasons":["database_refresh_failed"]}' }
+          );
+          expect(kept.status).toBe(1);
+          expect(kept.calls).not.toContain('-f state=failure');
+          expect(kept.calls).not.toContain('-f state=');
+          expect(kept.stdout).toContain('stands');
+          const none = shell(fakeGh('missing') + publish.run, {
+            ...env,
+            PENDING: 'skipped',
+            REFRESH: refresh,
+          });
+          expect(none.calls).toContain('-f state=error');
+          expect(none.calls).toContain('never held the Backup host turn');
         }
       );
       it('a certified run still writes success', () => {

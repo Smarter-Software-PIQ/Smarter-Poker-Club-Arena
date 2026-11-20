@@ -180,6 +180,8 @@ function server(instance: string, db: ReturnType<typeof leaseDatabase>) {
   s.directTableAdmissionOperations = new Map();
   s.directTableAdmissionLeaseGenerations = new Map();
   s.tournamentManagerAdmissionLeaseGenerations = new Map();
+  // Set by the GameServer constructor (successor role and relay, 2026-11-19).
+  s.handoffYieldedTables = new Set();
   s.recoverDirectTableEngine = vi.fn(async (tableId: string) => {
     s.tableEngines.delete(tableId);
   });

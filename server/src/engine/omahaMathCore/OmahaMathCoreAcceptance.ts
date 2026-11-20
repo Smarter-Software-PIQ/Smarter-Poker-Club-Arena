@@ -262,6 +262,8 @@ export function omahaMathCoreRecover(input: {
   preflopOwned?: boolean;
   /** per-street admission flags (OmahaMathCoreRule OMAHA_MATH_CORE_STREET_FLAGS): off, a postflop core run is a shadow */
   streetOpts?: Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
+  /** omahaMathCoreNetsTheWholeDeduction: the standalone core run nets the whole deduction, as the decision would have */
+  wholeDeduction?: boolean;
   budgetMs?: number;
   thinkTime?: number;
   now?: () => number;
@@ -285,6 +287,7 @@ export function omahaMathCoreRecover(input: {
         {
           omahaMathCore: true,
           omahaMathCorePreflop: input.preflopOwned === true,
+          omahaMathCoreNetsTheWholeDeduction: input.wholeDeduction === true,
           ...(input.streetOpts ?? {}),
         },
         (d) => omahaMathCoreExactLegalize(d, player, gs),

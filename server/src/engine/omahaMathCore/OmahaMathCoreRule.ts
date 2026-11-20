@@ -72,6 +72,8 @@ export const OMAHA_MATH_CORE_ALL_STREETS: Readonly<Record<OmahaMathCoreStreetFla
 export type OmahaMathCoreOpts = {
   omahaMathCore?: boolean;
   omahaMathCorePreflop?: boolean;
+  /** EMERG lane RAKE 2026-11-20 (default OFF): the core nets the whole deduction (tier cap, jackpot drop, preflop lines that see a flop) */
+  omahaMathCoreNetsTheWholeDeduction?: boolean;
 } & Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
 
 /** True when the core owns this street's decision (preflop: omahaMathCorePreflop; postflop: the street flag). */
@@ -284,7 +286,11 @@ function positionsOf(seats: number[], dealer: number | undefined): Map<number, P
 const LEVELS: PreflopLevel[] = ['open', '3bet', '4bet', '5bet+'];
 
 /** Build the core's state from the request: cards, board, chips and the public line only. */
-export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): CoreState {
+export function omahaMathCoreState(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  wholeDeduction = false
+): CoreState {
   const variant = String(gs.gameVariant).toLowerCase() as 'plo4' | 'plo5';
   const street = gs.stage as CoreState['street'];
   const history = (gs.actionHistory ?? []).filter((a) => ACTS.has(a.action));
@@ -433,12 +439,27 @@ export function omahaMathCoreState(player: SeatPlayer, gs: HorseGameStateV2): Co
   const ip = live.every((o) => orderRank(o.seat, gs.dealerSeat) < heroRank);
   const dealt = gs.dealtSeatIds?.length ?? seated.length;
   const rc = gs.rakeConfig;
+  const tableCap = rc && Number.isFinite(rc.cap) ? rc.cap : Infinity;
+  // omahaMathCoreNetsTheWholeDeduction: the cap of the dealt-player tier (the controller's own ladder) and the
+  // fixed jackpot drop, both public table rules
+  const tier =
+    wholeDeduction && rc?.playerCountCaps?.length
+      ? [...rc.playerCountCaps]
+          .sort((a, b) => b.players - a.players)
+          .find((t) => dealt >= t.players)
+      : undefined;
+  const bbj = gs.bbjConfig;
+  const drop =
+    wholeDeduction && bbj?.enabled === true && dealt >= bbj.minPlayersDealt && gs.bigBlind > 0
+      ? Math.round(gs.bigBlind * bbj.feeBB * 100) / 100
+      : 0;
   const rake =
     rc && Number.isFinite(rc.percent)
       ? {
           percent: dealt <= 2 ? Math.min(rc.percent, HEADS_UP_RAKE_PERCENT) : rc.percent,
-          cap: Number.isFinite(rc.cap) ? rc.cap : Infinity,
+          cap: tier && Number.isFinite(tier.cap) ? Math.max(0, tier.cap) : tableCap,
           noFlopNoDrop: rc.noFlopNoDrop !== false,
+          ...(wholeDeduction ? { whole: true, drop: Number.isFinite(drop) ? drop : 0 } : {}),
         }
       : null;
   const hole = (player.cards ?? []).map(cardToInt);
@@ -539,7 +560,10 @@ export function omahaMathCoreRule(
   if (!inScope) return decision;
   const incoming = { action: decision.action, amount: decision.amount ?? null };
   try {
-    const { receipt } = decideOmahaMathCore(omahaMathCoreState(player, gs), { now });
+    const { receipt } = decideOmahaMathCore(
+      omahaMathCoreState(player, gs, opts.omahaMathCoreNetsTheWholeDeduction === true),
+      { now }
+    );
     // The executed action is a priced candidate exactly as the legalizer leaves it: the best EV
     // whose legal form is itself (cent rounding and the all-in amount aside). A candidate the
     // legalizer would resize (a 90-100% pot wager made the full pot, a wager of nearly the whole

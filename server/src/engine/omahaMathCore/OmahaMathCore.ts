@@ -130,7 +130,18 @@ export interface CoreState {
   heroWagerLine: Line;
   /** preflop raises so far (0 unopened, 1 open, 2 three-bet, ...) */
   preflopRaises: number;
-  rake: { percent: number; cap: number; noFlopNoDrop: boolean } | null;
+  /**
+   * `whole` (omahaMathCoreNetsTheWholeDeduction, default OFF): `cap` is the cap of the dealt-player tier, `drop`
+   * the fixed jackpot drop in chips, and a preflop line that reaches a flop is netted of both (a preflop
+   * fold-out still pays nothing). Absent: percentage and table cap after the flop only, as before.
+   */
+  rake: {
+    percent: number;
+    cap: number;
+    noFlopNoDrop: boolean;
+    whole?: boolean;
+    drop?: number;
+  } | null;
   seed: string;
   /** the hand's public postflop actions in order (lane RANGEADV's tracker; absent: current-street rules) */
   history?: PublicStreetAction[];
@@ -237,13 +248,21 @@ export const OMAHA_MATH_CORE_WORK_BUDGET = 12000;
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
-function rakeNet(state: CoreState, final: number): number {
-  if (!state.rake || !(state.rake.percent > 0)) return final;
-  if (state.street === 'preflop' && state.rake.noFlopNoDrop) return final;
-  return (
-    final -
-    Math.min((state.rake.percent / 100) * final, state.rake.cap > 0 ? state.rake.cap : Infinity)
-  );
+/**
+ * The pot the winner takes. `foldOut` marks a pot won because every opponent folded to the hero's
+ * wager: preflop that hand sees no flop and pays nothing (no flop, no drop). Every other preflop line
+ * the core prices reaches a flop, and with `rake.whole` it is netted of the capped rake and the
+ * jackpot drop like a postflop pot (EMERG lane RAKE 2026-11-20). Without `rake.whole`: as before.
+ */
+function rakeNet(state: CoreState, final: number, foldOut = false): number {
+  const rake = state.rake;
+  if (!rake || !(rake.percent > 0)) return final;
+  if (state.street === 'preflop' && rake.noFlopNoDrop && (rake.whole !== true || foldOut))
+    return final;
+  const taken = Math.min((rake.percent / 100) * final, rake.cap > 0 ? rake.cap : Infinity);
+  if (rake.whole !== true) return final - taken;
+  const drop = Number.isFinite(rake.drop) ? Math.max(0, rake.drop as number) : 0;
+  return final - taken - Math.min(drop, Math.max(0, final - taken));
 }
 
 /** Holdings of the pool between two strength shares (0 = strongest). */
@@ -1224,7 +1243,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           action,
           amount: action === 'bet' ? round2(adds) : round2(to),
           adds,
-          ev: pAll * rakeNet(state, P) + pRR * evRR + pCall * evCalled,
+          ev: pAll * rakeNet(state, P, true) + pRR * evRR + pCall * evCalled,
           equity: eC ? eC.equity : null,
           se: eC ? eC.se : null,
           foldProb: pAll,
@@ -1255,7 +1274,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       }
       let e = eq(cont);
       let ev =
-        pAllFold * rakeNet(state, P) +
+        pAllFold * rakeNet(state, P, true) +
         (1 - pAllFold) *
           (realized(anyAllIn || street === 'river') * e.equity * rakeNet(state, P + adds + calls) -
             adds);
@@ -1286,7 +1305,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           );
           const pc = Math.max(0, 1 - f.p - f.r);
           ev =
-            f.p * rakeNet(state, P) +
+            f.p * rakeNet(state, P, true) +
             pc *
               (realized(anyAllIn || street === 'river') *
                 eCall.equity *

@@ -1,0 +1,327 @@
+/**
+ * A BOUNDARY MOVE IS PLANNED UNDER THE HOLD (2026-11-20, incident 1e532243).
+ *
+ * fn_ca_hand_gap_watch paged at 08:31 and 09:31 CST on the ~50-table MTTs:
+ * tournament hands whose roster changed before the next hand ran p95 1.45 to
+ * 1.65 s of unintended delay between hands, against 0.19 s for every other
+ * tournament hand. Move-source hands alone: p50 0.78 s, p95 4.33 s. The
+ * fenced source parked after its completion hold and only THEN read the live
+ * table list and the balancer board (five serial round trips) before making
+ * the move; it could not deal until they finished. A source whose move
+ * committed within a second of its hold ending showed the normal 130 ms.
+ *
+ * The law: the board is read when the fenced source settles its hand, under
+ * the hold, and at the park only the committed seat moves execute; a plan
+ * made stale by a sweep, a seat-move batch, a new bust or age is never used
+ * (the park reads fresh, as before); and a table that is neither a move
+ * source nor a destination is never parked, including a fenced source the
+ * prepared plan no longer needs.
+ */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TournamentManager } from './TournamentManager.js';
+import type { BalancerTable } from '../engine/TableBalancer.js';
+
+const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const EVENT = id(1);
+const GENERATION = id(9);
+
+function table(n: number, players: number): BalancerTable {
+  return {
+    tableId: id(2000 + n),
+    playerCount: players,
+    maxSeats: 9,
+    players: Array.from({ length: players }, (_, i) => ({
+      userId: id(3000 + n * 10 + i),
+      stack: 10_000,
+      seat: i + 1,
+    })),
+  };
+}
+
+function fakeEngine() {
+  return {
+    dealing: true,
+    parkForTournamentMove: vi.fn(async () => false),
+    releaseTournamentMovePause: vi.fn(),
+    awaitsTournamentMoveClaim: vi.fn(() => false),
+    hasClaimedTournamentMoveBoundary: vi.fn(() => false),
+    isBetweenHands: () => false,
+    hasSettlementInFlight: () => false,
+    wakeWaitingForPlayers: vi.fn(),
+  };
+}
+
+function manager(board: BalancerTable[]) {
+  const m: any = new TournamentManager(EVENT, {} as any, GENERATION, performance.now() + 60_000);
+  m.running = true;
+  m.lifecycleEpoch.begin();
+  m.eliminationSweepDeadlineAt = 0;
+  m.eliminationMutationAllowed = () => true;
+  m.requestUrgentEliminationSweepAfter = vi.fn();
+  m.requestEliminationSweep = vi.fn();
+  m.recoverF06OriginalAdmissions = vi.fn(async () => {});
+  m.visitTournamentBreakPage = vi.fn(async () => true);
+  m.redrivePendingTournamentSeatMoveOutcomes = vi.fn(async () => true);
+  m.tournamentBreakDiscoveryComplete = true;
+  m.isFinalTable = true;
+  m.isOnBreak = () => false;
+  m.gameServer = { ownsTournamentTableEngine: () => true };
+  m.broadcast = vi.fn(async () => true);
+  const engines = new Map<string, ReturnType<typeof fakeEngine>>();
+  for (const t of board) engines.set(t.tableId, fakeEngine());
+  m.tableEngines = engines;
+  m.waitForHandComplete = vi.fn(async (tableId: string) => !engines.get(tableId)!.dealing);
+  m.liveTournamentTableIdsWithPlayers = vi.fn(async () =>
+    board.filter((t) => t.playerCount > 0).map((t) => t.tableId)
+  );
+  m.loadBalancerTables = vi.fn(async (ids: string[]) =>
+    board
+      .filter((t) => ids.includes(t.tableId))
+      .map((t) => ({ ...t, players: t.players.map((p) => ({ ...p })) }))
+  );
+  m.executePlayerMoves = vi.fn(async (moves: unknown[]) => moves.length);
+  const park = (tableId: string) => {
+    const engine = engines.get(tableId)!;
+    engine.dealing = false;
+    engine.awaitsTournamentMoveClaim.mockReturnValue(true);
+  };
+  const settleHand = (t: BalancerTable, busted: string[] = []) =>
+    m.onManagedHandSettled(t.tableId, engines.get(t.tableId), [
+      ...t.players.map((p) => ({ user_id: p.userId, stack: p.stack })),
+      ...busted.map((user_id) => ({ user_id, stack: 0 })),
+    ]);
+  const readsAtTheBoundary = () =>
+    m.loadBalancerTables.mock.calls.filter((call: unknown[]) => call[1] === 'balanceAtBoundary')
+      .length;
+  return { m, engines, park, settleHand, readsAtTheBoundary };
+}
+
+const settle = async () => {
+  for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('a boundary move is planned under the hold', () => {
+  it('the board is read when the source settles, and the park only executes the moves', async () => {
+    const big = table(0, 8);
+    const short = table(1, 3);
+    const { m, park, settleHand, readsAtTheBoundary } = manager([big, short]);
+    await m.checkTableBalance();
+    expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+
+    // The source settles its hand: the hold begins and the board is read now.
+    m.liveTournamentTableIdsWithPlayers.mockClear();
+    m.loadBalancerTables.mockClear();
+    settleHand(big);
+    await settle();
+    expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+
+    // The hold ends and the source parks: no board read stands before the move.
+    m.liveTournamentTableIdsWithPlayers.mockClear();
+    m.loadBalancerTables.mockClear();
+    park(big.tableId);
+    expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(true);
+    await settle();
+    expect(m.liveTournamentTableIdsWithPlayers).not.toHaveBeenCalled();
+    expect(m.loadBalancerTables).not.toHaveBeenCalled();
+    expect(readsAtTheBoundary()).toBe(0);
+    expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+    const moves = m.executePlayerMoves.mock.calls[0][0] as Array<{ fromTableId: string }>;
+    expect(moves).toHaveLength(2);
+    for (const move of moves) expect(move.fromTableId).toBe(big.tableId);
+  });
+
+  it('a park that arrives while the hold-time read is still running waits for that read, not a new one', async () => {
+    const big = table(0, 8);
+    const short = table(1, 3);
+    const { m, park, settleHand } = manager([big, short]);
+    await m.checkTableBalance();
+    const read = m.loadBalancerTables.getMockImplementation();
+    let finish!: () => void;
+    m.loadBalancerTables.mockImplementation(
+      (...args: unknown[]) =>
+        new Promise((resolve) => {
+          finish = () => resolve(read(...args));
+        })
+    );
+    m.loadBalancerTables.mockClear();
+    settleHand(big);
+    await settle();
+    park(big.tableId);
+    m.claimGapBalanceAtBoundary(big.tableId);
+    await settle();
+    expect(m.executePlayerMoves).not.toHaveBeenCalled();
+    finish();
+    await settle();
+    expect(m.loadBalancerTables).toHaveBeenCalledTimes(1);
+    expect(m.loadBalancerTables.mock.calls[0][1]).toBe('balancePrepared');
+    expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['a sweep admitted', 'a bust at another table', 'a seat-move batch', 'age'] as const)(
+    'a plan made stale by %s is never used: the park reads the board fresh',
+    async (cause) => {
+      // 21 players on three tables: balanced, never broken.
+      const big = table(0, 9);
+      const short = table(1, 5);
+      const mid = table(2, 7);
+      const { m, park, settleHand, readsAtTheBoundary } = manager([big, short, mid]);
+      await m.checkTableBalance();
+      settleHand(big);
+      await settle();
+      expect(m.preparedBoundaryPlan).not.toBeNull();
+
+      if (cause === 'a sweep admitted') m.balanceBoardEpoch++;
+      if (cause === 'a bust at another table') settleHand(mid, [id(7777)]);
+      if (cause === 'a seat-move batch') {
+        m.runWithTournamentSeatMoveAuthority = vi.fn(async () => 0);
+        await (TournamentManager.prototype as any).executePlayerMoves.call(m, []);
+      }
+      if (cause === 'age') {
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 60_000);
+      }
+
+      park(big.tableId);
+      m.claimGapBalanceAtBoundary(big.tableId);
+      await settle();
+      expect(readsAtTheBoundary()).toBe(1);
+      expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('one bust reported twice (settlement, then the post-hold wake) counts once', async () => {
+    const big = table(0, 8);
+    const { m, settleHand } = manager([big, table(1, 3)]);
+    const before = m.balanceBoardEpoch;
+    settleHand(big, [id(8888)]);
+    settleHand(big, [id(8888)]);
+    expect(m.balanceBoardEpoch).toBe(before + 1);
+  });
+
+  it('a table that is neither a source nor a destination is never parked', async () => {
+    // 21 players on three tables: 9/5/7 becomes 7/7/7; the 7 is untouched.
+    const big = table(0, 9);
+    const short = table(1, 5);
+    const steady = table(2, 7);
+    const { m, engines, park, settleHand } = manager([big, short, steady]);
+    await m.checkTableBalance();
+    settleHand(big);
+    settleHand(steady);
+    await settle();
+    park(big.tableId);
+    m.claimGapBalanceAtBoundary(big.tableId);
+    await settle();
+    expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+    const moves = m.executePlayerMoves.mock.calls[0][0] as Array<{
+      fromTableId: string;
+      toTableId: string;
+    }>;
+    for (const move of moves) {
+      expect(move.fromTableId).not.toBe(steady.tableId);
+      expect(move.toTableId).not.toBe(steady.tableId);
+    }
+    expect(engines.get(steady.tableId)!.parkForTournamentMove).not.toHaveBeenCalled();
+    expect(engines.get(short.tableId)!.parkForTournamentMove).not.toHaveBeenCalled();
+  });
+
+  it('a fenced source the plan read under its hold no longer needs is given back before it parks', async () => {
+    const big = table(0, 8);
+    const short = table(1, 3);
+    const { m, engines, settleHand } = manager([big, short]);
+    await m.checkTableBalance();
+    const engine = engines.get(big.tableId)!;
+    const parkRequests = engine.parkForTournamentMove.mock.calls.length;
+
+    // Three players bust at the big table on this hand and the short table
+    // gains a late registration: 5/4, balanced.
+    const busted = big.players.slice(5).map((p) => p.userId);
+    big.players = big.players.slice(0, 5);
+    big.playerCount = 5;
+    short.players = [...short.players, { userId: id(9999), stack: 1, seat: 9 }];
+    short.playerCount = 4;
+    settleHand(big, busted);
+    await settle();
+
+    expect(engine.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+    expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
+    expect(engine.parkForTournamentMove.mock.calls.length).toBe(parkRequests);
+    // Its dealer is not stopped at the gate: there is no edge left to claim.
+    expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(false);
+    expect(m.executePlayerMoves).not.toHaveBeenCalled();
+  });
+
+  it('a fence is never lifted beside a sweep, and the board is read again when the sweep settles', async () => {
+    const big = table(0, 8);
+    const short = table(1, 3);
+    const { m, engines, settleHand } = manager([big, short]);
+    await m.checkTableBalance();
+    big.players = big.players.slice(0, 5);
+    big.playerCount = 5;
+    short.players = [...short.players, { userId: id(9999), stack: 1, seat: 9 }];
+    short.playerCount = 4;
+    m.isProcessingEliminations = true;
+    settleHand(big);
+    await settle();
+    expect(m.loadBalancerTables).not.toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+    expect(engines.get(big.tableId)!.releaseTournamentMovePause).not.toHaveBeenCalled();
+    expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+
+    // When that sweep settles with the source still in its hold, the board is
+    // read again, under the same hold.
+    m.isProcessingEliminations = false;
+    m.onEliminationSweepSettled();
+    await settle();
+    expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+  });
+
+  it('a fence is never lifted for a source already parked or claimed', async () => {
+    const big = table(0, 8);
+    const short = table(1, 3);
+    const { m, engines, settleHand } = manager([big, short]);
+    await m.checkTableBalance();
+    big.players = big.players.slice(0, 5);
+    big.playerCount = 5;
+    short.players = [...short.players, { userId: id(9999), stack: 1, seat: 9 }];
+    short.playerCount = 4;
+    engines.get(big.tableId)!.hasClaimedTournamentMoveBoundary.mockReturnValue(true);
+    settleHand(big);
+    await settle();
+    expect(engines.get(big.tableId)!.releaseTournamentMovePause).not.toHaveBeenCalled();
+    expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+  });
+
+  it('the hand-complete edge reaches the preparation before the hold plays', () => {
+    const base = readFileSync(
+      fileURLToPath(new URL('./TournamentManagerBase.ts', import.meta.url)),
+      'utf8'
+    );
+    const edge = base.slice(base.indexOf('engine.onHandComplete(('));
+    const owns = edge.indexOf('if (!ownsEdge(_tableId)) return;');
+    const prepare = edge.indexOf('this.onManagedHandSettled(_tableId, engine, finalStacks);');
+    expect(owns).toBeGreaterThan(-1);
+    expect(prepare).toBeGreaterThan(owns);
+    // First thing after the ownership check, ahead of every other edge duty.
+    expect(
+      edge
+        .slice(owns + 'if (!ownsEdge(_tableId)) return;'.length, prepare)
+        .split('\n')
+        .filter((l) => /^\s*(this\.|if )/.test(l))
+    ).toEqual([]);
+    const eliminations = readFileSync(
+      fileURLToPath(new URL('./TournamentManagerEliminations.ts', import.meta.url)),
+      'utf8'
+    );
+    // The statement right after a sweep takes the manager bumps the epoch.
+    const statements = eliminations
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'));
+    const admitted = statements.indexOf('this.isProcessingEliminations = true;');
+    expect(admitted).toBeGreaterThan(-1);
+    expect(statements[admitted + 1]).toBe('this.balanceBoardEpoch++;');
+  });
+});
