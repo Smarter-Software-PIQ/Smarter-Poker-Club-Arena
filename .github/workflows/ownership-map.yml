@@ -1,0 +1,44 @@
+name: Ownership map
+# CODE-AREA OWNERSHIP ON EVERY PULL REQUEST (Dan, 2026-11-19 17:26 Chicago).
+# Three agents rewrote fn_ca_alarm_drill in three open pull requests on
+# 2026-11-19 and each merge overwrote the last. This job reads
+# ops/ownership.json and comments (one sticky comment) when a pull request
+# changes a path or database function another lane owns, or a database
+# function another OPEN pull request also defines. Those are warnings. It
+# fails only when a locked area (release controls) changes without the pull
+# request declaring that area's lane ('Lane: <id>' in the description).
+# `edited` re-runs it when the description (and so the declared lane) changes.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+# A newer event on the same pull request fully supersedes this pure check.
+concurrency:
+  group: ownership-map-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  ownership:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ops
+            scripts/ci
+            supabase/migrations
+            docs/reliability-controller
+            .github/workflows
+      - name: Ownership map and check contracts
+        run: node --test scripts/ci/ownership-check.test.mjs
+      - name: Check this pull request against the ownership map
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OWNERSHIP_COMMENT: '1'
+        run: node scripts/ci/ownership-check.mjs
