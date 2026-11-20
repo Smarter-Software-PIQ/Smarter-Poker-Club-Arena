@@ -130,8 +130,8 @@ export interface ValueSpot {
 }
 
 export interface ValueCandidate {
-  kind: 'check' | 'wager';
-  /** share of the pot (null for the check) */
+  kind: 'check' | 'wager' | 'call';
+  /** share of the pot (null for the check and the call) */
   frac: number | null;
   allIn: boolean;
   /** chips the hero adds now */
@@ -162,7 +162,7 @@ export interface ValueReceipt {
   /** sizes inside two standard errors (equity sampling and response cells) of the best wager */
   indifferent: number[];
   choice: {
-    kind: 'check' | 'wager';
+    kind: 'check' | 'wager' | 'call';
     frac: number | null;
     allIn: boolean;
     adds: number;
@@ -316,7 +316,8 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     source: string;
   } | null => {
     const heroBehind = n.stack + toCall; // the hero's chips before this action (toCall comes out of them)
-    const want = toCall + frac * (n.pot + toCall);
+    // a raise adds at least the wager faced on top of the call (the minimum raise heads-up)
+    const want = Math.max(toCall + frac * (n.pot + toCall), toCall > 0 ? 2 * toCall : 0);
     const cap = Math.min(heroBehind, toCall + n.stack); // the hero cannot put in more than the opponent can match
     const adds = Math.min(want, cap);
     if (adds <= toCall + 1e-9) return null;
@@ -404,8 +405,9 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   };
 
   /** The check line at node n (nothing to call). */
-  const checkEv = (n: Node, closes: boolean, eqHere: number): Best => {
+  const checkEv = (n: Node, closes: boolean, eqHere: number, afterHisCheck?: () => Best): Best => {
     const goOn = (): Best => {
+      if (afterHisCheck) return afterHisCheck();
       if (n.st >= 2 || n.stack <= 1e-9) return { ev: eqHere * net(n.pot), plan: 'check down' };
       const b = bestPlan({ ...n, st: n.st + 1, off: n.off + 1 });
       return { ev: b.ev, plan: `check > ${b.plan}` };
@@ -523,6 +525,42 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     const w = wagerEv(root, allInFrac, spot.toCall, spot.toCall > 0 ? 'raise' : 'bet', true);
     if (w && !seen.has(w.adds.toFixed(4)))
       cands.push({ kind: 'wager', frac: r4(allInFrac), ...pick(w) });
+  }
+  // facing a wager: the call, with the later streets priced on the same basis as the raise (lane XR-BLUFF
+  // review: in position his next-street lead at the measured rate, else the hero's float / check behind; out of
+  // position the hero's own next-street plan). Without it the raise alone carried the later streets.
+  if (spot.toCall > 1e-9) {
+    const callAdds = Math.min(spot.toCall, spot.heroStack);
+    const potC = spot.pot + callAdds;
+    let ev: number;
+    let plan: string;
+    if (st0 >= 2 || root.stack <= 1e-9 || callAdds >= spot.heroStack - 1e-9) {
+      ev = eqNow * net(potC) - callAdds;
+      plan = 'call > showdown';
+    } else {
+      const next: Node = { pot: potC, stack: root.stack, share: 1, st: st0 + 1, off: 1 };
+      const b = spot.ip ? checkEv(next, false, eqAt(1), () => bestPlan(next)) : bestPlan(next);
+      ev = b.ev - callAdds;
+      plan = `call > ${b.plan}`;
+    }
+    cands.push({
+      kind: 'call',
+      frac: null,
+      allIn: callAdds >= spot.heroStack - 1e-9,
+      adds: callAdds,
+      ev,
+      fold: 0,
+      raise: 0,
+      call: 0,
+      evFold: 0,
+      evRaise: 0,
+      evCall: 0,
+      plan,
+      se: Math.max(0, spot.equitySe) * net(potC),
+      source: spot.ip
+        ? 'call: his next-street lead at the measured rate, else float'
+        : 'call: next street out of position',
+    });
   }
   if (cands.length === 0) return null;
 
@@ -677,9 +715,13 @@ export function planRangeSize(
   for (const c of heroPlan.candidates)
     if (c.kind === 'wager')
       keys.set(sizeKey(c), { frac: c.frac ?? 0, allIn: c.allIn, adds: c.adds });
+  // the alternative to wagering: the check, or facing a wager the better of the call (priced over the later
+  // streets) and the fold (0)
   const checkOf = (r: ValueReceipt) => {
     const c = r.candidates.find((x) => x.kind === 'check');
-    return c ? c.ev : -Infinity; // facing a wager the alternative is the core's call / fold, priced outside
+    if (c) return c.ev;
+    const k = r.candidates.find((x) => x.kind === 'call');
+    return k ? Math.max(0, k.ev) : 0;
   };
   let rangeCheckEv = 0;
   for (const p of plans) rangeCheckEv += (p.w / total) * Math.max(0, checkOf(p.r));

@@ -157,7 +157,24 @@ describe('omahaMathCore value: raises and protection', () => {
     const raises = r.candidates.filter((c) => c.kind === 'wager');
     expect(raises.length).toBeGreaterThan(0);
     expect(r.candidates.some((c) => c.kind === 'check')).toBe(false);
+    expect(r.candidates.some((c) => c.kind === 'call')).toBe(true);
     for (const c of raises.filter((x) => !x.allIn)) expect(c.evRaise).toBeGreaterThan(0);
+  });
+});
+
+describe('omahaMathCore value: facing a wager (XR-BLUFF review)', () => {
+  it('a raise is never below the minimum raise (twice the wager faced)', () => {
+    const r = planValue(
+      base({ toCall: 10, pot: 30, equityAtShare: () => 0.9, response: flat(0.3, 0.05) })
+    )!;
+    for (const c of r.candidates.filter((x) => x.kind === 'wager'))
+      expect(c.adds).toBeGreaterThanOrEqual(20 - 1e-9);
+  });
+  it('a weak hand facing a wager does not raise just because the raise alone priced later streets', () => {
+    const r = planValue(
+      base({ toCall: 10, pot: 30, equityAtShare: (s) => 0.1 + 0.2 * s, response: flat(0.2, 0.1) })
+    )!;
+    expect(r.choice.kind).not.toBe('wager');
   });
 });
 
