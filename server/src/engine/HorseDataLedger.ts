@@ -1082,6 +1082,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnStrongHandRealizationIsMeasured',
+    "EMERG lane OPEN-ITEMS 2026-11-19 (lead order 10:55 PM Chicago after BLEED-NOW: Horses fold strong made hands to a person's turn bet; deciding rule by exact replay = the omahaFacingBetEv turn verdict). Default OFF (read === true); acts only with omahaFacingBetIsPricedByEquity on. PLO4/PLO5 cash, Lightning, heads-up, turn, facing a person's bet or raise, final fold: a made hand that at most 10% of the two-card holdings the unseen cards allow beat (the Horse's own cards and the board) is priced with the realization measured for exactly those calls on public information (the chips the Horses' own heads-up Lightning turn calls of that class won back over their calibrated public equity: 1.02 on 44 calls Nov 17-18, shipped as 1; held-out Nov 19 0.73 on 15) in place of the flat turn 0.64 (HorseOmahaFacingBetEquity.omahaFacingStrongTurnCell). Tables (0.36 on 26 calls) and multiway keep the flat figure. Changes only a fold into the call; PLO6 untouched; off byte-identical.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5316,6 +5321,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_facing_bet_equity_call',
     'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaFacingBetIsPricedByEquity)',
     "a PLO4/PLO5 cash postflop decision facing a person's bet or raise whose final fold became the call because the calibrated equity times the measured realization beat the price (counted once per changed decision)",
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_strong_hand_realization_priced',
+    'HorseLogic wager_rules (omahaFacingBetIsPricedByEquityRule, omahaTurnStrongHandRealizationIsMeasured)',
+    "a PLO4/PLO5 cash Lightning heads-up turn decision facing a person's bet or raise whose final fold became the call with the strong-hand turn realization (a made hand at most 10% of two-card holdings beat); fires with omaha_facing_bet_equity_call",
     'V94'
   ),
   receipt(

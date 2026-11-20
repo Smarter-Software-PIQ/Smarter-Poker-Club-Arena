@@ -3496,6 +3496,14 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
     {
+      name: `${variant}_omaha_turn_strong_hand_realization_is_measured`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetIsPricedByEquity: true, omahaTurnStrongHandRealizationIsMeasured: true },
+      b: { omahaFacingBetIsPricedByEquity: true },
+    },
+    {
       name: `${variant}_omaha_class_caps_respect_equity`,
       variant,
       pairs: 6000,

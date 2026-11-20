@@ -22,7 +22,7 @@
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { scoreOmahaHi } from './HorseEval.js';
+import { scoreOmahaHi, scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 
@@ -124,6 +124,8 @@ export interface OmahaFacingEquitySpot {
   price: number;
   opponents: number;
   bettorSeat: number;
+  /** A Lightning pool decision (publicMemoryDomain.speed), a public fact of the request. */
+  lightning: boolean;
 }
 
 export interface OmahaFacingEquityVerdict {
@@ -133,6 +135,8 @@ export interface OmahaFacingEquityVerdict {
   price: number;
   margin: number;
   call: boolean;
+  /** omahaTurnStrongHandRealizationIsMeasured priced this verdict with the strong-hand turn realization. */
+  strongTurn?: boolean;
 }
 
 /** The facing-a-person's-wager spot, or null outside the rule's scope. */
@@ -200,6 +204,9 @@ export function omahaFacingEquitySpot(
       price: paid / (gs.pot + paid),
       opponents,
       bettorSeat: faced.bettorSeat,
+      lightning:
+        (gs as { publicMemoryDomain?: { speed?: string } | null }).publicMemoryDomain?.speed ===
+        'lightning',
     };
   } catch {
     return null;
@@ -313,16 +320,96 @@ export function omahaFacingEquityCalibrated(
   return Math.max(0, Math.min(1, interpolate(knots, raw)));
 }
 
-export function omahaFacingEquityVerdict(
+/**
+ * omahaTurnStrongHandRealizationIsMeasured (default OFF; EMERG lane OPEN-ITEMS,
+ * 2026-11-19). The flat turn realization (0.64) is the mean over every turn
+ * call. Measured apart, on public information only (the chips the Horses' own
+ * heads-up turn calls won back over their calibrated public equity, Nov 17-18
+ * Chicago), the calls of a STRONG made hand in a Lightning pool realize their
+ * whole share: 1.02 on 44 calls (shipped capped at 1; held-out Nov 19: 0.73
+ * on 15). A strong made hand = at most OMAHA_FACING_EQUITY_STRONG_BEATEN_MAX
+ * of the two-card holdings the unseen cards allow beat it on the board as it
+ * stands (the Horse's own cards and the board: public to the Horse). At tables
+ * the same class measured 0.36 (26 calls), below the flat figure, and
+ * multiway folds graded right, so the cell is Lightning, heads-up, turn only;
+ * everywhere else the flat realization stands. No hidden card fitted any
+ * constant; hidden cards graded the finished rule offline.
+ */
+export const OMAHA_FACING_EQUITY_STRONG_BEATEN_MAX = 0.1;
+export const OMAHA_FACING_EQUITY_STRONG_TURN_REALIZATION_LIGHTNING = 1;
+export const OMAHA_FACING_EQUITY_STRONG_TURN_PROVENANCE = Object.freeze({
+  realization:
+    "public: chips the Horses' heads-up Lightning turn calls with a strong made hand won back (table results) over the calibrated public equity; 1.02 on 44 calls, capped at 1",
+  strength:
+    'public to the Horse: its own cards and the board (share of two-card holdings that beat it)',
+  hiddenCards: 'offline grading only; no constant',
+  fit: 'Nov 17-18 Chicago; held out Nov 19 Chicago',
+} as const);
+
+/**
+ * The share of the two-card holdings the unseen cards allow whose best hand
+ * on this board (exactly those two cards and three board cards) beats the
+ * Horse's best hand now. Flop, turn or river; null on invalid cards.
+ */
+export function omahaFacingBeatenShare(
+  hole: readonly Card[],
+  board: readonly Card[]
+): number | null {
+  if (board.length < 3 || board.length > 5 || hole.length < 2) return null;
+  const known = new Set([...hole, ...board].map(key));
+  if (known.size !== hole.length + board.length) return null;
+  if ([...hole, ...board].some((c) => !c || !RANKS.includes(c.rank) || !SUITS.includes(c.suit)))
+    return null;
+  const score = (h: Card[]): number =>
+    board.length === 5 ? scoreOmahaHi(h, board as Card[]) : scoreOmahaHiPartial(h, board as Card[]);
+  const hero = score([...hole]);
+  const deck: Card[] = [];
+  for (const suit of SUITS)
+    for (const rank of RANKS) {
+      const card = { rank, suit } as Card;
+      if (!known.has(key(card))) deck.push(card);
+    }
+  let beat = 0;
+  let all = 0;
+  const two: Card[] = new Array(2);
+  for (let i = 0; i < deck.length; i++)
+    for (let j = i + 1; j < deck.length; j++) {
+      two[0] = deck[i];
+      two[1] = deck[j];
+      all++;
+      if (score(two) > hero) beat++;
+    }
+  return all > 0 ? beat / all : null;
+}
+
+/** True in the one measured cell of the strong-hand turn realization. */
+export function omahaFacingStrongTurnCell(
   spot: OmahaFacingEquitySpot,
   hole: readonly Card[],
   board: readonly Card[]
+): boolean {
+  if (spot.street !== 'turn' || spot.opponents !== 1 || !spot.lightning) return false;
+  if (hole.length !== 4 && hole.length !== 5) return false;
+  const beaten = omahaFacingBeatenShare(hole, board);
+  return beaten !== null && beaten <= OMAHA_FACING_EQUITY_STRONG_BEATEN_MAX;
+}
+
+export function omahaFacingEquityVerdict(
+  spot: OmahaFacingEquitySpot,
+  hole: readonly Card[],
+  board: readonly Card[],
+  strongTurnRealization: boolean = false
 ): OmahaFacingEquityVerdict | null {
   const raw = omahaFacingRawEquity(hole, board, spot.opponents);
   if (raw === null) return null;
   const calibrated = omahaFacingEquityCalibrated(spot.street, spot.opponents === 1, raw);
   if (calibrated === null) return null;
-  const realized = calibrated * OMAHA_FACING_EQUITY_REALIZATION[spot.street];
+  const strongTurn = strongTurnRealization && omahaFacingStrongTurnCell(spot, hole, board);
+  const realized =
+    calibrated *
+    (strongTurn
+      ? OMAHA_FACING_EQUITY_STRONG_TURN_REALIZATION_LIGHTNING
+      : OMAHA_FACING_EQUITY_REALIZATION[spot.street]);
   const margin = OMAHA_FACING_EQUITY_MARGIN[spot.street];
   return {
     raw,
@@ -331,6 +418,7 @@ export function omahaFacingEquityVerdict(
     price: spot.price,
     margin,
     call: realized - spot.price > margin,
+    ...(strongTurn ? { strongTurn: true } : {}),
   };
 }
 
@@ -347,13 +435,20 @@ export function omahaFacingBetIsPricedByEquityRule<
   gs: HorseGameStateV2,
   on: boolean,
   legalize: (d: D) => D,
-  note?: (verdict: OmahaFacingEquityVerdict) => void
+  note?: (verdict: OmahaFacingEquityVerdict) => void,
+  /** omahaTurnStrongHandRealizationIsMeasured (acts only with `on`). */
+  strongTurnRealization: boolean = false
 ): D {
   if (!on || decision.action !== 'fold') return decision;
   try {
     const spot = omahaFacingEquitySpot(player, gs);
     if (!spot) return decision;
-    const verdict = omahaFacingEquityVerdict(spot, player.cards ?? [], gs.communityCards ?? []);
+    const verdict = omahaFacingEquityVerdict(
+      spot,
+      player.cards ?? [],
+      gs.communityCards ?? [],
+      strongTurnRealization === true
+    );
     if (!verdict || !verdict.call) return decision;
     // The legalizer makes the call for the whole stack an all-in.
     const legal = legalize({ ...decision, action: 'call', amount: spot.paid } as D);
@@ -375,8 +470,16 @@ export function omahaFacingEquityAdmitsCall(
     const spot = omahaFacingEquitySpot(player, gs);
     if (!spot || !Number.isFinite(amount) || Math.abs((amount as number) - spot.paid) > 0.005)
       return false;
-    const verdict = omahaFacingEquityVerdict(spot, player.cards ?? [], gs.communityCards ?? []);
-    return verdict !== null && verdict.call;
+    const hole = player.cards ?? [];
+    const board = gs.communityCards ?? [];
+    const verdict = omahaFacingEquityVerdict(spot, hole, board);
+    if (verdict !== null && verdict.call) return true;
+    // The switch delivers omahaTurnStrongHandRealizationIsMeasured inside the
+    // worker, so the request cannot say whether it was on: the call is
+    // admitted where the rule COULD have made it (the same pure verdict with
+    // the measured strong-hand turn realization), for the same exact chips.
+    const strong = omahaFacingEquityVerdict(spot, hole, board, true);
+    return strong !== null && strong.strongTurn === true && strong.call;
   } catch {
     return false;
   }

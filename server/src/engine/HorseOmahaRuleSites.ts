@@ -419,6 +419,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetIsPricedByEquity: priced(
     "a final fold facing a person's wager becomes the call when the recomputed equity, calibrated by street against persons' real cards, times the measured realization beats the price (default OFF; EMERG lane FACING 2026-11-19)"
   ),
+  omahaTurnStrongHandRealizationIsMeasured: priced(
+    'inside omahaFacingBetIsPricedByEquity: a Lightning heads-up turn fold of a strong made hand is priced with the realization measured for those calls on public information (default OFF; EMERG lane OPEN-ITEMS 2026-11-19)'
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),

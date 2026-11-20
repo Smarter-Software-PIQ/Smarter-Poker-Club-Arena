@@ -3530,6 +3530,15 @@ export interface HorseDecideOpts {
   omahaMathCorePlo5Flop?: boolean;
   omahaMathCorePlo5Turn?: boolean;
   omahaMathCorePlo5River?: boolean;
+  /** EMERG lane OPEN-ITEMS 2026-11-19 (lead: Horses fold strong made hands to
+   * a person's turn bet): opt-in (`=== true`), acts only with
+   * omahaFacingBetIsPricedByEquity on. PLO4/PLO5 cash, Lightning, heads-up,
+   * turn: a made hand that at most 10% of two-card holdings beat is priced
+   * with the realization measured for exactly those calls (1, public
+   * information) in place of the flat turn 0.64
+   * (HorseOmahaFacingBetEquity.omahaFacingStrongTurnCell). Changes only a
+   * final fold into the call. Never PLO6. Default OFF. */
+  omahaTurnStrongHandRealizationIsMeasured?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -16669,7 +16678,12 @@ export class HorseLogic {
         player,
         gs,
         opts.omahaFacingBetIsPricedByEquity === true,
-        (d) => this.legalize(d, player, gs, vi)
+        (d) => this.legalize(d, player, gs, vi),
+        (verdict) => {
+          if (verdict.strongTurn === true && tele)
+            noteFire('omaha_turn_strong_hand_realization_priced');
+        },
+        opts.omahaTurnStrongHandRealizationIsMeasured === true
       );
       if (equityPriced !== ownersFinal && tele) {
         noteFire('omaha_facing_bet_equity_call');
