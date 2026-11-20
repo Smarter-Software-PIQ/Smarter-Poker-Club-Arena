@@ -1,8 +1,9 @@
 /**
- * omahaOpenNeedsMeasuredStrength (default OFF; EMERG lane PREFLOP-AUDIT 2026-11-20).
- * Law: in PLO4/PLO5 cash (tables and Lightning), preflop, three or more dealt in, a final first-in
- * raise from a seat that is not the button with a hand below the measured strength cut becomes a
- * fold; the fold survives the response validator; aces and rundowns keep the open; the button, a
+ * omahaOpenNeedsMeasuredStrength (default OFF; EMERG lane PREFLOP-AUDIT 2026-11-20; narrowed by EMERG
+ * lane PREFLOP-2 the same day to the one cell that passes in real chips on fit and held-out data).
+ * Law: in PLO5 cash on a table, preflop, three or more dealt in, a final first-in raise from a seat
+ * that is not the button with a hand below the measured strength cut becomes a fold; PLO4 and the
+ * PLO5 Lightning pools are untouched; the fold survives the response validator; aces and rundowns keep the open; the button, a
  * limped or raised pot, a call and a fold are untouched; PLO6, tournaments and the option off are
  * byte-identical. Synthetic public states and seeded random cards only: no recorded hand, no id.
  */
@@ -16,6 +17,7 @@ import { omahaColdCallClass } from './HorseOmahaColdCallMeasured.js';
 import {
   OMAHA_OPEN_MEASURED_CUT,
   OMAHA_OPEN_MEASURED_KEPT,
+  omahaOpenMeasuredCell,
   omahaOpenMeasuredRule,
   omahaOpenMeasuredSpot,
 } from './HorseOmahaOpenMeasured.js';
@@ -192,10 +194,18 @@ describe('the spot', () => {
       expect(spot?.cls).toBe('other');
       expect(spot!.strength).toBeLessThan(spot!.cut);
     }
+  });
+  it('covers only the measured cell: PLO5 on a table', () => {
+    expect(omahaOpenMeasuredCell('plo5', false)).toBe(true);
+    expect(omahaOpenMeasuredCell('plo5', true)).toBe(false);
+    expect(omahaOpenMeasuredCell('plo4', false)).toBe(false);
+    expect(omahaOpenMeasuredCell('plo6', false)).toBe(false);
     const light = stateOf(weak, { lightning: true });
-    expect(omahaOpenMeasuredSpot(light.hero, light.gs)).not.toBeNull();
-    const four = stateOf(cards('Ks9h7d4c'), { variant: 'plo4' });
-    expect(omahaOpenMeasuredSpot(four.hero, four.gs)?.cls).toBe('other');
+    expect(omahaOpenMeasuredSpot(light.hero, light.gs)).toBeNull();
+    for (const heroSeat of [3, 4, 1]) {
+      const four = stateOf(cards('Ks9h7d4c'), { variant: 'plo4', heroSeat });
+      expect(omahaOpenMeasuredSpot(four.hero, four.gs)).toBeNull();
+    }
   });
   it('does not cover the button, a limped pot, a raised pot or heads-up', () => {
     const not = (shape: Shape) => {
@@ -266,7 +276,7 @@ function decide(hole: Card[], shape: Shape, opts: HorseDecideOpts, seed: number)
 }
 
 describe('in the decision (seeded census of random hands, first in)', () => {
-  it('PLO4 and PLO5, tables and Lightning: every open below the cut becomes a fold the validator admits; nothing else moves', () => {
+  it('PLO5 tables: every open below the cut becomes a fold the validator admits; PLO4 and Lightning do not move', () => {
     for (const [variant, n] of [
       ['plo5', 5],
       ['plo4', 4],
@@ -286,6 +296,7 @@ describe('in the decision (seeded census of random hands, first in)', () => {
         const strength = preflopStrength(variant, hole.map(cardToInt))!;
         const acts =
           off.d.action === 'raise' &&
+          omahaOpenMeasuredCell(variant, shape.lightning === true) &&
           strength < OMAHA_OPEN_MEASURED_CUT[variant]! &&
           !OMAHA_OPEN_MEASURED_KEPT.has(omahaColdCallClass(hole));
         if (acts) {
@@ -305,7 +316,8 @@ describe('in the decision (seeded census of random hands, first in)', () => {
           expect(on.fires).not.toContain('omaha_open_measured_fold');
         }
       }
-      expect(folded).toBeGreaterThan(0);
+      if (variant === 'plo5') expect(folded).toBeGreaterThan(0);
+      else expect(folded).toBe(0);
       expect(kept).toBeGreaterThan(0);
     }
   });

@@ -47,6 +47,22 @@ export const OMAHA_OPEN_MEASURED_KEPT: ReadonlySet<OmahaColdCallClass> = new Set
   'rundown_double_suited',
 ]);
 
+/**
+ * The cell the rule acts in (EMERG lane PREFLOP-2, 2026-11-20). The rule as first built (every seat
+ * but the button, both games, tables and Lightning) removed 23.8% of the Horses' first-in opens and
+ * its PLO4 held-out slice was negative (-311 +/- 291 bb). Split by game and pool on the same record,
+ * in REAL chips (chips to persons; lead 1:42 AM: rake and Horse-to-Horse chips are internal), the
+ * value of these opens against folding was: PLO5 tables -1.94 +/- 1.35 bb an open fit (n 523) and
+ * -4.58 +/- 3.18 held out (n 194), the only cell below zero by more than one standard error in both
+ * periods (net: folding gains +1,976 +/- 1,029 and +1,378 +/- 737 bb); PLO5 Lightning +4.55 +/-
+ * 2.85 and -0.92 +/- 1.70; PLO4 tables -0.86 +/- 0.68 and -0.12 +/- 0.88; PLO4 Lightning -1.81 +/-
+ * 1.64 and +2.57 +/- 1.55; the PLO4 hijack alone -1.77 +/- 1.45 and -0.06 +/- 0.63. So the rule
+ * acts in PLO5 on a table only: 7.2% of first-in opens. Source: emerg/preflop-2/work/rg.py rr.
+ */
+export function omahaOpenMeasuredCell(variant: string, lightning: boolean): boolean {
+  return variant === 'plo5' && !lightning;
+}
+
 export interface OmahaOpenMeasuredSpot {
   strength: number;
   cut: number;
@@ -73,6 +89,10 @@ export function omahaOpenMeasuredSpot(
     const dealt = (gs.players ?? []).filter((p) => !p.is_sitting_out || p.is_all_in);
     if (dealt.length < 3) return null;
     if (player.seat === gs.dealerSeat) return null;
+    // The one cell that passes on fit and on held-out data in real chips (EMERG lane PREFLOP-2).
+    const speed = (gs as { publicMemoryDomain?: { speed?: unknown } | null }).publicMemoryDomain
+      ?.speed;
+    if (!omahaOpenMeasuredCell(variant, speed === 'lightning')) return null;
     const history = gs.actionHistory ?? [];
     if (preflopRaiseCount(history) !== 0) return null;
     for (const a of history) {

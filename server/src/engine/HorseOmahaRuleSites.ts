@@ -558,6 +558,8 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaVpipFloorByLimp: outside(PREFLOP),
   omahaColdCallOutsideBigBlindIsMeasured: outside(PREFLOP),
   omahaOpenNeedsMeasuredStrength: outside(PREFLOP),
+  omahaAcesReraiseIsMeasured: outside(PREFLOP),
+  omahaReraiseRangeIsMeasured: outside(PREFLOP),
   omahaManiacReRaiseWidthMeasured: outside('a read (re-raise width), not a rule'),
   omahaPreflopStackPlan: outside(PREFLOP + '; off-only under the preflop range hold'),
   omahaBetSizeByPublicState: outside(

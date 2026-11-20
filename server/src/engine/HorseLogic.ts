@@ -147,6 +147,10 @@ import {
 } from './HorseOmahaBetRead.js';
 import { omahaColdCallOutsideBigBlindRule } from './HorseOmahaColdCallMeasured.js';
 import { omahaOpenMeasuredRule } from './HorseOmahaOpenMeasured.js';
+import {
+  omahaAcesReraiseMeasuredRule,
+  omahaReraiseRangeMeasuredRule,
+} from './HorseOmahaReraiseMeasured.js';
 import { omahaMathCoreRule } from './omahaMathCore/OmahaMathCoreRule.js';
 import {
   omahaMathCoreExactLegalize,
@@ -3547,6 +3551,19 @@ export interface HorseDecideOpts {
    * -2.24 +/- 0.72 bb an open against folding, n 2,968, 2026-10-15 to 2026-11-19) becomes a fold; aces
    * and rundowns keep the open. Default OFF (read `=== true`). */
   omahaOpenNeedsMeasuredStrength?: boolean;
+  /** EMERG lane PREFLOP-2 2026-11-20 (HorseOmahaReraiseMeasured.ts): PLO4/PLO5 cash (tables and
+   * Lightning), preflop, a final call or fold of a pair of aces facing a 3-bet with a stack of 250 bb
+   * or less and a raise legal becomes the pot-size re-raise: the one aces cell where the re-raise
+   * earned more than the call in real chips (chips to and from persons) on fit and held-out data,
+   * 2026-10-15 to 2026-11-19 (fit +13.06 +/- 9.11 bb, held out +37.03 +/- 11.67; against the fold
+   * +15.11 +/- 6.33 and +28.40 +/- 10.25). Default OFF (read `=== true`). */
+  omahaAcesReraiseIsMeasured?: boolean;
+  /** EMERG lane PREFLOP-2 2026-11-20 (HorseOmahaReraiseMeasured.ts): PLO4/PLO5 cash, preflop, a final
+   * call of a pair of kings facing a 3-bet, acting after the 3-bettor, becomes the pot-size 4-bet:
+   * the one cell of the re-raise range for hands that are not aces that passes in real chips on fit
+   * and held-out data (fit +26.65 +/- 18.00 bb, held out +73.89 +/- 29.58). Default OFF (read
+   * `=== true`). */
+  omahaReraiseRangeIsMeasured?: boolean;
   /** omahaMathCore (lane MATHCORE 2026-11-19, owner 7:33-7:55 PM: "ITS MATH FIRST"): in PLO4/PLO5 cash
    * (table and Lightning), every street, the decision is the expected-value maximum over every legal action
    * (fold, check, call, bet/raise at several sizes, all-in): exact 2+3 showdown equity against one range per
@@ -16876,15 +16893,40 @@ export class HorseLogic {
       // preflop only, so it never meets the postflop owners above. A final cold call of one raise
       // from a seat without a big blind posted, with a hand class measured to lose against folding,
       // becomes a fold (HorseOmahaColdCallMeasured.ts). It changes only a call.
-      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+      // EMERG lane PREFLOP-2 2026-11-20 (omahaAcesReraiseIsMeasured, omahaReraiseRangeIsMeasured,
+      // each default off): preflop only, before the cold-call rule so a call that the measurement
+      // makes a re-raise is never folded by it. A final call in a measured cell becomes the
+      // pot-size re-raise (HorseOmahaReraiseMeasured.ts). Each changes only a call; the aces rule
+      // also a fold (aces facing a 3-bet at 250 bb or less).
+      const acesReraised = omahaAcesReraiseMeasuredRule(
         equityPriced,
+        player,
+        gs,
+        opts.omahaAcesReraiseIsMeasured === true
+      );
+      if (acesReraised !== equityPriced && tele) {
+        noteFire('omaha_aces_measured_reraise');
+        noteDecisionRuleReceipt('omaha_aces_measured_reraise', equityPriced, acesReraised);
+      }
+      const rangeReraised = omahaReraiseRangeMeasuredRule(
+        acesReraised,
+        player,
+        gs,
+        opts.omahaReraiseRangeIsMeasured === true
+      );
+      if (rangeReraised !== acesReraised && tele) {
+        noteFire('omaha_range_measured_reraise');
+        noteDecisionRuleReceipt('omaha_range_measured_reraise', acesReraised, rangeReraised);
+      }
+      const coldCallMeasured = omahaColdCallOutsideBigBlindRule(
+        rangeReraised,
         player,
         gs,
         opts.omahaColdCallOutsideBigBlindIsMeasured === true
       );
-      if (coldCallMeasured !== equityPriced && tele) {
+      if (coldCallMeasured !== rangeReraised && tele) {
         noteFire('omaha_cold_call_measured_fold');
-        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', equityPriced, coldCallMeasured);
+        noteDecisionRuleReceipt('omaha_cold_call_measured_fold', rangeReraised, coldCallMeasured);
       }
       // EMERG lane PREFLOP-AUDIT 2026-11-20 (omahaOpenNeedsMeasuredStrength, default off): preflop
       // only. A final first-in raise from a seat that is not the button, with a hand below the

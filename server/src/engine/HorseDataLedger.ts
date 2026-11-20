@@ -1112,6 +1112,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaAcesReraiseIsMeasured',
+    "EMERG lane PREFLOP-2 2026-11-20 (owner 2026-11-20 12:01 AM Chicago: everything depends on the math and the conclusions it comes to; lead 1:42 AM: the metric is real chips, the chips that go to persons). Default OFF (read === true). PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, preflop: the node's final answer is a call or a fold of a pair of aces facing two raises (a 3-bet) with an own stack of 250 bb or less, the engine offers a raise, and the decision is not one that omahaPreflopJamFacingReraiseIsPriced priced. With the option on it becomes the pot-size re-raise. Measured on every Horse preflop decision with aces facing a raise in hands with a person, 2026-10-15 to 2026-11-19 (677 flats, 1,648 re-raises, 102 folds), the re-raise against the call inside the same spot, fit to 11-14 and held out 11-15 to 11-19, in real chips (the part of the hand result that went to or came from persons plus 1.9% of deductions, all-in adjusted where the sign holds): fit +13.06 +/- 9.11 bb a decision, held out +37.03 +/- 11.67 (net +37.89 +/- 10.13 and +45.34 +/- 12.71); against the fold +15.11 +/- 6.33 and +28.40 +/- 10.25. Measured and not in the rule: facing one raise multiway above 100 bb (net +14.29 +/- 4.06 and +7.96 +/- 6.52 but real +5.92 +/- 2.84 and -1.52 +/- 4.76), the big blind heads-up against one open (real held out -24.81 +/- 12.81), above 250 bb facing a 3-bet (real +8.13 +/- 16.94 and +7.67 +/- 20.66), every call facing a 4-bet or more. Public information only (own cards, public actions, chips, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaAcesReraiseIsMeasured.md.",
+    'V94'
+  ),
+  flag(
+    'omahaReraiseRangeIsMeasured',
+    "EMERG lane PREFLOP-2 2026-11-20 (owner 2026-11-20 12:01 AM Chicago: everything depends on the math; lead item: the Horses' re-raise range is face-up, aces 47 to 84% of their re-raises facing a 3-bet; lead 1:42 AM: the metric is real chips). Default OFF (read === true). PLO4/PLO5 cash, high only, one board, no bomb pot, preflop: the node's final answer is a call of a pair of kings (no pair of aces) facing two raises (a 3-bet), the Horse acts after the last raiser on later streets, the engine offers a raise, and the call is not one that omahaPreflopJamFacingReraiseIsPriced priced. With the option on the call becomes the pot-size 4-bet. The re-raise against the call was measured by hand class and position on every Horse preflop decision in hands with a person, 2026-10-15 to 2026-11-19, fit to 11-14 and held out 11-15 to 11-19, in real chips (chips to and from persons plus 1.9% of deductions): kings in position facing a 3-bet fit +26.65 +/- 18.00 bb a decision, held out +73.89 +/- 29.58, the one cell positive in both periods by more than one standard error. Measured and not in the range: kings out of position (real held out -56.84 +/- 32.68), kings in the small blind 3-betting one raise (real fit +3.53 +/- 5.09), double-suited hands 4-betting on a table in position (real fit -6.02 +/- 18.38; net fit +16.52 +/- 14.91), queens or jacks with broadway (3-bet real held out -9.30 +/- 5.66), double-suited rundowns (4-bet real held out -47.58 +/- 47.64). Public information only (own cards, public actions, chips, seats); the same against every opponent; PLO6, PLO8, hold'em and tournaments byte-identical (HorseOmahaReraiseMeasured.law.test.ts). docs/horse-option-authority.d/omahaReraiseRangeIsMeasured.md.",
+    'V94'
+  ),
+  flag(
     'omahaClassCapsRespectEquity',
     "V40CAP lane 2026-11-19 (EMERG AUDIT-04 item 1: exact replay of 4,343 PLO4/PLO5 cash decisions; the V40 Omaha pressure cap replaced measured equity with a fixed hand-class ceiling at a bet of 0.6 pot or more and v38_ev_fold folded hands holding 0.75-0.90 equity against the person's real cards, hands 60039965 60040003 60028949 60009904 60036778 60009275). PLO4/PLO5 cash (table and Lightning), one board, high only, no bomb pot, facing a bet; default off (read === true). The V40 pressure cap and the V15 flush/straight cap may lower the equity the decision uses only down to the Horse's measured equity against the bettor's public-information range for this line and size (a fresh non-adaptive Monte Carlo of at least 400 samples on the same preflop band and V40 tiered line sampler; no hidden card), never below it; undersampled (governor) means no floor. PLO6, PLO8, tournaments, multi-board untouched. HorseOmahaClassCapsRespectEquity.ts",
     'V40'
@@ -5367,6 +5377,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_open_measured_fold',
     'HorseLogic wager_rules (omahaOpenMeasuredRule, omahaOpenNeedsMeasuredStrength)',
     'a PLO4/PLO5 cash preflop decision whose final first-in raise, from a seat that is not the button, became a fold because the hand is below the measured strength cut and is neither aces nor a rundown (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_aces_measured_reraise',
+    'HorseLogic wager_rules (omahaAcesReraiseMeasuredRule, omahaAcesReraiseIsMeasured)',
+    'a PLO4/PLO5 cash preflop decision whose final call or fold of a pair of aces facing a 3-bet with a stack of 250 bb or less became the pot-size re-raise because the re-raise was measured to earn more real chips there on fit and held-out data (counted once per changed decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_range_measured_reraise',
+    'HorseLogic wager_rules (omahaReraiseRangeMeasuredRule, omahaReraiseRangeIsMeasured)',
+    'a PLO4/PLO5 cash preflop decision whose final call of a pair of kings facing a 3-bet in position became the pot-size 4-bet because that is the cell of the measured re-raise range (counted once per changed decision)',
     'V94'
   ),
   receipt(

@@ -1,7 +1,9 @@
 /**
  * omahaColdCallOutsideBigBlindIsMeasured (default OFF; EMERG lane PREFLOP-AUDIT 2026-11-20).
- * Law: on a PLO4/PLO5 cash table, preflop, a final cold call of exactly one raise from a seat with
- * less than a big blind in, with a hand class measured to lose against folding, becomes a fold; the
+ * Narrowed by EMERG lane PREFLOP-2 the same day to the cell that costs real chips (the small blind,
+ * nobody else has called, a hand below the strongest 20%).
+ * Law: on a PLO4/PLO5 cash table, preflop, a final cold call of exactly one raise from the small
+ * blind when nobody else has called, with a hand below the strongest 20%, with a hand class measured to lose against folding, becomes a fold; the
  * fold survives the response validator; a raise, a fold, the big blind, aces and the classes not
  * measured negative are untouched; Lightning, PLO6, tournaments and the option off are byte-identical.
  * Synthetic public states and seeded random cards only: no recorded hand, no player id.
@@ -14,12 +16,16 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import {
   OMAHA_COLD_CALL_CLASS_VALUE,
+  OMAHA_COLD_CALL_REAL_CELL,
+  OMAHA_COLD_CALL_STRENGTH_CUT,
+  omahaColdCallRealCell,
   omahaColdCallClass,
   omahaColdCallClassFolds,
   omahaColdCallOutsideBigBlindRule,
   omahaColdCallOutsideBigBlindSpot,
   type OmahaColdCallClass,
 } from './HorseOmahaColdCallMeasured.js';
+import { OMAHA_OPEN_MEASURED_CUT } from './HorseOmahaOpenMeasured.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
@@ -219,28 +225,56 @@ describe('the spot', () => {
 });
 
 describe('the rule', () => {
-  const call = { action: 'call', amount: 7, thinkTime: 900 };
-  it('folds a call of a class measured to lose, and only a call', () => {
-    const { hero, gs } = stateOf(cards('Ks9h7d4c2s'));
-    const d = omahaColdCallOutsideBigBlindRule(call, hero, gs, true);
-    expect(d).toEqual({ action: 'fold', thinkTime: 900 });
+  const call = { action: 'call', amount: 6, thinkTime: 900 };
+  const weak = cards('Ks9h7d4c2s');
+  it('acts in the real-chip cell only: the small blind, nobody else has called, below the strongest 20%', () => {
+    expect(OMAHA_COLD_CALL_REAL_CELL.fitBB + OMAHA_COLD_CALL_REAL_CELL.fitSeBB).toBeLessThan(0);
+    expect(
+      OMAHA_COLD_CALL_REAL_CELL.heldOutBB + OMAHA_COLD_CALL_REAL_CELL.heldOutSeBB
+    ).toBeLessThan(0);
+    expect(OMAHA_COLD_CALL_STRENGTH_CUT).toEqual(OMAHA_OPEN_MEASURED_CUT);
+    const sb = stateOf(weak, { heroSeat: 1 });
+    const spot = omahaColdCallOutsideBigBlindSpot(sb.hero, sb.gs)!;
+    expect(spot.smallBlind).toBe(true);
+    expect(spot.callers).toBe(0);
+    expect(spot.strength!).toBeLessThan(spot.strengthCut);
+    expect(omahaColdCallRealCell(spot)).toBe(true);
+    expect(omahaColdCallOutsideBigBlindRule(call, sb.hero, sb.gs, true)).toEqual({
+      action: 'fold',
+      thinkTime: 900,
+    });
     const raise = { action: 'raise', amount: 24 };
-    expect(omahaColdCallOutsideBigBlindRule(raise, hero, gs, true)).toBe(raise);
+    expect(omahaColdCallOutsideBigBlindRule(raise, sb.hero, sb.gs, true)).toBe(raise);
     const fold = { action: 'fold' };
-    expect(omahaColdCallOutsideBigBlindRule(fold, hero, gs, true)).toBe(fold);
+    expect(omahaColdCallOutsideBigBlindRule(fold, sb.hero, sb.gs, true)).toBe(fold);
+  });
+  it('the button, the cutoff, a pot somebody has called and a hand of the strongest 20% keep the call', () => {
+    for (const heroSeat of [4, 5]) {
+      const s = stateOf(weak, { heroSeat });
+      expect(omahaColdCallOutsideBigBlindSpot(s.hero, s.gs)!.smallBlind).toBe(false);
+      expect(omahaColdCallOutsideBigBlindRule(call, s.hero, s.gs, true)).toBe(call);
+    }
+    const called = stateOf(weak, { heroSeat: 1, more: [{ seat: 4, action: 'call', amount: 7 }] });
+    expect(omahaColdCallOutsideBigBlindSpot(called.hero, called.gs)!.callers).toBe(1);
+    expect(omahaColdCallOutsideBigBlindRule(call, called.hero, called.gs, true)).toBe(call);
+    const strong = stateOf(cards('KsKhQsJh2d'), { heroSeat: 1 });
+    const spot = omahaColdCallOutsideBigBlindSpot(strong.hero, strong.gs)!;
+    expect(spot.cls).toBe('kings');
+    expect(spot.strength!).toBeGreaterThanOrEqual(spot.strengthCut);
+    expect(omahaColdCallOutsideBigBlindRule(call, strong.hero, strong.gs, true)).toBe(call);
   });
   it('keeps the call of aces and of the classes not measured negative', () => {
     for (const hole of ['AsAh7d4c2s', 'QsQhJd7c2s', 'AsKhQd7c2s']) {
-      const { hero, gs } = stateOf(cards(hole));
+      const { hero, gs } = stateOf(cards(hole), { heroSeat: 1 });
       expect(omahaColdCallOutsideBigBlindRule(call, hero, gs, true)).toBe(call);
     }
   });
   it('off, or out of scope, returns the same object', () => {
-    const { hero, gs } = stateOf(cards('Ks9h7d4c2s'));
+    const { hero, gs } = stateOf(weak, { heroSeat: 1 });
     expect(omahaColdCallOutsideBigBlindRule(call, hero, gs, false)).toBe(call);
-    const bb = stateOf(cards('Ks9h7d4c2s'), { heroSeat: 2 });
+    const bb = stateOf(weak, { heroSeat: 2 });
     expect(omahaColdCallOutsideBigBlindRule(call, bb.hero, bb.gs, true)).toBe(call);
-    const six = stateOf(cards('Ks9h7d4c2s3d'), { variant: 'plo6' });
+    const six = stateOf(cards('Ks9h7d4c2s3d'), { variant: 'plo6', heroSeat: 1 });
     expect(omahaColdCallOutsideBigBlindRule(call, six.hero, six.gs, true)).toBe(call);
   });
 });
@@ -274,7 +308,13 @@ describe('in the decision (seeded census of random hands, the button facing one 
         const off = decide(hole, shape, {}, 5100 + k);
         const on = decide(hole, shape, ON, 5100 + k);
         const cls = omahaColdCallClass(hole);
-        if (off.d.action === 'call' && omahaColdCallClassFolds(cls)) {
+        const spot = omahaColdCallOutsideBigBlindSpot(off.hero, off.gs);
+        if (
+          off.d.action === 'call' &&
+          omahaColdCallClassFolds(cls) &&
+          spot !== null &&
+          omahaColdCallRealCell(spot)
+        ) {
           folded++;
           expect(on.d.action).toBe('fold');
           expect(on.fires).toContain('omaha_cold_call_measured_fold');

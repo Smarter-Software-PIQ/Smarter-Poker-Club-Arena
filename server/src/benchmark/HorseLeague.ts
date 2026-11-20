@@ -3516,6 +3516,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaOpenNeedsMeasuredStrength: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane PREFLOP-2 (default OFF, PLO4/PLO5 cash only): omahaAcesReraiseIsMeasured (a final call
+  // or fold of a pair of aces facing a 3-bet at 250 bb or less becomes the pot-size re-raise); a switches it on,
+  // b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_aces_reraise_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaAcesReraiseIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane PREFLOP-2 (default OFF, PLO4/PLO5 cash only): omahaReraiseRangeIsMeasured (a final call
+  // of kings facing a 3-bet in position becomes the pot-size 4-bet, the one cell of the measured re-raise range);
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraise_range_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraiseRangeIsMeasured: true },
+    b: {},
+  })),
   // 2026-11-19 EMERG lanes FACING and V40CAP (default OFF, PLO4/PLO5 cash only): omahaFacingBetIsPricedByEquity (a
   // final fold facing a person's wager priced by calibrated equity) and omahaClassCapsRespectEquity (the V15 and V40
   // class caps never push equity below the measured equity); a switches each on, b is today's brain.

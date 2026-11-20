@@ -39,6 +39,21 @@ Limits: the button exclusion and the kept classes were chosen after seeing the d
 
 Evidence NOT MET for a default-on; a lead switch decision only.
 
+## Amendment 2026-11-20 (EMERG Lane PREFLOP-2): Narrowed To The One Cell That Passes In Real Chips
+
+The rule as first built removed 23.8% of the Horses' first-in opens and its PLO4 held-out slice was negative. Split on the same record by game and pool, value of the open against folding (below zero = folding gains), in real chips (chips to persons plus 1.9% of deductions; lead 2026-11-20 1:42 AM) and net:
+
+| Cell               | Opens (Fit / Held Out) | Real Fit       | Real Held Out  | Net Fit        | Net Held Out   | Kept |
+| ------------------ | ---------------------- | -------------- | -------------- | -------------- | -------------- | ---- |
+| PLO5, tables       | 523 / 194              | -1.94 +/- 1.35 | -4.58 +/- 3.18 | -3.78 +/- 1.97 | -7.10 +/- 3.80 | yes  |
+| PLO5, Lightning    | 134 / 268              | +4.55 +/- 2.85 | -0.92 +/- 1.70 | +5.32 +/- 3.48 | -1.21 +/- 1.78 | no   |
+| PLO4, tables       | 514 / 149              | -0.86 +/- 0.68 | -0.12 +/- 0.88 | -2.11 +/- 1.06 | +0.46 +/- 1.08 | no   |
+| PLO4, Lightning    | 508 / 63               | -1.81 +/- 1.64 | +2.57 +/- 1.55 | -4.16 +/- 2.04 | +3.85 +/- 3.85 | no   |
+| PLO4, hijack alone | 232 / 33               | -1.77 +/- 1.45 | -0.06 +/- 0.63 | -3.99 +/- 1.85 | -2.64 +/- 0.98 | no   |
+| As first built     | 1,679 / 674            | -1.05 +/- 0.72 | -1.47 +/- 1.16 | -2.66 +/- 0.97 | -2.06 +/- 1.38 |      |
+
+The option now acts only in PLO5 on a table (`omahaOpenMeasuredCell`): folding those opens saves real fit +1,015 +/- 706 bb and held out +889 +/- 617 bb (net +1,976 +/- 1,029 and +1,378 +/- 737). It removes 7.2% of first-in opens instead of 23.8%; table VPIP and PFR -0.8 point (under the gun -2.4, hijack -1.7, cutoff -1.1), flops seen -0.5 point, against -1.5 and -2.9 (Lightning) for the first rule. Stated limit: inside PLO5 tables no single seat passes alone in real chips (under the gun fit +0.09 +/- 2.15 and held out -5.37 +/- 3.61; cutoff -2.27 +/- 2.07 and -3.08 +/- 2.78; hijack +0.92 +/- 2.87 and +2.21 +/- 2.30); the cell passes as a whole.
+
 ## Replay
 
 Machine-read (README.md, "The Replay row").
