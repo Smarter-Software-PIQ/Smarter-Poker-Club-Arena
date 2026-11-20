@@ -178,7 +178,7 @@ describe('a boundary move is planned under the hold', () => {
       if (cause === 'a bust at another table') settleHand(mid, [id(7777)]);
       if (cause === 'a seat-move batch') {
         m.runWithTournamentSeatMoveAuthority = vi.fn(async () => 0);
-        await TournamentManager.prototype['executePlayerMoves' as never].call(m, []);
+        await (TournamentManager.prototype as any).executePlayerMoves.call(m, []);
       }
       if (cause === 'age') {
         const now = Date.now();
@@ -315,7 +315,13 @@ describe('a boundary move is planned under the hold', () => {
       fileURLToPath(new URL('./TournamentManagerEliminations.ts', import.meta.url)),
       'utf8'
     );
-    const admitted = eliminations.indexOf('this.isProcessingEliminations = true;');
-    expect(eliminations.slice(admitted, admitted + 200)).toContain('this.balanceBoardEpoch++');
+    // The statement right after a sweep takes the manager bumps the epoch.
+    const statements = eliminations
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'));
+    const admitted = statements.indexOf('this.isProcessingEliminations = true;');
+    expect(admitted).toBeGreaterThan(-1);
+    expect(statements[admitted + 1]).toBe('this.balanceBoardEpoch++;');
   });
 });
