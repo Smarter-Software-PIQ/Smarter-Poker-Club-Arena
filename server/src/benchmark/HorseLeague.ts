@@ -1455,7 +1455,8 @@ export function playHand(
         seats.some(
           (_, i) =>
             configOf(i).omahaReadIsByStreetAndTexture === true ||
-            configOf(i).omahaFlopVerdictReadsTheBettor === true
+            configOf(i).omahaFlopVerdictReadsTheBettor === true ||
+            configOf(i).omahaFacingBetValueShareIsMeasured === true
         )
       )
         leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
@@ -2674,6 +2675,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverFullHouseValue: true, holdemRiverFullHouseValueIsPriced: true },
     b: { holdemRiverFullHouseValue: true },
   },
+  // 2026-11-19 NLH price lane (holdemValueAndCallsArePriced, default OFF, unevaluated): a prices the heads-up
+  // postflop value raise, the facing-bet call, the strong made hand's bet or check and the river bet against the
+  // bettor's line range by EV; b keeps the brain's lines (the random value-raise gate, the V11 gate, the slowplay
+  // mix, the block bets). Declared, not run.
+  {
+    name: 'nlh_holdem_value_and_calls_are_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemValueAndCallsArePriced: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
@@ -2898,6 +2910,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetPricesTheRaise: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261116 },
   })),
+  // 2026-11-19 OMAHA BLUFF IS PRICED AGAINST THE TARGET (HorseOmahaBluffPricedAgainstTheTarget,
+  // default OFF; audit hvh48 A classes 2 and 4): every heads-up wager facing no bet priced beside the
+  // check against his measured fold, the flop call and the flop / turn raise against a priced raise.
+  // The live options of 2026-11-18 in both arms; arm A adds the option alone. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bluff_is_priced_against_the_target`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaBluffIsPricedAgainstTheTarget: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-18 OMAHA FLOP BET USES THE MEASURED FOLD SHARE
   // (HorseOmahaFlopBetMeasuredFoldShare, default OFF; WooWoo audit FOLD-SHARE):
   // a person's fold share to every v38 flop bet size is the fitted person model.
@@ -2964,6 +2988,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFlopVerdictReadsTheBettor: true,
     },
     b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFlopFacingBetEv: true },
+  })),
+  // 2026-11-19 THE FACING-BET VALUE SHARE IS MEASURED (HorseOmahaFacingBetValueShareMeasured,
+  // default OFF): the facing-bet verdicts' bettor range from his street record and, for a person's
+  // heads-up turn or river bet, his line-conditioned measured range; the priced verdicts decide where
+  // they price. It decides by itself, so arm B is production's live set (OMAHA_LIVE_OPTIONS_20261118)
+  // and arm A adds the option. The street record is learned inside the card (HorseLeagueStreetRead).
+  // The league seats no person, so part (2) is not dealt here; the card measures parts (1), (3), (4).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_value_share_is_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFacingBetValueShareIsMeasured: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is
@@ -3679,6 +3717,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6NoMultiwayBetWithWeakMadeHand: true },
     b: {},
   },
+  // 2026-11-19 (HORSE DECISIONS lane, audit HVH48 auditor C) PLO6 FACING A BET
+  // IS PRICED (plo6FacingBetIsPriced, HorsePlo6FacingBetIsPriced.ts), default
+  // OFF: arm A answers every PLO6 cash facing-bet spot by price on the exact six
+  // cards against the bettor's line range (the random-hand river fold does not
+  // run, the paired-board fold and the paired-river check are price tests, a
+  // fold stands only where the call is not priced, the river raise is priced);
+  // arm B is today's brain. Six seats and the production personas, as the
+  // other PLO6 cash cards. The card only measures; the default is unchanged.
+  {
+    name: 'plo6_facing_bet_is_priced',
+    variant: 'plo6',
+    seats: 6,
+    pairs: 6000,
+    productionStyles: true,
+    a: { plo6FacingBetIsPriced: true },
+    b: {},
+  },
   // 2026-11-16 (PLO6-AUDIT-013) PLO6 MANIAC PRICE REFUSAL TO THE RANGE PLAY
   // (plo6ManiacPriceRefusalToRangePlay), opt-in since 2026-11-16 because its
   // production reach row was not met by the deadline Hand Analysis set: arm A
@@ -3836,6 +3891,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTournamentsExcludeCategoricalRules: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-19 HORSE DECISIONS lane builder F-FIX (omahaMultiwayIsPricedInTournaments, default OFF,
+  // unevaluated): both arms carry production's live Omaha set (OMAHA_LIVE_OPTIONS_20261118); a also prices the
+  // multiway preflop call-off and the multiway own bet. 6-max big-blind-ante MTT at 15 BB, where the auditor's
+  // call-offs sat (7 to 24 BB); PLO4 and PLO8 (five of its nine call-offs were hi-lo). Declared, not run.
+  ...(['plo4', 'plo8'] as const).map((variant) => ({
+    name: `${variant}_mtt_6max_omaha_multiway_is_priced_in_tournaments_15bb`,
+    variant,
+    seats: 6,
+    stackBB: 15,
+    context: bigBlindAnteMttContext(6, 15),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaMultiwayIsPricedInTournaments: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and
@@ -3964,6 +4035,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { committedStackPricedIn: true },
+    b: {},
+  },
+  // 2026-11-19 A HOLD'EM TOURNAMENT ALL-IN CALL IS PRICED
+  // (holdemTournamentAllInCallIsPriced, default OFF, off-only under the owner
+  // preflop range hold; Horse Decisions audit E). A 12bb six-handed
+  // big-blind-ante MTT with the live M state: open-jams, re-jams and calls of
+  // jams are the common decision at this depth, so arm A prices every all-in
+  // call and lets no arbiter reverse it beyond 5 equity points. Declared, not
+  // run: the audit fixtures are the law test's
+  // (AHoldemTournamentAllInCallIsPriced.law.test.ts). The default is unchanged.
+  {
+    name: 'mtt6_holdem_tournament_all_in_call_is_priced_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttWithMContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentAllInCallIsPriced: true },
     b: {},
   },
   // 2026-11-14 PLO6 COMMITMENT-ZONE RE-RAISE PRICE RELIEF

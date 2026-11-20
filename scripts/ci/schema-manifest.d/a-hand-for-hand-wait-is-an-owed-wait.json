@@ -1,0 +1,7 @@
+{
+  "_owner": "fix/hand-gap-hand-for-hand-is-owed",
+  "_comment": "Hand-for-hand periods are recorded so the hand-gap grader owes the wait (20261119211558, incident 1e532243).",
+  "tables": ["ca_tournament_hand_for_hand"],
+  "functions": ["fn_ca_note_hand_for_hand"],
+  "columns": {}
+}

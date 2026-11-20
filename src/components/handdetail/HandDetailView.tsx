@@ -1,4 +1,5 @@
 import { formatAllInEquity } from '../../lib/allInEquityDisplay';
+import { boardCardCounts, gateEquityDisplay } from '../../lib/equityDisplayGate';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  HAND DETAIL VIEW — the one rundown, rendered once
@@ -198,7 +199,11 @@ function useStreetEquities(model: ReplayModel): Map<string, EquityResult> {
         variant: model.gameVariant,
         samples: omaha ? 600 : 1500,
       });
-      if (r) out.set(street.key, r);
+      if (!r) continue;
+      // Dan 2026-11-19: on the river only a split pot's shares are shown,
+      // never 0% or 100% (lib/equityDisplayGate.ts).
+      const shown = gateEquityDisplay(r.equities, boardCardCounts([street.board]), (e) => e.pct);
+      if (shown.length > 0) out.set(street.key, { ...r, equities: shown });
     }
     return out;
   }, [model]);

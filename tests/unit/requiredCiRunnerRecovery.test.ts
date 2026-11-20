@@ -1270,7 +1270,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
       // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
-      accounting_postgres: 'f2cde001f3fe6542ceb807b51c0fce3d65f26610fdc43a8234a995f9bda29620',
+      // November 20: retain the exact added shard 4 Horse dealt hole cards PostgreSQL proof.
+      accounting_postgres: '46c7a5c5d4dfb388c7c9cc61c1445e233b99402ad54d821cdda7b88e26fc1e68',
       server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
       // Added 2026-11-19: builds native qualification image when its inputs change.
       native_qualification_image:
@@ -1637,7 +1638,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       name: 'Native alert intake survives actual process death without duplicate queue submission',
       if: '${{ !inputs.connected_ui_observations }}',
       env: { TMPDIR: '${{ runner.temp }}' },
-      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs',
+      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs tools/production-alerts-native-wakeup/native-turn.test.mjs',
     });
     // Qualify the exact additive transport gate, then retain every historical stage/hash.
     alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';

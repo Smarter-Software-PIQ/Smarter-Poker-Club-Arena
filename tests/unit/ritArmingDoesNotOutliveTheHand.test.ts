@@ -93,8 +93,14 @@ describe('only the engine opens the RIT panel', () => {
 });
 
 describe('there is one shove path', () => {
-  it('routes the A key through the same function the ALL IN button runs', () => {
-    expect(CODE).toMatch(/onAllIn:\s*\(\)\s*=>\s*void handleActionPanelAction\('allin'\)/);
+  it('routes the A key through the same control the ALL IN button runs', () => {
+    /* Dan 2026-11-19: all-in is two actions. The A key hands ActionPanel an
+       intent; ActionPanel's confirm then shoves through onAction, which is
+       handleActionPanelAction - the one shove path. */
+    expect(CODE).toMatch(/onAllIn:\s*\(\)\s*=>\s*setAllInIntent\(/);
+    expect(CODE).toMatch(/allInIntent=\{allInIntent\}/);
+    expect(CODE).toMatch(/onAction=\{handleActionPanelAction\}/);
+    expect(CODE).not.toMatch(/onAllIn:\s*\(\)\s*=>\s*void handleActionPanelAction\('allin'\)/);
   });
 
   it('has deleted the parallel handleAllIn implementation', () => {

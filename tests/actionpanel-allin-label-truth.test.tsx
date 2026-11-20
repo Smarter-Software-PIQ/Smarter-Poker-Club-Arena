@@ -48,7 +48,11 @@ describe('ALL IN shows the amount it actually bets', () => {
   it('sends exactly what it showed', () => {
     const onAction = vi.fn();
     render(<ActionPanel {...potLimit} onAction={onAction} />);
+    // Dan 2026-11-19: all-in is two actions - tap, then confirm.
     fireEvent.click(screen.getByLabelText('All In'));
+    expect(onAction).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Confirm All In').textContent).toContain('300');
+    fireEvent.click(screen.getByLabelText('Confirm All In'));
     expect(onAction).toHaveBeenCalledWith('allin', 300);
   });
 
@@ -66,6 +70,7 @@ describe('ALL IN shows the amount it actually bets', () => {
     const btn = screen.getByLabelText('All In');
     expect(btn.textContent).toContain('300');
     fireEvent.click(btn);
+    fireEvent.click(screen.getByLabelText('Confirm All In'));
     expect(onAction).toHaveBeenCalledWith('allin', 300);
   });
 

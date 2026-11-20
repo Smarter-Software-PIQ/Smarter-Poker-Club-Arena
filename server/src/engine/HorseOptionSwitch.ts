@@ -346,6 +346,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTournamentsExcludeCategoricalRules',
   'holdemRiverFullHouseValueIsPriced',
+  'holdemValueAndCallsArePriced',
   'omahaTurnRiverRaiseIsPriced',
   'omahaDrawRaiseIsPriced',
   'omahaOopTurnBarrelIsPriced',
@@ -359,6 +360,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaPricedPriorsByOpponentKind',
   'omahaRaiseEvCountsLossesOnce',
   'omahaSampledRaiseIsPricedAtEverySize',
+  'omahaBluffIsPricedAgainstTheTarget',
+  // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
+  'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
   'omahaTurnSetSizeIsPriced',
   'omahaBlockerBluffIsPriced',
@@ -400,6 +404,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'huOpenerDefendsToPrice',
   'huLimpDefendsToPrice',
   'committedStackPricedIn',
+  'holdemTournamentAllInCallIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -522,6 +527,11 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also not significant in its evaluation, stays off (manifest section 4)`
   ),
   committedStackPricedIn: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // holdemTournamentAllInCallIsPriced is NOT held. Dan's exact message of 2026-11-19 18:42 America/Chicago:
+  // "nope, you need to investigate every single hand played against humans in the past 48 hours and trace back and investigate every single horse decision on every single street before you claim everything is operating perfectly because i've seen a shit ton of mistakes that need correcting!"
+  // On that order the HORSE DECISIONS lead (session_01TLQer7JfrrxcELJZV5XHPD) lifted the owner preflop range hold
+  // for this option (audit E, done under that order, found the fixed All-In-Or-Fold strength bar it replaces a
+  // blanket rule). It is switchable, default OFF, and goes on only through its evidence (league card + replay).
   vs3BetShortStack: hold(
     PREFLOP_HOLD_SOURCE,
     `${PREFLOP_HOLD_REASON}; also one seed below -2 SE (manifest section 4)`
@@ -813,6 +823,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
+  holdemTournamentAllInCallIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop calls facing a jam",
+    'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
+  ],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],
   v23ShortDeck: [HOLDEM, 'Short deck', 'the short-deck half of the V23 variant polish'],
   v32FacingDefense: [HOLDEM, 'NLH solver facing-bet defence', 'solver facing-bet defence'],

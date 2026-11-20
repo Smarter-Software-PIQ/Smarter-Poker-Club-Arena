@@ -1,0 +1,3 @@
+# server/src/engine/ABluffOrThinBetIsPricedAgainstTheTarget.law.test.ts
+
+With omahaBluffIsPricedAgainstTheTarget on (default OFF), in PLO4/PLO5 cash at a table and in Lightning a Horse's heads-up wager facing no bet stands only when EV(bet) = f.P - (1 - f).(b - r.e_called.(P + 2b)) beats EV(check) = r.e_all.P, f the opponent's measured fold at that price (his fold-to-bet record shrunk toward his kind's rate); a flop or turn raise facing a bet stands only when priced above the call; a hand facing a flop bet raises when a legal raise size is priced above the call. Fixtures are the 48-hour audit's flagged hands (classes 2 and 4): red with the option off, green with it on.

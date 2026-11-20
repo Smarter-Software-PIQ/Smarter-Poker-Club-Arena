@@ -29,12 +29,14 @@ import { horseObserverReadContextFromRequest } from '../HorseObserverReadContext
 import { captureHorseHandJournalContext } from '../HorseDecisionHandBinding.js';
 import { decodeHorseDecisionReads, encodeHorseDecisionReads } from '../HorseDecisionReadFrame.js';
 import {
+  FLOP_SHOWN_LEARNED_VARIANTS,
   addFlopShownEvidence,
   emptyFlopShown,
   flopShownBetIndex,
   flopShownBetRead,
   flopShownCallIndex,
   flopShownCallRead,
+  flopShownCarriedFor,
   flopShownShare,
   type FlopShownCounters,
 } from '../HorseOmahaFlopShown.js';
@@ -532,6 +534,103 @@ describe('what a flop bet showed, what calling it returned and the price of a ra
     // the engine twin reads the same record and no private field
     const twin = readFileSync(resolve(process.cwd(), 'src/engine/HorseOmahaFlopShown.ts'), 'utf8');
     expect(twin).not.toMatch(/holeCardsAll|\.players\b|hole_cards_all/);
-    expect(twin).toContain('entry.mucked === true');
+    // shown means mucked=false written out (20261119213206, review note N4): the twin reads the same rule
+    expect(twin).toContain('entry.mucked !== false');
+    expect(twin).not.toContain('entry.mucked === true');
+  });
+
+  it('10. HARDENED: one pass per list, the Omaha family only, shown only with mucked=false, no float8 overflow', () => {
+    // 20261119213206 replaces what 20261119192551 defined (review notes N1, N2, N4, N6 of de83d3abf89); it is the
+    // newest file to define the learner's functions, so its definitions are the ones production runs.
+    const dir = resolve(process.cwd(), '../supabase/migrations');
+    const name = '20261119213206_the_flop_shown_learner_reads_omaha_only_shown_only_when_unmu.sql';
+    const hardening = readFileSync(join(dir, name), 'utf8');
+    const definers = (fn: string): string[] =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .sort()
+        .filter((f) =>
+          readFileSync(join(dir, f), 'utf8').includes(`CREATE OR REPLACE FUNCTION public.${fn}(`)
+        );
+    for (const fn of [
+      'fn_horse_flop_shown_add',
+      'fn_horse_flop_shown_public_class',
+      'fn_horse_street_price_add',
+    ])
+      expect(definers(fn).at(-1), fn).toBe(name);
+    const body = (fn: string): string => {
+      const start = hardening.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}(`);
+      expect(start, fn).toBeGreaterThan(0);
+      return hardening.slice(start, hardening.indexOf('$fn$;', start));
+    };
+    // N1: the add rule reads each of its four lists once, in one set-based pass, and never number by number
+    const add = body('fn_horse_flop_shown_add');
+    expect(add.match(/public\.fn_horse_flop_shown_wholes\(/g)).toHaveLength(4);
+    expect(add).not.toContain('fn_horse_flop_shown_whole(');
+    expect(add).not.toMatch(/\bFOR\b[^;]*\bLOOP\b[^;]*fn_horse_flop_shown_wholes/);
+    const wholes = body('fn_horse_flop_shown_wholes');
+    expect(wholes).toContain('LANGUAGE plpgsql IMMUTABLE');
+    // and the one pass calls no function of ours per number
+    expect(wholes.split('AS $fn$')[1]).not.toMatch(/public\.fn_/);
+    // N2: both increments are computed only for the games whose decisions carry the records, and that list is
+    // exactly the engine's FLOP_SHOWN_LEARNED_VARIANTS: every variant the learner admits that the transport carries
+    const admitted = [
+      'nlh',
+      'plo4',
+      'plo5',
+      'plo6',
+      'plo8',
+      'flh',
+      'flo8',
+      'short_deck',
+      'pineapple',
+    ];
+    expect([...FLOP_SHOWN_LEARNED_VARIANTS].sort()).toEqual(
+      admitted.filter((v) => flopShownCarriedFor(v)).sort()
+    );
+    for (const v of ['nlh', 'flh', 'short_deck', 'pineapple'])
+      expect(FLOP_SHOWN_LEARNED_VARIANTS, v).not.toContain(v);
+    const gate = `IF h.game_variant IN (${FLOP_SHOWN_LEARNED_VARIANTS.map((v) => `'${v}'`).join(',')}) THEN
+ flop_shown_inc:=public.fn_horse_flop_shown_increments(h.actions,h.community_cards,h.community_cards2,h.hole_cards,h.showdown,h.winners,h.big_blind);
+ street_price_inc:=public.fn_horse_street_price_increments(h.actions,h.pot_size);
+ END IF;`;
+    expect(hardening.split(gate)).toHaveLength(2);
+    expect(hardening.split('-- @live-proof:')[1].split('\n')[0]).toContain(
+      gate.split('\n')[0].replace(/'/g, "''")
+    );
+    // N4: a showdown entry is shown only when mucked is the JSON boolean false
+    const pub = body('fn_horse_flop_shown_public_class');
+    expect(pub).toContain(
+      "IF sd IS NULL OR (sd->'mucked') IS DISTINCT FROM 'false'::jsonb THEN RETURN NULL; END IF;"
+    );
+    expect(pub).not.toContain("='true'::jsonb");
+    // N6: every float8 cast of a stored or supplied number sits behind a size guard under 1e12
+    const priceAdd = body('fn_horse_street_price_add');
+    expect(priceAdd).not.toContain('::double precision ELSE');
+    expect(priceAdd.match(/public\.fn_horse_street_price_number\(/g)).toHaveLength(4);
+    const num = body('fn_horse_street_price_number');
+    expect(num.match(/::double precision/g)).toHaveLength(1);
+    expect(num).toContain(
+      "THEN CASE WHEN abs((p_value#>>'{}')::numeric)<1e12 THEN (p_value#>>'{}')::double precision"
+    );
+    // the engine twins hold the same rules
+    const record = {
+      foldToRaise: { flop: { sum: 1e400, opp: 1e308 }, turn: { sum: -1e13, opp: 5 } },
+    };
+    const after = addStreetPriceEvidence(record as unknown as StreetPriceCounters, {
+      foldToRaise: {
+        flop: { sum: 0.4, opp: 1 },
+        turn: { sum: 0, opp: 0 },
+        river: { sum: 0, opp: 0 },
+      },
+    });
+    expect(after?.foldToRaise).toEqual({
+      flop: { sum: 0.4, opp: 1 },
+      turn: { sum: 0, opp: 5 },
+      river: { sum: 0, opp: 0 },
+    });
+    // nothing outside the Omaha family carries either record to a decision
+    for (const v of admitted)
+      expect(flopShownCarriedFor(v), v).toBe(FLOP_SHOWN_LEARNED_VARIANTS.includes(v));
   });
 });

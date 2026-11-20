@@ -369,6 +369,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
+  omahaBluffIsPricedAgainstTheTarget: priced(
+    'every PLO4/PLO5 cash wager facing no bet heads-up priced beside the check against his measured fold at its price, and the flop call and the flop / turn raise facing a bet priced against a raise to each legal size with the same measured fold (table and Lightning); default OFF'
+  ),
   omahaSampledRaiseIsPricedAtEverySize: priced(
     'the sampled raise at every legal size, its fold share and continuing range at the price each raise lays, the raise made at the priced size (an input, not a rule site)'
   ),
@@ -460,6 +463,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaFacingBetValueShareIsMeasured: priced(
+    "the facing-bet verdicts' bettor range from his measured street record and, for a person's heads-up turn or river bet, his line-conditioned range weighted by the measured density of people's bets; the priced verdicts decide where they price (default OFF)"
+  ),
   omahaFlopVerdictReadsTheBettor: priced(
     "the flop facing-bet verdict's bettor range and realization read from that bettor's own street record beside his kind, moved continuously by his sample (an input of the omahaFlopFacingBetEv verdict, not a rule site; default OFF)"
   ),
@@ -545,4 +551,8 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   plo6ManiacPriceRefusalToRangePlay: outside('PLO6'),
   plo6TopSetNutRealization: outside('PLO6'),
   plo6NoMultiwayBetWithWeakMadeHand: outside('PLO6'),
+  plo6FacingBetIsPriced: outside('PLO6 (priced facing a bet; owner-held off, audit-fix batch 1)'),
+  omahaMultiwayIsPricedInTournaments: outside(
+    'tournaments, a format outside PLO4/PLO5 cash (prices multiway calls; audit-fix batch 1)'
+  ),
 });

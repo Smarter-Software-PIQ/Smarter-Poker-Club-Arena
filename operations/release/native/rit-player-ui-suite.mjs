@@ -269,14 +269,22 @@ async function proveFourBrowserActions({ actors, tableId, observations, deadline
         !(await actor.page.locator('.action-panel .action-btn--allin').isVisible())
       )
         await click('.action-btn--raise');
-      const selector =
-        action === 'raise'
-          ? '.raise-confirm'
-          : action === 'all_in'
-            ? (await actor.page.locator('.action-panel .action-btn--allin').isVisible())
-              ? '.action-btn--allin'
-              : '.raise-preset--allin'
-            : `.action-btn--${action}`;
+      /* Dan 2026-11-19: all-in is always two actions. The main ALL IN button
+         arms on the first click and shoves on the second (same element); the
+         sizing panel's ALL IN preset runs the slider to the top and the
+         confirm button shoves. Do the first action here; the click below is
+         the second, the one that POSTs. */
+      let selector =
+        action === 'raise' ? '.raise-confirm' : `.action-btn--${action}`;
+      if (action === 'all_in') {
+        if (await actor.page.locator('.action-panel .action-btn--allin').isVisible()) {
+          await click('.action-btn--allin');
+          selector = '.action-btn--allin-armed';
+        } else {
+          await click('.raise-preset--allin');
+          selector = '.raise-confirm--allin';
+        }
+      }
       const responsePromise = actor.page
         .waitForResponse(
           (response) => {

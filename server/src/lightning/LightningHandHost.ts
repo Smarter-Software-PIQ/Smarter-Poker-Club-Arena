@@ -185,6 +185,7 @@ import {
 import { recordLightningHorseResults } from './LightningHorseResults.js';
 import { buildLightningStatsFacts, type LightningFactsBuilder } from './LightningHandFacts.js';
 import { horseDailyRollupContract } from '../services/HorseDailyRollupContract.js';
+import { horseHoleCardsBasisContract } from '../services/HorseStatsBasisContract.js';
 import { writeHandFacts } from '../services/supabase/handFacts.js';
 import { lightningVpipFloor } from './LightningHorseResults.js';
 import {
@@ -3443,6 +3444,7 @@ export class LightningHandHost {
           process.env.HORSE_NET_ROLLUP_ENABLED !== 'false' &&
           process.env.HORSE_PLAY_ROLLUP_ENABLED !== 'false' &&
           (await horseDailyRollupContract()),
+        horseHoleCardsAccepted: await horseHoleCardsBasisContract(),
         board: this.boards[0] ?? [],
         holeCards: this.holeCards,
         players: state.players,
