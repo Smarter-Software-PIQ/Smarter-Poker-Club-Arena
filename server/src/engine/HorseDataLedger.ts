@@ -1102,6 +1102,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetPaysTheWholeDeduction',
+    "EMERG lane RAKE 2026-11-20 (lead order: every PLO4/PLO5 cash Horse decision rake-aware on the math). Default OFF (read === true). PLO4/PLO5 cash chips (table and Lightning), high only: the Omaha facing-bet call verdicts whose win is the pot before the call (omahaFacingBetEv on the turn and river, the bare-overpair flop verdict, the multiway river call, the paired-river and value-range reads) deduct the WHOLE projected deduction of the pot after the call, by the controller's own arithmetic (horseCallDeductionFraction: percentage, heads-up rate, dealt-player cap, jackpot drop, side pots), instead of the marginal rake rate, which is zero once the pot has reached the cap and never holds the drop. A fold pays none of that deduction, so none of it is sunk for the call. Public table rules only; the same for every opponent. The whole deduction is never below the marginal one, so the option can only turn a call into a fold. The flop tree (omahaFlopFacingBetEv), every bet and raise price, PLO6, hi-lo, hold'em, tournaments and Diamond tables keep the marginal rate.",
+    'V94'
+  ),
+  flag(
+    'omahaMathCoreNetsTheWholeDeduction',
+    'EMERG lane RAKE 2026-11-20 (lead order: every PLO4/PLO5 cash Horse decision rake-aware on the math). Default OFF (read === true); nothing without omahaMathCore. The math core nets every pot it prices of the whole deduction: the rake cap of the dealt-player tier (not the table cap), the fixed jackpot drop when it is collected, and both on a preflop line that reaches a flop; a preflop pot won because everyone folded still pays nothing (no flop, no drop). Off, the core nets the percentage and the table cap after the flop only and prices every preflop line rake-free. Public table rules only. PLO6 is outside the core.',
+    'V94'
+  ),
+  flag(
     'omahaColdCallOutsideBigBlindIsMeasured',
     "EMERG lane PREFLOP-AUDIT 2026-11-20 (owner 2026-11-19 7:38 PM Chicago: math first; 2026-11-20 12:01 AM: everything depends on the math and the conclusions it comes to). Default OFF (read === true). PLO4/PLO5 cash TABLES (not Lightning), high only, one board, no bomb pot, preflop: the Horse faces exactly one raise from a player who is not all in, has less than one big blind in (nothing or the small blind) and has not acted voluntarily, and the node's final answer is a call that leaves chips behind. Measured on every such call the Horses made in hands with a person, 2026-10-15 to 2026-11-19 (9,236 calls, all-in-adjusted result from the call on, a fold = 0): -2.17 +/- 0.40 bb a call against folding, in every strength decile, every position but the big blind, every stack band, against Horse and person openers, fit (to 11-14) -2.49 +/- 0.50 and held out (11-15 to 11-19) -1.57 +/- 0.66; the big blind's call (+0.59 +/- 0.48) and Lightning (-0.19 +/- 1.12 for folding) are not touched. With the option on the call becomes a fold for the hand classes whose measured call value is below zero by more than one standard error (kings, rundowns, double-suited, a lower pair, the rest); a pair of aces, queens or jacks with three broadway cards and three broadway cards keep the call; a raise is never touched. The exact rule graded fit +14,878 +/- 2,563 bb over 3,655 hands and held out +5,354 +/- 1,667 bb over 1,847 hands. Public information only (own cards, public actions, chips); the same against every opponent; PLO6, PLO8, hold'em, tournaments and Lightning byte-identical (HorseOmahaColdCallMeasured.law.test.ts). docs/horse-option-authority.d/omahaColdCallOutsideBigBlindIsMeasured.md.",
     'V94'
@@ -5420,6 +5430,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_read_by_street_carried',
     'HorseLogic.decide (HorseOmahaReadByStreetRule, omahaReadIsByStreetAndTexture)',
     'a PLO4/PLO5 cash postflop decision with the per-street read on in which at least one live opponent carried a street record (the read the decision then used; counted once per decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_whole_deduction_priced',
+    'HorseLogic omahaFacingBetDeduction (omahaFacingBetPaysTheWholeDeduction)',
+    'a PLO4/PLO5 cash facing-bet call verdict was handed the whole projected deduction of the pot after the call (capped rake plus the jackpot drop) where the marginal rake rate differed from it; counted each time a verdict is priced, so a decision that asks more than one verdict counts more than once',
     'V94'
   ),
   receipt(
