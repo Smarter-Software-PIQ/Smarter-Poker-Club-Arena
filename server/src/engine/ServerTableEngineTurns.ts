@@ -137,6 +137,7 @@ import {
   HORSE_DECISION_DEADLINE_MARGIN_MS,
   horseDecisionDeadlineMs,
 } from './horseDecision/decisionDeadline.js';
+import { horseDecideOptsFromRuntimeSettings } from './runtimeSettings/apply.js';
 
 /**
  * Why a decision did NOT earn a V44 second look (2026-09-06).
@@ -4474,6 +4475,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       gameState,
       style: horseStyle,
       mods: horseMods,
+      // ENGINE RUNTIME SETTINGS (2026-11-19): the Horse parameters this hand pinned, only where they differ from the
+      // compiled defaults (absent at the defaults, so the request and its key are exactly as before).
+      ...(() => {
+        const runtimeOpts = horseDecideOptsFromRuntimeSettings(this.currentHandRuntimeSettings);
+        return runtimeOpts ? { opts: { ...runtimeOpts } } : {};
+      })(),
     };
     decisionSnapshot.decisionKey = buildHorseDecisionKey(decisionSnapshot);
 

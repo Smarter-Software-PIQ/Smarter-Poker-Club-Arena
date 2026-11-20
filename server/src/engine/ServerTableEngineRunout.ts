@@ -399,6 +399,8 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    */
   protected emitRitAllAccepted(allPlayerIds: string[], runs: number): void {
     if (this.runItTwiceEngine.isDecisionPending(this.tableId)) return;
+    if (this.ritAllAcceptedNotifiedHand === this.handCount) return;
+    this.ritAllAcceptedNotifiedHand = this.handCount;
     try {
       const st = this.runItTwiceEngine.getState(this.tableId);
       this.hub?.emitEvent(this.tableId, {
@@ -531,6 +533,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
            left to conclude the feature is broken. Every path that ends in one
            board now says so, and says who decided it. */
         this.emitRitSingleRun('chooser_chose_one', userId);
+        this.wakeRITWaiter();
         return { success: true, status: 'declined_by_chooser' };
       }
       // Broadcast chooser's decision to all clients so others can accept/decline
@@ -557,11 +560,12 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       });
       // The chooser may be the LAST consent needed (responders can accept
       // before the chooser picks — the consent-race fix records them). When
-      // chooserDecides completed the acceptance, announce it exactly like the
-      // final responder accept would have.
+      // chooserDecides completed the acceptance, announce it and wake the
+      // runout immediately, after rit_chooser_decided is on the wire.
       const stateAfter = this.runItTwiceEngine.getState(this.tableId);
       if (stateAfter?.status === 'accepted') {
         this.emitRitAllAccepted(stateAfter.allPlayerIds, stateAfter.chosenRuns);
+        this.wakeRITWaiter();
       }
       return { success: true, status: 'waiting_for_others' };
     }
@@ -594,12 +598,14 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           stateNow?.allPlayerIds ?? state.allPlayerIds,
           stateNow?.chosenRuns ?? state.chosenRuns
         );
+        this.wakeRITWaiter();
         return { success: true, status: 'accepted' };
       }
       return { success: true, status: 'waiting_for_others' };
     } else if (response === 'decline') {
       this.runItTwiceEngine.decline(this.tableId, userId);
       this.emitRitSingleRun('player_declined', userId);
+      this.wakeRITWaiter();
       return { success: true, status: 'declined' };
     }
 
@@ -2060,6 +2066,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     const finish = () => {
       if (completed) return;
       completed = true;
+      if (this.ritWaitWakeup === finish) this.ritWaitWakeup = null;
       clearInterval(checkInterval);
       this.clearHandTimeout(safetyTimeout);
       if (!this.handController || this.handController !== controllerAtOffer) {
@@ -2087,7 +2094,6 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         finish();
         return;
       }
-      // Unanimous consent records the answer, but does not end the clock.
       if (!this.runItTwiceEngine.isDecisionPending(this.tableId)) {
         finish();
       }
@@ -2101,7 +2107,22 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       },
       this.runItTwiceEngine.offerTimeoutSeconds(this.tableId) * 1000 + 5_000
     );
+
+    this.ritWaitWakeup = finish;
   }
+
+  /** Immediate wake-up handle for the active waitForRITResponse call. */
+  private ritWaitWakeup: (() => void) | null = null;
+
+  protected wakeRITWaiter(): void {
+    const wake = this.ritWaitWakeup;
+    if (wake && !this.runItTwiceEngine.isDecisionPending(this.tableId)) {
+      wake();
+    }
+  }
+
+  /** The hand this seat has already been told ran multiple times. */
+  private ritAllAcceptedNotifiedHand = -1;
 
   /** The hand this seat has already been told ran once, so a decline
    *  followed by the timeout branch cannot toast the same player twice. */
@@ -2124,20 +2145,18 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    *
    *   RIT_OFFERED   already on the wire as `rit_offer` (richer: chooser,
    *                 deadline_ts, pot, allPlayerIds)
-   *   RIT_ACCEPTED  forwards `rit_all_accepted` when the decision clock ends;
-   *                 mandatory runs are announced separately as `rit_mandatory`.
+   *   RIT_ACCEPTED  already on the wire as `rit_all_accepted` (emitted by
+   *                 respondToRIT after `rit_chooser_decided`/`rit_response_update`)
+   *                 or `rit_mandatory` (emitted by handleAllInRunout)
    *   RIT_RESOLVED  already on the wire as `rit_result` (with the boards)
    *   RIT_DECLINED  forwarded ONLY when reason === 'timeout'
    *
-   * Forwarding the other outcomes would double-emit, and each engine event
-   * carries strictly less than the broadcast it duplicates. A PLAYER decline
-   * is likewise already announced, by respondToRIT, with the correct
-   * `player_declined` reason and the correct player — forwarding that too
-   * would race it and win with a worse reason. The timeout maps onto the
-   * existing `rit_single_run` name through emitRitSingleRun; its per-hand
-   * guard makes the redundant
-   * `no_agreement` that waitForRITResponse emits ~250ms later a no-op. One
-   * notice per hand, no new client vocabulary.
+   * Forwarding the other outcomes would double-emit or race causal order
+   * (e.g. emitting `rit_all_accepted` before `rit_chooser_decided` would
+   * reopen the client prompt after closing it). A PLAYER decline is likewise
+   * already announced by respondToRIT with the correct `player_declined`
+   * reason and player. The timeout maps onto `rit_single_run` through
+   * emitRitSingleRun and wakes waitForRITResponse immediately.
    *
    * Registered through addEventListener rather than by assigning onEvent, so
    * the constructor callback and the tests that replace it both keep working.
@@ -2146,14 +2165,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     if (this.ritEventsWired) return;
     this.ritEventsWired = true;
     this.runItTwiceEngine.addEventListener((event) => {
-      if (event.type === 'RIT_ACCEPTED' && !event.mandatory) {
-        const state = this.runItTwiceEngine.getState(this.tableId);
-        if (state) this.emitRitAllAccepted(state.allPlayerIds, state.chosenRuns);
-        return;
-      }
       if (event.type !== 'RIT_DECLINED') return;
       if ((event as Record<string, unknown>).reason !== 'timeout') return;
       this.emitRitSingleRun('no_agreement');
+      this.wakeRITWaiter();
     });
   }
 

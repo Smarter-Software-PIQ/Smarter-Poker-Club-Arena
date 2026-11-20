@@ -165,14 +165,15 @@ describe('the pool floor limp of a short hold’em stack (lightningVpipFloorLimp
         opts,
       });
     expect(ask(gs, POOL_ON)).toBe(true);
-    // the option off, unset or not exactly true: refused, as before the fix
-    expect(ask(gs, PRODUCTION_28372C9A)).toBe(false);
-    expect(ask(gs, { ...PRODUCTION_28372C9A, lightningVpipFloorLimpOnly: false })).toBe(false);
+    // the request's opts never carry the pool option: the switch delivers it
+    // inside the worker after the request is built (#11491), so a limp the
+    // pool floor COULD make is admitted whatever the opts say
+    expect(ask(gs, PRODUCTION_28372C9A)).toBe(true);
+    expect(ask(gs, { ...PRODUCTION_28372C9A, lightningVpipFloorLimpOnly: false })).toBe(true);
     expect(
       ask(gs, { ...PRODUCTION_28372C9A, lightningVpipFloorLimpOnly: 'on' as unknown as boolean })
-    ).toBe(false);
-    // the table option does not open a pool, and the pool option does not open a table
-    expect(ask(gs, TABLE_ON)).toBe(false);
+    ).toBe(true);
+    expect(ask(gs, TABLE_ON)).toBe(true);
     // any other amount
     for (const amount of [BB - 0.01, BB + 0.01, 1, 2 * BB, null])
       expect(ask(gs, POOL_ON, hero, amount)).toBe(false);

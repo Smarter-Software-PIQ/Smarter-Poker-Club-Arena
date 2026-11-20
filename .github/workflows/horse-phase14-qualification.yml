@@ -37,7 +37,6 @@ permissions:
   pull-requests: read
 concurrency:
   group: horse-phase14-independent-qualification
-  queue: max
   cancel-in-progress: false
 env:
   SUPABASE_URL: https://supabase.invalid

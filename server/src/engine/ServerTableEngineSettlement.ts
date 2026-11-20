@@ -1980,6 +1980,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       killPot: this.currentHandKillRecord,
       ritExtraBoards: this.currentHandRitExtraBoards,
       ritBoards: this.currentHandRitBoards,
+      cadence: this.currentHandCadence,
       startedAt: this.currentHandStartedAt,
       winners: [...this.currentHandWinners],
       pots: this.currentHandPots,
@@ -2835,6 +2836,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             // COMPLETENESS PASS 2026-08-26: RIT boards 2..N, first-class. The
             // rit_board_N pseudo-actions in `actions` stay for old readers.
             ritBoards: snap.ritExtraBoards,
+            cadence: snap.cadence,
             startedAt: acceptedHandStartedAt,
             endedAt: acceptedHandEndedAt,
             winners: snap.winners,
@@ -4760,10 +4762,10 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       }
     } finally {
       // Whatever happened, no deferred exit leaves a seat-move block behind.
-      for (const horse of due) if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
+      for (const horse of due)
+        if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
     }
   }
-
 
   /**
    * Read move candidates while the leave sweep runs. Candidates carry no cash

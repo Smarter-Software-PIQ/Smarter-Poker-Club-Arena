@@ -194,6 +194,14 @@ import {
   type LightningHorseVpipLedger,
 } from './LightningHorseVpipLedger.js';
 import type { HorseReviewInput } from '../services/HorseHandReview.js';
+import type { LiveHorseDecideOpts } from '../engine/horseDecision/protocol.js';
+import {
+  horseDecideOptsFromRuntimeSettings,
+  lightningFastFoldTuningFrom,
+  pinEngineRuntimeSettings,
+  type LightningFastFoldTuning,
+  type RuntimeSettingsSnapshot,
+} from '../engine/runtimeSettings/index.js';
 import {
   horseOpponentMemorySchema,
   readHorseOpponentProfiles,
@@ -379,6 +387,11 @@ export class LightningTimeBankLedger {
 }
 
 export interface LightningHandHostDeps {
+  /**
+   * ENGINE RUNTIME SETTINGS (2026-11-19): the settings this hand reads to its end. Absent: pinned from the process
+   * channel when the host is built (runtimeSettings/index.ts pinEngineRuntimeSettings, scope the Cluster).
+   */
+  runtimeSettings?: RuntimeSettingsSnapshot;
   backend: LightningHandBackend;
   hub: LightningHub;
   /** The verified cash lease on the host table, if this process holds it. */
@@ -646,6 +659,10 @@ export class LightningHandHost {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
   private readonly random: () => number;
+  /** ENGINE RUNTIME SETTINGS (2026-11-19): pinned at construction, the hand boundary; read for the whole hand. */
+  private readonly runtimeSettings: RuntimeSettingsSnapshot;
+  private readonly fastFoldTuning: LightningFastFoldTuning;
+  private readonly runtimeHorseOpts: LiveHorseDecideOpts | undefined;
   private actionLock = false;
   private finished: Promise<void>;
   private resolveFinished!: () => void;
@@ -668,6 +685,11 @@ export class LightningHandHost {
     this.logger = deps.logger ?? defaultLogger;
     this.now = deps.now ?? Date.now;
     this.random = deps.random ?? Math.random;
+    this.runtimeSettings =
+      deps.runtimeSettings ??
+      pinEngineRuntimeSettings(`lightning:${formed.clusterId}`, formed.handId);
+    this.fastFoldTuning = lightningFastFoldTuningFrom(this.runtimeSettings);
+    this.runtimeHorseOpts = horseDecideOptsFromRuntimeSettings(this.runtimeSettings);
     this.sleep =
       deps.sleep ??
       ((ms) =>
@@ -1894,7 +1916,12 @@ export class LightningHandHost {
       abort: null,
       startedAt: carried?.startedAt ?? this.now(),
       reactionMs:
-        carried?.reactionMs ?? lightningHorseFastFoldReactionMs({ userId, random: this.random }),
+        carried?.reactionMs ??
+        lightningHorseFastFoldReactionMs({
+          userId,
+          random: this.random,
+          tuning: this.fastFoldTuning,
+        }),
     });
     return true;
   }
@@ -1947,7 +1974,11 @@ export class LightningHandHost {
     const abort = new AbortController();
     this.horseLooks.get(userId)?.abort?.abort();
     const decisionAt = this.now();
-    const reactionMs = lightningHorseFastFoldReactionMs({ userId, random: this.random });
+    const reactionMs = lightningHorseFastFoldReactionMs({
+      userId,
+      random: this.random,
+      tuning: this.fastFoldTuning,
+    });
     this.horseLooks.set(userId, { stage, abort, startedAt: decisionAt, reactionMs });
     const generation = ++this.horseGeneration;
     const lane = this.deps.horseLane ?? getLiveHorseDecisionWorker;
@@ -1993,6 +2024,7 @@ export class LightningHandHost {
         }),
         turnStartMs: decisionAt,
         now: decisionAt,
+        ...(this.runtimeHorseOpts ? { horseOpts: this.runtimeHorseOpts } : {}),
         earlyLook: true,
       },
       abort.signal,
@@ -2595,6 +2627,7 @@ export class LightningHandHost {
         }),
         turnStartMs: this.turnStartMs,
         now: decisionAt,
+        ...(this.runtimeHorseOpts ? { horseOpts: this.runtimeHorseOpts } : {}),
       },
       abort.signal,
       lane,

@@ -1092,6 +1092,7 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
     it('drives real HorseDecisionWorkerRuntime -> ServerTableEngine -> ServerActionValidator -> HandController -> HorseExecutionWitness across normal commit, stale refusal, and F06 time-bank tank', async () => {
       vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-19T21:30:00.000Z'));
       const tableId = 'fa100000-0000-4000-8000-000000000901';
       const messages: HorseDecisionWorkerResponse[] = [];
       const runtime = new HorseDecisionWorkerRuntime((msg) => messages.push(msg), {
@@ -1228,7 +1229,9 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
       const spyFast = vi.spyOn(workerBridge, 'decideFast');
       engine.scheduleHorseAction(horseSeatRow, 4, utgEnginePlayer, st);
-      await vi.advanceTimersByTimeAsync(15_000);
+      // #11416 added up to ~8.75 s of boot-retry backoff per failed store load
+      // under fake timers; advance past both boot retries and the horse think clock.
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(spyFast).toHaveBeenCalledTimes(1);
       const passedSnap = spyFast.mock.calls[0][0] as LiveHorseDecisionSnapshot;
