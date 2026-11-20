@@ -183,8 +183,23 @@ const channelWs = new ChannelWebSocketServer((tournamentId) =>
 const httpServer = createEngineHttpServer(
   createRouter({ gameServer, tableStateHub, engineWs, channelHub })
 );
-engineWs.attach(httpServer);
-channelWs.attach(httpServer);
+// ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): with
+// ENGINE_ROLLING_HANDOFF=on and ENGINE_HANDOFF_PEER_PORT set, the relay takes
+// the server's upgrades first and re-emits every upgrade that stays here, so a
+// socket for a table this engine handed on is spliced to the engine that owns
+// it. Without the relay (the flag off) both servers attach exactly as before.
+const handoffRelay = gameServer.getHandoffRelay();
+const upgradeHost = (
+  handoffRelay ? handoffRelay.attachUpgrades(httpServer) : httpServer
+) as typeof httpServer;
+engineWs.attach(upgradeHost);
+channelWs.attach(upgradeHost);
+if (gameServer.getRollingHandoff()) {
+  gameServer.setHandoffTransport({
+    closeTable: (tableId) => engineWs.closeTableForHandoff(tableId),
+    closeAll: () => engineWs.closeAllForHandoff() + channelWs.closeAllForHandoff(),
+  });
+}
 const unsubscribePlayerRevocations = subscribePlayerSessionRevocations(
   (userId) => {
     void Promise.all([
@@ -240,9 +255,11 @@ setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
  * belong to the process that completed the distributed leader boot. A standby
  * never starts them merely because its HTTP socket happened to listen first.
  */
-async function startLeaderOwnedServices(): Promise<void> {
-  await gameServer.start();
-  if (shuttingDown || !gameServer.isLeaderBooted()) {
+async function startLeaderOwnedServices(handoffTakeover = false): Promise<void> {
+  // A rolling handoff successor that just took leadership in place ran
+  // gameServer.start() when it booted (see the onHandoffLeaderTakeover hook).
+  if (!handoffTakeover) await gameServer.start();
+  if (shuttingDown || !gameServer.isLeaderBooted() || leaderServicesActive) {
     console.log('[GameServer] Index-owned mutators remain stopped on this standby process.');
     return;
   }
@@ -417,6 +434,18 @@ function stopLeaderOwnedServices(): Promise<void> {
 // writers participate in that same certificate rather than being stopped by
 // a parallel signal path that could finish early.
 gameServer.registerExternalShutdownOwnershipBarrier(stopLeaderOwnedServices);
+
+/**
+ * A rolling handoff successor (ENGINE_ROLE=handoff-successor, flag on) takes
+ * leadership in place once the engine it succeeded has retired; the
+ * index-owned leader services start then, exactly as after a leader boot.
+ * Never fires with the flag off.
+ */
+gameServer.onHandoffLeaderTakeover(() => {
+  void startLeaderOwnedServices(true).catch((err) =>
+    fatal(err, 'GameServer.handoff_takeover_index_services_failed')
+  );
+});
 
 httpServer.listen(PORT, () => {
   // Module load and construction end here; /health bootPhases measures from process start.

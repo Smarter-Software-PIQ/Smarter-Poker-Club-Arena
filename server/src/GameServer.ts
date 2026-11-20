@@ -260,6 +260,7 @@ import {
   isLeader,
   leadershipDiagnostics,
   markBootedAsStandby,
+  claimLeadershipAsHandoffSuccessor,
 } from './services/leadership.js';
 import {
   claimTournamentLease,
@@ -394,6 +395,8 @@ import {
 // 2026-11-19: rolling engine handoff (docs/ENGINE-ROLLING-HANDOFF.md). Inert
 // unless ENGINE_ROLLING_HANDOFF=on: the coordinator is never constructed.
 import { rollingHandoffEnabled } from './handoff/rollingHandoffFlag.js';
+import { bootsAsHandoffSuccessor, handoffPeerPort } from './handoff/handoffSuccessorRole.js';
+import { HandoffRelay } from './handoff/handoffRelay.js';
 import {
   RollingHandoffCoordinator,
   type HandoffEnginePort,
@@ -3482,7 +3485,7 @@ export class GameServer {
   ): Promise<void> {
     await this.awaitTournamentManagerLeaseRelease(tournamentId);
     if (!this.directAdmissionIsCurrent(generation)) return;
-    if (this.rollingHandoff?.refusesAdmission({ scope: 'tournament', key: tournamentId })) return;
+    if (this.refusesHandoffAdmission({ scope: 'tournament', key: tournamentId })) return;
     const admitted = this.tournamentEngines.get(tournamentId);
     if (admitted) {
       const continuation = this.mixedF06AdmissionContinuations?.get(tournamentId);
@@ -4911,6 +4914,7 @@ export class GameServer {
     this.running = true;
     this.leaderBootComplete = false;
     this.rollingHandoff?.startAdoptionLoop();
+    this.startHandoffSuccessorWatchdog();
     this.resetDealerPrerequisiteGate(generation);
     openTerminalFinishLanes();
     const operation = this.performStart(generation);
@@ -4940,6 +4944,17 @@ export class GameServer {
     // without the rest of the platform churning. Discovery loops stay off so
     // no other tables get picked up. Lifecycle / auto-rebuy stay off.
     const testTableId = process.env.TEST_TABLE_ID || '';
+    /* ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md). Both are
+       false unless ENGINE_ROLLING_HANDOFF=on. A handoff successor
+       (ENGINE_ROLE=handoff-successor) boots its dealer lanes here but claims
+       no leadership, cleans nothing and starts no leader job. A successor
+       takeover is this same boot run again in place once the engine it
+       succeeded has retired and released leadership: it skips only what the
+       successor already has and the stale-data cleanup, which would cash out
+       the seats it is dealing. */
+    const handoffSuccessorBoot = this.handoffSuccessorPhase === true;
+    const successorTakeover = this.handoffTakeoverInProgress === true;
+    this.handoffTakeoverInProgress = false;
 
     /* THE CORE IS MEASURED FROM BOOT (2026-09-06). The governor used to take
        a reading only when a horse computed equity, so a loop saturated by
@@ -4983,13 +4998,19 @@ export class GameServer {
      * Fail-open on error, and a standby retains standby -- see
      * services/leadership.ts for why that asymmetry matters.
      */
+    if (handoffSuccessorBoot && (maintenanceMode || testTableId)) {
+      console.log('[GameServer] HANDOFF SUCCESSOR in maintenance or test mode: staying inert.');
+      return;
+    }
     const endLeadershipPhase = this.bootTimeline.begin('leadership_claim');
-    let role = await renewLeadership();
+    // A successor neither claims nor renews here (claimLeadershipAsHandoffSuccessor
+    // decides that, strictly); a takeover was just granted the row.
+    let role = handoffSuccessorBoot || successorTakeover ? 'leader' : await renewLeadership();
     if (!this.directAdmissionIsCurrent(generation)) {
       endLeadershipPhase('cancelled');
       return;
     }
-    startLeadershipRenewal();
+    if (!handoffSuccessorBoot) startLeadershipRenewal();
     /**
      * THE BOOT CLAIM RETRIES THROUGH ONE STALENESS WINDOW (2026-08-30).
      *
@@ -5120,7 +5141,7 @@ export class GameServer {
     // Step 1: Clean up stale data from previous runs.
     // Test mode passes the protected id so cleanup spares it.
     const endCleanupPhase = this.bootTimeline.begin('stale_data_cleanup');
-    await this.cleanupStaleData(testTableId);
+    if (!handoffSuccessorBoot && !successorTakeover) await this.cleanupStaleData(testTableId);
     endCleanupPhase();
 
     /**
@@ -5166,6 +5187,11 @@ export class GameServer {
       throw error;
     }
     if (!this.directAdmissionIsCurrent(generation)) return;
+
+    if (handoffSuccessorBoot) {
+      await this.finishHandoffSuccessorBoot(generation);
+      return;
+    }
 
     if (!maintenanceMode && !testTableId) {
       /**
@@ -5247,10 +5273,12 @@ export class GameServer {
          It is launched through its SUPERVISOR, never bare - see
          superviseOwnershipLeaseRenewal, and 2026-09-12 for what a bare launch
          cost. */
-      this.launchServerLifecycleJob(
-        this.superviseOwnershipLeaseRenewal(generation),
-        'GameServer.ownership_lease_renewal_fatal_err'
-      );
+      // A successor taking over already runs its own renewal supervisor.
+      if (!successorTakeover)
+        this.launchServerLifecycleJob(
+          this.superviseOwnershipLeaseRenewal(generation),
+          'GameServer.ownership_lease_renewal_fatal_err'
+        );
 
       this.launchDiscoveryJob(
         this.discoverCashTables(),
@@ -5425,7 +5453,13 @@ export class GameServer {
       // the local commit wake and the worker's 5 s poll carry every hand.
       this.handOutboxListener.start();
 
-      if (!this.publishDealerPrerequisitesReady(generation)) return;
+      // A successor taking over opened its dealer gate when it booted.
+      if (
+        successorTakeover
+          ? !this.dealerAdmissionIsCurrent(generation)
+          : !this.publishDealerPrerequisitesReady(generation)
+      )
+        return;
       // Finite startup recovery uses the original dealer, not a repair interval.
       this.launchServerLifecycleJob(
         this.resumePendingOperatorCashCloses(generation),
@@ -5515,6 +5549,7 @@ export class GameServer {
     this.running = false;
     this.leaderBootComplete = false;
     this.rollingHandoff?.stopAdoptionLoop();
+    this.stopHandoffTimers();
     this.revokeDealerPrerequisites(stoppingGeneration);
     this.lifecycleGeneration += 1;
     // Before the first await: no finish still queued in a club's finish lane
@@ -6339,7 +6374,14 @@ export class GameServer {
        *   Docker healthcheck exits non-zero only on 'dead', so a standby is
        *          NOT restarted -- it must stay alive to be able to take over.
        */
-      liveness: livenessVerdict.status,
+      // A handoff successor runs no discovery, so the leader verdict does not
+      // apply to it: it is alive once its dealer gate is open. With
+      // ENGINE_ROLLING_HANDOFF off this is always livenessVerdict.status.
+      liveness: this.handoffSuccessorPhase
+        ? this.dealerPrerequisitesReady
+          ? 'ok'
+          : 'standby'
+        : livenessVerdict.status,
       /**
        * Independent evidence, reported whether or not it has reached a
        * verdict, so a fleet going quiet is visible BEFORE anything restarts.
@@ -6588,6 +6630,17 @@ export class GameServer {
       // regenerated on every boot, so two answers carrying different ids prove
       // two processes, immediately and without host access.
       instanceId: INSTANCE_ID,
+      // Present only with ENGINE_ROLLING_HANDOFF=on, so the body is unchanged
+      // with the flag off.
+      ...(this.rollingHandoff
+        ? {
+            rollingHandoff: {
+              role: this.handoffSuccessorPhase ? 'handoff-successor' : 'serving',
+              mode: this.rollingHandoff.getMode(),
+              relay: this.handoffRelay?.stats() ?? null,
+            },
+          }
+        : {}),
       pid: process.pid,
       // Split-brain evidence: tables this instance was refused, and who holds
       // them. Empty is the healthy state.
@@ -14815,8 +14868,7 @@ export class GameServer {
       }
     }
     if (!this.dealerAdmissionIsCurrent(generation)) return 'not_wakeable';
-    if (this.rollingHandoff?.refusesAdmission({ scope: 'table', key: tableId }))
-      return 'owned_elsewhere';
+    if (this.refusesHandoffAdmission({ scope: 'table', key: tableId })) return 'owned_elsewhere';
 
     const requestedLeaseGeneration =
       this.directTableAdmissionLeaseGenerations.get(tableId) ?? randomUUID();
@@ -14997,6 +15049,302 @@ export class GameServer {
     return this.rollingHandoff ?? null;
   }
 
+  // ── Handoff successor role and client relay (2026-11-19) ─────────────────
+  //
+  // Both exist only with ENGINE_ROLLING_HANDOFF=on (handoff/handoffSuccessorRole.ts).
+
+  /** Poll for leadership while a successor; the serving engine releases it on retirement. */
+  private static readonly HANDOFF_LEADERSHIP_POLL_MS = 2_000;
+  /** Probe the successor this often while yielding. */
+  private static readonly HANDOFF_WATCHDOG_MS = 2_000;
+  /** Consecutive failed probes (about 6 s) before the yield is aborted. */
+  private static readonly HANDOFF_PEER_FAILURES_TO_ABORT = 3;
+  /** One report per context per window, so a dead peer is loud once, not per request. */
+  private static readonly HANDOFF_REPORT_WINDOW_MS = 10_000;
+
+  /**
+   * True while this process runs as a handoff successor that has not taken
+   * leadership: it deals handed units only and runs no discovery or
+   * singleton job. Always false with the flag off.
+   */
+  private handoffSuccessorPhase: boolean = rollingHandoffEnabled() && bootsAsHandoffSuccessor();
+  /** Tables this engine handed on and does not serve; relayed to the peer. */
+  private readonly handoffYieldedTables = new Set<string>();
+  private handoffTransport: { closeTable(tableId: string): number; closeAll(): number } | null =
+    null;
+  private handoffLeaderTakeoverListener: (() => void) | null = null;
+  private handoffLeadershipTimer: ReturnType<typeof setTimeout> | null = null;
+  private handoffWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private handoffWatchdogProbe: Promise<void> | null = null;
+  private handoffPeerFailures = 0;
+  private handoffRetirement: Promise<void> | null = null;
+  /** Set only by takeOverLeadershipAsSuccessor for the one performStart it runs. */
+  private handoffTakeoverInProgress = false;
+  private readonly handoffReportedAt = new Map<string, number>();
+  private readonly handoffRelay: HandoffRelay | null = this.createHandoffRelay();
+
+  private reportHandoff(error: unknown, context: string, extra?: Record<string, unknown>): void {
+    const now = Date.now();
+    const last = this.handoffReportedAt.get(context) ?? 0;
+    if (now - last < GameServer.HANDOFF_REPORT_WINDOW_MS) return;
+    this.handoffReportedAt.set(context, now);
+    reportError(error, context, extra);
+  }
+
+  private createHandoffRelay(): HandoffRelay | null {
+    if (!this.rollingHandoff) return null;
+    const peerPort = handoffPeerPort();
+    if (peerPort === null) return null;
+    return new HandoffRelay({
+      peerPort,
+      relaysTable: (tableId) => this.handoffRelaysTable(tableId),
+      relaysEverything: () => this.rollingHandoff?.getMode() === 'retired',
+      active: () => {
+        const mode = this.rollingHandoff?.getMode();
+        return mode !== undefined && (mode !== 'serving' || this.handoffYieldedTables.size > 0);
+      },
+      report: (error, context, extra) => this.reportHandoff(error, context, extra),
+    });
+  }
+
+  /**
+   * The one admission question both dealer admissions ask (cash table and
+   * tournament manager). False whenever ENGINE_ROLLING_HANDOFF is off (no
+   * coordinator). Otherwise refused while this engine is yielding or retired
+   * (the coordinator's rule), and, while it is a handoff successor, refused
+   * for anything that was not handed to it.
+   */
+  private refusesHandoffAdmission(unit: HandoffUnit): boolean {
+    const coordinator = this.rollingHandoff;
+    if (!coordinator) return false;
+    if (coordinator.refusesAdmission(unit)) return true;
+    return this.handoffSuccessorPhase === true && !coordinator.admitsAsSuccessor(unit);
+  }
+
+  /** The relay, or null (flag off or no ENGINE_HANDOFF_PEER_PORT). */
+  getHandoffRelay(): HandoffRelay | null {
+    return this.handoffRelay ?? null;
+  }
+
+  /** The bootstrap's socket closers (index.ts). Only used with the flag on. */
+  setHandoffTransport(transport: {
+    closeTable(tableId: string): number;
+    closeAll(): number;
+  }): void {
+    this.handoffTransport = transport;
+  }
+
+  /** The bootstrap starts its own leader services when a successor takes leadership. */
+  onHandoffLeaderTakeover(listener: () => void): void {
+    this.handoffLeaderTakeoverListener = listener;
+  }
+
+  /**
+   * Does a request for this table belong to the other engine? Never for a
+   * table or Lightning room dealt here: local state is the only state this
+   * engine may serve. While yielding or retired, every table not dealt here
+   * goes to the peer (that covers tournament tables the moved manager opened
+   * there); after an aborted yield only the tables actually handed on do.
+   */
+  private handoffRelaysTable(tableId: string): boolean {
+    const mode = this.rollingHandoff?.getMode();
+    if (!mode) return false;
+    if (this.hasTableOrLightningRoom(tableId)) return false;
+    if (mode !== 'serving') return true;
+    return (
+      this.handoffYieldedTables.has(tableId) || this.handoffYieldedTables.has(tableId.toLowerCase())
+    );
+  }
+
+  /** Moved tables: relay them from now on, and send their sockets to the new owner. */
+  private noteHandoffTablesLeft(tableIds: string[]): void {
+    for (const tableId of tableIds) {
+      this.handoffYieldedTables.add(tableId);
+      try {
+        this.handoffTransport?.closeTable(tableId);
+      } catch (error) {
+        this.reportHandoff(error, 'RollingHandoff.close_moved_sockets_failed', { tableId });
+      }
+    }
+  }
+
+  /** Tables dealt here again: stop relaying them and bring relayed clients back. */
+  private noteHandoffTablesArrived(tableIds: string[]): void {
+    for (const tableId of tableIds) {
+      const wasYielded = this.handoffYieldedTables.delete(tableId);
+      if (wasYielded || this.rollingHandoff?.getMode() !== 'serving')
+        this.handoffRelay?.closeRelayedSockets(tableId);
+    }
+  }
+
+  /**
+   * The coordinator retired this engine: it deals nothing and every move is
+   * settled. Its own sockets reconnect through the relay (now relaying
+   * everything) to the engine that owns it all, and the ordinary certified
+   * stop runs: every leader job and index service stops, and only then is the
+   * leadership row released, which is what lets the successor take it. The
+   * HTTP listener and the relay stay up until the one Caddy change.
+   */
+  private retireAfterHandoff(): void {
+    if (this.handoffRetirement) return;
+    try {
+      this.handoffTransport?.closeAll();
+    } catch (error) {
+      reportError(error, 'RollingHandoff.close_sockets_at_retirement_failed');
+    }
+    this.handoffRetirement = this.stop().catch((error) => {
+      reportError(error, 'RollingHandoff.retired_engine_stop_failed');
+    });
+  }
+
+  /** Serving engine: while yielding, abort when the successor stops answering. */
+  private startHandoffSuccessorWatchdog(): void {
+    if (!this.handoffRelay || this.handoffWatchdogTimer) return;
+    this.handoffWatchdogTimer = setInterval(() => {
+      if (this.handoffWatchdogProbe) return;
+      this.handoffWatchdogProbe = this.handoffWatchdogTick()
+        .catch((error) => this.reportHandoff(error, 'RollingHandoff.watchdog_failed'))
+        .finally(() => {
+          this.handoffWatchdogProbe = null;
+        });
+    }, GameServer.HANDOFF_WATCHDOG_MS);
+    (this.handoffWatchdogTimer as { unref?: () => void }).unref?.();
+  }
+
+  /** One watchdog probe; exposed to the tests through the prototype. */
+  private async handoffWatchdogTick(): Promise<void> {
+    const coordinator = this.rollingHandoff;
+    const relay = this.handoffRelay;
+    if (!coordinator || !relay || coordinator.getMode() !== 'yielding') {
+      this.handoffPeerFailures = 0;
+      return;
+    }
+    const successor = coordinator.status().successor;
+    const probe = await relay.probePeer(successor, process.env.INTERNAL_API_KEY || '');
+    if (probe.alive || coordinator.getMode() !== 'yielding') {
+      this.handoffPeerFailures = 0;
+      return;
+    }
+    this.handoffPeerFailures += 1;
+    if (this.handoffPeerFailures < GameServer.HANDOFF_PEER_FAILURES_TO_ABORT) return;
+    this.handoffPeerFailures = 0;
+    // Units it already adopted stay its until their leases go stale (30 s);
+    // then this engine, serving again, re-admits them through discovery from
+    // the database. Units still here simply deal on. Nothing is forced.
+    reportError(
+      new Error(
+        `rolling handoff successor ${successor ?? 'unknown'} stopped answering (${probe.reason}); ` +
+          'the yield is aborted and this engine keeps serving'
+      ),
+      'RollingHandoff.successor_unreachable'
+    );
+    coordinator.abortYield();
+  }
+
+  private stopHandoffTimers(): void {
+    if (this.handoffWatchdogTimer) clearInterval(this.handoffWatchdogTimer);
+    this.handoffWatchdogTimer = null;
+    if (this.handoffLeadershipTimer) clearTimeout(this.handoffLeadershipTimer);
+    this.handoffLeadershipTimer = null;
+  }
+
+  /**
+   * HANDOFF SUCCESSOR BOOT, after performStart has made the horse and equity
+   * lanes ready (a dealer's prerequisites) and skipped the leadership claim
+   * and the stale-data cleanup. Ready to deal, owner of nothing: weekly payout
+   * custody for the engines it will adopt and lease renewal for them, then the
+   * dealer gate opens so the coordinator's adoption loop (already running) can
+   * take handed units, and the leadership watch begins. No break adoption, no
+   * discovery, no fleet, no sweep, no singleton job: the serving engine runs
+   * all of those until it retires.
+   */
+  private async finishHandoffSuccessorBoot(generation: number): Promise<void> {
+    console.log(
+      `[GameServer] HANDOFF SUCCESSOR ${INSTANCE_ID}: dealing only tables handed to it; ` +
+        'leadership waits for the serving engine to retire.'
+    );
+    await this.startWeeklyPayout();
+    if (!this.directAdmissionIsCurrent(generation)) return;
+    this.launchServerLifecycleJob(
+      this.superviseOwnershipLeaseRenewal(generation),
+      'GameServer.ownership_lease_renewal_fatal_err'
+    );
+    if (!this.publishDealerPrerequisitesReady(generation)) return;
+    this.startHandoffSuccessorChannelMirror();
+    this.watchForHandoffLeadership(generation);
+  }
+
+  /** Tournament channel events reach the clients still connected to the front door. */
+  private startHandoffSuccessorChannelMirror(): void {
+    const relay = this.handoffRelay;
+    const key = process.env.INTERNAL_API_KEY || '';
+    if (!relay || !key) return;
+    channelHub.setTournamentMirror((tournamentId, msg) => {
+      const event = (msg as { type?: unknown; event?: unknown }).event;
+      if ((msg as { type?: unknown }).type !== 'TOURNAMENT_EVENT' || event === undefined) return;
+      relay.mirrorTournamentEvent(tournamentId, event, key);
+    });
+  }
+
+  /** The successor's claim: granted only when the serving engine released (or lost) the row. */
+  protected claimHandoffLeadership(): Promise<boolean> {
+    return claimLeadershipAsHandoffSuccessor();
+  }
+
+  private watchForHandoffLeadership(generation: number): void {
+    const tick = (): void => {
+      this.handoffLeadershipTimer = setTimeout(() => {
+        this.handoffLeadershipTimer = null;
+        if (!this.handoffSuccessorPhase || !this.directAdmissionIsCurrent(generation)) return;
+        void this.claimHandoffLeadership()
+          .then(async (granted) => {
+            if (!this.handoffSuccessorPhase || !this.directAdmissionIsCurrent(generation)) return;
+            if (granted) await this.takeOverLeadershipAsSuccessor(generation);
+            else tick();
+          })
+          .catch((error) => {
+            this.reportHandoff(error, 'RollingHandoff.successor_leadership_claim_failed');
+            if (this.handoffSuccessorPhase && this.directAdmissionIsCurrent(generation)) tick();
+          });
+      }, GameServer.HANDOFF_LEADERSHIP_POLL_MS);
+      (this.handoffLeadershipTimer as { unref?: () => void }).unref?.();
+    };
+    tick();
+  }
+
+  /**
+   * The serving engine retired (its certified stop released the leadership
+   * row only after every one of its jobs had stopped) or died (the row went
+   * stale). This process now leads, in place: no restart, so every table it
+   * adopted keeps dealing. It takes the leader duties with the same code as a
+   * leader boot, minus the two things it already did (lease renewal, dealer
+   * gate), and minus the stale-data cleanup, which would cash out the live
+   * seats it is dealing.
+   */
+  private async takeOverLeadershipAsSuccessor(generation: number): Promise<void> {
+    this.handoffSuccessorPhase = false;
+    channelHub.setTournamentMirror(null);
+    console.log(
+      `[GameServer] HANDOFF SUCCESSOR ${INSTANCE_ID} took leadership; starting leader jobs.`
+    );
+    this.handoffTakeoverInProgress = true;
+    try {
+      await this.performStart(generation);
+    } catch (error) {
+      reportError(error, 'RollingHandoff.successor_takeover_failed');
+      requestLeadershipHandOff('handoff successor could not start its leader jobs');
+      return;
+    } finally {
+      this.handoffTakeoverInProgress = false;
+    }
+    if (!this.leaderBootComplete) return;
+    try {
+      this.handoffLeaderTakeoverListener?.();
+    } catch (error) {
+      reportError(error, 'RollingHandoff.successor_index_services_failed');
+    }
+  }
+
   /** Every park condition the maintenance restart census asks, for one engine. */
   private rollingHandoffTableBoundary(engine: ServerTableEngine): string | null {
     if (!engine.isRunning()) return 'not_running';
@@ -15132,9 +15480,11 @@ export class GameServer {
           if (!engine) return;
           engine.fenceForEngineLeaseLoss('engine_handoff_yielded', false);
           await this.recoverDirectTableEngine(unit.key, engine, 'engine_handoff_yielded');
+          this.noteHandoffTablesLeft([unit.key]);
         } else {
           const m = manager(unit);
           if (!m) return;
+          const movedTables = m.getTableIds();
           m.fenceForTournamentLeaseLoss();
           const stopped = await this.stopTournamentManagerIfOwned(
             unit.key,
@@ -15143,6 +15493,7 @@ export class GameServer {
             false
           );
           if (!stopped) throw new Error(`rolling handoff could not stop manager ${unit.key}`);
+          this.noteHandoffTablesLeft(movedTables);
         }
         this.rollingHandoff?.noteUnitLeft();
       },
@@ -15188,6 +15539,10 @@ export class GameServer {
 
       releaseArrivalHold: (unit) => {
         if (unit.scope === 'table') cashEngine(unit)?.setMaintenanceLock(false);
+        // A unit dealt here again (a return) is served here again: clients a
+        // relay had sent to the other engine reconnect to this one.
+        const tables = unit.scope === 'table' ? [unit.key] : (manager(unit)?.getTableIds() ?? []);
+        this.noteHandoffTablesArrived(tables);
       },
 
       holdsArrivalOf: (unit) => unit.scope === 'table',
@@ -15204,6 +15559,7 @@ export class GameServer {
           `[RollingHandoff] instance ${summary.instanceId} owns nothing and is retired; ` +
             `successor ${summary.successor ?? 'none'}`
         );
+        this.retireAfterHandoff();
       },
     };
   }
