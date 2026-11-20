@@ -380,6 +380,52 @@ export async function renewLeadership(): Promise<EngineRole> {
   }
 }
 
+/**
+ * ROLLING HANDOFF SUCCESSOR CLAIM (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md).
+ *
+ * A handoff successor deals tables handed to it while the serving engine
+ * still leads. It may take leadership only when that engine has retired and
+ * released the row (or died and let it go stale). So this claim is the
+ * strict half of renewLeadership: ONLY an explicit grant makes it leader. An
+ * error, an empty answer or a named holder leaves it exactly where it was,
+ * and the unknown-streak self-promotion above never applies, because a
+ * successor that promoted itself on silence would run every singleton job
+ * beside a live leader. It never restarts the process either: the successor
+ * takes the leader duties in place (GameServer.takeOverLeadershipAsSuccessor).
+ */
+export async function claimLeadershipAsHandoffSuccessor(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('claim_engine_leadership', {
+      p_instance_id: INSTANCE_ID,
+      p_version: INSTANCE_VERSION,
+      p_stale_seconds: LEADERSHIP_STALE_SECONDS,
+    });
+    if (error) {
+      errors++;
+      return false;
+    }
+    const row = (
+      data as Array<{ granted: boolean; holder: string | null; holder_age_seconds: number | null }>
+    )?.[0];
+    if (!row) return false;
+    if (row.granted !== true) {
+      holder = row.holder;
+      holderAgeSeconds = row.holder_age_seconds;
+      return false;
+    }
+    console.log(`[leadership] ${INSTANCE_ID} (handoff successor) is now the LEADER`);
+    role = 'leader';
+    holder = INSTANCE_ID;
+    holderAgeSeconds = 0;
+    becameLeaderAt = Date.now();
+    unknownStreak = 0;
+    return true;
+  } catch {
+    errors++;
+    return false;
+  }
+}
+
 export function startLeadershipRenewal(): void {
   if (timer) return;
   timer = setInterval(() => void renewLeadership(), LEADERSHIP_RENEW_MS);
