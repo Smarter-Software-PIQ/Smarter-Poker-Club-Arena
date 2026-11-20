@@ -252,6 +252,50 @@ Done for this section: the squash commit is on `main`; `backup-engine/certified`
 on that commit (or a newer main commit containing it) reads `success`; nothing
 has touched production.
 
+## 2a. Engine settings change without a cutover (runtime settings)
+
+Owner order, November 19, 2026, 12:54 Chicago: stop requiring an engine cutover
+for upgrades, improvements and fixes. A change to a VALUE the engine already
+reads is now a settings change, not a release.
+
+- **What is live without a cutover.** Every key in
+  `server/src/engine/runtimeSettings/registry.ts`: the Horse river raise shade
+  (`horse.v67RiverRaiseShade`), turn shade cap (`horse.v65TurnShadeCap`), air
+  shade scale (`horse.v68AirShadeScale`) and tournament call bar bump
+  (`horse.tournamentFlatBump`), and the Lightning Horse fast-fold timing
+  (`lightning.fastFold*`: floor, median, spread, ceiling, tempo range). The
+  Horse on/off option switches (`server/src/engine/HorseOptionSwitch.ts`,
+  every registered option including the per-variant strategy toggles) were
+  already live without a cutover and keep their own table and authority rules.
+- **How to publish.** Either a migration that calls
+  `fn_ca_engine_runtime_settings_publish(settings, note, actor)` (the reviewed
+  route; `npx tsx scripts/runtime-settings-publish.ts --sql <file> --note "<why>"`
+  from `server/` prints the line), or the publisher script with
+  `--publish <file> --note "<why>" --actor "<who>"`. Check a file first with
+  `--check <file>`. A key left out keeps its compiled default. Roll back with
+  `--rollback <version>` (or `fn_ca_engine_runtime_settings_rollback`), which
+  publishes that version's values as a new version.
+- **When it goes live.** The engine reads the active version every 30 seconds
+  and applies it at each table's next hand boundary: a hand already dealt
+  finishes on the version it started with. No cutover, no restart, no notice.
+- **What the engine refuses.** A version with a key the serving release does
+  not register, a value of the wrong kind or outside its range, or a broken
+  cross rule (floor below ceiling, tempo min not above max) is refused whole,
+  and the last good version keeps serving. A failed read keeps the current
+  settings. Before the first good read after a restart the compiled defaults
+  serve. So publish only keys the serving release registers.
+- **Audit.** `ca_engine_runtime_settings_hand_use` gets one row each time a
+  table (scope `table:<id>`, hand number) or a Lightning Cluster (scope
+  `lightning:<cluster>`, hand id) starts pinning a different version; a hand
+  used the version of the latest row of its scope at or before it.
+- **What still needs a cutover.** New code: a new setting key, a new option, a
+  new code path, a changed compiled default, or any change to how a value is
+  used. Adding a key is a normal engine change; once it ships, its value is
+  live-tunable from then on. Version 1 (migration
+  `supabase/migrations/20261119211354_engine_settings_change_at_the_next_hand_without_a_cutover.sql`)
+  equals the compiled values exactly; the engine code that reads the channel
+  ships in the first engine release after it merges.
+
 ## 3. The Backup (clone) engine, step by step
 
 ### 3.1 What it is

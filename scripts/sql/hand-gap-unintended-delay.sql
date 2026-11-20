@@ -10,19 +10,18 @@
 -- allowed; anything above it is a defect.
 --
 -- The constants in `k` are pinned equal to the spec by
--- server/src/engine/noUnintendedDelayBetweenHands.law.test.ts.
+-- server/src/engine/noUnintendedDelayBetweenHands.law.test.ts and
+-- tests/hand-gap-watch-pages-on-unintended-delay.law.test.ts.
 --
--- Excluded / not graded, and why:
+-- Excluded / conditional grading, and why:
 --   * Lightning hands (lightning_hand.hand_history_id): pooled concurrent hands
 --     share one host table_id, so a same-table gap is not a gap.
---   * Run-it-multiple hands (rit_boards): graded only once their reveal
---     timeline is reproduced here; shown as shape 'rit'.
---   * Cash hands where someone busted: the rebuy pause (<= 5 s, ends early on
---     a decision, only when the wallet covers a rebuy) is not recoverable from
---     rows; shown as 'cash_bust', not graded. MINIMAL FIELD THAT WOULD MAKE IT
---     RECOVERABLE: the engine writing, with the NEXT hand's row, the ms it
---     actually held between hands and why (e.g. hand_history.cadence jsonb
---     {"hold_ms":..,"rest_ms":..,"rebuy_pause_ms":..}) - it knows all three.
+--   * Run-it-multiple hands (rit_boards): graded when the NEXT hand carries
+--     recorded hand_history.cadence (rit_reveal_ms, clamped to rit_reveal_max_ms
+--     = 30000 ms); legacy rows without cadence remain ungraded.
+--   * Cash hands where someone busted: graded when the NEXT hand carries
+--     recorded hand_history.cadence (rebuy_pause_ms, clamped to
+--     rebuy_pause_max_ms = 5000 ms); legacy rows without cadence remain ungraded.
 --   * Bad Beat Jackpot hits (9 s celebration): not marked on the row; rare.
 --   * All-in showdown is read from an 'all_in' action by a shown player; a call
 --     that happened to put a player all-in may be recorded as 'call', which
@@ -32,13 +31,15 @@ WITH k AS (
          1400 AS showdown_read_base_ms, 350 AS showdown_read_per_extra_hand_ms,
          2200 AS showdown_read_max_ms, 1500 AS winning_cards_extra_ms,
          2000 AS all_in_showdown_extra_ms, 900 AS pot_award_stagger_ms,
-         1500 AS next_hand_rest_ms, 250 AS engine_between_hands_budget_ms
+         1500 AS next_hand_rest_ms, 250 AS engine_between_hands_budget_ms,
+         5000 AS rebuy_pause_max_ms, 30000 AS rit_reveal_max_ms
 ),
 h AS (
   SELECT hh.id, hh.table_id, hh.tournament_id IS NOT NULL AS tournament,
          hh.ended_at, hh.actions, hh.players, hh.pots, hh.rit_boards,
          CASE WHEN jsonb_typeof(hh.showdown) = 'array' THEN hh.showdown ELSE '[]'::jsonb END AS shown,
-         lead(hh.started_at) OVER (PARTITION BY hh.table_id ORDER BY hh.started_at) AS next_start
+         lead(hh.started_at) OVER (PARTITION BY hh.table_id ORDER BY hh.started_at) AS next_start,
+         lead(hh.cadence) OVER (PARTITION BY hh.table_id ORDER BY hh.started_at) AS next_cadence
   FROM hand_history hh
   WHERE hh.started_at > now() - interval '60 minutes' -- the window to grade
     AND NOT EXISTS (SELECT 1 FROM lightning_hand lh WHERE lh.hand_history_id = hh.id)
@@ -55,7 +56,12 @@ s AS (
                              jsonb_array_elements(coalesce(p->'awards', '[]'::jsonb)) aw
                       WHERE coalesce((aw->>'amount')::numeric, 0) > 0)) AS award_groups,
          EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) pl
-                 WHERE coalesce((pl->>'stack')::numeric, 1) = 0) AS someone_busted
+                 WHERE coalesce((pl->>'stack')::numeric, 1) = 0) AS someone_busted,
+         (jsonb_typeof(h.next_cadence) = 'object'
+          AND (h.next_cadence->>'hold_ms') ~ '^\d+(\.\d+)?$'
+          AND (h.next_cadence->>'rest_ms') ~ '^\d+(\.\d+)?$'
+          AND (h.next_cadence->>'rebuy_pause_ms') ~ '^\d+(\.\d+)?$'
+          AND (h.rit_boards IS NULL OR (h.next_cadence->>'rit_reveal_ms') ~ '^\d+(\.\d+)?$')) AS has_cadence
   FROM h
   WHERE h.next_start IS NOT NULL AND h.next_start > h.ended_at
     AND h.next_start - h.ended_at < interval '60 seconds'
@@ -68,25 +74,57 @@ shaped AS (
          WHEN s.all_in_shown THEN 'all_in_showdown'
          WHEN s.river_chips THEN 'showdown_river_chips'
          ELSE 'showdown_checked_river' END AS shape,
-    -- owedBetweenHandsMs for the shape (hold + rest).
-    CASE WHEN s.shown_n < 2 THEN
-           k.bets_sweep_ms + k.pot_push_ms + k.muck_ms + (s.award_groups - 1) * k.pot_award_stagger_ms
+    ((s.rit_boards IS NULL AND NOT (NOT s.tournament AND s.someone_busted)) OR s.has_cadence) AS row_graded,
+    -- owedBetweenHandsMs for the shape (hold + max(rest, rebuy_pause)).
+    CASE WHEN s.rit_boards IS NOT NULL AND s.has_cadence THEN
+           least(k.rit_reveal_max_ms, greatest(0, (s.next_cadence->>'rit_reveal_ms')::numeric))
+           + k.bets_sweep_ms + k.pot_push_ms + k.muck_ms + (s.award_groups - 1) * k.pot_award_stagger_ms
+           + CASE WHEN s.all_in_shown THEN k.all_in_showdown_extra_ms ELSE 0 END
+           + greatest(
+               k.next_hand_rest_ms,
+               CASE WHEN NOT s.tournament AND s.someone_busted
+                    THEN least(k.rebuy_pause_max_ms, greatest(0, (s.next_cadence->>'rebuy_pause_ms')::numeric))
+                    ELSE 0 END)
          ELSE
-           least(k.showdown_read_max_ms, k.showdown_read_base_ms + greatest(0, s.shown_n - 2) * k.showdown_read_per_extra_hand_ms)
-           + greatest(CASE WHEN s.all_in_shown THEN k.all_in_showdown_extra_ms ELSE 0 END, k.winning_cards_extra_ms)
-           + CASE WHEN s.river_chips THEN k.bets_sweep_ms ELSE 0 END
-           + k.pot_push_ms + k.muck_ms + (s.award_groups - 1) * k.pot_award_stagger_ms
-    END + k.next_hand_rest_ms AS owed_ms,
+           CASE WHEN s.shown_n < 2 THEN
+                  k.bets_sweep_ms + k.pot_push_ms + k.muck_ms + (s.award_groups - 1) * k.pot_award_stagger_ms
+                ELSE
+                  least(k.showdown_read_max_ms, k.showdown_read_base_ms + greatest(0, s.shown_n - 2) * k.showdown_read_per_extra_hand_ms)
+                  + greatest(CASE WHEN s.all_in_shown THEN k.all_in_showdown_extra_ms ELSE 0 END, k.winning_cards_extra_ms)
+                  + CASE WHEN s.river_chips THEN k.bets_sweep_ms ELSE 0 END
+                  + k.pot_push_ms + k.muck_ms + (s.award_groups - 1) * k.pot_award_stagger_ms
+           END
+           + greatest(
+               k.next_hand_rest_ms,
+               CASE WHEN NOT s.tournament AND s.someone_busted AND s.has_cadence
+                    THEN least(k.rebuy_pause_max_ms, greatest(0, (s.next_cadence->>'rebuy_pause_ms')::numeric))
+                    ELSE 0 END)
+    END AS owed_ms,
     k.engine_between_hands_budget_ms AS budget_ms
   FROM s CROSS JOIN k
 )
-SELECT CASE WHEN tournament THEN 'tournament' ELSE 'cash' END AS kind, shape, count(*) AS hands,
-       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_ms)) AS gap_p50_ms,
-       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY owed_ms)) AS owed_p50_ms,
-       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_ms - owed_ms)) AS unintended_p50_ms,
-       round(percentile_cont(0.95) WITHIN GROUP (ORDER BY gap_ms - owed_ms)) AS unintended_p95_ms,
-       round(percentile_cont(0.99) WITHIN GROUP (ORDER BY gap_ms - owed_ms)) AS unintended_p99_ms,
-       count(*) FILTER (WHERE shape NOT IN ('rit', 'cash_bust') AND gap_ms - owed_ms > budget_ms) AS over_budget
+SELECT CASE WHEN tournament THEN 'tournament' ELSE 'cash' END AS kind, shape,
+       count(*) FILTER (WHERE row_graded) > 0 AS graded,
+       CASE WHEN count(*) FILTER (WHERE row_graded) > 0
+            THEN count(*) FILTER (WHERE row_graded)
+            ELSE count(*) END AS hands,
+       round(CASE WHEN count(*) FILTER (WHERE row_graded) > 0
+                  THEN percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_ms) FILTER (WHERE row_graded)
+                  ELSE percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_ms) END) AS gap_p50_ms,
+       round(CASE WHEN count(*) FILTER (WHERE row_graded) > 0
+                  THEN percentile_cont(0.5) WITHIN GROUP (ORDER BY owed_ms) FILTER (WHERE row_graded)
+                  ELSE percentile_cont(0.5) WITHIN GROUP (ORDER BY owed_ms) END) AS owed_p50_ms,
+       round(CASE WHEN count(*) FILTER (WHERE row_graded) > 0
+                  THEN percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded)
+                  ELSE percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_ms - owed_ms) END) AS unintended_p50_ms,
+       round(CASE WHEN count(*) FILTER (WHERE row_graded) > 0
+                  THEN percentile_cont(0.95) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded)
+                  ELSE percentile_cont(0.95) WITHIN GROUP (ORDER BY gap_ms - owed_ms) END) AS unintended_p95_ms,
+       round(CASE WHEN count(*) FILTER (WHERE row_graded) > 0
+                  THEN percentile_cont(0.99) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded)
+                  ELSE percentile_cont(0.99) WITHIN GROUP (ORDER BY gap_ms - owed_ms) END) AS unintended_p99_ms,
+       CASE WHEN count(*) FILTER (WHERE row_graded) = 0 THEN NULL
+            ELSE count(*) FILTER (WHERE row_graded AND gap_ms - owed_ms > budget_ms) END AS over_budget
 FROM shaped
 GROUP BY 1, 2
 ORDER BY 1, 2;

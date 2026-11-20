@@ -412,13 +412,13 @@ describe('the engine host re-reads the config and announces every single run', (
     expect(block).not.toContain('continueRunout');
   });
 
-  it('deadline acceptance and auto-decline both reach the wire', () => {
+  it('auto-decline reaches the wire and wakes the waiter; unanimous accept is emitted by respondToRIT', () => {
     const fn = sliceMethod(RUNOUT, 'protected wireRunItTwiceEvents()');
-    expect(fn).toContain("event.type === 'RIT_ACCEPTED'");
-    expect(fn).toContain('this.emitRitAllAccepted(state.allPlayerIds, state.chosenRuns)');
+    expect(fn).not.toContain('this.emitRitAllAccepted');
     expect(fn).toContain("event.type !== 'RIT_DECLINED'");
     expect(fn).toContain("!== 'timeout'");
     expect(fn).toContain("emitRitSingleRun('no_agreement')");
+    expect(fn).toContain('this.wakeRITWaiter()');
   });
 
   it('a chooser who accepts without a run count gets an actionable error', () => {

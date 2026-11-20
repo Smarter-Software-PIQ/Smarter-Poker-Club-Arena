@@ -49,6 +49,10 @@ const MOVES_OR_ENDS_THE_LEASE = new Set([
   'reap_dead_engine_leases',
   // FOR NO KEY UPDATE ... SKIP LOCKED: the renewal itself, never a holder.
   'heartbeat_tournament_leases_v4',
+  // Rolling engine handoff (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): the
+  // compare-and-set that moves a parked unit's lease to the successor engine.
+  // It runs only at a proven hand boundary and waits behind any settlement.
+  'fn_engine_hand_off_lease_v1',
 ]);
 /** Recovery doors admitted by name, each with the reason the audit found. */
 const ADMITTED_BY_NAME = new Map<string, string>([

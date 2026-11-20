@@ -6,6 +6,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { classifyMigration } from './recording-only.mjs';
 
@@ -86,6 +87,52 @@ export function namingProblems(file) {
  * reappears in a tombstone it collides again, which is the same regression
  * `tests/a-position-stat-has-a-live-writer.law.test.ts` independently pins.
  */
+/**
+ * A NEWER DEFINITION IS NEVER OVERWRITTEN BY AN OLDER VERSION (incident
+ * 316ed735, 2026-11-19). Migrations install in MERGE order, not version
+ * order. 20261119183127 redefined public.fn_ca_alarm_drill (the drill records
+ * its completed run, which the cron watch reads as proof); 20261119180800,
+ * lower-versioned but merged after it, redefined the same function from an
+ * older body and installed second, so production silently lost the run record
+ * while every reader of "the newest definition by version" still saw it.
+ *
+ * So a NEW migration may not create, replace or rewrite (pg_get_functiondef
+ * anchored edit) a function that a migration with a HIGHER version already on
+ * the base defines: give it a version above that one. Returns one line per
+ * offending function.
+ */
+const FN_DEF = /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+(?:"?([a-z_][a-z0-9_]*)"?\.)?"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
+const FN_REWRITE = /pg_get_functiondef\(\s*'(?:([a-z_][a-z0-9_]*)\.)?([a-z_][a-z0-9_]*)\s*\(/gi;
+export function definedFunctions(sql) {
+  const code = sql.replace(/--[^\n]*/g, ' ');
+  const out = new Set();
+  for (const re of [FN_DEF, FN_REWRITE]) {
+    re.lastIndex = 0;
+    for (const m of code.matchAll(re)) out.add(`${(m[1] || 'public').toLowerCase()}.${m[2].toLowerCase()}`);
+  }
+  return out;
+}
+
+export function redefinitionOrderProblems(addedFile, addedSql, baseFiles) {
+  const version = addedFile.split('_', 1)[0];
+  const mine = definedFunctions(addedSql);
+  const problems = [];
+  if (mine.size === 0) return problems;
+  for (const fn of [...mine].sort()) {
+    const newer = baseFiles
+      .filter((f) => f.name.split('_', 1)[0] > version && f.functions.has(fn))
+      .map((f) => f.name)
+      .sort();
+    if (newer.length > 0) {
+      problems.push(
+        `redefines ${fn}, which newer-versioned ${newer[newer.length - 1]} already defines on the base; ` +
+          'installed after it, this file would overwrite the newer body. Give it a version above that file.'
+      );
+    }
+  }
+  return problems;
+}
+
 function isInert(path) {
   try {
     return readFileSync(path, 'utf8')
@@ -171,7 +218,33 @@ function main() {
       }
       console.error('Assign a new, unique migration version before publishing.');
     }
+    const addedNames = new Set(added.map((p) => p.slice(p.lastIndexOf('/') + 1)));
+    const baseFiles = all
+      .filter((name) => !addedNames.has(name))
+      .map((name) => {
+        let sql = '';
+        try {
+          sql = readFileSync(join(migrationDir, name), 'utf8');
+        } catch {
+          // Unreadable base file defines nothing this gate can name.
+        }
+        return { name, functions: definedFunctions(sql) };
+      });
+    const overwrites = [];
+    for (const path of added) {
+      if (isInert(path)) continue;
+      const file = path.slice(path.lastIndexOf('/') + 1);
+      const problems = redefinitionOrderProblems(file, readFileSync(path, 'utf8'), baseFiles);
+      if (problems.length > 0) overwrites.push({ path, problems });
+    }
+    if (overwrites.length > 0) {
+      console.error('[migration-version-collisions] newly added migration would overwrite a newer function body:');
+      for (const { path, problems } of overwrites) {
+        for (const p of problems) console.error(`  ${path}: ${p}`);
+      }
+    }
     if (collisions.length > 0 || misnamed.length > 0) process.exit(1);
+    if (overwrites.length > 0) process.exit(1);
 
     console.log(
       `[migration-version-collisions] ${added.length} new migration(s) against ${base}; all versions are unique.`
