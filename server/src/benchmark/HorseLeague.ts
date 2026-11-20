@@ -3836,6 +3836,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTournamentsExcludeCategoricalRules: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-19 HORSE DECISIONS lane builder F-FIX (omahaMultiwayIsPricedInTournaments, default OFF,
+  // unevaluated): both arms carry production's live Omaha set (OMAHA_LIVE_OPTIONS_20261118); a also prices the
+  // multiway preflop call-off and the multiway own bet. 6-max big-blind-ante MTT at 15 BB, where the auditor's
+  // call-offs sat (7 to 24 BB); PLO4 and PLO8 (five of its nine call-offs were hi-lo). Declared, not run.
+  ...(['plo4', 'plo8'] as const).map((variant) => ({
+    name: `${variant}_mtt_6max_omaha_multiway_is_priced_in_tournaments_15bb`,
+    variant,
+    seats: 6,
+    stackBB: 15,
+    context: bigBlindAnteMttContext(6, 15),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaMultiwayIsPricedInTournaments: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and
