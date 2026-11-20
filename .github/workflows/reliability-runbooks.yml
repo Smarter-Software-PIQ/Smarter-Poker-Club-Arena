@@ -1,0 +1,36 @@
+name: Reliability Controller Runbooks
+
+# The controller's recovery runbooks (migration 20261119234324). Runs
+# scripts/ci/test-reliability-runbooks.py against a throwaway PostgreSQL 17
+# cluster, never production. No timer (CLAUDE.md 10.85): pull_request only,
+# scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261110000020_reliability_controller_stage_b.sql
+      - supabase/migrations/*_the_controller_runs_recovery_runbooks.sql
+      - scripts/ci/test-reliability-runbooks.py
+      - scripts/ci/fixtures/reliability-controller-production-objects.sql
+      - .github/workflows/reliability-runbooks.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-runbooks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reliability-runbooks:
+    name: Runbooks act through their authority, inside budgets, on the record
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Runbooks act through their authority, inside budgets, on the record
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-reliability-runbooks.py
