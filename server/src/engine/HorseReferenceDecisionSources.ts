@@ -131,7 +131,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'imported by the Omaha sampler whose integer scoring the math core equity uses (dealt-seat census)',
     'src/engine/plo4/Plo4PolicyPack.ts':
       'imported through the Omaha variant pack reached from the sampler scoring the math core equity uses',
-    'src/engine/omahaMathCore/publicTables.v1.json':
+    'src/engine/omahaMathCore/publicTables.v3.json':
       'the math core public tables (provenance public_actions): response frequencies to wagers, preflop action frequencies, fold facing a Horse raise, per-user public facing rows',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',

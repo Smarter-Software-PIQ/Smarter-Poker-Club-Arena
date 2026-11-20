@@ -43,9 +43,11 @@ import {
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
 import {
   OMAHA_MATH_CORE_TABLE_VERSION,
+  betRate,
   preflopFoldToHorse,
   preflopFreq,
   responseTo,
+  wagerNonValue,
   type Actor,
   type PreflopLevel,
   type PreflopPosition,
@@ -183,8 +185,14 @@ function band(pool: Pool, lo: number, hi: number, label: string): RangeSpec {
  * the share that makes a call break even, s / (1 + 2s) (the size is public;
  * the composition follows from it), at the line's wager frequency b.
  */
-function wagerRange(pool: Pool, s: number, b: number, label: string): RangeSpec {
-  const alpha = s / (1 + 2 * s);
+function wagerRange(
+  pool: Pool,
+  s: number,
+  b: number,
+  label: string,
+  measuredNonValue?: number
+): RangeSpec {
+  const alpha = measuredNonValue ?? s / (1 + 2 * s);
   const valueN = Math.max(1, Math.round((1 - alpha) * b * pool.size));
   const bluffN = Math.max(0, Math.round(alpha * b * pool.size));
   const parts = [{ idx: pool.order.slice(0, valueN), weight: 1 - alpha }];
@@ -318,19 +326,51 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           responder: actor,
           user: null,
         });
+        const nv = wagerNonValue({
+          game,
+          mode,
+          street: st,
+          line: state.line,
+          band: state.band,
+          players: playersNow,
+          bettor: actor,
+        });
         range = wagerRange(
           pool,
           s,
           c ? Math.max(0.02, c.raise) : INTERIM_WAGER_FREQUENCY,
-          `raise [${c ? c.source : 'interim frequency'}]`
+          `raise [${c ? c.source : 'interim frequency'}; ${nv ? nv.source : 'break-even bluff share'}]`,
+          nv ? nv.nv : undefined
         );
-      } else
+      } else {
+        // public: how often this kind of player wagers on this line, and the share of such wagers
+        // shown at showdown that were not value (lead decision: shownNonValue)
+        const br = betRate({
+          game,
+          mode,
+          street: st,
+          line: state.line ?? 'all',
+          players: playersNow,
+          actor,
+          user: o.person ? o.user : null,
+        });
+        const nv = wagerNonValue({
+          game,
+          mode,
+          street: st,
+          line: state.line ?? 'all',
+          band: state.band,
+          players: playersNow,
+          bettor: actor,
+        });
         range = wagerRange(
           pool,
           s,
-          INTERIM_WAGER_FREQUENCY,
-          `wager ${state.line}/${state.band} [interim frequency]`
+          br ? Math.max(0.02, br.b) : INTERIM_WAGER_FREQUENCY,
+          `wager ${state.line}/${state.band} [${br ? br.source : 'interim frequency'}; ${nv ? nv.source : 'break-even bluff share'}]`,
+          nv ? nv.nv : undefined
         );
+      }
     } else if (o.streetAction === 'call' && aggressor && state.line && state.band) {
       const c = responseTo({
         game,
@@ -351,11 +391,21 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           `called: band ${round2(c.raise)}-${round2(1 - c.fold)} [${c.source}]`
         );
     } else if (o.streetAction === 'check') {
+      const br = betRate({
+        game,
+        mode,
+        street: st,
+        line: 'all',
+        players: playersNow,
+        actor,
+        user: o.person ? o.user : null,
+      });
+      const b = br ? br.b : INTERIM_WAGER_FREQUENCY;
       range = band(
         pool,
-        INTERIM_WAGER_FREQUENCY,
+        b,
         1,
-        `checked: below the top ${INTERIM_WAGER_FREQUENCY} [interim frequency]`
+        `checked: below the top ${round2(b)} [${br ? br.source : 'interim frequency'}]`
       );
     }
     rangeOf.set(o.seat, range ?? fullRange(pool, 'pool (no public cell)'));
@@ -451,12 +501,29 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         const cont: RangeSpec[] = [];
         const frac = state.toCall / Math.max(1e-9, P - state.toCall);
         for (const o of behind) {
-          const f = foldOf(
-            o,
-            frac,
-            false,
-            state.preflopRaises <= 1 ? 'open' : state.preflopRaises === 2 ? '3bet' : '4bet+'
-          );
+          // a player behind faces the AGGRESSOR's wager (his line, size and kind), not a Horse wager
+          const fc =
+            !pre && aggressor && state.line && state.band
+              ? responseTo({
+                  game,
+                  mode,
+                  street: street as Exclude<Street, 'preflop'>,
+                  line: state.line,
+                  band: state.band,
+                  players: playersNow,
+                  bettor: actorOf(aggressor),
+                  responder: actorOf(o),
+                  user: o.person ? o.user : null,
+                })
+              : null;
+          const f = fc
+            ? { p: fc.fold, r: fc.raise, source: fc.source }
+            : foldOf(
+                o,
+                frac,
+                false,
+                state.preflopRaises <= 1 ? 'open' : state.preflopRaises === 2 ? '3bet' : '4bet+'
+              );
           pAllFold *= f.p;
           cont.push(
             topOf(
