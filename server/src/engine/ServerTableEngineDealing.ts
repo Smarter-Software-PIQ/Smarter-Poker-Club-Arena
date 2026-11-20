@@ -146,6 +146,7 @@ function countAwardGroups(
   return Math.max(1, keys.size);
 }
 import { collectNitEvictions } from '../services/supabase/nitGame.js';
+import { pinEngineRuntimeSettings } from './runtimeSettings/index.js';
 
 /** One pre-allocation's settled outcome: a number, an F06 failure, or nothing. */
 type PreparedHandNumberOutcome =
@@ -3289,6 +3290,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.currentHandStartedAt = handStartMs;
       this.currentHandCadence = this.pendingPriorHandCadence;
       this.pendingPriorHandCadence = null;
+      // ENGINE RUNTIME SETTINGS (2026-11-19): the hand boundary. This hand reads this version to its end.
+      this.currentHandRuntimeSettings = pinEngineRuntimeSettings(
+        `table:${this.tableId}`,
+        String(handNumber)
+      );
       this.currentHandHoleCards.clear();
       this.currentHandWentToFlop = false;
       this.currentHandPotSize = 0;
