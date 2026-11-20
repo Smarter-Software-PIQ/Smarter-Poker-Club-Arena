@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+    "scripts/qualification/ci-accounting-inputs.json": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1689,6 +1689,19 @@
         "kind": "sha256",
         "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
         "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "horseDealtHoleCardsProofAccountingShard4_20261120": {
+    "reason": "Required accounting shard 4 gains one additive step that runs the throwaway PostgreSQL 17 proof that every Horse's dealt hole cards are kept service role only (scripts/ci/test-horse-dealt-hole-cards.py, Horse Decisions audit-fix batch 1). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003",
+        "current": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
       }
     ],
     "financialRecertification": false,
