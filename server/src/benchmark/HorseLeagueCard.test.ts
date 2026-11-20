@@ -18,18 +18,23 @@ import {
 import type { LeagueMatchup, LeagueResult, UnmeasurableMatchup } from './HorseLeague.js';
 
 const CARDS: LeagueMatchup[] = [
-  { name: 'nlh_alpha', pairs: 6000, a: { alpha: true }, b: {} },
+  { name: 'nlh_alpha', pairs: 6000, a: { holdemHeadsUpPostflopBalance: true }, b: {} },
   {
     name: 'plo4_beta',
     variant: 'plo4',
     seats: 2,
     stackBB: 40,
-    a: { x: 1, beta: true },
-    b: { x: 1 },
+    a: { omahaEvFoldModel: true, omahaEvFoldModelHeadsUp: true },
+    b: { omahaEvFoldModel: true },
   },
 ];
 const REFUSED: UnmeasurableMatchup[] = [
-  { name: 'nlh_gamma', a: { gamma: true }, b: {}, reason: 'No league seat reaches the spot.' },
+  {
+    name: 'nlh_gamma',
+    a: { huOpenerDefendsToPrice: true },
+    b: {},
+    reason: 'No league seat reaches the spot.',
+  },
 ];
 
 function result(over: Partial<LeagueResult> = {}): LeagueResult {
@@ -127,11 +132,13 @@ describe('pairs, option and verdict', () => {
   });
 
   it('names only the options the arms differ in', () => {
-    expect(leagueCardOptionsUnderTest(CARDS[1])).toEqual(['beta']);
-    expect(leagueCardOptionsUnderTest({ a: { m: true }, b: { m: false, n: 1 } })).toEqual([
-      'm',
-      'n',
-    ]);
+    expect(leagueCardOptionsUnderTest(CARDS[1])).toEqual(['omahaEvFoldModelHeadsUp']);
+    expect(
+      leagueCardOptionsUnderTest({
+        a: { omahaEvFoldModel: true },
+        b: { omahaEvFoldModel: false, huOpenerDefendsToPrice: true },
+      })
+    ).toEqual(['huOpenerDefendsToPrice', 'omahaEvFoldModel']);
   });
 
   it("uses the nightly's rule: |bb/100| > 2 x stderr, and inert is never significant", () => {
@@ -145,7 +152,7 @@ describe('pairs, option and verdict', () => {
 describe('formatLeagueCardResult', () => {
   const facts = {
     matchup: CARDS[0],
-    configA: { alpha: true },
+    configA: { holdemHeadsUpPostflopBalance: true },
     configB: {},
     pairs: 100,
     seed: 7,
@@ -159,8 +166,8 @@ describe('formatLeagueCardResult', () => {
     const block = formatLeagueCardResult(facts);
     for (const line of [
       'card:            nlh_alpha',
-      'option:          alpha',
-      'arm A:           {"alpha":true}',
+      'option:          holdemHeadsUpPostflopBalance',
+      'arm A:           {"holdemHeadsUpPostflopBalance":true}',
       'arm B:           {}',
       'table:           variant=nlh seats=6 stackBB=100 gameMode=cash field=mirror',
       'pairs:           100 requested, 100 played (200 hands)',
