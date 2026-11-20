@@ -401,6 +401,8 @@ rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
+  # Give back a heavy-job slot this hook took (none when agent-push holds it).
+  if declare -F hq_release >/dev/null; then hq_release; fi
   if [ -n "${CA_PUSH_TMP:-}" ] && [ ! -d "$CA_PUSH_TMP" ]; then
     echo "[club-arena pre-push] BLOCKED: this run's scratch $CA_PUSH_TMP vanished during the run (the drive dropped or was remounted). Failures above are environmental; push again once the drive is back." >&2
     policy_exit=1
@@ -1108,6 +1110,29 @@ if [ -n "$FILES" ] && ! printf '%s\n' $FILES | grep -qE "$CA_HEAVY_PATHS"; then
 fi
 echo "[club-arena pre-push] local test scope: $CA_LOCAL_SCOPE"
 
+# THE HOST-WIDE HEAVY-JOB QUEUE (Dan, 2026-11-19 17:26 Chicago). On a full
+# local selection the suites below are the heaviest thing an agent runs on
+# the shared Mac, and dozens of them at once drove the load to 60-90 and
+# failed correct pushes on test timeouts. Before the first suite starts, this
+# hook takes a FIFO slot in the machine's queue (scripts/lib/heavy-queue.sh,
+# slots = cores / 7) and gives it back when it exits. Under
+# scripts/agent-push.sh the helper already holds the slot and this is a
+# no-op. The queue only decides WHEN the suites start: every suite below runs
+# exactly as before, and a broken or missing queue warns and runs them at
+# once. A related-scope push runs a handful of tests and does not queue.
+ca_heavy_slot() {
+  [ "$CA_LOCAL_SCOPE" = full ] || return 0
+  [ "$(uname -s)" = Darwin ] || [ -n "${CA_HEAVY_QUEUE_DIR:-}" ] || return 0
+  [ -z "${CA_HEAVY_SLOT_TAKEN:-}" ] || return 0
+  CA_HEAVY_SLOT_TAKEN=1
+  if [ -f "$CA_TREE_TOP/scripts/lib/heavy-queue.sh" ] && . "$CA_TREE_TOP/scripts/lib/heavy-queue.sh" 2>/dev/null; then
+    hq_acquire "pre-push $(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo detached)" || true
+  else
+    echo "[club-arena pre-push] WARNING: scripts/lib/heavy-queue.sh is missing or unreadable; running the suites without the heavy-job queue (no check is skipped)." >&2
+  fi
+  return 0
+}
+
 # BEGIN TARGETED CLIENT PREFLIGHT
 # Select executable contracts for every changed path, including documents,
 # workflows, scripts and deleted files. Import tracing alone misses readFileSync.
@@ -1211,6 +1236,8 @@ fi
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)
 if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
+  # declare -F: sections of this hook also run alone in the guard tests.
+  if declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
   if [ "$CLIENT_DEPENDENCY_MODE" != local ]; then
     echo "[club-arena pre-push] BLOCKED: required local client dependencies are incomplete."
     echo "  remedy: (cd \"$CA_TREE_TOP\" && npm ci --ignore-scripts --no-audit --no-fund)"
@@ -1260,6 +1287,7 @@ fi
 # Compile the engine inputs before submission, using its own package root.
 if echo "$FILES" | grep -qE '^server/(src/.*\.ts|tsconfig[^/]*\.json|package(-lock)?\.json)$'; then
   SERVER_TSC="$CA_TREE_TOP/server/node_modules/.bin/tsc"
+  if declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
   if [ "$SERVER_DEPENDENCY_MODE" != local ] || [ ! -x "$SERVER_TSC" ]; then
     echo "[club-arena pre-push] BLOCKED: the required local server compiler is unavailable."
     echo "  remedy: (cd \"$CA_TREE_TOP/server\" && npm ci --ignore-scripts --no-audit --no-fund)"
@@ -1320,6 +1348,7 @@ if [ -f server/package.json ]; then
     done
   done
   SRV_TESTS=$(printf '%s\n' $SRV_TESTS | sort -u)
+  if [ -n "$SRV_TESTS$SRV_SRC" ] && declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
 
   # THE NATIVE EVALUATOR IS BUILT BEFORE THE SERVER TESTS (2026-11-05). It is a
   # build product, not a committed file; CI builds it in `pretest`. A fresh
