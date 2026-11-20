@@ -102,6 +102,20 @@ describe('the controller runs recovery runbooks', () => {
     );
   });
 
+  it('a cron proof needs a migration that redefines the function, not one that names it', () => {
+    const f = fs
+      .readdirSync(dir)
+      .find((n) => n.endsWith('_a_cron_proof_needs_a_migration_that_redefines_the_function.sql'));
+    const later = f ? fs.readFileSync(`${dir}/${f}`, 'utf8') : '';
+    expect(later).toContain('A FIX REDEFINES THE FUNCTION (20261120011743)');
+    expect(later).toContain(
+      "' WHERE m.version > $1 AND array_to_string(m.statements, '' '') ~* $2'"
+    );
+    expect(later).toContain(
+      "'(function\\s+(public\\.)?' || v_fn || '\\s*\\()|(pg_get_functiondef\\(\\s*''(public\\.)?' || v_fn || '\\(\\)'')'"
+    );
+  });
+
   it('the escalation names the runbook instead of claiming none exists', () => {
     expect(sql).toContain('coalesce(smarter_private.reliability_runbook_line(i.id)');
     expect(sql).toMatch(/@live-proof: .*reliability_runbook_line\(i\.id\)/);
