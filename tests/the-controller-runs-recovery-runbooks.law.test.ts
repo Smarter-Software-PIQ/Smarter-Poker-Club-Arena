@@ -78,9 +78,8 @@ describe('the controller runs recovery runbooks', () => {
     expect(cron).toContain("IF v_fn = 'fn_ca_alarm_drill' THEN");
     // The only dynamic statement reads Supabase's migration history.
     expect(cron.match(/EXECUTE\s/g)?.length).toBe(1);
-    expect(cron).toContain(
-      "EXECUTE 'SELECT max(m.version) FROM supabase_migrations.schema_migrations m'"
-    );
+    expect(cron).toContain("v_history text := 'supabase_migrations.schema_migrations';");
+    expect(cron).toContain("EXECUTE 'SELECT max(m.version) FROM ' || v_history || ' m'");
   });
 
   it('the cutover runbook only reads: no engine swap, no dispatch', () => {

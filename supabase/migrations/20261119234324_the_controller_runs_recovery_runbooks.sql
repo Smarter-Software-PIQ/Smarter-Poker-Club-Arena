@@ -364,6 +364,7 @@ DECLARE
   v_last_md5 text;
   v_md5 text;
   v_fix text;
+  v_history text := 'supabase_migrations.schema_migrations';
   v_running boolean;
   v_local time := (p_now AT TIME ZONE 'America/Chicago')::time;
   v_out jsonb;
@@ -401,9 +402,9 @@ BEGIN
     FROM smarter_private.reliability_runbook_attempts a
    WHERE a.incident_id = p_incident_id AND a.runbook_key = 'cron_proof_run' AND a.outcome = 'acted'
    ORDER BY a.started_at DESC LIMIT 1;
-  -- Dynamic on purpose: supabase_migrations is Supabase's own schema, which the
-  -- static plpgsql check's copy of production does not carry.
-  EXECUTE 'SELECT max(m.version) FROM supabase_migrations.schema_migrations m'
+  -- Dynamic on purpose, through a variable: supabase_migrations is Supabase's
+  -- own schema, which the static plpgsql check's copy of production does not carry.
+  EXECUTE 'SELECT max(m.version) FROM ' || v_history || ' m'
        || ' WHERE m.version > $1 AND strpos(array_to_string(m.statements, '' ''), $2) > 0'
      INTO v_fix
     USING to_char(v_failed_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS'), v_fn;
@@ -477,6 +478,7 @@ DECLARE
   f jsonb;
   v_version text;
   v_installed boolean;
+  v_history text := 'supabase_migrations.schema_migrations';
 BEGIN
   SELECT (i.latest_evidence->>'inbox_event_id')::bigint INTO v_alert FROM smarter_private.reliability_incidents i WHERE i.id = p_incident_id;
   SELECT * INTO d FROM smarter_private.ca_engine_cutover_days c WHERE c.alert_id = v_alert;
@@ -512,7 +514,7 @@ BEGIN
       v_carried := v_carried + 1;
       v_version := substring(f->>'filename' FROM 'migrations/([0-9]{14})_');
       -- Dynamic on purpose: Supabase's own schema (see cron_proof_run).
-      EXECUTE 'SELECT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations m WHERE m.version = $1)'
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM ' || v_history || ' m WHERE m.version = $1)'
          INTO v_installed USING v_version;
       IF NOT v_installed THEN
         v_missing := v_missing || v_version;
