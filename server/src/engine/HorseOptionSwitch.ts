@@ -503,10 +503,11 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also not significant in its evaluation, stays off (manifest section 4)`
   ),
   committedStackPricedIn: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
-  // holdemTournamentAllInCallIsPriced is NOT held: the owner lifted it by name on 2026-11-19 18:42 Chicago
-  // ("investigate every single hand played against humans ... every single horse decision ... i've seen a shit
-  // ton of mistakes that need correcting!"; audit E found its fixed All-In-Or-Fold strength bar a blanket rule).
-  // It stays default OFF and goes on only through its evidence (league card + replay) like every option.
+  // holdemTournamentAllInCallIsPriced is NOT held. Dan's exact message of 2026-11-19 18:42 America/Chicago:
+  // "nope, you need to investigate every single hand played against humans in the past 48 hours and trace back and investigate every single horse decision on every single street before you claim everything is operating perfectly because i've seen a shit ton of mistakes that need correcting!"
+  // On that order the HORSE DECISIONS lead (session_01TLQer7JfrrxcELJZV5XHPD) lifted the owner preflop range hold
+  // for this option (audit E, done under that order, found the fixed All-In-Or-Fold strength bar it replaces a
+  // blanket rule). It is switchable, default OFF, and goes on only through its evidence (league card + replay).
   vs3BetShortStack: hold(
     PREFLOP_HOLD_SOURCE,
     `${PREFLOP_HOLD_REASON}; also one seed below -2 SE (manifest section 4)`

@@ -1,6 +1,14 @@
 # holdemTournamentAllInCallIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago (no blanket rules; every Horse decision priced by range, equity and EV; bet size never triggers a decision by itself). Built by the Horse Decisions lane (builder E-FIX, lead session_01TLQer7JfrrxcELJZV5XHPD) on 2026-11-19 from audit E (1,522 NLH tournament hands with humans, 10,937 Horse decisions). Registered OFF-ONLY under the owner preflop range hold (it changes preflop calling ranges, as committedStackPricedIn and nashPushFoldIcm do). Evidence NOT MET: no league and no replay yet. **Do not switch on.**
+Owner order of 2026-11-17 11:49 America/Chicago (no blanket rules; every Horse decision priced by range, equity and EV; bet size never triggers a decision by itself). Built by the Horse Decisions lane (builder E-FIX, lead session_01TLQer7JfrrxcELJZV5XHPD) on 2026-11-19 from audit E (1,522 NLH tournament hands with humans, 10,937 Horse decisions). Switchable, default OFF. It changes preflop calling ranges, as committedStackPricedIn and nashPushFoldIcm do, so it was first registered under the owner preflop range hold; that hold was lifted for this option only (see "Owner authority" below). Evidence NOT MET: no league and no replay yet. **Do not switch on until its evidence rows are met.**
+
+## Owner authority
+
+Dan's exact message of 2026-11-19 18:42 America/Chicago:
+
+> nope, you need to investigate every single hand played against humans in the past 48 hours and trace back and investigate every single horse decision on every single street before you claim everything is operating perfectly because i've seen a shit ton of mistakes that need correcting!
+
+On that order the HORSE DECISIONS lead (session_01TLQer7JfrrxcELJZV5XHPD) lifted the owner preflop range hold for this option: audit E, run under that order, found that the fixed All-In-Or-Fold strength bar this option replaces is a blanket rule. The option is not in OPTION_SWITCH_OFF_ONLY (server/src/engine/HorseOptionSwitch.ts, comment beside the preflop hold entries); it stays default OFF and is switched on only through its evidence (league card and replay), like every option.
 
 ## What it does
 
