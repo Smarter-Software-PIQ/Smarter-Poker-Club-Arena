@@ -13,7 +13,7 @@
  * removed). Each lookup returns its key and n for the receipt; a missing cell
  * is "no measurement" and is said so in the receipt.
  */
-import publicTables from './publicTables.v3.json' with { type: 'json' };
+import { readFileSync } from 'node:fs';
 import {
   lookupResponse,
   personFoldRate,
@@ -21,6 +21,18 @@ import {
   type Line,
   type MeasuredRanges,
 } from './MeasuredRanges.js';
+
+// The table is read from the source tree at load, not imported: the engine image is compiled by
+// tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
+// emitted (the file is missing from dist and the import fails at boot) or exhausts the compiler's heap. The
+// image holds src/ beside dist/ (Dockerfile COPY src/; the hashed policy sources are read the same way), so
+// the server root is three levels above this module in both trees.
+const publicTables: unknown = JSON.parse(
+  readFileSync(
+    new URL('../../../src/engine/omahaMathCore/publicTables.v3.json', import.meta.url),
+    'utf8'
+  )
+);
 
 export const OMAHA_MATH_CORE_ALLOWED_PROVENANCE: ReadonlySet<string> = new Set([
   'public_actions',
