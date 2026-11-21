@@ -304,6 +304,34 @@ export function tournamentShareUrl(tournamentId: string, origin?: string): strin
 }
 
 /**
+ * Direct link to a live table (cash game, or a seated Spin / Heads-Up table).
+ * One builder, so every lobby and in-table invite sends the same address.
+ */
+export function tableShareUrl(tableId: string, origin?: string): string {
+  return `${origin ?? publicOrigin()}/hub/club-arena/table/${encodeURIComponent(tableId)}`;
+}
+
+/**
+ * Canonical invite URL for any Club Arena game: cash tables and seated
+ * seat-first tables point directly at the table; MTTs, multi-seat SNGs, Spins
+ * and Satellites shared from the lobby point at the tournament preview link.
+ */
+export function gameInviteUrl(
+  target: { kind: 'table'; id: string } | { kind: 'tournament'; id: string },
+  origin?: string
+): string {
+  return target.kind === 'tournament'
+    ? tournamentShareUrl(target.id, origin)
+    : tableShareUrl(target.id, origin);
+}
+
+/** Consistent invite sentence paired with a game invite link. */
+export function gameInviteText(gameName: string | null | undefined): string {
+  const clean = (gameName || '').trim();
+  return clean ? `Join Me In ${clean} On Smarter.Poker` : 'Join My Poker Game On Smarter.Poker';
+}
+
+/**
  * For a caller that already has its own try/catch around a copy: resolves
  * when the text was copied (Clipboard API or the selection copy), rejects
  * when neither worked. Drop-in for a bare navigator.clipboard.writeText.

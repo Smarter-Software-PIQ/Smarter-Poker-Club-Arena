@@ -552,7 +552,7 @@ def invariants(label, db='w'):
  'members', (SELECT count(*) FROM public.club_members),
  'felt', (SELECT COALESCE(sum(s.stack),0) FROM public.table_seats s JOIN public.tables tb ON tb.id=s.table_id
           WHERE tb.tournament_id='{TR}' AND s.left_at IS NULL),
- 'supply', (SELECT count(*)*1000 + COALESCE(sum(rebuys),0)*1000 FROM public.tournament_players WHERE tournament_id='{TR}'),
+ 'supply', (SELECT count(*)*1000 + COALESCE(sum(rebuys),0)*1000 + COALESCE(sum(CASE WHEN add_on THEN 1 ELSE 0 END),0)*1000 FROM public.tournament_players WHERE tournament_id='{TR}'),
  'mirror', (SELECT COALESCE(sum(chips),0) FROM public.tournament_players WHERE tournament_id='{TR}' AND status='playing'),
  'ledger', (SELECT COALESCE(sum(amount),0) FROM public.wallet_transactions WHERE related_entity_id='{TR}' AND type='debit'),
  'pool', (SELECT prize_pool + bounty_pool FROM public.tournaments WHERE id='{TR}')
@@ -1956,6 +1956,10 @@ ALTER TABLE public.entry_purchase_idempotency_receipts
   ADD COLUMN IF NOT EXISTS completed_at timestamptz;
 CREATE TABLE IF NOT EXISTS public.ca_promo_play_through_settings (id boolean PRIMARY KEY, enforced_from timestamptz);
 CREATE TABLE IF NOT EXISTS public.ca_promo_play_through_grants (club_id uuid, user_id uuid, closed_at timestamptz);
+CREATE TABLE IF NOT EXISTS public.ca_arena_settings (id int PRIMARY KEY, club_id uuid, tournaments_enabled boolean DEFAULT false);
+CREATE TABLE IF NOT EXISTS public.poker_diamond_custody (id uuid PRIMARY KEY, user_id uuid, purpose text, target_id uuid, state text);
+CREATE SCHEMA IF NOT EXISTS realtime;
+CREATE OR REPLACE FUNCTION realtime.send(jsonb, text, text, boolean) RETURNS void LANGUAGE sql AS $$ SELECT; $$;
 CREATE OR REPLACE FUNCTION public.fn_ca_promo_fee_state_ensure(uuid, uuid) RETURNS void LANGUAGE sql AS $$ SELECT; $$;
 """)
     p = psql(MIG_E3.read_text(), check=False)
@@ -2001,7 +2005,8 @@ END $$;
 
     def w_commit_e4(table, hold=0.0, app='commit_e4'):
         """A hand commit after E4: G S, T(id) S, tournament row FOR KEY SHARE,
-        table row FOR UPDATE, [hold], atomic-table key, zero-sum stack move."""
+        table row FOR UPDATE, [hold], atomic-table key, zero-sum stack move.
+        Emits in-DB commit latency in ms (HAND_SQL_MS=<float>) before COMMIT."""
         return (f"SET application_name='{app}'; BEGIN; SET LOCAL lock_timeout='6s'; "
                 f"SELECT public.fn_ca_share_settlement_lane_for_table('{table}'); "
                 f"SELECT 1 FROM public.tournaments WHERE id='{TR}' FOR KEY SHARE; "
@@ -2014,19 +2019,25 @@ END $$;
                 f"  FROM two WHERE s.id=two.id AND (SELECT count(*) FROM two)=2; "
                 f"UPDATE public.tournament_players tp SET chips=s.stack FROM public.table_seats s "
                 f"  WHERE s.table_id='{table}' AND s.left_at IS NULL AND s.user_id=tp.user_id "
-                f"  AND tp.tournament_id='{TR}' AND tp.chips IS DISTINCT FROM s.stack::int; COMMIT;")
+                f"  AND tp.tournament_id='{TR}' AND tp.chips IS DISTINCT FROM s.stack::int; "
+                f"SELECT 'HAND_SQL_MS='||round(EXTRACT(EPOCH FROM (clock_timestamp()-transaction_timestamp()))*1000, 2); COMMIT;")
 
     e4_after = {}
+    E4_MAX_WALL_S = 0.15
+    E4_MAX_SQL_MS = 50.0
 
     def e4_untouched_check(label, holder_sql, app_name, untouched_table):
         h = bg(holder_sql)
         wait_until_holding(app_name, h)
         dt, rc, o = timed(w_commit_e4(untouched_table))
         done = finish(h)
+        m_ms = re.search(r'HAND_SQL_MS=([0-9]+(?:\.[0-9]+)?)', o)
+        sql_ms = float(m_ms.group(1)) if m_ms else 99999.0
         check(f'after E4: {label} completes', done[1] == 0, done[2][-240:])
-        check(f'after E4: hand commit on untouched table proceeds AT ONCE while {label} is in flight',
-              rc == 0 and dt < 0.5, f'{dt:.3f}s rc={rc} {o[-120:]}')
-        e4_after[label] = round(dt, 3)
+        check(f'after E4: hand commit on untouched table proceeds AT ONCE (<50ms SQL, <150ms wall) while {label} is in flight',
+              rc == 0 and sql_ms < E4_MAX_SQL_MS and dt < E4_MAX_WALL_S,
+              f'sql={sql_ms:.2f}ms wall={dt:.3f}s rc={rc} {o[-120:]}')
+        e4_after[label] = {'wall_s': round(dt, 3), 'sql_ms': round(sql_ms, 2)}
 
     # 1. Move in flight -> untouched table commits at once
     ct = clean_tables(3)
@@ -2042,7 +2053,31 @@ END $$;
     rb_u, rb_k, rb_t = bust_pending_bounty(ct[0])
     rb_other = [t for t in ct if t not in (rb_t, seat_of(rb_k))][0]
     e4_untouched_check('bounty_rebuy', rebuy_sql(rb_u, 'pending', hold=1.6), 'rebuy', rb_other)
-    # 4. Elimination (bust) in flight -> untouched table commits at once
+    # 4. Add-on in flight -> untouched table commits at once
+    psql(f"""
+UPDATE public.tournaments
+   SET add_on_available = true,
+       addon_period_triggered = true,
+       addon_from_start = false,
+       current_level = GREATEST(COALESCE(current_level, 3), COALESCE(late_reg_levels, rebuy_levels, 0)),
+       addon_cost = 10,
+       addon_chips = 1000,
+       addon_levels = 99,
+       addon_period_started_at = now() - interval '1 minute',
+       addon_period_ends_at = now() + interval '10 minutes'
+ WHERE id = '{TR}';
+""")
+    ct = clean_tables(3, avoid=(e4_parked_t,))
+    ao_u = q(f"SELECT s.user_id FROM public.table_seats s JOIN public.tournament_players tp "
+             f"ON tp.tournament_id='{TR}' AND tp.user_id=s.user_id "
+             f"WHERE s.table_id='{ct[0]}' AND s.left_at IS NULL AND COALESCE(tp.add_on,false)=false LIMIT 1")
+    e4_untouched_check(
+        'addon',
+        f"SET application_name='e4_addon'; BEGIN; SELECT public.process_tournament_rebuy('{TR}','{ao_u}','addon',10,1000,NULL,NULL)->>'success'; SELECT pg_sleep(1.6); COMMIT;",
+        'e4_addon',
+        ct[2],
+    )
+    # 5. Elimination (bust) in flight -> untouched table commits at once
     ct = clean_tables(3, avoid=(e4_parked_t,))
     el_u = live_player_at(ct[0])
     e4_untouched_check(
@@ -2051,7 +2086,12 @@ END $$;
         'e4_bust',
         ct[2],
     )
-    # 5. Entry close in flight -> untouched table commits at once
+    # 6. Bounty sweep (cron sweep) in flight -> untouched table commits at once
+    ct = clean_tables(4, avoid=(e4_parked_t,))
+    sw_k = live_player_at(ct[1])
+    bust_bounty(ct[0], sw_k)
+    e4_untouched_check('bounty_sweep', sweep_sql(hold=1.6, app='e4_sweep'), 'e4_sweep', ct[2])
+    # 7. Entry close in flight -> untouched table commits at once
     ct = clean_tables(3, avoid=(e4_parked_t,))
     e4_untouched_check('entry_close', close_sql(TR, hold=1.6, app='e4_close'), 'e4_close', ct[2])
     # 6. Touched table STILL serializes in BOTH orders (0 deadlocks)
