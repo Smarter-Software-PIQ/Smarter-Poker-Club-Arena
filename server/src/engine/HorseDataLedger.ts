@@ -1659,6 +1659,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'plo6FacingBetIsPricedV2',
+    'PLO6 root-cause V2 (2026-11-21, default OFF, read === true; HorsePlo6FacingBetPricedV2.ts): six-card native facing-bet pricing model for PLO6 cash (table and Lightning; never tournament, bomb pot, All-In-Or-Fold, hi-lo or multi-board) fixing V1 valueShare blowup, low-SPR jam bucketing, six-card bluff priors, paired-board fold preservation, and river-only call->fold. Off: byte-identical to base brain. League card plo6_facing_bet_is_priced_v2.',
+    'V94'
+  ),
+  flag(
     'plo6NoMultiwayBetWithWeakMadeHand',
     'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, two pair without the top card, the board pair with such a pair, or an overpair: a pocket pair above the top card of an unpaired board) that holds no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 90 such bets in 85 hands, hand net -2,715.1 bb (of them the overpair 28 bets, -1,008.2 bb), in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
     'V94'

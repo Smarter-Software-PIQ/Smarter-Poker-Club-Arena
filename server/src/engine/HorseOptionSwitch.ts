@@ -418,6 +418,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'plo6TopSetNutRealization',
   'plo6ManiacPriceRefusalToRangePlay',
   'plo6FacingBetIsPriced',
+  'plo6FacingBetIsPricedV2',
   'v62RiverBettorPolarity',
   'readPostflopFoldRate',
   'readShrinkResponse',
@@ -1025,6 +1026,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Programme',
     'All cash tables offering run-it-twice, main thread (ServerTableEngineRunout.horseRitRuns)',
     'run-it-twice answer priced from measured people curve and public all-in equity with owner lopsided cut (default OFF)',
+  ],
+  plo6FacingBetIsPricedV2: [
+    'PLO6',
+    'PLO6 cash facing a bet (table and Lightning)',
+    'six-card native facing-bet pricing model fixing V1 valueShare blowup, low-SPR jams, six-card bluff priors, paired-board guard, and river call->fold',
   ],
 };
 

@@ -4466,6 +4466,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6FacingBetIsPriced: true },
     b: {},
   },
+  // 2026-11-21 (PLO6 root-cause V2) PLO6 FACING A BET IS PRICED V2
+  // (plo6FacingBetIsPricedV2, HorsePlo6FacingBetPricedV2.ts), default OFF:
+  // six-card native facing-bet pricing model fixing V1 valueShare blowup,
+  // low-SPR jam bucketing, six-card bluff priors, paired-board guard, and
+  // river-only call->fold. Six seats and production personas; default unchanged.
+  {
+    name: 'plo6_facing_bet_is_priced_v2',
+    variant: 'plo6',
+    seats: 6,
+    pairs: 6000,
+    productionStyles: true,
+    a: { plo6FacingBetIsPricedV2: true },
+    b: {},
+  },
   // 2026-11-16 (PLO6-AUDIT-013) PLO6 MANIAC PRICE REFUSAL TO THE RANGE PLAY
   // (plo6ManiacPriceRefusalToRangePlay), opt-in since 2026-11-16 because its
   // production reach row was not met by the deadline Hand Analysis set: arm A
