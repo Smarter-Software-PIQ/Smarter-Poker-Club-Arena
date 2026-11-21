@@ -4,7 +4,8 @@
  * RULES"; owner 2026-11-19 8:27 PM: "DON'T TOUCH PLO6"; PLO-OWNER lead ruling 2026-11-21 ~1:55 AM).
  *
  *  1. The registry: exactly OMAHA_NO_CATEGORICAL_RULES_OFF minus every name the rule-site register classes 'priced',
- *     in that list's order; it holds the first members (v74OmahaSemiBluffNeedsDraw and the hidden four); a priced
+ *     in that list's order, then the five extra blanket rules (OMAHA_BLANKET_ROWS_OFF_EXTRA: none priced, none on that
+ *     list, `false` the off path of each); it holds the first members (v74OmahaSemiBluffNeedsDraw and the hidden four); a priced
  *     rule is never listable and is ignored when named.
  *  2. Registration: the option is a ledger flag, a switch, release default OFF and game-scopable; the list is a ledger
  *     flag and a parameter, not a switch; one runtime setting per registry member, an integer 0..1, default 0.
@@ -26,6 +27,7 @@ import { seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import {
+  OMAHA_BLANKET_ROWS_OFF_EXTRA,
   OMAHA_BLANKET_ROWS_OFF_REGISTRY,
   OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
   omahaBlanketRowListable,
@@ -132,9 +134,35 @@ describe('omahaBlanketRowsOffInPlo45Cash: the registry holds blanket rows only',
     const rule = OMAHA_NO_CATEGORICAL_RULES_OFF.filter(
       (n) => OMAHA_OPTION_CLASSES[n]?.cls !== 'priced'
     );
-    expect([...REGISTRY]).toEqual([...rule]);
+    expect([...REGISTRY]).toEqual([...rule, ...OMAHA_BLANKET_ROWS_OFF_EXTRA]);
     expect(new Set(REGISTRY).size).toBe(REGISTRY.length);
     for (const n of FIRST) expect(REGISTRY, n).toContain(n);
+  });
+  it('the extra members: not on the no-categorical list, never priced, real options whose off path is false', async () => {
+    const { readFileSync } = await import('node:fs');
+    const read = (f: string): string => readFileSync(new URL(f, import.meta.url), 'utf8');
+    const src = read('./HorseLogic.ts') + read('./HorseOmahaCurrentNuts.ts');
+    expect([...OMAHA_BLANKET_ROWS_OFF_EXTRA]).toEqual([
+      'omahaBigBetIsPotShare',
+      'omahaCurrentNutsRaise',
+      'ploSuitedAcesFourBet',
+      'v86PloOverhaul',
+      'v46Charts',
+    ]);
+    for (const n of OMAHA_BLANKET_ROWS_OFF_EXTRA) {
+      expect(OMAHA_NO_CATEGORICAL_RULES_OFF, n).not.toContain(n);
+      expect(OMAHA_OPTION_CLASSES[n]?.cls, n).not.toBe('priced');
+      expect(OPTION_SWITCH_NAMES, n).toContain(n);
+      expect(omahaBlanketRowListable(n), n).toBe(true);
+      // every read of the option in the brain is one of the forms for which `false` is "the rule does not run"
+      const reads = src.match(new RegExp(`opts\\.${n}\\b[^;,)&|\\n]*`, 'g')) ?? [];
+      expect(reads.length, n).toBeGreaterThan(0);
+      for (const r of reads)
+        expect(
+          /^opts\.\w+\s*(!== false|=== false|=== true|!== true|\?\? true)/.test(r),
+          `${n}: ${r}`
+        ).toBe(true);
+    }
   });
   it('no priced rule can be listed, and a priced name in the list changes nothing', () => {
     const priced = Object.entries(OMAHA_OPTION_CLASSES)
@@ -226,6 +254,33 @@ describe('omahaBlanketRowsOffInPlo45Cash: one read site', () => {
     ])
       expect(withBlanketRowsOffInPlo45Cash(given, five.hero, other as never)).toBe(given);
   });
+  it('the mode is never guessed: a state without gameMode cash is out of scope whatever its blinds', () => {
+    const five = state(5);
+    const given = on([...REGISTRY]);
+    expect((five.gs as { gameMode?: unknown }).gameMode).toBe('cash');
+    expect(withBlanketRowsOffInPlo45Cash(given, five.hero, five.gs)).not.toBe(given);
+    const gs = five.gs as object;
+    for (const other of [
+      { ...gs, gameMode: undefined },
+      { ...gs, gameMode: undefined, bigBlind: 0.02 },
+      { ...gs, gameMode: undefined, bigBlind: 2, tournament: undefined },
+      { ...gs, gameMode: '' },
+      { ...gs, gameMode: 'sit_and_go' },
+    ])
+      expect(withBlanketRowsOffInPlo45Cash(given, five.hero, other as never)).toBe(given);
+  });
+  it('the live builders of a decision state always say the mode', async () => {
+    const { readFileSync } = await import('node:fs');
+    const turns = readFileSync(new URL('./ServerTableEngineTurns.ts', import.meta.url), 'utf8');
+    expect(turns).toContain(
+      "gameMode: this.isTournamentTable() ? ('tournament' as const) : ('cash' as const),"
+    );
+    const lightning = readFileSync(
+      new URL('../lightning/LightningHorse.ts', import.meta.url),
+      'utf8'
+    );
+    expect(lightning).toContain("gameMode: 'cash' as const,");
+  });
   it('HorseLogic reads it after the game scope and before omahaNoCategoricalRules, in decide and prepareOriginalReads', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
@@ -259,6 +314,18 @@ describe('omahaBlanketRowsOffInPlo45Cash: recorded decisions', () => {
       play(LIVE_OPTIONS, holes);
       const live = play(LIVE_OPTIONS, holes);
       expect(play(offWithList, holes), `plo${holes}`).toEqual(live);
+    }
+  }, 900000);
+  it('the switch on with no list, or an empty one: PLO4, PLO5 and PLO6 decide exactly as today, no receipt', () => {
+    const onNoList = { ...LIVE_OPTIONS, omahaBlanketRowsOffInPlo45Cash: true } as HorseDecideOpts;
+    for (const holes of [4, 5, 6] as const) {
+      play(LIVE_OPTIONS, holes);
+      const live = play(LIVE_OPTIONS, holes);
+      for (const opts of [onNoList, on([])]) {
+        const played = play(opts, holes);
+        expect(played, `plo${holes}`).toEqual(live);
+        expect(ownReceipts(played), `plo${holes}`).toBe(0);
+      }
     }
   }, 900000);
   it('on with the first members: PLO4 and PLO5 decide as with those members off; PLO6 is byte-identical', () => {
@@ -296,6 +363,22 @@ describe('omahaBlanketRowsOffInPlo45Cash: recorded decisions', () => {
       expect(withoutOwnReceipt(play(on([n]), 5)), n).toEqual(off);
     }
   }, 900000);
+  it('every registry member listed ALONE: PLO5 decides as its own off path; a tournament and PLO6 are byte-identical', () => {
+    const tournament = (gs: object): object => ({ ...gs, gameMode: 'tournament' });
+    play(LIVE_OPTIONS, 5, tournament);
+    const plainTournament = play(LIVE_OPTIONS, 5, tournament);
+    play(LIVE_OPTIONS, 6);
+    const plainSix = play(LIVE_OPTIONS, 6);
+    for (const n of REGISTRY) {
+      play(LIVE_OPTIONS, 5);
+      const off = play(offOf([n]), 5);
+      expect(withoutOwnReceipt(play(on([n]), 5)), n).toEqual(off);
+      play(LIVE_OPTIONS, 5, tournament);
+      expect(play(on([n]), 5, tournament), `${n} tournament`).toEqual(plainTournament);
+      play(LIVE_OPTIONS, 6);
+      expect(play(on([n]), 6), `${n} plo6`).toEqual(plainSix);
+    }
+  }, 1800000);
   it('every registry member listed: PLO4 decides as with the whole registry off, and the corpus reaches it', () => {
     play(LIVE_OPTIONS, 4);
     const off = play(offOf(REGISTRY), 4);

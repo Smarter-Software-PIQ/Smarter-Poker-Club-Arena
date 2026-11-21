@@ -23,11 +23,13 @@
  * run", the same off path omahaNoCategoricalRules uses). Anything else: the same options object.
  *
  * ONLY BLANKET ROWS. A name can be listed only if it is in OMAHA_BLANKET_ROWS_OFF_REGISTRY: the rules of
- * omahaNoCategoricalRules' list (OMAHA_NO_CATEGORICAL_RULES_OFF) that the rule-site register does not class 'priced'
+ * omahaNoCategoricalRules' list (OMAHA_NO_CATEGORICAL_RULES_OFF) that the rule-site register does not class 'priced',
+ * then the five named blanket rules of OMAHA_BLANKET_ROWS_OFF_EXTRA that are not on that list
  * (HorseOmahaBlanketRowsOffInPlo45Cash.law.test.ts holds this list equal to that rule). A priced rule therefore cannot
  * be switched off through this option; any other name in the request is ignored.
  *
- * NEVER IN SCOPE: PLO6, PLO8, hold'em, tournaments, bomb pots, hi-lo and multi-board hands: the same options object runs
+ * NEVER IN SCOPE: PLO6, PLO8, hold'em, tournaments, bomb pots, hi-lo and multi-board hands, and any decision state that
+ * does not carry gameMode 'cash' (the mode is never guessed from the blinds here): the same options object runs
  * whatever is published (byte-identical, decision-level law). No hidden card is read. Nothing here is a threshold or a
  * strategy rule: it only removes blanket rules where they are listed.
  */
@@ -39,7 +41,7 @@ export const OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX = 'horse.blanketRowOffInPlo45C
 
 /**
  * The blanket rows that may be listed: OMAHA_NO_CATEGORICAL_RULES_OFF minus every name the rule-site register classes
- * 'priced', in that list's order (the law test holds it equal to that rule; it may only follow that list).
+ * 'priced', in that list's order, then OMAHA_BLANKET_ROWS_OFF_EXTRA (the law test holds it equal to that rule).
  */
 export const OMAHA_BLANKET_ROWS_OFF_REGISTRY: readonly string[] = Object.freeze([
   // HorseOmahaRuleSites: categorical
@@ -78,6 +80,28 @@ export const OMAHA_BLANKET_ROWS_OFF_REGISTRY: readonly string[] = Object.freeze(
   'omahaReraisedFoldVsTight',
   'omahaTightOpponent',
   'v9Mood',
+  // OMAHA_BLANKET_ROWS_OFF_EXTRA (below), in its order
+  'omahaBigBetIsPotShare',
+  'omahaCurrentNutsRaise',
+  'ploSuitedAcesFourBet',
+  'v86PloOverhaul',
+  'v46Charts',
+]);
+
+/**
+ * The registry members that omahaNoCategoricalRules' list does not hold (EMERG lane BLANKET-AUDIT-2 2026-11-21; owner
+ * 2026-11-21 2:00-2:05 AM Chicago: every blanket rule in PLO4/PLO5 cash goes off, one at a time). Each is a blanket rule
+ * of the owner's checklist that had no PLO4/PLO5-cash-only off: a pot-share size line, a hand-category raise, a
+ * hand-class 4-bet and two umbrellas (the V86 Omaha overhaul and the V46 preflop charts) that an OFF row would take
+ * away in PLO6, tournaments and, for the umbrellas, every other game. `false` is the off path of each (the law test
+ * reads the read form in the source). None is classed 'priced' by the rule-site register.
+ */
+export const OMAHA_BLANKET_ROWS_OFF_EXTRA: readonly string[] = Object.freeze([
+  'omahaBigBetIsPotShare',
+  'omahaCurrentNutsRaise',
+  'ploSuitedAcesFourBet',
+  'v86PloOverhaul',
+  'v46Charts',
 ]);
 
 const LISTABLE: ReadonlySet<string> = new Set(OMAHA_BLANKET_ROWS_OFF_REGISTRY);
@@ -118,6 +142,10 @@ export function withBlanketRowsOffInPlo45Cash(
     if (opts.omahaBlanketRowsOffInPlo45Cash !== true) return opts;
     const list = opts.omahaBlanketRowsOffList;
     if (!Array.isArray(list) || list.length === 0) return opts;
+    // Fail closed (VERIFIER-2 V91 note B): the decision must SAY it is cash. omahaNoCategoricalRulesInScope guesses the
+    // mode from the blind size when gameMode is absent; this option never guesses, so a state without gameMode
+    // (no live builder makes one: ServerTableEngineTurns and the Lightning hosts always set it) is out of scope.
+    if (gs.gameMode !== 'cash') return opts;
     if (!omahaNoCategoricalRulesInScope(player, gs)) return opts;
     const given = opts as Readonly<Record<string, unknown>>;
     let out: Record<string, unknown> | undefined;
