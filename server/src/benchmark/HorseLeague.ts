@@ -125,11 +125,21 @@ import {
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  FLO8_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_FIELD_VARIANTS,
+  FLO8_SCRIPTED_PERSONAS,
+  FLO8_HIGH_BARRELER_PERSONA,
+  FLO8_MANIAC_PERSONA,
+  FLO8_TIGHT_VALUE_PERSONA,
+  FLO8_RIVER_FOLDER_PERSONA,
+  FLO8_PASSIVE_CALLER_PERSONA,
   type FixedLimitScriptedPersona,
+  type Flo8ScriptedPersona,
   type HumanFieldPersona,
   type NlhScriptedPersona,
 } from './HorseLeagueHumanField.js';
 import { NLH_SCRIPTED_COMMITTED_STACK_BB, nlhScriptedPolicy } from './NlhScriptedField.js';
+import { flo8ScriptedPolicy } from './Flo8ScriptedField.js';
 import {
   fixedLimitScriptedNode,
   fixedLimitScriptedPolicy,
@@ -185,7 +195,16 @@ export {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLO8_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_FIELD_VARIANTS,
+  FLO8_SCRIPTED_PERSONAS,
+  FLO8_HIGH_BARRELER_PERSONA,
+  FLO8_MANIAC_PERSONA,
+  FLO8_TIGHT_VALUE_PERSONA,
+  FLO8_RIVER_FOLDER_PERSONA,
+  FLO8_PASSIVE_CALLER_PERSONA,
   type FixedLimitScriptedPersona,
+  type Flo8ScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
 
@@ -196,7 +215,8 @@ export type LeagueOpponentPopulation =
   | typeof V53_PRESSURE_POPULATION_ID
   | typeof HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID
   | typeof FIXED_LIMIT_SCRIPTED_POPULATION_ID
-  | typeof NLH_SCRIPTED_POPULATION_ID;
+  | typeof NLH_SCRIPTED_POPULATION_ID
+  | typeof FLO8_SCRIPTED_POPULATION_ID;
 
 /** Variants each field may be dealt, or null for an unknown field. */
 export function leagueFieldVariants(population: unknown): readonly string[] | null {
@@ -206,6 +226,7 @@ export function leagueFieldVariants(population: unknown): readonly string[] | nu
     return HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS;
   if (population === FIXED_LIMIT_SCRIPTED_POPULATION_ID) return FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS;
   if (population === NLH_SCRIPTED_POPULATION_ID) return NLH_SCRIPTED_FIELD_VARIANTS;
+  if (population === FLO8_SCRIPTED_POPULATION_ID) return FLO8_SCRIPTED_FIELD_VARIANTS;
   return null;
 }
 import { supabase } from '../services/supabase.js';
@@ -1301,12 +1322,14 @@ export function playHand(
       // controller's fixed-limit menu (seatPolicyDecision); the calibrated and
       // pressure decisions build a no-limit menu, so they never reach this hand.
       if (
-        (fixedLimit || humanField?.population === FIXED_LIMIT_SCRIPTED_POPULATION_ID) &&
+        (fixedLimit ||
+          humanField?.population === FIXED_LIMIT_SCRIPTED_POPULATION_ID ||
+          humanField?.population === FLO8_SCRIPTED_POPULATION_ID) &&
         humanField?.isHuman(i) === true &&
         humanField.seatPolicyOf?.(i) === undefined
       ) {
         throw new Error(
-          `A fixed-limit league hand, or a ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} hand, seats a field player only ` +
+          `A fixed-limit league hand, or a ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} / ${FLO8_SCRIPTED_POPULATION_ID} hand, seats a field player only ` +
             `through a scripted seat policy (seat ${i + 1})`
         );
       }
@@ -2317,6 +2340,19 @@ export function humanFieldPersonaProfile(
         `${table.variant} at ${table.seats} seats`
     );
   }
+  if (
+    persona === FLO8_HIGH_BARRELER_PERSONA ||
+    persona === FLO8_MANIAC_PERSONA ||
+    persona === FLO8_TIGHT_VALUE_PERSONA ||
+    persona === FLO8_RIVER_FOLDER_PERSONA ||
+    persona === FLO8_PASSIVE_CALLER_PERSONA
+  ) {
+    throw new Error(
+      `${persona} is a scripted persona of the ${FLO8_SCRIPTED_POPULATION_ID} field ` +
+        `(Flo8ScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +
+        `${table.variant} at ${table.seats} seats`
+    );
+  }
   if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
     if (
       table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
@@ -2574,6 +2610,19 @@ async function runHumanFieldMatchup(
         `(${NLH_SCRIPTED_PERSONAS.join(', ')}); got ${String(matchup.humanPersona)}`
     );
   }
+  // SCRIPTED FIXED-LIMIT OMAHA HI-LO FIELD (2026-11-21, Flo8ScriptedField.ts):
+  // the same seating for fixed-limit Omaha hi-lo; the persona is required.
+  const scriptedFlo8 = population === FLO8_SCRIPTED_POPULATION_ID;
+  if (
+    scriptedFlo8 &&
+    (variant !== 'flo8' ||
+      !FLO8_SCRIPTED_PERSONAS.includes(matchup.humanPersona as Flo8ScriptedPersona))
+  ) {
+    throw new Error(
+      `${matchup.name}: a ${population} card deals flo8 and names one of its scripted personas ` +
+        `(${FLO8_SCRIPTED_PERSONAS.join(', ')}); got ${String(matchup.humanPersona)}`
+    );
+  }
   const warmupHands = matchup.probeHistoryHands ?? 0;
   if (warmupHands !== 0) {
     if (
@@ -2591,7 +2640,7 @@ async function runHumanFieldMatchup(
     }
   }
   const persona =
-    matchup.humanPersona === undefined || scriptedFixedLimit || scriptedNoLimit
+    matchup.humanPersona === undefined || scriptedFixedLimit || scriptedNoLimit || scriptedFlo8
       ? undefined
       : humanFieldPersonaProfile(matchup.humanPersona, {
           population,
@@ -2621,7 +2670,9 @@ async function runHumanFieldMatchup(
     ? fixedLimitScriptedPolicy(matchup.humanPersona as FixedLimitScriptedPersona)
     : scriptedNoLimit
       ? nlhScriptedPolicy(matchup.humanPersona as NlhScriptedPersona)
-      : undefined;
+      : scriptedFlo8
+        ? flo8ScriptedPolicy(matchup.humanPersona as Flo8ScriptedPersona)
+        : undefined;
   // The script's answers are tallied per node like a calibrated seat's (counts
   // only), so the result proves the field played. Probe passes get their own tally.
   const scriptedSeat =
@@ -6007,6 +6058,83 @@ LEAGUE_MATCHUPS.push({
 });
 
 /**
+ * THE SCRIPTED FIXED-LIMIT OMAHA HI-LO FIELD CARDS (2026-11-21,
+ * Flo8ScriptedField.ts).
+ *
+ * One hero Horse (live cash Hybrid persona, deal-seeded mood clock) against
+ * scripted fixed-limit Omaha hi-lo seats (FLO8_SCRIPTED_POPULATION_ID), three
+ * opponent fields per option (favourable, high-heat / station stress, and
+ * tight-value harm control) covering fixedLimitHiLoLowHalfFloor,
+ * fixedLimitHiLoNutLowRiverBet, and fixedLimitOmahaNoPresumption. The cards
+ * only measure; every option stays default OFF.
+ */
+function flo8ScriptedCard(
+  name: string,
+  seats: number,
+  pairs: number,
+  humanPersona: Flo8ScriptedPersona,
+  a: HorseDecideOpts
+): LeagueMatchup {
+  return {
+    name,
+    variant: 'flo8',
+    seats,
+    pairs,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: FLO8_SCRIPTED_POPULATION_ID,
+    humanPersona,
+    a,
+    b: {},
+  };
+}
+export const FLO8_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  // F3: fixedLimitHiLoLowHalfFloor (6-max: high-barreler, maniac, tight-value harm control)
+  flo8ScriptedCard(
+    'flo8_hilo_low_half_floor_vs_high_barreler',
+    6,
+    3000,
+    FLO8_HIGH_BARRELER_PERSONA,
+    { fixedLimitHiLoLowHalfFloor: true }
+  ),
+  flo8ScriptedCard('flo8_hilo_low_half_floor_vs_maniac', 6, 3000, FLO8_MANIAC_PERSONA, {
+    fixedLimitHiLoLowHalfFloor: true,
+  }),
+  flo8ScriptedCard('flo8_hilo_low_half_floor_vs_tight_value', 6, 3000, FLO8_TIGHT_VALUE_PERSONA, {
+    fixedLimitHiLoLowHalfFloor: true,
+  }),
+  // SPEC-FL-02: fixedLimitHiLoNutLowRiverBet (HU: river-folder, passive-caller station stress, tight-value)
+  flo8ScriptedCard('flo8_nut_low_river_bet_vs_river_folder', 2, 3000, FLO8_RIVER_FOLDER_PERSONA, {
+    fixedLimitHiLoNutLowRiverBet: true,
+  }),
+  flo8ScriptedCard(
+    'flo8_nut_low_river_bet_vs_passive_caller',
+    2,
+    3000,
+    FLO8_PASSIVE_CALLER_PERSONA,
+    { fixedLimitHiLoNutLowRiverBet: true }
+  ),
+  flo8ScriptedCard('flo8_nut_low_river_bet_vs_tight_value', 2, 3000, FLO8_TIGHT_VALUE_PERSONA, {
+    fixedLimitHiLoNutLowRiverBet: true,
+  }),
+  // T1: fixedLimitOmahaNoPresumption (6-max: tight-value, high-barreler, maniac harm control)
+  flo8ScriptedCard('flo8_no_omaha_presumption_vs_tight_value', 6, 3000, FLO8_TIGHT_VALUE_PERSONA, {
+    fixedLimitOmahaNoPresumption: true,
+  }),
+  flo8ScriptedCard(
+    'flo8_no_omaha_presumption_vs_high_barreler',
+    6,
+    3000,
+    FLO8_HIGH_BARRELER_PERSONA,
+    { fixedLimitOmahaNoPresumption: true }
+  ),
+  flo8ScriptedCard('flo8_no_omaha_presumption_vs_maniac', 6, 3000, FLO8_MANIAC_PERSONA, {
+    fixedLimitOmahaNoPresumption: true,
+  }),
+]);
+LEAGUE_MATCHUPS.push(...FLO8_SCRIPTED_FIELD_CARDS);
+
+/**
  * THE SCRIPTED NO-LIMIT FIELD CARDS (2026-11-21, Hold'em Strategy lane;
  * NlhScriptedField.ts).
  *
@@ -6372,26 +6500,10 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
   // 2026-11-20 on legal flh and 2026-11-21 on legal flo8).
   // flh_priced_preflop and flh_river_full_bet_read left for FIXED_LIMIT_HOLDEM_CARDS;
   // flo8_no_omaha_presumption, flo8_priced_preflop and flo8_river_full_bet_read left
-  // for FIXED_LIMIT_OMAHA_HILO_CARDS. Every arm below is default off and refused
-  // with its own count on the legal game.
+  // for FIXED_LIMIT_OMAHA_HILO_CARDS; flo8_hilo_low_half_floor and
+  // flo8_nut_low_river_bet left for FLO8_SCRIPTED_FIELD_CARDS. Every arm below is
+  // default off and refused with its own count on the legal game.
   // SPEC-FL-01..03.
-  {
-    name: 'flo8_nut_low_river_bet',
-    variant: 'flo8',
-    seats: 2,
-    a: { fixedLimitHiLoNutLowRiverBet: true },
-    b: {},
-    reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit hi-lo state (HorseLogic: vi.isFixedLimit): heads-up river unbet or checked to the Horse holding the nut low with no high.',
-      diverged: 0,
-      why:
-        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
-        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): a heads-up Horse mirror rarely reaches an unbet river ' +
-        'with a bare nut low.',
-      needs: 'a scripted flo8 heads-up field that reaches unbet rivers against a Horse hero',
-      law: 'AFixedLimitNutLowBetsTheRiverHeadsUp',
-    }),
-  },
   {
     name: 'flh_river_one_bet_value_raise',
     variant: 'flh',
@@ -6456,24 +6568,6 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       law: 'AFixedLimitCallIsNotACommitment',
     }),
   },
-  // Adaptation fix F3, the hi-lo low half.
-  {
-    name: 'flo8_hilo_low_half_floor',
-    variant: 'flo8',
-    seats: 6,
-    a: { fixedLimitHiLoLowHalfFloor: true },
-    b: {},
-    reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit hi-lo river facing a bet with weak high and qualifying low (HorseHiLoLowHalf.ts).',
-      diverged: 0,
-      why:
-        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
-        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): on legal fixed-limit betting a Horse mirror never ' +
-        'reaches the V40 weak-high river pressure cap that tripped under the old no-limit path (6 of 300 on 2026-11-15).',
-      needs: 'a scripted river-betting flo8 field that forces weak-high/strong-low river calls',
-      law: 'AFixedLimitHiLoLowHalfIsKept',
-    }),
-  },
   // W8, a strong river hand leads.
   {
     name: 'flh_river_strong_hand_leads',
@@ -6516,7 +6610,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
         '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): no Horse mirror hand reached a first-to-act strong river ' +
         'check that the option flips to a lead.',
-      needs: 'a scripted flo8 field in which a first-to-act Horse checks a full house or better on the river',
+      needs:
+        'a scripted flo8 field in which a first-to-act Horse checks a full house or better on the river',
       law: 'AFixedLimitStrongRiverHandLeads',
     }),
   },

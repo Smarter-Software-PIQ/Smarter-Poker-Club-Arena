@@ -69,14 +69,14 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-20 the league deals legal fixed-limit hold'em (flh_river_full_bet_read
         // and flh_priced_preflop left for the card), and since 2026-11-21 it deals
         // legal fixed-limit Omaha hi-lo (flo8_no_omaha_presumption, flo8_priced_preflop
-        // and flo8_river_full_bet_read left for the card). Every arm still here changes
+        // and flo8_river_full_bet_read left for FIXED_LIMIT_OMAHA_HILO_CARDS;
+        // flo8_hilo_low_half_floor and flo8_nut_low_river_bet left for
+        // FLO8_SCRIPTED_FIELD_CARDS). Every arm still here changes
         // no decision (or one in hundreds of pairs) in a Horse mirror. Each reason
         // states its own count on the legal game.
-        'flo8_nut_low_river_bet',
         'flh_river_one_bet_value_raise',
         'flo8_call_is_not_a_commitment',
         'flh_call_is_not_a_commitment',
-        'flo8_hilo_low_half_floor',
         // Fixed-Limit lane W8 (2026-11-15): the strong river lead.
         'flh_river_strong_hand_leads',
         'flo8_river_strong_hand_leads',

@@ -237,10 +237,39 @@ export const NLH_SCRIPTED_PERSONAS: readonly NlhScriptedPersona[] = Object.freez
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
 ]);
+/**
+ * THE SCRIPTED FIXED-LIMIT OMAHA HI-LO FIELD (2026-11-21, Flo8ScriptedField.ts).
+ *
+ * Pure deterministic fixed-limit Omaha hi-lo (flo8) seat policies seated
+ * through the league's human-field mechanism for fixedLimitHiLoLowHalfFloor,
+ * fixedLimitHiLoNutLowRiverBet, and fixedLimitOmahaNoPresumption. Restricted
+ * to flo8 only; FIXED_LIMIT_SCRIPTED_POPULATION_ID stays flh-only.
+ */
+export const FLO8_SCRIPTED_POPULATION_ID = 'flo8_scripted_field_v1' as const;
+export const FLO8_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['flo8']);
+export const FLO8_HIGH_BARRELER_PERSONA = 'flo8_high_barreler_v1' as const;
+export const FLO8_MANIAC_PERSONA = 'flo8_maniac_v1' as const;
+export const FLO8_TIGHT_VALUE_PERSONA = 'flo8_tight_value_v1' as const;
+export const FLO8_RIVER_FOLDER_PERSONA = 'flo8_river_folder_v1' as const;
+export const FLO8_PASSIVE_CALLER_PERSONA = 'flo8_passive_caller_v1' as const;
+export type Flo8ScriptedPersona =
+  | typeof FLO8_HIGH_BARRELER_PERSONA
+  | typeof FLO8_MANIAC_PERSONA
+  | typeof FLO8_TIGHT_VALUE_PERSONA
+  | typeof FLO8_RIVER_FOLDER_PERSONA
+  | typeof FLO8_PASSIVE_CALLER_PERSONA;
+export const FLO8_SCRIPTED_PERSONAS: readonly Flo8ScriptedPersona[] = Object.freeze([
+  FLO8_HIGH_BARRELER_PERSONA,
+  FLO8_MANIAC_PERSONA,
+  FLO8_TIGHT_VALUE_PERSONA,
+  FLO8_RIVER_FOLDER_PERSONA,
+  FLO8_PASSIVE_CALLER_PERSONA,
+]);
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
   | FixedLimitScriptedPersona
   | NlhScriptedPersona
+  | Flo8ScriptedPersona
   | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
@@ -267,4 +296,9 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  FLO8_HIGH_BARRELER_PERSONA,
+  FLO8_MANIAC_PERSONA,
+  FLO8_TIGHT_VALUE_PERSONA,
+  FLO8_RIVER_FOLDER_PERSONA,
+  FLO8_PASSIVE_CALLER_PERSONA,
 ]);

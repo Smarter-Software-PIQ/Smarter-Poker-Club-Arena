@@ -29,6 +29,7 @@ import { horseDecisionSolverStoresAreValid } from '../engine/horseDecision/proto
 import type { LeagueMatchup, LeagueResult } from './HorseLeague.js';
 import {
   FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_POPULATION_ID,
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   NLH_SCRIPTED_POPULATION_ID,
   V53_PRESSURE_POPULATION_ID,
@@ -560,14 +561,16 @@ const LEAGUE_RESULT_KEYS = [
 const HUMAN_RESPONSE_ACTIONS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
 
 function isHumanFieldLeagueEvidence(value: Record<string, unknown>): boolean {
-  // The human-calibrated field, (2026-10-31) the V53 aggressor field, or
-  // (2026-11-20) the scripted fixed-limit field (FixedLimitScriptedField.ts), or
-  // (2026-11-21) the scripted no-limit field (NlhScriptedField.ts).
+  // The human-calibrated field, (2026-10-31) the V53 aggressor field,
+  // (2026-11-20) the scripted fixed-limit hold'em field (FixedLimitScriptedField.ts),
+  // (2026-11-21) the scripted no-limit field (NlhScriptedField.ts), or
+  // (2026-11-21) the scripted fixed-limit Omaha hi-lo field (Flo8ScriptedField.ts).
   if (
     value.opponentPopulation !== HUMAN_CALIBRATED_POPULATION_ID &&
     value.opponentPopulation !== V53_PRESSURE_POPULATION_ID &&
     value.opponentPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID &&
-    value.opponentPopulation !== NLH_SCRIPTED_POPULATION_ID
+    value.opponentPopulation !== NLH_SCRIPTED_POPULATION_ID &&
+    value.opponentPopulation !== FLO8_SCRIPTED_POPULATION_ID
   )
     return false;
   const responses = value.humanResponses;

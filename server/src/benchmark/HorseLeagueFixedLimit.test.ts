@@ -37,6 +37,7 @@ import {
   FIXED_LIMIT_OMAHA_HILO_CARDS,
   FIXED_LIMIT_SCRIPTED_FIELD_CARDS,
   FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_FIELD_CARDS,
   LEAGUE_MATCHUPS,
   UNMEASURABLE_MATCHUPS,
   leagueDealtCards,
@@ -409,10 +410,7 @@ describe('the league fixed-limit hand (flh and flo8) keeps the structure', () =>
         });
 
         // Chips are conserved, and nobody can lose more than a hand can cost.
-        expect(
-          Math.round(net.reduce((s, n) => s + n, 0) * 100),
-          label
-        ).toBe(0);
+        expect(Math.round(net.reduce((s, n) => s + n, 0) * 100), label).toBe(0);
         for (const n of net) {
           expect(-n, label).toBeLessThanOrEqual(LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB * BB + 1e-9);
         }
@@ -461,9 +459,10 @@ describe('what the league cannot deal as fixed limit it refuses', () => {
       expect(leagueFixedLimitRefusal({ ...ok, stackBB: 24 } as never), gameVariant).toMatch(
         /above 24 big blinds/
       );
-      expect(leagueFixedLimitRefusal({ ...ok, gameMode: 'tournament' } as never), gameVariant).toMatch(
-        /cash/
-      );
+      expect(
+        leagueFixedLimitRefusal({ ...ok, gameMode: 'tournament' } as never),
+        gameVariant
+      ).toMatch(/cash/);
       expect(leagueFixedLimitRefusal({ ...ok, ante: 1 } as never), gameVariant).toMatch(/ante/);
       expect(leagueFixedLimitRefusal({ ...ok, humanField: true } as never), gameVariant).toMatch(
         /Horses only/
@@ -495,7 +494,16 @@ describe('what the league cannot deal as fixed limit it refuses', () => {
     for (const variant of ['flh', 'flo8'] as const) {
       expect(
         () =>
-          playHand(1, 1, () => ({}), undefined, undefined, variant, 6, LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB),
+          playHand(
+            1,
+            1,
+            () => ({}),
+            undefined,
+            undefined,
+            variant,
+            6,
+            LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB
+          ),
         variant
       ).toThrow(/above 24 big blinds/);
       expect(
@@ -560,6 +568,7 @@ describe('the fixed-limit cards (flh and flo8)', () => {
         ...FIXED_LIMIT_HOLDEM_CARDS,
         ...FIXED_LIMIT_OMAHA_HILO_CARDS,
         ...FIXED_LIMIT_SCRIPTED_FIELD_CARDS,
+        ...FLO8_SCRIPTED_FIELD_CARDS,
       ]
         .map((m) => m.name)
         .sort()
@@ -568,13 +577,13 @@ describe('the fixed-limit cards (flh and flo8)', () => {
       ['flh_priced_preflop', 'flh', 6, { fixedLimitPricedPreflop: true }, {}],
       ['flh_river_full_bet_read', 'flh', 2, { fixedLimitRiverFullBetRead: true }, {}],
     ]);
-    expect(
-      FIXED_LIMIT_OMAHA_HILO_CARDS.map((m) => [m.name, m.variant, m.seats, m.a, m.b])
-    ).toEqual([
-      ['flo8_no_omaha_presumption', 'flo8', 2, { fixedLimitOmahaNoPresumption: true }, {}],
-      ['flo8_priced_preflop', 'flo8', 6, { fixedLimitPricedPreflop: true }, {}],
-      ['flo8_river_full_bet_read', 'flo8', 2, { fixedLimitRiverFullBetRead: true }, {}],
-    ]);
+    expect(FIXED_LIMIT_OMAHA_HILO_CARDS.map((m) => [m.name, m.variant, m.seats, m.a, m.b])).toEqual(
+      [
+        ['flo8_no_omaha_presumption', 'flo8', 2, { fixedLimitOmahaNoPresumption: true }, {}],
+        ['flo8_priced_preflop', 'flo8', 6, { fixedLimitPricedPreflop: true }, {}],
+        ['flo8_river_full_bet_read', 'flo8', 2, { fixedLimitRiverFullBetRead: true }, {}],
+      ]
+    );
     for (const m of fixedLimitCards) {
       // Every fixed-limit card is one playHand deals: it would throw on any other.
       expect(

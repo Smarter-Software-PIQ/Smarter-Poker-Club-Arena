@@ -74,6 +74,8 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
 import {
   FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS,
   FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_FIELD_VARIANTS,
+  FLO8_SCRIPTED_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
 
 /** The menu production composes (AuthoritativeActionState, then the table's
@@ -161,18 +163,21 @@ export function leagueFixedLimitRefusal(table: {
   if (table.gameMode !== 'cash' || table.ante > 0) {
     return 'A fixed-limit league hand is a cash hand without an ante';
   }
-  // 2026-11-20: the one field a fixed-limit hand seats is the scripted
-  // fixed-limit field (FixedLimitScriptedField.ts, flh only), whose seats are
-  // offered this module's fixed-limit menu. No calibrated population is fitted
-  // for fixed limit, and the calibrated and pressure seats build no-limit menus.
-  if (
-    table.humanField &&
-    (table.fieldPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID ||
-      !FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS.includes(table.gameVariant))
-  ) {
+  // 2026-11-20 (flh) and 2026-11-21 (flo8): the fields a fixed-limit hand seats
+  // are the scripted fixed-limit fields (FixedLimitScriptedField.ts for flh,
+  // Flo8ScriptedField.ts for flo8), whose seats are offered this module's
+  // fixed-limit menu. No calibrated population is fitted for fixed limit, and
+  // the calibrated and pressure seats build no-limit menus.
+  const allowedScriptedFixedLimit =
+    (table.fieldPopulation === FIXED_LIMIT_SCRIPTED_POPULATION_ID &&
+      FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS.includes(table.gameVariant)) ||
+    (table.fieldPopulation === FLO8_SCRIPTED_POPULATION_ID &&
+      FLO8_SCRIPTED_FIELD_VARIANTS.includes(table.gameVariant));
+  if (table.humanField && !allowedScriptedFixedLimit) {
     return (
       'A fixed-limit league hand seats Horses only, or the scripted fixed-limit field ' +
-      `(${FIXED_LIMIT_SCRIPTED_POPULATION_ID}): no field population is calibrated for fixed limit`
+      `(${FIXED_LIMIT_SCRIPTED_POPULATION_ID} for flh, ${FLO8_SCRIPTED_POPULATION_ID} for flo8): ` +
+      'no field population is calibrated for fixed limit'
     );
   }
   return null;
