@@ -566,4 +566,44 @@ exit 0
     expect(resolved[0].labels.resolved_by_run_id).toBe('888-1');
     expect(resolved[0].labels.resolved_by_sha).toBe('bb21dc82673117a937f67c9498dec46b8c27522e');
   });
+
+  it('wave 3: firing and resolved EngineReleaseFailed payloads preserve exact fingerprint and label parity for fn_record_engine_alerts', () => {
+    const firing = buildReleaseFailureAlert({
+      SHIPPED: 'false',
+      RELEASE_RESULT: 'failed',
+      RUN_ID: '44841264851-1',
+      TARGET_SHA: 'e2140d2d1581daaf84857d98e671f2be832162c6',
+      EXIT_STAGE: 'prepare',
+      EXIT_OUTCOME: 'failed',
+      EXIT_ERROR: 'rollback image missing',
+    });
+    expect(firing).not.toBeNull();
+    const resolved = buildReleaseResolvedAlerts(
+      {
+        SHIPPED: 'true',
+        VERIFIED: 'true',
+        RUN_ID: '44900000000-1',
+        TARGET_SHA: 'bb21dc82673117a937f67c9498dec46b8c27522e',
+        RELEASE_RESULT: 'sealed',
+      },
+      [
+        {
+          fingerprint: firing!.fingerprint,
+          labels: firing!.labels,
+          starts_at: firing!.startsAt,
+        },
+      ]
+    );
+    expect(resolved).toHaveLength(1);
+    // Exact dedup/matching keys preserved so public.fn_record_engine_alerts + reliability controller close the matching row
+    expect(resolved[0].fingerprint).toBe(firing!.fingerprint);
+    expect(resolved[0].startsAt).toBe(firing!.startsAt);
+    expect(resolved[0].labels.alertname).toBe(firing!.labels.alertname);
+    expect(resolved[0].labels.severity).toBe(firing!.labels.severity);
+    expect(resolved[0].labels.component).toBe(firing!.labels.component);
+    expect(resolved[0].labels.run_id).toBe(firing!.labels.run_id);
+    expect(resolved[0].labels.target_sha).toBe(firing!.labels.target_sha);
+    expect(['firing', 'resolved']).toContain(firing!.status);
+    expect(['firing', 'resolved']).toContain(resolved[0].status);
+  });
 });
