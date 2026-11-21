@@ -1352,11 +1352,28 @@ async function releaseIdleFixtureTableEngines({
  */
 export const STALE_WELCOME_HISTORY_DOOR = 'fn_ca_retire_stale_welcome_fixture_with_history';
 
+/**
+ * THE SCHEDULE'S CANCELLED GENERATIONS ARE HISTORY TOO (2026-11-21). A stale
+ * welcome fixture whose daily schedule kept spawning boards holds cancelled
+ * tournaments, each with an immutable exact-zero escrow receipt. The deleting
+ * door's schedule preparation counts any escrow row as activity and refuses
+ * with WELCOME_CERTIFICATION_SCHEDULE_FIXTURE_HAS_ACTIVITY, for ever: Cert
+ * Residue Sweep run 44846022061 left Crest Cert 1794950026440-vqxq6 (three
+ * cancelled generations, three open boards, nobody ever entered) unretired on
+ * exactly that. Those receipts are the history this door exists to keep, and
+ * the door itself re-proves no seat, entry or hand and that every cancellation
+ * moved nothing, so a fixture with real activity is still refused there.
+ */
+export const STALE_WELCOME_HISTORY_REFUSALS = Object.freeze([
+  'WELCOME_CERTIFICATION_BOARD_LINEAGE_REFUSED',
+  'WELCOME_CERTIFICATION_SCHEDULE_FIXTURE_HAS_ACTIVITY',
+]);
+
 export function retiresThroughHistoryDoor(error, account, clubId) {
   const message = String(error?.body?.message || error?.message || '');
   return (
     error?.code === '55000' &&
-    message === 'WELCOME_CERTIFICATION_BOARD_LINEAGE_REFUSED' &&
+    STALE_WELCOME_HISTORY_REFUSALS.includes(message) &&
     account?.templateFixtureRequest?.clubId !== clubId
   );
 }
