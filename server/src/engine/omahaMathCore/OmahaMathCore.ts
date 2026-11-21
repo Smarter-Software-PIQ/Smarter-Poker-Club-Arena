@@ -500,23 +500,32 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  * calibrated-only call -> fold on the PLO5 flop graded -1,986 +- 648 bb all-in, -483 +- 297 realised, Nov 19).
  */
 export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
-  version: 'core-pooled5-realization-v3-full-window',
-  // the applied cells (streets below: PLO5 flop only) are population_all_cards_capped: an anonymous population
-  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 0.96% of a fit cell
+  version: 'core-pooled5-realization-v3-full-window+core-extend-plo4',
+  // the applied cells (streets below: PLO4 flop and PLO5 flop) are population_all_cards_capped: an anonymous population
+  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 0.96% of a fit cell (PLO4: 1.9%)
   // (cap 20% never binds), never read live. The PLO4 and turn cells are kept for the record (own_cards_history).
   provenance: 'population_all_cards_capped' as const,
   source:
-    'PLO5 flop: hand_history population realization, full window (lane CORE-POOLED-4 amendment sha d7fbd6c8, confirmation sha 0eb833be; raised-own call: lane CORE-POOLED-7 sha ae1fcd66); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
+    'PLO5 flop: hand_history population realization, full window (lane CORE-POOLED-4 amendment sha d7fbd6c8, confirmation sha 0eb833be; raised-own call: lane CORE-POOLED-7 sha ae1fcd66); PLO4 flop: the same on PLO4 rows (lane CORE-EXTEND, criteria sha e8793e34); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
   minN: 20,
   // CORE-4 criterion 2 (CRITERIA-CORE4-2.md sha b95d08ec..., exact-replay cross-validation by day vs c3c, delta M1 all-in
   // / M2 realised): PLO5 flop PASS (Nov 19 +644 +- 255 realised, -77 +- 364 all-in; Nov 18 +288 +- 196, -163 +- 183);
   // PLO5 turn FAIL (Nov 19 -564 +- 451 realised); PLO4 flop FAIL (Nov 19 -113 +- 60). Only PASS streets are listed.
-  streets: { plo4: [], plo5: ['flop'] } as Record<string, readonly string[]>,
+  // PLO4 flop (lane CORE-EXTEND, Nov 21, criteria sha e8793e34): the same hand_history population realization as
+  // PLO5 flop, PLO4 rows: fit R1 0.7984 +- 0.0187 (13,773 rows, 6,822 hands), check set 0.8449 +- 0.0254 (z -1.48);
+  // no pair of actions qualified (check-call z -3.09 fit / -1.40 check; raise n 88 in the check set), so ONE factor
+  // for every action. The old c3c PLO4 flop cells (0.896; bet 0.696, call 1.133, check 1.285) are replaced.
+  streets: { plo4: ['flop'], plo5: ['flop'] } as Record<string, readonly string[]>,
   cells: {
-    'plo4|flop': { r: 0.896, n: 369 },
-    'plo4|flop|bet': { r: 0.696, n: 103 },
-    'plo4|flop|call': { r: 1.133, n: 38 },
-    'plo4|flop|check': { r: 1.285, n: 155 },
+    'plo4|flop': { r: 0.7984, n: 13773 },
+    'plo4|flop|bet': { r: 0.7984, n: 3119 },
+    'plo4|flop|call': { r: 0.7984, n: 2809 },
+    'plo4|flop|check': { r: 0.7984, n: 7535 },
+    'plo4|flop|raise': { r: 0.7984, n: 310 },
+    // PLO4 flop call facing a raise of the hero's own wager (lane CORE-EXTEND-4 criteria sha ad98efdc, ADOPT): fit XR
+    // 0.6221 +- 0.2683 (n 226, 170 players, top 1.77%), check XR 0.8567 +- 0.3375 (z +0.54); shrunk to the PLO4 cell:
+    // (226 x 0.6221 + 100 x 0.7984) / 326 = 0.6762.
+    'plo4|flop|call|raised_own': { r: 0.6762, n: 226 },
     'plo4|turn': { r: 0.85, n: 203 },
     'plo4|turn|bet': { r: 0.952, n: 63 },
     'plo4|turn|check': { r: 0.894, n: 77 },

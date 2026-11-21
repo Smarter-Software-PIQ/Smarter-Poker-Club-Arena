@@ -752,11 +752,14 @@ describe('omahaMathCore realization calibration (CORE-4: the core prices only wh
       for (const st of ['flop', 'turn'])
         expect(realizationCalibrationCell('plo6', st, a)).toBeNull();
     expect(realizationCalibrationCell('plo5', 'flop', 'fold')).toBeNull();
-    // criterion 2: PLO5 turn and PLO4 failed the cross-validated grade and are not calibrated
+    // criterion 2: the turn failed the cross-validated grade and is not calibrated (PLO4 and PLO5)
     for (const a of ['check', 'call', 'bet', 'raise']) {
       expect(realizationCalibrationCell('plo5', 'turn', a)).toBeNull();
-      expect(realizationCalibrationCell('plo4', 'flop', a)).toBeNull();
+      expect(realizationCalibrationCell('plo4', 'turn', a)).toBeNull();
+      // lane CORE-EXTEND (criteria sha e8793e34): PLO4 flop takes ONE population factor for every action
+      expect(realizationCalibrationCell('plo4', 'flop', a)?.r).toBe(0.7984);
     }
+    expect(realizationCalibrationCell('plo4', 'flop', 'fold')).toBeNull();
   });
   it('ev = raw - (1 - r) x showdown term (CORE-POOLED-4 placement), se unchanged, the raw price on the receipt; a candidate without a showdown term is left alone', () => {
     const evs = [
