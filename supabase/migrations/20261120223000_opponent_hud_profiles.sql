@@ -180,4 +180,52 @@ GRANT EXECUTE ON FUNCTION public.fn_opponent_hud_profiles_read(text[], text),
   public.fn_opponent_hud_profiles_upsert(jsonb),
   public.fn_opponent_hud_hands_page(timestamptz, uuid, timestamptz, integer) TO service_role;
 
+-- Function probes (scripts/ci/templates/function-probe.sql): each body runs once and is undone.
+-- @probe-for: public.fn_opponent_hud_profiles_upsert
+DO $probe$
+BEGIN
+  -- a rebuild row reaches the insert path; a malformed row reaches the refusal path
+  IF public.fn_opponent_hud_profiles_upsert(
+       '[{"user_id":"probe-user","family":"plo4","version":1,"hands":0,"wm_ms":0,"rebuild":true,"profile":{}},
+         {"user_id":"probe-user","family":"holdem","version":1,"hands":0,"wm_ms":0,"profile":{}}]'::jsonb)
+     IS DISTINCT FROM ARRAY['holdem|probe-user'] THEN
+    RAISE EXCEPTION 'opponent hud probe: upsert refused set differs';
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_opponent_hud_profiles_read
+DO $probe$
+BEGIN
+  PERFORM public.fn_opponent_hud_profiles_read(ARRAY['probe-user'], 'plo4');
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_opponent_hud_profiles_recent
+DO $probe$
+BEGIN
+  PERFORM public.fn_opponent_hud_profiles_recent('plo4', now(), NULL, 1);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_opponent_hud_hands_page
+DO $probe$
+BEGIN
+  -- an empty time range: the body runs without scanning history. hand_history exists in every database this
+  -- migration installs into; the throwaway PostgreSQL of scripts/ci/test-opponent-hud-upsert-postgres.sh holds only
+  -- this migration, so there the call is skipped (plpgsql_check covers the body).
+  IF to_regclass('public.hand_history') IS NOT NULL THEN
+    PERFORM public.fn_opponent_hud_hands_page(now(), NULL, now(), 1);
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
