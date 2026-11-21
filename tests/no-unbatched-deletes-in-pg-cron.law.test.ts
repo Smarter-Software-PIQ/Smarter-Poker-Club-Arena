@@ -53,7 +53,7 @@ describe('no unbatched DELETEs in pg_cron jobs', () => {
         PERFORM cron.schedule(
           'horse-dealt-hole-cards-prune',
           '3,13,23,33,43,53 * * * *',
-          $job$SET statement_timeout = '30s'; SELECT smarter_private.prune_horse_dealt_hole_cards(20000);$job$
+          $job$SET statement_timeout = '30s'; SELECT smarter_private.prune_example_audit_rows(20000);$job$
         );
       END $cron$;
     `;
