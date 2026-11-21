@@ -191,7 +191,6 @@ afterEach(() => {
   HorseMind.reset();
 });
 
-
 import { optionShadowPersonPresence } from '../HorseOptionShadow.js';
 import {
   OPTION_SHADOW_STAGE,
@@ -420,7 +419,9 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
     const r = await run(requests, burn, { [STAGED]: 'shadow' }, stage());
     // the first is re-decided (slow) and trips; the next three run no re-decision
     expect(r.calls).toHaveLength(5);
-    expect(r.features.filter((k) => k === 'option_shadow_stage_self_disabled_seen')).toHaveLength(1);
+    expect(r.features.filter((k) => k === 'option_shadow_stage_self_disabled_seen')).toHaveLength(
+      1
+    );
     expect(
       r.features.filter((k) => k === 'option_shadow_skipped_stage_disabled_seen')
     ).toHaveLength(3);
@@ -500,9 +501,14 @@ describe('the production brain over every recorded FAST decision: the stage neve
 
   it('an option that is not staged: receipts, counters and decisions are those of the run without a stage table', async () => {
     const withStage = await run(requests(), decide, { [NOT_STAGED]: 'shadow' }, stage());
-    const without = await run(requests(), decide, { [NOT_STAGED]: 'shadow' }, {
-      optionShadowStage: {},
-    });
+    const without = await run(
+      requests(),
+      decide,
+      { [NOT_STAGED]: 'shadow' },
+      {
+        optionShadowStage: {},
+      }
+    );
     expect(withStage.fasts.map(comparable)).toEqual(without.fasts.map(comparable));
     expect(withStage.fasts.map((f) => f.decision.optionShadowReceipt)).toEqual(
       without.fasts.map((f) => f.decision.optionShadowReceipt)
