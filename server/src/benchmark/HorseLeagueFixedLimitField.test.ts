@@ -684,7 +684,14 @@ describe('the field is deterministic from the deal seed', () => {
       const b = fieldHand(persona, 424242, 3, 6);
       expect(b.actions).toEqual(a.actions);
       expect(b.net).toEqual(a.net);
-      const card = FIXED_LIMIT_SCRIPTED_FIELD_CARDS.find((m) => m.humanPersona === persona)!;
+      // flh_value_only_blinds_v1 has no kept card (almost inert, 2026-11-21): the steal card's shape seats it.
+      const card = FIXED_LIMIT_SCRIPTED_FIELD_CARDS.find((m) => m.humanPersona === persona) ?? {
+        ...FIXED_LIMIT_SCRIPTED_FIELD_CARDS.find(
+          (m) => m.humanPersona === FLH_OVER_FOLDING_BLINDS_PERSONA
+        )!,
+        name: `flh_steal_vs_tight_blinds_vs_${persona}`,
+        humanPersona: persona,
+      };
       vi.restoreAllMocks();
       const r1 = await runMatchup(card, 20, 99);
       const r2 = await runMatchup(card, 20, 99);
