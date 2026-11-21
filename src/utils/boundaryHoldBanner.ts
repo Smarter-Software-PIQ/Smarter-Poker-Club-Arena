@@ -26,21 +26,21 @@ export function selectBoundaryHoldBanner(input: {
     return {
       kind: 'terminal_closeout',
       title: 'Finalizing Tournament',
-      detail: 'Settling final results',
+      detail: 'Settling Final Results',
     };
   }
   if (owners.includes('hand_for_hand') || input.handForHand === true) {
     return {
       kind: 'hand_for_hand',
-      title: 'Hand-for-Hand Play',
-      detail: 'Waiting for other tables to finish the current hand',
+      title: 'Hand-For-Hand Play',
+      detail: 'Waiting For Other Tables To Finish The Current Hand',
     };
   }
   if (owners.includes('tournament_move')) {
     return {
       kind: 'tournament_move',
       title: 'Balancing Tables',
-      detail: 'Next hand starts momentarily',
+      detail: 'Next Hand Starts Momentarily',
     };
   }
   return null;

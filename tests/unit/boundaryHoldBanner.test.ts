@@ -29,7 +29,7 @@ describe('selectBoundaryHoldBanner', () => {
         handForHand: true,
         pauseOwners: [],
       })
-    ).toMatchObject({ kind: 'hand_for_hand', title: 'Hand-for-Hand Play' });
+    ).toMatchObject({ kind: 'hand_for_hand', title: 'Hand-For-Hand Play' });
     expect(
       selectBoundaryHoldBanner({
         isTournament: true,
