@@ -57,16 +57,12 @@ export function omahaMathCoreUntrackedCheckedRange(
     // the old update, exactly: OmahaMathCore.ts band(pool, b, 1, ...)
     const lo = a;
     const hi = Math.max(lo + 1, Math.min(size, Math.round(1 * size)));
-    return {
-      parts: [{ idx: pool.order.slice(lo, hi), weight: 1 }],
-      label: `checked: below the top ${r2(b)} [${source}]`,
-    };
+    const old = `checked: below the top ${r2(b)} [${source}]`;
+    return { parts: [{ idx: pool.order.slice(lo, hi), weight: 1 }], label: old };
   }
   // part weight is the part's mass (OmahaMathCoreEquity sampler): per holding the top keeps tau, the rest 1
   const top = { idx: pool.order.slice(0, a), weight: tau * a };
   below.weight = size - a;
-  return {
-    parts: [top, below],
-    label: `checked: below the top ${r2(b)}, the top at trap ${r3(tau)} [${source}]`,
-  };
+  const trapped = `checked: below the top ${r2(b)}, the top at trap ${r3(tau)} [${source}]`;
+  return { parts: [top, below], label: trapped };
 }
