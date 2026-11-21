@@ -58,6 +58,11 @@ interface Spec {
   deep: boolean;
   lightning: boolean;
   seed: number;
+  /** lane CORE-POOLED-6 property law: per-seat stacks, the bettor's pot fraction, and a raise over the bet
+   * (0..1 between the minimum raise and the pot); absent = the fixed grid above */
+  stacks?: number[];
+  frac?: number;
+  raiseOver?: number;
 }
 
 function rngOf(seed: number): () => number {
@@ -103,7 +108,8 @@ function gen(spec: Spec): { st: ReturnType<typeof stateAt>; spec: Spec } {
   const sb = n === 2 ? 2 : 1;
   const bb = n === 2 ? 1 : 2;
   const behind = new Map<number, number>();
-  for (const s of seats) behind.set(s, spec.deep ? (s % 2 ? 600 : 450) : s % 2 ? 80 : 60);
+  for (const s of seats)
+    behind.set(s, spec.stacks?.[s - 1] ?? (spec.deep ? (s % 2 ? 600 : 450) : s % 2 ? 80 : 60));
   const streetBet = new Map<number, number>(seats.map((s) => [s, 0]));
   const total = new Map<number, number>(seats.map((s) => [s, 0]));
   const folded = new Set<number>();
@@ -176,7 +182,9 @@ function gen(spec: Spec): { st: ReturnType<typeof stateAt>; spec: Spec } {
       } else {
         const others = seats.filter((s) => s !== hero);
         const bettor = others[Math.floor(rng() * others.length)];
-        const frac = [1 / 3, 0.75, 1][Math.floor(rng() * 3)];
+        const gridFrac = [1 / 3, 0.75, 1][Math.floor(rng() * 3)];
+        const frac = spec.frac ?? gridFrac;
+        let raised = false;
         let bet = 0;
         let k = 0;
         for (;;) {
@@ -193,6 +201,25 @@ function gen(spec: Spec): { st: ReturnType<typeof stateAt>; spec: Spec } {
               lastIncrement = Math.max(2, size);
               push(s, st, allIn.has(s) ? 'all_in' : 'bet', size, 'player');
             } else push(s, st, 'check', 0, 'player');
+          } else if (
+            spec.raiseOver !== undefined &&
+            !raised &&
+            s !== bettor &&
+            behind.get(s)! > r2(currentBet - streetBet.get(s)!) + 0.005
+          ) {
+            // one raise over the bet before the hero acts: sized between the minimum raise and the pot, or
+            // all-in for less (an incomplete raise does not change the last full increment)
+            raised = true;
+            const potNow = [...total.values()].reduce((a, b) => a + b, 0);
+            const minTo = r2(currentBet + lastIncrement);
+            const maxTo = r2(currentBet + potNow + (currentBet - streetBet.get(s)!));
+            const want = r2(minTo + spec.raiseOver * Math.max(0, maxTo - minTo));
+            const to = Math.min(want, r2(streetBet.get(s)! + behind.get(s)!));
+            put(s, to);
+            if (to >= minTo - 0.005) lastIncrement = r2(to - currentBet);
+            currentBet = to;
+            bet = to;
+            push(s, st, allIn.has(s) ? 'all_in' : 'raise', to, 'player');
           } else push(s, st, 'call', put(s, bet), 'player');
         }
       }
@@ -829,3 +856,147 @@ describe('COREGUARD PLO6 and switch OFF: byte-identical', () => {
 
 // keep the types referenced (SeatPlayer, HorseGameStateV2) for readers of the generator
 export type _CoreguardTypes = [SeatPlayer, HorseGameStateV2];
+
+/**
+ * Lane CORE-POOLED-6 (2026-11-21, owner order: prove the core cannot emit an illegal action). The grid above
+ * holds 84 states with two stack depths and three bet sizes. This law draws PROPERTY_STATES random PLO4/PLO5
+ * cash states from a fixed seed: two to six seats, every street, stacks from 8 to 2,000 chips to the cent
+ * (shorter than the call, shorter than the minimum raise, deeper than the pot), any bet fraction of the pot,
+ * and a raise over the bet (full, or all-in for less) before the Horse acts. Each emitted action and every
+ * wager the core priced is checked against pot-limit arithmetic written out here and against the engine's
+ * own validator. Nothing is legalized after the fact and nothing falls back.
+ */
+const PROPERTY_STATES = 1500;
+describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit poker', () => {
+  it(`on ${PROPERTY_STATES} random PLO4/PLO5 cash states the emitted action and amount sit inside min-raise, pot limit and stack; no refusal, fallback or legalization`, () => {
+    const rng = rngOf(20261121);
+    const streets: Street[] = ['flop', 'flop', 'flop', 'turn', 'river', 'preflop'];
+    const stack = () => {
+      const u = rng();
+      const [lo, hi] =
+        u < 0.25 ? [8, 20] : u < 0.55 ? [20, 90] : u < 0.85 ? [90, 400] : [400, 2000];
+      return r2(lo + rng() * (hi - lo));
+    };
+    const bad: string[] = [];
+    const count: Record<string, number> = {};
+    let applied = 0;
+    let fallbacks = 0;
+    let refusals = 0;
+    let legalized = 0;
+    let wagers = 0;
+    let shortHero = 0;
+    for (let i = 0; i < PROPERTY_STATES; i++) {
+      const variant = rng() < 0.3 ? 'plo4' : 'plo5';
+      const n = 2 + Math.floor(rng() * 5);
+      const street = streets[Math.floor(rng() * streets.length)];
+      const spec: Spec = {
+        variant,
+        n,
+        street,
+        facing: street === 'preflop' ? true : rng() < 0.65,
+        deep: false,
+        lightning: rng() < 0.4,
+        seed: 500_000 + i,
+        stacks: Array.from({ length: n }, stack),
+        frac: r2(0.1 + rng() * 0.9),
+        ...(rng() < 0.4 ? { raiseOver: r2(rng()) } : {}),
+      };
+      const { st } = gen(spec);
+      const gs = st.gs;
+      const hero = st.hero;
+      const tag = JSON.stringify(spec);
+      const d = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
+      const rec = d.omahaMathCore;
+      if (!rec || rec.error !== null || rec.applied !== true) {
+        fallbacks++;
+        bad.push(`${tag} -> ${rec ? (rec.error ?? 'not applied') : 'no receipt'}`);
+        continue;
+      }
+      applied++;
+      if (rec.core?.legalized) legalized++;
+      count[d.action] = (count[d.action] ?? 0) + 1;
+      const toCall = gs.toCall ?? 0;
+      const heroTo = r2(hero.bet + hero.stack);
+      const potCap = r2(gs.currentBet + gs.pot + Math.max(0, gs.currentBet - hero.bet));
+      const maxTo = Math.min(potCap, heroTo);
+      if (hero.stack <= toCall + 0.005) shortHero++;
+      const fail = (why: string) => bad.push(`${tag} ${d.action} ${d.amount ?? ''}: ${why}`);
+      const bs = calculateBettingState(
+        gs.pot,
+        gs.currentBet,
+        hero.bet,
+        gs.bigBlind,
+        Math.max(2, (gs.minRaiseTo ?? 0) - gs.currentBet),
+        true
+      );
+      const wagerOk = (action: string, amount: number, who: string) => {
+        wagers++;
+        if (gs.minRaiseTo == null) return fail(`${who}: a wager where none is legal`);
+        if (amount < gs.minRaiseTo - 0.005)
+          fail(`${who}: ${amount} under the minimum ${gs.minRaiseTo}`);
+        if (amount > potCap + 0.005) fail(`${who}: ${amount} over the pot limit ${potCap}`);
+        if (amount > heroTo + 0.005) fail(`${who}: ${amount} over the stack ${heroTo}`);
+        if (amount > (gs.maxRaiseTo ?? Infinity) + 0.005)
+          fail(`${who}: over maxRaiseTo ${gs.maxRaiseTo}`);
+        if (Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6)
+          fail(`${who}: not a whole cent`);
+        if (!validateAction(action as 'bet', amount, hero.stack, bs).valid)
+          fail(`${who}: validator refuses`);
+      };
+      if (d.action !== rec.action || (d.amount ?? null) !== rec.amount)
+        fail('decision is not the receipt');
+      if (d.action === 'fold') {
+        if (toCall <= 0) fail('fold with nothing to call');
+      } else if (d.action === 'check') {
+        if (toCall > 0) fail('check facing a wager');
+      } else if (d.action === 'call') {
+        if (toCall <= 0) fail('call with nothing to call');
+        if (d.amount != null && Math.abs(d.amount - Math.min(toCall, hero.stack)) > 0.005)
+          fail(`call amount is not min(toCall ${toCall}, stack ${hero.stack})`);
+      } else if (d.action === 'bet' || d.action === 'raise') {
+        if ((d.action === 'bet') !== toCall <= 0) fail('bet/raise does not match the facing state');
+        if (d.amount == null) fail('wager without an amount');
+        else wagerOk(d.action, d.amount, 'decision');
+      } else if (d.action === 'all_in') {
+        if (hero.stack <= 0) fail('all-in without chips');
+        if (d.amount != null && d.amount > heroTo + 0.005) fail('all-in over the stack');
+        // an all-in that raises must fit the pot limit; an all-in for the call or less always fits
+        if (heroTo > gs.currentBet + 0.005 && heroTo > potCap + 0.005)
+          fail(`all-in ${heroTo} over the pot limit ${potCap}`);
+      } else fail('unknown action');
+      for (const a of rec.core!.evs) {
+        if (a.action !== 'bet' && a.action !== 'raise') continue;
+        if (a.amount == null) {
+          fail(`priced ${a.action} without an amount`);
+          continue;
+        }
+        wagerOk(a.action, a.amount, `priced ${a.action}`);
+        if (a.amount > maxTo + 0.005) fail(`priced ${a.action} ${a.amount} over ${maxTo}`);
+      }
+      if (
+        horseDecisionReceiptRefusal(structuredClone(d), spec.variant, {
+          player: hero,
+          gameState: gs,
+          omahaMathCore: true,
+          ...OMAHA_MATH_CORE_ALL_STREETS,
+        }) !== null
+      )
+        refusals++;
+    }
+    console.info(
+      `CORE-POOLED-6 property: states=${PROPERTY_STATES} applied=${applied} fallbacks=${fallbacks} refusals=${refusals} legalized=${legalized} wagersChecked=${wagers} shortHero=${shortHero} actions=${JSON.stringify(count)} bad=${bad.length}`
+    );
+    if (bad.length)
+      console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
+    expect(bad).toEqual([]);
+    expect(fallbacks).toBe(0);
+    expect(refusals).toBe(0);
+    expect(legalized).toBe(0);
+    expect(applied).toBe(PROPERTY_STATES);
+    expect(wagers).toBeGreaterThan(1000);
+  }, 1_800_000);
+});
