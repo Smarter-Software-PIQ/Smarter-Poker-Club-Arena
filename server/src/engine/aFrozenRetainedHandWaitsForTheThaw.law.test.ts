@@ -173,14 +173,11 @@ describe('the door names the freeze and nothing else', () => {
     'HAND_SUBMISSION_LEASE_UNPROVEN',
     'F06_HAND_DISPATCH_BUSY',
     'HAND_SUBMISSION_TABLE_NOT_ADMITTED',
-  ])(
-    '%s is not the freeze',
-    async (code) => {
-      vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: null, error: { message: code } } as any);
-      const error = await resumeRetainedHandSubmission(TABLE, 'i', GENERATION).catch((e) => e);
-      expect(error).not.toBeInstanceOf(RetainedHandSubmissionFrozenError);
-    }
-  );
+  ])('%s is not the freeze', async (code) => {
+    vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: null, error: { message: code } } as any);
+    const error = await resumeRetainedHandSubmission(TABLE, 'i', GENERATION).catch((e) => e);
+    expect(error).not.toBeInstanceOf(RetainedHandSubmissionFrozenError);
+  });
 });
 
 /** The recovery step alone, as the current owner of a live cash lease. */
@@ -283,7 +280,9 @@ describe('start() through the real checkCrashRecovery', () => {
     await expect(engine.start()).rejects.toThrow(
       'retained_hand_submission_readback_failed: HAND_SUBMISSION_LEASE_UNPROVEN'
     );
-    expect(killed).toEqual(['start_failed:start_load_table']);
+    // The kill names the step that failed (2026-11-21: this used to carry the
+    // last retryStartRead phase, so the dbbc148e storm read as a hand-count read).
+    expect(killed).toEqual(['start_failed:start_retained_hand_resume']);
     await engine.stop();
   });
 });
