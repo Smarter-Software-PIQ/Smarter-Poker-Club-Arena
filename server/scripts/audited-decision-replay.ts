@@ -7,10 +7,13 @@
  *     [--audit2 <PLO5-...-DECISIONS.csv> --audit2-hands <audit2 hands.jsonl>] \
  *     [--woowoo <decision-audit/decisions-full.csv> --woowoo-findings <spec/decision-to-finding.csv>] \
  *     [--plo6 <PLO6 audit decisions.csv> --plo6-meta <its meta.jsonl> --plo6-hands <its hands.jsonl>] \
+ *     [--placed <nodes.jsonl>] \
  *     (--replay <replay.jsonl> [--base off] [--json <report.json>] [--line <arm>]
  *        [--allow-unchanged <arm>[,<arm>]] [--row <arm> --set <set name> [--scorer-commit <sha>]]
  *      | --emit-nodes <nodes.jsonl>)
  *
+ * --placed reads audited decisions already placed at their node (scripts/hvh48-audit-nodes.py writes them for the
+ * HVH48 audits; one JSON line each, see placedDecisions), scored verdict-only.
  * --emit-nodes writes the audited nodes ({hand, seat, street, k, source, recorded, verdict}) for a replay harness
  * to re-decide; the harness writes one JSON line per node: {hand, seat, street, k, arms: {off: {action, amount,
  * legal, refusal, receipts}, <arm>: {...}}}. --line prints the authority-file replay line for one arm.
@@ -39,6 +42,7 @@ import {
   audit2Decisions,
   nodeKey,
   parseReplayFile,
+  placedDecisions,
   plo6Decisions,
   replayBarLine,
   replayBarRows,
@@ -109,7 +113,9 @@ if (p6) {
   if (!metaFile || !hands) throw new Error('--plo6 needs --plo6-meta and --plo6-hands');
   take('plo6', plo6Decisions(read(p6), read(metaFile), read(hands)));
 }
-if (audits.length === 0) throw new Error('give --audit2, --woowoo and/or --plo6');
+const pl = opt('placed');
+if (pl) take('placed', placedDecisions(read(pl)));
+if (audits.length === 0) throw new Error('give --audit2, --woowoo, --plo6 and/or --placed');
 
 const emit = opt('emit-nodes');
 if (emit) {
