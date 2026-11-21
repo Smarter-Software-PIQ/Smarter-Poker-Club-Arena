@@ -11,6 +11,7 @@
  * failure-keeps-the-decision rule hold exactly as in cash.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import { seedFastRandom } from './HorseEval.js';
 import { HorseLogic, omahaStreetPlanFromRiver, type HorseDecideOpts } from './HorseLogic.js';
 import { withOmahaTournamentScope } from './HorseOmahaTournamentScope.js';
@@ -341,11 +342,13 @@ function play(build: () => Node, opts: HorseDecideOpts, valueLeader = true): Out
     drainFires();
     seedFastRandom(s);
     const st = build();
-    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
-      omahaStrategyInTournaments: true,
-      telemetry: true,
-      ...opts,
-    } as never);
+    const d = withFrozenDecisionClock(() =>
+      HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        omahaStrategyInTournaments: true,
+        telemetry: true,
+        ...opts,
+      } as never)
+    );
     out.actions.push(d.action);
     out.amounts.push(d.amount ?? null);
     out.bytes.push(bytesOf(d));

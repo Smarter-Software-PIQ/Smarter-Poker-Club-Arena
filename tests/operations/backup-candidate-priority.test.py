@@ -30,6 +30,10 @@ class World:
         self.blobs = {OLD: BEFORE, BOOKING: BOOKED, LATER: BOOKED, MAIN: BOOKED}
         self.parents = {BOOKING: OLD, LATER: BOOKING, MAIN: LATER, OLD: '9' * 40}
         self.blobs['9' * 40] = BEFORE
+        self.statuses = {
+            BOOKING: [{'context': mod.STATUS_CONTEXT, 'state': 'success'}],
+            LATER: [{'context': mod.STATUS_CONTEXT, 'state': 'success'}],
+        }
         self.serving = {'releaseSha': SERVING}
         self.relation = 'behind'
         self.broken = None
@@ -56,6 +60,9 @@ class World:
         match = re.fullmatch(rf'repos/{REPO}/commits/([0-9a-f]{{40}})', path)
         if match:
             return {'sha': match[1], 'parents': [{'sha': self.parents[match[1]]}]}
+        match = re.fullmatch(rf'repos/{REPO}/commits/([0-9a-f]{{40}})/statuses\?per_page=100', path)
+        if match:
+            return self.statuses.get(match[1], [])
         raise AssertionError('unexpected read ' + path)
 
     def health(self):
@@ -79,6 +86,64 @@ class BackupCandidatePriority(unittest.TestCase):
             self.assertEqual(world.decide(LATER, now), 'candidate')
             self.assertEqual(world.decide(MAIN, now), 'candidate')
             self.assertEqual(world.decide(OLD, now), 'predates')
+
+    def test_post_booking_push_yields_while_booking_commit_is_uncertified_or_pending(self):
+        # T7 (2026-11-21): while the booking commit does not yet carry
+        # backup-engine/certified = success, post-booking pushes return
+        # booking_pending so they yield the Backup host instead of starving it.
+        unready = [
+            [],
+            [{'context': 'ci/tests', 'state': 'success'}],
+            [{'context': mod.STATUS_CONTEXT, 'state': 'pending'}],
+            [{'context': mod.STATUS_CONTEXT, 'state': 'error'}],
+            [{'context': mod.STATUS_CONTEXT, 'state': 'failure'}],
+            [{'context': mod.STATUS_CONTEXT, 'state': 'pending'},
+             {'context': mod.STATUS_CONTEXT, 'state': 'success'}],
+        ]
+        for statuses in unready:
+            with self.subTest(statuses=statuses):
+                world = World()
+                world.statuses[BOOKING] = statuses
+                self.assertEqual(world.decide(BOOKING, OPEN), 'booking')
+                self.assertEqual(world.decide(OLD, OPEN), 'predates')
+                for sha in (LATER, MAIN):
+                    priority, win, reason = mod.decide(REPO, sha, OPEN, api=world.api, serving=world.health)
+                    self.assertEqual(priority, 'booking_pending')
+                    self.assertEqual(win, OWNER)
+                    self.assertIn(BOOKING[:12], reason)
+
+    def test_post_booking_push_proceeds_once_booking_commit_is_certified_or_window_closes(self):
+        world = World()
+        world.statuses[BOOKING] = [
+            {'context': mod.STATUS_CONTEXT, 'state': 'success'},
+            {'context': mod.STATUS_CONTEXT, 'state': 'pending'},
+        ]
+        self.assertEqual(world.decide(LATER, OPEN), 'candidate')
+        self.assertEqual(world.decide(MAIN, OPEN), 'candidate')
+        # Once the window closes or seals, post-booking pushes return none even if uncertified.
+        world.statuses[BOOKING] = []
+        self.assertEqual(world.decide(LATER, CLOSE), 'none')
+        world.relation = 'identical'
+        self.assertEqual(world.decide(LATER, OPEN), 'none')
+
+    def test_unreadable_booking_status_or_walk_is_unknown(self):
+        # CLAUDE.md 10.86: unreadable or malformed booking status stays unknown.
+        world = World()
+        world.broken = rf'/commits/{BOOKING}/statuses'
+        self.assertEqual(world.decide(LATER, OPEN), 'unknown')
+        self.assertEqual(world.decide(MAIN, OPEN), 'unknown')
+        for bad in ({'state': 'success'}, ['not-a-dict'], [{'context': mod.STATUS_CONTEXT, 'state': 'bogus'}]):
+            world = World()
+            world.statuses[BOOKING] = bad
+            self.assertEqual(world.decide(LATER, OPEN), 'unknown', bad)
+        # Unreadable parent commit during the booking walk is unknown.
+        world = World()
+        world.broken = rf'/commits/{BOOKING}$'
+        self.assertEqual(world.decide(LATER, OPEN), 'unknown')
+        # Exceeding bounded first-parent walk without finding the booking commit is unknown.
+        world = World()
+        world.parents[BOOKING] = BOOKING
+        self.assertEqual(world.decide(LATER, OPEN), 'unknown')
 
     def test_verdict_names_the_window(self):
         self.assertEqual(mod.decide(REPO, BOOKING, OPEN, api=World().api, serving=World().health)[1], OWNER)
