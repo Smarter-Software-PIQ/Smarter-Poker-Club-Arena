@@ -15562,6 +15562,7 @@ export interface HoldemAllInCallVerdict {
   readonly street: 'preflop' | 'postflop';
 }
 let holdemAllInCallVerdictPending: HoldemAllInCallVerdict | null = null;
+let holdemAllInCallPhase6RefPending: Phase6ReferenceObservation | null = null;
 /** The priced call of the last decision (holdemTournamentAllInCallIsPriced), for receipts and tests; read only. */
 export function holdemAllInCallVerdictOfLastDecision(): HoldemAllInCallVerdict | null {
   return holdemAllInCallVerdictPending;
@@ -15664,7 +15665,9 @@ function priceHoldemTournamentPreflopAllInCall(
   const live = gs.players.filter(
     (p) => p.seat !== player.seat && !p.is_folded && (p.is_sitting_out !== true || p.is_all_in)
   );
-  const facingAllIn = live.some((p) => p.is_all_in === true && p.bet > 0);
+  const facingAllIn = live.some(
+    (p) => p.is_all_in === true && p.bet > 0 && p.bet >= gs.currentBet - 1e-9
+  );
   if (!facingAllIn && !heroAllInByCall) return null;
   const legal = gs.legalActions;
   if (
@@ -15895,9 +15898,11 @@ export function holdemAllInCallReversal(
 }
 
 /**
- * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, the priced answer the glue gave is the
- * reference's answer, whatever a later layer of the reference made of it. Postflop the price is taken here
- * (the engine's equity is known now) and a call or fold beyond the lock is turned to the priced answer.
+ * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, runs after the reference chooses its
+ * action so a raise or raising all-in is never removed and exact Nash V2 / PioSolver chart_bb_defend answers
+ * on lone open-jams stay intact; every other in-scope fold or call is answered by its price (clearing any
+ * variant_price route when the priced answer takes ownership). Postflop the price is taken here (the engine's
+ * equity is known now) and a call or fold beyond the lock is turned to the priced answer.
  */
 function holdemAllInCallReference(
   decision: HorseDecision,
@@ -15907,20 +15912,51 @@ function holdemAllInCallReference(
   opts: HorseDecideOpts,
   tele: boolean
 ): HorseDecision {
+  const phase6Ref = holdemAllInCallPhase6RefPending;
+  holdemAllInCallPhase6RefPending = null;
   if (opts.holdemTournamentAllInCallIsPriced !== true) return decision;
-  if (gs.stage !== 'preflop')
-    holdemAllInCallVerdictPending = priceHoldemTournamentPostflopCall(player, gs, vi);
+  if (gs.stage === 'preflop') {
+    const shape = holdemCallShape(decision, player, gs);
+    // A raise (or raising all-in) is never removed here: only the call and the fold.
+    if (shape === 'other') return decision;
+    // Exact Nash V2 / PioSolver bb-vs-sb chart answers already own lone open-jams at chip EV.
+    if (phase6Ref?.route === 'chart_bb_defend') return decision;
+    const pricedCall = priceHoldemTournamentPreflopAllInCall(player, gs, vi, opts);
+    if (pricedCall === 'unpriced') {
+      if (tele) noteFire('holdem_tournament_all_in_call_unpriced_seen');
+      return decision;
+    }
+    if (pricedCall === null) return decision;
+    holdemAllInCallVerdictPending = pricedCall;
+    if (
+      phase6Ref &&
+      (phase6Ref.route === 'chart_open_jam' || phase6Ref.route === 'variant_price')
+    ) {
+      phase6Ref.route = 'legacy_preflop';
+      phase6Ref.lookup = null;
+    }
+    if (tele) {
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      if (pricedCall.price.verdict === 'call')
+        noteFire('holdem_tournament_all_in_call_priced_call_seen');
+      else noteFire('holdem_tournament_all_in_call_priced_fold_seen');
+    }
+    if (shape === pricedCall.price.verdict) return decision;
+    if (tele) noteFire('holdem_tournament_all_in_call_reference_kept_seen');
+    return pricedCall.price.verdict === 'call'
+      ? holdemPricedCall(player, gs, decision.thinkTime)
+      : { action: 'fold', thinkTime: decision.thinkTime };
+  }
+  holdemAllInCallVerdictPending = priceHoldemTournamentPostflopCall(player, gs, vi);
   const v = holdemAllInCallVerdictPending;
   if (!v) return decision;
   const shape = holdemCallShape(decision, player, gs);
   if (shape === 'other' || shape === v.price.verdict) return decision;
-  const lock = v.street === 'preflop' ? 0 : holdemAllInCallLock(v);
+  const lock = holdemAllInCallLock(v);
   if (!(Math.abs(v.price.margin) > lock)) return decision;
   if (tele) {
     // Literal keys: the ledger contract finds each receipt by its noteFire call.
-    if (v.street === 'preflop') noteFire('holdem_tournament_all_in_call_reference_kept_seen');
-    else if (v.price.verdict === 'fold')
-      noteFire('holdem_tournament_postflop_call_priced_fold_seen');
+    if (v.price.verdict === 'fold') noteFire('holdem_tournament_postflop_call_priced_fold_seen');
     else if (v.price.margin <= HOLDEM_TOURNAMENT_ALL_IN_LOCK_MARGIN)
       noteFire('holdem_tournament_committed_stack_call_seen');
     else noteFire('holdem_tournament_postflop_all_in_call_priced_seen');
@@ -16737,6 +16773,7 @@ export class HorseLogic {
       }
     }
     let phase6Reference: Phase6ReferenceObservation = { route: 'legacy_preflop', lookup: null };
+    holdemAllInCallPhase6RefPending = phase6Reference;
     v87HollywoodEligible = false;
     v87RiverBlockTrapPending = false;
     v86NutBlockerBluffPending = false;
@@ -16751,6 +16788,7 @@ export class HorseLogic {
           (opts.v7Preflop ?? v7)
             ? this.decidePreflopV7Glue(player, gs, vi, params, opts, (observed) => {
                 phase6Reference = observed;
+                holdemAllInCallPhase6RefPending = observed;
               })
             : this.decidePreflop(player, gs, vi, params);
         if (
@@ -19102,30 +19140,6 @@ export class HorseLogic {
         if (telemetryOn(opts) && observedManiacRaiser) noteFire('observed_maniac_raiser_seen');
       } catch {
         /* reads are best-effort */
-      }
-    }
-
-    // ═══ A HOLD'EM TOURNAMENT ALL-IN CALL IS PRICED (2026-11-19) ═══════════
-    // holdemTournamentAllInCallIsPriced (default OFF, read === true;
-    // HorseHoldemTournamentAllInCall.ts). Every all-in call decision of a
-    // two-card no-limit hold'em tournament hand at 25 big blinds or less (or
-    // a committed stack) is answered by its price: the Horse's equity against
-    // the ranges in the pot, players behind priced as overcallers, against the
-    // exact price with dead money and the bubble factor. It answers before the
-    // Nash caller table and the All-In-Or-Fold strength bar, so neither reads
-    // these spots with the option on. Off, nothing here runs.
-    if (opts.holdemTournamentAllInCallIsPriced === true) {
-      const pricedCall = priceHoldemTournamentPreflopAllInCall(player, gs, vi, opts);
-      if (pricedCall === 'unpriced') {
-        if (telemetryOn(opts)) noteFire('holdem_tournament_all_in_call_unpriced_seen');
-      } else if (pricedCall !== null) {
-        holdemAllInCallVerdictPending = pricedCall;
-        if (pricedCall.price.verdict === 'call') {
-          if (telemetryOn(opts)) noteFire('holdem_tournament_all_in_call_priced_call_seen');
-          return holdemPricedCall(player, gs, 0);
-        }
-        if (telemetryOn(opts)) noteFire('holdem_tournament_all_in_call_priced_fold_seen');
-        return { action: 'fold', thinkTime: 0 };
       }
     }
 
