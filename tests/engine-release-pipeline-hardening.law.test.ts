@@ -619,6 +619,68 @@ exit 0
     expect(['firing', 'resolved']).toContain(firing!.status);
     expect(['firing', 'resolved']).toContain(resolved[0].status);
   });
+  it('wave 4: prepare serializes host prewarm under ENGINE_BUILD_LOCK_FILE and verified superseded stand-downs resolve stale EngineReleaseFailed alerts', () => {
+    expect(DEPLOY_WF).toContain(
+      'PREPARE_LOCK="${ENGINE_BUILD_LOCK_FILE:-/var/lock/club-arena-engine-build.lock}"'
+    );
+    expect(DEPLOY_WF).toContain('flock -w 30 8 || { echo "ENGINE_PREPARE_LOCK_BUSY=$PREPARE_LOCK"');
+    expect(DEPLOY_WF.indexOf('flock -w 30 8')).toBeLessThan(
+      DEPLOY_WF.indexOf('"$STAGE/server/scripts/prewarm-engine-image.sh" "$IMAGE_ID"')
+    );
+    expect(DEPLOY_WF).toContain(
+      'name: Resolve prior release failure alerts after verified superseded stand-down'
+    );
+    expect(DEPLOY_WF).toContain(
+      "if: always() && needs.deploy.outputs.release_result == 'superseded'"
+    );
+    expect(DEPLOY_WF).toContain(
+      'VERIFIED=true timeout --signal=TERM --kill-after=5s 60s node scripts/ci/record-engine-release-alert.mjs'
+    );
+
+    // Behavioral proof: extract the exact Python health check from auto-deploy-hetzner.yml
+    const pyMatch = DEPLOY_WF.match(
+      /python3 -c '(import json,sys; h=json\.load\(sys\.stdin\);[^']+)'/
+    );
+    expect(pyMatch?.[1]).toBeTruthy();
+    const evalHealth = (payload: string) => {
+      const r = spawnSync('python3', ['-c', pyMatch![1]], {
+        input: payload,
+        encoding: 'utf8',
+      });
+      return r.status === 0 ? r.stdout.trim() : 'false';
+    };
+    expect(
+      evalHealth(
+        JSON.stringify({
+          status: 'ok',
+          liveness: 'ok',
+          settlementStatus: 'ok',
+          wholeFleetStalled: false,
+        })
+      )
+    ).toBe('true');
+    expect(
+      evalHealth(
+        JSON.stringify({
+          status: 'ok',
+          liveness: 'degraded',
+          settlementStatus: 'ok',
+          wholeFleetStalled: false,
+        })
+      )
+    ).toBe('false');
+    expect(
+      evalHealth(
+        JSON.stringify({
+          status: 'ok',
+          liveness: 'ok',
+          settlementStatus: 'ok',
+          wholeFleetStalled: true,
+        })
+      )
+    ).toBe('false');
+    expect(evalHealth('{malformed-json')).toBe('false');
+  });
 
   it('wave 4: suppresses failure alerts for ancestor-superseded SHAs, widens auto-resolve lookback to 14 days, and supports verified superseded resolution', () => {
     const olderSha = 'e2140d2d1581daaf84857d98e671f2be832162c6';
