@@ -49,7 +49,10 @@ const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([
 /**
  * The staged options. A name the registry does not hold, or that does not take shadow there, is inert (the shadow
  * only ever picks a registered option in shadow or on_shadow). omahaOpponentLifetimeHud is NOT listed: in shadow
- * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely.
+ * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely. The math core's street flags
+ * are NOT listed (2026-11-20, VERIFIER V59): a re-decision with the core costs 50-125 ms on PLO5 postflop, and a
+ * request arriving on the same worker would wait behind it. They return only with a separate shadow worker thread or
+ * once the core's cost is lower. The companions field stays for such a two-key option.
  */
 export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaBetSizeIsPricedForTheRange: PLO4_PLO5,
@@ -57,11 +60,6 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaRiverFirstToActBetIsPriced: PLO4_PLO5,
   omahaFourBetFoldPricedCall: PLO4_PLO5,
   omahaStabDefenceIsPriced: PLO4_PLO5,
-  omahaMathCorePlo5Flop: Object.freeze({
-    games: Object.freeze([5] as const),
-    streets: Object.freeze(['flop']),
-    companions: Object.freeze(['omahaMathCore']),
-  }),
 });
 
 /** The acted decision may have taken this long and a listed option is still re-decided. */
