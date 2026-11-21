@@ -45,6 +45,7 @@ import {
   styleSwitchDecisionOpts,
   type StyleSwitchStates,
 } from '../src/engine/HorseStyleSwitch.js';
+import { replayReceiptKeep } from '../src/benchmark/ReplayArmReceipts.js';
 
 const args = process.argv.slice(2);
 const opt = (name: string): string | undefined => {
@@ -107,6 +108,18 @@ for (const [arm, set] of Object.entries(arms))
       `arm ${arm}: today's option registry refuses its option set; nothing would be switched`
     );
 
+// The receipts each arm keeps: those the ledger attributes to the options under test, plus the earlier families
+// (src/benchmark/ReplayArmReceipts.ts). An option the ledger names no receipt for is reported, not guessed.
+const receiptKeep = replayReceiptKeep(
+  Object.values(arms).flatMap((set) =>
+    Object.keys(set).filter((o) => set[o] === 'on' && base[o] !== 'on')
+  )
+);
+for (const o of receiptKeep.unattributed)
+  console.error(
+    `note: the ledger names no receipt for ${o}; its rows keep only the receipt families`
+  );
+
 const brainOpts = (set: Record<string, 'on' | 'off'>, horseId: string) => ({
   ...styleSwitchBrainOpts(
     styleSwitchDecisionOpts(style as unknown as StyleSwitchStates, horseId, false)
@@ -165,9 +178,7 @@ job.hands.forEach((item, hi) => {
           amount: kind === 'raise' || kind === 'jam' ? (r.sizesBb[0] ?? null) : null,
           legal: true,
           refusal: false,
-          receipts: Object.keys(r.receipts).filter((k) =>
-            /priced|value_share|multiway|plo6_facing|holdem_|^hu_/.test(k)
-          ),
+          receipts: Object.keys(r.receipts).filter(receiptKeep.keep),
           kinds: r.kinds,
         };
       } catch (e) {
