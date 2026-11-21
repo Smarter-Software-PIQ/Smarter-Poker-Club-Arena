@@ -2503,6 +2503,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemCommittedNoPairIsPriced',
+    "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemDangerBoardEquityIsPriced',
+    "Hold'em Strategy lane 2026-11-20 (priced rebuild of the 'board discipline' flat -0.15 in Antigravity 633eec005d5 and 6496e1610f0). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, turn or river, a four-flush or four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's range on this board (HorseHoldemCommittedPricing.holdemDangerBoardBettorEquity: the unseen combos split by what they make now, no pair / one pair / two pair or better, weighted by what people who bet such boards showed down, MEASURED 3 / 5 / 42 of 50, NLH cash 2026-10-20..11-19). Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -9159,6 +9169,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
     "not facing a wager on the flop or turn, a made hand below half the equity of the bettor's line range: the brain's check or bet is kept",
     'V94'
+  ),
+  receipt(
+    'holdem_committed_no_pair_jam_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor jams: EV(jam) beat EV(call) and zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_call_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor calls: EV(call) beat EV(jam) and zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_fold_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor folds: neither the call nor the jam has positive EV',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_unpriced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand could not be priced (nothing to enumerate): the committed branch decides as with the option off',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_danger_board_equity_priced',
+    'HorseLogic facing-bet equity (holdemDangerBoardEquityIsPriced)',
+    'one pair facing one bettor on a four-flush or four-straight turn or river is priced at its exact equity against his range on this board',
+    "Hold'em Strategy"
   ),
   receipt(
     'v87_turn_takeaway',

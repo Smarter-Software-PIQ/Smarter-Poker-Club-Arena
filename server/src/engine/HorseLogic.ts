@@ -11,6 +11,12 @@ import {
   holdemRiverLeadBoat,
 } from './HorseHoldemRiverFullHouseValue.js';
 import {
+  boardHasFourFlush,
+  boardHasFourStraight,
+  holdemCommittedNoPairDecision,
+  holdemDangerBoardBettorEquity,
+} from './HorseHoldemCommittedPricing.js';
+import {
   holdemFillEquities,
   holdemHandIsMade,
   holdemLineLikelihood,
@@ -5709,6 +5715,18 @@ export interface HorseDecideOpts {
    * Horse's call or check-raise. Bluff raises and hands without a made hand that bet keep the brain's line;
    * more than one opponent keeps the decision. Off: byte-identical. */
   holdemValueAndCallsArePriced?: boolean;
+  /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
+   * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
+   * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
+   * equity and the measured fold share of people to a Horse raise (HorseHoldemCommittedPricing). Off:
+   * byte-identical. */
+  holdemCommittedNoPairIsPriced?: boolean;
+  /** Hold'em Strategy 2026-11-20 (priced rebuild of 633eec005d5 / 6496e1610f0 "board discipline" flat -0.15):
+   * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, turn or river, four-flush or
+   * four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's
+   * range on this board, by the measured showdown classes of people who bet such boards
+   * (HorseHoldemCommittedPricing). Off: byte-identical. */
+  holdemDangerBoardEquityIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -27596,6 +27614,39 @@ export class HorseLogic {
       }
     }
 
+    // holdemDangerBoardEquityIsPriced (Hold'em Strategy 2026-11-20, default off): on a four-flush or four-straight
+    // turn or river, one pair facing one bettor prices against his range on THIS board (exact per-combo equity,
+    // classes weighted by what people who bet such boards showed down) instead of the range read; replaces the
+    // unmeasured flat -0.15 of the earlier board discipline draft. Off: never entered.
+    if (
+      opts.holdemDangerBoardEquityIsPriced === true &&
+      gs.gameVariant === 'nlh' &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      player.cards.length === 2 &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      !isTournamentMode(gs) &&
+      (gs as { publicMemoryDomain?: { speed?: string } | null }).publicMemoryDomain?.speed !==
+        'lightning' &&
+      (street === 'turn' || isRiver) &&
+      cat === 2 &&
+      toCall > 0 &&
+      opponents.length === 1 &&
+      (boardHasFourFlush(board) || boardHasFourStraight(board))
+    ) {
+      const eqDanger = holdemDangerBoardBettorEquity(
+        player.cards,
+        board,
+        player.knownDeadCards ?? []
+      );
+      if (eqDanger !== null) {
+        if (tele15) noteFire('holdem_danger_board_equity_priced');
+        eq15 = eqDanger;
+      }
+    }
+
     // The Phase 7 utility model must inherit every structural safety cap
     // (notably the multiway T8o and dominated-Omaha repairs), not resurrect
     // the raw random-range estimate after those layers have rejected it.
@@ -28121,6 +28172,55 @@ export class HorseLogic {
         !(pairedByNewCard88 && cat < 4);
     }
     if (committed) {
+      // holdemCommittedNoPairIsPriced (Hold'em Strategy 2026-11-20, default off): the committed no-pair no-draw hand
+      // facing one bettor takes the best of fold, call and jam by EV (HorseHoldemCommittedPricing). Off: never
+      // entered; nothing priced: the branch below decides as today.
+      if (
+        opts.holdemCommittedNoPairIsPriced === true &&
+        gs.gameVariant === 'nlh' &&
+        !vi.isOmaha &&
+        !vi.isShortDeck &&
+        !vi.isFixedLimit &&
+        player.cards.length === 2 &&
+        !multiBoard36 &&
+        !gs.bombPot &&
+        !gs.allInOrFold &&
+        !isTournamentMode(gs) &&
+        (gs as { publicMemoryDomain?: { speed?: string } | null }).publicMemoryDomain?.speed !==
+          'lightning' &&
+        board.length >= 3 &&
+        cat === 1 &&
+        toCall > 0 &&
+        opponents.length === 1 &&
+        !holdemHoleDrawPresent(player.cards, board)
+      ) {
+        const opp0 = opponents[0];
+        const oppBehind0 = opp0.is_all_in
+          ? 0
+          : Math.max(0, Number.isFinite(opp0.stack) ? opp0.stack : 0);
+        const priced0 = holdemCommittedNoPairDecision({
+          hole: player.cards,
+          board,
+          dead: player.knownDeadCards ?? [],
+          pot,
+          toCall,
+          jamTotal: Math.min(stack, rawToCall + oppBehind0),
+          equity: eq15,
+          rake: callDeductionFraction ?? rakeMarg,
+        });
+        if (priced0 === null) {
+          if (tele15) noteFire('holdem_committed_no_pair_unpriced');
+        } else {
+          if (tele15) {
+            if (priced0.action === 'all_in') noteFire('holdem_committed_no_pair_jam_priced');
+            else if (priced0.action === 'call') noteFire('holdem_committed_no_pair_call_priced');
+            else noteFire('holdem_committed_no_pair_fold_priced');
+          }
+          if (priced0.action === 'all_in') return { action: 'all_in', thinkTime: 0 };
+          if (priced0.action === 'call') return { action: 'call', amount: toCall, thinkTime: 0 };
+          return { action: 'fold', thinkTime: 0 };
+        }
+      }
       // V20: the flat-call bar here was potOdds + 0.02 regardless of how many
       // players were in or how many of them were ALL IN — the exact door the
       // T8o call-off walked through. The bar now carries half the multiway
