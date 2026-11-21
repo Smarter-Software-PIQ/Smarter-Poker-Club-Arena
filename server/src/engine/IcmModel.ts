@@ -275,7 +275,7 @@ export function createIcmEquityEstimator(
           // an award or permitted recovery can restore a live entrant. Keep
           // <=10-player candidates exact and use one original-input MC clock
           // population for larger candidates, rather than returning exact zero.
-          revivedField ??= createMonteCarloEquityEstimator(
+          revivedField ??= sharedMonteCarloEquityEstimator(
             reference,
             prizes,
             heroIdx,
@@ -294,7 +294,111 @@ export function createIcmEquityEstimator(
     };
   }
 
-  return createMonteCarloEquityEstimator(reference, prizes, heroIdx, mutable, maximumTrials);
+  return sharedMonteCarloEquityEstimator(reference, prizes, heroIdx, mutable, maximumTrials);
+}
+
+/**
+ * THE CLOCK POPULATION IS REUSED ACROSS DECISIONS (TASK #8, 2026-11-20).
+ *
+ * Production 2026-11-21 00:00-00:26Z: the tournament-utility node (Phase 7, HorseTournamentUtility) took
+ * 205,203 ms of 468,753 ms of all Horse decision time (44%), about 26.5 ms per tournament decision, and NLH
+ * decisions averaged 29 ms (cash 5-10 ms, tournaments 25-100 ms). Every tournament decision built this
+ * estimator afresh: up to 240,000 exponential clock draws and one numeric sort per trial over the remote field
+ * (the comment above calls it the dominant Phase 7 action-clock cost), although the same Horse at the same
+ * table decides several times a hand against the same remote field.
+ *
+ * The estimator is a pure function of its inputs: its own seeded generator (seed from the hero index, field
+ * length and payout count), clocks written once at construction and only read by estimate(), which mutates
+ * nothing but a memo of scalar error bounds. A mutable (table-local) slot's stack never enters construction
+ * except through the live count. So an estimator built for identical (field length, hero index, payout curve,
+ * mutable slots, trial cap, live count, every non-mutable stack exactly) is the same object in every value it
+ * can return, and reusing it changes no decision. Anything else builds a new one. Bounded LRU per process
+ * (each entry holds at most 240,000 doubles, about 1.9 MB).
+ */
+export const ICM_MC_ESTIMATOR_CACHE_MAX = 8;
+const mcEstimatorCache = new Map<string, IcmEquityEstimator>();
+let mcEstimatorCacheHits = 0;
+let mcEstimatorCacheBuilds = 0;
+
+function monteCarloEstimatorKey(
+  reference: number[],
+  prizes: number[],
+  heroIdx: number,
+  mutable: number[],
+  maximumTrials: number
+): string {
+  const mutableSet = new Set(mutable);
+  let live = 0;
+  const fixed: string[] = [];
+  for (let index = 0; index < reference.length; index++) {
+    const stack = reference[index];
+    if (stack > 0) live++;
+    fixed.push(mutableSet.has(index) ? '*' : String(stack));
+  }
+  return `${reference.length}|${heroIdx}|${String(maximumTrials)}|${live}|${prizes.join(',')}|${mutable.join(',')}|${fixed.join(',')}`;
+}
+
+function sharedMonteCarloEquityEstimator(
+  reference: number[],
+  prizes: number[],
+  heroIdx: number,
+  mutable: number[],
+  maximumTrials: number
+): IcmEquityEstimator {
+  const key = monteCarloEstimatorKey(reference, prizes, heroIdx, mutable, maximumTrials);
+  const cached = mcEstimatorCache.get(key);
+  if (cached) {
+    mcEstimatorCacheHits++;
+    mcEstimatorCache.delete(key);
+    mcEstimatorCache.set(key, cached);
+    return cached;
+  }
+  const built = createMonteCarloEquityEstimator(reference, prizes, heroIdx, mutable, maximumTrials);
+  mcEstimatorCacheBuilds++;
+  mcEstimatorCache.set(key, built);
+  while (mcEstimatorCache.size > ICM_MC_ESTIMATOR_CACHE_MAX) {
+    const oldest = mcEstimatorCache.keys().next().value;
+    if (oldest === undefined) break;
+    mcEstimatorCache.delete(oldest);
+  }
+  return built;
+}
+
+/** Reuse counters of the Monte Carlo clock population (benchmarks and tests). */
+export function icmEstimatorCacheStats(): { hits: number; builds: number; size: number } {
+  return {
+    hits: mcEstimatorCacheHits,
+    builds: mcEstimatorCacheBuilds,
+    size: mcEstimatorCache.size,
+  };
+}
+
+/** Tests and benchmarks only: forget every cached clock population. */
+export function resetIcmEstimatorCacheForTest(): void {
+  mcEstimatorCache.clear();
+  mcEstimatorCacheHits = 0;
+  mcEstimatorCacheBuilds = 0;
+}
+
+/** The uncached construction, for differential tests only. */
+export function buildMonteCarloEquityEstimatorUncachedForTest(
+  stacks: number[],
+  payouts: number[],
+  heroIdx: number,
+  mutableIndices: number[],
+  maximumTrials: number = MC_MAX_TRIALS
+): IcmEquityEstimator {
+  const reference = cleanStacks(stacks);
+  const mutable = [...new Set([...mutableIndices, heroIdx])]
+    .filter((index) => Number.isSafeInteger(index) && index >= 0 && index < reference.length)
+    .sort((left, right) => left - right);
+  return createMonteCarloEquityEstimator(
+    reference,
+    cleanPayouts(payouts),
+    heroIdx,
+    mutable,
+    maximumTrials
+  );
 }
 
 /** Inputs are detached and sanitized by the public workspace admission. */
