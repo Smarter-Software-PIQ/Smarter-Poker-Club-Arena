@@ -31,6 +31,7 @@ import {
   clearDecisionHud,
   hudCbetRaiseRecord,
   hudFirstWagerRaisedRecord,
+  hudBarrelRecord,
   hudFirstWagerRecord,
   hudFirstWagerSizeCounts,
   hudLifetimeCount,
@@ -697,5 +698,58 @@ describe('exact counters are ADDITIVE', () => {
         hudFirstWagerRecord(U(1), 'plo5', 'flop', 'hu'),
       ]).toEqual(ra);
     }
+  });
+});
+
+describe('the barrel record has one counter and two readers (STAB-DEFENCE-7; lead 4:02 AM Nov 21)', () => {
+  const hands = generated(11, 1500).map((h) => rec(h.row) as HudHandRecord);
+  const withX = emptyHudProfile(U(1), 'plo5');
+  const before = emptyHudProfile(U(1), 'plo5');
+  delete before.xc;
+  for (const h of hands) {
+    applyHudHand(withX, h);
+    applyHudHand(before, h);
+  }
+  it('hudBarrelRecord and hudFirstWagerRecord().afterOwnWager are the same exact counts, a part of the same opportunities', () => {
+    let opps = 0;
+    for (const [street, sk] of [
+      ['turn', 't'],
+      ['river', 'r'],
+    ] as const) {
+      installDecisionHud(buildHudPacket('plo5', [withX], {}, T0 + 1e7, street));
+      for (const players of ['hu', 'mw'] as const) {
+        const want = {
+          opps: withX.xc![`${sk}.brl.${players}.opps`] ?? 0,
+          bets: withX.xc![`${sk}.brl.${players}.bets`] ?? 0,
+        };
+        expect(hudBarrelRecord(U(1), 'plo5', { street, players })).toEqual(want);
+        const fw = hudFirstWagerRecord(U(1), 'plo5', street, players)!;
+        expect(fw.afterOwnWager).toEqual(want);
+        expect(want.bets).toBeLessThanOrEqual(want.opps);
+        expect(want.opps).toBeLessThanOrEqual(fw.opps);
+        expect(want.bets).toBeLessThanOrEqual(fw.bets);
+        opps += want.opps;
+      }
+    }
+    expect(opps).toBeGreaterThan(20); // not an empty law
+    clearDecisionHud();
+  });
+  it('unknown is absent, never zeros, and every other field of the record is what it was', () => {
+    for (const street of ['turn', 'river'] as const) {
+      for (const players of ['hu', 'mw'] as const) {
+        installDecisionHud(buildHudPacket('plo5', [withX], {}, T0 + 1e7, street));
+        const { afterOwnWager, ...rest } = hudFirstWagerRecord(U(1), 'plo5', street, players)!;
+        expect(afterOwnWager).toBeDefined();
+        installDecisionHud(buildHudPacket('plo5', [before], {}, T0 + 1e7, street));
+        const old = hudFirstWagerRecord(U(1), 'plo5', street, players)!;
+        expect('afterOwnWager' in old).toBe(false);
+        expect(old).toEqual(rest);
+        expect(hudBarrelRecord(U(1), 'plo5', { street, players })).toBeNull();
+      }
+    }
+    installDecisionHud(buildHudPacket('plo5', [withX], {}, T0 + 1e7, 'flop'));
+    expect('afterOwnWager' in hudFirstWagerRecord(U(1), 'plo5', 'flop', 'hu')!).toBe(false);
+    clearDecisionHud();
+    expect(hudBarrelRecord(U(1), 'plo5', { street: 'turn', players: 'hu' })).toBeNull();
   });
 });

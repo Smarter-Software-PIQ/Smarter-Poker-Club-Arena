@@ -419,6 +419,10 @@ export function hudFirstWagerRecord(
   /** sizeSum = sum over his stabs of wager / pot before it (each capped at 2 pots) */
   checkedTo: { bets: number; opps: number; sizeSum: number };
   firstToAct: { bets: number; opps: number };
+  /** Turn and river only, and only when his profile holds the barrel counter: the SAME counter hudBarrelRecord reads
+   *  (<s>.brl.<hu|mw>), given here under the name the barrel reader asked for (STAB-DEFENCE-7 09:35Z; lead 4:02 AM
+   *  Nov 21). Absent = unknown (never zeros); every other field of this record is exactly what it was. */
+  afterOwnWager?: { bets: number; opps: number };
 } | null {
   try {
     const pk = installed && installed.family === family ? installed : null;
@@ -426,7 +430,9 @@ export function hudFirstWagerRecord(
     const st = hudLifetimeCount(opponentId, family, 'x.stab', { street, players });
     const ld = hudLifetimeCount(opponentId, family, 'x.lead', { street, players });
     const sz = pk.opp[opponentId].lc?.[`${SK[street]}.stabsz.${players}`];
+    const brl = street === 'flop' ? null : hudBarrelRecord(opponentId, family, { street, players });
     return {
+      ...(brl ? { afterOwnWager: { bets: brl.bets, opps: brl.opps } } : {}),
       bets: st.hits + ld.hits,
       opps: st.n + ld.n,
       checkedTo: {
