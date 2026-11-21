@@ -3845,6 +3845,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverFirstToActBetIsPriced: true },
     b: {},
   })),
+  // 2026-11-21 EMERG lane BLANKET-AUDIT (default OFF, PLO4/PLO5 cash): omahaBlanketRowsOffInPlo45Cash with the first
+  // declared members (v74OmahaSemiBluffNeedsDraw and the hidden four); a switches it on with that list, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_blanket_rows_off_in_plo45_cash`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaBlanketRowsOffInPlo45Cash: true,
+      omahaBlanketRowsOffList: [
+        'v74OmahaSemiBluffNeedsDraw',
+        'ploPairedBoardFold',
+        'ploPairedBoardRiverCheck',
+        'omahaRiverNutRaiseOnly',
+        'omahaTurnSetPound',
+      ],
+    },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane RANGE-MODEL-2 (default OFF, PLO4/PLO5 cash): omahaRiverCurrentNutsCallFloor (a final river
   // fold facing a wager with the exact current nuts becomes the call where a full chop still returns it); a switches it
   // on, b is today's brain.

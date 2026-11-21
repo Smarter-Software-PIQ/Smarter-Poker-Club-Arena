@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaBlanketRowsOffInPlo45Cash.law.test.ts
+
+With omahaBlanketRowsOffInPlo45Cash on (default OFF) and a declared list (runtime settings horse.blanketRowOffInPlo45Cash.<option>), every listed blanket row is off in a PLO4/PLO5 cash decision and nowhere else: off, no list, PLO6, PLO8, hold'em and tournaments are decision-identical; only registry members (the no-categorical list minus every rule the register classes priced) can be listed, so the option can never switch off a priced rule; one listed row decides exactly as that row's own off path; and the one read site sits before omahaNoCategoricalRules in decide and prepareOriginalReads.

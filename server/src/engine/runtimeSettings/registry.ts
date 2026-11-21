@@ -26,11 +26,16 @@ import {
   OMAHA_OPTION_GAME_SCOPE_OPTIONS,
   OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX,
 } from '../HorseOmahaOptionGameScope.js';
+import {
+  OMAHA_BLANKET_ROWS_OFF_REGISTRY,
+  OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
+} from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
 
 /** Where a setting is consumed. */
 export type RuntimeSettingConsumer =
   | 'horse_decision'
   | 'horse_option_game_scope'
+  | 'horse_blanket_rows_off'
   | 'lightning_fast_fold'
   | 'horse_stack_management';
 
@@ -179,6 +184,18 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       consumer: 'horse_option_game_scope',
       source: `HorseOmahaOptionGameScope.ts (opts.omahaOptionGameScope['${option}']; 0 is no scope)`,
       description: `PLO4/PLO5 Cash: The Game ${option} May Be On In (0 = Both, 4 = PLO4 Only, 5 = PLO5 Only)`,
+    })),
+    // ---- The declared list of omahaBlanketRowsOffInPlo45Cash (HorseOmahaBlanketRowsOffInPlo45Cash.ts): one key per
+    // registry member; read only while that switch is on and only in a PLO4/PLO5 cash decision ----
+    ...OMAHA_BLANKET_ROWS_OFF_REGISTRY.map((option) => ({
+      key: OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX + option,
+      kind: 'integer',
+      min: 0,
+      max: 1,
+      compiledDefault: 0,
+      consumer: 'horse_blanket_rows_off',
+      source: `HorseOmahaBlanketRowsOffInPlo45Cash.ts (opts.omahaBlanketRowsOffList includes '${option}'; 0 is not listed)`,
+      description: `PLO4/PLO5 Cash Only: Blanket Row ${option} Off While omahaBlanketRowsOffInPlo45Cash Is On (0 = No, 1 = Off)`,
     })),
   ].map((spec) => Object.freeze(spec as RuntimeSettingSpec))
 );
