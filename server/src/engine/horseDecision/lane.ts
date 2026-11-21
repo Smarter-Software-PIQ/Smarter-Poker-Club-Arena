@@ -1,4 +1,8 @@
 import { horseRequestAllowance } from './requestRetentionBudget.js';
+import {
+  armOpponentHudFromSwitch,
+  startOpponentHudStore,
+} from '../../services/OpponentHudStore.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
 import {
@@ -577,6 +581,9 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
     this.lastStyleSwitch = message;
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while the reading the
+    // workers get has omahaOpponentLifetimeHud on (an unreadable reading disarms; never throws).
+    armOpponentHudFromSwitch(message);
     // horseRunItTwiceIsPriced is decided on the main thread (HorseRunItTwiceSwitch.ts): it reads the same message.
     receiveHorseRunItTwiceSwitchMessage(message);
     for (const client of this.clients) client.postStyleSwitch(message);
@@ -900,6 +907,8 @@ export async function startLiveHorseDecisionWorker(
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
       broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
+    // the production boot (no injected reader) starts the Horses' shared opponent memory
+    if (options.styleSwitchRead === undefined) startOpponentHudStore();
     styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
   }
   if (styleSwitchFirstDelivery) await styleSwitchFirstDelivery;
