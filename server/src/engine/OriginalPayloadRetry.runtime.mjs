@@ -14,7 +14,7 @@ import { publicHandStatsFrame } from './presentation/publicHandStats.ts';
 import { PostHandStageTiming } from './PostHandStageTiming.ts';
 import { privateHorseTurnClocks } from './HorseTurnClockReceipt.ts';
 import { captureAcceptedTerminal } from '../services/horseDecisionJournal/acceptedTerminal.ts';
-import { resolveReleaseIdentity } from '../releaseIdentity.ts';
+import { handRowEngineBuild, resolveReleaseIdentity } from '../releaseIdentity.ts';
 import {
   publicMemoryDomainIsValid,
   publicMemoryDomainFromRules,
@@ -110,6 +110,7 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     privateHorseTurnClocks,
     captureAcceptedTerminal,
     resolveReleaseIdentity,
+    handRowEngineBuild,
     publicMemoryDomainIsValid,
     publicMemoryDomainFromRules,
     // The extracted logHandHistory counts each accepted hand once (HVH2D-EXE-002).
