@@ -55,6 +55,8 @@ import { prefetchIntent } from '../../utils/ChunkPreloader';
 import { observeLobbyScrollClearance } from './lobbyScrollClearance';
 import { observeLobbyTableWarmups, warmTable } from '../../services/tableWarmup';
 import { useSpinTierAvailability } from '../../hooks/useSpinTierAvailability';
+import { gameInviteText, gameInviteUrl, shareLink } from '../../lib/share';
+import { InviteLinkIcon } from '../table/TableMenuIcons';
 import {
   lobbyPlayerStateOf as playerStateOf,
   type LobbyPlayerState as PlayerState,
@@ -1331,6 +1333,51 @@ const STATUS_RANK: Record<LobbyStatusKey, number> = {
   closed: 7,
   completed: 8,
 };
+function InviteRowButton({ entry }: { entry: LobbyEntry }) {
+  const [feedback, setFeedback] = useState<'idle' | 'copied' | 'shared'>('idle');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    []
+  );
+
+  const handleInvite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = gameInviteUrl(
+      entry.kind === 'cash' ? { kind: 'table', id: entry.id } : { kind: 'tournament', id: entry.id }
+    );
+    void shareLink({
+      source: 'LobbyTable.inviteToGame',
+      title: entry.name || 'Club Arena Game',
+      text: gameInviteText(entry.name),
+      url,
+    }).then((outcome) => {
+      if (outcome === 'copied' || outcome === 'shared') {
+        setFeedback(outcome);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setFeedback('idle'), 2400);
+      }
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      className={`lt-invite-btn${feedback !== 'idle' ? ' is-done' : ''}`}
+      data-testid="lobby-invite-btn"
+      aria-label={`Invite To ${entry.name}`}
+      title="Invite To Game"
+      onClick={handleInvite}
+    >
+      <InviteLinkIcon />
+      <span>{feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}</span>
+    </button>
+  );
+}
+
 const COL_STATUS: ColumnDef = {
   key: 'status',
   label: 'Status',
@@ -1348,6 +1395,7 @@ const COL_STATUS: ColumnDef = {
           Min..." beside a badge reading Filling was two different answers to
           the same question; and a cash game is running now. */}
       <LobbyStatusBadge status={e.status} label={e.statusLabel} />
+      <InviteRowButton entry={e} />
     </span>
   ),
 };
