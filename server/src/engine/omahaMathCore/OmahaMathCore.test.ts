@@ -604,9 +604,17 @@ describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) an
       if (k) {
         kept++;
         expect(out.action).toBe('fold');
-        expect(k.gap).toBeLessThanOrEqual(
-          (OMAHA_MATH_CORE_CHANGE_MARGIN_K as number) * k.se + 0.01
-        );
+        // kept because the calibrated gap is within k SE, or (a change across the fold boundary) because the raw,
+        // uncalibrated gap is (a factor above 1 can lift a calibrated price over the bar: CORE-POOLED-4 raise 1.034)
+        const bestE = rc.core!.evs.find(
+          (e) => `${e.action}${e.amount !== null ? ' ' + e.amount : ''}` === k.best
+        )!;
+        const foldE = rc.core!.evs.find((e) => e.action === 'fold')!;
+        const K = OMAHA_MATH_CORE_CHANGE_MARGIN_K as number;
+        expect(
+          k.gap <= K * k.se + 0.01 ||
+            !omahaMathCoreFoldBoundaryRawOk(bestE as never, foldE as never, 'fold', bestE.action, K)
+        ).toBe(true);
       } else if (out.action !== 'fold') {
         changed++;
         const best = rc.core!.evs.find((e) => e.action === out.action)!;
@@ -710,7 +718,7 @@ describe('omahaMathCore deterministic work budget (COREWIRE-2, gate G6: five-way
 });
 
 describe('omahaMathCore realization calibration (CORE-4: the core prices only what its lines realise)', () => {
-  it('provenance is own_cards_history (allowed), every cell is measured (n >= minN) and positive', () => {
+  it('provenance is allowed (population_all_cards_capped since CORE-POOLED-4), every cell is measured (n >= minN) and positive', () => {
     const C = OMAHA_MATH_CORE_REALIZATION_CALIBRATION;
     expect(OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(C.provenance)).toBe(true);
     for (const [k, c] of Object.entries(C.cells)) {

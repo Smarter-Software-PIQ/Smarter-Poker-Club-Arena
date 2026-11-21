@@ -371,6 +371,10 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  *
  * Provenance class own_cards_history (lead ruling 2026-11-19): the inputs are the Horse's own priced EV (its own
  * cards, the board, public actions) and its own chips won; no opponent's hidden card is read.
+ * PLO5 flop (lane CORE-POOLED-4, Nov 21): replaced by a population realization fitted offline on hand_history with
+ * every player's recorded cards (equity vs the actual holdings, realised chips at hand end, all-in adjusted), all
+ * players pooled; check 0.677, raise 1.034, call and bet the pooled 0.809 (the old c3c cells were check 0.31,
+ * call 0.343, bet 0.61, raise 0.903 on 47 raises). Same slot and formula as before.
  * Applied to every non-fold candidate on the streets listed (fold stays 0): ev' = r x (ev + adds) - adds,
  * se' = r x se. PLO6 never reaches the core (scope gate); the river is not calibrated here.
  * The calibrated prices rank the continuing actions. A change across the fold boundary (fold -> continue or
@@ -379,10 +383,13 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  * calibrated-only call -> fold on the PLO5 flop graded -1,986 +- 648 bb all-in, -483 +- 297 realised, Nov 19).
  */
 export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
-  version: 'core4-realization-calibration-v1',
-  provenance: 'own_cards_history' as const,
+  version: 'core-pooled4-realization-v2',
+  // the applied cells (streets below: PLO5 flop only) are population_all_cards_capped: an anonymous population
+  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 1.7% of a fit cell
+  // (cap 20% never binds), never read live. The PLO4 and turn cells are kept for the record (own_cards_history).
+  provenance: 'population_all_cards_capped' as const,
   source:
-    'core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19 (both days), n >= 20 per cell',
+    'PLO5 flop: hand_history population realization (lane CORE-POOLED-4, amendment sha d7fbd6c8); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
   minN: 20,
   // CORE-4 criterion 2 (CRITERIA-CORE4-2.md sha b95d08ec..., exact-replay cross-validation by day vs c3c, delta M1 all-in
   // / M2 realised): PLO5 flop PASS (Nov 19 +644 +- 255 realised, -77 +- 364 all-in; Nov 18 +288 +- 196, -163 +- 183);
@@ -396,11 +403,16 @@ export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
     'plo4|turn': { r: 0.85, n: 203 },
     'plo4|turn|bet': { r: 0.952, n: 63 },
     'plo4|turn|check': { r: 0.894, n: 77 },
-    'plo5|flop': { r: 0.51, n: 2196 },
-    'plo5|flop|bet': { r: 0.61, n: 553 },
-    'plo5|flop|call': { r: 0.343, n: 279 },
-    'plo5|flop|check': { r: 0.31, n: 882 },
-    'plo5|flop|raise': { r: 0.903, n: 47 },
+    // PLO5 flop: lane CORE-POOLED-4 (CRITERIA-CORE-POOLED-4-REALIZATION-AMENDMENT sha d7fbd6c8...1c79), measured
+    // from hand_history offline, every player pooled: realised chips at hand end (all-in adjusted) over equity vs
+    // the opponents' actual holdings x the net pot after the flop round; fit Oct 16 - Nov 16, check Nov 18-20 by
+    // serving era. One factor (R1) unless a pair of actions differs at |z| >= 2 with n >= 100 in both sets:
+    // only check vs raise does, so check and raise carry their own fit value, call and bet take R1.
+    'plo5|flop': { r: 0.8091, n: 8973 },
+    'plo5|flop|bet': { r: 0.8091, n: 1996 },
+    'plo5|flop|call': { r: 0.8091, n: 1898 },
+    'plo5|flop|check': { r: 0.6768, n: 4847 },
+    'plo5|flop|raise': { r: 1.0342, n: 232 },
     'plo5|turn': { r: 0.655, n: 1310 },
     'plo5|turn|all_in': { r: 0.697, n: 35 },
     'plo5|turn|bet': { r: 0.663, n: 468 },
