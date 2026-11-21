@@ -73,6 +73,7 @@ import {
 } from '../engine/BettingStructure.js';
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
+import { FIXED_LIMIT_SCRIPTED_POPULATION_ID } from './HorseLeagueHumanField.js';
 
 /** The menu production composes (AuthoritativeActionState, then the table's
  *  commitment cap, null when the table has none). */
@@ -143,6 +144,8 @@ export function leagueFixedLimitRefusal(table: {
   gameMode: 'cash' | 'tournament';
   ante: number;
   humanField: boolean;
+  /** The field's population when humanField is true (LeagueHumanField.population). */
+  fieldPopulation?: string;
 }): string | null {
   if (!leagueDealsFixedLimit(table.gameVariant)) {
     return `The league deals no fixed-limit ${table.gameVariant} hand: only fixed-limit hold'em is dealt`;
@@ -156,8 +159,15 @@ export function leagueFixedLimitRefusal(table: {
   if (table.gameMode !== 'cash' || table.ante > 0) {
     return 'A fixed-limit league hand is a cash hand without an ante';
   }
-  if (table.humanField) {
-    return 'A fixed-limit league hand seats Horses only: no field population is calibrated for fixed limit';
+  // 2026-11-20: the one field a fixed-limit hand seats is the scripted
+  // fixed-limit field (FixedLimitScriptedField.ts), whose seats are offered
+  // this module's fixed-limit menu. No calibrated population is fitted for
+  // fixed limit, and the calibrated and pressure seats build no-limit menus.
+  if (table.humanField && table.fieldPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID) {
+    return (
+      'A fixed-limit league hand seats Horses only, or the scripted fixed-limit field ' +
+      `(${FIXED_LIMIT_SCRIPTED_POPULATION_ID}): no field population is calibrated for fixed limit`
+    );
   }
   return null;
 }
