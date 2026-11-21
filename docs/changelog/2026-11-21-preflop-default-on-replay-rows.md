@@ -26,12 +26,12 @@ Docs only. `nashCallVsJam` and `v72DefenceByOpener` (both default ON in source, 
 
 ## Summary and flags
 
-| Option | Set | Canonical (`on vs off`) | Reverse (`off vs on`, vs live ON) | Status |
-| --- | --- | --- | --- | --- |
-| `nashCallVsJam` | `HVH48-E` tournaments | `changed 194, fixed 1, newlyWrong 1, unjudged 192` | `changed 194, fixed 1, newlyWrong 175, unjudged 17` | `Evidence NOT MET` (human-field card missing; replay bar met at equality, reverse strongly supports ON) |
-| `nashCallVsJam` | `HU30D` HU tournaments | `changed 1, fixed 0, newlyWrong 0, unjudged 1` | `changed 1, fixed 0, newlyWrong 1, unjudged 0` | `Evidence NOT MET` |
-| `v72DefenceByOpener` | `HVH48-D` cash | `changed 219, fixed 0, newlyWrong 0, unjudged 219` | `changed 219, fixed 54, newlyWrong 53, still wrong 15, unjudged 97` | `Evidence NOT MET` (reverse shows 54 CLEAR/LIKELY loose-call mistakes fixed when OFF, mostly with VPIP floor active) |
-| `v72DefenceByOpener` | `HVH48-E` tournaments | `changed 132, fixed 0, newlyWrong 54, unjudged 78` | `changed 132, fixed 0, newlyWrong 48, unjudged 84` | `Evidence NOT MET` (FAILS replay bar: `newlyWrong 54 > fixed 0`) |
+| Option               | Set                    | Canonical (`on vs off`)                            | Reverse (`off vs on`, vs live ON)                                   | Status                                                                                                               |
+| -------------------- | ---------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `nashCallVsJam`      | `HVH48-E` tournaments  | `changed 194, fixed 1, newlyWrong 1, unjudged 192` | `changed 194, fixed 1, newlyWrong 175, unjudged 17`                 | `Evidence NOT MET` (human-field card missing; replay bar met at equality, reverse strongly supports ON)              |
+| `nashCallVsJam`      | `HU30D` HU tournaments | `changed 1, fixed 0, newlyWrong 0, unjudged 1`     | `changed 1, fixed 0, newlyWrong 1, unjudged 0`                      | `Evidence NOT MET`                                                                                                   |
+| `v72DefenceByOpener` | `HVH48-D` cash         | `changed 219, fixed 0, newlyWrong 0, unjudged 219` | `changed 219, fixed 54, newlyWrong 53, still wrong 15, unjudged 97` | `Evidence NOT MET` (reverse shows 54 CLEAR/LIKELY loose-call mistakes fixed when OFF, mostly with VPIP floor active) |
+| `v72DefenceByOpener` | `HVH48-E` tournaments  | `changed 132, fixed 0, newlyWrong 54, unjudged 78` | `changed 132, fixed 0, newlyWrong 48, unjudged 84`                  | `Evidence NOT MET` (FAILS replay bar: `newlyWrong 54 > fixed 0`)                                                     |
 
 Two findings flagged for coordinator follow-up:
 

@@ -84,7 +84,12 @@ import {
 import { HorseSessionRotator } from './services/HorseSessionRotator.js';
 import { StableHandExecutor } from './services/StableHandExecutor.js';
 import { registerLeadershipShutdownHandler } from './services/leadership.js';
-import { persistEngineAlertsBeforeExit } from './services/engineAlerts.js';
+import {
+  persistEngineAlertsBeforeExit,
+  raiseEngineAlert,
+  resolveEngineAlert,
+} from './services/engineAlerts.js';
+import { setOpponentHudAlertSink } from './services/OpponentHudStore.js';
 import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -249,6 +254,19 @@ async function drainLeaderBootMutations(): Promise<void> {
 // load, before gameServer.start() starts those workers, so no worker event can arrive while no sink is set
 // (independent review of 27a56324, finding 2).
 setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
+// OPPONENT HUD (2026-11-20): opponent-profile failures, late profiles and reconciliation drift reach Production Alerts
+// (engine_alerts -> operational_alert_events; page false, never a phone) through this main-process sink.
+setOpponentHudAlertSink((name, firing, summary) =>
+  firing
+    ? void raiseEngineAlert({
+        alertname: name,
+        severity: 'warning',
+        component: 'opponent-hud',
+        summary,
+        page: false,
+      })
+    : void resolveEngineAlert(name, 'opponent-hud', summary)
+);
 
 /**
  * These services change shared horse, tournament, or table state and therefore

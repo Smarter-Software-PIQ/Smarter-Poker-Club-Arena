@@ -9,7 +9,15 @@
  * scripts/agent-workspace.sh, against temporary directories.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -58,10 +66,49 @@ describe('choose_agent_worktree_root', () => {
     expect(fn).toContain('agent_root_writable()');
   });
 
-  it('uses the SSD agent-work root when it can be written', () => {
+  it('prefers extreme-capacity (SSD2) first even when agent-work and shared-capacity are also writable', () => {
+    const ssd = join(work, 'agent-work');
+    mkdirSync(join(ssd, 'extreme-capacity'), { recursive: true });
+    mkdirSync(join(ssd, 'shared-capacity'), { recursive: true });
+    expect(choose(ssd, join(work, 'boot'))).toMatchObject({
+      status: 0,
+      out: join(ssd, 'extreme-capacity', 'ca'),
+    });
+  });
+
+  it('prefers extreme-capacity (SSD2) when agent-work itself is read-only and both volumes exist', () => {
+    const ssd = join(work, 'agent-work');
+    mkdirSync(join(ssd, 'extreme-capacity'), { recursive: true });
+    mkdirSync(join(ssd, 'shared-capacity'), { recursive: true });
+    writeFileSync(join(ssd, 'ca'), '');
+    if (process.getuid?.() !== 0) chmodSync(ssd, 0o555);
+    expect(choose(ssd, join(work, 'boot'))).toMatchObject({
+      status: 0,
+      out: join(ssd, 'extreme-capacity', 'ca'),
+    });
+  });
+
+  it('uses the SSD agent-work root when it can be written and does not fabricate extreme-capacity', () => {
     const ssd = join(work, 'agent-work');
     mkdirSync(ssd);
     expect(choose(ssd, join(work, 'boot'))).toMatchObject({ status: 0, out: join(ssd, 'ca') });
+    expect(existsSync(join(ssd, 'extreme-capacity'))).toBe(false);
+  });
+
+  it('falls through from unwritable extreme-capacity to agent-work or shared-capacity', () => {
+    const ssd = join(work, 'agent-work');
+    mkdirSync(join(ssd, 'extreme-capacity'), { recursive: true });
+    writeFileSync(join(ssd, 'extreme-capacity', 'ca'), '');
+    mkdirSync(join(ssd, 'shared-capacity'), { recursive: true });
+    expect(choose(ssd, join(work, 'boot'))).toMatchObject({ status: 0, out: join(ssd, 'ca') });
+
+    rmSync(join(ssd, 'ca'), { recursive: true, force: true });
+    writeFileSync(join(ssd, 'ca'), '');
+    if (process.getuid?.() !== 0) chmodSync(ssd, 0o555);
+    expect(choose(ssd, join(work, 'boot'))).toMatchObject({
+      status: 0,
+      out: join(ssd, 'shared-capacity', 'ca'),
+    });
   });
 
   it('moves to shared-capacity when agent-work itself refuses a write', () => {
@@ -76,6 +123,7 @@ describe('choose_agent_worktree_root', () => {
   it('refuses, naming AGENT_WORKTREE_ROOT, when no SSD candidate is writable, and never uses the boot disk', () => {
     const ssd = join(work, 'agent-work');
     mkdirSync(ssd);
+    writeFileSync(join(ssd, 'extreme-capacity'), '');
     writeFileSync(join(ssd, 'ca'), '');
     writeFileSync(join(ssd, 'shared-capacity'), '');
     const boot = join(work, 'boot');
@@ -83,6 +131,7 @@ describe('choose_agent_worktree_root', () => {
     expect(r.status).toBe(1);
     expect(r.out).toBe('');
     expect(r.err).toContain('REFUSED');
+    expect(r.err).toContain('extreme-capacity');
     expect(r.err).toContain('AGENT_WORKTREE_ROOT');
     expect(() => readFileSync(boot)).toThrow();
   });

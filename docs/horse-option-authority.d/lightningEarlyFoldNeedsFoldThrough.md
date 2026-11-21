@@ -1,6 +1,6 @@
 # lightningEarlyFoldNeedsFoldThrough: authority for the live switch
 
-**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, receipts, tests and off-identity are recorded. The declared 90-cell NLH half of the paired Lightning matrix on the fixed code (`#11623`, `8f854361a0`, 2026-11-21, seed `41987143`, 198,000 paired hands) did NOT show harm: primary fields `-1.2 +/- 0.8 bb/100` (`z = -1.46`), every G5/G6 guard group above `-2` standard errors, and G1, G2, G3, G4, G7 and G9 all hold. The `#11623` source fix cut the Q3 bottom-quartile entry rise from `+1.082` points to `+0.043` points (`9.903% -> 9.946%`, meeting the Q3 target) and raised Q4 intended share from `45.1%` to `63.74%` (`firstInLimp +0.010`, `overLimp 0.000`, `coldCall +0.143`, just under the `66.7%` target). However, it still shows no primary gain (`field:all_horse` `-1.8 +/- 0.8`, `z = -2.37`), PLO4 and PLO5 (`180` cells) are not run, the replay on real audited decisions is not run, and no live read exists. The earlier pre-fix NLH half (seed `41960321`, `+0.4 +/- 1.2`, `z +0.37`, Q4 `45.1%`, Q3 `+1.08` pts) and five-cell development reading (`-3.6`, `z -2.23`) are preserved below.
+**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, receipts, tests and off-identity are recorded. On the FIXED code (PR #11623, merge `8f854361a0`: no release for an unraised limp, one jitter roll) the declared 90-cell NLH half of the paired Lightning matrix (2026-11-21, fresh seed 41987143, 198,000 paired hands) did NOT show harm under the rule fixed before the run: primary fields -1.2 bb/100 (se 0.8, z -1.46), every G5 and G6 group above -2 standard errors, G1, G2, G3, G4 and G7 hold. The fix did what it targeted on entry quality: the bottom-quartile share of entering hands no longer rises (Q3 9.90% to 9.95%, +0.04 points, against +1.08 on the old code) and first-in limps all but vanish from the VPIP gain (+0.010 of +0.437 points). It still does not show a gain: every primary and counter-exploit point estimate is negative, the all_horse field alone reads -1.8 bb/100 (z -2.37, not a declared lock group), and the intended share of the VPIP gain is 63.7%, just under the two-thirds promotion line (cold calls are +0.143 of the +0.437). PLO4 and PLO5 (180 cells) are not run on the fixed code, the replay on real audited decisions is not run, and no live read exists.
 
 Written 2026-11-20 from what the repository records (sources named per section). Nothing was run for this file and no number in it was measured on 2026-11-20.
 
@@ -69,31 +69,31 @@ Source: `docs/changelog/2026-11-15-a-lightning-early-fold-needs-the-fold-through
 - Q3 (same sums): bottom-quartile share of entering hands 10.182% baseline, 11.264% candidate (+1.08 points; under the declared 5-point line). Q4: VPIP +0.970 points of hands dealt, intended kinds +0.437, intended share 45.1% (under two thirds).
 - Verdict under the rule fixed before the run: **not shown harmful on the NLH half**; no off-only lock. Evidence NOT MET kept: no gain is shown, Q4 is under two thirds, and the bottom-quartile share still rises, which is the shape the standing Lightning rule forbids as a way to meet the VPIP floor. Nothing is claimed for PLO4 or PLO5.
 
-3. **Declared 90-cell NLH half on the fixed code (`#11623`, 2026-11-21, single process):**
-   - Code: `8f854361a0b66d750962fde3483f3da8b3ec7f44` (with unraised-limp refusal `lightning_fold_through_limp_kept` and one-roll stream replay, plus `LIGHTNING_EVAL_TIMEOUT_MS=0` from `#11616`).
-   - Pre-run declaration: `DECLARATION-EFNFT2-NLH90.md` (sha256 `2e64b99c362145b681251cd6e8b1ab6f258cd25353e4e70b301b7d848a79f9b0`), card `early_fold_needs_fold_through_nlh90_fixed` (sha256 `73ca1f41dd8477ca88a8a106babdd52a82bfde251c37c8ffa91387a4aaf15811`), archived under `extreme-archive/antigravity-coordinator-20261121/efnft2-01Gw7a/`.
-   - Run: `pin` (G9) passed (`rc=0`), followed by 1 process covering cells `0:90`, seed `41987143`, `2,200` paired hands per cell = `198,000` paired hands (`rc=0`, report digest `76d3c3fada7ec6dbfee78c3ff4fc86b0808ee481de5583d49bf96fea8fc42baf`, `27,746` divergent decisions), merged via `LIGHTNING_EVAL_MERGE` (`schema lightning-paired-eval-merge/v2`).
+4. **Declared paired Lightning evaluation on the FIXED code, NLH half of the matrix (2026-11-21, coordinator subagent of session_01Gw7aDtgw51ks82iZdeEMVr, lane coord-efnft2):**
+   - Pre-run declaration `DECLARATION-EFNFT2-NLH90.md` (sha256 `2e64b99c362145b681251cd6e8b1ab6f258cd25353e4e70b301b7d848a79f9b0`, written before any hand) kept with the outputs on the owner's Mac at `/Volumes/SmarterWork/agent-work/shared-capacity/efnft2-01Gw7a/run/`. It is the declaration of run 3 with only the code revision, the seed, the card name and the timeout changed, and it states the two promotion criteria the fix targets (Q4 intended share at least two thirds; Q3 not above baseline by more than run 3's +1.08 points) as reported figures, not lock triggers. No amendment: one process ran cells 0:90 to completion with `LIGHTNING_EVAL_TIMEOUT_MS=0`.
+   - Code origin/main `8f854361a0b6` (contains #11623 and `d312de5b9c`), configuration `switch` (E1), card sha256 `73ca1f41dd8477ca88a8a106babdd52a82bfde251c37c8ffa91387a4aaf15811` (cells and base byte-identical to run 3's card), candidate `lightningEarlyFoldNeedsFoldThrough = true` scope hero, baseline `LIGHTNING_EVAL_SERVED_STYLE_OPTS_20261114`, seed 41987143 (fresh switch seed), the same 90 NLH cells, 2,200 hands per cell = 198,000 paired hands, deadline mode measure. Harness pin (G9) green on this head before the run (30 passed).
+   - Graded by the repository merge (`LIGHTNING_EVAL_MERGE`, schema `lightning-paired-eval-merge/v2`, run complete with its marker; report digest `76d3c3fada7ec6dbfee78c3ff4fc86b0808ee481de5583d49bf96fea8fc42baf`). diff = candidate minus baseline, bb/100, se the larger of per-hand and orbit-block:
 
-| group                             | pooled hands | diff bb/100 | se used |     z |
-| --------------------------------- | -----------: | ----------: | ------: | ----: |
-| primary (P1: all_horse + unknown) |       39,600 |        -1.2 |     0.8 | -1.46 |
-| counter_exploit                   |       59,400 |        -3.5 |     2.2 | -1.59 |
-| tag_regular (G5)                  |       19,800 |        -1.2 |     1.5 | -0.81 |
-| three_bet_heavy (G5)              |       19,800 |        -7.1 |     4.1 | -1.72 |
-| three_bet_heavy x2 (G5)           |       19,800 |        -2.2 |     4.9 | -0.45 |
-| station (G6)                      |       19,800 |        +0.3 |     1.7 | +0.17 |
-| nit (G6)                          |       19,800 |        +1.7 |     1.2 | +1.41 |
-| tight_value (G6)                  |       19,800 |        -1.8 |     1.2 | -1.45 |
-| maniac (G6)                       |       19,800 |        +2.2 |     8.7 | +0.25 |
-| gear_changer (G6)                 |       19,800 |        +2.9 |     2.6 | +1.11 |
-| all_horse                         |       19,800 |        -1.8 |     0.8 | -2.37 |
-| unknown                           |       19,800 |        -0.6 |     1.5 | -0.40 |
+| group                             | pooled hands | diff | se  | z     |
+| --------------------------------- | ------------ | ---- | --- | ----- |
+| primary (all_horse + unknown), P1 | 39,600       | -1.2 | 0.8 | -1.46 |
+| counter_exploit                   | 59,400       | -3.5 | 2.2 | -1.59 |
+| tag_regular (G5)                  | 19,800       | -1.2 | 1.5 | -0.81 |
+| three_bet_heavy (G5)              | 19,800       | -7.1 | 4.1 | -1.72 |
+| three_bet_heavy x2 (G5)           | 19,800       | -2.2 | 4.9 | -0.45 |
+| station (G6)                      | 19,800       | +0.3 | 1.7 | +0.17 |
+| nit (G6)                          | 19,800       | +1.7 | 1.2 | +1.41 |
+| tight_value (G6)                  | 19,800       | -1.8 | 1.2 | -1.45 |
+| maniac (G6)                       | 19,800       | +2.2 | 8.7 | +0.25 |
+| gear_changer (G6)                 | 19,800       | +2.9 | 2.6 | +1.11 |
+| all_horse                         | 19,800       | -1.8 | 0.8 | -2.37 |
+| unknown                           | 19,800       | -0.6 | 1.5 | -0.40 |
 
-- G1: illegal actions `0`, illegal amounts `0`, subject illegal `0`, conservation violations `0`. G2: decide throws `0`, policy fallbacks `0`. G3: unsettled hands `0`. G4: pooled p95 `3.23 ms -> 3.33 ms` (ratio `1.030`), p99 `4.35 ms -> 4.67 ms` (ratio `1.072`), both `<= 1.10`, `0` over deadline: holds.
-- G7: baseline overall `31.246%` (`60,115 / 192,391`), after dry streak `29.361%` (`8,961 / 30,520`); candidate overall `31.696%` (`60,981 / 192,392`), after dry streak `30.217%` (`8,814 / 29,169`): no rebound above overall rate, holds.
-- Q3: bottom-quartile share of entering hands `9.903%` (`5,953 / 60,115`) baseline -> `9.946%` (`6,065 / 60,981`) candidate (`+0.043` points, down from `+1.082` points on the pre-fix code; meets the declared Q3 target).
-- Q4: VPIP gain `+0.437` points (`firstInRaise +0.281`, `coldCall +0.143`, `firstInLimp +0.010`, `isoRaise +0.007`, `overLimp 0.000`, `threeBetPlus -0.002`, `bigBlindCall -0.002`, `bigBlindRaise -0.001`, `bigBlindUnpricedRaise +0.001`), intended gain `+0.279` points, intended share `63.74%` (up from `45.1%`, just shy of the two-thirds promotion target due to `coldCall +0.143`).
-- Verdict under `DECLARATION-EFNFT2-NLH90.md`: **not shown harmful on the NLH half of the fixed code** (no off-only lock). Evidence NOT MET kept: primary shows no gain (`-1.2 +/- 0.8`, `z = -1.46`; `all_horse` `-1.8 +/- 0.8`, `z = -2.37`), Q4 is `63.74%`, PLO4 and PLO5 (`180` cells) are not covered, and no early-look replay exists.
+- G1: illegal actions 0, illegal amounts 0, chip-conservation violations 0. G2: decide exceptions 0, policy fallbacks 0. G3: unsettled hands 0. G4: pooled p95 ratio 1.030, p99 ratio 1.072, holds; 0 decisions over either deadline. Divergent decisions 27,746.
+- G7 (the report's pooled counts): baseline entry rate 31.246% (60,115 / 192,391), after five or more non-entries 29.361% (8,961 / 30,520); candidate 31.696% (60,981 / 192,392), after a dry streak 30.217% (8,814 / 29,169). No rebound above the overall rate: holds.
+- Q3: bottom-quartile share of entering hands 9.903% baseline (5,953 / 60,115), 9.946% candidate (6,065 / 60,981): +0.04 points, against +1.08 on the old code. Criterion met.
+- Q4: VPIP +0.437 points of hands dealt (old code +0.970), intended kinds +0.279, intended share 63.7% (old code 45.1%): under two thirds, criterion not met. By kind: first-in raise +0.281, cold call +0.143, first-in limp +0.010, iso-raise +0.007, others within 0.002.
+- Verdict under the rule fixed before the run: **not shown harmful on the NLH half of the fixed code**; no off-only lock (P1 z -1.46, lowest G5/G6 z -1.72). Evidence NOT MET kept: no gain is shown (primary and counter-exploit point estimates negative; all_horse alone z -2.37, which the declaration does not make a lock group, recorded here so the next run reads it), and Q4 is 63.7%. The limp and bottom-quartile shape that kept run 3 from promotion is gone. Nothing is claimed for PLO4 or PLO5. Runs 1 to 3 above measured the code before the fix.
 
 ## Receipts
 
@@ -108,13 +108,13 @@ Source: `docs/changelog/2026-11-15-a-lightning-early-fold-needs-the-fold-through
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests, off-identity: MET (sections above).
-- Paired Lightning evaluation: NOT MET. Fixed-code NLH half (`#11623` `8f854361a0`, seed `41987143`, 90 cells, 198,000 paired hands, 2026-11-21): `-1.2 +/- 0.8 bb/100` (`z = -1.46`), G1/G2/G3/G4/G5/G6/G7/G9 all hold, Q3 `+0.043` pts (`9.903% -> 9.946%`), Q4 intended share `63.74%`; not shown harmful, no gain. Pre-fix NLH half (`5bfaa38d`, seed `41960321`): `+0.4 +/- 1.2`, `z +0.37`, Q4 `45.1%`, Q3 `+1.08` pts. PLO4 and PLO5 halves (`180` cells) not run.
+- Paired Lightning evaluation: NOT MET. Fixed code (#11623), NLH half (90 cells, 198,000 paired hands, seed 41987143, 2026-11-21): -1.2 bb/100, z -1.46, every declared guard holds, so not shown harmful; no gain; Q3 +0.04 points (met), Q4 intended share 63.7% (not met). Old code, NLH half (seed 41960321): +0.4 bb/100, z +0.37, Q4 45.1%, Q3 +1.08 points. PLO4 and PLO5 halves (180 cells) not run on either code.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 - Value against people, live reach of the receipts: NOT MEASURED.
 
 ## What is still owed before this file may say the evidence is met
 
-1. The NLH first-in limp / double-jitter fix (`#11623`, `8f854361a0`) eliminated the limp inflation (`firstInLimp +0.010`, `overLimp 0.000`, Q3 `+0.043` pts) and lifted Q4 intended share from `45.1%` to `63.74%`, but the fixed-code NLH half still showed no gain on primary (`-1.2 +/- 0.8`, `z = -1.46`; `all_horse -1.8 +/- 0.8`, `z = -2.37`) and remained just below the two-thirds Q4 bar (`coldCall +0.143`). Before any activation claim: demonstrate a positive primary result and Q4 `>= 66.7%` on NLH, and declare and pass the PLO4 and PLO5 halves (`180` cells) of the paired Lightning matrix.
+1. The NLH first-in limp / double-jitter mechanism is fixed at the root in source (`docs/changelog/2026-11-21-lightning-fold-through-limp-and-one-roll.md`): the frame ask replays the first ask's strategy stream (one roll for a mixed border hand, and the stream is put back where the first ask left it), and an early fold is no longer released when the frame's only answer is an unraised limp or small-blind complete (receipt `lightning_fold_through_limp_kept`; a strength-gated Lightning cheap entry complete or over-limp still releases). The NLH half has been run on the fixed code (section 4: not harmful, no gain, Q3 met, Q4 63.7% not met). The PLO4 and PLO5 halves (180 cells) are not run on the fixed code, and the declared paired Lightning evaluation (`LightningPairedEval.test.ts` full, selection and final seeds) must pass on a revision containing the fix, including Q4 at least two thirds and a gain on the primary fields.
 2. A declared PASS-BAR and a replay on real audited Lightning decisions, off against on, scored by `server/scripts/audited-decision-replay.ts --row` with `newlyWrong <= fixed`.
 3. An explicit owner or lane-lead order to activate recorded verbatim in "The order it rests on", plus a live post-activation check and rollback trigger.
 

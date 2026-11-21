@@ -1,4 +1,5 @@
 import type { HorseVpipDecisionInputs } from './HorsePublicActionNode.js';
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import {
   raiseEngineAlert,
   resolveEngineAlert,
@@ -6523,6 +6524,15 @@ export abstract class ServerTableEngineBase {
     if (!this.lifecycleCanMutate()) return [];
     const previous = new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
     this.seatedPlayers = nextRoster;
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; owner 3:20 PM: "AS SOON AS A PLAYER JOINS A TABLE ... AS WELL AS
+    // WHEN THEY MOVE TABLES"): every seated player's lifetime profile is warmed now, ahead of his first hand. Fire and
+    // forget; PLO4/PLO5 cash only; never throws.
+    warmOpponentHudSeats(
+      nextRoster.map((p) => p.user_id),
+      this.activeHandVariant(),
+      this.isTournamentTable(),
+      'sit'
+    );
     // The roster now speaks for every committed arrival (SeatArrivalDisplay).
     this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one

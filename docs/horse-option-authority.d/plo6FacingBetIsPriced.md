@@ -76,10 +76,10 @@ Because `plo6FacingBetIsPriced` repairs facing-bet folds against human bettors (
 
 Declaration: `extreme-archive/plo6-audit-01TLQer9Hdf/eval-40aba893fbc9/DECLARATION-PLO6-FACING-BET-IS-PRICED.md` (sha256 `95ca359fb420389e6cc33f79ce52ff6237fd45eff439daa45cebcb0880a048e2`), script `eval_plo6_field.mts` (sha256 `8fb5e35e416dd8d58f3822174c8b82baa6fc63481000960501f7faa2a45e1ca7`), clean tree `40aba893fbc95de9b0519e57c1261e3edcec7d09` (identical engine source to PR `#11578` `f94c25f0ce05`), arm B = live switched set (`prod-switch-20261120T2115Z.json` + `huBbDefendsUnreadToPrice = on`), arm A = arm B + `plo6FacingBetIsPriced: true`, `EQUITY_GOVERNOR=off`. The 400 `F6` sessions completed on launch (`2026-11-21T05:53Z`); the remaining 24 of 100 `M6` sessions (`i = 38..49` and `88..99`) were completed on the exact same clean tree (`2026-11-21T20:18Z`) and aggregated into `RESULT.json` (`valid: true`, `verdict: "FAIL"`).
 
-| cell | sessions | pairs   | hands   | A minus B, bb/100 | standard error | z      | divergent pairs | illegal, truncated, corrected, fallbacks |
-| ---- | -------- | ------- | ------- | ----------------- | -------------- | ------ | --------------- | ---------------------------------------- |
-| F6 (`HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID`) | 400/400  | 200,000 | 400,000 | -15.510           | 2.655          | -5.84  | 4,173           | 0, 0, 0, 0                               |
-| M6 (Horse mirror `productionStyles`)            | 100/100  | 50,000  | 100,000 | +1.483            | 1.319          | +1.12  | 7,237           | 0, 0, 0, 0                               |
+| cell                                            | sessions | pairs   | hands   | A minus B, bb/100 | standard error | z     | divergent pairs | illegal, truncated, corrected, fallbacks |
+| ----------------------------------------------- | -------- | ------- | ------- | ----------------- | -------------- | ----- | --------------- | ---------------------------------------- |
+| F6 (`HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID`) | 400/400  | 200,000 | 400,000 | -15.510           | 2.655          | -5.84 | 4,173           | 0, 0, 0, 0                               |
+| M6 (Horse mirror `productionStyles`)            | 100/100  | 50,000  | 100,000 | +1.483            | 1.319          | +1.12 | 7,237           | 0, 0, 0, 0                               |
 
 - **F6 shape:** Arm B `+41.12 +/- 8.04 bb/100`, Arm A `+25.61 +/- 8.20 bb/100`, `256/400` sessions negative (median `-19.59 bb/100`, Q1 `-51.18`, Q3 `+22.93`, `-7.43 bb` per divergent pair). Bit-for-bit reproduced on sessions `0..5`.
 - **Diagnosed root causes (owed before any successor PLO6 facing-bet option is re-proposed):**
