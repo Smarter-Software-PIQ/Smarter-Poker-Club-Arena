@@ -106,6 +106,46 @@ describe('the local pre-push gate runs only directly related tests', () => {
     expect(run.stdout).toContain('tests/superseded-ci-stops-at-the-push.law.test.ts');
   });
 
+  it('adding a migration includes the directory-scanning migration law censuses', () => {
+    const start = hook.indexOf('\nCA_HEAVY_PATHS=');
+    const end = hook.indexOf('\n# A changed test can also be found as a source contract');
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const run = (files: string) =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          [
+            'set -e',
+            'CA_TREE_TOP=$PWD; CHANGED_TESTS=""; NODE_TESTS=""; CHANGED_SRC=""',
+            `FILES="${files}"`,
+            hook.slice(start, end),
+            'echo "TESTS=$CHANGED_TESTS"',
+          ].join('\n'),
+        ],
+        { encoding: 'utf8' }
+      );
+    const added = run(
+      'supabase/migrations/20261121182315_a_moved_seat_never_leaves_a_locked_promo_position.sql'
+    );
+    expect(added.status, added.stderr).toBe(0);
+    for (const t of [
+      'tests/unit/migrationVersionUniqueness.test.ts',
+      'tests/a-migration-proves-its-functions-before-commit.law.test.ts',
+      'tests/a-money-trigger-declares-itself.law.test.ts',
+      'tests/a-window-migration-waits-for-the-daily-break.law.test.ts',
+      'tests/postgrest-is-never-reloaded-on-a-timer.law.test.ts',
+    ]) {
+      expect(added.stdout).toContain(t);
+    }
+    const other = run('docs/changelog/2026-11-21-x.md');
+    expect(other.status, other.stderr).toBe(0);
+    expect(other.stdout).not.toContain(
+      'tests/a-migration-proves-its-functions-before-commit.law.test.ts'
+    );
+  });
+
   it('the push helper resolves Darwin TMPDIR onto an external SmarterWork scratch root before mktemp', () => {
     expect(helper).toContain(
       '/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t'
