@@ -272,9 +272,10 @@ interface Node {
   /** offset from the decision street */
   off: number;
   /**
-   * the opponents called a raise to get here (lane COREWIRE, PROVE-2 root cause 2): what such a capped range
-   * folds to a later wager is not measured (the street cells measure ordinary callers), so later streets take
-   * no fold credit on this branch
+   * the opponents called a raise or were the wagerer we called (lane COREWIRE, PROVE-2 root cause 2;
+   * lane CORE-LEAD4 B1): what such a range folds to a later wager is not measured (the street barrel
+   * cells measure ordinary flop callers facing a continuation bet), so later streets take no fold
+   * credit on this branch
    */
   capped?: boolean;
 }
@@ -529,12 +530,14 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       };
     else {
       // later streets against the wagering range: its value part (bluffs give up), the conservative continuation
+      // (capped: true — the opponent was the wagerer; generic barrel fold cells do not measure his folds to a caller)
       const b = bestPlan({
         pot: potFacing + bet,
         stack: stackAfter,
         share: Math.max(1e-3, n.share * p * v || n.share * p),
         st: n.st + 1,
         off: n.off + 1,
+        capped: true,
       });
       call = { ev: b.ev - bet, plan: `check-call > ${b.plan}`, se: b.se };
     }
@@ -653,7 +656,14 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       ev = eqNow * net(potC) - callAdds;
       plan = 'call > showdown';
     } else {
-      const next: Node = { pot: potC, stack: root.stack, share: 1, st: st0 + 1, off: 1 };
+      const next: Node = {
+        pot: potC,
+        stack: root.stack,
+        share: 1,
+        st: st0 + 1,
+        off: 1,
+        capped: true,
+      };
       const b = spot.ip ? checkEv(next, false, eqAt(1), () => bestPlan(next)) : bestPlan(next);
       ev = b.ev - callAdds;
       plan = `call > ${b.plan}`;
