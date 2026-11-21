@@ -119,6 +119,9 @@ export interface LightningHorseDecision {
   thinkTime: number;
   /** The lane failed and this is the liveness answer, not a decision. */
   workerFallback: boolean;
+  /** Why the lane failed (horseDecisionFallbackReason, or `snapshot_unavailable` when this turn's decision
+   *  snapshot could not be built). Present only on a worker-failure answer. */
+  fallbackReason?: string;
   /** The lane's result, for committing plan effects once the wager lands. */
   fast: FastHorseDecisionResult | null;
   /** omahaValueSizeIsUnreadable (default off): the band stamp of the worker's decision, carried to the
@@ -289,6 +292,14 @@ export async function decideLightningHorse(
     });
   } catch (err) {
     if (signal.aborted) throw err;
+    // TASK #8 (2026-11-20): seven Lightning turn folds (Nov 16-19) were worker-failure liveness answers whose
+    // cause is in no database row: this path counted only a Prometheus metric and the legalizer's
+    // `lightning_timeout`; the host prints the error to the engine log only (onWorkerFailure). The reason is
+    // now a horse telemetry counter (horse_brain_telemetry, per reason and per street), so the next one can be
+    // diagnosed from the database without the engine host's logs. A snapshot that could not be built is not a
+    // lane failure and is named apart.
+    const fallbackReason =
+      asked === null ? 'snapshot_unavailable' : horseDecisionFallbackReason(err);
     try {
       EngineMetrics.horseDecisionFallbacksTotal.inc(1, {
         reason: horseDecisionFallbackReason(err),
@@ -296,6 +307,7 @@ export async function decideLightningHorse(
       if (!turn.earlyLook) {
         noteHorseLegalizerDegraded(turn.variant, 'cash', 'lightning_timeout');
       }
+      noteLightningHorseFallback(turn, fallbackReason);
     } catch {
       /* metrics must never affect gameplay */
     }
@@ -325,6 +337,7 @@ export async function decideLightningHorse(
         ...(recovered.amount !== undefined ? { amount: recovered.amount } : {}),
         thinkTime: 0,
         workerFallback: true,
+        fallbackReason,
         fast: null,
         omahaMathCore: recovered.omahaMathCore,
       });
@@ -341,8 +354,36 @@ export async function decideLightningHorse(
       ...(pricedCall !== null ? { amount: pricedCall } : {}),
       thinkTime: 0,
       workerFallback: true,
+      fallbackReason,
       fast: null,
     });
+  }
+}
+
+/**
+ * The durable record of a Lightning worker-failure answer: one counter per reason and, on the seat's own turn,
+ * one per street. Counters land in horse_brain_telemetry (BrainTelemetry flush), which is readable without the
+ * engine host. Never throws.
+ */
+export function noteLightningHorseFallback(turn: LightningHorseTurn, reason: string): void {
+  try {
+    const safe = /^[a-z_]{1,40}$/.test(reason) ? reason : 'unknown';
+    noteFire(`lightning_horse_fallback_${safe}_seen`);
+    if (turn.earlyLook) {
+      noteFire('lightning_horse_fallback_early_look_seen');
+      return;
+    }
+    let stage: string | undefined;
+    try {
+      stage = turn.hc.getState().stage;
+    } catch {
+      stage = undefined;
+    }
+    noteFire(
+      `lightning_horse_fallback_street_${stage === 'preflop' || stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'unknown'}_seen`
+    );
+  } catch {
+    /* telemetry must never affect gameplay */
   }
 }
 
