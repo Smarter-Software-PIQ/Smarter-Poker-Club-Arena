@@ -1,6 +1,6 @@
 # plo6FacingBetIsPriced: authority for the live switch
 
-Status: built, OFF, Evidence NOT MET (2026-11-19). Mechanism, scope, receipts, validator admission, law tests and off-identity are MET; the replay of the audit's flagged folds is stated below (96 of 164 reproduced fold mistakes flip to the call); the league card is declared and not yet dealt, and the replay bar has no scorer adapter for the PLO6 audit set (NOT RUN). Nothing in this change switches anything.
+Status: built, OFF, Evidence NOT MET (2026-11-19). Mechanism, scope, receipts, validator admission, law tests and off-identity are MET; the replay of the audit's flagged folds is stated below (96 of 164 reproduced fold mistakes flip to the call); the league card is declared and not yet dealt, and the replay bar is NOT RUN: the scorer reads the PLO6 audit set since 2026-11-20, but the run on the archived set is not recorded here. Nothing in this change switches anything.
 
 ## The owner's rules it rests on
 
@@ -65,4 +65,10 @@ Card `plo6_facing_bet_is_priced` (PLO6, six seats, production personas, 6,000 pa
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
-- Replay: NOT RUN (as of 2026-11-19 the scorer, server/scripts/audited-decision-replay.ts, reads the audit2 and woowoo sets only and has no adapter for the HVH48 auditor C PLO6 set; the auditor's own harness replay, off against on, is stated above in prose)
+- Replay: NOT RUN (as of 2026-11-20 the scorer, server/scripts/audited-decision-replay.ts, reads the HVH48 auditor C PLO6 set with --plo6, --plo6-meta and --plo6-hands, but the set and the auditor's harness are on the operations Mac and the scored run, off against on, has not been made; the auditor's own harness replay is stated above in prose and is not a run row)
+
+How the row is produced (run from server/ on the operations Mac; `C` is `/Volumes/SmarterWork/agent-work/shared-capacity/hvh48-audit-01TLQer7J/C`, the audit's decisions.csv, meta.jsonl and hands.jsonl; the layout and the verdict mapping are in README.md, "The PLO6 audit set").
+
+1. `npx tsx scripts/audited-decision-replay.ts --plo6 $C/decisions.csv --plo6-meta $C/meta.jsonl --plo6-hands $C/hands.jsonl --emit-nodes plo6-nodes.jsonl`
+2. The auditor's harness (`hvhC_replay.ts`) re-decides every emitted node (it finds the action by `hand` and `actionIndex`) with the production switch set of the audit day and writes, per seed, one file: a first line `{"meta": {"arms": {"off": {"options": {..., "plo6FacingBetIsPriced": "off"}}, "on": {"options": {..., "plo6FacingBetIsPriced": "on"}}}}}` and one line per node `{"hand", "seat", "street", "k", "arms": {"off": {"action", "amount", "receipts"}, "on": {...}}}`.
+3. Per seed (1, 7, 42): `npx tsx scripts/audited-decision-replay.ts --plo6 $C/decisions.csv --plo6-meta $C/meta.jsonl --plo6-hands $C/hands.jsonl --replay plo6-replay-seed1.jsonl --line on --row on --set "HVH48 auditor C PLO6 seed 1"`, and the printed `- Replay:` row is copied here unedited.
