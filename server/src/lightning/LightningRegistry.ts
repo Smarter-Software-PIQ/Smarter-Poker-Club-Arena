@@ -415,6 +415,32 @@ export class LightningRegistry {
     return this.hosts.size;
   }
 
+  /**
+   * Read-only identification of horses seated with chips in live Lightning
+   * hands currently registered on this process (CLAUDE.md 10.5: counts,
+   * decides nothing, zero side effects, never throws). Keyed by active room
+   * (`poolSessionId`) so a fast-folded horse finishing one host and entering
+   * another is never counted twice.
+   */
+  seatedHorseEntries(): Array<{ clusterId: string; playerId: string; poolSessionId: string }> {
+    const out: Array<{ clusterId: string; playerId: string; poolSessionId: string }> = [];
+    const seenRooms = new Set<string>();
+    for (const [roomId, host] of this.hostByRoom) {
+      if (seenRooms.has(roomId)) continue;
+      try {
+        for (const p of host.seatedHorseParticipants()) {
+          if (p.poolSessionId !== roomId) continue;
+          seenRooms.add(roomId);
+          out.push({ clusterId: host.clusterId, playerId: p.playerId, poolSessionId: roomId });
+          break;
+        }
+      } catch {
+        /* one host's bad state never hides the rest of the pool */
+      }
+    }
+    return out;
+  }
+
   // ─── ROOMS ──────────────────────────────────────────────────────────────
 
   /** A pool_session_id this process knows: a live hand, or an admitted caller. */
