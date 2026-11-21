@@ -62,3 +62,13 @@ was measured with the wrong history and should be re-run on this revision:
 `huBbDefendsToPrice`, `huBbDefendsUnreadToPrice` and the HorsePreflop paths
 (any option gated on `heroPreviouslyActed` or on the orbit state's hero prior
 action).
+
+## Recorded Omaha decisions re-pinned (follow-up in the same PR)
+
+`HorseOmahaPricedRules.fixture.json` pins the replay answer for 56 real PLO5 decisions, and its pins were made with the forced posts still in the replayed history. With the posts gone exactly one record moves: hand 59872449, seat 6, river. Under every option set it now replays as `check`, which is the action the Horse took live (`did: check`). The old pin was `bet 110`. So the replay's agreement with the live action rises from 42 to 43 of 56, and no other record changes.
+
+What changed:
+- The nine `bet 110` entries of that record now read `check`.
+- The two `MOVED` rows for that record in `HorseOmahaPricedKindOptions.test.ts` are removed. They listed it as a decision the priced2 options move from check to bet, but with the corrected history priced2 checks there too.
+
+These were found in the CI run, because the two test files reach `stateAt` through `HorseOmahaPricedRules.test-support.ts` and so were not among the files that import `HorseComplaintReplay` directly. All 24 test files that reach it through a helper now pass (373 tests).
