@@ -19062,9 +19062,18 @@ export class HorseLogic {
           }
         }
         if (raises === 0) {
-          const heroBehindM = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+          const behindOf = (seat: number): number | null =>
+            gs.straddleActive === true
+              ? preflopStraddleOpenBehind(seat, gs, opts.v13 !== false)
+              : preflopPlayersBehind(seat, gs, opts.v13 !== false);
+          const heroBehindM = behindOf(player.seat);
           for (const p of gs.players) {
             if (p.seat === player.seat || p.is_folded || p.is_all_in || p.is_sitting_out) continue;
+            // On a Lightning early look at the deal, seats acting before Hero have not folded
+            // or acted yet; only seats still to act BEHIND Hero belong to maniacBehindWidth,
+            // observedExtremeManiac (behind) and lagBullyIpBehind.
+            const pBehindM = behindOf(p.seat);
+            if (heroBehindM !== null && pBehindM !== null && pBehindM >= heroBehindM) continue;
             const actedM = history.some((a) => a.seat === p.seat && MANIAC_VOLUNTARY.has(a.action));
             if (actedM) continue;
             const pRead = HorseMind.opponentRead(p.user_id);
@@ -19078,12 +19087,7 @@ export class HorseLogic {
               const confirmedLagOrManiac = observedBehind || HorseMind.isLagBully(p.user_id);
               if (confirmedLagOrManiac) {
                 const pPos = classifyGamePosition(p.seat, gs, opts.v13 !== false);
-                const pBehindM = preflopPlayersBehind(p.seat, gs, opts.v13 !== false);
-                if (
-                  pPos !== 'sb' &&
-                  pPos !== 'bb' &&
-                  (heroBehindM === null || pBehindM === null || pBehindM < heroBehindM)
-                ) {
+                if (pPos !== 'sb' && pPos !== 'bb') {
                   lagBullyIpBehind = true;
                 }
               }
