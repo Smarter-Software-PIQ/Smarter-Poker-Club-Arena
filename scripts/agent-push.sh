@@ -325,6 +325,32 @@ owned() {
   return "$rc"
 }
 
+# Keep agent-push's own state file and child TMPDIR off the macOS boot drive
+# (/tmp or /var/folders symlink) when an external SmarterWork scratch root is
+# writable. Matches .husky/pre-push's external-SSD scratch policy.
+if [ "$(uname -s)" = Darwin ]; then
+  case "${TMPDIR:-}" in
+    /Volumes/*)
+      if [ -d "$TMPDIR" ] && [ -w "$TMPDIR" ]; then
+        TMPDIR=$(cd "$TMPDIR" 2>/dev/null && pwd -P) || true
+        export TMPDIR
+      else
+        TMPDIR=""
+      fi
+      ;;
+    *) TMPDIR="" ;;
+  esac
+  if [ -z "${TMPDIR:-}" ]; then
+    for ca_tmp_root in ${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t}; do
+      if mkdir -p "$ca_tmp_root" 2>/dev/null && [ -w "$ca_tmp_root" ]; then
+        TMPDIR=$(cd "$ca_tmp_root" 2>/dev/null && pwd -P) || TMPDIR="$ca_tmp_root"
+        export TMPDIR
+        break
+      fi
+    done
+  fi
+fi
+
 # The watcher outlives this shell. It stops the running step when this shell
 # is gone (killed outright), keeps a once-a-second snapshot of the step's whole
 # tree, and, under the detached-launch rule above, tells this shell to stop

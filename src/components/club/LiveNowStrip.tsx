@@ -11,10 +11,19 @@ import { titleCase } from '../../utils/titleCase';
  * sort, page or search, so a seated player beyond the loaded page is never
  * out of sight. One chip per player (their newest seat), tap to watch.
  * Fed by src/lib/clubLiveSeats.ts, one read per club per minute.
+ *
+ * ONLY THE OWNER SEES THE WHOLE CLUB (Dan, 2026-11-21): the club's owner of
+ * record (KingFish for KINGS CLUB) is listed every seated player; everyone
+ * else, co-owner, admin, agent or player, is listed only players in their own
+ * downline. The rule lives in the server reader `ca_club_live_seats`
+ * (migration 20261121153607), so the strip cannot be widened from here;
+ * `scope="downline"` only labels it so the viewer can see what it covers.
  */
 export interface LiveNowStripProps {
   seats: readonly LiveSeat[];
   onWatch: (table: LiveSeat, member: { userId: string; name: string }) => void;
+  /** 'downline' for every viewer but the club owner: the server lists only their own downline. */
+  scope?: 'club' | 'downline';
 }
 
 function firstSeatPerPlayer(seats: readonly LiveSeat[]): LiveSeat[] {
@@ -29,13 +38,23 @@ function firstSeatPerPlayer(seats: readonly LiveSeat[]): LiveSeat[] {
   return out;
 }
 
-const LiveNowStrip = memo(function LiveNowStrip({ seats, onWatch }: LiveNowStripProps) {
+const LiveNowStrip = memo(function LiveNowStrip({
+  seats,
+  onWatch,
+  scope = 'club',
+}: LiveNowStripProps) {
   const players = firstSeatPerPlayer(seats);
   if (players.length === 0) return null;
+  const downline = scope === 'downline';
   return (
-    <section className="members-live-now" aria-label="Live Now">
+    <section
+      className="members-live-now"
+      aria-label={downline ? 'Live Now, My Downline' : 'Live Now'}
+      data-scope={scope}
+    >
       <h2 className="members-live-now__title">
         Live Now
+        {downline && <span className="members-live-now__scope">My Downline</span>}
         <span className="members-live-now__count">{players.length.toLocaleString()}</span>
       </h2>
       <div className="members-live-now__chips" role="list">
