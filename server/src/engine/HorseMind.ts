@@ -135,6 +135,8 @@ import {
   mergeFlopStabRows,
   observeExploitRow,
   observeFlopStabRow,
+  setStyleShiftReleaseNoiseAware,
+  styleShiftReleaseNoiseAwareOn,
   openerRangeWidth,
   opponentExploitRead,
   presumedAggressorRead,
@@ -1920,6 +1922,8 @@ export class HorseMind {
     // style's evidence at the fast rate so HorseManiacPressure.law.test.ts
     // still holds. See
     // docs/changelog/2026-11-06-opportunity-scoped-decay-with-style-shift-release.md.
+    // With the process switch styleShiftReleaseIsNoiseAware on (default off) the release is noise-aware and ages
+    // only what moved (setStyleShiftReleaseIsNoiseAware above).
     for (const [userId, increments] of exploitHandIncrements(actions, true))
       observeExploitRow(
         this.exploitCounters,
@@ -2642,6 +2646,29 @@ export class HorseMind {
         ? opts.fixedLimitBetsAreNeverProbes
         : FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
     );
+  }
+
+  /**
+   * STYLE SHIFT RELEASE IS NOISE-AWARE (2026-11-21, option styleShiftReleaseIsNoiseAware, registered default OFF).
+   * The process switch of the opportunity-scoped decay's style-shift release (HorseOpponentExploit
+   * STYLE_SHIFT_NOISE_K): on, a fast-window rate releases only beyond its sampling noise and ages only the statistic
+   * that moved (a moved preflop raise rate still ages every gated statistic); off is the 2026-11-06 rule exactly.
+   * PROCESS-LEVEL like FIXED-LIMIT BETS ARE NEVER PROBES: the completed-hand learner, the sandbox merge and the
+   * decision-time gear-shift gate all read it, so one value per process. The decision worker applies the registry
+   * state before every job (workerRuntime applyProcessSwitches and execute); no row, an unreadable, invalid or stale
+   * read put back the source default (off), never the last value. The durable profile's SQL twin
+   * (fn_horse_exploit_add) reads the same switch row itself.
+   */
+  static setStyleShiftReleaseIsNoiseAware(on: boolean): void {
+    setStyleShiftReleaseNoiseAware(on === true);
+  }
+  static styleShiftReleaseIsNoiseAwareOn(): boolean {
+    return styleShiftReleaseNoiseAwareOn();
+  }
+  static applyStyleShiftReleaseIsNoiseAwareOption(opts: {
+    readonly styleShiftReleaseIsNoiseAware?: boolean;
+  }): void {
+    this.setStyleShiftReleaseIsNoiseAware(opts.styleShiftReleaseIsNoiseAware === true);
   }
 
   /**

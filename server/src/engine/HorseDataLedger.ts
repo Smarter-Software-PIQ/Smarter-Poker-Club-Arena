@@ -2380,6 +2380,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   flag(
+    'styleShiftReleaseIsNoiseAware',
+    "2026-11-21 STYLE SHIFT RELEASE IS NOISE-AWARE (root fix of the release drain, docs/horse-league-fixed-limit.md 'The over-folder read and mixed frequencies'). Default OFF, read === true only, a PROCESS switch like fixedLimitBetsAreNeverProbes (opponent learning runs outside a decision). The 2026-11-06 opportunity-scoped decay's style-shift release (styleShiftReleased: any of pfr, rfi, threeBet, betCheckedTo, foldToBet, riverCall with a fast rate 0.2 from the long rate on 3+ decayed fast opportunities; then EVERY long-window gated statistic ages at the 8-hand rate) becomes: a statistic MOVED only when the gap is at least max(0.2, 1.5 x sqrt(q(1 - q) / nFast)), q the long rate shrunk half an observation toward one half, nFast the decayed fast count; a moved gated statistic ages only its own long window; a moved pfr (sampled every hand) still ages every gated statistic. The same rule gates the intra-session gear-shift read. Off: the 2026-11-06 rule byte for byte. The durable profile's SQL twin fn_horse_exploit_add reads the same switch row (fn_horse_style_shift_release_is_noise_aware) and applies the same rule. Measured on the stationary simulation (six seeds, 3,000 hands each): a stable 26% first-in raiser facing a postflop bet on 3% of hands keeps 33.2 decayed fold opportunities (off 13.5, release forced off 34.2); HorseManiacPressure style-change pins unchanged (NLH 21 / 11 hands, PLO4 17 / 12, off 17 / 13); evidence docs/horse-option-authority.d/styleShiftReleaseIsNoiseAware.md",
+    '2026-11-21',
+    'HorseOpponentExploit.decayAndAddOpportunityScoped and styleShiftReleased via HorseMind.applyStyleShiftReleaseIsNoiseAwareOption (decision worker, every job)'
+  ),
+  receipt(
+    'style_shift_noise_aware_released',
+    'HorseOpponentExploit.decayAndAddOpportunityScoped (styleShiftReleaseIsNoiseAware)',
+    'option on: a statistic moved beyond its sampling noise on this update, so its long window (every gated window when pfr moved) aged at the fast rate',
+    '2026-11-21'
+  ),
+  receipt(
+    'style_shift_noise_aware_withheld',
+    'HorseOpponentExploit.decayAndAddOpportunityScoped (styleShiftReleaseIsNoiseAware)',
+    'option on: the 2026-11-06 rule would have released every gated statistic on this update and the noise-aware rule released none',
+    '2026-11-21'
+  ),
+  flag(
     'holdemCallDownExcludesCurrentHand',
     "2026-11-15 IN-HAND WAGERS ARE NOT HISTORY (opponent classifier C7 F1, HU-MEM-013 V6): in a hold'em decision the legacy aggression ratio behind the lifetime call-down multiplier (HorseMind.legacyExploit, ratio above 2.5 on 12+ actions sets 1.2) subtracts the opponent's own wagers in the hand being decided (HorseMind.currentHandWagers of the decision's action history, carried in the decision read options), never below zero, so the bets the Horse faces are not evidence that the same bettor bluffs; Omaha and every other read unchanged; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownExcludesCurrentHand.md",
     '2026-11-15'
