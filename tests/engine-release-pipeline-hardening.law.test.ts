@@ -12,7 +12,10 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { buildReleaseFailureAlert } from '../scripts/ci/record-engine-release-alert.mjs';
+import {
+  buildReleaseFailureAlert,
+  buildReleaseResolvedAlerts,
+} from '../scripts/ci/record-engine-release-alert.mjs';
 
 /**
  * Incident 075013fd (Lane 1 — Engine Release Pipeline Hardening):
@@ -211,6 +214,7 @@ exit 1
         writeFileSync(
           join(bin, 'git'),
           `#!/usr/bin/env bash
+if [ "$3" = merge-base ] && [ "$4" = --is-ancestor ]; then exit 1; fi
 if [ "$3" = rev-parse ]; then echo 'tree-sha-1'; exit 0; fi
 if [ "$3" = show ]; then echo 'asset-body'; exit 0; fi
 exit 0
@@ -319,5 +323,216 @@ exit 0
     expect(rollbackCheck).toBeGreaterThan(alreadyReleased);
     expect(validateCandidate).toBeGreaterThan(rollbackCheck);
     expect(releaseLock).toBeGreaterThan(validateCandidate);
+  });
+
+  it('wave 2: prepare step stands down as superseded when a strictly newer SHA already sealed on the host (and stays fail-closed otherwise)', () => {
+    const stepStart = DEPLOY_WF.indexOf(
+      '- name: Prepare the scheduled immutable image without entering release intake'
+    );
+    const remoteStart = DEPLOY_WF.indexOf("<<'REMOTE'", stepStart);
+    const remoteBodyStart = DEPLOY_WF.indexOf('\n', remoteStart) + 1;
+    const remoteEnd = DEPLOY_WF.indexOf('\n          REMOTE\n', remoteBodyStart);
+    const rawRemote = DEPLOY_WF.slice(remoteBodyStart, remoteEnd)
+      .split('\n')
+      .map((line) => (line.startsWith('          ') ? line.slice(10) : line))
+      .join('\n');
+
+    const targetSha = 'e2140d2d1581daaf84857d98e671f2be832162c6';
+    const newerSha = 'bb21dc82673117a937f67c9498dec46b8c27522e';
+    const controlSha = '56317ec1db39393d6b80fdf57e3e4a3597c84d26';
+    const preparedImage = 'sha256:4124ddaeb254bb944e718a9b3c06f2d56de31be126d813eceabf6139e8c4df27';
+    const rollbackImage = 'sha256:102a8c4fcb245dc33260e4c63e0e12bf332f1e3f17866a71384aed9b9690532b';
+
+    const runSuperseded = (isAncestor: boolean) => {
+      const dir = mkdtempSync(join(tmpdir(), 'ca-prepare-superseded-'));
+      try {
+        const bin = join(dir, 'bin');
+        const stageRoot = join(dir, 'control-staging');
+        const runKey = '555-1';
+        const stage = join(stageRoot, runKey);
+        mkdirSync(bin, { recursive: true });
+        mkdirSync(join(stage, 'server/scripts'), { recursive: true });
+        const prewarmMarker = join(dir, 'prewarm-called');
+
+        const sealStub = join(bin, 'engine-release-seal.py');
+        writeFileSync(
+          sealStub,
+          `#!/usr/bin/env bash
+if [ "$1" = get ] && [ "$2" = desired-sha ]; then echo '${newerSha}'; exit 0; fi
+if [ "$1" = get ] && [ "$2" = desired-image-id ]; then echo 'sha256:${'9'.repeat(64)}'; exit 0; fi
+exit 1
+`
+        );
+        chmodSync(sealStub, 0o755);
+
+        const dockerStub = join(bin, 'docker');
+        writeFileSync(
+          dockerStub,
+          `#!/usr/bin/env bash
+if [ "$1" = container ] && [ "$2" = inspect ]; then echo 'sha256:${'9'.repeat(64)}'; exit 0; fi
+if [ "$1" = image ] && [ "$2" = inspect ] && [ "$5" = "club-arena-engine:${targetSha}" ]; then echo '${preparedImage}'; exit 0; fi
+echo "Error response from daemon: No such image: $5" >&2
+exit 1
+`
+        );
+        chmodSync(dockerStub, 0o755);
+
+        writeFileSync(
+          join(bin, 'git'),
+          `#!/usr/bin/env bash
+if [ "$3" = merge-base ] && [ "$4" = --is-ancestor ]; then exit ${isAncestor ? 0 : 1}; fi
+exit 0
+`
+        );
+        chmodSync(join(bin, 'git'), 0o755);
+        writeFileSync(join(stage, 'server/scripts/engine-release-activation-floor.py'), 'print("{}")\n');
+        writeFileSync(
+          join(stage, 'server/scripts/prewarm-engine-image.sh'),
+          `#!/usr/bin/env bash\ntouch '${prewarmMarker}'\n`
+        );
+        chmodSync(join(stage, 'server/scripts/prewarm-engine-image.sh'), 0o755);
+
+        const rewritten = rawRemote
+          .replaceAll('/var/lib/club-arena/control-staging', stageRoot)
+          .replaceAll('/usr/local/lib/club-arena/engine-control/engine-release-seal.py', sealStub)
+          .replaceAll('sync -f "$STAGE/prepared-image"', 'true');
+
+        const res = spawnSync('bash', ['-se'], {
+          input: rewritten,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            PREPARED_IMAGE: preparedImage,
+            ROLLBACK_IMAGE: rollbackImage,
+            TARGET_SHA: targetSha,
+            CONTROL_SHA: controlSha,
+            RUN_KEY: runKey,
+            NOT_AFTER_EPOCH: '1795231658',
+            REPO_DIR: dir,
+          },
+        });
+        return {
+          status: res.status,
+          stdout: res.stdout,
+          stderr: res.stderr,
+          prewarmCalled: existsSync(prewarmMarker),
+        };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    const superseded = runSuperseded(true);
+    expect(superseded.status, superseded.stderr).toBe(0);
+    expect(superseded.stdout).toContain(`ENGINE_PREPARE_SUPERSEDED=${newerSha}`);
+    expect(superseded.prewarmCalled).toBe(false);
+
+    const notAncestor = runSuperseded(false);
+    expect(notAncestor.status).not.toBe(0);
+    expect(notAncestor.stderr).toContain('No such image');
+  });
+
+  it('wave 2: deploy exit_path surfaces the concrete prepare error line in EXIT_ERROR', () => {
+    const wf = parse(DEPLOY_WF);
+    const exitStep = wf.jobs.deploy.steps.find((s: any) => s.id === 'exit_path');
+    expect(exitStep).toBeDefined();
+    const dir = mkdtempSync(join(tmpdir(), 'ca-exit-path-prepare-'));
+    try {
+      const ghOut = join(dir, 'github-output');
+      writeFileSync(ghOut, '');
+      writeFileSync(
+        join(dir, 'engine-prepared-image-777-1.log'),
+        '{"schema":"engine-release-activation-floor/v2-owner-window"}\nError response from daemon: No such image: sha256:102a8c4\n'
+      );
+      const res = spawnSync('bash', ['-c', exitStep.run], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_OUTPUT: ghOut,
+          RUNNER_TEMP: dir,
+          RUN_KEY: '777-1',
+          STEP_OUTCOMES:
+            'deadline=success checkout=success freshness=success admit=success ssh=success stage=success prepare=failure floor=skipped release=skipped verify=skipped',
+          RELEASE_RESULT: '',
+          RELEASE_FAILED_STAGE: '',
+          VERIFIED: 'false',
+        },
+      });
+      expect(res.status, res.stderr).toBe(0);
+      const out = readFileSync(ghOut, 'utf8');
+      expect(out).toContain('stage=prepare\n');
+      expect(out).toContain('outcome=failure\n');
+      expect(out).toContain(
+        'error=step prepare ended failure: Error response from daemon: No such image: sha256:102a8c4\n'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('wave 2: cutover-spectator evaluates pure-Node admission before npm ci and Playwright install', () => {
+    const wf = parse(DEPLOY_WF);
+    const steps: any[] = wf.jobs['cutover-spectator'].steps;
+    const predecessorIdx = steps.findIndex((s) => s.id === 'predecessor');
+    const npmCiIdx = steps.findIndex(
+      (s) => typeof s.run === 'string' && s.run.includes('npm ci --ignore-scripts')
+    );
+    const playwrightIdx = steps.findIndex(
+      (s) => s.name === 'Install browser dependencies from the primary mirror'
+    );
+    expect(predecessorIdx).toBeGreaterThan(-1);
+    expect(npmCiIdx).toBeGreaterThan(predecessorIdx);
+    expect(playwrightIdx).toBeGreaterThan(npmCiIdx);
+    expect(steps[npmCiIdx].if).toBe("steps.predecessor.outputs.admitted == 'true'");
+    expect(steps[playwrightIdx].if).toBe("steps.predecessor.outputs.admitted == 'true'");
+  });
+
+  it('wave 2: verified green releases auto-resolve open EngineReleaseFailed alerts', () => {
+    expect(DEPLOY_WF).toContain('name: Resolve prior release failure alerts after verified ship');
+    expect(DEPLOY_WF).toContain(
+      "if: always() && needs.deploy.outputs.shipped == 'true' && needs.deploy.outputs.verified == 'true'"
+    );
+
+    expect(
+      buildReleaseResolvedAlerts({ SHIPPED: 'false', VERIFIED: 'true' }, [
+        { fingerprint: 'engine-release-failed:1-1' },
+      ])
+    ).toEqual([]);
+    expect(
+      buildReleaseResolvedAlerts({ SHIPPED: 'true', VERIFIED: 'false' }, [
+        { fingerprint: 'engine-release-failed:1-1' },
+      ])
+    ).toEqual([]);
+
+    const resolved = buildReleaseResolvedAlerts(
+      {
+        SHIPPED: 'true',
+        VERIFIED: 'true',
+        RUN_ID: '888-1',
+        TARGET_SHA: 'bb21dc82673117a937f67c9498dec46b8c27522e',
+        RELEASE_RESULT: 'sealed',
+      },
+      [
+        {
+          fingerprint: 'engine-release-failed:44841264851-1',
+          labels: { alertname: 'EngineReleaseFailed', severity: 'critical', run_id: '44841264851-1' },
+          starts_at: '2026-11-21T00:19:02.000Z',
+        },
+        {
+          fingerprint: 'engine-release-failed:44841264851-1',
+          labels: { alertname: 'EngineReleaseFailed' },
+          starts_at: '2026-11-21T00:19:02.000Z',
+        },
+      ]
+    );
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].status).toBe('resolved');
+    expect(resolved[0].fingerprint).toBe('engine-release-failed:44841264851-1');
+    expect(resolved[0].startsAt).toBe('2026-11-21T00:19:02.000Z');
+    expect(resolved[0].endsAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(resolved[0].labels.alertname).toBe('EngineReleaseFailed');
+    expect(resolved[0].labels.resolved_by_run_id).toBe('888-1');
+    expect(resolved[0].labels.resolved_by_sha).toBe('bb21dc82673117a937f67c9498dec46b8c27522e');
   });
 });
