@@ -13,9 +13,19 @@
  *  - with the production brain over every recorded FAST decision: a staged option in shadow (companion included)
  *    leaves the acted decision, its RNG positions and its plan effects those of no row at all;
  *  - an option that is not staged behaves exactly as before with the stage table present;
- *  - the cost of a staged re-decision, measured.
+ *  - TIMING (VERIFIER V52): nothing of a staged re-decision runs before the answer is sent; up to the answer the
+ *    worker does exactly what it does with no row, whether or not a person was dealt in; a request queued behind the
+ *    decision drops the re-decision; the receipt rides in the next decision record (no new journal record kind);
+ *  - the cost of a staged re-decision and the time from request to response with and without staging, measured.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  clearOmahaMathCoreCaches,
+  warmOmahaMathCore,
+} from '../omahaMathCore/OmahaMathCoreWarmUp.js';
+import { OMAHA_MATH_CORE_ALL_STREETS } from '../omahaMathCore/OmahaMathCoreRule.js';
+import { dealToFlop } from '../HorseStyleVariantModeMatrix.test-support.js';
+import { captureHorseHandJournalContext } from '../HorseDecisionHandBinding.js';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
@@ -91,11 +101,22 @@ type Opts = Record<string, unknown>;
 type Decide = (p: unknown, g: unknown, s: unknown, m: unknown, o?: Opts) => HorseDecision;
 
 interface Run {
+  /** The staged receipts as made (the test seam), by request. */
+  staged: Array<{ requestId: number; receipt: OptionShadowReceipt }>;
+  /** The decision records as journaled (the payload handed to the journal), in order. */
+  journaled: Array<{ requestId: number; payload: Record<string, unknown> }>;
+  /** What happened in order: decide, send:<type>, feature:<key>, latency:<scope>, journal:option_shadow. */
+  events: string[];
+  /** Milliseconds from receive() to the FAST_RESULT leaving, per request. */
+  responseMs: number[];
   fasts: FastHorseDecisionResult[];
   calls: Opts[];
   features: string[];
   latency: Array<[string, number]>;
 }
+
+/** On: every request is posted before the worker runs any (work is queued behind each decision). */
+const burst = { on: false };
 
 async function run(
   requests: FastHorseDecisionRequest[],
@@ -109,9 +130,21 @@ async function run(
   const features: string[] = [];
   const latency: Array<[string, number]> = [];
   const messages: HorseDecisionWorkerResponse[] = [];
+  const staged: Run['staged'] = [];
+  const journaled: Run['journaled'] = [];
+  const events: string[] = [];
+  const responseMs: number[] = [];
+  let receivedAt = 0;
   const deps: HorseDecisionWorkerDependencies = {
     ...qualifiedReplayAdmissions,
-    journalEnabled: () => false,
+    journalEnabled: () => true,
+    journalDecision: ((req: { requestId: number }, payload: Record<string, unknown>) => {
+      journaled.push({ requestId: req.requestId, payload });
+    }) as never,
+    onStagedOptionShadowReceipt: ((req: { requestId: number }, receipt: unknown) => {
+      events.push('journal:option_shadow');
+      staged.push({ requestId: req.requestId, receipt: receipt as OptionShadowReceipt });
+    }) as never,
     async startServices() {
       prepareTournamentFutureHandFacts();
       return readiness();
@@ -119,6 +152,7 @@ async function run(
     async stopServices() {},
     decide: ((...args: Parameters<Decide>) => {
       calls.push({ ...(args[4] ?? {}) });
+      events.push('decide');
       return decide(...args);
     }) as never,
     decideDiscard: HorseLogic.decideDiscard.bind(HorseLogic),
@@ -133,9 +167,11 @@ async function run(
     observeCompletedHand: () => {},
     noteDecision: (scope: string, ms: number) => {
       latency.push([scope, ms]);
+      events.push(`latency:${scope}`);
     },
     noteFeature: (k: string) => {
       features.push(k);
+      events.push(`feature:${k}`);
     },
     // a fixed worker clock: the 15 ms and per-minute budgets are tested on purpose below, never by machine load (the
     // re-decision's own cost is timed on performance.now inside the worker)
@@ -146,17 +182,24 @@ async function run(
   };
   enableBrainTelemetry();
   drainFires();
-  const runtime = new HorseDecisionWorkerRuntime((m) => messages.push(m), deps);
+  const runtime = new HorseDecisionWorkerRuntime((m) => {
+    if (m.type === 'FAST_RESULT') responseMs.push(performance.now() - receivedAt);
+    events.push(`send:${m.type}`);
+    messages.push(m);
+  }, deps);
   await runtime.start();
+  events.length = 0;
   for (const request of requests) {
+    receivedAt = performance.now();
     runtime.receive(request);
-    await runtime.drain();
+    if (!burst.on) await runtime.drain();
   }
+  await runtime.drain();
   const fasts = messages.filter((m): m is FastHorseDecisionResult => m.type === 'FAST_RESULT');
   if (fasts.length !== requests.length)
     throw new Error(`expected ${requests.length} FAST results: ${JSON.stringify(messages.at(-1))}`);
   drainFires();
-  return { fasts, calls, features, latency };
+  return { fasts, calls, features, latency, staged, journaled, events, responseMs };
 }
 
 const CALL: HorseDecision = { action: 'call', amount: 40, thinkTime: 0 };
@@ -191,7 +234,7 @@ afterEach(() => {
   HorseMind.reset();
 });
 
-import { optionShadowPersonPresence } from '../HorseOptionShadow.js';
+import { optionShadowPersonPresence, type OptionShadowReceipt } from '../HorseOptionShadow.js';
 import {
   OPTION_SHADOW_STAGE,
   OPTION_SHADOW_STAGE_HARD_MS,
@@ -205,6 +248,20 @@ import {
   type OptionShadowStageTable,
 } from '../HorseOptionShadowStage.js';
 import { OPTION_SWITCH_REGISTRY } from '../HorseOptionSwitch.js';
+import { seedFastRandom } from '../HorseEval.js';
+import {
+  LIVE,
+  LIVE_OPTIONS,
+  recordedState,
+  type RecordedDecision,
+} from '../HorseOmahaPricedRules.test-support.js';
+import RECORDED_PLO5 from '../HorseOmahaPricedRules.fixture.json';
+import {
+  correctiveFixture,
+  HAND_KEY,
+} from '../../services/horseCorrectiveReview/fixture.test-support.js';
+import { validateHorseJournalRecord } from '../../services/horseDecisionJournal/record.js';
+import { reconcileHorseJournalHand } from '../../services/horseDecisionJournal/review.js';
 
 /** A registered, release-default-off Omaha option on this tree, staged by the test's own table. */
 const STAGED = 'omahaTurnRiverRaiseIsPriced';
@@ -320,7 +377,11 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
     expect(shadow.calls[0]![STAGED]).toBeUndefined();
     expect(shadow.calls[1]![STAGED]).toBe(true);
     expect(comparable(shadow.fasts[0]!)).toBe(comparable(plain.fasts[0]!));
-    const receipt = shadow.fasts[0]!.decision.optionShadowReceipt!;
+    // the answered decision carries no receipt: it rides in the next journaled decision record
+    expect(shadow.fasts[0]!.decision.optionShadowReceipt).toBeUndefined();
+    expect(shadow.staged).toHaveLength(1);
+    expect(shadow.staged[0]!.requestId).toBe(request.requestId);
+    const receipt = shadow.staged[0]!.receipt;
     expect(receipt.option).toBe(STAGED);
     expect(receipt.changed).toBe(true);
     expect(receipt.actual.action).toBe('call');
@@ -371,7 +432,7 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
       );
     const staged30 = await at(30, STAGED, true);
     expect(staged30.calls).toHaveLength(2);
-    expect(staged30.fasts[0]!.decision.optionShadowReceipt).toBeDefined();
+    expect(staged30.staged).toHaveLength(1);
     const staged60 = await at(60, STAGED, true);
     expect(staged60.calls).toHaveLength(1);
     expect(staged60.features).toContain('option_shadow_skipped_budget_seen');
@@ -390,14 +451,12 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
     const many = (s: FastHorseDecisionRequest) =>
       Array.from({ length: n }, (_, i) => fastRequest(s, i + 1));
     const h = await run(many(horses), brain, { [STAGED]: 'shadow' }, stage());
-    expect(h.fasts.filter((f) => f.decision.optionShadowReceipt).length).toBe(
-      OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE
-    );
+    expect(h.staged).toHaveLength(OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE);
     expect(
       h.features.filter((k) => k === 'option_shadow_skipped_stage_horse_only_seen')
     ).toHaveLength(2);
     const p = await run(many(person), brain, { [STAGED]: 'shadow' }, stage());
-    expect(p.fasts.filter((f) => f.decision.optionShadowReceipt).length).toBe(n);
+    expect(p.staged).toHaveLength(n);
     expect(shadowKeys(p.features).filter((k) => k.includes('_stage_'))).toEqual([]);
     // the acted decisions of the two runs are the same decisions: the cap orders a measurement only
     const none = await run(many(horses), brain, null, stage());
@@ -425,9 +484,221 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
     expect(
       r.features.filter((k) => k === 'option_shadow_skipped_stage_disabled_seen')
     ).toHaveLength(3);
-    expect(r.fasts.slice(1).every((f) => f.decision.optionShadowReceipt === undefined)).toBe(true);
+    expect(r.staged.map((x) => x.requestId)).toEqual([1]);
     const none = await run(requests, burn, null, stage());
     expect(r.fasts.map(comparable)).toEqual(none.fasts.map(comparable));
+  });
+});
+
+describe('timing: a staged re-decision runs only after the answer has been sent', () => {
+  /** Everything up to and including the answer. */
+  const untilAnswer = (events: string[]) => events.slice(0, events.indexOf('send:FAST_RESULT') + 1);
+  const brain = scripted(STAGED, true, CALL, RAISE);
+
+  it('up to the answer, a staged option in shadow does exactly what no row does; the re-decision comes after', async () => {
+    for (const kind of ['person', 'horses'] as const) {
+      const request = fastRequest(plo4With(kind));
+      const plain = await run([request], brain, null, stage());
+      const shadow = await run([request], brain, { [STAGED]: 'shadow' }, stage());
+      expect(untilAnswer(shadow.events), kind).toEqual(untilAnswer(plain.events));
+      expect(untilAnswer(shadow.events).filter((e) => e === 'decide')).toHaveLength(1);
+      const after = shadow.events.slice(shadow.events.indexOf('send:FAST_RESULT') + 1);
+      expect(
+        after.filter((e) => e === 'decide'),
+        kind
+      ).toHaveLength(1);
+      expect(after, kind).toContain('journal:option_shadow');
+      expect(shadow.fasts[0]!.computeMs).toBe(plain.fasts[0]!.computeMs);
+    }
+  });
+
+  it('what happens before the answer does not depend on whether a person was dealt in', async () => {
+    const person = await run(
+      [fastRequest(plo4With('person'))],
+      brain,
+      { [STAGED]: 'shadow' },
+      stage()
+    );
+    const horses = await run(
+      [fastRequest(plo4With('horses'))],
+      brain,
+      { [STAGED]: 'shadow' },
+      stage()
+    );
+    expect(untilAnswer(person.events)).toEqual(untilAnswer(horses.events));
+  });
+
+  it('a slow re-decision is not in the response time (it burns 120 ms after the answer)', async () => {
+    const burn: Decide = (p, g, s, m, o = {}) => {
+      if (o[STAGED] === true) {
+        const until = performance.now() + 120;
+        while (performance.now() < until) {
+          /* a slow re-decision */
+        }
+      }
+      return brain(p, g, s, m, o);
+    };
+    const r = await run([fastRequest(plo4With('person'))], burn, { [STAGED]: 'shadow' }, stage());
+    expect(r.staged).toHaveLength(1);
+    expect(r.latency.find(([s]) => s === 'option_shadow_stage_redecide')![1]).toBeGreaterThan(110);
+    // the answer left before the burn started: the order is the law, the time is printed
+    const answer = r.events.indexOf('send:FAST_RESULT');
+    expect(r.events.lastIndexOf('decide')).toBeGreaterThan(answer);
+    console.log(
+      `response ${r.responseMs[0]!.toFixed(2)} ms with a 120 ms staged re-decision behind it`
+    );
+  });
+
+  it('work queued behind the decision: the staged re-decision is dropped, never run in front of it', async () => {
+    const s = plo4With('person');
+    const requests = [1, 2, 3].map((i) => fastRequest(s, i));
+    burst.on = true;
+    try {
+      const r = await run(requests, brain, { [STAGED]: 'shadow' }, stage());
+      // the first two had a request waiting when they ended: dropped; only the last, on an idle worker, re-decides
+      expect(r.calls).toHaveLength(4);
+      expect(r.staged.map((x) => x.requestId)).toEqual([3]);
+      expect(r.features.filter((k) => k === 'option_shadow_skipped_backlog_seen')).toHaveLength(2);
+      const lastAnswer = r.events.lastIndexOf('send:FAST_RESULT');
+      expect(r.events.lastIndexOf('decide')).toBeGreaterThan(lastAnswer);
+      expect(r.events.slice(0, lastAnswer).filter((e) => e === 'decide')).toHaveLength(3);
+    } finally {
+      burst.on = false;
+    }
+  });
+
+  it('the time from request to response, measured with and without staging (production brain, same fixtures)', async () => {
+    const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
+    const plo4 = Array.from({ length: 10 }, (_, i) => fastRequest(plo4With('person'), i + 1));
+    const all = recordedFast().map((f, i) => fastRequest(f.snapshot, i + 1));
+    const pct = (xs: number[], q: number) =>
+      [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * q))]!;
+    for (const [label, requests] of [
+      ['PLO4 cash fixture x10', plo4],
+      ['every recorded FAST decision', all],
+    ] as const) {
+      const plain: number[] = [];
+      const shadow: number[] = [];
+      // interleaved rounds, so machine load falls on both alike
+      for (let k = 0; k < 6; k++) {
+        plain.push(...(await run(requests, decide, null, stage(TABLE_WITH_CORE))).responseMs);
+        shadow.push(
+          ...(await run(requests, decide, { [STAGED]: 'shadow' }, stage(TABLE_WITH_CORE)))
+            .responseMs
+        );
+      }
+      console.log(
+        `request->response (${label}, n ${plain.length} each): no row p50 ${pct(plain, 0.5).toFixed(2)} p90 ${pct(plain, 0.9).toFixed(2)} max ${pct(plain, 1).toFixed(2)} ms; staged shadow + core companion p50 ${pct(shadow, 0.5).toFixed(2)} p90 ${pct(shadow, 0.9).toFixed(2)} max ${pct(shadow, 1).toFixed(2)} ms`
+      );
+      // the order laws above are the proof; this holds the measured medians together with room for machine load
+      expect(pct(shadow, 0.5)).toBeLessThan(pct(plain, 0.5) * 1.5 + 5);
+    }
+  });
+});
+
+describe('the journal: a staged receipt rides in the next decision record, never in a record kind of its own', () => {
+  const brain = scripted(STAGED, true, CALL, RAISE);
+  it('the decision record of the NEXT decision carries it, naming the decision it re-decided', async () => {
+    const s = plo4With('person');
+    const requests = [1, 2, 3].map((i) => fastRequest(s, i));
+    const r = await run(requests, brain, { [STAGED]: 'shadow' }, stage());
+    expect(r.staged).toHaveLength(3);
+    expect(r.journaled.map((j) => j.requestId)).toEqual([1, 2, 3]);
+    // its own record never carries it (written before the answer); the next record carries exactly that one
+    expect(r.journaled[0]!.payload.stagedOptionShadowReceipts).toBeUndefined();
+    for (const i of [1, 2]) {
+      const carried = r.journaled[i]!.payload.stagedOptionShadowReceipts as Array<{
+        decisionKey: string;
+        requestId: number;
+        decisionTimeMs: number;
+        receipt: OptionShadowReceipt;
+      }>;
+      expect(carried).toHaveLength(1);
+      expect(carried[0]!.requestId).toBe(requests[i - 1]!.requestId);
+      expect(carried[0]!.decisionKey).toBe(requests[i - 1]!.decisionKey);
+      expect(carried[0]!.decisionTimeMs).toBe(requests[i - 1]!.decisionTimeMs);
+      expect(carried[0]!.receipt).toEqual(r.staged[i - 1]!.receipt);
+      // nothing but the receipt's own fields: no card, no seat, no identity
+      expect(Object.keys(carried[0]!.receipt).sort()).toEqual(
+        [
+          'actual',
+          'changed',
+          'flippedTo',
+          'format',
+          'option',
+          'personDealt',
+          'personLive',
+          'street',
+          'variant',
+          'version',
+          'would',
+        ].sort()
+      );
+    }
+  });
+  it('with no row, and for an option that is not staged, no decision record carries the field', async () => {
+    const s = plo4With('person');
+    const requests = [1, 2].map((i) => fastRequest(s, i));
+    for (const states of [null, { [NOT_STAGED]: 'shadow' }] as const) {
+      const r = await run(requests, scripted(NOT_STAGED, false, CALL, RAISE), states, stage());
+      expect(r.journaled).toHaveLength(2);
+      for (const j of r.journaled) expect('stagedOptionShadowReceipts' in j.payload).toBe(false);
+    }
+  });
+  it('the journal record kinds are those of every earlier release (no kind was added)', () => {
+    // the validator's list and the type are the pre-train ones: a record of any kind this tree writes passes the
+    // validator of an older engine, and no segment can hold a kind an older engine refuses
+    const f = correctiveFixture();
+    for (const kind of [
+      'request_lifecycle',
+      'decision',
+      'execution',
+      'accepted_hand',
+      'discard_decision',
+      'discard_execution',
+      'plan_receipt',
+    ] as const)
+      expect(() => validateHorseJournalRecord(f.make(kind, 1, { any: 1 })), kind).not.toThrow();
+    expect(() =>
+      validateHorseJournalRecord({ ...f.make('decision', 1, {}), kind: 'option_shadow_receipt' })
+    ).toThrow('Invalid Horse journal record');
+  });
+  it('a decision record carrying staged receipts passes the journal validator and the hand review unchanged', () => {
+    const f = correctiveFixture();
+    const carried = [
+      {
+        decisionKey: 'another-decision',
+        requestId: 7,
+        decisionTimeMs: 1,
+        receipt: {
+          version: 1,
+          option: 'omahaFourBetFoldPricedCall',
+          flippedTo: true,
+          changed: true,
+          actual: { action: 'fold', amount: null },
+          would: { action: 'call', amount: 40 },
+          street: 'preflop',
+          variant: 'plo5',
+          format: 'cash',
+          personDealt: true,
+          personLive: true,
+        },
+      },
+    ];
+    const hand = (extra: Record<string, unknown>) => [
+      f.make('decision', 1, { ...f.capture, ...extra }),
+      f.make('execution', 2, f.witness),
+      f.make('accepted_hand', 3, f.hand),
+    ];
+    const plain = reconcileHorseJournalHand(hand({}), HAND_KEY);
+    const withCarried = hand({ stagedOptionShadowReceipts: carried });
+    for (const record of withCarried)
+      expect(() => validateHorseJournalRecord(record)).not.toThrow();
+    const reviewed = reconcileHorseJournalHand(withCarried, HAND_KEY);
+    const { manifest: _m1, ...concluded } = reviewed;
+    const { manifest: _m0, ...expected } = plain;
+    expect(concluded).toEqual(expected);
+    expect(reviewed.gaps).toEqual(plain.gaps);
   });
 });
 
@@ -488,14 +759,13 @@ describe('the production brain over every recorded FAST decision: the stage neve
       const shadow = await run(requests(), decide, { [STAGED]: 'shadow' }, stage(table));
       sameAsNoRow(shadow.fasts.map(comparable), plain.fasts.map(comparable));
       // only PLO4/PLO5 cash decisions carry a receipt
-      shadow.fasts.forEach((f, i) => {
-        const r = f.decision.optionShadowReceipt;
-        if (!r) return;
+      for (const { requestId, receipt: r } of shadow.staged) {
         expect(r.option).toBe(STAGED);
-        expect(['plo4', 'plo5'], fixtures[i]!.id).toContain(r.variant.toLowerCase());
+        expect(['plo4', 'plo5'], fixtures[requestId - 1]!.id).toContain(r.variant.toLowerCase());
         expect(r.format).toBe('cash');
-      });
-      expect(shadow.fasts.some((f) => f.decision.optionShadowReceipt)).toBe(true);
+      }
+      expect(shadow.staged.length).toBeGreaterThan(0);
+      expect(shadow.fasts.every((f) => f.decision.optionShadowReceipt === undefined)).toBe(true);
       expect(plain.fasts.every((f) => f.decision.optionShadowReceipt === undefined)).toBe(true);
     });
 
@@ -516,6 +786,8 @@ describe('the production brain over every recorded FAST decision: the stage neve
     expect(shadowKeys(withStage.features)).toEqual(shadowKeys(without.features));
     expect(shadowKeys(withStage.features).some((k) => k.includes('_stage_'))).toBe(false);
     expect(withStage.latency.some(([s]) => s === 'option_shadow_stage_redecide')).toBe(false);
+    expect(withStage.staged).toEqual([]);
+    expect(withStage.fasts.some((f) => f.decision.optionShadowReceipt)).toBe(true);
   });
 
   it('the cost of one staged re-decision, measured (PLO4 cash fixture, with and without the core companion)', async () => {
@@ -535,5 +807,127 @@ describe('the production brain over every recorded FAST decision: the stage neve
         `shadow stage re-decision cost (${label}) over ${costs.length}: p50 ${costs[Math.floor(costs.length / 2)]!.toFixed(2)} ms, max ${costs[costs.length - 1]!.toFixed(2)} ms`
       );
     }
+  });
+});
+
+describe('the cost of one re-decision on PLO5 postflop spots, measured (HorseLogic.decide on the recorded PLO5 decisions)', () => {
+  // A staged re-decision is one more decide of the same request with the option (and its companions) on. Timed here
+  // on the recorded PLO5 flop, turn and river decisions of HorseOmahaPricedRules.fixture.json: as live (the cost
+  // of re-deciding for an ordinary staged option) and with the math core owning the street (the core companion).
+  const RECORDS = RECORDED_PLO5 as unknown as RecordedDecision[];
+  const CORE = {
+    omahaMathCore: true,
+    omahaMathCorePlo5Flop: true,
+    omahaMathCorePlo5Turn: true,
+    omahaMathCorePlo5River: true,
+  };
+  it('per street, as live and with the math core', () => {
+    const pct = (xs: number[], q: number) =>
+      [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * q))]!;
+    let timed = 0;
+    for (const street of ['flop', 'turn', 'river']) {
+      const spots = RECORDS.filter(
+        (r) => String(r.variant).toLowerCase() === 'plo5' && r.street === street
+      );
+      if (spots.length === 0) continue;
+      for (const [label, extra] of [
+        ['as live', {}],
+        ['with the math core', CORE],
+      ] as const) {
+        const ms: number[] = [];
+        for (const r of spots) {
+          HorseMind.reset();
+          const st = recordedState(r) as unknown as { hero: never; gs: never };
+          seedFastRandom(1);
+          const t0 = performance.now();
+          HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+            telemetry: false,
+            observeMind: false,
+            decisionTimeMs: 1794938400000,
+            ...LIVE_OPTIONS,
+            ...extra,
+          } as never);
+          ms.push(performance.now() - t0);
+        }
+        timed += ms.length;
+        const over50 = ms.filter((x) => x > OPTION_SHADOW_STAGE_SLOW_MS).length;
+        const over150 = ms.filter((x) => x > OPTION_SHADOW_STAGE_HARD_MS).length;
+        console.log(
+          `PLO5 ${street} re-decision cost (${label}) over ${ms.length}: p50 ${pct(ms, 0.5).toFixed(2)} ms, p90 ${pct(ms, 0.9).toFixed(2)} ms, max ${pct(ms, 1).toFixed(2)} ms; over 50 ms ${over50}, over 150 ms ${over150}`
+        );
+      }
+    }
+    expect(timed).toBeGreaterThan(0);
+  });
+});
+
+describe('the worker-start math core warm-up (2026-11-21, lane CORE-POOLED-3)', () => {
+  const fixtures = recordedFast();
+  const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
+  // the recorded FAST sample plus controller-dealt PLO4 and PLO5 cash flop decisions (the sample holds no PLO4/PLO5
+  // postflop decision); built inside the test, after the worker harness is set up
+  const omahaFlops = () => {
+    const out: FastHorseDecisionRequest[] = [];
+    const tpl = plo4Snapshot() as unknown as Record<string, unknown>;
+    for (const variant of ['plo4', 'plo5'] as const)
+      for (let cell = 0; cell < 6; cell++) {
+        const { spot, config } = dealToFlop(variant, 'cash', cell);
+        out.push({
+          ...tpl,
+          fence: `${config.tableId}:${config.handNumber}:${spot.hero.seat}:${cell}:1`,
+          player: spot.hero,
+          gameState: spot.state,
+          handJournalContext: captureHorseHandJournalContext(spot.state.actionHistory!),
+        } as unknown as FastHorseDecisionRequest);
+      }
+    return out;
+  };
+  const requests = (flops: FastHorseDecisionRequest[]) =>
+    [...fixtures.map((f) => f.snapshot), ...flops].map((s, i) => fastRequest(s, i + 1));
+  // the core on every PLO4/PLO5 street, so every Omaha cash decision of the sample is the core's
+  const CORE = Object.fromEntries(
+    ['omahaMathCore', ...Object.keys(OMAHA_MATH_CORE_ALL_STREETS)].map((n) => [n, 'on'])
+  ) as unknown as OptionSwitchStates;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    clearOmahaMathCoreCaches();
+  });
+
+  it('prices its own spot and clears every core cache it filled', () => {
+    expect(warmOmahaMathCore().ok).toBe(true);
+  });
+
+  it('acted decisions, journal records and the worker event order are those of no warm-up; it runs once, before READY and before any decision', async () => {
+    // a clock that does not move: the core's work budget then bounds the work alone, so two runs are comparable
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    clearOmahaMathCoreCaches();
+    const flops = omahaFlops();
+    const cold = await run(requests(flops), decide, CORE);
+    clearOmahaMathCoreCaches();
+    const order: string[] = [];
+    let warmOk: boolean | null = null;
+    const warm = await run(
+      requests(flops),
+      ((...a: Parameters<Decide>) => {
+        order.push('decide');
+        return decide(...a);
+      }) as Decide,
+      CORE,
+      {
+        warmUp: () => {
+          order.push('warm');
+          warmOk = warmOmahaMathCore(() => 0).ok;
+        },
+      }
+    );
+    expect(warmOk).toBe(true);
+    expect(order.filter((x) => x === 'warm')).toEqual(['warm']);
+    expect(order[0]).toBe('warm');
+    // the core decided in this sample (otherwise the comparison would prove nothing)
+    expect(cold.fasts.filter((f) => f.decision.omahaMathCore).length).toBeGreaterThan(0);
+    expect(warm.fasts.map(comparable)).toEqual(cold.fasts.map(comparable));
+    expect(warm.events).toEqual(cold.events);
+    expect(warm.journaled.map((j) => j.requestId)).toEqual(cold.journaled.map((j) => j.requestId));
+    expect(warm.calls).toEqual(cold.calls);
   });
 });

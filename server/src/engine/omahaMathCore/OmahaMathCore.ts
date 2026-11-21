@@ -43,6 +43,9 @@ import {
   type RangeSpec,
 } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
+import { calculateRake } from '../PokerEngine.js';
+import { priceDiamondCashFees } from '../../domain/diamondCashFeeSnapshot.js';
+import { resetOmahaBestMemo } from './OmahaMathCoreEval.js';
 import { omahaDrawFeatures, omahaDrawFutureTerm, type OmahaDrawFeatures } from './OmahaDraws.js';
 import {
   OMAHA_MATH_CORE_TABLE_VERSION,
@@ -140,6 +143,23 @@ export interface CoreState {
     noFlopNoDrop: boolean;
     whole?: boolean;
     drop?: number;
+    /**
+     * The platform's own deduction rule (lane CORE-POOLED-4, CORE-AUDIT note 9): present, the pot is netted
+     * exactly as the hand controller settles it, by the same functions: `calculateRake(pot, flop, config,
+     * players)` (cent rounding, heads-up 5% ceiling, player-count cap tier), the Diamond schedule (`priceDiamondCashFees`) on a Diamond table, then the jackpot drop clipped to what
+     * the rake leaves. A preflop fold-out pays nothing; every other line is netted of both.
+     */
+    platform?: {
+      config: {
+        percent: number;
+        cap: number;
+        noFlopNoDrop: boolean;
+        playerCountCaps?: { players: number; cap: number }[];
+      };
+      players: number;
+      bbjFee: number;
+      diamond?: { schedule: string; variant: string; doubleBoard: boolean };
+    };
   } | null;
   seed: string;
   /** the hand's public postflop actions in order (lane RANGEADV's tracker; absent: current-street rules) */
@@ -162,9 +182,12 @@ export interface CoreActionEv {
   /** lane DRAWS: later-street chips the showdown equity leaves out (implied / reverse implied / barrel); null = none */
   /**
    * lane CORE-4: measured realization of the core's own priced EV for this street and action (flop and turn);
-   * ev above is the calibrated value r x (raw + adds) - adds; raw is the uncalibrated price
+   * ev above is the calibrated value raw - (1 - r) x sd (lane CORE-POOLED-4 placement, note sha 57bd475c: the
+   * factor multiplies the action's flop-round showdown term only); raw is the uncalibrated price
    */
   calibration?: { r: number; raw: number; rawSe: number | null; cell: string } | null;
+  /** the action's showdown term on this street as priced (planValue path): what realization multiplies */
+  sd?: number;
   future?: {
     chips: number;
     implied: number;
@@ -208,7 +231,15 @@ export interface CoreReceipt {
    * set by the rule (lane COREWIRE-2, lead 10:55 PM "prove it to change it"): today's action was kept because the
    * core's best did not beat it by more than the change margin (k x the combined standard error)
    */
-  kept?: { incoming: string; best: string; gap: number; se: number; k: number };
+  kept?: {
+    incoming: string;
+    best: string;
+    gap: number;
+    se: number;
+    k: number;
+    /** lane CORE-POOLED-6: today's action had no price among the core's candidates, so nothing could beat it */
+    unpriced?: true;
+  };
   /** component wiring (lane COREWIRE): which components priced this decision */
   wire?: {
     track: string | null;
@@ -237,7 +268,9 @@ function seedNumber(seed: string): number {
 export const INTERIM_WAGER_FREQUENCY = 0.5;
 /** The core's whole time budget per decision (inside the 250 ms Lightning floor with the reference work). */
 export const OMAHA_MATH_CORE_BUDGET_MS = 150;
-const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000, maxMs: 40 };
+// No clock in the sampler (lane CORE-POOLED-5): the same state and seed give the same answer whatever the
+// machine load; the draws are bounded by OMAHA_MATH_CORE_WORK_BUDGET only (law: OmahaMathCoreDeterminism.law.test.ts).
+const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000 };
 /**
  * Deterministic work budget per decision (lane COREWIRE-2, PROVE-2 gate G6): equity draws x opponents. The
  * 150 ms clock box cannot bind when the clock does not move (exact replay freezes performance.now) and a wall
@@ -250,6 +283,38 @@ export const OMAHA_MATH_CORE_WORK_BUDGET = 12000;
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
 /**
+ * The chips the platform deducts from a pot of `pot` (rake plus jackpot drop), by the hand controller's own
+ * rules (HandController.priceDeductions; the Diamond schedule through priceDiamondCashFees, as HorseCallDeductions).
+ * `noFlop`: the hand ends before a flop (no flop, no drop). Exported for the law test against the platform.
+ */
+export function platformDeduction(
+  p: NonNullable<NonNullable<CoreState['rake']>['platform']>,
+  pot: number,
+  noFlop: boolean
+): number {
+  if (!(pot > 0)) return 0;
+  if (noFlop && p.config.noFlopNoDrop) return 0;
+  if (p.diamond) {
+    const f = priceDiamondCashFees(p.diamond.schedule, {
+      pot,
+      dealtIn: p.players,
+      sawFlop: !noFlop,
+      variant: p.diamond.variant,
+      doubleBoard: p.diamond.doubleBoard,
+    });
+    return Math.min(pot, f.rake + f.bbjFee);
+  }
+  const rake = calculateRake(pot, !noFlop, p.config, p.players);
+  const bbj = noFlop ? 0 : Math.max(0, p.bbjFee);
+  if (rake + bbj > pot) {
+    const overage = Math.round((rake + bbj - pot) * 100) / 100;
+    if (overage > bbj) return Math.max(0, Math.min(rake, pot));
+    return rake + Math.round((bbj - overage) * 100) / 100;
+  }
+  return rake + bbj;
+}
+
+/**
  * The pot the winner takes. `foldOut` marks a pot won because every opponent folded to the hero's
  * wager: preflop that hand sees no flop and pays nothing (no flop, no drop). Every other preflop line
  * the core prices reaches a flop, and with `rake.whole` it is netted of the capped rake and the
@@ -257,6 +322,8 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
  */
 function rakeNet(state: CoreState, final: number, foldOut = false): number {
   const rake = state.rake;
+  if (rake?.platform)
+    return final - platformDeduction(rake.platform, final, state.street === 'preflop' && foldOut);
   if (!rake || !(rake.percent > 0)) return final;
   if (state.street === 'preflop' && rake.noFlopNoDrop && (rake.whole !== true || foldOut))
     return final;
@@ -370,6 +437,10 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  *
  * Provenance class own_cards_history (lead ruling 2026-11-19): the inputs are the Horse's own priced EV (its own
  * cards, the board, public actions) and its own chips won; no opponent's hidden card is read.
+ * PLO5 flop (lane CORE-POOLED-4, Nov 21): replaced by a population realization fitted offline on hand_history with
+ * every player's recorded cards (equity vs the actual holdings, realised chips at hand end, all-in adjusted), all
+ * players pooled; check 0.677, raise 1.034, call and bet the pooled 0.809 (the old c3c cells were check 0.31,
+ * call 0.343, bet 0.61, raise 0.903 on 47 raises). Same slot and formula as before.
  * Applied to every non-fold candidate on the streets listed (fold stays 0): ev' = r x (ev + adds) - adds,
  * se' = r x se. PLO6 never reaches the core (scope gate); the river is not calibrated here.
  * The calibrated prices rank the continuing actions. A change across the fold boundary (fold -> continue or
@@ -378,10 +449,13 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  * calibrated-only call -> fold on the PLO5 flop graded -1,986 +- 648 bb all-in, -483 +- 297 realised, Nov 19).
  */
 export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
-  version: 'core4-realization-calibration-v1',
-  provenance: 'own_cards_history' as const,
+  version: 'core-pooled4-realization-v2',
+  // the applied cells (streets below: PLO5 flop only) are population_all_cards_capped: an anonymous population
+  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 1.7% of a fit cell
+  // (cap 20% never binds), never read live. The PLO4 and turn cells are kept for the record (own_cards_history).
+  provenance: 'population_all_cards_capped' as const,
   source:
-    'core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19 (both days), n >= 20 per cell',
+    'PLO5 flop: hand_history population realization (lane CORE-POOLED-4, amendment sha d7fbd6c8); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
   minN: 20,
   // CORE-4 criterion 2 (CRITERIA-CORE4-2.md sha b95d08ec..., exact-replay cross-validation by day vs c3c, delta M1 all-in
   // / M2 realised): PLO5 flop PASS (Nov 19 +644 +- 255 realised, -77 +- 364 all-in; Nov 18 +288 +- 196, -163 +- 183);
@@ -395,11 +469,16 @@ export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
     'plo4|turn': { r: 0.85, n: 203 },
     'plo4|turn|bet': { r: 0.952, n: 63 },
     'plo4|turn|check': { r: 0.894, n: 77 },
-    'plo5|flop': { r: 0.51, n: 2196 },
-    'plo5|flop|bet': { r: 0.61, n: 553 },
-    'plo5|flop|call': { r: 0.343, n: 279 },
-    'plo5|flop|check': { r: 0.31, n: 882 },
-    'plo5|flop|raise': { r: 0.903, n: 47 },
+    // PLO5 flop: lane CORE-POOLED-4 (CRITERIA-CORE-POOLED-4-REALIZATION-AMENDMENT sha d7fbd6c8...1c79), measured
+    // from hand_history offline, every player pooled: realised chips at hand end (all-in adjusted) over equity vs
+    // the opponents' actual holdings x the net pot after the flop round; fit Oct 16 - Nov 16, check Nov 18-20 by
+    // serving era. One factor (R1) unless a pair of actions differs at |z| >= 2 with n >= 100 in both sets:
+    // only check vs raise does, so check and raise carry their own fit value, call and bet take R1.
+    'plo5|flop': { r: 0.8091, n: 8973 },
+    'plo5|flop|bet': { r: 0.8091, n: 1996 },
+    'plo5|flop|call': { r: 0.8091, n: 1898 },
+    'plo5|flop|check': { r: 0.6768, n: 4847 },
+    'plo5|flop|raise': { r: 1.0342, n: 232 },
     'plo5|turn': { r: 0.655, n: 1310 },
     'plo5|turn|all_in': { r: 0.697, n: 35 },
     'plo5|turn|bet': { r: 0.663, n: 468 },
@@ -437,10 +516,11 @@ export function applyRealizationCalibration(
   for (const a of evs) {
     const c = realizationCalibrationCell(variant, street, a.action);
     if (!c) continue;
+    // the one-step fallback path carries no showdown term: it took min(r, 1) inside realized() already
+    if (!(typeof a.sd === 'number' && Number.isFinite(a.sd))) continue;
     const raw = a.ev;
     const rawSe = a.se;
-    a.ev = c.r * (raw + a.adds) - a.adds;
-    if (a.se !== null && Number.isFinite(a.se)) a.se = c.r * a.se;
+    a.ev = raw - (1 - c.r) * Math.max(0, a.sd);
     a.calibration = {
       r: c.r,
       raw: Math.round(raw * 100) / 100,
@@ -453,6 +533,7 @@ export function applyRealizationCalibration(
 }
 
 export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: CoreReceipt } {
+  resetOmahaBestMemo();
   const t0 = clock.now();
   const rng = seededRng(state.seed);
   // every opponent still in the hand; when the state marks none live but some are all-in (PROVE-2 hand
@@ -490,14 +571,13 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const aggressor = live.find((o) => o.seat === state.aggressorSeat) ?? null;
   let samples = 0;
   let equityFallbacks = 0;
-  // the whole decision is time-boxed (the worker deadline turns a late answer into a fold)
+  // the box the wired value search is handed (the equity work itself is bounded by the work budget, not the clock)
   const deadline = t0 + OMAHA_MATH_CORE_BUDGET_MS;
-  const remaining = () => Math.max(5, Math.min(EQ_OPTS.maxMs, deadline - clock.now()));
-  // anytime (lane COREWIRE): inside the last 40 ms of the box every equity call takes the core sampler
-  // at a reduced sample floor (150 draws, SE ~0.04), so a wide decision still answers on time
+  // past the work budget every equity call takes the core sampler at a reduced sample floor (150 draws,
+  // SE ~0.04), so a wide decision still answers on time; the wall clock is never read here
   let lateCalls = 0;
   let work = 0;
-  const late = () => deadline - clock.now() < 40 || work >= OMAHA_MATH_CORE_WORK_BUDGET;
+  const late = () => work >= OMAHA_MATH_CORE_WORK_BUDGET;
   // draws this call may take inside the work budget (at least the reduced floor's 150)
   const drawCap = (k: number) =>
     Math.max(
@@ -515,12 +595,11 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       ranges,
       seededRng(`${state.seed}|eq`),
       late()
-        ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, maxMs: 3, now: clock.now }
+        ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, now: clock.now }
         : {
             ...EQ_OPTS,
             minSamples: Math.min(EQ_OPTS.minSamples, drawCap(ranges.length)),
             maxSamples: drawCap(ranges.length),
-            maxMs: remaining(),
             now: clock.now,
           }
     );
@@ -690,9 +769,17 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   if (pfm) for (const [seat, r] of pfm.rangeOf) rangeOf.set(seat, r);
 
   // realization: no public measurement yet (the measured tables used exact equity against hidden cards)
+  // lane CORE-POOLED-4 (placement note sha 57bd475c): on a calibrated street the one-step path below multiplies the
+  // equity x pot term of a line that does not close the hand by min(r, 1) of the action's measured cell (min: this
+  // path keeps no raw price to hold the fold boundary against). The planValue path is calibrated on its showdown
+  // term in applyRealizationCalibration. Elsewhere 1.
   const real = 1;
-  const realCell = { source: 'no public realization measurement: none applied' };
-  const realized = (_closing: boolean): number => real;
+  const realCell = { source: 'realization: measured cell on a calibrated street, else none' };
+  const realized = (closing: boolean, action?: string): number => {
+    if (closing || !action || pre) return real;
+    const c = realizationCalibrationCell(String(state.variant).toLowerCase(), street, action);
+    return c ? Math.min(1, c.r) : real;
+  };
 
   // ── lane DRAWS: later streets (PLO4/PLO5 flop and turn; PLO6 and the river get none) ──
   const drawF: OmahaDrawFeatures | null =
@@ -880,6 +967,8 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         range: null,
       });
     const callAllIn = state.heroStack <= state.toCall + 0.005;
+    // lane CORE-POOLED-6: the call also closes the hand when no live opponent has chips behind (an exact showdown)
+    const callCloses = callAllIn || live.every((o) => o.stack <= 0.005);
     if (legalHas(state, 'call') || (callAllIn && legalHas(state, 'all_in'))) {
       const base = front.map((o) => rangeOf.get(o.seat)!);
       // a wager larger than the hero's whole stack: the excess is not his to win
@@ -890,7 +979,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       let ev: number;
       let behindNote: string | null = null;
       if ((pfm ? behindPf : behind).length === 0) {
-        let rz = realized(callAllIn || street === 'river');
+        let rz = realized(callCloses || street === 'river', 'call');
         if (pfm && !callAllIn) {
           // preflop, nobody behind: the measured realization of this call line (admitted own_cards_history)
           const effC = Math.min(
@@ -1012,7 +1101,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           extra += Math.max(0, Math.min(o.stack + o.bet, state.currentBet) - o.bet);
         }
         const e2 = eq([...base, ...cont]);
-        const r = realized(callAllIn);
+        const r = realized(callCloses || street === 'river', 'call');
         ev =
           pAllFold * (r * e1.equity * rakeNet(state, P + toCall - uncovered) - toCall) +
           (1 - pAllFold) *
@@ -1036,7 +1125,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   } else if (!wired && legalHas(state, 'check')) {
     const rs = live.map((o) => rangeOf.get(o.seat)!);
     const e = eq(rs);
-    let ev = realized(false) * e.equity * rakeNet(state, P);
+    let ev = realized(street === 'river', 'check') * e.equity * rakeNet(state, P);
     let note = 'check closes the street';
     const futCheck = future(P, 0, false, null);
     // The check is a line, not a terminal: heads-up, an opponent still to act wagers at his public
@@ -1078,9 +1167,12 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         const eCheck = eq([checkRange]);
         const heroAllIn = B >= stack - 0.005;
         const callEv =
-          realized(heroAllIn || street === 'river') * eBet.equity * rakeNet(state, P + 2 * B) - B;
+          realized(heroAllIn || street === 'river', 'check') *
+            eBet.equity *
+            rakeNet(state, P + 2 * B) -
+          B;
         const evIfBet = Math.max(0, callEv);
-        const evIfCheck = realized(street === 'river') * eCheck.equity * rakeNet(state, P);
+        const evIfCheck = realized(street === 'river', 'check') * eCheck.equity * rakeNet(state, P);
         ev = br.b * evIfBet + (1 - br.b) * evIfCheck;
         note = `he wagers ${round2(br.b)} [${br.source}] -> hero ${callEv > 0 ? 'calls' : 'folds'} (eq ${round2(eBet.equity)}); checks behind -> eq ${round2(eCheck.equity)}`;
       }
@@ -1243,7 +1335,9 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       let ev =
         pAllFold * rakeNet(state, P, true) +
         (1 - pAllFold) *
-          (realized(anyAllIn || street === 'river') * e.equity * rakeNet(state, P + adds + calls) -
+          (realized(anyAllIn || street === 'river', action) *
+            e.equity *
+            rakeNet(state, P + adds + calls) -
             adds);
       // Heads-up, the opponent may re-raise at his public raise frequency: priced one step deep
       // (his pot-size re-raise from the top of his range; the hero then folds or calls, the better).
@@ -1274,7 +1368,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           ev =
             f.p * rakeNet(state, P, true) +
             pc *
-              (realized(anyAllIn || street === 'river') *
+              (realized(anyAllIn || street === 'river', action) *
                 eCall.equity *
                 rakeNet(state, P + adds + calls) -
                 adds) +
@@ -1302,9 +1396,9 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     }
   }
 
-  // current-nuts call floor (OmahaMathCoreNutsFloor.ts): flop/turn, facing a wager, a call available
+  // current-nuts call floor (OmahaMathCoreNutsFloor.ts): every postflop street, facing a wager, a call available
   let nutFloor: string | null = null;
-  if (CURRENT_NUTS_CALL_FLOOR && !pre && street !== 'river' && toCall > 0.005) {
+  if (CURRENT_NUTS_CALL_FLOOR && !pre && toCall > 0.005) {
     const callLike = evs.some(
       (e) => e.action === 'call' || (e.action === 'all_in' && e.adds <= toCall + 0.005)
     );
@@ -1314,8 +1408,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       holdsCurrentNuts(state.hole, state.board)
     ) {
       for (let i = evs.length - 1; i >= 0; i--) if (evs[i].action === 'fold') evs.splice(i, 1);
-      nutFloor =
-        'current nuts facing a wager (flop/turn): fold not a candidate, call or raise only';
+      nutFloor = `current nuts facing a wager (${street}): fold not a candidate, call or raise only`;
     }
   }
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');
