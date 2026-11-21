@@ -604,6 +604,57 @@ abbr.lt-variant[title] {
   color: var(--warning-gold, #ffd700);
 }
 
+/* Direct lobby row Invite To Game button (Cash, MTT, Spin, SNG, Satellite) */
+.lt-statuscell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.lt-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid rgb(69 173 255 / 45%);
+  border-radius: 999px;
+  background: rgb(22 139 255 / 16%);
+  color: #8fd4ff;
+  font:
+    700 0.64rem/1 'Roboto Condensed',
+    Inter,
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lt-invite-btn svg {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.lt-invite-btn.is-done {
+  border-color: rgb(53 217 90 / 55%);
+  background: rgb(53 217 90 / 16%);
+  color: #c8ffd2;
+}
+
+.lt-invite-btn:active {
+  filter: brightness(1.25);
+}
+
+.lt-invite-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
 /* Skeleton rows */
 .lt-row--skeleton {
   pointer-events: none;

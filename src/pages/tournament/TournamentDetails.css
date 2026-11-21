@@ -799,6 +799,13 @@
   overflow-wrap: anywhere;
 }
 
+.btn-invite-game {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 /* On a short landscape viewport the header, tabs and 44px controls cannot
    share one bounded column with the global chrome. Let the page/tab scroll
    instead of clipping its last controls; a full-screen modal keeps its own

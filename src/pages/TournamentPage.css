@@ -393,6 +393,44 @@
   transition: all 0.2s;
 }
 
+.tourn-invite-bar {
+  margin: 12px 0 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tourn-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgb(69 173 255 / 42%);
+  border-radius: 999px;
+  background: rgb(22 139 255 / 14%);
+  color: #8fd4ff;
+  font:
+    800 0.8rem/1 'Roboto Condensed',
+    Inter,
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tourn-invite-btn:active {
+  filter: brightness(1.25);
+}
+
+.tourn-invite-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;

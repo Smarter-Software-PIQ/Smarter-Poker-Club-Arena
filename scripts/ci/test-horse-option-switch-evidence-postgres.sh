@@ -102,6 +102,20 @@ if [ -n "$last_list" ]; then
   "${psql[@]}" -f "$last"
   after="$("${psql[@]}" -At -c "SELECT md5(string_agg(conname || pg_get_constraintdef(oid), '|' ORDER BY conname)) FROM pg_constraint WHERE conrelid = 'public.ca_horse_style_switch'::regclass")"
   [ "$before" = "$after" ] && echo "ok    the newest follow-up installed twice changes nothing" || { echo "FAIL  the newest follow-up is not idempotent"; exit 1; }
+  # A switch list is never stale (2026-11-20): a stamped follow-up refuses to install over a newer stamp. The newest
+  # follow-up with its own version replaced by an older one stands in for a list migration installed out of order.
+  stamp="$(grep -o -- '-- registry-lists-version: [0-9]\{14\}' "$last" | grep -o '[0-9]\{14\}' || true)"
+  if [ -n "$stamp" ]; then
+    sed "s/$stamp/00000000000001/g" "$last" > "$work/older-list.sql"
+    if "${psql[@]}" -f "$work/older-list.sql" 2>"$work/older-list.err"; then
+      echo "FAIL  an older switch list installed over the newer list $stamp"; exit 1
+    fi
+    grep -q "is older than the installed list $stamp" "$work/older-list.err" \
+      && echo "ok    an older switch list is refused over the newer list $stamp" \
+      || { cat "$work/older-list.err"; echo "FAIL  the older list failed for another reason"; exit 1; }
+    after_older="$("${psql[@]}" -At -c "SELECT md5(string_agg(conname || pg_get_constraintdef(oid), '|' ORDER BY conname)) FROM pg_constraint WHERE conrelid = 'public.ca_horse_style_switch'::regclass")"
+    [ "$after_older" = "$after" ] || { echo "FAIL  the refused older list changed the constraints"; exit 1; }
+  fi
 fi
 
 style='styleValueBettorNotManiac styleBigBetHonesty styleRaiseRespect styleTightReRaiserRespect styleFoldRatePreRepair styleValueExtraction styleFoldBluff'
