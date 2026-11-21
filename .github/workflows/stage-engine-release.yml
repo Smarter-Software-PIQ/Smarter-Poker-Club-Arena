@@ -694,6 +694,13 @@ jobs:
     name: Dispatch The Exact Main SHA
     needs: [detect, selection]
     if: needs.detect.outputs.release_required == 'true' && needs.detect.outputs.admission_allowed == 'true'
+    # Concurrent Stage runs offering the SAME engine SHA take turns here, so the
+    # second reads the first one's receiver in the offer step instead of racing
+    # it (2026-11-21: three owner-window dispatches inside seven seconds each
+    # sent a request; the extra receiver failed and raised a false alert).
+    concurrency:
+      group: club-arena-engine-offer-${{ needs.selection.outputs.sha || github.run_id }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 4
     permissions:
@@ -707,6 +714,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DAILY_PREPARATION: ${{ needs.detect.outputs.daily_preparation }}
           OFFER_REASON: ${{ needs.detect.outputs.offer_reason }}
+          OWNER_WINDOW_ID: ${{ needs.detect.outputs.owner_window_id }}
           REF_SHA: ${{ needs.selection.outputs.sha }}
           REPO: ${{ github.repository }}
           OFFER_INTERVAL_SECONDS: '3000'
@@ -716,7 +724,9 @@ jobs:
             || { echo "::error::Protected-main push did not provide one full lowercase commit SHA."; exit 1; }
           # Every daily offer must respect an existing owner for the selected SHA.
           # Other callers keep the prior event-driven offer semantics.
-          if [ "${DAILY_PREPARATION:-false}" != true ] && [ "$OFFER_REASON" != behind ] && [ "$OFFER_REASON" != scheduled-cycle ]; then
+          # An owner window is single-use: a second dispatch of it (another
+          # custodian, a retry) joins the same dedupe as daily preparation.
+          if [ -z "${OWNER_WINDOW_ID:-}" ] && [ "${DAILY_PREPARATION:-false}" != true ] && [ "$OFFER_REASON" != behind ] && [ "$OFFER_REASON" != scheduled-cycle ]; then
             echo "send=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
