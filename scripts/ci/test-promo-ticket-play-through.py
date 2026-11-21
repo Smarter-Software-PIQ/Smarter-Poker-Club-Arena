@@ -8,7 +8,7 @@ registration and original-source-return intent adapters. The actual fee
 migration prefix captures immutable direct and earned-entry funding.
 """
 from concurrent.futures import ThreadPoolExecutor
-import argparse,hashlib,importlib.util,json,os,subprocess,tempfile,uuid,shutil
+import argparse,hashlib,importlib.util,json,os,subprocess,tempfile,time,uuid,shutil
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 def module(path,name):
@@ -17,6 +17,8 @@ base=module(ROOT/'scripts/ci/test-promo-play-through.py','ticket_promo_base')
 C,A,B=base.CLUB,base.ALICE,base.BOB
 T='71000000-0000-0000-0000-000000000001';F='71000000-0000-0000-0000-000000000002'
 MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql'
+CUTOFF_ORDER=ROOT/'supabase/migrations/20261118031947_free_buy_cutoff_funding_takes_the_union_wallet_last.sql'
+U='fade0000-0000-0000-0000-000000000001'
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--require-resolution-guard',action='store_true');p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--fee-migration',type=Path,default=ROOT/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql');args=p.parse_args()
@@ -71,6 +73,8 @@ def main():
    check('actual original bust owner '+r['signature'],one(f"SELECT md5(pg_get_functiondef('public.{r['signature']}'::regprocedure))"),r['md5'])
   for r in json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/free-buy-funding-owners.json').read_text()):
    db.run(r['definition']);check('actual Free Buy funding owner '+r['signature'],one(f"SELECT md5(pg_get_functiondef('{r['signature']}'::regprocedure))"),r['definition_md5'])
+  # The captured production owner above is the preimage this migration guards.
+  db.run(CUTOFF_ORDER.read_text())
   db.run("INSERT INTO union_wallets VALUES('fade0000-0000-0000-0000-000000000001',10000,NULL)")
   fee=args.fee_migration.read_text();db.run(fee[:fee.index('DO $owners$')]+'COMMIT;')
   db.run(MIGRATION.read_text())
@@ -294,6 +298,60 @@ def main():
   db.run(f"DELETE FROM tournament_players WHERE id='{reg}'")
   check('lawful unregister can delete its original registration after funded return',one(f"SELECT count(*) FROM tournament_players WHERE id='{reg}'"),'0')
   check('original funding receipt survives lawful registration deletion',one(f"SELECT count(*) FROM ca_promo_free_buy_funding_slices WHERE registration_id='{reg}'"),'1')
+  # The cutoff's grants take each entrant's member row. While another session
+  # holds that row the funding call is parked inside its grant loop, and the
+  # union wallet row every raked cash hand writes must still be free.
+  refusal='Midway promo funds cannot fund this Free Buy at its cutoff'
+  left_behind=lambda event:one(f"SELECT (SELECT count(*) FROM chip_ledger WHERE tournament_id='{event}' AND category='promo_send')||':'||(SELECT count(*) FROM ca_promo_play_through_grants)||':'||(SELECT count(*) FROM ca_promo_event_principal_lots)||':'||(SELECT count(*) FROM ca_promo_free_buy_funding_slices)||':'||(SELECT round(promo_wallet,2) FROM union_wallets WHERE union_id='{U}')")
+  def wait_for(sql):
+   for _ in range(1200):
+    if one(sql)=='t':return
+    time.sleep(0.1)
+   raise AssertionError('timed out waiting for '+sql)
+  def cutoff_entry(balance):
+   event=str(uuid.uuid4());registration=str(uuid.uuid4());reset()
+   db.run(f"UPDATE union_wallets SET promo_wallet={balance} WHERE union_id='{U}';INSERT INTO tournaments(id,club_id,is_free_buy,buy_in_amount,buy_in_fee) VALUES('{event}','{C}',true,0,0);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{registration}','{event}','{A}','registered');SELECT smarter_private.free_buy_ticket_redeem('{event}','{registration}');")
+   return event
+  def cutoff_while_grants_wait(other):
+   event=cutoff_entry(10000)
+   with ThreadPoolExecutor(max_workers=2) as pool:
+    holder=pool.submit(db.run,f"BEGIN;SELECT 1 FROM club_members WHERE user_id='{A}' FOR UPDATE;SELECT pg_sleep(600);",None,False)
+    try:
+     wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE state='active' AND query LIKE '%pg_sleep(600)%' AND pid<>pg_backend_pid())")
+     funding=pool.submit(db.run,f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')",None,False)
+     wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%fn_ca_fund_free_buy_at_cutoff_locked%' AND pid<>pg_backend_pid())")
+     free=db.run(f"SET lock_timeout='2s';{other}",check=False)
+    finally:
+     db.run("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(600)%' AND pid<>pg_backend_pid()")
+    funded=funding.result();holder.result()
+   return event,free,funded
+  wallet=one(f"SELECT promo_wallet FROM union_wallets WHERE union_id='{U}'")
+  event,free,funded=cutoff_while_grants_wait(f"UPDATE union_wallets SET updated_at=now() WHERE union_id='{U}'")
+  check('another session writes the union wallet without waiting while cutoff funding posts its grants',[free.returncode,funded.returncode,left_behind(event)],[0,0,'1:1:1:1:9999.00'])
+  event,free,funded=cutoff_while_grants_wait(f"UPDATE union_wallets SET promo_wallet=0 WHERE union_id='{U}'")
+  check('a wallet emptied during the grants refuses the cutoff with its original error and leaves nothing behind',[free.returncode,funded.returncode!=0 and refusal in funded.stderr,left_behind(event)],[0,True,'0:0:0:0:0.00'])
+  event=cutoff_entry(0);refused=db.run(f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')",check=False)
+  check('an unfunded cutoff still refuses with its original error and leaves nothing behind',[refused.returncode!=0 and refusal in refused.stderr,left_behind(event)],[True,'0:0:0:0:0.00'])
+  # Every other writer takes the union wallet before a member row: a cash hand
+  # credits its rake and then locks each player's member row. Such a hand,
+  # holding the wallet and waiting on an entrant the cutoff already granted,
+  # must end on its own timeout and never end the finish as a deadlock victim.
+  reset();event=str(uuid.uuid4());first,second=sorted([str(uuid.uuid4()),str(uuid.uuid4())])
+  db.run(f"UPDATE union_wallets SET promo_wallet=10000 WHERE union_id='{U}';INSERT INTO tournaments(id,club_id,is_free_buy,buy_in_amount,buy_in_fee) VALUES('{event}','{C}',true,0,0);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{first}','{event}','{A}','registered'),('{second}','{event}','{B}','registered');SELECT smarter_private.free_buy_ticket_redeem('{event}','{first}');SELECT smarter_private.free_buy_ticket_redeem('{event}','{second}');")
+  with ThreadPoolExecutor(max_workers=3) as pool:
+   holder=pool.submit(db.run,f"BEGIN;SELECT 1 FROM club_members WHERE user_id='{B}' FOR UPDATE;SELECT pg_sleep(600);",None,False)
+   try:
+    wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE state='active' AND query LIKE '%pg_sleep(600)%' AND pid<>pg_backend_pid())")
+    funding=pool.submit(db.run,f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')",None,False)
+    wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%fn_ca_fund_free_buy_at_cutoff_locked%' AND pid<>pg_backend_pid())")
+    hand=pool.submit(db.run,f"SET statement_timeout='5s';BEGIN;UPDATE union_wallets SET updated_at=now() WHERE union_id='{U}';SELECT 1 FROM club_members WHERE user_id='{A}' FOR UPDATE;COMMIT;",None,False)
+    wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%club_members%FOR UPDATE%' AND pid<>pg_backend_pid())")
+    time.sleep(1.5)
+   finally:
+    db.run("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(600)%' AND pid<>pg_backend_pid()")
+   funded=funding.result();played=hand.result();holder.result()
+  check('a wallet-then-member writer waiting on a granted entrant ends on its own timeout and the cutoff still funds',[funded.returncode,'deadlock detected' in funded.stderr,played.returncode!=0,left_behind(event)],[0,False,True,'1:2:2:2:9998.00'])
+  db.run(f"UPDATE union_wallets SET promo_wallet={wallet} WHERE union_id='{U}'")
   reset()
   with ThreadPoolExecutor(max_workers=2) as pool:
    replies=list(pool.map(lambda _:call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',40,NULL,'concurrent-agent-ticket')"),range(2)))
@@ -303,7 +361,7 @@ def main():
   check('concurrent agent ticket creates one escrow entitlement',one('SELECT count(*) FROM tournament_tickets'),'1')
   passed=True
  finally:
-  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),str(inventory_capture):hashlib.sha256(inventory_capture.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',ROOT/'supabase/migrations/20261115020406_a_function_that_calls_a_missing_signature_is_refused_at_comm.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
+  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),str(inventory_capture):hashlib.sha256(inventory_capture.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),CUTOFF_ORDER,ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',ROOT/'supabase/migrations/20261115020406_a_function_that_calls_a_missing_signature_is_refused_at_comm.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
   (args.output/'RESULTS.json').write_text(json.dumps(report,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(tmp)
