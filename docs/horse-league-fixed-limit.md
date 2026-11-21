@@ -25,7 +25,7 @@ Nothing is re-implemented: the league calls the functions the controller calls.
 - **Stacks of 24 big blinds or less.** A fixed-limit hand costs one seat at most 4 + 4 + 8 + 8 = 24 big blinds. Above that no seat can be all in. At or below it a seat can go all in for less than a wager, and the rules for that short wager (completion below half a bet, reopening at half a bet or more: `fixedLimitStreetBounds.raiseSize`, `HandController.canReopenBetting`, uncalled excess when every opponent is all in) are not in the league's street loop.
 - **Tournament context or an ante.** Neither is modelled for this structure in the league.
 - **A field population, except the scripted fixed-limit field.** No population is calibrated for fixed limit, and the calibrated and pressure seats build a no-limit menu (`humanFieldDecision`, `pressureFieldDecision`). Since 2026-11-20 the one field a fixed-limit hand seats is `flh_scripted_field_v1`, whose seats are offered the controller's fixed-limit menu (below, "The scripted fixed-limit field").
-- **`flo8`.** The league's settlement awards one high hand. Fixed-limit Omaha hi-lo splits the pot with a low half. A `flo8` hand still takes the league's old path (no-limit betting, high-only showdown), which is why every `flo8` arm stays refused.
+- **`flo8`.** Since 2026-11-21 the league's showdown pays a hi-lo pot by the engine's own `determineWinners` (`settleLeagueShowdown`), low half included; before that it awarded one high hand. A `flo8` hand still takes the league's no-limit betting path (no fixed-limit street unit, wager cap or controller menu), which is why every `flo8` arm stays refused.
 
 ## The proof
 
