@@ -1,6 +1,6 @@
 # holdemCommittedNoPairIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago. Evidence NOT MET: the option stays OFF (read `=== true`, release default off, no switch row).
+Owner order of 2026-11-17 11:49 America/Chicago. Evidence NOT MET: the option stays OFF (read `=== true`, release default off, no switch row). Decided 2026-11-21 on the recorded league runs (not significant) and a replay on real audited decisions (`1` changed of `2734`); see Verdict.
 
 Built by the Hold'em Strategy lane (2026-11-20, building on helper session_01TLQer8xSzdhPzuDRJXTPag) as the priced rebuild of the "Ace-High jamming gate" in Antigravity commits `633eec005d5` (HOLDEM STRATEGY) and `6496e1610f0` (HEADS UP), preserved locally as `archive/holdem-strategy/ace-high-jam-board-discipline-633eec0` and `archive/heads-up/bb-overfold-6496e16`. Those drafts (`if (aceHighJammingGate && cat === 1 && !holdemHoleDrawPresent && potFrac >= 0.40) return all_in`) forced a jam by hand class and an unmeasured `0.40` pot fraction; the brief and witness hands (`#59784826`, `#59784258`) asked for the opposite, that committed unpaired high-card hands stop jamming and calling off without positive expected value. This option drops the unmeasured `0.40` threshold and prices the spot by EV.
 
@@ -39,7 +39,21 @@ Stated assumptions and sample limitations, not unconditioned range measurements:
 
 ## Replay
 
-- Replay: NOT RUN (no journaled NLH decision records exist in the repository scorer format for `server/scripts/audited-decision-replay.ts --row`; fixed-input before/after replay on the live cash profile is recorded in `HoldemCommittedAndDangerBoardArePriced.law.test.ts`)
+Machine-read (README.md, "The Replay row"); the run row is written by the scorer and copied unedited.
+
+- Replay: fixed 0; newlyWrong 0; changed 1; unchanged 2733; unjudged 1; set HVH48-D Hold'em cash vs people 48h; scorer d6b032d3204; source placed verdict-only; arm committed vs off; replayed 2734 of 3891
+
+Unedited scorer line: `placed (verdict-only; 3891 audited decisions, 372 judged bad; joined by node: 2734 replayed, 1157 not replayed, base reproduces the recorded action on 2214): arm committed changed 1 (0 more aggressive, 1 more passive), resized 0, illegal 0, refused 0, errors 0; fixed 0, newly wrong 0, still wrong 0, ok to ok 0, unjudged 1; judged bad left unchanged 226; no bb (the audit declares no EV model); per receipt: holdem_committed_no_pair_call_priced 1 changed / 0 fixed / 0 newly wrong.`
+
+Reach: the option's receipts fired at `2` of `2734` replayed nodes. It changed `1` decision (turn, all-in to call, `holdem_committed_no_pair_call_priced`, unjudged) and left `1` unchanged (river, a fold either way, `holdem_committed_no_pair_fold_priced`). No audited-bad decision was fixed and none was made wrong.
+
+How the row was produced (2026-11-21, on the operations Mac, checkout `5bfaa38d0e0`, run from `server/`; work directory `shared-capacity/holdem-replay-01Gw7aDt`, which holds Horse hole cards and stays on the Mac):
+
+1. Audit set: HVH48 Auditor D (`shared-capacity/hvh48-audit-01TLQer7J/D/decisions.csv`, sha256 `0e36700096a0906d07a5e1ecd0829c35f1ad6abe423f16543103541899c521f0`): every Horse decision in no-limit hold'em cash hands with a person dealt in, `hand_history.created_at` 2026-11-17 18:45 to 2026-11-19 18:45 America/Chicago, `tournament_id is null`. Placed with `python3 scripts/hvh48-audit-nodes.py --set D`: `3891` audited decisions, `3891` placed, `0` not placed; bad `372`, ok `1542`, unjudged `1977`; `2734` replayable (the Horse's own cards known) in `394` hands. The `1157` decisions not replayed are the rows the auditor left unpriced because the Horse's cards were not known.
+2. `npx tsx scripts/audited-node-option-replay.ts --job D.job.json --switch <switch rows> --arms committed=holdemCommittedNoPairIsPriced,danger=holdemDangerBoardEquityIsPriced --out D.replay.jsonl` (seeds `1,7,42`; `2734` nodes, `0` arm errors; replay sha256 `b0b02b7a3916b5028b799bd3ea1cd0134728467f03fb8b23dc21ef1829c446c8`). Each arm is the base rows plus its one option.
+3. `npx tsx scripts/audited-decision-replay.ts --placed D.nodes.jsonl --replay D.replay.jsonl --line ARM --row ARM --set "HVH48-D Hold'em cash vs people 48h"`, the row above copied unedited.
+
+Limits of this replay. The base arm is the production switch rows as archived at 2026-11-20T21:15Z (`prod-switch-20261120T2115Z.json`, 63 rows, the file `huBbDefendsUnreadToPrice.md` used) plus the three rows the coordinator handoff of 2026-11-21 06:21Z lists as switched on after it (`huBbDefendsUnreadToPrice`, `holdemRiverFullHouseValueIsPriced`, `omahaRiverCurrentNutsCallFloor`); the database was not read for this run. `0` rows were sanitized. Opponent memory is off in replay (`replayAt` passes `mind: false`). The base arm reproduces the recorded action on `2214` of `2734` nodes; a changed decision at a node where it does not is unjudged. The audit is verdict-only (no bb). The two-player tournament sets `HU30D` and `HU14D` were not replayed: this option does not act in a tournament.
 
 ## League
 
@@ -53,5 +67,13 @@ Card `nlh_committed_no_pair_is_priced` (`HorseLeague.ts`; arm `a` `{"holdemCommi
 ## Evidence rows
 
 - Mechanism, scope, receipts, law test, byte-identical off: MET.
-- Value against people: NOT MET (cannot compute `eq15` from `hand_history` without journaled NLH decision records).
+- Value against people: NOT MET (league `-0.50 +/- 0.53 bb/100`, `z = -0.95`, not significant; replay on HVH48-D changed `1` of `2734` decisions, unjudged; see Verdict).
 - Do not switch on.
+
+## Verdict (2026-11-21)
+
+Evidence NOT MET. The option stays OFF and no switch row is written.
+
+- League: the three recorded seeds combine to `-0.50 +/- 0.53 bb/100` (`z = -0.95`). That is not significant (`|mean|` is under 2 standard errors), no single seed is significant, and no significant positive run exists, so the bar of three significant positive runs is not reached. It is not measured harm either.
+- Real-hand replay: the row passes the build's bar (`newlyWrong 0 <= fixed 0`) but carries no information on value: `1` changed decision in `2734`, unjudged.
+- Missing, exactly: a significant positive league result (`|mean| > 2` standard errors, positive) on a field where the option acts, three such runs for a default-on promotion. The Horse mirror diverged on `20`, `34` and `80` pairs of `6,000`; a card against the person-like bettor field that the fold curve was measured on (`n = 124` raise responses) is the run that can resolve it. A larger audited hold'em cash set would also be needed before the Replay row says anything: 48 hours of play reached the spot twice.

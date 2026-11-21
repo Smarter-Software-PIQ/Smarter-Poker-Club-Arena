@@ -493,8 +493,17 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaRiverCheckedToBetIsMeasured: priced(
+    'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'
+  ),
+  omahaRiverFirstToActBetIsPriced: priced(
+    'a river check by the first actor heads-up becomes a bet only where the bet, priced on the measured response curve and the card-impact range, beats the check by more than its standard error; it changes only a check (default OFF)'
+  ),
   omahaRiverCurrentNutsCallFloor: priced(
     'a river fold with the exact current nuts becomes the call only where its expected value is proven non-negative (a full chop with every live opponent still returns the call); it changes only a fold (default OFF)'
+  ),
+  omahaFourBetFoldPricedCall: priced(
+    "a preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the call only where the engine's priced call of a re-raise (omahaReraisedCallPriced) is positive; it changes only a fold (default OFF)"
   ),
   omahaFacingBetValueShareIsMeasured: priced(
     "the facing-bet verdicts' bettor range from his measured street record and, for a person's heads-up turn or river bet, his line-conditioned range weighted by the measured density of people's bets; the priced verdicts decide where they price (default OFF)"

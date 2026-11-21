@@ -255,16 +255,17 @@ describe('the spot: opener, one 3-bet, heads-up, acts after the 3-bettor', () =>
     // the small blind opens (the Horse), the big blind 3-bets: out of position
     const d = spot('KhQh9c8c3d', { heroSeat: 1, raiserSeat: 2 });
     expect(omahaPreflopReraiseDefenceHeadsUpInPosition(d.hero, d.gs)).toBe(false);
-    // a Horse's 3-bet is not the spot; with no roster the seat's is_horse decides; neither known: not the spot
+    // IDENTITY-FREE (2026-11-20): the spot reads nobody's kind. A Horse's 3-bet, no roster, and neither known are
+    // all the same spot as a person's 3-bet.
     const h = spot('KhQh9c8c3d', { ...IP, horse3: true });
-    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(h.hero, h.gs)).toBe(false);
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(h.hero, h.gs)).toBe(true);
     const noRoster = { ...a.gs, humanUserIds: undefined } as unknown as HorseGameStateV2;
     expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, noRoster)).toBe(true);
     const unknown = {
       ...noRoster,
       players: noRoster.players.map((p) => ({ ...p, is_horse: undefined })),
     } as unknown as HorseGameStateV2;
-    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, unknown)).toBe(false);
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, unknown)).toBe(true);
   });
 
   it('one definition on table cash and fast-table cash; a tournament is never the spot', () => {
@@ -401,11 +402,23 @@ describe('the decision', () => {
     expect(defenceCalls).toBeGreaterThan(0);
     expect(standingCallsPriced).toBeGreaterThan(0);
   });
-  it('a Horse 3-bettor, a cold 3-bet, a limper still in: on is byte-identical to off', () => {
+  it('identity-free: a Horse 3-bettor and a person 3-bettor with the same public read get the same decision', () => {
+    for (const hole of HANDS5)
+      for (const seed of SEEDS) {
+        const person = decide(hole, IP, IN_POS_ON, seed);
+        const horse = decide(hole, { ...IP, horse3: true }, IN_POS_ON, seed);
+        expect(horse.d.action).toBe(person.d.action);
+        expect(horse.d.amount ?? null).toBe(person.d.amount ?? null);
+        const off = decide(hole, { ...IP, horse3: true }, {}, seed);
+        if (off.d.action !== 'fold' || horse.d.action === 'fold') expect(horse.key).toBe(off.key);
+        else expect(['call', 'all_in']).toContain(horse.d.action);
+      }
+  });
+
+  it('a cold 3-bet, a limper still in: on is byte-identical to off', () => {
     for (const hole of HANDS5)
       for (const seed of SEEDS)
         for (const o of [
-          { ...IP, horse3: true },
           { heroSeat: 6, raiserSeat: 2, openerSeat: 4 },
           { ...IP, limperSeat: 3, limperStays: true },
         ]) {
