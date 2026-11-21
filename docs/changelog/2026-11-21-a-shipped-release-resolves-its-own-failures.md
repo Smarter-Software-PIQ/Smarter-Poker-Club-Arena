@@ -10,19 +10,14 @@ What was left: the failure fingerprint is per run, so nothing ever resolved
 it, and the critical incident stayed escalated with the engine it complained
 about already serving (and a later release, 44863049588, shipping cleanly).
 
-Fix, at the source and at the fact:
+Fix at the source: `scripts/ci/record-engine-release-alert.mjs` reads the
+append-only `ca_engine_deploy_attempts` receipts before raising. When another
+run already shipped this exact SHA, a failed redelivery raises nothing and
+names the shipped run (`shippedSibling`). Resolution of earlier failures by a
+later verified ship landed in parallel in #11630 (`buildReleaseResolvedAlerts`),
+so the database trigger first drafted here was dropped to keep one resolver.
 
-- `scripts/ci/record-engine-release-alert.mjs` reads the append-only
-  `ca_engine_deploy_attempts` receipts before raising: when another run
-  already shipped this exact SHA, a failed redelivery raises nothing and names
-  the shipped run (`shippedSibling`).
-- `20261121151027_a_shipped_release_resolves_its_own_failures`: a shipped
-  receipt (AFTER INSERT, `shipped = true`) resolves every `EngineReleaseFailed`
-  whose latest event is still firing for that exact SHA, through
-  `fn_record_engine_alerts`, naming the run that shipped it. An alerting error
-  never refuses the receipt. Probed on production in a self-aborting block.
-
-`auto-deploy-hetzner.yml` (release-custody area) is unchanged. The open alert
-for `e2140d2d` was resolved through the same door with the evidence above.
+The open alert for `e2140d2d` was resolved through `fn_record_engine_alerts`
+with the evidence above.
 
 Pinned in `tests/engine-release-pipeline-hardening.law.test.ts`.
