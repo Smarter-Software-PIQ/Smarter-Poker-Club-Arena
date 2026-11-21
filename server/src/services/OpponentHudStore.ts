@@ -750,6 +750,12 @@ export class OpponentHudStore {
 export { OPPONENT_HUD_OPTION };
 
 let shared: OpponentHudStore | null = null;
+type HudAlertSink = (name: HudAlertName, firing: boolean, summary: string) => void;
+let alertSink: HudAlertSink | null = null;
+/** index.ts wires the Production Alerts route (engine_alerts, page false) here, in the main process. */
+export function setOpponentHudAlertSink(sink: HudAlertSink | null): void {
+  alertSink = sink;
+}
 const familyOf = (variant: unknown): HudFamily | null => {
   const v = String(variant ?? '').toLowerCase();
   return v === 'plo4' || v === 'plo5' ? v : null;
@@ -902,20 +908,9 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
       return (data ?? []) as { id: string; created_at: string }[];
     },
     alert(name, firing, summary) {
-      // Production Alerts: engine_alerts -> operational_alert_events; page false, so never the owner's phone
-      void import('./engineAlerts.js')
-        .then((m) =>
-          firing
-            ? m.raiseEngineAlert({
-                alertname: name,
-                severity: 'warning',
-                component: 'opponent-hud',
-                summary,
-                page: false,
-              })
-            : m.resolveEngineAlert(name, 'opponent-hud', summary)
-        )
-        .catch(() => undefined);
+      // Production Alerts through the sink the main process injects (index.ts): this module, on the decision closure
+      // through the engine wiring, never imports an alert module (HorseDecisionClosure.test.ts).
+      alertSink?.(name, firing, summary);
     },
     async upsert(rows, signal) {
       const { data, error } = await (await client())

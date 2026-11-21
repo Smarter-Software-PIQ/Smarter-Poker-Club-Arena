@@ -579,6 +579,9 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   }
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while the reading the
+    // workers get has omahaOpponentLifetimeHud on (an unreadable reading disarms; never throws).
+    armOpponentHudFromSwitch(message);
     this.lastStyleSwitch = message;
     for (const client of this.clients) client.postStyleSwitch(message);
   }
@@ -887,14 +890,6 @@ export async function startLiveHorseDecisionWorker(
         ? null
         : (options.optionRegistryPublish ??
           (options.styleSwitchRead === undefined ? publishOptionRegistryToDatabase : null));
-    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while this reading
-    // has omahaOpponentLifetimeHud on (armOpponentHudFromSwitch never throws and changes no delivery).
-    const switchReadOnly = switchRead;
-    const switchReadAndArm = (): Promise<unknown> =>
-      Promise.resolve(switchReadOnly()).then((config) => {
-        armOpponentHudFromSwitch({ status: 'ok', config });
-        return config;
-      });
     styleSwitchDelivery = createStyleSwitchDelivery({
       // The registry publish rides the same tick and is never awaited by the read: a failed publish cannot delay,
       // fail or change a delivery (optionRegistryPublisher.ts).
@@ -903,9 +898,9 @@ export async function startLiveHorseDecisionWorker(
             void Promise.resolve()
               .then(publishRegistry)
               .catch(() => undefined);
-            return switchReadAndArm();
+            return switchRead();
           }
-        : switchReadAndArm,
+        : switchRead,
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
       broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
