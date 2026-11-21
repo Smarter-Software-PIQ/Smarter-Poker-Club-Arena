@@ -411,6 +411,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaHiLoTournamentFirstIn',
   'plo6TopSetNutRealization',
   'plo6ManiacPriceRefusalToRangePlay',
+  'plo6FacingBetIsPriced',
   'v62RiverBettorPolarity',
   'readPostflopFoldRate',
   'readShrinkResponse',
@@ -719,6 +720,17 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
       'measured harm in the league: scripted flh maniac field -24.68 bb/100 (SE 5.45, z -4.53; seeds 20261120 -28.02 +/- 7.30 and 20261121 -21.35 +/- 8.10, 12,000 pairs each); tight-value harm control 0.00 (SE 0.02); no positive cell',
     source:
       'league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 (docs/horse-league-fixed-limit.md; docs/changelog/2026-11-20-league-scripted-fixed-limit-field.md)',
+  }),
+  // 2026-11-21 Antigravity Coordinator: declared eval-40aba893fbc9 on the human-calibrated PLO6 field (F6 400/400
+  // sessions, 200,000 pairs / 400,000 hands) failed with measured harm (-15.510 +/- 2.655 bb/100, z = -5.84);
+  // Horse mirror M6 was not significant (+1.483 +/- 1.319, z = +1.12), and HVH48 true-card river fold->call bled
+  // -334.4 bb vs OFF. Locked off-only as measured harm.
+  plo6FacingBetIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'Declared eval-40aba893fbc9 (2026-11-21) VALID FAIL: F6 human-calibrated PLO6 field 400/400 sessions (200,000 pairs / 400,000 hands) -15.510 +/- 2.655 bb/100 (z = -5.84 < -2.0, 256/400 sessions negative); M6 Horse mirror 100/100 +1.483 +/- 1.319 (z = +1.12); 0 illegal/truncated/corrected/fallbacks; HVH48 true-card river fold->call -334.4 bb vs OFF',
+    source:
+      'DECLARATION-PLO6-FACING-BET-IS-PRICED.md (sha256 95ca359f), eval-40aba893fbc9/RESULT.json, docs/horse-option-authority.d/plo6FacingBetIsPriced.md',
   }),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
