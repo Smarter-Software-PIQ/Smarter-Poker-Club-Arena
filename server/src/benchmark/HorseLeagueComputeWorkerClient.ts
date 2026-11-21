@@ -28,6 +28,7 @@ import { PHASE8_POLICY } from '../engine/HorseTournamentPostflop.js';
 import { horseDecisionSolverStoresAreValid } from '../engine/horseDecision/protocol.js';
 import type { LeagueMatchup, LeagueResult } from './HorseLeague.js';
 import {
+  FIXED_LIMIT_SCRIPTED_POPULATION_ID,
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
@@ -186,10 +187,7 @@ interface PendingJob<T> {
   resolve: (result: T) => void;
   reject: (error: Error) => void;
   resultType:
-    | 'MATCHUP_RESULT'
-    | 'AGREEMENT_RESULT'
-    | 'GTO_V31_AGREEMENT_RESULT'
-    | 'TOURNAMENT_RESULT';
+    'MATCHUP_RESULT' | 'AGREEMENT_RESULT' | 'GTO_V31_AGREEMENT_RESULT' | 'TOURNAMENT_RESULT';
   heartbeatTimer: ReturnType<typeof setTimeout>;
   cancelTimer: ReturnType<typeof setInterval> | null;
   tournamentRequest?: TournamentLeagueRequest;
@@ -558,10 +556,12 @@ const LEAGUE_RESULT_KEYS = [
 const HUMAN_RESPONSE_ACTIONS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
 
 function isHumanFieldLeagueEvidence(value: Record<string, unknown>): boolean {
-  // The human-calibrated field, or (2026-10-31) the V53 aggressor field.
+  // The human-calibrated field, (2026-10-31) the V53 aggressor field, or
+  // (2026-11-20) the scripted fixed-limit field (FixedLimitScriptedField.ts).
   if (
     value.opponentPopulation !== HUMAN_CALIBRATED_POPULATION_ID &&
-    value.opponentPopulation !== V53_PRESSURE_POPULATION_ID
+    value.opponentPopulation !== V53_PRESSURE_POPULATION_ID &&
+    value.opponentPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID
   )
     return false;
   const responses = value.humanResponses;

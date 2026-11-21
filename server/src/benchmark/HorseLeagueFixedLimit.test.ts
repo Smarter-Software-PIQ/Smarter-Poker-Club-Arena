@@ -34,6 +34,7 @@ import { resolve } from 'node:path';
 import { variantInfo } from '../engine/HorseEval.js';
 import {
   FIXED_LIMIT_HOLDEM_CARDS,
+  FIXED_LIMIT_SCRIPTED_FIELD_CARDS,
   LEAGUE_MATCHUPS,
   UNMEASURABLE_MATCHUPS,
   leagueDealtCards,
@@ -218,9 +219,7 @@ function replayAgainstController(handSeed: number, dealerSeat: number, seats: nu
     expect(
       (gs.actionHistory ?? []).map((r) => [r.seat, r.stage, r.action, r.amount, r.isFullRaise]),
       at
-    ).toEqual(
-      state.actionHistory.map((r) => [r.seat, r.stage, r.action, r.amount, r.isFullRaise])
-    );
+    ).toEqual(state.actionHistory.map((r) => [r.seat, r.stage, r.action, r.amount, r.isFullRaise]));
 
     // The menu the brain was handed is the controller's own.
     expect(
@@ -430,7 +429,14 @@ describe('what the league cannot deal as fixed limit it refuses', () => {
 
   it('a fixed-limit menu refuses a seat that could not cover the wager', () => {
     const spot = {
-      player: { seat: 1, stack: 1, bet: 0, is_folded: false, is_all_in: false, is_sitting_out: false },
+      player: {
+        seat: 1,
+        stack: 1,
+        bet: 0,
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      },
       gameVariant: 'flh',
       pot: 3,
       currentBet: 2,
@@ -456,11 +462,15 @@ describe('what the league cannot deal as fixed limit it refuses', () => {
 });
 
 describe("the fixed-limit hold'em cards", () => {
-  const fixedLimitCards = LEAGUE_MATCHUPS.filter((m) => variantInfo(m.variant ?? 'nlh').isFixedLimit);
+  const fixedLimitCards = LEAGUE_MATCHUPS.filter(
+    (m) => variantInfo(m.variant ?? 'nlh').isFixedLimit
+  );
 
   it('are on the card, in the domain the league deals, and no longer refused', () => {
+    // The Horse-field cards and (2026-11-20) the scripted-field cards
+    // (HorseLeagueFixedLimitField.test.ts).
     expect(fixedLimitCards.map((m) => m.name).sort()).toEqual(
-      FIXED_LIMIT_HOLDEM_CARDS.map((m) => m.name).sort()
+      [...FIXED_LIMIT_HOLDEM_CARDS, ...FIXED_LIMIT_SCRIPTED_FIELD_CARDS].map((m) => m.name).sort()
     );
     expect(FIXED_LIMIT_HOLDEM_CARDS.map((m) => [m.name, m.variant, m.seats, m.a, m.b])).toEqual([
       ['flh_priced_preflop', 'flh', 6, { fixedLimitPricedPreflop: true }, {}],
@@ -475,6 +485,7 @@ describe("the fixed-limit hold'em cards", () => {
           gameMode: m.context?.gameMode ?? 'cash',
           ante: m.context?.ante ?? 0,
           humanField: m.opponentPopulation !== undefined,
+          ...(m.opponentPopulation ? { fieldPopulation: m.opponentPopulation } : {}),
         }),
         m.name
       ).toBeNull();
@@ -485,8 +496,12 @@ describe("the fixed-limit hold'em cards", () => {
     }
     // A fixed-limit arm that is still refused says why on the legal game, or
     // that its game (hi-lo) is not dealt; none repeats the retired claim.
-    for (const u of UNMEASURABLE_MATCHUPS.filter((r) => variantInfo(r.variant ?? 'nlh').isFixedLimit)) {
-      expect(u.reason, u.name).not.toContain('playHand deals no-limit and pot-limit betting and has no');
+    for (const u of UNMEASURABLE_MATCHUPS.filter(
+      (r) => variantInfo(r.variant ?? 'nlh').isFixedLimit
+    )) {
+      expect(u.reason, u.name).not.toContain(
+        'playHand deals no-limit and pot-limit betting and has no'
+      );
       expect(u.reason, u.name).toContain(
         leagueDealsFixedLimit(u.variant!)
           ? 'Refused, though the league deals this game'
