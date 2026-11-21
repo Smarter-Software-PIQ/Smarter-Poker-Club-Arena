@@ -1,0 +1,3 @@
+# Owner engine cutover after the 0825z window expired unused (CUTOVER-10)
+
+Next window of the owner's engine cadence (November 20, 2026, 2:38 PM Chicago: cutovers every couple of hours). Window `2026-11-21-owner-no-notice-engine-1225z` (6:25 AM to 8:15 AM Chicago, November 21) serves `bb21dc82673` (sealed under 0300z; window 0825z ended at 09:20 UTC with no dispatch) and carries everything merged to main before this booking, at minimum `8ece47e777b9` (the PLO fix train #11594). No advance player notice. Installers pause from the booking merge until SEALED and resume with `scripts/release/resume-migration-installs.sh`. No strategy option is switched on or off by this release.

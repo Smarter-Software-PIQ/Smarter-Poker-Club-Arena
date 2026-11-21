@@ -1668,6 +1668,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "47c0a19743f46429e697462ae3735541d24092b2989b29d5567f120a6b897e09"
       }
+    },
+    {
+      "id": "2026-11-21-owner-no-notice-engine-1225z",
+      "ownerOrder": "Dan, the owner, wrote to the PLO-OWNER lead in Claude session_01UxDLnLPjcC14fSouoKnY5C on November 20, 2026 at 2:38 PM Chicago, verbatim: \"LAUNCH A SWARM ALWAYS TO GET THIS DONE AS BEST AS POSSIBLE, MAKE SURE YOU ARE SCHEDULING ENGINE CUT OVERS EVERY COUPLE HOURS TO GET ANY AND ALL CHANGES AND UPGRADES DONE AND FINISHED.\" Earlier that day, at 09:48 Chicago in Claude session_01TLQer8xSzdhPzuDRJXTPag, he wrote verbatim: \"AUTHORIZED: TAKE OVER THE ENGINE RELEASE NOW\"; lane RELEASE-12 of Claude session_01Gw7aDuHREYyRnFwNqVFJAe, the successor of that lead's release lanes, is the single engine-release driver of this window. The engine serves exact bb21dc82673117a937f67c9498dec46b8c27522e (sealed 2026-11-21 04:09:32Z under window 2026-11-21-owner-no-notice-engine-0300z; the later window 2026-11-21-owner-no-notice-engine-0825z expired unused at 09:20:00Z with no dispatch); this window is merged only while the engine serves it, and it books the next cutover of everything main holds since. His standing order of November 17, 2026 20:23 Chicago removes the advance player announcement from every engine cutover, verbatim: \"REMOVE THE ANNOUNCEMENT, I NEVER ASKED FOR IT, AND DON'T WANT IT APART OF ANY FUTURE ENGINE CUT OVER REQUIREMENTS EVER AGAIN!\", and his instruction of 11:05 Chicago that day applies, verbatim: \"For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.\" It does not authorize interrupting an active hand, bypassing settlement, forcing an uncertified replacement or weakening recovery safeguards. One fresh SINGLE-USE engine activation of exact serving bb21dc82673117a937f67c9498dec46b8c27522e (sealed 2026-11-21 04:09:32Z under window 2026-11-21-owner-no-notice-engine-0300z; the later window 2026-11-21-owner-no-notice-engine-0825z expired unused at 09:20:00Z with no dispatch), containing at minimum protected main 8ece47e777b9b4d517b5bca3bef317d352ec3a14. No playerNoticeAt is recorded and no client notice is published; no notice time is invented. The serving engine's own recovery window still announces the last hand internally, lets every table finish its hand and settle, and only then freezes. Operational execution preserves the exact current-schema Backup with the full 1800-second soak and both-direction seated-player rehearsal, immutable image qualification, original Stage and receiver custody, durable drain and freeze, the full 285s admission and rollback reserve, seal, thaw, live gameplay and post-seal Backup. The fixed expiry is not extended; this is one operation, never an automatic retry, renewal, new-start hold or second publisher. No strategy option is switched on or off by this release: horsePlayStyles, Pillar 2, R7/R8, leak maps, held-out packs and default-off strategy options remain disabled; zero opportunities remain explicit evidence gaps. Release-control inputs and ordinary migration installation are held only from booking merge until this operation seals, is abandoned or expires, then the maintained resume route reconciles every missed ordinary migration.",
+      "contains": "8ece47e777b9b4d517b5bca3bef317d352ec3a14",
+      "ownerNoticeWaiver": "For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.",
+      "notBefore": "2026-11-21T12:25:00Z",
+      "notAfter": "2026-11-21T14:15:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "819013c424f10665ad87f812ac5f67d3db196fe3725a3a2fb6781281429cbd66"
+      }
     }
   ],
   "databaseWindows": [
