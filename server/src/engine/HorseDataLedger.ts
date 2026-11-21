@@ -5678,6 +5678,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
     'V94'
   ),
+  flag(
+    'omahaRiverBetFoldIsHisRecord',
+    "EMERG lane STAB-DEFENCE-5 2026-11-21. PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the answer curve those rules price a river bet with is the population's curve with its fold share multiplied by the opponent's own lifetime PUBLIC fold record at a river's first wager over the population's fold rate at the same sizes, shrunk by n / (n + k) (k = 75.9 river answers, measured; HorseOmahaRiverBetFoldRecord.ts). The raise share of his continues is unchanged and the fold share's standard error grows with the record's. With no lifetime provider, no record or any error it is the population curve exactly. Built because the population price bet the river into an opponent who does not fold it (stab-defence grade under AMENDMENT-4: heads-up calling station +10.41 +- 8.11 bb/100). One formula for every opponent; no hand class, size band, position or kind; nothing keyed to a person or a Horse. Never PLO6.",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_bet_fold_his_record_read',
+    'HorseLogic wager_rules (omahaRiverBetFoldRecordCurve, omahaRiverBetFoldIsHisRecord)',
+    "a PLO4/PLO5 cash river decision, heads-up, in which one of the two river bet rules priced the bet with the opponent's own lifetime public river fold record present (the answer curve was moved from the population's); it counts the read, not a changed action",
+    'V94'
+  ),
   receipt(
     'omaha_four_bet_fold_priced_call',
     'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',

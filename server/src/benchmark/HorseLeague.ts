@@ -4063,6 +4063,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStrongHandCheckIsPriced: true },
     b: {},
   })),
+  // 2026-11-21 EMERG lane STAB-DEFENCE-5 (default OFF, PLO4/PLO5 cash): omahaRiverBetFoldIsHisRecord over the two
+  // river bet rules; a on, b the two rules without it. The option reads a lifetime record: without a provider fed
+  // by the harness both arms decide alike.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_fold_his_record`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+    },
+    b: { omahaRiverFirstToActBetIsPriced: true, omahaRiverCheckedToBetIsMeasured: true },
+  })),
   // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverCheckedToBetIsMeasured; a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_river_checked_to_bet_measured`,
