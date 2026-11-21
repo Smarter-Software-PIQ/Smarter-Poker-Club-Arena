@@ -1,0 +1,13 @@
+# The dark PLO4/PLO5 cash options have a shadow stage (2026-11-20)
+
+A PLO4/PLO5 cash option that ships dark could not be graded: offline replays find too few decisions with a person in the hand. The option shadow (2026-11-18) already re-decides a committed decision with one option flipped and journals the counterfactual without acting on it, but it was tuned for hold'em: it spends its budget on every game, skips any decision that took over 15 ms (most priced Omaha postflop decisions), has no preference for hands with a person dealt in, and has no automatic stop when a re-decision is slow.
+
+`HorseOptionShadowStage.ts` fits it to the options listed in `OPTION_SHADOW_STAGE` (the dark PLO4/PLO5 names; nothing else changes path):
+
+- **Scope.** A listed option is re-decided only in PLO4/PLO5 cash (table and Lightning), in its listed games and streets. Never PLO6, PLO8, hold'em, a tournament or a bomb pot.
+- **Budget.** The acted decision may have taken 50 ms (15 ms for every other option). The shared per-minute budget is unchanged; a hand with no person dealt in takes at most 2 staged re-decisions per worker per minute (the order of a measurement, read by no decision).
+- **Latency breaker.** Per option and worker: one re-decision over 150 ms, or three over 50 ms within the last 20, stops that option's re-decisions in that worker until it restarts (`option_shadow_stage_self_disabled_seen`, then `option_shadow_skipped_stage_disabled_seen`). Timed under `option_shadow_stage_redecide`.
+- **Companions.** An option that acts only with another on (the math core's street flag with `omahaMathCore`) is re-decided with the companion true as well.
+- **Switching.** No new row, state or setting: a listed option is staged by its ordinary `shadow` row. The opponent lifetime HUD is not listed (nothing arms its record in shadow, so its receipt would read "same" falsely).
+
+Proof (`aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts`, production worker runtime): with a staged option in shadow, companion included, the acted decision, RNG positions and plan effects of every recorded FAST decision of the phase 6C journal sample are those of no row; hold'em and tournament decisions run no re-decision and count nothing; PLO6 is out of scope; the breaker trips and stays tripped; an option that is not staged gives the same receipts and counters as without the table. Measured on the shared Mac under load (PLO4 cash fixture, 12 re-decisions each): option alone p50 1.06 ms, max 2.07 ms; with `omahaMathCore` as companion p50 46.64 ms, max 48.89 ms, which is at the 50 ms slow line: the core's street flags are expected to trip the breaker until the core's own cost is lower.

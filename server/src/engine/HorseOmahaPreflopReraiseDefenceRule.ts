@@ -287,7 +287,7 @@ export function omahaPreflopReraiserReadOf(
  *     All-In-Or-Fold, not a tournament, fold legal, chips to call);
  *   - exactly two preflop raises: the first is the Horse's (it opened; a raise over limpers who then folded counts as
  *     the first raise), the second is the player it faces (one 3-bet, no 4-bet, nothing else);
- *   - that player is a person (omahaOpponentKindOf: gs.humanUserIds, else his seat's is_horse; unknown = not the spot);
+ *   - any 3-bettor: the spot reads nobody's kind (identity-free since 2026-11-20, THREEBET-POT);
  *   - heads-up: every other player has folded (a player still in, all in included, ends the spot);
  *   - POSITION, ONE DEFINITION for every table kind (table cash and fast-table cash alike): the Horse acts after the
  *     3-bettor on every later street (seat order from the dealer, the small blind first, the dealer last). Heads-up
@@ -322,9 +322,10 @@ export function omahaPreflopReraiseDefenceHeadsUpInPosition(
         (!p.is_sitting_out || p.is_all_in === true)
     );
     if (othersInHand.length > 0) return false;
-    // F2: the 3-bettor is a person (the engine's roster, gs.humanUserIds, else the seat's is_horse flag); unknown is
-    // not the spot. The finding and its evaluation are a person's 3-bets.
-    if (omahaOpponentKindOf(gs, found.raiserUserId) !== 'person') return false;
+    // IDENTITY-FREE (THREEBET-POT lane 2026-11-20, owner order: no rule keyed on person vs Horse): the spot is the
+    // same against every 3-bettor. The price reads only that player's public re-raise rate (omahaPreflopReraiserReadOf:
+    // his pooled read, the population mean with no evidence); on this path no re-raise is a candidate, so the
+    // fold-to-re-raise prior is never read. Evidence: repairs/EMERG/THREEBET-POT.md, CRITERIA-THREEBET-POT-DEKEY.md.
     return order(player.seat, gs.dealerSeat) > order(found.raiserSeat, gs.dealerSeat);
   } catch {
     return false;
