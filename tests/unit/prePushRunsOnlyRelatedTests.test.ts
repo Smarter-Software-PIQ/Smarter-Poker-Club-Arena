@@ -111,6 +111,8 @@ describe('the local pre-push gate runs only directly related tests', () => {
       '/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t'
     );
     expect(helper.indexOf('export TMPDIR')).toBeLessThan(helper.indexOf('agent-push-step.XXXXXX'));
+    expect(helper).toContain('for fetch_attempt in 1 2 3; do');
+    expect(helper).toContain('for ref_attempt in 1 2 3; do');
   });
 
   it('the hook, the publishing guide and the owner policy record the order and keep the later gates', () => {

@@ -10,8 +10,26 @@
  * Best-effort: exits 0 with a warning if the alert DB call fails, so it never
  * masks the authoritative receipt verdict.
  */
+import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+
+const SHA_RE = /^[0-9a-f]{40}$/;
+
+function gitIsAncestor(ancestor, descendant) {
+  if (!SHA_RE.test(String(ancestor || '')) || !SHA_RE.test(String(descendant || ''))) {
+    return false;
+  }
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+      stdio: 'ignore',
+      timeout: 5_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function buildReleaseFailureAlert(env) {
   const shipped = (env.SHIPPED || '').trim() === 'true';
@@ -73,20 +91,33 @@ export function buildReleaseFailureAlert(env) {
  * already shipped this exact SHA, nothing is raised and the shipped run is
  * named. Returns that run, or null.
  */
-export function shippedSibling(alert, receipts) {
+export function shippedSibling(alert, receipts, isAncestor) {
   if (!alert) return null;
   const sha = alert.labels.target_sha;
   const run = alert.labels.run_id;
-  const hit = (Array.isArray(receipts) ? receipts : []).find(
-    (r) => r && r.shipped === true && r.target_sha === sha && r.run_id !== run
-  );
-  return hit ? hit.run_id : null;
+  const rows = Array.isArray(receipts) ? receipts : [];
+  const exact = rows.find((r) => r && r.shipped === true && r.target_sha === sha && r.run_id !== run);
+  if (exact) return exact.run_id;
+  if (typeof isAncestor === 'function' && SHA_RE.test(String(sha || ''))) {
+    const newer = rows.find(
+      (r) =>
+        r &&
+        r.shipped === true &&
+        r.run_id !== run &&
+        typeof r.target_sha === 'string' &&
+        SHA_RE.test(r.target_sha) &&
+        isAncestor(sha, r.target_sha) === true
+    );
+    if (newer) return newer.run_id;
+  }
+  return null;
 }
 
 export function buildReleaseResolvedAlerts(env, openRows = []) {
   const shipped = (env.SHIPPED || '').trim() === 'true';
+  const superseded = (env.RELEASE_RESULT || '').trim() === 'superseded';
   const verified = (env.VERIFIED || '').trim() === 'true';
-  if (!shipped || !verified || !Array.isArray(openRows) || openRows.length === 0) {
+  if ((!shipped && !superseded) || !verified || !Array.isArray(openRows) || openRows.length === 0) {
     return [];
   }
 
@@ -143,10 +174,10 @@ function warn(message) {
 
 async function main() {
   const alert = buildReleaseFailureAlert(process.env);
-  const shouldResolve =
-    !alert &&
-    (process.env.SHIPPED || '').trim() === 'true' &&
-    (process.env.VERIFIED || '').trim() === 'true';
+  const shipped = (process.env.SHIPPED || '').trim() === 'true';
+  const superseded = (process.env.RELEASE_RESULT || '').trim() === 'superseded';
+  const verified = (process.env.VERIFIED || '').trim() === 'true';
+  const shouldResolve = !alert && (shipped || superseded) && verified;
 
   if (!alert && !shouldResolve) {
     console.log('engine release cleanly superseded; no alert update required.');
@@ -172,13 +203,12 @@ async function main() {
     await client.connect();
     if (alert) {
       const receipts = await client.query(
-        'SELECT run_id, target_sha, shipped FROM public.ca_engine_deploy_attempts WHERE target_sha = $1 AND shipped',
-        [alert.labels.target_sha]
+        'SELECT run_id, target_sha, shipped FROM public.ca_engine_deploy_attempts WHERE shipped ORDER BY at DESC LIMIT 25'
       );
-      const sibling = shippedSibling(alert, receipts.rows);
+      const sibling = shippedSibling(alert, receipts.rows, gitIsAncestor);
       if (sibling) {
         console.log(
-          `engine release ${alert.labels.target_sha} was already shipped by run ${sibling}; this run is a redelivery, no failure alert raised.`
+          `engine release ${alert.labels.target_sha} was already shipped or superseded by run ${sibling}; no failure alert raised.`
         );
         return;
       }
@@ -199,7 +229,7 @@ async function main() {
              FROM public.engine_alerts
             WHERE alertname = 'EngineReleaseFailed'
               AND component = 'engine-release'
-              AND created_at >= now() - interval '72 hours'
+              AND created_at >= now() - interval '14 days'
             ORDER BY fingerprint, created_at DESC, id DESC
          ) latest
         WHERE latest.status = 'firing'
