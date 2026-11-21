@@ -101,51 +101,70 @@ describe('a retirement never scans the catalog', () => {
     }
   });
   it('at the byte bound on a catalog of 600,000 indexed records, one append retires 48 segments well inside the five-second fence', () => {
-    const dir = folder();
-    const w = open(dir);
-    // 64 small segments first: the oldest, and the ring's first candidates.
-    for (let n = 1; n <= 64; n++) expect(w.append(at(n, n))).toBe('recorded');
-    w.close();
-    // A large catalog after them: one newest filler segment whose index rows
-    // stand in for the production catalog's millions of records.
-    const FILLER = 600_000;
-    const native = new DatabaseSync(catalogPath(dir));
-    const sha = 'f'.repeat(64);
-    native.exec('BEGIN');
-    native
-      .prepare('INSERT INTO archive_segments VALUES(?,?,?,?,?)')
-      .run(sha, 'e'.repeat(64), 1, 1, 16);
-    native
-      .prepare(
-        "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM c WHERE n<?) INSERT INTO archive_events SELECT printf('%064x',n),'filler',n,printf('%064x',n%9973),printf('%064x',n),1,?,0 FROM c"
-      )
-      .run(FILLER, sha);
-    native
-      .prepare(
-        'UPDATE archive_meta SET bytes=bytes+1,segments=segments+1,records=records+? WHERE id=1'
-      )
-      .run(FILLER);
-    native.exec('COMMIT');
-    const usage = native.prepare('SELECT bytes FROM archive_meta WHERE id=1').get()!;
-    const oldest48 = Number(
+    /** 64 small segments, then one newest filler segment of `filler` index rows; full to the byte less the 48
+     *  oldest segments, so the next append must retire at least 48. Returns that append's time and the time of
+     *  ONE scan of the catalog by the unindexed segment_sha column (the work a foreign-key check does per
+     *  retired segment). */
+    const retire48 = (filler: number) => {
+      const dir = folder();
+      const w = open(dir);
+      // 64 small segments first: the oldest, and the ring's first candidates.
+      for (let n = 1; n <= 64; n++) expect(w.append(at(n, n))).toBe('recorded');
+      w.close();
+      // A large catalog after them: one newest filler segment whose index rows
+      // stand in for the production catalog's millions of records.
+      const native = new DatabaseSync(catalogPath(dir));
+      const sha = 'f'.repeat(64);
+      native.exec('BEGIN');
+      native
+        .prepare('INSERT INTO archive_segments VALUES(?,?,?,?,?)')
+        .run(sha, 'e'.repeat(64), 1, 1, 16);
       native
         .prepare(
-          'SELECT sum(bytes) AS n FROM (SELECT bytes FROM archive_segments ORDER BY rowid LIMIT 48)'
+          "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM c WHERE n<?) INSERT INTO archive_events SELECT printf('%064x',n),'filler',n,printf('%064x',n%9973),printf('%064x',n),1,?,0 FROM c"
         )
-        .get()!.n
-    );
-    native.close();
-    // Full to the byte less the 48 oldest segments: the next append must
-    // retire at least 48 of them.
-    const s = open(dir, { maxBytes: Number(usage.bytes) - oldest48 + 1 });
-    const started = performance.now();
-    expect(s.append(at(1_000, 1_000))).toBe('recorded');
-    const elapsed = performance.now() - started;
-    expect(s.storageStats().archive!.retiredSegments).toBeGreaterThanOrEqual(48);
-    // With foreign-key enforcement each of those 48 retirements scanned all
-    // 600,000 rows (seconds in all); without it they are rowid searches.
-    expect(elapsed).toBeLessThan(1_000);
-  }, 60_000);
+        .run(filler, sha);
+      native
+        .prepare(
+          'UPDATE archive_meta SET bytes=bytes+1,segments=segments+1,records=records+? WHERE id=1'
+        )
+        .run(filler);
+      native.exec('COMMIT');
+      const usage = native.prepare('SELECT bytes FROM archive_meta WHERE id=1').get()!;
+      const oldest48 = Number(
+        native
+          .prepare(
+            'SELECT sum(bytes) AS n FROM (SELECT bytes FROM archive_segments ORDER BY rowid LIMIT 48)'
+          )
+          .get()!.n
+      );
+      const scanStarted = performance.now();
+      native
+        .prepare('SELECT count(*) AS n FROM archive_events WHERE segment_sha = ?')
+        .get('0'.repeat(64));
+      const scanMs = performance.now() - scanStarted;
+      native.close();
+      const s = open(dir, { maxBytes: Number(usage.bytes) - oldest48 + 1 });
+      const started = performance.now();
+      expect(s.append(at(1_000, 1_000))).toBe('recorded');
+      const elapsed = performance.now() - started;
+      expect(s.storageStats().archive!.retiredSegments).toBeGreaterThanOrEqual(48);
+      return { elapsed, scanMs };
+    };
+    // Two yardsticks measured on this host at this moment, so the bound moves with
+    // the machine instead of being a fixed wall-clock limit (a fixed 1 s failed a
+    // pre-push gate at load 30-50 with 13,961 ms on Nov 20 2026): the SAME append
+    // (48 retirements, same writes) on a catalog without the 600,000 rows, and one
+    // 600,000-row scan.
+    const small = retire48(1);
+    const big = retire48(600_000);
+    // With foreign-key enforcement each of the 48 retirements scanned all 600,000
+    // rows: the big append costs the small one plus 48 scans or more. Without it
+    // they are rowid searches and the catalog size barely matters. The big append
+    // may cost at most 3 small appends plus 12 scans (a quarter of the enforced
+    // cost), and never less than the original 1 s on a quiet host.
+    expect(big.elapsed).toBeLessThan(Math.max(1_000, 3 * small.elapsed + 12 * big.scanMs));
+  }, 300_000);
 });
 
 describe('the evidence hold has its own budget and cannot take the ring’s room', () => {

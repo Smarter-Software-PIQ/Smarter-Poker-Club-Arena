@@ -194,5 +194,9 @@ describe('a revoke that means to shut anon out names PUBLIC', () => {
         'is a no-op where there is no PUBLIC grant - or end the statement with ' +
         '"-- public-ok: <why>".'
     ).toEqual([]);
-  });
+    // Reads every later migration in full: under a second warm, 33-54 s in
+    // shared-host pre-push gates at load 24-50 with four gates reading the disk
+    // (Nov 20 2026), past the suite's 30 s default. The budget only stops a
+    // hang; the scan and the assertion are unchanged.
+  }, 300_000);
 });
