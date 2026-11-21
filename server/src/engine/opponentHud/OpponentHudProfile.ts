@@ -302,6 +302,11 @@ function registry(): string[] {
     'pf.4bet',
     'pf.f3bet',
     'pf.cc',
+    // 2026-11-21 (REPLACEMENTS-2): he 3-bet and faces a 4-bet (fold / call); he has no chips in voluntarily and
+    // faces a 4-bet (hit = he calls it cold)
+    'pf.f4bet',
+    'pf.c4bet',
+    'pf.cold4',
     'sd.wtsd',
     'sd.wsd',
   ];
@@ -329,6 +334,11 @@ function registry(): string[] {
     out.push(`${s}.stab.hu`, `${s}.stab.mw`, `${s}.lead.hu`, `${s}.lead.mw`);
     // stab size: one opportunity per stab, hits = wager / pot before it, halved and capped at 1 (sizeSum = 2 x hits)
     out.push(`${s}.stabsz.hu`, `${s}.stabsz.mw`);
+    // 2026-11-21 (REPLACEMENTS-2): rRaise = on the fRaise opportunity (he wagered this street and faces a raise of
+    // it), hit = he re-raises; rBetsz = his raise of the street's first bet, one opportunity per raise, hits = (the
+    // raise over the call) / (the pot after his call), halved and capped at 1 (the stabsz convention); rBet.hu|mw =
+    // rBet by the players live when the bet was made (the fb convention)
+    out.push(`${s}.rRaise`, `${s}.rBetsz`, `${s}.rBet.hu`, `${s}.rBet.mw`);
     for (const ln of ['stab', 'lead', 'raise'])
       for (const z of ['sm', 'bg']) out.push(`vs.${s}.${ln}.${z}`);
   }
@@ -340,7 +350,9 @@ function registry(): string[] {
 export const HUD_STATS: readonly string[] = Object.freeze(registry());
 /** The context statistics (MATHCORE-2 opponent layer, STAB-DEFENCE) whose RAW lifetime counts ride in the packet. */
 export const HUD_CONTEXT_STATS: readonly string[] = Object.freeze(
-  HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|stabsz|lead)\.|^vs\.|^[ftr]\.(fBet|fRaise)$/.test(s))
+  HUD_STATS.filter((s) =>
+    /^[ftr]\.(fb|stab|stabsz|lead)\.|^vs\.|^[ftr]\.(fBet|fRaise|rBet|rRaise)$/.test(s)
+  )
 );
 const STAT_SET = new Set(HUD_STATS);
 
@@ -362,6 +374,9 @@ const STAT_SET = new Set(HUD_STATS);
  *    first raise. players = live at his action, himself included (hu <= 2); size = the bet / pot before it (< 0.40,
  *    < 0.60, < 0.85, above). raise = a wager above the bet (an all-in above it included); shortAllIn = an all-in
  *    that does not exceed the bet (kept apart so a reader can count it either way); opps = the four summed.
+ * 4. <s>.brl.<hu|mw>.{opps,bets} (STAB-DEFENCE-6): he made the last wager of the previous street (preflop for the
+ *    flop) and the street is unopened at his turn: the opportunity, and whether he wagers (the <s>.barrel / f.cbet
+ *    event, raw and by players live at his action).
  */
 export const HUD_FW_EDGES: readonly number[] = Object.freeze([
   0.2, 0.232, 0.269, 0.312, 0.362, 0.42, 0.487, 0.565, 0.656, 0.761, 0.882, 1.024, 1.187,
@@ -386,6 +401,7 @@ function exactRegistry(): string[] {
         for (let i = 0; i < HUD_FW_BINS; i++) out.push(`${s}.fw.${ln}.${pl}.${fwBinKey(i)}`);
     for (const pl of ['hu', 'mw'])
       for (const k of ['opps', 'fold', 'call', 'raise']) out.push(`${s}.fwr.${pl}.${k}`);
+    for (const pl of ['hu', 'mw']) out.push(`${s}.brl.${pl}.opps`, `${s}.brl.${pl}.bets`);
   }
   for (const pl of ['hu', 'mw'])
     for (const z of HUD_CBR_SIZES)
@@ -758,6 +774,8 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
   const depthOf = new Map<string, HudDepth | '-'>();
   const f3betOpp = new Set<string>();
   const faced3 = new Set<string>();
+  let pf3Bettor: string | null = null;
+  const faced4bet = new Set<string>();
   const faced4 = new Set<string>();
   const facedCc = new Set<string>();
   const bbs = rec.bb;
@@ -867,6 +885,13 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
         faced4.add(user);
         add(user, 'pf.4bet', aggressive);
       }
+      if (pfLevel === 3 && !faced4bet.has(user) && pfLastRaiser !== user) {
+        faced4bet.add(user);
+        if (pf3Bettor === user) {
+          add(user, 'pf.f4bet', code === 'f');
+          add(user, 'pf.c4bet', code === 'c');
+        } else if (!st.voluntary) add(user, 'pf.cold4', code === 'c');
+      }
       if (pfLevel >= 1 && !st.voluntary && !facedCc.has(user) && pfLastRaiser !== user) {
         facedCc.add(user);
         add(user, 'pf.cc', code === 'c');
@@ -878,6 +903,7 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
       if (code === 'c' || aggressive) st.voluntary = true;
       if (aggressive) {
         pfLevel += 1;
+        if (pfLevel === 2) pf3Bettor = user;
         if (pfLevel === 1) f3betOpp.add(user);
         else if (pfLevel > 2) f3betOpp.clear();
         pfLastRaiser = user;
@@ -923,9 +949,11 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
           st.firstNoBetOnStreet = true;
           add(user, `${sk}.betCk`, aggressive);
           if (sk === 'f' && texture) add(user, `f.betCk.${texture}`, aggressive);
-          if (prevStreetAggressor === user)
+          if (prevStreetAggressor === user) {
             add(user, sk === 'f' ? 'f.cbet' : `${sk}.barrel`, aggressive);
-          else if (prevStreetAggressor !== null) {
+            addX(user, `${sk}.brl.${liveNow === 2 ? 'hu' : 'mw'}.opps`);
+            if (aggressive) addX(user, `${sk}.brl.${liveNow === 2 ? 'hu' : 'mw'}.bets`);
+          } else if (prevStreetAggressor !== null) {
             const agg = [...seats.values()].find((s) => s.user === prevStreetAggressor);
             if (agg && !agg.folded && !agg.checkedThisStreet && !agg.aggressedThisStreet)
               add(user, `${sk}.donk`, aggressive);
@@ -949,6 +977,8 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
         add(user, `${sk}.fBet`, code === 'f');
         add(user, `${sk}.cBet`, code === 'c');
         add(user, `${sk}.rBet`, aggressive);
+        add(user, `${sk}.rBet.${liveAtLastAggression === 2 ? 'hu' : 'mw'}`, aggressive);
+        if (aggressive && ratio !== null) add(user, `${sk}.rBetsz`, Math.min(2, ratio) / 2);
         add(
           user,
           `${sk}.fb.${lastAggressionBig ? 'bg' : 'sm'}.${liveAtLastAggression === 2 ? 'hu' : 'mw'}`,
@@ -963,6 +993,7 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
         if (st.checkedThisStreet) add(user, `${sk}.xr`, aggressive);
       } else if (st.aggressedThisStreet && facingLevel >= 2) {
         add(user, `${sk}.fRaise`, code === 'f');
+        add(user, `${sk}.rRaise`, aggressive);
       }
       // exact counters: the first bettor facing a raise; every other seat facing the flop continuation bet
       if (facingLevel >= 2 && streetFirstWagerUser === user && code !== 'k') {

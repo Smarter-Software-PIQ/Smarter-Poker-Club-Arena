@@ -425,6 +425,27 @@ describe('OpponentHudProfile: hand-constructed histories', () => {
 // added without a history that exercises it (add a scenario here when this fails).
 // ---------------------------------------------------------------------------------------------------------------
 
+/** 3 opens, 4 three-bets, 5 four-bets, 6 calls the 4-bet cold, the blinds and the opener fold, the 3-bettor answers */
+function fourBetPot(id: number, answer: 'call' | 'fold'): Spec {
+  return {
+    id,
+    button: 6,
+    seats: [1, 2, 3, 4, 5, 6].map((s) => [s, s, 1000] as [number, number, number]),
+    acts: [
+      ['preflop', 1, 'sb', 1],
+      ['preflop', 2, 'bb', 2],
+      ['preflop', 3, 'raise', 7],
+      ['preflop', 4, 'raise', 24],
+      ['preflop', 5, 'raise', 80],
+      ['preflop', 6, 'call', 80],
+      ['preflop', 1, 'fold', 0],
+      ['preflop', 2, 'fold', 0],
+      ['preflop', 3, 'fold', 0],
+      answer === 'call' ? ['preflop', 4, 'call', 56] : ['preflop', 4, 'fold', 0],
+    ],
+    winners: [5],
+  };
+}
 function generatedHistories(): Spec[] {
   const out: Spec[] = [S1, S2];
   let id = 100;
@@ -641,6 +662,8 @@ function generatedHistories(): Spec[] {
       winners: [6],
     });
   }
+  // 4-bet pots (2026-11-21, REPLACEMENTS-2)
+  for (const answer of ['call', 'fold'] as const) out.push(fourBetPot(id++, answer));
   return out.map((s) => ({
     ...s,
     // a public node on every action, so the depth bands are known
@@ -818,4 +841,85 @@ describe('opponent HUD profile: size is measured and bounded', () => {
     for (const p of [small, big]) expect(bytes(p)).toBeLessThanOrEqual(hudProfileBytesBound(p));
     expect(validHudProfile(JSON.parse(JSON.stringify(big)))).toBe(true);
   });
+});
+
+describe('opponent HUD profile: the statistics added for the priced replacements (2026-11-21)', () => {
+  const life = (user: number, specs: Spec[]) => profileAfter(user, specs).life;
+  it('pf.f4bet / pf.c4bet: the 3-bettor facing a 4-bet; pf.cold4: no chips in voluntarily, facing a 4-bet', () => {
+    const both = [fourBetPot(7001, 'call'), fourBetPot(7002, 'fold')];
+    expect(life(4, both)['pf.f4bet']).toEqual([2, 1]);
+    expect(life(4, both)['pf.c4bet']).toEqual([2, 1]);
+    expect(life(4, both)['pf.cold4']).toBeUndefined();
+    expect(life(6, both)['pf.cold4']).toEqual([2, 2]); // called both cold
+    expect(life(1, both)['pf.cold4']).toEqual([2, 0]); // the blinds had the chance and folded
+    expect(life(2, both)['pf.cold4']).toEqual([2, 0]);
+    expect(life(3, both)['pf.cold4']).toBeUndefined(); // the opener has chips in: not cold
+    expect(life(3, both)['pf.f4bet']).toBeUndefined(); // and did not 3-bet
+    expect(life(5, both)['pf.f4bet']).toBeUndefined(); // the 4-bettor faces nothing
+  });
+  it.each([
+    ['flop', 'f'],
+    ['turn', 't'],
+    ['river', 'r'],
+  ] as const)(
+    '%s: rBet by players, the raise size, and the first bettor re-raising',
+    (street, sk) => {
+      const hand = (id: number, players: 2 | 3, reraise: boolean): Spec => {
+        const seats = (players === 2 ? [1, 2] : [1, 2, 3]).map(
+          (s) => [s, s, 100_000] as [number, number, number]
+        );
+        const acts: Act[] = [
+          ['preflop', 1, 'sb', 1],
+          ['preflop', 2, 'bb', 2],
+        ];
+        if (players === 3)
+          acts.push(
+            ['preflop', 3, 'raise', 500],
+            ['preflop', 1, 'call', 499],
+            ['preflop', 2, 'call', 498]
+          );
+        else acts.push(['preflop', 1, 'raise', 500], ['preflop', 2, 'call', 498]);
+        const pot = players * 500;
+        for (const st of ['flop', 'turn', 'river'] as const) {
+          if (st !== street) {
+            for (const [s] of seats) acts.push([st, s, 'check', 0]);
+            continue;
+          }
+          // 2 bets half the pot, 1 raises: the raise over the call is 0.75 of the pot after his call
+          const bet = pot / 2;
+          const raiseTo = bet + 0.75 * (pot + 2 * bet);
+          if (players === 3) acts.push([st, 3, 'check', 0]);
+          acts.push(
+            [st, 2, 'bet', bet],
+            ...(players === 3 ? ([[st, 3, 'fold', 0]] as Act[]) : []),
+            [st, 1, 'raise', raiseTo]
+          );
+          acts.push(reraise ? [st, 2, 'raise', raiseTo * 3] : [st, 2, 'call', raiseTo - bet]);
+          break;
+        }
+        return {
+          id,
+          button: players,
+          seats,
+          acts,
+          board: ['Ah', '7d', '2c', '9s', '3h'],
+          winners: [1],
+        };
+      };
+      const specs = [hand(7101, 2, true), hand(7102, 2, false), hand(7103, 3, false)];
+      const raiser = life(1, specs);
+      expect(raiser[`${sk}.rBet`]).toEqual([3, 3]);
+      expect(raiser[`${sk}.rBet.hu`]).toEqual([2, 2]);
+      expect(raiser[`${sk}.rBet.mw`]).toEqual([1, 1]); // three were live when the bet was made
+      expect(raiser[`${sk}.rBetsz`][0]).toBe(3);
+      expect(raiser[`${sk}.rBetsz`][1]).toBeCloseTo(3 * 0.375, 9); // 0.75 of the pot after the call, halved
+      const bettor = life(2, specs);
+      expect(bettor[`${sk}.fRaise`]).toEqual([3, 0]);
+      expect(bettor[`${sk}.rRaise`]).toEqual([3, 1]);
+      expect(bettor[`${sk}.rBetsz`]).toBeUndefined();
+      const folder = life(3, specs);
+      expect(folder[`${sk}.rBet.mw`]).toEqual([1, 0]);
+      expect(folder[`${sk}.rBet.hu`]).toBeUndefined();
+    }
+  );
 });

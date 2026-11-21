@@ -497,6 +497,29 @@ export function hudFirstWagerRaisedRecord(
   }
 }
 /**
+ * THE BARREL RECORD (additive; STAB-DEFENCE-6): he made the last wager of the previous street (preflop for the flop)
+ * and the street was unopened at his turn: raw lifetime opportunities and wagers, by players live at his action.
+ * Null as hudFirstWagerSizeCounts.
+ */
+export function hudBarrelRecord(
+  opponentId: string,
+  family: HudFamily,
+  ctx: { street: HudReadContext['street']; players: 'hu' | 'mw' }
+): { opps: number; bets: number } | null {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const xc = pk?.opp[opponentId]?.xc;
+    const sk = SK[ctx.street];
+    if (!xc || !sk || (ctx.players !== 'hu' && ctx.players !== 'mw')) return null;
+    return {
+      opps: xc[`${sk}.brl.${ctx.players}.opps`] ?? 0,
+      bets: xc[`${sk}.brl.${ctx.players}.bets`] ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+/**
  * FACING A FLOP CONTINUATION BET (additive; CBET-BUTTON-4's omahaCbetRaiseIsPriced): his answers to the first flop
  * wager made by the last preflop raiser, while it was the only flop wager; raw lifetime counts, by players at his
  * action. `raises` counts every all-in as a raise (the option's definition and its bench recorder);

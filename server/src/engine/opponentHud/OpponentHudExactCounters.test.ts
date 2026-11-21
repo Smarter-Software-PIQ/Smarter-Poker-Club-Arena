@@ -99,9 +99,10 @@ describe('exact counters: registry', () => {
     expect(HUD_EXACT_COUNTERS.filter((k) => /\.fw\./.test(k)).length).toBe(168);
     expect(HUD_EXACT_COUNTERS.filter((k) => /\.fwr\./.test(k)).length).toBe(24);
     expect(HUD_EXACT_COUNTERS.filter((k) => /^f\.cbr\./.test(k)).length).toBe(40);
-    expect(new Set(HUD_EXACT_COUNTERS).size).toBe(232);
+    expect(HUD_EXACT_COUNTERS.filter((k) => /\.brl\./.test(k)).length).toBe(12);
+    expect(new Set(HUD_EXACT_COUNTERS).size).toBe(244);
     for (const k of HUD_EXACT_COUNTERS) expect(HUD_STATS).not.toContain(k);
-    expect(HUD_STATS.length).toBe(162); // the blended statistics are untouched
+    expect(HUD_STATS.length).toBe(177); // 162 + the 15 added for the priced replacements, none of them a counter here
   });
   it("the bin edges are CORE-EXTEND-2's 'fw1' grid, upper edge inclusive; a pot-size wager is bin 11", () => {
     expect([...HUD_FW_EDGES]).toEqual([
@@ -290,7 +291,13 @@ describe('exact counters: facing a flop continuation bet', () => {
     const r = rowOf(3, acts);
     expect(xcOf(r, 1)).toEqual({ 'f.cbr.mw.half.opps': 1, 'f.cbr.mw.half.call': 1 });
     expect(xcOf(r, 2)).toEqual({ 'f.cbr.mw.half.opps': 1, 'f.cbr.mw.half.raise': 1 });
-    expect(xcOf(r, 3)).toEqual({ 'f.fw.stab.mw.b07': 1, 'f.fwr.mw.opps': 1, 'f.fwr.mw.fold': 1 });
+    expect(xcOf(r, 3)).toEqual({
+      'f.fw.stab.mw.b07': 1,
+      'f.fwr.mw.opps': 1,
+      'f.fwr.mw.fold': 1,
+      'f.brl.mw.opps': 1, // he made the last preflop raise and the flop was unopened at his turn
+      'f.brl.mw.bets': 1,
+    });
   });
   it('no event: a limped pot; a flop first wager by anyone but the last preflop raiser', () => {
     const limp: A[] = [
@@ -555,7 +562,10 @@ describe('exact counters on generated hands', () => {
             }
         for (const [k, v] of d.xc ?? []) {
           expect(HUD_EXACT_COUNTERS).toContain(k);
-          if (k.endsWith('.opps')) {
+          if (k.includes('.brl.')) {
+            if (k.endsWith('.bets'))
+              expect(v).toBeLessThanOrEqual(d.xc!.get(k.replace(/bets$/, 'opps')) ?? 0);
+          } else if (k.endsWith('.opps')) {
             const base = k.slice(0, -5);
             const answers = ['fold', 'call', 'raise', 'shortAllIn'].reduce(
               (a, x) => a + (d.xc!.get(`${base}.${x}`) ?? 0),
