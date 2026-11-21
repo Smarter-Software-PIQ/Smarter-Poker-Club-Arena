@@ -515,6 +515,53 @@ describe('nashCallVsTightJammerRespect (2026-11-21, default OFF prototype)', () 
     expect(pHighConf.tightened).toBe(true);
     expect(pHighConf.effectiveBehind).toBeGreaterThan(pLowConf.effectiveBehind);
 
+    // Short-stack desperation stand-down: <= 10bb or Harrington M <= 4 keeps exact Nash.
+    for (const shortCase of [
+      { depthBB: 8, anteBB: 1, jammerBehind: 5 }, // M = 3.2 (red zone, e.g. 8bb BBA tournament)
+      { depthBB: 10, anteBB: 0, jammerBehind: 2 }, // <= 10bb push/fold boundary
+      { depthBB: 10, anteBB: 1, jammerBehind: 2 }, // M = 4.0 boundary
+    ]) {
+      const pShort = nashV2TightJammerParams({
+        ...shortCase,
+        tightRead: { observedOpenWidth: 0.08, confidence: 0.95 },
+      });
+      expect(pShort.tightened).toBe(false);
+      expect(pShort.effectiveBehind).toBe(shortCase.jammerBehind);
+      expect(pShort.effectiveBubble).toBe(1);
+      expect(
+        nashV2TightJammerCallProbability({
+          hand: 'A8o',
+          callerKind: 'bb',
+          ...shortCase,
+          tightRead: { observedOpenWidth: 0.08, confidence: 0.95 },
+        })
+      ).toEqual({
+        probability: nashV2CallProbability({
+          hand: 'A8o',
+          callerKind: 'bb',
+          ...shortCase,
+        }),
+        tightened: false,
+      });
+    }
+
+    // Monotonic depth ramp between 10bb and 13+bb (with M > 4).
+    const p11 = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 11.5,
+      anteBB: 0,
+      tightRead: { observedOpenWidth: 0.09, confidence: 0.9 },
+    });
+    const p15 = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 15,
+      anteBB: 0,
+      tightRead: { observedOpenWidth: 0.09, confidence: 0.9 },
+    });
+    expect(p11.tightened).toBe(true);
+    expect(p15.tightened).toBe(true);
+    expect(p15.effectiveBehind).toBeGreaterThan(p11.effectiveBehind);
+
     // Ultra-nit tighter than n=9 caps bubble smoothly while premiums still call 100%.
     const ultra = nashV2TightJammerParams({
       jammerBehind: 2,
@@ -591,6 +638,22 @@ describe('nashCallVsTightJammerRespect (2026-11-21, default OFF prototype)', () 
     expect(
       fires.find((f) => f.feature === 'nash_call_vs_tight_jammer_seen')?.fires ?? 0
     ).toBeGreaterThan(0);
+
+    // Short-stack desperation (8bb BBA tournament, M = 3.2): stands down to exact Nash even vs nit.
+    const btnJam8bbBba: Spot = {
+      seats: 6,
+      stackBB: 8,
+      mode: 'tournament',
+      ante: true,
+      jammer: 3,
+      jammerUserId: JAMMER_UID,
+    };
+    const shortBase = answers(btnJam8bbBba, { mind: true });
+    const shortWithOpt = answers(btnJam8bbBba, {
+      mind: true,
+      nashCallVsTightJammerRespect: true,
+    });
+    expect(shortWithOpt).toEqual(shortBase);
 
     // Realistic Nash-width jammer (~22% VPIP, ~17% PFR, ~33% RFI) is NOT tightened.
     seedProfile(JAMMER_UID, { hands: 120, vpipEvery: 5, pfrEvery: 6, rfiOppEvery: 2, rfiEvery: 6 });

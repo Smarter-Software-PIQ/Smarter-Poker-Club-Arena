@@ -241,17 +241,32 @@ export interface NashTightJammerParams {
 const TIGHT_JAMMER_MIN_OBS_PCT = 3;
 const TIGHT_JAMMER_MIN_GAP_PCT = 0.5;
 const TIGHT_JAMMER_MAX_ULTRA_BUBBLE_MUL = 2;
+/**
+ * Short-stack desperation stand-down (poker physics):
+ * HorseMind tracks all-depth VPIP/PFR/RFI (dominated by 20-100bb play). At
+ * short push/fold depths (<= 10bb or Harrington M <= 4, where dead money per
+ * orbit is >= 25% of the effective stack), even tight regulars shove far wider
+ * than their deep-stack average RFI and pot odds make over-folding expensive.
+ * Ramp smoothly from exact Nash at <= 10bb / M <= 4 to full tight-jammer
+ * respect at voluntary open-jam depths (>= 13bb and M >= 5.5).
+ */
+const TIGHT_JAMMER_STAND_DOWN_DEPTH_BB = 10;
+const TIGHT_JAMMER_FULL_DEPTH_BB = 13;
+const TIGHT_JAMMER_STAND_DOWN_M = 4;
+const TIGHT_JAMMER_FULL_M = 5.5;
 
 /**
  * Tighten a nashCallVsJam lookup when the lone open-jammer has an evidenced
- * tight/nit read (shrunk by sample size and gear-shift release).
+ * tight/nit read (shrunk by sample size, gear-shift release, and short-stack
+ * desperation stand-down).
  *
  * Maps the credibility-blended jammer range width onto the already-solved
  * HorseNashPushFoldV2 caller table (n = jammerBehind..9, whose equilibrium jam
  * widths span ~66% down to ~6-10%), and only applies a bounded extra bubble
  * factor (<= 2x) when the target width is even tighter than a 10-handed UTG
  * jammer (n = 9). Returns exact unchanged parameters when the jammer is
- * unknown, confidence is 0, or observedOpenWidth >= the seat's Nash jam width.
+ * unknown, confidence is 0, depth/M is in the short-stack desperation zone, or
+ * observedOpenWidth >= the seat's Nash jam width.
  */
 export function nashV2TightJammerParams(args: {
   jammerBehind: number;
@@ -271,7 +286,28 @@ export function nashV2TightJammerParams(args: {
   ) {
     return { effectiveBehind: nStart, effectiveBubble: baseBubble, tightened: false };
   }
-  const k = Math.max(0, Math.min(1, r.confidence));
+  const orbitCostBB = 1.5 + Math.max(0, Number.isFinite(args.anteBB) ? args.anteBB : 0);
+  const mRatio = args.depthBB / orbitCostBB;
+  const depthWeight = Math.max(
+    0,
+    Math.min(
+      1,
+      (args.depthBB - TIGHT_JAMMER_STAND_DOWN_DEPTH_BB) /
+        (TIGHT_JAMMER_FULL_DEPTH_BB - TIGHT_JAMMER_STAND_DOWN_DEPTH_BB)
+    )
+  );
+  const mWeight = Math.max(
+    0,
+    Math.min(
+      1,
+      (mRatio - TIGHT_JAMMER_STAND_DOWN_M) / (TIGHT_JAMMER_FULL_M - TIGHT_JAMMER_STAND_DOWN_M)
+    )
+  );
+  const stackWeight = Math.min(depthWeight, mWeight);
+  if (!(stackWeight > 0)) {
+    return { effectiveBehind: nStart, effectiveBubble: baseBubble, tightened: false };
+  }
+  const k = Math.max(0, Math.min(1, r.confidence)) * stackWeight;
   const obsPct = Math.max(TIGHT_JAMMER_MIN_OBS_PCT, Math.min(100, r.observedOpenWidth * 100));
   const nashPct = nashV2JamWidth(nStart, args.depthBB, args.anteBB, 1);
   if (!(obsPct < nashPct - TIGHT_JAMMER_MIN_GAP_PCT)) {
