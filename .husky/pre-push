@@ -1248,6 +1248,23 @@ if printf '%s\n' $FILES | grep -qE '^(tests/.*\.test\.(ts|tsx)|docs/laws\.d/.*\.
     fi
   done
 fi
+# CENSUSES OF .github/workflows (2026-11-21). These six fast (~3s) law tests
+# scan every YAML file in .github/workflows/ via readdirSync rather than naming
+# an individual workflow, so `related` (exact file path) and basename matching
+# miss them when a workflow is added or edited (PR #11632 failed first in CI).
+if printf '%s\n' $FILES | grep -qE '^\.github/workflows/.*\.ya?ml$'; then
+  for t in \
+    tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts \
+    tests/unit/workflowJobsReadOnlyMainOnlyEnvironments.law.test.ts \
+    tests/unit/workflowConcurrencyGuard.test.ts \
+    tests/a-workflow-step-fits-what-github-will-run.law.test.ts \
+    tests/no-workflow-gains-a-new-timer.law.test.ts \
+    tests/superseded-ci-stops-at-the-push.law.test.ts; do
+    if [ -f "$t" ]; then
+      case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
+    fi
+  done
+fi
 # A changed test can also be found as a source contract; execute it once.
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)

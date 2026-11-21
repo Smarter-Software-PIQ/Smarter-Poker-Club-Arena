@@ -84,6 +84,35 @@ describe('the local pre-push gate runs only directly related tests', () => {
     );
   });
 
+  it('adding or editing any workflow YAML includes the directory-scanning workflow law censuses', () => {
+    const start = hook.indexOf('\nCA_HEAVY_PATHS=');
+    const end = hook.indexOf('\n# A changed test can also be found as a source contract');
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const script = [
+      'set -e',
+      'CA_TREE_TOP=$PWD; CHANGED_TESTS=""; NODE_TESTS=""; CHANGED_SRC=""',
+      'FILES=".github/workflows/triage-engine-release-incident.yml"',
+      hook.slice(start, end),
+      'echo "TESTS=$CHANGED_TESTS"',
+    ].join('\n');
+    const run = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout).toContain('tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts');
+    expect(run.stdout).toContain('tests/unit/workflowJobsReadOnlyMainOnlyEnvironments.law.test.ts');
+    expect(run.stdout).toContain('tests/unit/workflowConcurrencyGuard.test.ts');
+    expect(run.stdout).toContain('tests/a-workflow-step-fits-what-github-will-run.law.test.ts');
+    expect(run.stdout).toContain('tests/no-workflow-gains-a-new-timer.law.test.ts');
+    expect(run.stdout).toContain('tests/superseded-ci-stops-at-the-push.law.test.ts');
+  });
+
+  it('the push helper resolves Darwin TMPDIR onto an external SmarterWork scratch root before mktemp', () => {
+    expect(helper).toContain(
+      '/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t'
+    );
+    expect(helper.indexOf('export TMPDIR')).toBeLessThan(helper.indexOf('agent-push-step.XXXXXX'));
+  });
+
   it('the hook, the publishing guide and the owner policy record the order and keep the later gates', () => {
     const publishing = readFileSync('PUBLISHING.md', 'utf8');
     const policy = readFileSync('docs/agent-policy/OWNER-POLICY.md', 'utf8');
