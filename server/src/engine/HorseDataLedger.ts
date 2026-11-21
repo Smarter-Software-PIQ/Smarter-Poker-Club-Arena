@@ -1402,6 +1402,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBlanketRowsOffInPlo45Cash',
+    "EMERG lane BLANKET-AUDIT 2026-11-21 (owner 2026-11-20 3:28 PM Chicago: THERE SHOULD NEVER EVER EVER BY ANY BLANKET RULES; PLO-OWNER lead ruling 2026-11-21 ~1:55 AM: an OFF row for a hidden default-on blanket rule is global and would change PLO6, which must not be touched). Default off (read === true). With it on, in a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every blanket row named in the declared list omahaBlanketRowsOffList as false (its off path, the same one omahaNoCategoricalRules uses) right after the game scope and before any rule reads it (HorseOmahaBlanketRowsOffInPlo45Cash.withBlanketRowsOffInPlo45Cash). Only OMAHA_BLANKET_ROWS_OFF_REGISTRY members can be listed: the rules of OMAHA_NO_CATEGORICAL_RULES_OFF that the rule-site register does not class priced, so a priced rule cannot be switched off through it. Off, no list, PLO6, PLO8, hold'em or a tournament: the same options object runs (byte-identical). Receipt omaha_blanket_rows_off_in_plo45_cash_applied.",
+    'V94'
+  ),
+  flag(
+    'omahaBlanketRowsOffList',
+    'EMERG lane BLANKET-AUDIT 2026-11-21: the declared list of omahaBlanketRowsOffInPlo45Cash. A PARAMETER, not an on/off option, absent at the compiled defaults: the OMAHA_BLANKET_ROWS_OFF_REGISTRY members whose engine runtime setting horse.blanketRowOffInPlo45Cash.<option> is 1 (0 = not listed; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover). Read only while omahaBlanketRowsOffInPlo45Cash is on and only in a PLO4 or PLO5 cash decision; any name outside the registry is ignored.',
+    'V94'
+  ),
+  flag(
     'omahaOptionGameScope',
     "EMERG lane PLO4-FIX 2026-11-20 (lane PLO4-AUDIT: an option switch row is global, and several omaha* options grade positive or neutral in PLO5 and negative in PLO4, and others the other way). A PARAMETER, not an on/off option, absent at the compiled defaults: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime settings horse.omahaGameScope.<option> (0 = both games; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover; the option switch rows and their validation are untouched). In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every listed option scoped to the other game as false (its off path) before anything reads it (HorseOmahaOptionGameScope.withOmahaOptionGameScope, the one read site), so an option scoped to PLO5 decides a PLO4 hand exactly as if it were off. Listed: every registered omaha* switch option except the omahaMathCore family (own per-game street flags), the PLO6 options and the tournament-only options. Never PLO6, PLO8, hold'em or a tournament: the same options object runs. Receipt omaha_option_game_scope_<option>_off_in_plo<4|5>_seen.",
     'V94'
@@ -8789,6 +8799,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_ev_fold_model_priced',
     'HorseMind.omahaEvFoldMulOf (omahaEvFoldModel)',
     'the Omaha EV fold model priced one opponent fold for the EV bet engine at a PLO4, PLO5 or PLO6 cash table (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  // Zero in production by design: the switch is off and no list is published at the compiled defaults.
+  receipt(
+    'omaha_blanket_rows_off_in_plo45_cash_applied',
+    'HorseLogic.decide (HorseOmahaBlanketRowsOffInPlo45Cash, omahaBlanketRowsOffInPlo45Cash + runtime settings horse.blanketRowOffInPlo45Cash.<option>)',
+    'a PLO4 or PLO5 cash decision in which at least one blanket row on the declared list was passed off (one count per decision)',
     'Omaha threshold calibration'
   ),
   // Zero in production by design: no option has a game scope at the compiled defaults, so a fire means a scope was published.
