@@ -87,6 +87,12 @@ export interface ValueSpot {
   heroStack: number;
   /** the largest live opponent's chips behind (his current street bet excluded) */
   oppStack: number;
+  /**
+   * lane CORE-POOLED-6: chips of the wager faced that the hero's whole stack does not cover (0 when he covers
+   * it). They sit in the pot figure but go back to the bettor (or to a side pot the hero is not in), so a
+   * call for the whole stack cannot win them.
+   */
+  uncoveredOnCall?: number;
   /** live opponents */
   nOpp: number;
   /** the hero acts last on the later streets */
@@ -140,6 +146,11 @@ export interface ValueCandidate {
   evFold: number;
   evRaise: number;
   evCall: number;
+  /**
+   * the action's showdown term on this street (lane CORE-POOLED-4 realization placement): probability it is
+   * called / checked through x equity against that range x net pot after the round; 0 for an all-in and a fold
+   */
+  sd?: number;
   /** the plan after a call (e.g. "turn geometric 0.62 > river all-in") */
   plan: string;
   /** standard error of ev: equity sampling and the measured fold rate's binomial error */
@@ -330,6 +341,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     evFold: number;
     evRaise: number;
     evCall: number;
+    sd: number;
     plan: string;
     se: number;
     source: string;
@@ -383,9 +395,11 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       let evCall = 0;
       let plan = 'showdown';
       let seLater = 0;
+      let sd = 0;
       if (pc > 0) {
         const eC = bandEquity(eqAt, n.share, pr, pr + pc);
         const potAfter = n.pot + adds + callers * (adds - toCall);
+        if (!allIn) sd = pc * eC * net(potAfter);
         const stackAfter = n.stack - (adds - toCall);
         if (n.st >= 2 || allIn || stackAfter <= 1e-9 || !future || !credit) {
           evCall = pc * (eC * net(potAfter) - adds);
@@ -425,6 +439,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
         evFold,
         evRaise,
         evCall,
+        sd,
         plan,
         source: r.source,
       };
@@ -593,6 +608,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       evFold: 0,
       evRaise: 0,
       evCall: 0,
+      sd: eqNow * net(spot.pot),
       plan: c.plan,
       se: c.se ?? 0,
       source: 'measured wager-when-checked cell',
@@ -624,7 +640,12 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   // position the hero's own next-street plan). Without it the raise alone carried the later streets.
   if (spot.toCall > 1e-9) {
     const callAdds = Math.min(spot.toCall, spot.heroStack);
-    const potC = spot.pot + callAdds;
+    // a call for the whole stack wins only what the stack covers (lane CORE-POOLED-6: the one-step path netted
+    // the uncovered part of the wager, this path counted it as winnable)
+    const potC =
+      spot.pot +
+      callAdds -
+      (callAdds >= spot.heroStack - 1e-9 ? Math.max(0, spot.uncoveredOnCall ?? 0) : 0);
     let ev: number;
     let plan: string;
     let seLater = 0;
@@ -663,6 +684,10 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       evFold: 0,
       evRaise: 0,
       evCall: 0,
+      // lane CORE-POOLED-6: a call that closes the hand (the hero's whole stack, or no live opponent with chips
+      // behind: root.stack is the effective stack left) is an exact showdown; no later play can realise less or
+      // more than its equity, so it carries no showdown term for the realization factor to discount
+      sd: callAdds >= spot.heroStack - 1e-9 || root.stack <= 1e-9 ? 0 : eqNow * net(potC),
       plan,
       se: Math.sqrt(Math.pow(Math.max(0, spot.equitySe) * net(potC), 2) + seLater * seLater),
       source: spot.ip
@@ -743,6 +768,7 @@ function pick(w: {
   evFold: number;
   evRaise: number;
   evCall: number;
+  sd: number;
   plan: string;
   se: number;
   source: string;
@@ -757,6 +783,7 @@ function pick(w: {
     evFold: w.evFold,
     evRaise: w.evRaise,
     evCall: w.evCall,
+    sd: w.sd,
     plan: w.plan,
     se: w.se,
     source: w.source,

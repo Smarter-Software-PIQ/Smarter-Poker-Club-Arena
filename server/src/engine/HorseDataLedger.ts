@@ -1158,37 +1158,37 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCorePlo4Flop',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash FLOP decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash FLOP decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo4Turn',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash TURN decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash TURN decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo4River',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash RIVER decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash RIVER decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo5Flop',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash FLOP decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash FLOP decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo5Turn',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash TURN decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash TURN decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo5River',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning), narrowed by lane RIVER-CORE (CRITERIA-RIVER-CORE-3, after the full river core graded FAIL in real chips): it may only turn today's fold into a plain call that leaves chips behind, when the call beats the fold by the change margin; every other PLO5 river decision is today's action. Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning), narrowed by lane RIVER-CORE (CRITERIA-RIVER-CORE-3, after the full river core graded FAIL in real chips): it may only turn today's fold into a plain call that leaves chips behind, when the call beats the fold by the change margin; every other PLO5 river decision is today's action. Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePreflop',
-    "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core computes and receipts its preflop EV (omahaMathCore.shadow) and today's preflop action stands. Read === true; PLO6 never.",
+    "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core does no preflop work (no receipt: law OmahaMathCoreOffScopeNoWork) and today's preflop action stands. Read === true; PLO6 never.",
     'V94'
   ),
   flag(
@@ -2101,6 +2101,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'horseDecision workerRuntime (OPTION SHADOW, HorseOptionShadow)',
     'option_shadow_<option>_changed_seen / option_shadow_<option>_same_seen: a registered non-style option in shadow (passes nothing to the brain, so the acted decision is the release default) or in on_shadow (passes true, exactly as on; re-decided with false) was re-decided once with its value flipped from the same RNG position, never acted on, and the counterfactual action or amount differed / did not differ; option_shadow_<option>_changed_person_seen / _same_person_seen: the same, only when a person (a seat that is not a Horse) was dealt into the hand (Horse-only = all minus person); the journal field HorseDecision.optionShadowReceipt carries the counterfactual action and amount, street, variant, format and person presence; option_shadow_rotated_out_seen: another option in shadow of the same decision was not re-decided (one per decision, rotated by decision key); option_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen / _skipped_rate_seen: no re-decision because work was queued, the decision had spent the 15 ms budget, the governor scale moved, or the per-minute budget (HORSE_OPTION_SHADOW_PER_MINUTE) was used; option_shadow_scale_mismatch_seen / _redecide_failed_seen / _unencodable_seen: the re-decision ran at another scale, threw, or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
     '2026-11-18'
+  ),
+  receipt(
+    'lightning_horse_fallback_*',
+    'LightningHorse.decideLightningHorse catch (noteLightningHorseFallback; TASK #8 2026-11-20)',
+    'lightning_horse_fallback_<reason>_seen: a Lightning Horse turn got the liveness answer because its decision job failed, <reason> the stamped rejection path (expired, capacity_refused, shard_failed, shard_stopping, enqueue_failed, validation_failed, result_refused, post_result_failed, unknown) or snapshot_unavailable when the turn snapshot could not be built; lightning_horse_fallback_street_<preflop|flop|turn|river|unknown>_seen: the street of such an answer on the seat own turn; lightning_horse_fallback_early_look_seen: such an answer on an early look. Until 2026-11-20 these failures left only a Prometheus count and the legalizer degraded reason lightning_timeout (seven PLO4/PLO5 turn folds Nov 16-19 with no recorded cause); occurrence counters; named *_seen',
+    '2026-11-20'
   ),
   receipt(
     'raise_ladder_*',
@@ -4658,7 +4664,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade10_*',
     'HorseOpponentExploit',
-    'the fast recency window switched a read on, or a gear shift engaged; counts read computations, not decisions',
+    'the fast recency window switched a read on, a gear shift engaged, or (upgrade10_fast_window_calmed_seen, 2026-11-21) the window withdrew a read from a player it calls calm; counts read computations, not decisions',
     '2026-11-12'
   ),
   receipt(

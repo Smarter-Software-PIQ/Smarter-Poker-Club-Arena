@@ -1355,7 +1355,9 @@ export interface OptionSwitchArm {
  * routes style names to `style`, and lists each entry it leaves out with the reason, so a driver can report it and
  * refuse to score an arm whose declared difference was dropped (optionSwitchArmStrict).
  */
-export function optionSwitchArmFrom(declared: Readonly<Record<string, unknown>> | null | undefined): OptionSwitchArm {
+export function optionSwitchArmFrom(
+  declared: Readonly<Record<string, unknown>> | null | undefined
+): OptionSwitchArm {
   const plain: Record<string, string> = {};
   const style: Partial<Record<StyleSwitchOption, StyleSwitchState>> = {};
   const dropped: OptionSwitchArmDrop[] = [];
@@ -1365,7 +1367,11 @@ export function optionSwitchArmFrom(declared: Readonly<Record<string, unknown>> 
       if (typeof raw === 'string' && (STYLE_SWITCH_STATES as readonly string[]).includes(raw))
         style[option as StyleSwitchOption] = raw as StyleSwitchState;
       else
-        dropped.push({ option, state, reason: `a style option supports ${STYLE_SWITCH_STATES.join(' / ')}` });
+        dropped.push({
+          option,
+          state,
+          reason: `a style option supports ${STYLE_SWITCH_STATES.join(' / ')}`,
+        });
       continue;
     }
     const entry = PLAIN_BY_NAME.get(option);
@@ -1393,12 +1399,16 @@ export function optionSwitchArmFrom(declared: Readonly<Record<string, unknown>> 
   }
   const states = optionSwitchStatesFrom(plain);
   if (states === null)
-    throw new Error('optionSwitchArmFrom: a filtered set was refused (registry and filter disagree)');
+    throw new Error(
+      'optionSwitchArmFrom: a filtered set was refused (registry and filter disagree)'
+    );
   return { states, style: Object.freeze(style), dropped: Object.freeze(dropped) };
 }
 
 /** optionSwitchArmFrom, but an arm that cannot be applied exactly as declared throws (an inert arm is never scored). */
-export function optionSwitchArmStrict(declared: Readonly<Record<string, unknown>> | null | undefined): OptionSwitchArm {
+export function optionSwitchArmStrict(
+  declared: Readonly<Record<string, unknown>> | null | undefined
+): OptionSwitchArm {
   const arm = optionSwitchArmFrom(declared);
   if (arm.dropped.length > 0)
     throw new Error(

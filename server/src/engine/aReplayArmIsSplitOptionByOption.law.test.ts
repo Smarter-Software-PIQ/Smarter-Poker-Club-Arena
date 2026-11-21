@@ -35,12 +35,21 @@ describe('a replay arm is split option by option', () => {
 
   it('a set the build refuses whole is an error in the replay source, never silent release defaults', () => {
     // before 2026-11-20 this served the set, the holder refused it and refresh() returned {} (nothing switched)
-    expect(() => applied({ [PLAIN_A]: 'on', [STYLE]: 'on' } as never)).toThrow(/refuses the whole set/);
-    expect(() => applied({ [PLAIN_A]: 'on', [OFF_ONLY]: 'on' } as never)).toThrow(new RegExp(`${OFF_ONLY}=on \\(off-only`));
+    expect(() => applied({ [PLAIN_A]: 'on', [STYLE]: 'on' } as never)).toThrow(
+      /refuses the whole set/
+    );
+    expect(() => applied({ [PLAIN_A]: 'on', [OFF_ONLY]: 'on' } as never)).toThrow(
+      new RegExp(`${OFF_ONLY}=on \\(off-only`)
+    );
   });
 
   it('a journal-shaped set keeps every entry that applies, routes style names to the style switch, lists the rest', () => {
-    const arm = optionSwitchArmFrom({ [PLAIN_A]: 'on', [STYLE]: 'on', [OFF_ONLY]: 'on', notAnOptionOfAnyBuild: 'on' });
+    const arm = optionSwitchArmFrom({
+      [PLAIN_A]: 'on',
+      [STYLE]: 'on',
+      [OFF_ONLY]: 'on',
+      notAnOptionOfAnyBuild: 'on',
+    });
     expect(arm.states).toEqual({ [PLAIN_A]: 'on' });
     expect(arm.style).toEqual({ [STYLE]: 'on' });
     expect(arm.dropped.map((d) => d.option)).toEqual([OFF_ONLY, 'notAnOptionOfAnyBuild']);
@@ -53,11 +62,15 @@ describe('a replay arm is split option by option', () => {
     const on = optionSwitchArmStrict({ ...base, [PLAIN_B]: 'on' });
     const off = optionSwitchArmStrict({ ...base, [PLAIN_B]: 'off' });
     expect(applied(on.states)).not.toEqual(applied(off.states));
-    expect(optionSwitchDecisionOpts(applied(on.states))).not.toEqual(optionSwitchDecisionOpts(applied(off.states)));
+    expect(optionSwitchDecisionOpts(applied(on.states))).not.toEqual(
+      optionSwitchDecisionOpts(applied(off.states))
+    );
   });
 
   it('an arm whose declared difference cannot be applied is refused, not scored at the defaults', () => {
-    expect(() => optionSwitchArmStrict({ [PLAIN_A]: 'on', [OFF_ONLY]: 'on' })).toThrow(/not applied as declared/);
+    expect(() => optionSwitchArmStrict({ [PLAIN_A]: 'on', [OFF_ONLY]: 'on' })).toThrow(
+      /not applied as declared/
+    );
     expect(optionSwitchArmStrict({ [PLAIN_A]: 'on' }).dropped).toEqual([]);
   });
 });
