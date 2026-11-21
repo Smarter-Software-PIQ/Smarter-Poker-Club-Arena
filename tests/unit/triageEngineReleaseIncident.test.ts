@@ -123,6 +123,7 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
       'triage',
       'inspect',
       'claim',
+      'resolve',
     ]);
     expect(WF.permissions).toEqual({});
     expect(WF.jobs.execute.permissions).toEqual({ contents: 'read' });
@@ -134,10 +135,41 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
     const checkout = WF.jobs.execute.steps.find(
       (s: { uses?: string }) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@')
     );
+    expect(checkout?.uses).toBe('actions/checkout@v7.0.1');
     expect(checkout?.with?.['fetch-depth']).toBe(1);
     expect(checkout?.with?.['fetch-tags']).toBe(false);
+    const setupNode = WF.jobs.execute.steps.find(
+      (s: { uses?: string }) =>
+        typeof s.uses === 'string' && s.uses.startsWith('actions/setup-node@')
+    );
+    expect(setupNode?.uses).toBe('actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020');
+    expect(WF_TEXT).not.toContain('@v4');
     expect(WF_TEXT).not.toContain('HETZNER_SSH_PRIVATE_KEY');
     expect(WF_TEXT).not.toContain('repository_dispatch');
     expect(WF_TEXT).not.toContain('schedule:');
+
+    // Strict least-privilege secret scoping & read-only inspect SQL boundary
+    const runStep = WF.jobs.execute.steps.find(
+      (s: { name?: string }) => s.name === 'Run bounded incident operation'
+    );
+    expect(runStep?.env?.DATABASE_URL).toBe(
+      "${{ (inputs.operation == 'claim' || inputs.operation == 'inspect') && secrets.DATABASE_URL || '' }}"
+    );
+    const scriptText = readFileSync(
+      join(ROOT, 'scripts/ci/triage-engine-release-incident.mjs'),
+      'utf8'
+    );
+    const inspectStart = scriptText.indexOf('async function runInspect()');
+    const claimStart = scriptText.indexOf('async function runClaim()');
+    expect(inspectStart).toBeGreaterThan(0);
+    expect(claimStart).toBeGreaterThan(inspectStart);
+    const inspectBody = scriptText.slice(inspectStart, claimStart);
+    expect(inspectBody).not.toMatch(
+      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|CREATE)\b/i
+    );
+    const claimBody = scriptText.slice(claimStart);
+    expect(claimBody).toContain('SELECT smarter_private.fn_claim_reliability_incident(');
+    expect(claimBody).toContain('$1::uuid');
+    expect(claimBody).toContain('$5::text');
   });
 });

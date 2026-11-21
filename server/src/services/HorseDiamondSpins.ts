@@ -338,7 +338,12 @@ export function paceMs(horseId: string, step: HorseSpinStep['kind'], nonce: numb
 export function backoffForRefusal(error: string): number | null {
   const e = error.toLowerCase();
   if (e.includes('one moment')) return 5_000;
-  if (e.includes('daily') || e.includes('today') || e.includes('limit')) return 2 * 60 * 60_000;
+  if (
+    e.includes('daily') ||
+    e.includes('today') ||
+    (e.includes('limit') && !e.includes('round limit'))
+  )
+    return 2 * 60 * 60_000;
   if (e.includes('host') || e.includes('fund') || e.includes('cover')) return 30 * 60_000;
   if (e.includes('maintenance')) return 6 * 60_000;
   if (e.includes('diamond') && (e.includes('enough') || e.includes('not have'))) return 60 * 60_000;
