@@ -4691,6 +4691,32 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemPersonaPostflop: true },
     b: {},
   },
+  // 2026-11-21 Horse Switch lane (holdemPersonaPostflopIsPriced, default OFF, unevaluated): both arms carry
+  // holdemPersonaPostflop on (its production row); a prices the four V87 spots it scales (range c-bet, turn
+  // takeaway, OOP check-trap, check-raise into a stabber) by EV against the line range and measured reads, b keeps
+  // the persona frequencies. The grading criteria are written before any run (CRITERIA.md of the lane). Declared,
+  // not graded.
+  {
+    name: 'cash6_holdem_persona_postflop_is_priced',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
+    b: { holdemPersonaPostflop: true },
+  },
+  // The same question heads-up, where every postflop pot is heads-up and all four spots are reachable.
+  {
+    name: 'hu_holdem_persona_postflop_is_priced',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
+    b: { holdemPersonaPostflop: true },
+  },
   // 2026-11-14 PERSONA RE-RAISE MIX (D3 option C), default OFF, so arm A
   // turns it on: six-handed 100bb no-limit hold'em cash, where the 3-bet
   // bluff and the squeeze bluff are met every orbit. The card's seats are the
