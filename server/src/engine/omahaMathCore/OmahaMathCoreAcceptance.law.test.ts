@@ -909,6 +909,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     let closingMultiway = 0;
     let riverChecks = 0;
     const sane: string[] = [];
+    let keptUnpriced = 0;
     let riverCheckGap = 0;
     const riverEx: string[] = [];
     let closingGap = 0;
@@ -991,6 +992,28 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       // hero's stack can contest
       {
         const others = gs.players.filter((p) => p.seat !== hero.seat);
+        // the receipt describes the state it priced: street, pot, the chips to call, the live opponents
+        const c0 = rec.core!;
+        if (c0.street !== spec.street) sane.push(`${tag}: receipt street ${c0.street}`);
+        if (Math.abs(c0.pot - gs.pot) > 0.011)
+          sane.push(`${tag}: receipt pot ${c0.pot} != ${gs.pot}`);
+        if (
+          Math.abs(c0.toCall - Math.min(facing, hero.stack)) > 0.011 &&
+          Math.abs(c0.toCall - facing) > 0.011
+        )
+          sane.push(`${tag}: receipt toCall ${c0.toCall} != ${facing}`);
+        const liveSeats = others
+          .filter((p) => !p.is_folded)
+          .map((p) => p.seat)
+          .sort((x, y) => x - y);
+        const recSeats = c0.opponents.map((o) => o.seat).sort((x, y) => x - y);
+        if (JSON.stringify(liveSeats) !== JSON.stringify(recSeats))
+          sane.push(`${tag}: receipt opponents ${recSeats} != ${liveSeats}`);
+        // the decision is a priced candidate, or today's action kept because the core could not price it
+        const chosen = c0.evs.find((e) => e.action === d.action);
+        if (c0.kept?.unpriced) keptUnpriced++;
+        else if (!chosen)
+          sane.push(`${tag}: the decision ${d.action} is not among the priced candidates`);
         const winnable = gs.pot + others.reduce((a, p) => a + Math.min(p.stack, hero.stack), 0);
         for (const e of rec.core!.evs) {
           const raw = (e as { calibration?: { raw: number } }).calibration?.raw ?? e.ev;
@@ -1147,7 +1170,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       `CORE-POOLED-6 property: riverChecks=${riverChecks} worst gap/pot=${riverCheckGap.toFixed(4)}\n${riverEx.join('\n')}`
     );
     console.info(
-      `CORE-POOLED-6 property: sane violations=${sane.length}\n${sane.slice(0, 12).join('\n')}`
+      `CORE-POOLED-6 property: sane violations=${sane.length} keptUnpriced=${keptUnpriced}\n${sane.slice(0, 12).join('\n')}`
     );
     if (bad.length)
       console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
