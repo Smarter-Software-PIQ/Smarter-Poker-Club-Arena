@@ -77,6 +77,10 @@ import {
 } from './HorseOmahaFourBetFoldPricedCall.js';
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
+import {
+  omahaRiverBetFoldRecordCurve,
+  type OmahaRiverBetAnswerPoint,
+} from './HorseOmahaRiverBetFoldRecord.js';
 import { omahaStrongHandCheckRule } from './HorseOmahaStrongHandCheck.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
@@ -3670,6 +3674,13 @@ export interface HorseDecideOpts {
    * bets after a check, no opponent kind (HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
    */
   omahaRiverCheckedToBetIsMeasured?: boolean;
+  /**
+   * EMERG lane STAB-DEFENCE-5 2026-11-21 (default off, read `=== true`): the two river bet rules above price the
+   * opponent's answer with the population curve moved by his own lifetime PUBLIC fold record at a river's first
+   * wager, shrunk by n / (n + k) (HorseOmahaRiverBetFoldRecord.ts). It does nothing unless one of those two rules is
+   * on; with no record it is the population curve exactly. One formula for every opponent. Never PLO6.
+   */
+  omahaRiverBetFoldIsHisRecord?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -18391,13 +18402,34 @@ export class HorseLogic {
       // the measured response curve and replaced by the best bet only when it beats the check by more than its own
       // standard error (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
       const firstToActOn = opts.omahaRiverFirstToActBetIsPriced === true;
+      // EMERG lane STAB-DEFENCE-5 2026-11-21 (omahaRiverBetFoldIsHisRecord, default off): the answer curve the two
+      // river bet rules price with is the population's moved by the opponent's own lifetime public river fold record
+      // (HorseOmahaRiverBetFoldRecord.ts). Absent = the population curve, as before.
+      let riverFoldRecordWeight = 0;
+      const riverResponseOf =
+        opts.omahaRiverBetFoldIsHisRecord === true
+          ? <P extends OmahaRiverBetAnswerPoint>(
+              opponent: SeatPlayer,
+              population: readonly P[]
+            ): readonly P[] => {
+              const variant = String(gs.gameVariant ?? '');
+              const his = omahaRiverBetFoldRecordCurve(
+                variant,
+                population,
+                HorseMind.omahaStrongHandCheckRecordsOf(opponent.user_id, variant, 'river', 1)
+              );
+              riverFoldRecordWeight = his.weight;
+              return his.curve;
+            }
+          : undefined;
       const firstToAct = omahaRiverFirstToActBetRule(
         openMeasured,
         player,
         gs,
         firstToActOn,
         firstToActOn ? omahaPricedDeps(player, gs).rake : 0,
-        (d) => this.legalize(d, player, gs, vi)
+        (d) => this.legalize(d, player, gs, vi),
+        riverResponseOf
       );
       if (firstToAct.changed && tele) {
         noteFire('omaha_river_first_to_act_bet_priced');
@@ -18417,8 +18449,10 @@ export class HorseLogic {
         gs,
         checkedToOn,
         checkedToOn ? omahaPricedDeps(player, gs).rake : 0,
-        (d) => this.legalize(d, player, gs, vi)
+        (d) => this.legalize(d, player, gs, vi),
+        riverResponseOf
       );
+      if (riverFoldRecordWeight > 0 && tele) noteFire('omaha_river_bet_fold_his_record_read');
       if (checkedTo2.changed && tele) {
         noteFire('omaha_river_checked_to_bet_measured');
         noteDecisionRuleReceipt(

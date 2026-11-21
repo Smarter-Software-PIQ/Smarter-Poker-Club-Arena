@@ -176,13 +176,30 @@ export function omahaRiverFirstToActBet(
   spot: OmahaRiverFirstToActSpot,
   rake: number,
   /** tests only: a response curve in place of the measured one */
-  curveOverride?: readonly OmahaRiverFirstToActPoint[]
+  curveOverride?: readonly OmahaRiverFirstToActPoint[],
+  /**
+   * omahaRiverBetFoldIsHisRecord (default absent): the opponent's own answer curve from the population's
+   * (HorseOmahaRiverBetFoldRecord.ts). Absent, or any error: the population curve, as before.
+   */
+  responseOf?: (
+    opponent: SeatPlayer,
+    population: readonly OmahaRiverFirstToActPoint[]
+  ) => readonly OmahaRiverFirstToActPoint[]
 ): OmahaRiverFirstToActVerdict | null {
   const pot = gs.pot;
   if (!fin(pot) || !(pot > 0)) return null;
   const r = fin(rake) ? clamp(rake, 0, 0.2) : 0;
   const opp = spot.opponent;
-  const curve = curveOverride ?? omahaRiverFirstToActResponseOf(opp, gs);
+  const population = curveOverride ?? omahaRiverFirstToActResponseOf(opp, gs);
+  let curve = population;
+  if (responseOf) {
+    try {
+      const his = responseOf(opp, population);
+      if (Array.isArray(his) && his.length === population.length) curve = his;
+    } catch {
+      curve = population;
+    }
+  }
   if (curve.length === 0) return null;
   const amounts = omahaCardImpactAmounts(hero, opp, gs);
   if (amounts.length === 0) return null;
@@ -282,14 +299,19 @@ export function omahaRiverFirstToActBetRule(
   gs: HorseGameStateV2,
   on: boolean,
   rake: number,
-  legalize: (d: HorseDecision) => HorseDecision
+  legalize: (d: HorseDecision) => HorseDecision,
+  /** omahaRiverBetFoldIsHisRecord (default absent): see omahaRiverFirstToActBet. */
+  responseOf?: (
+    opponent: SeatPlayer,
+    population: readonly OmahaRiverFirstToActPoint[]
+  ) => readonly OmahaRiverFirstToActPoint[]
 ): OmahaRiverFirstToActResult {
   const same: OmahaRiverFirstToActResult = { decision, priced: false, changed: false };
   if (!on || decision.action !== 'check') return same;
   try {
     const spot = omahaRiverFirstToActSpot(hero, gs);
     if (!spot) return same;
-    const verdict = omahaRiverFirstToActBet(hero, gs, spot, rake);
+    const verdict = omahaRiverFirstToActBet(hero, gs, spot, rake, undefined, responseOf);
     if (!verdict) return same;
     if (verdict.action === 'check' || !verdict.best)
       return { decision, priced: true, changed: false, verdict };
