@@ -159,6 +159,11 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
       "'upgrade10_fast_window_ready_seen'",
       "'upgrade10_fast_window_engaged'",
       "'upgrade10_gear_shift_engaged'",
+      // 2026-11-21: the two ways the window acts on live tables that no upgrade 10 counter covered. The 0.90 reach
+      // (option holdemGearShiftReach, on by production row since 2026-11-15) engages a read from the fast window;
+      // the OFF switch withdraws a read from a player the fast window calls calm.
+      "'holdem_gear_shift_reach_seen'",
+      "'upgrade10_fast_window_calmed_seen'",
     ],
     upgrade_11_persona_indifference_mixing: [
       "'upgrade11_indifference_pool'",
