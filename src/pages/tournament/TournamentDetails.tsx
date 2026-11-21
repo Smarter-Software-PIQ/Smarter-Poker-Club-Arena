@@ -114,7 +114,6 @@ import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
 import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { ShareLinkFallback } from '../../components/common/ShareLinkFallback';
-import { InviteLinkIcon } from '../../components/table/TableMenuIcons';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
 interface TournamentSnapshotOwner {
@@ -2188,15 +2187,13 @@ export default function TournamentDetails({
             </span>
             <span className="tournament-id">ID:{tournament.id.slice(0, 8)}</span>
             <div className="details-header__actions">
-              <button
-                className="btn btn-share btn-invite-game"
-                type="button"
+              <TournamentRegisterButton
+                className="btn-invite-game"
                 data-testid="tournament-invite-btn"
                 onClick={() => void shareTournament()}
               >
-                <InviteLinkIcon />
-                <span>Invite To Game</span>
-              </button>
+                Invite To Game
+              </TournamentRegisterButton>
               {tournamentAction('header')}
             </div>
             {closeButton}
