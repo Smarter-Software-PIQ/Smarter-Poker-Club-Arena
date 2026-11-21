@@ -963,3 +963,14 @@ claim-back with the original or stable operation key, verifies its ledger and
 zero balance, then invokes the guarded retirement owner. It never creates a
 new purchase or repeats an unknown financial intent under a new key. Read `cleanup-only`
 separately from live gameplay acceptance; unknown money remains retained.
+
+### Read-only EngineReleaseFailed triage, inspection, and sanctioned claim
+
+When an `EngineReleaseFailed` incident handoff arrives, do not run ad-hoc local `psql` calls or touch `.env` credentials. Use the manual-only `.github/workflows/triage-engine-release-incident.yml` workflow on `main`:
+
+- **Triage live health vs. target SHA (read-only, no DB secret):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=triage -f target_sha=<40-char-sha>`
+- **Inspect incident row and recent observations/events (read-only, `ci-main` DB secret):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=inspect -f incident_id=<uuid>`
+- **Claim incident via `smarter_private.fn_claim_reliability_incident`:**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=claim -f incident_id=<uuid> -f agent_session=<session> -f branch=<branch> -f pull_request=<pr> -f ttl_hours=4`

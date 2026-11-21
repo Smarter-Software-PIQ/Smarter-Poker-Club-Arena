@@ -7,18 +7,19 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'Operation: triage (read-only live health vs target SHA) or claim (fn_claim_reliability_incident)'
+        description: 'Operation: triage (live health vs target SHA), inspect (read-only incident row), or claim (fn_claim_reliability_incident)'
         required: true
         type: choice
         options:
           - triage
+          - inspect
           - claim
       target_sha:
         description: 'Full 40-char target SHA (required for operation=triage)'
         required: false
         type: string
       incident_id:
-        description: 'Reliability incident UUID (required for operation=claim)'
+        description: 'Reliability incident UUID (required for operation=inspect or operation=claim)'
         required: false
         type: string
       agent_session:
@@ -47,7 +48,7 @@ concurrency:
 
 jobs:
   execute:
-    name: ${{ inputs.operation == 'claim' && 'Claim Reliability Incident' || 'Read-Only EngineReleaseFailed Triage' }}
+    name: ${{ inputs.operation == 'claim' && 'Claim Reliability Incident' || (inputs.operation == 'inspect' && 'Inspect Reliability Incident' || 'Read-Only EngineReleaseFailed Triage') }}
     if: >-
       (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]')
       && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
@@ -61,16 +62,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
           persist-credentials: false
+
+      - name: Fetch main ancestry for triage operation
+        if: inputs.operation == 'triage'
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=500 origin main >/dev/null 2>&1 || git fetch --no-tags origin main >/dev/null 2>&1
+          if [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] && ! git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$TARGET_SHA" >/dev/null 2>&1 || true
+          fi
 
       - name: Use Node 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install pg client for claim operation
-        if: inputs.operation == 'claim'
+      - name: Install pg client for database operations
+        if: inputs.operation == 'claim' || inputs.operation == 'inspect'
         run: npm install pg@8 --no-save --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
 
       - name: Run bounded incident operation
@@ -82,7 +95,7 @@ jobs:
           CLAIM_BRANCH: ${{ inputs.branch }}
           CLAIM_PR: ${{ inputs.pull_request }}
           CLAIM_TTL_HOURS: ${{ inputs.ttl_hours }}
-          DATABASE_URL: ${{ inputs.operation == 'claim' && secrets.DATABASE_URL || '' }}
+          DATABASE_URL: ${{ (inputs.operation == 'claim' || inputs.operation == 'inspect') && secrets.DATABASE_URL || '' }}
         run: |
           set -euo pipefail
           timeout --signal=TERM --kill-after=5s 60s node scripts/ci/triage-engine-release-incident.mjs

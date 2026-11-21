@@ -78,6 +78,14 @@ export function classifyEngineReleaseTriage({ targetSha, liveHealth, isAncestor 
   };
 }
 
+export function validateIncidentInspectInputs({ incidentId }) {
+  const id = String(incidentId ?? '').trim();
+  if (!UUID_RE.test(id)) {
+    throw new Error('incident_id must be a valid UUID');
+  }
+  return { incidentId: id };
+}
+
 export function validateIncidentClaimInputs({
   incidentId,
   agentSession,
@@ -139,6 +147,67 @@ async function runTriage() {
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function runInspect() {
+  const { incidentId } = validateIncidentInspectInputs({
+    incidentId: process.env.INCIDENT_ID,
+  });
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is not configured');
+
+  const { Client } = await import('pg');
+  const client = new Client({
+    connectionString: url,
+    connectionTimeoutMillis: 15_000,
+    statement_timeout: 15_000,
+  });
+  try {
+    await client.connect();
+    const { rows: incRows } = await client.query(
+      `SELECT id, fingerprint, incident_class, title, severity, status, source, alertname,
+              scope, opened_at, first_observed_at, last_observed_at, last_firing_at,
+              last_resolved_at, closure_basis, resolution_state, occurrence_count,
+              recurrence_count, escalation_state, escalation_reason, engine_release
+         FROM smarter_private.reliability_incidents
+        WHERE id = $1::uuid`,
+      [incidentId]
+    );
+    if (incRows.length === 0) {
+      console.log(JSON.stringify({ found: false, incidentId }, null, 2));
+      return;
+    }
+    const { rows: obsRows } = await client.query(
+      `SELECT id, inbox_event_id, delivery_count, status, severity, disposition, observed_at
+         FROM smarter_private.reliability_observations
+        WHERE incident_id = $1::uuid
+        ORDER BY id DESC
+        LIMIT 5`,
+      [incidentId]
+    );
+    const { rows: evtRows } = await client.query(
+      `SELECT id, kind, from_status, to_status, at, detail
+         FROM smarter_private.reliability_incident_events
+        WHERE incident_id = $1::uuid
+        ORDER BY id DESC
+        LIMIT 5`,
+      [incidentId]
+    );
+    console.log(
+      JSON.stringify(
+        {
+          found: true,
+          incident: incRows[0],
+          recentObservations: obsRows,
+          recentEvents: evtRows,
+        },
+        null,
+        2
+      )
+    );
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 async function runClaim() {
   const validated = validateIncidentClaimInputs({
     incidentId: process.env.INCIDENT_ID,
@@ -184,6 +253,10 @@ async function main() {
   const mode = (process.env.OPERATION || 'triage').trim();
   if (mode === 'triage') {
     await runTriage();
+    return;
+  }
+  if (mode === 'inspect') {
+    await runInspect();
     return;
   }
   if (mode === 'claim') {
