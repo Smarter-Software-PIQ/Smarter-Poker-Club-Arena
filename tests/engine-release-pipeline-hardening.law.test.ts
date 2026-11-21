@@ -17,6 +17,7 @@ import {
   buildReleaseResolvedAlerts,
   shippedSibling,
 } from '../scripts/ci/record-engine-release-alert.mjs';
+import { engineAlertEpisodeId } from '../scripts/ci/engine-alert-episode.mjs';
 
 /**
  * Incident 075013fd (Lane 1 — Engine Release Pipeline Hardening):
@@ -546,13 +547,21 @@ exit 0
           labels: {
             alertname: 'EngineReleaseFailed',
             severity: 'critical',
+            component: 'engine-release',
             run_id: '44841264851-1',
+            // A resolve must carry its firing row's episode or intake cannot
+            // pair them (tests/an-engine-alert-resolves-its-own-episode.law.test.ts).
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:44841264851-1'),
           },
           starts_at: '2026-11-21T00:19:02.000Z',
         },
         {
           fingerprint: 'engine-release-failed:44841264851-1',
-          labels: { alertname: 'EngineReleaseFailed' },
+          labels: {
+            alertname: 'EngineReleaseFailed',
+            component: 'engine-release',
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:44841264851-1'),
+          },
           starts_at: '2026-11-21T00:19:02.000Z',
         },
       ]
@@ -565,6 +574,9 @@ exit 0
     expect(resolved[0].labels.alertname).toBe('EngineReleaseFailed');
     expect(resolved[0].labels.resolved_by_run_id).toBe('888-1');
     expect(resolved[0].labels.resolved_by_sha).toBe('bb21dc82673117a937f67c9498dec46b8c27522e');
+    expect(resolved[0].labels.engine_alert_episode_id).toBe(
+      engineAlertEpisodeId('engine-release-failed:44841264851-1')
+    );
   });
 
   it('wave 3: firing and resolved EngineReleaseFailed payloads preserve exact fingerprint and label parity for fn_record_engine_alerts', () => {
@@ -603,6 +615,7 @@ exit 0
     expect(resolved[0].labels.component).toBe(firing!.labels.component);
     expect(resolved[0].labels.run_id).toBe(firing!.labels.run_id);
     expect(resolved[0].labels.target_sha).toBe(firing!.labels.target_sha);
+    expect(resolved[0].labels.engine_alert_episode_id).toBe(firing!.labels.engine_alert_episode_id);
     expect(['firing', 'resolved']).toContain(firing!.status);
     expect(['firing', 'resolved']).toContain(resolved[0].status);
   });
@@ -660,7 +673,16 @@ exit 0
         RUN_ID: '44900000003-1',
         TARGET_SHA: newerSha,
       },
-      [{ fingerprint: 'engine-release-failed:old-1', labels: { alertname: 'EngineReleaseFailed' } }]
+      [
+        {
+          fingerprint: 'engine-release-failed:old-1',
+          labels: {
+            alertname: 'EngineReleaseFailed',
+            component: 'engine-release',
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:old-1'),
+          },
+        },
+      ]
     );
     expect(resolvedOnSuperseded).toHaveLength(1);
     expect(resolvedOnSuperseded[0].status).toBe('resolved');
