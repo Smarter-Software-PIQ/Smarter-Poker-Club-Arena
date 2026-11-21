@@ -18,10 +18,12 @@
  *       exit 1 when the newest list migration or the proof script lists differ from the registry; writes nothing
  *   npx tsx scripts/gen-horse-option-switch-sql.ts
  *       rewrite the newest list migration in place, ONLY when it is your own follow-up that main does not hold yet
- *       (after merging main); refused for 20261114072215, for any other file and for any file on origin/main
+ *       (after merging main), setting its follows line to the list migration now before it; refused for
+ *       20261114072215, for any other file and for any file on origin/main
  *
  * everyUpgradeHasALiveSwitch.law.test.ts fails when the newest list migration differs from the registry and names
- * the --follow-up command.
+ * the --follow-up command. aSwitchListIsNeverStale.law.test.ts fails when a list migration does not follow the one
+ * before it, or a branch adds a list migration older than main's newest one.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -33,6 +35,8 @@ import {
 } from '../src/engine/HorseOptionSwitch.js';
 import {
   OPTION_SWITCH_BASE_MIGRATION,
+  OPTION_SWITCH_CHAIN_ANCHOR,
+  OPTION_SWITCH_LIST_MARKER,
   OPTION_SWITCH_MIGRATIONS_DIR,
   OPTION_SWITCH_PROOF_SCRIPT,
   newestOptionSwitchListMigration,
@@ -42,6 +46,7 @@ import {
   optionSwitchRewriteRefusal,
   proofScriptWithRegistryLists,
   sqlNameList,
+  withFollowsLine,
   withRegistryLists,
 } from '../src/engine/HorseOptionSwitchMigrationLists.js';
 import { STYLE_SWITCH_OPTIONS } from '../src/engine/HorseStyleSwitch.js';
@@ -60,6 +65,18 @@ export function newestListMigrationOnDisk(repo: string = REPO): string {
       .filter((name) => name.endsWith('.sql'))
       .map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') }))
   );
+}
+
+/** The list migration immediately before `path` by version, repository-relative, or null. */
+function previousListMigrationOnDisk(path: string, repo: string = REPO): string | null {
+  const dir = join(repo, OPTION_SWITCH_MIGRATIONS_DIR);
+  const target = path.replace(/^.*\//, '');
+  const earlier = readdirSync(dir)
+    .filter((name) => name.endsWith('.sql') && name < target)
+    .filter((name) => readFileSync(join(dir, name), 'utf8').includes(OPTION_SWITCH_LIST_MARKER))
+    .sort();
+  const previous = earlier[earlier.length - 1];
+  return previous ? `${OPTION_SWITCH_MIGRATIONS_DIR}/${previous}` : null;
 }
 
 /** True when origin/main holds `path`. Fails closed: if git cannot answer, the file is treated as on main. */
@@ -119,7 +136,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (existsSync(join(REPO, target))) fail(`${target} exists already`);
     if (!optionSwitchListDrift(newest, newestSql))
       fail(`the lists of ${newest} already equal the registry ${counts()}: no follow-up is needed`);
-    writeFileSync(join(REPO, target), optionSwitchFollowUpSql(name));
+    // the follows line names the list migration this one was generated after (aSwitchListIsNeverStale.law.test.ts)
+    writeFileSync(join(REPO, target), optionSwitchFollowUpSql(name, newest));
     const script = writeProofScriptLists();
     console.log(
       `wrote ${target} ${counts()}${script ? `; updated the lists of ${OPTION_SWITCH_PROOF_SCRIPT}` : ''}`
@@ -127,7 +145,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   } else if (args.length === 0) {
     const refusal = optionSwitchRewriteRefusal(newest, newest, onMain(newest));
     if (refusal) fail(refusal);
-    const after = withRegistryLists(newestSql);
+    // your own unmerged follow-up, regenerated after merging main: it now follows main's newest list migration
+    const previous = previousListMigrationOnDisk(newest);
+    const relisted = withRegistryLists(newestSql);
+    const after =
+      previous && newest.replace(/^.*\//, '') > `${OPTION_SWITCH_CHAIN_ANCHOR}.sql`
+        ? withFollowsLine(relisted, previous)
+        : relisted;
     if (after !== newestSql) writeFileSync(join(REPO, newest), after);
     const script = writeProofScriptLists();
     console.log(
