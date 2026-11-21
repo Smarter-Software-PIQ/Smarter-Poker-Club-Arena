@@ -40,6 +40,7 @@ import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
 import type { EvRaiseBranch } from './HorseEvEngine.js';
 import { omahaFlopEvCounts } from './HorseOmahaFlopFacingBetEv.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
+import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 import {
   omahaPricedSitesFlopRaiseAnswer,
   omahaPricedSitesFlopRealization,
@@ -61,11 +62,11 @@ export function omahaCbetSizeOf(frac: number): OmahaCbetSize {
 export const OMAHA_CBET_RAISE_SHARE_POP: Readonly<
   Record<OmahaCbetPlayers, Readonly<Record<OmahaCbetSize, number>>>
 > = {
-  hu: { small: 0.16, half: 0.14, twothirds: 0.1, pot: 0.09 },
-  mw: { small: 0.03, half: 0.03, twothirds: 0.03, pot: 0.03 },
+  hu: { small: 0.1873, half: 0.1746, twothirds: 0.1112, pot: 0.1038 },
+  mw: { small: 0.0384, half: 0.0337, twothirds: 0.0351, pot: 0.0226 },
 };
 /** K: the population prior's weight in his record (beta-binomial fit on public per-opponent counts). */
-export const OMAHA_CBET_RAISE_PRIOR_WEIGHT = 40;
+export const OMAHA_CBET_RAISE_PRIOR_WEIGHT = 200;
 /** W: raising range width over rho (ML fit on measured raising hands by flop-strength percentile). */
 export const OMAHA_CBET_RAISE_RANGE_WIDTH = 1.65;
 
@@ -131,6 +132,7 @@ export function omahaCbetLineOf(
 ): { raiserSeat: number | null; cbetFrac: number | null; players: OmahaCbetPlayers } | null {
   const variant = String(gs.gameVariant ?? '').toLowerCase();
   if (variant !== 'plo4' && variant !== 'plo5') return null;
+  if (omahaIsTournamentMode(gs)) return null;
   if (gs.stage !== 'flop' || (gs.communityCards ?? []).length !== 3) return null;
   let preLevel = 0;
   let preAggressor: number | null = null;
