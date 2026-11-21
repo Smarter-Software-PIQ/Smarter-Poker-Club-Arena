@@ -366,6 +366,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPricedPriorsByOpponentKind: priced(
     "the priors and reference rates every priced comparison reads, by the opponent's measured kind; unpriceable spots keep the decision given, never the categorical rule (an input, not a rule site)"
   ),
+  omahaOpponentLifetimeHud: priced(
+    'the per-opponent lifetime public HUD provider every priced comparison may read; it decides nothing by itself (an input, not a rule site)'
+  ),
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
