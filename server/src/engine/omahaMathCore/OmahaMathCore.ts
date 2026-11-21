@@ -100,6 +100,56 @@ export interface CoreOpponent {
   position: PreflopPosition | null;
   /** the highest preflop raise level he made ('call' = limped/called only, 'none' = no voluntary action yet) */
   preflopLevel: PreflopLevel | 'call' | 'none';
+  /** his lifetime public answers to a flop continuation bet (raw counts; all-ins count as raises), when the
+   *  opponent-record provider has a record of him; absent = none (the pooled response prices him) */
+  cbetAnswers?: { opps: number; raises: number } | null;
+}
+
+/**
+ * THE ONE OPPONENT-RECORD PROVIDER the core reads (lane CORE-EXTEND-5; lead prescription (ii) of 11:01:21Z).
+ * The core names an opponent only by his SEAT at the table of the decision (`table` = the decision's game state,
+ * opaque to the core); the provider, outside the core, finds whose lifetime PUBLIC record that is (production and
+ * benches: the opponent HUD provider's installed packet). The core never reads, keys or stores an identity.
+ * No provider or no record = the pooled response, exactly as before.
+ */
+export interface OmahaMathCoreOpponentRecords {
+  cbetAnswers(
+    table: unknown,
+    seat: number,
+    game: 'plo4' | 'plo5',
+    players: 'hu' | 'mw'
+  ): { opps: number; raises: number } | null;
+}
+let OPP_RECORDS: OmahaMathCoreOpponentRecords | null = null;
+export function setOmahaMathCoreOpponentRecords(p: OmahaMathCoreOpponentRecords | null): void {
+  OPP_RECORDS = p ?? null;
+}
+export function omahaMathCoreOpponentRecords(): OmahaMathCoreOpponentRecords | null {
+  return OPP_RECORDS;
+}
+/**
+ * Where a responder's own raise share of a continuation bet replaces the pooled one: PLO4 flop only (lane
+ * CORE-EXTEND-5). Shrunk n/(n+k) toward the pooled raise share of the spot, no cliff; k = the opponent HUD's
+ * default pseudo-opportunities (HUD_DEFAULT_K = 20; not separately measured for this count).
+ */
+export const OMAHA_MATH_CORE_CBET_RAISE_READ = Object.freeze({
+  streets: { plo4: ['flop'] } as Record<string, readonly string[]>,
+  k: 20,
+});
+/** his raise share of the hero's continuation bet: (raises + k x pooled) / (opps + k), within [0, 1 - fold] */
+export function cbetRaiseShare(
+  pooledRaise: number,
+  pooledFold: number,
+  rec: { opps: number; raises: number } | null | undefined
+): { r: number; read: string } | null {
+  if (!rec || !(rec.opps > 0)) return null;
+  const k = OMAHA_MATH_CORE_CBET_RAISE_READ.k;
+  const raises = Math.max(0, Math.min(rec.opps, rec.raises));
+  const r = (raises + k * pooledRaise) / (rec.opps + k);
+  return {
+    r: Math.max(0, Math.min(1 - pooledFold, r)),
+    read: `own cbet raises ${raises}/${rec.opps} shrunk k ${k} to ${round2(r)}`,
+  };
 }
 
 export interface CoreState {
@@ -976,6 +1026,14 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         r: Math.max(0, Math.min(1, c.raise)),
         source: `${c.source}; no fold credit (raise line, exact n ${c.exactN} < ${RAISE_FOLD_CREDIT_MIN_N})`,
       };
+    if (
+      c &&
+      state.heroWagerLine === 'cbet' &&
+      OMAHA_MATH_CORE_CBET_RAISE_READ.streets[game]?.includes(street)
+    ) {
+      const own = cbetRaiseShare(c.raise, c.fold, o.cbetAnswers);
+      if (own) return { p: c.fold, r: own.r, source: `${c.source}; ${own.read}` };
+    }
     return c
       ? { p: c.fold, r: Math.max(0, Math.min(1 - c.fold, c.raise)), source: c.source }
       : { p: 0, r: 0, source: 'no measured cell: no fold credit' };
