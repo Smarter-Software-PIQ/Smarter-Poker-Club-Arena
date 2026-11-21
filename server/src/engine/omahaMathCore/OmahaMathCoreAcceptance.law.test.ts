@@ -916,6 +916,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     const sane: string[] = [];
     let keptUnpriced = 0;
     const workMax: Record<number, number> = {};
+    let workChecked = 0;
     let riverCheckGap = 0;
     const riverEx: string[] = [];
     let closingGap = 0;
@@ -1051,10 +1052,14 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       {
         const wire = rec.core!.wire;
         const k = gs.players.filter((p) => p.seat !== hero.seat && !p.is_folded).length;
-        if (wire && typeof wire.work === 'number') {
+        // every receipt carries the units it spent: without the field the bound below would check nothing
+        if (!wire || typeof wire.work !== 'number')
+          sane.push(`${tag}: the receipt carries no wire.work`);
+        else {
           const bound =
             OMAHA_MATH_CORE_WORK_BUDGET +
             (1 + wire.lateEquityCalls) * 600 * omahaMathCoreDrawCost(Math.max(1, k));
+          workChecked++;
           workMax[k] = Math.max(workMax[k] ?? 0, wire.work);
           if (wire.work > bound) sane.push(`${tag}: work ${wire.work} over ${Math.round(bound)}`);
         }
@@ -1205,6 +1210,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(closingCalls).toBeGreaterThan(20);
     // a river check that closes the action is priced at equity x the pot
     expect(sane).toEqual([]);
+    expect(workChecked).toBe(applied);
     expect(riverEx).toEqual([]);
     expect(riverChecks).toBeGreaterThan(10);
     // every change the core made had today's action priced among its candidates (prove it to change it)
