@@ -90,9 +90,11 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
 
 export function simulatedHandToHistoryRow(
   hand: SimulatedHand,
-  opts: { amounts?: 'engine' | 'increments' } = {}
+  opts: { amounts?: 'engine' | 'increments'; ids?: 'hash' | 'keep' } = {}
 ): HandHistoryRow {
-  const bySeat = new Map(hand.players.map((p) => [p.seat, simUserId(p.player)]));
+  // ids 'keep': the simulator's own player ids are the user ids (the bench reads its Horses by those ids)
+  const uid = (player: string) => (opts.ids === 'keep' ? player : simUserId(player));
+  const bySeat = new Map(hand.players.map((p) => [p.seat, uid(p.player)]));
   const committed = new Map<number, number>();
   let stage: SimStage = 'preflop';
   const actions = hand.actions.map((a) => {
@@ -133,7 +135,7 @@ export function simulatedHandToHistoryRow(
     bomb_pot: null,
     players: hand.players.map((p) => ({
       seat: p.seat,
-      userId: simUserId(p.player),
+      userId: uid(p.player),
       stack: p.stack,
     })),
     actions,
@@ -156,7 +158,7 @@ export function simulatedHandToHistoryRow(
 /** A whole simulated session, oldest first (OpponentHudAsOf accepts any order). */
 export function simulatedHandsToHistoryRows(
   hands: Iterable<SimulatedHand>,
-  opts: { amounts?: 'engine' | 'increments' } = {}
+  opts: { amounts?: 'engine' | 'increments'; ids?: 'hash' | 'keep' } = {}
 ): HandHistoryRow[] {
   return [...hands].map((h) => simulatedHandToHistoryRow(h, opts));
 }

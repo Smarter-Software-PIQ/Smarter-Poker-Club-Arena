@@ -45,6 +45,9 @@ describe('simulated hands -> hand_history rows', () => {
     expect(a.id).toBe(simHandId('bench-7', 1));
     expect(a.players[1].userId).toBe(simUserId('pot_stab'));
     expect(a.actions[2]).toMatchObject({ action: 'raise', amount: 6 });
+    expect(simulatedHandToHistoryRow(hand(1, false), { ids: 'keep' }).players[1].userId).toBe(
+      'pot_stab'
+    );
     const rec = handRecordFromRow(a);
     expect(typeof rec).not.toBe('string');
     // no hole card field exists anywhere in a row
