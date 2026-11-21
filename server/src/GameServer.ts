@@ -9,6 +9,7 @@ import {
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
 import { tournamentStallExposure } from './observability/tournamentStallExposure.js';
+import { snapshotEventLoopDelay } from './observability/eventLoopMonitor.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -6637,6 +6638,7 @@ export class GameServer {
             .reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
         ),
       },
+      eventLoopDelay: snapshotEventLoopDelay(),
       ...(livenessQuery
         ? { tableLiveness: selectPublicTableLiveness(tableLiveness, livenessQuery) }
         : {}),
