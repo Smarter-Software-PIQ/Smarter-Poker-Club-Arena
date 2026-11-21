@@ -43,6 +43,8 @@ import {
   type RangeSpec,
 } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
+import { calculateRake } from '../PokerEngine.js';
+import { priceDiamondCashFees } from '../../domain/diamondCashFeeSnapshot.js';
 import { resetOmahaBestMemo } from './OmahaMathCoreEval.js';
 import { omahaDrawFeatures, omahaDrawFutureTerm, type OmahaDrawFeatures } from './OmahaDraws.js';
 import {
@@ -141,6 +143,23 @@ export interface CoreState {
     noFlopNoDrop: boolean;
     whole?: boolean;
     drop?: number;
+    /**
+     * The platform's own deduction rule (lane CORE-POOLED-4, CORE-AUDIT note 9): present, the pot is netted
+     * exactly as the hand controller settles it, by the same functions: `calculateRake(pot, flop, config,
+     * players)` (cent rounding, heads-up 5% ceiling, player-count cap tier), the Diamond schedule (`priceDiamondCashFees`) on a Diamond table, then the jackpot drop clipped to what
+     * the rake leaves. A preflop fold-out pays nothing; every other line is netted of both.
+     */
+    platform?: {
+      config: {
+        percent: number;
+        cap: number;
+        noFlopNoDrop: boolean;
+        playerCountCaps?: { players: number; cap: number }[];
+      };
+      players: number;
+      bbjFee: number;
+      diamond?: { schedule: string; variant: string; doubleBoard: boolean };
+    };
   } | null;
   seed: string;
   /** the hand's public postflop actions in order (lane RANGEADV's tracker; absent: current-street rules) */
@@ -251,6 +270,38 @@ export const OMAHA_MATH_CORE_WORK_BUDGET = 12000;
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
 /**
+ * The chips the platform deducts from a pot of `pot` (rake plus jackpot drop), by the hand controller's own
+ * rules (HandController.priceDeductions; the Diamond schedule through priceDiamondCashFees, as HorseCallDeductions).
+ * `noFlop`: the hand ends before a flop (no flop, no drop). Exported for the law test against the platform.
+ */
+export function platformDeduction(
+  p: NonNullable<NonNullable<CoreState['rake']>['platform']>,
+  pot: number,
+  noFlop: boolean
+): number {
+  if (!(pot > 0)) return 0;
+  if (noFlop && p.config.noFlopNoDrop) return 0;
+  if (p.diamond) {
+    const f = priceDiamondCashFees(p.diamond.schedule, {
+      pot,
+      dealtIn: p.players,
+      sawFlop: !noFlop,
+      variant: p.diamond.variant,
+      doubleBoard: p.diamond.doubleBoard,
+    });
+    return Math.min(pot, f.rake + f.bbjFee);
+  }
+  const rake = calculateRake(pot, !noFlop, p.config, p.players);
+  const bbj = noFlop ? 0 : Math.max(0, p.bbjFee);
+  if (rake + bbj > pot) {
+    const overage = Math.round((rake + bbj - pot) * 100) / 100;
+    if (overage > bbj) return Math.max(0, Math.min(rake, pot));
+    return rake + Math.round((bbj - overage) * 100) / 100;
+  }
+  return rake + bbj;
+}
+
+/**
  * The pot the winner takes. `foldOut` marks a pot won because every opponent folded to the hero's
  * wager: preflop that hand sees no flop and pays nothing (no flop, no drop). Every other preflop line
  * the core prices reaches a flop, and with `rake.whole` it is netted of the capped rake and the
@@ -258,6 +309,8 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
  */
 function rakeNet(state: CoreState, final: number, foldOut = false): number {
   const rake = state.rake;
+  if (rake?.platform)
+    return final - platformDeduction(rake.platform, final, state.street === 'preflop' && foldOut);
   if (!rake || !(rake.percent > 0)) return final;
   if (state.street === 'preflop' && rake.noFlopNoDrop && (rake.whole !== true || foldOut))
     return final;

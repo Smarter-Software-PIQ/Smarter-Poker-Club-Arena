@@ -438,28 +438,55 @@ export function omahaMathCoreState(
   const dealt = gs.dealtSeatIds?.length ?? seated.length;
   const rc = gs.rakeConfig;
   const tableCap = rc && Number.isFinite(rc.cap) ? rc.cap : Infinity;
-  // omahaMathCoreNetsTheWholeDeduction: the cap of the dealt-player tier (the controller's own ladder) and the
-  // fixed jackpot drop, both public table rules
-  const tier =
-    wholeDeduction && rc?.playerCountCaps?.length
-      ? [...rc.playerCountCaps]
-          .sort((a, b) => b.players - a.players)
-          .find((t) => dealt >= t.players)
-      : undefined;
+  // lane CORE-POOLED-4 (CORE-AUDIT note 9): the core nets every pot exactly as the platform deducts it, by
+  // default (the cap of the dealt-player tier, the heads-up ceiling, cent rounding, the jackpot drop clipped to the
+  // pot, a Diamond table: rake.platform, OmahaMathCore.ts platformDeduction). omahaMathCoreNetsTheWholeDeduction
+  // is kept as a name and no longer changes anything (`wholeDeduction` is read by nothing below).
+  void wholeDeduction;
+  const tier = rc?.playerCountCaps?.length
+    ? [...rc.playerCountCaps].sort((a, b) => b.players - a.players).find((t) => dealt >= t.players)
+    : undefined;
   const bbj = gs.bbjConfig;
   const drop =
-    wholeDeduction && bbj?.enabled === true && dealt >= bbj.minPlayersDealt && gs.bigBlind > 0
+    bbj?.enabled === true && dealt >= bbj.minPlayersDealt && gs.bigBlind > 0
       ? Math.round(gs.bigBlind * bbj.feeBB * 100) / 100
       : 0;
-  const rake =
-    rc && Number.isFinite(rc.percent)
-      ? {
-          percent: dealt <= 2 ? Math.min(rc.percent, HEADS_UP_RAKE_PERCENT) : rc.percent,
-          cap: tier && Number.isFinite(tier.cap) ? Math.max(0, tier.cap) : tableCap,
-          noFlopNoDrop: rc.noFlopNoDrop !== false,
-          ...(wholeDeduction ? { whole: true, drop: Number.isFinite(drop) ? drop : 0 } : {}),
-        }
-      : null;
+  const pct = rc && Number.isFinite(rc.percent) ? rc.percent : 0;
+  const rake = rc
+    ? {
+        percent: dealt <= 2 ? Math.min(pct, HEADS_UP_RAKE_PERCENT) : pct,
+        cap: tier && Number.isFinite(tier.cap) ? Math.max(0, tier.cap) : tableCap,
+        noFlopNoDrop: rc.noFlopNoDrop !== false,
+        whole: true,
+        drop: Number.isFinite(drop) ? drop : 0,
+        platform: {
+          config: {
+            percent: pct,
+            cap: Number.isFinite(rc.cap) ? rc.cap : Infinity,
+            noFlopNoDrop: rc.noFlopNoDrop !== false,
+            ...(rc.playerCountCaps?.length
+              ? {
+                  playerCountCaps: rc.playerCountCaps.map((t) => ({
+                    players: t.players,
+                    cap: t.cap,
+                  })),
+                }
+              : {}),
+          },
+          players: dealt,
+          bbjFee: Number.isFinite(drop) ? drop : 0,
+          ...(rc.diamondCashFees && gs.asset === 'diamonds'
+            ? {
+                diamond: {
+                  schedule: rc.diamondCashFees.schedule,
+                  variant: rc.diamondCashFees.variant,
+                  doubleBoard: rc.diamondCashFees.doubleBoard,
+                },
+              }
+            : {}),
+        },
+      }
+    : null;
   const hole = (player.cards ?? []).map(cardToInt);
   const board = (gs.communityCards ?? []).map(cardToInt);
   // the hand's public line for lanes RANGEADV (postflop) and PREFLOP-EV (preflop bands)
