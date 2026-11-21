@@ -11,10 +11,19 @@ import { titleCase } from '../../utils/titleCase';
  * sort, page or search, so a seated player beyond the loaded page is never
  * out of sight. One chip per player (their newest seat), tap to watch.
  * Fed by src/lib/clubLiveSeats.ts, one read per club per minute.
+ *
+ * AN AGENT SEES ONLY THEIR OWN DOWNLINE (Dan, 2026-11-21): for a super
+ * agent, agent or sub agent the strip lists only players in that agent's own
+ * downline, never every active member of the club. The rule lives in the
+ * server reader `ca_club_live_seats` (migration *_live_now_lists_an_agent_
+ * only_their_own_downline.sql), so the strip cannot be widened from here;
+ * `scope="downline"` only labels it so the agent can see what it covers.
  */
 export interface LiveNowStripProps {
   seats: readonly LiveSeat[];
   onWatch: (table: LiveSeat, member: { userId: string; name: string }) => void;
+  /** 'downline' when the viewer is an agent: the server lists only their own downline. */
+  scope?: 'club' | 'downline';
 }
 
 function firstSeatPerPlayer(seats: readonly LiveSeat[]): LiveSeat[] {
@@ -29,13 +38,23 @@ function firstSeatPerPlayer(seats: readonly LiveSeat[]): LiveSeat[] {
   return out;
 }
 
-const LiveNowStrip = memo(function LiveNowStrip({ seats, onWatch }: LiveNowStripProps) {
+const LiveNowStrip = memo(function LiveNowStrip({
+  seats,
+  onWatch,
+  scope = 'club',
+}: LiveNowStripProps) {
   const players = firstSeatPerPlayer(seats);
   if (players.length === 0) return null;
+  const downline = scope === 'downline';
   return (
-    <section className="members-live-now" aria-label="Live Now">
+    <section
+      className="members-live-now"
+      aria-label={downline ? 'Live Now, My Downline' : 'Live Now'}
+      data-scope={scope}
+    >
       <h2 className="members-live-now__title">
         Live Now
+        {downline && <span className="members-live-now__scope">My Downline</span>}
         <span className="members-live-now__count">{players.length.toLocaleString()}</span>
       </h2>
       <div className="members-live-now__chips" role="list">
