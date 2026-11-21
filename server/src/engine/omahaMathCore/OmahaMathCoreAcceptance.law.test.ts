@@ -889,7 +889,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     let shortHero = 0;
     let callOffs = 0;
     let closingCalls = 0;
+    let closingMultiway = 0;
     let riverChecks = 0;
+    const sane: string[] = [];
     let riverCheckGap = 0;
     const riverEx: string[] = [];
     let closingGap = 0;
@@ -942,14 +944,21 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
         );
         if (
           spec.street !== 'preflop' &&
-          opp.length === 1 &&
           facing > 0.005 &&
           callEv &&
           callEv.equity !== null &&
-          (hero.stack <= facing + 0.005 || opp[0].stack <= 0.005 || spec.street === 'river')
+          (opp.length === 1
+            ? hero.stack <= facing + 0.005 || opp[0].stack <= 0.005 || spec.street === 'river'
+            : // multiway: the hero's whole stack goes in and everyone else has already matched the wager
+              hero.stack <= facing + 0.005 &&
+              opp.every((p) => p.bet >= gs.currentBet - 0.005 || p.stack <= 0.005))
         ) {
           const A = Math.min(facing, hero.stack);
-          const uncovered = Math.max(0, gs.currentBet - hero.bet - hero.stack);
+          const uncovered = opp.reduce(
+            (x, p) => x + Math.max(0, p.bet - (hero.bet + hero.stack)),
+            0
+          );
+          if (opp.length > 1) closingMultiway++;
           const raw = (callEv as { calibration?: { raw: number } }).calibration?.raw ?? callEv.ev;
           const exact = callEv.equity * (gs.pot + A - uncovered) - A;
           closingCalls++;
@@ -958,6 +967,37 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
             arith.push(
               `${tag} raw ${raw} exact ${r2(exact)} eq ${callEv.equity} pot ${gs.pot} A ${A} unc ${uncovered}`
             );
+        }
+      }
+      // every priced candidate is a sane number: finite, probabilities inside [0, 1], the chips it adds are the
+      // chips the action puts in, and its value sits between losing the whole stack and winning every chip the
+      // hero's stack can contest
+      {
+        const others = gs.players.filter((p) => p.seat !== hero.seat);
+        const winnable = gs.pot + others.reduce((a, p) => a + Math.min(p.stack, hero.stack), 0);
+        for (const e of rec.core!.evs) {
+          const raw = (e as { calibration?: { raw: number } }).calibration?.raw ?? e.ev;
+          const w = `${tag} ${e.action} ${e.amount ?? ''}`;
+          if (![e.ev, raw, e.adds, e.foldProb].every(Number.isFinite))
+            sane.push(`${w}: not finite`);
+          if (e.equity !== null && !(e.equity >= 0 && e.equity <= 1))
+            sane.push(`${w}: equity ${e.equity}`);
+          if (!(e.foldProb >= 0 && e.foldProb <= 1)) sane.push(`${w}: foldProb ${e.foldProb}`);
+          if (e.se !== null && !(e.se >= 0)) sane.push(`${w}: se ${e.se}`);
+          const adds =
+            e.action === 'fold' || e.action === 'check'
+              ? 0
+              : e.action === 'call'
+                ? Math.min(facing, hero.stack)
+                : e.action === 'all_in'
+                  ? hero.stack
+                  : (e.amount ?? 0) - hero.bet;
+          if (Math.abs(e.adds - adds) > 0.011) sane.push(`${w}: adds ${e.adds} != ${r2(adds)}`);
+          if (e.action === 'fold' && raw !== 0) sane.push(`${w}: fold priced ${raw}`);
+          if (raw < -hero.stack - 0.011) sane.push(`${w}: ev ${raw} below -stack ${hero.stack}`);
+          if (raw > winnable + 0.011) sane.push(`${w}: ev ${raw} above winnable ${r2(winnable)}`);
+          if (e.action === 'call' && raw < -adds - 0.011)
+            sane.push(`${w}: call ev ${raw} below -adds`);
         }
       }
       // a river check that closes the action (the hero is last, everyone checked) is equity x the pot
@@ -1084,10 +1124,13 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       `CORE-POOLED-6 property: changes=${changes} unpricedIncumbent=${JSON.stringify(unpriced)}\n${unpricedEx.join('\n')}`
     );
     console.info(
-      `CORE-POOLED-6 property: closingCalls=${closingCalls} worst |raw-exact|/pot=${closingGap.toFixed(4)} over=${arith.length}\n${arith.slice(0, 8).join('\n')}`
+      `CORE-POOLED-6 property: closingCalls=${closingCalls} (multiway ${closingMultiway}) worst |raw-exact|/pot=${closingGap.toFixed(4)} over=${arith.length}\n${arith.slice(0, 8).join('\n')}`
     );
     console.info(
       `CORE-POOLED-6 property: riverChecks=${riverChecks} worst gap/pot=${riverCheckGap.toFixed(4)}\n${riverEx.join('\n')}`
+    );
+    console.info(
+      `CORE-POOLED-6 property: sane violations=${sane.length}\n${sane.slice(0, 12).join('\n')}`
     );
     if (bad.length)
       console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
@@ -1102,6 +1145,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(arith).toEqual([]);
     expect(closingCalls).toBeGreaterThan(20);
     // a river check that closes the action is priced at equity x the pot
+    expect(sane).toEqual([]);
     expect(riverEx).toEqual([]);
     expect(riverChecks).toBeGreaterThan(10);
     // every change the core made had today's action priced among its candidates (prove it to change it)
