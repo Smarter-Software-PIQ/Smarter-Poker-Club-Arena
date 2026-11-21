@@ -119,9 +119,6 @@ export interface LightningHorseDecision {
   thinkTime: number;
   /** The lane failed and this is the liveness answer, not a decision. */
   workerFallback: boolean;
-  /** Why the lane failed (horseDecisionFallbackReason, or `snapshot_unavailable` when this turn's decision
-   *  snapshot could not be built). Present only on a worker-failure answer. */
-  fallbackReason?: string;
   /** The lane's result, for committing plan effects once the wager lands. */
   fast: FastHorseDecisionResult | null;
   /** omahaValueSizeIsUnreadable (default off): the band stamp of the worker's decision, carried to the
@@ -337,7 +334,6 @@ export async function decideLightningHorse(
         ...(recovered.amount !== undefined ? { amount: recovered.amount } : {}),
         thinkTime: 0,
         workerFallback: true,
-        fallbackReason,
         fast: null,
         omahaMathCore: recovered.omahaMathCore,
       });
@@ -354,7 +350,6 @@ export async function decideLightningHorse(
       ...(pricedCall !== null ? { amount: pricedCall } : {}),
       thinkTime: 0,
       workerFallback: true,
-      fallbackReason,
       fast: null,
     });
   }
