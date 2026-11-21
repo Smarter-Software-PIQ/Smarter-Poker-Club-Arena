@@ -77,7 +77,70 @@ function straightHigh(mask: number): number {
 
 const counts = new Int8Array(13);
 
+/**
+ * Table-driven eval5 (lane CORE-POOLED-2 latency step 2, Nov 21): five distinct ranks are scored from two 8,192-entry
+ * tables built once from eval5Reference (flush / no flush, by rank mask); a paired hand is scored by its rank
+ * multiset (product of rank primes) from a memo filled by eval5Reference. Same score as eval5Reference for every
+ * one of the 2,598,960 five-card hands (exhaustive law test OmahaMathCoreEvalTable.law.test.ts).
+ */
+const RANK_PRIME = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41];
+const POP5 = new Uint8Array(8192);
+const UNIQUE5 = new Int32Array(8192);
+const FLUSH5 = new Int32Array(8192);
+const PAIRED = new Map<number, number>();
+for (let m = 0; m < 8192; m++) {
+  let p = 0;
+  for (let x = m; x; x &= x - 1) p++;
+  POP5[m] = p;
+}
+{
+  // the reference scorer on representative cards: no flush = mixed suits, flush = one suit
+  const ranks: number[] = [];
+  for (let m = 0; m < 8192; m++) {
+    if (POP5[m] !== 5) continue;
+    ranks.length = 0;
+    for (let r = 0; r < 13; r++) if (m & (1 << r)) ranks.push(r);
+    UNIQUE5[m] = eval5Reference(
+      ranks[0] * 4,
+      ranks[1] * 4 + 1,
+      ranks[2] * 4 + 2,
+      ranks[3] * 4 + 3,
+      ranks[4] * 4
+    );
+    FLUSH5[m] = eval5Reference(
+      ranks[0] * 4,
+      ranks[1] * 4,
+      ranks[2] * 4,
+      ranks[3] * 4,
+      ranks[4] * 4
+    );
+  }
+}
+
 export function eval5(a: number, b: number, c: number, d: number, e: number): number {
+  const ra = a >> 2,
+    rb = b >> 2,
+    rc = c >> 2,
+    rd = d >> 2,
+    re = e >> 2;
+  const mask = (1 << ra) | (1 << rb) | (1 << rc) | (1 << rd) | (1 << re);
+  if (POP5[mask] === 5) {
+    const flush =
+      (a & 3) === (b & 3) && (a & 3) === (c & 3) && (a & 3) === (d & 3) && (a & 3) === (e & 3);
+    return flush ? FLUSH5[mask] : UNIQUE5[mask];
+  }
+  // a paired hand can never be a flush: the score depends on the rank multiset only
+  const key = RANK_PRIME[ra] * RANK_PRIME[rb] * RANK_PRIME[rc] * RANK_PRIME[rd] * RANK_PRIME[re];
+  let v = PAIRED.get(key);
+  if (v === undefined) {
+    v = eval5Reference(a, b, c, d, e);
+    PAIRED.set(key, v);
+  }
+  return v;
+}
+
+/** The original rank-by-rank scorer: the reference the tables are built from and tested against. */
+export function eval5Reference(a: number, b: number, c: number, d: number, e: number): number {
   const ra = a >> 2,
     rb = b >> 2,
     rc = c >> 2,
