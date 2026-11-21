@@ -145,23 +145,28 @@ for line in open(REPLAY):
     v_in = float(live[0][2]) / bb if hu else 0.0; v_stack = float(live[0][1]) / bb if hu else 0.0
     v_allin = hu and (live[0][6] & 2) != 0
     vweak = hu and weak(opps[0], board, omaha)
+    reach = heroIn + heroStack  # the most hero can have in on this street
+    def unmatched(to):
+        # ADDENDUM 1 fix: chips an opponent already has in on this street beyond what hero matches go back to him
+        return sum(max(0.0, float(s[2]) / bb - to) for s in live)
     def value(x):
         kind = x.get('action'); amt = x.get('amount')
         if kind == 'fold': return 0.0
         if kind == 'check': return pot * eq
-        if kind == 'call' or (kind == 'all_in' and heroIn + heroStack <= cur + 1e-9):
-            c = min(cur - heroIn, heroStack); return eq * (pot + c) - c
-        to = heroIn + heroStack if kind == 'all_in' else float(amt or 0) * (1 if amt is None else 1)
+        if kind == 'call' or (kind == 'all_in' and reach <= cur + 1e-9):
+            c = max(0.0, min(cur - heroIn, heroStack)); return eq * (pot - unmatched(heroIn + c) + c) - c
         # the harness records a raise size in bb (street total)
+        to = reach if kind == 'all_in' else min(float(amt or 0), reach)
         add = max(0.0, min(to - heroIn, heroStack))
+        pot_m = pot - unmatched(heroIn + add)
         if street == 'preflop' and not (hu and (v_allin or v_stack <= 1e-9)) and not all((s[6] & 2) for s in live):
             raise ValueError('preflop wager vs a live non-all-in opponent')
         if hu:
             his = max(0.0, min(heroIn + add - v_in, v_stack)); matched = max(0.0, min(add, v_in + his - heroIn))
             p = pfold(fam, mode, street, 'raise' if v_in > 0 else 'bet', kinds[0], his / max(1e-9, pot + add - his)) if (vweak and his > 0) else 0.0
-            return p * pot + (1 - p) * (eq * (pot + matched + his) - matched)
+            return p * pot + (1 - p) * (eq * (pot_m + matched + his) - matched)
         tot_his = sum(max(0.0, min(heroIn + add - float(s[2]) / bb, float(s[1]) / bb)) for s in live)
-        return eq * (pot + add + tot_his) - add
+        return eq * (pot_m + add + tot_his) - add
     try:
         d = value(on) - value(off)
     except ValueError as e:
