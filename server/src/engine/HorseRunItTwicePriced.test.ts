@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -8,6 +8,7 @@ import {
 } from './HorseRunItTwice.js';
 import {
   horseRunItTwiceAnswer,
+  horseRunItTwicePricedReceipt,
   horseRunItTwiceRunsPriced,
   readRunItTwiceCurve,
   runItTwiceVarianceShare,
@@ -20,12 +21,21 @@ import {
   compileRunItTwicePeopleCurve,
   renderRunItTwicePeopleCurveFile,
 } from './compileRunItTwicePeopleCurve.js';
+import * as HorseRunItTwiceSwitch from './HorseRunItTwiceSwitch.js';
 import {
   horseRunItTwiceIsPricedOn,
   receiveHorseRunItTwiceSwitchMessage,
   resetHorseRunItTwiceSwitchForTest,
 } from './HorseRunItTwiceSwitch.js';
 import { OPTION_SWITCH_PLAIN_NAMES } from './HorseOptionSwitch.js';
+import { STYLE_SWITCH_STALE_MS } from './HorseStyleSwitch.js';
+import {
+  disarmBrainTelemetryForTest,
+  drainFires,
+  enableBrainTelemetry,
+} from './BrainTelemetry.js';
+import { ServerTableEngine } from './ServerTableEngine.js';
+import { LiveHorseDecisionWorkerPool } from './horseDecision/lane.js';
 
 const horses = Array.from(
   { length: 40 },
@@ -52,16 +62,70 @@ const pots = [0, 10, 39.9, 40, 100, 200, 800];
 const roles: RunItTwiceRole[] = ['chooser', 'responder'];
 
 describe('horseRunItTwiceIsPriced (default OFF)', () => {
-  afterEach(() => resetHorseRunItTwiceSwitchForTest());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    disarmBrainTelemetryForTest();
+    drainFires();
+    resetHorseRunItTwiceSwitchForTest();
+  });
 
-  it('main thread reads OFF with nothing delivered, and OFF while the option is not registered (list-once pending)', () => {
+  it('main thread reads OFF with nothing delivered, re-reads immediately on delivery, and fails safe on unregistered, unreadable, malformed or stale messages', () => {
     let now = 1_000_000;
-    resetHorseRunItTwiceSwitchForTest(() => now);
+    let wall = 1_760_000_000_000;
+    resetHorseRunItTwiceSwitchForTest(
+      () => now,
+      () => wall
+    );
     expect(horseRunItTwiceIsPricedOn(now)).toBe(false);
-    const message = {
+    const validOn = {
       type: 'STYLE_SWITCH_STATE',
       seq: 1,
       status: 'ok',
+      readAtEpochMs: wall,
+      config: {
+        version: 2,
+        style: { version: 1, options: {} },
+        options: { horseRunItTwiceIsPriced: 'on' },
+      },
+    };
+    receiveHorseRunItTwiceSwitchMessage(validOn);
+    // Zero poll lag: 1 ms later the holder parses the delivered message rather than waiting 60s.
+    now += 1;
+    expect(OPTION_SWITCH_PLAIN_NAMES.includes('horseRunItTwiceIsPriced')).toBe(false);
+    expect(horseRunItTwiceIsPricedOn(now)).toBe(false);
+    // Unreadable delivery fails safe to OFF without throwing.
+    receiveHorseRunItTwiceSwitchMessage({
+      type: 'STYLE_SWITCH_STATE',
+      seq: 2,
+      status: 'unreadable',
+      readAtEpochMs: wall + 1,
+      config: null,
+    });
+    expect(horseRunItTwiceIsPricedOn(now + 1)).toBe(false);
+    // Stale wall-clock reading (aged past STYLE_SWITCH_STALE_MS) fails safe to OFF.
+    receiveHorseRunItTwiceSwitchMessage({
+      ...validOn,
+      seq: 3,
+      readAtEpochMs: wall - STYLE_SWITCH_STALE_MS - 1_000,
+    });
+    expect(horseRunItTwiceIsPricedOn(now + 2)).toBe(false);
+    // Malformed payloads never throw and leave the switch OFF.
+    receiveHorseRunItTwiceSwitchMessage({ junk: true });
+    receiveHorseRunItTwiceSwitchMessage(null);
+    expect(horseRunItTwiceIsPricedOn(now + STYLE_SWITCH_STALE_MS + 10_000)).toBe(false);
+  });
+
+  it('lane.broadcastStyleSwitch delivers STYLE_SWITCH_STATE to the main-thread RIT switch holder', () => {
+    const postStyleSwitch = vi.fn();
+    const receiveSpy = vi.spyOn(HorseRunItTwiceSwitch, 'receiveHorseRunItTwiceSwitchMessage');
+    const poolStandIn = {
+      lastStyleSwitch: null,
+      clients: [{ postStyleSwitch }],
+    };
+    const msg = {
+      type: 'STYLE_SWITCH_STATE' as const,
+      seq: 7,
+      status: 'ok' as const,
       readAtEpochMs: Date.now(),
       config: {
         version: 2,
@@ -69,13 +133,143 @@ describe('horseRunItTwiceIsPriced (default OFF)', () => {
         options: { horseRunItTwiceIsPriced: 'on' },
       },
     };
-    receiveHorseRunItTwiceSwitchMessage(message);
-    now += 1;
-    expect(OPTION_SWITCH_PLAIN_NAMES.includes('horseRunItTwiceIsPriced')).toBe(false);
-    expect(horseRunItTwiceIsPricedOn(now)).toBe(false);
-    receiveHorseRunItTwiceSwitchMessage({ junk: true });
-    receiveHorseRunItTwiceSwitchMessage(null);
-    expect(horseRunItTwiceIsPricedOn(now + 200_000)).toBe(false);
+    LiveHorseDecisionWorkerPool.prototype.broadcastStyleSwitch.call(poolStandIn as never, msg);
+    expect(receiveSpy).toHaveBeenCalledTimes(1);
+    expect(receiveSpy).toHaveBeenCalledWith(msg);
+    expect(postStyleSwitch).toHaveBeenCalledWith(msg);
+    expect(horseRunItTwiceIsPricedOn()).toBe(false);
+  });
+
+  it('ServerTableEngineRunout.horseRitRuns and horseRitVerdict: default OFF is byte-identical to horseRunItTwiceRuns with zero priced receipts', () => {
+    enableBrainTelemetry();
+    drainFires();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proto = ServerTableEngine.prototype as any;
+    const makeEngine = (
+      handCount: number,
+      equityMap: Record<string, number>,
+      potBB: number,
+      maxRuns: 1 | 2 | 3
+    ) => ({
+      handCount,
+      horseRitOfferEquity: new Map([[handCount, { equity: equityMap, potBB, maxRuns }]]),
+      horseRitRuns: proto.horseRitRuns,
+      horseRitVerdict: proto.horseRitVerdict,
+    });
+
+    for (const horseId of horses.slice(0, 10)) {
+      for (const handNumber of [1, 2, 3, 7, 11]) {
+        for (const equity of [0.1, 0.5, 0.9] as const) {
+          for (const maxRuns of [1, 2, 3] as const) {
+            const eng = makeEngine(
+              handNumber,
+              { [horseId]: equity, opponent: 1 - equity },
+              120,
+              maxRuns
+            );
+            const expected = horseRunItTwiceRuns({
+              horseId,
+              handNumber,
+              potBB: 120,
+              equity,
+              maxRuns,
+            });
+            expect(eng.horseRitRuns(horseId, 'chooser')).toBe(expected);
+            expect(eng.horseRitRuns(horseId, 'responder')).toBe(expected);
+            expect(eng.horseRitVerdict(horseId)).toBe(expected === 1 ? 'once' : 'multi');
+          }
+        }
+      }
+    }
+    const pricedFires = drainFires().filter((f) => f.feature.startsWith('horse_rit_priced_'));
+    expect(pricedFires).toEqual([]);
+  });
+
+  it('ServerTableEngineRunout.horseRitRuns and horseRitVerdict: when ON, passes role and playersAllIn, returns horseRunItTwiceAnswer, and emits all five receipts', () => {
+    enableBrainTelemetry();
+    drainFires();
+    vi.spyOn(HorseRunItTwiceSwitch, 'horseRunItTwiceIsPricedOn').mockReturnValue(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proto = ServerTableEngine.prototype as any;
+    const callRuns = (
+      horseId: string,
+      handCount: number,
+      equityMap: Record<string, number> | null,
+      potBB: number,
+      maxRuns: 1 | 2 | 3,
+      role: RunItTwiceRole
+    ) => {
+      const eng = {
+        handCount,
+        horseRitOfferEquity: equityMap
+          ? new Map([[handCount, { equity: equityMap, potBB, maxRuns }]])
+          : new Map(),
+        horseRitRuns: proto.horseRitRuns,
+        horseRitVerdict: proto.horseRitVerdict,
+      };
+      return {
+        runs: eng.horseRitRuns(horseId, role) as 1 | 2 | 3,
+        verdict: eng.horseRitVerdict(horseId) as 'once' | 'multi',
+      };
+    };
+
+    // Unknown equity -> 1 run + horse_rit_priced_equity_unknown
+    const unknown = callRuns(horses[0], 1, null, 120, 3, 'chooser');
+    expect(unknown.runs).toBe(1);
+    expect(unknown.verdict).toBe('once');
+
+    // Lopsided equity -> 1 run + horse_rit_priced_owner_cut (owner order 2026-11-13)
+    const lopsided = callRuns(
+      horses[0],
+      2,
+      { [horses[0]]: 0.05, opponent: 0.95 },
+      200,
+      3,
+      'chooser'
+    );
+    expect(lopsided.runs).toBe(1);
+    expect(lopsided.verdict).toBe('once');
+
+    // 3-way all-in inside the band: verify parity with horseRunItTwiceAnswer across roles and collect
+    // measured_once, measured_multi, measured_three receipts.
+    const seenReasons = new Set<string>();
+    for (const horseId of horses.slice(0, 20)) {
+      for (let handNumber = 1; handNumber <= 20; handNumber++) {
+        const eqMap = { [horseId]: 0.34, opp1: 0.33, opp2: 0.33 };
+        for (const role of roles) {
+          const expected = horseRunItTwiceAnswer(
+            {
+              horseId,
+              handNumber,
+              potBB: 180,
+              equity: 0.34,
+              maxRuns: 3,
+              role,
+              playersAllIn: 3,
+            },
+            true
+          );
+          const actual = callRuns(horseId, handNumber, eqMap, 180, 3, role);
+          expect(actual.runs).toBe(expected.runs);
+          if (role === 'responder') {
+            expect(actual.runs).not.toBe(3);
+            expect(actual.verdict).toBe(expected.runs === 1 ? 'once' : 'multi');
+          }
+          if (expected.priced) seenReasons.add(horseRunItTwicePricedReceipt(expected.priced));
+        }
+      }
+    }
+    const firedFeatures = new Set(drainFires().map((f) => f.feature));
+    for (const receipt of [
+      'horse_rit_priced_equity_unknown',
+      'horse_rit_priced_owner_cut',
+      'horse_rit_priced_once',
+      'horse_rit_priced_multi',
+      'horse_rit_priced_three',
+    ]) {
+      expect(firedFeatures.has(receipt), receipt).toBe(true);
+    }
+    expect(seenReasons.has('horse_rit_priced_three')).toBe(true);
   });
 
   it('off: answers exactly as horseRunItTwiceRuns on every input of the grid', () => {
