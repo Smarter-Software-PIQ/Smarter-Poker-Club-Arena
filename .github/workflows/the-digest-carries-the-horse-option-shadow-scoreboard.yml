@@ -1,0 +1,35 @@
+name: The digest carries the Horse option shadow scoreboard
+
+# fn_sp_digest_horse_option_shadow() and its 'horse_option_shadow' key in
+# fn_sp_daily_digest (migration *_horse_option_shadow_scoreboard_in_the_daily_digest).
+# Runs scripts/ci/test-horse-option-shadow-scoreboard-postgres.py against a
+# throwaway PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/*_horse_option_shadow_scoreboard_in_the_daily_digest.sql'
+      - scripts/ci/test-horse-option-shadow-scoreboard-postgres.py
+      - .github/workflows/the-digest-carries-the-horse-option-shadow-scoreboard.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: the-digest-carries-the-horse-option-shadow-scoreboard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  the-digest-carries-the-horse-option-shadow-scoreboard:
+    name: The daily digest reports each shadow option's re-decisions, changes and skips
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The daily digest reports each shadow option's re-decisions, changes and skips
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-horse-option-shadow-scoreboard-postgres.py
