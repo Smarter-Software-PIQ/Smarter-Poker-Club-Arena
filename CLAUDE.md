@@ -1525,6 +1525,29 @@ branch and PR. Do not start a second fix. Coordinate through the owner's PR or
 handoff text itself shows a live claim, so a reminder tells every reader who
 already has it. A claim expires on its own; nothing watches it.
 
+**A claim cannot hold an incident hostage (2026-11-20).** Incident `1e532243`
+stayed "claimed" for hours after its fix (PR #11520) merged and the incident
+recurred, because its owner kept renewing with the same branch and PR. Two
+rules now live in the claim itself
+(`20261121000852_a_shipped_or_stale_incident_claim_stops_blocking.sql`):
+
+- A claim blocks for at most **8 hours after its last progress**: when it was
+  taken, or when its holder last renewed with a CHANGED branch or PR. Renewing
+  unchanged never extends past that; pass your new branch or PR when you renew
+  (`reason: renewed_with_progress`). Past it the handoff says the claim no
+  longer blocks and any lane may claim.
+- When **the claimed fix shipped and the incident recurred** - the claim's PR
+  has merged and the incident fired again (recurrence or refire) after the
+  merge - the claim stops blocking. A refused lane's claim call reads the merge
+  from GitHub itself (`merge_checked`); if GitHub cannot be read the claim
+  stands. So when a handoff names a PR you can see has merged and the incident
+  fired after it, call the claim anyway. Check whether that fix is live yet
+  before starting a follow-up. The holder keeps the incident by renewing with
+  the follow-up branch.
+
+A takeover is recorded as a `claim_superseded` event on the incident with the
+previous claim; nothing is silently deleted.
+
 **2. One checkout at a time.** Make worktrees with `scripts/agent-workspace.sh`,
 which now holds a machine-wide lock around the checkout. Never run your own
 parallel `git worktree add` or `git reset --hard` of the whole tree on the
