@@ -11,14 +11,15 @@ the same boundary were released together: runs 44865152030, 44865153281,
 whose own chain guard then refused it. The instance was closed by #11575
 (marked superseded); the race itself was still open.
 
-Root fix: `scripts/ci/merged-migration-order.mjs`. Before an ordinary install
-sends anything, `apply-recorded-migration.mjs` reads the merged files the
-install watch knows are still waiting with a lower version (merged in the last
-day, not installed, retired, superseded or window) and waits for them, bounded
-at 150 s, polling every 5 s. Files released by the same boundary install in
-version order. When the budget ends with an older file still waiting, the
-install proceeds as before, so a refused older file never holds a later fix
-hostage; an unreadable watch is named (COULD NOT TELL) and does not stop the
-install.
+Root fix: `scripts/ci/await-older-merged-applies.mjs`, run by every
+dispatcher (`.github/scripts/dispatch-merged-migrations.sh`) after its own
+bounded wait and before its first send. It reads the applier's own queued and
+running runs (`actions: read` on the dispatcher's job token) for a minimum
+25 s observation period, so a sibling dispatcher woken in the same second has
+time to send, and keeps waiting while any run for an OLDER version is queued
+or installing. Bounded at 300 s: a stuck older run never holds a later fix
+hostage, and an unreadable list is named COULD NOT TELL and the send goes on.
+The applier itself (`apply-recorded-migration.mjs`, bound by qualification
+evidence) is unchanged.
 
 Pinned by `tests/an-older-merged-migration-installs-first.law.test.ts`.

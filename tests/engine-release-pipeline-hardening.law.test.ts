@@ -7,14 +7,14 @@ import {
   chmodSync,
   existsSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import {
   buildReleaseFailureAlert,
-  buildReleaseResolutions,
+  shippedSibling,
 } from '../scripts/ci/record-engine-release-alert.mjs';
 
 /**
@@ -91,7 +91,7 @@ assert_candidate_container_alive
     expect(DEPLOY_WF).toContain('name: Raise durable alert on failed release');
     expect(DEPLOY_WF).toContain('node scripts/ci/record-engine-release-alert.mjs');
     expect(DEPLOY_WF).toContain(
-      "if: always() && needs.deploy.outputs.release_result != 'superseded'"
+      "if: always() && needs.deploy.outputs.shipped != 'true' && needs.deploy.outputs.release_result != 'superseded'"
     );
 
     expect(
@@ -120,40 +120,48 @@ assert_candidate_container_alive
     expect(failed!.annotations.description).toContain('candidate container exited');
   });
 
-  it('incident 484c4cee: a shipped SHA resolves every failure still firing for that exact SHA, and only that SHA', () => {
+  it('incident 484c4cee: a failed redelivery of a SHA another run already shipped raises nothing', () => {
     const sha = 'e2140d2d1581daaf84857d98e671f2be832162c6';
-    const firing = [
-      {
-        fingerprint: 'engine-release-failed:44841264851-1',
-        labels: { alertname: 'EngineReleaseFailed', target_sha: sha, severity: 'critical' },
-        starts_at: '2026-11-21T00:19:02.153Z',
-      },
-      {
-        fingerprint: 'engine-release-failed:1-1',
-        labels: { alertname: 'EngineReleaseFailed', target_sha: 'f'.repeat(40) },
-      },
-      {
-        fingerprint: 'ClubArenaEngineKillStorm:x',
-        labels: { alertname: 'ClubArenaEngineKillStorm', target_sha: sha },
-      },
+    const alert = buildReleaseFailureAlert({
+      SHIPPED: 'false',
+      RELEASE_RESULT: 'not completed',
+      TARGET_SHA: sha,
+      RUN_ID: '44841264851-1',
+      EXIT_STAGE: 'prepare',
+    });
+    const receipts = [
+      { run_id: '44841245126-1', target_sha: sha, shipped: true },
+      { run_id: '44841264851-1', target_sha: sha, shipped: false },
     ];
-    expect(buildReleaseResolutions({ SHIPPED: 'false', TARGET_SHA: sha }, firing)).toEqual([]);
-    expect(buildReleaseResolutions({ SHIPPED: 'true', TARGET_SHA: 'not-a-sha' }, firing)).toEqual(
-      []
+    expect(shippedSibling(alert, receipts)).toBe('44841245126-1');
+    expect(
+      shippedSibling(alert, [{ run_id: '1-1', target_sha: 'f'.repeat(40), shipped: true }])
+    ).toBeNull();
+    expect(
+      shippedSibling(alert, [{ run_id: '44841264851-1', target_sha: sha, shipped: true }])
+    ).toBeNull();
+    expect(shippedSibling(null, receipts)).toBeNull();
+  });
+
+  it('incident 484c4cee: a shipped receipt resolves every failure still firing for its exact SHA', () => {
+    const sql = readFileSync(
+      resolve(
+        __dirname,
+        '../supabase/migrations/20261121151027_a_shipped_release_resolves_its_own_failures.sql'
+      ),
+      'utf8'
     );
-    const resolved = buildReleaseResolutions(
-      { SHIPPED: 'true', TARGET_SHA: sha, RUN_ID: '5-1' },
-      firing
+    expect(sql).toMatch(
+      /CREATE TRIGGER ca_shipped_release_resolves_its_failures AFTER INSERT ON public\.ca_engine_deploy_attempts\s+FOR EACH ROW WHEN \(NEW\.shipped\)/
     );
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0].status).toBe('resolved');
-    expect(resolved[0].fingerprint).toBe('engine-release-failed:44841264851-1');
-    expect(resolved[0].labels.alertname).toBe('EngineReleaseFailed');
-    expect(resolved[0].annotations.summary).toContain('run 5-1');
-    // The step runs for a shipped run too, so the resolution has a writer.
-    expect(DEPLOY_WF).not.toContain(
-      "needs.deploy.outputs.shipped != 'true' && needs.deploy.outputs.release_result != 'superseded'"
+    expect(sql).toContain(
+      "e.alertname='EngineReleaseFailed' AND e.labels->>'target_sha'=NEW.target_sha"
     );
+    expect(sql).toContain("WHERE a.status='firing'");
+    expect(sql).toContain('PERFORM public.fn_record_engine_alerts(batch);');
+    // An alerting error never refuses the authoritative receipt.
+    expect(sql).toMatch(/EXCEPTION WHEN OTHERS THEN\s+RAISE WARNING/);
+    expect(sql).toContain('@probe-for: public.fn_ca_shipped_release_resolves_its_failures');
   });
 
   it('hardens backup-engine.yml so unrelated pushes never cancel a pending certification', () => {

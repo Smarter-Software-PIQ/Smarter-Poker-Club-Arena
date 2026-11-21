@@ -4,99 +4,107 @@
  * At 04:15 UTC four Apply Merged Migration runs released by the same hold
  * started within two seconds; 20261121024624 installed before
  * 20261121005533, whose switch-list chain guard then refused it, and the
- * install watch paged MergedMigrationNotInstalled. The applier now waits,
- * bounded, for older merged files still waiting, and never lets a refused
- * older file hold a later one hostage.
+ * install watch paged MergedMigrationNotInstalled. Each dispatcher now
+ * watches the applier's runs for a minimum observation period and waits,
+ * bounded, while an older version is still queued or installing; a stuck
+ * older run never holds a later fix hostage.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { parse } from 'yaml';
 import {
-  awaitOlderMergedMigrations,
-  olderWaiting,
-  OLDER_WAITING_SQL,
-  ORDER_WAIT_BUDGET_MS,
-} from '../scripts/ci/merged-migration-order.mjs';
+  awaitOlderMergedApplies,
+  olderInFlight,
+  BUDGET_MS,
+  OBSERVE_MS,
+} from '../scripts/ci/await-older-merged-applies.mjs';
 
-const APPLIER = readFileSync(
-  resolve(__dirname, '../scripts/ci/apply-recorded-migration.mjs'),
-  'utf8'
+const ROOT = resolve(__dirname, '..');
+const SHELL = readFileSync(resolve(ROOT, '.github/scripts/dispatch-merged-migrations.sh'), 'utf8');
+const WF = parse(
+  readFileSync(resolve(ROOT, '.github/workflows/dispatch-merged-migrations.yml'), 'utf8')
 );
 
-function fakeClock() {
+const run = (status: string, file: string) => ({
+  status,
+  display_title: `Apply Merged Migration ${file}`,
+});
+
+function clock() {
   let t = 0;
-  return { now: () => t, sleep: async (ms: number) => void (t += ms) };
+  return { now: () => t, sleep: async (ms: number) => void (t += ms), log: () => {} };
 }
 
 describe('an older merged migration installs first', () => {
-  it('selects only lower, waiting, non-superseded, non-window files from the last day', () => {
-    expect(OLDER_WAITING_SQL).toMatch(/w\.version < \$1/);
-    expect(OLDER_WAITING_SQL).toMatch(/installed_seen_at IS NULL/);
-    expect(OLDER_WAITING_SQL).toMatch(/superseded_by IS NULL/);
-    expect(OLDER_WAITING_SQL).toMatch(/NOT w\.window_install/);
-    expect(OLDER_WAITING_SQL).toMatch(/schema_migrations/);
+  it('names only older versions still queued or installing', () => {
     expect(
-      olderWaiting(
+      olderInFlight(
         [
-          { version: '20261121024624', file: 'b' },
-          { version: '20261121005533', file: 'a' },
-          { version: '20261121032246', file: 'c' },
-          { version: 'bogus', file: 'x' },
+          run('in_progress', '20261121005533_a.sql'),
+          run('queued', '20261121020000_b.sql abc123'),
+          run('completed', '20261121001000_c.sql'),
+          run('in_progress', '20261121032246_d.sql'),
+          { status: 'in_progress', display_title: 'something else' },
         ],
-        '20261121032246'
-      ).map((r) => r.version)
-    ).toEqual(['20261121005533', '20261121024624']);
+        '20261121024624'
+      )
+    ).toEqual(['20261121005533', '20261121020000']);
   });
 
-  it('the 04:15 race: the newer file waits until the older one installs, then proceeds', async () => {
-    const clock = fakeClock();
-    let calls = 0;
-    const client = {
-      query: async () => ({
-        rows: ++calls < 4 ? [{ version: '20261121005533', file: 'a.sql' }] : [],
-      }),
-    };
-    const r = await awaitOlderMergedMigrations(client, '20261121024624', {
-      ...clock,
-      log: () => {},
-    });
-    expect(r.stillWaiting).toEqual([]);
-    expect(r.waitedMs).toBeGreaterThan(0);
-    expect(r.waitedMs).toBeLessThan(ORDER_WAIT_BUDGET_MS);
-  });
-
-  it('a refused older file never holds a later fix hostage: the wait is bounded', async () => {
-    const clock = fakeClock();
-    const client = {
-      query: async () => ({ rows: [{ version: '20261121005533', file: 'a.sql' }] }),
-    };
-    const r = await awaitOlderMergedMigrations(client, '20261121024624', {
-      ...clock,
-      log: () => {},
-    });
-    expect(r.waitedMs).toBe(ORDER_WAIT_BUDGET_MS);
-    expect(r.stillWaiting?.map((w) => w.version)).toEqual(['20261121005533']);
-  });
-
-  it('an unreadable watch is named and does not stop the install', async () => {
-    const lines: string[] = [];
-    const client = {
-      query: async () => {
-        throw new Error('permission denied');
+  it('the 04:15 race: the newer dispatcher waits until the older install finishes', async () => {
+    let polls = 0;
+    const c = clock();
+    const r = await awaitOlderMergedApplies('20261121024624', {
+      ...c,
+      // The older sibling's run appears after 15 s and finishes at 70 s.
+      listRuns: async () => {
+        polls++;
+        const t = c.now();
+        return t >= 15_000 && t < 70_000 ? [run('in_progress', '20261121005533_a.sql')] : [];
       },
-    };
-    const r = await awaitOlderMergedMigrations(client, '20261121024624', {
-      ...fakeClock(),
-      log: (m: string) => lines.push(m),
     });
-    expect(r.stillWaiting).toBeNull();
+    expect(r.older).toEqual([]);
+    expect(r.waitedMs).toBeGreaterThanOrEqual(70_000);
+    expect(r.waitedMs).toBeLessThan(BUDGET_MS);
+    expect(polls).toBeGreaterThan(3);
+  });
+
+  it('observes long enough for a sibling woken in the same second to send', async () => {
+    const r = await awaitOlderMergedApplies('20261121024624', {
+      ...clock(),
+      listRuns: async () => [],
+    });
+    expect(r.waitedMs).toBeGreaterThanOrEqual(OBSERVE_MS);
+  });
+
+  it('a stuck older run never holds a later fix hostage', async () => {
+    const r = await awaitOlderMergedApplies('20261121024624', {
+      ...clock(),
+      listRuns: async () => [run('in_progress', '20261121005533_a.sql')],
+    });
+    expect(r.waitedMs).toBe(BUDGET_MS);
+    expect(r.older).toEqual(['20261121005533']);
+  });
+
+  it('an unreadable run list is COULD NOT TELL and the send goes on', async () => {
+    const lines: string[] = [];
+    const r = await awaitOlderMergedApplies('20261121024624', {
+      ...clock(),
+      log: (m: string) => lines.push(m),
+      listRuns: async () => {
+        throw new Error('GitHub answered 403');
+      },
+    });
+    expect(r.older).toBeNull();
     expect(lines.join('\n')).toContain('COULD NOT TELL');
   });
 
-  it('the applier runs the gate for every ordinary install before it sends anything', () => {
-    const gate = APPLIER.indexOf('await awaitOlderMergedMigrations(client, version)');
+  it('every dispatcher runs the gate before its first send and can read the runs', () => {
+    const gate = SHELL.indexOf('node scripts/ci/await-older-merged-applies.mjs');
     expect(gate).toBeGreaterThan(0);
-    expect(APPLIER.slice(gate - 200, gate)).toContain('ordinaryTransaction && !DRY_RUN');
-    expect(gate).toBeLessThan(APPLIER.indexOf('applying the migration as ONE transaction'));
+    expect(gate).toBeLessThan(SHELL.indexOf('SENT=0'));
+    expect(SHELL.slice(gate, gate + 200)).toContain('|| true');
+    expect(WF.permissions.actions).toBe('read');
   });
 });

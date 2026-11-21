@@ -10,14 +10,14 @@
  * Best-effort: exits 0 with a warning if the alert DB call fails, so it never
  * masks the authoritative receipt verdict.
  *
- * A SHIPPED TARGET RESOLVES ITS OWN FAILURES (incident 484c4cee, 2026-11-21).
- * The failure fingerprint is per run, so nothing ever resolved it: run
- * 44841264851 failed at prepare while its sibling run 44841245126 had already
- * sealed the same SHA, and the critical incident stayed escalated after the
- * engine it complained about was serving. When this run SHIPS, every
- * EngineReleaseFailed still firing for this exact target SHA is resolved
- * through the same door, naming the run that shipped it. A failure for any
- * other SHA is left firing.
+ * A REDELIVERY OF A SHIPPED SHA IS NOT A FAILED RELEASE (incident 484c4cee,
+ * 2026-11-21). Run 44841264851 failed at prepare at 00:19 UTC for e2140d2d,
+ * which sibling run 44841245126 had sealed and verified at 00:10. The per-run
+ * critical alert stayed firing with the engine it complained about serving.
+ * Before raising, the append-only ca_engine_deploy_attempts receipts are read:
+ * when another run already shipped this exact SHA, nothing is raised and the
+ * shipped run is named. (A failure recorded BEFORE its sibling ships is
+ * resolved by the receipt itself: 20261121151027.)
  */
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -73,36 +73,15 @@ export function buildReleaseFailureAlert(env) {
   };
 }
 
-/**
- * Resolutions for every failure still firing for the exact SHA this run
- * shipped. `firing` rows are engine_alerts rows ({ fingerprint, labels }).
- */
-export function buildReleaseResolutions(env, firing) {
-  if ((env.SHIPPED || '').trim() !== 'true') return [];
-  const targetSha = (env.TARGET_SHA || '').trim();
-  if (!/^[0-9a-f]{40}$/.test(targetSha)) return [];
-  const runId = (env.RUN_ID || 'unknown').trim().slice(0, 120) || 'unknown';
-  return (Array.isArray(firing) ? firing : [])
-    .filter(
-      (row) =>
-        row &&
-        typeof row.fingerprint === 'string' &&
-        row.fingerprint.startsWith('engine-release-failed:') &&
-        row.labels &&
-        row.labels.alertname === 'EngineReleaseFailed' &&
-        row.labels.target_sha === targetSha
-    )
-    .map((row) => ({
-      status: 'resolved',
-      fingerprint: row.fingerprint,
-      startsAt: row.starts_at || new Date().toISOString(),
-      endsAt: new Date().toISOString(),
-      labels: { ...row.labels, severity: 'info' },
-      annotations: {
-        summary: `Engine release ${targetSha.slice(0, 8)} shipped (run ${runId}); the earlier failure for this SHA is resolved`,
-        description: `release ${targetSha} was sealed and independently proved by run ${runId}`,
-      },
-    }));
+/** The shipped run that makes this failure a redelivery, or null. */
+export function shippedSibling(alert, receipts) {
+  if (!alert) return null;
+  const sha = alert.labels.target_sha;
+  const run = alert.labels.run_id;
+  const hit = (Array.isArray(receipts) ? receipts : []).find(
+    (r) => r && r.shipped === true && r.target_sha === sha && r.run_id !== run
+  );
+  return hit ? hit.run_id : null;
 }
 
 function warn(message) {
@@ -112,9 +91,8 @@ function warn(message) {
 
 async function main() {
   const alert = buildReleaseFailureAlert(process.env);
-  const shipped = (process.env.SHIPPED || '').trim() === 'true';
-  if (!alert && !shipped) {
-    console.log('engine release cleanly superseded; no failure alert required.');
+  if (!alert) {
+    console.log('engine release shipped or cleanly superseded; no failure alert required.');
     return;
   }
 
@@ -135,24 +113,14 @@ async function main() {
   });
   try {
     await client.connect();
-    if (!alert) {
-      const firing = await client.query(
-        `SELECT fingerprint, labels, starts_at FROM public.engine_alerts
-          WHERE alertname = 'EngineReleaseFailed' AND status = 'firing'
-            AND labels->>'target_sha' = $1`,
-        [(process.env.TARGET_SHA || '').trim()]
-      );
-      const resolutions = buildReleaseResolutions(process.env, firing.rows);
-      if (resolutions.length === 0) {
-        console.log('engine release shipped; no earlier failure for this SHA is firing.');
-        return;
-      }
-      const { rows } = await client.query(
-        'SELECT public.fn_record_engine_alerts($1::jsonb) AS receipts',
-        [JSON.stringify(resolutions)]
-      );
+    const receipts = await client.query(
+      'SELECT run_id, target_sha, shipped FROM public.ca_engine_deploy_attempts WHERE target_sha = $1 AND shipped',
+      [alert.labels.target_sha]
+    );
+    const sibling = shippedSibling(alert, receipts.rows);
+    if (sibling) {
       console.log(
-        `engine release shipped; resolved ${resolutions.length} earlier failure(s): ${JSON.stringify(rows[0]?.receipts ?? [])}`
+        `engine release ${alert.labels.target_sha} was already shipped by run ${sibling}; this run is a redelivery, no failure alert raised.`
       );
       return;
     }
