@@ -230,17 +230,32 @@ async function main(): Promise<void> {
         profile: s.priors[fam],
         rebuild: true,
       });
+    // save calls of at most 25 rows and 1.5 MB (a busy Horse's three day lists make his row several times the median)
     let written = 0;
-    for (let i = 0; i < rows.length; i += 100) {
+    let calls = 0;
+    let maxCallBytes = 0;
+    const refusedKeys: string[] = [];
+    for (let i = 0; i < rows.length; ) {
+      const batch: object[] = [];
+      let bytes = 0;
+      while (i < rows.length && batch.length < 25) {
+        const size = Buffer.byteLength(JSON.stringify(rows[i]));
+        if (batch.length && bytes + size > 1_500_000) break;
+        batch.push(rows[i++]);
+        bytes += size;
+      }
       const { data, error } = await paced(() =>
-        client.rpc('fn_opponent_hud_profiles_upsert', {
-          p_rows: rows.slice(i, i + 100),
-        })
+        client.rpc('fn_opponent_hud_profiles_upsert', { p_rows: batch })
       );
       if (error) throw new Error(`upsert failed at ${i}: ${error.message}`);
-      written += 100 - ((data ?? []) as string[]).length;
+      const refused = (data ?? []) as string[];
+      refusedKeys.push(...refused);
+      written += batch.length - refused.length;
+      calls += 1;
+      maxCallBytes = Math.max(maxCallBytes, bytes);
     }
-    console.log(`APPLIED rows ${rows.length} written ${Math.min(written, rows.length)}`);
+    console.log(`SAVE CALLS ${calls} largest ${maxCallBytes} bytes refused ${refusedKeys.length}`);
+    console.log(`APPLIED rows ${rows.length} written ${written}`);
   }
 }
 
