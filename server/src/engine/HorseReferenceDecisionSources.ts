@@ -147,6 +147,12 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off PLO6 value share (HORSE DECISIONS lane 2026-11-19, plo6FacingBetIsPriced): the six-card value region taken at the hand strength of the four-card share, read by the PLO6 facing-bet verdict only when its option is on',
     'src/engine/HorsePlo6FacingBetIsPriced.ts':
       'the default-off PLO6 facing-bet verdict (HORSE DECISIONS lane 2026-11-19, plo6FacingBetIsPriced): PLO6 cash facing a bet, the call, fold or river raise priced on the six-card count; off returns the decision unchanged',
+    'src/engine/HorsePlo6FlopDefence.ts':
+      'the default-off PLO6 flop defence (PLO6 lane 2026-11-20, E6 under plo6FacingBetIsPriced): heads-up first flop bet with chips behind priced on the two-street barrel tree and multiway flop caller/behind shares scaled by six-card pair concentration; reached only when plo6FacingBetIsPriced is on',
+    'src/engine/HorsePlo6RiverDefence.ts':
+      'the default-off PLO6 river under-bluffing guard, current-nuts call floor and private-nuts raise protection (PLO6 lane 2026-11-20, E7 under plo6FacingBetIsPriced): six-card M1 river beaten-share guard and exact current/private river nuts rules; reached only when plo6FacingBetIsPriced is on',
+    'src/engine/HorsePlo6MultiwayTurnField.ts':
+      'the default-off PLO6 multiway turn caller field-factor (PLO6 lane 2026-11-20, E8 under plo6FacingBetIsPriced): deterministic six-card joint river-runout evaluator replacing static four-card turn field zeroing on multiway PLO6 cash turns; reached only when plo6FacingBetIsPriced is on',
     'src/engine/HorseOmahaMultiwayPricedInTournaments.ts':
       'the default-off Omaha tournament multiway pricing (HORSE DECISIONS lane 2026-11-19, omahaMultiwayIsPricedInTournaments): a preflop multiway call-off and a multiway own bet priced jointly against the callers; off returns the decision unchanged',
     'src/engine/HorseHoldemTournamentAllInCall.ts':

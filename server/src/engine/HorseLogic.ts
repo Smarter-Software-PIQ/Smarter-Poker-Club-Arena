@@ -8524,8 +8524,15 @@ function plo6FacingBetIsPricedRule(
     if (tele) noteFire('plo6_facing_bet_priced_called');
     return callFor();
   }
+  // E7: never flatten or fold a standing river raise/all-in when hero holds the exact private river nuts.
+  if (isRaise && v.privateRiverNuts === true) {
+    return decision;
+  }
   if (v.action === 'fold') {
     if (decision.action === 'fold') return decision;
+    // E7: preserve a standing heads-up river call when it beats >= 20% of the bettor's value region (#60091132),
+    // while still folding dominated river calls (#59973335 vsValue = 0.091).
+    if (isCall && v.standingRiverCallHolds === true) return decision;
     if (tele) noteFire('plo6_facing_bet_priced_folded');
     const folded: HorseDecision = { ...decision, action: 'fold' };
     delete folded.amount;
