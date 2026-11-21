@@ -9,6 +9,7 @@ import {
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
 import { tournamentStallExposure } from './observability/tournamentStallExposure.js';
+import { snapshotEventLoopDelay } from './observability/eventLoopMonitor.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -22,7 +23,10 @@ import {
   type CompletedF06Custody,
 } from './tournament/completedF06Custody.js';
 import { LightningObserverProjection } from './lightning/LightningObserverProjection.js';
-import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
+import {
+  nearbyMaintenanceWindows,
+  MAINTENANCE_FREQUENCY,
+} from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
@@ -124,6 +128,7 @@ import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
 import { countHorseTablesByVariant } from './engine/HorsePolicyLedgerObserver.js';
+import { countHorseSeats } from './engine/HorseSeatCounter.js';
 import {
   settlementHealthSnapshot,
   settlementPrometheusLines,
@@ -6633,6 +6638,7 @@ export class GameServer {
             .reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
         ),
       },
+      eventLoopDelay: snapshotEventLoopDelay(),
       ...(livenessQuery
         ? { tableLiveness: selectPublicTableLiveness(tableLiveness, livenessQuery) }
         : {}),
@@ -6815,18 +6821,13 @@ export class GameServer {
     const neverStartedOldestSeconds = Math.round(
       neverStarted.reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
     );
-    /* One walk of the live engines for the two horse gauges below. Counted
-       here rather than from `liveness` because the seat rows carry the flag
-       and the liveness snapshot does not. */
-    const horseSeatCounts = { horses: 0, tables: 0 };
+    /* One walk of the live engines + Lightning pools for the two horse gauges
+       below. Counted here rather than from `liveness` because the seat rows
+       carry the flag and the liveness snapshot does not. Lightning pool horses
+       are included cleanly via `countHorseSeats` (read-only identification
+       only, deduplicated against anchor engines, never throws). */
+    const horseSeatCounts = countHorseSeats(this.tableEngines.values(), this.lightningRooms);
     const horseTablesByVariant = countHorseTablesByVariant(this.tableEngines.values());
-    for (const engine of this.tableEngines.values()) {
-      const n = engine.horsesSeated();
-      if (n > 0) {
-        horseSeatCounts.horses += n;
-        horseSeatCounts.tables += 1;
-      }
-    }
     /**
      * 2026-09-05: the gauge below used `stalled.length === 0` — the 120s
      * VISIBILITY list — while getStatus() killed on the 300s list. Two
@@ -6860,7 +6861,7 @@ export class GameServer {
 
          Identification only (CLAUDE.md 10.5): they count, they decide
          nothing, and the same line publishes the human count beside them. */
-      '# HELP poker_horses_seated Horses seated with chips across every live table',
+      '# HELP poker_horses_seated Horses seated with chips across every live table and Lightning pool',
       '# TYPE poker_horses_seated gauge',
       `poker_horses_seated ${horseSeatCounts.horses}`,
       '# HELP poker_tables_with_horses Live tables holding at least one horse with chips',
@@ -6997,6 +6998,19 @@ export class GameServer {
       '# TYPE poker_maintenance_breaks_since_restart_certified gauge',
       `poker_maintenance_breaks_since_restart_certified ${
         (this.maintenanceBreak.snapshot().breaksSinceRestartCertified as number) ?? 0
+      }`,
+      /* How many scheduled maintenance breaks this engine takes per day (1
+         daily, 8 three-hourly, 24 Phase1 hourly). EngineCannotBeReplaced reads
+         it so its threshold means the same TIME, about two days of uncertified
+         scheduled breaks, whatever the schedule (owner order 2026-11-21). */
+      '# HELP poker_maintenance_scheduled_breaks_per_day Scheduled maintenance breaks per day under the serving schedule',
+      '# TYPE poker_maintenance_scheduled_breaks_per_day gauge',
+      `poker_maintenance_scheduled_breaks_per_day ${
+        MAINTENANCE_FREQUENCY === 'three-hourly'
+          ? 8
+          : MAINTENANCE_FREQUENCY === 'phase1-hourly'
+            ? 24
+            : 1
       }`,
       '# HELP poker_db_clock_skew_ms Engine clock minus database clock, ms; 0 when unmeasured',
       '# TYPE poker_db_clock_skew_ms gauge',
@@ -7425,6 +7439,7 @@ export class GameServer {
     secsIdle: number;
     reason: HeldTableStall['reason'];
     heldBy: string[];
+    blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
   }> {
     const out: Array<{
       tableId: string;
@@ -7432,6 +7447,7 @@ export class GameServer {
       secsIdle: number;
       reason: HeldTableStall['reason'];
       heldBy: string[];
+      blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
     }> = [];
     for (const [tableId, engine] of this.tableEngines) {
       if (exclude.has(tableId)) continue;
@@ -7445,13 +7461,48 @@ export class GameServer {
           heldOriginal: engine.isPreparedOriginalHeldAtPauseGate?.() === true,
         });
         if (!stall) continue;
-        out.push({
+        const entry: {
+          tableId: string;
+          dealable: number;
+          secsIdle: number;
+          reason: HeldTableStall['reason'];
+          heldBy: string[];
+          blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
+        } = {
           tableId,
           dealable: engine.dealableCount(),
           secsIdle: Math.round(stall.msHeld / 1000),
           reason: stall.reason,
           heldBy: stall.heldBy,
-        });
+        };
+        // Overlong boundary hold diagnostic (>= 90 s): name the active peer
+        // tables in the same tournament so operators immediately see which
+        // table is holding up hand_for_hand or tournament_move synchronization.
+        const tournamentId = engine.getTournamentId?.();
+        if (
+          tournamentId &&
+          stall.msHeld >= 90_000 &&
+          (stall.heldBy.includes('hand_for_hand') || stall.heldBy.includes('tournament_move'))
+        ) {
+          const peers: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }> =
+            [];
+          for (const [peerId, peerEngine] of this.tableEngines) {
+            if (peerId === tableId) continue;
+            if (peerEngine.getTournamentId?.() !== tournamentId) continue;
+            if (peerEngine.isPausedByDesign()) continue;
+            peers.push({
+              tableId: peerId,
+              loopPhase: peerEngine.getLoopPhase?.() ?? 'unknown',
+              secsSinceProgress: Math.round(peerEngine.msSinceProgress() / 1000),
+            });
+          }
+          if (peers.length > 0) {
+            entry.blockingPeers = peers
+              .sort((a, b) => b.secsSinceProgress - a.secsSinceProgress)
+              .slice(0, 3);
+          }
+        }
+        out.push(entry);
       } catch {
         // An engine that cannot be read is not named here; the reapers own it.
       }

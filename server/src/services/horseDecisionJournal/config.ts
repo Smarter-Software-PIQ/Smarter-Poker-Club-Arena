@@ -143,7 +143,8 @@ export const HORSE_JOURNAL_ARCHIVE_CATALOG_BYTES = 6 * 1024 * 1024 * 1024;
    two releases (up to about 24 hours) aged out before it could be read, and
    the capture owner byte-copied the journal hourly to keep it: a watcher in
    place of a fix. Now a published segment younger than the minimum retention
-   (default 30 h: one daily-break cycle plus six hours to read it) is not
+   (30 h at first: one daily-break cycle plus six hours to read it; 72 h
+   since 2026-11-21, see SEVENTY-TWO HOURS below) is not
    retired for the byte allocation; the ring retires it only for a hard quota
    (segments, records, catalog pages), or when the filesystem's free space
    would fall below the disk floor (default 32 GiB), and then says so by name
@@ -153,7 +154,27 @@ export const HORSE_JOURNAL_ARCHIVE_CATALOG_BYTES = 6 * 1024 * 1024 * 1024;
    the engine host's 338 GB disk. HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS
    (0 to 168; 0 turns the guarantee off) and
    HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES override both. */
-export const HORSE_JOURNAL_MIN_RETENTION_HOURS = 30;
+/* SEVENTY-TWO HOURS (2026-11-21). At 30 h the busiest 4 GiB shard kept exactly
+   the guarantee while the others still fitted 41-44 h in their bytes, and the
+   only copy off the ring is a by-hand read that the release rules forbid
+   between a booking's merge and its seal. With a cutover every three hours
+   the readable time was shorter than the work: by the evening of Nov 20 the
+   whole of Nov 18 was gone and, of the Nov 19 hands with a person seated,
+   2 of 135 sampled still had records (PLO5: 14 of 549). Every exact-replay
+   grade of a Horse change against persons reads these records.
+   72 h gives every shard three days. What it costs, from the engine's own
+   figures on 2026-11-21 04:53Z (the least healthy shard: 4.83 GB, 408,997
+   segments, 646,233 records and a 1.01 GB catalog at the 30 h guarantee) and
+   the retention the other shards showed (about 1 GiB/h for the fleet): about
+   35 GB of disk per added day, so about 50 GB more than at 30 h. No hard quota
+   is reached by it: that shard would meet the segment count at about 146 h
+   and the catalog ceiling at about 178 h. Nothing else changes: the disk floor
+   below still makes the guarantee yield, by name, before the disk can fill;
+   hard quotas never yield; the environment override and its 168 h ceiling are
+   as before; and the decision-worker count does not depend on it (existing
+   shards are always retained, horseJournalShardsAffordable). A release that
+   lowers this drains as TURNING IT OFF below describes. */
+export const HORSE_JOURNAL_MIN_RETENTION_HOURS = 72;
 export const HORSE_JOURNAL_MAX_MIN_RETENTION_HOURS = 168;
 export const HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES = 32 * 1024 * 1024 * 1024;
 /* TURNING IT OFF, LOWERING IT, OR ROLLING BACK (2026-11-15, Hand Analysis B1).
@@ -399,7 +420,7 @@ export function runtimeHorseJournalArchiveOptions(
 }
 
 /** The live writer's archive options: the allocation above plus the time
- * guarantee (default 30 h, 32 GiB disk floor). Only the engine's own writer
+ * guarantee (default 72 h, 32 GiB disk floor). Only the engine's own writer
  * (startHorseDecisionJournal / prespawnHorseDecisionJournalWriter) opens with
  * these; every reader, tool and test that builds runtimeHorseJournalArchiveOptions
  * keeps byte-bound retirement exactly as before. */

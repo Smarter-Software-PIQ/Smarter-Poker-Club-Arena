@@ -353,6 +353,13 @@ export interface MappedTableStatePatch {
    */
   isAnonymous: boolean;
   /**
+   * 2026-11-21: active engine pause owners published on idle snapshots
+   * (e.g. ['hand_for_hand'], ['tournament_move']) so the table HUD can show
+   * a clear waiting banner instead of a silent idle felt. Empty on older engines.
+   */
+  pauseOwners?: string[];
+  pausedMs?: number;
+  /**
    * HIT AND RUN: the hero's hands still owed as the engine reports them; null
    * for none owed, undefined when the payload does not carry the field.
    */
@@ -738,6 +745,15 @@ export function mapEngineSnapshot(
     // of every per-seat array in this patch. See the field docs above.
     maxSeats: effectiveMaxSeats,
     isAnonymous: (s as unknown as { is_anonymous?: unknown }).is_anonymous === true,
+    pauseOwners: Array.isArray((s as unknown as { pause_owners?: unknown }).pause_owners)
+      ? (s as unknown as { pause_owners: unknown[] }).pause_owners.filter(
+          (o): o is string => typeof o === 'string'
+        )
+      : [],
+    pausedMs:
+      typeof (s as unknown as { paused_ms?: unknown }).paused_ms === 'number'
+        ? (s as unknown as { paused_ms: number }).paused_ms
+        : 0,
   };
 }
 

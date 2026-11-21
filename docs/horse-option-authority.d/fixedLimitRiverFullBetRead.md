@@ -18,7 +18,9 @@ Receipt `fixed_limit_river_full_bet_read_seen`. Law `server/src/engine/AFixedLim
 
 Horse-mirror league readings recorded in `docs/horse-league-fixed-limit.md` (seed 20261115, 300 pairs each, heads-up, 0 illegal actions): Hybrid cash with the deal-seeded mood clock, 9 pairs diverged, +1.33 +/- 1.15 bb/100; plain, 7 diverged, +1.33 +/- 1.05. Neither is significant. The evaluation that failed it is the programme coordinator's of 2026-11-14; its figures are not recorded in this repository.
 
+- Horse mirror after the league memory fix (re-run 2026-11-21, seed 20261120, arm A the option on, 0 illegal actions, 0 truncated streets, 0 fallbacks): heads-up, Hybrid cash with the deal-seeded mood clock, 2,000 pairs: 53 diverged, +0.48 +/- 0.48 bb/100; production personas, 600 pairs: 9 diverged, +0.83 +/- 0.61. Neither is significant.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
+- Audited set against people: none possible for fixed-limit hold'em. Counted read-only on 2026-11-21 at 15:10 UTC (production `hand_history`, `has_human`, every hand a person was dealt into; hands with a person are kept forever, so this is every such hand ever recorded): flh 0 hands; flo8 107 hands, all at one table between 2026-11-03 02:40 and 03:53 UTC, one person and five Horses. Against 230,155 flh and 81,351 flo8 Horse-only hands retained at the same moment.
 
 ## What would lift the lock
 

@@ -92,6 +92,7 @@ import {
   lightningEvalQ3,
   lightningEvalQ4,
   lightningEvalSeedClassOf,
+  lightningEvalRunnerTimeoutMs,
   lightningEvalStackLabel,
   mergeLightningEvalPairs,
   openLightningEvalRunFiles,
@@ -1662,12 +1663,31 @@ describe('Lightning harness: release, run files and the merge gate', () => {
   });
 });
 
+describe('the runner timeout (LIGHTNING_EVAL_TIMEOUT_MS)', () => {
+  it('keeps two hours when unset or empty, takes 0 as no timeout and a whole number as given', () => {
+    expect(lightningEvalRunnerTimeoutMs(undefined)).toBe(7_200_000);
+    expect(lightningEvalRunnerTimeoutMs('')).toBe(7_200_000);
+    expect(lightningEvalRunnerTimeoutMs(' ')).toBe(7_200_000);
+    expect(lightningEvalRunnerTimeoutMs('0')).toBe(0);
+    expect(lightningEvalRunnerTimeoutMs('21600000')).toBe(21_600_000);
+    expect(lightningEvalRunnerTimeoutMs(' 60000 ')).toBe(60_000);
+  });
+
+  it('refuses anything that is not a whole number of milliseconds', () => {
+    for (const bad of ['-1', '1.5', '2h', 'none', '1e9', '99999999999999999999']) {
+      expect(() => lightningEvalRunnerTimeoutMs(bad)).toThrow(/LIGHTNING_EVAL_TIMEOUT_MS/);
+    }
+  });
+});
+
 /**
  * THE RUNNER. From server/:
  *   LIGHTNING_EVAL_CONFIG=smoke LIGHTNING_EVAL_OUT=<dir> \
  *     npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
  * Optional: LIGHTNING_EVAL_CELLS=from:to (half-open cell indices, to bound one
- * process), LIGHTNING_EVAL_CANDIDATE=<json of decide options> (default: null).
+ * process), LIGHTNING_EVAL_CANDIDATE=<json of decide options> (default: null),
+ * LIGHTNING_EVAL_TIMEOUT_MS=<ms> (default 7,200,000; 0 means none; the
+ * per-test timeout below beats --testTimeout, so this is the one that counts).
  * Besides the report it writes <stem>.pairs.jsonl: a header line, then one
  * line per paired hand (the input of the merge below).
  */
@@ -1830,7 +1850,7 @@ describe.runIf(requested !== undefined && (requested in STAGED || requested === 
       console.log(
         `[lightning-eval] COMPLETE cells ${cellRange.join(':')} of ${config.cells.length}, ${completion.units.length} (seed, cell) units, ${completion.files.pairs.lines - 1} paired rows: ${stem}.pairs.jsonl, .latency.jsonl and .complete.json`
       );
-    }, 7_200_000);
+    }, lightningEvalRunnerTimeoutMs(process.env.LIGHTNING_EVAL_TIMEOUT_MS));
   }
 );
 

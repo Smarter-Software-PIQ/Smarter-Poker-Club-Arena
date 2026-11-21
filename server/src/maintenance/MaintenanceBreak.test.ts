@@ -1919,27 +1919,35 @@ describe('surviving the restart', () => {
 
 describe('the schedule', () => {
   it.each([
+    // Three-hourly cycles (owner order 2026-11-21): 01/04/07/10/13/16/19/22
+    // Chicago, announced two minutes before. The daily 03:58 boundary keeps
+    // its own pins in tests/unit/phase1MaintenanceSchedule.test.ts.
+    // Fall back: the repeated 01:00 (07:54Z is 01:54 CST) is not a cycle.
     ['America/Chicago', '2026-11-01T07:54:00.000Z', '2026-11-01T09:58:00.000Z'],
-    ['Europe/Berlin', '2026-10-25T01:54:00.000Z', '2026-10-25T08:58:00.000Z'],
-    ['Asia/Kathmandu', '2026-09-10T00:52:00.000Z', '2026-09-10T08:58:00.000Z'],
-    ['UTC', '2026-12-31T23:54:00.000Z', '2027-01-01T09:58:00.000Z'],
+    ['Europe/Berlin', '2026-10-25T01:54:00.000Z', '2026-10-25T02:58:00.000Z'],
+    ['Asia/Kathmandu', '2026-09-10T00:52:00.000Z', '2026-09-10T02:58:00.000Z'],
+    ['UTC', '2026-12-31T23:54:00.000Z', '2027-01-01T00:58:00.000Z'],
+    // Spring forward: 01:59 CST -> 04:00 CDT.
     ['UTC', '2026-03-08T07:59:00.000Z', '2026-03-08T08:58:00.000Z'],
-    ['UTC', '2026-03-07T09:59:00.000Z', '2026-03-08T08:58:00.000Z'],
-    ['UTC', '2026-10-31T08:59:00.000Z', '2026-11-01T09:58:00.000Z'],
-    ['UTC', '2026-10-20T08:58:00.000Z', '2026-10-21T08:58:00.000Z'],
-  ])('targets the next 03:58 Chicago independently of host TZ %s at %s', (zone, now, expected) => {
-    vi.stubEnv('TZ', zone);
-    try {
-      vi.setSystemTime(new Date(now));
-      const { mb } = build(0);
-      // @ts-expect-error - exercise the actual private scheduler.
-      const ms = mb.msUntilNextAnnouncement();
-      expect(ms).toBe(Date.parse(expected) - Date.parse(now));
-      expect(ms).toBeGreaterThan(0);
-    } finally {
-      vi.unstubAllEnvs();
+    ['UTC', '2026-03-07T09:59:00.000Z', '2026-03-07T12:58:00.000Z'],
+    ['UTC', '2026-10-31T08:59:00.000Z', '2026-10-31T11:58:00.000Z'],
+    ['UTC', '2026-10-20T08:58:00.000Z', '2026-10-20T11:58:00.000Z'],
+  ])(
+    'targets the next cycle announcement in Chicago independently of host TZ %s at %s',
+    (zone, now, expected) => {
+      vi.stubEnv('TZ', zone);
+      try {
+        vi.setSystemTime(new Date(now));
+        const { mb } = build(0);
+        // @ts-expect-error - exercise the actual private scheduler.
+        const ms = mb.msUntilNextAnnouncement();
+        expect(ms).toBe(Date.parse(expected) - Date.parse(now));
+        expect(ms).toBeGreaterThan(0);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     }
-  });
+  );
 
   it('does not freeze cash games at any hourly tournament break', async () => {
     for (let hour = 0; hour < 24; hour++) {
@@ -1952,7 +1960,7 @@ describe('the schedule', () => {
     }
   });
 
-  it('announces at 03:58 and freezes at 04:00 Chicago', async () => {
+  it('announces at 03:58 and freezes at 04:00 Chicago (the anchor cycle)', async () => {
     vi.setSystemTime(new Date('2026-10-20T08:57:59.000Z'));
     const { mb, store } = build(1);
     await mb.start();
@@ -1964,7 +1972,8 @@ describe('the schedule', () => {
     expect(mb.snapshot().schedule).toMatchObject({
       timeZone: 'America/Chicago',
       startHour: 4,
-      frequency: 'daily',
+      frequency: 'three-hourly',
+      startHours: [1, 4, 7, 10, 13, 16, 19, 22],
       hourlyCashFreeze: false,
     });
   });
