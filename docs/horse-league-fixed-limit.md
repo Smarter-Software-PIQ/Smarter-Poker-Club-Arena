@@ -6,15 +6,15 @@ Written 2026-11-20. This file says what the nightly duplicate league (`server/sr
 
 Fixed-limit hold'em (`flh`), cash, no ante, Horse seats only, stacks above 24 big blinds.
 
-| Rule | Where the league gets it | The live table's own code |
-| --- | --- | --- |
-| Wager size: one big blind preflop and on the flop, two on the turn and river | `fixedLimitBetSize` through `leagueFixedLimitBounds` (`LeagueDecisionState.ts`) | `HandController.streetBetSize` |
-| Four wagers a street (the big blind is the first preflop), then fold or call only | `isFixedLimitCapped` | `HandController.getAvailableActions`, `buildBettingState` |
-| One legal amount for a bet or raise | `calculateBettingState(..., fixedLimit)` and `validateAction` | the same two functions |
-| A wager on a capped street becomes a call or check | `substituteOnCappedStreet` | `ServerTableEngineTurns.scheduleHorseAction` |
-| A deep stack's all in executes as the street's one bet or raise | `playHand`, fixed-limit branch | `HandController.clampToStructure` |
-| `lastRaise` and `minRaise` sit at the street's wager and a raise never moves them | `runStreet` | `HandController.advanceStage`, `performAction` |
-| The menu handed to the brain | `leagueFixedLimitActionState` | `HandController.getAuthoritativeActionState` |
+| Rule                                                                              | Where the league gets it                                                        | The live table's own code                                 |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Wager size: one big blind preflop and on the flop, two on the turn and river      | `fixedLimitBetSize` through `leagueFixedLimitBounds` (`LeagueDecisionState.ts`) | `HandController.streetBetSize`                            |
+| Four wagers a street (the big blind is the first preflop), then fold or call only | `isFixedLimitCapped`                                                            | `HandController.getAvailableActions`, `buildBettingState` |
+| One legal amount for a bet or raise                                               | `calculateBettingState(..., fixedLimit)` and `validateAction`                   | the same two functions                                    |
+| A wager on a capped street becomes a call or check                                | `substituteOnCappedStreet`                                                      | `ServerTableEngineTurns.scheduleHorseAction`              |
+| A deep stack's all in executes as the street's one bet or raise                   | `playHand`, fixed-limit branch                                                  | `HandController.clampToStructure`                         |
+| `lastRaise` and `minRaise` sit at the street's wager and a raise never moves them | `runStreet`                                                                     | `HandController.advanceStage`, `performAction`            |
+| The menu handed to the brain                                                      | `leagueFixedLimitActionState`                                                   | `HandController.getAuthoritativeActionState`              |
 
 Nothing is re-implemented: the league calls the functions the controller calls.
 
@@ -44,33 +44,33 @@ Mutation checks run on 2026-11-20 (file restored after each): pricing a turn wag
 
 `runMatchup`, Horse mirror, 100 big blinds, arm A the option on and arm B off. bb/100 is in big blinds, and a fixed-limit big blind is the small bet.
 
-| Arm | Seats | Setting | Seed | Pairs | Diverged | bb/100 | Std. error |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `fixedLimitPricedPreflop` | 6 | Hybrid cash, deal-seeded mood | 20261115 | 300 | 30 | 1.1111 | 1.2389 |
-| `fixedLimitPricedPreflop` | 6 | plain | 20261115 | 300 | 30 | -2.5278 | 1.6539 |
-| `fixedLimitPricedPreflop` | 2 | plain | 20261115 | 300 | 109 | -1.5 | 6.3543 |
-| `fixedLimitRiverFullBetRead` | 2 | Hybrid cash, deal-seeded mood | 20261115 | 300 | 9 | 1.3333 | 1.1541 |
-| `fixedLimitRiverFullBetRead` | 2 | plain | 20261115 | 300 | 7 | 1.3333 | 1.0530 |
-| `fixedLimitCallIsNotACommitment` | 6 | plain | 20261115 | 300 | 1 | 0.1111 | 0.1111 |
-| `fixedLimitCallIsNotACommitment` | 6 | Hybrid cash, deal-seeded mood | 20261115 | 300 | 1 | 0.2778 | 0.2778 |
-| `fixedLimitCallIsNotACommitment` | 6 | Hybrid cash, deal-seeded mood | 20261120 | 2,000 | 1 | 0.0375 | 0.0375 |
-| `fixedLimitCallIsNotACommitment` | 6 | production personas, deal-seeded mood | 20261120 | 600 | 2 | 0.25 | 0.1777 |
-| `fixedLimitCallIsNotACommitment` | 2 | plain | 20261115 | 300 | 0 | 0 | 0 |
-| `fixedLimitReadIgnoresProbes` | 6 | plain | 20261115 | 300 | 0 | 0 | 0 |
-| `fixedLimitReadIgnoresProbes` | 2 | plain | 20261115 | 300 | 0 | 0 | 0 |
-| `fixedLimitReadIgnoresProbes` | 6 | production personas, deal-seeded mood | 20261120 | 300 | 0 | 0 | 0 |
-| `fixedLimitRiverStrongHandLeads` | 6 | plain | 20261115 | 300 | 0 | 0 | 0 |
-| `fixedLimitRiverStrongHandLeads` | 2 | plain | 20261115 | 300 | 0 | 0 | 0 |
-| `fixedLimitRiverStrongHandLeads` | 6 | production personas, deal-seeded mood | 20261120 | 300 | 1 | 0.1111 | 0.1111 |
-| `fixedLimitRiverOneBetValueRaise` | 2 | plain | 20261115 | 300 | 0 | 0 | 0 |
-| `fixedLimitRiverOneBetValueRaise` | 2 | production personas, deal-seeded mood | 20261120 | 300 | 0 | 0 | 0 |
-| `fixedLimitStealVsTightBlinds` | 6 | plain | 20261115 | 300 | 0 | 0 | 0 |
+| Arm                               | Seats | Setting                               | Seed     | Pairs | Diverged | bb/100  | Std. error |
+| --------------------------------- | ----- | ------------------------------------- | -------- | ----- | -------- | ------- | ---------- |
+| `fixedLimitPricedPreflop`         | 6     | Hybrid cash, deal-seeded mood         | 20261115 | 300   | 30       | 1.1111  | 1.2389     |
+| `fixedLimitPricedPreflop`         | 6     | plain                                 | 20261115 | 300   | 30       | -2.5278 | 1.6539     |
+| `fixedLimitPricedPreflop`         | 2     | plain                                 | 20261115 | 300   | 109      | -1.5    | 6.3543     |
+| `fixedLimitRiverFullBetRead`      | 2     | Hybrid cash, deal-seeded mood         | 20261115 | 300   | 9        | 1.3333  | 1.1541     |
+| `fixedLimitRiverFullBetRead`      | 2     | plain                                 | 20261115 | 300   | 7        | 1.3333  | 1.0530     |
+| `fixedLimitCallIsNotACommitment`  | 6     | plain                                 | 20261115 | 300   | 1        | 0.1111  | 0.1111     |
+| `fixedLimitCallIsNotACommitment`  | 6     | Hybrid cash, deal-seeded mood         | 20261115 | 300   | 1        | 0.2778  | 0.2778     |
+| `fixedLimitCallIsNotACommitment`  | 6     | Hybrid cash, deal-seeded mood         | 20261120 | 2,000 | 1        | 0.0375  | 0.0375     |
+| `fixedLimitCallIsNotACommitment`  | 6     | production personas, deal-seeded mood | 20261120 | 600   | 2        | 0.25    | 0.1777     |
+| `fixedLimitCallIsNotACommitment`  | 2     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
+| `fixedLimitReadIgnoresProbes`     | 6     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
+| `fixedLimitReadIgnoresProbes`     | 2     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
+| `fixedLimitReadIgnoresProbes`     | 6     | production personas, deal-seeded mood | 20261120 | 300   | 0        | 0       | 0          |
+| `fixedLimitRiverStrongHandLeads`  | 6     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
+| `fixedLimitRiverStrongHandLeads`  | 2     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
+| `fixedLimitRiverStrongHandLeads`  | 6     | production personas, deal-seeded mood | 20261120 | 300   | 1        | 0.1111  | 0.1111     |
+| `fixedLimitRiverOneBetValueRaise` | 2     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
+| `fixedLimitRiverOneBetValueRaise` | 2     | production personas, deal-seeded mood | 20261120 | 300   | 0        | 0       | 0          |
+| `fixedLimitStealVsTightBlinds`    | 6     | plain                                 | 20261115 | 300   | 0        | 0       | 0          |
 
 Every run: 0 illegal actions, 0 truncated streets, 0 brain exception fallbacks. None of these is a verdict on an option. They show which arms a Horse mirror can and cannot move.
 
 ## The cards
 
-`FIXED_LIMIT_HOLDEM_CARDS`: `flh_priced_preflop` (six seats, 2,000 pairs) and `flh_river_full_bet_read` (heads-up), both on the live cash Hybrid persona with the deal-seeded mood clock. They only measure. Both options stay default off: `fixedLimitPricedPreflop` is under the owner's preflop range hold and `fixedLimitRiverFullBetRead` is an opt-in arm production never sets. Since 2026-11-20 `FIXED_LIMIT_SCRIPTED_FIELD_CARDS` are on the card too (six cards against the scripted field, eight since 2026-11-21); see "The scripted fixed-limit field" below.
+`FIXED_LIMIT_HOLDEM_CARDS`: `flh_priced_preflop` (six seats, 2,000 pairs) and `flh_river_full_bet_read` (heads-up), both on the live cash Hybrid persona with the deal-seeded mood clock. They only measure. Both options stay default off: `fixedLimitPricedPreflop` is under the owner's preflop range hold and `fixedLimitRiverFullBetRead` is an opt-in arm production never sets. Since 2026-11-20 `FIXED_LIMIT_SCRIPTED_FIELD_CARDS` are on the card too (six cards against the scripted field, nine since 2026-11-21); see "The scripted fixed-limit field" below.
 
 ## The scripted fixed-limit field (built 2026-11-20)
 
@@ -85,22 +85,107 @@ Invariants, each pinned in `server/src/benchmark/HorseLeagueFixedLimitField.test
 
 ### The personas
 
-| Persona | Rule | Source |
-| --- | --- | --- |
-| `flh_maniac_v1` | Bets or raises whenever a wager is on the menu, otherwise calls; never folds. Wager rate 1.0, fold rate 0.0. | This file, section 1 as first written ("bet or raise whenever one is legal, otherwise call, never fold"); the lane's "Sustained maniac (every hand, every bet)" and "scripted maniac who bets every checked street" (`docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md`). |
-| `flh_tight_value_v1`, preflop | Raise or fold. First in raises the top 80% heads-up, 26% at up to six seats, 18% above; big blind unraised raises at percentile 0.85 or better, else checks; facing one raise re-raises at 0.94 (heads-up 0.85), calls at 0.82 (heads-up 0.50); facing two or more caps at 0.975, calls at 0.95. | `ExploiterLeague.ts` `regPreflop` / `openTop`, the repository's recorded tight-aggressive reference, with each no-limit size replaced by the one fixed-limit wager. Its 26% six-max first-in share is inside the "21-27 percent raiser" the lane recorded for its tight-value player (`docs/changelog/2026-11-14-fixed-limit-tight-reads.md`, T1). |
-| `flh_tight_value_v1`, postflop | Value only, by made class (only a class the player's own cards improve on the board counts): bets or raises with two pair or better; puts in a third wager or more only with trips or better; calls one wager with a pair or better, two or more with two pair or better; otherwise checks or folds. No bluff, no draw. | **Design value.** No record in this repository states the lane's tight-value postflop thresholds (its scripts live in its evidence archive). |
-| No-limit probe history script (warm-up only) | Preflop checks or calls, never raises; after the flop makes the minimum bet whenever checked to and calls any bet. Every such bet is a probe by the rule in `HorseOpponentExploit` (one big blind). | **Design value.** The lane's seeding (`AB-EVALUATION-2.md` 3.1 (b)) is not recorded here. |
-| `flh_passive_caller_v1` (2026-11-21), preflop | Never raises first in. Unraised it calls at percentile 0.40 or better, else folds (the big blind checks); facing one raise re-raises at 0.92, calls at 0.40; facing two or more calls at 0.60. | `ExploiterLeague.ts` `callingStation` ("Never folds after the flop; calls wide preflop; bets only strong hands"), the repository's one recorded passive-caller policy, bars unchanged, each no-limit size replaced by the one fixed-limit wager. |
-| `flh_passive_caller_v1`, postflop | Never folds. Checked to, bets two pair or better, else checks; facing a wager raises only with a full house or better, else calls. | "Never folds after the flop" is `callingStation`'s. The two made-class bars are a **design value**: `callingStation` bets at a Monte Carlo equity of 0.75 and raises at 0.95, and a script here may consume no randomness, so each equity bar is replaced by a made class chosen here. |
-| `flh_over_folding_blinds_v1` (2026-11-21), preflop | Never raises. First in calls the share tight-value opens (26% at up to six seats), else folds; the big blind checks its option; facing one raise calls at percentile 0.82 or better (heads-up 0.50), so a six-max blind folds to one raise 82% of the time; facing two or more calls at 0.95. | Bars: `FLH_TIGHT_VALUE_PREFLOP` (`ExploiterLeague.ts` `regPreflop` / `openTop`). Replacing every raise by a call is a **design value**. For scale, the published defence widths quoted in `HorseFixedLimitPreflop.ts` are 45 to 55 percent defended against an early raise and 75 to 85 against the button. |
-| `flh_over_folding_blinds_v1`, postflop | Checks whenever it may and folds to every wager. | **Design value.** No record in this repository states the lane's over-folder thresholds. It is the extreme over-folder, the steal's most favourable range. Why no frequency is mixed: see "The over-folder read and mixed frequencies" below. |
+| Persona                                                                     | Rule                                                                                                                                                                                                                                                                                                                    | Source                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flh_maniac_v1`                                                             | Bets or raises whenever a wager is on the menu, otherwise calls; never folds. Wager rate 1.0, fold rate 0.0.                                                                                                                                                                                                            | This file, section 1 as first written ("bet or raise whenever one is legal, otherwise call, never fold"); the lane's "Sustained maniac (every hand, every bet)" and "scripted maniac who bets every checked street" (`docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md`).                                                                   |
+| `flh_tight_value_v1`, preflop                                               | Raise or fold. First in raises the top 80% heads-up, 26% at up to six seats, 18% above; big blind unraised raises at percentile 0.85 or better, else checks; facing one raise re-raises at 0.94 (heads-up 0.85), calls at 0.82 (heads-up 0.50); facing two or more caps at 0.975, calls at 0.95.                        | `ExploiterLeague.ts` `regPreflop` / `openTop`, the repository's recorded tight-aggressive reference, with each no-limit size replaced by the one fixed-limit wager. Its 26% six-max first-in share is inside the "21-27 percent raiser" the lane recorded for its tight-value player (`docs/changelog/2026-11-14-fixed-limit-tight-reads.md`, T1). |
+| `flh_tight_value_v1`, postflop                                              | Value only, by made class (only a class the player's own cards improve on the board counts): bets or raises with two pair or better; puts in a third wager or more only with trips or better; calls one wager with a pair or better, two or more with two pair or better; otherwise checks or folds. No bluff, no draw. | **Design value.** No record in this repository states the lane's tight-value postflop thresholds (its scripts live in its evidence archive).                                                                                                                                                                                                       |
+| No-limit probe history script (warm-up only)                                | Preflop checks or calls, never raises; after the flop makes the minimum bet whenever checked to and calls any bet. Every such bet is a probe by the rule in `HorseOpponentExploit` (one big blind).                                                                                                                     | **Design value.** The lane's seeding (`AB-EVALUATION-2.md` 3.1 (b)) is not recorded here.                                                                                                                                                                                                                                                          |
+| `flh_passive_caller_v1` (2026-11-21), preflop                               | Never raises first in. Unraised it calls at percentile 0.40 or better, else folds (the big blind checks); facing one raise re-raises at 0.92, calls at 0.40; facing two or more calls at 0.60.                                                                                                                          | `ExploiterLeague.ts` `callingStation` ("Never folds after the flop; calls wide preflop; bets only strong hands"), the repository's one recorded passive-caller policy, bars unchanged, each no-limit size replaced by the one fixed-limit wager.                                                                                                   |
+| `flh_passive_caller_v1`, postflop                                           | Never folds. Checked to, bets two pair or better, else checks; facing a wager raises only with a full house or better, else calls.                                                                                                                                                                                      | "Never folds after the flop" is `callingStation`'s. The two made-class bars are a **design value**: `callingStation` bets at a Monte Carlo equity of 0.75 and raises at 0.95, and a script here may consume no randomness, so each equity bar is replaced by a made class chosen here.                                                             |
+| `flh_over_folding_blinds_v1` (2026-11-21), preflop                          | Never raises. First in calls the share tight-value opens (26% at up to six seats), else folds; the big blind checks its option; facing one raise calls at percentile 0.82 or better (heads-up 0.50), so a six-max blind folds to one raise 82% of the time; facing two or more calls at 0.95.                           | Bars: `FLH_TIGHT_VALUE_PREFLOP` (`ExploiterLeague.ts` `regPreflop` / `openTop`). Replacing every raise by a call is a **design value**. For scale, the published defence widths quoted in `HorseFixedLimitPreflop.ts` are 45 to 55 percent defended against an early raise and 75 to 85 against the button.                                        |
+| `flh_over_folding_blinds_v1`, postflop                                      | Checks whenever it may and folds to every wager.                                                                                                                                                                                                                                                                        | **Design value.** No record in this repository states the lane's over-folder thresholds. It is the extreme over-folder, the steal's most favourable range. Why no frequency is mixed: see "The over-folder read and mixed frequencies" below.                                                                                                      |
+| `flh_value_only_blinds_v1` (2026-11-21, steal harm control), preflop        | `flh_tight_value_v1`'s raise or fold.                                                                                                                                                                                                                                                                                   | `FLH_TIGHT_VALUE_PREFLOP` (`ExploiterLeague.ts` `regPreflop` / `openTop`).                                                                                                                                                                                                                                                                         |
+| `flh_value_only_blinds_v1`, postflop                                        | Continues only with two pair or better: bets it when checked to, raises one wager with it (a third wager or more only with trips or better), folds everything else to a wager, one pair included.                                                                                                                       | **Design value.** No record states a value-only player's postflop continuation thresholds; the raise-again class is `flh_tight_value_v1`'s.                                                                                                                                                                                                        |
+| `flh_preflop_defending_blinds_v1` (2026-11-21, steal harm control), preflop | Never raises. First in and facing two raises as `flh_over_folding_blinds_v1`; facing one raise calls at percentile 0.20 or better at three to six seats (80% defended), 0.12 heads-up (88%), 0.50 above six seats (50%).                                                                                                | The defence widths quoted in `HorseFixedLimitPreflop.ts` REFERENCES: "vs the button ~75-85%", "heads-up ~85-90%", "vs early ~45-55%", each at the middle of its range.                                                                                                                                                                             |
+| `flh_preflop_defending_blinds_v1`, postflop                                 | Checks whenever it may and folds to every wager.                                                                                                                                                                                                                                                                        | **Design value**, as `flh_over_folding_blinds_v1`.                                                                                                                                                                                                                                                                                                 |
 
-Still not built: the per-node table of changed decisions the Value row of `docs/HORSE-DECISION-CHANGE-EVIDENCE.md` requires (a `LeagueHandObserver` can record the nodes), harm controls for the steal (a value-only range; a blind that folds postflop but defends preflop), and any field that moves `fixedLimitRiverStrongHandLeads`. Until the per-node table exists, no card here meets that row.
+Built 2026-11-21: the per-node table of changed decisions the Value row of `docs/HORSE-DECISION-CHANGE-EVIDENCE.md` requires (`LeagueChangedNodeTable.ts`, below) and the two harm controls for the steal (`flh_value_only_blinds_v1`, `flh_preflop_defending_blinds_v1`). Still not built: any field that moves `fixedLimitRiverStrongHandLeads`.
 
 ### The over-folder read and mixed frequencies (found 2026-11-21)
 
 `fixedLimitStealVsTightBlinds` acts only when every player behind has his own over-folder read: postflop fold to a bet engaged high on at least 15 decayed opportunities (`FIXED_LIMIT_STEAL_MIN_OPPS`), no preflop statistic engaged wide. The first form of the over-folding script (the tight-value raise-or-fold preflop, postflop continuing with two pair or better) never engaged it at seed 20261115: 0 of 10,000 pairs diverged, the reads printed at the gate during a 4,000-pair run were all empty (no statistic engaged), and the one counter row printed during a 2,500-pair run held 12.4 decayed fold opportunities. The cause read from the code, not separately measured: `HorseOpponentExploit.styleShiftReleased` ages an opportunity-gated statistic at the fast rate (half-life 8 hands) whenever a fast-window rate differs from the long one by 0.2, and a mixed frequency trips that by chance, so the long window never fills. The script as built has no mixed frequency (it never raises and always folds to a postflop wager); the three reads printed at the gate during a 3,000-pair run held 38.8 to 41.8 decayed opportunities, each engaged high. What this means for people is NOT MEASURED: how often a real over-folding player keeps 15 decayed opportunities is unknown, so the option's reach against people may be small. That is a property of the read, not a defect of the league, and it is recorded here for the Fixed-Limit lane; nothing in the engine was changed.
+
+**Investigated 2026-11-21 (second pass): a stationary player trips the style-shift release by chance, and the release drains a sparse statistic. It is a defect against the release's stated intent, on a default-on path, and is NOT fixed here.**
+
+What the code does (`HorseOpponentExploit.ts`). `decayAndAddOpportunityScoped` keeps a long-window opportunity-gated statistic (fold to a bet, river call, bet when checked to, rfi, three-bet, fold to a three-bet) at full weight on a hand that offered no such spot, unless `styleShiftReleased(row)` is true; then every long-window gated statistic ages at the fast rate (half-life 8 hands) on that hand whether or not it had the spot. `styleShiftReleased` is true when ANY of six fast-window rates (pfr, rfi, three-bet, bet when checked to, fold to a bet, river call) differs from its long-window rate by 0.2 or more on at least 3 decayed fast opportunities. Two things follow. First, the test compares two point estimates with no allowance for sampling noise, and a fast window of 3 to 11 decayed opportunities is noisy, so a player whose frequency never changes trips it by chance. Second, a release from any one statistic ages all of them: a stable preflop raiser's rfi noise drains his postflop fold sample.
+
+What was measured (a simulation of the real functions, not of the league): a stationary player whose increments are drawn with fixed probabilities and fed to `decayAndAddOpportunityScoped` exactly as `HorseMind.observeExploitHand` feeds them, 4,000 hands, the first 1,000 dropped, six seeds pooled. "Released" is the share of hands on which `styleShiftReleased` was true before the update; "fold opps" is the decayed `foldToBetOpp`, and "at least 15" the share of hands on which it was at least `FIXED_LIMIT_STEAL_MIN_OPPS`.
+
+| First in on | Raises first in | Faces a postflop bet on | Folds to it | Released (shipped rule) | Fold opps, mean | At least 15 | Same, release forced off: fold opps / at least 15 |
+| ----------- | --------------- | ----------------------- | ----------- | ----------------------- | --------------- | ----------- | ------------------------------------------------- |
+| no hands    | -               | 3% of hands             | 100%        | 0.0%                    | 34.2            | 100%        | 34.2 / 100%                                       |
+| no hands    | -               | 10%                     | 70%         | 0.5%                    | 37.3            | 100%        | 43.1 / 100%                                       |
+| 60%         | 26%             | 3%                      | 100%        | 2.5%                    | 11.7            | 22.5%       | 34.1 / 100%                                       |
+| 60%         | 26%             | 3%                      | 70%         | 2.3%                    | 13.3            | 35.6%       | 35.6 / 100%                                       |
+| 60%         | 26%             | 6%                      | 100%        | 2.1%                    | 20.7            | 84.7%       | 41.6 / 100%                                       |
+| 60%         | 26%             | 10%                     | 70%         | 2.3%                    | 24.9            | 96.2%       | 43.1 / 100%                                       |
+| 60%         | 50%             | 3%                      | 100%        | 4.4%                    | 7.7             | 2.2%        | 34.5 / 100%                                       |
+| 60%         | 50%             | 6%                      | 70%         | 3.9%                    | 15.2            | 44.2%       | 41.5 / 100%                                       |
+
+So a player who never changes, raises 26% of his first-in hands and faces a postflop bet on 3% of hands (a tight player who rarely sees a flop) keeps on average 11.7 decayed fold opportunities, at or above 15 on 22.5% of hands, against 34.1 and 100% with the release forced off. That is consistent with the 12.4 printed against the first over-folding script, whose six-seat preflop raised 26% of its first-in hands and folded the rest (its postflop opportunity rate was not measured). A pure fold frequency does not protect the statistic (the 100% rows): the release comes from the preflop raising. The 2026-11-06 ruling (`docs/changelog/2026-11-06-opportunity-scoped-decay-with-style-shift-release.md`) accepted releases on "about 5-7% of all updates for stable players" as the cost of the 0.2 / 3 rule; what it did not measure is that 2% to 4% of hands is enough to cut a rarely reached statistic to a third, which is the sample evaporation the opportunity-scoped decay exists to prevent.
+
+Why it is not fixed in this change. Every Horse's live memory learns through this rule (`HorseMind.observeExploitHand` always passes `opportunityScoped = true`, live since 2026-11-06 by the owner's ruling), the durable profile learns through its SQL twin (`fn_horse_exploit_add`, migration 20261107022913, which must stay identical), and `styleShiftReleased` also gates the intra-session gear-shift engagement in `opponentExploitRead`. Any root fix (a release that requires the gap to exceed the fast window's sampling noise, or that ages only the statistic whose own window shifted) changes default-on reads of every opponent at every variant, needs the SQL twin changed in the same release, and re-opens a parameter the owner ruled on. It is reported to the coordinator with this evidence instead. Which live decisions it would change: every read that uses a long-window gated statistic of a stable player whose mixed frequencies trip the release, at every variant, Horses and people alike; the fixed-limit steal is one of them.
+
+The simulation, for reproduction (run from server/ with `npx tsx`):
+
+```ts
+import {
+  decayAndAddOpportunityScoped,
+  styleShiftReleased,
+  freshExploitCounters,
+} from './src/engine/HorseOpponentExploit.ts';
+// mulberry32; a stationary player: first in on share a (raises rr of those), faces a postflop bet on share q (folds p).
+function rng(seed: number) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function run(a: number, rr: number, q: number, p: number, seed: number) {
+  const r = rng(seed),
+    row = freshExploitCounters();
+  let rel = 0,
+    opp = 0,
+    ge = 0,
+    n = 0;
+  for (let h = 0; h < 4000; h++) {
+    const inc = freshExploitCounters();
+    inc.hands = 1;
+    inc.fHands = 1;
+    if (r() < a) {
+      inc.rfiOpp = 1;
+      inc.fRfiOpp = 1;
+      if (r() < rr) {
+        inc.rfi = inc.fRfi = inc.pfr = inc.fPfr = 1;
+      }
+    }
+    if (r() < q) {
+      inc.foldToBetOpp = 1;
+      inc.fFoldToBetOpp = 1;
+      if (r() < p) {
+        inc.foldToBet = 1;
+        inc.fFoldToBet = 1;
+      }
+    }
+    const released = styleShiftReleased(row);
+    decayAndAddOpportunityScoped(row, inc);
+    if (h >= 1000) {
+      n++;
+      if (released) rel++;
+      opp += row.foldToBetOpp;
+      if (row.foldToBetOpp >= 15) ge++;
+    }
+  }
+  return { released: rel / n, foldOpps: opp / n, atLeast15: ge / n };
+}
+```
+
+The "release forced off" column ran the same update with the row's fast hand count set below 3 for the one call, so `styleShiftReleased` answered false and every other field aged as shipped.
 
 ### The no-limit probe history (`LeagueMatchup.probeHistoryHands`)
 
@@ -116,19 +201,23 @@ Before the first pair, each pass sandbox plays N no-limit hold'em hands at the s
 
 Seeds 20261120 and 20261121, run with `npx tsx src/scripts/horseLeagueCard.ts`. bb/100 is arm A (option on) minus arm B (off), in big blinds; a fixed-limit big blind is the small bet. The first two cards ran on the working tree that became commit 95a9430a0, with the memory fix already applied; the other four ran at 95a9430a0.
 
-| Card | Pairs per seed | Seed 20261120 | Seed 20261121 | Seeds together |
-| --- | --- | --- | --- | --- |
-| `flh_call_is_not_a_commitment_vs_maniac` (6 seats) | 12,000 | -28.02 +/- 7.30, 928 diverged | -21.35 +/- 8.10, 952 diverged | -24.68 +/- 5.45, z -4.53, SIGNIFICANT |
-| `flh_call_is_not_a_commitment_vs_tight_value` (6 seats, harm control) | 50,000 | +0.02 +/- 0.01, 4 diverged | -0.02 +/- 0.03, 2 diverged | +0.00 +/- 0.02, not resolved |
-| `flh_river_one_bet_value_raise_vs_maniac` (heads-up) | 15,000 | +1.13 +/- 0.25, 91 diverged | +1.67 +/- 0.28, 109 diverged | +1.40 +/- 0.19, z 7.38, SIGNIFICANT |
-| `flh_river_one_bet_value_raise_vs_tight_value` (heads-up, harm control) | 45,000 | +0.04 +/- 0.05, 61 diverged | +0.10 +/- 0.05, 57 diverged | +0.07 +/- 0.04, not resolved |
-| `flh_read_ignores_probes_vs_maniac` (6 seats, 300 no-limit hands first) | 10,000 | +226.30 +/- 24.58, 3,283 diverged | +231.46 +/- 24.76, 3,305 diverged | +228.88 +/- 17.44, z 13.12, SIGNIFICANT |
-| `flh_read_ignores_probes_vs_tight_value` (6 seats, harm control) | 45,000 | -0.00 +/- 0.00, 1 diverged | 0.00 +/- 0.00, 0 diverged (INERT) | not resolved |
-| `flh_river_one_bet_value_raise_vs_passive_caller` (heads-up, third range; 2026-11-21) | 45,000 | +0.04 +/- 0.05, z 0.78, 60 diverged | +0.11 +/- 0.04, z 2.83, 60 diverged | +0.07 +/- 0.03, z 2.41, SIGNIFICANT (marginal) |
-| `flh_steal_vs_tight_blinds_vs_over_folding_blinds` (6 seats, favourable range; 2026-11-21) | 10,000 | +7.00 +/- 0.39, 388 diverged | +6.68 +/- 0.39, 353 diverged | +6.84 +/- 0.28, z 24.68, SIGNIFICANT |
-| `flh_river_strong_hand_leads_vs_passive_caller` (heads-up; measured 2026-11-21, NOT kept on the card) | 20,000 | -0.01 +/- 0.01, 1 diverged | 0.00 +/- 0.00, 0 diverged (INERT) | not resolved, inert |
+| Card                                                                                                       | Pairs per seed | Seed 20261120                         | Seed 20261121                         | Seeds together                                     |
+| ---------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------- | ------------------------------------- | -------------------------------------------------- |
+| `flh_call_is_not_a_commitment_vs_maniac` (6 seats)                                                         | 12,000         | -28.02 +/- 7.30, 928 diverged         | -21.35 +/- 8.10, 952 diverged         | -24.68 +/- 5.45, z -4.53, SIGNIFICANT              |
+| `flh_call_is_not_a_commitment_vs_tight_value` (6 seats, harm control)                                      | 50,000         | +0.02 +/- 0.01, 4 diverged            | -0.02 +/- 0.03, 2 diverged            | +0.00 +/- 0.02, not resolved                       |
+| `flh_river_one_bet_value_raise_vs_maniac` (heads-up)                                                       | 15,000         | +1.13 +/- 0.25, 91 diverged           | +1.67 +/- 0.28, 109 diverged          | +1.40 +/- 0.19, z 7.38, SIGNIFICANT                |
+| `flh_river_one_bet_value_raise_vs_tight_value` (heads-up, harm control)                                    | 45,000         | +0.04 +/- 0.05, 61 diverged           | +0.10 +/- 0.05, 57 diverged           | +0.07 +/- 0.04, not resolved                       |
+| `flh_read_ignores_probes_vs_maniac` (6 seats, 300 no-limit hands first)                                    | 10,000         | +226.30 +/- 24.58, 3,283 diverged     | +231.46 +/- 24.76, 3,305 diverged     | +228.88 +/- 17.44, z 13.12, SIGNIFICANT            |
+| `flh_read_ignores_probes_vs_tight_value` (6 seats, harm control)                                           | 45,000         | -0.00 +/- 0.00, 1 diverged            | 0.00 +/- 0.00, 0 diverged (INERT)     | not resolved                                       |
+| `flh_river_one_bet_value_raise_vs_passive_caller` (heads-up, third range; 2026-11-21)                      | 45,000         | +0.04 +/- 0.05, z 0.78, 60 diverged   | +0.11 +/- 0.04, z 2.83, 60 diverged   | +0.07 +/- 0.03, z 2.41, SIGNIFICANT (marginal)     |
+| `flh_steal_vs_tight_blinds_vs_over_folding_blinds` (6 seats, favourable range; 2026-11-21)                 | 10,000         | +7.00 +/- 0.39, 388 diverged          | +6.68 +/- 0.39, 353 diverged          | +6.84 +/- 0.28, z 24.68, SIGNIFICANT               |
+| `flh_river_strong_hand_leads_vs_passive_caller` (heads-up; measured 2026-11-21, NOT kept on the card)      | 20,000         | -0.01 +/- 0.01, 1 diverged            | 0.00 +/- 0.00, 0 diverged (INERT)     | not resolved, inert                                |
+| `flh_steal_vs_tight_blinds_vs_preflop_defending_blinds` (6 seats, harm control; 2026-11-21)                | 10,000         | +6.41 +/- 0.62, z 10.40, 427 diverged | +6.18 +/- 0.59, z 10.42, 382 diverged | +6.29 +/- 0.43, z 14.72, SIGNIFICANT               |
+| `flh_steal_vs_tight_blinds_vs_value_only_blinds` (6 seats, harm control; 2026-11-21, NOT kept on the card) | 20,000         | +0.03 +/- 0.02, z 1.31, 2 diverged    | +0.02 +/- 0.01, z 1.41, 2 diverged    | +0.02 +/- 0.01, z 1.84, not resolved, almost inert |
 
 The three 2026-11-21 rows ran on the working tree of their pull request (base 5bfaa38d0, `server/src` as merged in it), sizes fixed before the runs from development probes at seed 20261115, which are reported here and not pooled: value raise against the passive caller 1 of 1,000 pairs diverged (-0.40 +/- 0.40); steal against the over-folding blinds 109 of 3,000 (+6.47 +/- 0.74); river lead against the passive caller 2 of 10,000 heads-up (0.00 +/- 0.03) and 0 of 4,000 at six seats. Block standard errors: value raise 0.05 and 0.03, steal 0.44 and 0.49. No sample was enlarged after a result.
+
+The two steal harm controls (second pass of 2026-11-21) ran on the working tree of their pull request (base 8d01508d3, `server/src` as merged in it). Their sizes were fixed before the runs at seeds 20261120 and 20261121 from development probes at seed 20261115 (3,000 pairs each, reported here and not pooled): against the preflop-defending blinds +5.45 +/- 1.08, z 5.03, 121 diverged; against the value-only blinds 0 of 3,000 diverged. Block standard errors: preflop-defending 0.70 and 0.72, value-only 0.02 and 0.02. No sample was enlarged after a result.
 
 Every run had 0 illegal actions, 0 truncated streets and 0 brain exception fallbacks. Corrected actions came only from the hero Horse (2,091 to 2,503 per maniac run, 0 in every tight-value run); a script's answer is never corrected (pinned in the test). The solver stores were empty: the nightly worker hydrates them and these runs did not.
 
@@ -136,16 +225,37 @@ How to read these figures:
 
 - `fixedLimitCallIsNotACommitment` LOSES against this field: -24.68 +/- 5.45 bb/100 across the two seeds, against the lane's +9.34 +/- 4.10 big bets per 100 hands for flh six seats against its maniac (`docs/horse-default-on.d/fixedLimitCallIsNotACommitment.md`). The fields are not the same. Here five maniacs cap almost every street, and the Horse's memory now reads them whole (the memory fix above). Before that fix the same card read +124.10 +/- 9.45 at the same seeds and sizes (+131.90 +/- 13.67 and +116.31 +/- 13.05). That number came from the defect and is withdrawn.
 - `fixedLimitReadIgnoresProbes` changes about a third of the pairs against a maniac carrying a no-limit probe history. That is the case it was built for, and the lane measured it at 23.5 to 23.8 % of deals. Against the value-only player it changes almost nothing.
-- `fixedLimitRiverOneBetValueRaise` now has three ranges in aggregate: significant against the maniac (+1.40 +/- 0.19), not resolved against the value-only player (+0.07 +/- 0.04), and against the passive caller +0.07 +/- 0.03, which passes the two-standard-error rule only with the seeds together (one seed of two resolves alone). No cell is negative. The per-node table is still missing, so the Value row is not met.
-- `fixedLimitStealVsTightBlinds` wins against the extreme over-folder, as it must: that script folds to every postflop wager and 82% of its blinds. It is one favourable range with no harm control, and the option is under an owner hold that this measurement does not lift.
+- `fixedLimitRiverOneBetValueRaise` now has three ranges in aggregate: significant against the maniac (+1.40 +/- 0.19), not resolved against the value-only player (+0.07 +/- 0.04), and against the passive caller +0.07 +/- 0.03, which passes the two-standard-error rule only with the seeds together (one seed of two resolves alone). No cell is negative. The per-node table (below) puts 428 of its 458 changed pairs at the option's own node, positive in every range.
+- `fixedLimitStealVsTightBlinds` wins against the extreme over-folder, as it must: that script folds to every postflop wager and 82% of its blinds. Its two harm controls: blinds that defend 80% of their hands against a raise and then fold every postflop wager still lose to the steal (+6.29 +/- 0.43), because every widened open that is called wins the pot with a postflop bet; the value-only blinds almost never let it act (2 of 20,000 pairs at each seed), because their fold read never fills (next section). No cell is negative. The option is under an owner hold that this measurement does not lift.
 - `fixedLimitRiverStrongHandLeads` is not moved by a passive caller either (1 pair in 40,000 across the two seeds). The arm stays refused; the card used for the measurement is not kept, because it would read inert every night.
-- These are measurements against scripted opponents. They are not a verdict on any option. None of them meets the Value row of `docs/HORSE-DECISION-CHANGE-EVIDENCE.md`, which needs at least three ranges and a per-node table.
+- These are measurements against scripted opponents. They are not a verdict on any option, and no option's authority file says "Evidence MET" on them: a fixed-limit option still has no replay on audited decisions against people, and none can be run (below, "People at fixed-limit tables").
 - Each option's status, with these figures and what is still owed, is in `docs/horse-option-authority.d/<option>.md` (written 2026-11-21 for every fixed-limit option that is off in source).
 
-### Still owed: the other recorded mirror configurations
+### The other recorded mirror configurations, re-run after the memory fix (2026-11-21)
 
-The league memory fix of 2026-11-20 was followed by a re-measurement of the Horse-mirror counts at seed 20261115, 300 pairs only. The other recorded mirror configurations in the table under "What was measured on the legal game" (Hybrid cash at 2,000 pairs and production personas at 600 and 300 pairs, seed 20261120) have NOT been re-run since the fix. Their rows above are pre-fix readings. Any of them that depends on probe tallies is suspect until re-run; the default-on record of `fixedLimitBetsAreNeverProbes` is to be updated if a reading moves.
+The league memory fix of 2026-11-20 was followed by a re-measurement of the Horse-mirror counts at seed 20261115, 300 pairs. The other mirror configurations, Hybrid cash at 2,000 pairs and production personas at 600 pairs, were re-run on 2026-11-21 at seed 20261120 for every fixed-limit hold'em option, on the working tree of that day's pull request (base 8d01508d3). Arm A the option on, bb/100 in big blinds; every run 0 illegal actions, 0 truncated streets, 0 brain exception fallbacks.
 
+| Option                            | Seats | Hybrid cash, 2,000 pairs: diverged, bb/100 | Production personas, 600 pairs: diverged, bb/100 | Reading before the fix (same seed)                      |
+| --------------------------------- | ----- | ------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------- |
+| `fixedLimitPricedPreflop`         | 6     | 197, +0.26 +/- 0.54                        | 56, -1.35 +/- 1.07                               | none at these sizes                                     |
+| `fixedLimitRiverFullBetRead`      | 2     | 53, +0.48 +/- 0.48                         | 9, +0.83 +/- 0.61                                | none at these sizes                                     |
+| `fixedLimitCallIsNotACommitment`  | 6     | 1, +0.0375 +/- 0.0375                      | 2, +0.25 +/- 0.18                                | the same: 1, +0.0375 +/- 0.0375 and 2, +0.25 +/- 0.1777 |
+| `fixedLimitReadIgnoresProbes`     | 6     | 0                                          | 0                                                | 0 of 300 (production personas)                          |
+| `fixedLimitRiverStrongHandLeads`  | 6     | 7, -0.01 +/- 0.06                          | 2, -0.06 +/- 0.12                                | 1 of 300, +0.11 +/- 0.11 (production personas)          |
+| `fixedLimitRiverOneBetValueRaise` | 2     | 3, +0.05 +/- 0.09                          | 0                                                | 0 of 300 (production personas)                          |
+| `fixedLimitStealVsTightBlinds`    | 6     | 0                                          | 0                                                | none at these sizes                                     |
+
+No reading that existed before the fix moved: the two configurations recorded before it at these sizes (`fixedLimitCallIsNotACommitment`) are identical, and the 300-pair production-persona readings stay inert or near it at 600. None is significant. So the default-on record of `fixedLimitBetsAreNeverProbes` (`docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md`), which rests on the lane's own harness and not on these rows, needs no update.
+
+### The per-node table of changed decisions (built 2026-11-21)
+
+`server/src/benchmark/LeagueChangedNodeTable.ts` is a read-only observer (`LeagueFieldPairObserver`, passed as `runMatchup`'s optional fifth argument; refused for a mirror card, absent on every card the nightly worker deals). In each pair it finds the first hero decision on which arm A and arm B disagree and books the pair's hero result (A minus B, big blinds) to that node: street, facing a wager or checked to, and the bets and raises already on the street. Everything before that decision is the same deal, field and history on both passes, so the booked difference is the value of the changed decision together with everything it caused. `npx tsx src/scripts/leagueChangedNodeTable.ts --card=<card> --seed=<seed> --pairs=<pairs>` from server/ prints the table and the card's own result, which equals what `horseLeagueCard.ts` prints for the same card, seed and size (checked on every run below). Pinned by `LeagueChangedNodeTable.test.ts`.
+
+Tables: `fixedLimitRiverOneBetValueRaise` against its three ranges in `docs/horse-option-authority.d/fixedLimitRiverOneBetValueRaise.md`; `fixedLimitStealVsTightBlinds` against the over-folding and preflop-defending blinds in `docs/horse-option-authority.d/fixedLimitStealVsTightBlinds.md`.
+
+### People at fixed-limit tables (counted 2026-11-21)
+
+Counted read-only at 15:10 UTC from production `hand_history` (`has_human`: a person was dealt in; such hands are kept forever, Horse-only hands eight days): fixed-limit hold'em 0 hands with a person, ever; fixed-limit Omaha hi-lo 107 hands, all at one table between 2026-11-03 02:40 and 03:53 UTC, one person and five Horses. Horse-only hands retained at the same moment: 230,155 flh and 81,351 flo8. So an audited fixed-limit-versus-people decision set cannot be built for hold'em at all, and for hi-lo it would be 107 hands of one person. No fixed-limit option's Replay row can therefore leave NOT RUN until people play fixed limit here.
 
 ## What is still refused, and what each needs
 
@@ -153,7 +263,7 @@ A hold'em arm that a Horse mirror changes in none or almost none of the pairs is
 
 ### 1. Scripted fixed-limit fields: BUILT 2026-11-20 for the maniac and the tight-value player (see "The scripted fixed-limit field" below)
 
-Built 2026-11-21: the over-folding blinds script (`flh_over_folding_blinds_v1`) and the passive river caller (`flh_passive_caller_v1`, also the third opponent range for the one-bet value raise). The passive caller did not make `fixedLimitRiverStrongHandLeads` measurable (1 of 20,000 and 0 of 20,000 pairs diverged). Still not built here: the per-node table of changed decisions the Value row of `docs/HORSE-DECISION-CHANGE-EVIDENCE.md` asks for (a `LeagueHandObserver` can record it) and harm controls for the steal. The design as first written is kept below for the record.
+Built 2026-11-21: the over-folding blinds script (`flh_over_folding_blinds_v1`) and the passive river caller (`flh_passive_caller_v1`, also the third opponent range for the one-bet value raise). The passive caller did not make `fixedLimitRiverStrongHandLeads` measurable (1 of 20,000 and 0 of 20,000 pairs diverged). The per-node table of changed decisions and the steal's two harm controls followed later that day (above). The design as first written is kept below for the record.
 
 <details><summary>The design as written before it was built</summary>
 
