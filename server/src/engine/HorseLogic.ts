@@ -638,6 +638,8 @@ import {
   omahaHudPricedBetOverCheck,
   omahaHudPricedRaiseOverCall,
 } from './HorseOmahaPricedWiring.js';
+import { hudFirstWagerRecord, hudStat } from './opponentHud/OpponentHud.js';
+import { omahaHudPreflopPriced, type HudPreflopVerdict } from './HorseOmahaHudPreflopPriced.js';
 import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
@@ -9462,6 +9464,83 @@ const OMAHA_PRESSURE_OPTION_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'pl
  * presumption, is withheld. The option off, another game, a tournament, the
  * mind off or any failure is false (today's play).
  */
+/**
+ * OPPONENT HUD PRICED PREFLOP: the spot for omahaHudPreflopPriced from the public state and the decision's lifetime
+ * packet (hudStat shrinks each rate n / (n + k) to the population prior; hudFirstWagerRecord gives his turn / river
+ * first-wager counts, shrunk here with the measured STAB-DEFENCE pooled constant k = 37). Null when out of scope.
+ */
+const hudNum = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
+const HUD_STAB_K = 37;
+const HUD_STAB_POP_DEFAULT = 0.35;
+function omahaHudPreflopVerdictAt(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  lastRaiserSeat: number
+): HudPreflopVerdict | null {
+  try {
+    const fam = String(gs.gameVariant ?? '').toLowerCase();
+    if (fam !== 'plo4' && fam !== 'plo5') return null;
+    const hole = player.cards ?? [];
+    if (hole.length !== Number(fam.at(-1))) return null;
+    const heroBet = hudNum(player.bet);
+    const currentBet = hudNum(gs.currentBet);
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, currentBet - heroBet);
+    const pot = hudNum(gs.pot);
+    const stack = hudNum(player.stack);
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out && !p.is_all_in
+    );
+    if (!live.length || !(pot > 0) || !(stack > 0)) return null;
+    const rate = (u: string, st: string) => {
+      const r = hudStat(u, fam, st, null, false);
+      return r.p ?? r.prior ?? 0.3;
+    };
+    const stabOf = (u: string) => {
+      let bets = 0;
+      let opps = 0;
+      for (const street of ['turn', 'river'] as const)
+        for (const pl of ['hu', 'mw'] as const) {
+          const w = hudFirstWagerRecord(u, fam, street, pl);
+          if (w) {
+            bets += w.bets;
+            opps += w.opps;
+          }
+        }
+      return (bets + HUD_STAB_K * HUD_STAB_POP_DEFAULT) / (opps + HUD_STAB_K);
+    };
+    const order = (seat: number) => postflopOrder(seat, gs.dealerSeat);
+    const legal = Array.isArray(gs.legalActions) ? gs.legalActions : null;
+    // the pot-limit raise: to the current bet plus the pot after the call
+    const raiseTo = Math.min(heroBet + stack, currentBet + pot + toCall);
+    return omahaHudPreflopPriced({
+      hole,
+      dead: player.knownDeadCards ?? [],
+      pot,
+      toCall,
+      heroBet,
+      stack,
+      raiseTo,
+      inPosition: live.every((p) => order(p.seat) < order(player.seat)),
+      canCall: legal === null || legal.includes('call'),
+      canRaise: legal === null || legal.includes('raise') || legal.includes('bet'),
+      opponents: live.map((p) => ({
+        stack: hudNum(p.stack),
+        bet: hudNum(p.bet),
+        vpip: rate(p.user_id, 'pf.vpip'),
+        pfr: rate(p.user_id, 'pf.pfr'),
+        f3bet: rate(p.user_id, 'pf.f3bet'),
+        raised: p.seat === lastRaiserSeat,
+        stab: stabOf(p.user_id),
+        stabPop: HUD_STAB_POP_DEFAULT,
+      })),
+    });
+  } catch {
+    return null;
+  }
+}
+
 function omahaPostflopPressureWithheld(
   bettorId: string,
   gs: HorseGameStateV2,
@@ -19153,6 +19232,47 @@ export class HorseLogic {
         // presumption supplied the width. This one fires only when the raiser
         // faced is a maniac on its own record, so the two can be told apart.
         if (telemetryOn(opts) && observedManiacRaiser) noteFire('observed_maniac_raiser_seen');
+        // OPPONENT HUD PRICED PREFLOP (2026-11-21; omahaOpponentLifetimeHud on only): where the lifetime read alone
+        // removes the maniac-pressure width the decayed read gives (the Horse would then raise where it folded or
+        // called), the widening stands only when the raise is priced above the call and the fold on the read-adjusted
+        // response of the players left (omahaHudPreflopPriced); otherwise, or unpriceable, the lifetime read is not
+        // consumed at this site (the widths as with the option off).
+        if (HorseMind.hudReadActive() && vi.isOmaha) {
+          const legacyW = HorseMind.withoutHud(() => {
+            let r: number | null = null;
+            let b: number | null = null;
+            const rm =
+              lastRaiserSeat >= 0 ? gs.players.find((p) => p.seat === lastRaiserSeat) : undefined;
+            if (rm && rm.user_id !== player.user_id)
+              r = maniacRaiseWidth(HorseMind.opponentRead(rm.user_id));
+            if (raises === 0)
+              for (const p of gs.players) {
+                if (p.seat === player.seat || p.is_folded || p.is_all_in || p.is_sitting_out)
+                  continue;
+                if (history.some((a) => a.seat === p.seat && MANIAC_VOLUNTARY.has(a.action)))
+                  continue;
+                const w = maniacRaiseWidth(HorseMind.opponentRead(p.user_id));
+                if (w !== null) b = Math.max(b ?? 0, w);
+              }
+            return { r, b };
+          });
+          const widened =
+            (legacyW.r !== null && maniacRaiserWidth === null) ||
+            (legacyW.b !== null && maniacBehindWidth === null);
+          if (widened) {
+            const verdict = omahaHudPreflopVerdictAt(player, gs, lastRaiserSeat);
+            if (verdict?.action !== 'raise') {
+              if (maniacRaiserWidth === null) maniacRaiserWidth = legacyW.r;
+              if (maniacBehindWidth === null) maniacBehindWidth = legacyW.b;
+            }
+            if (telemetryOn(opts))
+              noteFire(
+                verdict === null
+                  ? 'opponent_hud_preflop_unpriced_legacy'
+                  : `opponent_hud_preflop_priced_${verdict.action}`
+              );
+          }
+        }
       } catch {
         /* reads are best-effort */
       }
