@@ -12,7 +12,7 @@ Public information only: counts of public actions; no name, account, person/Hors
 
 Archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/STAB-DEFENCE-5.md. Development only so far (bench seed 20261120): heads-up calling station, the two river rules alone +21.5 +- 13.8 bb/100 for the station; with the stab defence and this option +2.3 +- 10.4, the river rules' bets into the station falling from about 115 added called bets to 12 in 4,000 pairs. The grade and the journal replay count are not run.
 
-- Replay: NOT RUN (a count-only replay with the as-of lifetime provider is owed under the criteria)
+- Replay: NOT RUN (the audited-set scorer was not run; a count-only journal replay with the as-of lifetime provider was run 2026-11-21 by lane LEAK-LOOKS-1 on the four-option set at 480147eb1ef4: 7,532 turn and river decisions, 484 changed, 16 with a person live from 2 persons, INSUFFICIENT under the person bar)
 
 ## Rollback
 

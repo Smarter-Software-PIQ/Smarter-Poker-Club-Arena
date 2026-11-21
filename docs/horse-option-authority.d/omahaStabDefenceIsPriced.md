@@ -12,4 +12,4 @@ Public information only: counts of public actions; no name, account, person/Hors
 
 Archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/STAB-DEFENCE.md, STAB-DEFENCE-2.md and STAB-DEFENCE-3.md. Criteria: CRITERIA-STAB-DEFENCE.md with amendments 1, 2 and 3 (declared before any grade run). Development only so far (bench seed 20261120); the grade and the journal replay count are not run.
 
-- Replay: NOT RUN (no as-of lifetime provider was wired to the journal replay when this file was written; a count-only replay is owed under the criteria)
+- Replay: NOT RUN (the audited-set scorer was not run; a count-only journal replay with the as-of lifetime provider was run 2026-11-21 by lane LEAK-LOOKS-1 on the four-option set at 480147eb1ef4: 7,532 turn and river decisions, 484 changed, 16 with a person live from 2 persons, INSUFFICIENT under the person bar)
