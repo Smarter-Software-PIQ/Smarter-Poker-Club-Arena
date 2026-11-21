@@ -615,6 +615,10 @@ import {
   omahaPricedUnderpairFolds,
   type OmahaPricedDeps,
 } from './HorseOmahaPricedWiring.js';
+import {
+  omahaHudPricedBetOverCheck,
+  omahaHudPricedRaiseOverCall,
+} from './HorseOmahaPricedWiring.js';
 import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
@@ -19697,7 +19701,23 @@ export class HorseLogic {
         const raiser =
           lastRaiserSeat >= 0 ? gs.players.find((p) => p.seat === lastRaiserSeat) : undefined;
         if (raiser && raiser.user_id !== player.user_id) {
-          const read = HorseMind.opponentRead(raiser.user_id);
+          let read = HorseMind.opponentRead(raiser.user_id);
+          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): no priced raise-against-call
+          // exists before the flop, so a lifetime read that would withdraw the opener / re-raiser exploit the decayed
+          // read grants is not consumed here (the site answers as with the option off).
+          if (HorseMind.hudReadActive()) {
+            const grantsHud = (r: typeof read): boolean =>
+              !!r &&
+              (raises === 1
+                ? preflopVsOpener(r, vi.isOmaha)?.wide === true ||
+                  aggressiveOpenerPressure(r, vi.isOmaha, v86) !== null
+                : raises >= 2 && preflopVsReRaiser(r, raises) !== null);
+            const legacyRead = HorseMind.opponentReadWithoutHud(raiser.user_id);
+            if (grantsHud(legacyRead) && !grantsHud(read)) {
+              read = legacyRead;
+              if (telemetryOn(opts)) noteFire('opponent_hud_lowering_preflop_unpriced');
+            }
+          }
           if (read && raises === 1) {
             const rawOpener = preflopVsOpener(read, vi.isOmaha) ?? undefined;
             evidencedWideRaiser87 =
@@ -25276,6 +25296,8 @@ export class HorseLogic {
           let rfrRb: number | null = null;
           let overFolderRb = 0;
           let fcCallingMoreRb = false;
+          // OPPONENT HUD NO-LOWERING: the same three reads as without the lifetime read (receipts muted)
+          let hudLegacyRb: { station: boolean; lowFold: boolean; overFolder: number } | null = null;
           if (useMind) {
             try {
               const readRb = HorseMind.opponentRead(oppRb.user_id);
@@ -25304,11 +25326,33 @@ export class HorseLogic {
                   calledBarrels40 >= 2 ? 0.12 : 0.06
                 );
               }
+              if (HorseMind.hudReadActive()) {
+                const readL = HorseMind.opponentReadWithoutHud(oppRb.user_id);
+                hudLegacyRb = {
+                  station:
+                    isStation(readL) ||
+                    fcRb?.callingDown === true ||
+                    (rfrRb !== null && rfrRb < 0.35),
+                  lowFold: v86 && vi.isOmaha && readL?.stats.foldToBet.engaged === 'low',
+                  overFolder:
+                    (opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true
+                      ? withBrainTelemetrySuspended(() =>
+                          riverBluffFrequency(
+                            riverFoldLowerBound(readL),
+                            sizeRb.sizeFrac,
+                            useIQ && scare.any,
+                            blocker,
+                            calledBarrels40 >= 2 ? 0.12 : 0.06
+                          )
+                        )
+                      : 0,
+                };
+              }
             } catch {
               /* reads are best-effort: no read is the baseline */
             }
           }
-          const pRb = riverBluffProbability({
+          const rbArgs = {
             eligibility: eligRb,
             sizeFrac: sizeRb.sizeFrac,
             valueShare: compRb ? compRb.valueShare : RIVER_BLUFF_PRIOR_VALUE_SHARE,
@@ -25328,7 +25372,38 @@ export class HorseLogic {
               calledBarrels40 >= 2 &&
               rangeChange?.improves !== true &&
               rangeChange?.nutAdvantage !== true,
-          });
+          };
+          let pRb = riverBluffProbability(rbArgs);
+          let stationLowFoldRb = stationLowFold86;
+          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): the lifetime read alone does not
+          // lower the river bluff; the lowering stands only when the check is priced above every bet on his lifetime
+          // response; unpriceable, the lifetime read is not consumed here.
+          if (hudLegacyRb) {
+            const pL = riverBluffProbability({
+              ...rbArgs,
+              reads: {
+                ...rbArgs.reads,
+                station: hudLegacyRb.station,
+                overFolderFrequency: hudLegacyRb.overFolder,
+              },
+            });
+            const lowered = (stationLowFold86 && !hudLegacyRb.lowFold) || pL > pRb;
+            if (lowered) {
+              const pricedRb = omahaHudPricedBetOverCheck(player, gs, opts);
+              if (pricedRb !== false) {
+                pRb = Math.max(pRb, pL);
+                stationLowFoldRb = stationLowFold86 && hudLegacyRb.lowFold;
+              }
+              if (tele15)
+                noteFire(
+                  pricedRb === false
+                    ? 'opponent_hud_lowering_bet_priced_check'
+                    : pricedRb
+                      ? 'opponent_hud_lowering_bet_priced_bet'
+                      : 'opponent_hud_lowering_bet_unpriced'
+                );
+            }
+          }
           // RESPONSES TO TIGHT PLAYERS: a credibly tight-passive player checked to the Horse (styleTightPlayerExploit).
           // Bounded: never above 0.9 unless the baseline already was; the size is the baseline's own.
           const tightRb = leadRb ? 1 : tightCheckedToMul();
@@ -25349,7 +25424,7 @@ export class HorseLogic {
               nutLowBlockers: nutLowBlockersHeld(player.cards, board),
             });
           if (nutLowBet92 && tele15) noteFire('hilo_nut_low_freeroll_bet');
-          if (sizeRb.sizeFrac > 0 && ((!stationLowFold86 && rollRb < pRbT) || nutLowBet92)) {
+          if (sizeRb.sizeFrac > 0 && ((!stationLowFoldRb && rollRb < pRbT) || nutLowBet92)) {
             const betRb = this.betSize(
               planHandKey,
               pot,
@@ -25700,7 +25775,7 @@ export class HorseLogic {
               /* reads are best-effort: no read is the baseline */
             }
           }
-          const pFt = flopTurnBluffProbability({
+          const ftArgs = {
             eligibility: eligFt,
             omaha: vi.isOmaha,
             opponents: opponents.length,
@@ -25712,7 +25787,37 @@ export class HorseLogic {
             stackToPot: pot > 0 ? effFt / pot : 10,
             reads: { station: stationFt, foldToCbet: ftcFt, bluffMod: exploit.bluffMod },
             icmRisk: isTournamentMode(gs) ? risk : 0,
-          });
+          };
+          const pFt = flopTurnBluffProbability(ftArgs);
+          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): a lifetime station read alone
+          // does not lower the bluff frequency; the lowering stands only when the check is priced above every bet
+          // (turn); unpriceable (the flop), the lifetime read is not consumed here.
+          let pFtUse = pFt;
+          if (useMind && opponents.length === 1 && HorseMind.hudReadActive()) {
+            try {
+              const stationL = isStation(HorseMind.opponentReadWithoutHud(opponents[0].user_id));
+              if (stationL !== stationFt) {
+                const pL = flopTurnBluffProbability({
+                  ...ftArgs,
+                  reads: { ...ftArgs.reads, station: stationL },
+                });
+                if (pL > pFt) {
+                  const pricedFt = omahaHudPricedBetOverCheck(player, gs, opts);
+                  if (pricedFt !== false) pFtUse = pL;
+                  if (tele15)
+                    noteFire(
+                      pricedFt === false
+                        ? 'opponent_hud_lowering_bet_priced_check'
+                        : pricedFt
+                          ? 'opponent_hud_lowering_bet_priced_bet'
+                          : 'opponent_hud_lowering_bet_unpriced'
+                    );
+                }
+              }
+            } catch {
+              /* reads are best-effort */
+            }
+          }
           const sizeFt = flopTurnBluffSize({
             potLimit: vi.isPotLimit,
             street: street === 'flop' ? 'flop' : 'turn',
@@ -25723,7 +25828,7 @@ export class HorseLogic {
             effectiveStack: effFt,
             u: fastRandom(),
           });
-          if (sizeFt.sizeFrac > 0 && fastRandom() < pFt) {
+          if (sizeFt.sizeFrac > 0 && fastRandom() < pFtUse) {
             planBarrel(equity);
             const betFt = this.betSize(
               planHandKey,
@@ -28459,6 +28564,30 @@ export class HorseLogic {
             bettor53 = a.userId;
         }
         if (bettor53) pressure53 = aggressiveBettorPressure(HorseMind.opponentRead(bettor53), v86);
+        // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): the lifetime read alone never
+        // withdraws the pressure raise the decayed read grants. The raise against the call is priced on his lifetime
+        // response; the call stands only when it is priced above the raise; unpriceable here, the lifetime read is not
+        // consumed (the pressure stands as with the option off).
+        if (bettor53 && pressure53 === null && HorseMind.hudReadActive()) {
+          const legacy53 = aggressiveBettorPressure(
+            HorseMind.opponentReadWithoutHud(bettor53),
+            v86
+          );
+          if (legacy53 !== null) {
+            const priced53 = omahaHudPricedRaiseOverCall(player, gs, opts);
+            if (priced53 === false) {
+              if (tele15) noteFire('opponent_hud_lowering_raise_priced_call');
+            } else {
+              pressure53 = legacy53;
+              if (tele15)
+                noteFire(
+                  priced53
+                    ? 'opponent_hud_lowering_raise_priced_raise'
+                    : 'opponent_hud_lowering_raise_unpriced'
+                );
+            }
+          }
+        }
         // omahaPressureNeedsPostflopAggression (default off): PLO4/PLO5 cash,
         // the pressure play needs the bettor's own postflop betting measured
         // high; a preflop-wide or presumed-aggressive bettor who is a value

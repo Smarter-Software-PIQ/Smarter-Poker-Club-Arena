@@ -2742,6 +2742,32 @@ export class HorseMind {
     return adjusted;
   }
 
+  /**
+   * OPPONENT HUD NO-LOWERING (2026-11-21, lead order after the symmetric re-score): whether this decision reads PLO4 /
+   * PLO5 opponents from the lifetime HUD (option omahaOpponentLifetimeHud on). Off: false, and no caller below changes.
+   */
+  static hudReadActive(): boolean {
+    const scope = this.decisionScope;
+    if (!scope || this.decisionReadOptions.opponentLifetimeHud !== true) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /**
+   * The read this opponent would get WITHOUT the lifetime HUD (the decayed window and the PLO presumption), receipts
+   * muted. Used only where a lifetime read would LOWER a raise or a bet by itself: the caller prices that lowering,
+   * and where it cannot price it the lifetime read is not consumed there (the site answers as with the option off).
+   */
+  static opponentReadWithoutHud(userId: string): OpponentExploitRead | null {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true) return this.opponentRead(userId);
+    const saved = this.decisionReadOptions;
+    this.decisionReadOptions = { ...saved, opponentLifetimeHud: false };
+    try {
+      return withBrainTelemetrySuspended(() => this.opponentRead(userId));
+    } finally {
+      this.decisionReadOptions = saved;
+    }
+  }
+
   static opponentRead(userId: string): OpponentExploitRead | null {
     const scope = this.decisionScope;
     if (!scope) return null;

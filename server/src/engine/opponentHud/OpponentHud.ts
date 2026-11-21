@@ -339,6 +339,20 @@ export function hudLifetimeCount(
     return { n: 0, hits: 0, stat };
   }
 }
+/** RAW lifetime counts of one registered context statistic id (see HUD_CONTEXT_STATS); {0, 0} when absent. */
+export function hudLifetimeCountOf(
+  opponentId: string,
+  family: HudFamily,
+  stat: string
+): { n: number; hits: number } {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const c = pk?.opp[opponentId]?.lc?.[stat];
+    return c ? { n: c[0], hits: Math.min(c[0], c[1]) } : { n: 0, hits: 0 };
+  } catch {
+    return { n: 0, hits: 0 };
+  }
+}
 /**
  * STAB-DEFENCE's record (inbox 02:33Z): his first wagers on unopened postflop action / opportunities on one street,
  * raw and undecayed, split after an opponent checked to him (stab) vs first to act (lead), by players live at his

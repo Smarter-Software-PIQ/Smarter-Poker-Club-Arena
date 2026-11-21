@@ -340,7 +340,7 @@ function registry(): string[] {
 export const HUD_STATS: readonly string[] = Object.freeze(registry());
 /** The context statistics (MATHCORE-2 opponent layer, STAB-DEFENCE) whose RAW lifetime counts ride in the packet. */
 export const HUD_CONTEXT_STATS: readonly string[] = Object.freeze(
-  HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|stabsz|lead)\.|^vs\./.test(s))
+  HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|stabsz|lead)\.|^vs\.|^[ftr]\.(fBet|fRaise)$/.test(s))
 );
 const STAT_SET = new Set(HUD_STATS);
 export function hudStatIsRegistered(stat: string): boolean {
