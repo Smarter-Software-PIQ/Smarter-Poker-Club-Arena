@@ -953,9 +953,13 @@ export function settleLeagueShowdown(
   if (live().length === 1) {
     winnings[seats.findIndex((s) => s.player === live()[0])] = pot;
   } else if (vi.isHiLo) {
-    // The same layers as below, handed to the engine as its Pot[].
+    // The same layers as below, merged by identical eligible set (matching
+    // PokerEngine.calculatePots so an odd cent on a split or quartered pot
+    // never differs from HandController.completeHand when a folded seat
+    // contributed below the live players), then handed to determineWinners.
     const levels = [...new Set(contenders.map((c) => c.contributed))].sort((a, b) => a - b);
-    const pots: Pot[] = [];
+    const rawPots: Pot[] = [];
+    let orphaned = 0;
     let prev = 0;
     for (const lvl of levels) {
       if (lvl - prev <= 0) continue;
@@ -966,8 +970,28 @@ export function settleLeagueShowdown(
         if (!seats[i].player.is_folded && seats[i].contributed >= lvl)
           eligiblePlayers.push(seats[i].player.user_id);
       }
-      pots.push({ amount, eligiblePlayers });
+      if (eligiblePlayers.length > 0) {
+        rawPots.push({ amount, eligiblePlayers });
+      } else if (amount > 0) {
+        orphaned += amount;
+      }
       prev = lvl;
+    }
+    if (orphaned > 0 && rawPots.length > 0) {
+      rawPots[0].amount += orphaned;
+    }
+    const pots: Pot[] = [];
+    for (const layer of rawPots) {
+      const last = pots[pots.length - 1];
+      if (
+        last &&
+        last.eligiblePlayers.length === layer.eligiblePlayers.length &&
+        last.eligiblePlayers.every((id, idx) => id === layer.eligiblePlayers[idx])
+      ) {
+        last.amount += layer.amount;
+      } else {
+        pots.push(layer);
+      }
     }
     const awards = determineWinners(
       seats.map((s) => s.player),
@@ -1082,13 +1106,12 @@ export function playHand(
   }
   const START_STACK = stackBB * BB;
   const vi = variantInfo(gameVariant);
-  // FIXED LIMIT (2026-11-20, LeagueDecisionState.ts): fixed-limit hold'em is
-  // dealt with the engine's own structure rules - the street unit, the
-  // four-wager cap and the single legal amount, from BettingStructure.ts and
-  // calculateBettingState, the functions HandController.buildBettingState
-  // calls - at stacks no hand can exhaust. Any other fixed-limit table is
-  // refused here, loudly, except fixed-limit hi-lo, which keeps the legacy
-  // path its refused cards were measured on (UNMEASURABLE_MATCHUPS).
+  // FIXED LIMIT (2026-11-20; flo8 added 2026-11-21, LeagueDecisionState.ts):
+  // fixed-limit hold'em (flh) and fixed-limit Omaha hi-lo (flo8) are dealt with
+  // the engine's own structure rules - the street unit, the four-wager cap and
+  // the single legal amount, from BettingStructure.ts and calculateBettingState,
+  // the functions HandController.buildBettingState calls - at stacks no hand
+  // can exhaust. Any fixed-limit table outside that domain is refused loudly.
   const fixedLimit = leagueDealsFixedLimit(gameVariant);
   if (fixedLimit) {
     const refusal = leagueFixedLimitRefusal({
@@ -1249,8 +1272,7 @@ export function playHand(
       // state production builds for this node - the legal menu, toCall, the
       // wager bounds, the betting structure, the public seats with their real
       // investment - so the league plays the brain production fields. `gs`
-      // above stays the input of the non-Horse pressure seats only. Fixed-limit
-      // hi-lo has no league menu and keeps `gs`.
+      // above stays the input of the non-Horse pressure seats only.
       const brainInput = (): { player: SeatPlayer; gameState: HorseGameStateV2 } =>
         leagueHorseDecisionInput({
           seats,
@@ -5764,6 +5786,61 @@ export const FIXED_LIMIT_HOLDEM_CARDS: readonly LeagueMatchup[] = Object.freeze(
 LEAGUE_MATCHUPS.push(...FIXED_LIMIT_HOLDEM_CARDS);
 
 /**
+ * THE FIXED-LIMIT OMAHA HI-LO CARDS (2026-11-21).
+ *
+ * playHand now deals fixed-limit Omaha hi-lo (flo8) with both the engine's
+ * fixed-limit betting structure (LeagueDecisionState.ts: small bet preflop
+ * and flop, big bet turn and river, four-wager street cap, controller menu)
+ * and its hi-lo split showdown (settleLeagueShowdown -> determineWinners),
+ * proven node by node against a real HandController in
+ * HorseLeagueFixedLimit.test.ts. Domain: flo8 cash, no ante, Horse seats
+ * only, stacks above 24 big blinds (leagueFixedLimitRefusal).
+ *
+ * Every flo8 arm was re-measured on that legal game (seed 20261115, 300 pairs,
+ * EQUITY_GOVERNOR=off, 0 illegal / 0 truncated / 0 corrected / 0 fallbacks).
+ * The three that change decisions in a Horse mirror leave UNMEASURABLE_MATCHUPS
+ * for the card on the live cash Hybrid persona with the deal-seeded mood clock:
+ *   flo8_no_omaha_presumption  59 of 300 pairs diverged, +11.42 +/- 4.07 bb/100
+ *   flo8_priced_preflop        68 of 300 pairs diverged,  -0.44 +/- 1.88 bb/100
+ *   flo8_river_full_bet_read    5 of 300 pairs diverged,  +0.33 +/- 1.20 bb/100
+ * These cards only measure; every option stays default OFF. The remaining flo8
+ * arms diverged in 0 of 300 pairs on the legal game and stay refused with
+ * their exact counts in UNMEASURABLE_MATCHUPS.
+ */
+export const FIXED_LIMIT_OMAHA_HILO_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'flo8_no_omaha_presumption',
+    variant: 'flo8',
+    seats: 2,
+    pairs: 2000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { fixedLimitOmahaNoPresumption: true },
+    b: {},
+  },
+  {
+    name: 'flo8_priced_preflop',
+    variant: 'flo8',
+    seats: 6,
+    pairs: 2000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { fixedLimitPricedPreflop: true },
+    b: {},
+  },
+  {
+    name: 'flo8_river_full_bet_read',
+    variant: 'flo8',
+    seats: 2,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { fixedLimitRiverFullBetRead: true },
+    b: {},
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...FIXED_LIMIT_OMAHA_HILO_CARDS);
+
+/**
  * THE SCRIPTED FIXED-LIMIT FIELD CARDS (2026-11-20, docs/horse-league-fixed-limit.md).
  *
  * One hero Horse (live cash Hybrid persona, deal-seeded mood clock) against
@@ -6035,24 +6112,23 @@ function fixedLimitHoldemRefusal(o: {
 }
 function fixedLimitHiLoRefusal(o: {
   gate: string;
-  /** Pairs that diverged of 300 on 2026-11-15 (seed 20261115), on the betting the league still gives flo8. */
+  /** Pairs that diverged of 300 on 2026-11-21 (seed 20261115) on the legal fixed-limit flo8 game. */
   diverged: number;
-  note?: string;
+  why: string;
   needs: string;
   law: string;
 }): string {
   return (
-    "Unanswerable by this league: it deals fixed-limit hold'em only (since 2026-11-20, LeagueDecisionState.ts). " +
-    'A flo8 hand still gets no-limit betting: no fixed-limit street unit, wager cap or controller menu (its ' +
-    "showdown has paid the low half by the engine's determineWinners since 2026-11-21, settleLeagueShowdown). " +
+    'Refused, though the league deals this game: since 2026-11-21 playHand deals legal fixed-limit Omaha hi-lo ' +
+    '(the street unit, the four-wager cap and the controller menu, LeagueDecisionState.ts, and hi-lo split ' +
+    "settlement through the engine's determineWinners, settleLeagueShowdown; proven against a real " +
+    'HandController by HorseLeagueFixedLimit.test.ts), Horse seats only, cash, stacks above 24 big blinds. ' +
     `${o.gate} The option is DEFAULT OFF (read as === true). ` +
-    'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
-    `${o.diverged} of 300 pairs diverged${o.note ?? ''}. The league deals the variant's cards with its own betting while ` +
-    'the brain takes the fixed-limit path from the variant name, so that divergence is not a ' +
-    'fixed-limit measurement and decides nothing. ' +
-    `What would change this: fixed-limit betting for flo8 in the league's hand (${FIXED_LIMIT_FIELD_DESIGN}) ` +
-    `or a fixed-limit duplicate league on the real ` +
-    `HandController (flo8, ${o.needs}); until one is built, the fixtures in ` +
+    'Measured 2026-11-21 on that legal game by running this refused matchup through runMatchup ' +
+    `(seed 20261115, 300 pairs, EQUITY_GOVERNOR=off): ${o.diverged} of 300 pairs diverged. ${o.why} ` +
+    'A card that changes no decision, or one in hundreds of pairs, reads inert on most nights and measures nothing. ' +
+    `What would change this: ${o.needs} seated on the league's fixed-limit Omaha hi-lo hand ` +
+    `(${FIXED_LIMIT_FIELD_DESIGN} states the domain, invariants and tests); until it is built, the fixtures in ` +
     `${o.law}.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.`
   );
 }
@@ -6293,25 +6369,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'replay) is the evidence.',
   },
   // FIXED LIMIT (Fixed-Limit lane, 2026-11-14 to 2026-11-16; re-measured
-  // 2026-11-20 when the league began dealing legal fixed-limit hold'em).
-  // flh_priced_preflop and flh_river_full_bet_read left for the card
-  // (FIXED_LIMIT_HOLDEM_CARDS). Every arm below is default off and refused
-  // with its own count: hold'em on the legal game, hi-lo on the betting the
-  // league still gives it.
+  // 2026-11-20 on legal flh and 2026-11-21 on legal flo8).
+  // flh_priced_preflop and flh_river_full_bet_read left for FIXED_LIMIT_HOLDEM_CARDS;
+  // flo8_no_omaha_presumption, flo8_priced_preflop and flo8_river_full_bet_read left
+  // for FIXED_LIMIT_OMAHA_HILO_CARDS. Every arm below is default off and refused
+  // with its own count on the legal game.
   // SPEC-FL-01..03.
-  {
-    name: 'flo8_river_full_bet_read',
-    variant: 'flo8',
-    seats: 2,
-    a: { fixedLimitRiverFullBetRead: true },
-    b: {},
-    reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit state (HorseLogic: vi.isFixedLimit).',
-      diverged: 2,
-      needs: 'heads-up and six seats',
-      law: 'AFixedLimitRiverBetIsReadAsAFullBet',
-    }),
-  },
   {
     name: 'flo8_nut_low_river_bet',
     variant: 'flo8',
@@ -6319,9 +6382,13 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     a: { fixedLimitHiLoNutLowRiverBet: true },
     b: {},
     reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit hi-lo state (HorseLogic: vi.isFixedLimit).',
-      diverged: 1,
-      needs: 'heads-up and six seats',
+      gate: 'Every gate of this option requires a fixed-limit hi-lo state (HorseLogic: vi.isFixedLimit): heads-up river unbet or checked to the Horse holding the nut low with no high.',
+      diverged: 0,
+      why:
+        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
+        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): a heads-up Horse mirror rarely reaches an unbet river ' +
+        'with a bare nut low.',
+      needs: 'a scripted flo8 heads-up field that reaches unbet rivers against a Horse hero',
       law: 'AFixedLimitNutLowBetsTheRiverHeadsUp',
     }),
   },
@@ -6355,13 +6422,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     a: { fixedLimitCallIsNotACommitment: true },
     b: {},
     reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit state (HorseLogic: vi.isFixedLimit).',
+      gate: "The option acts only on fixed-limit hold'em at a cash table (HorseLogic fixedLimitCallIsNotACommitmentInScope).",
       diverged: 0,
-      note:
-        ' (11 of 300 on 2026-11-15, before the scope: since 2026-11-16 the option acts only on ' +
-        "fixed-limit hold'em at a cash table, HorseLogic fixedLimitCallIsNotACommitmentInScope, so " +
-        'at flo8 it changes nothing)',
-      needs: 'heads-up and six seats',
+      why:
+        'Inert by scope: since 2026-11-16 fixedLimitCallIsNotACommitmentInScope excludes flo8, so at flo8 both arms ' +
+        'play identical poker (0 of 300 pairs plain and 0 of 300 on the Hybrid cash persona, 0 illegal, 0 truncated).',
+      needs: 'a scope change admitting flo8 and an aggressive flo8 field',
       law: 'AFixedLimitCallIsNotACommitment',
     }),
   },
@@ -6398,26 +6464,14 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     a: { fixedLimitHiLoLowHalfFloor: true },
     b: {},
     reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit hi-lo state (HorseLogic: vi.isFixedLimit).',
-      diverged: 6,
-      needs: 'heads-up and six seats',
+      gate: 'Every gate of this option requires a fixed-limit hi-lo river facing a bet with weak high and qualifying low (HorseHiLoLowHalf.ts).',
+      diverged: 0,
+      why:
+        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
+        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): on legal fixed-limit betting a Horse mirror never ' +
+        'reaches the V40 weak-high river pressure cap that tripped under the old no-limit path (6 of 300 on 2026-11-15).',
+      needs: 'a scripted river-betting flo8 field that forces weak-high/strong-low river calls',
       law: 'AFixedLimitHiLoLowHalfIsKept',
-    }),
-  },
-  // Tight fix T1, the Omaha presumption.
-  {
-    name: 'flo8_no_omaha_presumption',
-    variant: 'flo8',
-    seats: 2,
-    a: { fixedLimitOmahaNoPresumption: true },
-    b: {},
-    reason: fixedLimitHiLoRefusal({
-      gate:
-        'The option acts only on a fixed-limit Omaha decision (HorseMind.opponentRead: ' +
-        "bettingStructureFor(variant) === 'fixed_limit').",
-      diverged: 81,
-      needs: 'heads-up and three seats, tight and maniac fields',
-      law: 'AFixedLimitOmahaHasNoPresumption',
     }),
   },
   // W8, a strong river hand leads.
@@ -6456,26 +6510,18 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     a: { fixedLimitRiverStrongHandLeads: true },
     b: {},
     reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit state (HorseLogic: vi.isFixedLimit).',
+      gate: 'Every gate of this option requires a fixed-limit state (HorseLogic: vi.isFixedLimit): a strong river hand first to act.',
       diverged: 0,
-      needs: 'heads-up and six seats, Horse, tight-value and maniac fields',
+      why:
+        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
+        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): no Horse mirror hand reached a first-to-act strong river ' +
+        'check that the option flips to a lead.',
+      needs: 'a scripted flo8 field in which a first-to-act Horse checks a full house or better on the river',
       law: 'AFixedLimitStrongRiverHandLeads',
     }),
   },
-  // W5, priced preflop and the steal against over-folding blinds.
-  {
-    name: 'flo8_priced_preflop',
-    variant: 'flo8',
-    seats: 6,
-    a: { fixedLimitPricedPreflop: true },
-    b: {},
-    reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit state (HorseLogic: vi.isFixedLimit).',
-      diverged: 128,
-      needs: 'heads-up and six seats, tight-passive and over-folding fields',
-      law: 'AFixedLimitPreflopIsPriced',
-    }),
-  },
+  // W5, priced preflop (flo8_priced_preflop left for FIXED_LIMIT_OMAHA_HILO_CARDS)
+  // and the steal against over-folding blinds.
   {
     name: 'flh_steal_vs_tight_blinds',
     variant: 'flh',
@@ -6510,10 +6556,15 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     a: { fixedLimitStealVsTightBlinds: true },
     b: {},
     reason: fixedLimitHiLoRefusal({
-      gate: 'Every gate of this option requires a fixed-limit state (HorseLogic: vi.isFixedLimit).',
+      gate:
+        'The option widens a first-in open only when every player still to act has an own adequate over-folder read ' +
+        '(HorseFixedLimitPreflop.fixedLimitStealWiden).',
       diverged: 0,
-      note: ' (the steal also needs over-folder reads the self-play field does not build)',
-      needs: 'heads-up and six seats, tight-passive and over-folding fields',
+      why:
+        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
+        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): the steal needs over-folder reads a Horse mirror does ' +
+        'not build.',
+      needs: 'a scripted flo8 over-folding blinds field with harm controls',
       law: 'AFixedLimitStealsFromOverFoldingBlinds',
     }),
   },
@@ -6554,7 +6605,11 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'The option acts only on a fixed-limit decision (HorseMind.fixedLimitReadIgnoresProbes) against a player whose ' +
         'pooled no-limit/pot-limit probe share is non-zero.',
       diverged: 0,
-      needs: 'six seats, opponents carrying a no-limit probe history',
+      why:
+        'On the live cash Hybrid persona with the deal-seeded mood clock (seed 20261115) 0 of 300 pairs diverged too ' +
+        '(0 illegal, 0 truncated, 0 corrected, 0 fallbacks): a mirror card deals one variant, so no opponent in its ' +
+        'sandbox carries a no-limit or pot-limit probe history.',
+      needs: 'a scripted flo8 field seeded with a no-limit or pot-limit probe history',
       law: 'AFixedLimitReadIsNeverProbeDiscounted',
     }),
   },
