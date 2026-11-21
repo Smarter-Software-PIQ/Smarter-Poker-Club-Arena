@@ -15,7 +15,7 @@
 --      already in the summary, and records table_id, tournament_id, and
 --      pages_in_24h in notification metadata.
 --   3. Preserves zz_a_real_alert_reaches_the_owner strictly on
---      WHEN (NEW.status = 'firing') — zero Cleared/Resolved owner pages.
+--      WHEN (NEW.status = 'firing') - zero Cleared/Resolved owner pages.
 --
 -- @live-proof: (SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ca_owner_page_state' AND column_name = 'pages_in_window') AND position('c_flap_cooldown' in pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure)) > 0 AND position('pages_in_24h' in pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure)) > 0)
 
