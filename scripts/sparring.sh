@@ -10,6 +10,10 @@
 # Env: BASE=<switch json> (default opts-live.json next to this script)  ADVERSARIES="profile:aggro_reg probe:..."
 #   GAMES="plo5:2:100 plo5:6:100 plo5:2:200 plo4:2:100"  PAIRS (default 4000)  SEED (default 20261120)
 #   JOBS (default 2; keep within the Mac's current worker rule)  PROFILE=<json>  OUT=<dir>
+#   SPARRING_CONTROL=0 drops the OFF-vs-OFF control arm CTRL (default: on whenever there is a candidate)
+#   TARGET="probe:a,probe:b" the candidate's target probes; every other adversary is a guard probe (LEAD-3 RULING 1)
+# The table opens with FLIPS FIRST (first divergences from BASE by street and change class, with denominators, and
+# the control row; illegal actions and fallbacks by seat class) and the guard thresholds z_fam for its own counts.
 # Prints the matchup table: the adversary's bb/100 vs BASE and CAND, the paired CAND-BASE change ± SE and verdict
 # (WORSE = the adversary wins more off the Horses), and each probe's edge vs the Horse mirror (> 2 SE = an exploit).
 # Hole cards are never printed or written; results are aggregates. PLO6 is refused.
@@ -31,11 +35,16 @@ mkdir -p "$OUT"; chmod 700 "$OUT"; umask 077
 overlay() { # $1 tree  $2 dir: this harness's files with imports pointed at the tree's engine; nothing written into the tree
   mkdir -p "$2"; echo '{"type":"module"}' > "$2/package.json"
   for f in SparringLeague.ts sparringRun.ts; do
-    sed -E -e "s#from '\.\./#from '$1/server/src/#g" \
-        -e "s#from '\./(HorseLeague|HorseLeagueHumanField|ExploiterLeague|OmahaReference)\.js'#from '$1/server/src/benchmark/\1.js'#g" \
+    sed -E -e "s#(from |import\\(|import )'\.\./#\\1'$1/server/src/#g" \
+        -e "s#(from |import\\(|import )'\./(HorseLeague|HorseLeagueHumanField|ExploiterLeague|OmahaReference)\.js'#\\1'$1/server/src/benchmark/\\2.js'#g" \
         "$SRC/$f" > "$2/$f"
+    # A relative specifier left behind resolves beside the overlay, where no engine lives: the module loads as a
+    # SECOND instance (or not at all) and whatever it installs never reaches the engine that plays the Horses.
+    if grep -nE "(from|import)[ (]*['\"]\.\./" "$2/$f"; then echo "overlay: relative import not rewritten in $f (above)"; exit 2; fi
   done
 }
+# SPARRING_OVERLAY_ONLY=1: build the overlay into $OUT and stop (the overlay law test drives this).
+if [ -n "${SPARRING_OVERLAY_ONLY:-}" ]; then overlay "$TREE" "$OUT/overlay"; echo "overlay $OUT/overlay"; exit 0; fi
 cp "$BASE" "$OUT/base.json"
 [ -n "${PROFILE:-}" ] && cp "$PROFILE" "$OUT/profile.json"
 cells=()
@@ -44,11 +53,12 @@ for g in $GAMES; do
   IFS=: read -r v s b <<<"$g"
   for a in $ADVERSARIES; do cells+=("$a:$v:$s:$b:$PAIRS:$SEED"); done
 done
-run_cell() { # cell out tree overlaydir basefile candfile(or empty) results perhand
-  local cell="$1" OUTD="$2" T="$3" OV="$4" BF="$5" CF="$6" RES="$7" PH="$8"; local tag; tag="$(basename "$RES" .jsonl)_$(echo "$cell" | tr ':' '_')"
+run_cell() { # cell out tree overlaydir basefile candfile(or empty) results perhand control(1|0|empty = runner default)
+  local cell="$1" OUTD="$2" T="$3" OV="$4" BF="$5" CF="$6" RES="$7" PH="$8" CTL="${9:-${SPARRING_CONTROL:-}}"; local tag; tag="$(basename "$RES" .jsonl)_$(echo "$cell" | tr ':' '_')"
   ( cd "$T/server" && env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" TZ=UTC EQUITY_GOVERNOR=off \
       SUPABASE_URL=https://supabase.invalid SUPABASE_SERVICE_ROLE_KEY=league-offline-placeholder \
       SPARRING_CELL="$cell" SPARRING_OUT="$RES" SPARRING_BASE="$BF" SPARRING_PERHAND="$PH" \
+      ${CTL:+SPARRING_CONTROL="$CTL"} \
       ${CF:+SPARRING_CAND="$CF"} ${PROFF:+SPARRING_PROFILE="$PROFF"} \
       nice -n 15 node --max-old-space-size=3000 --import tsx "$OV/sparringRun.ts" ) > "$OUTD/$tag.log" 2>&1 \
     && echo "done $cell ($(basename "$RES"))" || echo "FAILED $cell (see $OUTD/$tag.log)"
@@ -68,16 +78,16 @@ json.dump(b, open(sys.argv[3], 'w'))
 PY
   echo "CROSS base tree $(head12 "$BT")  cand tree $(head12 "$TREE")  cand ${CAND}  pairs/cell $PAIRS  seed $SEED  jobs $JOBS  out $OUT"
   : > "$OUT/jobs.txt"
-  for c in "${cells[@]}"; do echo "$c|$BT|$OUT/overlay-base|$OUT/base.json|$OUT/results-base.jsonl" >> "$OUT/jobs.txt"; echo "$c|$TREE|$OUT/overlay-cand|$OUT/cand-merged.json|$OUT/results-cand.jsonl" >> "$OUT/jobs.txt"; done
+  for c in "${cells[@]}"; do echo "$c|$BT|$OUT/overlay-base|$OUT/base.json|$OUT/results-base.jsonl|${SPARRING_CONTROL:-1}" >> "$OUT/jobs.txt"; echo "$c|$TREE|$OUT/overlay-cand|$OUT/cand-merged.json|$OUT/results-cand.jsonl|0" >> "$OUT/jobs.txt"; done
   # macOS xargs -I caps a replaced line at 255 bytes: pass line numbers, read the job inside
-  seq 1 "$(wc -l < "$OUT/jobs.txt")" | xargs -P "$JOBS" -I{} bash -c 'IFS="|" read -r c t o b r <<<"$(sed -n "${1}p" "$2/jobs.txt")"; run_cell "$c" "$2" "$t" "$o" "$b" "" "$r" 1' _ {} "$OUT"
-  python3 "$PY" "$OUT/results-base.jsonl" "$OUT/results-cand.jsonl" | tee "$OUT/TABLE.md"
+  seq 1 "$(wc -l < "$OUT/jobs.txt")" | xargs -P "$JOBS" -I{} bash -c 'IFS="|" read -r c t o b r k <<<"$(sed -n "${1}p" "$2/jobs.txt")"; run_cell "$c" "$2" "$t" "$o" "$b" "" "$r" 1 "$k"' _ {} "$OUT"
+  SPARRING_TARGET="${TARGET:-}" python3 "$PY" "$OUT/results-base.jsonl" "$OUT/results-cand.jsonl" | tee "$OUT/TABLE.md"
 else
   overlay "$TREE" "$OUT/overlay"
   CF=""; [ "$CAND" != "-" ] && { cp "$CAND" "$OUT/cand.json"; CF="$OUT/cand.json"; }
   echo "tree $(head12 "$TREE")  cand ${CAND}  pairs/cell $PAIRS  seed $SEED  jobs $JOBS  out $OUT"
   printf '%s\n' "${cells[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_cell "$1" "$2" "$3" "$4" "$5" "$6" "$7" 0' _ {} "$OUT" "$TREE" "$OUT/overlay" "$OUT/base.json" "$CF" "$OUT/results.jsonl"
   ( cd "$TREE/server" && env -i PATH="$PATH" HOME="$HOME" TZ=UTC SUPABASE_URL=https://supabase.invalid \
-      SUPABASE_SERVICE_ROLE_KEY=league-offline-placeholder SPARRING_REPORT="$OUT/results.jsonl" \
+      SUPABASE_SERVICE_ROLE_KEY=league-offline-placeholder SPARRING_REPORT="$OUT/results.jsonl" SPARRING_TARGET="${TARGET:-}" \
       node --import tsx "$OUT/overlay/sparringRun.ts" ) | tee "$OUT/TABLE.md"
 fi
