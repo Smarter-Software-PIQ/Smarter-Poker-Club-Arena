@@ -2154,7 +2154,12 @@ export function humanFieldPersonaProfile(
         `${table.variant} at ${table.seats} seats`
     );
   }
-  if (NLH_SCRIPTED_PERSONAS.includes(persona as NlhScriptedPersona)) {
+  if (
+    persona === NLH_POT_BARRELER_PERSONA ||
+    persona === NLH_VALUE_BARRELER_PERSONA ||
+    persona === NLH_DANGER_BOARD_BETTOR_PERSONA ||
+    persona === NLH_DANGER_BOARD_VALUE_PERSONA
+  ) {
     throw new Error(
       `${persona} is a scripted persona of the ${NLH_SCRIPTED_POPULATION_ID} field ` +
         `(NlhScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +

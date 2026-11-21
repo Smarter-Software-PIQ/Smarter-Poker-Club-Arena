@@ -50,7 +50,11 @@ import { horseLeagueComputeResponseIsValid } from './HorseLeagueComputeWorkerCli
 const BB = 2;
 const HERO = 0;
 
-const card = (code: string): Card => ({ rank: code[0], suit: code[1] }) as unknown as Card;
+const card = (code: string): Card =>
+  ({
+    rank: code[0],
+    suit: ({ h: 'hearts', d: 'diamonds', c: 'clubs', s: 'spades' } as const)[code[1] as 'h'],
+  }) as Card;
 const cards = (...codes: string[]): Card[] => codes.map(card);
 
 /** A heads-up spot with a no-limit menu like seatPolicyDecision builds. */
