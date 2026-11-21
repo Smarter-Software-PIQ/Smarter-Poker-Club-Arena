@@ -673,7 +673,10 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       evFold: 0,
       evRaise: 0,
       evCall: 0,
-      sd: callAdds >= spot.heroStack - 1e-9 ? 0 : eqNow * net(potC),
+      // lane CORE-POOLED-6: a call that closes the hand (the hero's whole stack, or no live opponent with chips
+      // behind: root.stack is the effective stack left) is an exact showdown; no later play can realise less or
+      // more than its equity, so it carries no showdown term for the realization factor to discount
+      sd: callAdds >= spot.heroStack - 1e-9 || root.stack <= 1e-9 ? 0 : eqNow * net(potC),
       plan,
       se: Math.sqrt(Math.pow(Math.max(0, spot.equitySe) * net(potC), 2) + seLater * seLater),
       source: spot.ip

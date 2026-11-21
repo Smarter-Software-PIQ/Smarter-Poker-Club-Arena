@@ -1021,3 +1021,55 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(callOffs).toBeGreaterThan(100);
   }, 1_800_000);
 });
+
+/**
+ * Lane CORE-POOLED-6 (2026-11-21). Found in the owner-ordered sweep: a call of an all-in wager by a covering hero
+ * (no live opponent with chips behind) is an exact showdown, yet OmahaMathCoreValue.ts gave it a showdown term, so
+ * the PLO5 flop call realization factor (0.81) discounted it: the core priced calling a shove as if 19% of the
+ * equity were lost to later play that cannot happen. The hero-all-in call was already exempt; this one was not.
+ */
+describe('CORE-POOLED-6: a call that closes the hand is priced at its exact showdown value', () => {
+  it('heads-up PLO5 flop, the bettor all-in and covered by the hero: the call carries no realization discount', () => {
+    let closing = 0;
+    let positive = 0;
+    for (let i = 0; i < 600 && closing < 80; i++) {
+      const short = r2(9 + (i % 10)); // 3 to 12 chips behind on the flop; a pot-size bet (12) puts all of it in
+      const mk = (stacks: number[]): Spec => ({
+        variant: 'plo5',
+        n: 2,
+        street: 'flop',
+        facing: true,
+        deep: false,
+        lightning: i % 2 === 0,
+        seed: 700_000 + i,
+        stacks,
+        frac: 1,
+      });
+      let st = gen(mk([short, 400])).st;
+      const closes = (s: typeof st) =>
+        Math.abs((s.gs.toCall ?? 0) - (short - 6)) < 0.005 && s.hero.stack > (s.gs.toCall ?? 0) + 1;
+      if (!closes(st)) st = gen(mk([400, short])).st;
+      if (!closes(st)) continue;
+      const d = decide(st, { omahaMathCore: true, omahaMathCorePlo5Flop: true });
+      const rec = d.omahaMathCore;
+      expect(rec?.applied, String(i)).toBe(true);
+      const call = rec!.core!.evs.find((e) => e.action === 'call');
+      if (!call) continue;
+      closing++;
+      // the legal answers are fold and call only (nobody is left to raise)
+      expect(rec!.core!.evs.some((e) => e.action === 'raise' || e.action === 'bet')).toBe(false);
+      const cal = (call as { calibration?: { raw: number } }).calibration;
+      if (cal)
+        expect(
+          Math.abs(cal.raw - call.ev),
+          `state ${i}: raw ${cal.raw} priced ${call.ev}`
+        ).toBeLessThan(0.006);
+      if (call.ev > 0.5) positive++;
+    }
+    console.info(
+      `CORE-POOLED-6 closing call: states=${closing} with a call worth more than 0.5 chips=${positive}`
+    );
+    expect(closing).toBeGreaterThanOrEqual(40);
+    expect(positive).toBeGreaterThan(5);
+  }, 300_000);
+});

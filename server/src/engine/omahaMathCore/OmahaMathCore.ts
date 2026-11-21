@@ -959,6 +959,8 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         range: null,
       });
     const callAllIn = state.heroStack <= state.toCall + 0.005;
+    // lane CORE-POOLED-6: the call also closes the hand when no live opponent has chips behind (an exact showdown)
+    const callCloses = callAllIn || live.every((o) => o.stack <= 0.005);
     if (legalHas(state, 'call') || (callAllIn && legalHas(state, 'all_in'))) {
       const base = front.map((o) => rangeOf.get(o.seat)!);
       // a wager larger than the hero's whole stack: the excess is not his to win
@@ -969,7 +971,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       let ev: number;
       let behindNote: string | null = null;
       if ((pfm ? behindPf : behind).length === 0) {
-        let rz = realized(callAllIn || street === 'river', 'call');
+        let rz = realized(callCloses || street === 'river', 'call');
         if (pfm && !callAllIn) {
           // preflop, nobody behind: the measured realization of this call line (admitted own_cards_history)
           const effC = Math.min(
@@ -1091,7 +1093,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           extra += Math.max(0, Math.min(o.stack + o.bet, state.currentBet) - o.bet);
         }
         const e2 = eq([...base, ...cont]);
-        const r = realized(callAllIn || street === 'river', 'call');
+        const r = realized(callCloses || street === 'river', 'call');
         ev =
           pAllFold * (r * e1.equity * rakeNet(state, P + toCall - uncovered) - toCall) +
           (1 - pAllFold) *
