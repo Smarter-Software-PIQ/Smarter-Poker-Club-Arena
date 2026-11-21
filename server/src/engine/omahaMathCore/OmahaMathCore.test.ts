@@ -553,17 +553,32 @@ describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) an
     ).toBe(false);
     expect(omahaMathCoreStreetAdmitted('plo5', 'preflop', OMAHA_MATH_CORE_ALL_STREETS)).toBe(false);
   });
-  it('a street that is not admitted keeps today action exactly and still writes the core receipt (shadow)', () => {
+  it('a street that is not admitted is not the core decision: the core does no work there (same object back, no receipt, no legalizer call, no clock read)', () => {
+    // lane CORE-POOLED-2 latency (lead order Nov 21; VERIFIER V60): replaces the COREWIRE-2 shadow receipt
     for (const r of recs.slice(0, 6)) {
       const { fx, node } = expandFlop(r);
       const st = stateAt(fx, node);
       const incoming = { action: 'fold' as const, thinkTime: 1 };
-      const out = omahaMathCoreRule(incoming, st.hero, st.gs, { omahaMathCore: true }, (d) => d);
-      expect(out.action).toBe('fold');
-      expect(out.amount).toBeUndefined();
-      expect(out.omahaMathCore?.applied).toBe(false);
-      expect(out.omahaMathCore?.shadow).toBe(true);
-      expect(out.omahaMathCore?.core?.evs.length).toBeGreaterThan(0);
+      let legalized = 0;
+      let clockReads = 0;
+      const out = omahaMathCoreRule(
+        incoming,
+        st.hero,
+        st.gs,
+        { omahaMathCore: true, omahaMathCorePlo5Turn: true, omahaMathCorePlo4Turn: true },
+        (d) => {
+          legalized++;
+          return d;
+        },
+        () => {
+          clockReads++;
+          return 0;
+        }
+      );
+      expect(out).toBe(incoming);
+      expect(out.omahaMathCore).toBeUndefined();
+      expect(legalized).toBe(0);
+      expect(clockReads).toBe(0);
     }
   });
   it('the core changes today action only when its best beats it by more than k standard errors; else the receipt says kept and executes today action', () => {

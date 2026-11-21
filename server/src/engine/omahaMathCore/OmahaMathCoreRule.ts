@@ -549,6 +549,20 @@ export function omahaMathCoreRule(
   now: () => number = () => performance.now()
 ): HorseDecision {
   if (opts.omahaMathCore !== true) return decision;
+  // Lane CORE-POOLED-2 latency (lead order 04:3xZ Nov 21; VERIFIER V60, SHADOW: with only the PLO5 flop flag on,
+  // turn and river decisions cost 51 ms / 15 ms more and the flop 65 ms): a street whose admission flag is off is
+  // not the core's decision, so the core does no work there at all - no state build, no pool, no equity draw, no
+  // receipt. This replaces the COREWIRE-2 shadow receipt on non-admitted streets (2026-11-19); acted decisions are
+  // unchanged because a non-admitted street always executed today's action. Cheap checks first: the admission flag
+  // reads only the variant and the stage.
+  if (
+    !omahaMathCoreStreetAdmitted(
+      String(gs.gameVariant ?? '').toLowerCase(),
+      String(gs.stage ?? ''),
+      opts
+    )
+  )
+    return decision;
   let inScope = false;
   try {
     inScope = omahaMathCoreInScope(player, gs);
@@ -724,23 +738,7 @@ export function omahaMathCoreRule(
         break;
       }
     }
-    // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
-    // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
-    // preflop action stands.
-    if (!omahaMathCoreStreetAdmitted(String(gs.gameVariant).toLowerCase(), String(gs.stage), opts))
-      return {
-        ...decision,
-        omahaMathCore: {
-          switch: 'omahaMathCore',
-          applied: false,
-          shadow: true,
-          action: legal.action,
-          amount: legal.amount ?? null,
-          incoming,
-          error: null,
-          core: receipt,
-        },
-      };
+    // (a street that is not admitted never reaches this point: see the admission check at the top)
     const out: HorseDecision = {
       ...decision,
       action: legal.action,
