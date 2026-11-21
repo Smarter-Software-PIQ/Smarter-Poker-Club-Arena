@@ -472,6 +472,9 @@ jobs:
       - name: Local dependency preflight refuses incomplete or stale installs
         run: node --test tests/operations/local-dependency-policy.test.mjs
 
+      - name: Heavy-job queue serializes, recovers stale slots, holds on load and stays in one place
+        run: node --test tests/operations/heavy-queue.test.mjs
+
       - name: Money-trigger CI caller preserves independent authority
         run: node --test tests/money-trigger-ci-caller.test.mjs
 

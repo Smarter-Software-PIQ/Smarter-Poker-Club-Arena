@@ -631,22 +631,22 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     "the facing-bet call verdicts deduct the whole projected deduction of the pot after the call (capped rake plus the jackpot drop, the controller's own arithmetic) instead of the marginal rake rate (default OFF; EMERG lane RAKE 2026-11-20)"
   ),
   omahaMathCorePlo4Flop: outside(
-    'a scope gate of omahaMathCore (PLO4 cash flop admission; off = shadow receipt only)'
+    'a scope gate of omahaMathCore (PLO4 cash flop admission; off = no core work on that street)'
   ),
   omahaMathCorePlo4Turn: outside(
-    'a scope gate of omahaMathCore (PLO4 cash turn admission; off = shadow receipt only)'
+    'a scope gate of omahaMathCore (PLO4 cash turn admission; off = no core work on that street)'
   ),
   omahaMathCorePlo4River: outside(
-    'a scope gate of omahaMathCore (PLO4 cash river admission; off = shadow receipt only)'
+    'a scope gate of omahaMathCore (PLO4 cash river admission; off = no core work on that street)'
   ),
   omahaMathCorePlo5Flop: outside(
-    'a scope gate of omahaMathCore (PLO5 cash flop admission; off = shadow receipt only)'
+    'a scope gate of omahaMathCore (PLO5 cash flop admission; off = no core work on that street)'
   ),
   omahaMathCorePlo5Turn: outside(
-    'a scope gate of omahaMathCore (PLO5 cash turn admission; off = shadow receipt only)'
+    'a scope gate of omahaMathCore (PLO5 cash turn admission; off = no core work on that street)'
   ),
   omahaMathCorePlo5River: outside(
-    'a scope gate of omahaMathCore (PLO5 cash river admission; off = shadow receipt only)'
+    'a scope gate of omahaMathCore (PLO5 cash river admission; off = no core work on that street)'
   ),
   omahaTournamentsExcludeCategoricalRules: outside(
     'a scope gate (tournaments): with it on the categorical rules here stay cash-only'
