@@ -81,6 +81,35 @@ export interface NodeFreq {
    * of removing it. Absent: the old update, bit for bit.
    */
   trap?: number;
+  /**
+   * a flop RAISE after only checks, facing the hero's own wager (lane CORE-POOLED-9, criteria 7c45130b):
+   * the measured check-raise cell (raw counts); likelihood() shrinks it n/(n+30) to the generic raise
+   * share and non-value share. Absent: the generic cell, bit for bit.
+   */
+  checkRaise?: CheckRaiseCell;
+}
+/** Raw measured check-raise counts (public actions for the raise share, public showdowns for non-value). */
+export interface CheckRaiseCell {
+  /** decisions facing a flop wager after only checks, and the share that raised */
+  nFace: number;
+  raise: number;
+  /** shown check-raises of every size / of this size bucket, and their non-value shares */
+  nShownAll: number;
+  nvAll: number;
+  nShownBand: number;
+  nvBand: number;
+}
+/** The measured check-raise cell for a flop raise of this size; undefined = none (generic cell). */
+export type CheckRaiseFn = (
+  street: PostStreet,
+  players: number,
+  frac: number,
+  allIn: boolean
+) => CheckRaiseCell | undefined;
+/** Shrinkage, one mechanism (lane CORE-POOLED-9): n/(n+k) of the raw value, the rest the level above; n = 0 = the level above exactly. */
+export function shrinkToward(n: number, raw: number, above: number, k = 30): number {
+  if (!(n > 0) || !Number.isFinite(raw)) return above;
+  return (n * raw + k * above) / (n + k);
 }
 /** Measured trap rate of a checked-to node (street, first to act on the street, live players); undefined = none. */
 export type TrapRateFn = (
@@ -427,7 +456,7 @@ function likelihood(
   const L = new Float64Array(n);
   const s = Math.max(0.05, a.frac);
   // lead decision: a wager's non-value share is the cell's measured shownNonValue when the caller has it
-  const alpha =
+  let alpha =
     nf.nonValue !== undefined && Number.isFinite(nf.nonValue)
       ? Math.min(0.95, Math.max(0, nf.nonValue))
       : s / (1 + 2 * s);
@@ -454,7 +483,20 @@ function likelihood(
     return L;
   }
   const f = Math.min(0.98, Math.max(0, nf.fold));
-  const r = Math.min(0.98 - f, Math.max(0.01, nf.wager));
+  let rRaw = nf.wager;
+  const cr = a.action === 'raise' ? nf.checkRaise : undefined;
+  if (cr) {
+    // lane CORE-POOLED-9: a check-raise of the hero's own flop wager is priced with its measured cell, shrunk to the generic one
+    rRaw = shrinkToward(cr.nFace, cr.raise, nf.wager);
+    alpha = Math.min(
+      0.95,
+      Math.max(
+        0,
+        shrinkToward(cr.nShownBand, cr.nvBand, shrinkToward(cr.nShownAll, cr.nvAll, alpha))
+      )
+    );
+  }
+  const r = Math.min(0.98 - f, Math.max(0.01, rRaw));
   const cont = 1 - f;
   // raises: value from the top of his range, bluff-raises from the bottom of what does not fold?
   // A bluff-raise comes from holdings that would otherwise fold: bottom alpha*r of the whole range.
@@ -500,6 +542,8 @@ export interface TrackInput {
   freq: NodeFreqFn;
   /** measured trap rates (lane CORE-POOLED-8); absent: checks update as before */
   trap?: TrapRateFn;
+  /** measured check-raise cell (lane CORE-POOLED-9); absent: the generic facing cell */
+  checkRaise?: CheckRaiseFn;
   seed: string;
   /** pool size (default 900 PLO4 / 700 PLO5) and runs (default preflop 24 + 160 refine, flop/turn 8) */
   size?: number;
@@ -626,6 +670,25 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
           const tau = inp.trap(a.street, first, a.players);
           if (tau !== undefined)
             nf = { ...nf0, trap: tau, source: `${nf0.source}; trap ${r3(tau)}` };
+        }
+        if (nf && a.facing && a.action === 'raise' && a.street === 'flop' && inp.checkRaise) {
+          // the spot: his only earlier flop actions are checks and the last flop wager is the hero's own
+          let checked = false;
+          let onlyChecks = true;
+          let lastWager = -1;
+          for (let j = 0; j < hi; j++) {
+            const b = inp.history[j];
+            if (b.street !== 'flop') continue;
+            if (b.seat === seat) {
+              if (b.action === 'check') checked = true;
+              else onlyChecks = false;
+            }
+            if (b.action === 'bet' || b.action === 'raise') lastWager = b.seat;
+          }
+          if (checked && onlyChecks && lastWager === inp.heroSeat) {
+            const cr = inp.checkRaise(a.street, a.players, a.frac, !!a.allIn);
+            if (cr) nf = { ...nf, checkRaise: cr, source: `${nf.source}; check-raise cell` };
+          }
         }
         if (!nf) {
           steps.push(`${a.street} ${a.action}: no measured node, no update`);
