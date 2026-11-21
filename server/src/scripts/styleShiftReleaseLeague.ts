@@ -104,3 +104,4 @@ if (part === 'omaha') {
   throw new Error('--part=omaha or --part=gear');
 }
 process.exit(0);
+export {};
