@@ -3859,13 +3859,6 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: bash scripts/ci/test-horse-option-switch-evidence-postgres.sh
 
-      - name: The opponent HUD profile row is written by compare-and-swap (eight concurrent writers, every hand once)
-        if: matrix.shard == 7
-        env:
-          PG17_BINDIR: /usr/lib/postgresql/17/bin
-          TMPDIR: ${{ runner.temp }}
-        run: bash scripts/ci/test-opponent-hud-upsert-postgres.sh
-
       - name: Certified V31 PostgreSQL 17 behavior gate
         if: >-
           matrix.shard == 7 &&

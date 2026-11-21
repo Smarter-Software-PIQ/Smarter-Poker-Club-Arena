@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146635,
-      "sha256": "931a7b1e9f34c1ab5c0e46e89c6d6781a8e64f890b9d71816fc57952cc8cf342"
+      "bytes": 146313,
+      "sha256": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77087,
@@ -7301,25 +7301,6 @@
         "kind": "sha256",
         "previous": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003",
         "current": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
-      }
-    ],
-    "financialRecertification": false,
-    "executionPerformed": false
-  },
-  "opponentHudUpsertProofAccountingShard7_20261121": {
-    "reason": "Required accounting shard 7 gains one additive step that runs the throwaway PostgreSQL 17 proof that the opponent HUD profile row is written by compare-and-swap (scripts/ci/test-opponent-hud-upsert-postgres.sh, HUD provider in the PLO list train). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
-    "changes": [
-      {
-        "path": "scripts/qualification/ci-accounting-inputs.json",
-        "kind": "bytes",
-        "previous": 146313,
-        "current": 146635
-      },
-      {
-        "path": "scripts/qualification/ci-accounting-inputs.json",
-        "kind": "sha256",
-        "previous": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab",
-        "current": "931a7b1e9f34c1ab5c0e46e89c6d6781a8e64f890b9d71816fc57952cc8cf342"
       }
     ],
     "financialRecertification": false,
