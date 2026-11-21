@@ -26,7 +26,9 @@ Probe on seed `20261115`, 3,000 pairs per card (engine `8d01508d3d4` plus this c
 | `nlh_danger_board_equity_is_priced_vs_danger_bettor` | 21              | `-10.83 +/- 6.31` |
 | `nlh_danger_board_equity_is_priced_vs_danger_value`  | 8               | `+1.62 +/- 0.74`  |
 
-Declared measurement: every card at **120,000 pairs per seed**, seeds **20261120** and **20261121**, run with `server/src/scripts/horseLeagueCard.ts --pairs=120000`. At the probe's per-pair spread that gives about `0.5`, `1.0` and `0.15` bb/100 standard error per seed on the three cards that act. The size is not enlarged after a result is seen.
+Declared measurement: every card at **60,000 pairs per seed**, seeds **20261120** and **20261121**, run with `server/src/scripts/horseLeagueCard.ts --pairs=60000`. At the probe's per-pair spread that gives about `0.75`, `1.4` and `0.2` bb/100 standard error per seed on the three cards that act. The size is not enlarged after a result is seen.
+
+The first declaration was 120,000 pairs per seed. The card runner refused it before dealing a hand (`--pairs must be between 2 and 65536`, the league's hand-clock ceiling), so no measured seed was dealt at that size; the declaration was lowered to 60,000, the largest round size under the ceiling, before any measured result existed.
 
 A first form of the committed-spot field (a turn jammer that put its whole stack in on every turn with any two cards, 100bb) was probed and dropped: 0 of 3,000 pairs diverged, because a Horse with no pair facing a 95bb jam into a 10bb pot folds whether or not the option prices it.
 

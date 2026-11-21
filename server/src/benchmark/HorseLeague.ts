@@ -5693,7 +5693,7 @@ LEAGUE_MATCHUPS.push(...FIXED_LIMIT_SCRIPTED_FIELD_CARDS);
  * The committed-spot cards are dealt 40bb deep (NLH_SCRIPTED_COMMITTED_STACK_BB),
  * where two pot-sized bets commit a Horse; the danger-board cards 100bb.
  * Each card declares 6,000 pairs (the nightly size of the mirror cards it
- * complements). The measurement runs were dealt at 120,000 pairs per seed, a
+ * complements). The measurement runs were dealt at 60,000 pairs per seed, a
  * size declared from a 3,000-pair probe on seed 20261115 before seeds 20261120
  * and 20261121 were dealt (docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md);
  * results are in the two authority files. The cards only measure. Both options
