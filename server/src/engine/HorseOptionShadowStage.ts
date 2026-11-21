@@ -17,6 +17,16 @@
  *  - COMPANIONS: an option that acts only with another option on (the math core's street flag needs omahaMathCore)
  *    is re-decided with the companion true as well when it is flipped to true.
  *
+ * TIMING (2026-11-20, VERIFIER V52). Nothing of a staged re-decision runs before the answer is sent: up to the
+ * FAST_RESULT the worker does exactly what it does with no row, and reads no seat of the table for the stage. After
+ * the answer the pick is handed over; when its job has ended it is dropped at once if any request is waiting,
+ * otherwise it is put on the worker's one lane behind an event-loop turn and starts only if the worker is still idle
+ * and no job has started since its decision (the Horse memory is what the decision left). The stage's gates (acted
+ * time, governor scale, breaker, Horse-only cap, the shared per-minute budget) are taken then. Its receipt cannot
+ * ride in the decision's journal record (already written), so it is journaled as its own record, kind
+ * `option_shadow_receipt`, under the decision's hand and turn keys. What remains: a request that arrives WHILE a
+ * re-decision is running waits for it to end (at most one re-decision; the breaker bounds how long and how often).
+ *
  * WHAT IT NEVER DOES. It runs after the acted decision is final and changes nothing of it (the law
  * aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts). It adds no row, no state and no setting: a listed
  * option is staged by the same `shadow` row as any option. With no listed option in shadow nothing here runs past a

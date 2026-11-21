@@ -1358,6 +1358,23 @@ export function journalHorsePlanReceipt(
     receipt
   );
 }
+/**
+ * 2026-11-20 SHADOW STAGE: the counterfactual receipt of a staged option (HorseOptionShadow.OptionShadowReceipt: no
+ * card, no identity), under the exact hand and turn keys of the FAST decision it re-decided so a reader joins them.
+ */
+export function journalHorseOptionShadowReceipt(
+  snapshot: LiveHorseDecisionSnapshot & { requestId: number },
+  receipt: unknown
+): void {
+  if (!publisher) return;
+  const anchor = anchorHorseDecisionHand(snapshot);
+  publisher.record(
+    'option_shadow_receipt',
+    anchor.status === 'anchored' ? horseHandAnchorKey(anchor) : null,
+    turnKey(snapshot),
+    receipt
+  );
+}
 export function journalHorseAcceptedHand(hand: CompletedHandObservation): void {
   if (!publisher) return;
   const key = horseCompletedHandKey(hand);
