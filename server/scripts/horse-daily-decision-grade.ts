@@ -11,8 +11,9 @@
  *     npx tsx scripts/horse-daily-decision-grade.ts --api [--since T] [--until T] \
  *         --out /path/REPORT-2026-11-20.md [--previous /path/REPORT-2026-11-19.json]
  *
- *     # grade result files saved elsewhere: hands*.json (one result per slice)
- *     # and an optional switch.json, each the JSON rows the statement returned
+ *     # grade result files saved elsewhere: hands*.json (one result per slice),
+ *     # an optional switch.json and an optional excluded.json (the per-variant
+ *     # count of hands left out, PLO8 and the rest), each the JSON rows returned
  *     npx tsx scripts/horse-daily-decision-grade.ts --from-json <dir> --since T --until T --out ...
  *
  * --since / --until take an explicit offset (…Z) or a bare Chicago wall time
@@ -34,6 +35,7 @@ import {
   chicagoStamp,
   compareReports,
   parseInstant,
+  renderExcludedSql,
   renderHandsSql,
   renderMarkdown,
   renderSwitchSql,
@@ -129,6 +131,7 @@ async function main(): Promise<void> {
 
   if (has('--sql')) {
     for (const [a, b] of slices) console.log(renderHandsSql(a, b, HORSE_CARDS_TABLE) + ';\n');
+    console.log(renderExcludedSql(utcIso(startMs), utcIso(endMs)) + ';\n');
     console.log(renderSwitchSql(utcIso(startMs)) + ';');
     return;
   }
@@ -136,6 +139,7 @@ async function main(): Promise<void> {
   let hands: RawHand[] = [];
   let switchRows: SwitchRow[] | null = null;
   let switchAudit: SwitchAudit[] | null = null;
+  let excluded: Array<{ g: string; n: number }> | null = null;
   const takeSwitch = (rows: unknown[]) => {
     const row = (rows[0] ?? {}) as { rows?: SwitchRow[] | null; audit?: SwitchAudit[] | null };
     switchRows = row.rows ?? [];
@@ -148,6 +152,11 @@ async function main(): Promise<void> {
         hands = hands.concat(rowsFromResultText(readFileSync(join(dir, f), 'utf8')) as RawHand[]);
       else if (f === 'switch.json')
         takeSwitch(rowsFromResultText(readFileSync(join(dir, f), 'utf8')));
+      else if (f === 'excluded.json')
+        excluded = rowsFromResultText(readFileSync(join(dir, f), 'utf8')) as Array<{
+          g: string;
+          n: number;
+        }>;
     }
   } else if (has('--api')) {
     for (const [a, b] of slices) {
@@ -155,6 +164,10 @@ async function main(): Promise<void> {
       hands = hands.concat(rows);
       console.error(`${chicagoStamp(Date.parse(a))}: ${rows.length} hands`);
     }
+    excluded = (await query(renderExcludedSql(utcIso(startMs), utcIso(endMs)))) as Array<{
+      g: string;
+      n: number;
+    }>;
     takeSwitch(await query(renderSwitchSql(utcIso(startMs))));
   } else {
     throw new Error('choose one of --sql, --api or --from-json <dir>');
@@ -173,6 +186,7 @@ async function main(): Promise<void> {
     hands,
     switchRows,
     switchAudit,
+    excluded,
     equity: insuranceEquity,
   });
   const previous = previousReport(out, arg('--previous'));

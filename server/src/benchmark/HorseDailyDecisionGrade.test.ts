@@ -13,10 +13,12 @@ import {
   optionSetAt,
   parseCards,
   parseInstant,
+  renderExcludedSql,
   renderHandsSql,
   renderMarkdown,
   renderSwitchSql,
   rollupKey,
+  classKey,
   sizeBucket,
   timeSlices,
   utcIso,
@@ -227,6 +229,116 @@ describe('grading one hand', () => {
     });
   });
 
+  // The person shoved 40 on the river; Horse 3 already folded: Horse 2 is heads-up against an all-in person.
+  function allInHand(over: Partial<RawHand> = {}): RawHand {
+    const h = riverHand(over);
+    h.acts![1].seats = [seat(1, 0, 40, 60, 2), seat(2, 200, 0, 20), seat(3, 200, 0, 20, 1)];
+    h.acts!.pop();
+    return h;
+  }
+  const SET_OF_SIXES = ['6d', '6c', 'Kh', 'Qh'];
+
+  it("grades a heads-up fold to a person's all-in on the person's stored chips-in cards", () => {
+    const [fold] = gradeHand(allInHand({ shown: null, allin_cards: { p: SET_OF_SIXES } }));
+    expect(fold).toMatchObject({
+      action: 'fold',
+      headsUp: true,
+      basis: 'fold_all_in_exact',
+      personCards: 'chips_in_all_in',
+      ungraded: null,
+    });
+    expect(fold.lossBb).toBeCloseTo(-20, 6); // top pair against the set: the fold saved the 40 call
+    // the showdown, when there is one, stays the first source
+    expect(gradeHand(allInHand())[0]).toMatchObject({ personCards: 'showdown' });
+  });
+
+  it('never reads a person who put no chips in, nor a Horse row, even if the rows came back', () => {
+    const h = allInHand({ shown: null, allin_cards: { p: SET_OF_SIXES } });
+    h.facts![0].invested = 0;
+    expect(gradeHand(h)[0]).toMatchObject({ lossBb: null, ungraded: 'person_cards_not_shown' });
+    // a Horse's uid in the map is dropped (Horse 2's own cards are not the person's)
+    const k = allInHand({ shown: null, allin_cards: { h3: ['Ac', 'Tc', '3d', '2h'] } });
+    expect(gradeHand(k)[0]).toMatchObject({ lossBb: null, ungraded: 'person_cards_not_shown' });
+  });
+
+  it('uses stored cards only heads-up against the all-in: not a live bet, not multiway', () => {
+    // the person bet 40 with 160 behind (not all-in), heads-up: stays ungraded
+    const live = allInHand({ shown: null, allin_cards: { p: SET_OF_SIXES } });
+    live.acts![1].seats = [seat(1, 160, 40, 60), seat(2, 200, 0, 20), seat(3, 200, 0, 20, 1)];
+    expect(gradeHand(live)[0]).toMatchObject({ lossBb: null, ungraded: 'person_cards_not_shown' });
+    // all-in person but Horse 3 still live: multiway, stays ungraded
+    const multi = allInHand({ shown: null, allin_cards: { p: SET_OF_SIXES } });
+    multi.acts![1].seats = [seat(1, 0, 40, 60, 2), seat(2, 200, 0, 20), seat(3, 200, 0, 20)];
+    expect(gradeHand(multi)[0]).toMatchObject({ lossBb: null, ungraded: 'person_cards_not_shown' });
+  });
+
+  it("grades a heads-up call of a person's all-in on its EV, not on the realised result", () => {
+    const h = allInHand({ shown: null, allin_cards: { p: SET_OF_SIXES } });
+    h.acts![1] = { ...h.acts![1], action: 'call', amount: 40 };
+    const [call] = gradeHand(h);
+    expect(call).toMatchObject({
+      action: 'call',
+      basis: 'call_all_in_exact',
+      personCards: 'chips_in_all_in',
+    });
+    // equity 0 against the set: 0 x (100 + 40) - 40 = -40 chips of EV = 20 bb lost
+    expect(call.lossBb).toBeCloseTo(20, 6);
+  });
+
+  // River: the person checks, Horse 3 (last to act, Horse 2 folded) bets 40 into 60, the person calls.
+  function checkThenBet(over: Partial<RawHand> = {}): RawHand {
+    const h = riverHand({
+      final_board: ['Aspades', '10diamonds', '6spades', '4clubs', '9hearts'],
+      ...over,
+    });
+    const s0 = [seat(1, 200, 0, 20), seat(2, 200, 0, 20, 1), seat(3, 200, 0, 20)];
+    h.acts = [
+      act({
+        seat: 1,
+        stage: 'river',
+        action: 'check',
+        origin: 'player',
+        pot: 60,
+        board: BOARD,
+        seats: s0,
+      }),
+      act({ seat: 3, stage: 'river', action: 'bet', amount: 40, pot: 60, board: BOARD, seats: s0 }),
+      act({
+        seat: 1,
+        stage: 'river',
+        action: 'call',
+        amount: 40,
+        origin: 'player',
+        pot: 100,
+        toCall: 40,
+        board: BOARD,
+        seats: [seat(1, 200, 0, 20), seat(2, 200, 0, 20, 1), seat(3, 160, 40, 60)],
+      }),
+    ];
+    return h;
+  }
+
+  it('grades an unopened bet against checking where the check would end the hand', () => {
+    const [bet] = gradeHand(checkThenBet());
+    expect(bet).toMatchObject({ action: 'bet', basis: 'bet_vs_check_river_exact', headsUp: true });
+    // two pair against the shown set: checking wins 0 of 60, betting lost 40 more = 20 bb worse
+    expect(bet.lossBb).toBeCloseTo(20, 6);
+    expect(classKey(bet)).toBe('plo4 table | river | unopened 34-66% pot | bet vs check | top2p');
+  });
+
+  it('keeps a bet against giving up where the check is not knowable, and never reads stored cards for it', () => {
+    // the person did not show (only stored chips-in cards): not knowable
+    const [hidden] = gradeHand(checkThenBet({ shown: null, allin_cards: { p: SET_OF_SIXES } }));
+    expect(hidden).toMatchObject({ basis: 'realised' });
+    expect(classKey(hidden)).toContain('| bet vs give up |');
+    // a run-it-twice hand has no single final board
+    expect(gradeHand(checkThenBet({ rit: true }))[0]).toMatchObject({ basis: 'realised' });
+    // the person had not acted yet: the check would not close the street
+    const first = checkThenBet();
+    first.acts!.shift();
+    expect(gradeHand(first)[0]).toMatchObject({ basis: 'realised' });
+  });
+
   it('grades an unopened Horse bet into a person, and skips decisions that face a Horse', () => {
     const h = riverHand();
     h.acts = [
@@ -434,7 +546,15 @@ describe('the window, the statements and the option set', () => {
     );
     expect(sql).toContain('h.has_human is true');
     expect(sql).toContain("coalesce((s->>'mucked')::boolean, false) = false");
-    expect(sql).not.toMatch(/f\.hole_cards/); // ca_hand_facts' cards are never read
+    // ca_hand_facts' cards: only a person (never a Horse) who put chips in AND went all-in
+    expect(sql).toContain(
+      'where f.hand_id = h.id and p.is_horse is not true and f.invested > 0 and f.was_all_in is true'
+    );
+    expect(sql.match(/f\.hole_cards/g)).toHaveLength(2); // the select and its not-null check, once
+    const excluded = renderExcludedSql('2026-11-20T19:12:44Z', '2026-11-20T19:27:44Z');
+    expect(excluded).toContain("h.game_variant not in ('nlh', 'plo4', 'plo5', 'plo6')");
+    expect(excluded).toContain('h.has_human is true');
+    expect(excluded).not.toContain(';');
     expect(sql).not.toMatch(/email/i);
     expect(sql).not.toContain(';');
     expect(sql).toContain('from private_schema.horse_cards_table c where c.hand_id = h.id');
@@ -488,7 +608,19 @@ describe('the report', () => {
     hands,
     switchRows: [{ option: 'a', state: 'on', updated_at: '2026-11-19T00:00:00Z' }],
     switchAudit: [],
+    excluded: [
+      { g: 'plo8', n: 3 },
+      { g: 'flo8', n: 1 },
+      { g: 'nlh', n: 9 },
+    ],
     equity: insuranceEquity,
+  });
+
+  it('counts the variants left out, PLO8 by name', () => {
+    expect(report.excludedVariants).toEqual({ flo8: 1, plo8: 3 });
+    expect(renderMarkdown(report, null, null)).toContain(
+      'Left out of grading explicitly (hands with a person dealt in): PLO8 3 (hi-lo split pots; high-only equity would misprice them); other variants: flo8 1.'
+    );
   });
 
   it('keeps each hand once, inside the window, cash and tournament apart', () => {
@@ -516,7 +648,7 @@ describe('the report', () => {
     );
     expect(md).not.toMatch(/\b(h1|t1)\b/);
     const json = JSON.stringify(report);
-    expect(json).not.toMatch(/"cards"|"shown"|"horse_cards"|"hand":/);
+    expect(json).not.toMatch(/"cards"|"shown"|"horse_cards"|"allin_cards"|"final_board"|"hand":/);
   });
 
   it('says what changed against the previous report', () => {

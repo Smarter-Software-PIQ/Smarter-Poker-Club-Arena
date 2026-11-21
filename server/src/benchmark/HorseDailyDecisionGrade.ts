@@ -14,10 +14,20 @@
  *
  * OWNER RULE (2026-11-13 23:42 Chicago). The exact mucked hole cards of a
  * person's hand folded with no chips in are never stored or reconstructed.
- * This report goes further: a person's cards are read ONLY where that person
- * showed them at showdown (hand_history.showdown, not mucked); the SQL filters
- * them inside the database, so nothing else leaves it. Output is aggregate:
- * no hole card and no hand id is printed; people appear by table alias only.
+ * A person's cards reach this report from exactly two places, both filtered
+ * inside the database so nothing else leaves it:
+ *   1. a showdown: cards the person showed (hand_history.showdown, not mucked);
+ *   2. ca_hand_facts.hole_cards of a person who PUT CHIPS IN (invested > 0)
+ *      AND WENT ALL-IN in the hand. Those rows are stored already (the owner
+ *      rule forbids only the cards of a hand folded with no chips in, and
+ *      ca_hand_facts keeps none for such a hand); a person who put no chips in
+ *      is never read, by the SQL (invested > 0) and again here (a row whose
+ *      fact shows nothing invested, or that belongs to a Horse, is dropped).
+ *      These cards are used ONLY to grade a Horse's FOLD or CALL heads-up
+ *      facing that person's ALL-IN, and for nothing else (no class, no bet,
+ *      no raise, no multiway spot, no check comparison).
+ * Output is aggregate: no hole card and no hand id is printed; people appear
+ * by table alias only.
  *
  * WHAT IS GRADED. Every Horse decision facing a person's wager (the street's
  * last bettor or raiser is a person), and every unopened Horse bet with a
@@ -26,25 +36,45 @@
  *   fold   forgone call EV on real cards, eq x (pot + toCall) - toCall in bb,
  *          eq = all-in equity against the real cards of every live opponent
  *          (InsuranceEquity: exact enumeration, the engine's own evaluator).
- *          Knowable only when every live person showed at showdown. Basis
- *          `fold_all_in_exact` when the call would end the betting (the Horse
- *          or every opponent all-in): pot odds against all-in equity. Basis
- *          `fold_showdown_equity` otherwise: realisation 1, no later betting
- *          (an ASSUMPTION; the same one the PLO lead's LIVEGRADE declared).
- *          Preflop folds are graded only on the all-in basis.
- *   call, raise, bet
- *          the realised result from the decision point in bb: the Horse's
+ *          Basis `fold_all_in_exact` when the call would end the betting (the
+ *          Horse or every opponent all-in): pot odds against all-in equity.
+ *          Heads-up facing a person's all-in, the person's cards come from the
+ *          showdown or, failing that, from rule 2 above (chips in, all-in).
+ *          Basis `fold_showdown_equity` otherwise, only when every live person
+ *          showed at showdown: realisation 1, no later betting (an ASSUMPTION;
+ *          the same one the PLO lead's LIVEGRADE declared). Preflop folds are
+ *          graded only on the all-in basis.
+ *   call   heads-up facing a person's all-in, with the person's cards known
+ *          (showdown or rule 2): basis `call_all_in_exact`, the call's EV on
+ *          real cards against folding, -(eq x (pot + toCall) - toCall). Any
+ *          other call: the realised result, as a raise.
+ *   raise  the realised result from the decision point in bb: the Horse's
  *          hand net plus what it had already put in before the decision
- *          (sunk), negated. For a call or raise that is the realised result
- *          against folding there; for an unopened bet it is against giving
- *          the pot up, NOT against checking (a check's value needs cards the
- *          rule above does not allow in general).
+ *          (sunk), negated = the realised result against folding there.
+ *   bet    (unopened) against CHECKING where the check is knowable: the check
+ *          would close the street (every other live seat that can act has
+ *          already checked), the hand's final five-card board is stored (no
+ *          run-it-twice) and every live opponent's cards are known (a Horse's
+ *          kept cards; a person's only from the showdown, never rule 2). The
+ *          check's value is the Horse's real share of the pot on that board,
+ *          eq x pot; loss = (eq x pot - realised result from the decision
+ *          point). On the river the check ends the hand: basis
+ *          `bet_vs_check_river_exact`. On the flop or turn the next street is
+ *          the stored one and later betting is ASSUMED away (realisation 1):
+ *          basis `bet_vs_check_showdown`. Otherwise the bet is graded against
+ *          giving the pot up (basis `realised`) and kept in its own class
+ *          ("bet vs give up"), never mixed with "bet vs check".
  *   anything else is UNGRADED with its reason. Nothing is guessed.
  *
- * A heads-up fold to a person can never be graded under the showdown-only
- * rule (the hand ends, nothing is shown): the report counts them, it does not
- * estimate them. Graded folds are therefore multiway folds whose bettor later
- * showed down, a selected sample; the report says so.
+ * A heads-up fold to a person's (non all-in) bet can never be graded (the
+ * hand ends, nothing is shown, and rule 2 does not apply): the report counts
+ * them, it does not estimate them. Graded non-all-in folds are therefore
+ * multiway folds whose bettor later showed down, a selected sample.
+ *
+ * VARIANTS. NLH, PLO4, PLO5 and PLO6 are graded. PLO8 (hi-lo split pots: the
+ * high-only equity above would misprice every decision) and every other
+ * variant are left out EXPLICITLY: the report counts their hands with a
+ * person dealt in, per variant, from a separate count statement.
  *
  * One hand can carry several decisions of one Horse, each graded on the same
  * hand result, so the standard error is clustered by hand. A class is flagged
@@ -131,6 +161,16 @@ export interface RawHand {
   horse_cards: Array<{ uid: string; seat: number; cards: string[] }> | null;
   /** user id -> cards, ONLY for seats that showed at showdown. */
   shown: Record<string, unknown> | null;
+  /**
+   * user id -> ca_hand_facts.hole_cards, ONLY for a person (not a Horse) who put chips in
+   * (invested > 0) and went all-in in this hand. Used only for a heads-up fold or call
+   * facing that person's all-in.
+   */
+  allin_cards?: Record<string, unknown> | null;
+  /** hand_history.community_cards: the hand's final board (for a bet graded against checking). */
+  final_board?: unknown;
+  /** the hand ran the board more than once (no single final board) */
+  rit?: boolean | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,10 +201,28 @@ export function renderHandsSql(start: string, end: string, horseCardsTable: stri
     from ${horseCardsTable} c where c.hand_id = h.id) as horse_cards,
  (select jsonb_object_agg(s->>'user_id', h.hole_cards->(s->>'user_id'))
     from jsonb_array_elements(case when jsonb_typeof(h.showdown) = 'array' then h.showdown else '[]'::jsonb end) s
-    where coalesce((s->>'mucked')::boolean, false) = false and h.hole_cards ? (s->>'user_id')) as shown
+    where coalesce((s->>'mucked')::boolean, false) = false and h.hole_cards ? (s->>'user_id')) as shown,
+ (select jsonb_object_agg(f.user_id, f.hole_cards)
+    from ca_hand_facts f join profiles p on p.id = f.user_id
+    where f.hand_id = h.id and p.is_horse is not true and f.invested > 0 and f.was_all_in is true
+      and f.hole_cards is not null) as allin_cards,
+ to_jsonb(h.community_cards) as final_board,
+ coalesce(jsonb_typeof(h.rit_boards), 'null') <> 'null' as rit
 from hand_history h
 where h.created_at >= '${start}' and h.created_at < '${end}' and h.has_human is true
   and h.game_variant in (${VARIANTS.map((v) => `'${v}'`).join(', ')})`;
+  if (!isReadOnlyStatement(sql)) throw new Error('rendered statement is not read-only');
+  return sql;
+}
+
+/** Hands with a person dealt in, per variant this report does not grade (PLO8 and the rest). */
+export function renderExcludedSql(start: string, end: string): string {
+  if (!TS.test(start) || !TS.test(end)) throw new Error('START and END must be UTC instants (…Z)');
+  const sql = `select h.game_variant as g, count(*)::int as n
+from hand_history h
+where h.created_at >= '${start}' and h.created_at < '${end}' and h.has_human is true
+  and h.game_variant not in (${VARIANTS.map((v) => `'${v}'`).join(', ')})
+group by h.game_variant`;
   if (!isReadOnlyStatement(sql)) throw new Error('rendered statement is not read-only');
   return sql;
 }
@@ -372,7 +430,13 @@ export function sizeBucket(fraction: number): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Pool = 'Lightning' | 'table' | 'tournament';
-export type Basis = 'fold_all_in_exact' | 'fold_showdown_equity' | 'realised';
+export type Basis =
+  | 'fold_all_in_exact'
+  | 'fold_showdown_equity'
+  | 'call_all_in_exact'
+  | 'bet_vs_check_river_exact'
+  | 'bet_vs_check_showdown'
+  | 'realised';
 export type Ungraded =
   | 'person_cards_not_shown'
   | 'preflop_fold_not_all_in'
@@ -396,6 +460,8 @@ export interface GradedDecision {
   lossBb: number | null;
   basis: Basis | null;
   ungraded: Ungraded | null;
+  /** where the person's cards came from, for a fold or call graded on them */
+  personCards?: 'showdown' | 'chips_in_all_in' | null;
 }
 
 const EPS = 1e-9;
@@ -419,7 +485,9 @@ export function gradeHand(h: RawHand, equity: EquityFn): GradedDecision[] {
   const bySeat = new Map<number, RawFact>(facts.map((f) => [f.seat, f]));
   if (!facts.some((f) => !f.horse) || !facts.some((f) => f.horse)) return out;
 
+  // Horses' kept cards, and people's cards ONLY from a showdown.
   const cards = new Map<string, Card[]>();
+  const personShown = new Set<string>();
   for (const c of h.horse_cards ?? []) {
     const parsed = parseCards(c.cards);
     if (parsed) cards.set(c.uid, parsed);
@@ -427,12 +495,26 @@ export function gradeHand(h: RawHand, equity: EquityFn): GradedDecision[] {
   for (const [uid, shown] of Object.entries(h.shown ?? {})) {
     if (cards.has(uid)) continue;
     const parsed = parseCards(shown);
-    if (parsed) cards.set(uid, parsed);
+    if (parsed) {
+      cards.set(uid, parsed);
+      personShown.add(uid);
+    }
   }
+  // Owner rule: a person's stored cards are read only when that person put chips in and went
+  // all-in; a Horse row or a fact with nothing invested is dropped even if the query returned it.
+  const allInCards = new Map<string, Card[]>();
+  for (const [uid, value] of Object.entries(h.allin_cards ?? {})) {
+    const f = facts.find((x) => x.uid === uid);
+    if (!f || f.horse || !(num(f.invested) > 0)) continue;
+    const parsed = parseCards(value);
+    if (parsed) allInCards.set(uid, parsed);
+  }
+  const finalBoard = h.rit ? null : parseCards(h.final_board ?? null);
   const pool = poolOf(h);
   let street = '';
   let lastAgg: { seat: number; fraction: number; order: number } | null = null;
   let aggs = 0;
+  let acted = new Set<number>();
 
   for (const a of acts) {
     if (!a.seats || a.origin === 'forced' || a.pot == null) continue;
@@ -440,6 +522,7 @@ export function gradeHand(h: RawHand, equity: EquityFn): GradedDecision[] {
       street = a.stage;
       lastAgg = null;
       aggs = 0;
+      acted = new Set<number>();
     }
     const seats = new Map<number, SeatTuple>(a.seats.map((s) => [s[0], s]));
     const me = seats.get(a.seat);
@@ -461,6 +544,7 @@ export function gradeHand(h: RawHand, equity: EquityFn): GradedDecision[] {
       (s) => s[0] !== a.seat && (num(s[6]) & (FOLDED | SITTING_OUT)) === 0 && bySeat.has(s[0])
     );
     const livePersons = live.filter((s) => !bySeat.get(s[0])!.horse);
+    const allInSeat = (s: SeatTuple) => (num(s[6]) & ALL_IN) !== 0 || num(s[1]) <= EPS;
 
     const facingPerson =
       toCall > EPS && lastAgg !== null && bySeat.get(lastAgg.seat)?.horse === false;
@@ -502,30 +586,71 @@ export function gradeHand(h: RawHand, equity: EquityFn): GradedDecision[] {
         basis: null,
         ungraded: null,
       };
+      // Heads-up against the person whose wager this is, and that person is all-in: the only
+      // spot where the person's stored (chips-in, all-in) cards may be read.
+      const bettor = facingPerson ? (seats.get(lastAgg!.seat) ?? null) : null;
+      const vsAllInHeadsUp =
+        bettor !== null && live.length === 1 && live[0][0] === bettor[0] && allInSeat(bettor);
+      const bettorCards = (): { cards: Card[]; from: 'showdown' | 'chips_in_all_in' } | null => {
+        const uid = bettor ? bySeat.get(bettor[0])!.uid : '';
+        const shown = cards.get(uid);
+        if (shown) return { cards: shown, from: 'showdown' };
+        const kept = vsAllInHeadsUp ? allInCards.get(uid) : undefined;
+        return kept ? { cards: kept, from: 'chips_in_all_in' } : null;
+      };
+      // A call for less than the wager risks only the stack; the uncovered part goes back to the bettor.
+      const pay = Math.min(toCall, stack);
+      const potFor = pot - (toCall - pay);
       if (action === 'fold') {
-        const opp = live.map((s) => cards.get(bySeat.get(s[0])!.uid) ?? null);
-        const closes =
-          toCall >= stack - EPS ||
-          live.every((s) => (num(s[6]) & ALL_IN) !== 0 || num(s[1]) <= EPS);
+        const opp = vsAllInHeadsUp
+          ? [bettorCards()?.cards ?? null]
+          : live.map((s) => cards.get(bySeat.get(s[0])!.uid) ?? null);
+        const closes = toCall >= stack - EPS || live.every(allInSeat);
         if (!hero) d.ungraded = 'no_horse_cards';
         else if (opp.some((c) => c === null)) d.ungraded = 'person_cards_not_shown';
         else if (street === 'preflop' && !closes) d.ungraded = 'preflop_fold_not_all_in';
         else if (street !== 'preflop' && board.length < 3) d.ungraded = 'no_board';
         else {
-          // A call for less than the wager risks only the stack; the uncovered part goes back to the bettor.
-          const pay = Math.min(toCall, stack);
-          const potFor = pot - (toCall - pay);
           const eq = equity(hero, opp as Card[][], board, h.g).equity / 100;
           d.lossBb = (eq * (potFor + pay) - pay) / bb;
           d.basis = closes ? 'fold_all_in_exact' : 'fold_showdown_equity';
+          if (vsAllInHeadsUp) d.personCards = bettorCards()!.from;
+        }
+      } else if (action === 'call' && vsAllInHeadsUp && hero && bettorCards() !== null) {
+        if (street !== 'preflop' && board.length < 3) d.ungraded = 'no_board';
+        else {
+          const opp = bettorCards()!;
+          const eq = equity(hero, [opp.cards], board, h.g).equity / 100;
+          d.lossBb = -(eq * (potFor + pay) - pay) / bb;
+          d.basis = 'call_all_in_exact';
+          d.personCards = opp.from;
         }
       } else if (fact.net == null) d.ungraded = 'no_result';
       else {
-        d.lossBb = -(num(fact.net) + num(me[3])) / bb;
+        const realised = num(fact.net) + num(me[3]);
+        d.lossBb = -realised / bb;
         d.basis = 'realised';
+        if (action === 'bet' && hero && street !== 'preflop' && finalBoard?.length === 5) {
+          // Checking is knowable only where it would close the street, the stored board
+          // continues this one, and every live opponent's cards are known (people: showdown only).
+          const closesStreet = live.every((s) => allInSeat(s) || acted.has(s[0]));
+          const continues = board.every(
+            (c, i) => finalBoard[i]?.rank === c.rank && finalBoard[i]?.suit === c.suit
+          );
+          const opp = live.map((s) => {
+            const f = bySeat.get(s[0])!;
+            return f.horse || personShown.has(f.uid) ? (cards.get(f.uid) ?? null) : null;
+          });
+          if (closesStreet && continues && board.length >= 3 && opp.every((c) => c !== null)) {
+            const share = equity(hero, opp as Card[][], finalBoard, h.g).equity / 100;
+            d.lossBb = (share * pot - realised) / bb;
+            d.basis = street === 'river' ? 'bet_vs_check_river_exact' : 'bet_vs_check_showdown';
+          }
+        }
       }
       out.push(d);
     }
+    acted.add(a.seat);
     if (aggressive) {
       aggs += 1;
       // Preflop the blinds are the first wager, so an open is order 1 and a re-raise order 2.
@@ -579,12 +704,20 @@ export interface ClassRow extends Stat {
   topPersonShare: number;
 }
 
+/** A bet graded against checking and one graded against giving up are never one class. */
+export const actionLabel = (d: GradedDecision): string =>
+  d.action !== 'bet'
+    ? d.action
+    : d.basis === 'bet_vs_check_river_exact' || d.basis === 'bet_vs_check_showdown'
+      ? 'bet vs check'
+      : 'bet vs give up';
+
 export const classKey = (d: GradedDecision): string =>
-  `${d.game} ${d.pool} | ${d.street} | ${d.situation} | ${d.action} | ${d.cls}`;
+  `${d.game} ${d.pool} | ${d.street} | ${d.situation} | ${actionLabel(d)} | ${d.cls}`;
 
 /** The coarse view for thin samples: game pool, street and action only. */
 export const rollupKey = (d: GradedDecision): string =>
-  `${d.game} ${d.pool} | ${d.street} | ${d.action}`;
+  `${d.game} ${d.pool} | ${d.street} | ${actionLabel(d)}`;
 
 /** Graded decisions by spot class, largest total loss first. */
 export function classTable(
@@ -744,6 +877,8 @@ export interface Section {
   ungraded: Record<string, number>;
   byBasis: Record<string, number>;
   headsUpFoldsUngraded: number;
+  /** folds and calls graded heads-up against an all-in person on that person's stored (chips-in) cards */
+  gradedOnChipsInCards: number;
   classes: ClassRow[];
   topPerson: { alias: string; n: number; share: number } | null;
   classesExcludingTopPerson: ClassRow[];
@@ -760,6 +895,8 @@ export interface Report {
   handsByBuild: Record<string, number>;
   bombPotsLeftOut: number;
   handsWithoutAllHorseCards: number;
+  /** hands with a person dealt in, per variant left out of grading (PLO8 and the rest); null = not read */
+  excludedVariants: Record<string, number> | null;
   sections: Section[];
   games: GameRow[];
   options: OptionSet | null;
@@ -783,6 +920,9 @@ function section(name: Section['name'], decisions: GradedDecision[]): Section {
     headsUpFoldsUngraded: decisions.filter(
       (d) => d.action === 'fold' && d.headsUp && d.ungraded === 'person_cards_not_shown'
     ).length,
+    gradedOnChipsInCards: decisions.filter(
+      (d) => d.lossBb !== null && d.personCards === 'chips_in_all_in'
+    ).length,
     classes: classTable(decisions),
     topPerson: top,
     classesExcludingTopPerson: top
@@ -805,6 +945,8 @@ export function buildReport(input: {
   hands: readonly RawHand[];
   switchRows?: readonly SwitchRow[] | null;
   switchAudit?: readonly SwitchAudit[] | null;
+  /** rows of renderExcludedSql: { g, n } */
+  excluded?: ReadonlyArray<{ g: string; n: number }> | null;
   equity: EquityFn;
 }): Report {
   const seen = new Set<string>();
@@ -836,6 +978,14 @@ export function buildReport(input: {
     handsByBuild: builds,
     bombPotsLeftOut: bombs,
     handsWithoutAllHorseCards: missing,
+    excludedVariants: input.excluded
+      ? Object.fromEntries(
+          input.excluded
+            .filter((e) => !(VARIANTS as readonly string[]).includes(e.g))
+            .map((e) => [e.g, num(e.n)] as [string, number])
+            .sort((x, y) => x[0].localeCompare(y[0]))
+        )
+      : null,
     sections: [section('cash', cash), section('tournament', tournament)],
     games: gameTable(hands),
     options: input.switchRows
@@ -940,13 +1090,25 @@ export function renderMarkdown(
         .join(', ') || 'none'
     }.`
   );
+  if (!r.excludedVariants) L.push('Variants left out of grading: not counted for this run.');
+  else {
+    const ex = r.excludedVariants;
+    const others = Object.entries(ex).filter(([g]) => g !== 'plo8');
+    L.push(
+      `Left out of grading explicitly (hands with a person dealt in): PLO8 ${ex.plo8 ?? 0} (hi-lo split pots; high-only equity would misprice them)${
+        others.length
+          ? `; other variants: ${others.map(([g, n]) => `${g} ${n}`).join(', ')}`
+          : '; no other variant'
+      }.`
+    );
+  }
   if (startMs < Date.parse(ALL_HORSE_CARDS_KEPT_FROM))
     L.push(
       `NOTE: the window starts before ${chicagoStamp(Date.parse(ALL_HORSE_CARDS_KEPT_FROM))}; earlier hands carry Horse cards only where they reached showdown.`
     );
   L.push(
     '',
-    'Sign: **+ = the Horse lost bb**. fold = forgone call EV on real cards (only where every live person showed at showdown); call / raise / bet = realised result from the decision point. SE is clustered by hand. A class is flagged only when mean > 1 SE and n >= 10. People appear by table alias; no card is printed.',
+    "Sign: **+ = the Horse lost bb**. fold = forgone call EV on real cards (every live person showed at showdown, or heads-up facing a person's all-in, where that person's stored chips-in cards are used); call heads-up facing a person's all-in = the call's EV on real cards (`call_all_in_exact`); other calls and raises = realised result from the decision point; bet vs check = against checking where the check closes the street and the run-out and every live opponent's cards are known; bet vs give up = realised, against giving the pot up. SE is clustered by hand. A class is flagged only when mean > 1 SE and n >= 10. People appear by table alias; no card is printed.",
     ''
   );
   for (const s of r.sections) {
@@ -966,7 +1128,7 @@ export function renderMarkdown(
       }).`
     );
     L.push(
-      `Heads-up folds to a person, ungradeable under the showdown-only rule: ${s.headsUpFoldsUngraded}.`
+      `Folds and calls graded heads-up against a person's all-in on that person's stored chips-in cards: ${s.gradedOnChipsInCards}. Heads-up folds to a person still ungradeable (a non all-in wager, nothing shown): ${s.headsUpFoldsUngraded}.`
     );
     const flaggedN = s.classes.filter((c) => c.flagged).length;
     L.push(
@@ -1061,12 +1223,14 @@ export function renderMarkdown(
   }
   L.push('## Limits', '');
   L.push(
-    '- A fold is graded only when every live person showed at showdown, so heads-up folds to a person are never graded and graded folds are a selected (multiway, bettor went to showdown) sample.'
+    "- A fold to a non all-in wager is graded only when every live person showed at showdown, so heads-up folds to such a wager are never graded and graded ones are a selected (multiway, bettor went to showdown) sample. A person's stored chips-in cards are used only heads-up against that person's all-in."
   );
   L.push(
-    '- `fold_showdown_equity` assumes the call would have been the last wager (realisation 1).'
+    '- `fold_showdown_equity` and `bet_vs_check_showdown` assume no betting after the decision (realisation 1); `bet_vs_check_river_exact` needs no assumption.'
   );
-  L.push('- An unopened bet is graded against giving the pot up, not against checking.');
+  L.push(
+    '- "bet vs check" exists only where the hand reached a showdown with every live opponent shown (a selected sample: called bets); every other unopened bet is "bet vs give up". The check side is valued before rake, the realised side after rake.'
+  );
   L.push(
     '- Decisions of one hand share its result; the SE is clustered by hand but classes are not independent of each other.'
   );
