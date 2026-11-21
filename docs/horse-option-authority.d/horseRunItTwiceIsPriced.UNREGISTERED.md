@@ -36,21 +36,21 @@ Machine-read (README.md, "The Replay row").
 
 ### Declared replay, recorded unedited (2026-11-20, 4:3x PM Chicago)
 
-Set: every Horse run-it-twice answer 2026-10-21 .. 2026-11-20 UTC in action_audit_logs (engine_rit_*) that has a public all-in equity in ca_hand_facts: 20,431 answers (13,707 chooser, 6,724 responder; 18,443 at Horse-only tables, reported apart below). Both arms computed by the committed functions on the same inputs (OFF horseRunItTwiceRuns, ON horseRunItTwiceRunsPriced). Driver and raw output: evidence folder horse-decisions-01UxDLnM/unowned/replay/ (replay-full.json, replay-excltop.json, inputs.sha256).
+Set: every Horse run-it-twice answer 2026-10-21 .. 2026-11-20 UTC in action*audit_logs (engine_rit*\*) that has a public all-in equity in ca_hand_facts: 20,431 answers (13,707 chooser, 6,724 responder; 18,443 at Horse-only tables, reported apart below). Both arms computed by the committed functions on the same inputs (OFF horseRunItTwiceRuns, ON horseRunItTwiceRunsPriced). Driver and raw output: evidence folder horse-decisions-01UxDLnM/unowned/replay/ (replay-full.json, replay-excltop.json, inputs.sha256).
 
-| Measure (criteria item) | OFF (today) | ON | People, same window | Bar |
-|---|---|---|---|---|
-| 1. lopsided multi-runs | 0 | 0 | 180 of 789 | 0: PASS |
-| 2. three runs at equity < 0.10 or > 0.90 | 0 | 0 | 4 | 0: PASS |
-| 3. multi share inside the band, chooser | 0.2784 (n 7,080) | 0.5723 | 0.5446 (n 224) | +/-10 pp: PASS (+2.8) |
-| 3. multi share inside the band, responder | 0.2778 (n 3,909) | 0.3454 | 0.3415 (n 205) | +/-10 pp: PASS (+0.4) |
-| 4. overall multi share (incl. lopsided) | 0.1496 | 0.2644 | 0.4715 | > 0 and <= 0.60: PASS |
-| 4. ON three-run answers | 155 | 1,109 (chooser, maxRuns 3) | 53 | reported |
-| 5. offers reaching the single-run branch (insurance) | 0.8504 | 0.7356 | - | >= 0.50: PASS |
-| 6. replay stability | - | 0 of 20,431 differ | - | 100%: PASS |
-| 7. most frequent person excluded (curve recompiled, comparison excludes him): chooser band | - | 0.6263 | 0.5979 (n 97) | +/-10 pp: PASS (+2.8) |
-| 7. same, responder band | - | 0.5326 | 0.5214 (n 117) | +/-10 pp: PASS (+1.1) |
-| 8. off path byte-identical | unit test over 302,400 inputs | | | PASS (see Tests) |
+| Measure (criteria item)                                                                    | OFF (today)                   | ON                         | People, same window | Bar                   |
+| ------------------------------------------------------------------------------------------ | ----------------------------- | -------------------------- | ------------------- | --------------------- |
+| 1. lopsided multi-runs                                                                     | 0                             | 0                          | 180 of 789          | 0: PASS               |
+| 2. three runs at equity < 0.10 or > 0.90                                                   | 0                             | 0                          | 4                   | 0: PASS               |
+| 3. multi share inside the band, chooser                                                    | 0.2784 (n 7,080)              | 0.5723                     | 0.5446 (n 224)      | +/-10 pp: PASS (+2.8) |
+| 3. multi share inside the band, responder                                                  | 0.2778 (n 3,909)              | 0.3454                     | 0.3415 (n 205)      | +/-10 pp: PASS (+0.4) |
+| 4. overall multi share (incl. lopsided)                                                    | 0.1496                        | 0.2644                     | 0.4715              | > 0 and <= 0.60: PASS |
+| 4. ON three-run answers                                                                    | 155                           | 1,109 (chooser, maxRuns 3) | 53                  | reported              |
+| 5. offers reaching the single-run branch (insurance)                                       | 0.8504                        | 0.7356                     | -                   | >= 0.50: PASS         |
+| 6. replay stability                                                                        | -                             | 0 of 20,431 differ         | -                   | 100%: PASS            |
+| 7. most frequent person excluded (curve recompiled, comparison excludes him): chooser band | -                             | 0.6263                     | 0.5979 (n 97)       | +/-10 pp: PASS (+2.8) |
+| 7. same, responder band                                                                    | -                             | 0.5326                     | 0.5214 (n 117)      | +/-10 pp: PASS (+1.1) |
+| 8. off path byte-identical                                                                 | unit test over 302,400 inputs |                            |                     | PASS (see Tests)      |
 
 Horse-only tables (not evidence about people): OFF multi 0.1501, ON 0.2665 (n 18,443). The OFF arm agrees with the recorded multi-vs-once answer on 56.9% of rows: the window includes Oct 21 - Nov 14, when an earlier rule served (the recorded column holds 4,592 lopsided multi-runs from that era), and the replay equity is the hand's all-in equity, not the figure read at the offer.
 
