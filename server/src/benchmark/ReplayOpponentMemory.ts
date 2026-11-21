@@ -37,6 +37,7 @@ import { horseMindHandFromHistory } from '../engine/HorseMindHandIdentity.js';
 import { completedHandActionsForMind } from '../engine/horseDecision/completedHandActions.js';
 import { bigBlindFromForcedPosts, type ExploitHandAction } from '../engine/HorseOpponentExploit.js';
 import { bettingStructureFor } from '../engine/BettingStructure.js';
+import { publicMemoryDomainIsValid } from '../engine/HorsePublicMemoryDomain.js';
 import { addStreetReadEvidence, streetReadHandIncrements } from '../engine/HorseOmahaStreetRead.js';
 import {
   memoryVariant,
@@ -313,6 +314,9 @@ export function withSeatIds(
   const next = {
     ...gs,
     players,
+    ...(gs.publicMemoryDomain === undefined && publicMemoryDomainIsValid(hand.publicMemoryDomain)
+      ? { publicMemoryDomain: { ...hand.publicMemoryDomain } }
+      : {}),
     ...(gs.actionHistory
       ? { actionHistory: gs.actionHistory.map((a) => ({ ...a, userId: map(a.userId) })) }
       : {}),
