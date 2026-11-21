@@ -18,5 +18,14 @@ describe('release incident handoff names the sanctioned triage workflow', () => 
     expect(sql).toContain(
       'REVOKE ALL ON FUNCTION smarter_private.reliability_claim_owner_line(uuid) FROM PUBLIC, anon, authenticated;'
     );
+    const qualifier = readFileSync('scripts/ci/qualify-reliability-incident-claims.py', 'utf8');
+    expect(qualifier).toContain(
+      "install(ROOT, psql, 'release_incident_handoff_names_sanctioned_triage_workflow')"
+    );
+    expect(qualifier).toContain('def release_handoff_enrichment(');
+    const wf = readFileSync('.github/workflows/reliability-controller-stage-b.yml', 'utf8');
+    expect(wf).toContain(
+      'supabase/migrations/*_release_incident_handoff_names_sanctioned_triage_workflow.sql'
+    );
   });
 });

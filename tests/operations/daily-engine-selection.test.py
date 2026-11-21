@@ -127,6 +127,26 @@ class DailySelection(unittest.TestCase):
         self.assertEqual(report['targetSha'], old)
         self.assertEqual(report['outcome'], 'selected')
         self.assertEqual(report['deferredCandidates'][0]['sha'], newest)
+        self.assertEqual(report['deferredCandidates'][0]['detail'], 'no refusal text')
+
+    def test_deferred_prequalification_keeps_the_helpers_refusal(self):
+        # 2026-11-21: the 03:30 receipt said only "prequalification unavailable"
+        # for ac1d44ba; the helper had said why. The receipt now keeps it.
+        old, newest, serving = ('a' * 40, 'b' * 40, 'c' * 40)
+        args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving)
+        refusal = b'qualification inputs differ from selected control\n'
+        processes = [mod.subprocess.CompletedProcess([], 3, b'', refusal)] * 2
+        report = {'cutoffEpoch': 1, 'deferredCandidates': []}
+        with (patch.object(mod, 'git', side_effect=[newest+'\n'+old, serving]),
+              patch.object(mod, 'current_schema', return_value=(True, '', {})),
+              patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
+              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving, 'playerReconnectedBothDirections': True,
+                                                       'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}),
+              patch.object(mod.subprocess, 'run', side_effect=processes)):
+            mod.select(args, report)
+        self.assertEqual([d['reason'] for d in report['deferredCandidates']], ['prequalification unavailable'] * 2)
+        self.assertEqual({d['detail'] for d in report['deferredCandidates']},
+                         {'qualification inputs differ from selected control'})
 
     def test_owner_ancestor_keeps_exact_controls_cutoff_and_admission_expiry(self):
         newest, old, serving = 'b'*40, 'a'*40, 'c'*40
