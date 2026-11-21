@@ -9,12 +9,7 @@ export type HorseJournalKind =
   | 'discard_decision'
   | 'discard_execution'
   /** Phase 15.1 durable accepted-effect receipt (engine/HorsePlanEffectReceipt.ts). */
-  | 'plan_receipt'
-  /**
-   * 2026-11-20 SHADOW STAGE (engine/HorseOptionShadowStage.ts): the counterfactual receipt of a staged option, written
-   * after the acted decision was answered, under the hand and turn keys of that decision's record.
-   */
-  | 'option_shadow_receipt';
+  | 'plan_receipt';
 export interface HorseJournalRecord {
   version: 1;
   producerId: string;
@@ -122,7 +117,6 @@ export function validateHorseJournalRecord(raw: unknown): asserts raw is HorseJo
       'discard_execution',
       'request_lifecycle',
       'plan_receipt',
-      'option_shadow_receipt',
     ].includes(r.kind) ||
     !sha.test(r.handKey) ||
     !sha.test(r.turnKey) ||

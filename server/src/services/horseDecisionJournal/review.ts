@@ -390,10 +390,6 @@ export function reconcileHorseJournalHand(
         // Phase 15.1 durable accepted-effect receipts are never an execution
         // or a decision of this turn join.
         continue;
-      } else if (row.kind === 'option_shadow_receipt') {
-        // 2026-11-20 SHADOW STAGE: the counterfactual receipt of a staged option shares its decision's turn key
-        // and is never a decision or an execution of the turn (it was never acted on).
-        continue;
       } else {
         const k = `${row.producerId}:${row.turnKey}`;
         const turn = turns.get(k) ?? { decisions: [], executions: [] };

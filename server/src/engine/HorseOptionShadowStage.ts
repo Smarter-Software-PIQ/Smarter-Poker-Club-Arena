@@ -23,8 +23,12 @@
  * otherwise it is put on the worker's one lane behind an event-loop turn and starts only if the worker is still idle
  * and no job has started since its decision (the Horse memory is what the decision left). The stage's gates (acted
  * time, governor scale, breaker, Horse-only cap, the shared per-minute budget) are taken then. Its receipt cannot
- * ride in the decision's journal record (already written), so it is journaled as its own record, kind
- * `option_shadow_receipt`, under the decision's hand and turn keys. What remains: a request that arrives WHILE a
+ * ride in its own decision's journal record (already written). It adds NO journal record kind (an engine of an older
+ * release rejects an unknown kind, and after a rollback would meet it in a segment): it is held in the worker (at
+ * most 8, older ones dropped and counted option_shadow_stage_receipt_dropped_seen) and rides in the NEXT decision
+ * record that worker journals, field `stagedOptionShadowReceipts`: [{ decisionKey, requestId, decisionTimeMs,
+ * receipt }], each naming the decision it re-decided. A reader joins on decisionKey. Receipts held when a worker
+ * stops are lost (a measurement sample, never a decision). What remains: a request that arrives WHILE a
  * re-decision is running waits for it to end (at most one re-decision; the breaker bounds how long and how often).
  *
  * WHAT IT NEVER DOES. It runs after the acted decision is final and changes nothing of it (the law

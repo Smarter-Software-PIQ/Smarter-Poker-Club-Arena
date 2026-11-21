@@ -102,7 +102,6 @@ import {
   journalHorseDiscardExecution,
   journalHorseRequestLifecycle,
   journalHorsePlanReceipt,
-  journalHorseOptionShadowReceipt,
   horseDecisionJournalConfigured,
   horseDecisionJournalHealth,
   type HorseJournalHealth,
@@ -392,8 +391,11 @@ export interface HorseDecisionWorkerDependencies {
   journalLifecycle?: typeof journalHorseRequestLifecycle;
   /** Phase 15.1: the durable accepted-effect receipt's private journal sink. */
   journalPlanReceipt?: typeof journalHorsePlanReceipt;
-  /** 2026-11-20 SHADOW STAGE: the journal sink of a staged option's receipt (written after the answer). */
-  journalOptionShadow?: typeof journalHorseOptionShadowReceipt;
+  /** 2026-11-20 SHADOW STAGE: test seam, told each staged receipt when it is made (production: absent). */
+  onStagedOptionShadowReceipt?: (
+    request: FastHorseDecisionRequest,
+    receipt: OptionShadowReceipt
+  ) => void;
   /** Release SHA bound into each receipt; absent means unavailable (null). */
   sourceRelease?: () => string | null;
   startServices(): Promise<HorseDecisionWorkerReadiness>;
@@ -796,7 +798,6 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   journalDiscardExecution: journalHorseDiscardExecution,
   journalLifecycle: journalHorseRequestLifecycle,
   journalPlanReceipt: journalHorsePlanReceipt,
-  journalOptionShadow: journalHorseOptionShadowReceipt,
   sourceRelease: () => resolveReleaseIdentity().releaseSha,
   startServices: startOwnedServices,
   publicProfileBootstrap: () => {
@@ -854,6 +855,16 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   noteFeature: noteFire,
   now: () => performance.now(),
 };
+
+/** SHADOW STAGE (2026-11-20): staged receipts held for the next journaled decision record, at most this many. */
+const STAGED_RECEIPTS_HELD = 8;
+/** One staged receipt as it rides in a later decision record: it names the decision it re-decided. */
+interface StagedOptionShadowReceipt {
+  decisionKey: string;
+  requestId: number;
+  decisionTimeMs: number;
+  receipt: OptionShadowReceipt;
+}
 
 /** SHADOW STAGE (2026-11-20): one staged re-decision handed over after its decision was answered. */
 interface OptionShadowStageDeferred {
@@ -1130,6 +1141,11 @@ export class HorseDecisionWorkerRuntime {
   private optionShadowStageDeferred: OptionShadowStageDeferred | null = null;
   /** Jobs this worker has started: a staged re-decision runs only if no job started since its decision's. */
   private laneJobs = 0;
+  /**
+   * Staged receipts made since the last journaled decision (at most STAGED_RECEIPTS_HELD; older ones are dropped
+   * and counted). They ride in the NEXT decision record this worker journals, field stagedOptionShadowReceipts.
+   */
+  private stagedOptionShadowReceipts: StagedOptionShadowReceipt[] = [];
   /**
    * 2026-11-15 (owner rule 11:26, every option switchable live): the registered options that are PROCESS switches
    * rather than decision options. One today: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
@@ -3584,6 +3600,12 @@ export class HorseDecisionWorkerRuntime {
           // names the table and hand, so every such firing can be opened at the hand. Absent when no receipted
           // rule changed the decision: every other record is byte for byte what it was.
           ...(ruleReceipts ? { ruleReceipts } : {}),
+          // SHADOW STAGE (2026-11-20): staged receipts of EARLIER decisions of this worker ride here (each names
+          // its own decision by decisionKey, requestId and decisionTimeMs). No new record kind: an engine of any
+          // release reads this record as the decision record it is. Absent when there is none.
+          ...(this.stagedOptionShadowReceipts.length > 0
+            ? { stagedOptionShadowReceipts: this.stagedOptionShadowReceipts.splice(0) }
+            : {}),
         });
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');
@@ -3956,7 +3978,7 @@ export class HorseDecisionWorkerRuntime {
    * SHADOW STAGE (2026-11-20): the staged re-decision, after its decision was answered. It starts only on an idle
    * worker on which no job has started since that decision (so the Horse memory and registries are what the decision
    * left), then takes the stage's gates in order: acted-time budget, governor scale, latency breaker, Horse-only
-   * cap, the shared per-minute budget. Every skip is counted. The receipt is journaled as its own record.
+   * cap, the shared per-minute budget. Every skip is counted. The receipt rides in the next journaled decision record.
    */
   private runOptionShadowStage(task: OptionShadowStageDeferred): void {
     if (
@@ -4004,8 +4026,18 @@ export class HorseDecisionWorkerRuntime {
         task.governorScale,
         task.table,
         (receipt) => {
-          if (this.deps.journalEnabled?.() ?? true)
-            this.deps.journalOptionShadow?.(task.request, receipt);
+          this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
+          if (!(this.deps.journalEnabled?.() ?? true)) return;
+          if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
+            this.stagedOptionShadowReceipts.shift();
+            this.deps.noteFeature('option_shadow_stage_receipt_dropped_seen');
+          }
+          this.stagedOptionShadowReceipts.push({
+            decisionKey: task.request.decisionKey,
+            requestId: task.request.requestId,
+            decisionTimeMs: task.request.decisionTimeMs,
+            receipt,
+          });
         }
       );
       if (redecideMs !== null) {

@@ -15,7 +15,7 @@
  *  - an option that is not staged behaves exactly as before with the stage table present;
  *  - TIMING (VERIFIER V52): nothing of a staged re-decision runs before the answer is sent; up to the answer the
  *    worker does exactly what it does with no row, whether or not a person was dealt in; a request queued behind the
- *    decision drops the re-decision; the receipt is its own journal record (option_shadow_receipt);
+ *    decision drops the re-decision; the receipt rides in the next decision record (no new journal record kind);
  *  - the cost of a staged re-decision and the time from request to response with and without staging, measured.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -94,8 +94,10 @@ type Opts = Record<string, unknown>;
 type Decide = (p: unknown, g: unknown, s: unknown, m: unknown, o?: Opts) => HorseDecision;
 
 interface Run {
-  /** The staged receipts as journaled (their own record), by request. */
+  /** The staged receipts as made (the test seam), by request. */
   staged: Array<{ requestId: number; receipt: OptionShadowReceipt }>;
+  /** The decision records as journaled (the payload handed to the journal), in order. */
+  journaled: Array<{ requestId: number; payload: Record<string, unknown> }>;
   /** What happened in order: decide, send:<type>, feature:<key>, latency:<scope>, journal:option_shadow. */
   events: string[];
   /** Milliseconds from receive() to the FAST_RESULT leaving, per request. */
@@ -122,13 +124,17 @@ async function run(
   const latency: Array<[string, number]> = [];
   const messages: HorseDecisionWorkerResponse[] = [];
   const staged: Run['staged'] = [];
+  const journaled: Run['journaled'] = [];
   const events: string[] = [];
   const responseMs: number[] = [];
   let receivedAt = 0;
   const deps: HorseDecisionWorkerDependencies = {
     ...qualifiedReplayAdmissions,
     journalEnabled: () => true,
-    journalOptionShadow: ((req: { requestId: number }, receipt: unknown) => {
+    journalDecision: ((req: { requestId: number }, payload: Record<string, unknown>) => {
+      journaled.push({ requestId: req.requestId, payload });
+    }) as never,
+    onStagedOptionShadowReceipt: ((req: { requestId: number }, receipt: unknown) => {
       events.push('journal:option_shadow');
       staged.push({ requestId: req.requestId, receipt: receipt as OptionShadowReceipt });
     }) as never,
@@ -186,7 +192,7 @@ async function run(
   if (fasts.length !== requests.length)
     throw new Error(`expected ${requests.length} FAST results: ${JSON.stringify(messages.at(-1))}`);
   drainFires();
-  return { fasts, calls, features, latency, staged, events, responseMs };
+  return { fasts, calls, features, latency, staged, journaled, events, responseMs };
 }
 
 const CALL: HorseDecision = { action: 'call', amount: 40, thinkTime: 0 };
@@ -243,6 +249,12 @@ import {
   type RecordedDecision,
 } from '../HorseOmahaPricedRules.test-support.js';
 import RECORDED_PLO5 from '../HorseOmahaPricedRules.fixture.json';
+import {
+  correctiveFixture,
+  HAND_KEY,
+} from '../../services/horseCorrectiveReview/fixture.test-support.js';
+import { validateHorseJournalRecord } from '../../services/horseDecisionJournal/record.js';
+import { reconcileHorseJournalHand } from '../../services/horseDecisionJournal/review.js';
 
 /** A registered, release-default-off Omaha option on this tree, staged by the test's own table. */
 const STAGED = 'omahaTurnRiverRaiseIsPriced';
@@ -358,7 +370,7 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
     expect(shadow.calls[0]![STAGED]).toBeUndefined();
     expect(shadow.calls[1]![STAGED]).toBe(true);
     expect(comparable(shadow.fasts[0]!)).toBe(comparable(plain.fasts[0]!));
-    // the answered decision carries no receipt: it is journaled as its own record after the answer
+    // the answered decision carries no receipt: it rides in the next journaled decision record
     expect(shadow.fasts[0]!.decision.optionShadowReceipt).toBeUndefined();
     expect(shadow.staged).toHaveLength(1);
     expect(shadow.staged[0]!.requestId).toBe(request.requestId);
@@ -574,6 +586,112 @@ describe('timing: a staged re-decision runs only after the answer has been sent'
       // the order laws above are the proof; this holds the measured medians together with room for machine load
       expect(pct(shadow, 0.5)).toBeLessThan(pct(plain, 0.5) * 1.5 + 5);
     }
+  });
+});
+
+describe('the journal: a staged receipt rides in the next decision record, never in a record kind of its own', () => {
+  const brain = scripted(STAGED, true, CALL, RAISE);
+  it('the decision record of the NEXT decision carries it, naming the decision it re-decided', async () => {
+    const s = plo4With('person');
+    const requests = [1, 2, 3].map((i) => fastRequest(s, i));
+    const r = await run(requests, brain, { [STAGED]: 'shadow' }, stage());
+    expect(r.staged).toHaveLength(3);
+    expect(r.journaled.map((j) => j.requestId)).toEqual([1, 2, 3]);
+    // its own record never carries it (written before the answer); the next record carries exactly that one
+    expect(r.journaled[0]!.payload.stagedOptionShadowReceipts).toBeUndefined();
+    for (const i of [1, 2]) {
+      const carried = r.journaled[i]!.payload.stagedOptionShadowReceipts as Array<{
+        decisionKey: string;
+        requestId: number;
+        decisionTimeMs: number;
+        receipt: OptionShadowReceipt;
+      }>;
+      expect(carried).toHaveLength(1);
+      expect(carried[0]!.requestId).toBe(requests[i - 1]!.requestId);
+      expect(carried[0]!.decisionKey).toBe(requests[i - 1]!.decisionKey);
+      expect(carried[0]!.decisionTimeMs).toBe(requests[i - 1]!.decisionTimeMs);
+      expect(carried[0]!.receipt).toEqual(r.staged[i - 1]!.receipt);
+      // nothing but the receipt's own fields: no card, no seat, no identity
+      expect(Object.keys(carried[0]!.receipt).sort()).toEqual(
+        [
+          'actual',
+          'changed',
+          'flippedTo',
+          'format',
+          'option',
+          'personDealt',
+          'personLive',
+          'street',
+          'variant',
+          'version',
+          'would',
+        ].sort()
+      );
+    }
+  });
+  it('with no row, and for an option that is not staged, no decision record carries the field', async () => {
+    const s = plo4With('person');
+    const requests = [1, 2].map((i) => fastRequest(s, i));
+    for (const states of [null, { [NOT_STAGED]: 'shadow' }] as const) {
+      const r = await run(requests, scripted(NOT_STAGED, false, CALL, RAISE), states, stage());
+      expect(r.journaled).toHaveLength(2);
+      for (const j of r.journaled) expect('stagedOptionShadowReceipts' in j.payload).toBe(false);
+    }
+  });
+  it('the journal record kinds are those of every earlier release (no kind was added)', () => {
+    // the validator's list and the type are the pre-train ones: a record of any kind this tree writes passes the
+    // validator of an older engine, and no segment can hold a kind an older engine refuses
+    const f = correctiveFixture();
+    for (const kind of [
+      'request_lifecycle',
+      'decision',
+      'execution',
+      'accepted_hand',
+      'discard_decision',
+      'discard_execution',
+      'plan_receipt',
+    ] as const)
+      expect(() => validateHorseJournalRecord(f.make(kind, 1, { any: 1 })), kind).not.toThrow();
+    expect(() =>
+      validateHorseJournalRecord({ ...f.make('decision', 1, {}), kind: 'option_shadow_receipt' })
+    ).toThrow('Invalid Horse journal record');
+  });
+  it('a decision record carrying staged receipts passes the journal validator and the hand review unchanged', () => {
+    const f = correctiveFixture();
+    const carried = [
+      {
+        decisionKey: 'another-decision',
+        requestId: 7,
+        decisionTimeMs: 1,
+        receipt: {
+          version: 1,
+          option: 'omahaFourBetFoldPricedCall',
+          flippedTo: true,
+          changed: true,
+          actual: { action: 'fold', amount: null },
+          would: { action: 'call', amount: 40 },
+          street: 'preflop',
+          variant: 'plo5',
+          format: 'cash',
+          personDealt: true,
+          personLive: true,
+        },
+      },
+    ];
+    const hand = (extra: Record<string, unknown>) => [
+      f.make('decision', 1, { ...f.capture, ...extra }),
+      f.make('execution', 2, f.witness),
+      f.make('accepted_hand', 3, f.hand),
+    ];
+    const plain = reconcileHorseJournalHand(hand({}), HAND_KEY);
+    const withCarried = hand({ stagedOptionShadowReceipts: carried });
+    for (const record of withCarried)
+      expect(() => validateHorseJournalRecord(record)).not.toThrow();
+    const reviewed = reconcileHorseJournalHand(withCarried, HAND_KEY);
+    const { manifest: _m1, ...concluded } = reviewed;
+    const { manifest: _m0, ...expected } = plain;
+    expect(concluded).toEqual(expected);
+    expect(reviewed.gaps).toEqual(plain.gaps);
   });
 });
 
