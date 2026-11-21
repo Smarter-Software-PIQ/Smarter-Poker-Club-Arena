@@ -1,6 +1,6 @@
 # holdemRiverFullHouseValueIsPriced: authority for the live switch
 
-**State: OFF in source (read `=== true`), no switch row, UNEVALUATED. Do not switch on.** Evidence rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md met: mechanism, scope, receipts, tests and off-identity only; no replay of the audited hands, no league result.
+**State: LIVE ON (2026-11-21T01:19:04Z, audit #166, evidence #70, Horse SWITCH lane `01UxDLnM4cwZVwdaVF3xHY2s`, serving `e2140d2d1581`, 8/8 workers at +68s; default OFF in source, read `=== true`).** VERIFIER CONFIRM 2026-11-21T01:03:52Z (`session_01UxDLnLPjcC14fSouoKnY5C`, `runs/card30.jsonl`, 30 seeds x 6,000 pairs = 180,000 pairs / 360,000 hands): pooled `-0.0190 +/- 0.0643 bb/100` (`|z| = 0.30`), `272` priced-decided spots, `326` divergent pairs, `0` illegal/truncated/fallbacks (`EVEN: CONFIRMED`). +40 min live read PASS 2026-11-21T02:01:01Z: `holdem_river_full_house_lead_priced: 2`, `_check_priced: 2`, `_lead_unpriced: 1`, `0` config alarms/fallbacks/errors; confirmed picked up on `bb21dc82673` and `1a0a6047e1a`. Evidence NOT MET on the `--row` replay bar (Replay: NOT RUN; mechanism, scope, receipts, tests, off-identity, 30-seed verifier confirmation and live read are verified).
 
 Owner order it rests on, 2026-11-17 11:49 America/Chicago (verbatim): "a blanket rule shouldn't be allowed to effect a decision, they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc." Built by the Horse Switch lane (builder ROWFIX, 2026-11-18) from NLH-CASH improvement I1.
 
@@ -27,9 +27,12 @@ The option alone does nothing (it refines `holdemRiverFullHouseValue`). Off (abs
 
 `server/src/engine/aHoldemRiverFullHouseLeadsForValue.test.ts`, describe "the priced lead": the closed form; off and unset equal the 70% line over 200 seeds and the option alone changes nothing; with no read the population cell prices the top boat into a lead on every seed; a measured barreler (bets 80% when checked to, calls 20% of river bets) gets the check and a measured calling station the lead; hands that do not qualify keep the off decision.
 
-## Evaluation (owed)
+## Evaluation and live status
 
-League card declared, not run: `nlh_river_full_house_value_is_priced` (`server/src/benchmark/HorseLeague.ts`; arm B `holdemRiverFullHouseValue`, arm A adds this option). The audited-hand replay (RIVER-FULL-HOUSE-REPLAY-20261115) has not been run with it. A PASS-BAR must be written before either; nothing has been measured.
+- **League evaluation (VERIFIER CONFIRM, 2026-11-21T01:03:52Z):** `nlh_river_full_house_value_is_priced` (`server/src/benchmark/HorseLeague.ts`; arm B `holdemRiverFullHouseValue`, arm A adds this option), verified by `session_01UxDLnLPjcC14fSouoKnY5C` (`runs/card30.jsonl`, 30 seeds x 6,000 pairs = 180,000 pairs / 360,000 hands): pooled `-0.0190 +/- 0.0643 bb/100` (`|z| = 0.30`), `272` priced-decided spots, `326` divergent pairs, `0` illegal/truncated/fallbacks -> `EVEN: CONFIRMED`.
+- **Live activation (2026-11-21T01:19:04Z):** LIVE ON via audit `#166`, evidence `#70`, Horse SWITCH lane `01UxDLnM4cwZVwdaVF3xHY2s`, serving `e2140d2d1581`, `8/8` workers at `+68s`.
+- **+40 min live read PASS (2026-11-21T02:01:01Z):** `holdem_river_full_house_lead_priced: 2`, `_check_priced: 2`, `_lead_unpriced: 1`, `0` config alarms/fallbacks/errors; confirmed picked up on `bb21dc82673` and `1a0a6047e1a`.
+- **Audited-decision replay:** not run with `server/scripts/audited-decision-replay.ts --row` (recorded honestly as `Replay: NOT RUN` below).
 
 ## Replay
 
