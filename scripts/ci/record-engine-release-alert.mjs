@@ -64,6 +64,25 @@ export function buildReleaseFailureAlert(env) {
   };
 }
 
+/**
+ * A REDELIVERY OF A SHIPPED SHA IS NOT A FAILED RELEASE (incident 484c4cee,
+ * 2026-11-21). Run 44841264851 failed at prepare at 00:19 UTC for e2140d2d,
+ * which sibling run 44841245126 had sealed and verified at 00:10, and paged a
+ * critical incident about an engine that was serving. Before raising, the
+ * append-only ca_engine_deploy_attempts receipts are read: when another run
+ * already shipped this exact SHA, nothing is raised and the shipped run is
+ * named. Returns that run, or null.
+ */
+export function shippedSibling(alert, receipts) {
+  if (!alert) return null;
+  const sha = alert.labels.target_sha;
+  const run = alert.labels.run_id;
+  const hit = (Array.isArray(receipts) ? receipts : []).find(
+    (r) => r && r.shipped === true && r.target_sha === sha && r.run_id !== run
+  );
+  return hit ? hit.run_id : null;
+}
+
 export function buildReleaseResolvedAlerts(env, openRows = []) {
   const shipped = (env.SHIPPED || '').trim() === 'true';
   const verified = (env.VERIFIED || '').trim() === 'true';
@@ -105,10 +124,11 @@ export function buildReleaseResolvedAlerts(env, openRows = []) {
       },
       annotations: {
         summary: `Engine release ${shortSha} verified live (run ${runId}, ${releaseResult})`,
-        description: `Resolved prior EngineReleaseFailed (${fp}) after verified production ship of ${targetSha} in run ${runId} (${releaseResult}).`.slice(
-          0,
-          2000
-        ),
+        description:
+          `Resolved prior EngineReleaseFailed (${fp}) after verified production ship of ${targetSha} in run ${runId} (${releaseResult}).`.slice(
+            0,
+            2000
+          ),
       },
     });
     if (resolved.length >= 25) break;
@@ -151,6 +171,17 @@ async function main() {
   try {
     await client.connect();
     if (alert) {
+      const receipts = await client.query(
+        'SELECT run_id, target_sha, shipped FROM public.ca_engine_deploy_attempts WHERE target_sha = $1 AND shipped',
+        [alert.labels.target_sha]
+      );
+      const sibling = shippedSibling(alert, receipts.rows);
+      if (sibling) {
+        console.log(
+          `engine release ${alert.labels.target_sha} was already shipped by run ${sibling}; this run is a redelivery, no failure alert raised.`
+        );
+        return;
+      }
       const { rows } = await client.query(
         'SELECT public.fn_record_engine_alerts($1::jsonb) AS receipts',
         [JSON.stringify([alert])]

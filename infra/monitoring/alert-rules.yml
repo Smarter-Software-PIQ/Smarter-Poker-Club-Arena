@@ -193,8 +193,17 @@ groups:
         # budget set to the number you just read has no headroom - 10.86
         # rule 4). Six consecutive breaks is about six hours of undeployable
         # production, caught instead of the 57 hours it actually took.
+        #
+        # THREE-HOURLY CYCLES (owner order 2026-11-21). Eight scheduled breaks a
+        # day would make ">= 6" fire after 18 hours. The meaning is kept in
+        # TIME instead: an engine that publishes
+        # poker_maintenance_scheduled_breaks_per_day >= 8 is judged by the
+        # rule below at >= 16 consecutive uncertified breaks (48 hours of
+        # three-hourly cycles); every other engine, including one that does not
+        # publish the gauge yet, keeps ">= 6" exactly as before.
         expr: |
           max_over_time(poker_maintenance_breaks_since_restart_certified[15m]) >= 6
+            unless on(instance) (poker_maintenance_scheduled_breaks_per_day >= 8)
         # NO BREAK GUARD (2026-09-26). This alarm is ABOUT the break: the
         # counter only moves when a break ends uncertified. Guarding it with
         # the break flag muted it for 39% of 2026-09-25/26, when recovery
@@ -219,6 +228,28 @@ groups:
 
             This is NOT repaired by a job, a sweep or a retry (CLAUDE.md 10.12).
             Find the live path that wedged and fix that.
+
+      - alert: EngineCannotBeReplaced
+        # The three-hourly form of the rule above: >= 16 consecutive
+        # uncertified breaks is 48 hours of three-hourly cycles, the same
+        # "about two days of undeployable production" the daily >= 6 implies
+        # at most. No break guard, for the same reason as above.
+        expr: |
+          max_over_time(poker_maintenance_breaks_since_restart_certified[15m]) >= 16
+            and on(instance) (poker_maintenance_scheduled_breaks_per_day >= 8)
+        for: 10m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: 'Engine cannot be replaced: {{ $value }} consecutive three-hourly breaks certified no restart'
+          description: |
+            {{ $labels.instance }} has ended {{ $value }} consecutive scheduled
+            three-hourly breaks without ever opening readyForRestart (about 48
+            hours). Poker is unaffected and will look healthy; what is broken is
+            the DEPLOY ROUTE. Read /health maintenance.unparkedReasons for the
+            cause by name. This is NOT repaired by a job, a sweep or a retry
+            (CLAUDE.md 10.12). Find the live path that wedged and fix that.
 
       # THE PLATFORM IS FROZEN TOO MUCH OF THE TIME (2026-09-26).
       #

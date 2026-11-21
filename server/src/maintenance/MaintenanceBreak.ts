@@ -73,6 +73,7 @@ import {
   MAINTENANCE_POLICY_ID,
   MAINTENANCE_TIME_ZONE,
   MAINTENANCE_START_HOUR,
+  maintenanceSlotHours,
 } from './maintenanceSchedule.js';
 import { randomUUID } from 'node:crypto';
 import { completeReconnectFreeze, completeTableReconnectFreeze } from './reconnectFreeze.js';
@@ -1067,7 +1068,7 @@ export class MaintenanceBreak {
     console.log(
       `[MaintenanceBreak] Next maintenance break announcement in ${Math.round(
         msUntil / 60000
-      )} minute(s); the routine break runs ${MAINTENANCE_FREQUENCY === 'phase1-hourly' ? 'hourly00 to05 during Phase1' : '04:00 to04:05 daily'} America/Chicago.`
+      )} minute(s); the routine break runs ${MAINTENANCE_FREQUENCY === 'phase1-hourly' ? 'hourly00 to05 during Phase1' : MAINTENANCE_FREQUENCY === 'three-hourly' ? 'every three hours at01, 04, 07, 10, 13, 16, 19 and 22 for five minutes' : '04:00 to04:05 daily'} America/Chicago.`
     );
 
     const generation = this.lifecycleGeneration;
@@ -3188,6 +3189,8 @@ export class MaintenanceBreak {
         timeZone: MAINTENANCE_TIME_ZONE,
         startHour: MAINTENANCE_FREQUENCY === 'phase1-hourly' ? null : MAINTENANCE_START_HOUR,
         frequency: MAINTENANCE_FREQUENCY,
+        // The Chicago local hours a routine window starts on (null: every hour).
+        startHours: maintenanceSlotHours(),
         policyId: MAINTENANCE_POLICY_ID,
         startMinute: MaintenanceBreak.BREAK_START_MINUTE,
         durationMs: MaintenanceBreak.BREAK_DURATION_MS,

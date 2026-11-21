@@ -10,6 +10,7 @@ import {
   readStyleSwitchFromDatabase,
   type StyleSwitchStateMessage,
 } from './styleSwitchDelivery.js';
+import { receiveHorseRunItTwiceSwitchMessage } from '../HorseRunItTwiceSwitch.js';
 import { publishOptionRegistryToDatabase } from './optionRegistryPublisher.js';
 import {
   startEngineRuntimeSettingsFromDatabase,
@@ -583,6 +584,8 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while the reading the
     // workers get has omahaOpponentLifetimeHud on (an unreadable reading disarms; never throws).
     armOpponentHudFromSwitch(message);
+    // horseRunItTwiceIsPriced is decided on the main thread (HorseRunItTwiceSwitch.ts): it reads the same message.
+    receiveHorseRunItTwiceSwitchMessage(message);
     for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {

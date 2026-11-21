@@ -61,6 +61,9 @@ export function zombieProgressAge(engine: {
   switch (phase) {
     case 'start_load_table':
     case 'start_seed_hand_count':
+    case 'start_restore_button':
+    case 'start_restore_kill':
+    case 'start_retained_hand_resume':
     case 'start_crash_recovery':
     case 'start_time_bank_restore':
     case 'start_wait_for_players':

@@ -116,6 +116,8 @@ import {
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
+  FLH_VALUE_ONLY_BLINDS_PERSONA,
+  FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -172,6 +174,8 @@ export {
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
+  FLH_VALUE_ONLY_BLINDS_PERSONA,
+  FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -1903,17 +1907,36 @@ function withLearning(opts: HorseDecideOpts, learn: boolean): HorseDecideOpts {
   return learn ? opts : { ...opts, observeMind: false };
 }
 
+/**
+ * 2026-11-21: a read-only observer of a human-field card's pairs, for the
+ * per-node table of changed decisions the Value row of
+ * docs/HORSE-DECISION-CHANGE-EVIDENCE.md asks for (fixedLimitNodeTable.ts).
+ * `hand` returns the observer of one pass of pair `pair`; `pair` receives the
+ * hero's net of both passes in big blinds. Like LeagueHandObserver it never
+ * changes a decision and consumes no randomness, and it is absent on every
+ * card the nightly worker deals, so no result changes.
+ */
+export interface LeagueFieldPairObserver {
+  hand(pair: number, pass: 'pass1' | 'pass2'): LeagueHandObserver;
+  pair(pair: number, heroNetA: number, heroNetB: number): void;
+}
+
 export async function runMatchup(
   matchup: LeagueMatchup,
   pairs: number,
   runSeed: number,
-  shouldContinue: () => boolean = () => true
+  shouldContinue: () => boolean = () => true,
+  /** 2026-11-21: human-field cards only; refused for a mirror card. Absent on every existing caller. */
+  pairObserver?: LeagueFieldPairObserver
 ): Promise<LeagueResult> {
   if (matchup.humanPersona !== undefined && matchup.opponentPopulation === undefined) {
     throw new Error(`${matchup.name}: humanPersona needs a human field (opponentPopulation)`);
   }
   if (matchup.opponentPopulation !== undefined) {
-    return runHumanFieldMatchup(matchup, pairs, runSeed, shouldContinue);
+    return runHumanFieldMatchup(matchup, pairs, runSeed, shouldContinue, pairObserver);
+  }
+  if (pairObserver) {
+    throw new Error(`${matchup.name}: a pair observer is for human-field cards only`);
   }
   if (matchup.hybridBaseline === true && matchup.productionStyles === true) {
     throw new Error(
@@ -2217,7 +2240,9 @@ export function humanFieldPersonaProfile(
     persona === FLH_MANIAC_PERSONA ||
     persona === FLH_TIGHT_VALUE_PERSONA ||
     persona === FLH_PASSIVE_CALLER_PERSONA ||
-    persona === FLH_OVER_FOLDING_BLINDS_PERSONA
+    persona === FLH_OVER_FOLDING_BLINDS_PERSONA ||
+    persona === FLH_VALUE_ONLY_BLINDS_PERSONA ||
+    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA
   ) {
     throw new Error(
       `${persona} is a scripted persona of the ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} field ` +
@@ -2408,7 +2433,8 @@ async function runHumanFieldMatchup(
   matchup: LeagueMatchup,
   pairs: number,
   runSeed: number,
-  shouldContinue: () => boolean
+  shouldContinue: () => boolean,
+  pairObserver?: LeagueFieldPairObserver
 ): Promise<LeagueResult> {
   const population = matchup.opponentPopulation;
   const fieldVariants = leagueFieldVariants(population);
@@ -2644,7 +2670,7 @@ async function runHumanFieldMatchup(
       const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
       const dealerSeat = (p % SEATS) + 1;
       const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
-      const observer = (pass: 'pass1' | 'pass2'): LeagueHandObserver | undefined =>
+      const spotObserver = (pass: 'pass1' | 'pass2'): LeagueHandObserver | undefined =>
         spot?.observe
           ? {
               onEnd: (e) =>
@@ -2658,6 +2684,23 @@ async function runHumanFieldMatchup(
                 }),
             }
           : undefined;
+      // 2026-11-21: the pair observer, when one is passed, sees the same pass beside the spot observer.
+      const observer = (pass: 'pass1' | 'pass2'): LeagueHandObserver | undefined => {
+        const own = spotObserver(pass);
+        if (!pairObserver) return own;
+        const extra = pairObserver.hand(p, pass);
+        if (!own) return extra;
+        return {
+          onAction: (e) => {
+            own.onAction?.(e);
+            extra.onAction?.(e);
+          },
+          onEnd: (e) => {
+            own.onEnd?.(e);
+            extra.onEnd?.(e);
+          },
+        };
+      };
       const play = (
         opts: HorseDecideOpts,
         mods: HorseProfileMods,
@@ -2692,6 +2735,7 @@ async function runHumanFieldMatchup(
       netB.push(b / BB);
       perPairDiff.push((a - b) / BB);
       if (a !== b) divergentPairs++;
+      pairObserver?.pair(p, a / BB, b / BB);
     }
   } finally {
     restoreFastRandom(rngBefore);
@@ -5746,6 +5790,16 @@ export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object
     FLH_OVER_FOLDING_BLINDS_PERSONA,
     { fixedLimitStealVsTightBlinds: true }
   ),
+  // 2026-11-21: the steal's harm control with blinds that defend preflop and fold postflop. The value-only
+  // blinds (flh_value_only_blinds_v1) were measured and are not kept on the card: 2 of 20,000 pairs diverged at
+  // each of seeds 20261120 and 20261121 (UNMEASURABLE_MATCHUPS, flh_steal_vs_tight_blinds).
+  fixedLimitScriptedCard(
+    'flh_steal_vs_tight_blinds_vs_preflop_defending_blinds',
+    6,
+    3000,
+    FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+    { fixedLimitStealVsTightBlinds: true }
+  ),
 ]);
 LEAGUE_MATCHUPS.push(...FIXED_LIMIT_SCRIPTED_FIELD_CARDS);
 
@@ -6238,7 +6292,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'The steal needs over-folder reads the self-play field does not build. Since 2026-11-21 the scripted ' +
         'over-folding blinds are built and this option is on the card against them: ' +
         'flh_steal_vs_tight_blinds_vs_over_folding_blinds (388 of 10,000 pairs diverged at seed 20261120, 353 of ' +
-        '10,000 pairs at seed 20261121); this Horse-mirror arm stays refused as the mirror reading.',
+        '10,000 pairs at seed 20261121), with its harm control flh_steal_vs_tight_blinds_vs_preflop_defending_blinds ' +
+        '(427 and 382 of 10,000). Against the value-only blinds (flh_value_only_blinds_v1, 2026-11-21) 2 of 20,000 ' +
+        'pairs diverged at each seed, so that card is not kept: the over-folder read almost never engages against ' +
+        'a player whose folds are mixed by his cards (docs/horse-league-fixed-limit.md, "The over-folder read and ' +
+        'mixed frequencies"). With production personas at every seat (seed 20261120) 0 of 600 pairs diverged. ' +
+        'This Horse-mirror arm stays refused as the mirror reading.',
       needs:
         'Horses whose own postflop fold-to-bet read engages high (the scripted field that measures the option ' +
         'instead is built, FixedLimitScriptedField.ts)',
