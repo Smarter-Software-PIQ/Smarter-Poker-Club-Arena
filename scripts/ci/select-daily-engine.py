@@ -226,7 +226,14 @@ def select(args, report):
                                      '--repo', args.repo, '--target', sha, '--control', args.control,
                                      '--cutoff', str(report['cutoffEpoch'])], capture_output=True, timeout=60)
             if helper.returncode == 3:
-                report['deferredCandidates'].append({'sha': sha, 'reason': 'prequalification unavailable'})
+                # Say WHY (2026-11-21): the 03:30 receipt read only "prequalification
+                # unavailable" for ac1d44ba while the helper had answered "qualification
+                # inputs differ from selected control" (booking #11590 rewrote pinned
+                # release-control constants after it). The reason stays the same string;
+                # the helper's own one-line refusal is kept beside it.
+                why = (helper.stderr or b'').decode('utf-8', 'replace').strip().splitlines()
+                report['deferredCandidates'].append({'sha': sha, 'reason': 'prequalification unavailable',
+                                                     'detail': (why[-1] if why else 'no refusal text')[:300]})
                 continue
             helper.check_returncode()
             qual = json.loads(helper.stdout)
