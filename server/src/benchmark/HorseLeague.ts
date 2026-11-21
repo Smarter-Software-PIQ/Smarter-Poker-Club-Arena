@@ -4078,6 +4078,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { omahaRiverFirstToActBetIsPriced: true, omahaRiverCheckedToBetIsMeasured: true },
   })),
+  // 2026-11-21 EMERG lane CBET-DEFENCE (default OFF, PLO4/PLO5 cash): omahaCbetRaiseIsPriced; a on, b today. Without a
+  // lifetime provider fed by the harness the raise share is the population's.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_cbet_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCbetRaiseIsPriced: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverCheckedToBetIsMeasured; a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_river_checked_to_bet_measured`,

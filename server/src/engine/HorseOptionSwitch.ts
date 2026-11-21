@@ -375,6 +375,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFourBetFoldPricedCall',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
+  // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
+  'omahaCbetRaiseIsPriced',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river checked-to heads-up bet on the measured response, no kind (ships dark)
   'omahaRiverCheckedToBetIsMeasured',
   // 2026-11-21 EMERG lane BLANKET-AUDIT: the declared blanket rows off in PLO4/PLO5 cash only (ships dark)

@@ -1222,6 +1222,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaCbetRaiseIsPriced',
+    "EMERG lane CBET-DEFENCE 2026-11-21. PLO4/PLO5 cash (table and Lightning), the flop; tournaments and PLO6 untouched; default off (read === true). Where the Horse's own flop continuation bet is raised, the stated raise row inside omahaFlopFacingBetEv gives way to a measured raising range: the top W x rho (clamped to [0.02, 0.95]) of holdings on this flop with card removal, rho = (the raiser's lifetime public raises facing a first flop c-bet + K x the population share for the players and c-bet size) / (his opportunities + K), K 200, W 1.65 (frozen from public hands Nov 1-16: docs/horse-option-authority.d/omahaCbetRaiseIsPriced.CONSTANTS.md); the Horse continues when EV(call) beats the fold. A heads-up bluff or semi-bluff c-bet (the v38 flop bet path) gets the raise branch rho(size) x the value of that answer. One provider for every opponent, public history only, no identity branch; no record = the population share exactly.",
+    'V94'
+  ),
+  flag(
     'omahaRiverCheckedToBetIsMeasured',
     "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
     'V94'
@@ -5705,6 +5710,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_strong_hand_check_priced',
     'HorseLogic wager_rules (omahaStrongHandCheckRule, omahaStrongHandCheckIsPriced)',
     'a PLO4/PLO5 cash turn or river decision, heads-up, the Horse first to act, in which a final value bet became the check the priced comparison chose',
+    'V94'
+  ),
+  receipt(
+    'omaha_cbet_raise_priced_range',
+    'HorseOmahaFlopFacingBetEvRule (omahaCbetRaiseRange, omahaCbetRaiseIsPriced)',
+    "a PLO4/PLO5 cash flop decision facing a raise of the Horse's own continuation bet in which the stated raise row was replaced by the measured raising range (top of W x rho)",
+    'V94'
+  ),
+  receipt(
+    'omaha_cbet_raise_priced_branch',
+    'HorseLogic v38 flop bet (omahaCbetRaiseBranch, omahaCbetRaiseIsPriced)',
+    'a PLO4/PLO5 cash heads-up flop bluff or semi-bluff continuation bet whose expected value carried the raise branch from the measured raise share',
     'V94'
   ),
   receipt(
