@@ -45,6 +45,29 @@ describe('lobby and table invite wiring', () => {
     expect(panel).toContain('<ShareLinkFallback');
   });
 
+  it('LobbyTable, TournamentDetails, TournamentLobbyCard, and TournamentPage render direct Invite To Game controls', () => {
+    const lobbyTable = read('src/components/lobby/LobbyTable.tsx');
+    const lobbyTableCss = read('src/components/lobby/LobbyTable.css');
+    const details = read('src/pages/tournament/TournamentDetails.tsx');
+    const card = read('src/components/tournament/TournamentLobbyCard.tsx');
+    const tournPage = read('src/pages/TournamentPage.tsx');
+
+    expect(lobbyTable).toContain('data-testid="lobby-invite-btn"');
+    expect(lobbyTable).toContain('<InviteRowButton entry={e} />');
+    expect(lobbyTable).toContain("source: 'LobbyTable.inviteToGame'");
+    expect(lobbyTableCss.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/:hover\b/);
+
+    expect(details).toContain('data-testid="tournament-invite-btn"');
+    expect(details).toContain('data-testid="tournament-footer-invite-btn"');
+    expect(details).toContain('Invite To Game');
+
+    expect(card).toContain('data-testid="tournament-card-invite-btn"');
+    expect(card).toContain("source: 'TournamentLobbyCard.inviteToGame'");
+
+    expect(tournPage).toContain('data-testid="club-tournaments-invite-btn"');
+    expect(tournPage).toContain("source: 'TournamentPage.inviteToGame'");
+  });
+
   it('TableMenu, TableTabBar, MasterBus, and TablePage wire INVITE_TO_GAME end to end', () => {
     const bus = read('src/core/MasterBus.ts');
     const menu = read('src/components/table/TableMenu.tsx');
