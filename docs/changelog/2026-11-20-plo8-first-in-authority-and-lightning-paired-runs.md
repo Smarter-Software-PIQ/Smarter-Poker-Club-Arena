@@ -48,3 +48,5 @@ Cells 0, 4, 7, 10, 17. Wall time per range: 340 s, 135 s, 220 s, 179 s, 166 s. D
 Read: in these NLH 4-handed cells the option lost 3.6 bb/100 on the primary fields (more than two standard errors) and added mostly limps and weaker entering hands. That is a negative development signal for this option in NLH; it is not a full-matrix result. The owner's rule that a VPIP requirement is never met with strategically indefensible entries applies to the limps: they should be read before this option is considered again.
 
 `lightningStyleReadSeparate` was not run (time; the coordinator limited this pass to two options).
+
+**Note (2026-11-21):** every PLO8 figure above from the evaluation league (`server/src/benchmark/HorseLeague.ts`, `playHand`) came from the high-only league, which paid every hi-lo pot to the high hand with no low half; it needs re-measurement on the league with hi-lo settlement (`settleLeagueShowdown`, `docs/changelog/2026-11-21-league-pays-the-low-half.md`).

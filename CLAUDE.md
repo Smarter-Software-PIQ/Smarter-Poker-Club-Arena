@@ -1,4 +1,6 @@
-**Owner standing order November 20, 2026 15:16 Chicago (supersedes the 04:00-only rule below until he withdraws it):** Dan, verbatim: "WE ARE SCHEDULING CUT OVERS EVER 3 HOURS MOVING FORWARD UNTIL ANY AND ALL CORRECTIONS ARE FINISHED.  NOT OCNES AT 4AM.  MAKE SURE YOU ARE COORDINATING AND SCHEDULING ENGINE UPDATES AND CUT OVERS EVERY 3 HOURS UNTIL FURTHER NOTICE." Engine cutovers run as single-use owner windows about every three hours, each booked with `scripts/release/book-owner-engine-window.py --no-advance-notice` (standing no-announcement order of November 17) and run per [`docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md`](docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md); the 04:00 daily route still runs. Exactly ONE release custodian books, dispatches and pauses/resumes installers per window, named in `COORDINATION-INBOX.md`; every other lane merges its engine fixes with green checks and installed migrations before the booking merges, and makes no release-control edits or database windows from booking merge until SEALED. A second Stage dispatch for a window that is already claimed is refused on the host but still fails a receiver and raises a false release alert, so never send one. Every certification, admission, drain, freeze, rollback, seal and thaw safeguard still applies; only the 04:00-only timing is lifted.
+**Owner order November 21, 2026 02:22-02:23 Chicago (Claude session `session_01Gw7aDsC1z7GdpSYmDAM2kv`), the scheduled route since then:** Dan, verbatim: "CREATE A DEDICATED ENGINE CUT OFF SWITCH TO WORK DIRECTLY WITH THE PLO STRATEGY CHAT, HORSE ON OFF SWITCHES CHAT, ANTIGRAVITY COORDINATION CHAT AND THE HORSE DECISIONS CHAT." and "YOU OWN THIS CODE BASE AND MAKE ANY AND ALL DECISIONS AND CHOICES ON HOW THIS IS DONE. LAUNCH A SWARM TO HELP WITH THIS. I WANT A ENGINE CUT OVER EVERY 3 HOURS." The certified cutover is now SCHEDULED every three hours at 01:00, 04:00, 07:00, 10:00, 13:00, 16:00, 19:00 and 22:00 America/Chicago (04:00 stays an anchor; fall-back 01:00 is one cycle, the first), through the same route: `stage-engine-release.yml` prepares protected main once per cycle at cycle minus 30 minutes, the single receiver `auto-deploy-hetzner.yml` admits it, and `engine-release-transaction.sh` drains, freezes, proves, seals or rolls back, and thaws. Selected by `server/src/maintenance/maintenanceSchedulePolicy.json` (`frequency: "three-hourly"`; `"daily"` reverts with one field). Until a release carrying the schedule seals, only the 04:00 anchor is prepared. No player announcement beyond the engine's two-minute last-hand drain. Window migrations and the nightly schema freeze stay at 04:00. Booked owner windows still work and never break within an hour of a cycle. The lane contract and the cutover log (issue #11599) are in [`docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md`](docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md). Section 13 below is read with this order.
+
+**Owner standing order November 20, 2026 15:16 Chicago (supersedes the 04:00-only rule below until he withdraws it):** Dan, verbatim: "WE ARE SCHEDULING CUT OVERS EVER 3 HOURS MOVING FORWARD UNTIL ANY AND ALL CORRECTIONS ARE FINISHED. NOT OCNES AT 4AM. MAKE SURE YOU ARE COORDINATING AND SCHEDULING ENGINE UPDATES AND CUT OVERS EVERY 3 HOURS UNTIL FURTHER NOTICE." Since November 21 02:22 Chicago the scheduled three-hourly route above carries this order; extra cutovers still run as single-use owner windows, each booked with `scripts/release/book-owner-engine-window.py --no-advance-notice` (standing no-announcement order of November 17) and run per [`docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md`](docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md); the 04:00 daily route still runs. Exactly ONE release custodian books, dispatches and pauses/resumes installers per window, named in `COORDINATION-INBOX.md`; every other lane merges its engine fixes with green checks and installed migrations before the booking merges, and makes no release-control edits or database windows from booking merge until SEALED. A second Stage dispatch for a window that is already claimed is refused on the host but still fails a receiver and raises a false release alert, so never send one. Every certification, admission, drain, freeze, rollback, seal and thaw safeguard still applies; only the 04:00-only timing is lifted.
 
 **Owner direction November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`):** All engine upgrades are staged and certified on isolated Backup during the day. Production replacements require certification for the exact version and may activate ONLY in the 04:00-04:05 America/Chicago maintenance window, after the 03:58 notice and all existing custody, freeze, proof, rollback and thaw safeguards. The temporary Phase1 hourly exception and historical urgent/degraded/owner-window replacement exceptions are revoked. A successful sealed release triggers a fresh Backup copy. Agents work in owned branches and merge through required checks; they never edit the live engine or a shared running Backup directly. A failed or missing certificate leaves the current engine running. Source preparation and non-engine delivery continue throughout the day.
 
@@ -1506,6 +1508,29 @@ it kept drifting for another 135 commits.
    check reports locks older than an hour. Confirm with `lsof` that no git
    process holds it before removing it.
 
+5. **Never `git stash` in this repository (2026-11-21).** Every worktree of a
+   clone shares ONE stash list (`refs/stash` lives in the common git
+   directory), and on 2026-11-21 two agents' concurrent stashes in two
+   worktrees swapped their changes. `.husky/reference-transaction` refuses a
+   new stash entry; a push stores the ref before it resets the tree, so the
+   refusal leaves your edits exactly where they were (measured on git 2.43
+   and Apple git 2.50.1). Popping or dropping an existing entry still works.
+   Commit on your own branch instead. Pinned by
+   `tests/unit/oneStashListIsNeverShared.test.ts`.
+
+6. **The shared clone stays on `main`; never `git checkout`/`git switch` there
+   (2026-11-21).** On 2026-11-21 `~/Documents/club-arena` was found on a
+   lane's branch, 274 commits behind, with 71,915 tracked files deleted and
+   a stranded `index.lock`. Git has NO hook that can refuse a checkout before
+   it rewrites the tree: checkout updates the working tree and index first
+   and HEAD last, and a `reference-transaction` refusal of the HEAD update
+   (measured on Apple git 2.50.1) leaves the tree and index on the target
+   branch with HEAD still on `main` - the half-switched "everything staged"
+   state of rule 1, which is worse than the checkout. So no such guard is
+   built. Claim a worktree with `scripts/agent-workspace.sh` and switch
+   branches only there; `guard-shared-clone.sh` still refuses any commit or
+   push from the shared clone, and the freshness check names its branch.
+
 ---
 
 ## 10.88 CLAIM AN INCIDENT BEFORE YOU WORK IT, AND CHECK OUT ONE TREE AT A TIME (2026-11-18, BINDING)
@@ -1721,7 +1746,9 @@ World Hub has its own tracked hooks. Verify the actual configured hooks in the o
 
 ---
 
-## 13. DAILY ENGINE MAINTENANCE (owner update October 20, 2026)
+## 13. DAILY ENGINE MAINTENANCE (owner update October 20, 2026; three-hourly since November 21, 2026)
+
+**Owner order November 21, 2026 02:22 Chicago (session `session_01Gw7aDsC1z7GdpSYmDAM2kv`): "I WANT A ENGINE CUT OVER EVERY 3 HOURS."** Read every "04:00" and "03:30" below as "each scheduled cycle" and "its preparation (cycle minus 30 minutes)": the routine certified cutover runs at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago, each with the same two-minute last-hand drain, five-minute break, certificate, drain/freeze/proof/rollback/seal/thaw, and no other announcement. Stage reserves a cycle at most 100 minutes early and prepares it once (`daily_preparation_date` is the Chicago date for the 04:00 anchor and `YYYY-MM-DDTHH` for the others); a non-anchor cycle is prepared only while the serving engine's `/health` schedule is three-hourly. Window migrations, the nightly release schema freeze, the Backup freeze baseline, the 03:00 readiness check and the 04:30 missed-cutover page stay at the 04:00 anchor. `tests/the-engine-cuts-over-every-three-hours.law.test.ts` pins the eight hours on every surface and both DST days. Contract for the lanes: [`docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md`](./docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md).
 
 **Owner direction November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`):** All engine upgrades are staged and certified on isolated Backup during the day. Production replacements require certification for the exact version and may activate ONLY in the 04:00-04:05 America/Chicago maintenance window, after the 03:58 notice and all existing custody, freeze, proof, rollback and thaw safeguards. The temporary Phase1 hourly exception and historical urgent/degraded/owner-window replacement exceptions are revoked. A successful sealed release triggers a fresh Backup copy. Agents work in owned branches and merge through required checks; they never edit the live engine or a shared running Backup directly. A failed or missing certificate leaves the current engine running. Source preparation and non-engine delivery continue throughout the day.
 

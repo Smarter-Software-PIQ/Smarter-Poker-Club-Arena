@@ -6,7 +6,10 @@ import {
   omahaMathCoreOwns,
   omahaMathCoreRecover,
 } from './omahaMathCore/OmahaMathCoreAcceptance.js';
-import { omahaMathCoreSwitchOn } from './omahaMathCore/OmahaMathCoreSwitchState.js';
+import {
+  omahaMathCoreRecoverAdmission,
+  omahaMathCoreSwitchOn,
+} from './omahaMathCore/OmahaMathCoreSwitchState.js';
 import type { OmahaMathCoreDecisionReceipt } from './omahaMathCore/OmahaMathCoreRule.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
 import { liveHorsePhase8GuardAuthority } from './HorseTournamentCatastropheGuardAuthority.js';
@@ -4611,6 +4614,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             decisionSnapshot.opts as Readonly<Record<string, unknown>> | undefined
           ),
           from: 'worker_failure',
+          ...omahaMathCoreRecoverAdmission(
+            decisionSnapshot.opts as Readonly<Record<string, unknown>> | undefined
+          ),
           error,
           runCore: false,
           budgetMs: 15,

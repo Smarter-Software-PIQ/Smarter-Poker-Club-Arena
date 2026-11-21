@@ -281,7 +281,6 @@ export function equityVsPools(
     targetSe: number;
     minSamples: number;
     maxSamples: number;
-    maxMs: number;
     now: () => number;
   }
 ): EquityResult {
@@ -296,9 +295,8 @@ export function equityVsPools(
     sumSq = 0,
     n = 0;
   if (ranges.length === 0) return { equity: 1, se: 0, samples: 0, ms: 0 };
-  // Termination never rests on the wall clock alone (a frozen replay clock would spin): the
-  // number of draws is bounded, so the result is deterministic for a given seed; the clock is
-  // only an extra cap.
+  // Termination never reads the clock: the number of draws is bounded, so the result is
+  // deterministic for a given seed whatever the machine load.
   const maxDraws = Math.max(opts.maxSamples, opts.minSamples) * 4;
   let draws = 0;
   for (;;) {
@@ -360,15 +358,13 @@ export function equityVsPools(
       sumSq += share * share;
       n++;
     }
-    // time-boxed: past maxMs it returns what it has (never spins while samples stay under the minimum)
-    const late = opts.now() - t0 >= opts.maxMs;
-    if (n >= opts.minSamples || (late && n > 0)) {
+    // no clock: the loop ends on the sample target or on the draw bound above (opts.now only times the receipt)
+    if (n >= opts.minSamples) {
       const mean = sum / n;
       const se = Math.sqrt(Math.max(0, sumSq / n - mean * mean) / n);
-      if (se <= opts.targetSe || n >= opts.maxSamples || late)
+      if (se <= opts.targetSe || n >= opts.maxSamples)
         return { equity: mean, se, samples: n, ms: opts.now() - t0 };
     }
-    if (n === 0 && late) return { equity: NaN, se: NaN, samples: 0, ms: opts.now() - t0 };
   }
 }
 

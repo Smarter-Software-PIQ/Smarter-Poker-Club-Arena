@@ -47,6 +47,10 @@ export const OMAHA_MATH_CORE_ALLOWED_PROVENANCE: ReadonlySet<string> = new Set([
   'showdown_only',
   // lead ruling 2026-11-19: a Horse's own cards in its own past hands (never an opponent's hidden cards)
   'own_cards_history',
+  // lead-2 rules (Nov 20-21; work order of lane CORE-POOLED-4): an anonymous population parameter fitted offline on
+  // every player's recorded cards, never keyed by player, no player above 20% of a cell, never read live (the PLO5
+  // flop realization cells; HorseOmahaBetRead uses the same class)
+  'population_all_cards_capped',
 ]);
 const RAW = publicTables as unknown as MeasuredRanges & { version: string; sourceSha256: string };
 
