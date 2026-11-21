@@ -54,9 +54,14 @@ const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([
  * The staged options. A name the registry does not hold, or that does not take shadow there, is inert (the shadow
  * only ever picks a registered option in shadow or on_shadow). omahaOpponentLifetimeHud is NOT listed: in shadow
  * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely. The math core's street flags
- * are NOT listed (2026-11-20, VERIFIER V59): a re-decision with the core costs 50-125 ms on PLO5 postflop, and a
- * request arriving on the same worker would wait behind it. They return only with a separate shadow worker thread or
- * once the core's cost is lower. The companions field stays for such a two-key option.
+ * were taken out on 2026-11-20 (VERIFIER V59: a re-decision with the core cost 50-125 ms on PLO5 postflop, and a
+ * request arriving on the same worker would wait behind it). omahaMathCorePlo5Flop returns on 2026-11-21 (lead-2
+ * order, lane CORE-POOLED-3) because that cost is now lower: the core's 2+3 evaluator is table driven and it does no
+ * work on a street whose flag is off, so a PLO5 flop decision with the core on costs p50 14.0 / p95 28.8 / max 39.9 ms
+ * in all (added p50 11.5 / p95 26.5 ms; CRITERIA-CORE-POOLED-3-LATENCY-AMEND run, load 16), under the breaker's 50 ms
+ * slow line. It is staged on PLO5 flop only, with omahaMathCore as its companion (the street flag acts only with it).
+ * The other core street flags stay out. Like every listed name it re-decides only once its registry entry takes
+ * shadow (a release-default classification, a separate switch-list change).
  */
 export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaBetSizeIsPricedForTheRange: PLO4_PLO5,
@@ -64,6 +69,11 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaRiverFirstToActBetIsPriced: PLO4_PLO5,
   omahaFourBetFoldPricedCall: PLO4_PLO5,
   omahaStabDefenceIsPriced: PLO4_PLO5,
+  omahaMathCorePlo5Flop: Object.freeze({
+    games: Object.freeze([5] as const),
+    streets: Object.freeze(['flop']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
 });
 
 /** The acted decision may have taken this long and a listed option is still re-decided. */
