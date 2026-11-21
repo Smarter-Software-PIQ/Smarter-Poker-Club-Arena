@@ -789,6 +789,10 @@ export interface PreflopCtx {
     defender: 'bb' | 'sb' | 'ip';
     /** V85: the cash action base, which also answers an open that was called. */
     cashAction?: boolean;
+    /** Dealt-in players behind the defender (BB 0, SB 1, BTN 2, CO 3, ...). */
+    defenderBehind?: number;
+    /** Default-off cash cold-call trim: skip V87 continueBar widening while keeping 3-bets. */
+    trimColdCalls?: boolean;
   };
   /**
    * V73 THE OPENER FACING A 3-BET (2026-11-01, HorseGtoVs3BetRanges): hero
@@ -3277,6 +3281,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
               lowStakes: ctx.mode === 'cash' ? v87LowStakesWeight(ctx.cashStakeBB ?? bb) : 0,
               weight: def87Weight,
               dealt: ctx.tableSize ?? 6,
+              ...(ctx.mode === 'cash' && def72Base.trimColdCalls === true
+                ? { trimContinueBar: true, defenderBehind: def72Base.defenderBehind }
+                : {}),
             }),
           }
         : def72Base;

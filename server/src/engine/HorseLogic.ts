@@ -4888,6 +4888,13 @@ export interface HorseDecideOpts {
    *  HorseGtoDefenceRanges, HorseNlhOpenSize). Default on; false = the prior
    *  ranges and sizes, kept for the paired league. No-limit hold'em cash only. */
   v85CashAction?: boolean;
+  /** Default-off cash cold-call trim (2026-11-21): on no-limit hold'em cash
+   *  tables facing one open under V72/V85/V87, preserve V85/V87 3-bet widths
+   *  (valueBar, bluffProb), V85 opens, and heads-up / late-open BB defends,
+   *  while restoring per-player-behind IP cold-call discipline and removing
+   *  double-stacked V85+V87 multiway/low-stakes continueBar widening. Default
+   *  off (read === true); tournaments and unset/false are byte-identical. */
+  cashDefenceTrimColdCalls?: boolean;
   /** V87 (2026-11-10): all-hands human-vs-Horse deep-dive discipline building
    *  on V86 across PLO4/PLO5/PLO6 multiway preflop & 5/6-card hand classes,
    *  PLO6 big-bet call discipline, Omaha bet-raised commitment/shade,
@@ -20566,6 +20573,7 @@ export class HorseLogic {
       if (openerBehind === null || heroBehind === null || heroBehind >= openerBehind)
         return undefined;
       const defender = heroBehind === 0 ? 'bb' : heroBehind === 1 ? 'sb' : 'ip';
+      const trimColdCalls = defend85 && opts.cashDefenceTrimColdCalls === true;
       const d72 = gtoDefence(player.cards[0], player.cards[1], {
         dealt: dealt72,
         defender,
@@ -20574,9 +20582,15 @@ export class HorseLogic {
         ante: (gs.ante ?? 0) > 0,
         openToBB,
         ...(defend85 ? { cashAction: true, callers, depthBB: depth85 } : {}),
+        ...(trimColdCalls ? { trimColdCalls: true } : {}),
       });
       if (!d72) return undefined;
-      if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
+      if (telemetryOn(opts)) {
+        noteFire('v72_defend_vs_opener');
+        if (trimColdCalls && (heroBehind > 2 || callers > 0)) {
+          noteFire('cash_defence_trim_cold_calls_seen');
+        }
+      }
       // HOLD'EM PERSONA PREFLOP: the continue share moves by the archetype's
       // points (cash action tables deeper than 50bb only; value bar fixed).
       const continueBar72 =
@@ -20597,6 +20611,7 @@ export class HorseLogic {
         bluffProb: d72.bluffProb,
         defender,
         ...(defend85 ? { cashAction: true } : {}),
+        ...(trimColdCalls ? { trimColdCalls: true, defenderBehind: heroBehind } : {}),
       } as const;
     })();
     // ═══ V73 THE OPENER FACING A 3-BET (2026-11-01) ═══ hero made the only

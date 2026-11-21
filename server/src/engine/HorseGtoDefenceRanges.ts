@@ -397,6 +397,10 @@ export interface DefenceSpot {
   callers?: number;
   /** V85: hero's effective stack in big blinds (the widths taper below 85bb). */
   depthBB?: number;
+  /** Default-off cash cold-call trim: preserve V85 3-bet widths and HU/late BB
+   *  defends while tightening cash flatting continue widths back toward GTO
+   *  per-player-behind discipline. */
+  trimColdCalls?: boolean;
 }
 
 /** Target widths (percent) for a spot, after the open-size scaling. */
@@ -481,6 +485,22 @@ function baseDefenceTargets(spot: DefenceSpot): { cont: number; value: number; b
   return { cont, value, bluff };
 }
 
+/**
+ * CASH COLD-CALL TRIM (default OFF, opts.cashDefenceTrimColdCalls === true):
+ * preserves V85/V87 3-bet widths, V85 opens, heads-up / BB / SB / BTN bases,
+ * and 9-max cash action targets (25-30% VPIP, <=82% field fold, >=9% 3-bet)
+ * while:
+ *  1. restoring per-player-behind IP cold-call discipline when players remain
+ *     behind hero (extra = defenderBehind - 2 >= 1: -1.8 pts/player instead of
+ *     V85's -0.4 pts and 18% floor); and
+ *  2. removing V87's double-stacked multiway perCaller widening everywhere
+ *     (on top of V85's multiF) and removing V87's flatting widening for
+ *     non-button IP seats (CO..UTG+1), while keeping V87 3-bet value/bluff
+ *     widening intact and preserving single-raised (callers === 0) BB/SB/BTN
+ *     base widening.
+ */
+export const CASH_TRIM_IP_PER_PLAYER_BEHIND = 1.8;
+
 /** V85 cash widths (see V85_DEFEND_TARGET). Same shape as the base above. */
 function v85DefenceTargets(spot: DefenceSpot): { cont: number; value: number; bluff: number } {
   const k = clampIndex(spot.openerBehind);
@@ -540,7 +560,20 @@ function v85DefenceTargets(spot: DefenceSpot): { cont: number; value: number; bl
     callers *
       (spot.defender === 'bb' ? V85_MULTIWAY.bbContPerCaller : V85_MULTIWAY.otherContPerCaller);
   const cont = Math.max(value + bluff + 1, Math.min(85, w.cont * contF * multiF) - trimmed);
-  return { cont, value, bluff: Math.max(0, bluff) };
+  if (spot.trimColdCalls !== true || headsUp || spot.defender !== 'ip') {
+    return { cont, value, bluff: Math.max(0, bluff) };
+  }
+  const extra = Math.max(0, spot.defenderBehind - 2);
+  if (extra === 0) {
+    return { cont, value, bluff: Math.max(0, bluff) };
+  }
+  const baseIp = (spot.ante ? DEFEND_TARGET_IP[key] : V85_DEFEND_TARGET_IP)[Math.max(3, k)].cont;
+  const trimBaseCont = Math.max(0, baseIp - CASH_TRIM_IP_PER_PLAYER_BEHIND * extra);
+  const trimmedCont = Math.min(
+    cont,
+    Math.max(value + bluff + 1, Math.min(85, trimBaseCont * contF * multiF) - trimmed)
+  );
+  return { cont: trimmedCont, value, bluff: Math.max(0, bluff) };
 }
 
 function legacyScore(cls: string): number {
@@ -720,6 +753,12 @@ export interface V87DefenceWidenSpot {
   weight: number;
   /** Original dealt census; eight or more moves the strongest flats into 3-bets. */
   dealt?: number;
+  /** Dealt-in players behind the defender (BB 0, SB 1, BTN 2, CO 3, ...). */
+  defenderBehind?: number;
+  /** Default-off cash cold-call trim: preserve V87 3-bet value/bluff widening
+   *  and single-raised (callers === 0) BB/SB/BTN base widening while removing
+   *  multiway perCaller double-stacking and non-BTN IP flatting bloat. */
+  trimContinueBar?: boolean;
 }
 
 /**
@@ -739,6 +778,31 @@ export function v87WidenDefence(
   const cont = shareAtScore(bars.continueBar) * 100;
   const value = shareAtScore(bars.valueBar) * 100;
   const m3 = 1 + (c.threeBetMult - 1 + c.threeBetMultLowStakes * ls) * w;
+  // Full ring (eight or more dealt in) 3-bets least of all: the strongest
+  // flats become linear 3-bets there without widening the continue range.
+  const ring = (spot.dealt ?? 6) >= 8 ? 1 + c.fullRingLinearShift * w : 1;
+  if (spot.trimContinueBar === true) {
+    const newValue = Math.min(c.maxCont, value * m3);
+    const finalValue = Math.min(c.maxCont, newValue * ring);
+    // Preserve V87 single-raised (callers === 0) base widening on BB, SB, and
+    // BTN (defenderBehind <= 2) so 9-max cash action stays in Dan's 25-30% VPIP
+    // band, while removing V87's double-stacked multiway perCaller widening
+    // everywhere and V87's flatting bloat for non-BTN IP seats (CO..UTG+1).
+    const keepHuBase =
+      callers === 0 &&
+      (spot.defender === 'bb' ||
+        spot.defender === 'sb' ||
+        (spot.defender === 'ip' && spot.defenderBehind !== undefined && spot.defenderBehind <= 2));
+    const huAdd = keepHuBase
+      ? (c.contBase[spot.defender] + c.contLowStakes[spot.defender] * ls) * w + (newValue - value)
+      : 0;
+    const floorCont = Math.min(c.maxCont, Math.max(cont + huAdd, finalValue));
+    return {
+      continueBar: Math.min(bars.continueBar, scoreAtShare(floorCont / 100)),
+      valueBar: Math.min(bars.valueBar, scoreAtShare(finalValue / 100)),
+      bluffProb: Math.min(1, bars.bluffProb * m3 * ring),
+    };
+  }
   const newValue = Math.min(cont, value * m3);
   const contAdd =
     (c.contBase[spot.defender] +
@@ -746,9 +810,6 @@ export function v87WidenDefence(
       callers * (c.perCaller[spot.defender] + c.perCallerLowStakes * ls)) *
     w;
   const newCont = Math.min(c.maxCont, Math.max(cont, cont + contAdd + (newValue - value)));
-  // Full ring (eight or more dealt in) 3-bets least of all: the strongest
-  // flats become linear 3-bets there without widening the continue range.
-  const ring = (spot.dealt ?? 6) >= 8 ? 1 + c.fullRingLinearShift * w : 1;
   return {
     continueBar: Math.min(bars.continueBar, scoreAtShare(newCont / 100)),
     valueBar: Math.min(bars.valueBar, scoreAtShare(Math.min(newCont, newValue * ring) / 100)),

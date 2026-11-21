@@ -3144,6 +3144,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemDangerBoardEquityIsPriced: true },
     b: {},
   },
+  // 2026-11-21 Hold'em Strategy lane (cashDefenceTrimColdCalls, default OFF):
+  // trims V85+V87 non-BTN IP cold-call and multiway double-stacking flatting
+  // bloat on NLH cash tables while preserving 3-bet widths, single-raised
+  // HU/BB/SB/BTN defends, V85 opens, and tournaments.
+  {
+    name: 'nlh_cash_9max_trim_cold_calls_mirror',
+    variant: 'nlh',
+    seats: 9,
+    stackBB: 100,
+    pairs: 6000,
+    productionStyles: true,
+    moodClock: 'deal_seed',
+    a: { cashDefenceTrimColdCalls: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely

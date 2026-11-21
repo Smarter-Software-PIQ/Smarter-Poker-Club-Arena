@@ -2560,6 +2560,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'cashDefenceTrimColdCalls',
+    "Hold'em Strategy lane 2026-11-21 (HVH48-D cash preflop loose-call repair under v72DefenceByOpener + V85 + V87). Default off (read === true). No-limit hold'em cash tables facing a single open inside gtoDefend72: restores non-BTN IP per-player-behind cold-call discipline (1.8 percentage points per extra player behind beyond BTN, floored at value + bluff + 1) and removes V85 multiF + V87 perCaller multiway double-stacking and non-BTN IP V87 flatting bloat while preserving V85/V87 3-bet widths (valueBar, bluffProb), V85 opens, single-raised HU/BB/SB/BTN defends, and every tournament decision. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -9306,6 +9311,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_danger_board_equity_priced',
     'HorseLogic facing-bet equity (holdemDangerBoardEquityIsPriced)',
     'one pair facing one bettor on a four-flush or four-straight turn or river is priced at its exact equity against his range on this board',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'cash_defence_trim_cold_calls_seen',
+    'HorseLogic facing-open cash (cashDefenceTrimColdCalls)',
+    'no-limit hold-em cash facing-open spot trimmed non-BTN IP cold-call width or multiway V85+V87 double-stacking',
     "Hold'em Strategy"
   ),
   receipt(
