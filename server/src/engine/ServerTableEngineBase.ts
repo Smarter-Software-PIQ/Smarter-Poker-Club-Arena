@@ -8189,6 +8189,24 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * Read-only identification of horse user IDs counted by `horsesSeated()` when
+   * this engine is a Lightning anchor table, so `poker_horses_seated` can count
+   * Lightning pool horses without double-counting seats already present here.
+   * Identification only (CLAUDE.md 10.5): decides nothing.
+   */
+  lightningAnchorHorseIds(): { clusterId: string; userIds: string[] } | null {
+    if (!this.isLightningAnchorNow()) return null;
+    const clusterId = this.tableInfo?.cluster_id;
+    if (!clusterId) return null;
+    return {
+      clusterId,
+      userIds: this.seatedPlayers
+        .filter((p) => p.is_horse === true && p.stack > 0)
+        .map((p) => p.user_id),
+    };
+  }
+
+  /**
    * The variant this table's horse decisions are counted under in the policy
    * ledger (the same activeHandVariant() the turn path puts in gameState), for
    * `poker_tables_with_horses_by_variant`. Identification only.
