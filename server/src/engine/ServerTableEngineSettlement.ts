@@ -2448,6 +2448,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // accepted-hand payload hash, so freeze it once; recomputing Date.now()
     // on retry turns a committed hand into a deterministic payload conflict.
     const acceptedHandEndedAt = Date.now();
+    this.lastAcceptedHandEndedAtMs = acceptedHandEndedAt;
     const acceptedHandStartedAt = snap.startedAt || acceptedHandEndedAt;
     let v_handHistoryId: string | null = null;
     let authoritativeCommitSucceeded = false;

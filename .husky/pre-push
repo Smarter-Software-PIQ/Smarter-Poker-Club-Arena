@@ -1265,6 +1265,30 @@ if printf '%s\n' $FILES | grep -qE '^\.github/workflows/.*\.ya?ml$'; then
     fi
   done
 fi
+# CENSUSES OF supabase/migrations (2026-11-21). These law tests read every
+# migration through readdirSync, so neither the basename search above nor
+# `related` selects them when a migration is added. Each failed first in hosted
+# CI on 2026-11-21 (a missing @probe-for, an undeclared money trigger, a pinned
+# window rule), a fifteen-minute round trip apiece. All eleven are rules every
+# new migration must meet, and together they take about twelve seconds here.
+if printf '%s\n' $FILES | grep -qE '^supabase/migrations/[^/]+\.sql$'; then
+  for t in \
+    tests/unit/migrationVersionUniqueness.test.ts \
+    tests/unit/aMergedMigrationIsInstallable.test.ts \
+    tests/unit/aMigrationFitsTheInstallBudget.test.ts \
+    tests/unit/migrationCatalogLiterals.test.ts \
+    tests/unit/migrationSessionIdentity.test.ts \
+    tests/unit/migrationsInstallFromMain.test.ts \
+    tests/a-migration-proves-its-functions-before-commit.law.test.ts \
+    tests/a-money-trigger-declares-itself.law.test.ts \
+    tests/a-window-migration-waits-for-the-daily-break.law.test.ts \
+    tests/a-migration-never-holds-the-live-tables-hostage.law.test.ts \
+    tests/postgrest-is-never-reloaded-on-a-timer.law.test.ts; do
+    if [ -f "$t" ]; then
+      case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
+    fi
+  done
+fi
 # A changed test can also be found as a source contract; execute it once.
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)

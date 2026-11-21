@@ -123,6 +123,7 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
       'triage',
       'inspect',
       'claim',
+      'resolve',
     ]);
     expect(WF.permissions).toEqual({});
     expect(WF.jobs.execute.permissions).toEqual({ contents: 'read' });
@@ -134,8 +135,15 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
     const checkout = WF.jobs.execute.steps.find(
       (s: { uses?: string }) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@')
     );
+    expect(checkout?.uses).toBe('actions/checkout@v7.0.1');
     expect(checkout?.with?.['fetch-depth']).toBe(1);
     expect(checkout?.with?.['fetch-tags']).toBe(false);
+    const setupNode = WF.jobs.execute.steps.find(
+      (s: { uses?: string }) =>
+        typeof s.uses === 'string' && s.uses.startsWith('actions/setup-node@')
+    );
+    expect(setupNode?.uses).toBe('actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020');
+    expect(WF_TEXT).not.toContain('@v4');
     expect(WF_TEXT).not.toContain('HETZNER_SSH_PRIVATE_KEY');
     expect(WF_TEXT).not.toContain('repository_dispatch');
     expect(WF_TEXT).not.toContain('schedule:');
