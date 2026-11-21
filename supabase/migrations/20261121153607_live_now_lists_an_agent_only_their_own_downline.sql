@@ -6,31 +6,33 @@
 -- WHAT THIS CHANGES, AND WHY:
 --
 -- Dan, 2026-11-21, Player Management: "live now" should only show the agents
--- their own downlines, not every user that's active in the club. Only their
--- downlines.
+-- their own downlines, not every user that's active in the club. And, the
+-- same morning: "all online users that are in the kings club should be shown
+-- to me (KINGFISH ACCOUNT) BUT IT SHOULDN'T BE SHOWN TO ANYONE ELSE, THEY
+-- SHOULD ONLY SEE THERE OWN DOWNLINES."
 --
 -- ca_club_live_seats (migration 20261112231056) is the one door Player
--- Management's Live Now strip and row table chips read. It let ANY approved
--- member of the club read every open seat of the club, so a super agent,
--- agent or sub agent saw every seated player of the club, not their own.
+-- Management's Live Now strip and row table chips read. It let any approved
+-- member, platform admin or union overseer read every open seat of the club.
 --
 -- THE RULE (at the reader, not a client filter):
 --
---   A viewer whose club cashier scope is 'downline' (super_agent, agent,
---   sub_agent: public.fn_club_cashier_scope) is listed only the seats of
---   players in their own downline (public.fn_club_is_in_downline: the same
---   cycle-safe, depth-bounded, active-relationship walk the roster's
---   fn_can_read_club_member_data uses for the same viewers).
+--   Only the club's owner of record (clubs.owner_id; for KINGS CLUB that is
+--   KingFish) is listed every seated player of the club. Every other viewer
+--   (co-owner, admin, super agent, agent, sub agent, player, platform admin,
+--   union overseer) is listed only the seats of players in their own
+--   downline (public.fn_club_is_in_downline: the cycle-safe, depth-bounded,
+--   active-relationship walk the roster uses). A viewer with no downline is
+--   listed nothing, so the strip does not show.
 --
--- The owner, co-owner and admin (scope 'all'), a platform admin, a union
--- overseer and the service role keep the whole club, unchanged. The
+-- The service role (system reads, certificates) keeps the whole club. The
 -- certification-identity rule is unchanged. Nothing else in the reader moves.
 --
 -- DDL only, one transaction, CREATE OR REPLACE FUNCTION (no table lock). The
 -- live definition is checked against its recorded preimage first, so the file
 -- aborts rather than overwrite a reader another change moved.
 --
--- @live-proof: (SELECT pg_get_functiondef('public.ca_club_live_seats(uuid)'::regprocedure) LIKE '%v_downline_only%fn_club_is_in_downline(p_club_id, v_actor, l.uid)%')
+-- @live-proof: (SELECT pg_get_functiondef('public.ca_club_live_seats(uuid)'::regprocedure) LIKE '%v_whole_club%fn_club_is_in_downline(p_club_id, v_actor, l.uid)%')
 
 BEGIN;
 
@@ -68,28 +70,17 @@ DECLARE
   v_actor uuid := auth.uid();
   v_service boolean := coalesce(auth.role(), 'service_role') = 'service_role';
   v_sees_certification boolean := public.ca_viewer_sees_certification_identities();
-  v_platform_admin boolean := false;
-  v_union_staff boolean := false;
-  v_member boolean := false;
-  v_downline_only boolean := false;
+  v_whole_club boolean := false;
 BEGIN
   IF p_club_id IS NULL THEN RETURN; END IF;
-  IF NOT v_service THEN
+  IF v_service THEN
+    v_whole_club := true;
+  ELSE
     IF v_actor IS NULL THEN RETURN; END IF;
-    v_platform_admin := EXISTS (
-      SELECT 1 FROM public.profiles p WHERE p.id = v_actor AND coalesce(p.is_admin, false)
+    -- Only the club's owner of record sees every seated player of the club.
+    v_whole_club := EXISTS (
+      SELECT 1 FROM public.clubs c WHERE c.id = p_club_id AND c.owner_id = v_actor
     );
-    v_union_staff := coalesce(public.fn_is_union_overseer(p_club_id, v_actor), false);
-    v_member := EXISTS (
-      SELECT 1 FROM public.club_members m
-       WHERE m.user_id = v_actor AND m.club_id = p_club_id
-         AND coalesce(m.status, 'approved') IN ('active', 'approved')
-    );
-    IF NOT (v_platform_admin OR v_union_staff OR v_member) THEN RETURN; END IF;
-    -- An agent (cashier scope 'downline') is listed only their own downline.
-    v_downline_only := NOT v_platform_admin
-      AND NOT v_union_staff
-      AND coalesce(public.fn_club_cashier_scope(p_club_id, v_actor), 'none') = 'downline';
   END IF;
 
   RETURN QUERY
@@ -127,7 +118,7 @@ BEGIN
     LEFT JOIN public.profiles pr ON pr.id = l.uid
    WHERE pr.status IS DISTINCT FROM 'deleted'
      AND (v_sees_certification OR NOT public.ca_is_reserved_certification_identity(l.uid))
-     AND (NOT v_downline_only OR public.fn_club_is_in_downline(p_club_id, v_actor, l.uid))
+     AND (v_whole_club OR public.fn_club_is_in_downline(p_club_id, v_actor, l.uid))
    ORDER BY l.seated_at DESC NULLS LAST, l.uid, l.tid;
 END;
 $function$;

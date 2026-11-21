@@ -4,11 +4,14 @@
  * Dan, 2026-11-21, Player Management: "live now" should only show the agents
  * their own downlines, not every user that's active in the club.
  *
+ * And: all online users in KINGS CLUB are shown to KingFish (its owner) but
+ * to no one else; everyone else sees only their own downline.
+ *
  * The rule lives in the server reader `ca_club_live_seats`, the one door the
- * Live Now strip and the row table chips read: a viewer whose club cashier
- * scope is 'downline' (super agent, agent, sub agent) is listed only seats of
- * players in their own downline. Owner, co-owner, admin, platform admin,
- * union overseer and the service role keep the whole club. A later
+ * Live Now strip and the row table chips read: only the club's owner of
+ * record (clubs.owner_id) and the service role are listed the whole club;
+ * every other viewer (co-owner, admin, agent, player, platform admin, union
+ * overseer) is listed only seats of players in their own downline. A later
  * redefinition of the reader must keep the rule.
  */
 
@@ -24,20 +27,19 @@ const sql = readFileSync(join(MIGRATIONS, NAME), 'utf8');
 const RULE = 'public.fn_club_is_in_downline(p_club_id, v_actor, l.uid)';
 
 describe('Live Now lists an agent only their own downline', () => {
-  it('limits a downline-scope viewer to their own downline at the reader', () => {
+  it('lists the whole club only to its owner of record and the service role', () => {
     expect(sql).toContain('CREATE OR REPLACE FUNCTION public.ca_club_live_seats(p_club_id uuid)');
+    expect(sql).toMatch(/IF v_service THEN\s+v_whole_club := true;/);
     expect(sql).toContain(
-      "coalesce(public.fn_club_cashier_scope(p_club_id, v_actor), 'none') = 'downline'"
+      'SELECT 1 FROM public.clubs c WHERE c.id = p_club_id AND c.owner_id = v_actor'
     );
-    expect(sql).toContain(`AND (NOT v_downline_only OR ${RULE})`);
+    expect(sql).toContain(`AND (v_whole_club OR ${RULE})`);
   });
 
-  it('keeps the whole club for platform admin, union overseer and the service role', () => {
-    expect(sql).toMatch(/v_downline_only := NOT v_platform_admin\s+AND NOT v_union_staff/);
-    expect(sql).toContain(
-      "v_service boolean := coalesce(auth.role(), 'service_role') = 'service_role'"
-    );
-    expect(sql).toMatch(/IF NOT v_service THEN[\s\S]*v_downline_only :=[\s\S]*END IF;/);
+  it('gives no wider door to a co-owner, admin, platform admin or union overseer', () => {
+    const body = sql.slice(sql.indexOf('AS $function$'), sql.indexOf('$function$;'));
+    expect(body).not.toMatch(/is_admin|fn_is_union_overseer|fn_club_cashier_scope|co_owner/);
+    expect(body).not.toMatch(/v_whole_club\s*:=\s*true\s*;[\s\S]*ELSIF/);
   });
 
   it('keeps the certification-identity rule and the grants', () => {
@@ -75,8 +77,8 @@ describe('Live Now lists an agent only their own downline', () => {
     }
   });
 
-  it('the members page labels the strip as the downline for an agent', () => {
+  it('the members page labels the strip as the downline for everyone but the owner', () => {
     const page = readFileSync(join(ROOT, 'src', 'pages', 'ClubMembersPage.tsx'), 'utf8');
-    expect(page).toContain("scope={isAgent ? 'downline' : 'club'}");
+    expect(page).toContain("scope={summary.viewer_role === 'owner' ? 'club' : 'downline'}");
   });
 });

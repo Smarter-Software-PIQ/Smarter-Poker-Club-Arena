@@ -12,17 +12,17 @@ import { titleCase } from '../../utils/titleCase';
  * out of sight. One chip per player (their newest seat), tap to watch.
  * Fed by src/lib/clubLiveSeats.ts, one read per club per minute.
  *
- * AN AGENT SEES ONLY THEIR OWN DOWNLINE (Dan, 2026-11-21): for a super
- * agent, agent or sub agent the strip lists only players in that agent's own
- * downline, never every active member of the club. The rule lives in the
- * server reader `ca_club_live_seats` (migration *_live_now_lists_an_agent_
- * only_their_own_downline.sql), so the strip cannot be widened from here;
- * `scope="downline"` only labels it so the agent can see what it covers.
+ * ONLY THE OWNER SEES THE WHOLE CLUB (Dan, 2026-11-21): the club's owner of
+ * record (KingFish for KINGS CLUB) is listed every seated player; everyone
+ * else, co-owner, admin, agent or player, is listed only players in their own
+ * downline. The rule lives in the server reader `ca_club_live_seats`
+ * (migration 20261121153607), so the strip cannot be widened from here;
+ * `scope="downline"` only labels it so the viewer can see what it covers.
  */
 export interface LiveNowStripProps {
   seats: readonly LiveSeat[];
   onWatch: (table: LiveSeat, member: { userId: string; name: string }) => void;
-  /** 'downline' when the viewer is an agent: the server lists only their own downline. */
+  /** 'downline' for every viewer but the club owner: the server lists only their own downline. */
   scope?: 'club' | 'downline';
 }
 

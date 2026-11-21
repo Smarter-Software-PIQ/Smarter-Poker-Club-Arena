@@ -2030,7 +2030,7 @@ export default function ClubMembersPage() {
         <LiveNowStrip
           seats={liveSeats.seats}
           onWatch={watchTable}
-          scope={isAgent ? 'downline' : 'club'}
+          scope={summary.viewer_role === 'owner' ? 'club' : 'downline'}
         />
       )}
       <div
