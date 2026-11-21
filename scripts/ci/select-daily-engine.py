@@ -241,7 +241,14 @@ def select(args, report):
                                      '--repo', args.repo, '--target', sha, '--control', args.control,
                                      '--cutoff', str(report['cutoffEpoch'])], capture_output=True, timeout=60)
             if helper.returncode == 3:
-                report['deferredCandidates'].append({'sha': sha, 'reason': 'prequalification unavailable'})
+                # Say WHY (2026-11-21): keep the helper's exact one-line refusal
+                # (including failing prequalification workflow run ID when present)
+                # beside the stable `prequalification unavailable` reason string.
+                raw_err = helper.stderr
+                text_err = raw_err.decode('utf-8', 'replace') if isinstance(raw_err, bytes) else (raw_err or '')
+                why = text_err.strip().splitlines()
+                report['deferredCandidates'].append({'sha': sha, 'reason': 'prequalification unavailable',
+                                                     'detail': (why[-1] if why else 'no refusal text')[:300]})
                 continue
             helper.check_returncode()
             qual = json.loads(helper.stdout)

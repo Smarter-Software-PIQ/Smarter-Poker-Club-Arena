@@ -556,6 +556,13 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
       expect(r.stdout).toContain('deferred=1');
       expect(r.calls).toMatch(/ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/);
     });
+    it('a post-booking push run yields the host before certify while the booking commit is uncertified', () => {
+      const r = runLate('booking_pending');
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('DEFERRED');
+      expect(r.stdout).toContain('deferred=1');
+      expect(r.calls).toMatch(/ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/);
+    });
     it.each(['none', 'booking', 'candidate', 'FAIL'])(
       'NEGATIVE: "%s" keeps the host and certifies',
       (verdict) => {
@@ -641,6 +648,19 @@ git() { echo unexpected-main-read >&2; return 99; }
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(`ALREADY CERTIFIED: ${pushed}`);
       expect(result.stdout).toMatch(/\nsha=\n/);
+    });
+    it('a post-booking push yields as DEFERRED while the booking commit is not yet certified', () => {
+      for (const rel of ['', 'ahead']) {
+        const result = run(fakeGh('booking_pending', '0', rel));
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('DEFERRED: owner engine window w-1');
+        expect(result.stdout).toMatch(/\nsha=\n/);
+        expect(result.stdout).not.toContain('sha=' + pushed);
+        expect(result.stdout).not.toContain('sha=' + newest);
+        expect(result.stdout).not.toContain('refresh=auto');
+        expect(result.stdout).not.toContain('inherit_eligible');
+        expect(result.calls).not.toContain('/statuses');
+      }
     });
     it('a commit that predates the booking and was not retargeted is deferred: nothing planned, no status', () => {
       for (const rel of ['', 'HTTP 502', 'diverged']) {
