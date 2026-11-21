@@ -774,6 +774,82 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'PLO6 lane (the owning lane): docs/horse-option-authority.d/omahaStrategyInPlo6.md',
     'PLO6 lane keeps it OFF until the six-card port is complete and reviewed (PLO6 checkpoint 2026-11-16)'
   ),
+  // 2026-11-21 PLO-OWNER lead-4 (owner rule 8: no rule keyed on person vs Horse; AUDIT-B item 22 + exhaustive
+  // origin/main audit, guarded by anOmahaRuleNeverKeysOnPersonVsHorse.law.test.ts): legacy dark Omaha options
+  // that branch on `omahaOpponentKindOf` or opponent `.is_horse` stay locked OFF-ONLY until de-keyed or removed.
+  // Two of them (`omahaBluffIsPricedAgainstTheTarget`, `omahaFacingBetValueShareIsMeasured`) plus
+  // `omahaMultiwayIsPricedInTournaments` also carry the twice-failed PLO4/PLO5 OFF-ONLY ruling (2026-11-21T19:45:40Z).
+  omahaBluffShareFromBetRate: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'keys on person vs Horse via omahaOpponentKindOf (HorseOmahaFacingBetEv.ts:225-234): locked OFF-ONLY'
+  ),
+  omahaPricedPriorsByOpponentKind: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'keys on person vs Horse via omahaOpponentKindOf (HorseOmahaPricedWiring.ts:181, HorseOmahaFacingBetEv.ts:1377): locked OFF-ONLY'
+  ),
+  omahaFlopBetUsesMeasuredFoldShare: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'person-only via omahaOpponentKindOf (HorseOmahaFlopBetMeasuredFoldShare.ts:172): locked OFF-ONLY'
+  ),
+  omahaFlopBetPricesTheRaise: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'person-only via omahaOpponentKindOf (HorseOmahaFlopBetRaiseBranch.ts:107): locked OFF-ONLY'
+  ),
+  omahaFoldModelFittedOnPeople: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'person-only via omahaOpponentKindOf (HorseOmahaFoldModelFittedOnPeople.ts:251): locked OFF-ONLY'
+  ),
+  omahaFlopDefenceIsPriced: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'keys on person vs Horse via omahaOpponentKindOf (HorseOmahaFlopFacingBetEvRule.ts:185, HorseOmahaFlopDefenceTree.ts:185): locked OFF-ONLY'
+  ),
+  omahaFlopVerdictReadsTheBettor: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'keys on person vs Horse via omahaOpponentKindOf (HorseOmahaFlopFacingBetEvRule.ts:149): locked OFF-ONLY'
+  ),
+  omahaCheckedToBetIsPriced: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21 (AUDIT-B item 22)',
+    'keys on person vs Horse via omahaOpponentKindOf (HorseOmahaCheckedToBet.ts:520): locked OFF-ONLY'
+  ),
+  omahaBluffIsPricedAgainstTheTarget: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'twice-failed PLO4/PLO5 option AND keys on person vs Horse via omahaOpponentKindOf (HorseOmahaBluffPricedAgainstTheTarget.ts:388,448): locked OFF-ONLY',
+    source:
+      'PLO-OWNER lead-4 ruling 2026-11-21T19:45:40Z (twice-failed PLO4/PLO5 OFF-ONLY) + owner rule 8 (AUDIT-B item 22)',
+  }),
+  omahaFacingBetValueShareIsMeasured: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'twice-failed PLO4/PLO5 option AND keys on person vs Horse via omahaOpponentKindOf (HorseLogic.ts:13188,13377): locked OFF-ONLY',
+    source:
+      'PLO-OWNER lead-4 ruling 2026-11-21T19:45:40Z (twice-failed PLO4/PLO5 OFF-ONLY) + owner rule 8',
+  }),
+  omahaPairedBoardRiverIsPriced: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21',
+    'person-only via omahaOpponentKindOf (HorseLogic.ts:13350): locked OFF-ONLY'
+  ),
+  omahaFacingBetValueIsRangeRelative: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21',
+    'person-only via omahaOpponentKindOf (HorseLogic.ts:13400): locked OFF-ONLY'
+  ),
+  omahaFacingBetIsPricedByEquity: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21',
+    'person-only via bettor.is_horse !== false (HorseOmahaFacingBetEquity.ts:262): locked OFF-ONLY'
+  ),
+  omahaMultiwayCheckedToBetIsPriced: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21',
+    'keys on person vs Horse via p.is_horse === true (HorseOmahaMultiwayDiscipline.ts:913,1048,1076,1080): locked OFF-ONLY'
+  ),
+  omahaSmallBetIsPriced: hold(
+    'owner rule 8 (no rule keyed on person vs Horse); PLO-OWNER lead-4 2026-11-21',
+    'keys on person vs Horse via scope.opponent.is_horse === true (HorseOmahaSmallBet.ts:197,271): locked OFF-ONLY'
+  ),
+  omahaMultiwayIsPricedInTournaments: Object.freeze({
+    status: 'harm' as const,
+    reason: 'twice-failed PLO4/PLO5 option: locked OFF-ONLY',
+    source: 'PLO-OWNER lead-4 ruling 2026-11-21T19:45:40Z (twice-failed PLO4/PLO5 OFF-ONLY)',
+  }),
   // superseded
   v55OmahaRiverTripsFlat: Object.freeze({
     status: 'superseded' as const,
