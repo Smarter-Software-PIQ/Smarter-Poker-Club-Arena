@@ -1,110 +1,266 @@
 /**
- * LAW: AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77, 2026-11-21).
+ * LAW: AN OLDER MERGED MIGRATION INSTALLS FIRST, BY CONSTRUCTION
+ * (incident 90972d77, 2026-11-21).
  *
  * At 04:15 UTC four Apply Merged Migration runs released by the same hold
  * started within two seconds; 20261121024624 installed before
  * 20261121005533, whose switch-list chain guard then refused it, and the
- * install watch paged MergedMigrationNotInstalled. Each dispatcher now
- * watches the applier's runs for a minimum observation period and waits,
- * bounded, while an older version is still queued or installing; a stuck
- * older run never holds a later fix hostage.
+ * install watch paged MergedMigrationNotInstalled. The applier's queue runs
+ * files in run-id (dispatch) order, and dispatch order is not version order.
+ *
+ * The first answer (#11619) was a 300 s dispatcher wait, which an older run
+ * slower than the budget still beat. The guarantee pinned here has no clock:
+ *   1. the applier's runs stay serialized (per-file groups, never cancelled,
+ *      plus the run-id queue step);
+ *   2. each run installs every OLDER ordinary file on main that production
+ *      does not hold, oldest first, once each through the same applier, and
+ *      sends its own file only if all of them installed;
+ *   3. a daily-maintenance window file is never sent by this path and never
+ *      holds a later ordinary file back; a SUPERSEDED file never installs.
+ * Pinned with a model of the queue over every dispatch order, and against the
+ * workflow and dispatcher sources.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import {
-  awaitOlderMergedApplies,
-  olderInFlight,
-  BUDGET_MS,
-  OBSERVE_MS,
-} from '../scripts/ci/await-older-merged-applies.mjs';
+  installOlderFirst,
+  pendingOlderFiles,
+  MAX_OLDER,
+  ORDER_FLOOR,
+} from '../scripts/ci/install-older-merged-first.mjs';
 
 const ROOT = resolve(__dirname, '..');
-const SHELL = readFileSync(resolve(ROOT, '.github/scripts/dispatch-merged-migrations.sh'), 'utf8');
-const WF = parse(
-  readFileSync(resolve(ROOT, '.github/workflows/dispatch-merged-migrations.yml'), 'utf8')
-);
+const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
+const APPLIER = parse(read('.github/workflows/apply-merged-migration.yml'));
+const APPLY_RUN: string = APPLIER.jobs.apply.steps.find(
+  (s: { id?: string }) => s.id === 'apply'
+).run;
+const DISPATCHER = parse(read('.github/workflows/dispatch-merged-migrations.yml'));
+const SHELL = read('.github/scripts/dispatch-merged-migrations.sh');
 
-const run = (status: string, file: string) => ({
-  status,
-  display_title: `Apply Merged Migration ${file}`,
-});
+const ORDINARY = 'BEGIN;\nSELECT 1;\nCOMMIT;\n';
+const WINDOW = '-- @install-window: daily-maintenance\nBEGIN;\nSELECT 1;\nCOMMIT;\n';
 
-function clock() {
-  let t = 0;
-  return { now: () => t, sleep: async (ms: number) => void (t += ms), log: () => {} };
+const A = '20261121005533_horse_option_switch_a.sql';
+const B = '20261121020000_unrelated_b.sql';
+const C = '20261121024624_horse_option_switch_c.sql';
+const D = '20261121032246_later_d.sql';
+
+function planFor(
+  target: string,
+  files: Record<string, string>,
+  installed: { version: string; name: string }[] = []
+) {
+  return pendingOlderFiles({
+    target,
+    files: Object.keys(files),
+    readSql: (f: string) => files[f],
+    installed,
+  });
 }
 
-describe('an older merged migration installs first', () => {
-  it('names only older versions still queued or installing', () => {
-    expect(
-      olderInFlight(
-        [
-          run('in_progress', '20261121005533_a.sql'),
-          run('queued', '20261121020000_b.sql abc123'),
-          run('completed', '20261121001000_c.sql'),
-          run('in_progress', '20261121032246_d.sql'),
-          { status: 'in_progress', display_title: 'something else' },
-        ],
-        '20261121024624'
-      )
-    ).toEqual(['20261121005533', '20261121020000']);
+describe('which older files a run installs first', () => {
+  it('every older ordinary file production lacks, oldest first, never the target or a newer one', () => {
+    const files = { [D]: ORDINARY, [C]: ORDINARY, [A]: ORDINARY, [B]: ORDINARY };
+    expect(planFor(C, files).install).toEqual([A, B]);
+    expect(planFor(A, files).install).toEqual([]);
   });
 
-  it('the 04:15 race: the newer dispatcher waits until the older install finishes', async () => {
-    let polls = 0;
-    const c = clock();
-    const r = await awaitOlderMergedApplies('20261121024624', {
-      ...c,
-      // The older sibling's run appears after 15 s and finishes at 70 s.
-      listRuns: async () => {
-        polls++;
-        const t = c.now();
-        return t >= 15_000 && t < 70_000 ? [run('in_progress', '20261121005533_a.sql')] : [];
-      },
+  it('a file production holds by version, name or truncated name is never sent again', () => {
+    const long = `20261121010101_${'x'.repeat(60)}.sql`;
+    const files = { [A]: ORDINARY, [B]: ORDINARY, [long]: ORDINARY, [C]: ORDINARY };
+    const installed = [
+      { version: '20261121005533', name: 'other' },
+      { version: '20261121999999', name: 'unrelated_b' },
+      { version: '20261121888888', name: 'x'.repeat(55) },
+    ];
+    expect(planFor(C, files, installed).install).toEqual([]);
+  });
+
+  it('a window file stays QUEUED for the 04:00 route and does not hold a later file back', () => {
+    const plan = planFor(C, { [A]: WINDOW, [B]: ORDINARY, [C]: ORDINARY });
+    expect(plan.install).toEqual([B]);
+    expect(plan.windowQueued).toEqual([A]);
+  });
+
+  it('a SUPERSEDED file never installs', () => {
+    const plan = planFor(C, {
+      [A]: `-- SUPERSEDED BY 20261121024624\n${ORDINARY}`,
+      [B]: ORDINARY,
+      [C]: ORDINARY,
     });
-    expect(r.older).toEqual([]);
-    expect(r.waitedMs).toBeGreaterThanOrEqual(70_000);
-    expect(r.waitedMs).toBeLessThan(BUDGET_MS);
-    expect(polls).toBeGreaterThan(3);
+    expect(plan.install).toEqual([B]);
+    expect(plan.superseded).toEqual([A]);
   });
 
-  it('observes long enough for a sibling woken in the same second to send', async () => {
-    const r = await awaitOlderMergedApplies('20261121024624', {
-      ...clock(),
-      listRuns: async () => [],
+  it('nothing below the floor, where history was recorded under other versions', () => {
+    expect(ORDER_FLOOR).toBe('20261110000000');
+    const old = '20261109235959_recorded_elsewhere.sql';
+    const legacy = '20260827_horses_are_players_law.sql';
+    expect(planFor(C, { [old]: ORDINARY, [legacy]: ORDINARY, [C]: ORDINARY }).install).toEqual([]);
+  });
+});
+
+describe('the target is sent only after every older file installed', () => {
+  const quiet = () => {};
+  it('sends older files oldest first, once each', () => {
+    const sent: string[] = [];
+    const code = installOlderFirst({
+      target: C,
+      plan: { install: [A, B], windowQueued: [], superseded: [] },
+      send: (f: string) => (sent.push(f), 0),
+      log: quiet,
     });
-    expect(r.waitedMs).toBeGreaterThanOrEqual(OBSERVE_MS);
+    expect(code).toBe(0);
+    expect(sent).toEqual([A, B]);
   });
 
-  it('a stuck older run never holds a later fix hostage', async () => {
-    const r = await awaitOlderMergedApplies('20261121024624', {
-      ...clock(),
-      listRuns: async () => [run('in_progress', '20261121005533_a.sql')],
+  it('a refused older file stops the run: REFUSED, nothing after it, target not sent', () => {
+    const sent: string[] = [];
+    const code = installOlderFirst({
+      target: C,
+      plan: { install: [A, B], windowQueued: [], superseded: [] },
+      send: (f: string) => (sent.push(f), f === A ? 1 : 0),
+      log: quiet,
     });
-    expect(r.waitedMs).toBe(BUDGET_MS);
-    expect(r.older).toEqual(['20261121005533']);
+    expect(code).toBe(1);
+    expect(sent).toEqual([A]);
   });
 
-  it('an unreadable run list is COULD NOT TELL and the send goes on', async () => {
+  it('an unknown older outcome is UNKNOWN (3), never folded into refused or ok', () => {
+    const code = installOlderFirst({
+      target: C,
+      plan: { install: [A], windowQueued: [], superseded: [] },
+      send: () => 3,
+      log: quiet,
+    });
+    expect(code).toBe(3);
+  });
+
+  it('a backlog beyond one run is refused with nothing sent and names the oldest file', () => {
+    const many = Array.from({ length: MAX_OLDER + 1 }, (_, i) => `2026112101000${i}_f${i}.sql`);
+    const sent: string[] = [];
     const lines: string[] = [];
-    const r = await awaitOlderMergedApplies('20261121024624', {
-      ...clock(),
+    const code = installOlderFirst({
+      target: D,
+      plan: { install: many, windowQueued: [], superseded: [] },
+      send: (f: string) => (sent.push(f), 0),
       log: (m: string) => lines.push(m),
-      listRuns: async () => {
-        throw new Error('GitHub answered 403');
-      },
     });
-    expect(r.older).toBeNull();
-    expect(lines.join('\n')).toContain('COULD NOT TELL');
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(lines.join('\n')).toContain(`Dispatch apply-merged-migration for ${many[0]} first`);
   });
 
-  it('every dispatcher runs the gate before its first send and can read the runs', () => {
-    const gate = SHELL.indexOf('node scripts/ci/await-older-merged-applies.mjs');
-    expect(gate).toBeGreaterThan(0);
-    expect(gate).toBeLessThan(SHELL.indexOf('SENT=0'));
-    expect(SHELL).toMatch(/^node scripts\/ci\/await-older-merged-applies\.mjs [^\n]*\|\| true$/m);
-    expect(WF.permissions.actions).toBe('read');
+  it('an unreadable history is REFUSED with nothing sent', () => {
+    const r = spawnSync(
+      process.execPath,
+      ['scripts/ci/install-older-merged-first.mjs', '--migration', C],
+      { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } }
+    );
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('REFUSED: could not read production');
+  });
+});
+
+/**
+ * A model of the real queue: runs execute one at a time in run-id (dispatch)
+ * order; each installs its older pending files through the same rule, then
+ * its own file, and a file production already holds answers ALREADY-APPLIED.
+ */
+function simulate(dispatchOrder: string[], files: Record<string, string>) {
+  const installed: { version: string; name: string }[] = [];
+  const order: string[] = [];
+  const has = (f: string) => installed.some((r) => r.version === f.slice(0, 14));
+  const install = (f: string) => {
+    if (has(f)) return 0; // ALREADY-APPLIED
+    installed.push({ version: f.slice(0, 14), name: f.slice(15, -4) });
+    order.push(f);
+    return 0;
+  };
+  for (const target of dispatchOrder) {
+    const plan = planFor(target, files, installed);
+    const code = installOlderFirst({ target, plan, send: install, log: () => {} });
+    if (code === 0) install(target);
+  }
+  return order;
+}
+
+function permutations<T>(xs: T[]): T[][] {
+  if (xs.length <= 1) return [xs];
+  return xs.flatMap((x, i) =>
+    permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p])
+  );
+}
+
+describe('every dispatch order installs in version order', () => {
+  const files = { [A]: ORDINARY, [B]: ORDINARY, [C]: ORDINARY, [D]: ORDINARY };
+
+  it('the 04:15 race: the newer run first still installs the older file first', () => {
+    expect(simulate([C, A], { [A]: ORDINARY, [C]: ORDINARY })).toEqual([A, C]);
+  });
+
+  it('all 24 orders of four merged files', () => {
+    for (const p of permutations([A, B, C, D]))
+      expect(simulate(p, files), p.join(' ')).toEqual([A, B, C, D]);
+  });
+
+  it('a lost or never-started older run is still installed by the next newer run', () => {
+    expect(simulate([D], files)).toEqual([A, B, C, D]);
+  });
+
+  it('a single shared concurrency group would lose a file, which is why it is not used', () => {
+    // GitHub keeps one PENDING run per group and a newer pending run replaces
+    // it. Running C, pending D, then A joins: D is replaced by A, and A's
+    // "install everything up to A" never reaches D.
+    const running = C;
+    let pending: string | null = D;
+    pending = A; // A replaces D
+    const ran = [running, pending];
+    const order = simulate(ran, files);
+    expect(order).not.toContain(D);
+  });
+});
+
+describe('the workflows carry the guarantee', () => {
+  it('applier runs stay serialized: per-file group, never cancelled, run-id queue', () => {
+    expect(APPLIER.concurrency).toEqual({
+      group:
+        'apply-merged-migration-${{ inputs.migration || github.event.client_payload.migration }}',
+      'cancel-in-progress': false,
+    });
+    expect(APPLY_RUN).toContain('select(.id < $GITHUB_RUN_ID and .status != \\"completed\\")');
+  });
+
+  it('the older files install after the queue and before the target, and a failure sends nothing more', () => {
+    const queue = APPLY_RUN.indexOf('deadline=$(( $(date +%s) + 900 ))');
+    const older = APPLY_RUN.indexOf('node scripts/ci/install-older-merged-first.mjs');
+    const target = APPLY_RUN.indexOf('node scripts/ci/apply-recorded-migration.mjs');
+    expect(queue).toBeGreaterThan(0);
+    expect(older).toBeGreaterThan(queue);
+    expect(target).toBeGreaterThan(older);
+    const between = APPLY_RUN.slice(older, target);
+    expect(between).toContain('code=${PIPESTATUS[0]}');
+    expect(between).toMatch(
+      /if \[\[ "\$code" != "0" \]\]; then\n\s+echo "code=\$code" >> "\$GITHUB_OUTPUT"\n\s*exit "\$code"\n\s*fi/
+    );
+    // A check-only run checks the older files only too.
+    expect(between).toContain("&& '--dry-run' || ''");
+  });
+
+  it('no dispatcher timing gate remains, and the dispatcher no longer reads Actions', () => {
+    expect(existsSync(resolve(ROOT, 'scripts/ci/await-older-merged-applies.mjs'))).toBe(false);
+    expect(SHELL).not.toContain('await-older-merged-applies');
+    expect(DISPATCHER.permissions).toEqual({ contents: 'write', 'pull-requests': 'write' });
+  });
+
+  it('the older-files step never sends a window file and never takes the window route', () => {
+    const src = read('scripts/ci/install-older-merged-first.mjs');
+    expect(src).toContain('declaresMaintenanceWindow(sql)');
+    expect(src).not.toContain('--maintenance-window');
+    expect(src).not.toContain('--owner-window');
   });
 });

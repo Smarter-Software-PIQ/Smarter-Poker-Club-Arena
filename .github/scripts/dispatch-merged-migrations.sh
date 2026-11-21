@@ -178,9 +178,11 @@ if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE" ${NOW_MS:+"$NOW_MS"}
   exit 1
 fi
 
-# AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77): merges woken
-# by the same boundary send in version order; bounded, never fatal.
-node scripts/ci/await-older-merged-applies.mjs "${DISPATCH[0]}" | while IFS= read -r line; do say "$line"; done || true
+# AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77) is guaranteed
+# by the applier, not by timing here: every apply-merged-migration run installs
+# the older pending ordinary files before its own
+# (scripts/ci/install-older-merged-first.mjs), so the order these sends reach
+# the queue in no longer matters.
 
 SENT=0
 for f in "${DISPATCH[@]}"; do

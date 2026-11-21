@@ -119,8 +119,6 @@ describe('the merge dispatches the migrations it added', () => {
     expect(workflow.permissions).toEqual({
       contents: 'write',
       'pull-requests': 'write',
-      // Reads the applier's runs only: an older merge installs first (incident 90972d77).
-      actions: 'read',
     });
     expect(job.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
     // Every merge dispatches its own migrations, whoever merged it (2026-11-07:

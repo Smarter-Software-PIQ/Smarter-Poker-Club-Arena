@@ -32,9 +32,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # Read the applier's queued/running runs so an older merge installs first
-  # (scripts/ci/await-older-merged-applies.mjs, incident 90972d77).
-  actions: read
 
 # One run per merged PR, never cancelled: its bounded break-window wait must
 # not be cut short.
