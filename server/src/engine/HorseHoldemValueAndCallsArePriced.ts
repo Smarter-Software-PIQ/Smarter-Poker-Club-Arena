@@ -566,20 +566,25 @@ export function holdemPricedVerdict(
       check = (1 - b) * r * back.equity * spot.pot + b * answer;
     }
     options.push({ kind: 'check', to: 0, ev: check, equityWhenCalled: all });
-    for (const to of wagers) {
-      if (!(to > 0)) continue;
-      const v = wagerValue(
-        range,
-        spot.pot,
-        to,
-        spot.heroIn,
-        spot.villainIn,
-        spot.heroStack,
-        spot.villainStack,
-        spot.foldAtReference,
-        r
-      );
-      options.push({ ...v, kind: 'bet' });
+    // On the river, a made hand priced here bets only as a value bet (equity >= 0.5 against his range);
+    // otherwise foldAtReference / HOLDEM_PRICED_REFERENCE_PRICE > 1 turns 0%-equity weak pairs into
+    // auto-profit river bluffs. Checking still emits holdem_priced_check so thin/blocker bets check cleanly.
+    if (!(spot.street === 'river' && all < 0.5)) {
+      for (const to of wagers) {
+        if (!(to > 0)) continue;
+        const v = wagerValue(
+          range,
+          spot.pot,
+          to,
+          spot.heroIn,
+          spot.villainIn,
+          spot.heroStack,
+          spot.villainStack,
+          spot.foldAtReference,
+          r
+        );
+        options.push({ ...v, kind: 'bet' });
+      }
     }
   }
   let best = options[0];

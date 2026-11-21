@@ -449,4 +449,17 @@ describe('holdemValueAndCallsArePriced: line-range construction invariants (2026
     const res = replayAt(withBlind as typeof st, PROFILE, SEEDS, ON);
     expect(res.kinds).toEqual(base.kinds);
   });
+
+  it('does not turn a < 50% equity river made hand into an auto-profit bluff when foldAtReference > reference price', () => {
+    // 10% overall equity (0% when called against top half), weakShare = 0.5, foldAtReference = 0.43 > 0.337:
+    // without the river value-bet guard, f = 0.43 * (price / 0.337) > price makes every bet size auto-profit.
+    const r = synthetic([0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [4, 4, 3, 3, 3, 1, 1, 0, 0, 0]);
+    const v = holdemPricedVerdict(
+      spotOf({ street: 'river', pot: 100, foldAtReference: 0.43, villainToAct: false }),
+      r,
+      [33, 50, 75, 100]
+    );
+    expect(v.options.map((o) => o.kind)).toEqual(['check']);
+    expect(v.best.kind).toBe('check');
+  });
 });
