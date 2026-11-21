@@ -6,15 +6,21 @@ sha=$1 config=$2 tree=$3 size=$4 transport=$5
 [[ "$size" =~ ^[1-9][0-9]{0,10}$ ]]
 [[ "$sha" =~ ^[0-9a-f]{40}$ && "$config" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
 deadline="$(python3 - <<'PY'
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
 from zoneinfo import ZoneInfo
-now = datetime.now(ZoneInfo("America/Chicago"))
-cutoff = now.replace(hour=3, minute=30, second=0, microsecond=0)
-if now >= cutoff:
-    if now < now.replace(hour=4, minute=5, second=0, microsecond=0):
+# Closed from each scheduled cycle's preparation cutoff (start - 30 min) to its
+# end (start + 5 min): every three-hourly cycle 01/04/07/10/13/16/19/22 Chicago
+# (owner order 2026-11-21; 03:30-04:05 for the 04:00 anchor). Real epoch hours.
+zone = ZoneInfo("America/Chicago")
+now = int(time.time())
+starts = [h for h in ((now // 3600 + k) * 3600 for k in range(-1, 6))
+          if datetime.fromtimestamp(h, zone).hour in (1, 4, 7, 10, 13, 16, 19, 22)]
+for start in starts:
+    if start - 1800 <= now < start + 300:
         raise SystemExit("production preparation window is closed")
-    cutoff += timedelta(days=1)
-print(min(int(now.timestamp()) + 600, int(cutoff.timestamp()) - 10))
+cutoff = min(start - 1800 for start in starts if start - 1800 > now)
+print(min(now + 600, cutoff - 10))
 PY
 )"
 (( deadline > $(date +%s) ))

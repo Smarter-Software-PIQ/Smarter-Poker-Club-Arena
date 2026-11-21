@@ -81,9 +81,17 @@ const epoch = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
 function admit(c: Case) {
   const dir = mkdtempSync(join(tmpdir(), 'daily-prep-'));
   try {
-    const policy = JSON.parse(
-      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
-    );
+    const policy = {
+      // The retained v1 shape keeps this daily/Phase1 law on its own route;
+      // the protected v2 three-hourly policy (2026-11-21) is pinned by
+      // tests/the-engine-cuts-over-every-three-hours.law.test.ts.
+      schema: 'engine-maintenance-schedule/v1',
+      policyId: 'phase1-hourly-01a1944f',
+      timeZone: 'America/Chicago',
+      phase1Status: 'off',
+      ownerMessageId: '01a1944f-7131-7f11-8dcc-873d576e781c',
+      completionEvidence: null as string | null,
+    };
     policy.phase1Status = 'off';
     policy.completionEvidence = 'isolated daily-preparation fixture';
     mkdirSync(join(dir, 'server/scripts'), { recursive: true });
@@ -435,8 +443,10 @@ describe('the workflow adds chances, not authority', () => {
 
   it('retains only daily odd-minute DST chances', () => {
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 3,8 * * *' },
-      { cron: '31,35,39,43 4,9 * * *' },
+      // Every three-hourly preparation hour in both offsets (owner order
+      // 2026-11-21); the daily policy admits only 03:30 from the same events.
+      { cron: '31,35,39,43 0,2,3,5,6,8,9,11 * * *' },
+      { cron: '31,35,39,43 12,14,15,17,18,20,21,23 * * *' },
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'detect',
@@ -450,7 +460,8 @@ describe('the workflow adds chances, not authority', () => {
     expect(admissionStep.env.PUSHED_AT).toBe("${{ github.event.repository.pushed_at || '' }}");
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(admission).not.toMatch(/dispatches|--method|-X POST|sleep|while true/);
-    expect(admission).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
+    expect(admission).toContain('WINDOW_MINUTES = 20');
+    expect(admission).toContain('LOOKBACK = timedelta(hours=5) if not three_hourly');
     expect(admission).toContain('ZoneInfo("America/Chicago")');
   });
 });

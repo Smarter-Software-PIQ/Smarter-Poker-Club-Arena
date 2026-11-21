@@ -51,7 +51,11 @@ describe('Backup qualification and the daily release are separate authorities', 
     );
     expect(gate.if).toBeUndefined();
     expect(gate['continue-on-error']).toBeUndefined();
-    expect(gate.run).toContain('now.hour == 3 and 30 <= now.minute < 50');
+    // Since 2026-11-21 (owner order: a cutover every three hours) the gate
+    // admits the 30-50 minute preparation of every scheduled cycle the
+    // target's policy names: 04:00 alone for daily, the eight hours for
+    // three-hourly (tests/the-engine-cuts-over-every-three-hours.law.test.ts).
+    expect(gate.run).toContain('if not (30 <= now.minute < 50 and local.hour in hours');
     expect(gate.run).toContain('policy.get("phase1Status") not in ("off", "complete")');
     expect(gate.env.CONTROL_SHA).toBe('${{ github.sha }}');
     expect(gate.run).toContain(
@@ -72,9 +76,19 @@ describe('Backup qualification and the daily release are separate authorities', 
     ['2026-11-06T09:50:00+00:00', 'off', 3],
     ['2026-11-06T20:00:00+00:00', 'off', 3],
     ['2026-11-06T09:30:00+00:00', 'active', 1],
+    // Three-hourly target at the 04:00 anchor: admitted without reading /health.
+    ['2026-11-06T09:30:00+00:00', 'off/three-hourly', 0],
+    // A three-hourly target outside any preparation window keeps serving.
+    ['2026-11-06T11:00:00+00:00', 'off/three-hourly', 3],
   ])('executes receiver admission for %s / %s', (stamp, status, expected) => {
     const code = gate.run.split("<<'PYTHON' || gate_status=$?\n")[1].split('\nPYTHON')[0];
-    const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(JSON.stringify({ phase1Status: status }))}\n`;
+    const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(
+      JSON.stringify(
+        status === 'off/three-hourly'
+          ? { phase1Status: 'off', frequency: 'three-hourly' }
+          : { phase1Status: status }
+      )
+    )}\n`;
     const result = spawnSync('python3', ['-c', prefix + code], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(expected);
   });
@@ -528,7 +542,9 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
       expect(planRun).toContain('echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"');
       const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
       expect(ids.indexOf('late_priority')).toBe(ids.length - 1);
-      expect(backup.jobs.refresh.outputs.deferred).toBe('${{ steps.late_priority.outputs.deferred }}');
+      expect(backup.jobs.refresh.outputs.deferred).toBe(
+        '${{ steps.late_priority.outputs.deferred }}'
+      );
       expect(backup.jobs.certify.if).toContain("needs.refresh.outputs.deferred != '1'");
     });
     it('a run whose commit now predates a booked window hands the host back and certifies nothing', () => {
@@ -538,13 +554,16 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
       expect(r.stdout).toContain('deferred=1');
       expect(r.calls).toMatch(/ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/);
     });
-    it.each(['none', 'booking', 'candidate', 'FAIL'])('NEGATIVE: "%s" keeps the host and certifies', (verdict) => {
-      const r = runLate(verdict);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).not.toContain('DEFERRED');
-      expect(r.stdout).not.toContain('deferred=1');
-      expect(r.calls).not.toContain('ssh ');
-    });
+    it.each(['none', 'booking', 'candidate', 'FAIL'])(
+      'NEGATIVE: "%s" keeps the host and certifies',
+      (verdict) => {
+        const r = runLate(verdict);
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('DEFERRED');
+        expect(r.stdout).not.toContain('deferred=1');
+        expect(r.calls).not.toContain('ssh ');
+      }
+    );
   });
 
   describe('the booked candidate goes first while an owner window is live', () => {
