@@ -58,7 +58,10 @@ import {
   omahaMathCoreOwns,
   omahaMathCoreRecover,
 } from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
-import { omahaMathCoreSwitchOn } from '../engine/omahaMathCore/OmahaMathCoreSwitchState.js';
+import {
+  omahaMathCoreRecoverAdmission,
+  omahaMathCoreSwitchOn,
+} from '../engine/omahaMathCore/OmahaMathCoreSwitchState.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -312,6 +315,9 @@ export async function decideLightningHorse(
         gs: { ...snapshot.gameState, toCall },
         on: omahaMathCoreSwitchOn(snapshot.opts as Readonly<Record<string, unknown>> | undefined),
         from: 'worker_failure',
+        ...omahaMathCoreRecoverAdmission(
+          snapshot.opts as Readonly<Record<string, unknown>> | undefined
+        ),
         error: err,
         runCore: false,
         budgetMs: 15,
