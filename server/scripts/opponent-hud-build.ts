@@ -87,17 +87,37 @@ async function db() {
   return (await import('../src/services/supabase.js')).supabase;
 }
 
+/**
+ * RATE LIMIT (2026-11-21): the backfill shares the production database with live play, so it pauses between pages
+ * and between write batches (--pause-ms, default 200) and doubles the pause after any call slower than one second
+ * (capped at 10 s, halving back after fast calls), the same rule as the engine's switch-on catch-up.
+ */
+const BASE_PAUSE_MS = Math.max(0, Number(opt('--pause-ms') ?? 200) || 0);
+let pauseMs = BASE_PAUSE_MS;
+async function paced<T>(call: () => PromiseLike<T>): Promise<T> {
+  const t0 = Date.now();
+  const out = await call();
+  pauseMs =
+    Date.now() - t0 > 1000
+      ? Math.min(10_000, Math.max(pauseMs, 100) * 2)
+      : Math.max(BASE_PAUSE_MS, Math.floor(pauseMs / 2));
+  if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+  return out;
+}
+
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
   let afterAt = since;
   let afterId = '00000000-0000-0000-0000-000000000000';
   for (;;) {
-    const { data, error } = await client.rpc('fn_opponent_hud_hands_page', {
-      p_after_at: afterAt,
-      p_after_id: afterId,
-      p_until: until,
-      p_limit: 1500,
-    });
+    const { data, error } = await paced(() =>
+      client.rpc('fn_opponent_hud_hands_page', {
+        p_after_at: afterAt,
+        p_after_id: afterId,
+        p_until: until,
+        p_limit: 1500,
+      })
+    );
     if (error) throw new Error(`hands page failed: ${error.message}`);
     const rows = (data ?? []) as { id: string; created_at: string }[];
     for (const r of rows) take(r);
@@ -212,9 +232,11 @@ async function main(): Promise<void> {
       });
     let written = 0;
     for (let i = 0; i < rows.length; i += 100) {
-      const { data, error } = await client.rpc('fn_opponent_hud_profiles_upsert', {
-        p_rows: rows.slice(i, i + 100),
-      });
+      const { data, error } = await paced(() =>
+        client.rpc('fn_opponent_hud_profiles_upsert', {
+          p_rows: rows.slice(i, i + 100),
+        })
+      );
       if (error) throw new Error(`upsert failed at ${i}: ${error.message}`);
       written += 100 - ((data ?? []) as string[]).length;
     }
