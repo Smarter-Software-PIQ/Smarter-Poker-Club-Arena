@@ -11,9 +11,8 @@
  *  - continuationOutcomes: the probability of every set of responders that continues after
  *    a wager (empty set = everybody folds), from each responder's measured fold / raise
  *    share, with the measured multiway fold CORRELATION applied to the all-fold outcome
- *    (48h audit, PLO4+PLO5 cash: a Horse wager into 2 responders is folded by everyone
- *    57.3% of the time vs a 66.4% product of marginals, ratio 0.86, n=164; 3 responders
- *    0.90, n=23). The deficit is redistributed over the non-empty outcomes pro rata, so
+ *    (48h audit, PLO4+PLO5 cash, every wager pooled whoever made it: 2 responders ratio 0.91,
+ *    n=295; 3+ responders 0.96, n=54; lane CORE-POOLED, identity-free). The deficit is redistributed over the non-empty outcomes pro rata, so
  *    the distribution still sums to 1.
  *  - wagerEvMultiway: EV of a bet / raise = sum over outcomes of
  *    (empty: pot won net of rake) | (some continue: realization x equity vs exactly those
@@ -34,11 +33,8 @@
  * its own term.
  */
 
-export type Actor = 'person' | 'horse';
-
 export interface Responder {
   seat: number;
-  actor: Actor;
   /** measured fold share facing this wager (0..1) */
   fold: number;
   /** measured re-raise share facing this wager (0..1, part of 1 - fold) */
@@ -65,7 +61,7 @@ export interface Outcomes {
   source: string;
 }
 
-/** Multiway fold correlation: P(all fold) / product of per-responder fold shares, by bettor kind and responders. */
+/** Multiway fold correlation: P(all fold) / product of per-responder fold shares, by the number of responders. */
 export interface CorrelationCell {
   ratio: number;
   n: number;
@@ -75,40 +71,31 @@ export interface CorrelationCell {
 /**
  * Measured on the 48h PLO4+PLO5 cash audit (Nov 17 6:44 PM - Nov 19 6:49 PM Chicago), public
  * actions only (who folded / called / raised facing a postflop wager, first response round).
- * Provenance public_actions. Ratio shrunk toward 1 with k = 50 pseudo-wagers:
- * (n x measured + 50 x 1) / (n + 50).
+ * Provenance public_actions. IDENTITY-FREE (lane CORE-POOLED, Nov 20): every wager pooled whoever
+ * made it (the audit's wager-kind cells summed by their n: 2 responders 164 + 131 wagers, 3+
+ * responders 23 + 31). Ratio shrunk toward 1 with k = 50 pseudo-wagers: (n x measured + 50 x 1) / (n + 50).
  */
 export const MULTIWAY_FOLD_CORRELATION = {
   provenance: 'public_actions' as const,
-  version: 'hvh-multi-corr-v1',
+  version: 'hvh-multi-corr-v2-pooled',
   cells: {
-    'horse|2': {
-      ratio: 0.86,
-      n: 164,
-      source: 'audit48 Horse wager, 2 responders: all-fold 0.573 vs product 0.664',
+    '2': {
+      ratio: 0.913,
+      n: 295,
+      source: 'audit48 every wager, 2 responders: all-fold vs product, pooled ratio 0.913',
     },
-    'horse|3+': {
-      ratio: 0.9,
-      n: 23,
-      source: 'audit48 Horse wager, 3+ responders: all-fold 0.609 vs product 0.674',
-    },
-    'person|2': {
-      ratio: 0.98,
-      n: 131,
-      source: 'audit48 person wager, 2 responders: all-fold 0.763 vs product 0.776',
-    },
-    'person|3+': {
-      ratio: 1.01,
-      n: 31,
-      source: 'audit48 person wager, 3+ responders: all-fold 0.774 vs product 0.764',
+    '3+': {
+      ratio: 0.963,
+      n: 54,
+      source: 'audit48 every wager, 3+ responders: all-fold vs product, pooled ratio 0.963',
     },
   } as Record<string, CorrelationCell>,
 };
 const CORR_K = 50;
 
-export function foldCorrelation(bettor: Actor, responders: number): CorrelationCell {
+export function foldCorrelation(responders: number): CorrelationCell {
   if (responders < 2) return { ratio: 1, n: 0, source: 'heads-up: no correlation term' };
-  const c = MULTIWAY_FOLD_CORRELATION.cells[`${bettor}|${responders === 2 ? '2' : '3+'}`];
+  const c = MULTIWAY_FOLD_CORRELATION.cells[responders === 2 ? '2' : '3+'];
   if (!c) return { ratio: 1, n: 0, source: 'no measured correlation cell: independent product' };
   const r = (c.n * c.ratio + CORR_K * 1) / (c.n + CORR_K);
   return { ratio: r, n: c.n, source: `${c.source} (n=${c.n}), shrunk to ${r.toFixed(3)}` };
@@ -123,7 +110,7 @@ const finite = (...xs: number[]) => xs.every((x) => Number.isFinite(x));
  * marginals except for the measured all-fold correlation; a re-raise by anybody ends the
  * enumeration into the raised branch (pRaise).
  */
-export function continuationOutcomes(responders: Responder[], bettor: Actor): Outcomes | null {
+export function continuationOutcomes(responders: Responder[]): Outcomes | null {
   if (!responders.every((r) => finite(r.fold, r.raise, r.callChips))) return null;
   const rs = responders.slice(0, MAX_ENUM).map((r) => {
     const f = clamp01(r.fold);
@@ -146,7 +133,7 @@ export function continuationOutcomes(responders: Responder[], bettor: Actor): Ou
     outs.push({ callers, p });
   }
   const indep = outs[0].p;
-  const corr = foldCorrelation(bettor, n);
+  const corr = foldCorrelation(n);
   // all-fold can never exceed the no-raise mass; the deficit (or surplus) goes pro rata to the other no-raise outcomes
   const target = Math.min(indep * corr.ratio, pNoRaise);
   const rest = pNoRaise - indep;
@@ -175,7 +162,6 @@ export interface WagerEvInput {
   /** chips the hero adds with this wager */
   adds: number;
   responders: Responder[];
-  bettor?: Actor;
   /** hero equity vs exactly these continuing seats (the core's equity engine; ranges = continue share of each) */
   equityVs: (callers: number[]) => number;
   /** rake: final pot -> pot net of rake */
@@ -198,7 +184,7 @@ export function wagerEvMultiway(x: WagerEvInput): MultiwayEv | null {
   if (!finite(x.pot, x.adds, x.realization)) return null;
   const head = x.responders.slice(0, MAX_ENUM);
   const tail = x.responders.slice(MAX_ENUM);
-  const o = continuationOutcomes(head, x.bettor ?? 'horse');
+  const o = continuationOutcomes(head);
   if (!o) return null;
   // responders past MAX_ENUM: expected chips only (their equity share is not priced)
   const tailChips = tail.reduce(
@@ -246,7 +232,6 @@ export interface CallBehindInput {
   potNet: (final: number) => number;
   realization: number;
   /** kind of the player whose wager the behind players face */
-  bettor?: Actor;
   /** EV once somebody behind re-raises (squeeze); default: the hero folds and loses his call */
   squeezedEv?: () => number;
   /** chips above the hero's stack he cannot win (all-in call) */
@@ -256,7 +241,7 @@ export interface CallBehindInput {
 export function callEvWithPlayersBehind(x: CallBehindInput): MultiwayEv | null {
   if (!finite(x.pot, x.toCall, x.realization)) return null;
   const unc = x.uncovered ?? 0;
-  const o = continuationOutcomes(x.behind, x.bettor ?? 'person');
+  const o = continuationOutcomes(x.behind);
   if (!o) return null;
   const chips = new Map(x.behind.map((r) => [r.seat, r.callChips]));
   const terms: MultiwayEv['terms'] = [];
@@ -344,36 +329,4 @@ export function layeredShowdownValue(
     out.push({ amount: l.amount, others, equity });
   }
   return { value, layers: out };
-}
-
-/**
- * Self-play anti-degeneration: the fold share of a responder who decides by the same EV rule
- * (a Horse running omahaMathCore). He folds every holding whose realized equity against the
- * wagerer's range is below the price he is laid; nothing else. Use it for Horse responders
- * once the switch is ON, instead of fold cells measured on the pre-core Horses (they fold
- * 84-95% multiway in the 48h audit; a core that priced bluffs on those stale cells would
- * over-bluff other cores). Inputs are the responder's public range holdings' equities
- * (computed by the core's equity engine from public ranges); weights optional.
- */
-export function selfConsistentFoldShare(
-  holdingEquities: ArrayLike<number>,
-  price: number,
-  realization = 1,
-  weights?: ArrayLike<number>
-): { fold: number; source: string } | null {
-  if (!Number.isFinite(price) || !(realization > 0) || holdingEquities.length === 0) return null;
-  let tot = 0;
-  let fold = 0;
-  for (let i = 0; i < holdingEquities.length; i++) {
-    const e = holdingEquities[i];
-    const w = weights ? weights[i] : 1;
-    if (!Number.isFinite(e) || !Number.isFinite(w) || w < 0) return null;
-    tot += w;
-    if (realization * e < price) fold += w;
-  }
-  if (!(tot > 0)) return null;
-  return {
-    fold: fold / tot,
-    source: `self-consistent EV responder: holdings with ${realization} x equity < price ${price.toFixed(3)}`,
-  };
 }

@@ -26,8 +26,6 @@ const clock = { now: () => performance.now() };
 
 function opp(p: Partial<CoreOpponent> & { seat: number }): CoreOpponent {
   return {
-    user: `synthetic-${p.seat}`,
-    person: true,
     stack: 200,
     bet: 0,
     folded: false,
@@ -108,17 +106,14 @@ describe('PREFLOP-EV opponent model', () => {
     expect(pot.p).toBeGreaterThanOrEqual(0);
     expect(pot.p).toBeLessThanOrEqual(1);
   });
-  it('a person row moves his fold rate; an unknown person gets the population', () => {
-    const user = Object.keys(PF_TABLES.persons).find(
-      (u) => (PF_TABLES.persons[u].facing_open?.n ?? 0) >= 30
-    )!;
-    expect(user).toBeTruthy();
-    const known = opp({ seat: 2, user, position: 'BB' });
-    const unknown = opp({ seat: 2, user: 'nobody', position: 'BB' });
-    const a = preflopFold(state({ opponents: [known] }), known, 'open', 7);
-    const b = preflopFold(state({ opponents: [unknown] }), unknown, 'open', 7);
-    expect(a.source).toMatch(/person x/);
-    expect(b.source).not.toMatch(/person x/);
+  it('every opponent gets the same pooled cell: the fold source carries no person/Horse or user key', () => {
+    const a = opp({ seat: 2, position: 'BB' });
+    const b = opp({ seat: 3, position: 'BB' });
+    const x = preflopFold(state({ opponents: [a] }), a, 'open', 7);
+    const y = preflopFold(state({ opponents: [b] }), b, 'open', 7);
+    expect(x).toEqual(y);
+    expect(x.source).not.toMatch(/person|horse|vs_/);
+    expect(Object.keys(PF_TABLES)).not.toContain('persons');
   });
   it('bands chain public frequencies: open < limp band; 3-bet inside the top of facing-open; BB check = below raise share', () => {
     const s = state({ preflopRaises: 1 });
@@ -182,7 +177,7 @@ describe('PREFLOP-EV opponent model', () => {
     );
     expect(m6.realization.source).toMatch(/PLO4 \+ PLO5 only/);
     const weird = state({
-      opponents: [opp({ seat: 9, position: null, user: '', preflopLevel: 'open', stack: -5 })],
+      opponents: [opp({ seat: 9, position: null, preflopLevel: 'open', stack: -5 })],
       pot: 0,
       heroStack: 0,
     });
