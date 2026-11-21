@@ -7439,6 +7439,7 @@ export class GameServer {
     secsIdle: number;
     reason: HeldTableStall['reason'];
     heldBy: string[];
+    blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
   }> {
     const out: Array<{
       tableId: string;
@@ -7446,6 +7447,7 @@ export class GameServer {
       secsIdle: number;
       reason: HeldTableStall['reason'];
       heldBy: string[];
+      blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
     }> = [];
     for (const [tableId, engine] of this.tableEngines) {
       if (exclude.has(tableId)) continue;
@@ -7459,13 +7461,48 @@ export class GameServer {
           heldOriginal: engine.isPreparedOriginalHeldAtPauseGate?.() === true,
         });
         if (!stall) continue;
-        out.push({
+        const entry: {
+          tableId: string;
+          dealable: number;
+          secsIdle: number;
+          reason: HeldTableStall['reason'];
+          heldBy: string[];
+          blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
+        } = {
           tableId,
           dealable: engine.dealableCount(),
           secsIdle: Math.round(stall.msHeld / 1000),
           reason: stall.reason,
           heldBy: stall.heldBy,
-        });
+        };
+        // Overlong boundary hold diagnostic (>= 90 s): name the active peer
+        // tables in the same tournament so operators immediately see which
+        // table is holding up hand_for_hand or tournament_move synchronization.
+        const tournamentId = engine.getTournamentId?.();
+        if (
+          tournamentId &&
+          stall.msHeld >= 90_000 &&
+          (stall.heldBy.includes('hand_for_hand') || stall.heldBy.includes('tournament_move'))
+        ) {
+          const peers: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }> =
+            [];
+          for (const [peerId, peerEngine] of this.tableEngines) {
+            if (peerId === tableId) continue;
+            if (peerEngine.getTournamentId?.() !== tournamentId) continue;
+            if (peerEngine.isPausedByDesign()) continue;
+            peers.push({
+              tableId: peerId,
+              loopPhase: peerEngine.getLoopPhase?.() ?? 'unknown',
+              secsSinceProgress: Math.round(peerEngine.msSinceProgress() / 1000),
+            });
+          }
+          if (peers.length > 0) {
+            entry.blockingPeers = peers
+              .sort((a, b) => b.secsSinceProgress - a.secsSinceProgress)
+              .slice(0, 3);
+          }
+        }
+        out.push(entry);
       } catch {
         // An engine that cannot be read is not named here; the reapers own it.
       }

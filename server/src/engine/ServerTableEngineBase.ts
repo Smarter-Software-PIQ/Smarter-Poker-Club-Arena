@@ -10690,6 +10690,16 @@ export abstract class ServerTableEngineBase {
     return this.pausedSinceMs === 0 ? 0 : Date.now() - this.pausedSinceMs;
   }
 
+  /** Tournament id for tournament tables, or null for cash tables. */
+  getTournamentId(): string | null {
+    return this.tableInfo?.tournament_id ?? null;
+  }
+
+  /** Current dealing loop phase (read-only diagnostic accessor). */
+  getLoopPhase(): string {
+    return this.loopPhase;
+  }
+
   /**
    * VIP time banks 2026-08-17: batch-fetch each player's EXTRA seconds
    * (VIP monthly remaining + purchased extensions) on top of the free
