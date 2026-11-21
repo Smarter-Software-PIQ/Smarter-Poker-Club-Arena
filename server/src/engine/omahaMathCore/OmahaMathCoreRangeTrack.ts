@@ -75,7 +75,19 @@ export interface NodeFreq {
    * break-even bluff share s / (1 + 2s)
    */
   nonValue?: number;
+  /**
+   * checked to: measured trap rate (lane CORE-POOLED-8, criteria 1a322479): the share of STRONG holdings
+   * that check, from public showdowns, shrunk n/(n+k). A check keeps this share of the value region instead
+   * of removing it. Absent: the old update, bit for bit.
+   */
+  trap?: number;
 }
+/** Measured trap rate of a checked-to node (street, first to act on the street, live players); undefined = none. */
+export type TrapRateFn = (
+  street: PostStreet,
+  first: boolean,
+  players: number
+) => number | undefined;
 export type NodeFreqFn = (
   seat: number,
   street: PostStreet,
@@ -388,6 +400,15 @@ function rangeCdf(w: Float64Array, strength: Float64Array): Float64Array {
 }
 
 /**
+ * Likelihood of a CHECK when checked to, given the holding's chance of being in the value region (pv) and the
+ * bluff region (pb), with the measured trap rate tau (lane CORE-POOLED-8): the value region keeps tau.
+ * Law: with pb = 0 the result is never below tau; tau = 0 is the old 1 - pv - pb.
+ */
+export function checkKeep(pv: number, pb: number, tau: number): number {
+  return Math.max(0, 1 - (1 - tau) * pv - pb);
+}
+
+/**
  * Likelihood of one public action for every holding, from his current range on that street's board.
  *   wager share s -> bluff share alpha = s / (1 + 2s) (break-even for the caller; public size);
  *   checked to, wager rate b: value = top (1 - alpha) b of his range, bluffs = bottom alpha b;
@@ -414,9 +435,21 @@ function likelihood(
     const b = Math.min(0.98, Math.max(0.02, nf.wager));
     const vTop = (1 - alpha) * b;
     const bluffLo = 1 - alpha * b;
+    const wagered = a.action === 'bet' || a.action === 'raise';
+    const tau =
+      !wagered && nf.trap !== undefined && Number.isFinite(nf.trap)
+        ? Math.min(1, Math.max(0, nf.trap))
+        : undefined;
     for (let i = 0; i < n; i++) {
-      const pw = pIn(F[i], seF[i], -1, vTop) + pIn(F[i], seF[i], bluffLo, 2);
-      L[i] = a.action === 'bet' || a.action === 'raise' ? pw : 1 - pw;
+      if (tau === undefined) {
+        const pw = pIn(F[i], seF[i], -1, vTop) + pIn(F[i], seF[i], bluffLo, 2);
+        L[i] = wagered ? pw : 1 - pw;
+      } else {
+        // a check keeps the measured trap share tau of the value region (never strips it below tau)
+        const pv = pIn(F[i], seF[i], -1, vTop);
+        const pb = pIn(F[i], seF[i], bluffLo, 2);
+        L[i] = checkKeep(pv, pb, tau);
+      }
     }
     return L;
   }
@@ -465,6 +498,8 @@ export interface TrackInput {
   preflopBand: (seat: number) => PreflopBand | null;
   history: readonly PublicStreetAction[];
   freq: NodeFreqFn;
+  /** measured trap rates (lane CORE-POOLED-8); absent: checks update as before */
+  trap?: TrapRateFn;
   seed: string;
   /** pool size (default 900 PLO4 / 700 PLO5) and runs (default preflop 24 + 160 refine, flop/turn 8) */
   size?: number;
@@ -578,11 +613,20 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
         eff = size;
         steps.push('preflop band empty in pool: full range');
       }
-      for (const a of inp.history) {
+      for (let hi = 0; hi < inp.history.length; hi++) {
+        const a = inp.history[hi];
         if (a.seat !== seat || a.street === undefined) continue;
         const bl = boardAt(a.street);
         if (bl.length < 3 || bl.length > inp.board.length) continue;
-        const nf = inp.freq(seat, a.street, a.facing, a.frac, !!a.allIn, a.players);
+        const nf0 = inp.freq(seat, a.street, a.facing, a.frac, !!a.allIn, a.players);
+        let nf = nf0;
+        if (nf0 && !a.facing && a.action === 'check' && inp.trap) {
+          let first = true;
+          for (let j = 0; j < hi; j++) if (inp.history[j].street === a.street) first = false;
+          const tau = inp.trap(a.street, first, a.players);
+          if (tau !== undefined)
+            nf = { ...nf0, trap: tau, source: `${nf0.source}; trap ${r3(tau)}` };
+        }
         if (!nf) {
           steps.push(`${a.street} ${a.action}: no measured node, no update`);
           continue;
