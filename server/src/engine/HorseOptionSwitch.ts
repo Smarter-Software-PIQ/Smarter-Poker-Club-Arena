@@ -822,6 +822,8 @@ export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Ob
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
   holdemProfileCompletenessCap:
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+  omahaOpponentLifetimeHud:
+    'its lifetime record is loaded and attached only while the switch is on (OpponentHudStore arms on the switch; off = zero work), so a shadow re-decision would read no record and journal "same" falsely (lane SHADOW, 2026-11-21)',
 });
 
 /** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */
