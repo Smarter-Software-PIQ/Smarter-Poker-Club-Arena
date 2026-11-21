@@ -16115,7 +16115,11 @@ export class HorseLogic {
       fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
       // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, default off): PLO4/PLO5 cash only (never PLO6, never a
       // tournament); the key exists only when it is on, so with it off the read options are exactly what they were.
+      // POSTFLOP SCOPE (2026-11-21, lane OPPONENT-HUD-4, lead order): the lifetime read is consumed on the flop, turn
+      // and river only. A preflop decision reads its opponents exactly as with the option off (the heads-up button
+      // open, where the read only removed a presumption, is priced by its own option omahaButtonOpenIsPriced).
       ...(opts.omahaOpponentLifetimeHud === true &&
+      String((gameState as { stage?: unknown }).stage ?? 'preflop') !== 'preflop' &&
       (String(gameState.gameVariant).toLowerCase() === 'plo4' ||
         String(gameState.gameVariant).toLowerCase() === 'plo5') &&
       !(gameState.gameMode === 'tournament' || gameState.tournament)
