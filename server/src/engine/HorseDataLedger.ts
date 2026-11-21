@@ -1222,6 +1222,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOpponentLifetimeHud',
+    "PLO-OWNER lane OPPONENT-HUD 2026-11-20 (owner 3:15 PM Chicago: the Horses hold a built-in heads-up display of every opponent from his lifetime hand history, from hand one; 3:18 PM: all previously played hands, never hole cards; lead ruling 3:19 PM: one mechanism and one formula for every opponent, person or Horse, shrunk by evidence). PLO4/PLO5 cash, provider only (branch hud-provider, 2026-11-21): while on, the engine attaches each opponent's lifetime public profile to the decision request and the worker installs it for the accessor (hudStat, hudStatIn, hudLifetimeCount, hudFirstWagerRecord); no decision rule on this branch reads it, so option on changes no decision. Default OFF; off, requests and decisions are byte-identical.",
+    'V94'
+  ),
+  flag(
     'omahaRiverCurrentNutsCallFloor',
     "EMERG lane RANGE-MODEL-2 2026-11-20 (owner 9:42 AM Chicago: EVERYTHING DEPENDS ON THE MATH; 9:52 AM: the same corrections against all players, human or Horse; lane RANGE-MODEL graded a facing-bet range read that folded the current river nuts, hand 60226889). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). The outermost answer of the wager_rules node: on the river facing a wager, a final fold becomes the legal call (the whole-stack all-in when the call is the stack) when hero holds the exact current nuts (HorseRiverNuts.hasRiverNuts: every unseen two-card holding enumerated, exactly two hole and three board cards) and a full chop with every live opponent still returns the call, (pot + paid) / (live opponents + 1) >= paid, so the call's expected value is never negative. Public information only; no opponent label, account or person/Horse flag. Near-nut hands are not floored (a range question). The response validator re-runs the floor on the request. PLO6, PLO8, hold'em and tournaments untouched. HorseOmahaRiverCurrentNutsCallFloor.ts",
     'V94'
@@ -5644,6 +5649,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_river_first_to_act_bet_priced',
     'HorseLogic wager_rules (omahaRiverFirstToActBetRule, omahaRiverFirstToActBetIsPriced)',
     'a PLO4/PLO5 cash river decision, heads-up, first to act with nothing to call, in which the final check became the bet priced on the measured response curve',
+    'V94'
+  ),
+  receipt(
+    'opponent_hud_*',
+    'opponentHud/OpponentHud (hudStat, hudStatIn, hudLifetimeCount, hudFirstWagerRecord, hudRecall; no decision consumer on this branch), services/OpponentHudStore',
+    'OPPONENT HUD (lane OPPONENT-HUD 2026-11-20): read_<plo4|plo5>_<lifetime|prior> per accessor read; recall_<family>_<found|none>; exploit_counters when an exploit read took lifetime counters; event_<sit|move|lightning|boot|hand|decision> per warm trigger; ready_ms_<le100|le1000|le5000|le15000|gt15000> and ready_<event>_ms_<bucket> from the trigger to the warm profile (the 15-second deadline); packet_attached / packet_opponent_ready / packet_opponent_missing / packet_opponent_late (not ready 15 s after he was asked for); load_ok / load_failed / load_timeout, hand_applied, apply_stale, persist_ok / persist_failed / persist_refused, prewarm_failed, priors_failed, cache_evicted and the error counters',
     'V94'
   ),
   receipt(

@@ -24,6 +24,7 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  * The think time is mapped exactly as the physical engine maps it, including
  * the time-bank burn for a "tank" decision when the horse's bank is usable.
  */
+import { opponentHudSnapshotField } from '../services/OpponentHudStore.js';
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
 import { omahaValueSizeBandHolds } from '../engine/HorseOmahaValueSizeBand.js';
@@ -247,6 +248,8 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     style,
     mods,
     ...(turn.horseOpts ? { opts: { ...turn.horseOpts } } : {}),
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the opponents' lifetime public profiles while armed; {} otherwise.
+    ...opponentHudSnapshotField(gameState, decisionPlayer.user_id, turn.now),
   };
   snapshot.decisionKey = buildHorseDecisionKey(snapshot);
   return snapshot;

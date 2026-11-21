@@ -125,6 +125,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off river checked-to bet (EMERG lane OFFENCE-BUILD 2026-11-20, omahaRiverCheckedToBetIsMeasured): in PLO4/PLO5 cash on the river heads-up after the opponent checked, a final check becomes the bet of highest expected value on the measured response curve when it beats the calibrated showdown value by more than its standard error; no opponent kind; pure',
     'src/engine/HorseOmahaRiverFirstToActBet.ts':
       'the default-off river first-to-act bet (EMERG lane OFFENCE-BUILD 2026-11-20, omahaRiverFirstToActBetIsPriced): in PLO4/PLO5 cash on the river heads-up with nothing to call and the opponent still to act, a final check becomes the bet of highest expected value on the measured response curve when it beats the check by more than its standard error; pure',
+    'src/engine/opponentHud/OpponentHud.ts':
+      'the one opponent-profile accessor (hudStat, hudRecall) and the decision packet the worker installs from the request; shrinkage toward the population prior; pure, no database, no clock',
+    'src/engine/opponentHud/OpponentHudProfile.ts':
+      'the lifetime public opponent profile: statistic registry, public hand record and recall keys read by the accessor; public fields only',
     'src/engine/HorseOmahaRiverCurrentNutsCallFloor.ts':
       'the default-off river current-nuts call floor (EMERG lane RANGE-MODEL-2 2026-11-20, omahaRiverCurrentNutsCallFloor): in PLO4/PLO5 cash on the river facing a wager, a final fold with the exact current nuts becomes the legal call where a full chop with every live opponent still returns the call; the outermost answer of the wager_rules node; pure',
     'src/engine/HorseOmahaFourBetFoldPricedCall.ts':

@@ -1,4 +1,5 @@
 import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { installDecisionHud } from '../opponentHud/OpponentHud.js';
 import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
@@ -3104,6 +3105,9 @@ export class HorseDecisionWorkerRuntime {
   }
 
   private executeFast(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): this decision's lifetime opponent profiles, from its own request
+    // (journaled with it); absent installs nothing, so every read answers as before.
+    installDecisionHud(request.opponentHud);
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;
@@ -3969,6 +3973,7 @@ export class HorseDecisionWorkerRuntime {
   }
 
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
+    installDecisionHud((request as { opponentHud?: unknown }).opponentHud);
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;

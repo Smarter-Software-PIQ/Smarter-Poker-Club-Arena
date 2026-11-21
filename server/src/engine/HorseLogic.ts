@@ -2886,6 +2886,12 @@ export interface GtoV31DecisionReceipt {
 
 /** V3/V4/V5 decision options (benchmark/test hooks — production uses defaults). */
 export interface HorseDecideOpts {
+  /** OPPONENT HUD PROVIDER (2026-11-21, lane OPPONENT-HUD; branch hud-provider): while on, the engine attaches each
+   * PLO4/PLO5 cash opponent's lifetime public profile to the decision request (opponentHud) and the worker installs it
+   * for the accessor (hudStat / hudStatIn / hudLifetimeCount / hudFirstWagerRecord). On this branch NO decision rule
+   * reads it: option on changes no decision (law TheHudProviderChangesNoDecision). Default OFF (read === true);
+   * scopable by horse.omahaGameScope.omahaOpponentLifetimeHud. */
+  omahaOpponentLifetimeHud?: boolean;
   /**
    * Epoch captured when the turn decision was requested. Live decisions can
    * wait in the isolated worker's FIFO; pinning time here prevents queue
@@ -15962,6 +15968,10 @@ export class HorseLogic {
     // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
     HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
+    // OPPONENT HUD PROVIDER (2026-11-21, branch hud-provider): the option is read here for its receipt only; no
+    // decision rule reads it (law TheHudProviderChangesNoDecision).
+    if (opts.omahaOpponentLifetimeHud === true && telemetryOn(opts))
+      noteFire('opponent_hud_provider_armed_seen');
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
       shrinkResponseReads: opts.readShrinkResponse === true,

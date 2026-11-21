@@ -377,6 +377,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverCheckedToBetIsMeasured',
   // 2026-11-21 EMERG lane BLANKET-AUDIT: the declared blanket rows off in PLO4/PLO5 cash only (ships dark)
   'omahaBlanketRowsOffInPlo45Cash',
+  // 2026-11-20 PLO-OWNER lane OPPONENT-HUD: the lifetime opponent profile read from hand one (ships dark)
+  'omahaOpponentLifetimeHud',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
@@ -857,6 +859,8 @@ export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Ob
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
   holdemProfileCompletenessCap:
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+  omahaOpponentLifetimeHud:
+    'its lifetime record is loaded and attached only while the switch is on (OpponentHudStore arms on the switch; off = zero work), so a shadow re-decision would read no record and journal "same" falsely (lane SHADOW, 2026-11-21)',
 });
 
 /** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */
