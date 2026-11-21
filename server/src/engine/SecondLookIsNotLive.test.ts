@@ -10,6 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import {
   BRAIN_TELEMETRY_FEATURE_MAX_LENGTH,
   SECOND_LOOK_KEY_TOO_LONG_RECEIPT,
@@ -116,9 +117,11 @@ function preflop(variant: 'nlh' | 'plo5', tournament: boolean): Spot {
 }
 
 function decide(spot: () => Spot, opts: Record<string, unknown>, seed: number) {
-  seedFastRandom(seed);
-  const s = spot();
-  return HorseLogic.decide(s.hero, s.gs, 'balanced', {}, { mind: false, ...opts } as never);
+  return withFrozenDecisionClock(() => {
+    seedFastRandom(seed);
+    const s = spot();
+    return HorseLogic.decide(s.hero, s.gs, 'balanced', {}, { mind: false, ...opts } as never);
+  });
 }
 
 /**
