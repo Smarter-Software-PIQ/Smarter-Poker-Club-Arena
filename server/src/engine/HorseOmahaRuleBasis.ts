@@ -341,7 +341,10 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaPackClampDeepDepth: exempt('scope', 'decides where a rule applies, never the action'),
   omahaPackEffectiveDepth: exempt('scope', 'decides where a rule applies, never the action'),
   omahaPairedBoardBetIsPriced: CARD_IMPACT,
-  omahaPairedBoardFoldRespectsPrice: FACING_BET_EV,
+  omahaPairedBoardFoldRespectsPrice: blanket(
+    ['omahaFacingBetEv'],
+    'where no facing-bet verdict answers, fixed thresholds decide (a price of 0.25 or better with a straight or flush, or 60% of a stack in); a carve-out of ploPairedBoardFold, listed off only with it (RULES-FIX-1, AUDIT-B item 5)'
+  ),
   omahaPairedBoardRiverIsPriced: FACING_BET_EV,
   omahaPairedRiverNoThinLeadVsValueLeader: blanket(
     ['omahaNoCategoricalRules'],
@@ -370,6 +373,10 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaPricedInLightning: exempt('scope', 'decides where a rule applies, never the action'),
   omahaPricedMix: review(
     'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
+  ),
+  omahaOpponentLifetimeHud: exempt(
+    'input',
+    'the per-opponent lifetime public HUD provider every priced comparison may read; it decides nothing by itself (an input, not a rule site)'
   ),
   omahaPricedPriorsByOpponentKind: exempt(
     'input',

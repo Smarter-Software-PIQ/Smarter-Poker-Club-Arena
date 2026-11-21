@@ -164,6 +164,8 @@ describe('the blanket backlog only shrinks: a categorical rule cannot be registe
         'omahaOopReraisedPotStrongRange',
         'omahaOopTurnCheckAfterFlopCall',
         'omahaOverpairNoOopBarrelVsValueLeader',
+        // RULES-FIX-1 (AUDIT-B item 5): fixed price and stack thresholds where no facing-bet verdict answers
+        'omahaPairedBoardFoldRespectsPrice',
         'omahaPairedRiverNoThinLeadVsValueLeader',
         'omahaPairedTurnNoBarrelWithoutBoatVsValueLeader',
         'omahaPressureNeedsPostflopAggression',
