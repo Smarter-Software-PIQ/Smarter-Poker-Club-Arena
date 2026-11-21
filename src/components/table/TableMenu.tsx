@@ -25,6 +25,7 @@ import {
   HelpIcon,
   LeaveTableIcon,
   AddOnIcon,
+  InviteLinkIcon,
 } from './TableMenuIcons';
 import { reportError } from '../../utils/errorReporter';
 import { isSoundAllowed } from '../../utils/soundGate';
@@ -167,6 +168,7 @@ export function createDefaultMenuSections(
     /** Present only at a seat the table page reports can straddle. */
     onToggleStraddle?: () => void;
     onOpenMarketplace?: () => void;
+    onInviteToGame?: () => void;
     onRebuy?: () => void;
     onAutoTopUp?: () => void;
     onAddOn?: () => void;
@@ -301,6 +303,16 @@ export function createDefaultMenuSections(
                 label: 'Club Marketplace',
                 icon: <SettingsIcon />,
                 onClick: handlers.onOpenMarketplace,
+              },
+            ]
+          : []),
+        ...(handlers.onInviteToGame
+          ? [
+              {
+                id: 'invite-to-game',
+                label: 'Invite To Game',
+                icon: <InviteLinkIcon />,
+                onClick: handlers.onInviteToGame,
               },
             ]
           : []),

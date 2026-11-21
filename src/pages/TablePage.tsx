@@ -76,6 +76,9 @@ import { SpadeConsole } from '../components/console/SpadeConsole';
 import { ButtonImagePreloader } from '../components/table/ButtonImagePreloader';
 import { WaitlistCallToAction } from '../components/table/WaitlistCallToAction';
 import { TournamentLateRegCallToAction } from '../components/table/TournamentLateRegCallToAction';
+import { HeadsUpWaitingModal, type HeadsUpWaitMode } from '../components/table/HeadsUpWaitingModal';
+import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
+import { gameInviteText, gameInviteUrl, shareLink, tableShareUrl } from '../lib/share';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -6451,10 +6454,57 @@ function LiveTablePage({
      therefore reading 0 and the player was told "Waiting For More Players"
      with no number. A ref is current by definition. */
   const seatFirstSeatsRef = useRef<number>(0);
+  const seatFirstLabelRef = useRef<string>('');
   /** When this page saw its pre-start seat-first game begin, ms, else null. */
   const seatFirstDealtAtRef = useRef<number | null>(null);
   seatFirstSeatsRef.current = seatFirstBuyIn?.seats ?? 0;
+  seatFirstLabelRef.current = seatFirstBuyIn?.label ?? '';
   const [seatFirstPending, setSeatFirstPending] = useState(false);
+  const [headsUpWaitMode, setHeadsUpWaitMode] = useState<HeadsUpWaitMode | null>(null);
+  const [headsUpPromptOpen, setHeadsUpPromptOpen] = useState(false);
+  const [headsUpPromptStep, setHeadsUpPromptStep] = useState<'choice' | 'invite'>('choice');
+  const [tableInviteFallbackUrl, setTableInviteFallbackUrl] = useState('');
+
+  const handleInviteToGame = useCallback(async () => {
+    if (!tableId) return;
+    const current = tableStateRef.current;
+    const isSeatFirstOpen = seatFirstOpenRef.current;
+    const url =
+      current.isTournament && current.tournamentId && !isSeatFirstOpen
+        ? gameInviteUrl({ kind: 'tournament', id: current.tournamentId })
+        : gameInviteUrl({ kind: 'table', id: tableId });
+    setTableInviteFallbackUrl('');
+    const outcome = await shareLink({
+      source: 'TablePage.inviteToGame',
+      title: current.tableName || 'Club Arena Game',
+      text: gameInviteText(current.tableName),
+      url,
+    });
+    if (outcome === 'copied') {
+      toast?.success?.('Game Invite Link Copied');
+    } else if (outcome === 'shared') {
+      toast?.success?.('Game Invite Link Shared');
+    } else if (outcome === 'failed') {
+      setTableInviteFallbackUrl(url);
+    }
+  }, [tableId, toast]);
+  const handleInviteToGameRef = useRef(handleInviteToGame);
+  handleInviteToGameRef.current = handleInviteToGame;
+
+  const seatFirstOccupiedCount = tableState.players.filter(Boolean).length;
+  useEffect(() => {
+    if (
+      !seatFirstBuyIn ||
+      playHasBegun ||
+      tableState.heroSeat <= 0 ||
+      seatFirstOccupiedCount >= seatFirstBuyIn.seats
+    ) {
+      setHeadsUpPromptOpen(false);
+      if (!seatFirstBuyIn || playHasBegun || tableState.heroSeat <= 0) {
+        setHeadsUpWaitMode(null);
+      }
+    }
+  }, [seatFirstBuyIn, playHasBegun, tableState.heroSeat, seatFirstOccupiedCount]);
   /**
    * ── THE WAIT IS NAMED, NEVER SILENT (2026-08-29, round 13) ───────────────
    *
@@ -15608,6 +15658,9 @@ function LiveTablePage({
       case 'TOGGLE_ALIAS':
         // Instead of hard-toggling, open the new Identity Settings Modal
         setShowIdentityModal(true);
+        break;
+      case 'INVITE_TO_GAME':
+        void handleInviteToGameRef.current();
         break;
     }
   });
@@ -24794,13 +24847,21 @@ function LiveTablePage({
             res.seats_taken ?? tableStateRef.current.players.filter(Boolean).length
           );
           const left = Math.max(0, needed - taken);
-          toast?.success?.(
-            left === 1
-              ? 'Seat Bought, Waiting For 1 More Player'
-              : left > 1
-                ? `Seat Bought, Waiting For ${left} More Players`
-                : 'Seat Bought, Waiting For More Players'
-          );
+          const isEmptyHeadsUpSng =
+            needed === 2 && taken <= 1 && seatFirstLabelRef.current === 'Heads Up';
+          if (isEmptyHeadsUpSng) {
+            setHeadsUpWaitMode(null);
+            setHeadsUpPromptStep('choice');
+            setHeadsUpPromptOpen(true);
+          } else {
+            toast?.success?.(
+              left === 1
+                ? 'Seat Bought, Waiting For 1 More Player'
+                : left > 1
+                  ? `Seat Bought, Waiting For ${left} More Players`
+                  : 'Seat Bought, Waiting For More Players'
+            );
+          }
         }
       } catch (err) {
         setSeatFirstConfirm(null);
@@ -31578,6 +31639,37 @@ function LiveTablePage({
           </div>
         </div>
       )}
+      {seatFirstBuyIn && tableId && (
+        <HeadsUpWaitingModal
+          isOpen={headsUpPromptOpen}
+          initialStep={headsUpPromptStep}
+          tableName={tableState.tableName || 'Heads Up Sit N Go'}
+          inviteUrl={tableShareUrl(tableId)}
+          onChooseSpecific={() => setHeadsUpWaitMode('specific')}
+          onChooseAnyone={() => {
+            setHeadsUpWaitMode('anyone');
+            toast?.info?.('Table Open, Waiting For Any Available Player');
+          }}
+          onClose={() => setHeadsUpPromptOpen(false)}
+          onNotify={(kind, msg) => {
+            if (kind === 'success') toast?.success?.(msg);
+            else toast?.info?.(msg);
+          }}
+        />
+      )}
+      {tableInviteFallbackUrl && (
+        <div className="table-invite-fallback" role="region" aria-label="Game Invite Link">
+          <ShareLinkFallback url={tableInviteFallbackUrl} label="Game Invite Link" />
+          <button
+            type="button"
+            className="table-invite-fallback__close"
+            aria-label="Dismiss Game Invite Link"
+            onClick={() => setTableInviteFallbackUrl('')}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* ═══════════════════════════════════════════════════════════════════════
           BOTTOM CONTROLS + ACTION PANEL
           ═══════════════════════════════════════════════════════════════════════ */}
@@ -31854,6 +31946,9 @@ function LiveTablePage({
                 /* 2026-10-04: the open seats are being kept for other
                    people - say so, so a two-player table waiting for its
                    second player never reads as a frozen one. */
+                if (left > 0 && headsUpWaitMode === 'specific') {
+                  return 'Waiting For Your Invited Player';
+                }
                 if (
                   left > 0 &&
                   partnerHoldEndsLocalMs(seatFirstBuyIn.startTimeMs) > seatFillClock
@@ -31881,6 +31976,20 @@ function LiveTablePage({
                 );
               })()}
             </span>
+            <button
+              type="button"
+              className="spectator-footer-bar__cta spectator-footer-bar__cta--invite"
+              onClick={() => {
+                if (seatFirstBuyIn.label === 'Heads Up') {
+                  setHeadsUpPromptStep(headsUpWaitMode === null ? 'choice' : 'invite');
+                  setHeadsUpPromptOpen(true);
+                } else {
+                  void handleInviteToGame();
+                }
+              }}
+            >
+              Invite
+            </button>
             <button
               type="button"
               className="spectator-footer-bar__cta spectator-footer-bar__cta--leave"
