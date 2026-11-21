@@ -43,6 +43,7 @@ import {
   type RangeSpec,
 } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
+import { resetOmahaBestMemo } from './OmahaMathCoreEval.js';
 import { omahaDrawFeatures, omahaDrawFutureTerm, type OmahaDrawFeatures } from './OmahaDraws.js';
 import {
   OMAHA_MATH_CORE_TABLE_VERSION,
@@ -453,6 +454,7 @@ export function applyRealizationCalibration(
 }
 
 export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: CoreReceipt } {
+  resetOmahaBestMemo();
   const t0 = clock.now();
   const rng = seededRng(state.seed);
   // every opponent still in the hand; when the state marks none live but some are all-in (PROVE-2 hand

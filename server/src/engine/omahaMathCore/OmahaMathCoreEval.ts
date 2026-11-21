@@ -138,8 +138,63 @@ export function categoryOf(score: number): number {
   return Math.floor(score / CAT_SHIFT);
 }
 
+/**
+ * Memo of omahaBest on complete (5-card) boards, lane CORE-POOLED-2 latency (Nov 21; VERIFIER V60): the 2+3
+ * evaluator dominated the core's flop cost (100 five-card evaluations per PLO5 hand per runout), and one decision
+ * evaluates the same holding on the same runout many times (the equity samplers, range tracking and the plan
+ * draw from ~1,000 distinct turn/river runouts). omahaBest is a pure function of its inputs, so a memo returns
+ * exactly the value a fresh evaluation returns: every equity, receipt and decision is unchanged (law test
+ * OmahaMathCoreEvalMemo.law.test.ts). The core clears it at the start of every decision; a size cap clears it
+ * earlier. Key: the hole cards in the given order (base 52) and the five board cards in the given order.
+ */
+const BEST_MEMO = new Map<number, Map<number, number>>();
+let bestMemoSize = 0;
+let bestMemoOn = true;
+const BEST_MEMO_CAP = 1_500_000;
+/** clears the memo (called by the core at the start of each decision) */
+export function resetOmahaBestMemo(): void {
+  BEST_MEMO.clear();
+  bestMemoSize = 0;
+}
+/** test hook: turn the memo off to prove that results are identical with and without it */
+export function setOmahaBestMemoForTests(on: boolean): void {
+  bestMemoOn = on;
+  resetOmahaBestMemo();
+}
+
 /** Best Omaha high score: exactly 2 of `hole` (4..6 cards) and 3 of `board` (3..5 cards). */
 export function omahaBest(
+  hole: ArrayLike<number>,
+  holeLen: number,
+  board: ArrayLike<number>,
+  boardLen: number
+): number {
+  if (bestMemoOn && boardLen === 5 && holeLen >= 2 && holeLen <= 6) {
+    let hk = 0;
+    for (let i = 0; i < holeLen; i++) hk = hk * 52 + hole[i];
+    hk = hk * 8 + holeLen;
+    const bk = (((board[0] * 52 + board[1]) * 52 + board[2]) * 52 + board[3]) * 52 + board[4];
+    let m = BEST_MEMO.get(hk);
+    if (m !== undefined) {
+      const v = m.get(bk);
+      if (v !== undefined) return v;
+    } else {
+      m = new Map<number, number>();
+      BEST_MEMO.set(hk, m);
+    }
+    const v = omahaBestRaw(hole, holeLen, board, boardLen);
+    if (bestMemoSize >= BEST_MEMO_CAP) {
+      resetOmahaBestMemo();
+      return v;
+    }
+    m.set(bk, v);
+    bestMemoSize++;
+    return v;
+  }
+  return omahaBestRaw(hole, holeLen, board, boardLen);
+}
+
+function omahaBestRaw(
   hole: ArrayLike<number>,
   holeLen: number,
   board: ArrayLike<number>,
