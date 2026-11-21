@@ -468,6 +468,9 @@ describe('an opponent is read by street and by flop texture', () => {
     expect(naming(/pooledStreetRead/)).toEqual([
       // the league's stand-in for the accepted-hand learner (2026-11-18), filling a league sandbox only
       'benchmark/HorseLeagueStreetRead.ts',
+      // the opponent-memory replay (2026-11-21, HORSE DECISIONS): the same stand-in keyed by the hand's mode,
+      // filling one replay sandbox only; no engine path imports it
+      'benchmark/ReplayOpponentMemory.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
       'engine/HorseOmahaStreetRead.ts',
@@ -487,6 +490,8 @@ describe('an opponent is read by street and by flop texture', () => {
     // the module is imported only by those files (and the memory copy)
     expect(naming(/from '\.\.?\/(?:engine\/)?HorseOmahaStreetRead\.js'/)).toEqual([
       'benchmark/HorseLeagueStreetRead.ts',
+      // the opponent-memory replay (2026-11-21, HORSE DECISIONS) imports the reducer for its replay sandbox only
+      'benchmark/ReplayOpponentMemory.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
       // omahaFacingBetValueShareIsMeasured's pure read (2026-11-19): the record's validation and the flop texture
