@@ -11,7 +11,7 @@
   3. `.github/workflows/stage-engine-release.yml` (`selection` job, `freeze` step) wrote `sha`/`control`/`send` to `$GITHUB_OUTPUT` without printing or annotating deferred candidates when `outcome == "keep-serving"`.
 - **Fix:**
   1. `scripts/ci/read-engine-prequalification.py` appends `(run <id>, status=<status>, conclusion=<conclusion>)` on run-level refusal and `(run <id>)` on post-run refusals using the API payload it already reads.
-  2. `scripts/ci/select-daily-engine.py` preserves the helper's last refusal line in `deferredCandidates[].detail` (up to 300 chars, defaulting to `no refusal text`), matching the `#11628` schema.
+  2. Builds on PR #11628's `deferredCandidates[].detail` field in `scripts/ci/select-daily-engine.py` so the refusal line (including the failing prequalification run ID) flows into `daily-selection.json`.
   3. `.github/workflows/stage-engine-release.yml` prints the deferred summary and emits `::error title=Engine selection deferred candidate(s) (keep-serving)::` naming each deferred SHA prefix, reason, and refusal detail (including the failing run ID) while keeping exit code 0 so `daily-selection.json` still uploads cleanly.
 - **Barrier added:**
   - `tests/operations/engine-prequalification.test.py`: `test_failed_or_incomplete_qualification_refusal_includes_run_id`
