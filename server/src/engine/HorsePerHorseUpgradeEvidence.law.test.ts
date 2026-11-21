@@ -695,19 +695,24 @@ describe('LAW: an evidence counter maps to its upgrade by the manifest needle ru
     vi.resetModules();
     const { HORSE_UPGRADE_LIVE_EVIDENCE, enabledHorseUpgradeIds } =
       await import('./HorseUpgradeActivationManifest.js');
-    const { upgradeIdsForFires, PER_HORSE_OPPORTUNITY_ONLY_NEEDLES } =
+    const { upgradeIdsForFires, PER_HORSE_GUARD_UPGRADES, PER_HORSE_OPPORTUNITY_ONLY_NEEDLES } =
       await import('./HorseUpgradeEvidence.js');
     /**
      * The rule as HorseStyleVariantModeMatrix.law.test.ts states it, less the needles that count an
-     * opportunity: those prove a path ran for the fleet but never mark a decision invoked.
+     * opportunity (those prove a path ran for the fleet but never mark a decision invoked) and guards
+     * (recorded by host events only, never by a brain decision's fires).
      */
     const ownersByRule = (key: string) =>
-      Object.keys(HORSE_UPGRADE_LIVE_EVIDENCE).filter((id) =>
-        HORSE_UPGRADE_LIVE_EVIDENCE[id]!.some(
-          (needle) =>
-            !PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(needle) &&
-            (needle.startsWith('`') ? key.startsWith(needle.slice(1)) : key === needle.slice(1, -1))
-        )
+      Object.keys(HORSE_UPGRADE_LIVE_EVIDENCE).filter(
+        (id) =>
+          !PER_HORSE_GUARD_UPGRADES.has(id) &&
+          HORSE_UPGRADE_LIVE_EVIDENCE[id]!.some(
+            (needle) =>
+              !PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(needle) &&
+              (needle.startsWith('`')
+                ? key.startsWith(needle.slice(1))
+                : key === needle.slice(1, -1))
+          )
       );
 
     const enabled = enabledHorseUpgradeIds();
@@ -720,7 +725,7 @@ describe('LAW: an evidence counter maps to its upgrade by the manifest needle ru
         const key = needle.startsWith('`')
           ? `${needle.slice(1)}anything_seen`
           : needle.slice(1, -1);
-        if (PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(needle))
+        if (PER_HORSE_GUARD_UPGRADES.has(id) || PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(needle))
           expect(upgradeIdsForFires([key]), `${id} ${needle}`).not.toContain(id);
         else expect(upgradeIdsForFires([key]), `${id} ${needle}`).toContain(id);
         expect(upgradeIdsForFires([key]), `${id} ${needle}`).toEqual(ownersByRule(key));
