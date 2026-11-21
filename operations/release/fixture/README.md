@@ -126,16 +126,17 @@ sets `CGO_ENABLED=0`. The PostgREST amd64 image supplies `/bin/postgrest`, the
 [upstream static build](https://github.com/PostgREST/postgrest/blob/v14.5/nix/tools/docker/default.nix).
 No Alpine libc or independent Erlang installation is copied into Debian.
 
-PostgreSQL server/client/libpq are **17.11-0+deb13u1**, and pgvector is **0.8.0-1**.
-Realtime's logical replication also requires **postgresql-17-wal2json=2.6-2+b1**.
+PostgreSQL server/client/libpq are **17.12-0+deb13u1**, and pgvector is **0.8.0-1**.
+Realtime's logical replication also requires **postgresql-17-wal2json=2.6-2+deb13u1**.
 The [Debian amd64 package record](https://packages.debian.org/trixie/amd64/postgresql-17-wal2json/download)
-lists SHA-256 `70371bb2072d904ad381d29df2c50f5f2fe8c12583bc0207336b2d5772a0ac36`;
+lists SHA-256 `13861521acf6ec9768c84b8266541fb4de2234f3ea11522730ba220a24da4258`
+(the trixie main amd64 `Packages` index, read 2026-11-21);
 its [file inventory](https://packages.debian.org/trixie/amd64/postgresql-17-wal2json/filelist)
 includes `/usr/lib/postgresql/17/lib/wal2json.so`. The build uses the same signed
 snapshot and the native smoke must create and drop a real temporary logical
 slot using this plugin before exercising Realtime. The earlier image build
 passed the file check; run `34660221728` also passed native slot creation and removal.
-PostgreSQL 17.11 also checks the explicit
+PostgreSQL 17 also checks the explicit
 [`output_plugin_libraries` trust list](https://www.postgresql.org/docs/17/runtime-config-replication.html#GUC-OUTPUT-PLUGIN-LIBRARIES),
 including for superusers. Both fixture startup paths set it to
 `pgoutput,wal2json`: the built-in replication plugin and the pinned Realtime
@@ -143,9 +144,14 @@ plugin only. The unused `test_decoding` default is excluded. The native smoke
 asserts this exact live setting before creating, inspecting and dropping its
 temporary wal2json slot. No privilege increase or plugin-check bypass is used.
 Both APT sources are the signed official Debian archives (`deb.debian.org`
-`trixie` and `trixie-security`). PostgreSQL 17.11, libpq5, pgvector 0.8.0-1 and
-wal2json 2.6-2+b1 stay pinned to exact versions, verified in those amd64 package
-indexes on 2026-11-05; other packages follow Debian stable updates. Package
+`trixie` and `trixie-security`). PostgreSQL 17.12, libpq5, pgvector 0.8.0-1 and
+wal2json 2.6-2+deb13u1 stay pinned to exact versions, verified in those amd64 package
+indexes on 2026-11-21; other packages follow Debian stable updates. The main archive
+keeps only the current point release, so these exact pins move together, in every
+Dockerfile stage, at each Debian point release. `debian-pins.py` runs first in the
+native fixture workflow and fails in seconds, naming each pinned version the
+archive no longer serves, before the long image build
+(`docs/changelog/2026-11-21-fixture-follows-debian-postgres-17-12.md`). Package
 signature and Release expiry checks stay enabled. The dated snapshot archive was
 dropped on 2026-11-05 after it answered hosted runners with 504 Gateway Timeout
 and roughly ten seconds per package. Retries are immediate, because apt before
@@ -469,7 +475,7 @@ independent current-schema qualification.
 The image builds [official Supautils 3.4.3](https://github.com/supabase/supautils/tree/e35f8affc4467202ff0d98f8dd14cb955bc13c75)
 from an immutable source archive (SHA256
 `36c758bd7facda65e1c8ce4a59ebf714d36f3054a2d898a1e8d53cae37e71bec`)
-against the same signed-snapshot PostgreSQL17.11 development headers. Only its
+against the same signed-archive PostgreSQL 17.12 development headers. Only its
 shared library enters the final image; compiler packages remain in the CI build
 stage. Both entrypoints load it through session_preload_libraries, matching the
 managed configuration observed on September12. The installed production binary
@@ -508,13 +514,13 @@ source guards. All other full-schema readiness requirements remain in place.
 
 ## Native Scheduler Metadata Provider
 
-The fixture compiles [pg_cron v1.6.4 at 9490f9c](https://github.com/citusdata/pg_cron/tree/9490f9cc9803f75105f2f7d89839a998f011f8d8) against the pinned PostgreSQL 17.11 ABI. The archive and [Supabase heap-table patch](https://github.com/supabase/postgres/blob/18464f5d928cc2bfb2f9d5b018894d808f5c705f/nix/ext/pg_cron/pg_cron-heap-tables.patch) are SHA256-checked during the Linux image build. Upstream labels the SQL schema `1.6`; [Supabase's pinned packaging](https://github.com/supabase/postgres/blob/18464f5d928cc2bfb2f9d5b018894d808f5c705f/nix/ext/pg_cron/default.nix) maps it to the schema-identical `1.6.4`. This single-version build retains the upstream upgrade chain and adds that documented alignment migration. It does not claim production binary parity or reproduce Supabase's multi-version library packaging.
+The fixture compiles [pg_cron v1.6.4 at 9490f9c](https://github.com/citusdata/pg_cron/tree/9490f9cc9803f75105f2f7d89839a998f011f8d8) against the pinned PostgreSQL 17.12 ABI. The archive and [Supabase heap-table patch](https://github.com/supabase/postgres/blob/18464f5d928cc2bfb2f9d5b018894d808f5c705f/nix/ext/pg_cron/pg_cron-heap-tables.patch) are SHA256-checked during the Linux image build. Upstream labels the SQL schema `1.6`; [Supabase's pinned packaging](https://github.com/supabase/postgres/blob/18464f5d928cc2bfb2f9d5b018894d808f5c705f/nix/ext/pg_cron/default.nix) maps it to the schema-identical `1.6.4`. This single-version build retains the upstream upgrade chain and adds that documented alignment migration. It does not claim production binary parity or reproduce Supabase's multi-version library packaging.
 
 The original isolated bootstrap identity installs the genuine extension only into an empty fixture namespace. Seven C entrypoints, extension membership, body symbols, service ownership, direct function grants and selected attributes are checked against the captured catalog. The application owner remains a non-superuser with schema USAGE but no CREATE. Native smoke exercises real schedule, alter and both unschedule calls, requires a still-present job to disappear on ROLLBACK, and requires application DDL to fail with 42501. Scheduler sequence values may advance; no scheduled job remains. `cron.launch_active_jobs=off` and `cron.enable_superuser_jobs=off` prevent background execution. Background scheduling, complete scheduler/default/effective ACL parity, full-schema and funded behavior remain unqualified. The older three handwritten functions must be removed by the separately guarded schema composer before using the full application entrypoint.
 
 ### Genuine safeupdate hook prerequisite
 
-The fixture builds pg-safeupdate1.4 at upstream commit104f78d27b607076b49f22927ba33828fd0a98a0 against its pinned PostgreSQL17.11 ABI in CI. The archive is checksum-pinned; no SQL shim supplies its parser hook. The original bootstrap configures the initially unused authenticator role before any API connection, matching the captured `session_preload_libraries=safeupdate` setting. No existing live session is counted as fresh.
+The fixture builds pg-safeupdate1.4 at upstream commit104f78d27b607076b49f22927ba33828fd0a98a0 against its pinned PostgreSQL 17.12 ABI in CI. The archive is checksum-pinned; no SQL shim supplies its parser hook. The original bootstrap configures the initially unused authenticator role before any API connection, matching the captured `session_preload_libraries=safeupdate` setting. No existing live session is counted as fresh.
 
 Native smoke uses a new authenticator connection and the actual PostgREST14.5 process. The ordinary session verifies the registered boolean, superuser-settable safeupdate setting and actual hook behavior. PostgreSQL protects the preload-list setting from ordinary reads; both SQL identities and an invoker HTTP RPC must receive42501 when attempting to read it. No monitoring grant or definer function is added to make that observation pass. Unqualified UPDATE, DELETE and modifying CTEs must return21000; ordinary disabling must return42501. Filtered SQL writes roll back. Filtered authenticated HTTP writes commit only two disposable probe rows, which are restored and checked before all three probe objects are dropped. Driver cleanup verifies the service, peer and catalog-capture containers, network and image removal. Auth/MFA and separate Realtime/RLS checks remain required.
 

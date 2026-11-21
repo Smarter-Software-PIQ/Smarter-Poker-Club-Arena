@@ -280,7 +280,7 @@ async function services() {
   const data = '/var/lib/postgresql/data';
   stage = 'postgresql-version';
   const version = await command(`${pgBin}/postgres`, ['--version']);
-  assert.match(version.stdout, /PostgreSQL\) 17\.11\b/);
+  assert.match(version.stdout, /PostgreSQL\) 17\.12\b/);
   stage = 'postgrest-version';
   const restVersion = await command('/usr/local/bin/postgrest', ['--version']);
   assert.match(restVersion.stdout, /\b14\.5\b/);
@@ -1055,7 +1055,7 @@ async function services() {
     console.log(
       JSON.stringify({
         scope: 'native-service-smoke',
-        postgres: '17.11',
+        postgres: '17.12',
         extensions: 7,
         cron,
         safeupdate,

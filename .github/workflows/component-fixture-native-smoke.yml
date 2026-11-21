@@ -63,6 +63,10 @@ jobs:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: The Debian archive still serves every pinned fixture package version
+        # Debian keeps only the current point release; fail in seconds, naming the
+        # missing pin, instead of after the dependency and image builds.
+        run: python3 -B operations/release/fixture/debian-pins.py
       - name: Prepare the current-run original-input transfer directory
         if: inputs.connected_ui_observations
         env:
@@ -124,6 +128,7 @@ jobs:
           python3 -B tests/operations/connected-ui-native.test.py
           python3 -B tests/operations/original-web-retention.test.py
           python3 tests/operations/fixture-smoke-runner.test.py
+          python3 -B tests/operations/fixture-debian-pins.test.py
           python3 tests/operations/fixture-smoke-lifecycle.test.py
           python3 tests/operations/fixture-native-diagnostics.test.py
       - name: Require native PostgreSQL17 read-only export client

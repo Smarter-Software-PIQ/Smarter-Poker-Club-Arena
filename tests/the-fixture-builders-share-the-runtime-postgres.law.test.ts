@@ -13,6 +13,13 @@
  * PostgreSQL 17 package or a build dependency that drags libpq-dev must name
  * postgresql-17, libpq5, libpq-dev and postgresql-server-dev-17 at the exact
  * version the runtime stage pins.
+ *
+ * 2026-11-21: Debian's main archive dropped 17.11 when 17.12 became the trixie
+ * point release (it keeps only the current one), so the exact 17.11 pins failed
+ * with "Version ... was not found". Every stage moved to 17.12-0+deb13u1 and
+ * wal2json to 2.6-2+deb13u1 together. The fixture workflow now runs
+ * operations/release/fixture/debian-pins.py first, which names any pin the
+ * archive no longer serves before the long build.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -50,9 +57,34 @@ describe('the fixture builders share the runtime PostgreSQL (2026-11-13)', () =>
     }
   });
 
+  it('the runtime, its smoke and the evidence runner name one PostgreSQL point release', () => {
+    const point = version.match(/^(17\.\d+)-/)![1];
+    const root = join(__dirname, '..');
+    const smoke = readFileSync(join(root, 'operations/release/fixture/native-smoke.mjs'), 'utf8');
+    expect(smoke).toContain(`postgres: '${point}',`);
+    expect(smoke).toContain(`PostgreSQL\\) ${point.replace('.', '\\.')}\\b`);
+    const runner = readFileSync(join(root, 'operations/release/ci/fixture-smoke.py'), 'utf8');
+    expect(runner).toContain(`'postgres': '${point}',`);
+    const wal2json = dockerfile.match(/postgresql-17-wal2json=(\S+)/);
+    expect(wal2json?.[1]).toBe('2.6-2+deb13u1');
+  });
+
+  it('the native fixture workflow checks the pins against the archive before building', () => {
+    const workflow = readFileSync(
+      join(__dirname, '..', '.github', 'workflows', 'component-fixture-native-smoke.yml'),
+      'utf8'
+    );
+    const check = workflow.indexOf('run: python3 -B operations/release/fixture/debian-pins.py');
+    expect(check).toBeGreaterThan(0);
+    expect(check).toBeLessThan(workflow.indexOf('npm ci --prefix server'));
+    expect(check).toBeLessThan(workflow.indexOf('operations/release/ci/fixture-smoke.py'));
+  });
+
   it('no install names a PostgreSQL package at any other version', () => {
     for (const line of installs()) {
-      for (const m of line.matchAll(/\b(postgresql-17|postgresql-client-17|libpq5|libpq-dev|postgresql-server-dev-17)=(\S+)/g)) {
+      for (const m of line.matchAll(
+        /\b(postgresql-17|postgresql-client-17|libpq5|libpq-dev|postgresql-server-dev-17)=(\S+)/g
+      )) {
         expect(m[2]).toBe(version);
       }
     }

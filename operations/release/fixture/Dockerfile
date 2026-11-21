@@ -34,8 +34,12 @@ COPY --from=dependencies /opt/qualification /opt/qualification
 RUN node -e "const fs=require('node:fs'); const roots=require('node:tls').rootCertificates; if(roots.length<100) throw Error('Missing pinned TLS roots'); fs.mkdirSync('/etc/ssl/certs',{recursive:true}); fs.writeFileSync('/etc/ssl/certs/ca-certificates.crt',roots.join('\\n')+'\\n',{mode:0o644});"
 
 # Signed official Debian archives; PostgreSQL and its extensions stay pinned to
-# exact versions. snapshot.debian.org was dropped on 2026-11-05: it answered
-# hosted runners with 504s and ~10 s per package, failing every native build.
+# exact versions. The main archive keeps only the current point release, so
+# these pins move together at each Debian point release (17.11 left on
+# 2026-11-21); operations/release/fixture/debian-pins.py fails fast, before the
+# long build, naming any pin the archive no longer serves. snapshot.debian.org
+# was dropped on 2026-11-05: it answered hosted runners with 504s and ~10 s per
+# package, failing every native build.
 # Retries are immediate: apt before 3.1.3 can loop forever on a delayed retry.
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* \
@@ -55,9 +59,9 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
     && printf 'create_main_cluster = false\n' > /etc/postgresql-common/createcluster.conf \
     && apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 \
-      libpq5=17.11-0+deb13u1 postgresql-17-pgvector=0.8.0-1 \
-      postgresql-17-wal2json=2.6-2+b1 \
+      postgresql-17=17.12-0+deb13u1 postgresql-client-17=17.12-0+deb13u1 \
+      libpq5=17.12-0+deb13u1 postgresql-17-pgvector=0.8.0-1 \
+      postgresql-17-wal2json=2.6-2+deb13u1 \
       ca-certificates openssl unzip zip libatomic1 \
     && node /opt/qualification/node_modules/playwright/cli.js install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
@@ -104,13 +108,14 @@ CMD ["fixture-server", "capabilities"]
 # postgresql-server-dev-17 to 17.12 inside the builders while the runtime stage
 # stayed on 17.11, so every native smoke failed with 58P01 from
 # internal_load_library. The builders and the runtime share one ABI or none.
+# Since 2026-11-21 every stage is on 17.12-0+deb13u1 (17.11 left the archive).
 # Compiler packages stay in this CI-only intermediate stage.
 FROM postgres-runtime AS supautils-builder
 USER root
 ADD --checksum=sha256:36c758bd7facda65e1c8ce4a59ebf714d36f3054a2d898a1e8d53cae37e71bec https://codeload.github.com/supabase/supautils/tar.gz/e35f8affc4467202ff0d98f8dd14cb955bc13c75 /tmp/supautils.tar.gz
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends build-essential patch libicu-dev libxml2-dev \
-      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 libpq5=17.11-0+deb13u1 libpq-dev=17.11-0+deb13u1 postgresql-server-dev-17=17.11-0+deb13u1 \
+      postgresql-17=17.12-0+deb13u1 postgresql-client-17=17.12-0+deb13u1 libpq5=17.12-0+deb13u1 libpq-dev=17.12-0+deb13u1 postgresql-server-dev-17=17.12-0+deb13u1 \
     && mkdir /tmp/supautils \
     && tar -xzf /tmp/supautils.tar.gz --strip-components=1 -C /tmp/supautils \
     && make -C /tmp/supautils PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config \
@@ -141,12 +146,12 @@ RUN mkdir /tmp/safeupdate \
     && test -s /tmp/safeupdate/safeupdate.so
 
 # Genuine single-version providers, no application SQL or service activation.
-# This stage inherits the same signed Debian sources and PostgreSQL17.11 ABI.
+# This stage inherits the same signed Debian sources and PostgreSQL 17.12 ABI.
 FROM supautils-builder AS genuine-providers-builder
 USER root
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 libpq5=17.11-0+deb13u1 libpq-dev=17.11-0+deb13u1 postgresql-server-dev-17=17.11-0+deb13u1 \
+      postgresql-17=17.12-0+deb13u1 postgresql-client-17=17.12-0+deb13u1 libpq5=17.12-0+deb13u1 libpq-dev=17.12-0+deb13u1 postgresql-server-dev-17=17.12-0+deb13u1 \
       libcurl4-openssl-dev libsodium-dev pkg-config perl file \
       libgeos-dev libproj-dev libgdal-dev libjson-c-dev libprotobuf-c-dev \
       protobuf-c-compiler libpcre2-dev libsfcgal-dev

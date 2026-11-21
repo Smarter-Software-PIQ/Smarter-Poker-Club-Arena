@@ -1644,6 +1644,26 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // Qualify the exact additive transport gate, then retain every historical stage/hash.
     alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';
     job.steps.splice(alertInstall, 1);
+    // Added 2026-11-21 (Debian dropped PostgreSQL 17.11 from the archive): the
+    // first step checks every exact fixture apt pin against the Packages index,
+    // and the boundary step runs its offline test. Qualify both exactly, then
+    // normalize them away so every other byte stays fingerprinted.
+    const pinCheck = job.steps.findIndex(
+      (step: { name?: string }) =>
+        step.name === 'The Debian archive still serves every pinned fixture package version'
+    );
+    expect(pinCheck).toBe(1);
+    expect(job.steps[pinCheck]).toStrictEqual({
+      name: 'The Debian archive still serves every pinned fixture package version',
+      run: 'python3 -B operations/release/fixture/debian-pins.py',
+    });
+    job.steps.splice(pinCheck, 1);
+    const pinTest = 'python3 -B tests/operations/fixture-debian-pins.test.py\n';
+    const pinTestSteps = job.steps.filter((step: { run?: string }) => step.run?.includes(pinTest));
+    expect(pinTestSteps).toHaveLength(1);
+    expect(pinTestSteps[0].name).toBe('Check financial route and fixture ownership boundaries');
+    expect(pinTestSteps[0].run.split(pinTest)).toHaveLength(2);
+    pinTestSteps[0].run = pinTestSteps[0].run.replace(pinTest, '');
     expect(job['timeout-minutes']).toBe('${{ inputs.connected_ui_observations && 120 || 55 }}');
     const budget = new Function('inputs', `return (${job['timeout-minutes'].slice(3, -2)});`);
     expect(budget({ connected_ui_observations: false })).toBe(55);

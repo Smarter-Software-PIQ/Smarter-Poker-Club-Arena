@@ -441,7 +441,7 @@ def smoke_records(output):
     observer = {'scope': 'native-service-smoke', 'observer': 'passed',
                 'browser': 'chromium', 'retries': 0,
                 'observation_bridge': 'native-synthetic-protocol', 'postgres_socket': 'denied'}
-    services = {'scope': 'native-service-smoke', 'postgres': '17.11',
+    services = {'scope': 'native-service-smoke', 'postgres': '17.12',
                 'extensions': 7,
                 'cron': {'source': '9490f9cc9803f75105f2f7d89839a998f011f8d8',
                          'extension_version': '1.6.4', 'native_functions': 7,
