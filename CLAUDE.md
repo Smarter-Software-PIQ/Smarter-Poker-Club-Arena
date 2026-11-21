@@ -1508,6 +1508,29 @@ it kept drifting for another 135 commits.
    check reports locks older than an hour. Confirm with `lsof` that no git
    process holds it before removing it.
 
+5. **Never `git stash` in this repository (2026-11-21).** Every worktree of a
+   clone shares ONE stash list (`refs/stash` lives in the common git
+   directory), and on 2026-11-21 two agents' concurrent stashes in two
+   worktrees swapped their changes. `.husky/reference-transaction` refuses a
+   new stash entry; a push stores the ref before it resets the tree, so the
+   refusal leaves your edits exactly where they were (measured on git 2.43
+   and Apple git 2.50.1). Popping or dropping an existing entry still works.
+   Commit on your own branch instead. Pinned by
+   `tests/unit/oneStashListIsNeverShared.test.ts`.
+
+6. **The shared clone stays on `main`; never `git checkout`/`git switch` there
+   (2026-11-21).** On 2026-11-21 `~/Documents/club-arena` was found on a
+   lane's branch, 274 commits behind, with 71,915 tracked files deleted and
+   a stranded `index.lock`. Git has NO hook that can refuse a checkout before
+   it rewrites the tree: checkout updates the working tree and index first
+   and HEAD last, and a `reference-transaction` refusal of the HEAD update
+   (measured on Apple git 2.50.1) leaves the tree and index on the target
+   branch with HEAD still on `main` - the half-switched "everything staged"
+   state of rule 1, which is worse than the checkout. So no such guard is
+   built. Claim a worktree with `scripts/agent-workspace.sh` and switch
+   branches only there; `guard-shared-clone.sh` still refuses any commit or
+   push from the shared clone, and the freshness check names its branch.
+
 ---
 
 ## 10.88 CLAIM AN INCIDENT BEFORE YOU WORK IT, AND CHECK OUT ONE TREE AT A TIME (2026-11-18, BINDING)

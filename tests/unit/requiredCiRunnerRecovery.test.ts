@@ -1058,6 +1058,27 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(steps[index - 1].name).toBe('Native fixture gate rejects missing and skipped proof');
       steps.splice(index, 1);
     }
+    // The heavy-job queue proves itself on every pull request (2026-11-21):
+    // one exact added step, pinned here and by
+    // tests/operations/heavy-queue.test.mjs. It serializes heavy local jobs,
+    // recovers stale slots, holds new jobs while the machine is overloaded and
+    // keeps its tickets in one fixed folder. Adding the step without this pin
+    // moved the typecheck_compile fingerprint and failed client shard 8.
+    {
+      const heavyQueueStep = {
+        name: 'Heavy-job queue serializes, recovers stale slots, holds on load and stays in one place',
+        run: 'node --test tests/operations/heavy-queue.test.mjs',
+      };
+      const steps = normalized.jobs.typecheck_compile.steps;
+      const index = steps.findIndex((s: { name: string }) => s.name === heavyQueueStep.name);
+      expect(steps.filter((s: { name: string }) => s.name === heavyQueueStep.name)).toHaveLength(1);
+      expect(steps[index]).toStrictEqual(heavyQueueStep);
+      expect(steps[index - 1].name).toBe(
+        'Local dependency preflight refuses incomplete or stale installs'
+      );
+      expect(steps[index + 1].name).toBe('Money-trigger CI caller preserves independent authority');
+      steps.splice(index, 1);
+    }
     // Pin the entire reviewed producer and transfer pair before reconstructing
     // the former browser shape. The historical job hash still protects every
     // original build command, browser assertion, timeout and step ordering.
