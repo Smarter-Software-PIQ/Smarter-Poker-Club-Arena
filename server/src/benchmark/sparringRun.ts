@@ -131,7 +131,7 @@ function guardBlock(rows: Row[]): void {
   const cand = (r: Row) => r.arms.find((a) => a.label === 'CAND');
   const graded = rows.filter((r) => {
     const c = cand(r);
-    return c && c.vsArm0Bb100 !== null && c.vsArm0Se !== null && c.vsArm0Se > 0;
+    return c && c.vsArm0Bb100 !== null && c.vsArm0Se !== null;
   });
   if (!graded.length) return;
   const targets = new Set(
@@ -153,7 +153,7 @@ function guardBlock(rows: Row[]): void {
       `${[...by.values()].some((v) => v.length !== C) ? ' (largest; cell counts differ)' : ''}. ` +
       `GUARD-POOLED fails above z_fam(P) = ${zP.toFixed(2)}; GUARD-CELL fails above z_fam(P x C) = z_fam(${P * C}) = ${zPC.toFixed(
         2
-      )}. Target probes (SPARRING_TARGET): ${targets.size ? [...targets].join(', ') : 'none declared, every adversary counted as a guard'}.`
+      )}. Target probes (SPARRING_TARGET): ${targets.size ? [...targets].join(', ') : 'none declared, every adversary counted as a guard'}. A cell with no chip difference counts in P and C with z = 0; the pooled mean is over the cells with a difference.`
   );
   const head =
     '| adversary | role | cells | pooled CAND-BASE bb/100 | pooled z | vs z_fam(P) | largest cell z | vs z_fam(P x C) |';
@@ -167,13 +167,19 @@ function guardBlock(rows: Row[]): void {
       const c = cand(r)!;
       const se = c.vsArm0Se as number;
       const x = c.vsArm0Bb100 as number;
+      // A cell with no chip difference (0.0 +/- 0.0) is a look of the family (it counts in P and C)
+      // with z = 0; it has no variance to weight by, so the pooled mean is over the other cells.
+      if (!(se > 0)) {
+        zmax = Math.max(zmax, 0);
+        continue;
+      }
       w += 1 / (se * se);
       wx += x / (se * se);
       zmax = Math.max(zmax, x / se);
     }
-    const mean = wx / w;
-    const se = Math.sqrt(1 / w);
-    const z = mean / se;
+    const mean = w > 0 ? wx / w : 0;
+    const se = w > 0 ? Math.sqrt(1 / w) : 0;
+    const z = se > 0 ? mean / se : 0;
     const guard = !targets.has(k);
     console.log(
       `| ${k} | ${guard ? 'guard' : 'target'} | ${rs.length} | ${fmt(mean, se)} | ${z.toFixed(2)} | ${

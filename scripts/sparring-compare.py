@@ -81,19 +81,22 @@ for k in keys:
 targets = set(x.strip() for x in os.environ.get('SPARRING_TARGET', '').split(',') if x.strip())
 by = {}
 for k, ba, ca, dm, dse in rows:
-    if dse > 0: by.setdefault(k[0], []).append((dm, dse))
+    by.setdefault(k[0], []).append((dm, dse))
 guards = [a for a in by if a not in targets]
 if guards:
     P = len(guards); C = max(len(by[a]) for a in guards)
     print(f"GUARD THRESHOLDS (LEAD-3 RULING 1) for this table: guard probes P = {P}, cells per probe C = {C}"
           f"{' (largest; cell counts differ)' if any(len(v) != C for v in by.values()) else ''}. "
           f"GUARD-POOLED fails above z_fam(P) = {z_fam(P):.2f}; GUARD-CELL fails above z_fam(P x C) = z_fam({P * C}) = {z_fam(P * C):.2f}. "
-          f"Target probes (SPARRING_TARGET): {', '.join(sorted(targets)) if targets else 'none declared, every adversary counted as a guard'}.")
+          f"Target probes (SPARRING_TARGET): {', '.join(sorted(targets)) if targets else 'none declared, every adversary counted as a guard'}. "
+          f"A cell with no chip difference counts in P and C with z = 0; the pooled mean is over the cells with a difference.")
     print('| adversary | role | cells | pooled CAND-BASE bb/100 | pooled z | vs z_fam(P) | largest cell z | vs z_fam(P x C) |')
     print('|---|---|---|---|---|---|---|---|')
     for a, v in by.items():
-        w = sum(1 / (se * se) for _, se in v); mean = sum(m / (se * se) for m, se in v) / w; se = math.sqrt(1 / w)
-        z = mean / se; zmax = max(m / s for m, s in v); g = a not in targets
+        # a cell with no chip difference (0.0 +/- 0.0) counts in P and C with z = 0; the pooled mean is over the other cells
+        d = [(m, s) for m, s in v if s > 0]
+        w = sum(1 / (s * s) for _, s in d); mean = sum(m / (s * s) for m, s in d) / w if w else 0.0; se = math.sqrt(1 / w) if w else 0.0
+        z = mean / se if se else 0.0; zmax = max([m / s for m, s in d] + ([0.0] if len(d) < len(v) else [])); g = a not in targets
         print(f"| {a} | {'guard' if g else 'target'} | {len(v)} | {mean:.1f} ± {se:.1f} | {z:.2f} | "
               f"{('ABOVE' if z > z_fam(P) else 'within') if g else '-'} | {zmax:.2f} | {('ABOVE' if zmax > z_fam(P * C) else 'within') if g else '-'} |")
     print()
