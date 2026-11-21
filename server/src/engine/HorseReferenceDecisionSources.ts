@@ -141,10 +141,18 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha bluff priced against the target (HORSE DECISIONS lane 2026-11-19, omahaBluffIsPricedAgainstTheTarget): PLO4/PLO5 cash at a table and in Lightning, the outermost answer of wager_rules: a heads-up wager facing no bet kept only when priced above the check with his measured fold at its price (his street or pooled fold-to-bet record shrunk toward his kind) and the Horse sampled showdown share against the strongest part of his holdings (a seed taken from the cards, never the brain random stream); the flop call and the flop / turn raise facing a bet priced on the sampled raise at every legal size with the same measured fold; receipts omaha_bluff_priced_against_target_*',
     'src/engine/HorseHoldemValueAndCallsArePriced.ts':
       "the default-off hold'em value and calls priced (HORSE DECISIONS lane 2026-11-19, holdemValueAndCallsArePriced): NLH cash heads-up postflop, the value raise, the made-hand bet or check, the facing-bet call and the river bet priced against the bettor's line range and measured response; off returns the decision unchanged",
+    'src/engine/HorseHoldemCommittedPricing.ts':
+      "the default-off hold'em committed no-pair EV verdict and four-flush / four-straight danger-board bettor-range equity (Hold'em Strategy lane 2026-11-20, holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced): reached only behind strict === true gates in NLH cash heads-up facing-bet decisions; off never enters and returns the decision unchanged",
     'src/engine/HorsePlo6ValueShare.ts':
       'the default-off PLO6 value share (HORSE DECISIONS lane 2026-11-19, plo6FacingBetIsPriced): the six-card value region taken at the hand strength of the four-card share, read by the PLO6 facing-bet verdict only when its option is on',
     'src/engine/HorsePlo6FacingBetIsPriced.ts':
       'the default-off PLO6 facing-bet verdict (HORSE DECISIONS lane 2026-11-19, plo6FacingBetIsPriced): PLO6 cash facing a bet, the call, fold or river raise priced on the six-card count; off returns the decision unchanged',
+    'src/engine/HorsePlo6FlopDefence.ts':
+      'the default-off PLO6 flop defence (PLO6 lane 2026-11-20, E6 under plo6FacingBetIsPriced): heads-up first flop bet with chips behind priced on the two-street barrel tree and multiway flop caller/behind shares scaled by six-card pair concentration; reached only when plo6FacingBetIsPriced is on',
+    'src/engine/HorsePlo6RiverDefence.ts':
+      'the default-off PLO6 river under-bluffing guard, current-nuts call floor and private-nuts raise protection (PLO6 lane 2026-11-20, E7 under plo6FacingBetIsPriced): six-card M1 river beaten-share guard and exact current/private river nuts rules; reached only when plo6FacingBetIsPriced is on',
+    'src/engine/HorsePlo6MultiwayTurnField.ts':
+      'the default-off PLO6 multiway turn caller field-factor (PLO6 lane 2026-11-20, E8 under plo6FacingBetIsPriced): deterministic six-card joint river-runout evaluator replacing static four-card turn field zeroing on multiway PLO6 cash turns; reached only when plo6FacingBetIsPriced is on',
     'src/engine/HorseOmahaMultiwayPricedInTournaments.ts':
       'the default-off Omaha tournament multiway pricing (HORSE DECISIONS lane 2026-11-19, omahaMultiwayIsPricedInTournaments): a preflop multiway call-off and a multiway own bet priced jointly against the callers; off returns the decision unchanged',
     'src/engine/HorseHoldemTournamentAllInCall.ts':
@@ -180,9 +188,9 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/omahaMathCore/OmahaMathCoreEval.ts':
       'the math core exact Omaha high evaluator (two hole plus three board) on integer cards',
     'src/engine/omahaMathCore/OmahaMathCoreTables.ts':
-      'the math core public tables (provenance public_actions): response frequencies to wagers, preflop action frequencies, fold facing a Horse raise',
+      'the math core public tables (provenance public_actions / showdown_only), every player pooled (lane CORE-POOLED, identity-free): response frequencies to wagers, wager frequencies, shown non-value shares, preflop action frequencies, fold facing a raise',
     'src/engine/omahaMathCore/MeasuredRanges.ts':
-      'lane RANGES table lookups (back-off by key, person shrink k+20pop/(n+20)) used by the math core on its public sections',
+      'lane RANGES table lookups (back-off by key) used by the math core on its pooled public sections; no person/Horse field, no per-user row',
     'src/config/tableSeating.ts':
       'the seat count per variant read by the Omaha variant pack that lane EQUITY equityVsRanges scores with (reached from the math core through OmahaVariantSampler)',
     'src/engine/omaha/OmahaVariantSampler.ts':
@@ -195,36 +203,34 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'imported through the Omaha variant pack reached from the sampler scoring the math core equity uses',
     'src/engine/omahaMathCore/OmahaMathCoreWire.ts':
       'the math core component wiring (lane COREWIRE 2026-11-19): adapters from the core state to the delivered components (responses, bet rates, tracked ranges, postflop value plan, public action line)',
-    'src/engine/omahaMathCore/OmahaMathCoreOpponent.ts':
-      'lane OPPMODEL per-opponent posterior over the public population cells (public actions only), read by the math core',
-    'src/engine/omahaMathCore/opponentModel.v1.json':
-      'lane OPPMODEL snapshot (provenance public_actions): per-opponent decayed public response, wager and preflop counts',
     'src/engine/omahaMathCore/OmahaMathCorePlaybookTexture.ts':
       'lane PLAYBOOK board-texture fold cells (provenance public_actions) applied to the math core population cell',
-    'src/engine/omahaMathCore/playbookTexture.v1.json':
-      'lane PLAYBOOK board-texture fold table (provenance public_actions)',
+    'src/engine/omahaMathCore/playbookTexture.v2-pooled.json':
+      'lane PLAYBOOK board-texture fold table (provenance public_actions), every responder pooled (lane CORE-POOLED)',
     'src/engine/omahaMathCore/OmahaMathCorePlaybookBlockers.ts':
       'lane PLAYBOOK blocker-conditioned fold share by exact card removal (the hero cards and the board only)',
     'src/engine/omahaMathCore/OmahaMathCoreRangeTrack.ts':
       'lane RANGEADV range tracking over the public action line (Bayes on measured public node frequencies)',
     'src/engine/omahaMathCore/OmahaMathCorePreflop.ts':
       'lane PREFLOP-EV preflop strength order, public-frequency bands and size-aware fold / re-raise for the math core',
-    'src/engine/omahaMathCore/preflopTables.v1.json':
-      'lane PREFLOP-EV public preflop action frequencies (no hole cards)',
-    'src/engine/omahaMathCore/preflopRealization.v1.json':
+    'src/engine/omahaMathCore/preflopTables.v2-pooled.json':
+      'lane PREFLOP-EV public preflop action frequencies (no hole cards), every player pooled (lane CORE-POOLED)',
+    'src/engine/omahaMathCore/preflopRealization.v2-pooled.json':
       'lane PREFLOP-EV preflop realization table: imported, not read by the core until the lead admits its provenance (PREFLOP_REALIZATION_ADMITTED)',
     'src/engine/omahaMathCore/preflopStrength.v1.json':
       'lane PREFLOP-EV two-card additive equity model (computed from random holdings only)',
     'src/engine/omahaMathCore/OmahaMathCoreValue.ts':
       'lane VALUE postflop plan: check node, raised branch, multi-street continuation and the size menu, priced by the math core',
+    'src/engine/omahaMathCore/OmahaMathCoreNutsFloor.ts':
+      'lane CORE-POOLED-2 current-nuts call floor of the math core: exact enumeration of whether any two unseen cards beat the own hand on this board (own cards and board only); facing a flop/turn wager with a call available, the fold is not a candidate',
     'src/engine/omahaMathCore/OmahaMathCoreBluff.ts':
-      'lane XR-BLUFF check-raise and bluff context (exploit-back multipliers from public answers to the core wagers)',
+      'lane XR-BLUFF check-raise and bluff context (blockers by card removal; no per-opponent term)',
     'src/engine/omahaMathCore/MultiwayTerms.ts':
       'lane HVH-MULTI multiway terms: correlated all-fold continuation outcomes and calls with players behind',
     'src/engine/omahaMathCore/OmahaDraws.ts':
       'lane DRAWS exact draw profile and measured later-street term, on the math core one-step fallback path only',
-    'src/engine/omahaMathCore/publicTables.v3.json':
-      'the math core public tables (provenance public_actions): response frequencies to wagers, preflop action frequencies, fold facing a Horse raise, per-user public facing rows',
+    'src/engine/omahaMathCore/publicTables.v4-pooled.json':
+      'the math core public tables (provenance public_actions / showdown_only), every player pooled (lane CORE-POOLED): response frequencies to wagers, wager frequencies, shown non-value shares, preflop action frequencies, fold facing a raise; no person/Horse field, no per-user rows',
     'src/engine/omahaMathCore/OmahaMathCoreAcceptance.ts':
       'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
     'src/engine/omaha/OmahaRangeEquity.ts':

@@ -11,6 +11,12 @@ import {
   holdemRiverLeadBoat,
 } from './HorseHoldemRiverFullHouseValue.js';
 import {
+  boardHasFourFlush,
+  boardHasFourStraight,
+  holdemCommittedNoPairDecision,
+  holdemDangerBoardBettorEquity,
+} from './HorseHoldemCommittedPricing.js';
+import {
   holdemFillEquities,
   holdemHandIsMade,
   holdemLineLikelihood,
@@ -307,6 +313,12 @@ import {
   fixedLimitRiverLeadStrength,
   fixedLimitRiverStrongHandLeads,
 } from './HorseFixedLimitRiverLead.js';
+import {
+  fixedLimitRaiseOverLimpTo,
+  fixedLimitReraisedPositionOf,
+  fixedLimitVpipFloorAllowsCall,
+  isFixedLimitGameVariant,
+} from './HorseFixedLimitStructure.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -1652,6 +1664,7 @@ function vpipLimpEvAt(
     limpers,
     behind,
     potLimit: vi.isPotLimit === true,
+    fixedLimit: vi.isFixedLimit === true,
     // The FAST decision and its DEEP second look must price the same limp:
     // the second look's larger sample (setEquityDepth) is held at 1 here.
     equity: (bands) => {
@@ -5709,6 +5722,18 @@ export interface HorseDecideOpts {
    * Horse's call or check-raise. Bluff raises and hands without a made hand that bet keep the brain's line;
    * more than one opponent keeps the decision. Off: byte-identical. */
   holdemValueAndCallsArePriced?: boolean;
+  /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
+   * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
+   * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
+   * equity and the measured fold share of people to a Horse raise (HorseHoldemCommittedPricing). Off:
+   * byte-identical. */
+  holdemCommittedNoPairIsPriced?: boolean;
+  /** Hold'em Strategy 2026-11-20 (priced rebuild of 633eec005d5 / 6496e1610f0 "board discipline" flat -0.15):
+   * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, turn or river, four-flush or
+   * four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's
+   * range on this board, by the measured showdown classes of people who bet such boards
+   * (HorseHoldemCommittedPricing). Off: byte-identical. */
+  holdemDangerBoardEquityIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -5977,6 +6002,7 @@ type VpipFloorCallDownState = {
   vpipFloor?: number;
   vpipWindowHands?: number;
   gameVariant?: string;
+  bettingStructure?: string | null;
   ownVpip?: { hands: number; vpip: number | null };
   allInOrFold?: boolean;
 };
@@ -6003,6 +6029,15 @@ function vpipFloorCallDownSpot(
   const stack = Number(player.stack);
   if (!(toCall > 0) || !(bb > 0) || !(stack > toCall)) return null;
   if (toCall > VPIP_CALLDOWN_MAX_BB * bb || toCall > VPIP_CALLDOWN_MAX_STACK_SHARE * stack)
+    return null;
+  if (
+    !fixedLimitVpipFloorAllowsCall({
+      isFixedLimit: isFixedLimitGameVariant(gs.gameVariant, gs.bettingStructure),
+      currentBet: Number(gs.currentBet),
+      toCall,
+      bigBlind: bb,
+    })
+  )
     return null;
   const own = gs.ownVpip;
   const windowHands = vpipStrategyWindow(gs);
@@ -6399,6 +6434,7 @@ export interface VpipLimpEvInput {
   /** players still to act behind the hero, preflop order */
   behind: VpipLimpOpponent[];
   potLimit: boolean;
+  fixedLimit?: boolean;
   /** equity of the hero's cards against opponents of these bands (null = uniform) */
   equity: (bands: Array<[number, number] | null>) => number;
 }
@@ -6438,8 +6474,12 @@ export function vpipFloorLimpEv(i: VpipLimpEvInput): VpipLimpEv {
     if (pFirst > 0) {
       const potNow = i.pot + c;
       const callersBefore = limpersIn + 1;
-      // a pot raise: the current bet plus the pot after his own call
-      const raiseTo = i.potLimit ? bb + potNow + j.owes : bb * (4 + callersBefore);
+      // a pot raise: the current bet plus the pot after his own call; in fixed limit a raise over limps is 2 BB
+      const raiseTo = i.fixedLimit
+        ? fixedLimitRaiseOverLimpTo(bb)
+        : i.potLimit
+          ? bb + potNow + j.owes
+          : bb * (4 + callersBefore);
       const call = Math.max(0, raiseTo - bb);
       const potAfter = potNow + (raiseTo - (bb - j.owes)) + call;
       const eq = i.equity([j.raiseBand]);
@@ -8506,8 +8546,15 @@ function plo6FacingBetIsPricedRule(
     if (tele) noteFire('plo6_facing_bet_priced_called');
     return callFor();
   }
+  // E7: never flatten or fold a standing river raise/all-in when hero holds the exact private river nuts.
+  if (isRaise && v.privateRiverNuts === true) {
+    return decision;
+  }
   if (v.action === 'fold') {
     if (decision.action === 'fold') return decision;
+    // E7: preserve a standing heads-up river call when it beats >= 20% of the bettor's value region (#60091132),
+    // while still folding dominated river calls (#59973335 vsValue = 0.091).
+    if (isCall && v.standingRiverCallHolds === true) return decision;
     if (tele) noteFire('plo6_facing_bet_priced_folded');
     const folded: HorseDecision = { ...decision, action: 'fold' };
     delete folded.amount;
@@ -18662,6 +18709,50 @@ export class HorseLogic {
         action.seat === player.seat && action.action !== 'fold' && action.action !== 'check'
     );
     const heroWasInitialRaiser = firstRaiserSeat === player.seat;
+    const heroRaisedPreflop = history.some(
+      (action) =>
+        action.seat === player.seat &&
+        (action.action === 'raise' ||
+          action.action === 'bet' ||
+          (action.action === 'all_in' && action.isFullRaise !== undefined))
+    );
+    const flReraisedPos =
+      vi.isFixedLimit && raises >= 2 && lastRaiserSeat >= 0 && gs.dealerSeat !== undefined
+        ? (() => {
+            const raisedSeats = new Set(
+              history
+                .filter(
+                  (a) =>
+                    a.action === 'raise' ||
+                    a.action === 'bet' ||
+                    (a.action === 'all_in' && a.isFullRaise !== undefined)
+                )
+                .map((a) => a.seat)
+            );
+            const others = gs.players
+              .filter(
+                (p) =>
+                  p.seat !== player.seat &&
+                  p.seat !== lastRaiserSeat &&
+                  !p.is_folded &&
+                  (!p.is_sitting_out || p.is_all_in)
+              )
+              .map((p) => ({
+                seat: p.seat,
+                bet: Number(p.bet ?? 0),
+                allIn: p.is_all_in === true,
+                raisedPreflop: raisedSeats.has(p.seat),
+              }));
+            return fixedLimitReraisedPositionOf(
+              player.seat,
+              lastRaiserSeat,
+              gs.dealerSeat,
+              others,
+              gs.currentBet,
+              bb
+            );
+          })()
+        : null;
     const squeezed =
       (opts.v18Squeeze ?? true) !== false &&
       raises === 2 &&
@@ -21088,6 +21179,22 @@ export class HorseLogic {
       dealerSeat: gs.dealerSeat,
       heroPreviouslyActed,
       heroWasInitialRaiser,
+      ...(vi.isFixedLimit
+        ? {
+            fixedLimitHeroRaisedPreflop: heroRaisedPreflop,
+            fixedLimitWagersCapped:
+              gs.wagersCapped === true ||
+              (Array.isArray(gs.legalActions) &&
+                !gs.legalActions.includes('raise') &&
+                !gs.legalActions.includes('all_in')),
+            ...(flReraisedPos
+              ? {
+                  fixedLimitReraisedInPosition: flReraisedPos.inPosition,
+                  fixedLimitReraisedPendingBehind: flReraisedPos.raisersPendingBehind,
+                }
+              : {}),
+          }
+        : {}),
       straddleActive: gs.straddleActive === true,
       // FACING A CLOSED ALL-IN RE-RAISE (2026-11-08): the raise hero faces
       // was made all in and every other live opponent is all in or folded,
@@ -22501,10 +22608,13 @@ export class HorseLogic {
       const wagers91 = streetWagerSignal(gs.actionHistory, 'river');
       let marked91 = false;
       oppReads = oppReads.map((read, i) => {
-        const kind91 = read ? wagers91.byUser.get(opponents[i]?.user_id) : undefined;
+        const oppId91 = opponents[i]?.user_id;
+        const kind91 = read && oppId91 ? wagers91.byUser.get(oppId91) : undefined;
         if (!read || !kind91) return read;
-        marked91 = true;
-        return fixedLimitFullBetRead(read, kind91, vi.isOmaha);
+        const profile91 = useMind && oppId91 ? HorseMind.opponentRead(oppId91) : null;
+        const nextRead91 = fixedLimitFullBetRead(read, kind91, vi.isOmaha, profile91);
+        if (nextRead91.fullBet === true || nextRead91.raised === true) marked91 = true;
+        return nextRead91;
       });
       if (marked91 && tele15) noteFire('fixed_limit_river_full_bet_read_seen');
     }
@@ -27596,6 +27706,39 @@ export class HorseLogic {
       }
     }
 
+    // holdemDangerBoardEquityIsPriced (Hold'em Strategy 2026-11-20, default off): on a four-flush or four-straight
+    // turn or river, one pair facing one bettor prices against his range on THIS board (exact per-combo equity,
+    // classes weighted by what people who bet such boards showed down) instead of the range read; replaces the
+    // unmeasured flat -0.15 of the earlier board discipline draft. Off: never entered.
+    if (
+      opts.holdemDangerBoardEquityIsPriced === true &&
+      gs.gameVariant === 'nlh' &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      player.cards.length === 2 &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      !isTournamentMode(gs) &&
+      (gs as { publicMemoryDomain?: { speed?: string } | null }).publicMemoryDomain?.speed !==
+        'lightning' &&
+      (street === 'turn' || isRiver) &&
+      cat === 2 &&
+      toCall > 0 &&
+      opponents.length === 1 &&
+      (boardHasFourFlush(board) || boardHasFourStraight(board))
+    ) {
+      const eqDanger = holdemDangerBoardBettorEquity(
+        player.cards,
+        board,
+        player.knownDeadCards ?? []
+      );
+      if (eqDanger !== null) {
+        if (tele15) noteFire('holdem_danger_board_equity_priced');
+        eq15 = eqDanger;
+      }
+    }
+
     // The Phase 7 utility model must inherit every structural safety cap
     // (notably the multiway T8o and dominated-Omaha repairs), not resurrect
     // the raw random-range estimate after those layers have rejected it.
@@ -28121,6 +28264,55 @@ export class HorseLogic {
         !(pairedByNewCard88 && cat < 4);
     }
     if (committed) {
+      // holdemCommittedNoPairIsPriced (Hold'em Strategy 2026-11-20, default off): the committed no-pair no-draw hand
+      // facing one bettor takes the best of fold, call and jam by EV (HorseHoldemCommittedPricing). Off: never
+      // entered; nothing priced: the branch below decides as today.
+      if (
+        opts.holdemCommittedNoPairIsPriced === true &&
+        gs.gameVariant === 'nlh' &&
+        !vi.isOmaha &&
+        !vi.isShortDeck &&
+        !vi.isFixedLimit &&
+        player.cards.length === 2 &&
+        !multiBoard36 &&
+        !gs.bombPot &&
+        !gs.allInOrFold &&
+        !isTournamentMode(gs) &&
+        (gs as { publicMemoryDomain?: { speed?: string } | null }).publicMemoryDomain?.speed !==
+          'lightning' &&
+        board.length >= 3 &&
+        cat === 1 &&
+        toCall > 0 &&
+        opponents.length === 1 &&
+        !holdemHoleDrawPresent(player.cards, board)
+      ) {
+        const opp0 = opponents[0];
+        const oppBehind0 = opp0.is_all_in
+          ? 0
+          : Math.max(0, Number.isFinite(opp0.stack) ? opp0.stack : 0);
+        const priced0 = holdemCommittedNoPairDecision({
+          hole: player.cards,
+          board,
+          dead: player.knownDeadCards ?? [],
+          pot,
+          toCall,
+          jamTotal: Math.min(stack, rawToCall + oppBehind0),
+          equity: eq15,
+          rake: callDeductionFraction ?? rakeMarg,
+        });
+        if (priced0 === null) {
+          if (tele15) noteFire('holdem_committed_no_pair_unpriced');
+        } else {
+          if (tele15) {
+            if (priced0.action === 'all_in') noteFire('holdem_committed_no_pair_jam_priced');
+            else if (priced0.action === 'call') noteFire('holdem_committed_no_pair_call_priced');
+            else noteFire('holdem_committed_no_pair_fold_priced');
+          }
+          if (priced0.action === 'all_in') return { action: 'all_in', thinkTime: 0 };
+          if (priced0.action === 'call') return { action: 'call', amount: toCall, thinkTime: 0 };
+          return { action: 'fold', thinkTime: 0 };
+        }
+      }
       // V20: the flat-call bar here was potOdds + 0.02 regardless of how many
       // players were in or how many of them were ALL IN — the exact door the
       // T8o call-off walked through. The bar now carries half the multiway

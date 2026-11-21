@@ -46,7 +46,10 @@ import {
   horseRunItTwiceRuns,
 } from './HorseRunItTwice.js';
 import { indifferenceStyleSeedsFor } from './HorsePersona.js';
-import { RUN_IT_TWICE_PEOPLE_CURVE, type RunItTwicePeopleCurve } from './HorseRunItTwicePeople.data.js';
+import {
+  RUN_IT_TWICE_PEOPLE_CURVE,
+  type RunItTwicePeopleCurve,
+} from './HorseRunItTwicePeople.data.js';
 import { runItTwiceVarianceShare, type RunItTwiceRole } from './HorseRunItTwiceCell.js';
 
 export { runItTwiceVarianceShare, type RunItTwiceRole };

@@ -249,7 +249,7 @@ for (const { hand, n, node, t } of work) {
           legal: true,
           refusal: false,
           receipts: Object.keys(r.receipts).filter((k) =>
-            /priced|value_share|multiway|plo6_facing|holdem_/.test(k)
+            /priced|value_share|multiway|plo6_facing|holdem_|^hu_/.test(k)
           ),
           kinds: r.kinds,
         };

@@ -1,0 +1,334 @@
+{
+  "cells": {
+    "flop|all|allin|hu": {
+      "fold": 0.1875,
+      "n": 16
+    },
+    "flop|all|half|hu": {
+      "fold": 0.3561,
+      "n": 205
+    },
+    "flop|all|half|mw": {
+      "fold": 0.567,
+      "n": 194
+    },
+    "flop|all|pot|hu": {
+      "fold": 0.5548,
+      "n": 146
+    },
+    "flop|all|pot|mw": {
+      "fold": 0.6531,
+      "n": 49
+    },
+    "flop|all|small|hu": {
+      "fold": 0.2328,
+      "n": 464
+    },
+    "flop|all|small|mw": {
+      "fold": 0.4713,
+      "n": 244
+    },
+    "flop|all|twothirds|hu": {
+      "fold": 0.4791,
+      "n": 167
+    },
+    "flop|all|twothirds|mw": {
+      "fold": 0.75,
+      "n": 96
+    },
+    "flop|paired_rainbow|half|mw": {
+      "fold": 0.5652,
+      "n": 23
+    },
+    "flop|paired_rainbow|small|hu": {
+      "fold": 0.282,
+      "n": 39
+    },
+    "flop|paired_rainbow|small|mw": {
+      "fold": 0.7143,
+      "n": 14
+    },
+    "flop|paired_rainbow|twothirds|hu": {
+      "fold": 0.6667,
+      "n": 15
+    },
+    "flop|paired_rainbow|twothirds|mw": {
+      "fold": 0.9,
+      "n": 10
+    },
+    "flop|paired_twotone|half|hu": {
+      "fold": 0.4211,
+      "n": 19
+    },
+    "flop|paired_twotone|pot|hu": {
+      "fold": 0.9,
+      "n": 10
+    },
+    "flop|paired_twotone|small|hu": {
+      "fold": 0.32,
+      "n": 25
+    },
+    "flop|paired_twotone|small|mw": {
+      "fold": 0.4857,
+      "n": 35
+    },
+    "flop|paired_twotone|twothirds|hu": {
+      "fold": 0.6923,
+      "n": 13
+    },
+    "flop|paired_twotone|twothirds|mw": {
+      "fold": 0.8333,
+      "n": 12
+    },
+    "flop|unpaired_flush3|half|hu": {
+      "fold": 0.6364,
+      "n": 11
+    },
+    "flop|unpaired_flush3|twothirds|mw": {
+      "fold": 0.9286,
+      "n": 14
+    },
+    "flop|unpaired_rainbow|half|hu": {
+      "fold": 0.2558,
+      "n": 43
+    },
+    "flop|unpaired_rainbow|half|mw": {
+      "fold": 0.7368,
+      "n": 38
+    },
+    "flop|unpaired_rainbow|pot|hu": {
+      "fold": 0.56,
+      "n": 50
+    },
+    "flop|unpaired_rainbow|small|hu": {
+      "fold": 0.2295,
+      "n": 170
+    },
+    "flop|unpaired_rainbow|small|mw": {
+      "fold": 0.4097,
+      "n": 83
+    },
+    "flop|unpaired_rainbow|twothirds|hu": {
+      "fold": 0.46,
+      "n": 50
+    },
+    "flop|unpaired_rainbow|twothirds|mw": {
+      "fold": 0.7273,
+      "n": 11
+    },
+    "flop|unpaired_twotone|half|hu": {
+      "fold": 0.3393,
+      "n": 112
+    },
+    "flop|unpaired_twotone|half|mw": {
+      "fold": 0.4874,
+      "n": 119
+    },
+    "flop|unpaired_twotone|pot|hu": {
+      "fold": 0.4561,
+      "n": 57
+    },
+    "flop|unpaired_twotone|pot|mw": {
+      "fold": 0.5517,
+      "n": 29
+    },
+    "flop|unpaired_twotone|small|hu": {
+      "fold": 0.2186,
+      "n": 215
+    },
+    "flop|unpaired_twotone|small|mw": {
+      "fold": 0.4717,
+      "n": 106
+    },
+    "flop|unpaired_twotone|twothirds|hu": {
+      "fold": 0.418,
+      "n": 67
+    },
+    "flop|unpaired_twotone|twothirds|mw": {
+      "fold": 0.6923,
+      "n": 26
+    },
+    "river|all|allin|hu": {
+      "fold": 0.5385,
+      "n": 26
+    },
+    "river|all|half|hu": {
+      "fold": 0.6071,
+      "n": 28
+    },
+    "river|all|pot|hu": {
+      "fold": 0.8269,
+      "n": 156
+    },
+    "river|all|pot|mw": {
+      "fold": 0.4167,
+      "n": 12
+    },
+    "river|all|small|hu": {
+      "fold": 0.4524,
+      "n": 252
+    },
+    "river|all|twothirds|hu": {
+      "fold": 0.825,
+      "n": 40
+    },
+    "river|all|twothirds|mw": {
+      "fold": 0.9412,
+      "n": 17
+    },
+    "river|paired_flush3|pot|hu": {
+      "fold": 1.0,
+      "n": 13
+    },
+    "river|paired_flush3|small|hu": {
+      "fold": 0.4391,
+      "n": 41
+    },
+    "river|paired_twotone|half|hu": {
+      "fold": 0.5,
+      "n": 12
+    },
+    "river|paired_twotone|pot|hu": {
+      "fold": 0.7555,
+      "n": 45
+    },
+    "river|paired_twotone|small|hu": {
+      "fold": 0.4445,
+      "n": 81
+    },
+    "river|paired_twotone|twothirds|hu": {
+      "fold": 1.0,
+      "n": 10
+    },
+    "river|unpaired_flush3|pot|hu": {
+      "fold": 0.8889,
+      "n": 18
+    },
+    "river|unpaired_flush3|small|hu": {
+      "fold": 0.5151,
+      "n": 66
+    },
+    "river|unpaired_twotone|pot|hu": {
+      "fold": 0.8428,
+      "n": 70
+    },
+    "river|unpaired_twotone|small|hu": {
+      "fold": 0.4062,
+      "n": 64
+    },
+    "turn|all|allin|hu": {
+      "fold": 0.3571,
+      "n": 28
+    },
+    "turn|all|half|hu": {
+      "fold": 0.3538,
+      "n": 65
+    },
+    "turn|all|half|mw": {
+      "fold": 0.602,
+      "n": 98
+    },
+    "turn|all|pot|hu": {
+      "fold": 0.4929,
+      "n": 282
+    },
+    "turn|all|pot|mw": {
+      "fold": 0.7534,
+      "n": 73
+    },
+    "turn|all|small|hu": {
+      "fold": 0.3032,
+      "n": 310
+    },
+    "turn|all|small|mw": {
+      "fold": 0.486,
+      "n": 107
+    },
+    "turn|all|twothirds|hu": {
+      "fold": 0.4561,
+      "n": 57
+    },
+    "turn|all|twothirds|mw": {
+      "fold": 0.6818,
+      "n": 88
+    },
+    "turn|paired_twotone|half|mw": {
+      "fold": 0.6857,
+      "n": 35
+    },
+    "turn|paired_twotone|pot|hu": {
+      "fold": 0.5,
+      "n": 54
+    },
+    "turn|paired_twotone|small|hu": {
+      "fold": 0.2987,
+      "n": 77
+    },
+    "turn|paired_twotone|small|mw": {
+      "fold": 0.5,
+      "n": 14
+    },
+    "turn|unpaired_flush3|pot|hu": {
+      "fold": 0.6129,
+      "n": 31
+    },
+    "turn|unpaired_flush3|small|hu": {
+      "fold": 0.5,
+      "n": 16
+    },
+    "turn|unpaired_flush3|twothirds|mw": {
+      "fold": 0.8333,
+      "n": 12
+    },
+    "turn|unpaired_rainbow|small|hu": {
+      "fold": 0.25,
+      "n": 16
+    },
+    "turn|unpaired_twotone|allin|hu": {
+      "fold": 0.25,
+      "n": 20
+    },
+    "turn|unpaired_twotone|half|hu": {
+      "fold": 0.3235,
+      "n": 34
+    },
+    "turn|unpaired_twotone|half|mw": {
+      "fold": 0.5385,
+      "n": 39
+    },
+    "turn|unpaired_twotone|pot|hu": {
+      "fold": 0.4479,
+      "n": 163
+    },
+    "turn|unpaired_twotone|pot|mw": {
+      "fold": 0.6829,
+      "n": 41
+    },
+    "turn|unpaired_twotone|small|hu": {
+      "fold": 0.269,
+      "n": 171
+    },
+    "turn|unpaired_twotone|small|mw": {
+      "fold": 0.4638,
+      "n": 69
+    },
+    "turn|unpaired_twotone|twothirds|hu": {
+      "fold": 0.4048,
+      "n": 42
+    },
+    "turn|unpaired_twotone|twothirds|mw": {
+      "fold": 0.6274,
+      "n": 51
+    }
+  },
+  "definitions": {
+    "band": "raise share (adds - toCall)/(pot + toCall): small<=0.4, half<=0.6, twothirds<=0.8, pot, allin",
+    "texture": "paired|unpaired x flush3 (3+ one suit)|twotone|rainbow on the board at the bet"
+  },
+  "keyFormat": "street|texture|band|players (texture all = base)",
+  "minBaseN": 30,
+  "provenance": "public_actions",
+  "shrinkM": 20,
+  "source": "playbookTexture.v1 (sha 275f937065e14a8a) cells with the responder kind summed out: every responder pooled (fold = sum fold x n / sum n)",
+  "version": "playbook-texture-v2-pooled"
+}

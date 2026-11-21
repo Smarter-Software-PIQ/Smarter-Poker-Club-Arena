@@ -1193,7 +1193,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCore',
-    "Lane MATHCORE 2026-11-19 (owner 7:33-8:17 PM Chicago: \"ITS MATH FIRST ... make 100% of the decisions based on the math, the hand, the outs, the board. NEVER pre-determined choices\"; lead ruling: live inputs are public information only): in PLO4/PLO5 cash (table and Lightning; PLO6 never: owner 8:26 PM), high only, one board, every street, the decision is the expected-value maximum over every legal action (fold, check, call, bet or raise at several sizes on the table's chip unit, all-in): exact 2+3 showdown equity (lane EQUITY's equityVsRanges, the core's own exact sampler when it declines) against one range per live opponent built from public information (a wager is value from the top and non-value from the bottom at the share shown at showdown for that line and size, at the line's public wager frequency; a caller is the band between his public raise and fold frequencies; a preflop raiser the top share of his public raise frequency) on a pool of concrete holdings with card removal, plus fold equity from public response frequencies (person rows shrunk to the population), net of rake (omahaMathCore/OmahaMathCore.ts; table publicTables.v3.json, every cell provenance public_actions or showdown_only). The decision the owner rules produced is never an input; it stands only when the core throws (error receipt). Outermost owner of wager_rules, kept by the commit door, admitted by the response validator under the option. Default OFF (read === true); the lead switches it.",
+    "Lane MATHCORE 2026-11-19 (owner 7:33-8:17 PM Chicago: \"ITS MATH FIRST ... make 100% of the decisions based on the math, the hand, the outs, the board. NEVER pre-determined choices\"; lead ruling: live inputs are public information only): in PLO4/PLO5 cash (table and Lightning; PLO6 never: owner 8:26 PM), high only, one board, every street, the decision is the expected-value maximum over every legal action (fold, check, call, bet or raise at several sizes on the table's chip unit, all-in): exact 2+3 showdown equity (lane EQUITY's equityVsRanges, the core's own exact sampler when it declines) against one range per live opponent built from public information (a wager is value from the top and non-value from the bottom at the share shown at showdown for that line and size, at the line's public wager frequency; a caller is the band between his public raise and fold frequencies; a preflop raiser the top share of his public raise frequency) on a pool of concrete holdings with card removal, plus fold equity from public response frequencies pooled over every player (no person/Horse key, no per-user row: lane CORE-POOLED, owner 9:52 AM Nov 20), net of rake (omahaMathCore/OmahaMathCore.ts; table publicTables.v4-pooled.json, every cell provenance public_actions or showdown_only). The decision the owner rules produced is never an input; it stands only when the core throws (error receipt). Outermost owner of wager_rules, kept by the commit door, admitted by the response validator under the option. Default OFF (read === true); the lead switches it.",
     'V94'
   ),
   flag(
@@ -2501,6 +2501,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
+  ),
+  flag(
+    'holdemCommittedNoPairIsPriced',
+    "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemDangerBoardEquityIsPriced',
+    "Hold'em Strategy lane 2026-11-20 (priced rebuild of the 'board discipline' flat -0.15 in Antigravity 633eec005d5 and 6496e1610f0). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, turn or river, a four-flush or four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's range on this board (HorseHoldemCommittedPricing.holdemDangerBoardBettorEquity: the unseen combos split by what they make now, no pair / one pair / two pair or better, weighted by what people who bet such boards showed down, MEASURED 3 / 5 / 42 of 50, NLH cash 2026-10-20..11-19). Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Off: byte-identical.",
+    "Hold'em Strategy"
   ),
   flag(
     'omahaTightOpponentSteal',
@@ -9159,6 +9169,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
     "not facing a wager on the flop or turn, a made hand below half the equity of the bettor's line range: the brain's check or bet is kept",
     'V94'
+  ),
+  receipt(
+    'holdem_committed_no_pair_jam_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor jams: EV(jam) beat EV(call) and zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_call_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor calls: EV(call) beat EV(jam) and zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_fold_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor folds: neither the call nor the jam has positive EV',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_unpriced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand could not be priced (nothing to enumerate): the committed branch decides as with the option off',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_danger_board_equity_priced',
+    'HorseLogic facing-bet equity (holdemDangerBoardEquityIsPriced)',
+    'one pair facing one bettor on a four-flush or four-straight turn or river is priced at its exact equity against his range on this board',
+    "Hold'em Strategy"
   ),
   receipt(
     'v87_turn_takeaway',

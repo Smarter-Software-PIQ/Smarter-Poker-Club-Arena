@@ -43,6 +43,7 @@ import {
   nodeKey,
   placedDecisions,
   parseReplayFile,
+  placedDecisions,
   plo6Decisions,
   replayBarLine,
   replayBarRows,

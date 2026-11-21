@@ -40,6 +40,11 @@
  *    six-card Omaha), read by plo6Decisions from its own three files
  *    (decisions.csv, meta.jsonl, hands.jsonl), each row placed at exactly one
  *    action of the hand, and scored verdict-only by the WooWoo rule.
+ *  - A fourth source since 2026-11-20: `placed` (placedDecisions), reading
+ *    audited decisions another tool already placed at their node (one JSON line
+ *    each; scripts/hvh48-audit-nodes.py writes them for the six HVH48 sets).
+ *    Scored verdict-only, and where the audit names the better action a change
+ *    counts as fixed only when it is a change to that action.
  *  - Every count is also split per rule receipt the replayed arm carried
  *    (the per-decision rule receipts of BrainTelemetry.noteDecisionRuleReceipt
  *    or the decision's fired receipt keys), so a reviewer sees which rule made

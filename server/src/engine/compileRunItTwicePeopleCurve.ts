@@ -18,7 +18,10 @@ export interface RunItTwicePeopleRow {
   playersAllIn: number;
 }
 
-export const RIT_CURVE_VARIANCE_GRID: readonly number[] = Array.from({ length: 21 }, (_, i) => i / 20);
+export const RIT_CURVE_VARIANCE_GRID: readonly number[] = Array.from(
+  { length: 21 },
+  (_, i) => i / 20
+);
 export const RIT_CURVE_POT_BB_GRID: readonly number[] = [10, 20, 40, 80, 160, 320, 640];
 /** Kernel bandwidths and shrink strength, declared in the criteria file before any replay. */
 export const RIT_CURVE_BANDWIDTH_VARIANCE = 0.2;
@@ -86,7 +89,14 @@ export function compileRunItTwicePeopleCurve(
       pThree.push(rt);
       nEff.push(rn);
     }
-    return { n, pooledMulti: round4(pooledMulti), pooledThree: round4(pooledThree), pMulti, pThree, nEff };
+    return {
+      n,
+      pooledMulti: round4(pooledMulti),
+      pooledThree: round4(pooledThree),
+      pMulti,
+      pThree,
+      nEff,
+    };
   };
   return {
     version: 1,

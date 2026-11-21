@@ -2,14 +2,14 @@
  * XR-BLUFF constructed spots (owner 8:27 PM Chicago, Nov 19): check-raise for
  * value and as a bluff, in and out of position, PLO4/PLO5. No real hole cards:
  * every hand here is constructed. The decision is lane VALUE's planValue (the one
- * check node / raise formula) with this lane's bluffCtx (blockers, exploit-back);
+ * check node / raise formula) with this lane's bluffCtx (blockers);
  * the field ranges and the hero's equity against the strongest share of them are
  * computed exactly (2 hole + 3 board) on shared seeded completions.
  */
 import { describe, expect, it } from 'vitest';
 
 import { categoryOf, omahaBest, parseCardString } from './OmahaMathCoreEval.js';
-import { blockerShiftOf, OurWagerResponseTracker, xrBluffCtx } from './OmahaMathCoreBluff.js';
+import { blockerShiftOf, xrBluffCtx } from './OmahaMathCoreBluff.js';
 import {
   equityCurveFromHoldings,
   planValue,
@@ -276,24 +276,6 @@ describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () =
       const r = riverSpot(0.2, { blockerShift: blockers.shift });
       expect(checkCand(r).plan).not.toMatch(/check-raise/);
     });
-
-    it('exploit-back: once this opponent calls our check-raises, the bluff stops', () => {
-      const tracker = new OurWagerResponseTracker();
-      for (let i = 0; i < 30; i++) tracker.record('opp-1', 'check_raise', 'call');
-      const ctx = xrBluffCtx({
-        variant: 'plo5',
-        holeCount: 5,
-        blockers,
-        opponent: 'opp-1',
-        measured: () => ({ fold: 0.7, raise: 0.03 }),
-        priorWeight: 12,
-        tracker,
-      })!;
-      expect(checkCand(riverSpot(0.7, { blockerShift: blockers.shift })).plan).toMatch(
-        /check-raise/
-      );
-      expect(checkCand(riverSpot(0.7, ctx)).plan).not.toMatch(/check-raise/);
-    });
   });
 
   it('no bluff against a measured calling station', () => {
@@ -323,9 +305,6 @@ describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () =
         variant: 'plo6',
         holeCount: 6,
         blockers: null,
-        opponent: 'x',
-        measured: () => null,
-        priorWeight: 12,
       })
     ).toBeNull();
     expect(
