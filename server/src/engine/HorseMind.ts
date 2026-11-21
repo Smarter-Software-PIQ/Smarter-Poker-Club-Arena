@@ -2960,9 +2960,13 @@ export class HorseMind {
     const exploit = this.opponentRead(userId);
     const variant = memoryVariant(this.decisionVariant);
     const size = scope.split(':')[1] as MemorySize;
+    const sizeShownMap =
+      this.decisionReadOptions.lightningStyleReadSeparate === true
+        ? this.styleSizeShownLightning
+        : this.styleSizeShown;
     const cell =
       street === 'river' && !isRaise && variant
-        ? (this.styleSizeShown.get(styleSizeKey(userId, variant, this.decisionMode, size))?.[
+        ? (sizeShownMap.get(styleSizeKey(userId, variant, this.decisionMode, size))?.[
             sizeBucketOf(potFrac)
           ] as { shown: number; best?: number; second?: number } | undefined)
         : undefined;

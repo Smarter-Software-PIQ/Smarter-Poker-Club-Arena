@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  OurWagerResponseTracker,
   bluffSelectionReceipt,
   xrBluffCtx,
   xrBluffInScope,
@@ -19,9 +18,6 @@ describe('omahaMathCore XR-BLUFF component (pure parts)', () => {
       variant: 'plo6',
       holeCount: 6,
       blockers: null,
-      opponent: 'u',
-      measured: () => ({ fold: 0.5, raise: 0.1 }),
-      priorWeight: 10,
     });
     expect(ctx).toBeNull();
     const never = () => {
@@ -36,41 +32,6 @@ describe('omahaMathCore XR-BLUFF component (pure parts)', () => {
         rng: Math.random,
       })
     ).toBeNull();
-  });
-
-  it('exploit-back: no observations leaves the measured cell unchanged', () => {
-    const t = new OurWagerResponseTracker();
-    const e = t.exploitBack('opp', 'check_raise', { fold: 0.5, raise: 0.1 }, 12);
-    expect(e.foldMult).toBe(1);
-    expect(e.raiseMult).toBe(1);
-  });
-
-  it('exploit-back: an opponent who keeps calling our check-raises is folded less often by the posterior', () => {
-    const t = new OurWagerResponseTracker();
-    for (let i = 0; i < 12; i++) t.record('opp', 'check_raise', 'call');
-    const e = t.exploitBack('opp', 'check_raise', { fold: 0.5, raise: 0.1 }, 12);
-    // posterior fold = (0 + 12 x 0.5) / (12 + 12) = 0.25 -> multiplier 0.5
-    expect(e.foldMult).toBeCloseTo(0.5, 6);
-    // posterior raise = (0 + 1.2) / 24 = 0.05 -> 0.5
-    expect(e.raiseMult).toBeCloseTo(0.5, 6);
-    // lines are separate: his answers to our bets are untouched
-    expect(t.exploitBack('opp', 'bet', { fold: 0.5, raise: 0.1 }, 12).foldMult).toBe(1);
-  });
-
-  it('exploit-back: an opponent who re-raises our raises raises the re-raise rate', () => {
-    const t = new OurWagerResponseTracker();
-    for (let i = 0; i < 6; i++) t.record('opp', 'raise', 'raise');
-    const e = t.exploitBack('opp', 'raise', { fold: 0.4, raise: 0.1 }, 12);
-    // (6 + 1.2) / 18 = 0.4 -> x4
-    expect(e.raiseMult).toBeCloseTo(4, 6);
-    expect(e.foldMult).toBeCloseTo((0 + 12 * 0.4) / 18 / 0.4, 6);
-  });
-
-  it('the tracker stays bounded', () => {
-    const t = new OurWagerResponseTracker(10);
-    for (let i = 0; i < 200; i++) t.record(`u${i}`, 'bet', 'fold');
-    expect(t.counts('u0', 'bet').n).toBe(0);
-    expect(t.counts('u199', 'bet').n).toBe(1);
   });
 
   it('the bluff receipt names the reason but never decides', () => {

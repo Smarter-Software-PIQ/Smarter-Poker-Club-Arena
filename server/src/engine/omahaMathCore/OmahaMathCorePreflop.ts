@@ -7,12 +7,14 @@
  *     x comes from PUBLIC action frequencies of the nodes he passed through this hand
  *     (open = raise share unopened at his position; limp = the band between his raise share and his
  *     raise+limp share; call of a raise = the band below his re-raise share; 3/4/5-bet = re-raise share
- *     inside his previous band). Person-specific shares (shrunk (k + 20 p) / (n + 20)) when he has a row.
- *   - foldOf: measured fold rate of THIS responder facing a Horse raise at THIS size band
- *     (b50 <= 0.6 pot, b75 <= 0.85, pot, all-in), by level (open / iso over limps / 3-bet / 4-bet+),
- *     his prior action (fresh / limped / called / raised), heads-up vs multiway, mode, game, kind
- *     (person / Horse), with an explicit back-off chain; person-specific by his measured fold ratio.
+ *     inside his previous band).
+ *   - foldOf: measured fold rate facing a raise at THIS size band (b50 <= 0.6 pot, b75 <= 0.85, pot,
+ *     all-in), by level (open / iso over limps / 3-bet / 4-bet+), the responder's prior action (fresh /
+ *     limped / called / raised), heads-up vs multiway, mode, game, with an explicit back-off chain.
  *     Also returns the measured re-raise share.
+ *   IDENTITY-FREE (lane CORE-POOLED, owner 9:52 AM Nov 20): preflopTables.v2-pooled.json pools EVERY
+ *   player (no person/Horse field, no vs-kind field, no per-user rows); the same cell answers for every
+ *   opponent (OmahaMathCoreIdentityFree.law.test.ts).
  *   - continueOf: the strongest (1 - fold) share of his range.
  *   - realization: measured preflop realization of the Horse's equity by mode x IP/OOP x players at
  *     the flop x SPR (empirical-Bayes shrunk). All-in = 1 (no later decision).
@@ -54,23 +56,20 @@ function omahaMathCoreTable(name: string): unknown {
     );
   return JSON.parse(readFileSync(found, 'utf8'));
 }
-const pfTablesJson: unknown = omahaMathCoreTable('preflopTables.v1.json');
-const pfRealJson: unknown = omahaMathCoreTable('preflopRealization.v1.json');
+const pfTablesJson: unknown = omahaMathCoreTable('preflopTables.v2-pooled.json');
+const pfRealJson: unknown = omahaMathCoreTable('preflopRealization.v2-pooled.json');
 const pfStrengthJson: unknown = omahaMathCoreTable('preflopStrength.v1.json');
 
 export const PREFLOP_MODEL_VERSION = 'preflop-ev-model-v1';
 const MIN_N = 30;
-const SHRINK_K = 20;
 
 type Freq = { n: number; fold: number; call: number; raise: number };
-type Counts = { n: number; fold: number; call: number; raise: number };
 interface PfTables {
   version: string;
   provenance: Record<string, unknown>;
   resp: Record<string, Freq>;
   unopened: Record<string, Freq>;
   facing: Record<string, Freq>;
-  persons: Record<string, Record<string, Counts>>;
 }
 interface PfReal {
   version: string;
@@ -201,7 +200,6 @@ export interface PreflopOpponentModel {
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 const clamp01 = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
-const actorOf = (o: CoreOpponent) => (o.person ? 'person' : 'horse');
 
 function firstCell(tab: Record<string, Freq>, keys: string[]): { c: Freq; key: string } | null {
   for (const key of keys) {
@@ -224,40 +222,20 @@ export function nodeFreq(k: {
   position: string | null;
   level: number;
   limped: boolean;
-  actor: string;
 }): { c: Freq; key: string } | null {
   const keys: string[] = [];
   const pos = k.position ?? 'all';
   for (const p of [pos, 'all'])
     for (const g of gamesOf(k.game))
       for (const m of modesOf(k.mode)) {
-        if (k.level === 0)
-          keys.push(`${g}|${m}|${p}|${k.limped ? 'limped' : 'unopened'}|${k.actor}`);
+        if (k.level === 0) keys.push(`${g}|${m}|${p}|${k.limped ? 'limped' : 'unopened'}`);
         else
           keys.push(
-            `${g}|${m}|${p}|${k.level === 1 ? 'facing_open' : k.level === 2 ? 'facing_3bet' : 'facing_4bet+'}|${k.actor}`
+            `${g}|${m}|${p}|${k.level === 1 ? 'facing_open' : k.level === 2 ? 'facing_3bet' : 'facing_4bet+'}`
           );
       }
   return firstCell(k.level === 0 ? PF_TABLES.unopened : PF_TABLES.facing, keys);
 }
-
-/** Person-specific shares at a level, shrunk to the population cell. */
-function personShares(user: string, levelKey: string, pop: Freq): { f: Freq; n: number } | null {
-  const row = PF_TABLES.persons?.[user]?.[levelKey];
-  if (!row || !(row.n > 0)) return null;
-  const s = (k: number, p: number) => (k + SHRINK_K * p) / (row.n + SHRINK_K);
-  return {
-    f: {
-      n: row.n,
-      fold: s(row.fold, pop.fold),
-      call: s(row.call, pop.call),
-      raise: s(row.raise, pop.raise),
-    },
-    n: row.n,
-  };
-}
-const levelKeyOf = (level: number) =>
-  level === 0 ? 'lvl0' : level === 1 ? 'facing_open' : level === 2 ? 'facing_3bet' : 'facing_4bet+';
 
 /** Band [lo, hi) of the strength order an opponent's public line leaves him (0 = strongest). */
 export function bandOf(
@@ -301,21 +279,13 @@ export function bandOf(
       position: o.position,
       level: s.level,
       limped: s.limped,
-      actor: actorOf(o),
     });
     if (!cell) {
       src.push(`L${s.level}:${s.action} no measured cell`);
       continue;
     }
-    let f = cell.c;
-    let per = '';
-    if (o.person && o.user) {
-      const p = personShares(o.user, levelKeyOf(s.level), cell.c);
-      if (p) {
-        f = p.f;
-        per = ` person(n=${p.n})`;
-      }
-    }
+    const f = cell.c;
+    const per = '';
     const w = hi - lo;
     const r = clamp01(f.raise);
     const c = clamp01(f.call);
@@ -362,7 +332,7 @@ function priorOf(state: CoreState, o: CoreOpponent): string {
   return 'raised';
 }
 
-/** Size-aware measured fold rate of a responder facing the Horse's preflop raise. */
+/** Size-aware measured fold rate of a responder facing the hero's preflop raise (every player pooled). */
 export function preflopFold(
   state: CoreState,
   o: CoreOpponent,
@@ -382,37 +352,19 @@ export function preflopFold(
   const prior = priorOf(state, o);
   const live = state.opponents.filter((x) => !x.folded).length;
   const nb = live <= 1 ? 'hu' : 'mw';
-  const actor = actorOf(o);
   const keys: string[] = [];
-  // back-off: band first (exact size), then prior, iso, players, vs, mode, game
+  // back-off: band first (exact size), then prior, iso, players, mode, game
   for (const g of gamesOf(state.variant))
     for (const m of modesOf(state.mode))
-      for (const v of ['vs_horse', 'any'])
-        for (const n of [nb, 'all'])
-          for (const i of [iso, 'any'])
-            for (const pr of [prior, 'any'])
-              for (const b of [band, 'all'])
-                keys.push(`${g}|${m}|${lv}|${pr}|${i}|${b}|${v}|${n}|${actor}`);
+      for (const n of [nb, 'all'])
+        for (const i of [iso, 'any'])
+          for (const pr of [prior, 'any'])
+            for (const b of [band, 'all']) keys.push(`${g}|${m}|${lv}|${pr}|${i}|${b}|${n}`);
   const hit = firstCell(PF_TABLES.resp, keys);
   if (!hit) return { p: 0, reraise: 0, source: `no measured cell (${lv} ${band}): no fold credit` };
-  let p = clamp01(hit.c.fold);
-  let rr = clamp01(hit.c.raise);
-  let src = `${hit.key} (n=${hit.c.n})`;
-  if (o.person && o.user) {
-    const lvCell = firstCell(PF_TABLES.resp, [
-      `${state.variant}|${state.mode}|${lv}|any|any|all|any|all|person`,
-      `pooled|${state.mode}|${lv}|any|any|all|any|all|person`,
-      `pooled|all|${lv}|any|any|all|any|all|person`,
-    ]);
-    const per = lvCell ? personShares(o.user, lv, lvCell.c) : null;
-    if (lvCell && per && lvCell.c.fold > 0) {
-      const ratioF = per.f.fold / lvCell.c.fold;
-      const ratioR = lvCell.c.raise > 0 ? per.f.raise / lvCell.c.raise : 1;
-      p = clamp01(p * ratioF);
-      rr = clamp01(rr * ratioR);
-      src += `; person x${r3(ratioF)} (n=${per.n} shrunk to ${lvCell.key})`;
-    }
-  }
+  const p = clamp01(hit.c.fold);
+  const rr = clamp01(hit.c.raise);
+  const src = `${hit.key} (n=${hit.c.n})`;
   return { p, reraise: rr, source: src };
 }
 
@@ -468,7 +420,7 @@ export function preflopOpponentModel(state: CoreState, pool: Pool): PreflopOppon
       b = { lo: 0, hi: 1, source: `band error (${(e as Error).message}): full range` };
     }
     bands.set(o.seat, b);
-    rangeOf.set(o.seat, bandRange(pool, b, `${o.person ? 'person' : 'horse'} s${o.seat}`));
+    rangeOf.set(o.seat, bandRange(pool, b, `s${o.seat}`));
   }
   const foldOf = (o: CoreOpponent, level: HeroRaiseLevel, toSize: number): FoldResult => {
     try {
@@ -558,7 +510,7 @@ function outOfScope(state: CoreState, pool: Pool): PreflopOpponentModel {
 
 /**
  * How a player still to act responds when the hero only calls / limps / completes (no new raise):
- * his public frequencies at his node (level 0 with limpers, or facing the current raise level), person-shrunk.
+ * the public frequencies at his node (level 0 with limpers, or facing the current raise level), every player pooled.
  */
 export function behindResponse(
   state: CoreState,
@@ -573,7 +525,6 @@ export function behindResponse(
     position: o.position,
     level,
     limped: level === 0,
-    actor: actorOf(o),
   });
   if (!cell)
     return {
@@ -582,15 +533,8 @@ export function behindResponse(
       raise: 0,
       source: `no measured cell L${level}: calls, never raises`,
     };
-  let f = cell.c;
-  let per = '';
-  if (o.person && o.user) {
-    const p = personShares(o.user, levelKeyOf(level), cell.c);
-    if (p) {
-      f = p.f;
-      per = ` person(n=${p.n})`;
-    }
-  }
+  const f = cell.c;
+  const per = '';
   const t = Math.max(1e-9, f.fold + f.call + f.raise);
   return {
     fold: f.fold / t,

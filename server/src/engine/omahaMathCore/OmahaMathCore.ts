@@ -22,8 +22,10 @@
  * a preflop raiser's top-x% deciles; a caller's VPIP width. They are applied
  * to a pool of concrete holdings from the unseen cards (card removal), each
  * classified exactly as the table was built (classifyOmahaHolding) or, preflop,
- * ranked by its equity against the pool. Fold rates and realization are
- * measured cells, person-specific (shrunk) where the person has a row.
+ * ranked by its equity against the pool. Fold rates are measured cells pooled
+ * over EVERY player: one rule for every opponent and for the hero, no person /
+ * Horse label and no per-user row anywhere in a lookup (lane CORE-POOLED, owner
+ * 9:52 AM Nov 20; OmahaMathCoreIdentityFree.law.test.ts).
  * Equity: lane EQUITY's equityVsRanges (exact 2+3, joint draws, multiway).
  *
  * Pure: no brain random stream, no opponent memory beyond the measured tables
@@ -44,10 +46,9 @@ import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
 import { omahaDrawFeatures, omahaDrawFutureTerm, type OmahaDrawFeatures } from './OmahaDraws.js';
 import {
   OMAHA_MATH_CORE_TABLE_VERSION,
-  preflopFoldToHorse,
+  preflopFoldToRaise,
   preflopFreq,
   wagerNonValue,
-  type Actor,
   type PreflopLevel,
   type PreflopPosition,
   type Street,
@@ -63,9 +64,9 @@ import {
 } from './OmahaMathCorePreflop.js';
 import type { PublicStreetAction } from './OmahaMathCoreRangeTrack.js';
 import { RAISE_FOLD_CREDIT_MIN_N } from './OmahaMathCoreValue.js';
+import { CURRENT_NUTS_CALL_FLOOR, holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import {
   PREFLOP_REALIZATION_ADMITTED,
-  horseDefenceFold,
   selectionScore,
   wiredBetRate as betRate,
   wiredHeroResponse,
@@ -80,8 +81,6 @@ export const OMAHA_MATH_CORE_VERSION = 'omaha-math-core-v3-public';
 
 export interface CoreOpponent {
   seat: number;
-  user: string;
-  person: boolean;
   stack: number;
   /** chips in front this street */
   bet: number;
@@ -184,9 +183,11 @@ export interface CoreReceipt {
   price: number;
   pot: number;
   toCall: number;
-  opponents: { seat: number; person: boolean; range: string }[];
+  opponents: { seat: number; range: string }[];
   evs: CoreActionEv[];
   choice: { action: CoreActionEv['action']; amount: number | null; ev: number };
+  /** lane CORE-POOLED-2: set when the current-nuts call floor removed the fold (flop/turn, facing a wager) */
+  nutFloor?: string | null;
   /** lane DRAWS: the hero's exact draw profile (PLO4/PLO5 flop and turn) */
   draw?: {
     cls: string;
@@ -486,7 +487,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const toCall = Math.max(0, Math.min(state.toCall, stack));
   const P = state.pot;
   const playersNow: 'hu' | 'mw' = live.length === 1 ? 'hu' : 'mw';
-  const actorOf = (o: CoreOpponent): Actor => (o.person ? 'person' : 'horse');
   const aggressor = live.find((o) => o.seat === state.aggressorSeat) ?? null;
   let samples = 0;
   let equityFallbacks = 0;
@@ -564,14 +564,13 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const st = street as Exclude<Street, 'preflop'>;
   const rangeOf = new Map<number, RangeSpec>();
   for (const o of live) {
-    const actor = actorOf(o);
     let range: RangeSpec | null = null;
     if (pre) {
       const pos = o.position;
-      const f0 = pos ? preflopFreq({ game, mode, position: pos, lvl: 0, actor }) : null;
-      const f1 = pos ? preflopFreq({ game, mode, position: pos, lvl: 1, actor }) : null;
-      const f2 = pos ? preflopFreq({ game, mode, position: pos, lvl: 2, actor }) : null;
-      const f3 = pos ? preflopFreq({ game, mode, position: pos, lvl: 3, actor }) : null;
+      const f0 = pos ? preflopFreq({ game, mode, position: pos, lvl: 0 }) : null;
+      const f1 = pos ? preflopFreq({ game, mode, position: pos, lvl: 1 }) : null;
+      const f2 = pos ? preflopFreq({ game, mode, position: pos, lvl: 2 }) : null;
+      const f3 = pos ? preflopFreq({ game, mode, position: pos, lvl: 3 }) : null;
       if (o.preflopLevel === 'open' && f0)
         range = topShare(pool, f0.raise, `open: top ${round2(f0.raise)} [${f0.source}]`);
       else if (o.preflopLevel === '3bet' && f1)
@@ -601,7 +600,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     } else if (o.seat === state.aggressorSeat && state.band) {
       const s = Math.max(0.05, state.wagerFrac);
       if (state.line === 'raise' || state.line === 'check_raise') {
-        // a raise: how often this kind of player raises a wager of this size is public
+        // a raise: how often a player raises a wager of this size is public (every player pooled)
         const c = wiredResponse(state.board, {
           game,
           mode,
@@ -609,9 +608,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           line: 'all',
           band: state.band,
           players: playersNow,
-          bettor: 'horse',
-          responder: actor,
-          user: null,
         });
         const nv = wagerNonValue({
           game,
@@ -620,7 +616,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           line: state.line,
           band: state.band,
           players: playersNow,
-          bettor: actor,
         });
         range = wagerRange(
           pool,
@@ -630,7 +625,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           nv ? nv.nv : undefined
         );
       } else {
-        // public: how often this kind of player wagers on this line, and the share of such wagers
+        // public: how often a player wagers on this line (every player pooled), and the share of such wagers
         // shown at showdown that were not value (lead decision: shownNonValue)
         const br = betRate({
           game,
@@ -638,8 +633,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           street: st,
           line: state.line ?? 'all',
           players: playersNow,
-          actor,
-          user: o.person ? o.user : null,
         });
         const nv = wagerNonValue({
           game,
@@ -648,7 +641,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           line: state.line ?? 'all',
           band: state.band,
           players: playersNow,
-          bettor: actor,
         });
         range = wagerRange(
           pool,
@@ -666,9 +658,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         line: state.line,
         band: state.band,
         players: playersNow,
-        bettor: actorOf(aggressor),
-        responder: actor,
-        user: o.person ? o.user : null,
       });
       if (c)
         range = band(
@@ -684,8 +673,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         street: st,
         line: 'all',
         players: playersNow,
-        actor,
-        user: o.person ? o.user : null,
       });
       const b = br ? br.b : INTERIM_WAGER_FREQUENCY;
       range = band(
@@ -730,9 +717,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           line: barrelLine,
           band: sizeBand(2 / 3, false),
           players: playersNow,
-          bettor: 'horse',
-          responder: actorOf(o),
-          user: o.person ? o.user : null,
         });
         if (!c) {
           p = NaN;
@@ -784,12 +768,11 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     if (pre) {
       const facing =
         level === 'open' ? 'facing_open' : level === '3bet' ? 'facing_3bet' : 'facing_4bet+';
-      const c = preflopFoldToHorse({
+      const c = preflopFoldToRaise({
         game,
         mode,
         position: o.position ?? 'all',
         facing,
-        actor: actorOf(o),
       });
       return c
         ? { p: c.p, r: 0, source: c.source }
@@ -802,17 +785,8 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       line: state.heroWagerLine,
       band: sizeBand(frac, allIn),
       players: playersNow,
-      bettor: 'horse',
-      responder: actorOf(o),
-      user: o.person ? o.user : null,
     } satisfies ResponseKey);
-    if (!o.person) {
-      // A Horse responder (horseDefenceFold, OmahaMathCoreWire.ts: one implementation for both paths): the table measures Horses of the pre-core brain (they over-folded). A
-      // Horse on this core defends to the price, folding s / (1 + s) of his range to a wager of
-      // pot share s; pricing core Horses with the old cells would make cores bluff each other
-      // without end (PROVE self-play). The raise share stays the measured one.
-      return horseDefenceFold(frac, c);
-    }
+    // one measured, pooled response rule for every responder (no person/Horse branch)
     // a raise takes fold credit only from its exact street/line cell with n >= 30 (VALUE
     // RAISE_FOLD_CREDIT_MIN_N; persons' answers to raises are thin and value-heavy: PROVE river C7)
     if (
@@ -1006,7 +980,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         const cont: RangeSpec[] = [];
         const frac = state.toCall / Math.max(1e-9, P - state.toCall);
         for (const o of behind) {
-          // a player behind faces the AGGRESSOR's wager (his line, size and kind), not a Horse wager
+          // a player behind faces the AGGRESSOR's wager (his line and size; the pooled cell)
           const fc =
             !pre && aggressor && state.line && state.band
               ? wiredResponse(state.board, {
@@ -1016,9 +990,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
                   line: state.line,
                   band: state.band,
                   players: playersNow,
-                  bettor: actorOf(aggressor),
-                  responder: actorOf(o),
-                  user: o.person ? o.user : null,
                 })
               : null;
           const f = fc
@@ -1074,7 +1045,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     const toAct = live.filter((o) => o.streetAction === 'none' && !o.allIn);
     if (!pre && live.length === 1 && toAct.length === 1) {
       const o = toAct[0];
-      const actor = actorOf(o);
       const lineIfBet: Line = o.prevAggressor ? (street === 'flop' ? 'cbet' : 'barrel') : 'stab';
       const br = betRate({
         game,
@@ -1082,8 +1052,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         street: street as Exclude<Street, 'preflop'>,
         line: lineIfBet,
         players: playersNow,
-        actor,
-        user: o.person ? o.user : null,
       });
       if (br) {
         const sz = br.size;
@@ -1095,7 +1063,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           line: lineIfBet,
           band: sizeBand(sz, false),
           players: playersNow,
-          bettor: actor,
         });
         const range = rangeOf.get(o.seat)!;
         const betRange = wagerRange(
@@ -1335,6 +1302,22 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     }
   }
 
+  // current-nuts call floor (OmahaMathCoreNutsFloor.ts): flop/turn, facing a wager, a call available
+  let nutFloor: string | null = null;
+  if (CURRENT_NUTS_CALL_FLOOR && !pre && street !== 'river' && toCall > 0.005) {
+    const callLike = evs.some(
+      (e) => e.action === 'call' || (e.action === 'all_in' && e.adds <= toCall + 0.005)
+    );
+    if (
+      callLike &&
+      evs.some((e) => e.action === 'fold') &&
+      holdsCurrentNuts(state.hole, state.board)
+    ) {
+      for (let i = evs.length - 1; i >= 0; i--) if (evs[i].action === 'fold') evs.splice(i, 1);
+      nutFloor =
+        'current nuts facing a wager (flop/turn): fold not a candidate, call or raise only';
+    }
+  }
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');
   if (!pre) applyRealizationCalibration(evs, String(state.variant).toLowerCase(), street);
   // ranked by the lower confidence bound (selectionScore, OmahaMathCoreWire.ts); ties: fewer chips
@@ -1356,7 +1339,6 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       toCall,
       opponents: live.map((o) => ({
         seat: o.seat,
-        person: o.person,
         range: rangeOf.get(o.seat)!.label,
       })),
       evs: evs.map((a) => ({
@@ -1367,6 +1349,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         se: r4(a.se),
       })),
       choice: { action: best.action, amount: best.amount, ev: round2(best.ev) },
+      nutFloor,
       draw: drawF
         ? {
             cls: drawF.cls,

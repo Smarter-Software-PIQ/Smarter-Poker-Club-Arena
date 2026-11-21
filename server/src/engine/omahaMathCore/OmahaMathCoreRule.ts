@@ -294,7 +294,6 @@ export function omahaMathCoreState(
   const variant = String(gs.gameVariant).toLowerCase() as 'plo4' | 'plo5';
   const street = gs.stage as CoreState['street'];
   const history = (gs.actionHistory ?? []).filter((a) => ACTS.has(a.action));
-  const persons = new Set(gs.humanUserIds ?? []);
   const toCall = Number.isFinite(gs.toCall)
     ? Math.max(0, gs.toCall as number)
     : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
@@ -421,8 +420,6 @@ export function omahaMathCoreState(
     .filter((p) => p.seat !== player.seat)
     .map((p) => ({
       seat: p.seat,
-      user: p.user_id,
-      person: persons.has(p.user_id),
       stack: Math.max(0, p.stack || 0),
       bet: Math.max(0, p.bet || 0),
       folded: !!p.is_folded,
