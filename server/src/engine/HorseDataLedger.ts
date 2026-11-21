@@ -2103,6 +2103,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-18'
   ),
   receipt(
+    'lightning_horse_fallback_*',
+    'LightningHorse.decideLightningHorse catch (noteLightningHorseFallback; TASK #8 2026-11-20)',
+    'lightning_horse_fallback_<reason>_seen: a Lightning Horse turn got the liveness answer because its decision job failed, <reason> the stamped rejection path (expired, capacity_refused, shard_failed, shard_stopping, enqueue_failed, validation_failed, result_refused, post_result_failed, unknown) or snapshot_unavailable when the turn snapshot could not be built; lightning_horse_fallback_street_<preflop|flop|turn|river|unknown>_seen: the street of such an answer on the seat own turn; lightning_horse_fallback_early_look_seen: such an answer on an early look. Until 2026-11-20 these failures left only a Prometheus count and the legalizer degraded reason lightning_timeout (seven PLO4/PLO5 turn folds Nov 16-19 with no recorded cause); occurrence counters; named *_seen',
+    '2026-11-20'
+  ),
+  receipt(
     'raise_ladder_*',
     'RaiseLadderAlarm (live raise-ladder alarm, measurement only; ServerTableEngineHandEvents PLAYER_ACTION)',
     'raise_ladder_<variant>_<horse_only|mixed>_seen: a no-limit or pot-limit street reached 4 consecutive minimum raises (a full raise whose increment is the minimum legal raise; calls between raises do not break the run, a larger raise, a short all in or a new street ends it; fixed limit is not counted), fired once per street on the 4th; <variant> is the watchcounter variant, horse_only when every raiser of the run is a Horse, mixed otherwise; changes no action; occurrence counter; named *_seen',
@@ -2245,6 +2251,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
     'a Lightning fold asked while live seats before the Horse still had to act (an early look) did NOT fold on the fold-through frame, so the frame answer was returned and the host left the Horse to decide afresh on its own turn',
     '2026-11-15'
+  ),
+  receipt(
+    'lightning_fold_through_limp_kept',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning early fold whose fold-through frame answered only an unraised limp or small-blind complete (no strength-gated Lightning entry branch) was kept: the blind-vs-blind complete mix does not release an early fold',
+    '2026-11-21'
   ),
   receipt(
     'lightning_cheap_entry_eligible_seen',
@@ -4658,7 +4670,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade10_*',
     'HorseOpponentExploit',
-    'the fast recency window switched a read on, or a gear shift engaged; counts read computations, not decisions',
+    'the fast recency window switched a read on, a gear shift engaged, or (upgrade10_fast_window_calmed_seen, 2026-11-21) the window withdrew a read from a player it calls calm; counts read computations, not decisions',
     '2026-11-12'
   ),
   receipt(

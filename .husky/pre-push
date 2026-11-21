@@ -1135,6 +1135,17 @@ ca_heavy_slot() {
   else
     echo "[club-arena pre-push] WARNING: scripts/lib/heavy-queue.sh is missing or unreadable; running the suites without the heavy-job queue (no check is skipped)." >&2
   fi
+  if [ -z "${VITEST_MAX_THREADS:-}" ] && [ "$(uname -s)" = Darwin ]; then
+    ca_cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
+    if [ "${ca_cores:-0}" -gt 0 ]; then
+      ca_slots=$(( ca_cores / 7 ))
+      [ "$ca_slots" -ge 1 ] || ca_slots=1
+      ca_per_slot=$(( ca_cores / ca_slots ))
+      [ "$ca_per_slot" -ge 2 ] || ca_per_slot=2
+      [ "$ca_per_slot" -le 6 ] || ca_per_slot=6
+      export VITEST_MAX_THREADS="$ca_per_slot"
+    fi
+  fi
   return 0
 }
 
