@@ -716,6 +716,8 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
       waiting_for_bb_user_ids: Array.from(this.waitingForBB),
       post_bb_deferred_user_ids: Array.from(this.postBBWhenClear),
       posting_bb_user_ids: Array.from(this.postingBBToEnter),
+      pause_owners: this.describePauseOwners(),
+      paused_ms: this.msPaused(),
       pots: [],
       action_history: [],
       players: this.rosterNotReplacedByArrivals().map((p) => ({
