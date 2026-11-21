@@ -63,9 +63,21 @@ const pot = (seats: ReturnType<typeof seat>[]) => seats.reduce((t, s) => t + s.c
 const cents = (xs: number[]) => xs.map((x) => Math.round(x * 100));
 
 // K K 7 3 2: a low is possible (7-3-2 plus two low hole cards).
-const lowBoard = [c('K', 'clubs'), c('K', 'diamonds'), c('7', 'hearts'), c('3', 'spades'), c('2', 'clubs')];
+const lowBoard = [
+  c('K', 'clubs'),
+  c('K', 'diamonds'),
+  c('7', 'hearts'),
+  c('3', 'spades'),
+  c('2', 'clubs'),
+];
 // K K Q J 9: no low can qualify.
-const noLowBoard = [c('K', 'clubs'), c('K', 'diamonds'), c('Q', 'hearts'), c('J', 'spades'), c('9', 'clubs')];
+const noLowBoard = [
+  c('K', 'clubs'),
+  c('K', 'diamonds'),
+  c('Q', 'hearts'),
+  c('J', 'spades'),
+  c('9', 'clubs'),
+];
 const highHand = [c('K', 'hearts'), c('Q', 'hearts'), c('J', 'hearts'), c('9', 'diamonds')];
 const lowHand = [c('A', 'spades'), c('4', 'diamonds'), c('5', 'clubs'), c('6', 'hearts')];
 const sameLow = [c('A', 'hearts'), c('4', 'clubs'), c('T', 'clubs'), c('T', 'hearts')];
@@ -135,10 +147,17 @@ describe('a dealt plo8 league hand settles its low half', () => {
       // Heads-up at equal stacks both live seats paid the same amount, so
       // the pot is 2x and each seat's award is net + x.
       const lows = end.cards.map((h) => evaluateOmahaLowHand(h, end!.board));
-      const players = end.cards.map(
-        (cards, i) => seat(i + 1, cards, 1).player
+      const players = end.cards.map((cards, i) => seat(i + 1, cards, 1).player);
+      const unit = determineWinners(
+        players,
+        end.board,
+        [{ amount: 2, eligiblePlayers: players.map((p) => p.user_id) }],
+        'plo8',
+        1,
+        undefined,
+        undefined,
+        0.01
       );
-      const unit = determineWinners(players, end.board, [{ amount: 2, eligiblePlayers: players.map((p) => p.user_id) }], 'plo8', 1, undefined, undefined, 0.01);
       const shareOfTwo = players.map((p) =>
         unit.filter((w) => w.userId === p.user_id).reduce((t, w) => t + w.amount, 0)
       );

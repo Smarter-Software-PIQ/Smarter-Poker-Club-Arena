@@ -39,6 +39,8 @@ Off (absent or false): byte-identical (the rule returns the decision object itse
 
 League cards declared, not run: `plo4_mtt_6max_omaha_multiway_is_priced_in_tournaments_15bb` and `plo8_...` in `server/src/benchmark/HorseLeague.ts` (both arms `OMAHA_LIVE_OPTIONS_20261118`, arm A adds this option). A PASS-BAR must be written before any run; nothing has been measured. Known limits: no individual opponent read (population widths), players still to act preflop are not counted, no re-raise after the bet and no later street in the bet model, side pots not split.
 
+The `plo8_...` card has not been run; any PLO8 league figure produced before 2026-11-21 came from the high-only league (no low half paid) and would need re-measurement on the league with hi-lo settlement (`settleLeagueShowdown`, `docs/changelog/2026-11-21-league-pays-the-low-half.md`).
+
 ## Replay
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
