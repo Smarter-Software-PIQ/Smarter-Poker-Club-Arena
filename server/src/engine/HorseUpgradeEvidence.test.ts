@@ -276,8 +276,9 @@ describe('the per-Horse upgrade aggregate', () => {
       decisions: 5,
       invoked: 3,
     });
+    // upgrade 09 is a guard (PER_HORSE_GUARD_UPGRADES): the brain decisions are not its opportunities
     expect(cell(rows, H1, 'upgrade_09_preaction_purge')).toMatchObject({
-      decisions: 4,
+      decisions: 1,
       invoked: 1,
     });
     // an upgrade with no host source is untouched by the events

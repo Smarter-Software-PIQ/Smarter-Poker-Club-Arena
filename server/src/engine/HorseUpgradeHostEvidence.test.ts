@@ -184,7 +184,12 @@ describe('upgrade 08: an insurance offer is one event, and its answer is the sam
 });
 
 describe('upgrade 09: a stale pre-action purged at a server-owned Horse turn is one event', () => {
-  async function turn(o: { stale: boolean; tournament?: boolean; piloted?: boolean }) {
+  async function turn(o: {
+    stale: boolean;
+    tournament?: boolean;
+    piloted?: boolean;
+    sticks?: boolean;
+  }) {
     const engine = new ServerTableEngine(TABLE_ID) as any;
     engine.running = true;
     engine.isCurrentEngine = () => true;
@@ -222,10 +227,14 @@ describe('upgrade 09: a stale pre-action purged at a server-owned Horse turn is 
     };
     engine.seatedPlayers = [horse];
     engine.handController = { getState: () => state, performAction: vi.fn(() => true) };
-    const clearPreAction = vi.fn();
+    // A stateful stand-in: the armed pre-action is gone once cleared, unless o.sticks (a clear that failed).
+    let armed: { action: string } | undefined = o.stale ? { action: 'auto_check_fold' } : undefined;
+    const clearPreAction = vi.fn(() => {
+      if (!o.sticks) armed = undefined;
+    });
     engine.preActionEngine = {
       clearPreAction,
-      getPreAction: () => (o.stale ? { action: 'auto_check_fold' } : undefined),
+      getPreAction: () => armed,
       executePreAction: () => ({ executed: false }),
     };
     engine.disconnectEngine = {
@@ -244,8 +253,10 @@ describe('upgrade 09: a stale pre-action purged at a server-owned Horse turn is 
       { type: 'TURN_CHANGE', seat: 1, availableActions: ['fold', 'call'] },
       [horse]
     );
+    const fired = fires();
     return {
-      purges: fires().upgrade09_preaction_purge_table_seen ?? 0,
+      purges: fired.upgrade09_preaction_purge_table_seen ?? 0,
+      opportunities: fired.upgrade09_preaction_purge_opportunity_table_seen ?? 0,
       cells: cells(),
       clearPreAction,
     };
@@ -255,7 +266,15 @@ describe('upgrade 09: a stale pre-action purged at a server-owned Horse turn is 
     const r = await turn({ stale: true });
     expect(r.clearPreAction).toHaveBeenCalledWith(TABLE_ID, id(11));
     expect(r.purges).toBe(1);
+    expect(r.opportunities).toBe(1);
     expect(r.cells).toEqual({ [`${id(11)}|plo4|cash|${NINE}`]: [1, 1] });
+  });
+
+  it('a guard opportunity it did not act on (the clear left the pre-action) is one decision, no invocation', async () => {
+    const r = await turn({ stale: true, sticks: true });
+    expect(r.opportunities).toBe(1);
+    expect(r.purges).toBe(0);
+    expect(r.cells).toEqual({ [`${id(11)}|plo4|cash|${NINE}`]: [1, 0] });
   });
 
   it('records the tournament lane on a tournament table', async () => {
@@ -267,6 +286,7 @@ describe('upgrade 09: a stale pre-action purged at a server-owned Horse turn is 
   it('records nothing when nothing was armed', async () => {
     const r = await turn({ stale: false });
     expect(r.purges).toBe(0);
+    expect(r.opportunities).toBe(0);
     expect(r.cells).toEqual({});
   });
 
@@ -295,9 +315,11 @@ describe('upgrade 09: a stale pre-action purged at a Lightning Horse turn is one
     drainHorseUpgradeEvidence();
     drainFires();
     await flush();
+    const fired = fires();
     return {
       horse: formed.bb,
-      purges: fires().upgrade09_preaction_purge_lightning_seen ?? 0,
+      purges: fired.upgrade09_preaction_purge_lightning_seen ?? 0,
+      opportunities: fired.upgrade09_preaction_purge_opportunity_lightning_seen ?? 0,
       nine: Object.entries(cells()).filter(([key]) => key.endsWith(`|${NINE}`)),
     };
   }
@@ -305,6 +327,7 @@ describe('upgrade 09: a stale pre-action purged at a Lightning Horse turn is one
   it('records the Horse once, as cash, when its armed pre-action is purged', async () => {
     const r = await bigBlindTurn(8500, true);
     expect(r.purges).toBe(1);
+    expect(r.opportunities).toBe(1);
     expect(r.nine).toHaveLength(1);
     const [key, counts] = r.nine[0]!;
     expect(key.startsWith(`${r.horse}|`)).toBe(true);
@@ -316,6 +339,7 @@ describe('upgrade 09: a stale pre-action purged at a Lightning Horse turn is one
     expect((await bigBlindTurn(8600, false)).nine).toEqual([]);
     const piloted = await bigBlindTurn(8700, true, false);
     expect(piloted.purges).toBe(0);
+    expect(piloted.opportunities).toBe(0);
     expect(piloted.nine).toEqual([]);
   });
 });

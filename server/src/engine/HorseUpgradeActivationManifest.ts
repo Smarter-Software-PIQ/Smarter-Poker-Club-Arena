@@ -127,7 +127,9 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
     upgrade_01_range_posteriors: ["'upgrade01_action_line_posterior'"],
     upgrade_02_card_removal_blockers: ["'upgrade02_card_removal_scored'"],
     upgrade_03_shared_deck_multiboard: ["'v36_bomb_multiboard'"],
-    upgrade_04_plo5_plo6_reservoir: ['`upgrade04_omaha_reservoir_'],
+    // 2026-11-21: the per-decision USE receipt (workerRuntime, once per FAST decision that read a reservoir). The
+    // build counter upgrade04_omaha_reservoir_*_seen (once per process and shape) stays a separate build receipt.
+    upgrade_04_plo5_plo6_reservoir: ["'upgrade04_reservoir_used_seen'"],
     upgrade_05_street_prewarming: [
       "'poker_horse_street_prewarm_total'",
       "'upgrade05_prewarm_refused_seen'",

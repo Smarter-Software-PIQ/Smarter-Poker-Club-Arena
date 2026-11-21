@@ -243,10 +243,26 @@ def main():
         assert report.returncode == 0, report.stderr
         lines = {line.split('|')[0]: line.split('|')[1:] for line in report.stdout.strip().splitlines()}
         # H2 is retired, so only H1 counts; the idle third Horse is in the fleet and in neither count
-        assert lines['upgrade_02_card_removal_blockers'] == ['2', '1', '1', '15', '9'], lines
-        assert lines['upgrade_01_range_posteriors'] == ['2', '1', '1', '10', '10'], lines
+        assert lines['upgrade_02_card_removal_blockers'] == ['2', '1', '1', '15', '9', 'per_decision'], lines
+        assert lines['upgrade_01_range_posteriors'] == ['2', '1', '1', '10', '10', 'per_decision'], lines
         assert 'upgrade_07_tournament_cover_and_bounty' not in lines, lines
         assert H1 not in report.stdout and H2 not in report.stdout
+        # a guard (upgrade 09) with no opportunity is listed and healthy; one it acted on every time is healthy;
+        # one with an opportunity it did not act on is flagged
+        assert lines['upgrade_09_preaction_purge'] == ['2', '0', '0', '0', '0', 'guard_idle'], lines
+        def guard(decisions, invoked):
+            sql("DELETE FROM public.horse_upgrade_evidence_daily WHERE upgrade_id = 'upgrade_09_preaction_purge'")
+            sql("INSERT INTO public.horse_upgrade_evidence_daily (day, horse_user_id, game_variant, lane, upgrade_id, "
+                f"decisions, invoked) VALUES ('{now.strftime('%Y-%m-%d')}'::date, '{H1}', 'nlh', 'cash', 'upgrade_09_preaction_purge', "
+                f"{decisions}, {invoked})")
+            again = run(f"\\set day '{now.strftime('%Y-%m-%d')}'\n" + read)
+            assert again.returncode == 0, again.stderr
+            return {line.split('|')[0]: line.split('|')[1:] for line in again.stdout.strip().splitlines()}[
+                'upgrade_09_preaction_purge']
+        assert guard(2, 2) == ['2', '1', '1', '2', '2', 'guard_held']
+        assert guard(2, 0) == ['2', '1', '0', '2', '0', 'guard_missed']
+        assert guard(3, 1) == ['2', '1', '1', '3', '1', 'guard_missed']
+        sql("DELETE FROM public.horse_upgrade_evidence_daily WHERE upgrade_id = 'upgrade_09_preaction_purge'")
         proven()
 
         # 11. daily rows are kept 90 days and pruned inside the writer, oldest first, at most 512 per accepted

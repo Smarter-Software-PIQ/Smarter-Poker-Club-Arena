@@ -700,11 +700,15 @@ describe('W1.3 + W1.4 + W2 #8A/#9 Turn timer preservation, auto-sit-back, pre-ac
     };
     engine.seatedPlayers = [horse];
     engine.handController = { getState: () => state, performAction: vi.fn(() => true) };
-    const clearPreAction = vi.fn();
+    // A stateful stand-in: the armed pre-action is gone once cleared (upgrade 09 counts a purge it can see).
+    let armed: { action: string } | null = { action: 'auto_check_fold' };
+    const clearPreAction = vi.fn(() => {
+      armed = null;
+    });
     const sitBack = vi.fn();
     engine.preActionEngine = {
       clearPreAction,
-      getPreAction: () => ({ action: 'auto_check_fold' }),
+      getPreAction: () => armed,
       executePreAction: () => ({ executed: false }),
     };
     engine.disconnectEngine = {

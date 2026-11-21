@@ -588,7 +588,13 @@ describe('LAW: the worker folds at one site, and DEEP is outside it', () => {
   it('opens one fire scope and folds once, around executeFast only', () => {
     expect(count('withDecisionFireScope(')).toBe(1);
     expect(count('noteHorseUpgradeDecision(')).toBe(1);
-    expect(source).toContain('withDecisionFireScope(() => this.executeFast(request))');
+    // 2026-11-21: the scope also holds upgrade 04's use receipt, fired after executeFast has returned
+    // (upgradeEvidenceGuardAndUse.law.test.ts); nothing else runs inside it.
+    expect(source.replace(/\s+/g, ' ')).toContain(
+      'withDecisionFireScope(() => { const outcome = this.executeFast(request); ' +
+        "if (omahaReservoirReadsTotal() !== reservoirReadsBefore) noteFire('upgrade04_reservoir_used_seen'); " +
+        'return outcome; });'
+    );
     // the dispatcher reaches FAST only through the folding wrapper, and DEEP directly
     expect(count('this.executeFast(request)')).toBe(1);
     expect(source).toContain('() => this.executeFastWithUpgradeEvidence(request)');
