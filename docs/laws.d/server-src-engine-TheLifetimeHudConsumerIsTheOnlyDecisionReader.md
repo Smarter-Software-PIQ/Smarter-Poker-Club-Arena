@@ -1,0 +1,3 @@
+# server/src/engine/TheLifetimeHudConsumerIsTheOnlyDecisionReader.law.test.ts
+
+The lifetime-HUD consumer (option omahaOpponentLifetimeHud) is the only decision reader of the opponent-HUD provider and ships default OFF: no engine source except the consumer's own (HorseLogic, HorseMind, HorseOmahaPricedWiring) and the worker install and request type imports the opponent HUD modules, the option is in the release default-off list and not the default-on list, and with it off an opponent read is identical with a lifetime packet installed. Replaces TheHudProviderChangesNoDecision (provider-only branch).
