@@ -33,10 +33,13 @@ import {
 } from './OmahaMathCoreAcceptance.js';
 import {
   noteOmahaMathCoreSwitchDelivered,
+  omahaMathCoreRecoverAdmission,
   omahaMathCoreSwitchOn,
   resetOmahaMathCoreSwitchStateForTests,
 } from './OmahaMathCoreSwitchState.js';
-import { omahaMathCoreRule } from './OmahaMathCoreRule.js';
+import { omahaMathCoreRule, omahaMathCoreStreetAdmitted } from './OmahaMathCoreRule.js';
+import { holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
+import { cardToInt } from './OmahaMathCoreEval.js';
 import { OMAHA_MATH_CORE_ALL_STREETS } from './OmahaMathCoreRule.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
@@ -594,6 +597,9 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
         gs: st.gs,
         on: true,
         from: 'worker_failure',
+        // the street is the core's (lane CORE-AUDIT: recovery acts only on an owned street)
+        preflopOwned: true,
+        streetOpts: OMAHA_MATH_CORE_ALL_STREETS,
         error: new Error('timeout'),
         runCore: false,
         budgetMs: 15,
@@ -676,6 +682,123 @@ describe('COREGUARD worker-failure doors: the switch the workers were handed', (
     expect(omahaMathCoreSwitchOn({ omahaMathCore: true })).toBe(true);
     noteOmahaMathCoreSwitchDelivered(null);
     expect(omahaMathCoreSwitchOn(undefined)).toBe(false);
+  });
+});
+
+describe('CORE-AUDIT: the core recovers a failed decision only on a street it owns', () => {
+  const STREET_FLAGS_OFF = {
+    omahaMathCorePlo4Flop: false,
+    omahaMathCorePlo4Turn: false,
+    omahaMathCorePlo4River: false,
+    omahaMathCorePlo5Flop: false,
+    omahaMathCorePlo5Turn: false,
+    omahaMathCorePlo5River: false,
+  };
+  it('worker failure and brain exception: no recovery on a street whose flag is off (only the PLO5 flop flag on)', () => {
+    let owned = 0;
+    let notOwned = 0;
+    for (const spec of SPECS.slice(0, 120)) {
+      const { st } = gen(spec);
+      const streetOpts = { ...STREET_FLAGS_OFF, omahaMathCorePlo5Flop: true };
+      const admitted = omahaMathCoreStreetAdmitted(spec.variant, spec.street, streetOpts);
+      for (const from of ['worker_failure', 'brain_exception'] as const) {
+        const out = omahaMathCoreRecover({
+          player: st.hero,
+          gs: st.gs,
+          on: true,
+          from,
+          preflopOwned: false,
+          streetOpts,
+          error: new Error('timeout'),
+          runCore: false,
+          budgetMs: 15,
+        });
+        if (admitted) expect(out).not.toBeNull();
+        else expect(out).toBeNull();
+      }
+      if (admitted) owned++;
+      else notOwned++;
+    }
+    expect(owned).toBeGreaterThan(5);
+    expect(notOwned).toBeGreaterThan(20);
+  });
+  it('no street opts at all: the core owns no street, so a worker failure takes the caller path (null)', () => {
+    for (const spec of SPECS.slice(0, 40)) {
+      const { st } = gen(spec);
+      const out = omahaMathCoreRecover({
+        player: st.hero,
+        gs: st.gs,
+        on: true,
+        from: 'worker_failure',
+        error: new Error('timeout'),
+        runCore: false,
+        budgetMs: 15,
+      });
+      expect(out).toBeNull();
+    }
+  });
+  it('a controller refusal after an applied core receipt still recovers (that street is already owned)', () => {
+    for (const spec of SPECS.filter((s) => s.facing).slice(0, 20)) {
+      const { st } = gen(spec);
+      const out = omahaMathCoreRecover({
+        player: st.hero,
+        gs: st.gs,
+        on: true,
+        from: 'controller_refused',
+        error: 'controller_refused',
+        runCore: false,
+        budgetMs: 15,
+      });
+      expect(out).not.toBeNull();
+    }
+  });
+  it('never calls off with zero equity and never folds the exact current nuts facing a wager (every street, every generated state)', () => {
+    freezeClock();
+    let calls = 0;
+    let nutsSpots = 0;
+    for (const spec of SPECS) {
+      const { st } = gen(spec);
+      const d = decide(st, {
+        omahaMathCore: true,
+        ...OMAHA_MATH_CORE_ALL_STREETS,
+        omahaMathCorePreflop: true,
+      });
+      const core = (d.omahaMathCore as OmahaMathCoreRecoveredReceipt | undefined)?.core;
+      if (!core) continue;
+      const toCall = st.gs.toCall ?? 0;
+      if (d.action === 'call' || (d.action === 'all_in' && st.hero.stack <= toCall + 0.005)) {
+        const priced = core.evs.find((e) => e.action === d.action);
+        calls++;
+        // a zero-equity call-off is never the core's choice (a call of the current nuts is never zero equity)
+        if (priced && priced.equity !== null && core.nutFloor == null)
+          expect(priced.equity).toBeGreaterThan(0);
+      }
+      const board = (st.gs.communityCards ?? []).map(cardToInt);
+      if (
+        toCall > 0.005 &&
+        board.length >= 3 &&
+        holdsCurrentNuts(st.hero.cards.map(cardToInt), board)
+      ) {
+        nutsSpots++;
+        expect(d.action, JSON.stringify(spec)).not.toBe('fold');
+      }
+    }
+    expect(calls).toBeGreaterThan(10);
+    void nutsSpots;
+  }, 300_000);
+  it('the worker-failure doors read the admission from the request option or the delivered switch row', () => {
+    resetOmahaMathCoreSwitchStateForTests();
+    const none = omahaMathCoreRecoverAdmission({});
+    expect(none.preflopOwned).toBe(false);
+    expect(Object.values(none.streetOpts).every((v) => v === false)).toBe(true);
+    const req = omahaMathCoreRecoverAdmission({ omahaMathCore: true, omahaMathCorePlo5Flop: true });
+    expect(req.streetOpts.omahaMathCorePlo5Flop).toBe(true);
+    expect(req.streetOpts.omahaMathCorePlo5Turn).toBe(false);
+    expect(req.streetOpts.omahaMathCorePlo4Flop).toBe(false);
+    expect(req.preflopOwned).toBe(false);
+    noteOmahaMathCoreSwitchDelivered(null);
+    expect(omahaMathCoreRecoverAdmission(undefined).streetOpts.omahaMathCorePlo5Flop).toBe(false);
+    resetOmahaMathCoreSwitchStateForTests();
   });
 });
 

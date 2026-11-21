@@ -37,6 +37,7 @@ import { cardToInt, omahaBest } from './OmahaMathCoreEval.js';
 import {
   omahaMathCoreInScope,
   omahaMathCoreRule,
+  omahaMathCoreStreetAdmitted,
   type OmahaMathCoreDecisionReceipt,
 } from './OmahaMathCoreRule.js';
 import type { OmahaMathCoreStreetFlag } from './OmahaMathCoreRule.js';
@@ -258,9 +259,9 @@ export function omahaMathCoreRecover(input: {
   from: OmahaMathCoreRecoveredFrom;
   error: unknown;
   runCore: boolean;
-  /** omahaMathCorePreflop: the core also owns preflop (off: a preflop core run is a shadow and the minimal computation decides) */
+  /** omahaMathCorePreflop: the core also owns preflop (off: the core does not recover a failed preflop decision; the caller's path decides) */
   preflopOwned?: boolean;
-  /** per-street admission flags (OmahaMathCoreRule OMAHA_MATH_CORE_STREET_FLAGS): off, a postflop core run is a shadow */
+  /** per-street admission flags (OmahaMathCoreRule OMAHA_MATH_CORE_STREET_FLAGS): off, the core does not recover that street (the caller's path decides) */
   streetOpts?: Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
   /** omahaMathCoreNetsTheWholeDeduction: the standalone core run nets the whole deduction, as the decision would have */
   wholeDeduction?: boolean;
@@ -272,6 +273,22 @@ export function omahaMathCoreRecover(input: {
     if (input.on !== true) return null;
     const { player, gs } = input;
     if (!omahaMathCoreInScope(player, gs)) return null;
+    // Lane CORE-AUDIT (Nov 21; lead decision 2026-11-19 10:55 PM: the core ships street by street): a brain
+    // exception or a worker failure is the core's to recover only on a street the core OWNS (omahaMathCorePreflop
+    // preflop, the game's street flag postflop). On any other street the caller's own path decides, exactly as
+    // with the switch off. A controller refusal follows an applied core receipt, so that street is already owned.
+    if (
+      input.from !== 'controller_refused' &&
+      !omahaMathCoreStreetAdmitted(
+        String(gs.gameVariant ?? '').toLowerCase(),
+        String(gs.stage ?? ''),
+        {
+          omahaMathCorePreflop: input.preflopOwned === true,
+          ...(input.streetOpts ?? {}),
+        }
+      )
+    )
+      return null;
     const errorText = String((input.error as Error)?.message ?? input.error).slice(0, 200);
     const thinkTime = Number.isFinite(input.thinkTime) ? (input.thinkTime as number) : 0;
     const toCall = Number.isFinite(gs.toCall)
