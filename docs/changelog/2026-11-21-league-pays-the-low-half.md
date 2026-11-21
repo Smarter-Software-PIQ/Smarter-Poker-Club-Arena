@@ -43,7 +43,7 @@ Same seeds and size as the recorded runs (6,000 pairs each, fixed before running
 | 20261122 | +38.92 +/- 4.93             | +33.78 +/- 4.12       | 8.19 |
 
 Still significant on all three seeds. `docs/horse-option-authority.d/omahaHiLoTournamentFirstIn.md` records
-both sets; its status stays Evidence NOT MET (the replay on audited decisions failed its bar).
+both sets; its status stays Evidence NOT MET (no audited gain and no recorded activation order).
 
 ## Other PLO8 league figures
 
