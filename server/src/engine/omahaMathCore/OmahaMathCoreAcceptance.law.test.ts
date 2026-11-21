@@ -654,6 +654,23 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
     expect(r.equity).toBeGreaterThanOrEqual(0);
     expect(r.equity).toBeLessThanOrEqual(1);
   });
+  it('the minimal computation never reads the clock: the same draws and the same answer under any clock (lane CORE-POOLED-6)', () => {
+    let worst = 0;
+    for (const spec of SPECS.filter((x) => x.street !== 'preflop').slice(0, 24)) {
+      const { st } = gen(spec);
+      let t = 0;
+      const frozen = omahaMathCoreRandomRangeEquity(st.hero, st.gs, 15, () => 0);
+      const jumping = omahaMathCoreRandomRangeEquity(st.hero, st.gs, 15, () => (t += 1000));
+      const t0 = performance.now();
+      const real = omahaMathCoreRandomRangeEquity(st.hero, st.gs, 15);
+      worst = Math.max(worst, performance.now() - t0);
+      expect(jumping, JSON.stringify(spec)).toEqual(frozen);
+      expect(real).toEqual(frozen);
+      // the fixed work: 6,000 hand evaluations shared by the hero and his opponents
+      expect(frozen.samples).toBe(Math.max(256, Math.floor(6000 / spec.n)));
+    }
+    console.info(`CORE-POOLED-6 recovery equity: worst wall time ${worst.toFixed(1)} ms`);
+  });
   it('switch OFF or PLO6: the exception safety net is exactly as before (byte-identical)', () => {
     for (const variant of ['plo5', 'plo6'] as const) {
       const spec = { ...SPECS.find((s) => s.street === 'flop' && s.facing)!, variant };
