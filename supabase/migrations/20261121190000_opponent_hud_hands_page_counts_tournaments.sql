@@ -41,4 +41,16 @@ REVOKE ALL ON FUNCTION public.fn_opponent_hud_hands_page(timestamptz, uuid, time
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_opponent_hud_hands_page(timestamptz, uuid, timestamptz, integer) TO service_role;
 
+-- Function probe (scripts/ci/templates/function-probe.sql): body runs once and is undone.
+-- @probe-for: public.fn_opponent_hud_hands_page
+DO $probe$
+BEGIN
+  IF to_regclass('public.hand_history') IS NOT NULL THEN
+    PERFORM public.fn_opponent_hud_hands_page(now(), NULL, now(), 1);
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
