@@ -132,7 +132,7 @@ describe('every Omaha decision rule declares its pricing basis (HorseOmahaRuleBa
     }
   });
 
-  it('omahaNoCategoricalRules does not switch off the priced turn plans (lead ruling 2026-11-20; replay: off = all-chip -1,588 +/- 330)', () => {
+  it('omahaNoCategoricalRules does not switch off the priced turn plans (lead ruling 2026-11-20: priced in form)', () => {
     for (const o of ['omahaStreetPlan', 'omahaStreetPlanThreeWay'])
       expect((OMAHA_NO_CATEGORICAL_RULES_OFF as readonly string[]).includes(o), o).toBe(false);
   });

@@ -182,6 +182,14 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   ),
   omahaBetReadIsModeSplit: exempt('input', 'an input of a priced comparison, not a rule site'),
   omahaBetReadIsPerOpponent: exempt('input', 'an input of a priced comparison, not a rule site'),
+  omahaBlanketRowsOffInPlo45Cash: exempt(
+    'scope',
+    'passes the listed blanket rows off in PLO4/PLO5 cash only; it decides where a rule applies, never the action'
+  ),
+  omahaBlanketRowsOffList: exempt(
+    'scope',
+    'the list omahaBlanketRowsOffInPlo45Cash reads (runtime settings, registry members only); decides where a rule applies, never the action'
+  ),
   omahaBetSizeByPublicState: review(
     'pricing basis not verified at the line level by BLANKET-AUDIT 2026-11-20'
   ),
@@ -444,7 +452,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaStrategyInTournaments: exempt('scope', 'decides where a rule applies, never the action'),
   omahaStreetPlan: partly(
     ['omahaMathCore'],
-    'the heads-up turn check and each bet priced as whole lines over every exact river card (HorseOmahaStreetPlan.ts); its fallback range (a fixed keep share of a fixed sample, by turn strength) and the population priors where unmeasured are categorical: MATHCORE-2 replaces the fallback with the measured range. Kept out of OMAHA_NO_CATEGORICAL_RULES_OFF (replay: off = 366 turn check->bet, all-chip -1,588 +/- 330)'
+    'the heads-up turn check and each bet priced as whole lines over every exact river card (HorseOmahaStreetPlan.ts); its fallback range (a fixed keep share of a fixed sample, by turn strength) and the population priors where unmeasured are categorical: MATHCORE-2 replaces the fallback with the measured range. Kept out of OMAHA_NO_CATEGORICAL_RULES_OFF (priced in form; replay: off = 366 turn check->bet; the first all-chip grade -1,588 +/- 330 was asymmetric and is superseded by the symmetric +1,118 +/- 112 Horse-only, 2026-11-21)'
   ),
   omahaStreetPlanFlop: partly(
     ['omahaNoCategoricalRules'],
@@ -584,6 +592,10 @@ export const OMAHA_SHARED_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>>
  * decides or shades a PLO4/PLO5 cash decision.
  */
 export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
+  omaha_blanket_rows_off_in_plo45_cash_applied: exempt(
+    'scope',
+    'counts a PLO4/PLO5 cash decision made with a listed blanket row passed off; it marks the scope, it decides nothing'
+  ),
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
   omaha_river_checked_to_bet_measured: {
     kind: 'priced',
