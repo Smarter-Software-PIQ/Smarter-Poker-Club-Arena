@@ -101,6 +101,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaBlanketRowsOffInPlo45Cash',
   // PLO-OWNER lane OPPONENT-HUD 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaOpponentLifetimeHud',
+  // PLO-OWNER lane REPLACEMENTS-5 2026-11-21: R2 PLO4/PLO5 cash, default OFF
+  'omahaFlopBetIsPricedOnHisResponse',
   'omahaFlopFacingBetEv',
   'omahaFlopVerdictReadsTheBettor',
   'omahaReadIsByStreetAndTexture',

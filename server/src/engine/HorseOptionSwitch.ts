@@ -381,6 +381,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBlanketRowsOffInPlo45Cash',
   // 2026-11-20 PLO-OWNER lane OPPONENT-HUD: the lifetime opponent profile read from hand one (ships dark)
   'omahaOpponentLifetimeHud',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R2 flop bet-or-check + flop facing raise/stab HUD response (ships dark)
+  'omahaFlopBetIsPricedOnHisResponse',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',

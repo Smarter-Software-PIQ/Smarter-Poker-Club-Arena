@@ -1549,6 +1549,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopBetIsPricedOnHisResponse',
+    'PLO-OWNER lane REPLACEMENTS-5 2026-11-21 (R2; freeing #13 omahaBareOverpairOopFlopCheck and addressing the flop facing-bet verdict unmeasured raiser/stabber range, B6 folded into R2). PLO4/PLO5 cash (table and Lightning where omahaPricedInLightning opens it), high only, one board, no bomb pot, flop only; default OFF, strict === true. Prices a bare big pair flop bet with the preflop lead (HU and multiway, OOP and IP) beside checking using lifetime HUD cells (f.fb.{sm|bg}.{hu|mw}, f.rBet.{hu|mw}, f.stab.{hu|mw}, 2*f.stabsz.{hu|mw}), shrunk n/(n+k) with no cliff and no person-vs-Horse key: the bet stands only when evBet - evCheck > sampleSe + readSpread. Also scales the flop facing-bet verdict (omahaFlopFacingBetEv) raiser range by his lifetime HUD f.rBet.{hu|mw} and post-check stabber range by f.stab.{hu|mw} (factor 1.0 when n=0). PLO6, hi-lo, bomb pots, hold-em and tournaments are out of scope.',
+    'V94'
+  ),
+  flag(
     'omahaPricedMix',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Frequency mixing inside a priced rule that is on: when the two best actions of the comparison are closer than its own uncertainty (the standard error of the sampled share, plus the spread of the opponent read by its opportunity count) the lower one is taken with probability 0.5 x (1 - gap / uncertainty). The draw is the decision derived stream (read, never advanced) hashed with public state only: the street, the board, the pot, the wager, the seat and the public action count; the Horse hole cards are not read.',
     'V94'
@@ -6851,6 +6856,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_flop_bet_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_on_his_response_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPricedOnHisResponse)',
+    'a bare big pair flop bet with the lead is proven above the check (evBet - evCheck > sampleSe + readSpread) on lifetime HUD fold/raise/stab response and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_on_his_response_checked',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPricedOnHisResponse)',
+    'the same spot: the bet is not proven above the check on lifetime HUD response, so the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_on_his_response_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPricedOnHisResponse)',
+    'the same spot could not be priced (an opponent all in, invalid stack/pot, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_facing_raise_hud_range_scaled',
+    'HorseOmahaFlopFacingBetEvRule (omahaFlopFacingBetEv + omahaFlopBetIsPricedOnHisResponse)',
+    'facing a flop raise in PLO4/PLO5 cash: the raiser range was scaled from his lifetime HUD f.rBet.{hu|mw} record relative to population prior',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_facing_stab_hud_range_scaled',
+    'HorseOmahaFlopFacingBetEvRule (omahaFlopFacingBetEv + omahaFlopBetIsPricedOnHisResponse)',
+    'facing a post-check flop stab in PLO4/PLO5 cash: the stabber range was scaled from his lifetime HUD f.stab.{hu|mw} record relative to population prior',
     'V94'
   ),
   receipt(

@@ -627,6 +627,7 @@ import {
   omahaPricedOwnsPairedBoardBet,
   omahaPricedOwnsTurnRiverRaise,
   omahaPricedPairedBoardBetRule,
+  omahaPricedInScope,
   omahaPricedPressureWithheld,
   omahaPricedPopulationRates,
   omahaPricedReadOfUser,
@@ -638,6 +639,7 @@ import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
   omahaPricedSitesFlopBet,
+  omahaPricedSitesFlopBetOnHisResponse,
   omahaPricedSitesMadeHandBet,
   omahaPricedSitesOwnsBlockerBluff,
   omahaPricedSitesOwnsMadeHandBet,
@@ -4419,6 +4421,11 @@ export interface HorseDecideOpts {
    * lead is priced beside the check, heads-up, in either position (replaces
    * the out-of-position check of omahaBareOverpairOopFlopCheck). */
   omahaFlopBetIsPriced?: boolean;
+  /** R2 (lane REPLACEMENTS-5 2026-11-21, default OFF, strict === true, PLO4/PLO5 cash):
+   * replaces #13 omahaBareOverpairOopFlopCheck and addresses the flop facing-bet unmeasured raiser/stabber
+   * range using lifetime HUD cells (f.fb.{sm|bg}.{hu|mw}, f.rBet.{hu|mw}, f.stab.{hu|mw}, 2*f.stabsz.{hu|mw})
+   * with prove-it-to-bet uncertainty bar (evBet - evCheck > sampleSe + readSpread), identity-free. */
+  omahaFlopBetIsPricedOnHisResponse?: boolean;
   /** WooWoo audit FLOPBET-RAISE (finding FOURBET F1, HorseOmahaFlopBetRaiseBranch):
    * PLO4/PLO5 cash, flop, heads-up against a person, nothing to call: every bet
    * size of the v38 EV engine is priced with his raise as a third branch (his
@@ -12558,9 +12565,10 @@ function omahaOopCheckRulesCore(
   const pairedTurnOn = opts.omahaPairedTurnNoBarrelWithoutBoatVsValueLeader === true;
   const planOn = opts.omahaTurnBetNeedsRiverPlan === true;
   const oopTurnOn = opts.omahaOopTurnCheckAfterFlopCall === true;
-  // omahaFlopBetIsPriced also prices the bare big pair's flop bet where no categorical rule acts (in
-  // position, or with omahaBareOverpairOopFlopCheck off): it must reach the flop branch (sites review N1).
-  const flopPricedOn = opts.omahaFlopBetIsPriced === true;
+  // omahaFlopBetIsPriced / omahaFlopBetIsPricedOnHisResponse also price the bare big pair's flop bet where no
+  // categorical rule acts (in position, or with omahaBareOverpairOopFlopCheck off): they must reach the flop branch.
+  const flopPricedOn =
+    opts.omahaFlopBetIsPriced === true || opts.omahaFlopBetIsPricedOnHisResponse === true;
   if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn && !oopTurnOn && !flopPricedOn)
     return decision;
   // omahaOopTurnCheckAfterFlopCall, facing the turn bet after the check: the
@@ -12588,6 +12596,15 @@ function omahaOopCheckRulesCore(
     };
     if (stage === 'flop') {
       const flopSpot = flopOn && omahaBareOverpairOopFlopSpot(player, gs);
+      // R2 omahaFlopBetIsPricedOnHisResponse (default off): lifetime HUD response + OOP stab + proof guard.
+      const pricedResponse = omahaPricedSitesFlopBetOnHisResponse(
+        decision,
+        player,
+        gs,
+        opts,
+        flopSpot
+      );
+      if (pricedResponse !== null) return pricedResponse;
       // omahaFlopBetIsPriced (default off): the bare big pair's flop bet is priced beside the check.
       const pricedFlop = omahaPricedSitesFlopBet(decision, player, gs, opts, flopSpot);
       if (pricedFlop !== null) return pricedFlop;
@@ -12944,6 +12961,9 @@ function omahaFacingBetEvRule(
       ...(opts.omahaFlopDefenceIsPriced === true ? { flopDefenceTree: true } : {}),
       ...(!flopVerdictOn ? { flopDefenceOnly: true } : {}),
       readsTheBettor: opts.omahaFlopVerdictReadsTheBettor === true || valueShareMeasured,
+      ...(opts.omahaFlopBetIsPricedOnHisResponse === true && omahaPricedInScope(player, gs, opts)
+        ? { hudRaiserStabResponse: true }
+        : {}),
     });
   if (!omahaFacingBetEvOn(opts)) return decision;
   try {
