@@ -501,7 +501,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       ],
     },
     outside: {
-      'const tele = telemetryOn(opts);': [46, 'the local name of the gate'],
+      'const tele = telemetryOn(opts);': [
+        50,
+        'the local name of the gate (two names on each line; the last two lines: the persona postflop and one-pair priced helpers, which count with it)',
+      ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
         2,

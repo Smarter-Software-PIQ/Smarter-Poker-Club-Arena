@@ -24900,7 +24900,7 @@ export class HorseLogic {
           anyStabber87 &&
           (((tptk87 || cat >= 3) && !premiumLocked87) || draw87.outs >= 12) &&
           (pricedPost87
-            ? this.holdemPersonaPostflopPriced('trap', 0, player, gs, vi, opts, tele15)
+            ? this.holdemPersonaPostflopPriced('trap', 0, player, gs, vi, opts)
             : unit87('oopstabtrap') < (personaPost87?.trap ?? 0.42))
         ) {
           if (tele15) noteFire('v87_oop_stab_trap');
@@ -24921,8 +24921,7 @@ export class HorseLogic {
                 player,
                 gs,
                 vi,
-                opts,
-                tele15
+                opts
               )
             : unit87('turntakeaway') <
               Math.min(
@@ -24979,8 +24978,7 @@ export class HorseLogic {
                 player,
                 gs,
                 vi,
-                opts,
-                tele15
+                opts
               )
             : unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58) * (personaPost87?.cbet ?? 1))
         ) {
@@ -28624,8 +28622,7 @@ export class HorseLogic {
               player,
               gs,
               vi,
-              opts,
-              tele15
+              opts
             )
           : null;
       let shade61c = 0;
@@ -29247,8 +29244,7 @@ export class HorseLogic {
             player,
             gs,
             vi,
-            opts,
-            tele15
+            opts
           )
         : unit87('stabxr') < (personaPost87?.trap ?? 0.42))
     ) {
@@ -30067,8 +30063,7 @@ export class HorseLogic {
             player,
             gs,
             vi,
-            opts,
-            tele15
+            opts
           )
         : null;
     let shade65 = 0;
@@ -30290,8 +30285,7 @@ export class HorseLogic {
                 player,
                 gs,
                 vi,
-                opts,
-                tele15
+                opts
               )
             : null;
         if (priced61 === 'call') return { action: 'call', amount: toCall, thinkTime: 0 };
@@ -30724,9 +30718,9 @@ export class HorseLogic {
     player: SeatPlayer,
     gs: HorseGameStateV2,
     vi: VariantInfo,
-    opts: HorseDecideOpts,
-    tele: boolean
+    opts: HorseDecideOpts
   ): 'call' | 'fold' | null {
+    const tele = telemetryOn(opts);
     if (deferred) {
       if (tele) noteFire('holdem_one_pair_priced_deferred');
       return null;
@@ -30785,9 +30779,9 @@ export class HorseLogic {
     player: SeatPlayer,
     gs: HorseGameStateV2,
     vi: VariantInfo,
-    opts: HorseDecideOpts,
-    tele: boolean
+    opts: HorseDecideOpts
   ): boolean {
+    const tele = telemetryOn(opts);
     try {
       const opp = holdemPersonaPricedOpponent(player, gs, vi);
       const built =
