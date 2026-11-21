@@ -2445,6 +2445,39 @@
       "recoveredFrom": "public.fn_ca_migration_text(20261118071741), byte-identical body; 7554 UTF-8 bytes, md5 7284b7ff2db96cb88335fdf641e520a6. Independent schema_migrations.statements recovery agrees.",
       "refusedBy": [],
       "liveVerdict": "Applied directly by Claude (session 013U37bb2NB9FGhEKXJGzWHZ) through the Supabase MCP at 07:17:41 UTC 2026-11-18 during a live incident: WooWoo's PLO5 1/2 Madness rejoin floor (3,762.18) was being demanded at PLO5 1/2 Lightning Games (max 400) while he was seated. Read production 07:18-07:24 UTC: cash_rejoin_constraints.game_scope exists and 0 live rows are unscoped (230 backfilled from source_table_id); fn_cash_rejoin_floor(WooWoo, Lightning feeder) = NULL, entry need 100.00, max 400.00; fn_cash_rejoin_floor(WooWoo, Madness feeder) = 3762.18 unchanged. ACLs read after apply: fn_cash_game_scope_of_table service_role only; fn_cash_session_close and fn_cash_game_barred_seconds postgres/service_role only (as before); fn_cash_rejoin_floor postgres/service_role/authenticated (as before). check-definer-authorization passes against origin/main. The only guard this file fails is the transaction shape (it carries no BEGIN/COMMIT because the MCP wrapped it in its own single transaction); no finding remains true of production. No migration is replayed."
+    },
+    {
+      "version": "20261121142000",
+      "name": "promo_positions_spent_on_feeder_hands_settle_table_dbbc148e",
+      "file": "supabase/migrations/20261121142000_promo_positions_spent_on_feeder_hands_settle_table_dbbc148e.sql",
+      "md5": "9f48a583bcde99a7ac9b9f2d455595b8",
+      "appliedToProductionAt": "2026-11-21",
+      "recoveredOn": "2026-11-21",
+      "recoveredFrom": "public.fn_ca_migration_text(20261121142000) md5 9f48a583bcde99a7ac9b9f2d455595b8, equal to the committed file bytes",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly by Claude (session 01Gw7aDsRQtbAfJZgjgvir7C) through the Supabase MCP at about 14:21 UTC 2026-11-21 during a live outage (incidents bb04ee5f, e542fbd7, 887c0008: table dbbc148e rebuilt about twenty times a minute since 08:17 UTC). The applied text was the file bytes, recorded in the same transaction; production returns the same md5. Data-only: it spent 4.56 of e922e29a's promo principal FIFO through fn_ca_promo_move_selected_custody (grant aaf34f38 closed spent, 775cb978 0.51, 6e942b2c 1.50, 0783004d 0.63 unchanged), matching the 2.64 accepted stack; no chips or wallets moved. Read after apply: principal 2.64 = seat 2.64. It creates no object, so it carries no @live-proof line and cannot gain one without ceasing to be the recording; its liveness is its history row. No guard finding remains."
+    },
+    {
+      "version": "20261121142714",
+      "name": "feeder_seat_move_stranded_cash_hand_settles_once",
+      "file": "supabase/migrations/20261121142714_feeder_seat_move_stranded_cash_hand_settles_once.sql",
+      "md5": "4a8b9660b45bcf615143fedb20d30bf9",
+      "appliedToProductionAt": "2026-11-21",
+      "recoveredOn": "2026-11-21",
+      "recoveredFrom": "public.fn_ca_migration_text(20261121142714) md5 4a8b9660b45bcf615143fedb20d30bf9, equal to the committed file bytes",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly by Claude (session 01Gw7aDsRQtbAfJZgjgvir7C) through the Supabase MCP at about 14:28 UTC 2026-11-21 during the same outage. Installs smarter_private.feeder_promo_position_source_correction_proof, appends it to original_hand_source_correction_proof (preimage md5 b8db2960 checked) and certifies submission 9684692d through certify_original_hand_source_correction (financial_payment false). Read after apply: one hand_submission_source_corrections row, proof re-derives identically."
+    },
+    {
+      "version": "20261121143102",
+      "name": "a_feeder_promo_position_correction_may_claim_on_a_cash_table",
+      "file": "supabase/migrations/20261121143102_a_feeder_promo_position_correction_may_claim_on_a_cash_table.sql",
+      "md5": "3c90b93f9b870be85ae556d29438ad85",
+      "appliedToProductionAt": "2026-11-21",
+      "recoveredOn": "2026-11-21",
+      "recoveredFrom": "public.fn_ca_migration_text(20261121143102) md5 3c90b93f9b870be85ae556d29438ad85, equal to the committed file bytes",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly by Claude (session 01Gw7aDsRQtbAfJZgjgvir7C) through the Supabase MCP at about 14:31 UTC 2026-11-21: hand_source_correction_claim_guard refused the certified correction with HAND_SOURCE_CORRECTION_LEASE_REFUSED (postgres_logs) because its cash branch names each admitted cause. Admits proof_version 20261121142714 only (preimage md5 6d11f374 checked; owner, security, ACL and config unchanged). Read after apply: the engine's resume settled hand #60380607 at 14:31:24 UTC, the kill storm stopped and the table dealt again."
     }
   ]
 }

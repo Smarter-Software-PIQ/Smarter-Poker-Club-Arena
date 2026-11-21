@@ -23,7 +23,7 @@
  * never kept) is scripts/ci/test-horse-dealt-hole-cards.py.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -36,13 +36,69 @@ const code = sql
   .filter((l) => !l.trimStart().startsWith('--'))
   .join('\n');
 
-function filesNaming(needle: string): string[] {
-  const r = spawnSync('git', ['grep', '-l', '-F', needle, '--', '.'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
-  if (r.status !== 0 && r.status !== 1) throw new Error(r.stderr);
-  return r.stdout.split('\n').filter(Boolean).sort();
+// Every name this law searches the repository for.
+const NEEDLES = ['horse_dealt_hole_cards', 'horse_hole_cards'] as const;
+type Needle = (typeof NEEDLES)[number];
+
+function git(args: string[]): string {
+  const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (r.error) throw r.error;
+  // git grep exits 1 when nothing matches.
+  if (r.status !== 0 && r.status !== 1) throw new Error(`git ${args[0]}: ${r.stderr}`);
+  return r.stdout;
+}
+
+/**
+ * Every tracked file in the whole repository that names each needle, as its
+ * working copy reads now -- the same answer `git grep -l -F <needle> -- .`
+ * gives, found in ONE pass for all needles instead of one per needle.
+ *
+ * Speed (2026-11-21): a working-tree `git grep` opens all ~80,000 tracked
+ * files once per needle; with the Mac at load 25-40 each pass took ~46 s and
+ * the law failed on vitest's 30 s timeout, not on its content. So the one
+ * pass reads the index's blobs (`--cached`, no per-file open), and the files
+ * whose working copy differs from the index (`git diff --name-only`: edited
+ * but not staged, or deleted) are read from disk instead, so an unstaged edit
+ * still counts exactly as before. The scope is still the whole repository.
+ */
+let named: Map<Needle, string[]> | undefined;
+function filesNaming(needle: Needle): string[] {
+  if (!named) {
+    const found = new Map(NEEDLES.map((n) => [n, new Set<string>()] as const));
+    const dirty = new Set(
+      git(['diff', '--name-only', '--no-renames', '--no-ext-diff', '-z']).split('\0')
+    );
+    dirty.delete('');
+    // -o prints each match, so one pass tells the needles apart (neither can
+    // overlap the other); -a keeps a binary file's match a match, as -l did.
+    const out = git([
+      'grep',
+      '--cached',
+      '-a',
+      '-o',
+      '-F',
+      '--null',
+      ...NEEDLES.flatMap((n) => ['-e', n]),
+      '--',
+      '.',
+    ]);
+    for (const line of out.split('\n')) {
+      const cut = line.indexOf('\0');
+      if (cut < 0) continue;
+      const file = line.slice(0, cut);
+      const set = found.get(line.slice(cut + 1) as Needle);
+      if (!set) throw new Error(`unexpected git grep line: ${JSON.stringify(line)}`);
+      if (!dirty.has(file)) set.add(file);
+    }
+    for (const file of dirty) {
+      const path = resolve(ROOT, file);
+      if (!existsSync(path)) continue; // deleted in the working tree: nothing to read
+      const text = readFileSync(path, 'latin1');
+      for (const n of NEEDLES) if (text.includes(n)) found.get(n)!.add(file);
+    }
+    named = new Map(NEEDLES.map((n) => [n, [...found.get(n)!].sort()]));
+  }
+  return named.get(needle)!;
 }
 
 describe("LAW: a Horse's dealt hole cards are kept and never reach a player", () => {
@@ -55,6 +111,8 @@ describe("LAW: a Horse's dealt hole cards are kept and never reach a player", ()
         'scripts/ci/accounting-harness-reads.json',
         'scripts/ci/schema-manifest.d/horse-dealt-hole-cards.json',
         'scripts/ci/test-horse-dealt-hole-cards.py',
+        // the offline audit CLI (Horse Decisions daily grade): read-only management route, aggregates only
+        'server/scripts/horse-daily-decision-grade.ts',
         'server/src/services/supabase/handFacts.ts',
         'tests/horse-dealt-hole-cards-stay-private.law.test.ts',
       ].sort()
@@ -63,6 +121,14 @@ describe("LAW: a Horse's dealt hole cards are kept and never reach a player", ()
     const facts = readFileSync(resolve(ROOT, 'server/src/services/supabase/handFacts.ts'), 'utf8');
     expect(facts).not.toMatch(/from\(['"`][^'"`]*horse_dealt_hole_cards/);
     expect(facts).not.toMatch(/rpc\(['"`][^'"`]*horse_dealt_hole_cards/);
+    // The audit CLI reads it only through the read-only management route, never a client or supabase-js read.
+    const audit = readFileSync(
+      resolve(ROOT, 'server/scripts/horse-daily-decision-grade.ts'),
+      'utf8'
+    );
+    expect(audit).toContain('read_only: true');
+    expect(audit).not.toMatch(/\.from\(['"`][^'"`]*horse_dealt_hole_cards/);
+    expect(audit).not.toMatch(/createClient|@supabase\/supabase-js/);
   });
 
   it('keeps the table service-role only: RLS, no policy, no client grant, no view or publication', () => {

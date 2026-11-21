@@ -120,7 +120,13 @@ function detect(
   return { out, stdout: run.stdout };
 }
 
-function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: boolean; ownerWindow?: string }) {
+function decide(opts: {
+  reason: string;
+  sha: string;
+  runs?: unknown;
+  ghFails?: boolean;
+  ownerWindow?: string;
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'ca-owed-offer-'));
   cleanups.push(dir);
   const bin = join(dir, 'bin');
@@ -173,9 +179,17 @@ const minutesAgo = (m: number) =>
   new Date(Date.now() - m * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
 
 function scheduledPolicy(fx: ReturnType<typeof fixture>, status: 'active' | 'off') {
-  const policy = JSON.parse(
-    readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
-  );
+  const policy = {
+    // The retained v1 shape keeps this daily/Phase1 law on its own route;
+    // the protected v2 three-hourly policy (2026-11-21) is pinned by
+    // tests/the-engine-cuts-over-every-three-hours.law.test.ts.
+    schema: 'engine-maintenance-schedule/v1',
+    policyId: 'phase1-hourly-01a1944f',
+    timeZone: 'America/Chicago',
+    phase1Status: 'off',
+    ownerMessageId: '01a1944f-7131-7f11-8dcc-873d576e781c',
+    completionEvidence: null as string | null,
+  };
   policy.phase1Status = status;
   policy.completionEvidence =
     status === 'off' ? 'Isolated verified daily restoration fixture' : null;
@@ -485,8 +499,10 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 3,8 * * *' },
-      { cron: '31,35,39,43 4,9 * * *' },
+      // Every three-hourly preparation hour in both offsets (owner order
+      // 2026-11-21); the daily policy admits only 03:30 from the same events.
+      { cron: '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *' },
+      { cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
     ]);
     expect(
       stage.jobs.detect.steps.find((step: { id?: string }) => step.id === 'admission').run

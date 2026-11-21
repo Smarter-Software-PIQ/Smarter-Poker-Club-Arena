@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { classifyMigration } from './recording-only.mjs';
+import { replacesMd5Pins } from './migration-stale-pins.mjs';
 
 const migrationDir = 'supabase/migrations';
 
@@ -147,6 +148,45 @@ export function definedObjects(sql) {
   return out;
 }
 
+export const WATCHED_PREIMAGE_FUNCTIONS = new Set([
+  'public.fn_ca_alarm_drill',
+  'public.fn_ca_cron_failure_watch',
+  'public.fn_ca_cron_health',
+]);
+
+/**
+ * Mandatory preimage pin for critical watched guard functions: any NEW
+ * migration that runs CREATE [OR REPLACE] FUNCTION on an already-defined
+ * watched guard must declare `-- @replaces-md5: <schema>.<fn>(...)=<md5>`
+ * so concurrent PRs cannot silently overwrite each other regardless of
+ * version order. Anchored pg_get_functiondef edits already validate their
+ * live anchor at install time.
+ */
+export function missingPreimagePinProblems(addedSql, baseFiles) {
+  const code = stripSqlComments(addedSql);
+  const replaced = new Set();
+  FN_DEF.lastIndex = 0;
+  for (const m of code.matchAll(FN_DEF)) {
+    const fn = `${(m[1] || 'public').toLowerCase()}.${m[2].toLowerCase()}`;
+    if (WATCHED_PREIMAGE_FUNCTIONS.has(fn)) replaced.add(fn);
+  }
+  if (replaced.size === 0) return [];
+  const pinned = new Set(
+    replacesMd5Pins(addedSql).map((p) => p.signature.replace(/\(.*$/, '').toLowerCase())
+  );
+  const problems = [];
+  for (const fn of [...replaced].sort()) {
+    const existsOnBase = baseFiles.some((f) => (f.functions ?? f.objects).has(fn));
+    if (existsOnBase && !pinned.has(fn)) {
+      problems.push(
+        `replaces watched guard ${fn} without -- @replaces-md5: ${fn}(...)=<32-hex-md5>; ` +
+          'declare the live preimage md5 so concurrent PRs cannot silently overwrite each other.'
+      );
+    }
+  }
+  return problems;
+}
+
 export function redefinitionOrderProblems(addedFile, addedSql, baseFiles) {
   const version = addedFile.split('_', 1)[0];
   const mine = definedObjects(addedSql);
@@ -268,7 +308,11 @@ function main() {
     for (const path of added) {
       if (isInert(path)) continue;
       const file = path.slice(path.lastIndexOf('/') + 1);
-      const problems = redefinitionOrderProblems(file, readFileSync(path, 'utf8'), baseFiles);
+      const sql = readFileSync(path, 'utf8');
+      const problems = [
+        ...redefinitionOrderProblems(file, sql, baseFiles),
+        ...missingPreimagePinProblems(sql, baseFiles),
+      ];
       if (problems.length > 0) overwrites.push({ path, problems });
     }
     if (overwrites.length > 0) {

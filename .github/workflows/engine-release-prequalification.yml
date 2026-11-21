@@ -99,12 +99,16 @@ jobs:
           docker image save -o "$dir/image.tar" "$transport"
           config="$(python3 -B server/scripts/engine-prestage-config-proof.py "$transport" "$image" < "$dir/image.tar")"
           [[ "$config" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # The target's protected policy decides which cycles close the host door.
+          hours="$(python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$GITHUB_SHA" \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); print("1,4,7,10,13,16,19,22" if p.get("frequency")=="three-hourly" else "4")')"
+          [[ "$hours" = 4 || "$hours" = 1,4,7,10,13,16,19,22 ]]
           code="$(base64 -w0 scripts/ci/prestage-engine-image.sh)"
           proof="$(base64 -w0 server/scripts/engine-prestage-config-proof.py)"
           gzip -1c "$dir/image.tar" | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
             -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
             -o UserKnownHostsFile="$dir/hosts" -o ConnectTimeout=15 "root@$HOST" \
-            "PROOF_B64='$proof' bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$config' '$tree' '$size' '$transport'" > "$dir/result"
+            "PROOF_B64='$proof' bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$config' '$tree' '$size' '$transport' '$hours'" > "$dir/result"
           python3 - "$dir/result" "$GITHUB_OUTPUT" "$tree" <<'PYTHON'
           import pathlib, re, sys
           data = pathlib.Path(sys.argv[1]).read_text()

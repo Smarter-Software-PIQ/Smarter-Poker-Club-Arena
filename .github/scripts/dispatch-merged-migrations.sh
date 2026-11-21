@@ -178,6 +178,31 @@ if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE" ${NOW_MS:+"$NOW_MS"}
   exit 1
 fi
 
+# AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77) is guaranteed
+# by the applier, not by timing here: every apply-merged-migration run installs
+# the older pending ordinary files before its own
+# (scripts/ci/install-older-merged-first.mjs), so the order these sends reach
+# the queue in no longer matters.
+
+# A SWITCHED-OFF APPLIER DROPS A DISPATCH WITHOUT A WORD (2026-11-21). GitHub
+# answers 204 to a repository_dispatch for a disabled workflow and creates no
+# run, so during an owner-window installer pause (ENGINE-OWNER-WINDOW-CUTOVER-
+# PLAYBOOK step 2) this script used to print "dispatched" for files that were
+# never queued (#11635's 20261121153607 at 18:19 UTC). Read the applier's
+# state first: paused -> say HELD and send nothing (resume-migration-installs.sh
+# sends every file merged during the pause, oldest first); unreadable -> say
+# COULD NOT TELL and send as before.
+APPLIER_STATE=$(gh api "repos/$REPO/actions/workflows/apply-merged-migration.yml" --jq .state 2>/dev/null || echo unknown)
+case "$APPLIER_STATE" in
+  active) ;;
+  disabled_manually|disabled_inactivity|disabled_fork)
+    LIST=$(printf '`%s` ' "${DISPATCH[@]}")
+    say "- **HELD**: Apply Merged Migration is switched off (\`$APPLIER_STATE\`, an installer pause), so nothing was sent; a dispatch now would be dropped without a run. \`scripts/release/resume-migration-installs.sh <pause-start-sha>\` sends these when installs resume: ${LIST}"
+    gh pr comment "$PR" --repo "$REPO" --body "This PR merged while Apply Merged Migration was switched off (installer pause), so the dispatcher sent NOTHING. The resume step (\`scripts/release/resume-migration-installs.sh <pause-start-sha>\`) sends these, oldest first: ${LIST}" || true
+    exit 0 ;;
+  *) say "- COULD NOT TELL whether Apply Merged Migration is switched on (\`$APPLIER_STATE\`); sending as before." ;;
+esac
+
 SENT=0
 for f in "${DISPATCH[@]}"; do
   NONCE=$(jq -r --arg f "$f" 'select(.migration == $f) | .nonce' "$INTENT_STATE")

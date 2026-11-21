@@ -1,0 +1,111 @@
+name: Triage Engine Release Incident (Read-Only & Claim)
+
+# Manual-only diagnostic triage for EngineReleaseFailed alerts, sanctioned
+# incident-claim submission via smarter_private.fn_claim_reliability_incident,
+# and the one sanctioned manual resolve of an engine-alerts incident by its
+# original episode (operation=resolve, scripts/ci/resolve-engine-alert-episode.mjs):
+# it appends one resolved engine_alerts row per open firing member, copying the
+# firing row's identity, and never UPDATEs or DELETEs an alert row.
+# Never schedules, restarts, mutates, or retries any engine release.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Operation: triage (live health vs target SHA), inspect (read-only incident row), claim (fn_claim_reliability_incident), or resolve (append the resolve of an engine-alerts incident by its original episode)'
+        required: true
+        type: choice
+        options:
+          - triage
+          - inspect
+          - claim
+          - resolve
+      target_sha:
+        description: 'Full 40-char target SHA (required for operation=triage)'
+        required: false
+        type: string
+      incident_id:
+        description: 'Reliability incident UUID (required for operation=inspect, claim or resolve)'
+        required: false
+        type: string
+      agent_session:
+        description: 'Agent/operator session identity (required for operation=claim or resolve)'
+        required: false
+        type: string
+      branch:
+        description: 'Optional working branch name for claim'
+        required: false
+        type: string
+      pull_request:
+        description: 'Optional PR URL or number for claim'
+        required: false
+        type: string
+      resolution_note:
+        description: 'Why the incident is resolved, with evidence (required for operation=resolve, 10-1000 chars)'
+        required: false
+        type: string
+      ttl_hours:
+        description: 'Claim TTL in hours (1-24, default 4)'
+        required: false
+        default: '4'
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: triage-engine-release-incident-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: ${{ inputs.operation == 'claim' && 'Claim Reliability Incident' || (inputs.operation == 'inspect' && 'Inspect Reliability Incident' || (inputs.operation == 'resolve' && 'Resolve Engine Alert Episode' || 'Read-Only EngineReleaseFailed Triage')) }}
+    if: >-
+      (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]')
+      && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout protected main
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Fetch main ancestry for triage operation
+        if: inputs.operation == 'triage'
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=500 origin main >/dev/null 2>&1 || git fetch --no-tags origin main >/dev/null 2>&1
+          if [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] && ! git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$TARGET_SHA" >/dev/null 2>&1 || true
+          fi
+
+      - name: Use Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install pg client for database operations
+        if: inputs.operation == 'claim' || inputs.operation == 'inspect' || inputs.operation == 'resolve'
+        run: npm install pg@8 --no-save --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
+
+      - name: Run bounded incident operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          INCIDENT_ID: ${{ inputs.incident_id }}
+          AGENT_SESSION: ${{ inputs.agent_session }}
+          CLAIM_BRANCH: ${{ inputs.branch }}
+          CLAIM_PR: ${{ inputs.pull_request }}
+          CLAIM_TTL_HOURS: ${{ inputs.ttl_hours }}
+          RESOLUTION_NOTE: ${{ inputs.resolution_note }}
+          DATABASE_URL: ${{ (inputs.operation == 'claim' || inputs.operation == 'inspect' || inputs.operation == 'resolve') && secrets.DATABASE_URL || '' }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 60s node scripts/ci/triage-engine-release-incident.mjs
