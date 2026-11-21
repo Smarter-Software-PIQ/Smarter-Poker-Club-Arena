@@ -31,8 +31,10 @@ This is the task-specific owner instruction CLAUDE.md 10.85 requires for schedul
 ## What Stays Daily (04:00 Only)
 
 - Window migrations (`-- @install-window: daily-maintenance`, `scripts/ci/maintenance-window-migrations.mjs` 03:55-04:05) install only in the 04:00 break. Stage runs the window installer only for the 04:00 preparation.
-- The nightly release schema freeze (23:45-04:15 Chicago, `scripts/ci/merged-migration-dispatch.mjs`), the Backup freeze baseline (`scripts/ci/backup-freeze-baseline.py`), the 03:00 readiness check and the 04:30 missed-cutover page judge the 04:00 anchor only. Daytime cycles use ordinary push certification: the newest certified protected main whose Backup copy equals production.
+- The nightly release schema freeze (23:45-04:15 Chicago, `scripts/ci/merged-migration-dispatch.mjs`), the Backup freeze baseline (`scripts/ci/backup-freeze-baseline.py`), the 03:00 readiness check (`fn_ca_cutover_readiness_watch`) and the 04:30 missed-cutover page (`fn_ca_engine_cutover_watch`) judge the 04:00 anchor only. Daytime cycles use ordinary push certification: the newest certified protected main whose Backup copy equals production.
+- Break scorecard (`fn_ca_record_break_scorecard`, migration `20261020210313`): any cycle across all eight slots that runs and writes `engine_maintenance_break_log` is graded automatically; the `break_never_started` fallback synthesizes an expected end only for the 04:00 anchor (missed daytime cycles are logged on issue #11599 rather than failing synthetic scorecard rows). The legacy ad-hoc `service_role` helper `fn_maintenance_week_report` (migration `20260902120000`, not scheduled by cron) still carries its historical hourly (`24*window_days` / `:55-:59`) framing until a follow-up SQL cleanup updates it.
 - The 04:00-06:00 games-closed daily window (`server/src/maintenance/dailyWindow.ts`) and the lobby day start are unrelated to the engine break and unchanged.
+- Pre-deploy web clients already open in a browser treat `maintenance.schedule.frequency = "three-hourly"` as `"unknown"` until refreshed (`src/utils/maintenanceSchedule.ts`), which suppresses only predictive pre-break copy while active engine break banners continue to render normally.
 
 ## Coexistence With Booked Owner Windows
 

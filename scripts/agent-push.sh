@@ -462,15 +462,34 @@ fi
 HEAD_SHA=$(git rev-parse HEAD)
 
 say "fetching $REMOTE main (the pre-push hook compares against it)"
-owned "${REMOTE_GIT[@]}" fetch "$REMOTE" main
-rc=$?
+rc=0
+for fetch_attempt in 1 2 3; do
+  owned "${REMOTE_GIT[@]}" fetch "$REMOTE" main
+  rc=$?
+  [ "$rc" -eq 0 ] && break
+  [ "$rc" -ge 128 ] && break
+  if [ "$fetch_attempt" -lt 3 ]; then
+    say "git fetch $REMOTE main exited $rc (transient ref lock?); retrying ($fetch_attempt/3)..."
+    sleep 1
+  fi
+done
 if [ "$rc" -ne 0 ]; then
   say "FAILED: git fetch $REMOTE main exited $rc."
   exit "$rc"
 fi
 # A plain `git fetch <remote> main` updates refs/remotes/<remote>/main only
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
-git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
+# Retry briefly if a sibling worktree is updating the same shared remote ref.
+ref_rc=0
+for ref_attempt in 1 2 3; do
+  git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD && { ref_rc=0; break; }
+  ref_rc=$?
+  [ "$ref_attempt" -lt 3 ] && sleep 1
+done
+if [ "$ref_rc" -ne 0 ]; then
+  say "FAILED: git update-ref refs/remotes/$REMOTE/main exited $ref_rc."
+  exit "$ref_rc"
+fi
 
 # A repeated request for the exact already-pushed source needs no new push or
 # hook execution. Read back the remote outcome first; never infer it from a

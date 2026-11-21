@@ -1,4 +1,5 @@
 import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { withoutValueSizeStamp } from '../engine/HorseOmahaValueSizeBand.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
@@ -734,6 +735,21 @@ export class LightningHandHost {
     return [...this.participants.keys()];
   }
 
+  /**
+   * Read-only identification of horse participants holding chips in this hand
+   * (CLAUDE.md 10.5: counts, decides nothing, zero side effects). Used by
+   * `GameServer.getPrometheusMetrics()` for `poker_horses_seated`.
+   */
+  seatedHorseParticipants(): Array<{ playerId: string; poolSessionId: string }> {
+    const out: Array<{ playerId: string; poolSessionId: string }> = [];
+    for (const p of this.participants.values()) {
+      if (p.isHorse === true && p.stackBefore > 0) {
+        out.push({ playerId: p.playerId, poolSessionId: p.poolSessionId });
+      }
+    }
+    return out;
+  }
+
   // ─── LIFECYCLE ──────────────────────────────────────────────────────────
 
   /** Deal the hand. Never throws; any failure abandons the instance. */
@@ -829,6 +845,14 @@ export class LightningHandHost {
       }
       this.rules = await rulesP;
       timing.mark('rules');
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): a Lightning hand is a new table: every participant's lifetime
+      // profile is warmed for every Horse dealt here, before the deal (fire and forget; PLO4/PLO5 only).
+      warmOpponentHudSeats(
+        [...this.participants.keys()],
+        this.rules?.game_variant,
+        false,
+        'lightning'
+      );
       const variantRefusal = this.checkVariant(this.rules);
       if (variantRefusal) {
         outcome = variantRefusal;

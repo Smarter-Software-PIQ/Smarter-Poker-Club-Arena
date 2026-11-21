@@ -1,0 +1,11 @@
+{
+  "_owner": "agent/release13-01Gw7aDu/list-train. Migration 20261120223000_opponent_hud_profiles creates the table and its four service-role functions; installed through apply-merged-migration after merge.",
+  "tables": ["opponent_hud_profiles"],
+  "functions": [
+    "fn_opponent_hud_hands_page",
+    "fn_opponent_hud_profiles_read",
+    "fn_opponent_hud_profiles_recent",
+    "fn_opponent_hud_profiles_upsert"
+  ],
+  "columns": {}
+}

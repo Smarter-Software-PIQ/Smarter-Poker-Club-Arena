@@ -110,6 +110,9 @@ const RECEIPT_ONLY_FILES = [
   'engine/horseDecision/ownPublicHistory.ts',
   'services/HorseExactOpponentMemory.ts',
   'services/HorseExploitHydrator.ts',
+  // OPPONENT HUD (2026-11-20, default off): the accessor counts its reads; the store counts its loads and deadline.
+  'engine/opponentHud/OpponentHud.ts',
+  'services/OpponentHudStore.ts',
   'lightning/LightningHandHost.ts',
   'lightning/LightningHorse.ts',
   // Upgrade evidence (2026-11-12): side-game answers and fast-window reads
