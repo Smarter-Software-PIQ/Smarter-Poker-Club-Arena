@@ -82,6 +82,13 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_hu_commit_under_pot', 'hu_commit_under_pot'],
 ];
 
+/** Human-field cards with no mirror twin and no persona: a PROCESS switch that a mirror card cannot split
+ *  (HorseLeague.refuseMirrorProcessSwitchSplit), so it has no mirror to twin. 2026-11-21:
+ *  styleShiftReleaseIsNoiseAware (docs/horse-option-authority.d/styleShiftReleaseIsNoiseAware.md). */
+const EXPECTED_PROCESS_SWITCH_CARDS: Array<[string, Record<string, boolean>]> = [
+  ['human_nlh_style_release_noise_aware', { styleShiftReleaseIsNoiseAware: true }],
+];
+
 /** Human-field cards with no mirror twin: the heads-up exploiter cards
  *  (2026-11-12, HU-NLH-001). No Horse plays these lines, so there is no
  *  mirror to twin; each card names its persona. */
@@ -286,7 +293,17 @@ describe(
   () => {
     it('each human card is the human twin of a mirror card: same arms, NLH, named human_*', () => {
       const personaNames = new Set(EXPECTED_PERSONA_CARDS.map(([n]) => n));
-      const cards = humanCards().filter((m) => !personaNames.has(m.name));
+      const processSwitchNames = new Set(EXPECTED_PROCESS_SWITCH_CARDS.map(([n]) => n));
+      for (const [name, a] of EXPECTED_PROCESS_SWITCH_CARDS) {
+        const c = LEAGUE_MATCHUPS.find((m) => m.name === name);
+        expect(c, `${name} left the card`).toBeDefined();
+        expect(c!.a).toEqual(a);
+        expect(c!.b).toEqual({});
+        expect(c!.humanPersona).toBeUndefined();
+      }
+      const cards = humanCards().filter(
+        (m) => !personaNames.has(m.name) && !processSwitchNames.has(m.name)
+      );
       expect(cards.map((m) => m.name)).toEqual(EXPECTED_HUMAN_CARDS.map(([n]) => n));
       for (const [name, persona] of EXPECTED_PERSONA_CARDS) {
         const c = LEAGUE_MATCHUPS.find((m) => m.name === name);
