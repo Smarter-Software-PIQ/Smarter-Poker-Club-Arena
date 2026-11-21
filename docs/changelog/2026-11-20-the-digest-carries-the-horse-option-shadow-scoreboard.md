@@ -14,3 +14,8 @@ when a lane remembered to run it.
 - Proof: `scripts/ci/test-horse-option-shadow-scoreboard-postgres.py` on a throwaway PostgreSQL 17 (13 checks),
   workflow `the-digest-carries-the-horse-option-shadow-scoreboard.yml`. The function body was also run read-only
   against production (empty today: no option is in shadow yet).
+- Re-timed 2026-11-21: the migration is now `20261121175912_horse_option_shadow_scoreboard_in_the_daily_digest.sql`
+  (was `20261121002048`), reserved by `scripts/reserve-migration-version.sh`. `Migration Ledger Is Reconciled`
+  fails main when a merged migration whose version is older than 24 h is not installed, and this branch is held.
+  Content unchanged; `fn_sp_daily_digest` is edited by an anchor on its live definition, and its last change on
+  main (`20261120000047`) predates the branch, so nothing from main is overwritten.

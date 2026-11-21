@@ -1,7 +1,9 @@
--- 20261121002048_horse_option_shadow_scoreboard_in_the_daily_digest.sql
+-- 20261121175912_horse_option_shadow_scoreboard_in_the_daily_digest.sql
 --
--- Version reserved by scripts/new-migration.mjs against origin/main and every
--- remote branch, so it cannot collide with another agent's in-flight work.
+-- Version re-reserved 2026-11-21 17:59 UTC by scripts/reserve-migration-version.sh (was 20261121002048).
+-- The ledger law (.github/workflows/migration-ledger-reconciled.yml, check-migrations-are-live.mjs
+-- --min-age-hours 24) fails main once a merged file whose VERSION is over 24 h old is not installed; this
+-- branch is held, so the old stamp would have aged past that before install. Content unchanged.
 --
 -- ============================================================================
 -- THE DAILY DIGEST CARRIES THE HORSE OPTION SHADOW SCOREBOARD
