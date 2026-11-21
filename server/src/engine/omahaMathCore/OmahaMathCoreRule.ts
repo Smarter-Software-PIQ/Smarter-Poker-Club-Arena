@@ -34,7 +34,7 @@ const ACTS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
 /**
  * Per-street admission (lead decision 2026-11-19 10:55 PM: the core ships street by street). With omahaMathCore
  * on, the core OWNS a postflop decision only on a street whose flag is on for that game; on every other street it
- * still computes and writes its receipt (shadow) and today's action stands. Default all OFF (read === true).
+ * does no work at all (no receipt; OmahaMathCoreOffScopeNoWork) and today's action stands. Default all OFF (read === true).
  */
 export const OMAHA_MATH_CORE_STREET_FLAGS = {
   plo4: {
