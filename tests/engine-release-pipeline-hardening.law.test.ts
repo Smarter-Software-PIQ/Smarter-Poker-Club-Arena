@@ -15,6 +15,7 @@ import { parse } from 'yaml';
 import {
   buildReleaseFailureAlert,
   buildReleaseResolvedAlerts,
+  shippedSibling,
 } from '../scripts/ci/record-engine-release-alert.mjs';
 
 /**
@@ -118,6 +119,29 @@ assert_candidate_container_alive
     expect(failed!.labels.alertname).toBe('EngineReleaseFailed');
     expect(failed!.labels.severity).toBe('critical');
     expect(failed!.annotations.description).toContain('candidate container exited');
+  });
+
+  it('incident 484c4cee: a failed redelivery of a SHA another run already shipped raises nothing', () => {
+    const sha = 'e2140d2d1581daaf84857d98e671f2be832162c6';
+    const alert = buildReleaseFailureAlert({
+      SHIPPED: 'false',
+      RELEASE_RESULT: 'not completed',
+      TARGET_SHA: sha,
+      RUN_ID: '44841264851-1',
+      EXIT_STAGE: 'prepare',
+    });
+    const receipts = [
+      { run_id: '44841245126-1', target_sha: sha, shipped: true },
+      { run_id: '44841264851-1', target_sha: sha, shipped: false },
+    ];
+    expect(shippedSibling(alert, receipts)).toBe('44841245126-1');
+    expect(
+      shippedSibling(alert, [{ run_id: '1-1', target_sha: 'f'.repeat(40), shipped: true }])
+    ).toBeNull();
+    expect(
+      shippedSibling(alert, [{ run_id: '44841264851-1', target_sha: sha, shipped: true }])
+    ).toBeNull();
+    expect(shippedSibling(null, receipts)).toBeNull();
   });
 
   it('hardens backup-engine.yml so unrelated pushes never cancel a pending certification', () => {
@@ -385,7 +409,10 @@ exit 0
 `
         );
         chmodSync(join(bin, 'git'), 0o755);
-        writeFileSync(join(stage, 'server/scripts/engine-release-activation-floor.py'), 'print("{}")\n');
+        writeFileSync(
+          join(stage, 'server/scripts/engine-release-activation-floor.py'),
+          'print("{}")\n'
+        );
         writeFileSync(
           join(stage, 'server/scripts/prewarm-engine-image.sh'),
           `#!/usr/bin/env bash\ntouch '${prewarmMarker}'\n`
@@ -516,7 +543,11 @@ exit 0
       [
         {
           fingerprint: 'engine-release-failed:44841264851-1',
-          labels: { alertname: 'EngineReleaseFailed', severity: 'critical', run_id: '44841264851-1' },
+          labels: {
+            alertname: 'EngineReleaseFailed',
+            severity: 'critical',
+            run_id: '44841264851-1',
+          },
           starts_at: '2026-11-21T00:19:02.000Z',
         },
         {
