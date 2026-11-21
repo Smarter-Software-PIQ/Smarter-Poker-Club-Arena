@@ -106,6 +106,22 @@ def owner_selection_policy(target, control, owner_id, cutoff):
     return floor
 
 
+THREE_HOURLY_START_HOURS = (1, 4, 7, 10, 13, 16, 19, 22)
+
+
+def cycle_identity(cutoff):
+    """The selection identity of the cycle 30 minutes after `cutoff`: its Chicago
+    date for the 04:00 anchor, `YYYY-MM-DDTHH` for another three-hourly cycle
+    (owner order 2026-11-21). The repeated fall-back hour is one cycle, the first."""
+    zone = ZoneInfo("America/Chicago")
+    start = cutoff + 1800
+    chicago = datetime.fromtimestamp(start, zone)
+    require(type(cutoff) is int and start % 3600 == 0 and chicago.minute == 0 and chicago.second == 0
+            and chicago.hour in THREE_HOURLY_START_HOURS
+            and datetime.fromtimestamp(start - 3600, zone).hour != chicago.hour, "invalid selection cutoff")
+    return chicago.date().isoformat() if chicago.hour == 4 else chicago.strftime("%Y-%m-%dT%H")
+
+
 def selection_cutoff(repo, rid):
     require(re.fullmatch(r"[1-9][0-9]{0,19}", rid or ""), "invalid selection run id")
     run = api(f"repos/{repo}/actions/runs/{rid}")
@@ -164,9 +180,7 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
         require(started.utcoffset() is not None and completed.utcoffset() is not None
                 and cutoff <= started.timestamp() <= completed.timestamp() < cutoff + 1200,
                 "selection did not execute inside its reserved preparation window")
-        chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
-        require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
-        name = "daily-engine-selection-" + chicago.date().isoformat()
+        name = "daily-engine-selection-" + cycle_identity(cutoff)
     listing = api(f"repos/{repo}/actions/runs/{rid}/artifacts?name={name}&per_page=2")
     require(listing["total_count"] == len(listing["artifacts"]) == 1, "unique selection artifact absent")
     artifact = listing["artifacts"][0]

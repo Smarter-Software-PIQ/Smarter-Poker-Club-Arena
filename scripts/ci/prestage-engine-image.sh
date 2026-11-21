@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
 # Receive one isolated transport tag and prove its exact image configuration. This path has no runtime or release action.
 set -euo pipefail
-sha=$1 config=$2 tree=$3 size=$4 transport=$5
+sha=$1 config=$2 tree=$3 size=$4 transport=$5 hours=$6
+# The target's protected policy names its cycle hours (the sender reads it with
+# `engine-release-seal.py schedule-policy`, as the receiver gate does): the
+# daily route closes 03:30-04:05 only; three-hourly closes every cycle.
+[[ "$hours" = 4 || "$hours" = 1,4,7,10,13,16,19,22 ]]
 [[ "$transport" =~ ^club-arena-prestage:[1-9][0-9]*-[1-9][0-9]*$ ]]
 [[ "$size" =~ ^[1-9][0-9]{0,10}$ ]]
 [[ "$sha" =~ ^[0-9a-f]{40}$ && "$config" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
-deadline="$(python3 - <<'PY'
-from datetime import datetime, timedelta
+deadline="$(START_HOURS="$hours" python3 - <<'PY'
+import os, time
+from datetime import datetime
 from zoneinfo import ZoneInfo
-now = datetime.now(ZoneInfo("America/Chicago"))
-cutoff = now.replace(hour=3, minute=30, second=0, microsecond=0)
-if now >= cutoff:
-    if now < now.replace(hour=4, minute=5, second=0, microsecond=0):
+# Closed from each scheduled cycle's preparation cutoff (start - 30 min) to its
+# end (start + 5 min), for the cycles the TARGET's policy names: every
+# three-hourly cycle 01/04/07/10/13/16/19/22 Chicago (owner order 2026-11-21),
+# or only 03:30-04:05 for the daily 04:00 anchor. Real epoch hours; the
+# repeated fall-back hour is one cycle (the first).
+zone = ZoneInfo("America/Chicago")
+hours = (1, 4, 7, 10, 13, 16, 19, 22) if os.environ["START_HOURS"] != "4" else (4,)
+now = int(time.time())
+starts = [h for h in ((now // 3600 + k) * 3600 for k in range(-1, 25))
+          if datetime.fromtimestamp(h, zone).hour in hours
+          and datetime.fromtimestamp(h - 3600, zone).hour != datetime.fromtimestamp(h, zone).hour]
+for start in starts:
+    if start - 1800 <= now < start + 300:
         raise SystemExit("production preparation window is closed")
-    cutoff += timedelta(days=1)
-print(min(int(now.timestamp()) + 600, int(cutoff.timestamp()) - 10))
+cutoff = min(start - 1800 for start in starts if start - 1800 > now)
+print(min(now + 600, cutoff - 10))
 PY
 )"
 (( deadline > $(date +%s) ))

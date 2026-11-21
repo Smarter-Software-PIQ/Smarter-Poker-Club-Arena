@@ -18,29 +18,30 @@ Receipt `fixed_limit_river_strong_hand_lead`. Law `server/src/engine/AFixedLimit
 
 League figures are arm A (option on) minus arm B (off) in bb/100 +/- standard error, big blinds (a fixed-limit big blind is the small bet), one hero Horse on the live cash Hybrid persona against the scripted field `flh_scripted_field_v1` (`server/src/benchmark/FixedLimitScriptedField.ts`), run with `npx tsx src/scripts/horseLeagueCard.ts` from server/ with empty solver stores. Significant means |bb/100| > 2 standard errors. Every run listed had 0 illegal actions, 0 truncated streets and 0 brain exception fallbacks.
 
-| Field | Seats | Seed | Pairs | Diverged | bb/100 |
-| --- | --- | --- | --- | --- | --- |
-| Horse mirror | 2 and 6 | 20261115 | 300 each | 0 | 0 |
-| Production personas mirror | 6 | 20261120 | 300 | 1 | +0.11 +/- 0.11 |
-| `flh_maniac_v1` | 6 and 2 | 20261115 | 3,000 each | 0 | 0 |
-| `flh_tight_value_v1` | 6 | 20261115 | 3,000 | 0 | 0 |
-| `flh_passive_caller_v1` | 2 | 20261120 | 20,000 | 1 | -0.01 +/- 0.01, not resolved |
-| `flh_passive_caller_v1` | 2 | 20261121 | 20,000 | 0 | INERT |
-| `flh_passive_caller_v1` (development probe) | 2 | 20261115 | 10,000 | 2 | 0.00 +/- 0.03 |
-| `flh_passive_caller_v1` (development probe) | 6 | 20261115 | 4,000 | 0 | INERT |
+| Field                                       | Seats   | Seed     | Pairs      | Diverged | bb/100                       |
+| ------------------------------------------- | ------- | -------- | ---------- | -------- | ---------------------------- |
+| Horse mirror                                | 2 and 6 | 20261115 | 300 each   | 0        | 0                            |
+| Production personas mirror                  | 6       | 20261120 | 300        | 1        | +0.11 +/- 0.11               |
+| `flh_maniac_v1`                             | 6 and 2 | 20261115 | 3,000 each | 0        | 0                            |
+| `flh_tight_value_v1`                        | 6       | 20261115 | 3,000      | 0        | 0                            |
+| `flh_passive_caller_v1`                     | 2       | 20261120 | 20,000     | 1        | -0.01 +/- 0.01, not resolved |
+| `flh_passive_caller_v1`                     | 2       | 20261121 | 20,000     | 0        | INERT                        |
+| `flh_passive_caller_v1` (development probe) | 2       | 20261115 | 10,000     | 2        | 0.00 +/- 0.03                |
+| `flh_passive_caller_v1` (development probe) | 6       | 20261115 | 4,000      | 0        | INERT                        |
 
 The passive-caller rows were measured on 2026-11-21 with a card `flh_river_strong_hand_leads_vs_passive_caller` (heads-up, arm A the option on) that was on the league card only for the measurement and is not kept: one changed pair in 20,000 reads inert on a nightly run. The two development probes sized the run and are reported for completeness. The earlier rows are from `docs/horse-league-fixed-limit.md`.
 
 - Mechanism: MET by the law's fixtures.
 - Value: NOT MEASURED. Why a Horse so rarely reaches the gate against a passive caller was not measured; the lane's census (a first-to-act Horse checking a full house or better 31 to 58 percent of the time, cited in `HorseFixedLimitRiverLead.ts`) is of Horse-only tables and its archive is outside this repository.
 - Reach against people: NOT MEASURED.
+- Horse mirror after the league memory fix (re-run 2026-11-21, seed 20261120, arm A the option on, 0 illegal actions, 0 truncated streets, 0 fallbacks): six seats, Hybrid cash with the deal-seeded mood clock, 2,000 pairs: 7 diverged, -0.01 +/- 0.06 bb/100; production personas, 600 pairs: 2 diverged, -0.06 +/- 0.12. Neither is significant.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 
 ## What is still owed before this file may say the evidence is met
 
 1. A field in which the option acts at a measurable rate, or a count from recorded fixed-limit hands of how often the gate is reached with the reference checking (Reach). Without one of them there is nothing to price.
 2. The Value row: three opponent ranges, one value-only, with a per-node table.
-3. An audited fixed-limit-versus-people decision set. None is named in this repository, so no Replay row can be written by the committed scorer (`server/scripts/audited-decision-replay.ts`) for a fixed-limit option until a set of recorded fixed-limit decisions against people is extracted and audited.
+3. An audited fixed-limit-versus-people decision set. None is named in this repository, so no Replay row can be written by the committed scorer (`server/scripts/audited-decision-replay.ts`) for a fixed-limit option until a set of recorded fixed-limit decisions against people is extracted and audited. Counted read-only on 2026-11-21 at 15:10 UTC (production `hand_history`, `has_human`, every hand a person was dealt into; hands with a person are kept forever, so this is every such hand ever recorded): flh 0 hands; flo8 107 hands, all at one table between 2026-11-03 02:40 and 03:53 UTC, one person and five Horses. Against 230,155 flh and 81,351 flo8 Horse-only hands retained at the same moment. So no fixed-limit hold'em set against people can be extracted at all, and a fixed-limit Omaha hi-lo set would be 107 hands of a single person.
 4. A PASS-BAR for that replay, declared here before it runs, then its run rows under "Replay".
 5. An order to activate, recorded verbatim above.
 

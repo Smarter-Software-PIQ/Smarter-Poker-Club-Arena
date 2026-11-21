@@ -61,7 +61,11 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     // 3. Daily restoration transition when phase1Status becomes complete or off
     expect(SEAL_PY).toContain('def cmd_restoration_needed(');
     expect(SEAL_PY).toContain("c.get('kind') not in ('hourly-reset', 'daily-restoration')");
-    expect(SCHEDULE_POLICY.schema).toBe('engine-maintenance-schedule/v1');
+    // v2 since 2026-11-21 (three-hourly cutovers); Phase1 stays off in it.
+    expect(SCHEDULE_POLICY.schema).toBe('engine-maintenance-schedule/v2');
+    expect(SEAL_PY).toContain(
+      "if isinstance(p, dict) and p.get('schema') == 'engine-maintenance-schedule/v2':"
+    );
     expect(['active', 'complete', 'off']).toContain(SCHEDULE_POLICY.phase1Status);
   });
 

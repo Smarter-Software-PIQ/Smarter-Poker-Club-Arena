@@ -2403,6 +2403,42 @@ export function omahaMathCoreGate(
 }
 
 /**
+ * The math core's admission flags the worker may have run this decision with (lane CORE-AUDIT, Nov 21): each of
+ * omahaMathCorePreflop and the six street flags is on when the request's own option is on or the delivered switch
+ * row (or the one before it while it still counts) turns it on, exactly as omahaMathCoreGate reads omahaMathCore.
+ * The worker-failure doors use it so the core's recovery acts only on a street the core owns.
+ */
+export const OMAHA_MATH_CORE_ADMISSION_FLAGS = [
+  'omahaMathCorePreflop',
+  'omahaMathCorePlo4Flop',
+  'omahaMathCorePlo4Turn',
+  'omahaMathCorePlo4River',
+  'omahaMathCorePlo5Flop',
+  'omahaMathCorePlo5Turn',
+  'omahaMathCorePlo5River',
+] as const;
+export function omahaMathCoreAdmissionGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): Record<(typeof OMAHA_MATH_CORE_ADMISSION_FLAGS)[number], boolean> {
+  const fromConfig = (config: unknown): Readonly<Record<string, boolean>> => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states) : {};
+    } catch {
+      return {};
+    }
+  };
+  const current = fromConfig(switchConfig);
+  const previous = previousSwitchConfig !== undefined ? fromConfig(previousSwitchConfig) : {};
+  const out = {} as Record<(typeof OMAHA_MATH_CORE_ADMISSION_FLAGS)[number], boolean>;
+  for (const flag of OMAHA_MATH_CORE_ADMISSION_FLAGS)
+    out[flag] = requestOpts?.[flag] === true || current[flag] === true || previous[flag] === true;
+  return out;
+}
+
+/**
  * The omahaBluffIsPricedAgainstTheTarget values the worker may have run this decision with, built
  * exactly as omahaPricedInLightningGateCandidates: the live switch row this client last delivered,
  * then the request's own option when it differs, then the configuration delivered before the last

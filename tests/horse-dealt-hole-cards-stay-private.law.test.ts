@@ -111,6 +111,8 @@ describe("LAW: a Horse's dealt hole cards are kept and never reach a player", ()
         'scripts/ci/accounting-harness-reads.json',
         'scripts/ci/schema-manifest.d/horse-dealt-hole-cards.json',
         'scripts/ci/test-horse-dealt-hole-cards.py',
+        // the offline audit CLI (Horse Decisions daily grade): read-only management route, aggregates only
+        'server/scripts/horse-daily-decision-grade.ts',
         'server/src/services/supabase/handFacts.ts',
         'tests/horse-dealt-hole-cards-stay-private.law.test.ts',
       ].sort()
@@ -119,6 +121,14 @@ describe("LAW: a Horse's dealt hole cards are kept and never reach a player", ()
     const facts = readFileSync(resolve(ROOT, 'server/src/services/supabase/handFacts.ts'), 'utf8');
     expect(facts).not.toMatch(/from\(['"`][^'"`]*horse_dealt_hole_cards/);
     expect(facts).not.toMatch(/rpc\(['"`][^'"`]*horse_dealt_hole_cards/);
+    // The audit CLI reads it only through the read-only management route, never a client or supabase-js read.
+    const audit = readFileSync(
+      resolve(ROOT, 'server/scripts/horse-daily-decision-grade.ts'),
+      'utf8'
+    );
+    expect(audit).toContain('read_only: true');
+    expect(audit).not.toMatch(/\.from\(['"`][^'"`]*horse_dealt_hole_cards/);
+    expect(audit).not.toMatch(/createClient|@supabase\/supabase-js/);
   });
 
   it('keeps the table service-role only: RLS, no policy, no client grant, no view or publication', () => {

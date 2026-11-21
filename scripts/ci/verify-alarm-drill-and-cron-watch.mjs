@@ -26,12 +26,13 @@ import { supabaseServerHeaders } from './supabase-auth-headers.mjs';
 export const WATCHED_GUARD_FUNCTIONS = [
   'public.fn_ca_alarm_drill',
   'public.fn_ca_cron_failure_watch',
+  'public.fn_ca_cron_health',
 ];
 
 /**
  * Strip SQL comments and collapse whitespace so comment-only formatting
  * differences never cause false drift alerts while any semantic SQL change
- * produces a different SHA-256 fingerprint.
+ * produces a different fingerprint.
  */
 export function normalizeSqlBody(body) {
   return String(body)
@@ -43,6 +44,10 @@ export function normalizeSqlBody(body) {
 
 export function sqlBodyHash(body) {
   return createHash('sha256').update(normalizeSqlBody(body)).digest('hex');
+}
+
+export function sqlBodyMd5(body) {
+  return createHash('md5').update(normalizeSqlBody(body)).digest('hex');
 }
 
 /**

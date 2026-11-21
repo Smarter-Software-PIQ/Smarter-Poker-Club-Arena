@@ -10,8 +10,26 @@
  * Best-effort: exits 0 with a warning if the alert DB call fails, so it never
  * masks the authoritative receipt verdict.
  */
+import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+
+const SHA_RE = /^[0-9a-f]{40}$/;
+
+function gitIsAncestor(ancestor, descendant) {
+  if (!SHA_RE.test(String(ancestor || '')) || !SHA_RE.test(String(descendant || ''))) {
+    return false;
+  }
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+      stdio: 'ignore',
+      timeout: 5_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function buildReleaseFailureAlert(env) {
   const shipped = (env.SHIPPED || '').trim() === 'true';
@@ -64,6 +82,91 @@ export function buildReleaseFailureAlert(env) {
   };
 }
 
+/**
+ * A REDELIVERY OF A SHIPPED SHA IS NOT A FAILED RELEASE (incident 484c4cee,
+ * 2026-11-21). Run 44841264851 failed at prepare at 00:19 UTC for e2140d2d,
+ * which sibling run 44841245126 had sealed and verified at 00:10, and paged a
+ * critical incident about an engine that was serving. Before raising, the
+ * append-only ca_engine_deploy_attempts receipts are read: when another run
+ * already shipped this exact SHA, nothing is raised and the shipped run is
+ * named. Returns that run, or null.
+ */
+export function shippedSibling(alert, receipts, isAncestor) {
+  if (!alert) return null;
+  const sha = alert.labels.target_sha;
+  const run = alert.labels.run_id;
+  const rows = Array.isArray(receipts) ? receipts : [];
+  const exact = rows.find((r) => r && r.shipped === true && r.target_sha === sha && r.run_id !== run);
+  if (exact) return exact.run_id;
+  if (typeof isAncestor === 'function' && SHA_RE.test(String(sha || ''))) {
+    const newer = rows.find(
+      (r) =>
+        r &&
+        r.shipped === true &&
+        r.run_id !== run &&
+        typeof r.target_sha === 'string' &&
+        SHA_RE.test(r.target_sha) &&
+        isAncestor(sha, r.target_sha) === true
+    );
+    if (newer) return newer.run_id;
+  }
+  return null;
+}
+
+export function buildReleaseResolvedAlerts(env, openRows = []) {
+  const shipped = (env.SHIPPED || '').trim() === 'true';
+  const superseded = (env.RELEASE_RESULT || '').trim() === 'superseded';
+  const verified = (env.VERIFIED || '').trim() === 'true';
+  if ((!shipped && !superseded) || !verified || !Array.isArray(openRows) || openRows.length === 0) {
+    return [];
+  }
+
+  const runId = (env.RUN_ID || 'unknown').trim().slice(0, 120) || 'unknown';
+  const targetSha = (env.TARGET_SHA || 'unknown').trim().slice(0, 64) || 'unknown';
+  const shortSha = targetSha.slice(0, 8);
+  const releaseResult = (env.RELEASE_RESULT || 'sealed').trim().slice(0, 64) || 'sealed';
+  const nowIso = new Date().toISOString();
+
+  const seen = new Set();
+  const resolved = [];
+  for (const row of openRows) {
+    const fp = typeof row?.fingerprint === 'string' ? row.fingerprint.trim() : '';
+    if (!fp || seen.has(fp)) continue;
+    seen.add(fp);
+    const prevLabels = row?.labels && typeof row.labels === 'object' ? row.labels : {};
+    const startsAt =
+      typeof row?.starts_at === 'string' && row.starts_at.trim()
+        ? row.starts_at.trim()
+        : row?.starts_at instanceof Date
+          ? row.starts_at.toISOString()
+          : nowIso;
+    resolved.push({
+      status: 'resolved',
+      fingerprint: fp,
+      startsAt,
+      endsAt: nowIso,
+      labels: {
+        ...prevLabels,
+        alertname: 'EngineReleaseFailed',
+        severity: prevLabels.severity || 'critical',
+        component: 'engine-release',
+        resolved_by_run_id: runId,
+        resolved_by_sha: targetSha,
+      },
+      annotations: {
+        summary: `Engine release ${shortSha} verified live (run ${runId}, ${releaseResult})`,
+        description:
+          `Resolved prior EngineReleaseFailed (${fp}) after verified production ship of ${targetSha} in run ${runId} (${releaseResult}).`.slice(
+            0,
+            2000
+          ),
+      },
+    });
+    if (resolved.length >= 25) break;
+  }
+  return resolved;
+}
+
 function warn(message) {
   console.log(`::warning title=RELEASE FAILURE ALERT NOT RECORDED::${message}`);
   process.exit(0);
@@ -71,8 +174,13 @@ function warn(message) {
 
 async function main() {
   const alert = buildReleaseFailureAlert(process.env);
-  if (!alert) {
-    console.log('engine release shipped or cleanly superseded; no failure alert required.');
+  const shipped = (process.env.SHIPPED || '').trim() === 'true';
+  const superseded = (process.env.RELEASE_RESULT || '').trim() === 'superseded';
+  const verified = (process.env.VERIFIED || '').trim() === 'true';
+  const shouldResolve = !alert && (shipped || superseded) && verified;
+
+  if (!alert && !shouldResolve) {
+    console.log('engine release cleanly superseded; no alert update required.');
     return;
   }
 
@@ -93,12 +201,52 @@ async function main() {
   });
   try {
     await client.connect();
+    if (alert) {
+      const receipts = await client.query(
+        'SELECT run_id, target_sha, shipped FROM public.ca_engine_deploy_attempts WHERE shipped ORDER BY at DESC LIMIT 25'
+      );
+      const sibling = shippedSibling(alert, receipts.rows, gitIsAncestor);
+      if (sibling) {
+        console.log(
+          `engine release ${alert.labels.target_sha} was already shipped or superseded by run ${sibling}; no failure alert raised.`
+        );
+        return;
+      }
+      const { rows } = await client.query(
+        'SELECT public.fn_record_engine_alerts($1::jsonb) AS receipts',
+        [JSON.stringify([alert])]
+      );
+      console.log(
+        `engine release failure alert recorded: ${alert.fingerprint} receipts=${JSON.stringify(rows[0]?.receipts ?? [])}`
+      );
+      return;
+    }
+
+    const { rows: openRows } = await client.query(
+      `SELECT latest.fingerprint, latest.labels, latest.starts_at
+         FROM (
+           SELECT DISTINCT ON (fingerprint) fingerprint, status, labels, starts_at, created_at
+             FROM public.engine_alerts
+            WHERE alertname = 'EngineReleaseFailed'
+              AND component = 'engine-release'
+              AND created_at >= now() - interval '14 days'
+            ORDER BY fingerprint, created_at DESC, id DESC
+         ) latest
+        WHERE latest.status = 'firing'
+        ORDER BY latest.created_at DESC
+        LIMIT 25`
+    );
+    const resolvedAlerts = buildReleaseResolvedAlerts(process.env, openRows);
+    if (resolvedAlerts.length === 0) {
+      console.log('engine release verified live; no open EngineReleaseFailed alerts to resolve.');
+      return;
+    }
     const { rows } = await client.query(
       'SELECT public.fn_record_engine_alerts($1::jsonb) AS receipts',
-      [JSON.stringify([alert])]
+      [JSON.stringify(resolvedAlerts)]
     );
     console.log(
-      `engine release failure alert recorded: ${alert.fingerprint} receipts=${JSON.stringify(rows[0]?.receipts ?? [])}`
+      `engine release failure alerts auto-resolved (${resolvedAlerts.length}): receipts=${JSON.stringify(rows[0]?.receipts ?? [])}`
     );
   } catch (err) {
     warn(`${err?.message || err}`);

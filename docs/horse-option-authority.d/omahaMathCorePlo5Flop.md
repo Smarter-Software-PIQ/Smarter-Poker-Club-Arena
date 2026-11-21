@@ -1,0 +1,35 @@
+# omahaMathCorePlo5Flop: authority for the live switch
+
+Lanes COREWIRE-2 / CORE-POOLED-2 / CORE-POOLED-3, 2026-11-21 (PLO-OWNER lead-2, session 01UxDLnLPjcC14fSouoKnY5C). Evidence NOT MET: the option stays OFF (read `=== true`, no switch row). It acts only with `omahaMathCore` on (its companion) and only on PLO5 cash flop decisions. It is not switched on, shadow-staged or trialled until the core follow-up (latency, off-scope no-work, shadow-stage entry, worker warm-up) is merged and serving and VERIFIER re-measures on the serving build, the realization factors are re-measured on the shipped tree (CORE-AUDIT gap 4), and the declared grade CRITERIA-CORE-POOLED-2-SYM2 passes.
+
+## What it does
+
+With `omahaMathCore` on, the math core owns PLO5 cash flop decisions (table and Lightning; high only, one board, pot limit; never PLO4, PLO6, a tournament or a bomb pot): the action is the expected-value maximum over the legal actions, from public information and the hero's own cards only (see `omahaMathCore.md`). On any other street or game the core does no work for this flag (law `OmahaMathCoreOffScopeNoWork.law.test.ts`). Facing a wager with a call available it never folds the exact current nuts.
+
+## Shadow stage
+
+Listed in `OPTION_SHADOW_STAGE` (PLO5 flop, companion `omahaMathCore`): with a `shadow` row the staged re-decision runs after the answer is sent and never changes the acted decision. Inert until the registry gives the option `shadow` (its release default is still decided by code; a release-default-off classification with its switch-list migration comes first).
+
+## Receipts
+
+`decision.omahaMathCore` (core receipt: chosen action and amount, incoming decision as record, equity, prices, ranges, nut floor, timings).
+
+## Tests
+
+`OmahaMathCore.test.ts`, `OmahaMathCoreAcceptance.law.test.ts`, `OmahaMathCoreNutsEveryStreet.law.test.ts`, `OmahaMathCoreOffScopeNoWork.law.test.ts`, `OmahaMathCoreEvalMemo.law.test.ts`, `OmahaMathCoreEvalTable.law.test.ts`, `OmahaMathCoreEvalTwoPlusThree.law.test.ts`, `aStagedMathCoreFlopReDecidesOnlyPlo5Flop.test.ts`, the shadow stage law and the worker warm-up law.
+
+## Latency
+
+CRITERIA-CORE-POOLED-2-LATENCY as amended (CRITERIA-CORE-POOLED-3-LATENCY-AMEND, sha256 478264f0...31a5), head cc5240bce34, load 16.4: PLO5 flop added p50 11.5 / p95 26.5 / max 36.4 ms (met); cold 108.0 ms (met); decide over 100 ms 0 of 144 (met); decisions identical (met); off-scope p95 not resolvable by the harness (both-off control 3.7 ms); lead ruling: zero off-scope work proven structurally by the law, timing kept as a record. Those reps reuse the core's hand-street cache: on first encounter (as live) the PLO5 flop re-decision measured p50 ~23-25 ms, p95 30-54 ms at load 15-17.
+
+## Replay
+
+- Replay: NOT RUN (the audited replay scorer has no PLO5 cash flop audit set with person-live decisions; the exact journal replay grade is CRITERIA-CORE-POOLED-2-SYM2, waiting for at least five persons)
+
+## Evidence rows
+
+- Mechanism, scope, receipts, law tests, byte-identical off: MET.
+- Value against people: NOT MET (CRITERIA-CORE-POOLED-2-SYM grade INSUFFICIENT: 11 person-live changes, 2 persons; SYM2 not yet replayable).
+- Realization factors: measured from hand_history on the FULL window (lane CORE-POOLED-4's rule, CRITERIA-CORE-POOLED-4-REALIZATION-AMENDMENT sha256 d7fbd6c8...1c79, applied once by CRITERIA-CORE-POOLED-4-REALIZATION-CONFIRMATION sha256 0eb833be...0d44; placement note sha256 57bd475c...7e50; lanes CORE-POOLED-5/6/7): every PLO5 cash hand with a flop Oct 16 - Nov 17 (571,358 decisions), check set Nov 18-21 (54,086): ADOPT. check 0.6263, call 0.8979, bet 0.9075; raise fails pooled stability (z 2.08) and takes the pooled 0.8184. A call facing a raise of the hero's own flop wager realizes 0.8125 (CRITERIA-CORE-POOLED-7-PLO5-FLOP-RAISED-CALL-REALIZATION sha256 ae1fcd66...1418: 0.8116 +- 0.0284, n 9,365, shrunk n/(n+100) to the call cell). They multiply the action's flop-round showdown term only; a change across the fold boundary must also win at the raw price. Pinned with provenance by OmahaMathCoreRealizationPinned.law.test.ts. This is a measurement, not a value grade.
+- Horse-only M5 grade on the final-factor head (CRITERIA-CORE-POOLED-6-HORSE-M5 sha256 9ec639e6...): total UNREADABLE (-283.9 +- 229.9 bb over 255 changes); the fold->call class is HURT (-262.7 +- 120.6 bb, n 114): a known leak, no activation until it is repaired and re-graded.
+- Do not switch on.

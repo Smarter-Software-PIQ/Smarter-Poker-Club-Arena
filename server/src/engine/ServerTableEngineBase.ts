@@ -2509,6 +2509,27 @@ export abstract class ServerTableEngineBase {
    */
   protected currentHandAllInShowdown = false;
   protected completedOriginalShowdownReadMs = 0;
+  /**
+   * HOLD JITTER DOES NOT STACK ONTO REST (incident 1e532243, 2026-11-21).
+   *
+   * `acceptedHandEndedAt` is stamped synchronously at HAND_COMPLETE (the same
+   * instant written to `hand_history.ended_at` and broadcast to clients). Two
+   * consecutive uncompensated `setTimeout` sleeps (`awaitHandCompletionDisplay`
+   * followed by `armNextHandRest`) stacked entry lag + hold timer overshoot +
+   * rest timer overshoot past `ENGINE_BETWEEN_HANDS_BUDGET_MS` (250 ms) under
+   * event-loop load.
+   *
+   * 1. `lastAcceptedHandEndedAtMs` anchors the completion hold to the actual
+   *    HAND_COMPLETE instant so real elapsed time before entering
+   *    `awaitHandCompletionDisplay` is absorbed without shortening the visible
+   *    client display below `targetHoldMs`.
+   * 2. `lastHoldDeadlineMs` records the hold's target end instant so
+   *    `armNextHandRest` can absorb hold overshoot up to
+   *    `MAX_HOLD_OVERSHOOT_ABSORB_MS` (never below the board-clear floor).
+   */
+  static readonly MAX_HOLD_OVERSHOOT_ABSORB_MS = 500;
+  protected lastAcceptedHandEndedAtMs: number | null = null;
+  protected lastHoldDeadlineMs: number | null = null;
 
   protected async awaitHandCompletionDisplay(totalMs: number): Promise<void> {
     // Multi-board and BBJ hold formulas do not contain this showdown-read
@@ -2518,7 +2539,17 @@ export abstract class ServerTableEngineBase {
         ? this.completedOriginalShowdownReadMs
         : 0;
     this.completedOriginalShowdownReadMs = 0;
-    await this.sleep(Math.max(0, totalMs - completedRead));
+    const targetHoldMs = Math.max(0, totalMs - completedRead);
+    const enteredAt = Date.now();
+    const handEndedAt = this.lastAcceptedHandEndedAtMs;
+    this.lastAcceptedHandEndedAtMs = null;
+    // Anchor only to a valid real-elapsed timestamp at or before entry; a
+    // backward clock step or absent stamp (direct unit-test call) anchors now.
+    const holdAnchorMs = handEndedAt !== null && handEndedAt <= enteredAt ? handEndedAt : enteredAt;
+    const holdDeadlineMs = holdAnchorMs + targetHoldMs;
+    this.lastHoldDeadlineMs = holdDeadlineMs;
+    const sleepMs = Math.max(0, holdDeadlineMs - enteredAt);
+    if (sleepMs > 0) await this.sleep(sleepMs);
   }
 
   /**
@@ -4682,10 +4713,14 @@ export abstract class ServerTableEngineBase {
       await this.seedHandCountFromHistory();
       if (!this.lifecycleCanMutate()) return;
 
+      // Every start step names itself, so a start_failed kill names the step
+      // that failed rather than the last read that set a phase (2026-11-21).
+      this.setLoopPhase('start_restore_button');
       // Dan 2026-08-25, BINDING: "IN THE EVENT OF AN ENGINE RESTART, WHILE PLAY
       // IS RUNNING, IT MUST ALWAYS RESTART IN THE SAME POSITION."
       await this.restoreButtonFromHistory();
       if (!this.lifecycleCanMutate()) return;
+      this.setLoopPhase('start_restore_kill');
       // KILL POTS (kill-v1): the pending kill comes back with the button.
       await this.restoreKillFromHistory();
       if (!this.lifecycleCanMutate()) return;
@@ -4699,6 +4734,7 @@ export abstract class ServerTableEngineBase {
         await this.f06MovementAdmission.revalidate();
         this.assertF06MovementOwner();
       }
+      this.setLoopPhase('start_crash_recovery');
       const recovered = this.f06MovementAdmission ? false : await this.checkCrashRecovery();
       if (!this.lifecycleCanMutate()) return;
       if (recovered) {
@@ -8181,6 +8217,24 @@ export abstract class ServerTableEngineBase {
    */
   horsesSeated(): number {
     return this.seatedPlayers.filter((p) => p.is_horse === true && p.stack > 0).length;
+  }
+
+  /**
+   * Read-only identification of horse user IDs counted by `horsesSeated()` when
+   * this engine is a Lightning anchor table, so `poker_horses_seated` can count
+   * Lightning pool horses without double-counting seats already present here.
+   * Identification only (CLAUDE.md 10.5): decides nothing.
+   */
+  lightningAnchorHorseIds(): { clusterId: string; userIds: string[] } | null {
+    if (!this.isLightningAnchorNow()) return null;
+    const clusterId = this.tableInfo?.cluster_id;
+    if (!clusterId) return null;
+    return {
+      clusterId,
+      userIds: this.seatedPlayers
+        .filter((p) => p.is_horse === true && p.stack > 0)
+        .map((p) => p.user_id),
+    };
   }
 
   /**
@@ -13496,6 +13550,10 @@ export abstract class ServerTableEngineBase {
     // before legacy snapshot cleanup, under the current table generation.
     if (authority?.scope === 'cash' && authority.verified && authority.generation) {
       if (!this.hasCurrentEngineLeaseAuthority()) return false;
+      // Name this step: a refusal here used to be reported under the last
+      // retryStartRead phase (start_seed_hand_count), which sent the
+      // 2026-11-21 dbbc148e kill storm to the wrong read for six hours.
+      this.setLoopPhase('start_retained_hand_resume');
       const retained = await this.resumeRetainedHandAcrossTheFreeze(authority.generation);
       if (!this.lifecycleCanMutate() || !this.hasCurrentEngineLeaseAuthority()) return false;
       if (retained) {
