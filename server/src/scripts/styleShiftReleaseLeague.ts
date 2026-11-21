@@ -39,9 +39,8 @@ const z = (m: number, se: number) => (se > 0 ? (m / se).toFixed(2) : 'n/a');
 
 if (part === 'omaha') {
   const { runMatchup } = await import('../benchmark/HorseLeague.js');
-  const { HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID } = await import(
-    '../benchmark/HorseLeagueHumanField.js'
-  );
+  const { HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID } =
+    await import('../benchmark/HorseLeagueHumanField.js');
   const r = await runMatchup(
     {
       name: 'plo4_style_release_noise_aware_vs_omaha_dev_field',

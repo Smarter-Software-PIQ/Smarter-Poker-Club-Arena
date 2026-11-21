@@ -2660,23 +2660,23 @@ async function runHumanFieldMatchup(
               true,
               (observer) =>
                 withLeagueProcessSwitches(arm === 'a' ? matchup.a : matchup.b, () =>
-                playHand(
-                  handSeed,
-                  dealerSeat,
-                  () => opts,
-                  { illegal: 0, truncated: 0 },
-                  HorseMind.createSandbox(),
-                  variant,
-                  SEATS,
-                  matchup.stackBB ?? 100,
-                  matchup.context ?? CASH_LEAGUE_CONTEXT,
-                  () => mods,
-                  probeField,
-                  styleOf,
-                  false,
-                  observer as LeagueHandObserver,
-                  leaguePairHandClock(c, runSeed)
-                )
+                  playHand(
+                    handSeed,
+                    dealerSeat,
+                    () => opts,
+                    { illegal: 0, truncated: 0 },
+                    HorseMind.createSandbox(),
+                    variant,
+                    SEATS,
+                    matchup.stackBB ?? 100,
+                    matchup.context ?? CASH_LEAGUE_CONTEXT,
+                    () => mods,
+                    probeField,
+                    styleOf,
+                    false,
+                    observer as LeagueHandObserver,
+                    leaguePairHandClock(c, runSeed)
+                  )
                 )
             );
             spot.observe?.({
