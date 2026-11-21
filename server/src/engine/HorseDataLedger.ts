@@ -657,6 +657,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'horseRunItTwiceIsPriced',
+    '2026-11-20 default OFF (HORSE DECISIONS lane, main-thread switch, HorseRunItTwiceSwitch.ts / HorseRunItTwicePriced.ts): replaces the fixed run-it-twice bands/gates of horseRunItTwiceRuns at ServerTableEngineRunout.horseRitRuns with the measured people curve (HorseRunItTwicePeople.data.ts) on public all-in equity, pot in big blinds, role and players all in, preserving the 2026-11-13 owner lopsided cut (equity <= 0.25 or >= 0.75 runs once). Read only as === true on the main thread; never read inside HorseLogic.decide',
+    'V94'
+  ),
+  flag(
     'omahaBetSizeByPublicState',
     "PLO Strategy lane 2026-11-16 (owner 2026-11-15: \"HE GETS THEM TO FOLD WHEN HE WANTS A FOLD, AND GETS A CALL WHEN HE WANTS A CALL\"; bet size measured as a tell, sizing-20261116/MEASURE.md): in PLO4/PLO5 cash, pot limit, high only, one board, not Lightning, the size of the Horse's own postflop bet or raise comes from horsePublicBetSize on public information only (street, board class, pot, the seat's chips, legal bounds, opponents, position, the heads-up opponent's measured fold-to-bet read) and a random stream of its own, as the last step of the wager_rules node, so every hand the engine bets in one public spot draws from one size distribution. Bet or check, raise or call stay the engine's; a check, call, fold or all-in is never touched; a size that commits 60% or more of the chips becomes the largest legal wager for every betting hand (every chip is the all-in); with omahaNutClassValueSize on, a nut-class wager keeps that option's size. Every constant is a builder's choice, none measured. Default OFF (opt-in): only an explicit true switches it on",
     'V94'
@@ -6506,6 +6511,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'plo6_facing_bet_priced_paired_river_check_priced',
     'HorseLogic (wager_rules, plo6FacingBetIsPriced; HorsePlo6FacingBetIsPriced)',
     'PLO6 cash river: the paired-river check held and EV(check) beats EV(bet), so the bet became the check by price',
+    'V94'
+  ),
+  receipt(
+    'horse_rit_priced_equity_unknown',
+    'ServerTableEngineRunout (horseRitRuns, horseRunItTwiceIsPriced; HorseRunItTwicePriced)',
+    'run-it-twice offer with horseRunItTwiceIsPriced on: public all-in equity was missing or non-finite, so the Horse ran once',
+    'V94'
+  ),
+  receipt(
+    'horse_rit_priced_owner_cut',
+    'ServerTableEngineRunout (horseRitRuns, horseRunItTwiceIsPriced; HorseRunItTwicePriced)',
+    'run-it-twice offer with horseRunItTwiceIsPriced on: public all-in equity was lopsided (<= 0.25 or >= 0.75), so the 2026-11-13 owner cut ran once',
+    'V94'
+  ),
+  receipt(
+    'horse_rit_priced_once',
+    'ServerTableEngineRunout (horseRitRuns, horseRunItTwiceIsPriced; HorseRunItTwicePriced)',
+    'run-it-twice offer with horseRunItTwiceIsPriced on: inside the band, deterministic draw from the measured people curve chose one run',
+    'V94'
+  ),
+  receipt(
+    'horse_rit_priced_multi',
+    'ServerTableEngineRunout (horseRitRuns, horseRunItTwiceIsPriced; HorseRunItTwicePriced)',
+    'run-it-twice offer with horseRunItTwiceIsPriced on: inside the band, deterministic draw from the measured people curve chose two runs (or multi-run accept)',
+    'V94'
+  ),
+  receipt(
+    'horse_rit_priced_three',
+    'ServerTableEngineRunout (horseRitRuns, horseRunItTwiceIsPriced; HorseRunItTwicePriced)',
+    'run-it-twice offer with horseRunItTwiceIsPriced on: chooser at maxRuns 3 inside the band, deterministic draw from the measured people curve chose three runs',
     'V94'
   ),
   receipt(

@@ -476,6 +476,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'styleTightMultiSignal',
   'styleTightMethodLine',
   'horseActionTimeIsPublicOnly',
+  'horseRunItTwiceIsPriced',
   'horsePlayStyles',
   // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
   'omahaReraisedPotFlopContinueNeedsEquityShape',
@@ -861,6 +862,8 @@ export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Ob
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
   holdemProfileCompletenessCap:
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+  horseRunItTwiceIsPriced:
+    'a main-thread switch: ServerTableEngineRunout.horseRitRuns reads HorseRunItTwiceSwitch.horseRunItTwiceIsPricedOn outside HorseLogic.decide, not per worker decision',
 });
 
 /** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */
@@ -999,6 +1002,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed-Limit',
     'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
     'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
+  ],
+  horseRunItTwiceIsPriced: [
+    'Programme',
+    'All cash tables offering run-it-twice, main thread (ServerTableEngineRunout.horseRitRuns)',
+    'run-it-twice answer priced from measured people curve and public all-in equity with owner lopsided cut (default OFF)',
   ],
 };
 

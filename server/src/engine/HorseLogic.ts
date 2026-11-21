@@ -5275,6 +5275,11 @@ export interface HorseDecideOpts {
    *  applies it to the process switch before every job (HorseMind.applyFixedLimitBetsAreNeverProbesOption)
    *  and the whole thread counts with one value. Absent: the source default (on). */
   fixedLimitBetsAreNeverProbes?: boolean;
+  /** RUN IT TWICE, PRICED (2026-11-20, HORSE DECISIONS lane, HorseRunItTwicePriced.ts):
+   *  main-thread switch for ServerTableEngineRunout.horseRitRuns, read via
+   *  HorseRunItTwiceSwitch.horseRunItTwiceIsPricedOn (optionSwitchDecisionOpts).
+   *  Read only as === true: default OFF; never read inside HorseLogic.decide. */
+  horseRunItTwiceIsPriced?: boolean;
   /** A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED ("F1b", 2026-11-15, own
    *  option since 2026-11-16, Fixed-Limit lane): at a fixed-limit decision,
    *  with the F1 process switch on, an opponent's pooled no-limit/pot-limit

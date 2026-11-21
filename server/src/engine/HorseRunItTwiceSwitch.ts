@@ -18,9 +18,12 @@ import { createStyleSwitchWorkerInbox } from './horseDecision/styleSwitchDeliver
 
 export const HORSE_RUN_IT_TWICE_PRICED_OPTION = 'horseRunItTwiceIsPriced';
 
-function makeHolder(clock: () => number) {
-  const inbox = createStyleSwitchWorkerInbox(clock);
-  const holder = new OptionSwitchHolder(inbox.optionSource, () => undefined);
+function makeHolder(clock: () => number, wallClock: () => number = () => Date.now()) {
+  const inbox = createStyleSwitchWorkerInbox(clock, wallClock);
+  // pollMs = 0: horseRitRuns runs only on all-in RIT offers on the main thread, so reading the
+  // latest delivered inbox message on every call avoids up to STYLE_SWITCH_POLL_MS (60s) of lag on
+  // activation or emergency rollback while keeping STYLE_SWITCH_STALE_MS (120s) staleness intact.
+  const holder = new OptionSwitchHolder(inbox.optionSource, () => undefined, 0);
   return { inbox, holder };
 }
 
@@ -38,19 +41,17 @@ export function receiveHorseRunItTwiceSwitchMessage(message: unknown): void {
 /** True only when the delivered, fresh, valid configuration switches the option on. */
 export function horseRunItTwiceIsPricedOn(nowMs: number = performance.now()): boolean {
   try {
-    return (
-      optionSwitchDecisionOpts(mainThread.holder.refresh(nowMs))[
-        HORSE_RUN_IT_TWICE_PRICED_OPTION
-      ] === true
-    );
+    const opts = optionSwitchDecisionOpts(mainThread.holder.refresh(nowMs));
+    return opts.horseRunItTwiceIsPriced === true;
   } catch {
     return false;
   }
 }
 
-/** Tests only: a fresh holder on the given clock. */
+/** Tests only: a fresh holder on the given monotonic and wall clocks. */
 export function resetHorseRunItTwiceSwitchForTest(
-  clock: () => number = () => performance.now()
+  clock: () => number = () => performance.now(),
+  wallClock: () => number = () => Date.now()
 ): void {
-  mainThread = makeHolder(clock);
+  mainThread = makeHolder(clock, wallClock);
 }

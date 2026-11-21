@@ -6016,6 +6016,23 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'law and the property test (200 private hands on three public states give one think-time distribution). ' +
       'What would change this: a league opponent that conditions its play on the recorded think time.',
   },
+  // 2026-11-21 (HORSE DECISIONS lane): horseRunItTwiceIsPriced, default off.
+  // Refused, not dealt: this league never offers run-it-twice and every run count is chip-EV-identical.
+  {
+    name: 'nlh_horse_run_it_twice_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    a: { horseRunItTwiceIsPriced: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: horseRunItTwiceIsPriced acts only on the engine main thread in ' +
+      'ServerTableEngineRunout.horseRitRuns when an all-in run-it-twice offer is answered, never inside ' +
+      'HorseLogic.decide, and playHand never offers run-it-twice; furthermore EV(k runs) - EV(1 run) = 0 bb ' +
+      '(RUN_IT_TWICE_EV_GAP_BB = 0 pinned against RunItTwice.money.test.ts). The option is DEFAULT OFF ' +
+      '(read as === true). Evaluated instead on the declared 30-day replay of 20,431 recorded Horse RIT ' +
+      'answers (docs/horse-option-authority.d/horseRunItTwiceIsPriced.md) and HorseRunItTwicePriced.test.ts. ' +
+      'What would change this: a league harness that simulates all-in run-it-twice offers and scores variance or human-mix fidelity.',
+  },
   // 2026-11-16 (PLO6 lane): omahaStrategyInPlo6, default off and off-only.
   // Refused, not dealt: alone the gate switches no option on, and the port
   // it would open is not finished.
