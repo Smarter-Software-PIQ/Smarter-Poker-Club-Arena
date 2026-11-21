@@ -137,6 +137,17 @@ describe('a PLO4/PLO5 opponent is read from his lifetime public profile from han
     expect(src).toContain('? { opponentLifetimeHud: true }');
   });
 
+  it('POSTFLOP SCOPE: the read option is produced at one place, behind the street gate; a preflop decision (or one with no stage) reads as with the option off', () => {
+    const src = readFileSync(resolve(__dirname, 'HorseLogic.ts'), 'utf8');
+    expect(src.split('{ opponentLifetimeHud: true }').length - 1).toBe(1);
+    expect(src).toMatch(
+      /opts\.omahaOpponentLifetimeHud === true &&\s*String\(\(gameState as \{ stage\?: unknown \}\)\.stage \?\? 'preflop'\) !== 'preflop' &&/
+    );
+    // every consuming site asks HorseMind.hudReadActive(), which is that read option: none reads the decide option
+    const direct = src.split('opts.omahaOpponentLifetimeHud').length - 1;
+    expect(direct).toBe(1);
+  });
+
   it('the snapshot carries the packet only while armed, and the sampling key never reads it', () => {
     const proto = readFileSync(resolve(__dirname, 'horseDecision/protocol.ts'), 'utf8');
     expect(proto).toContain(
