@@ -577,6 +577,8 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
     this.lastStyleSwitch = message;
+    // horseRunItTwiceIsPriced is decided on the main thread (HorseRunItTwiceSwitch.ts): it reads the same message.
+    receiveHorseRunItTwiceSwitchMessage(message);
     for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {
@@ -896,11 +898,7 @@ export async function startLiveHorseDecisionWorker(
           }
         : switchRead,
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
-      broadcast: (message) => {
-        // horseRunItTwiceIsPriced is read on the main thread (HorseRunItTwiceSwitch.ts): the same message.
-        receiveHorseRunItTwiceSwitchMessage(message);
-        singleton?.broadcastStyleSwitch(message);
-      },
+      broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
     styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
   }

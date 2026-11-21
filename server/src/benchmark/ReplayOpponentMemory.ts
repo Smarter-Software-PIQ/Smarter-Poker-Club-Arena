@@ -266,8 +266,8 @@ export function decisionTimeMs(node: ComplaintAction): number | null {
   return Number.isSafeInteger(t) && t > 0 ? t : null;
 }
 
-/** Who the decision faces: 'people' = every live opponent is a person, 'horses' = every one a Horse, else 'mixed'. */
-export type FacingKind = 'people' | 'horses' | 'mixed';
+/** Who the decision faces: 'people' = every live opponent is a person, 'horse_only' = every one a Horse, else 'mixed'. */
+export type FacingKind = 'people' | 'horse_only' | 'mixed';
 export interface Facing {
   kind: FacingKind;
   opponents: Array<{ seat: number; userId: string; isHorse: boolean }>;
@@ -285,7 +285,7 @@ export function facingOf(hand: ExtractedHand, node: ComplaintAction): Facing | n
   if (opponents.length === 0) return null;
   const people = opponents.filter((o) => !o.isHorse).length;
   return {
-    kind: people === opponents.length ? 'people' : people === 0 ? 'horses' : 'mixed',
+    kind: people === opponents.length ? 'people' : people === 0 ? 'horse_only' : 'mixed',
     opponents,
   };
 }

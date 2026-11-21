@@ -19,7 +19,7 @@ if meta is None or not (meta['meta'].get('memory') or {}).get('on'):
 kind = {key(r): (r.get('facing') or {}).get('kind') for r in rows}
 nodes = [json.loads(l) for l in open(nodes_path)]
 counts = {}
-for kd in ('people', 'horses', 'mixed'):
+for kd in ('people', 'horse_only', 'mixed'):
     ks = {k for k, v in kind.items() if v == kd}
     with open(f'{prefix}.{kd}.nodes.jsonl', 'w') as f:
         for n in nodes:

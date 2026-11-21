@@ -185,7 +185,7 @@ describe('ReplayOpponentMemory: the decision reads the record without changing i
       ...extracted,
       players: extracted.players.map((p) => ({ ...p, isHorse: true })),
     };
-    expect(facingOf(allHorses, node)!.kind).toBe('horses');
+    expect(facingOf(allHorses, node)!.kind).toBe('horse_only');
   });
 
   it('real seat ids replace p<seat>; public seats still carry no cards', () => {

@@ -130,7 +130,7 @@ for line in open(REPLAY):
         if not c: break
         opps.append([card(x) for x in c]); kinds.append(p['isHorse']); src.append(sc)
     if len(opps) != len(live): skipped['opponent cards unknown'] += 1; continue
-    facing = 'people' if not any(kinds) else 'horses' if all(kinds) else 'mixed'
+    facing = 'people' if not any(kinds) else 'horse_only' if all(kinds) else 'mixed'
     board = pboard((pn.get('boards') or [''])[0])
     if (pn.get('boardCount') or 1) > 1 or pn.get('bombPot'): skipped['multi-board / bomb'] += 1; continue
     heroc = [card(x) for x in hero]
@@ -181,7 +181,7 @@ def stat(rs):
     return dict(n=len(xs), mean_bb=round(m, 3), se_bb=None if se is None else round(se, 3), total_bb=round(sum(xs), 2),
                 mean_minus_se=None if se is None else round(m - se, 3))
 res = dict(set=S, arm=ARM, changed_seen=seen, skipped=dict(skipped))
-for f in ('people', 'horses', 'mixed'):
+for f in ('people', 'horse_only', 'mixed'):
     rs = [r for r in rows if r['facing'] == f]
     top = collections.Counter(p for r in rs for p in r['persons']).most_common(1)
     res[f] = dict(graded=stat(rs), by_transition=dict(collections.Counter(f"{r['street']} {r['off']}>{r['on']}" for r in rs).most_common()),
