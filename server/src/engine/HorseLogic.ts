@@ -30640,14 +30640,55 @@ export class HorseLogic {
       const streets = ['flop', 'turn', 'river'] as const;
       const isOpp = (x: (typeof history)[number]) =>
         x.userId === opp.user_id || (x.userId === undefined && x.seat === opp.seat);
+      // Initial dead money (blinds, antes, straddles) absent from voluntary-only actionHistory (#11556):
+      // gs.pot already equals initialPot + sum(voluntary added), so subtracting voluntary added recovers
+      // the exact starting pot in both voluntary-only and forced-post histories.
+      let totalHistoryAdded = 0;
+      {
+        let stScan = 'preflop';
+        let commScan = new Map<string, number>();
+        for (const x of history) {
+          const st = x.stage ?? 'preflop';
+          if (st !== stScan) {
+            stScan = st;
+            commScan = new Map();
+          }
+          const key = x.userId ?? `s${x.seat}`;
+          const prev = commScan.get(key) ?? 0;
+          const amt = Math.max(0, Number(x.amount ?? 0));
+          const total =
+            x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+          totalHistoryAdded += Math.max(0, total - prev);
+          commScan.set(key, total);
+        }
+      }
       const line: HoldemLineStreet[] = [];
-      let runningPot = 0;
+      const appliedCheckStreets = new Set<string>();
+      const pushCheckStreetIfOnlyChecks = (stName: string) => {
+        const k = streets.indexOf(stName as never);
+        if (k < 0 || k + 3 > board.length || appliedCheckStreets.has(stName)) return;
+        appliedCheckStreets.add(stName);
+        const mine = history.filter((y) => y.stage === stName && isOpp(y));
+        if (mine.length === 0 || mine.some((y) => y.action !== 'check')) return;
+        const upTo = (end: number) =>
+          history.filter((y) => y.stage === 'preflop' || streets.indexOf(y.stage as never) < end);
+        line.push({
+          board: board.slice(0, k + 3),
+          likelihood: holdemLineLikelihood(
+            posteriorOf(upTo(k + 1), stName as 'flop' | 'turn' | 'river'),
+            posteriorOf(upTo(k), stName as 'flop' | 'turn' | 'river')
+          ),
+        });
+      };
+      let runningPot = Math.max(0, Number(gs.pot ?? 0) - totalHistoryAdded);
       let streetOf = 'preflop';
       let committed = new Map<string, number>();
       let facingTo = 0;
+      let oppNarrowedPostflop = false;
       for (const x of history) {
         const st = x.stage ?? 'preflop';
         if (st !== streetOf) {
+          pushCheckStreetIfOnlyChecks(streetOf);
           streetOf = st;
           committed = new Map();
           facingTo = 0;
@@ -30666,40 +30707,38 @@ export class HorseLogic {
             const sub = holdemLineRange(player.cards, board, band, line);
             const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
             line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
+            oppNarrowedPostflop = true;
           } else if (wager && total > facingTo + 1e-9) {
-            // beta: on the river the share that leaves a call of his wager indifferent, s / (pot + 2s) (his
-            // size feeds his range, nothing else); on the flop and turn the posterior's bluff share for his
-            // line through that wager (semi-bluffs and air).
+            // beta: on the river the share that leaves a call of his wager indifferent, call / (potAfter + call)
+            // (equals s / (pot + 2s) for a first-in bet, and (total - facingTo) / (pot + added + total - facingTo)
+            // for a raise); on the flop and turn the posterior's bluff share for his line through that wager.
+            // Once villain already narrowed his range on a prior postflop street, use his continuation share
+            // (1 - foldAtReference) rather than compounding betWhenCheckedTo^k across barrels.
             const upTo = history.slice(0, history.indexOf(x) + 1);
+            const callToFace = Math.max(0, total - facingTo);
             const beta =
               st === 'river'
-                ? added / Math.max(1e-9, runningPot + 2 * added)
+                ? callToFace / Math.max(1e-9, runningPot + added + callToFace)
                 : posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
+            const betShare = oppNarrowedPostflop
+              ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+              : betWhenCheckedTo;
             const half = facingTo > 0 ? 0.5 : 1;
             line.push({
               board: sb,
               keep: {
-                top: betWhenCheckedTo * (1 - beta) * half,
-                bottom: betWhenCheckedTo * beta * half,
+                top: betShare * (1 - beta) * half,
+                bottom: betShare * beta * half,
               },
             });
+            oppNarrowedPostflop = true;
           }
         }
         if (total > facingTo) facingTo = total;
         committed.set(key, total);
         runningPot += added;
       }
-      for (let k = 0; k < streets.length && k + 3 <= board.length; k++) {
-        const st = streets[k];
-        const mine = history.filter((x) => x.stage === st && isOpp(x));
-        if (mine.length === 0 || mine.some((x) => x.action !== 'check')) continue;
-        const upTo = (end: number) =>
-          history.filter((x) => x.stage === 'preflop' || streets.indexOf(x.stage as never) < end);
-        line.push({
-          board: board.slice(0, k + 3),
-          likelihood: holdemLineLikelihood(posteriorOf(upTo(k + 1), st), posteriorOf(upTo(k), st)),
-        });
-      }
+      pushCheckStreetIfOnlyChecks(streetOf);
       const range = holdemLineRange(player.cards, board, band, line);
       if (range.total <= 0) {
         if (tele) noteFire('holdem_priced_unpriced');

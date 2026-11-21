@@ -277,7 +277,21 @@ export function holdemLineRange(
       }
     };
     take(live, st.keep.top);
-    take([...live].reverse(), st.keep.bottom);
+    // Draw bluffs proportionally within each bucket from weakest up (Air first, then WeakPairOrDraw)
+    // rather than worst-kicker-first, so unmade high-card Air does not beat 100% of villain's bluffs.
+    let wantBottom = Math.max(0, Math.min(1, st.keep.bottom)) * tot;
+    for (let b = HoldemLineBucket.Air; b <= HoldemLineBucket.Nutted && wantBottom > 1e-12; b++) {
+      let avail = 0;
+      for (const i of live) if (bOf(i) === b) avail += weight[i] - kept[i];
+      if (avail <= 1e-12) continue;
+      const frac = Math.min(1, wantBottom / avail);
+      for (const i of live) {
+        if (bOf(i) !== b) continue;
+        const t = (weight[i] - kept[i]) * frac;
+        kept[i] += t;
+        wantBottom -= t;
+      }
+    }
     for (const i of live) weight[i] = kept[i];
   }
   const strength = pairs.map(
