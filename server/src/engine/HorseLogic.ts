@@ -7782,7 +7782,7 @@ function holdemPricedOpponent(
     isTournamentMode(gs) ||
     gs.bombPot === true ||
     gs.allInOrFold === true ||
-    (gs as { communityCards2?: unknown }).communityCards2 !== undefined ||
+    ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
     !Array.isArray(player.cards) ||
     player.cards.length !== 2
   )
