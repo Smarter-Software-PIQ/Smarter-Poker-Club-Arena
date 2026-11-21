@@ -4,7 +4,7 @@
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
 -- THE 3 AM LOBBY CLOSE AND UNFILLED-SPIN EXPIRY RESPECT THE MAINTENANCE FREEZE
--- (2026-11-21, H10 — rollback rehearsal run 44887083680 & 2026-11-16 09:04Z).
+-- (2026-11-21, H10 - rollback rehearsal run 44887083680 & 2026-11-16 09:04Z).
 --
 -- WHAT HAPPENED
 --
@@ -15,7 +15,7 @@
 --   * 2026-11-21 09:00:04Z (trials.jsonl:591, run 44887083680): count 138 -> 132 (-6 seats)
 --
 -- Both engines had adopted the active maintenance break cleanly, and held exact
--- seat counts through 09:00:01Z–09:00:03Z. At 03:00:00 America/Chicago,
+-- seat counts through 09:00:01Z-09:00:03Z. At 03:00:00 America/Chicago,
 -- GameServer.discoverTournaments() invoked
 -- fn_daily_window_close_seat_first_lobbies (missing an isMaintenanceFrozen()
 -- guard, as was its sibling fn_spin_expire_unfilled). Because zz_freeze_guard
@@ -123,6 +123,7 @@ BEGIN
   ELSE
    PERFORM public.fn_ca_lock_settlement_lane_for_sweep_member(g.id);
   END IF;
+  -- @lifecycle-exclusive-lock: serializes 3 AM lobby-close cancellation against concurrent registration/start
   PERFORM 1 FROM public.tournaments t WHERE t.id=g.id FOR UPDATE SKIP LOCKED;
   IF NOT FOUND THEN n_skipped:=n_skipped+1; CONTINUE; END IF;
   IF public.fn_platform_frozen() IS DISTINCT FROM false THEN
@@ -271,7 +272,8 @@ BEGIN
     -- The scan is only a candidate list. A final join or launch may commit
     -- before cancellation reaches this parent. Busy parents belong to that
     -- work; the next sweep may reconsider them.
-    PERFORM 1 FROM public.tournaments t WHERE t.id=g.id FOR UPDATE SKIP LOCKED;
+    -- @lifecycle-exclusive-lock: serializes 3 AM lobby-close cancellation against concurrent registration/start
+  PERFORM 1 FROM public.tournaments t WHERE t.id=g.id FOR UPDATE SKIP LOCKED;
     IF NOT FOUND THEN
       v_skipped := v_skipped + 1;
       CONTINUE;
@@ -341,6 +343,10 @@ DECLARE
   v_outside jsonb;
   v_dry jsonb;
 BEGIN
+  -- On an empty rehearsal schema, daily_window_policy has no singleton row;
+  -- seed the default row inside this unwound subtransaction so the probe
+  -- executes the real function body on both empty rehearsal and live DBs.
+  INSERT INTO smarter_private.daily_window_policy(singleton) VALUES(true) ON CONFLICT DO NOTHING;
   v_outside := public.fn_daily_window_close_seat_first_lobbies(1, '2026-11-03 18:00:00+00', false);
   IF (v_outside->>'outside_hours')::boolean IS NOT TRUE THEN
     RAISE EXCEPTION 'lobby_close_probe_outside_hours_failed: %', v_outside;
