@@ -12,13 +12,19 @@
  *   SPARRING_PROFILE optional JSON of SparringProfile fields merged over aggro_reg
  *   SPARRING_OUT    file to append the cell result (JSON line)
  *   SPARRING_REPORT a results file to print as the matchup table (report mode)
- *   SPARRING_PERHAND=1 keep per-hand nets (for pairing two trees with scripts/sparring-compare.py)
+ *   SPARRING_PERHAND=1 keep per-hand nets and public action lines (for pairing two trees with
+ *                   scripts/sparring-compare.py)
+ *   SPARRING_CONTROL 1 = add the OFF-vs-OFF control arm CTRL (the BASE option set again; law: 0 flips and 0.0
+ *                   chips against BASE). Default: 1 when SPARRING_CAND is set, else 0.
+ *   SPARRING_TARGET comma-separated adversaries that are the candidate's TARGET probes (report mode): they are
+ *                   left out of the guard family of LEAD-3 RULING 1; every other adversary is a guard probe.
  * Adversaries: profile:<name> (SPARRING_PROFILES), probe:<name> (SPARRING_PROBES), probe:tell.
  * Prints aggregates only: no hole card is ever printed or written.
  */
 import { appendFileSync, readFileSync } from 'node:fs';
 import {
   SPARRING_PROBES,
+  guardFamilyZ,
   SPARRING_PROFILES,
   runSparringCell,
   sparringProfilePolicy,
@@ -67,12 +73,125 @@ function verdict(d: number | null, se: number | null, adversaryWinsMeansWorse = 
   return z > 0 === adversaryWinsMeansWorse ? 'WORSE' : 'BETTER';
 }
 
+type Row = SparringCellResult & { adversary: string; dropped?: string[] };
+const STREET_COLS = ['preflop', 'flop', 'turn', 'river'] as const;
+
+/** FLIPS FIRST: per cell, the candidate's and the control's first divergences from BASE, with denominators. */
+function flipsBlock(rows: Row[]): void {
+  if (!rows.some((r) => r.arms.some((a) => a.flips))) return;
+  console.log(
+    'FLIPS FIRST. First divergence per hand from BASE on the same deal. Street columns: hands that parted at a ' +
+      'Horse-seat decision on that street / Horse-seat decisions compared on that street (both arms on the same ' +
+      'line up to there). CTRL = OFF-vs-OFF control (the BASE option set again): law = 0 parted, 0.0 chips. ' +
+      'Hard flags read the Horse seats (h); s = the adversary script, b = the Horse brain in seat 0.'
+  );
+  const head =
+    '| adversary | game | seats | bb | arm | hands parted / hands | preflop | flop | turn | river | seat 0 first | ' +
+    'change classes | mirror deal parted | net differs (hands) | arm-BASE bb/100 | illegal h BASE/arm | ' +
+    'fallback h BASE/arm | illegal s BASE/arm | illegal b BASE/arm | snapped |';
+  console.log(head);
+  console.log(head.replace(/[^|]/g, '-'));
+  for (const r of rows) {
+    const b = r.arms[0];
+    for (const a of r.arms.slice(1)) {
+      const f = a.flips?.main;
+      if (!f) continue;
+      const sum = (pre: string, o: Record<string, number>) =>
+        Object.entries(o).reduce((t, [k, v]) => (k.startsWith(pre) ? t + v : t), 0);
+      const st = STREET_COLS.map(
+        (s) => `${sum(`horse|${s}|`, f.flips)} / ${f.compared[`horse|${s}`] ?? 0}`
+      );
+      const seat0 = `${sum('seat0|', f.flips)} / ${sum('seat0|', f.compared)}`;
+      const cls =
+        Object.entries(f.flips)
+          .sort((x, y) => y[1] - x[1])
+          .slice(0, 5)
+          .map(([k, v]) => `${k.replace(/\|/g, ' ')} ${v}`)
+          .join('; ') || 'none';
+      const bs = b.bySeat;
+      const as = a.bySeat;
+      console.log(
+        `| ${r.adversary} | ${r.variant} | ${r.seats} | ${r.stackBB} | ${a.label} | ${f.handsDiffering} / ${f.hands} | ${st.join(
+          ' | '
+        )} | ${seat0} | ${cls} | ${a.flips?.mirror ? `${a.flips.mirror.handsDiffering} / ${a.flips.mirror.hands}` : '-'} | ${
+          f.netDiffHands
+        } | ${fmt(a.vsArm0Bb100, a.vsArm0Se)} | ${bs.horse.illegal}/${as.horse.illegal} | ${bs.horse.brainFallback}/${
+          as.horse.brainFallback
+        } | ${bs.scripted.illegal}/${as.scripted.illegal} | ${bs.seat0Brain.illegal}/${as.seat0Brain.illegal} | ${
+          b.scriptedSnapped
+        }/${a.scriptedSnapped} |`
+      );
+    }
+  }
+  console.log('');
+}
+
+/** LEAD-3 RULING 1 guard thresholds for this table's probe and cell counts, and each probe's pooled z. */
+function guardBlock(rows: Row[]): void {
+  const cand = (r: Row) => r.arms.find((a) => a.label === 'CAND');
+  const graded = rows.filter((r) => {
+    const c = cand(r);
+    return c && c.vsArm0Bb100 !== null && c.vsArm0Se !== null && c.vsArm0Se > 0;
+  });
+  if (!graded.length) return;
+  const targets = new Set(
+    (process.env.SPARRING_TARGET ?? '')
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+  );
+  const by = new Map<string, Row[]>();
+  for (const r of graded) by.set(r.adversary, [...(by.get(r.adversary) ?? []), r]);
+  const guards = [...by.keys()].filter((k) => !targets.has(k));
+  const P = guards.length;
+  const C = Math.max(0, ...guards.map((k) => by.get(k)!.length));
+  if (P < 1) return;
+  const zP = guardFamilyZ(P);
+  const zPC = guardFamilyZ(P * C);
+  console.log(
+    `GUARD THRESHOLDS (LEAD-3 RULING 1) for this table: guard probes P = ${P}, cells per probe C = ${C}` +
+      `${[...by.values()].some((v) => v.length !== C) ? ' (largest; cell counts differ)' : ''}. ` +
+      `GUARD-POOLED fails above z_fam(P) = ${zP.toFixed(2)}; GUARD-CELL fails above z_fam(P x C) = z_fam(${P * C}) = ${zPC.toFixed(
+        2
+      )}. Target probes (SPARRING_TARGET): ${targets.size ? [...targets].join(', ') : 'none declared, every adversary counted as a guard'}.`
+  );
+  const head =
+    '| adversary | role | cells | pooled CAND-BASE bb/100 | pooled z | vs z_fam(P) | largest cell z | vs z_fam(P x C) |';
+  console.log(head);
+  console.log(head.replace(/[^|]/g, '-'));
+  for (const [k, rs] of by) {
+    let w = 0;
+    let wx = 0;
+    let zmax = -Infinity;
+    for (const r of rs) {
+      const c = cand(r)!;
+      const se = c.vsArm0Se as number;
+      const x = c.vsArm0Bb100 as number;
+      w += 1 / (se * se);
+      wx += x / (se * se);
+      zmax = Math.max(zmax, x / se);
+    }
+    const mean = wx / w;
+    const se = Math.sqrt(1 / w);
+    const z = mean / se;
+    const guard = !targets.has(k);
+    console.log(
+      `| ${k} | ${guard ? 'guard' : 'target'} | ${rs.length} | ${fmt(mean, se)} | ${z.toFixed(2)} | ${
+        guard ? (z > zP ? 'ABOVE' : 'within') : '-'
+      } | ${zmax.toFixed(2)} | ${guard ? (zmax > zPC ? 'ABOVE' : 'within') : '-'} |`
+    );
+  }
+  console.log('');
+}
+
 function report(file: string): void {
   const rows = readFileSync(file, 'utf8')
     .split('\n')
     .filter((l) => l.trim().startsWith('{'))
-    .map((l) => JSON.parse(l) as SparringCellResult & { adversary: string; dropped?: string[] });
-  const two = rows.some((r) => r.arms.length > 1);
+    .map((l) => JSON.parse(l) as Row);
+  flipsBlock(rows);
+  guardBlock(rows);
+  const two = rows.some((r) => r.arms.some((a) => a.label === 'CAND'));
   const head = two
     ? '| adversary | game | seats | bb | hands | adv vs BASE bb/100 | adv vs CAND bb/100 | CAND-BASE (paired) | verdict | probe edge BASE | probe edge CAND |'
     : '| adversary | game | seats | bb | hands | adversary bb/100 (Horses lose) | probe edge vs mirror | probe verdict | top chip source (bb/100) |';
@@ -80,7 +199,7 @@ function report(file: string): void {
   console.log(head.replace(/[^|]/g, '-'));
   for (const r of rows) {
     const b = r.arms[0];
-    const c = r.arms[1];
+    const c = r.arms.find((a) => a.label === 'CAND');
     if (two && c) {
       console.log(
         `| ${r.adversary} | ${r.variant} | ${r.seats} | ${r.stackBB} | ${r.pairs} | ${fmt(b.bb100, b.se)} | ${fmt(
@@ -148,6 +267,9 @@ async function main(): Promise<void> {
     });
     dropped = [...new Set([...dropped, ...cand.dropped])];
   }
+  // The OFF-vs-OFF control: the BASE option set again, as its own arm with its own sandboxes.
+  if ((process.env.SPARRING_CONTROL ?? (process.env.SPARRING_CAND ? '1' : '0')) === '1')
+    arms.push({ label: 'CTRL', horseOpts: { ...arms[0].horseOpts } });
   const [kind, name] = adversary.split(':') as [string, string];
   const common = {
     variant: variant as SparringVariant,
