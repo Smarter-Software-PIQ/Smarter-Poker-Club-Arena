@@ -423,8 +423,8 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'reclassed open 2026-11-21 (EMERG lane BLANKET-AUDIT-3; it was classed priced as "a look-ahead on every river card"): the look-ahead prices nothing. A turn bet that leaves under half the resulting pot behind becomes a check when the categorical river fold rules fold to the all-in on more than a fixed share of the river cards (HorseOmahaOopChecks.ts omahaTurnBetLacksRiverPlan, OMAHA_TURN_PLAN_FOLD_SHARE): a stack share and a fixed percentage decide, no expected value is compared'
   ),
   omahaRiverMediumBetStrongHandCalls: priced('stands aside for the expected-value verdict'),
-  omahaPairedBoardFoldRespectsPrice: priced(
-    'stands aside for the expected-value verdict on the turn and river'
+  omahaPairedBoardFoldRespectsPrice: open(
+    'reclassed open 2026-11-21 (EMERG lane RULES-FIX-1, AUDIT-B item 5; it was classed priced as "stands aside for the expected-value verdict on the turn and river"): where no facing-bet verdict answers, fixed thresholds decide (a price of 0.25 or better with a straight or flush, or 60% of a stack in), not a priced comparison. It is a carve-out of ploPairedBoardFold: listed off alone it removes the carve-out (the paired-board fold stands), so list it only with ploPairedBoardFold'
   ),
   // verifier D10 (2026-11-19): a size line, not a priced comparison
   omahaBigBetIsPotShare: open(
