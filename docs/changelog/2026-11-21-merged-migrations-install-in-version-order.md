@@ -80,3 +80,13 @@ order), the single-group loss, and the workflow and dispatcher wiring.
 No production run: the selection against live `schema_migrations` was not
 executed (no database access in this change). The first real dispatch after
 merge is the proof; its log lines start with `[order]`.
+
+## A switched-off applier is HELD, not "dispatched"
+
+GitHub answers 204 to a `repository_dispatch` for a disabled workflow and
+creates no run. During the 1906z owner-window installer pause the dispatcher
+reported #11635's `20261121153607` as "dispatched" though no run was ever
+queued. The dispatcher now reads the applier's state first (`actions: read`):
+switched off means HELD, nothing sent, a PR comment naming the files and
+`scripts/release/resume-migration-installs.sh` (which sends every file merged
+during a pause); unreadable means COULD NOT TELL and it sends as before.

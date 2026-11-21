@@ -251,10 +251,16 @@ describe('the workflows carry the guarantee', () => {
     expect(between).toContain("&& '--dry-run' || ''");
   });
 
-  it('no dispatcher timing gate remains, and the dispatcher no longer reads Actions', () => {
+  it('no dispatcher timing gate remains; the dispatcher reads Actions only for the applier state', () => {
     expect(existsSync(resolve(ROOT, 'scripts/ci/await-older-merged-applies.mjs'))).toBe(false);
     expect(SHELL).not.toContain('await-older-merged-applies');
-    expect(DISPATCHER.permissions).toEqual({ contents: 'write', 'pull-requests': 'write' });
+    // actions: read is for the switched-off-applier HELD check only, never to time a send.
+    expect(DISPATCHER.permissions).toEqual({
+      actions: 'read',
+      contents: 'write',
+      'pull-requests': 'write',
+    });
+    expect(SHELL).not.toMatch(/actions\/workflows\/apply-merged-migration\.yml\/runs/);
   });
 
   it('the older-files step never sends a window file and never takes the window route', () => {
