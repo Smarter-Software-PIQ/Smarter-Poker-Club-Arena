@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaFourBetFoldPricedCall.law.test.ts
+
+With omahaFourBetFoldPricedCall on (default OFF), in PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot), preflop, after the Horse's own raise, facing a 4-bet or more heads-up, the node's final fold becomes the legal call for the exact chips owed (all in when the call is the stack) only where the engine's priced call of a re-raise (omahaReraisedCallPriced, omahaReraisedCallPricingOf's inputs) is positive; the response validator admits only that call, nothing but a fold changes, no identity is read, and it is out of scope in PLO6, PLO8, tournaments, bomb pots, multi-board hands, postflop, facing a 3-bet, without the Horse's own raise and multiway; off, decisions are unchanged.

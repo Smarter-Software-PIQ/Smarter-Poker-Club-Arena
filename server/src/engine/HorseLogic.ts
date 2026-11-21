@@ -71,6 +71,12 @@ import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverN
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { omahaRiverCurrentNutsCallFloorRule } from './HorseOmahaRiverCurrentNutsCallFloor.js';
+import {
+  omahaFourBetFoldPricedCallRule,
+  registerFourBetFoldPricing,
+} from './HorseOmahaFourBetFoldPricedCall.js';
+import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
+import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -3634,6 +3640,23 @@ export interface HorseDecideOpts {
    * current nuts and a full chop with every live opponent still returns the call. The outermost answer
    * of wager_rules; never changes a non-fold. Default OFF (read === true). */
   omahaRiverCurrentNutsCallFloor?: boolean;
+  /** EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (HorseOmahaFourBetFoldPricedCall.ts): in PLO4/PLO5 cash
+   * preflop, after hero's own raise, facing a 4-bet or more heads-up, the node's final fold becomes the
+   * legal call only when the engine's priced call of a re-raise (omahaReraisedCallPriced, its own inputs)
+   * has EV(call) > 0. Never changes a non-fold; never raises. Default OFF (read === true). */
+  omahaFourBetFoldPricedCall?: boolean;
+  /**
+   * EMERG lane OFFENCE-BUILD 2026-11-20 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up, the Horse acts
+   * first with nothing to call: the node's final check is priced beside the bets with the measured response curve
+   * (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
+   */
+  omahaRiverFirstToActBetIsPriced?: boolean;
+  /**
+   * EMERG lane OFFENCE-BUILD 2026-11-20 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up, the opponent
+   * checked and the Horse closes: the final check is priced beside the bets with the measured response curve of river
+   * bets after a check, no opponent kind (HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
+   */
+  omahaRiverCheckedToBetIsMeasured?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -9650,6 +9673,14 @@ export function omahaReraisedCallPricingOf(
   }
 }
 
+// EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (omahaFourBetFoldPricedCall): the fold -> call rule and its
+// validator re-run price the call with these same inputs (mind reads on; tournaments/Lightning keep the
+// prior reading, as for any caller without the Lightning position option). Registered, not imported, so
+// HorseOmahaFourBetFoldPricedCall.ts imports nothing from this file.
+registerFourBetFoldPricing((player, gs, raiser, toCall, stack, heroBet) =>
+  omahaReraisedCallPricingOf(player, gs, {}, raiser, toCall, stack, heroBet)
+);
+
 /**
  * The other players still in a hand in which hero faces a re-raise, as the
  * priced call-or-raise needs them (omahaReraisedCallVsRaisePriced): what each
@@ -9933,7 +9964,7 @@ function omahaReraisedCallVsRaise(
   try {
     if (String(gs.stage ?? '') !== 'preflop') return standing;
     // ONE OWNER PER CELL: a call that omahaPreflopReraiseDefencePricedInPosition
-    // made of a fold (the Horse opened, one person's 3-bet, heads-up, acting
+    // made of a fold (the Horse opened, one 3-bet, heads-up, acting
     // after him) is that option's verdict and is not priced here. A call that
     // stands in the same spot with that option off is priced as any other.
     if (
@@ -10110,7 +10141,7 @@ function omahaOopReraisedPotStrongRange(
   // WooWoo audit lane) belongs to that cell, kept or folded; this option then
   // does not answer and the decision is exactly the one with it off.
   // omahaPreflopReraiseDefencePricedInPosition (default off; review of 01ddd45b4df F1): in the spot where the Horse
-  // opened, faces one person's 3-bet heads-up and acts after him (omahaPreflopReraiseDefenceHeadsUpInPosition), and
+  // opened, faces one 3-bet (any 3-bettor) heads-up and acts after him (omahaPreflopReraiseDefenceHeadsUpInPosition), and
   // only there, a FOLD of the decision with this option off becomes a CALL when the priced verdict of
   // omahaPreflopReraiseDefencePriced is a call. Nothing else moves: a call, a 4-bet or anything else the off decision
   // makes is returned as it is, and the option never makes a fold. The parent option on owns the spot as before.
@@ -18175,16 +18206,79 @@ export class HorseLogic {
       // outermost answer of this node. A final river fold facing a wager with the exact current nuts,
       // where a full chop with every live opponent still returns the call, becomes the legal call
       // (HorseOmahaRiverCurrentNutsCallFloor.ts). It changes only a fold.
-      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+      // EMERG lane OFFENCE-BUILD 2026-11-20 (omahaRiverFirstToActBetIsPriced, default off): PLO4/PLO5 cash river,
+      // heads-up, the Horse acts first with nothing to call: a final check is priced beside the engine's bet sizes with
+      // the measured response curve and replaced by the best bet only when it beats the check by more than its own
+      // standard error (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
+      const firstToActOn = opts.omahaRiverFirstToActBetIsPriced === true;
+      const firstToAct = omahaRiverFirstToActBetRule(
         openMeasured,
+        player,
+        gs,
+        firstToActOn,
+        firstToActOn ? omahaPricedDeps(player, gs).rake : 0,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (firstToAct.changed && tele) {
+        noteFire('omaha_river_first_to_act_bet_priced');
+        noteDecisionRuleReceipt(
+          'omaha_river_first_to_act_bet_priced',
+          openMeasured,
+          firstToAct.decision
+        );
+      }
+      // EMERG lane OFFENCE-BUILD 2026-11-20 (omahaRiverCheckedToBetIsMeasured, default off): the same pricing where the
+      // opponent checked the river heads-up and the Horse closes (replaces the kind-keyed omahaCheckedToBetIsPriced
+      // family in this spot; HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
+      const checkedToOn = opts.omahaRiverCheckedToBetIsMeasured === true;
+      const checkedTo2 = omahaRiverCheckedToBetRule(
+        firstToAct.decision,
+        player,
+        gs,
+        checkedToOn,
+        checkedToOn ? omahaPricedDeps(player, gs).rake : 0,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (checkedTo2.changed && tele) {
+        noteFire('omaha_river_checked_to_bet_measured');
+        noteDecisionRuleReceipt(
+          'omaha_river_checked_to_bet_measured',
+          firstToAct.decision,
+          checkedTo2.decision
+        );
+      }
+      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+        checkedTo2.decision,
         player,
         gs,
         opts.omahaRiverCurrentNutsCallFloor === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (nutsFloored !== openMeasured && tele) {
+      if (nutsFloored !== checkedTo2.decision && tele) {
         noteFire('omaha_river_current_nuts_call_floor');
-        noteDecisionRuleReceipt('omaha_river_current_nuts_call_floor', openMeasured, nutsFloored);
+        noteDecisionRuleReceipt(
+          'omaha_river_current_nuts_call_floor',
+          checkedTo2.decision,
+          nutsFloored
+        );
+      }
+      // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (omahaFourBetFoldPricedCall, default off): a final
+      // preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only
+      // when the engine's priced call of a re-raise has EV(call) > 0 (HorseOmahaFourBetFoldPricedCall.ts).
+      // It changes only a fold.
+      const fourBetPriced = omahaFourBetFoldPricedCallRule(
+        nutsFloored,
+        player,
+        gs,
+        opts.omahaFourBetFoldPricedCall === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (fourBetPriced !== nutsFloored) {
+        if (tele) {
+          noteFire('omaha_four_bet_fold_priced_call');
+          noteDecisionRuleReceipt('omaha_four_bet_fold_priced_call', nutsFloored, fourBetPriced);
+        }
+        return { decision: fourBetPriced };
       }
       return { decision: nutsFloored };
     };

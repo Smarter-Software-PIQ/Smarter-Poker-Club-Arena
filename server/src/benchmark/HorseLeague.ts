@@ -108,6 +108,8 @@ import {
   FIXED_LIMIT_SCRIPTED_PERSONAS,
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -163,6 +165,8 @@ export {
   FIXED_LIMIT_SCRIPTED_PERSONAS,
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -2129,7 +2133,12 @@ export function humanFieldPersonaProfile(
   if (!HUMAN_FIELD_PERSONAS.includes(persona)) {
     throw new Error(`Unknown human-field persona: ${String(persona)}`);
   }
-  if (persona === FLH_MANIAC_PERSONA || persona === FLH_TIGHT_VALUE_PERSONA) {
+  if (
+    persona === FLH_MANIAC_PERSONA ||
+    persona === FLH_TIGHT_VALUE_PERSONA ||
+    persona === FLH_PASSIVE_CALLER_PERSONA ||
+    persona === FLH_OVER_FOLDING_BLINDS_PERSONA
+  ) {
     throw new Error(
       `${persona} is a scripted persona of the ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} field ` +
         `(FixedLimitScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +
@@ -3953,6 +3962,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverCheckedToBetIsMeasured; a on, b today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_checked_to_bet_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverCheckedToBetIsMeasured: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverFirstToActBetIsPriced (the river
+  // first-to-act heads-up check priced beside the bets on the measured response); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_first_to_act_bet_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverFirstToActBetIsPriced: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane RANGE-MODEL-2 (default OFF, PLO4/PLO5 cash): omahaRiverCurrentNutsCallFloor (a final river
   // fold facing a wager with the exact current nuts becomes the call where a full chop still returns it); a switches it
   // on, b is today's brain.
@@ -3962,6 +3990,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaRiverCurrentNutsCallFloor: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED (default OFF, PLO4/PLO5 cash): omahaFourBetFoldPricedCall (a final
+  // preflop fold after the Horse's own raise, facing a 4-bet or more heads-up, becomes the call where the priced call of
+  // a re-raise is positive); a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_four_bet_fold_priced_call`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFourBetFoldPricedCall: true },
     b: {},
   })),
   // 2026-11-20 EMERG lane RAKE (default OFF, PLO4/PLO5 cash): omahaFacingBetPaysTheWholeDeduction (the facing-bet
@@ -5383,18 +5422,20 @@ export const HU_EXPLOITER_CARDS: readonly LeagueMatchup[] = Object.freeze(
       ['small_stab', HU_SMALL_STAB_EVERY_STREET_PERSONA, { huBbDefendsToPrice: true }, {}],
     ] as const
   )
-    .map(([short, persona, a, b]): LeagueMatchup => ({
-      name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
-      seats: 2,
-      stackBB: 40,
-      pairs: HUMAN_FIELD_PAIRS,
-      hybridBaseline: true,
-      moodClock: 'deal_seed',
-      a: { ...a },
-      b: { ...b },
-      opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
-      humanPersona: persona,
-    }))
+    .map(
+      ([short, persona, a, b]): LeagueMatchup => ({
+        name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
+        seats: 2,
+        stackBB: 40,
+        pairs: HUMAN_FIELD_PAIRS,
+        hybridBaseline: true,
+        moodClock: 'deal_seed',
+        a: { ...a },
+        b: { ...b },
+        opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+        humanPersona: persona,
+      })
+    )
     .concat([
       {
         name: `${HUMAN_FIELD_NAME_PREFIX}hu_v7_preflop_vs_limper_40bb`,
@@ -5640,6 +5681,13 @@ LEAGUE_MATCHUPS.push(...FIXED_LIMIT_HOLDEM_CARDS);
  *   flh_river_one_bet_value_raise_vs_tight_value   5 of 3,000 pairs diverged, +0.07 +/- 0.22 bb/100
  *   flh_read_ignores_probes_vs_maniac            333 of 1,000 pairs diverged, +163.00 +/- 72.36 bb/100
  *   flh_read_ignores_probes_vs_tight_value         0 of 3,000 pairs diverged
+ * Added 2026-11-21, measured as defined here (seeds 20261120 and 20261121
+ * together; docs/horse-league-fixed-limit.md):
+ *   flh_river_one_bet_value_raise_vs_passive_caller    120 of 90,000 pairs diverged, +0.07 +/- 0.03 bb/100
+ *   flh_steal_vs_tight_blinds_vs_over_folding_blinds   741 of 20,000 pairs diverged, +6.84 +/- 0.28 bb/100
+ * The over-folding blinds are the steal's single most favourable range (they
+ * fold to every postflop wager, a design value), so that card is a
+ * favourable-range measurement with no harm control beside it yet.
  * Probes, not results. A harm control that changes almost nothing is the
  * expected reading (the lane recorded its tight-value cells at +0.00 to
  * +0.11 big bets per 100 hands, docs/horse-default-on.d/
@@ -5715,6 +5763,23 @@ export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object
     FLH_TIGHT_VALUE_PERSONA,
     { fixedLimitReadIgnoresProbes: true },
     FIXED_LIMIT_PROBE_HISTORY_HANDS
+  ),
+  // 2026-11-21: the passive caller (a third river-betting range for the one-bet value raise) and the
+  // over-folding blinds (the steal). A passive-caller card for fixedLimitRiverStrongHandLeads was measured and is
+  // not kept: 1 of 20,000 pairs diverged (UNMEASURABLE_MATCHUPS, flh_river_strong_hand_leads).
+  fixedLimitScriptedCard(
+    'flh_river_one_bet_value_raise_vs_passive_caller',
+    2,
+    3000,
+    FLH_PASSIVE_CALLER_PERSONA,
+    { fixedLimitRiverOneBetValueRaise: true }
+  ),
+  fixedLimitScriptedCard(
+    'flh_steal_vs_tight_blinds_vs_over_folding_blinds',
+    6,
+    3000,
+    FLH_OVER_FOLDING_BLINDS_PERSONA,
+    { fixedLimitStealVsTightBlinds: true }
   ),
 ]);
 LEAGUE_MATCHUPS.push(...FIXED_LIMIT_SCRIPTED_FIELD_CARDS);
@@ -6135,10 +6200,16 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         '(FixedLimitScriptedField.ts, seed 20261115, the hero on the cash Hybrid persona): 0 of 3,000 pairs against ' +
         'the maniac at six seats, 0 of 3,000 against it heads-up, and 0 of 3,000 against the tight-value player at ' +
         'six seats. Not measured, only read from the scripts: a maniac bets behind every check, so a lead may gain ' +
-        'nothing over a check-call, and a value-only player behind folds what a lead would be paid by.',
+        'nothing over a check-call, and a value-only player behind folds what a lead would be paid by. ' +
+        'Against the passive caller built 2026-11-21 (flh_passive_caller_v1: never folds after the flop, checks ' +
+        'behind anything under two pair), heads-up, the hero on the cash Hybrid persona: 1 of 20,000 pairs diverged ' +
+        'at seed 20261120 (-0.01 +/- 0.01 bb/100) and 0 of 20,000 pairs at seed 20261121; development probes at seed ' +
+        '20261115 read 2 of 10,000 pairs heads-up and 0 of 4,000 pairs at six seats. So the field this refusal ' +
+        'asked for is built and the option still changes almost no decision; why the Horse so rarely reaches the ' +
+        'gate with the reference checking was not measured.',
       needs:
-        'a field that checks behind a river check with hands that would call a lead (a passive caller; not built: ' +
-        'no record in this repository describes the lane script for it)',
+        'a field in which a first-to-act Horse checks a full house or better on the river at a measurable rate ' +
+        '(none of the four scripts built is one)',
       law: 'AFixedLimitStrongRiverHandLeads',
     }),
   },
@@ -6180,8 +6251,14 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'The option widens a first-in open only when every player still to act has an own adequate over-folder read ' +
         '(HorseFixedLimitPreflop.fixedLimitStealWiden).',
       diverged: 0,
-      why: 'The steal needs over-folder reads the self-play field does not build.',
-      needs: 'a scripted over-folding blinds field',
+      why:
+        'The steal needs over-folder reads the self-play field does not build. Since 2026-11-21 the scripted ' +
+        'over-folding blinds are built and this option is on the card against them: ' +
+        'flh_steal_vs_tight_blinds_vs_over_folding_blinds (388 of 10,000 pairs diverged at seed 20261120, 353 of ' +
+        '10,000 pairs at seed 20261121); this Horse-mirror arm stays refused as the mirror reading.',
+      needs:
+        'Horses whose own postflop fold-to-bet read engages high (the scripted field that measures the option ' +
+        'instead is built, FixedLimitScriptedField.ts)',
       law: 'AFixedLimitStealsFromOverFoldingBlinds',
     }),
   },
@@ -6641,36 +6718,38 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'nodes. V31 is certified through fn_audit_gto_v31_certified and ' +
       'benchmark/GtoV31CandidateEvaluation.ts, which is where its verdict lives.',
   },
-  ...(['plo4', 'plo5', 'plo6'] as const).map((variant): UnmeasurableMatchup => ({
-    name: `${variant}_v55_river_trips_flat`,
-    variant,
-    stackBB: 400,
-    a: { v55OmahaRiverTripsFlat: true },
-    b: {},
-    reason:
-      'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
-      '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
-      'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
-      'straight/flush-possible board, facing a raise with the money committed. The flag ' +
-      'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
-      'turning into a call. But the league stopped dealing that spot when the ' +
-      '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
-      'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
-      '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
-      'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
-      'branch V55 changes. ' +
-      (variant === 'plo6'
-        ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
-          'zero divergent pairs. '
-        : `Nightly at 400bb: ${
-            variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
-          } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
-          `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
-      'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
-      '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
-      'promotion claim. What would change this: switching the paired-board fold and ' +
-      'V56 off on both arms, which would measure a brain production does not play.',
-  })),
+  ...(['plo4', 'plo5', 'plo6'] as const).map(
+    (variant): UnmeasurableMatchup => ({
+      name: `${variant}_v55_river_trips_flat`,
+      variant,
+      stackBB: 400,
+      a: { v55OmahaRiverTripsFlat: true },
+      b: {},
+      reason:
+        'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
+        '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
+        'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
+        'straight/flush-possible board, facing a raise with the money committed. The flag ' +
+        'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
+        'turning into a call. But the league stopped dealing that spot when the ' +
+        '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
+        'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
+        '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
+        'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
+        'branch V55 changes. ' +
+        (variant === 'plo6'
+          ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
+            'zero divergent pairs. '
+          : `Nightly at 400bb: ${
+              variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
+            } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
+            `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
+        'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
+        '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
+        'promotion claim. What would change this: switching the paired-board fold and ' +
+        'V56 off on both arms, which would measure a brain production does not play.',
+    })
+  ),
 ] as UnmeasurableMatchup[]);
 
 for (const u of UNMEASURABLE_MATCHUPS) {
