@@ -91,6 +91,16 @@ BEGIN
 END $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_capture_freeze_mark(text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_capture_freeze_mark(text) TO service_role;
+-- 'post' never waits: outside its minute it returns NULL at once, and inside
+-- it writes only after an existing pre mark; the probe undoes either outcome.
+-- @probe-for: public.fn_ca_capture_freeze_mark
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_capture_freeze_mark('post');
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 -- The same two read-only observers, on every hour; the function gates them.
 SELECT cron.schedule('ca-freeze-mark-pre','0 * * * *', $$SELECT public.fn_ca_capture_freeze_mark('pre')$$);
 SELECT cron.schedule('ca-freeze-mark-post','5 * * * *', $$SELECT public.fn_ca_capture_freeze_mark('post')$$);
