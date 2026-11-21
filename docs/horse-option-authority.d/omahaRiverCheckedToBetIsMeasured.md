@@ -12,4 +12,4 @@ Public information only: no opponent memory, account, name or person/Horse flag.
 
 Archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OFFENCE-BUILD.md: heads-up river bets after a check are folded to 54% / 67% / 75% / 87% at 0.27 / 0.42 / 0.65 / 1.0 of the pot. Grade: CRITERIA-OFFENCE-omahaRiverCheckedToBetIsMeasured.md (sha256 ae35c7c200396cd2f2329676fe38f9340b4b76de19ac577a08388e65d53d965b, declared before the replay); results in OFFENCE-BUILD.md.
 
-- Replay: see OFFENCE-BUILD.md (exact journal replay, Nov 18-20 journals)
+- Replay: NOT RUN (no audited-decision scorer row is recorded for this option; the exact journal replay, Nov 18-20 journals, is recorded in the EMERG archive, OFFENCE-BUILD.md)

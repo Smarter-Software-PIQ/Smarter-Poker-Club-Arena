@@ -18,4 +18,4 @@ Archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OFFENCE-BUILD.md (steps 1-2): 
 
 Grade: CRITERIA-OFFENCE-omahaRiverFirstToActBetIsPriced.md (sha256 9a7d1eacd8e6bbdcd430f16d9a1ce1ca23360422241e91e6eb5f9f28f2081552, declared before the replay); results in OFFENCE-BUILD.md.
 
-- Replay: see OFFENCE-BUILD.md (exact journal replay, Nov 18-20 journals)
+- Replay: NOT RUN (no audited-decision scorer row is recorded for this option; the exact journal replay, Nov 18-20 journals, is recorded in the EMERG archive, OFFENCE-BUILD.md)
