@@ -104,7 +104,7 @@ describe('an older merged migration installs first', () => {
     const gate = SHELL.indexOf('node scripts/ci/await-older-merged-applies.mjs');
     expect(gate).toBeGreaterThan(0);
     expect(gate).toBeLessThan(SHELL.indexOf('SENT=0'));
-    expect(SHELL.slice(gate, gate + 200)).toContain('|| true');
+    expect(SHELL).toMatch(/^node scripts\/ci\/await-older-merged-applies\.mjs [^\n]*\|\| true$/m);
     expect(WF.permissions.actions).toBe('read');
   });
 });
