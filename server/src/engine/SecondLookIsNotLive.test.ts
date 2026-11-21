@@ -477,7 +477,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       ],
       noteDecisionRuleReceipt: [
         15,
-        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the open decision scope; records nothing inside a second-look capture (refused by name), never read before the decision is made',
+        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision',
       ],
     },
     methods: {

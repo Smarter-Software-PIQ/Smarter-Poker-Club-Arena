@@ -10277,6 +10277,10 @@ export abstract class ServerTableEngineBase {
       !this.running
     )
       return;
+    // Mark the deliberate pause phase at the gate itself so no caller (such as
+    // a break arriving right after startRestBlindRead) can leave loopPhase on
+    // 'refresh_blinds' and pollute nextHandGap with a 5-minute break duration.
+    this.setLoopPhase('parked_for_pause');
     // Bible V8 §3.1: Table FSM — running → paused. GUARDED: the FSM has no
     // waiting → paused edge, and this gate is now reachable from the idle
     // branches where the table sits in 'waiting'. An unguarded transition

@@ -120,7 +120,7 @@ function detect(
   return { out, stdout: run.stdout };
 }
 
-function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: boolean }) {
+function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: boolean; ownerWindow?: string }) {
   const dir = mkdtempSync(join(tmpdir(), 'ca-owed-offer-'));
   cleanups.push(dir);
   const bin = join(dir, 'bin');
@@ -146,6 +146,7 @@ function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: b
       GH_TOKEN: 'fixture-token-not-a-credential',
       GITHUB_OUTPUT: output,
       OFFER_REASON: opts.reason,
+      OWNER_WINDOW_ID: opts.ownerWindow ?? '',
       REF_SHA: opts.sha,
       REPO: 'fixture/repo',
       OFFER_INTERVAL_SECONDS: String(offer.env.OFFER_INTERVAL_SECONDS),
@@ -397,6 +398,31 @@ describe('the offer: one per window, never racing a receiver', () => {
     expect(r.output).toContain('send=false');
     expect(Number(offer.env.OFFER_INTERVAL_SECONDS)).toBeGreaterThanOrEqual(30 * 60);
     expect(Number(offer.env.OFFER_INTERVAL_SECONDS)).toBeLessThan(60 * 60);
+  });
+
+  it('NEGATIVE: a second dispatch of an owner window never offers while its receiver is queued or running', () => {
+    const ownerWindow = '2026-11-20-owner-no-notice-engine-2330z';
+    for (const status of ['queued', 'in_progress', 'pending']) {
+      const r = decide({
+        reason: 'changed',
+        sha,
+        ownerWindow,
+        runs: { workflow_runs: [run(11, sha, status, 0)] },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.output).toContain('send=false');
+      expect(r.stdout).toContain('receiver run 11 is already offering it');
+    }
+    const first = decide({ reason: 'changed', sha, ownerWindow });
+    expect(first.status, first.stderr).toBe(0);
+    expect(first.output).toContain('send=true');
+    expect(offer.env.OWNER_WINDOW_ID).toBe('${{ needs.detect.outputs.owner_window_id }}');
+  });
+
+  it('concurrent offers of the same engine SHA take turns instead of racing', () => {
+    const concurrency = stage.jobs.signal.concurrency;
+    expect(concurrency.group).toContain('needs.selection.outputs.sha');
+    expect(concurrency['cancel-in-progress']).toBe(false);
   });
 
   it('a push that changed engine code is sent without reading the lane', () => {

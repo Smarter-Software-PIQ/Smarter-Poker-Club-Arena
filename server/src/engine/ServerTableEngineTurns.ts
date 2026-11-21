@@ -559,19 +559,43 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
   }
 
   /**
-   * V44: what the deep replay is allowed to change. Only a call/fold/all-in
-   * that differs from the fast answer; a bet or raise from the replay is a
-   * sizing question the sample did not decide, and is ignored.
+   * V44: what the deep replay is allowed to change, and the exact retirement
+   * reason when it does not replace the fast answer. Only a call/fold/all-in
+   * that differs from a non-math-core fast answer replaces it; a deep bet or
+   * raise (`second_look_wager_ignored`), a fast `omahaMathCore` receipt
+   * (`second_look_math_core_kept`), or a deep exception fallback
+   * (`brain_exception`) is retired under its own reason instead of hiding
+   * inside `second_look_unchanged`.
    */
+  static secondLookDisposition(
+    fast: { action: string; amount?: number; omahaMathCore?: OmahaMathCoreDecisionReceipt | null },
+    deep: { action: string; amount?: number; policyFallback?: HorseDecision['policyFallback'] }
+  ):
+    | { kind: 'replace'; action: string; amount?: number }
+    | {
+        kind: 'retire';
+        reason:
+          | 'second_look_unchanged'
+          | 'second_look_wager_ignored'
+          | 'second_look_math_core_kept'
+          | 'brain_exception';
+      } {
+    if (omahaMathCoreOwns(fast)) return { kind: 'retire', reason: 'second_look_math_core_kept' };
+    if (deep.policyFallback !== undefined) return { kind: 'retire', reason: 'brain_exception' };
+    if (deep.action !== 'call' && deep.action !== 'fold' && deep.action !== 'all_in')
+      return { kind: 'retire', reason: 'second_look_wager_ignored' };
+    if (deep.action === fast.action) return { kind: 'retire', reason: 'second_look_unchanged' };
+    return { kind: 'replace', action: deep.action, amount: deep.amount };
+  }
+
   static secondLookVerdict(
     fast: { action: string; amount?: number; omahaMathCore?: OmahaMathCoreDecisionReceipt | null },
     deep: { action: string; amount?: number; policyFallback?: HorseDecision['policyFallback'] }
   ): { action: string; amount?: number } | null {
-    if (omahaMathCoreOwns(fast)) return null;
-    if (deep.policyFallback !== undefined) return null;
-    if (deep.action !== 'call' && deep.action !== 'fold' && deep.action !== 'all_in') return null;
-    if (deep.action === fast.action) return null;
-    return { action: deep.action, amount: deep.amount };
+    const disposition = ServerTableEngineTurns.secondLookDisposition(fast, deep);
+    return disposition.kind === 'replace'
+      ? { action: disposition.action, amount: disposition.amount }
+      : null;
   }
 
   private static readonly HORSE_MAX_BANK_BURN_MS = 9000;
@@ -4921,11 +4945,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                   noteFire('phase15_deep_brain_exception_retired');
                   return;
                 }
-                const verdict = ServerTableEngineTurns.secondLookVerdict(
+                const disposition = ServerTableEngineTurns.secondLookDisposition(
                   decision,
                   deepResult.decision
                 );
-                if (verdict) {
+                if (disposition.kind === 'replace') {
+                  const verdict = disposition;
                   noteFire('v44_second_look_flipped');
                   retireHorseExecutionWitness(pendingExecutionWitness, 'second_look_replaced');
                   markPendingUtilityNotExecuted();
@@ -4948,7 +4973,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                   pendingJointLedger = decision.jointPolicy;
                   pendingExecutionWitness = decision.executionWitness;
                 } else {
-                  retireDecision(deepResult.decision, 'second_look_unchanged');
+                  retireDecision(deepResult.decision, disposition.reason);
                 }
               })
               .catch(async (error) => {

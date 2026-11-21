@@ -648,6 +648,11 @@ export function TableTabBar({
                   tableId: activeTabId,
                   action: 'CLUB_MARKETPLACE',
                 }),
+              onInviteToGame: () =>
+                masterBus.emit('TABLE_MENU_ACTION', {
+                  tableId: activeTabId,
+                  action: 'INVITE_TO_GAME',
+                }),
               onRebuy: () =>
                 masterBus.emit('TABLE_MENU_ACTION', { tableId: activeTabId, action: 'REBUY' }),
               onAutoTopUp: () =>
