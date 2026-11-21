@@ -2758,11 +2758,15 @@ export class HorseMind {
    * and where it cannot price it the lifetime read is not consumed there (the site answers as with the option off).
    */
   static opponentReadWithoutHud(userId: string): OpponentExploitRead | null {
-    if (this.decisionReadOptions.opponentLifetimeHud !== true) return this.opponentRead(userId);
+    return this.withoutHud(() => this.opponentRead(userId));
+  }
+  /** Run a read as without the lifetime HUD (receipts muted); with the option off, the read itself. */
+  static withoutHud<T>(fn: () => T): T {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true) return fn();
     const saved = this.decisionReadOptions;
     this.decisionReadOptions = { ...saved, opponentLifetimeHud: false };
     try {
-      return withBrainTelemetrySuspended(() => this.opponentRead(userId));
+      return withBrainTelemetrySuspended(fn);
     } finally {
       this.decisionReadOptions = saved;
     }

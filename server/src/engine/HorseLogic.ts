@@ -22201,6 +22201,8 @@ export class HorseLogic {
     let bands: Array<[number, number] | null> | undefined;
     let oppReads: Array<OppPostflopRead | null> | undefined;
     let exploit: ExploitProfile = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
+    // OPPONENT HUD NO-LOWERING: the table's bluff scale as without the lifetime read (null when the read is off)
+    let exploitNoHud: ExploitProfile | null = null;
     // STYLE READ item 3 as applied below (1 = not applied), and the read it
     // came from, so the river bluff-raise gate can tell its part apart.
     let styleFoldBluffMul = 1;
@@ -22317,6 +22319,10 @@ export class HorseLogic {
           useCounterAdapt,
           exploitReadOpts83
         );
+        if (HorseMind.hudReadActive())
+          exploitNoHud = HorseMind.withoutHud(() =>
+            HorseMind.tableExploit(player.seat, gs.players, useCounterAdapt, exploitReadOpts83)
+          );
         // STYLE READ item 3 (2026-11-13): bluff frequency follows this
         // opponent's fold-to-bet ON THIS STREET (river: river call), heads-up,
         // hold'em, not in bounty events. Default off; explicit true only.
@@ -25385,6 +25391,9 @@ export class HorseLogic {
                 ...rbArgs.reads,
                 station: hudLegacyRb.station,
                 overFolderFrequency: hudLegacyRb.overFolder,
+                bluffMod: fcCallingMoreRb
+                  ? Math.min(1, exploitNoHud?.bluffMod ?? exploit.bluffMod)
+                  : (exploitNoHud?.bluffMod ?? exploit.bluffMod),
               },
             });
             const lowered = (stationLowFold86 && !hudLegacyRb.lowFold) || pL > pRb;
@@ -25793,13 +25802,17 @@ export class HorseLogic {
           // does not lower the bluff frequency; the lowering stands only when the check is priced above every bet
           // (turn); unpriceable (the flop), the lifetime read is not consumed here.
           let pFtUse = pFt;
-          if (useMind && opponents.length === 1 && HorseMind.hudReadActive()) {
+          if (useMind && HorseMind.hudReadActive()) {
             try {
-              const stationL = isStation(HorseMind.opponentReadWithoutHud(opponents[0].user_id));
-              if (stationL !== stationFt) {
+              const stationL =
+                opponents.length === 1
+                  ? isStation(HorseMind.opponentReadWithoutHud(opponents[0].user_id))
+                  : stationFt;
+              const bluffModL = exploitNoHud?.bluffMod ?? exploit.bluffMod;
+              if (stationL !== stationFt || bluffModL !== exploit.bluffMod) {
                 const pL = flopTurnBluffProbability({
                   ...ftArgs,
-                  reads: { ...ftArgs.reads, station: stationL },
+                  reads: { ...ftArgs.reads, station: stationL, bluffMod: bluffModL },
                 });
                 if (pL > pFt) {
                   const pricedFt = omahaHudPricedBetOverCheck(player, gs, opts);

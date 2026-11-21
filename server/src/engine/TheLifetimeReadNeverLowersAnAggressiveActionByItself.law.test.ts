@@ -82,6 +82,10 @@ describe('the lifetime read never lowers a raise or a bet by itself', () => {
     expect(shadows.length).toBe(4);
     for (const i of shadows)
       expect(SRC.slice(Math.max(0, i - 1500), i)).toContain('hudReadActive()');
+    // the table's bluff scale as without the lifetime read: taken only with the read on
+    const tables = [...SRC.matchAll(/HorseMind\.withoutHud\(/g)].map((m) => m.index!);
+    expect(tables.length).toBe(1);
+    for (const i of tables) expect(SRC.slice(Math.max(0, i - 200), i)).toContain('hudReadActive()');
     expect(SRC.match(/omahaHudPricedRaiseOverCall\(player/g)?.length).toBe(1);
     expect(SRC.match(/omahaHudPricedBetOverCheck\(player/g)?.length).toBe(2);
   });
