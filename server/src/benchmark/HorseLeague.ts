@@ -515,6 +515,9 @@ export type LeagueSeatPolicy = (spot: LeagueSeatSpot) => { action: string; amoun
  * absent on every pre-existing path.
  */
 export interface LeagueHandObserver {
+  /** Called right before a seat is asked for its decision (2026-11-21, sparring's HUD provider: the bench installs
+   *  the acting seat's opponent packet here, the way the decision worker installs it around the decide call). */
+  beforeDecision?: (e: { seatIdx: number; stage: HandStage }) => void;
   onAction?: (e: {
     seatIdx: number;
     stage: HandStage;
@@ -533,6 +536,10 @@ export interface LeagueHandObserver {
     cards: Card[][];
     board: Card[];
     net: number[];
+    /** PUBLIC end of the hand (2026-11-21): every seat's chips won, and the hand NAME of each seat still in at a
+     *  showdown (empty when the hand ended by folds). A category name only: no card of a player is in it. */
+    winnings: number[];
+    shown: Array<{ seatIdx: number; handName: string }>;
   }) => void;
 }
 
@@ -1282,6 +1289,7 @@ export function playHand(
         );
       }
       leaguePinPublicStreams(handSeed, i, history.length);
+      observer?.beforeDecision?.({ seatIdx: i, stage });
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
@@ -1676,13 +1684,26 @@ export function playHand(
   }
 
   const net = seats.map((s, i) => winnings[i] - s.contributed);
-  observer?.onEnd?.({
-    endedByFolds: live().length === 1,
-    folded: seats.map((s) => s.player.is_folded),
-    cards: seats.map((s) => s.player.cards),
-    board,
-    net,
-  });
+  if (observer?.onEnd) {
+    const shown: Array<{ seatIdx: number; handName: string }> = [];
+    if (live().length >= 2)
+      seats.forEach((s, seatIdx) => {
+        if (s.player.is_folded) return;
+        const score = vi.isOmaha
+          ? scoreOmahaHi(s.player.cards, board)
+          : scoreHoldem(s.player.cards.concat(board), s.player.cards.length + 5, vi.isShortDeck);
+        shown.push({ seatIdx, handName: CAT_NAMES[Math.floor(score / 0x100000)] ?? '' });
+      });
+    observer.onEnd({
+      endedByFolds: live().length === 1,
+      folded: seats.map((s) => s.player.is_folded),
+      cards: seats.map((s) => s.player.cards),
+      board,
+      net,
+      winnings: [...winnings],
+      shown,
+    });
+  }
   return net;
 }
 

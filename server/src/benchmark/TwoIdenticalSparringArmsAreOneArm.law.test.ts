@@ -419,6 +419,11 @@ describe('LAW: the overlay points every import of the harness at the tree under 
     const dir = mkdtempSync(join(tmpdir(), 'sparring-overlay-'));
     try {
       writeFileSync(join(dir, 'SparringLeague.ts'), league);
+      // the overlay carries the bench's HUD store too (2026-11-21, SparringLearnsTheHud.law.test.ts)
+      writeFileSync(
+        join(dir, 'SparringHud.ts'),
+        "import { y } from './HudHistoryRows.js';\nimport { z } from '../engine/opponentHud/OpponentHud.js';\nvoid y;\nvoid z;\n"
+      );
       writeFileSync(
         join(dir, 'sparringRun.ts'),
         "import { x } from './SparringLeague.js';\nvoid x;\n"
