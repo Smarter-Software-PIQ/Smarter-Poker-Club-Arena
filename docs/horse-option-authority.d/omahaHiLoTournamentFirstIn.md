@@ -1,8 +1,8 @@
 # omahaHiLoTournamentFirstIn: authority for the live switch
 
-**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, tests and off-identity are recorded, the declared offline evaluation is recorded as SUPPORTED on two seeds and the league card measured significant and positive on three of three seeds against a mirror field (+36.54, +35.80 and +38.92 bb/100, each stderr about 4.9); the replay on recorded decisions was run on 2026-11-21 against a PASS-BAR declared before it and FAILED that bar: on 430 audited decisions the option changed 248, fixed 0 and made 35 newly wrong (every one a big-blind fold the audit priced as correct, turned into a call). No live read exists.
+**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, tests and off-identity are recorded and the declared offline evaluation is recorded as SUPPORTED on two seeds. The replay on recorded decisions was run twice on 2026-11-21 on the same 430 audited decisions and the same replay: with Auditor E's borrowed Hold'em out-of-position realization 0.72 it FAILED its PASS-BAR (fixed 0, newly wrong 35); with that constant replaced by one measured for PLO8 under a declaration written first (1.01, standard error 0.036, 4,004 league pots re-settled hi-lo) it PASSES the replay bar (fixed 0, newly wrong 0, every change unjudged), which shows no audited gain. It is not met because no activation order is recorded ("The order it rests on"), and because the three significant league runs (+36.54, +35.80 and +38.92 bb/100) were measured by a league that settles every PLO8 pot to the high hand only (found 2026-11-21, section "Measured out-of-position realization"), so they do not measure the hi-lo game. No live read exists.
 
-Written 2026-11-20 from what the repository records (sources named per section); nothing was run for the file on that day. The sections "Replay on recorded decisions (2026-11-21)" and "Replay" were added on 2026-11-21 from a replay run for this file; every number in them was measured in that run.
+Written 2026-11-20 from what the repository records (sources named per section); nothing was run for the file on that day. The sections "Replay on recorded decisions (2026-11-21)" and "Replay" were added on 2026-11-21 from a replay run for this file; every number in them was measured in that run. The section "Measured out-of-position realization and the second replay (2026-11-21)" and the second row under "Replay" were added the same day from the runs it names; every number in them was measured in those runs.
 
 ## What it does
 
@@ -67,7 +67,9 @@ Limits as recorded: "Every opponent is a variant of the Horse brain; no human-ca
 - Option unset or false: decisions identical (the law test above).
 - League card (mirror field, Horse-brain opponents): seeds 20261120, 20261121 and 20261122: +36.54, +35.80 and +38.92 bb/100 (stderr 4.92, 4.90, 4.93), each SIGNIFICANT (section above); offline runs with empty solver stores, not nightly rows.
 - Declared offline evaluation: SUPPORTED on development seed 94101 and on confirmation seed 94202 (changelog). It is an offline result against Horse-brain opponents, not a replay on audited decisions and not a live read.
-- Replay on recorded audited decisions (README.md, "Replay bar"): RUN 2026-11-21, NOT MET. Declared PASS-BAR item 2 (newlyWrong <= fixed) failed: fixed 0, newly wrong 35 (section below).
+- Replay on recorded audited decisions (README.md, "Replay bar"), first run 2026-11-21 with the borrowed Hold'em realization 0.72: PASS-BAR item 2 (newlyWrong <= fixed) failed: fixed 0, newly wrong 35 (section "Replay on recorded decisions").
+- Replay on recorded audited decisions, second run 2026-11-21 with the measured PLO8 realization 1.01 (the current constant): PASS-BAR passed, fixed 0, newly wrong 0, changed 248, all 248 unjudged; no audited gain (section "Measured out-of-position realization").
+- League settlement: the league's PLO8 hands pay the whole pot to the high hand (no low half), so the league card rows above measure a high-only game (section "Measured out-of-position realization").
 - Value against people, live reach of the receipt: NOT MEASURED. Production held no PLO8 two-player tournament hand with a person in it on 2026-11-21 (0 of 361).
 
 ## Replay on recorded decisions (2026-11-21)
@@ -117,14 +119,53 @@ Why it fails, and how far the result reaches:
 - The receipt column reads "(no receipt)" because the replay harness keeps only receipts matching its own filter, which does not include `omaha_hilo_tournament_first_in`; the two arms differ by this option alone.
 - Limits: Horse against Horse hands only (no hand with a person); one retention window of 9 days and 11 tournaments; the fold share 0.813 is measured on the same set and is the option-off field's (a big blind that itself runs the option folds less, which this audit does not price; the mirror league card does); chip EV only, no ICM term; a verdict-only audit, so no bb total; opponent memory off in replay.
 
+## Measured out-of-position realization and the second replay (2026-11-21)
+
+Run by a subagent of the Antigravity Coordinator (session_01Gw7aDtgw51ks82iZdeEMVr). The declaration, the measurement script and its output, auditor A2, its audit summary and the scorer's log are in `antigravity-coordinator-01UxDLnH/evidence/plo8-oop-realization/` on the operations Mac (not in this repository), with these sha256: `DECLARATION-PLO8-OOP-REALIZATION.md` `ae2867beebbe8a1a32592e5ec66e2c3f2d44a4926ae495d16fb0b439b9954441` (written 2026-11-21T14:17Z, before the realization was computed), `measure.mts` `a92d3cb96739881680de7733806f764da72ad7c711f4db948682cfbf7f59acc2`, `measure.json` `c22f8fd4a465dd25d4a6d5c07037c2da46c9deb1f4e8bf94637f42504ebbcf60`, `plo8_hu_first_in_audit_A2.ts` `1f0649955cea1da6625158a688d54ff239115c65610bdad100718b4a667e8038`, `AUDIT-SUMMARY-A2.json` `5d76fab1c69877d6c43044dba778e84e31defb118192182905c96cd56685c59c`, `PLO8HU-FI-A2.score.log` `88ccaef999947d6a6c8faa49748234a99b413cc26b52e3f11c7674336b1335ea`. The hand export, the audit csv, the placed nodes and the replay file were deleted after the run (the export holds the Horses' own hole cards).
+
+### Why
+
+All 35 newly wrong decisions of the first run were big-blind calls priced with Auditor E's out-of-position realization 0.72, a Hold'em constant never measured for PLO8 (section "Replay on recorded decisions"). The declaration replaced it with a measured constant, fixed before the audit priced a row.
+
+### How the realization was measured
+
+- Definition, to fit the auditor's formula EV(call) = R x eq x (pot + call) - call: per pot, eq = the big blind's hi-lo all-in pot share against the small blind's actual four cards (Monte Carlo, 2,000 boards, the auditor's share function on the engine evaluators), P = the pot after the call, V = the big blind's stack at the end of the hand minus its stack right after the call; R = sum V / sum (eq x P), standard error by linearization.
+- Production first, by a rule declared beforehand (400 qualifying pots or more): production held 14 PLO8 two-player tournament pots where the small blind raised and the big blind called (any depth, read-only count), so production was not used.
+- League engine instead: `playHand` of `server/src/benchmark/HorseLeague.ts` at `945de20c4`, called from the scratch script, PLO8, two seats, the 12 bb card's final-table tournament context with the stack depth set to 8, 12, 16 and 20 big blinds, the tournament hybrid profile, mood clock deal_seed, one HorseMind sandbox per depth with learning on, 6,000 deals per depth (24,000 hands, run seed 20261121). Big blind = `{ omahaHiLoTournamentFirstIn: true }`, small blind = today's brain. Sample: the small blind raises (not all-in), the big blind calls (not all-in), call / stack behind under 0.4 (the auditor's uncommitted scope; at 0.4 or more the auditor already uses 1).
+- The league pays every PLO8 pot to the high hand only (`playHand` settlement scores `scoreOmahaHi`; it has no low half). The script tracked contributions, re-settled every hand high-only and reproduced the league's own net on all 24,000 hands (0 mismatches), then re-settled showdowns hi-lo (contested amount split by the hi-lo share on the actual board, uncalled excess returned).
+
+### Result (`measure.json`)
+
+| depth  | pots  | R      | stderr | mean eq | mean call (bb) | mean pot after call (bb) | showdown share |
+| ------ | ----- | ------ | ------ | ------- | -------------- | ------------------------ | -------------- |
+| 8 bb   | 0     | none   | none   |         |                |                          |                |
+| 12 bb  | 873   | 0.9779 | 0.0635 | 0.4462  | 3.000          | 9.000                    | 0.796          |
+| 16 bb  | 1,572 | 1.0459 | 0.0585 | 0.4664  | 2.670          | 8.341                    | 0.599          |
+| 20 bb  | 1,559 | 1.0009 | 0.0635 | 0.4658  | 2.675          | 8.351                    | 0.586          |
+| pooled | 4,004 | 1.0133 | 0.0364 | 0.4618  | 2.744          | 8.489                    | 0.637          |
+
+The constant (R rounded to two decimals, as declared): **1.01**. At 8 bb every big-blind call of a raise is committed (call / behind 0.4 or more), so no 8 bb pot is in the sample. Before the declared run, a 100-hand smoke test of the script at 12 bb (the first 100 deals of the declared run's 12 bb depth) printed R 0.56 on 18 pots; the method was already fixed by the declaration and nothing was changed after it.
+
+Limits: Horse-brain (mirror) postflop play on both sides, not a human field; the league's small-blind raising range is not production's measured 0.345; the league's tournament context posts a big-blind ante (pot after the call about 8.5 bb; production's big blinds faced about 2 bb to call); chip EV only, no ICM term; one run.
+
+### The second replay
+
+Auditor `PLO8-HU-FI-A2` = `PLO8-HU-FI-A1` with one change, `RZ_OOP = 1.01` in place of 0.72 (nothing else). The set was re-exported read-only with `EXPORT.sql` (361 hands, all still retained; A1 on the re-export reproduced the first run's audit summary byte for byte, sha256 `b4179605...`). Placed by `server/scripts/hvh48-audit-nodes.py --set E` unmodified: 430 placed, 0 not placed; bad 3, ok 127, unjudged 300 (A1: bad 3, ok 184, unjudged 243); the placement job was identical to A1's. Big-blind folds facing one raise under A2: 1 OK, 83 DEBATABLE, 3 LIKELY (A1: 59 OK, 25 DEBATABLE, 3 LIKELY). Replay: `server/scripts/audited-node-option-replay.ts` at `5bfaa38d0e0c` (as the first run), seeds 1,7,42, base arm = the 66 rows of `public.ca_horse_style_switch` (no change in `ca_horse_style_switch_audit` since 2026-11-21T08:24:56Z), arm on = base plus omahaHiLoTournamentFirstIn; 430 nodes, 0 arm errors. Scoring the new replay file against A1's nodes reproduced the first row exactly (fixed 0, newly wrong 35), so the two rows differ by the audit constant alone.
+
+PASS-BAR (unchanged from the first run): 1. 430 of 430 placed and replayed, 0 illegal, 0 refused, 0 errors: PASSED. 2. newlyWrong <= fixed: PASSED (0 and 0). 3. 248 changes, 248 more aggressive, 0 more passive: PASSED.
+
+Unedited scorer line (scorer `d6b032d3204`):
+
+`placed (verdict-only; 430 audited decisions, 3 judged bad; joined by node: 430 replayed, 0 not replayed, base reproduces the recorded action on 408): arm on changed 248 (248 more aggressive, 0 more passive), resized 0, illegal 0, refused 0, errors 0; fixed 0, newly wrong 0, still wrong 0, ok to ok 0, unjudged 248; judged bad left unchanged 0; no bb (the audit declares no EV model); per receipt: (no receipt) 248 changed / 0 fixed / 0 newly wrong.`
+
+What it means: with a PLO8-measured realization the 57 big-blind calls the option adds are no longer priced as wrong; they are priced DEBATABLE (a positive EV for the call below the audit's 1.5 bb threshold), so they are unjudged rather than fixed. The 3 big-blind folds judged bad are already calls in today's brain. The row clears the replay bar and shows no audited gain.
+
 ## What is still owed before this file may say the evidence is met
 
-1. A run row in which newlyWrong does not exceed fixed. The PASS-BAR, the audited set and the replay that this list asked for on 2026-11-20 were done on 2026-11-21 and are recorded above; the run row is under "Replay" and it fails the bar (newly wrong 35, fixed 0). One of these would produce a passing row, each a new declared replay and none of them done here:
-   - the big-blind part measured on its own: a PLO8 heads-up out-of-position realization measured on recorded hands (in place of the Hold'em 0.72), declared before a new replay of the same set; or
-   - the option without its big-blind part (`bigBlindDefendShare` 0, which a league arm can already pass): on this set the small-blind part alone changed 191 decisions with 0 newly wrong and 0 fixed. The switch option is all or nothing today, so this needs a source change and its own evaluation; or
-   - recorded PLO8 two-player tournament hands with a person in them, audited the same way (production held none on 2026-11-21).
-2. The order to activate (owner or lane lead), recorded verbatim in "The order it rests on".
-3. For an activation: the serving engine build must know the option name, and the receipt `omaha_hilo_tournament_first_in` should be read live after switch-on (first-action fold rate of the heads-up small blind and big blind at 20 BB or less against the recorded 83 to 85 and 81 to 91 percent), with a rollback trigger declared before the switch.
+1. A run row in which newlyWrong does not exceed fixed: DONE on the measured constant (second row under "Replay"; the first row, on the borrowed 0.72, stays as the record of the first run). The row shows no audited gain: every change is unjudged.
+2. A league measurement of the hi-lo game: the league's PLO8 settlement pays the high hand only, so the three league rows above do not measure this option in PLO8. A league card that settles hi-lo (or a hi-lo re-settlement of the card, as the realization script below does) is needed before a league row can be cited for it.
+3. The order to activate (owner or lane lead), recorded verbatim in "The order it rests on".
+4. For an activation: the serving engine build must know the option name, and the receipt `omaha_hilo_tournament_first_in` should be read live after switch-on (first-action fold rate of the heads-up small blind and big blind at 20 BB or less against the recorded 83 to 85 and 81 to 91 percent), with a rollback trigger declared before the switch.
 
 ## What the activation row must contain
 
@@ -134,11 +175,17 @@ Why it fails, and how far the result reaches:
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
+First run, auditor PLO8-HU-FI-A1, out-of-position realization 0.72 (Auditor E's Hold'em constant, superseded):
+
 - Replay: fixed 0; newlyWrong 35; changed 248; unchanged 182; unjudged 213; set PLO8HU-FI PLO8 2-player tournaments 20bb; scorer d6b032d3204; source placed verdict-only; arm on vs off; replayed 430 of 430
+
+Second run, auditor PLO8-HU-FI-A2, out-of-position realization 1.01 (measured for PLO8, the current constant):
+
+- Replay: fixed 0; newlyWrong 0; changed 248; unchanged 182; unjudged 248; set PLO8HU-FI PLO8 2-player tournaments 20bb; scorer d6b032d3204; source placed verdict-only; arm on vs off; replayed 430 of 430
 
 How the row is produced (run from `server/`; `W` is the work directory holding the export, outside the repository):
 
-1. Export the 361 hands with `EXPORT.sql` (read-only) and price them: `npx tsx plo8_hu_first_in_audit.ts --hands $W/hands.jsonl --out $W/set` (writes `decisions.csv`, `hands.jsonl`, `facts.jsonl` in Auditor E's file form).
+1. Export the 361 hands with `EXPORT.sql` (read-only) and price them (second run: `plo8_hu_first_in_audit_A2.ts`): `npx tsx plo8_hu_first_in_audit.ts --hands $W/hands.jsonl --out $W/set` (writes `decisions.csv`, `hands.jsonl`, `facts.jsonl` in Auditor E's file form).
 2. Place the nodes: `python3 scripts/hvh48-audit-nodes.py --set E --csv $W/set/decisions.csv --work $W/set --out $W/nodes`.
 3. Re-decide off against on: `npx tsx scripts/audited-node-option-replay.ts --job $W/nodes/E.job.json --switch $W/prod-switch.json --arms on=omahaHiLoTournamentFirstIn --out $W/runs/PLO8HU-FI.replay.jsonl`.
 4. Score and copy the printed row unedited: `npx tsx scripts/audited-decision-replay.ts --placed $W/nodes/E.nodes.jsonl --replay $W/runs/PLO8HU-FI.replay.jsonl --line on --row on --set "PLO8HU-FI PLO8 2-player tournaments 20bb"`.

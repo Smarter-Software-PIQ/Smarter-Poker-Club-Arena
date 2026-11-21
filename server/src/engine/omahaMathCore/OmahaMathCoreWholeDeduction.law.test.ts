@@ -1,9 +1,10 @@
 /**
- * omahaMathCoreNetsTheWholeDeduction (default OFF; EMERG lane RAKE 2026-11-20).
- * Law: with the option on, the core nets every pot it prices of the whole deduction: the cap of the
- * dealt-player tier, the fixed jackpot drop, and both on a preflop line that reaches a flop, while a
- * preflop fold-out still pays nothing. Off, the state carries no such field and every value is as
- * before. PLO6 is outside the core, option or not. Synthetic public states only.
+ * omahaMathCoreNetsTheWholeDeduction (EMERG lane RAKE 2026-11-20; redundant since lane CORE-POOLED-4).
+ * Law: the core nets every pot it prices of the whole deduction: the cap of the dealt-player tier, the
+ * fixed jackpot drop, and both on a preflop line that reaches a flop, while a preflop fold-out still pays
+ * nothing. Since CORE-POOLED-4 this is the default (rake.platform, the platform's own rules; law
+ * OmahaMathCorePlatformRake.law.test.ts) and the option changes nothing. A hand-built state without
+ * `platform` keeps the old arithmetic (the spot tests below). PLO6 is outside the core. Synthetic states only.
  */
 import { describe, expect, it } from 'vitest';
 import type { SeatPlayer } from '../../types.js';
@@ -149,19 +150,32 @@ function parseCardStringCards(text: string) {
 }
 
 describe('omahaMathCoreNetsTheWholeDeduction (default OFF)', () => {
-  it('off: the state carries no whole-deduction field and the table cap, as before', () => {
+  it('default (lane CORE-POOLED-4): the state nets the whole platform deduction; the option changes nothing', () => {
     const s = live('plo5');
-    const off = omahaMathCoreState(s.hero, s.gs as never);
-    expect(off.rake).toEqual({ percent: 10, cap: 5, noFlopNoDrop: true });
-    expect(omahaMathCoreState(s.hero, s.gs as never, false)).toEqual(off);
-  });
-
-  it('on: the cap of the dealt-player tier and the jackpot drop, from the public table rules', () => {
-    const s = live('plo5');
-    const on = omahaMathCoreState(s.hero, s.gs as never, true);
-    expect(on.rake).toEqual({ percent: 10, cap: 3.75, noFlopNoDrop: true, whole: true, drop: 1.2 });
-    const off = omahaMathCoreState(s.hero, s.gs as never);
-    expect({ ...on, rake: null }).toEqual({ ...off, rake: null });
+    const def = omahaMathCoreState(s.hero, s.gs as never);
+    expect(def.rake).toMatchObject({
+      percent: 10,
+      cap: 3.75,
+      noFlopNoDrop: true,
+      whole: true,
+      drop: 1.2,
+    });
+    expect(def.rake?.platform).toEqual({
+      config: {
+        percent: 10,
+        cap: 5,
+        noFlopNoDrop: true,
+        playerCountCaps: [
+          { players: 2, cap: 2.5 },
+          { players: 3, cap: 3.75 },
+          { players: 4, cap: 5 },
+        ],
+      },
+      players: 3,
+      bbjFee: 1.2,
+    });
+    expect(omahaMathCoreState(s.hero, s.gs as never, false)).toEqual(def);
+    expect(omahaMathCoreState(s.hero, s.gs as never, true)).toEqual(def);
   });
 
   it('a field that is present but not on changes no value', () => {
