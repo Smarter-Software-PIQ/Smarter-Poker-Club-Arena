@@ -2,10 +2,10 @@
 
 ## Summary
 
-1. **Opt-in solver store hydration for `horseLeagueCard.ts` and manual hosted workflow**
+1. **Opt-in solver store hydration for `horseLeagueCard.ts`**
    - Added `--hydrate-solver-stores` to `server/src/benchmark/HorseLeagueCard.ts` and `server/src/scripts/horseLeagueCard.ts` (default OFF so offline runs stay byte-identical and require no database).
    - When `--hydrate-solver-stores` is passed, the script requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, loads GTO charts, postflop compact and V31 stores in parallel via `loadGtoCharts()`, `loadGtoPostflop()` and `loadGtoPostflopV31()` before dealing cards, prints a single factual line with the loaded store counts, and fails closed with a non-zero exit if all three return 0 rows.
-   - Added `.github/workflows/horse-league-card-hydrated.yml` (manual `workflow_dispatch` only, `runs-on: ubuntu-24.04`, `environment: ci-main`, `permissions: contents: read`, shared `horse-strength-hosted-capacity` concurrency group, zero DB writes) to run a single named league card with hydrated solver stores and upload its log and `RESULT_JSON` output as an artifact.
+   - The manual hosted runner workflow (`.github/workflows/horse-league-card-hydrated.yml`) is split into a dedicated follow-up workflow-only PR.
 
 2. **Root-cause ledger consumer mapping for `v72DefenceByOpener` and audited authority options**
    - Audited all 144 registered options with authority files in `docs/horse-option-authority.d/` against `ledgerReceiptsOfOption()` (`server/src/benchmark/ReplayArmReceipts.ts`).
