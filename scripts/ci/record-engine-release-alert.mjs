@@ -12,6 +12,7 @@
  */
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { buildEpisodeResolve, engineAlertEpisodeId } from './engine-alert-episode.mjs';
 
 export function buildReleaseFailureAlert(env) {
   const shipped = (env.SHIPPED || '').trim() === 'true';
@@ -43,14 +44,19 @@ export function buildReleaseFailureAlert(env) {
     parts.push(`doors=${doorsResult}${doorsRefusal ? ` (${doorsRefusal})` : ''}`);
   }
 
+  const fingerprint = `engine-release-failed:${runId}`;
   return {
     status: 'firing',
-    fingerprint: `engine-release-failed:${runId}`,
+    fingerprint,
     startsAt: new Date().toISOString(),
     labels: {
       alertname: 'EngineReleaseFailed',
       severity: 'critical',
       component: 'engine-release',
+      // The producer episode reliability intake pairs this firing row with
+      // the row that later resolves it (engine-alert-episode.mjs). Without it
+      // intake keys the member by this row's own id and no resolve can match.
+      engine_alert_episode_id: engineAlertEpisodeId(fingerprint),
       run_id: runId,
       target_sha: targetSha,
       release_result: releaseResult || 'unknown',
@@ -83,57 +89,54 @@ export function shippedSibling(alert, receipts) {
   return hit ? hit.run_id : null;
 }
 
-export function buildReleaseResolvedAlerts(env, openRows = []) {
+/**
+ * Resolve every open EngineReleaseFailed row after a verified ship. Each
+ * resolve is built FROM its firing row (buildEpisodeResolve), so it carries
+ * that row's exact alertname, component, fingerprint, startsAt and
+ * engine_alert_episode_id and intake closes the same member. A firing row with
+ * no episode (written before 2026-11-21) cannot be resolved by any appended
+ * row; it is returned in `unresolvable` and named in the log, never sent as a
+ * resolve that intake would record as resolved_not_of_this_episode.
+ */
+export function planReleaseResolutions(env, openRows = []) {
   const shipped = (env.SHIPPED || '').trim() === 'true';
   const verified = (env.VERIFIED || '').trim() === 'true';
+  const plan = { resolved: [], unresolvable: [] };
   if (!shipped || !verified || !Array.isArray(openRows) || openRows.length === 0) {
-    return [];
+    return plan;
   }
 
   const runId = (env.RUN_ID || 'unknown').trim().slice(0, 120) || 'unknown';
   const targetSha = (env.TARGET_SHA || 'unknown').trim().slice(0, 64) || 'unknown';
   const shortSha = targetSha.slice(0, 8);
   const releaseResult = (env.RELEASE_RESULT || 'sealed').trim().slice(0, 64) || 'sealed';
-  const nowIso = new Date().toISOString();
 
   const seen = new Set();
-  const resolved = [];
   for (const row of openRows) {
     const fp = typeof row?.fingerprint === 'string' ? row.fingerprint.trim() : '';
     if (!fp || seen.has(fp)) continue;
     seen.add(fp);
-    const prevLabels = row?.labels && typeof row.labels === 'object' ? row.labels : {};
-    const startsAt =
-      typeof row?.starts_at === 'string' && row.starts_at.trim()
-        ? row.starts_at.trim()
-        : row?.starts_at instanceof Date
-          ? row.starts_at.toISOString()
-          : nowIso;
-    resolved.push({
-      status: 'resolved',
-      fingerprint: fp,
-      startsAt,
-      endsAt: nowIso,
-      labels: {
-        ...prevLabels,
-        alertname: 'EngineReleaseFailed',
-        severity: prevLabels.severity || 'critical',
-        component: 'engine-release',
-        resolved_by_run_id: runId,
-        resolved_by_sha: targetSha,
+    const alert = buildEpisodeResolve(
+      {
+        ...row,
+        alertname: row?.alertname || 'EngineReleaseFailed',
+        component: row?.component || 'engine-release',
       },
-      annotations: {
+      {
         summary: `Engine release ${shortSha} verified live (run ${runId}, ${releaseResult})`,
-        description:
-          `Resolved prior EngineReleaseFailed (${fp}) after verified production ship of ${targetSha} in run ${runId} (${releaseResult}).`.slice(
-            0,
-            2000
-          ),
-      },
-    });
-    if (resolved.length >= 25) break;
+        description: `Resolved prior EngineReleaseFailed (${fp}) after verified production ship of ${targetSha} in run ${runId} (${releaseResult}).`,
+        extraLabels: { resolved_by_run_id: runId, resolved_by_sha: targetSha },
+      }
+    );
+    if (alert) plan.resolved.push(alert);
+    else plan.unresolvable.push(fp);
+    if (plan.resolved.length >= 25) break;
   }
-  return resolved;
+  return plan;
+}
+
+export function buildReleaseResolvedAlerts(env, openRows = []) {
+  return planReleaseResolutions(env, openRows).resolved;
 }
 
 function warn(message) {
@@ -192,21 +195,31 @@ async function main() {
       return;
     }
 
+    // public.engine_alerts has received_at, not created_at (a created_at
+    // filter here made every auto-resolve throw before it sent anything).
     const { rows: openRows } = await client.query(
-      `SELECT latest.fingerprint, latest.labels, latest.starts_at
+      `SELECT latest.fingerprint, latest.alertname, latest.component, latest.severity,
+              latest.labels, latest.starts_at
          FROM (
-           SELECT DISTINCT ON (fingerprint) fingerprint, status, labels, starts_at, created_at
+           SELECT DISTINCT ON (fingerprint) fingerprint, alertname, component, severity,
+                  status, labels, starts_at, received_at
              FROM public.engine_alerts
             WHERE alertname = 'EngineReleaseFailed'
               AND component = 'engine-release'
-              AND created_at >= now() - interval '72 hours'
-            ORDER BY fingerprint, created_at DESC, id DESC
+              AND received_at >= now() - interval '72 hours'
+            ORDER BY fingerprint, received_at DESC, id DESC
          ) latest
         WHERE latest.status = 'firing'
-        ORDER BY latest.created_at DESC
+        ORDER BY latest.received_at DESC
         LIMIT 25`
     );
-    const resolvedAlerts = buildReleaseResolvedAlerts(process.env, openRows);
+    const plan = planReleaseResolutions(process.env, openRows);
+    for (const fp of plan.unresolvable) {
+      console.log(
+        `::warning title=ENGINE ALERT HAS NO EPISODE::${fp} predates engine_alert_episode_id; no appended row can resolve it.`
+      );
+    }
+    const resolvedAlerts = plan.resolved;
     if (resolvedAlerts.length === 0) {
       console.log('engine release verified live; no open EngineReleaseFailed alerts to resolve.');
       return;

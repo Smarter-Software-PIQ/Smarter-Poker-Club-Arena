@@ -123,6 +123,7 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
       'triage',
       'inspect',
       'claim',
+      'resolve',
     ]);
     expect(WF.permissions).toEqual({});
     expect(WF.jobs.execute.permissions).toEqual({ contents: 'read' });
