@@ -34,12 +34,21 @@
  * Horses are never called bots.
  */
 import type { HandStage } from '../types.js';
+import { handClass } from '../engine/GtoCharts.js';
 import { boardHasFourFlush, boardHasFourStraight } from '../engine/HorseHoldemCommittedPricing.js';
+import {
+  NASH_V2_CALL_MAX_BB,
+  nashV2CallUpTo,
+  nashV2JamUpTo,
+  type NashCallerKind,
+} from '../engine/HorseNashPushFoldV2.js';
 import { humanCalibratedPreflopPercentile } from './HumanCalibratedPopulation.js';
 import {
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  NLH_NASH_OPEN_JAMMER_PERSONA,
   NLH_POT_BARRELER_PERSONA,
+  NLH_TIGHT_JAMMER_PERSONA,
   NLH_VALUE_BARRELER_PERSONA,
   type NlhScriptedPersona,
 } from './HorseLeagueHumanField.js';
@@ -231,11 +240,204 @@ export const nlhDangerBoardBettorPolicy: LeagueSeatPolicy = dangerBoardPolicy(tr
 /** The danger-board bettor's harm control: the same, but it bets a danger board for value only. */
 export const nlhDangerBoardValuePolicy: LeagueSeatPolicy = dangerBoardPolicy(false);
 
+// nlh_nash_open_jammer_v1 / nlh_tight_jammer_v1 (2026-11-21, nashCallVsJam) ──
+
+/**
+ * Preflop players still behind `seatIdx` (clockwise to the big blind inclusive):
+ * 0 for BB, 1 for SB, 2 for BTN (6-max), 3 for CO, 4 for HJ, 5 for UTG.
+ * Matches HorseLeague.playHand's blind assignment (heads-up: dealer = SB;
+ * 3+ seats: dealer + 1 = SB, dealer + 2 = BB).
+ */
+export function preflopSeatsBehind(seatIdx: number, dealerSeat: number, numSeats: number): number {
+  const bbIdx = numSeats === 2 ? dealerSeat % 2 : (dealerSeat + 1) % numSeats;
+  return (bbIdx - seatIdx + numSeats) % numSeats;
+}
+
+/**
+ * Short-stack open-jammer constants for nashCallVsJam (2026-11-21).
+ *
+ * The human-calibrated population sizes every raise and never open-jams, so
+ * nashCallVsJam had 0 divergent pairs against it (docs/changelog/
+ * 2026-11-07-nash-push-fold-v2.md). These two personas seat a scripted short-
+ * stack (<=20bb) NLH open-jammer field and a tight/nut-only harm control:
+ *
+ *  - nlh_nash_open_jammer_v1:
+ *    - Unopened <=20bb: jams when HorseNashPushFoldV2.nashV2JamUpTo(hand,
+ *      behind, deadAnteBB, 1) >= depthBB, else folds. Source: the chip-EV
+ *      push/fold equilibrium table solved by server/scripts/nash-push-fold/
+ *      solve.py --v2. DESIGN VALUE: deterministic >= cutoff (no half-blind
+ *      randomization) so the script consumes no randomness.
+ *    - Facing a lone open-jam <=20bb: calls when nashV2CallUpTo(hand,
+ *      jammerBehind, callerKind, deadAnteBB, 1) >= effBB, else folds. Same
+ *      source; deterministic >= cutoff is a DESIGN VALUE.
+ *    - Non-jam preflop spots (facing a limp, a non-all-in raise, or a
+ *      multiway/reraised pot) and rare postflop spots: DESIGN VALUE bars
+ *      below so the script stays realistic and pure if hero min-raises or limps.
+ *
+ *  - nlh_tight_jammer_v1 (harm control):
+ *    - DESIGN VALUE: open-jams and continues ONLY with the top ~9% of hands
+ *      (humanCalibratedPreflopPercentile >= 0.91, within the 8-10% nut-heavy
+ *      short-stack open-jammer band) at <=20bb, folding everything else. Never
+ *      min-raises or limps, so every entry is a tight open-jam; postflop (if
+ *      hero limps and BB checks) plays value-only made classes (DESIGN VALUE).
+ */
+export const NLH_NASH_OPEN_JAMMER_NON_JAM = Object.freeze({
+  /** Facing limpers only (BB option): jam at or above this calibrated percentile. DESIGN VALUE. */
+  bbIsoJamAt: 0.85,
+  /** Facing limpers only (non-BB): jam at or above this calibrated percentile. DESIGN VALUE. */
+  overLimpJamAt: 0.82,
+  /** Facing one non-all-in raise <=20bb: reshove all-in at or above. DESIGN VALUE. */
+  reshoveAt: 0.88,
+  /** Facing one non-all-in raise: call at or above. DESIGN VALUE. */
+  callSingleRaiseAt: 0.72,
+  /** Facing two+ wagers or an already-called all-in: call at or above. DESIGN VALUE. */
+  callMultiwayAt: 0.92,
+  /** Postflop made class to bet half-pot when checked to or call one wager (2: one pair). DESIGN VALUE. */
+  postflopPlayClass: 2,
+  /** Postflop made class to call two+ wagers (3: two pair). DESIGN VALUE. */
+  postflopRaisedClass: 3,
+  /** Postflop bet share of pot. DESIGN VALUE. */
+  postflopBetPotShare: 0.5,
+});
+
+export const NLH_TIGHT_JAMMER_PREFLOP = Object.freeze({
+  /**
+   * Calibrated preflop percentile bar to open-jam or continue (top ~9% of
+   * hands: 77+, AJo+, ATs+, KQs). DESIGN VALUE: nut-heavy harm control for
+   * nashCallVsJam against a tight open-jammer.
+   */
+  openJamAt: 0.91,
+  /** Postflop made class to bet half-pot when checked to or call two+ wagers (3: two pair). DESIGN VALUE. */
+  postflopValueClass: 3,
+  /** Postflop made class to call a single wager (2: one pair). DESIGN VALUE. */
+  postflopCallClass: 2,
+  /** Postflop bet share of pot. DESIGN VALUE. */
+  postflopBetPotShare: 0.5,
+});
+
+function jamOrCall(s: LeagueSeatSpot): Decision {
+  return can(s, 'all_in') ? { action: 'all_in' } : callOrCheck(s);
+}
+
+function preflopActions(s: Pick<LeagueSeatSpot, 'history'>) {
+  return s.history.filter((a) => a.stage === 'preflop');
+}
+
+function isWagerAction(action: string): boolean {
+  return action === 'bet' || action === 'raise' || action === 'all_in';
+}
+
+function nashOpenJammerPreflop(s: LeagueSeatSpot): Decision {
+  const depthBB = (s.myBet + s.stack) / s.bigBlind;
+  if (depthBB > NASH_V2_CALL_MAX_BB) return preflop(s);
+
+  const behind = preflopSeatsBehind(s.seatIdx, s.dealerSeat, s.numSeats);
+  const pre = preflopActions(s);
+  const wagers = pre.filter((a) => isWagerAction(a.action));
+  const calls = pre.filter((a) => a.action === 'call');
+  const cls = s.cards.length >= 2 ? handClass(s.cards[0], s.cards[1]) : null;
+  const p = humanCalibratedPreflopPercentile(s.cards, s.variant);
+  const t = NLH_NASH_OPEN_JAMMER_NON_JAM;
+
+  // Unopened (folded to this seat): open-jam or fold from HorseNashPushFoldV2.
+  if (wagers.length === 0 && calls.length === 0) {
+    if (s.toCall <= 0 || behind < 1) return { action: 'check' };
+    const deadAnteBB = Math.max(0, Math.min(2, (s.pot - 1.5 * s.bigBlind) / s.bigBlind));
+    const upTo = cls ? nashV2JamUpTo(cls, behind, deadAnteBB, 1) : null;
+    return upTo !== null && upTo >= depthBB ? jamOrCall(s) : { action: 'fold' };
+  }
+
+  // Facing limpers only (no raise yet).
+  if (wagers.length === 0) {
+    if (s.toCall <= 0) return p >= t.bbIsoJamAt ? jamOrCall(s) : { action: 'check' };
+    return p >= t.overLimpJamAt ? jamOrCall(s) : { action: 'fold' };
+  }
+
+  // Facing a lone open-jam (one all-in wager, no calls/limps): call from Nash caller table.
+  if (wagers.length === 1 && wagers[0].action === 'all_in' && calls.length === 0) {
+    const jammerIdx = wagers[0].seat - 1;
+    const jammerBehind = preflopSeatsBehind(jammerIdx, s.dealerSeat, s.numSeats);
+    if (jammerBehind >= 1 && behind < jammerBehind) {
+      const callerKind: NashCallerKind = behind === 0 ? 'bb' : behind === 1 ? 'sb' : 'open';
+      const jamAmount = wagers[0].amount ?? s.currentBet;
+      const effBB = Math.min(s.myBet + s.stack, jamAmount) / s.bigBlind;
+      const blindsInPot = (jammerBehind === 1 ? 1 : 1.5) * s.bigBlind;
+      const deadAnteBB = Math.max(0, Math.min(2, (s.pot - jamAmount - blindsInPot) / s.bigBlind));
+      const upTo = cls ? nashV2CallUpTo(cls, jammerBehind, callerKind, deadAnteBB, 1) : null;
+      return upTo !== null && upTo >= effBB ? callOrCheck(s) : foldOrCheck(s);
+    }
+  }
+
+  // Facing one non-all-in open raise: reshove top 12%, call next 16%, fold rest.
+  if (wagers.length === 1 && wagers[0].action !== 'all_in') {
+    if (p >= t.reshoveAt) return jamOrCall(s);
+    return p >= t.callSingleRaiseAt ? callOrCheck(s) : foldOrCheck(s);
+  }
+
+  // Facing 2+ wagers or an already-called jam: continue only with top 8%.
+  return p >= t.callMultiwayAt ? callOrCheck(s) : foldOrCheck(s);
+}
+
+function nashOpenJammerPostflop(s: LeagueSeatSpot): Decision {
+  const t = NLH_NASH_OPEN_JAMMER_NON_JAM;
+  const made = ownMadeClass(s.cards, s.board);
+  if (s.toCall <= 0) {
+    return made >= t.postflopPlayClass
+      ? (wagerTo(s, s.currentBet + t.postflopBetPotShare * s.pot) ?? { action: 'check' })
+      : { action: 'check' };
+  }
+  const need = streetWagers(s) >= 2 ? t.postflopRaisedClass : t.postflopPlayClass;
+  return made >= need ? callOrCheck(s) : { action: 'fold' };
+}
+
+/**
+ * Short-stack (<=20bb) Nash open-jammer: open-jams and calls lone open-jams
+ * from HorseNashPushFoldV2 across UTG/HJ/CO/BTN/SB in cash and BBA MTT.
+ */
+export const nlhNashOpenJammerPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop' ? nashOpenJammerPreflop(s) : nashOpenJammerPostflop(s);
+
+function tightJammerPreflop(s: LeagueSeatSpot): Decision {
+  const depthBB = (s.myBet + s.stack) / s.bigBlind;
+  const p = humanCalibratedPreflopPercentile(s.cards, s.variant);
+  const t = NLH_TIGHT_JAMMER_PREFLOP;
+  if (p < t.openJamAt) return foldOrCheck(s);
+
+  const pre = preflopActions(s);
+  const wagers = pre.filter((a) => isWagerAction(a.action));
+  if (depthBB <= NASH_V2_CALL_MAX_BB) {
+    if (wagers.length === 0) return jamOrCall(s);
+    if (wagers.length === 1 && wagers[0].action !== 'all_in') return jamOrCall(s);
+  }
+  return callOrCheck(s);
+}
+
+function tightJammerPostflop(s: LeagueSeatSpot): Decision {
+  const t = NLH_TIGHT_JAMMER_PREFLOP;
+  const made = ownMadeClass(s.cards, s.board);
+  if (s.toCall <= 0) {
+    return made >= t.postflopValueClass
+      ? (wagerTo(s, s.currentBet + t.postflopBetPotShare * s.pot) ?? { action: 'check' })
+      : { action: 'check' };
+  }
+  const need = streetWagers(s) >= 2 ? t.postflopValueClass : t.postflopCallClass;
+  return made >= need ? callOrCheck(s) : { action: 'fold' };
+}
+
+/**
+ * Tight/nut-only open-jammer harm control for nashCallVsJam: open-jams and
+ * continues only with the top ~9% of hands (calibrated percentile >= 0.91).
+ */
+export const nlhTightJammerPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop' ? tightJammerPreflop(s) : tightJammerPostflop(s);
+
 /** The seat policy a scripted no-limit persona plays. */
 export function nlhScriptedPolicy(persona: NlhScriptedPersona): LeagueSeatPolicy {
   if (persona === NLH_POT_BARRELER_PERSONA) return nlhPotBarrelerPolicy;
   if (persona === NLH_VALUE_BARRELER_PERSONA) return nlhValueBarrelerPolicy;
   if (persona === NLH_DANGER_BOARD_BETTOR_PERSONA) return nlhDangerBoardBettorPolicy;
   if (persona === NLH_DANGER_BOARD_VALUE_PERSONA) return nlhDangerBoardValuePolicy;
+  if (persona === NLH_NASH_OPEN_JAMMER_PERSONA) return nlhNashOpenJammerPolicy;
+  if (persona === NLH_TIGHT_JAMMER_PERSONA) return nlhTightJammerPolicy;
   throw new Error(`Unknown scripted no-limit persona: ${String(persona)}`);
 }

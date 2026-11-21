@@ -125,6 +125,8 @@ import {
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  NLH_NASH_OPEN_JAMMER_PERSONA,
+  NLH_TIGHT_JAMMER_PERSONA,
   FLO8_SCRIPTED_POPULATION_ID,
   FLO8_SCRIPTED_FIELD_VARIANTS,
   FLO8_SCRIPTED_PERSONAS,
@@ -2332,7 +2334,9 @@ export function humanFieldPersonaProfile(
     persona === NLH_POT_BARRELER_PERSONA ||
     persona === NLH_VALUE_BARRELER_PERSONA ||
     persona === NLH_DANGER_BOARD_BETTOR_PERSONA ||
-    persona === NLH_DANGER_BOARD_VALUE_PERSONA
+    persona === NLH_DANGER_BOARD_VALUE_PERSONA ||
+    persona === NLH_NASH_OPEN_JAMMER_PERSONA ||
+    persona === NLH_TIGHT_JAMMER_PERSONA
   ) {
     throw new Error(
       `${persona} is a scripted persona of the ${NLH_SCRIPTED_POPULATION_ID} field ` +
@@ -6206,6 +6210,84 @@ export const NLH_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.freeze(
   ),
 ]);
 LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_FIELD_CARDS);
+
+/**
+ * THE SCRIPTED OPEN-JAMMER FIELD CARDS (2026-11-21, nashCallVsJam;
+ * NlhScriptedField.ts).
+ *
+ * nashCallVsJam is default ON in source (a = default on, b = { nashCallVsJam:
+ * false }, same arms as mtt6_nash_call_vs_jam_12bb). The human-calibrated
+ * field sizes every raise and never open-jams, so it had 0 divergent pairs.
+ * These six-max cards seat one hero Horse (live Hybrid persona, deal-seeded
+ * mood clock) against five scripted short-stack (<=20bb) open-jammers:
+ *  - nlh_scripted_nash_open_jammer_cash_12bb: 12bb cash (no ante) vs Nash
+ *    equilibrium open-jammer;
+ *  - nlh_scripted_nash_open_jammer_12bb: 12bb MTT (1bb BBA) vs Nash
+ *    equilibrium open-jammer;
+ *  - nlh_scripted_nash_open_jammer_15bb: 15bb MTT (1bb BBA) vs Nash
+ *    equilibrium open-jammer;
+ *  - nlh_scripted_tight_jammer_15bb: 15bb MTT (1bb BBA) harm control vs
+ *    tight/nut-only open-jammer (top ~9% hands only).
+ */
+export const NLH_SCRIPTED_OPEN_JAMMER_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'nlh_scripted_nash_open_jammer_cash_12bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 12,
+    context: CASH_LEAGUE_CONTEXT,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_NASH_OPEN_JAMMER_PERSONA,
+    a: {},
+    b: { nashCallVsJam: false },
+  },
+  {
+    name: 'nlh_scripted_nash_open_jammer_12bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_NASH_OPEN_JAMMER_PERSONA,
+    a: {},
+    b: { nashCallVsJam: false },
+  },
+  {
+    name: 'nlh_scripted_nash_open_jammer_15bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 15,
+    context: bigBlindAnteMttContext(6, 15),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_NASH_OPEN_JAMMER_PERSONA,
+    a: {},
+    b: { nashCallVsJam: false },
+  },
+  {
+    name: 'nlh_scripted_tight_jammer_15bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 15,
+    context: bigBlindAnteMttContext(6, 15),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_TIGHT_JAMMER_PERSONA,
+    a: {},
+    b: { nashCallVsJam: false },
+  },
+]);
+LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_OPEN_JAMMER_CARDS);
 
 /**
  * Why a fixed-limit arm is still refused (2026-11-20). Hold'em: the league
