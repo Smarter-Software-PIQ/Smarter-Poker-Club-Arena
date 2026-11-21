@@ -501,6 +501,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaStabDefenceIsPriced: priced(
+    "facing the first wager of a turn or river street, the bettor's non-value share is priced from his own lifetime public first-wager frequency against the population's, shrunk n / (n + k) with the measured k; no record is the population prior exactly (default OFF)"
+  ),
+  omahaStrongHandCheckIsPriced: priced(
+    "a heads-up first-to-act turn or river value bet is priced beside the check (the bet on the measured answer curve moved by his own public fold record, the check on his stab frequency and measured stab size) and taken as a check with the probability the comparison's standard error gives; held, not graded (default OFF)"
+  ),
   omahaRiverCheckedToBetIsMeasured: priced(
     'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'
   ),

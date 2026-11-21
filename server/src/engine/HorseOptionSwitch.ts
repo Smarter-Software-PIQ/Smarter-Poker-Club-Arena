@@ -383,6 +383,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaOpponentLifetimeHud',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R2 flop bet-or-check + flop facing raise/stab HUD response (ships dark)
   'omahaFlopBetIsPricedOnHisResponse',
+  // 2026-11-20 EMERG lane STAB-DEFENCE: the first wager of a turn or river priced on the bettor's lifetime public
+  // first-wager frequency (ships dark; silent without lifetime counts)
+  'omahaStabDefenceIsPriced',
+  // 2026-11-20 EMERG lane STAB-DEFENCE: the heads-up first-to-act value bet priced beside the check (HELD, ships dark)
+  'omahaStrongHandCheckIsPriced',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',

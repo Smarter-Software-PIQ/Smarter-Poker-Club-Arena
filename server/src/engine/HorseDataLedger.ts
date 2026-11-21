@@ -1212,6 +1212,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStabDefenceIsPriced',
+    "EMERG lane STAB-DEFENCE 2026-11-20. PLO4/PLO5 cash (table and Lightning), turn and river; default off (read === true). Where the facing-bet verdict prices the FIRST wager of the street (never a raise), the bettor's non-value share is priced from his own lifetime PUBLIC frequency of first wagers on unopened action of that street (per game, street, heads-up / multiway) against the population's, shrunk n / (n + k) with the measured k of the cell (turn heads-up 43, river heads-up 33, turn multiway 62, river multiway 45): a player who bets more often than the population's value density allows is priced with the extra bets as non-value. One provider and one formula for every opponent (HorseMind.setOmahaLifetimeStreetRecordProvider; OPPONENT-HUD's lifetime counts through HorseOmahaLifetimeHudAdapter); no record = the population prior exactly, so without lifetime counts the option changes nothing. No identity, no hand class, no size band as the decision. HorseOmahaStabDefence.ts",
+    'V94'
+  ),
+  flag(
+    'omahaStrongHandCheckIsPriced',
+    "EMERG lane STAB-DEFENCE 2026-11-20. HELD: development build, not graded; do not switch on. PLO4/PLO5 cash, turn and river, heads-up, the Horse first to act with nothing to call; default off (read === true). A final value bet is priced beside the check: the bet on the measured answer curve moved by the opponent's own lifetime public fold record to a street's first wager (n / (n + k), k turn 27.8, river 75.9), the check on his stab frequency and his measured stab size; the check is taken with the probability the comparison and its standard error give. It changes only a bet into a check. No identity. HorseOmahaStrongHandCheck.ts",
+    'V94'
+  ),
+  flag(
     'omahaRiverCheckedToBetIsMeasured',
     "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
     'V94'
@@ -5672,6 +5682,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_four_bet_fold_priced_call',
     'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
     "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
+    'V94'
+  ),
+  receipt(
+    'omaha_stab_defence_priced',
+    'HorseOmahaFacingBetEv verdict (omahaStabDefenceShare, omahaStabDefenceIsPriced)',
+    "a PLO4/PLO5 cash turn or river decision facing the first wager of the street in which the bettor's non-value share was priced from his own lifetime public first-wager frequency (a record was present and moved the share)",
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_check_priced',
+    'HorseLogic wager_rules (omahaStrongHandCheckRule, omahaStrongHandCheckIsPriced)',
+    'a PLO4/PLO5 cash turn or river decision, heads-up, the Horse first to act, in which a final value bet became the check the priced comparison chose',
     'V94'
   ),
   receipt(

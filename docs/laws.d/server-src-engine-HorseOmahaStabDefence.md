@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaStabDefence.law.test.ts
+
+With omahaStabDefenceIsPriced on (default OFF), in PLO4/PLO5 cash on the turn and the river, facing the first wager of the street (never a raise), the bettor's non-value share is priced from his own lifetime public frequency of first wagers on unopened action of that street against the population's, shrunk n / (n + k) with the measured k of the cell: no record or no provider is the population prior exactly, the share moves only with public counts, the same formula serves every opponent, no identity, hand class, size band or position is the decision, and PLO6 and tournaments never read it.

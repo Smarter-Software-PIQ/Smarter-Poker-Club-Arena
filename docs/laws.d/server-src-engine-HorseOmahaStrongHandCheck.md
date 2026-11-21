@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaStrongHandCheck.law.test.ts
+
+With omahaStrongHandCheckIsPriced on (default OFF; held, not graded), in PLO4/PLO5 cash on the turn and the river heads-up, the Horse first to act with nothing to call, a final value bet is priced beside the check: the bet on the measured answer curve moved by the opponent's own lifetime public fold record, the check on his stab frequency and measured stab size, each shrunk by its evidence. Off is identical to absent, no record is the population exactly, a change is only bet -> check, the draw is a hash of public state and the Horse's own cards (no random stream), the HUD adapter maps counts only, and PLO6 and tournaments decide alike.

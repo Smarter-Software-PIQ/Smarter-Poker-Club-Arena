@@ -4044,6 +4044,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane STAB-DEFENCE (default OFF, PLO4/PLO5 cash): omahaStabDefenceIsPriced; a on, b today. The
+  // option reads a lifetime record: without a provider fed by the harness both arms decide alike.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_stab_defence_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStabDefenceIsPriced: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane STAB-DEFENCE (default OFF, held): omahaStrongHandCheckIsPriced; a on, b today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_strong_hand_check_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStrongHandCheckIsPriced: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverCheckedToBetIsMeasured; a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_river_checked_to_bet_measured`,
