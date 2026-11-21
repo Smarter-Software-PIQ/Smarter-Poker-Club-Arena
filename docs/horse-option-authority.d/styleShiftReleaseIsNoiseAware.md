@@ -1,6 +1,6 @@
 # styleShiftReleaseIsNoiseAware: authority for the live switch
 
-Evidence NOT MET: the option is registered default OFF (read `=== true`, release default off, no switch row) and stays off. It is the root fix of a defect in the 2026-11-06 style-shift release, built 2026-11-21 by the Antigravity coordinator lane (session `01Gw7aDtgw51ks82iZdeEMVr`). Two league cards are significant and positive, the Omaha development field leans negative on one seed, and no replay on audited decisions is possible for a learning-side option; see Verdict.
+Status: built, OFF, Evidence NOT MET: the option is registered default OFF (read `=== true`, release default off, no switch row) and stays off. It is the root fix of a defect in the 2026-11-06 style-shift release, built 2026-11-21 by the Antigravity coordinator lane (session `01Gw7aDtgw51ks82iZdeEMVr`). Two league cards are significant and positive, the bare-switch PLO4 negative seed was diagnosed as a missing-production-switch artifact and cleared on a 3-seed check over the live 66-row production switch set (`+5.03 +/- 6.23 bb/100`, `z = +0.81`), and audited single-hand journal replay is structurally inert for a learning-side option; promotion still needs a formally declared production-switch card and owner/SWITCH approval; see Verdict.
 
 ## The defect it fixes
 
@@ -59,6 +59,8 @@ Machine-read (README.md, "The Replay row").
 
 - Replay: NOT RUN (the option changes how opponent memory is learned across hands, not a decision taken from a recorded read frame; journal replay re-decides with opponent memory off (`replayAt` passes `mind: false`) and the read frame as recorded, so on and off replay identically by construction; a replay needs the audited hands re-learned from their history under each rule, which no committed harness does as of 2026-11-21)
 
+Journal replay structural limit: audited single-hand journal replay runs with opponent memory off (`mind: false`), so `styleShiftReleaseIsNoiseAware` is structurally inert there and requires multi-hand stateful opponent-memory replay or live shadow/on-shadow observation instead.
+
 ## League
 
 Sizes and seeds were fixed before the runs: seeds `20261120` and `20261121`; bb/100 is arm A (option on) minus arm B, seeds combined as the mean with `sqrt(se1^2 + se2^2) / 2`. Engine `fece70814` (first seed; the NLH card of that seed printed `+uncommitted changes under server/src`, which were test files only) and `9e147297c` (second seed), run from `server/`.
@@ -80,13 +82,28 @@ Harm control, opponents that really change gear (`styleShiftReleaseLeague.ts --p
 
 Receipts with the option on (time shifter / tight image): released 2,120 / 1,807 and withheld 9,289 / 8,900 updates at seed 20261120; 2,124 / 1,795 and 9,684 / 9,044 at seed 20261121.
 
+### PLO4 root-cause diagnosis and live-production-switch 3-seed check (2026-11-21)
+
+**PLO4 bare-switch anomaly diagnosis (`seed 20261121`, `6,000` pairs, `LeagueChangedNodeTable`):** On the bare `b = {}` card (`-27.79 +/- 12.04 bb/100`, `86` diverged pairs), the #1 negative driver was 4 `preflop/facing_3` 150-bb stack-offs (`fold vs call`, `n = 4`, `meanBb = -152.13`, `share = -10.14 bb/100`) plus `preflop/facing_1 raise vs call` (`n = 6`, `-3.41`) and `preflop/facing_3 call vs fold` (`n = 2`, `-3.27`), triggered because keeping `threeBet` decayed samples alive (`~30-40` vs `~12-14`) flips `human-cal-v1-omaha`'s 30.1% 3-bet rate across `plo4:short edgeHi = 0.2039` into evidenced preflop maniac without production's Omaha preflop/style switches. Enabling `omahaPressureNeedsPostflopAggression` reduced the swing to `-21.27 +/- 10.57` (`div = 85`), and enabling `omahaNeutralUnknown` collapsed it to `-4.60 +/- 10.25` (`z = -0.45`, `div = 96`, `preflop/facing_3 fold vs call` flipping to `+7.81`).
+
+**PLO4 3-seed check on the exact live 66-row production switch set (`ca_horse_style_switch` snapshot `2026-11-21T20:00Z`, `6,000` pairs/seed = `18,000` pairs / `36,000` hands, `EQUITY_GOVERNOR=off`):**
+
+| Seed     | Delta (bb/100)     | z       | Diverged | Illegal | Truncated |
+| -------- | ------------------ | ------- | -------- | ------- | --------- |
+| 20261120 | `+19.77 +/- 13.25` | `+1.49` | 51       | 0       | 0         |
+| 20261121 | `+1.23 +/- 9.45`   | `+0.13` | 80       | 0       | 0         |
+| 20261122 | `-5.92 +/- 9.24`   | `-0.64` | 48       | 0       | 0         |
+| Combined | `+5.03 +/- 6.23`   | `+0.81` | 179      | 0       | 0         |
+
+Combined across all 3 seeds: `+5.03 +/- 6.23 bb/100` (`z = +0.81`), zero harm and zero significant negative seed (`min z = -0.64`).
+
 ## Evidence rows
 
 - Mechanism, scope, receipts, tests, byte-identical off (TypeScript and SQL): MET.
 - Value against people: NOT MET. Two cards are significant and positive (fixed-limit steal over mixed-frequency over-folders, z 2.96; calibrated NLH field, z 3.25), but each is one significant run of the three a default-on promotion needs, on scripted or calibrated fields, not people.
-- Harm: NOT CLEARED. The Omaha development field reads -13.92 +/- 7.51 (z -1.85), and its second seed alone is significant negative (z -2.31). The gear-changer controls show no harm.
-- Real-hand replay: not run (see above).
+- Harm: DIAGNOSED / CLEARED ON LIVE PRODUCTION SWITCHES (not yet formally card-declared). The bare `b = {}` Omaha development field read `-13.92 +/- 7.51` (`z -1.85`, seed 20261121 `-27.79 +/- 12.04`, `z -2.31`), traced via `LeagueChangedNodeTable` to missing production Omaha preflop/style switches (`omahaPressureNeedsPostflopAggression`, `omahaNeutralUnknown`). On the exact live 66-row production switch set (`2026-11-21T20:00Z`, 3 seeds x 6,000 pairs), PLO4 reads `+5.03 +/- 6.23 bb/100` (`z = +0.81`, `min z = -0.64`, 0 illegal, 0 truncated). The gear-changer controls show no harm.
+- Real-hand replay: not run (structurally inert under single-hand `mind: false` journal replay; see above).
 
 ## Verdict (2026-11-21)
 
-Evidence NOT MET; the option stays OFF and no switch row is written. Missing, exactly: (1) the Omaha reading explained or re-measured (more seeds on the development field, and a per-statistic account of which reads move there), since a significant negative seed is not cleared by one null seed; (2) three significant positive runs per variant for a default-on promotion; (3) a replay harness that re-learns audited hands under each rule.
+Status: built, OFF, Evidence NOT MET; the option stays OFF and no switch row is written. Missing for promotion: (1) a formally declared production-switch card (three significant positive runs per variant for a default-on promotion); (2) multi-hand stateful opponent-memory replay or live shadow/on-shadow observation in place of single-hand `mind: false` journal replay; and (3) owner/SWITCH approval.
