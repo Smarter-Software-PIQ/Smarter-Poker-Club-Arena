@@ -16,7 +16,8 @@
  * (GREEN). Personas: the base request's own, except where it does not reproduce the recorded fold (stated per
  * fixture: the Hybrid persona, the live fleet's, at the stated tightness).
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import {
   HorseLogic,
   holdemAllInCallReversal,
@@ -116,10 +117,7 @@ function verdictOf(name: string, persona: Persona = BASE_PERSONA): HoldemAllInCa
   return v;
 }
 
-afterEach(() => {
-  HorseMind.reset();
-  vi.restoreAllMocks();
-});
+afterEach(() => HorseMind.reset());
 
 describe('the price (HorseHoldemTournamentAllInCall)', () => {
   it('with nobody behind the margin is equity minus BF x C / (W + BF x C)', () => {
@@ -446,16 +444,17 @@ describe('postflop: the call is checked against the price with the equity the en
     // The Phase 7 equity is taken against the preflop bands, not the bettor's line range; against a river bet
     // after two check-calls that pushed folds toward calls (the reverse of audit E's "river calls too light").
     // Frozen clock: the shadow joint-sampling budget is wall-clock (4 ms), so a loaded runner would otherwise perturb one side.
-    vi.spyOn(performance, 'now').mockReturnValue(0);
-    const { gs, player } = buildSpot(AUDIT_CASES['2b5b823c'].spec);
-    expect(gs.players.some((p) => p.seat !== player.seat && p.is_all_in === true)).toBe(false);
-    for (const seed of SEEDS) {
-      const on = decide(gs, player, true, seed);
-      expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
-      expect(withoutClocks(on)).toBe(withoutClocks(decide(gs, player, 'absent', seed)));
-    }
-    // A jam on the same street keeps its price (the fb6eb2ec flop jam above, 7a7125e8 heads-up).
-    expect(verdictOf('fb6eb2ec').street).toBe('postflop');
+    withFrozenDecisionClock(() => {
+      const { gs, player } = buildSpot(AUDIT_CASES['2b5b823c'].spec);
+      expect(gs.players.some((p) => p.seat !== player.seat && p.is_all_in === true)).toBe(false);
+      for (const seed of SEEDS) {
+        const on = decide(gs, player, true, seed);
+        expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+        expect(withoutClocks(on)).toBe(withoutClocks(decide(gs, player, 'absent', seed)));
+      }
+      // A jam on the same street keeps its price (the fb6eb2ec flop jam above, 7a7125e8 heads-up).
+      expect(verdictOf('fb6eb2ec').street).toBe('postflop');
+    });
   });
 });
 
@@ -501,31 +500,32 @@ const withoutClocks = (d: unknown): string =>
 describe('option off: nothing of it runs', () => {
   it('absent and false give the same decision, the same generator state, and no verdict, on every fixture', () => {
     // Frozen clock: the shadow joint-sampling budget is wall-clock (4 ms), so a loaded runner would otherwise perturb one side.
-    vi.spyOn(performance, 'now').mockReturnValue(0);
-    const bodies: Array<[HorseGameStateV2, SeatPlayer, Persona]> = [
-      ...Object.values(AUDIT_CASES).map((c) => {
-        const { gs, player } = buildSpot(c.spec);
-        return [gs, player, BASE_PERSONA] as [HorseGameStateV2, SeatPlayer, Persona];
-      }),
-      ...Object.values(AOF.cases).map(
-        (b) =>
-          [
-            b.gameState as unknown as HorseGameStateV2,
-            b.player as unknown as SeatPlayer,
-            { style: b.style, mods: b.mods as Record<string, unknown> },
-          ] as [HorseGameStateV2, SeatPlayer, Persona]
-      ),
-    ];
-    for (const [gs, player, persona] of bodies)
-      for (const seed of [1, 2]) {
-        const a = decide(gs, player, 'absent', seed, persona);
-        const ra = saveFastRandom();
-        expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
-        const b = decide(gs, player, false, seed, persona);
-        const rb = saveFastRandom();
-        expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
-        expect(withoutClocks(b)).toBe(withoutClocks(a));
-        expect(rb).toBe(ra);
-      }
+    withFrozenDecisionClock(() => {
+      const bodies: Array<[HorseGameStateV2, SeatPlayer, Persona]> = [
+        ...Object.values(AUDIT_CASES).map((c) => {
+          const { gs, player } = buildSpot(c.spec);
+          return [gs, player, BASE_PERSONA] as [HorseGameStateV2, SeatPlayer, Persona];
+        }),
+        ...Object.values(AOF.cases).map(
+          (b) =>
+            [
+              b.gameState as unknown as HorseGameStateV2,
+              b.player as unknown as SeatPlayer,
+              { style: b.style, mods: b.mods as Record<string, unknown> },
+            ] as [HorseGameStateV2, SeatPlayer, Persona]
+        ),
+      ];
+      for (const [gs, player, persona] of bodies)
+        for (const seed of [1, 2]) {
+          const a = decide(gs, player, 'absent', seed, persona);
+          const ra = saveFastRandom();
+          expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+          const b = decide(gs, player, false, seed, persona);
+          const rb = saveFastRandom();
+          expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+          expect(withoutClocks(b)).toBe(withoutClocks(a));
+          expect(rb).toBe(ra);
+        }
+    });
   });
 });
