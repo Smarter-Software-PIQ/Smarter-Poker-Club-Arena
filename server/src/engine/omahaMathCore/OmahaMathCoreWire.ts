@@ -393,9 +393,7 @@ export function heroEquityVector(
   hole: readonly number[],
   board: readonly number[],
   pool: Pool,
-  seed: string,
-  deadline: number,
-  now: () => number
+  seed: string
 ): { eq: Float64Array; runs: number } {
   const hc = pool.holeCount;
   const used = new Uint8Array(52);
@@ -431,7 +429,6 @@ export function heroEquityVector(
   for (let k = 0; k < board.length; k++) full[k] = board[k];
   let runs = 0;
   for (const ro of runouts) {
-    if (runs >= 12 && now() > deadline) break;
     for (let k = 0; k < ro.length; k++) full[board.length + k] = ro[k];
     const hs = omahaBest(heroArr, hole.length, full, 5);
     for (let i = 0; i < pool.size; i++) {
@@ -508,7 +505,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
 
   // equity against the strongest share of the field: one per-holding vector, anchored to the exact engine
   const tV = c.now();
-  const vec = heroEquityVector(s.hole, s.board, c.pool, s.seed, c.deadline, c.now);
+  const vec = heroEquityVector(s.hole, s.board, c.pool, s.seed);
   const tA = c.now();
   const w = new Float64Array(c.pool.size);
   for (const o of c.live) flatten(c.pool, c.rangeOf.get(o.seat)!, w);
@@ -745,6 +742,11 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       holeCount: s.hole.length,
       blockers: null, // one blocker term: PLAYBOOK's, already inside the response cells
     }) ?? undefined;
+  // a wager larger than the hero's whole stack: the excess is not his to win (same figure as the one-step path)
+  const uncoveredOnCall =
+    stack <= s.toCall + 0.005
+      ? c.live.reduce((a, o) => a + Math.max(0, o.bet - (s.heroBet + stack)), 0)
+      : 0;
   const spot: ValueSpot = {
     variant: game,
     street,
@@ -752,6 +754,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     toCall,
     heroStack: stack,
     oppStack,
+    uncoveredOnCall,
     nOpp: c.live.length,
     ip: s.ip,
     checkCloses,
@@ -784,6 +787,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         amount: null,
         adds: 0,
         ev: cd.ev,
+        sd: cd.sd,
         equity: equityAtShare(1),
         se: cd.se,
         foldProb: 0,
@@ -855,6 +859,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         amount: callAllIn ? r2(s.heroBet + stack) : r2(toCall),
         adds: toCall,
         ev,
+        sd: callAllIn ? 0 : cd.sd,
         equity: equityAtShare(1),
         se: cd.se,
         foldProb: 0,
@@ -893,6 +898,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         amount: action === 'bet' ? r2(adds) : r2(to),
         adds,
         ev: cd.ev,
+        sd: action === 'all_in' ? 0 : cd.sd,
         equity: equityAtShare(1 - cd.fold),
         se: cd.se,
         foldProb: cd.fold,
@@ -924,6 +930,11 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
 
 /** Measured size of a line's wagers: the public bet-band mix of betFrequency, as a mean pot share. */
 const SIZE_MIX_CACHE = new Map<string, { frac: number; source: string } | null>();
+/** Clears the tracked-range and size-mix caches (the worker-start warm-up, OmahaMathCoreWarmUp.ts, and tests). */
+export function clearOmahaMathCoreWireCaches(): void {
+  TRACK_CACHE.clear();
+  SIZE_MIX_CACHE.clear();
+}
 function sizeMixOf(
   game: 'plo4' | 'plo5',
   mode: Mode,
