@@ -195,7 +195,7 @@ describe('omahaRiverCurrentNutsCallFloor: the decision', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'HorseLogic.ts'),
       'utf8'
     );
-    const floor = src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        firstToAct.decision');
+    const floor = src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        checkedTo2.decision');
     expect(floor).toBeGreaterThan(src.indexOf('const openMeasured = omahaOpenMeasuredRule('));
     expect(floor).toBeGreaterThan(src.indexOf('const firstToAct = omahaRiverFirstToActBetRule('));
     expect(src.indexOf('return { decision: nutsFloored };')).toBeGreaterThan(floor);

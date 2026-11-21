@@ -76,6 +76,7 @@ import {
   registerFourBetFoldPricing,
 } from './HorseOmahaFourBetFoldPricedCall.js';
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
+import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -3643,6 +3644,12 @@ export interface HorseDecideOpts {
    * (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
    */
   omahaRiverFirstToActBetIsPriced?: boolean;
+  /**
+   * EMERG lane OFFENCE-BUILD 2026-11-20 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up, the opponent
+   * checked and the Horse closes: the final check is priced beside the bets with the measured response curve of river
+   * bets after a check, no opponent kind (HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
+   */
+  omahaRiverCheckedToBetIsMeasured?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -18191,18 +18198,38 @@ export class HorseLogic {
           firstToAct.decision
         );
       }
-      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+      // EMERG lane OFFENCE-BUILD 2026-11-20 (omahaRiverCheckedToBetIsMeasured, default off): the same pricing where the
+      // opponent checked the river heads-up and the Horse closes (replaces the kind-keyed omahaCheckedToBetIsPriced
+      // family in this spot; HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
+      const checkedToOn = opts.omahaRiverCheckedToBetIsMeasured === true;
+      const checkedTo2 = omahaRiverCheckedToBetRule(
         firstToAct.decision,
+        player,
+        gs,
+        checkedToOn,
+        checkedToOn ? omahaPricedDeps(player, gs).rake : 0,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (checkedTo2.changed && tele) {
+        noteFire('omaha_river_checked_to_bet_measured');
+        noteDecisionRuleReceipt(
+          'omaha_river_checked_to_bet_measured',
+          firstToAct.decision,
+          checkedTo2.decision
+        );
+      }
+      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+        checkedTo2.decision,
         player,
         gs,
         opts.omahaRiverCurrentNutsCallFloor === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (nutsFloored !== firstToAct.decision && tele) {
+      if (nutsFloored !== checkedTo2.decision && tele) {
         noteFire('omaha_river_current_nuts_call_floor');
         noteDecisionRuleReceipt(
           'omaha_river_current_nuts_call_floor',
-          firstToAct.decision,
+          checkedTo2.decision,
           nutsFloored
         );
       }
