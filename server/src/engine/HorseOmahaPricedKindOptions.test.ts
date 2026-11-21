@@ -37,15 +37,6 @@ type Act = { a: string; amt: number | null };
 /** [record index, hand, street, tag, main (#11212) answer, priced2 answer] */
 const MOVED: ReadonlyArray<readonly [number, number, string, string, Act, Act]> = [
   [
-    4,
-    59872449,
-    'river',
-    'omahaPairedBoardBetIsPriced',
-    { a: 'check', amt: null },
-    { a: 'bet', amt: 110 },
-  ],
-  [4, 59872449, 'river', 'all', { a: 'check', amt: null }, { a: 'bet', amt: 110 }],
-  [
     9,
     59852691,
     'river',

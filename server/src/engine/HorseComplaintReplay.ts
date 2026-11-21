@@ -36,7 +36,7 @@ import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HORSE_HYBRID_PROFILES } from './HorseHybridProfile.js';
 import { omahaCallClass } from './HorseOmahaBigBetCalls.js';
-import type { Card, CardRank, CardSuit, HorseStyle, SeatPlayer } from '../types.js';
+import type { ActionType, Card, CardRank, CardSuit, HorseStyle, SeatPlayer } from '../types.js';
 import type { HorsePublicDeductions } from './HorsePublicDeductions.js';
 
 /** The public snapshot the engine records with every horse decision. */
@@ -247,6 +247,29 @@ function replayBlindSeats(
   return { smallBlind: sb ? sb.seat : null, bigBlind: bb.seat };
 }
 
+/** Exactly the action names live HandController writes to
+ * `state.actionHistory` (types.ts ActionType: performBettingAction, plus the
+ * Crazy Pineapple discard and its forced fold). The recorded hand also carries
+ * the forced posts the engine logs beside them (sb, bb, ante, straddle, post,
+ * bomb_ante, kill_blind, return and run-it-twice rows); HandController.postBlinds
+ * never puts those in actionHistory, so a replayed decision must not see them
+ * either, or a blind or ante poster reads as having already acted. Keyed by
+ * ActionType, so a new live action name fails to compile until it is listed. */
+const LIVE_ACTION_HISTORY_ACTIONS = {
+  fold: true,
+  check: true,
+  call: true,
+  bet: true,
+  raise: true,
+  all_in: true,
+  discard: true,
+} as const satisfies Record<ActionType, true>;
+
+/** True when live HandController would have recorded this action in actionHistory. */
+export function isLiveActionHistoryAction(action: string): boolean {
+  return Object.prototype.hasOwnProperty.call(LIVE_ACTION_HISTORY_ACTIONS, action);
+}
+
 /** The recorded tournament format, when the snapshot captured one. */
 function replayFormat(pn: ComplaintPublicNode): 'mtt' | 'spin' | 'sng' | 'hu_sng' | undefined {
   if (pn.mode !== 'tournament') return undefined;
@@ -356,8 +379,11 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     heroSeat,
     currentPlayerSeat: heroSeat,
     ...(humans.length ? { humanUserIds: humans } : {}),
+    // Exactly what live actionHistory held at this node: the forced posts are
+    // already in the stacks, street bets and pot read from the snapshot above,
+    // and live HandController never lists them as actions.
     actionHistory: hand.actions
-      .filter((a) => a.ord < node.ord)
+      .filter((a) => a.ord < node.ord && isLiveActionHistoryAction(a.action))
       .map((a) => ({
         stage: a.stage,
         seat: a.seat,
