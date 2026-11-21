@@ -668,7 +668,29 @@ export function omahaMathCoreRule(
         legal.action,
         String(gs.gameVariant).toLowerCase()
       );
-      if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
+      if (K !== null && !inc && incoming.action !== legal.action) {
+        // lane CORE-POOLED-6 (owner-ordered sweep): today's action has no price among the core's candidates (a
+        // bet into an opponent with almost nothing behind, where the core priced the check alone; a raise where
+        // only the all-in was priced). Without its price nothing was proven against it, so it stands: "prove it
+        // to change it" has no exception for an action the core could not price. It is already legal here.
+        const kept: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+        if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+          kept.amount = incoming.amount;
+        receipt.kept = {
+          incoming: `${incoming.action}${incoming.amount !== null ? ' ' + incoming.amount : ''}`,
+          best: `${legal.action}${legal.amount != null ? ' ' + legal.amount : ''}`,
+          gap: 0,
+          se: 0,
+          k: K,
+          unpriced: true,
+        };
+        receipt.choice = {
+          action: incoming.action as CoreReceipt['choice']['action'],
+          amount: incoming.amount,
+          ev: 0,
+        };
+        legal = kept;
+      } else if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
         const se = Math.sqrt(
           Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
         );

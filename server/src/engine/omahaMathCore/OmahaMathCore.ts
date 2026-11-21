@@ -231,7 +231,15 @@ export interface CoreReceipt {
    * set by the rule (lane COREWIRE-2, lead 10:55 PM "prove it to change it"): today's action was kept because the
    * core's best did not beat it by more than the change margin (k x the combined standard error)
    */
-  kept?: { incoming: string; best: string; gap: number; se: number; k: number };
+  kept?: {
+    incoming: string;
+    best: string;
+    gap: number;
+    se: number;
+    k: number;
+    /** lane CORE-POOLED-6: today's action had no price among the core's candidates, so nothing could beat it */
+    unpriced?: true;
+  };
   /** component wiring (lane COREWIRE): which components priced this decision */
   wire?: {
     track: string | null;

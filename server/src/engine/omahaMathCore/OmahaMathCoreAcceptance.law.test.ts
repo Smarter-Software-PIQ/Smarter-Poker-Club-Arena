@@ -888,6 +888,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     let wagers = 0;
     let shortHero = 0;
     let callOffs = 0;
+    let changes = 0;
+    const unpriced: Record<string, number> = {};
+    const unpricedEx: string[] = [];
     let nutsSpots = 0;
     for (let i = 0; i < PROPERTY_STATES; i++) {
       const variant = rng() < 0.3 ? 'plo4' : 'plo5';
@@ -923,6 +926,19 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       applied++;
       if (rec.core?.legalized) legalized++;
       count[d.action] = (count[d.action] ?? 0) + 1;
+      // prove it to change it: a change of today's action always has today's action priced to beat
+      const today = decide(st, {});
+      if (today.action !== d.action) {
+        changes++;
+        if (!rec.core!.evs.some((e) => e.action === today.action)) {
+          const k = `${today.action}->${d.action}`;
+          unpriced[k] = (unpriced[k] ?? 0) + 1;
+          if (unpricedEx.length < 12)
+            unpricedEx.push(
+              `${tag} today ${today.action} ${today.amount ?? ''} core ${d.action} ${d.amount ?? ''} toCall ${gs.toCall} stack ${hero.stack} evs ${rec.core!.evs.map((e) => e.action + ':' + (e.amount ?? '')).join(',')}`
+            );
+        }
+      }
       // the two money invariants on the same random states: no call-off at zero equity, no fold of the nuts
       const coreRec = (rec as unknown as OmahaMathCoreRecoveredReceipt).core!;
       const facing = gs.toCall ?? 0;
@@ -1012,6 +1028,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     console.info(
       `CORE-POOLED-6 property: states=${PROPERTY_STATES} applied=${applied} fallbacks=${fallbacks} refusals=${refusals} legalized=${legalized} wagersChecked=${wagers} shortHero=${shortHero} callOffs=${callOffs} nutsSpots=${nutsSpots} actions=${JSON.stringify(count)} bad=${bad.length}`
     );
+    console.info(
+      `CORE-POOLED-6 property: changes=${changes} unpricedIncumbent=${JSON.stringify(unpriced)}\n${unpricedEx.join('\n')}`
+    );
     if (bad.length)
       console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
     expect(bad).toEqual([]);
@@ -1021,6 +1040,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(applied).toBe(PROPERTY_STATES);
     expect(wagers).toBeGreaterThan(1000);
     expect(callOffs).toBeGreaterThan(100);
+    // every change the core made had today's action priced among its candidates (prove it to change it)
+    expect(unpriced).toEqual({});
+    expect(changes).toBeGreaterThan(100);
   }, 1_800_000);
 });
 
