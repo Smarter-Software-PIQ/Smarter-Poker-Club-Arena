@@ -1,7 +1,10 @@
 /** Heads-up only. The engine's actual maintenance event owns freeze/release. */
 import ownerMaintenanceNotices from './ownerMaintenanceNotices.json';
 export const PHASE1_MAINTENANCE_POLICY_ID = 'phase1-hourly-01a1944f';
-export type RoutineMaintenanceSchedule = 'daily' | 'phase1-hourly' | 'unknown';
+/** Owner order 2026-11-21 02:22 Chicago: a dedicated engine cutover every three hours. */
+export const THREE_HOURLY_MAINTENANCE_POLICY_ID = 'three-hourly-01Gw7aDs';
+export const THREE_HOURLY_SLOT_HOURS: readonly number[] = [1, 4, 7, 10, 13, 16, 19, 22];
+export type RoutineMaintenanceSchedule = 'daily' | 'phase1-hourly' | 'three-hourly' | 'unknown';
 
 /** Validate the serving protocol, never the desired source policy's active/off flag. */
 export function observedMaintenanceSchedule(value: unknown): RoutineMaintenanceSchedule {
@@ -17,7 +20,18 @@ export function observedMaintenanceSchedule(value: unknown): RoutineMaintenanceS
   )
     return 'unknown';
   const legacy = schedule.frequency === undefined && schedule.policyId === undefined;
-  const known = schedule.policyId === PHASE1_MAINTENANCE_POLICY_ID;
+  const known =
+    schedule.policyId === PHASE1_MAINTENANCE_POLICY_ID ||
+    schedule.policyId === THREE_HOURLY_MAINTENANCE_POLICY_ID;
+  if (
+    schedule.policyId === THREE_HOURLY_MAINTENANCE_POLICY_ID &&
+    schedule.frequency === 'three-hourly' &&
+    schedule.startHour === 4 &&
+    schedule.hourlyCashFreeze === false &&
+    Array.isArray(schedule.startHours) &&
+    schedule.startHours.join(',') === THREE_HOURLY_SLOT_HOURS.join(',')
+  )
+    return 'three-hourly';
   if (
     (legacy || (known && schedule.frequency === 'daily')) &&
     schedule.startHour === 4 &&
@@ -48,7 +62,11 @@ export function isRoutineMaintenanceUpcoming(
   const parts = chicagoClock.formatToParts(at);
   const hour = Number(parts.find((part) => part.type === 'hour')?.value);
   const minute = Number(parts.find((part) => part.type === 'minute')?.value);
-  return (schedule === 'phase1-hourly' || hour === 3) && minute >= 55 && minute < 58;
+  const nextHour = (hour + 1) % 24;
+  const slotNext =
+    schedule === 'phase1-hourly' ||
+    (schedule === 'three-hourly' ? THREE_HOURLY_SLOT_HOURS.includes(nextHour) : hour === 3);
+  return slotNext && minute >= 55 && minute < 58;
 }
 
 /* ── BOOKED WINDOW NOTICE (Dan 2026-11-07) ────────────────────────────────

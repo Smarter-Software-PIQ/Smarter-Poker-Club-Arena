@@ -244,12 +244,27 @@ jobs:
           from datetime import datetime
           from zoneinfo import ZoneInfo
           import json, os, subprocess
+          import urllib.request
           policy = json.loads(subprocess.check_output(["git", "show", os.environ["TARGET_SHA"] + ":server/src/maintenance/maintenanceSchedulePolicy.json"], text=True))
           if policy.get("phase1Status") not in ("off", "complete"):
-              raise SystemExit("Engine replacement refused: the exact certified target must use daily maintenance.")
-          now = datetime.now(ZoneInfo("America/Chicago"))
-          if not (now.hour == 3 and 30 <= now.minute < 50):
+              raise SystemExit("Engine replacement refused: the exact certified target must use daily or three-hourly maintenance.")
+          # Owner order 2026-11-21: a preparation 30-50 minutes before every
+          # scheduled cycle (01/04/07/10/13/16/19/22 Chicago when the target's
+          # protected policy is three-hourly; 04:00 only when it is daily).
+          hours = (1, 4, 7, 10, 13, 16, 19, 22) if policy.get("frequency") == "three-hourly" else (4,)
+          zone = ZoneInfo("America/Chicago")
+          now = datetime.now(zone)
+          cycle = (int(now.timestamp()) + 1800) // 3600 * 3600
+          local = datetime.fromtimestamp(cycle, zone)
+          if not (30 <= now.minute < 50 and local.hour in hours
+                  and datetime.fromtimestamp(cycle - 3600, zone).hour != local.hour):
               raise SystemExit(3)
+          if local.hour != 4:
+              # A non-anchor cycle exists only once the SERVING engine breaks on it.
+              with urllib.request.urlopen(urllib.request.Request("https://engine.smarter.poker/health", headers={"Cache-Control": "no-cache"}), timeout=15) as response:
+                  schedule = (json.load(response).get("maintenance") or {}).get("schedule") or {}
+              if schedule.get("frequency") != "three-hourly" or schedule.get("startHours") != list(hours):
+                  raise SystemExit("Engine replacement refused: the serving engine does not break on this three-hourly cycle yet.")
           PYTHON
           case "$gate_status" in
             0) exit 0 ;;
@@ -279,7 +294,19 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           reader="$(mktemp "$RUNNER_TEMP/reader.XXXXXXXX")"
           git show "$GITHUB_SHA:scripts/ci/read-engine-prequalification.py" > "$reader"
-          cutoff="$(python3 -c 'from datetime import datetime; from zoneinfo import ZoneInfo; print(int(datetime.now(ZoneInfo("America/Chicago")).replace(hour=3, minute=30, second=0, microsecond=0).timestamp()))')"
+          # The cycle this preparation serves starts on the next whole hour; its
+          # selection cutoff is 30 minutes before it (03:30 for the 04:00 anchor).
+          cutoff="$(python3 -c '
+          import time
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          zone = ZoneInfo("America/Chicago")
+          c = (int(time.time()) - 1800) // 3600 * 3600 + 1800
+          # Latest preparation boundary whose cycle is a scheduled start hour (03:30 for 04:00).
+          while not (datetime.fromtimestamp(c + 1800, zone).hour in (1, 4, 7, 10, 13, 16, 19, 22)
+                     and datetime.fromtimestamp(c + 1800 - 3600, zone).hour != datetime.fromtimestamp(c + 1800, zone).hour):
+              c -= 3600
+          print(c)')"
           selection_args=(--cutoff "$cutoff")
           if [ -n "$OWNER_WINDOW_ID" ]; then
             selection_args=(--owner-window "$OWNER_WINDOW_ID")
@@ -1462,3 +1489,72 @@ jobs:
             [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] || { echo '::error::No Backup run accepted the original sealed release event'; exit 1; }
             echo "Backup run $backup_id accepted sealed receiver $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT for $ENGINE_SHA"
           fi
+
+  cutover-log:
+    # ENGINE CUTOVER LOG (owner order 2026-11-21, docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md).
+    # After each release this receiver settles (sealed, already released or
+    # refused), post ONE comment on issue #11599 "Engine cutover log" so the PLO
+    # Strategy, Horse On/Off Switches, Antigravity Coordinator and Horse
+    # Decisions chats can read what each cycle shipped. Reporting only: it
+    # reads job outputs and the compare API with the job token, and never
+    # dispatches, retries or advances a release. Its own failure changes nothing.
+    if: always() && github.event.action == 'deploy-club-arena-engine' && needs.preflight.result == 'success' && github.run_attempt == 1
+    name: Post The Cutover To The Engine Cutover Log
+    needs: [preflight, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Comment once on the Engine cutover log issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LOG_ISSUE: '11599'
+          ENGINE_SHA: ${{ needs.preflight.outputs.target_sha }}
+          OWNER_WINDOW_ID: ${{ github.event.client_payload.owner_window_id }}
+          RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
+          SHIPPED: ${{ needs.deploy.outputs.shipped }}
+          FAILED_STAGE: ${{ needs.deploy.outputs.release_failure }}
+          EXIT_STAGE: ${{ needs.deploy.outputs.exit_stage }}
+          EXIT_ERROR: ${{ needs.deploy.outputs.exit_error }}
+          SUPERSEDED_BY: ${{ needs.deploy.outputs.superseded_by }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$LOG_ISSUE" =~ ^[1-9][0-9]*$ ]]
+          created=$(gh api "repos/$REPO/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          cycle=$(CREATED="$created" python3 -c '
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          t = int(datetime.fromisoformat(os.environ["CREATED"].replace("Z", "+00:00")).timestamp())
+          start = (t + 1800) // 3600 * 3600
+          print(datetime.fromtimestamp(start, ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M %Z"))')
+          [ -z "$OWNER_WINDOW_ID" ] || cycle="owner window $OWNER_WINDOW_ID"
+          # The previous seal is the newest earlier log comment that names one.
+          previous=$(gh api --paginate "repos/$REPO/issues/$LOG_ISSUE/comments?per_page=100" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .body' \
+            | sed -n 's/^Sealed SHA: `\([0-9a-f]\{40\}\)`.*/\1/p' | tail -1) || previous=''
+          if [ "$RELEASE_RESULT" = sealed ] && [ "$SHIPPED" = true ]; then
+            prs='(previous seal unknown)'
+            if [[ "$previous" =~ ^[0-9a-f]{40}$ ]] && [ "$previous" != "$ENGINE_SHA" ]; then
+              prs=$(gh api "repos/$REPO/compare/$previous...$ENGINE_SHA" \
+                --jq '[.commits[].commit.message | split("\n")[0] | capture("\\(#(?<n>[0-9]+)\\)$")? | "#" + .n] | unique | join(", ")') || prs='(unreadable)'
+              [ -n "$prs" ] || prs='(none)'
+            fi
+            body=$(printf 'Cycle: %s\nResult: SEALED\nSealed SHA: `%s`\nPrevious seal: `%s`\nIncluded PRs since previous seal: %s\nReceiver: %s\n' \
+              "$cycle" "$ENGINE_SHA" "${previous:-unknown}" "$prs" "$RUN_URL")
+          else
+            reason="${RELEASE_RESULT:-not completed}; stage ${FAILED_STAGE:-${EXIT_STAGE:-unknown}}"
+            [ -z "$EXIT_ERROR" ] || reason="$reason; $EXIT_ERROR"
+            [ -z "$SUPERSEDED_BY" ] || reason="$reason; superseded by $SUPERSEDED_BY"
+            body=$(printf 'Cycle: %s\nResult: %s (the serving engine keeps running)\nCandidate SHA: `%s`\nReason: %s\nReceiver: %s (job result %s)\n' \
+              "$cycle" "$( [ "$RELEASE_RESULT" = already-released ] && echo ALREADY-RELEASED || echo REFUSED )" \
+              "$ENGINE_SHA" "$reason" "$RUN_URL" "$DEPLOY_RESULT")
+          fi
+          gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
+          echo "Posted the cutover to issue #$LOG_ISSUE."
