@@ -29,11 +29,7 @@ import {
 } from './HorseRunItTwiceSwitch.js';
 import { OPTION_SWITCH_PLAIN_NAMES } from './HorseOptionSwitch.js';
 import { STYLE_SWITCH_STALE_MS } from './HorseStyleSwitch.js';
-import {
-  disarmBrainTelemetryForTest,
-  drainFires,
-  enableBrainTelemetry,
-} from './BrainTelemetry.js';
+import { disarmBrainTelemetryForTest, drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import { LiveHorseDecisionWorkerPool } from './horseDecision/lane.js';
 
