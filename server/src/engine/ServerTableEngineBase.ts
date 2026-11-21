@@ -10277,6 +10277,10 @@ export abstract class ServerTableEngineBase {
       !this.running
     )
       return;
+    // Mark the deliberate pause phase at the gate itself so no caller (such as
+    // a break arriving right after startRestBlindRead) can leave loopPhase on
+    // 'refresh_blinds' and pollute nextHandGap with a 5-minute break duration.
+    this.setLoopPhase('parked_for_pause');
     // Bible V8 §3.1: Table FSM — running → paused. GUARDED: the FSM has no
     // waiting → paused edge, and this gate is now reachable from the idle
     // branches where the table sits in 'waiting'. An unguarded transition
@@ -11980,6 +11984,8 @@ export abstract class ServerTableEngineBase {
    * fix (10.11/10.12), so the whole templated rule set is read here now.
    * A rule the player was sold under the game's name follows the row.
    */
+  private rakeClubEmbedUnavailable = false;
+
   protected async refreshRakeConfig(force = false): Promise<void> {
     if (!this.tableInfo || this.isTournamentTable()) return;
     const now = Date.now();
@@ -11989,27 +11995,18 @@ export abstract class ServerTableEngineBase {
       // Sequenced BEFORE the request goes out: this read carries the halt
       // columns too, and a late answer must not overrule a newer one.
       const haltReadSeq = this.beginDealingHaltRead();
+      const baseColumns =
+        'union_id, rake_percent, rake_cap_bb, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_min_players, bomb_pot_ante_fixed, bomb_pot_variant, bomb_pot_button_policy, bomb_pot_announce_seconds, bomb_pot_manual_pending, dealing_halted_at, dealing_halted_reason, ante_enabled, ante, big_blind_ante_enabled, nit_game, maintain_percent_min, maintain_hands, career_percent_min, run_it_mode, run_it_twice, allow_run_it_twice, run_it_twice_enabled, insurance_enabled, seven_deuce_enabled, seven_deuce_amount, straddle_enabled, auto_utg_straddle, voluntary_straddle, min_buy_in, max_buy_in, action_time_seconds, game_variant, game_type, tournament_id, cluster_id, role, main_index, lifecycle, status, is_template, all_in_or_fold, pineapple_holdem, cap_enabled, bbj_percent, small_blind, big_blind';
+      // 2026-11-20: Embed club rake defaults through fk_tables_club_id so the
+      // throttled refresh pays ONE PostgREST round-trip instead of two serial
+      // trips on load_next_hand_inputs at 150+ concurrent tables. Falls back to
+      // the two-step read if PostgREST reports PGRST200 (schema-cache reload).
       const ruleRead = supabase
         .from('tables')
         .select(
-          // ROUND 3 (2026-08-20): bomb pot settings ride the same throttled
-          // re-read — an owner toggling bomb pots (or double board) no longer
-          // waits for an engine restart, same reason rake got this in
-          // 2026-08-18.
-          // BOMB POT STANDARDIZATION 2026-08-27: the five new canonical
-          // columns ride along — board count, trigger mode, timed interval,
-          // minimum players and fixed ante.
-          // THE WHOLE TEMPLATED RULE SET RIDES ALONG TOO (2026-09-09, lane E
-          // of the must-move audit). See the doc comment above for why: these
-          // are no longer host settings that change twice a year, they are
-          // rewritten by fn_cash_apply_ruleset on every cluster tick.
-          // THE BOUNDARY READS WHAT IT CHECKS (2026-10-09). assertDiamondTable
-          // below judges the variant, kind, status, blinds and jackpot share;
-          // none of them were read here, so every refresh of every Diamond
-          // cash table was refused as 'Diamond Plain Cash Table Required'
-          // (about 800 times in six hours) and a permitted straddle or run it
-          // twice change never landed without a restart.
-          'union_id, rake_percent, rake_cap_bb, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_min_players, bomb_pot_ante_fixed, bomb_pot_variant, bomb_pot_button_policy, bomb_pot_announce_seconds, bomb_pot_manual_pending, dealing_halted_at, dealing_halted_reason, ante_enabled, ante, big_blind_ante_enabled, nit_game, maintain_percent_min, maintain_hands, career_percent_min, run_it_mode, run_it_twice, allow_run_it_twice, run_it_twice_enabled, insurance_enabled, seven_deuce_enabled, seven_deuce_amount, straddle_enabled, auto_utg_straddle, voluntary_straddle, min_buy_in, max_buy_in, action_time_seconds, game_variant, game_type, tournament_id, cluster_id, role, main_index, lifecycle, status, is_template, all_in_or_fold, pineapple_holdem, cap_enabled, bbj_percent, small_blind, big_blind'
+          this.rakeClubEmbedUnavailable
+            ? baseColumns
+            : `${baseColumns}, club:clubs!fk_tables_club_id(default_rake_percent, rake_cap, union_id)`
         )
         .eq('id', this.tableId)
         .maybeSingle();
@@ -12019,7 +12016,25 @@ export abstract class ServerTableEngineBase {
       // are in flight together, so this adds no latency; the kill read never
       // rejects (see readKillSettingsForRefresh).
       const killRead = this.readKillSettingsForRefresh();
-      const { data: tableRow } = await ruleRead;
+      const ruleRes = await ruleRead;
+      let tableRow: Record<string, any> | null = (ruleRes.data ?? null) as Record<
+        string,
+        any
+      > | null;
+      let ruleErr = ruleRes.error;
+      if (ruleErr && !this.rakeClubEmbedUnavailable) {
+        const code = String((ruleErr as { code?: unknown }).code ?? '');
+        if (code.startsWith('PGRST20')) {
+          this.rakeClubEmbedUnavailable = true;
+          const fallback = await supabase
+            .from('tables')
+            .select(baseColumns)
+            .eq('id', this.tableId)
+            .maybeSingle();
+          tableRow = (fallback.data ?? null) as Record<string, any> | null;
+          ruleErr = fallback.error;
+        }
+      }
       /* Lightning 2.0 Phase 5. Applied HERE - before the Diamond refusal below
          and before the `tableRow && this.tableInfo` block - on purpose. A halt
          is not a rule a boundary can refuse: it is an operational stop, and a
@@ -12165,19 +12180,35 @@ export abstract class ServerTableEngineBase {
            assignment above is the whole of their fix. */
         this.applyRunItTwiceConfig();
       }
-      const clubId = this.tableInfo?.club_id;
-      if (clubId) {
-        const { data: clubRow } = await supabase
-          .from('clubs')
-          .select('default_rake_percent, rake_cap, union_id')
-          .eq('id', clubId)
-          .maybeSingle();
-        if (clubRow) {
-          this.clubRakeDefaults = {
-            rakePercent: clubRow.default_rake_percent ?? null,
-            rakeCapBB: clubRow.rake_cap ?? null,
-            unionId: clubRow.union_id,
-          };
+      const rawEmbeddedClub = (tableRow as { club?: unknown } | null | undefined)?.club;
+      const embeddedClub = (
+        Array.isArray(rawEmbeddedClub) ? rawEmbeddedClub[0] : rawEmbeddedClub
+      ) as {
+        default_rake_percent?: number | null;
+        rake_cap?: number | null;
+        union_id?: string | null;
+      } | null;
+      if (embeddedClub && typeof embeddedClub === 'object') {
+        this.clubRakeDefaults = {
+          rakePercent: embeddedClub.default_rake_percent ?? null,
+          rakeCapBB: embeddedClub.rake_cap ?? null,
+          unionId: embeddedClub.union_id ?? null,
+        };
+      } else {
+        const clubId = this.tableInfo?.club_id;
+        if (clubId) {
+          const { data: clubRow } = await supabase
+            .from('clubs')
+            .select('default_rake_percent, rake_cap, union_id')
+            .eq('id', clubId)
+            .maybeSingle();
+          if (clubRow) {
+            this.clubRakeDefaults = {
+              rakePercent: clubRow.default_rake_percent ?? null,
+              rakeCapBB: clubRow.rake_cap ?? null,
+              unionId: clubRow.union_id,
+            };
+          }
         }
       }
     } catch (err) {

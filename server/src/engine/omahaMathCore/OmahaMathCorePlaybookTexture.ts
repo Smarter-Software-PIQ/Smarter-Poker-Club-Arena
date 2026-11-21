@@ -1,15 +1,16 @@
 /**
  * omahaMathCore component (lane PLAYBOOK, lead session 01TLQer8, Nov 19 2026): BOARD TEXTURE.
  *
- * The core's fold cells (responseTo) are keyed street / line / size band / players / mode / actor but
- * not by the board. Responders fold far more on some boards than others at the same size (48h, PLO4+PLO5
+ * The core's fold cells (responseTo) are keyed street / line / size band / players / mode but not by
+ * the board. Responders fold far more on some boards than others at the same size (48h, PLO4+PLO5
  * cash, persons facing a Horse heads-up flop bet of <= 0.4 pot: paired-rainbow 0.29 (n=28),
  * paired-two-tone 0.32 (25), unpaired-two-tone 0.21 (161), unpaired-rainbow 0.13 (119), all 0.19 (338)).
  *
- * playbookTexture.v1.json (provenance public_actions: boards and public actions only) holds the fold
- * share by street|texture|band|players|responder plus the texture-free base cell ('all'). The texture
+ * playbookTexture.v2-pooled.json (provenance public_actions: boards and public actions only) holds the
+ * fold share by street|texture|band|players plus the texture-free base cell ('all'), every responder
+ * pooled (lane CORE-POOLED: v1's responder-kind cells summed by n; no person/Horse field). The texture
  * cell is shrunk to its base, (k + M x base) / (n + M), M = 20, and applied to the core's own fold
- * probability as a RATIO, so a person-specific (shrunk) fold rate keeps its person lift:
+ * probability as a RATIO:
  *   p' = p x shrunk(texture) / base
  * Holdout (fit before 2026-11-19 06:01Z, scored after, 842 responses): log loss 0.6286 base -> 0.6258.
  *
@@ -41,9 +42,9 @@ function omahaMathCoreTable(name: string): unknown {
     );
   return JSON.parse(readFileSync(found, 'utf8'));
 }
-const textureJson: unknown = omahaMathCoreTable('playbookTexture.v1.json');
+const textureJson: unknown = omahaMathCoreTable('playbookTexture.v2-pooled.json');
 
-export const PLAYBOOK_TEXTURE_VERSION = 'playbook-texture-v1';
+export const PLAYBOOK_TEXTURE_VERSION = 'playbook-texture-v2-pooled';
 
 interface TextureTable {
   version: string;
@@ -81,13 +82,12 @@ export function boardTexture(board: readonly number[]): TextureClass | null {
 const clamp01 = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
-/** Texture-adjusted fold probability of one responder facing the hero's postflop wager. */
+/** Texture-adjusted fold probability facing a postflop wager (every responder pooled). */
 export function textureFold(k: {
   street: 'flop' | 'turn' | 'river';
   board: readonly number[];
   band: 'small' | 'half' | 'twothirds' | 'pot' | 'allin';
   players: 'hu' | 'mw';
-  responder: 'person' | 'horse';
   p: number;
 }): { p: number; source: string } {
   const p = clamp01(k.p);
@@ -96,11 +96,11 @@ export function textureFold(k: {
     const tex = boardTexture(k.board);
     if (!tex) return { p, source: 'texture: bad board, unchanged' };
     if (p <= 0 || p >= 1) return { p, source: 'texture: fold 0 or 1, unchanged' };
-    const baseKey = `${k.street}|all|${k.band}|${k.players}|${k.responder}`;
+    const baseKey = `${k.street}|all|${k.band}|${k.players}`;
     const base = t.cells[baseKey];
     if (!base || base.n < t.minBaseN || !(base.fold > 0) || !(base.fold < 1))
       return { p, source: `texture: no base cell ${baseKey}, unchanged` };
-    const key = `${k.street}|${tex}|${k.band}|${k.players}|${k.responder}`;
+    const key = `${k.street}|${tex}|${k.band}|${k.players}`;
     const c = t.cells[key];
     const n = c?.n ?? 0;
     const shrunk = ((c ? c.fold * n : 0) + t.shrinkM * base.fold) / (n + t.shrinkM);

@@ -121,7 +121,11 @@ describe('the pool count through the real host', () => {
     const first = await playHand(8100, ledger, FLOORED);
     expect(first.scripted.calls.length).toBeGreaterThan(0);
     for (const snap of first.scripted.calls)
-      expect(gs(snap).lightningVpipFloor).toMatchObject({ floor: 40, windowHands: 10 });
+      expect(gs(snap).lightningVpipFloor).toMatchObject({
+        floor: 40,
+        windowHands: 10,
+        own: { hands: 0, vpipHands: 0, leavingEntered: false, fromFirstHand: false },
+      });
     for (const p of first.participants) expect(ledger.read(p.poolSessionId).hands).toBe(1);
     // the folders were counted at their fold, one player at a time, before settlement
     const atFold = first.records.filter((r) => r.who.length === 1);
@@ -132,10 +136,33 @@ describe('the pool count through the real host', () => {
     expect([...hands][0]).toEqual(expect.any(Number));
     // a second hand of the same sittings: each counts two, and its window sees both
     const second = await playHand(8100, ledger, FLOORED);
+    for (const snap of second.scripted.calls)
+      expect(gs(snap).lightningVpipFloor).toMatchObject({
+        floor: 40,
+        windowHands: 10,
+        own: { hands: 1, fromFirstHand: false },
+      });
     for (const p of second.participants) {
       expect(ledger.read(p.poolSessionId).hands).toBe(2);
       expect(ledger.readWindow(p.poolSessionId, 9).hands).toBe(2);
     }
+  });
+
+  it('a new sitting first seen >120 s after first ledger activity carries fromFirstHand: true in the snapshot (review F3)', async () => {
+    let clock = 1_000_000;
+    const ledger = new LightningHorseVpipLedger(256, () => clock);
+    // Warm up the ledger with another sitting so firstActivityAt is 1_000_000.
+    ledger.readWindow('warmup-sitting', 9);
+    // Advance past the 120 s carried-over grace window before the new sittings first appear.
+    clock += 130_000;
+    const fresh = await playHand(8150, ledger, FLOORED);
+    expect(fresh.scripted.calls.length).toBeGreaterThan(0);
+    for (const snap of fresh.scripted.calls)
+      expect(gs(snap).lightningVpipFloor).toMatchObject({
+        floor: 40,
+        windowHands: 10,
+        own: { hands: 0, vpipHands: 0, leavingEntered: false, fromFirstHand: true },
+      });
   });
 
   it('an unfloored game never carries the field (owner 2026-11-18 11:03)', async () => {

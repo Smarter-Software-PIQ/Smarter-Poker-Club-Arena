@@ -8,12 +8,22 @@ name: Hand gap unintended-delay watch (PostgreSQL proof)
 # each window, raises nothing for an on-time table or a single breached
 # window, raises ONE critical alert for two consecutive breached windows
 # (deduplicated across later windows and re-runs), and resolves it.
+# Since 20261120034809 it also proves the watch pages nobody itself: a
+# hand-delay episode pages the owner once through the owner page route
+# (kind hand_delay) and a flap is held, not pushed.
+# Since 20261121000757 it proves the alert names where the delay comes from
+# (after a bust, after a tournament seat move, both) on production's own text.
 # No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
 on:
   pull_request:
     branches: [main]
     paths:
       - supabase/migrations/20261119052955_an_unintended_delay_between_hands_pages_within_minutes.sql
+      - supabase/migrations/20261119180500_sustained_hand_delay_alerts_and_cadence_grading.sql
+      - supabase/migrations/20261119211558_a_hand_for_hand_wait_is_an_owed_wait.sql
+      - supabase/migrations/20261120034809_a_hand_delay_pages_through_the_owner_page_route.sql
+      - supabase/migrations/20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql
+      - scripts/ci/fixtures/owner-page-route-preimage-20261120.sql
       - scripts/sql/hand-gap-unintended-delay.sql
       - scripts/ci/test-hand-gap-watch.py
       - .github/workflows/hand-gap-watch-proof.yml

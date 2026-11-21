@@ -251,8 +251,10 @@ ${body}`,
     },
     // The shell has its own 5s deadline. Creating/cloning the fixture Git
     // repositories and removing them also takes time on the SSD. Allow setup
-    // and cleanup headroom without changing that child-process deadline.
-    20_000
+    // and cleanup headroom without changing that child-process deadline:
+    // 6-18 s per case on the shared pre-push host, one case past 20 s at load
+    // 30 (Nov 20 2026), so the headroom is 120 s; the verdicts are unchanged.
+    120_000
   );
 });
 

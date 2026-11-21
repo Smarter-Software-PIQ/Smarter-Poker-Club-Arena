@@ -294,6 +294,99 @@ describe('a boundary move is planned under the hold', () => {
     expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
   });
 
+  describe("the sweep's own plan lifts the fences it does not need (2026-11-21)", () => {
+    // A bust at the fenced big table admits a sweep, which voids the plan read
+    // under the hold. The sweep's balance stage plans from fresh rows; a fence
+    // it does not need used to stand until the source parked and a later
+    // boundary drain freed it (7973d396: parked 01:11:30.27, dealt 01:11:32.35).
+    // 8/6 (gap 2, the 8 is fenced); two bust at the 8: 6/6, balanced. Twelve
+    // players never fit one table, so no break step is involved.
+    const bustTheBigTable = (big: BalancerTable) => {
+      big.players = big.players.slice(0, 6);
+      big.playerCount = 6;
+    };
+
+    it('a sweep that finds the field balanced hands the fenced source back while its hold plays', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines } = manager([big, short]);
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+      bustTheBigTable(big);
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      expect(engines.get(big.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
+      expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(false);
+    });
+
+    it('a sweep keeps the fence on a source its fresh plan still names', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines } = manager([big, short]);
+      await m.checkTableBalance();
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      expect(engines.get(big.tableId)!.releaseTournamentMovePause).not.toHaveBeenCalled();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+    });
+
+    it('a sweep frees a source that stopped being the big table and fences the new one', async () => {
+      // 9/7/8 (a fenced); three bust at a: 6/7/8, now c is the big table.
+      // 21 players need three tables, so no break step is involved.
+      const a = table(0, 9);
+      const b = table(1, 7);
+      const c = table(2, 8);
+      const { m, engines } = manager([a, b, c]);
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(a.tableId)).toBe(true);
+      expect(m.gapBalanceFencedSources.has(c.tableId)).toBe(false);
+      a.players = a.players.slice(0, 6);
+      a.playerCount = 6;
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      expect(engines.get(a.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(m.gapBalanceFencedSources.has(a.tableId)).toBe(false);
+      expect(m.gapBalanceFencedSources.has(c.tableId)).toBe(true);
+    });
+
+    it('a sweep never lifts a fence on a source already parked, claimed or held for a break', async () => {
+      for (const hold of ['parked', 'claimed', 'break'] as const) {
+        const big = table(0, 8);
+        const short = table(1, 6);
+        const { m, engines } = manager([big, short]);
+        await m.checkTableBalance();
+        bustTheBigTable(big);
+        const engine = engines.get(big.tableId)!;
+        if (hold === 'parked') engine.awaitsTournamentMoveClaim.mockReturnValue(true);
+        if (hold === 'claimed') engine.hasClaimedTournamentMoveBoundary.mockReturnValue(true);
+        if (hold === 'break') m.retainsTournamentBreakSource = () => true;
+        m.isProcessingEliminations = true;
+        await m.checkTableBalance();
+        expect(engine.releaseTournamentMovePause).not.toHaveBeenCalled();
+      }
+    });
+
+    it('a sweep never lifts a fence while move outcomes or recovery are pending', async () => {
+      for (const pending of ['outcome', 'discovery'] as const) {
+        const big = table(0, 8);
+        const short = table(1, 6);
+        const { m, engines } = manager([big, short]);
+        await m.checkTableBalance();
+        bustTheBigTable(big);
+        if (pending === 'outcome') m.pendingTournamentSeatMoveOutcomes.set('x', {});
+        if (pending === 'discovery') m.tournamentBreakDiscoveryComplete = false;
+        m.isProcessingEliminations = true;
+        try {
+          await m.checkTableBalance();
+        } catch {
+          // A pending outcome may stop the stage earlier; either way no lift.
+        }
+        expect(engines.get(big.tableId)!.releaseTournamentMovePause).not.toHaveBeenCalled();
+      }
+    });
+  });
+
   it('the hand-complete edge reaches the preparation before the hold plays', () => {
     const base = readFileSync(
       fileURLToPath(new URL('./TournamentManagerBase.ts', import.meta.url)),

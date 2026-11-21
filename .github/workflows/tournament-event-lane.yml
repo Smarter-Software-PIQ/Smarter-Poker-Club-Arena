@@ -33,6 +33,8 @@ on:
       - scripts/ci/test-rebuy-never-pauses-the-tournament.py
       - scripts/ci/test-a-rebuy-never-blocks-a-hand-commit-on-the-tournament-row.py
       - scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py
+      - scripts/ci/test-hot-path-buffer-budget.py
+      - tests/hot-path-lock-matrix-exercised-in-ci.law.test.ts
       - .github/workflows/tournament-event-lane.yml
 
 permissions:
@@ -64,6 +66,10 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py
+      - name: Hot-path EXPLAIN (ANALYZE, BUFFERS) PostgreSQL 17 budget gate
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-hot-path-buffer-budget.py
       - name: Retain the evidence
         if: always()
         uses: actions/upload-artifact@v4

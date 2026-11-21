@@ -47,8 +47,6 @@ function spot(
     opponents: [
       {
         seat: 2,
-        user: 'u2',
-        person: true,
         stack: 1000,
         bet: toCall,
         folded: false,
@@ -100,8 +98,8 @@ describe('COREWIRE: provenance law on every table the core loads', () => {
       const t = JSON.parse(readFileSync(DIR + f, 'utf8')) as Record<string, unknown>;
       const prov = t.provenance;
       const text = typeof prov === 'string' ? prov : JSON.stringify(prov ?? null);
-      if (f === 'publicTables.v3.json') continue; // per-cell provenance, law in OmahaMathCore.test.ts
-      if (f === 'preflopRealization.v1.json') {
+      if (f === 'publicTables.v4-pooled.json') continue; // per-cell provenance, law in OmahaMathCore.test.ts
+      if (f === 'preflopRealization.v2-pooled.json') {
         // lead ruling 2026-11-19: the Horses' own cards in their own past hands (own_cards_history), admitted;
         // nothing about any opponent's hidden cards
         expect((prov as { class?: string }).class).toBe('own_cards_history');
@@ -114,7 +112,7 @@ describe('COREWIRE: provenance law on every table the core loads', () => {
         expect(text).toMatch(/random holdings only/);
         continue;
       }
-      if (f === 'preflopTables.v1.json') {
+      if (f === 'preflopTables.v2-pooled.json') {
         expect(text).toMatch(/NO hole cards/);
         continue;
       }
@@ -166,26 +164,25 @@ describe('COREWIRE: every component prices a postflop decision', () => {
       })
     );
   });
-  it('facing a person pot bet: response cells carry OPPMODEL and PLAYBOOK texture and blockers; a call is priced', () => {
+  it('facing a pot bet: response cells are the pooled population cell with PLAYBOOK texture and blockers; a call is priced', () => {
     const s = spot({ hole: 'AhKhQsJd', board: 'Th9h2c', pot: 300, toCall: 100 });
     const r = decideOmahaMathCore(s, fixed).receipt;
     expect(r.wire?.value).not.toBeNull();
     const raise = r.evs.find((e) => e.action === 'raise' || e.action === 'all_in');
-    expect(raise?.foldSource ?? '').toMatch(/opponent-model/);
+    expect(raise?.foldSource ?? '').not.toMatch(/opponent-model|person|horse/i);
     expect(raise?.foldSource ?? '').toMatch(/texture/);
     expect(r.evs.some((e) => e.action === 'call')).toBe(true);
     expect(r.evs.some((e) => e.action === 'fold')).toBe(true);
   });
-  it('a Horse responder defends to the price s/(1+s) in the wired path too', () => {
+  it('no responder is priced by theory: every fold share is the measured pooled cell (no Horse defence rule)', () => {
     const s = spot({ hole: '9h8h7cKd', board: '9c6h2h' });
-    s.opponents[0].person = false;
     const r = decideOmahaMathCore(s, fixed).receipt;
     const bet = r.evs.find((e) => e.action === 'bet');
-    expect(bet?.foldSource ?? '').toMatch(/self-consistent Horse defence/);
+    expect(bet?.foldSource ?? '').not.toMatch(/self-consistent Horse defence/);
   });
   it('three-way: the field response comes from HVH-MULTI continuation outcomes', () => {
     const s = spot({ hole: '9h8h7cKd', board: '9c6h2h' });
-    s.opponents.push({ ...s.opponents[0], seat: 3, user: 'u3', position: 'SB' });
+    s.opponents.push({ ...s.opponents[0], seat: 3, position: 'SB' });
     s.history = [
       { street: 'flop', seat: 3, action: 'check', frac: 0, facing: false, players: 3 },
       { street: 'flop', seat: 2, action: 'check', frac: 0, facing: false, players: 3 },

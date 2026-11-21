@@ -51,7 +51,7 @@ import {
 // Read at run time, not imported: a 4.6 MB JSON import makes tsc type the whole literal and
 // pushes the server compile past the default 4 GB heap (CI native-smoke OOM on #11515).
 const publicTables: unknown = JSON.parse(
-  readFileSync(new URL('./publicTables.v3.json', import.meta.url), 'utf8')
+  readFileSync(new URL('./publicTables.v4-pooled.json', import.meta.url), 'utf8')
 );
 const now = () => performance.now();
 const DECK: Card[] = Array.from({ length: 52 }, (_, i) => ({
@@ -86,8 +86,6 @@ function spot(
     opponents: [
       {
         seat: 2,
-        user: 'u2',
-        person: true,
         stack: 1000,
         bet: toCall,
         folded: false,
@@ -194,8 +192,6 @@ describe('omahaMathCore decision laws', () => {
       opponents: [
         {
           seat: 2,
-          user: 'u2',
-          person: true,
           stack: 200,
           bet: 14,
           folded: false,
@@ -231,8 +227,6 @@ describe('omahaMathCore decision laws', () => {
       opponents: [
         {
           seat: 2,
-          user: 'u2',
-          person: true,
           stack: 520,
           bet: 110,
           folded: false,
@@ -269,8 +263,6 @@ describe('omahaMathCore decision laws', () => {
     });
     s.opponents.push({
       seat: 3,
-      user: 'h3',
-      person: false,
       stack: 900,
       bet: 100,
       folded: false,
@@ -283,8 +275,6 @@ describe('omahaMathCore decision laws', () => {
     });
     s.opponents.push({
       seat: 4,
-      user: 'h4',
-      person: false,
       stack: 900,
       bet: 0,
       folded: false,
@@ -302,13 +292,15 @@ describe('omahaMathCore decision laws', () => {
 });
 
 describe('omahaMathCore self-play and split switch', () => {
-  it('a Horse responder is priced to defend to the price: fold s/(1+s) of a wager of pot share s', () => {
+  it('every responder is priced on the one pooled measured cell (no person/Horse key in any fold source)', () => {
     const st = spot({ hole: 'AhKhQs7d2c', board: 'Jh8s2s', pot: 100, toCall: 0 });
-    st.opponents[0] = { ...st.opponents[0], person: false, user: 'horse-1' };
     const { receipt } = decideOmahaMathCore(st, { now });
-    for (const e of receipt.evs.filter((x) => x.action === 'bet')) {
-      const s = e.adds / 100;
-      expect(e.foldProb).toBeCloseTo(s / (1 + s), 2);
+    const bets = receipt.evs.filter((x) => x.action === 'bet');
+    expect(bets.length).toBeGreaterThan(0);
+    for (const e of bets) {
+      expect(e.foldSource).not.toMatch(
+        /\|person\b|\|horse\b|vs_horse|vs_person|horse_present|persons_only|self-consistent Horse/
+      );
     }
   });
   it('preflop with omahaMathCorePreflop off: the core computes and receipts (shadow) and the decision stands', () => {
@@ -679,8 +671,6 @@ describe('omahaMathCore deterministic work budget (COREWIRE-2, gate G6: five-way
   it('a five-way flop under a frozen clock finishes inside the work budget and decides identically twice', () => {
     const opp = (seat: number) => ({
       seat,
-      user: `u${seat}`,
-      person: seat % 2 === 0,
       stack: 1000,
       bet: 0,
       folded: false,

@@ -137,8 +137,55 @@ export const HU_FOLD_SB_DEFEND_BB_PERSONA = 'hu_fold_sb_defend_bb_v1' as const;
  * only (HorseLeague refuses it anywhere else).
  */
 export const OMAHA_TIGHT_FIELD_PERSONA = 'omaha_tight_field_v1' as const;
+/**
+ * THE SCRIPTED FIXED-LIMIT FIELD (2026-11-20, docs/horse-league-fixed-limit.md
+ * section 1). No population is calibrated for fixed limit, and a Horse mirror
+ * almost never moves the fixed-limit options built for opponents unlike
+ * Horses. This field seats scripted players instead, each a pure function of
+ * its own cards and the public state (FixedLimitScriptedField.ts), offered the
+ * controller's own fixed-limit menu (LeagueDecisionState.leagueActionState)
+ * and validated like a Horse. Fixed-limit hold'em only; the league refuses
+ * any other variant for it, and refuses a fixed-limit hand for every other
+ * field. Personas (LeagueMatchup.humanPersona):
+ *  - flh_maniac_v1: bets or raises whenever a wager is legal, otherwise calls,
+ *    never folds (the lane's "sustained maniac (every hand, every bet)").
+ *  - flh_tight_value_v1: the value-only player the lane used as the harm
+ *    control: tight preflop entry, bets and raises only made hands, never
+ *    bluffs. Its thresholds are stated in FixedLimitScriptedField.ts with
+ *    their sources, and the ones no record gives are labelled design values.
+ *  - flh_passive_caller_v1 (2026-11-21): the calling station of
+ *    ExploiterLeague.ts (calls wide preflop, never folds after the flop, bets
+ *    only strong hands, rarely raises), with its equity bars replaced by made
+ *    classes (design values) so the script stays a pure function.
+ *  - flh_over_folding_blinds_v1 (2026-11-21): never raises; enters and
+ *    defends on the tight-value bars (a six-max blind folds to one raise 82%
+ *    of the time) and after the flop checks or folds to every wager (design
+ *    value: the extreme over-folder).
+ * Development personas, not calibrated populations.
+ */
+export const FIXED_LIMIT_SCRIPTED_POPULATION_ID = 'flh_scripted_field_v1' as const;
+// 'nlh' only for the no-limit probe history a card may play into its
+// sandboxes before its fixed-limit pairs (LeagueMatchup.probeHistoryHands);
+// runHumanFieldMatchup refuses a scripted card that deals anything but flh.
+export const FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['flh', 'nlh']);
+export const FLH_MANIAC_PERSONA = 'flh_maniac_v1' as const;
+export const FLH_TIGHT_VALUE_PERSONA = 'flh_tight_value_v1' as const;
+export const FLH_PASSIVE_CALLER_PERSONA = 'flh_passive_caller_v1' as const;
+export const FLH_OVER_FOLDING_BLINDS_PERSONA = 'flh_over_folding_blinds_v1' as const;
+export type FixedLimitScriptedPersona =
+  | typeof FLH_MANIAC_PERSONA
+  | typeof FLH_TIGHT_VALUE_PERSONA
+  | typeof FLH_PASSIVE_CALLER_PERSONA
+  | typeof FLH_OVER_FOLDING_BLINDS_PERSONA;
+export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[] = Object.freeze([
+  FLH_MANIAC_PERSONA,
+  FLH_TIGHT_VALUE_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
+]);
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
+  | FixedLimitScriptedPersona
   | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
@@ -155,4 +202,8 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   HU_NIT_BIG_BLIND_PERSONA,
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
+  FLH_MANIAC_PERSONA,
+  FLH_TIGHT_VALUE_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
 ]);

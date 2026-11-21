@@ -35,6 +35,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { cleanupOnce, retireOnSignal } from './certification-run-cleanup.mjs';
 
 export const RABBIT_HUNT_REQUIRED_COMMITS = Object.freeze([
   { pr: 9233, sha: 'b6590efa8eae' },
@@ -402,11 +403,13 @@ export async function settleRabbitHuntClub({
   }
   const retirement = retireHeadsUpFixture
     ? await c.svcRpc('fn_ca_retire_heads_up_fixture', { p_club_id: clubId, p_reason: reason })
-    : (await c.rpc(O.token, 'fn_retire_settled_club', {
-        p_club_id: clubId,
-        p_confirm_name: clubName,
-        p_reason: reason,
-      })).body;
+    : (
+        await c.rpc(O.token, 'fn_retire_settled_club', {
+          p_club_id: clubId,
+          p_confirm_name: clubName,
+          p_reason: reason,
+        })
+      ).body;
   const retired = retirement?.success === true;
   note('retire the certification club', retired, retirement?.error ?? retirement?.message);
   return { settled: retired, seated: [] };
@@ -586,6 +589,74 @@ async function main() {
     steps.push({ name, ok: !!ok, detail });
     log(ok ? 'PASS' : 'FAIL', name, detail ?? '');
   };
+
+  // One cleanup, run exactly once: on success, on a thrown failure, AND when
+  // the runner cancels or times the job out (SIGINT/SIGTERM), which skips a
+  // plain finally (scripts/ci/certification-run-cleanup.mjs, 2026-11-20).
+  const retireThisRunsFixtures = cleanupOnce(async () => {
+    const note = (name, ok, detail) => {
+      cleanup.push({ step: name, ok, detail });
+      log(ok ? 'CLEANUP' : 'CLEANUP FAILED', name, detail ?? '');
+    };
+    try {
+      const outcome = S.clubId
+        ? await settleRabbitHuntClub({
+            c: { svc, svcRpc, rpc, sessionFor },
+            clubId: S.clubId,
+            clubName: S.clubName,
+            ownerEmail: S.accounts.owner.email,
+            memberIds: Object.values(S.accounts).map((a) => a.id),
+            tableIds: S.tableId ? [S.tableId] : [],
+            note,
+          })
+        : { settled: true, seated: [] };
+      if (outcome.seated === null || outcome.seated.length) {
+        // Nothing else is touched while a seat is live: the stale sweep
+        // settles this club once everyone has left (settleStrandedRabbitHuntClub).
+      } else {
+        for (const role of ['vip', 'plain', 'owner']) {
+          if (!S.accounts[role]) continue;
+          try {
+            await cleanupProductionE2EAccount({
+              environment: envFor(role),
+              expectedEmail: S.accounts[role].email,
+            });
+            note(`retire the ${role} account`, true);
+          } catch (e) {
+            let retainedOwner = false;
+            if (role === 'owner' && S.clubId) {
+              try {
+                const club = (
+                  await svc(`clubs?id=eq.${S.clubId}&select=id,owner_id,lifecycle_status`)
+                )[0];
+                retainedOwner = ownerRetainedAsRecord({
+                  error: e,
+                  club,
+                  ownerId: S.accounts.owner.id,
+                  clubId: S.clubId,
+                });
+              } catch {
+                // Unreadable is not retained: the refusal below stands.
+              }
+            }
+            if (retainedOwner) {
+              note(
+                'retire the owner account',
+                true,
+                `kept as the owner of record of retired club ${S.clubId}; its records are retained and never deleted`
+              );
+              continue;
+            }
+            note(`retire the ${role} account`, false, String(e?.message || e).slice(0, 200));
+          }
+        }
+      }
+    } catch (e) {
+      note('cleanup', false, String(e?.message || e));
+    }
+    rmSync(scratch, { recursive: true, force: true });
+  });
+  const releaseSignals = retireOnSignal(retireThisRunsFixtures);
 
   try {
     await thaw();
@@ -1028,67 +1099,11 @@ async function main() {
     error = String(e?.message || e);
     log('ERROR', error);
   } finally {
-    const note = (name, ok, detail) => {
-      cleanup.push({ step: name, ok, detail });
-      log(ok ? 'CLEANUP' : 'CLEANUP FAILED', name, detail ?? '');
-    };
     try {
-      const outcome = S.clubId
-        ? await settleRabbitHuntClub({
-            c: { svc, svcRpc, rpc, sessionFor },
-            clubId: S.clubId,
-            clubName: S.clubName,
-            ownerEmail: S.accounts.owner.email,
-            memberIds: Object.values(S.accounts).map((a) => a.id),
-            tableIds: S.tableId ? [S.tableId] : [],
-            note,
-          })
-        : { settled: true, seated: [] };
-      if (outcome.seated === null || outcome.seated.length) {
-        // Nothing else is touched while a seat is live: the stale sweep
-        // settles this club once everyone has left (settleStrandedRabbitHuntClub).
-      } else {
-        for (const role of ['vip', 'plain', 'owner']) {
-          if (!S.accounts[role]) continue;
-          try {
-            await cleanupProductionE2EAccount({
-              environment: envFor(role),
-              expectedEmail: S.accounts[role].email,
-            });
-            note(`retire the ${role} account`, true);
-          } catch (e) {
-            let retainedOwner = false;
-            if (role === 'owner' && S.clubId) {
-              try {
-                const club = (
-                  await svc(`clubs?id=eq.${S.clubId}&select=id,owner_id,lifecycle_status`)
-                )[0];
-                retainedOwner = ownerRetainedAsRecord({
-                  error: e,
-                  club,
-                  ownerId: S.accounts.owner.id,
-                  clubId: S.clubId,
-                });
-              } catch {
-                // Unreadable is not retained: the refusal below stands.
-              }
-            }
-            if (retainedOwner) {
-              note(
-                'retire the owner account',
-                true,
-                `kept as the owner of record of retired club ${S.clubId}; its records are retained and never deleted`
-              );
-              continue;
-            }
-            note(`retire the ${role} account`, false, String(e?.message || e).slice(0, 200));
-          }
-        }
-      }
-    } catch (e) {
-      note('cleanup', false, String(e?.message || e));
+      await retireThisRunsFixtures();
+    } finally {
+      releaseSignals();
     }
-    rmSync(scratch, { recursive: true, force: true });
   }
 
   const v = verdict({ gate, steps, error, cleanup });

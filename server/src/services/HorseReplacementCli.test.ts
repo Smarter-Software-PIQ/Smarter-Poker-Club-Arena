@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { WAIT_BUDGET_MS } from '../testing/waitBudget.js';
 vi.mock('./HorseReplacementBatch.js', () => ({ replacePatternedHorses: vi.fn() }));
 vi.mock('../hub/ChannelHub.js', () => ({ channelHub: { close: vi.fn() } }));
 import {
@@ -79,7 +80,7 @@ async function runFiniteCli(url: string, args: string[], configured = true) {
     timedOut = true;
     if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGTERM');
     else child.kill('SIGTERM');
-  }, 5000);
+  }, WAIT_BUDGET_MS);
   try {
     const exitCode = await new Promise<number | null>((resolve, reject) => {
       child.once('error', reject);

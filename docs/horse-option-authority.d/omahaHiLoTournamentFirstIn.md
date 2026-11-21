@@ -1,0 +1,144 @@
+# omahaHiLoTournamentFirstIn: authority for the live switch
+
+**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, tests and off-identity are recorded, the declared offline evaluation is recorded as SUPPORTED on two seeds and the league card measured significant and positive on three of three seeds against a mirror field (+36.54, +35.80 and +38.92 bb/100, each stderr about 4.9); the replay on recorded decisions was run on 2026-11-21 against a PASS-BAR declared before it and FAILED that bar: on 430 audited decisions the option changed 248, fixed 0 and made 35 newly wrong (every one a big-blind fold the audit priced as correct, turned into a call). No live read exists.
+
+Written 2026-11-20 from what the repository records (sources named per section); nothing was run for the file on that day. The sections "Replay on recorded decisions (2026-11-21)" and "Replay" were added on 2026-11-21 from a replay run for this file; every number in them was measured in that run.
+
+## What it does
+
+Source: `docs/changelog/2026-11-14-plo8-heads-up-tournament-first-in.md`, `server/src/engine/HorsePreflop.ts` (`OMAHA_HILO_TOURNAMENT_FIRST_IN`), `server/src/engine/HorseDataLedger.ts` (flag `omahaHiLoTournamentFirstIn`).
+
+Pot-limit Omaha hi-lo (PLO8) in an engine-declared tournament, exactly two dealt in, 20 big blinds or less. With the option on, HorseLogic passes the hand's hi-lo percentile (`omahaPreflopPercentile(cards, true)`) to the preflop engine and the Omaha high replacement function `omahaTournamentFirstIn` runs with `OMAHA_HILO_TOURNAMENT_FIRST_IN`:
+
+- the small blind first in plays every hand as the pot-limit maximum raise (`headsUpShare: 1`);
+- the big blind calls its top 75 percent against one raise at a price of a half or better (`bigBlindDefendShare: 0.75`, `bigBlindMaxPrice: 0.5`);
+- 20 BB ceiling (`maxStackBB: 20`); every three-handed branch is zero and the table is capped at two dealt in even when a league arm asks for more (`maxTableSize: 2`).
+
+It replaces only a fold. All-In-Or-Fold, locked satellite seats, cash, fixed-limit hi-lo, Omaha high and deeper stacks stand aside. `HorseOmahaTournamentFirstIn.ts` itself is unchanged by it.
+
+Default OFF in source: only explicit `true`, or a league arm's parameter object, switches it on; off, nothing is computed. It is a registered option of the Horse option switch (`server/src/engine/HorseOptionSwitch.ts`: registered name, lane 'Heads Up', scope 'PLO8 tournament, heads-up, <= 20 bb'; not in `OPTION_SWITCH_OFF_ONLY`, so no owner preflop range hold applies to it: re-read at `5bfaa38d0e0c` on 2026-11-21) and is named by the switch-list migrations from `supabase/migrations/20261115191000_horse_option_switch_plo_strategy_options.sql` on.
+
+## The order it rests on
+
+No owner order naming this option is recorded in the repository. The changelog records its origin as lane work: "Lane: Heads Up (HU-HILO-002; delegated by PLO Strategy 2026-11-14T22:47Z; HU-HILO-003, PLO8 cash and deeper than 20 BB, is not part of this change)". An activation row needs the lane lead's or the owner's order recorded here, verbatim, before it cites this file.
+
+## What it answers
+
+Source: the changelog, "Why" (it cites the heads-up audit `hu-audit-01UxDLnM/variants/FINDINGS.md`, which is in the audit archive, not in this repository).
+
+At 20 big blinds or less in pot-limit Omaha hi-lo tournaments "the heads-up small blind folds 83 to 85 percent of its first actions and the big blind folds 81 to 91 percent to one raise". It is the same commitment-zone fold that #10687 corrected for Omaha high; hi-lo was left out on purpose because it needed its own evaluation.
+
+## Receipts
+
+`omaha_hilo_tournament_first_in` (`HorseDataLedger.ts`, source 'HorsePreflop (omahaHiLoTournamentFirstIn)'); ledger flag `omahaHiLoTournamentFirstIn`.
+
+## Tests
+
+`server/src/engine/HorseOmahaHiLoTournamentFirstIn.law.test.ts` (10 cases, as the changelog records them): the published limits; off, absent and every non-true scalar change no decision and fire nothing; PLO8 heads-up small blind at 8/12/20 BB folds at least 40 percent off and at most 5 percent on, every change is a fold turned into a legal action with its receipt; the big blind facing one pot raise folds at least 25 points less and still folds at least 10 percent; Omaha high (PLO4/5/6), cash, 25 BB, three-handed (including a league arm that asks for three-handed) and fixed-limit hi-lo unchanged; a league arm can switch the small blind part off. Registered in `docs/laws.d/server-src-engine-HorseOmahaHiLoTournamentFirstIn.md`.
+
+League card `plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb` (`server/src/benchmark/HorseLeague.ts`: PLO8, two seats, 12 BB, final-table tournament context, 6,000 pairs, arm A the option on, arm B today's brain). Its measured runs are under "League card runs" below.
+
+## League card runs
+
+Run 2026-11-20 by a coordinator agent of session 01UxDLnH with the single-card league runner (PR #11534), and supplied to this file as copied below; the run's own output files are not in this repository. Opponents are the Horse brain itself (mirror field), so this is the same limit as the evaluation below: no human-calibrated field.
+
+| seed     | card                                            | arm A                               | arm B | variant, seats, depth, format    | field  | pairs (hands) | bb/100 (A minus B) | stderr | block stderr (blocks) | verdict     | engine revision                          | wall    | illegal actions |
+| -------- | ----------------------------------------------- | ----------------------------------- | ----- | -------------------------------- | ------ | ------------- | ------------------ | ------ | --------------------- | ----------- | ---------------------------------------- | ------- | --------------- |
+| 20261120 | plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb | {"omahaHiLoTournamentFirstIn":true} | {}    | plo8, 2 seats, 12 bb, tournament | mirror | 6000 (12000)  | +36.54             | 4.92   | 5.41 (40)             | SIGNIFICANT | 63f3215d2f568bda6ae17682260fcfedc0e20330 | 567.5 s | 0               |
+| 20261121 | plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb | {"omahaHiLoTournamentFirstIn":true} | {}    | plo8, 2 seats, 12 bb, tournament | mirror | 6000 (12000)  | +35.80             | 4.90   | 5.54 (40)             | SIGNIFICANT | 21d1f566062639935cefe04eacb4923a3e54c0f9 | 455.0 s | 0               |
+| 20261122 | plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb | {"omahaHiLoTournamentFirstIn":true} | {}    | plo8, 2 seats, 12 bb, tournament | mirror | 6000 (12000)  | +38.92             | 4.93   | 4.87 (40)             | SIGNIFICANT | 21d1f566062639935cefe04eacb4923a3e54c0f9 | 224.0 s | 0               |
+
+Three seeds, each copied from the runner's output (server/src/scripts/horseLeagueCard.ts, PR #11534) unedited. The runs read no database, so the solver stores were empty (charts 0, postflop 0, postflopV31 0); the nightly league fills them, and a nightly row may differ. The 12 bb card is the only league card for this option: no 8 bb or 20 bb card exists. A league card is not the replay on audited decisions and does not change the status of this file.
+
+## The recorded evaluation (offline, opponents are variants of the Horse brain)
+
+Source, quoted exactly: `docs/changelog/2026-11-14-plo8-heads-up-tournament-first-in.md`, "Evaluation". Declared before any result in `hu-audit-01UxDLnM/evaluation/DECLARATION-HU-HILO-002.md`; tables and raw per-group results in `hu-audit-01UxDLnM/evaluation/results-HU-HILO-002/` (both in the audit archive, not in this repository, and not re-read for this file).
+
+Method as recorded: "PLO Strategy's Evaluation Protocol 2 method, PLO8: real HandController hands, heads-up tournament, every deal played from both seats, paired difference option minus off in big blinds per hand against five opponents (old, tight, wide, call-heavy, adaptive re-shover) at 8, 12 and 20 BB, 4,000 hands per cell."
+
+- "Development seed 94101, option on minus off: +0.53 to +0.55 at 8 BB, +0.45 to +0.49 at 12 BB, +0.28 to +0.30 at 20 BB against old, tight and wide (every interval above zero); call-heavy +0.17 / +0.15 / +0.05 and adaptive +0.30 / +0.20 / +0.00 (no cell below zero). Declared rule: SUPPORTED. The small blind part carries the gain; the big blind part alone was not distinguishable from zero in any cell."
+- "Confirmation, fresh seed 94202, run once and reported as it is: +0.57 to +0.59 at 8 BB, +0.49 to +0.55 at 12 BB, +0.34 to +0.37 at 20 BB against old, tight and wide (every interval above zero); call-heavy +0.27 / +0.27 / +0.12 and adaptive +0.38 / +0.28 / +0.11 (no cell below zero; 20 BB includes zero). Declared rule: SUPPORTED."
+
+Limits as recorded: "Every opponent is a variant of the Horse brain; no human-calibrated Omaha field is qualified. Chips only (heads-up, so payout-linear). At 20 BB the gain against a re-shoving or call-heavy opponent is not distinguishable from zero, as for Omaha high."
+
+## Evidence rows
+
+- Mechanism, scope, visibility (receipt), tests: recorded (sections above).
+- Option unset or false: decisions identical (the law test above).
+- League card (mirror field, Horse-brain opponents): seeds 20261120, 20261121 and 20261122: +36.54, +35.80 and +38.92 bb/100 (stderr 4.92, 4.90, 4.93), each SIGNIFICANT (section above); offline runs with empty solver stores, not nightly rows.
+- Declared offline evaluation: SUPPORTED on development seed 94101 and on confirmation seed 94202 (changelog). It is an offline result against Horse-brain opponents, not a replay on audited decisions and not a live read.
+- Replay on recorded audited decisions (README.md, "Replay bar"): RUN 2026-11-21, NOT MET. Declared PASS-BAR item 2 (newlyWrong <= fixed) failed: fixed 0, newly wrong 35 (section below).
+- Value against people, live reach of the receipt: NOT MEASURED. Production held no PLO8 two-player tournament hand with a person in it on 2026-11-21 (0 of 361).
+
+## Replay on recorded decisions (2026-11-21)
+
+Run by a subagent of the Antigravity Coordinator (session_01Gw7aDtgw51ks82iZdeEMVr). The declaration, the auditor, the export query, the audit summary and the scorer's log are in `antigravity-coordinator-01UxDLnH/evidence/plo8-hu-first-in/` on the operations Mac (not in this repository), with these sha256: `DECLARATION-PLO8-HU-FI-REPLAY.md` `d5a3bb9c839ee93c7d846d41179fc3554e537fca6a5f118e987523c7579fb76c`, `plo8_hu_first_in_audit.ts` `9e819bf2706cf674765b4ac65cc9ccfd0695b563bf50f71229f9afc198ede0f5`, `EXPORT.sql` `72c96906a5676a934cef8174c801ea2ff64efb246600d3baae6d26cda5aa507b`, `AUDIT-SUMMARY.json` `b4179605a8de234e8d791cfd757d0cf244bcc9103457504c244b56e1540f9658`, `PLO8HU-FI.score.log` `f866363a1859acaabe82e98b1acba1ba91e1596267bd6563d79c778acea79c19`. The hand export, the audit csv, the placed nodes and the replay file were kept off the repository and off the archive (the export holds the Horses' own hole cards); they can be rebuilt from the query and the auditor while the hands are retained.
+
+### What production held (read-only, project kuklfnapbkmacvwxktbh, 2026-11-21T08:2xZ)
+
+Query shape: `public.hand_history` where `game_variant = 'plo8'`, `tournament_id is not null`, `jsonb_array_length(players) = 2`, `created_at < 2026-11-21T00:00Z`; the Horses' own hole cards from `public.ca_hand_facts` joined to `profiles.is_horse`.
+
+- 361 hands in 11 tournaments, 2026-11-12T18:37Z to 2026-11-20T18:30Z (older Horse-only hands are pruned by retention). `has_human` is false on all 361: every hand is Horse against Horse. At the first preflop Horse decision 350 record two players left in the event and 5 record three; 6 hands have no voluntary preflop Horse decision (the declaration's "355 of the 361" counted the two groups together).
+- 499 first voluntary preflop Horse decisions, every one with a public snapshot and the deciding Horse's own cards known; 430 of them at an effective stack (the smaller start-of-hand stack) of 20 big blinds or less, in 310 hands of the 11 tournaments; 69 deeper. (Counted by the deciding seat's own stack instead, 275 are at 20 big blinds or less.)
+- Of the 430: 310 small-blind first-in decisions (190 folds, 107 raises, 13 limps), 107 big-blind decisions facing one raise (87 folds, 10 calls, 9 raises, 1 all-in; every fold faced about 2 bb to call) and 13 big-blind decisions behind a limp.
+
+### The set and the auditor
+
+Set `PLO8HU-FI PLO8 2-player tournaments 20bb`: the 430 decisions above. No audit of PLO8 heads-up tournament decisions existed, so one was written for this replay and declared before it priced a row: auditor `PLO8-HU-FI-A1`. It is HVH48 Auditor E's preflop rule (its `facingRaise` and `deepFirstIn` formulas, realization constants and `classify` thresholds, the audit that priced the HU30D and HU14D sets of huBbDefendsUnreadToPrice) with three substitutions for hi-lo Omaha:
+
+1. equity is a Monte Carlo hi-lo pot share (the engine's `evaluateOmahaHand` and `evaluateOmahaLowHand`, 1,500 samples, fixed seed) of the deciding Horse's own four cards against a range;
+2. a range is the top X of four-card hands by the engine's own hi-lo preflop percentile (`omahaPreflopPercentile(cards, true)`, the same ranking the option reads);
+3. the two population numbers are measured on the set's public actions: the small blind raises 107 of 310 first-in decisions (0.345, the raiser's range width) and the big blind folds to one raise 87 of 107 times (0.813).
+
+Big blind facing one raise (recorded fold or call): EV(call) = realization x equity x (pot + call) - call, realization 1 when the call is 40 percent or more of the stack behind, else 0.72 (Auditor E's out-of-position constant); a loss is LIKELY at 1.5 bb and a 0.10 margin (or, committed, CLEAR at 1 bb and 0.07, LIKELY at 0.3 bb and 0.035), else DEBATABLE; no loss is OK. Small blind first in (recorded fold or raise): EV(pot raise) = 0.813 x pot + 0.187 x (0.75 x equity against the top 0.187 x final pot - raise cost), same thresholds. A big-blind check behind a limp is OK; a limp and a big-blind raise or all-in are unpriced. Class rule: that of `server/scripts/hvh48-audit-nodes.py` (bad = CLEAR or LIKELY; ok = priced and not flagged; unjudged = DEBATABLE or unpriced). Placed by that script unmodified (`--set E`): 430 placed, 0 not placed; bad 3, ok 184, unjudged 243.
+
+Audit classes by spot: small-blind fold 190 DEBATABLE (a pot raise is priced +EV on every one, below the 1.5 bb threshold), small-blind raise 107 OK, small-blind limp 13 unpriced; big-blind fold 59 OK, 25 DEBATABLE, 3 LIKELY; big-blind call 9 OK, 1 DEBATABLE; big-blind raise or all-in 10 unpriced; big blind behind a limp 9 OK, 4 unpriced.
+
+### PASS-BAR (declared before the replay) and the result
+
+1. every decision placed and replayed, 0 illegal, 0 refused, 0 errors: PASSED (430 of 430).
+2. the scorer's row: newlyWrong <= fixed: FAILED (fixed 0, newly wrong 35).
+3. 0 more passive changes; every change is a base-arm fold turned into a raise (small blind) or a call (big blind): PASSED (248 changes, 248 more aggressive; 190 small-blind raises, 1 small-blind all-in, 57 big-blind calls).
+
+Unedited scorer line (`server/scripts/audited-decision-replay.ts --placed ... --line on`, scorer `d6b032d3204`, replay harness `server/scripts/audited-node-option-replay.ts` at `5bfaa38d0e0c`, seeds 1,7,42, live tournament hybrid profile, opponent memory off, base arm = the 66 rows of `public.ca_horse_style_switch` read 2026-11-21T08:24:56Z, arm on = base plus omahaHiLoTournamentFirstIn):
+
+`placed (verdict-only; 430 audited decisions, 3 judged bad; joined by node: 430 replayed, 0 not replayed, base reproduces the recorded action on 408): arm on changed 248 (248 more aggressive, 0 more passive), resized 0, illegal 0, refused 0, errors 0; fixed 0, newly wrong 35, still wrong 0, ok to ok 0, unjudged 213; judged bad left unchanged 0; no bb (the audit declares no EV model); per receipt: (no receipt) 248 changed / 0 fixed / 35 newly wrong.`
+
+What the 248 changes are (counted from the replay file and the placed nodes):
+
+- Small blind, 191: 181 recorded folds the base arm also folds, turned into the pot raise (audit DEBATABLE, so unjudged); 6 recorded limps and 4 recorded raises where today's base arm folds, turned into a raise or all-in (base differs from the recorded action, so unjudged). 0 newly wrong, 0 fixed.
+- Big blind facing one raise, 57 folds turned into calls: 35 the audit priced OK as folds (newly wrong) and 22 it priced DEBATABLE (unjudged). 27 big-blind folds are left folded (24 OK, 3 DEBATABLE).
+- The 3 big-blind folds the audit judged bad are already calls in the base arm (today's brain, option off), so the option changes nothing there and fixes none.
+
+Why it fails, and how far the result reaches:
+
+- All 35 newly wrong decisions are big-blind calls of a 2 bb raise priced with the 0.72 out-of-position realization: equity against the raiser's range 0.35 to 0.46 (mean 0.43), required 0.33. At realization 1 every one of the 35 would be priced a correct call. The verdict therefore rests on Auditor E's realization constant, which was written for Hold'em and is not measured for PLO8; it was declared before the run and is not changed after it.
+- It agrees with the recorded evaluation above: "The small blind part carries the gain; the big blind part alone was not distinguishable from zero in any cell."
+- The receipt column reads "(no receipt)" because the replay harness keeps only receipts matching its own filter, which does not include `omaha_hilo_tournament_first_in`; the two arms differ by this option alone.
+- Limits: Horse against Horse hands only (no hand with a person); one retention window of 9 days and 11 tournaments; the fold share 0.813 is measured on the same set and is the option-off field's (a big blind that itself runs the option folds less, which this audit does not price; the mirror league card does); chip EV only, no ICM term; a verdict-only audit, so no bb total; opponent memory off in replay.
+
+## What is still owed before this file may say the evidence is met
+
+1. A run row in which newlyWrong does not exceed fixed. The PASS-BAR, the audited set and the replay that this list asked for on 2026-11-20 were done on 2026-11-21 and are recorded above; the run row is under "Replay" and it fails the bar (newly wrong 35, fixed 0). One of these would produce a passing row, each a new declared replay and none of them done here:
+   - the big-blind part measured on its own: a PLO8 heads-up out-of-position realization measured on recorded hands (in place of the Hold'em 0.72), declared before a new replay of the same set; or
+   - the option without its big-blind part (`bigBlindDefendShare` 0, which a league arm can already pass): on this set the small-blind part alone changed 191 decisions with 0 newly wrong and 0 fixed. The switch option is all or nothing today, so this needs a source change and its own evaluation; or
+   - recorded PLO8 two-player tournament hands with a person in them, audited the same way (production held none on 2026-11-21).
+2. The order to activate (owner or lane lead), recorded verbatim in "The order it rests on".
+3. For an activation: the serving engine build must know the option name, and the receipt `omaha_hilo_tournament_first_in` should be read live after switch-on (first-action fold rate of the heads-up small blind and big blind at 20 BB or less against the recorded 83 to 85 and 81 to 91 percent), with a rollback trigger declared before the switch.
+
+## What the activation row must contain
+
+`option = 'omahaHiLoTournamentFirstIn'`, `state = 'on'`, note `authority: omahaHiLoTournamentFirstIn docs/horse-option-authority.d/omahaHiLoTournamentFirstIn.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set`. Not before the items above are recorded here.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: fixed 0; newlyWrong 35; changed 248; unchanged 182; unjudged 213; set PLO8HU-FI PLO8 2-player tournaments 20bb; scorer d6b032d3204; source placed verdict-only; arm on vs off; replayed 430 of 430
+
+How the row is produced (run from `server/`; `W` is the work directory holding the export, outside the repository):
+
+1. Export the 361 hands with `EXPORT.sql` (read-only) and price them: `npx tsx plo8_hu_first_in_audit.ts --hands $W/hands.jsonl --out $W/set` (writes `decisions.csv`, `hands.jsonl`, `facts.jsonl` in Auditor E's file form).
+2. Place the nodes: `python3 scripts/hvh48-audit-nodes.py --set E --csv $W/set/decisions.csv --work $W/set --out $W/nodes`.
+3. Re-decide off against on: `npx tsx scripts/audited-node-option-replay.ts --job $W/nodes/E.job.json --switch $W/prod-switch.json --arms on=omahaHiLoTournamentFirstIn --out $W/runs/PLO8HU-FI.replay.jsonl`.
+4. Score and copy the printed row unedited: `npx tsx scripts/audited-decision-replay.ts --placed $W/nodes/E.nodes.jsonl --replay $W/runs/PLO8HU-FI.replay.jsonl --line on --row on --set "PLO8HU-FI PLO8 2-player tournaments 20bb"`.

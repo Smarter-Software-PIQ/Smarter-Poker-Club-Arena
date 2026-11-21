@@ -6,11 +6,14 @@
  * - classifyOmahaHolding(hole, board): the exact bucket the tables were built with
  *   (Omaha: exactly 2 hole + 3 board). A sampler can draw a holding and accept or
  *   reject it against a measured cell's class mix.
- * - lookupRange / lookupResponse / lookupRealization: back off from the most
- *   specific key to pooled keys until n >= minN. Never throws; returns null when
- *   nothing qualifies, so a caller always has a fallback path.
- * - personFoldRate: per-person fold rate facing a bet, shrunk toward population:
- *   (k + 20 * pop) / (n + 20).
+ * - lookupRange / lookupResponse: back off from the most specific key to pooled
+ *   keys until n >= minN. Never throws; returns null when nothing qualifies, so a
+ *   caller always has a fallback path.
+ *
+ * IDENTITY-FREE (lane CORE-POOLED, owner 9:52 AM Nov 20: "ALL PLAY AND DECISIONS SHOULD BE THE SAME ACROSS
+ * THE BOARD"): every cell pools every player (persons and Horses together). A spot key has no person/Horse
+ * field, no table-composition field and no user id; there are no per-user rows (law test
+ * OmahaMathCoreIdentityFree.law.test.ts).
  */
 export type Street = 'flop' | 'turn' | 'river';
 export type Line =
@@ -65,38 +68,13 @@ export interface ResponseCell {
   raise: number;
   foldCI95: [number | null, number | null];
 }
-export interface RealizationCell {
-  n: number;
-  meanEquityAtCall: number;
-  meanPotShareWon: number;
-  realization: number | null;
-}
-export interface PersonFacing {
-  n: number;
-  fold: number;
-  call: number;
-  raise: number;
-  popFold: number | null;
-  foldShrunk: number | null;
-}
-export interface PersonRow {
-  name: string | null;
-  nPostflopBets: number;
-  nFacingBets: number;
-  nPreflopActions: number;
-  betsByStreetLineBand: Record<string, number>;
-  facing: Record<string, PersonFacing>;
-  preflop: Record<string, Record<string, number>>;
-}
 export interface MeasuredRanges {
   version: string;
   generatedChicago: string;
   definitions: Record<string, string>;
   ranges: Record<string, RangeCell>;
   responses: Record<string, ResponseCell>;
-  realization: Record<string, RealizationCell>;
   preflop: Record<string, Record<string, number>>;
-  persons: Record<string, PersonRow>;
   /** Value share of a holding that checked / called (key in keyFormat.passive). */
   passive?: Record<
     string,
@@ -119,8 +97,6 @@ export interface SpotKey {
   line: Line;
   band: Band;
   players: 'hu' | 'mw';
-  opp: 'horse_present' | 'persons_only';
-  bettor: 'person' | 'horse';
 }
 export const VALUE_CLASSES: ReadonlySet<MadeClass> = new Set<MadeClass>([
   'quads_sf',
@@ -134,7 +110,6 @@ export const VALUE_CLASSES: ReadonlySet<MadeClass> = new Set<MadeClass>([
   'two_pair',
   'top_pair_plus',
 ]);
-export const SHRINK_M = 20;
 
 /** Band of a wager: bet = added/pot; raise = (added - toCall)/(pot + toCall). */
 export function sizeBand(fraction: number, allIn: boolean): Band {
@@ -148,9 +123,8 @@ export function sizeBand(fraction: number, allIn: boolean): Band {
         : 'pot';
 }
 
-// Back-off order: drop opp, then mode, then band, then game, then line, then players.
+// Back-off order: drop mode, then band, then game, then line, then players.
 function* backoff(k: SpotKey): Generator<string> {
-  const opps = [k.opp, 'any'];
   const modes = [k.mode, 'all'];
   const bands = k.band === 'all' ? ['all'] : [k.band, 'all'];
   const games = [k.game, 'pooled'];
@@ -159,9 +133,7 @@ function* backoff(k: SpotKey): Generator<string> {
   for (const pl of players)
     for (const ln of lines)
       for (const g of games)
-        for (const b of bands)
-          for (const m of modes)
-            for (const o of opps) yield [g, m, k.street, ln, b, pl, o].join('|');
+        for (const b of bands) for (const m of modes) yield [g, m, k.street, ln, b, pl].join('|');
 }
 export function lookupRange(
   t: MeasuredRanges,
@@ -169,24 +141,23 @@ export function lookupRange(
   minN = 30
 ): { key: string; cell: RangeCell } | null {
   try {
-    for (const base of backoff(k)) {
-      const cell = t.ranges[`${base}|${k.bettor}`];
-      if (cell && cell.n >= minN) return { key: `${base}|${k.bettor}`, cell };
+    for (const key of backoff(k)) {
+      const cell = t.ranges[key];
+      if (cell && cell.n >= minN) return { key, cell };
     }
   } catch {
     /* never throw into a decision */
   }
   return null;
 }
+/** The pooled response (every responder) to a wager on this spot. */
 export function lookupResponse(
   t: MeasuredRanges,
   k: SpotKey,
-  responder: 'person' | 'horse',
   minN = 30
 ): { key: string; cell: ResponseCell } | null {
   try {
-    for (const base of backoff(k)) {
-      const key = `${base}|${k.bettor}|${responder}`;
+    for (const key of backoff(k)) {
       const cell = t.responses[key];
       if (cell && cell.n >= minN) return { key, cell };
     }
@@ -194,42 +165,6 @@ export function lookupResponse(
     /* never throw */
   }
   return null;
-}
-export function lookupRealization(
-  t: MeasuredRanges,
-  k: Pick<SpotKey, 'game' | 'mode' | 'street' | 'players'>,
-  caller: 'person' | 'horse',
-  vsBettor: 'person' | 'horse',
-  minN = 30
-): { key: string; cell: RealizationCell } | null {
-  try {
-    for (const pl of [k.players, 'all'])
-      for (const g of [k.game, 'pooled'])
-        for (const m of [k.mode, 'all']) {
-          const key = [g, m, k.street, pl, caller, `vs_${vsBettor}`].join('|');
-          const cell = t.realization[key];
-          if (cell && cell.n >= minN && cell.realization !== null) return { key, cell };
-        }
-  } catch {
-    /* never throw */
-  }
-  return null;
-}
-/** Person's fold rate facing a bet by `bettor`, shrunk toward the population cell. */
-export function personFoldRate(
-  t: MeasuredRanges,
-  userId: string,
-  k: Pick<SpotKey, 'game' | 'street' | 'band' | 'players' | 'bettor'>,
-  populationFold: number
-): { rate: number; n: number; source: 'person_shrunk' | 'population' } {
-  const row = t.persons?.[userId];
-  const cell = row?.facing?.[[k.game, k.street, k.band, k.players, `vs_${k.bettor}`].join('|')];
-  if (!cell || cell.n <= 0) return { rate: populationFold, n: 0, source: 'population' };
-  return {
-    rate: (cell.fold + SHRINK_M * populationFold) / (cell.n + SHRINK_M),
-    n: cell.n,
-    source: 'person_shrunk',
-  };
 }
 
 // ---------- classifier (twin of the Python extractor's classify/tier) ----------
