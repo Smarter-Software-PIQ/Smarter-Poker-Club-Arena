@@ -343,6 +343,59 @@ export const HUD_CONTEXT_STATS: readonly string[] = Object.freeze(
   HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|stabsz|lead)\.|^vs\.|^[ftr]\.(fBet|fRaise)$/.test(s))
 );
 const STAT_SET = new Set(HUD_STATS);
+
+/**
+ * EXACT LIFETIME COUNTERS (2026-11-21, lane OPPONENT-HUD-5; requests CORE-EXTEND-2 08:56Z and CBET-BUTTON-4 09:13Z).
+ * Plain integer counts of public events, kept beside the statistics (profile.xc): never decayed, never blended, never
+ * shrunk here, and not part of any existing read (hudStat, hudStatIn, hudLifetimeCount, hudFirstWagerRecord,
+ * hudSessionRecord are unchanged by them). A profile built before they existed has no `xc` and reads as null (not
+ * zeros) until it is rebuilt from its first hand.
+ *
+ * 1. <s>.fw.<stab|lead>.<hu|mw>.b00..b13 (s = f|t|r): the size of his FIRST wager on unopened action of a street (the
+ *    same event as the <s>.stab / <s>.lead hit), binned by wager / pot before it, uncapped; 14 fixed geometric bins,
+ *    upper edge inclusive (HUD_FW_EDGES, version 'fw1'). The bins of a cell sum to that cell's bets.
+ * 2. <s>.fwr.<hu|mw>.{opps,fold,call,raise}: he made the street's first wager and then faced a raise on that street:
+ *    one opportunity per raise faced, and his answer.
+ * 3. f.cbr.<hu|mw>.<small|half|twothirds|pot>.{opps,fold,call,raise,shortAllIn}: facing a flop continuation bet. The
+ *    last preflop raiser (the last preflop wager that raised the level) made the flop's first wager; every other
+ *    seat's answer while that wager is the only flop wager (whether or not he had checked first); nothing after the
+ *    first raise. players = live at his action, himself included (hu <= 2); size = the bet / pot before it (< 0.40,
+ *    < 0.60, < 0.85, above). raise = a wager above the bet (an all-in above it included); shortAllIn = an all-in
+ *    that does not exceed the bet (kept apart so a reader can count it either way); opps = the four summed.
+ */
+export const HUD_FW_EDGES: readonly number[] = Object.freeze([
+  0.2, 0.232, 0.269, 0.312, 0.362, 0.42, 0.487, 0.565, 0.656, 0.761, 0.882, 1.024, 1.187,
+]);
+export const HUD_FW_EDGES_ID = 'fw1' as const;
+export const HUD_FW_BINS = HUD_FW_EDGES.length + 1;
+export function hudFwBin(frac: number): number {
+  for (let i = 0; i < HUD_FW_EDGES.length; i++) if (frac <= HUD_FW_EDGES[i]) return i;
+  return HUD_FW_EDGES.length;
+}
+const fwBinKey = (i: number): string => `b${String(i).padStart(2, '0')}`;
+export const HUD_CBR_SIZES = ['small', 'half', 'twothirds', 'pot'] as const;
+export type HudCbrSize = (typeof HUD_CBR_SIZES)[number];
+export function hudCbrSize(frac: number): HudCbrSize {
+  return frac < 0.4 ? 'small' : frac < 0.6 ? 'half' : frac < 0.85 ? 'twothirds' : 'pot';
+}
+function exactRegistry(): string[] {
+  const out: string[] = [];
+  for (const s of POST) {
+    for (const ln of ['stab', 'lead'])
+      for (const pl of ['hu', 'mw'])
+        for (let i = 0; i < HUD_FW_BINS; i++) out.push(`${s}.fw.${ln}.${pl}.${fwBinKey(i)}`);
+    for (const pl of ['hu', 'mw'])
+      for (const k of ['opps', 'fold', 'call', 'raise']) out.push(`${s}.fwr.${pl}.${k}`);
+  }
+  for (const pl of ['hu', 'mw'])
+    for (const z of HUD_CBR_SIZES)
+      for (const k of ['opps', 'fold', 'call', 'raise', 'shortAllIn'])
+        out.push(`f.cbr.${pl}.${z}.${k}`);
+  return out;
+}
+/** Every exact counter a profile can hold (a new one is added here and pinned in OpponentHudExactCounters.test.ts). */
+export const HUD_EXACT_COUNTERS: readonly string[] = Object.freeze(exactRegistry());
+const EXACT_SET = new Set(HUD_EXACT_COUNTERS);
 export function hudStatIsRegistered(stat: string): boolean {
   return STAT_SET.has(stat);
 }
@@ -413,6 +466,9 @@ export interface OpponentHudProfile {
   daysSince?: number;
   /** his responses to a street's first wager in his current session (HudSessionSums); absent before the first */
   ses?: HudSessionSums;
+  /** exact lifetime counters (HUD_EXACT_COUNTERS; sparse, absent = 0). The whole map is absent on a profile built
+   *  before they existed: it then reads as null, never as zeros. */
+  xc?: Record<string, number>;
 }
 
 /**
@@ -460,6 +516,26 @@ export function hudDayOf(at: number): string {
 }
 /** The id key the day lists keep: the last 12 hex digits of the hand id (48 random bits of a v4 uuid). */
 export const hudIdPrefix = (id: string): string => id.replace(/-/g, '').slice(-12).toLowerCase();
+/**
+ * PROFILE SIZE BOUND (2026-11-21, lane OPPONENT-HUD-5; measured, then pinned by OpponentHudProfile.test.ts "size").
+ * Everything in a profile is a fixed set of counters and capped lists EXCEPT the day lists (the idempotency key of
+ * the last HUD_DAYS_KEPT days: one 12-character hand id suffix per hand dealt). Measured on 24 hours of production
+ * public rows (33,689 hands, 423 profiles, 2026-11-21, exact counters included): whole rows p50 28.3 KB, p90 44.9 KB,
+ * p99 68.3 KB, max 84.7 KB; without the day lists p50 24.9 KB, p99 36.2 KB, max 36.9 KB; a day-list entry is 15
+ * bytes; the busiest player was dealt 2,870 hands in one day, so his row is at most 36.9 KB + 3 x 2,870 x 15 =
+ * 166 KB. hudProfileBytesBound is the ceiling of a stored row; the store sizes its save
+ * calls with it.
+ */
+export const HUD_PROFILE_FIXED_MAX_BYTES = 48_000;
+export const HUD_DAY_ENTRY_BYTES = 15;
+export function hudDayListHands(p: OpponentHudProfile): number {
+  let n = 0;
+  if (p.days) for (const d of Object.values(p.days)) n += d.length;
+  return n;
+}
+export function hudProfileBytesBound(p: OpponentHudProfile): number {
+  return HUD_PROFILE_FIXED_MAX_BYTES + HUD_DAY_ENTRY_BYTES * hudDayListHands(p);
+}
 
 export function emptyHudProfile(user: string, family: HudFamily): OpponentHudProfile {
   return {
@@ -474,6 +550,7 @@ export function emptyHudProfile(user: string, family: HudFamily): OpponentHudPro
     recAt: 0,
     recall: {},
     last: [],
+    xc: {},
   };
 }
 
@@ -533,6 +610,12 @@ export function validHudProfile(x: unknown): x is OpponentHudProfile {
   for (const v of Object.values(rc))
     if (!Array.isArray(v) || v.length !== 9 || !v.every((n) => typeof n === 'number' && n >= 0))
       return false;
+  if (p.xc !== undefined) {
+    const xc = obj(p.xc);
+    if (!xc) return false;
+    for (const [k, v] of Object.entries(xc))
+      if (!EXACT_SET.has(k) || !Number.isSafeInteger(v) || (v as number) < 0) return false;
+  }
   return true;
 }
 
@@ -550,6 +633,8 @@ export interface HudHandDelta {
   instances: Omit<HudInstance, 'sh' | 'w'>[];
   shown: 0 | 1 | 2;
   won: 0 | 1;
+  /** exact lifetime counters of this hand (HUD_EXACT_COUNTERS); absent when the hand adds none */
+  xc?: Map<string, number>;
 }
 
 function positionsOf(rec: HudHandRecord): Map<number, HudPosition> {
@@ -642,6 +727,15 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     m.set(stat, c);
   };
   for (const s of seats.values()) D(s.user);
+  const addX = (user: string, counter: string) => {
+    const d = D(user);
+    const m = (d.xc ??= new Map());
+    m.set(counter, (m.get(counter) ?? 0) + 1);
+  };
+  /** who made the current street's first wager */
+  let streetFirstWagerUser: string | null = null;
+  /** the flop continuation bet: its maker and size, while it is the line of the hand */
+  let cbet: { user: string; size: HudCbrSize } | null = null;
 
   let pot = 0;
   let currentBet = 0;
@@ -676,6 +770,7 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     currentBet = 0;
     streetAggressions = 0;
     streetAggressor = null;
+    streetFirstWagerUser = null;
     lastAggressionRatio = null;
     lastAggressionBig = false;
     liveAtLastAggression = 0;
@@ -842,6 +937,12 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
             `${sk}.${checkedTo ? 'stab' : 'lead'}.${liveNow === 2 ? 'hu' : 'mw'}`,
             aggressive
           );
+          // ... and its size, exactly (one bin per first wager; the bins of a cell sum to the cell's bets)
+          if (aggressive)
+            addX(
+              user,
+              `${sk}.fw.${checkedTo ? 'stab' : 'lead'}.${liveNow === 2 ? 'hu' : 'mw'}.${fwBinKey(hudFwBin(ratio ?? 0))}`
+            );
         }
       } else if (facingLevel === 1 && !st.aggressedThisStreet && !st.facedOnStreet) {
         st.facedOnStreet = true;
@@ -862,6 +963,25 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
         if (st.checkedThisStreet) add(user, `${sk}.xr`, aggressive);
       } else if (st.aggressedThisStreet && facingLevel >= 2) {
         add(user, `${sk}.fRaise`, code === 'f');
+      }
+      // exact counters: the first bettor facing a raise; every other seat facing the flop continuation bet
+      if (facingLevel >= 2 && streetFirstWagerUser === user && code !== 'k') {
+        const base = `${sk}.fwr.${liveNow === 2 ? 'hu' : 'mw'}`;
+        addX(user, `${base}.opps`);
+        addX(user, `${base}.${code === 'f' ? 'fold' : aggressive ? 'raise' : 'call'}`);
+      }
+      if (sk === 'f' && cbet && cbet.user !== user && streetAggressions === 1 && code !== 'k') {
+        const base = `f.cbr.${liveNow <= 2 ? 'hu' : 'mw'}.${cbet.size}`;
+        addX(user, `${base}.opps`);
+        addX(
+          user,
+          `${base}.${code === 'f' ? 'fold' : aggressive ? 'raise' : a.action === 'all_in' ? 'shortAllIn' : 'call'}`
+        );
+      }
+      if (aggressive && streetAggressions === 0) {
+        streetFirstWagerUser = user;
+        if (sk === 'f' && prevStreetAggressor === user && pfLevel > 0)
+          cbet = { user, size: hudCbrSize(ratio ?? 0) };
       }
       if (aggressive && ratio !== null) add(user, `${sk}.bsz.${hudBand(ratio)}`, true);
       if (code === 'k') st.checkedThisStreet = true;
@@ -1058,6 +1178,9 @@ export function hudHandDigest(
   ))
     if (STAT_SET.has(stat)) parts.push(`${stat}:${c[0]}:${c[1]}`);
   for (const i of d.instances) parts.push(`${i.s}|${i.ln}|${i.b}|${i.pos}|${i.tx}|${i.d}|${i.a}`);
+  if (d.xc)
+    for (const [k, n] of [...d.xc].sort((x, y) => (x[0] < y[0] ? -1 : 1)))
+      if (EXACT_SET.has(k)) parts.push(`x:${k}:${n}`);
   let h = 0x811c9dc5;
   const text = parts.join(';');
   for (let n = 0; n < text.length; n++) {
@@ -1122,6 +1245,9 @@ export function applyHudHand(
     bump(profile.life, stat, c, 1);
     bump(profile.rec, stat, c, w);
   }
+  // exact counters: only into a profile that has held them since its first hand
+  if (profile.xc && d.xc)
+    for (const [k, n] of d.xc) if (EXACT_SET.has(k)) profile.xc[k] = (profile.xc[k] ?? 0) + n;
   for (const i of d.instances) {
     for (const key of recallKeys(i)) {
       const cell = profile.recall[key] ?? [0, 0, 0, 0, 0, 0, 0, 0, 0];

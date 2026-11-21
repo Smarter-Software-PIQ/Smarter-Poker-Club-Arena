@@ -38,6 +38,7 @@ import {
   hudDayOf,
   hudHandDigest,
   hudIdPrefix,
+  hudProfileBytesBound,
   validHudProfile,
   type HudFamily,
   type HudHandRecord,
@@ -68,6 +69,16 @@ export const HUD_LATE_WINDOW_SLACK_MS = 5 * 60_000;
 /** a profile is a few tens of KB of JSON: it is written at most every 30 minutes (and caught up from hand_history at
  *  boot, HUD_BOOT_CATCHUP_MS), so the write volume stays small and a restart loses nothing */
 export const HUD_PERSIST_MS = 30 * 60_000;
+/** A clean cached profile older than this is re-read on its next seat or hand event (the bound on how long one engine
+ *  process can serve a profile without the hands another process saved). */
+export const HUD_REFRESH_MS = 30 * 60_000;
+/** Rows per save call (each row is copied when the call is made, so a hand arriving mid-save is never half-sent). */
+export const HUD_PERSIST_BATCH = 25;
+/** ... and at most this many bytes of profiles per save call, by hudProfileBytesBound (a busy Horse's three day lists
+ *  make his row several times the median). */
+export const HUD_PERSIST_BATCH_BYTES = 1_500_000;
+/** A refused save is merged onto the stored row and retried this many times inside the same persistence. */
+export const HUD_PERSIST_MERGE_ROUNDS = 3;
 export const HUD_BOOT_CATCHUP_MS = 45 * 60_000;
 export const HUD_BOOT_WINDOW_MS = 6 * 3600 * 1000;
 export const HUD_READY_DEADLINE_MS = 15_000;
@@ -111,6 +122,9 @@ export interface HudStoredRow {
   version: number;
   hands: number;
   wm_ms: number;
+  /** the row revision (opponent_hud_profiles.rev): a save names the revision it was built on and is refused when the
+   *  stored row has moved (another engine process or the backfill wrote it) */
+  rev?: number;
   profile: unknown;
 }
 export interface OpponentHudStoreDeps {
@@ -141,11 +155,35 @@ export interface OpponentHudStoreDeps {
 }
 
 type Entry =
-  | { state: 'ready'; profile: OpponentHudProfile; dirty: boolean; since: number }
+  | {
+      state: 'ready';
+      profile: OpponentHudProfile;
+      dirty: boolean;
+      since: number;
+      /** revision of the stored row this profile was built on (0: no stored row) */
+      rev: number;
+      /** bumped on every change, so a save that was in flight when a hand arrived does not mark it saved */
+      seq: number;
+      /** time of the oldest hand not yet saved (null: none) */
+      dirtyFrom: number | null;
+      /** when the stored row was last read or written by this process */
+      readAt: number;
+    }
   | { state: 'loading'; requestedAt: number }
   | { state: 'failed'; retryAt: number };
 
 const key = (family: HudFamily, user: string) => `${family}|${user}`;
+type ReadyEntry = Extract<Entry, { state: 'ready' }>;
+const storedRev = (r: { rev?: unknown }): number => {
+  const n = Number(r.rev);
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+};
+/** a hand changed this profile: unsaved from now, and from the hand's time for the read-back after a refused save */
+function markChanged(e: ReadyEntry, at: number): void {
+  e.dirty = true;
+  e.seq += 1;
+  if (e.dirtyFrom === null || at < e.dirtyFrom) e.dirtyFrom = at;
+}
 const UUIDISH = /^[0-9a-f-]{8,64}$/i;
 
 function bucket(ms: number): string {
@@ -395,7 +433,7 @@ export class OpponentHudStore {
         for (const d of deltas) {
           const e = this.cache.get(key(rec.family, d.user));
           if (e?.state === 'ready' && applyHudHand(e.profile, rec, deltas) === null) {
-            e.dirty = true;
+            markChanged(e, rec.at);
             out.applied += 1;
           }
         }
@@ -430,12 +468,16 @@ export class OpponentHudStore {
       noteFire(`opponent_hud_event_${EVENTS.includes(event) ? event : 'hand'}`);
       const now = this.deps.now();
       const want: string[] = [];
+      const stale: string[] = [];
       for (const u of new Set(userIds)) {
         if (typeof u !== 'string' || !UUIDISH.test(u)) continue;
         const k = key(family, u);
         const e = this.cache.get(k);
         if (e?.state === 'ready') {
           this.touch(k, e);
+          // the bound on a cross-process stale read: a clean profile is re-read once it is HUD_REFRESH_MS old (a
+          // changed one is checked against the stored row by its next save); it stays ready meanwhile
+          if (!e.dirty && now - e.readAt > HUD_REFRESH_MS && !this.refreshing.has(k)) stale.push(u);
           continue;
         }
         if (!this.asked.has(k)) this.asked.set(k, { at: now, event });
@@ -449,6 +491,8 @@ export class OpponentHudStore {
           this.seatLoads -= 1;
         });
       }
+      for (let i = 0; i < stale.length; i += 50)
+        void this.reloadMerge(family, stale.slice(i, i + 50)).catch(() => undefined);
     } catch {
       noteFire('opponent_hud_warm_error');
     }
@@ -469,23 +513,31 @@ export class OpponentHudStore {
     (t as { unref?: () => void }).unref?.();
     try {
       const rows = await this.deps.read(users, family, ac.signal);
-      const byUser = new Map<string, OpponentHudProfile>();
+      const byUser = new Map<string, { profile: OpponentHudProfile; rev: number }>();
       for (const r of Array.isArray(rows) ? rows : []) {
         if (r && r.family === family && validHudProfile(r.profile) && r.profile.user === r.user_id)
-          byUser.set(r.user_id, r.profile);
+          byUser.set(r.user_id, { profile: r.profile, rev: storedRev(r) });
       }
       const now = this.deps.now();
       let gapFrom: number | null = null;
       for (const u of users) {
+        // another load of the same player finished first and hands may already be counted into it: it stays
+        if (this.cache.get(key(family, u))?.state === 'ready') continue;
         // a player without a stored row (new, or not yet backfilled) starts empty: the population prior
-        const profile = byUser.get(u) ?? emptyHudProfile(u, family);
-        for (const h of this.ring) if (h.family === family) applyHudHand(profile, h);
+        const got = byUser.get(u);
+        const profile = got?.profile ?? emptyHudProfile(u, family);
+        let ringFrom: number | null = null;
+        for (const h of this.ring)
+          if (h.family === family && applyHudHand(profile, h) === null)
+            ringFrom = ringFrom === null ? h.at : Math.min(ringFrom, h.at);
         // asked for before the oldest hand the ring still holds: the hands he played meanwhile are read back from
         // hand_history (each still once)
         const askedAt = this.asked.get(key(family, u))?.at;
         if (askedAt !== undefined && askedAt <= this.ringDroppedAt)
           gapFrom = Math.min(gapFrom ?? askedAt, askedAt);
-        this.setReady(family, u, profile, now);
+        const e = this.setReady(family, u, profile, now, got?.rev ?? 0);
+        // a hand of the ring that the stored row did not hold is unsaved: it is written by the next persistence
+        if (ringFrom !== null) markChanged(e, ringFrom);
       }
       noteFire('opponent_hud_load_ok');
       if (gapFrom !== null && !(coveredFrom !== undefined && coveredFrom <= gapFrom))
@@ -523,16 +575,27 @@ export class OpponentHudStore {
       });
   }
 
-  private setReady(family: HudFamily, u: string, profile: OpponentHudProfile, now: number): void {
+  private setReady(
+    family: HudFamily,
+    u: string,
+    profile: OpponentHudProfile,
+    now: number,
+    rev = 0
+  ): ReadyEntry {
     const k = key(family, u);
     const prev = this.cache.get(k);
     this.cache.delete(k);
-    this.cache.set(k, {
+    const entry: ReadyEntry = {
       state: 'ready',
       profile,
       dirty: prev?.state === 'ready' ? prev.dirty : false,
       since: now,
-    });
+      rev,
+      seq: prev?.state === 'ready' ? prev.seq + 1 : 0,
+      dirtyFrom: prev?.state === 'ready' ? prev.dirtyFrom : null,
+      readAt: now,
+    };
+    this.cache.set(k, entry);
     const asked = this.asked.get(k);
     if (asked) {
       const ms = Math.max(0, now - asked.at);
@@ -543,6 +606,7 @@ export class OpponentHudStore {
       this.asked.delete(k);
     }
     this.evict();
+    return entry;
   }
 
   private evict(): void {
@@ -658,7 +722,7 @@ export class OpponentHudStore {
         if (e?.state !== 'ready') continue;
         const why = applyHudHand(e.profile, rec, deltas);
         if (why === null) {
-          e.dirty = true;
+          markChanged(e, rec.at);
           updated += 1;
         } else if (why === 'stale') noteFire('opponent_hud_apply_stale');
       }
@@ -676,53 +740,176 @@ export class OpponentHudStore {
     }
   }
 
-  /** Persist every dirty profile (bounded batches); refused rows are dropped from the cache and reloaded. */
+  /** profiles being re-read from the stored row (a save leaves them to the next persistence) */
+  private readonly refreshing = new Set<string>();
+
+  /**
+   * MERGE ONTO THE STORED ROW (more than one engine process; the backfill under a live engine). Re-read the named
+   * warm profiles; where the stored row is not the revision this process built on, the stored profile replaces the
+   * one in memory and every hand this process holds that the stored row does not (the ring; older unsaved hands are
+   * read back from hand_history) is applied to it, each once: the stored profile's own hand id lists refuse a hand
+   * it already counts. The profile stays ready throughout. Never throws.
+   */
+  private async reloadMerge(family: HudFamily, users: string[]): Promise<void> {
+    const mine = users.filter((u) => !this.refreshing.has(key(family, u)));
+    if (!mine.length) return;
+    for (const u of mine) this.refreshing.add(key(family, u));
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS);
+    (t as { unref?: () => void }).unref?.();
+    try {
+      const rows = await this.deps.read(mine, family, ac.signal);
+      const byUser = new Map<string, { profile: OpponentHudProfile; rev: number }>();
+      for (const r of Array.isArray(rows) ? rows : []) {
+        if (r && r.family === family && validHudProfile(r.profile) && r.profile.user === r.user_id)
+          byUser.set(r.user_id, { profile: r.profile, rev: storedRev(r) });
+      }
+      const now = this.deps.now();
+      let gapFrom: number | null = null;
+      let replaced = 0;
+      for (const u of mine) {
+        const e = this.cache.get(key(family, u));
+        if (e?.state !== 'ready') continue;
+        const got = byUser.get(u);
+        e.readAt = now;
+        if (!got) {
+          // no stored row (removed by a rollback, or never written): this profile is the record; the next save
+          // inserts it
+          e.rev = 0;
+          continue;
+        }
+        if (got.rev === e.rev) continue; // nobody else wrote it
+        let ringFrom: number | null = null;
+        for (const h of this.ring)
+          if (h.family === family && applyHudHand(got.profile, h) === null)
+            ringFrom = ringFrom === null ? h.at : Math.min(ringFrom, h.at);
+        if (e.dirtyFrom !== null && e.dirtyFrom <= this.ringDroppedAt)
+          gapFrom = gapFrom === null ? e.dirtyFrom : Math.min(gapFrom, e.dirtyFrom);
+        e.profile = got.profile;
+        e.rev = got.rev;
+        e.seq += 1;
+        e.dirty = ringFrom !== null;
+        e.dirtyFrom = ringFrom;
+        replaced += 1;
+      }
+      if (replaced) {
+        this.packetCache.clear();
+        noteFire('opponent_hud_merged');
+      }
+      if (gapFrom !== null) this.loadGapCatchUp(gapFrom);
+    } catch {
+      noteFire('opponent_hud_refresh_failed');
+    } finally {
+      clearTimeout(t);
+      for (const u of mine) this.refreshing.delete(key(family, u));
+    }
+  }
+
+  /**
+   * Persist every changed profile. Each row names the revision of the stored row it was built on
+   * (opponent_hud_profiles.rev); the database writes it only when the stored row is still that revision, in one
+   * statement under the row's lock, so two engine processes (a cutover overlap, a standby, the backfill) can never
+   * write over each other's hands. A refused row is merged onto the stored row (reloadMerge) and saved again inside
+   * this persistence. A hand that arrives while a save is in flight keeps its profile unsaved. The sync point moves
+   * only when every changed profile is saved.
+   */
   async persist(force = false): Promise<void> {
     if (!this.armedState && !force) return;
     if (this.persisting) return;
     this.persisting = true;
     try {
       const startedAt = this.deps.now();
-      let failedBatches = 0;
-      const dirty: [string, OpponentHudProfile][] = [];
-      for (const [k, e] of this.cache)
-        if (e.state === 'ready' && e.dirty) dirty.push([k, e.profile]);
-      for (let i = 0; i < dirty.length; i += 200) {
-        const batch = dirty.slice(i, i + 200);
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 5);
-        (t as { unref?: () => void }).unref?.();
-        try {
-          const refused = await this.deps.upsert(
-            batch.map(([, p]) => ({
-              user_id: p.user,
-              family: p.family,
-              version: p.v,
-              hands: p.hands,
-              wm_ms: Math.round(p.wm),
-              profile: p,
-            })),
-            ac.signal
-          );
-          const refusedSet = new Set(Array.isArray(refused) ? refused : []);
-          for (const [k] of batch) {
-            const e = this.cache.get(k);
-            if (refusedSet.has(k)) {
-              this.cache.delete(k);
-              noteFire('opponent_hud_persist_refused');
-            } else if (e?.state === 'ready') e.dirty = false;
+      let unsaved = false;
+      type Item = { k: string; e: ReadyEntry };
+      const write = async (items: Item[]): Promise<Item[]> => {
+        const refusedItems: Item[] = [];
+        for (let i = 0; i < items.length; ) {
+          const batch: Item[] = [];
+          for (let bytes = 0; i < items.length && batch.length < HUD_PERSIST_BATCH; i++) {
+            bytes += hudProfileBytesBound(items[i].e.profile);
+            if (batch.length && bytes > HUD_PERSIST_BATCH_BYTES) break;
+            batch.push(items[i]);
           }
-          noteFire('opponent_hud_persist_ok');
-        } catch {
-          noteFire('opponent_hud_persist_failed');
-          this.window.persistFailed += 1;
-          failedBatches += 1;
-        } finally {
-          clearTimeout(t);
+          // the row is copied now: what is sent is exactly the profile at this revision and this change count
+          const sent = batch.map(({ e }) => ({ seq: e.seq, rev: e.rev }));
+          const body = batch.map(({ e }) => ({
+            user_id: e.profile.user,
+            family: e.profile.family,
+            version: e.profile.v,
+            hands: e.profile.hands,
+            wm_ms: Math.round(e.profile.wm),
+            base_rev: e.rev,
+            profile: structuredClone(e.profile),
+          }));
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 5);
+          (t as { unref?: () => void }).unref?.();
+          try {
+            const refused = await this.deps.upsert(body, ac.signal);
+            const refusedSet = new Set(Array.isArray(refused) ? refused : []);
+            const now = this.deps.now();
+            batch.forEach((item, j) => {
+              if (refusedSet.has(item.k)) {
+                refusedItems.push(item);
+                return;
+              }
+              // the entry may have been dropped (switch off, eviction) or merged meanwhile: only the one sent
+              if (this.cache.get(item.k) !== item.e || item.e.rev !== sent[j].rev) return;
+              item.e.rev = sent[j].rev + 1;
+              item.e.readAt = now;
+              if (item.e.seq === sent[j].seq) {
+                item.e.dirty = false;
+                item.e.dirtyFrom = null;
+              }
+            });
+            noteFire('opponent_hud_persist_ok');
+          } catch {
+            // not known to be written: the profiles stay unsaved; if the row was written after all, the next save
+            // is refused by its revision and merged (the stored row then already holds these hands)
+            noteFire('opponent_hud_persist_failed');
+            this.window.persistFailed += 1;
+            unsaved = true;
+          } finally {
+            clearTimeout(t);
+          }
         }
+        return refusedItems;
+      };
+      const collect = (keys?: Iterable<string>): Item[] => {
+        const out: Item[] = [];
+        const visit = (k: string, e: Entry | undefined) => {
+          if (e?.state !== 'ready' || !e.dirty) return;
+          if (this.refreshing.has(k)) unsaved = true;
+          else out.push({ k, e });
+        };
+        if (keys) for (const k of keys) visit(k, this.cache.get(k));
+        else for (const [k, e] of this.cache) visit(k, e);
+        return out;
+      };
+      const dirty = collect();
+      let refused = await write(dirty);
+      for (let round = 0; refused.length && round < HUD_PERSIST_MERGE_ROUNDS; round++) {
+        noteFire('opponent_hud_persist_refused');
+        const byFamily = new Map<HudFamily, string[]>();
+        for (const { e } of refused) {
+          const list = byFamily.get(e.profile.family) ?? [];
+          list.push(e.profile.user);
+          byFamily.set(e.profile.family, list);
+        }
+        for (const [family, users] of byFamily)
+          for (let i = 0; i < users.length; i += 50)
+            await this.reloadMerge(family, users.slice(i, i + 50));
+        // a merged profile with nothing of its own left is already whole in the stored row
+        refused = await write(collect(refused.map((x) => x.k)));
       }
+      if (refused.length) {
+        unsaved = true;
+        noteFire('opponent_hud_persist_unmerged');
+      }
+      // hands older than the ring are still being read back for a merged profile
+      if (this.gapCatchUp !== null || this.gapFrom !== null) unsaved = true;
       // the sync point: every hand accepted before this persistence began is in a saved profile or in the ring
-      if (dirty.length && failedBatches === 0) {
+      if (dirty.length && !unsaved) {
         try {
           await this.deps.upsert(
             [
@@ -771,7 +958,7 @@ export class OpponentHudStore {
             if (r.family !== family || !validHudProfile(r.profile) || r.profile.user !== r.user_id)
               continue;
             if (this.cache.get(key(family, r.user_id))?.state === 'ready') continue;
-            this.setReady(family, r.user_id, r.profile, now);
+            this.setReady(family, r.user_id, r.profile, now, storedRev(r));
             n += 1;
           }
           if (rows.length < 500) break;
@@ -812,7 +999,7 @@ export class OpponentHudStore {
           for (const d of deltas) {
             const e = this.cache.get(key(rec.family, d.user));
             if (e?.state === 'ready' && applyHudHand(e.profile, rec, deltas) === null) {
-              e.dirty = true;
+              markChanged(e, rec.at);
               applied += 1;
             }
           }

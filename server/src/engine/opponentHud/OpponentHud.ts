@@ -23,6 +23,10 @@ import {
   HUD_CONTEXT_STATS,
   HUD_SESSION_GAP_MS,
   HUD_SESSION_STATS,
+  HUD_CBR_SIZES,
+  HUD_FW_BINS,
+  HUD_FW_EDGES_ID,
+  type HudCbrSize,
   type HudSessionSums,
   hudStatIsRegistered,
   recallKeys,
@@ -63,6 +67,9 @@ export interface HudPacketOpponent {
    *  Store only (2026-11-21): hudStat, hudStatIn and every other read are unchanged by it; hudSessionRecord returns
    *  it for the FADE cold-start estimator once that estimator is confirmed. */
   ss?: HudSessionSums;
+  /** exact lifetime counters of the decision's street (HUD_EXACT_COUNTERS; sparse). Present, even when empty, only
+   *  for a profile that has held them since its first hand; absent otherwise, and the size readers answer null. */
+  xc?: Record<string, number>;
 }
 export interface OpponentHudPacket {
   v: typeof HUD_PACKET_VERSION;
@@ -125,6 +132,13 @@ export function buildHudPacketOpponent(
   const out: HudPacketOpponent = Object.keys(lc).length
     ? { hands: p.hands, eff, rc, lc }
     : { hands: p.hands, eff, rc };
+  if (p.xc && street !== 'preflop') {
+    const prefix = `${street[0]}.`;
+    const xc: Record<string, number> = {};
+    for (const k of Object.keys(p.xc).sort())
+      if (k.startsWith(prefix) && p.xc[k] > 0) xc[k] = p.xc[k];
+    out.xc = xc;
+  }
   if (p.ses) {
     const r6 = (x: number): number => Math.round(x * 1e6) / 1e6;
     const st: Record<string, HudCount> = {};
@@ -180,6 +194,10 @@ export function validHudPacket(x: unknown): x is OpponentHudPacket {
   for (const o of Object.values(p.opp)) {
     if (!o || typeof o !== 'object' || !Number.isSafeInteger(o.hands)) return false;
     if (!o.eff || typeof o.eff !== 'object' || !o.rc || typeof o.rc !== 'object') return false;
+    if (o.xc !== undefined) {
+      if (!o.xc || typeof o.xc !== 'object') return false;
+      for (const n of Object.values(o.xc)) if (!Number.isSafeInteger(n) || n < 0) return false;
+    }
     if (o.ss !== undefined) {
       const x = o.ss as unknown as Record<string, unknown>;
       if (!x || typeof x !== 'object' || !x.st || typeof x.st !== 'object') return false;
@@ -418,6 +436,117 @@ export function hudFirstWagerRecord(
       },
       firstToAct: { bets: ld.hits, opps: ld.n },
     };
+  } catch {
+    return null;
+  }
+}
+/**
+ * SIZE-RESOLVED FIRST WAGERS (additive, 2026-11-21; CORE-EXTEND-2's turn/river core). His first wagers on unopened
+ * action of one street, raw lifetime counts in 14 fixed geometric bins of wager / pot before it (HUD_FW_EDGES, upper
+ * edge inclusive, version 'fw1'; bins[13] is everything above the last edge), with the unopened opportunities of the
+ * same cells as the denominator. `line` omitted = stab + lead summed. bets = the bins summed = the cells' bets.
+ * Null when the decision's packet holds no profile of him, on a preflop packet, or when his profile was built before
+ * these counters existed (never zeros in place of an unknown). Pure read; never throws.
+ */
+export function hudFirstWagerSizeCounts(
+  opponentId: string,
+  family: HudFamily,
+  ctx: { street: HudReadContext['street']; players: 'hu' | 'mw'; line?: 'stab' | 'lead' }
+): { opps: number; bets: number; bins: number[]; edges: typeof HUD_FW_EDGES_ID } | null {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const xc = pk?.opp[opponentId]?.xc;
+    if (!xc) return null;
+    const sk = SK[ctx.street];
+    if (!sk || (ctx.players !== 'hu' && ctx.players !== 'mw')) return null;
+    const lines = ctx.line === undefined ? (['stab', 'lead'] as const) : [ctx.line];
+    const bins = new Array<number>(HUD_FW_BINS).fill(0);
+    let opps = 0;
+    for (const ln of lines) {
+      if (ln !== 'stab' && ln !== 'lead') return null;
+      opps += hudLifetimeCount(opponentId, family, ln === 'stab' ? 'x.stab' : 'x.lead', {
+        street: ctx.street,
+        players: ctx.players,
+      }).n;
+      for (let i = 0; i < HUD_FW_BINS; i++)
+        bins[i] += xc[`${sk}.fw.${ln}.${ctx.players}.b${String(i).padStart(2, '0')}`] ?? 0;
+    }
+    return { opps, bets: bins.reduce((a, b) => a + b, 0), bins, edges: HUD_FW_EDGES_ID };
+  } catch {
+    return null;
+  }
+}
+/**
+ * THE FIRST BETTOR FACING A RAISE (additive): he made the street's first wager and was raised; one opportunity per
+ * raise faced; raw lifetime counts of his answer. Null as hudFirstWagerSizeCounts.
+ */
+export function hudFirstWagerRaisedRecord(
+  opponentId: string,
+  family: HudFamily,
+  ctx: { street: HudReadContext['street']; players: 'hu' | 'mw' }
+): { opps: number; fold: number; call: number; raise: number } | null {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const xc = pk?.opp[opponentId]?.xc;
+    const sk = SK[ctx.street];
+    if (!xc || !sk || (ctx.players !== 'hu' && ctx.players !== 'mw')) return null;
+    const at = (k: string) => xc[`${sk}.fwr.${ctx.players}.${k}`] ?? 0;
+    return { opps: at('opps'), fold: at('fold'), call: at('call'), raise: at('raise') };
+  } catch {
+    return null;
+  }
+}
+/**
+ * FACING A FLOP CONTINUATION BET (additive; CBET-BUTTON-4's omahaCbetRaiseIsPriced): his answers to the first flop
+ * wager made by the last preflop raiser, while it was the only flop wager; raw lifetime counts, by players at his
+ * action. `raises` counts every all-in as a raise (the option's definition and its bench recorder);
+ * `raisesAboveBet` leaves out an all-in that did not exceed the bet (`shortAllIns`). bySize holds the same counts per
+ * size of the bet (HUD_CBR_SIZES). Read on a flop decision (the packet carries a street's counters on that street).
+ * Null when the packet holds no profile of him or his profile was built before these counters existed.
+ */
+export function hudCbetRaiseRecord(
+  opponentId: string,
+  family: HudFamily,
+  players: 'hu' | 'mw'
+): {
+  opps: number;
+  raises: number;
+  raisesAboveBet: number;
+  shortAllIns: number;
+  folds: number;
+  calls: number;
+  bySize: Record<
+    HudCbrSize,
+    { opps: number; fold: number; call: number; raise: number; shortAllIn: number }
+  >;
+} | null {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const xc = pk?.opp[opponentId]?.xc;
+    if (!xc || (players !== 'hu' && players !== 'mw')) return null;
+    const out = { opps: 0, raises: 0, raisesAboveBet: 0, shortAllIns: 0, folds: 0, calls: 0 };
+    const bySize = {} as Record<
+      HudCbrSize,
+      { opps: number; fold: number; call: number; raise: number; shortAllIn: number }
+    >;
+    for (const z of HUD_CBR_SIZES) {
+      const at = (k: string) => xc[`f.cbr.${players}.${z}.${k}`] ?? 0;
+      const c = {
+        opps: at('opps'),
+        fold: at('fold'),
+        call: at('call'),
+        raise: at('raise'),
+        shortAllIn: at('shortAllIn'),
+      };
+      bySize[z] = c;
+      out.opps += c.opps;
+      out.folds += c.fold;
+      out.calls += c.call;
+      out.raisesAboveBet += c.raise;
+      out.shortAllIns += c.shortAllIn;
+    }
+    out.raises = out.raisesAboveBet + out.shortAllIns;
+    return { ...out, bySize };
   } catch {
     return null;
   }

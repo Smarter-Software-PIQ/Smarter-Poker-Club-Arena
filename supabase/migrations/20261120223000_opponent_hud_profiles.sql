@@ -6,11 +6,16 @@
 -- The profile JSON is built by the engine (server/src/engine/opponentHud/OpponentHudProfile.ts) from public hand
 -- records only; this migration stores and serves it. Nothing here reads hand_history.players cards.
 --
--- Writes: the engine's main thread upserts the profiles it updated (fn_opponent_hud_profiles_upsert, at most 200 rows
--- per call); the backfill and the nightly reconciliation (server/scripts/opponent-hud-build.ts) write the same way. An
--- upsert never moves a row backwards: a row is replaced only when the incoming profile has at least as many hands and
--- a watermark at least as new (or the caller marks it a rebuild), so a stale engine cache can never erase lifetime
--- history; the refused user ids are returned so the engine reloads them.
+-- Writes: the engine's main thread upserts the profiles it changed (fn_opponent_hud_profiles_upsert, at most 200 rows
+-- per call); the backfill (server/scripts/opponent-hud-build.ts) writes the same way with rebuild=true.
+-- MORE THAN ONE WRITER (2026-11-21): a profile row is written whole, and more than one engine process can hold the
+-- same player (a cutover overlap, a standby, the backfill under a live engine). Every row carries a revision (rev).
+-- A writer names the revision it built on (base_rev; 0 = it found no row) and the function writes the row only when
+-- the stored row is still that revision, in one statement under the row's lock (compare-and-swap); otherwise nothing
+-- is written and the key is returned as refused. The engine then re-reads the stored row, applies only the hands it
+-- holds that the stored profile does not list (the hand id lists inside the profile are the idempotency key, so they
+-- hold here, in the database, not in any one process), and saves again. No interleaving of writers can lose or
+-- double a hand (scripts/ci/test-opponent-hud-upsert-postgres.sh proves it with concurrent sessions).
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.opponent_hud_profiles (
@@ -19,6 +24,7 @@ CREATE TABLE IF NOT EXISTS public.opponent_hud_profiles (
   version integer NOT NULL,
   hands bigint NOT NULL DEFAULT 0 CHECK (hands >= 0),
   wm_ms bigint NOT NULL DEFAULT -1,
+  rev bigint NOT NULL DEFAULT 1 CHECK (rev >= 1),
   profile jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, family)
@@ -49,8 +55,10 @@ BEGIN
    ORDER BY p.user_id LIMIT p_limit;
 END $f$;
 
--- Upsert up to 200 rows [{user_id, family, version, hands, wm_ms, profile, rebuild?}]; returns the refused user ids
--- (family-qualified as 'family|user_id').
+-- Upsert up to 200 rows [{user_id, family, version, hands, wm_ms, base_rev, profile, rebuild?}]; returns the refused
+-- keys ('family|user_id'). A player's row needs base_rev (compare-and-swap, above). rebuild=true replaces the row and
+-- moves its revision. The population rows ('*') and the sync point ('#sync') hold no per-hand record: the later
+-- watermark wins.
 CREATE OR REPLACE FUNCTION public.fn_opponent_hud_profiles_upsert(p_rows jsonb)
 RETURNS text[] LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public AS $f$
@@ -58,33 +66,73 @@ DECLARE
   r jsonb;
   refused text[] := '{}';
   n integer := 0;
+  k integer;
+  uid text;
+  fam text;
+  base bigint;
+  rebuild boolean;
   cur public.opponent_hud_profiles;
 BEGIN
   IF jsonb_typeof(p_rows) <> 'array' OR jsonb_array_length(p_rows) > 200 THEN
     RAISE EXCEPTION 'opponent hud upsert: an array of at most 200 rows';
   END IF;
-  FOR r IN SELECT * FROM jsonb_array_elements(p_rows) LOOP
+  -- rows are taken in key order whatever order the caller sent them: two callers never lock in opposite orders
+  FOR r IN SELECT e FROM jsonb_array_elements(p_rows) e ORDER BY e->>'user_id', e->>'family' LOOP
     n := n + 1;
-    IF (r->>'family') NOT IN ('plo4','plo5') OR coalesce(r->>'user_id', '') = ''
-       OR jsonb_typeof(r->'profile') <> 'object' OR (r->>'hands')::bigint < 0 THEN
-      refused := refused || ((r->>'family') || '|' || coalesce(r->>'user_id', ''));
+    uid := coalesce(r->>'user_id', '');
+    fam := r->>'family';
+    IF fam IS NULL OR fam NOT IN ('plo4','plo5') OR uid = ''
+       OR jsonb_typeof(r->'profile') IS DISTINCT FROM 'object' OR coalesce((r->>'hands')::bigint, -1) < 0
+       OR (r->>'version') IS NULL OR (r->>'wm_ms') IS NULL THEN
+      refused := refused || (coalesce(fam, '') || '|' || uid);
       CONTINUE;
     END IF;
-    SELECT * INTO cur FROM public.opponent_hud_profiles
-     WHERE user_id = r->>'user_id' AND family = r->>'family' FOR UPDATE;
-    IF FOUND AND coalesce((r->>'rebuild')::boolean, false) = false AND (
-         (r->>'version')::integer = cur.version AND (
-           (r->>'hands')::bigint < cur.hands OR (r->>'wm_ms')::bigint < cur.wm_ms))
-    THEN
-      refused := refused || ((r->>'family') || '|' || (r->>'user_id'));
+    rebuild := coalesce((r->>'rebuild')::boolean, false);
+    base := (r->>'base_rev')::bigint;
+    IF rebuild THEN
+      -- the backfill: the row is replaced whole and its revision moves, so an engine process holding the old row is
+      -- refused at its next save and merges its own hands onto this one
+      INSERT INTO public.opponent_hud_profiles (user_id, family, version, hands, wm_ms, rev, profile, updated_at)
+      VALUES (uid, fam, (r->>'version')::integer, (r->>'hands')::bigint, (r->>'wm_ms')::bigint, 1, r->'profile', now())
+      ON CONFLICT (user_id, family) DO UPDATE SET
+        version = excluded.version, hands = excluded.hands, wm_ms = excluded.wm_ms,
+        rev = public.opponent_hud_profiles.rev + 1, profile = excluded.profile, updated_at = now();
       CONTINUE;
     END IF;
-    INSERT INTO public.opponent_hud_profiles (user_id, family, version, hands, wm_ms, profile, updated_at)
-    VALUES (r->>'user_id', r->>'family', (r->>'version')::integer, (r->>'hands')::bigint, (r->>'wm_ms')::bigint,
-            r->'profile', now())
-    ON CONFLICT (user_id, family) DO UPDATE SET
-      version = excluded.version, hands = excluded.hands, wm_ms = excluded.wm_ms,
-      profile = excluded.profile, updated_at = now();
+    IF uid IN ('*', '#sync') THEN
+      -- the population rows and the sync point hold no per-hand record: the later watermark wins, atomically
+      INSERT INTO public.opponent_hud_profiles (user_id, family, version, hands, wm_ms, rev, profile, updated_at)
+      VALUES (uid, fam, (r->>'version')::integer, (r->>'hands')::bigint, (r->>'wm_ms')::bigint, 1, r->'profile', now())
+      ON CONFLICT (user_id, family) DO UPDATE SET
+        version = excluded.version, hands = excluded.hands, wm_ms = excluded.wm_ms,
+        rev = public.opponent_hud_profiles.rev + 1, profile = excluded.profile, updated_at = now()
+      WHERE NOT (excluded.version = public.opponent_hud_profiles.version AND (
+        excluded.hands < public.opponent_hud_profiles.hands OR excluded.wm_ms < public.opponent_hud_profiles.wm_ms));
+      GET DIAGNOSTICS k = ROW_COUNT;
+      IF k = 0 THEN refused := refused || (fam || '|' || uid); END IF;
+      CONTINUE;
+    END IF;
+    -- A PLAYER'S PROFILE: compare-and-swap on the row revision. The writer names the revision it built on (0: it
+    -- found no row). One statement decides under the row's lock; a writer that did not start from the stored row
+    -- changes nothing and is told so. No whole-row write can erase hands another process counted.
+    IF base IS NULL OR base < 0 THEN
+      refused := refused || (fam || '|' || uid);
+      CONTINUE;
+    END IF;
+    UPDATE public.opponent_hud_profiles SET
+      version = (r->>'version')::integer, hands = (r->>'hands')::bigint, wm_ms = (r->>'wm_ms')::bigint,
+      rev = rev + 1, profile = r->'profile', updated_at = now()
+     WHERE user_id = uid AND family = fam AND rev = base;
+    GET DIAGNOSTICS k = ROW_COUNT;
+    IF k = 0 THEN
+      -- no row at that revision: either the row has moved (refused), or there is no row at all (first save)
+      INSERT INTO public.opponent_hud_profiles (user_id, family, version, hands, wm_ms, rev, profile, updated_at)
+      VALUES (uid, fam, (r->>'version')::integer, (r->>'hands')::bigint, (r->>'wm_ms')::bigint, base + 1,
+              r->'profile', now())
+      ON CONFLICT (user_id, family) DO NOTHING;
+      GET DIAGNOSTICS k = ROW_COUNT;
+      IF k = 0 THEN refused := refused || (fam || '|' || uid); END IF;
+    END IF;
   END LOOP;
   RETURN refused;
 END $f$;

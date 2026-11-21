@@ -5,9 +5,11 @@ import {
   HUD_BANDS,
   HUD_CONTEXT_STATS,
   HUD_DAYS_KEPT,
+  HUD_DAY_ENTRY_BYTES,
   HUD_DEPTHS,
   HUD_LATE_WINDOW_MS,
   HUD_POSITIONS,
+  HUD_PROFILE_FIXED_MAX_BYTES,
   HUD_STATS,
   HUD_TEXTURES,
   applyHudHand,
@@ -20,6 +22,8 @@ import {
   hudDayOf,
   hudHandDigest,
   hudIdPrefix,
+  hudDayListHands,
+  hudProfileBytesBound,
   validHudProfile,
   type HudHandRecord,
   type OpponentHudProfile,
@@ -773,5 +777,45 @@ describe('law: every statistic has its own test, and a new one cannot be added w
     expect(Object.keys(pinned).sort()).toEqual([...HUD_STATS].sort());
     expect(HUD_CONTEXT_STATS.length).toBeGreaterThanOrEqual(40);
     for (const stat of HUD_CONTEXT_STATS) expect(pinned[stat][0]).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * PROFILE SIZE (2026-11-21, lane OPPONENT-HUD-5): measured, and bounded. The only part of a profile that grows with
+ * the hands dealt is the day lists, by HUD_DAY_ENTRY_BYTES a hand, for HUD_DAYS_KEPT days; everything else is the
+ * registered statistics and capped lists. Production measurement in the comment of HUD_PROFILE_FIXED_MAX_BYTES.
+ */
+describe('opponent HUD profile: size is measured and bounded', () => {
+  const bytes = (x: unknown) => Buffer.byteLength(JSON.stringify(x ?? null));
+  function replay(hands: number, perDay: number): OpponentHudProfile {
+    const base = generatedHistories();
+    const p = emptyHudProfile(U(1), 'plo5');
+    const day0 = Date.UTC(2026, 10, 1, 12);
+    for (let i = 0; i < hands; i++) {
+      const s = base[i % base.length];
+      const at = day0 + Math.floor(i / perDay) * 86_400_000 + (i % perDay) * 20_000;
+      const r = handRecordFromRow({
+        ...row({ ...s, id: 900_000 + i }),
+        created_at: new Date(at).toISOString(),
+      });
+      if (typeof r !== 'string') applyHudHand(p, r);
+    }
+    return p;
+  }
+  it('everything but the day lists stops growing; the day lists hold three days at 15 bytes a hand', () => {
+    const small = replay(1_500, 500);
+    const big = replay(12_000, 3_000); // four days of a Horse on several tables
+    expect(big.hands).toBeGreaterThan(8_000);
+    const fixedSmall = bytes(small) - bytes(small.days);
+    const fixedBig = bytes(big) - bytes(big.days);
+    expect(fixedBig).toBeLessThanOrEqual(HUD_PROFILE_FIXED_MAX_BYTES);
+    // eight times the hands: the fixed part grows by digits of its counters only
+    expect(fixedBig - fixedSmall).toBeLessThan(4_000);
+    expect(Object.keys(big.days ?? {}).length).toBe(HUD_DAYS_KEPT);
+    const listed = hudDayListHands(big);
+    expect(listed).toBeLessThanOrEqual(HUD_DAYS_KEPT * 3_000);
+    expect(bytes(big.days)).toBeLessThanOrEqual(HUD_DAY_ENTRY_BYTES * listed + 20 * HUD_DAYS_KEPT);
+    for (const p of [small, big]) expect(bytes(p)).toBeLessThanOrEqual(hudProfileBytesBound(p));
+    expect(validHudProfile(JSON.parse(JSON.stringify(big)))).toBe(true);
   });
 });

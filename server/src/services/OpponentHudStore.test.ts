@@ -85,8 +85,16 @@ function fakeDeps(
         profile: unknown;
       }[]) {
         const cur = stored.get(`${r.family}|${r.user_id}`);
-        if (cur && cur.hands > r.hands) refused.push(`${r.family}|${r.user_id}`);
-        else stored.set(`${r.family}|${r.user_id}`, { ...(r as unknown as HudStoredRow) });
+        // the function's law: a player's row is written only on the revision it was built on
+        const special = r.user_id === '*' || r.user_id === '#sync';
+        const base = (r as { base_rev?: number }).base_rev;
+        if (special ? cur !== undefined && cur.hands > r.hands : base !== (cur?.rev ?? 0))
+          refused.push(`${r.family}|${r.user_id}`);
+        else
+          stored.set(`${r.family}|${r.user_id}`, {
+            ...(r as unknown as HudStoredRow),
+            rev: (cur?.rev ?? 0) + 1,
+          });
       }
       return refused;
     },
@@ -366,7 +374,7 @@ describe('OpponentHudStore', () => {
     expect(store.profile(U(2), 'plo5')!.hands).toBe(1);
   });
 
-  it('persist writes dirty profiles; a refused stale row is dropped and reloaded, never written over lifetime', async () => {
+  it('persist writes dirty profiles; a refused row is merged onto the stored row, never written over lifetime', async () => {
     const stored = new Map<string, HudStoredRow>();
     const deps = fakeDeps(stored);
     const store = new OpponentHudStore(deps);
@@ -376,15 +384,15 @@ describe('OpponentHudStore', () => {
     store.onAcceptedHand(row(2, 1, 3));
     await store.persist();
     expect(stored.get(`plo5|${U(1)}`)!.hands).toBe(1);
-    // the backfill lands a lifetime row with more hands; the engine's thin copy must not overwrite it
-    stored.set(`plo5|${U(1)}`, lifetime(1, 50));
+    // the backfill lands a lifetime row with more hands (its revision moves); the engine's thin copy must not
+    // overwrite it: the save is refused, the engine's two live hands are merged onto the lifetime row and saved
+    // (OpponentHudStoreMultiProcess.test.ts holds the multi-writer laws)
+    stored.set(`plo5|${U(1)}`, { ...lifetime(1, 50), rev: 7 });
     store.onAcceptedHand(row(3, 1, 3));
     await store.persist();
-    expect(stored.get(`plo5|${U(1)}`)!.hands).toBe(50);
-    expect(store.ready(U(1), 'plo5')).toBe(false);
-    store.warm([U(1)], 'plo5', 'hand');
-    await flush();
-    expect(store.profile(U(1), 'plo5')!.hands).toBeGreaterThanOrEqual(50);
+    expect(stored.get(`plo5|${U(1)}`)!.hands).toBe(52);
+    expect(store.ready(U(1), 'plo5')).toBe(true); // never taken away from a seated player
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(52);
   });
 
   it('an opponent still not ready 15 seconds after he was asked for is counted late; before that, missing', async () => {
