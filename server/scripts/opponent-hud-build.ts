@@ -10,8 +10,8 @@
  * copy of the same rows. Every hand goes through the same handRecordFromRow / applyHudHand the engine uses, oldest
  * first, so a backfilled profile is exactly what the live engine would have built hand by hand. The population row
  * ('*') holds fitHudPriors of the result. --apply writes with rebuild=true (a backfill replaces the stored row);
- * (The nightly reconciliation runs in the engine: OpponentHudStore.reconcileDay, which compares each profile's day
- * list with hand_history and repairs any missing hand; a lifetime rebuild cannot reconcile a Horse because hands with
+ * (The nightly verification runs in the engine: OpponentHudStore.reconcileDay, which compares each profile's day
+ * list and day sum with hand_history, alerts on any difference and never writes a count; a lifetime rebuild cannot reconcile a Horse because hands with
  * no person are purged after 7 days.)
  * Operators only. Never prints a card (there is none in the input).
  */

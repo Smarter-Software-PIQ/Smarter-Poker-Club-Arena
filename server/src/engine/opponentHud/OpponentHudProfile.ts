@@ -395,16 +395,59 @@ export interface OpponentHudProfile {
   recall: Record<string, HudRecallCell>;
   last: HudInstance[];
   /**
-   * The hands applied on each of the last HUD_DAYS_KEPT Chicago days, as the last 12 hex digits of each hand id
-   * (the nightly reconciliation compares them with hand_history and applies any hand that is missing). Absent on
-   * rows written before it existed.
+   * The hands applied on each of the last HUD_DAYS_KEPT Chicago days, as the last 12 hex digits of each hand id: THE
+   * IDEMPOTENCY KEY of a hand on those days (applyHudHand refuses a listed hand whatever order or retry it arrives
+   * in), and what the nightly verification compares with hand_history. Absent on rows written before it existed.
    */
   days?: Record<string, string[]>;
+  /**
+   * Per listed day, the wrapping 32-bit sum of hudHandDigest over the hands applied that day: what this profile
+   * counted for each of them. The nightly verification rebuilds the same sum from the raw hand_history rows and
+   * compares (it never writes a count).
+   */
+  dsum?: Record<string, number>;
+  /** the day sums hold every hand applied after this time (0: from the first hand); a day that began before it is
+   *  compared by hand ids only */
+  dsumSince?: number;
   /** when the day lists started (the first hand applied with them): a day before it cannot be reconciled */
   daysSince?: number;
+  /** his responses to a street's first wager in his current session (HudSessionSums); absent before the first */
+  ses?: HudSessionSums;
 }
 
-export const HUD_DAYS_KEPT = 2;
+/**
+ * SESSION LAYER (2026-11-21, lane OPPONENT-HUD-4; store only: no accessor and no decision reads it yet). The sums the
+ * FADE cold-start estimator needs ("read from hand 1": a session half-life with a fading lifetime prior), kept
+ * exactly as its measurement kept them: one sequence per opponent of his responses to the FIRST wager of a postflop
+ * street (the twelve [ftr].fb.<size>.<players> statistics; hit = fold), in time order.
+ *   at   time of his last such response (the hand's time)
+ *   m    responses in the current session
+ *   sW   sum of weights, each response decayed by HUD_SESSION_DECAY per later response
+ *   sSw  the same sum over his folds
+ *   n, f raw responses and folds of the current session (lifetime minus these = his PRIOR sessions)
+ *   st   raw [responses, folds] of the current session per statistic
+ * A response more than HUD_SESSION_GAP_MS after the last one starts a new session (the sums restart). A hand applied
+ * out of order (older than `at`) counts for the lifetime only.
+ */
+export interface HudSessionSums {
+  at: number;
+  m: number;
+  sW: number;
+  sSw: number;
+  n: number;
+  f: number;
+  st: Record<string, HudCount>;
+}
+export const HUD_SESSION_GAP_MS = 3_600_000;
+export const HUD_SESSION_HALF_LIFE_RESPONSES = 30;
+export const HUD_SESSION_DECAY = Math.pow(0.5, 1 / HUD_SESSION_HALF_LIFE_RESPONSES);
+/** The session sequence's statistics in the order a hand plays them (flop, turn, river). */
+export const HUD_SESSION_STATS: readonly string[] = Object.freeze(
+  POST.flatMap((s) => ['sm', 'bg'].flatMap((z) => ['hu', 'mw'].map((pl) => `${s}.fb.${z}.${pl}`)))
+);
+
+/** Three Chicago days: any 48-hour catch-up (HUD_ACTIVATION_MAX_CATCHUP_MS) lies inside the listed days. */
+export const HUD_DAYS_KEPT = 3;
 const chicagoDay = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Chicago',
   year: 'numeric',
@@ -456,6 +499,20 @@ export function validHudProfile(x: unknown): x is OpponentHudProfile {
         v.some((x) => typeof x !== 'string')
       )
         return false;
+  }
+  if (p.ses !== undefined) {
+    const x = obj(p.ses);
+    if (!x || !obj(x.st)) return false;
+    for (const k of ['at', 'm', 'sW', 'sSw', 'n', 'f'])
+      if (typeof x[k] !== 'number' || !Number.isFinite(x[k]) || (x[k] as number) < 0) return false;
+    for (const [k, v] of Object.entries(obj(x.st)!))
+      if (!HUD_SESSION_STATS.includes(k) || !Array.isArray(v) || v.length !== 2) return false;
+  }
+  if (p.dsum !== undefined) {
+    const d = obj(p.dsum);
+    if (!d) return false;
+    for (const v of Object.values(d))
+      if (!Number.isSafeInteger(v) || (v as number) < 0) return false;
   }
   for (const layer of [p.life, p.rec]) {
     const l = obj(layer);
@@ -956,25 +1013,91 @@ const decay = (dt: number): number => Math.pow(0.5, dt / HUD_RECENCY_HALF_LIFE_M
 /** Why a hand was not applied to a profile (closed set). */
 export type HudApplyRefusal = 'duplicate' | 'stale' | 'not_dealt' | 'family';
 
+/** The statistics one hand adds to one dealt player's profile (his deltas plus the shown strength of his big bets). */
+function appliedStatsOf(
+  user: string,
+  d: HudHandDelta,
+  bands: Map<string, Map<HudStreet, HudBand[]>>
+): Map<string, HudCount> {
+  const stats = new Map(d.stats);
+  // big-bet strength shown by street (own wager band l or o, shown at showdown)
+  if (d.shown > 0) {
+    const mine = bands.get(user);
+    if (mine)
+      for (const [s, bs] of mine) {
+        if (s === 'preflop') continue;
+        const sk = STREET_KEY[s];
+        for (const b of bs)
+          if (b === 'l' || b === 'o') {
+            const prev = stats.get(`sd.strongBig.${sk}`) ?? [0, 0];
+            const c: HudCount = [prev[0] + 1, prev[1] + (d.shown === 2 ? 1 : 0)];
+            stats.set(`sd.strongBig.${sk}`, c);
+          }
+      }
+  }
+  return stats;
+}
+
 /**
- * Apply one public hand to one player's profile in place. Returns null when applied, or why not. A hand is applied
- * exactly once: its id goes into the ring of recent ids; a hand older than the watermark by more than
- * HUD_LATE_WINDOW_MS is refused as stale (the nightly reconciliation rebuilds such a profile from hand_history).
+ * A 32-bit digest of everything one hand adds to one dealt player's profile (registered statistics, recall
+ * instances, shown, won), independent of the order hands arrive in and of every id (two players with the same public
+ * history have the same sums). applyHudHand sums it per day (profile.dsum); the
+ * nightly verification recomputes it from the raw hand_history row. Null when the player was not dealt in.
+ */
+export function hudHandDigest(
+  user: string,
+  rec: HudHandRecord,
+  deltas: readonly HudHandDelta[] = extractHandDeltas(rec),
+  bands: Map<string, Map<HudStreet, HudBand[]>> = ownBetBands(rec)
+): number | null {
+  const d = deltas.find((x) => x.user === user);
+  if (!d) return null;
+  const parts: string[] = [`${d.shown}${d.won}`];
+  for (const [stat, c] of [...appliedStatsOf(user, d, bands)].sort((x, y) =>
+    x[0] < y[0] ? -1 : 1
+  ))
+    if (STAT_SET.has(stat)) parts.push(`${stat}:${c[0]}:${c[1]}`);
+  for (const i of d.instances) parts.push(`${i.s}|${i.ln}|${i.b}|${i.pos}|${i.tx}|${i.d}|${i.a}`);
+  let h = 0x811c9dc5;
+  const text = parts.join(';');
+  for (let n = 0; n < text.length; n++) {
+    h ^= text.charCodeAt(n);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Apply one public hand to one player's profile in place. Returns null when applied, or why not.
+ *
+ * A HAND IS COUNTED EXACTLY ONCE, IN ANY ORDER (2026-11-21, lane OPPONENT-HUD-4). The idempotency key is the hand
+ * id: the ring of recent ids, and the day lists (every hand applied on the last HUD_DAYS_KEPT Chicago days). A hand
+ * of a listed day that is not in its list has provably never been applied, so it is applied now however late it
+ * arrives (a catch-up after a restart or an outage walks hand_history oldest first while live hands keep arriving;
+ * before this, such a hand was refused as "stale" and left to a nightly repair). Only where the lists cannot prove it
+ * (a day older than the listed days, or a row written before the lists existed) does the old watermark rule decide:
+ * a hand older than the watermark by more than HUD_LATE_WINDOW_MS is refused as stale and counted.
  */
 export function applyHudHand(
   profile: OpponentHudProfile,
   rec: HudHandRecord,
   deltas: readonly HudHandDelta[] = extractHandDeltas(rec),
-  bands: Map<string, Map<HudStreet, HudBand[]>> = ownBetBands(rec),
-  /** the reconciliation's repair: a hand hand_history holds and the day list proves was never applied */
-  repair = false
+  bands: Map<string, Map<HudStreet, HudBand[]>> = ownBetBands(rec)
 ): HudApplyRefusal | null {
   if (rec.family !== profile.family) return 'family';
   const day = hudDayOf(rec.at);
   const prefix = hudIdPrefix(rec.id);
-  if (profile.ids.includes(rec.id) || (repair && profile.days?.[day]?.includes(prefix)))
-    return 'duplicate';
-  if (!repair && profile.wm >= 0 && rec.at < profile.wm - HUD_LATE_WINDOW_MS) return 'stale';
+  if (profile.ids.includes(rec.id) || profile.days?.[day]?.includes(prefix)) return 'duplicate';
+  if (profile.wm >= 0 && rec.at < profile.wm - HUD_LATE_WINDOW_MS) {
+    const listed = Object.keys(profile.days ?? {}).sort();
+    let inLists = 0;
+    for (const k of listed) inLists += profile.days![k].length;
+    // every hand of this profile is in a list, or this hand is newer than the first listed one
+    const sinceLists =
+      inLists === profile.hands || (profile.daysSince !== undefined && rec.at >= profile.daysSince);
+    const provable = sinceLists && (listed.length < HUD_DAYS_KEPT || day >= listed[0]);
+    if (!provable) return 'stale';
+  }
   const d = deltas.find((x) => x.user === profile.user);
   if (!d) return 'not_dealt';
   // recency layer: decay to the newer of the two clocks, weigh this hand by its own age
@@ -993,23 +1116,7 @@ export function applyHudHand(
     cur[1] += c[1] * weight;
     layer[stat] = cur;
   };
-  const stats = new Map(d.stats);
-  // big-bet strength shown by street (own wager band l or o, shown at showdown)
-  if (d.shown > 0) {
-    const mine = bands.get(profile.user);
-    if (mine)
-      for (const [s, bs] of mine) {
-        if (s === 'preflop') continue;
-        const sk = STREET_KEY[s];
-        for (const b of bs)
-          if (b === 'l' || b === 'o') {
-            const c = stats.get(`sd.strongBig.${sk}`) ?? [0, 0];
-            c[0] += 1;
-            if (d.shown === 2) c[1] += 1;
-            stats.set(`sd.strongBig.${sk}`, c);
-          }
-      }
-  }
+  const stats = appliedStatsOf(profile.user, d, bands);
   for (const [stat, c] of stats) {
     if (!STAT_SET.has(stat)) continue;
     bump(profile.life, stat, c, 1);
@@ -1034,6 +1141,30 @@ export function applyHudHand(
     fine.sort((a, b) => profile.recall[a][0] - profile.recall[b][0] || (a < b ? -1 : 1));
     for (const k of fine.slice(0, fine.length - HUD_RECALL_MAX_FINE)) delete profile.recall[k];
   }
+  // session layer: his responses to a street's first wager, in time order only
+  if (rec.at >= (profile.ses?.at ?? -1)) {
+    for (const stat of HUD_SESSION_STATS) {
+      const c = stats.get(stat);
+      if (!c || !(c[0] > 0)) continue;
+      let ses = profile.ses;
+      if (!ses || rec.at - ses.at > HUD_SESSION_GAP_MS)
+        ses = profile.ses = { at: rec.at, m: 0, sW: 0, sSw: 0, n: 0, f: 0, st: {} };
+      const cell = (ses.st[stat] ??= [0, 0]);
+      for (let i = 0; i < c[0]; i++) {
+        const y = i < c[1] ? 1 : 0;
+        ses.sSw = ses.sSw * HUD_SESSION_DECAY + y;
+        ses.sW = ses.sW * HUD_SESSION_DECAY + 1;
+        ses.m += 1;
+        ses.n += 1;
+        ses.f += y;
+        cell[0] += 1;
+        cell[1] += y;
+      }
+      ses.at = rec.at;
+    }
+  }
+  // a hand applied out of order keeps the latest instances the latest
+  if (rec.at < profile.wm) profile.last.sort((x, y) => x.at - y.at);
   if (profile.last.length > HUD_LAST_INSTANCES)
     profile.last.splice(0, profile.last.length - HUD_LAST_INSTANCES);
   profile.hands += 1;
@@ -1044,8 +1175,16 @@ export function applyHudHand(
   else if (rec.at < profile.daysSince) profile.daysSince = rec.at;
   const days = (profile.days ??= {});
   (days[day] ??= []).push(prefix);
+  if (profile.dsumSince === undefined)
+    profile.dsumSince = profile.hands === 1 ? 0 : Math.max(rec.at, profile.wm);
+  const sums = (profile.dsum ??= {});
+  sums[day] = ((sums[day] ?? 0) + (hudHandDigest(profile.user, rec, deltas, bands) ?? 0)) >>> 0;
   const keys = Object.keys(days).sort();
-  for (const k of keys.slice(0, Math.max(0, keys.length - HUD_DAYS_KEPT))) delete days[k];
+  for (const k of keys.slice(0, Math.max(0, keys.length - HUD_DAYS_KEPT))) {
+    delete days[k];
+    delete sums[k];
+  }
+  for (const k of Object.keys(sums)) if (!(k in days)) delete sums[k];
   if (rec.at > profile.wm) profile.wm = rec.at;
   return null;
 }

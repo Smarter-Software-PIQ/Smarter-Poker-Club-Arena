@@ -1,6 +1,10 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   HUD_BANDS,
+  HUD_CONTEXT_STATS,
+  HUD_DAYS_KEPT,
   HUD_DEPTHS,
   HUD_LATE_WINDOW_MS,
   HUD_POSITIONS,
@@ -14,6 +18,7 @@ import {
   hudHandClass,
   hudTexture,
   hudDayOf,
+  hudHandDigest,
   hudIdPrefix,
   validHudProfile,
   type HudHandRecord,
@@ -269,28 +274,72 @@ describe('OpponentHudProfile: hand-constructed histories', () => {
     expect(applyHudHand(p, rec(later))).toBeNull();
     const early = { ...S1, id: 10, at: 1_800_000_000_000 + 100 * 60_000 - 60_000 };
     expect(applyHudHand(p, rec(early))).toBeNull();
-    const stale = { ...S1, id: 11, at: 1_800_000_000_000 + 100 * 60_000 - HUD_LATE_WINDOW_MS - 1 };
-    expect(applyHudHand(p, rec(stale))).toBe('stale');
-    expect(p.hands).toBe(3);
+    // older than the late window: the day list proves it was never counted, so it is counted now, once
+    const old = { ...S1, id: 11, at: 1_800_000_000_000 + 100 * 60_000 - HUD_LATE_WINDOW_MS - 1 };
+    expect(applyHudHand(p, rec(old))).toBeNull();
+    expect(applyHudHand(p, rec(old))).toBe('duplicate');
+    expect(p.hands).toBe(4);
+    // a row written before the day lists existed cannot prove it: the watermark rule refuses the old hand
+    const legacy = emptyHudProfile(U(5), 'plo5');
+    applyHudHand(legacy, rec(later));
+    delete legacy.days;
+    delete legacy.daysSince;
+    expect(applyHudHand(legacy, rec({ ...old, id: 12 }))).toBe('stale');
+    expect(legacy.hands).toBe(1);
   });
 
-  it('day lists record each applied hand; the reconciliation repair applies a stale missing hand once', () => {
+  it('the hand id is the idempotency key for every listed day: any order, any retry, past the id ring', () => {
+    const t = 1_800_000_000_000;
+    const specs = Array.from({ length: 200 }, (_, i) => ({
+      ...S1,
+      id: 1000 + i,
+      at: t + i * 20_000,
+    }));
+    const inOrder = emptyHudProfile(U(5), 'plo5');
+    for (const x of specs) expect(applyHudHand(inOrder, rec(x))).toBeNull();
+    // the same hands newest first, each delivered twice (a catch-up walking history under live hands, with retries)
+    const shuffled = emptyHudProfile(U(5), 'plo5');
+    for (const x of [...specs].reverse()) {
+      expect(applyHudHand(shuffled, rec(x))).toBeNull();
+      expect(applyHudHand(shuffled, rec(x))).toBe('duplicate');
+    }
+    // the first hand left the ring of recent ids long ago; the day list still refuses it
+    expect(inOrder.ids.includes(H(1000))).toBe(false);
+    expect(applyHudHand(inOrder, rec(specs[0]))).toBe('duplicate');
+    expect(shuffled.hands).toBe(200);
+    expect(shuffled.life).toEqual(inOrder.life);
+    expect(shuffled.recall).toEqual(inOrder.recall);
+    expect(shuffled.last).toEqual(inOrder.last);
+    expect(shuffled.dsum).toEqual(inOrder.dsum);
+    expect(shuffled.dsumSince).toBe(0);
+    // the day sum is what a rebuild from the raw rows gives
+    const day = hudDayOf(t);
+    let sum = 0;
+    for (const x of specs)
+      if (hudDayOf(x.at) === day) sum = (sum + hudHandDigest(U(5), rec(x))!) >>> 0;
+    expect(inOrder.dsum?.[day]).toBe(sum);
+    expect(hudHandDigest(U(77), rec(specs[0]))).toBeNull();
+    expect(validHudProfile(inOrder)).toBe(true);
+  });
+
+  it('day lists keep the newest HUD_DAYS_KEPT days; a hand of an older day cannot be proven and is refused', () => {
     const p = emptyHudProfile(U(5), 'plo5');
     const t = 1_800_000_000_000;
     applyHudHand(p, rec({ ...S1, id: 40, at: t }));
     const day = hudDayOf(t);
     expect(p.days?.[day]).toEqual([hudIdPrefix(H(40))]);
     expect(p.daysSince).toBe(t);
-    applyHudHand(p, rec({ ...S1, id: 41, at: t + 3 * 3600_000 }));
-    const missed = rec({ ...S1, id: 42, at: t + 60_000 });
-    expect(applyHudHand(p, missed)).toBe('stale');
-    expect(applyHudHand(p, missed, undefined, undefined, true)).toBeNull();
-    expect(applyHudHand(p, missed, undefined, undefined, true)).toBe('duplicate');
-    expect(p.hands).toBe(3);
-    // only the newest HUD_DAYS_KEPT days are kept
-    applyHudHand(p, rec({ ...S1, id: 43, at: t + 50 * 3600_000 }));
-    applyHudHand(p, rec({ ...S1, id: 44, at: t + 100 * 3600_000 }));
-    expect(Object.keys(p.days ?? {}).length).toBe(2);
+    for (const [i, h] of [30, 60, 90].entries())
+      expect(applyHudHand(p, rec({ ...S1, id: 43 + i, at: t + h * 3600_000 }))).toBeNull();
+    expect(HUD_DAYS_KEPT).toBe(3);
+    expect(Object.keys(p.days ?? {}).length).toBe(HUD_DAYS_KEPT);
+    expect(Object.keys(p.dsum ?? {}).sort()).toEqual(Object.keys(p.days ?? {}).sort());
+    expect(p.days?.[day]).toBeUndefined();
+    // a hand of the dropped day, never applied: no list can prove that, so it is refused and counted as stale
+    expect(applyHudHand(p, rec({ ...S1, id: 41, at: t + 60_000 }))).toBe('stale');
+    // a hand of the oldest listed day is still provable
+    expect(applyHudHand(p, rec({ ...S1, id: 42, at: t + 30 * 3600_000 + 1000 }))).toBeNull();
+    expect(p.hands).toBe(5);
     expect(validHudProfile(p)).toBe(true);
   });
 
@@ -616,48 +665,113 @@ describe('registry law', () => {
   });
 
   it('depth bands come from the public node stack', () => {
-    for (const [stack, band] of [
-      [100, 'd1'],
-      [200, 'd2'],
-      [400, 'd3'],
-    ] as const) {
-      const r = row({
-        id: 500 + stack,
-        button: 2,
-        seats: [
-          [1, 1, stack],
-          [2, 2, stack],
-        ],
-        acts: [
-          ['preflop', 2, 'sb', 1],
-          ['preflop', 1, 'bb', 2],
-          ['preflop', 2, 'raise', 6],
-          ['preflop', 1, 'fold', 0],
-        ],
-      });
-      (r.actions as Record<string, unknown>[])[2].publicNode = {
-        pot: 3,
-        toCall: 1,
-        currentBet: 2,
-        seats: [
-          [1, stack - 2, 2, 2, 0, 0, 0],
-          [2, stack - 1, 1, 1, 0, 0, 0],
-        ],
-      };
-      (r.actions as Record<string, unknown>[])[3].publicNode = {
-        pot: 8,
-        toCall: 4,
-        currentBet: 6,
-        seats: [
-          [1, stack - 2, 2, 2, 0, 0, 0],
-          [2, stack - 6, 6, 6, 0, 0, 0],
-        ],
-      };
-      const h = handRecordFromRow(r) as HudHandRecord;
+    for (const [stack, band] of DEPTH_STACKS) {
       const p = emptyHudProfile(U(2), 'plo5');
-      applyHudHand(p, h);
+      applyHudHand(p, depthHand(stack));
       expect(p.life[`pf.vpip@${band}`]).toEqual([1, 1]);
       expect(p.life[`pf.pfr@${band}`]).toEqual([1, 1]);
     }
+  });
+});
+
+const DEPTH_STACKS = [
+  [100, 'd1'],
+  [200, 'd2'],
+  [400, 'd3'],
+] as const;
+function depthHand(stack: number): HudHandRecord {
+  const r = row({
+    id: 500 + stack,
+    button: 2,
+    seats: [
+      [1, 1, stack],
+      [2, 2, stack],
+    ],
+    acts: [
+      ['preflop', 2, 'sb', 1],
+      ['preflop', 1, 'bb', 2],
+      ['preflop', 2, 'raise', 6],
+      ['preflop', 1, 'fold', 0],
+    ],
+  });
+  (r.actions as Record<string, unknown>[])[2].publicNode = {
+    pot: 3,
+    toCall: 1,
+    currentBet: 2,
+    seats: [
+      [1, stack - 2, 2, 2, 0, 0, 0],
+      [2, stack - 1, 1, 1, 0, 0, 0],
+    ],
+  };
+  (r.actions as Record<string, unknown>[])[3].publicNode = {
+    pot: 8,
+    toCall: 4,
+    currentBet: 6,
+    seats: [
+      [1, stack - 2, 2, 2, 0, 0, 0],
+      [2, stack - 6, 6, 6, 0, 0, 0],
+    ],
+  };
+  return handRecordFromRow(r) as HudHandRecord;
+}
+
+/**
+ * EVERY STATISTIC HAS ITS OWN TEST (owner 3:20 PM Nov 20: "SO THEY NEVER BREAK, REGRESS OR MAKE MISTAKES"; lane
+ * OPPONENT-HUD-4). One named test per registered statistic: its lifetime count over the constructed histories (every
+ * seat of every history, plus the three depth hands) must have an opportunity and equal its pinned row in
+ * OpponentHudProfile.stats.pinned.json. A statistic added to the registry without a pinned row fails here, and so
+ * does a pinned row whose statistic left the registry; a change of how any statistic is counted fails its own test.
+ * The pinned rows are written only by hand: HUD_WRITE_PINNED=1 npx vitest run src/engine/opponentHud/OpponentHudProfile.test.ts
+ */
+const PINNED_FILE = fileURLToPath(
+  new URL('./OpponentHudProfile.stats.pinned.json', import.meta.url)
+);
+function constructedCounts(): Record<string, [number, number]> {
+  const total: Record<string, [number, number]> = {};
+  const add = (p: OpponentHudProfile) => {
+    for (const [k, c] of Object.entries(p.life)) {
+      const cur = (total[k] ??= [0, 0]);
+      cur[0] += c[0];
+      cur[1] += c[1];
+    }
+  };
+  for (const s of generatedHistories()) {
+    const r = rec(s);
+    for (const u of s.seats) {
+      const p = emptyHudProfile(U(u[1]), 'plo5');
+      applyHudHand(p, r);
+      add(p);
+    }
+  }
+  for (const [stack] of DEPTH_STACKS)
+    for (const u of [1, 2]) {
+      const p = emptyHudProfile(U(u), 'plo5');
+      applyHudHand(p, depthHand(stack));
+      add(p);
+    }
+  return total;
+}
+describe('law: every statistic has its own test, and a new one cannot be added without one', () => {
+  const counts = constructedCounts();
+  if (process.env.HUD_WRITE_PINNED === '1') {
+    const rows: Record<string, [number, number]> = {};
+    for (const stat of [...HUD_STATS].sort()) rows[stat] = counts[stat] ?? [0, 0];
+    writeFileSync(PINNED_FILE, `${JSON.stringify(rows, null, 1)}\n`);
+  }
+  const pinned = (
+    existsSync(PINNED_FILE) ? JSON.parse(readFileSync(PINNED_FILE, 'utf8')) : {}
+  ) as Record<string, [number, number]>;
+  it.each([...HUD_STATS])(
+    '%s: an opportunity in the constructed histories, counted exactly as pinned',
+    (stat) => {
+      expect(pinned[stat], `statistic ${stat} has no pinned test row`).toBeDefined();
+      expect(counts[stat]?.[0] ?? 0).toBeGreaterThan(0);
+      expect(counts[stat]).toEqual(pinned[stat]);
+    }
+  );
+  it('the pinned table holds exactly the registry (the context statistics among them)', () => {
+    expect(Object.keys(pinned).sort()).toEqual([...HUD_STATS].sort());
+    expect(HUD_CONTEXT_STATS.length).toBeGreaterThanOrEqual(40);
+    for (const stat of HUD_CONTEXT_STATS) expect(pinned[stat][0]).toBeGreaterThan(0);
   });
 });

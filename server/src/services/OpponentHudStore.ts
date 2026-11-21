@@ -18,7 +18,11 @@
  * - nothing here throws to a caller and nothing blocks one: every database call is bounded (HUD_DB_TIMEOUT_MS), runs
  *   behind the caller and failures are counted (opponent_hud_load_failed / _persist_failed) and retried after a
  *   cool-down;
- * - a hand is applied exactly once (OpponentHudProfile.applyHudHand: id ring and watermark); a profile that failed to
+ * - a hand is applied exactly once, in any order (OpponentHudProfile.applyHudHand: the hand id is the idempotency key,
+ *   held in the id ring and the day lists); a load that succeeds after the ring of recent hands has moved past the
+ *   time the player was first asked for is followed by a hand_history catch-up from that time (loadGapCatchUp), so an
+ *   outage longer than the ring loses no hand; the nightly job only VERIFIES (rebuild from raw rows and compare: it
+ *   never writes a count; any difference raises OpponentHudDrift); a profile that failed to
  *   load is never updated (so a partial profile can never be written over the lifetime row); the database upsert
  *   refuses any row with fewer hands or an older watermark than the stored one, and a refused profile is reloaded;
  * - hands accepted while a profile loads are kept in a bounded ring (HUD_RING_MS) and applied to it once it arrives;
@@ -32,6 +36,7 @@ import {
   extractHandDeltas,
   handRecordFromRow,
   hudDayOf,
+  hudHandDigest,
   hudIdPrefix,
   validHudProfile,
   type HudFamily,
@@ -58,6 +63,8 @@ export const HUD_RETRY_MS = 15_000;
 export const HUD_CACHE_MAX = 6_000;
 export const HUD_RING_MS = 45 * 60 * 1000;
 export const HUD_RING_MAX = 20_000;
+/** a load-gap catch-up starts this long before the time the player was first asked for */
+export const HUD_LATE_WINDOW_SLACK_MS = 5 * 60_000;
 /** a profile is a few tens of KB of JSON: it is written at most every 30 minutes (and caught up from hand_history at
  *  boot, HUD_BOOT_CATCHUP_MS), so the write volume stays small and a restart loses nothing */
 export const HUD_PERSIST_MS = 30 * 60_000;
@@ -168,8 +175,23 @@ export class OpponentHudStore {
   private reconciledDay: string | null = null;
   private reconciling = false;
   private alertTimer: ReturnType<typeof setInterval> | null = null;
-  /** the last reconciliation: day, profiles compared, players with drift, hands repaired */
-  lastReconcile: { day: string; compared: number; drifted: number; repaired: number } | null = null;
+  /** the last nightly verification: day, profiles compared, players that differ, hands hand_history holds that a
+   *  profile did not count (missed), hands a profile counted that hand_history does not hold (extra), players whose
+   *  day sum differs from the rebuild with the same hands (miscounted). Nothing is ever repaired here. */
+  lastReconcile: {
+    day: string;
+    compared: number;
+    drifted: number;
+    missed: number;
+    extra: number;
+    miscounted: number;
+  } | null = null;
+  /** the time of the newest hand the ring has dropped: a profile first asked for before it may have missed hands */
+  private ringDroppedAt = -1;
+  private gapCatchUp: Promise<void> | null = null;
+  private gapFrom: number | null = null;
+  /** load-gap catch-ups run (operator report) */
+  gapCatchUps = 0;
   private armedState = false;
   /** the migration is not installed: nothing is read or written until this time (re-probed every 10 minutes) */
   private disabledUntil = 0;
@@ -363,7 +385,7 @@ export class OpponentHudStore {
             st.pausedMs += pause;
           }
           await yieldToSeats();
-          await this.load(cold.slice(i, i + 50), family);
+          await this.load(cold.slice(i, i + 50), family, fromMs);
           out.loaded += Math.min(50, cold.length - i);
         }
       }
@@ -437,7 +459,8 @@ export class OpponentHudStore {
     this.cache.set(k, e);
   }
 
-  private async load(users: string[], family: HudFamily): Promise<void> {
+  /** `coveredFrom`: the caller is a hand_history catch-up from that time, which will apply these players' hands */
+  private async load(users: string[], family: HudFamily, coveredFrom?: number): Promise<void> {
     const startedAt = this.deps.now();
     for (const u of users)
       this.cache.set(key(family, u), { state: 'loading', requestedAt: startedAt });
@@ -452,13 +475,21 @@ export class OpponentHudStore {
           byUser.set(r.user_id, r.profile);
       }
       const now = this.deps.now();
+      let gapFrom: number | null = null;
       for (const u of users) {
         // a player without a stored row (new, or not yet backfilled) starts empty: the population prior
         const profile = byUser.get(u) ?? emptyHudProfile(u, family);
         for (const h of this.ring) if (h.family === family) applyHudHand(profile, h);
+        // asked for before the oldest hand the ring still holds: the hands he played meanwhile are read back from
+        // hand_history (each still once)
+        const askedAt = this.asked.get(key(family, u))?.at;
+        if (askedAt !== undefined && askedAt <= this.ringDroppedAt)
+          gapFrom = Math.min(gapFrom ?? askedAt, askedAt);
         this.setReady(family, u, profile, now);
       }
       noteFire('opponent_hud_load_ok');
+      if (gapFrom !== null && !(coveredFrom !== undefined && coveredFrom <= gapFrom))
+        this.loadGapCatchUp(gapFrom);
     } catch (error) {
       const now = this.deps.now();
       if (error instanceof Error && error.message === HUD_SCHEMA_MISSING) {
@@ -473,6 +504,23 @@ export class OpponentHudStore {
     } finally {
       clearTimeout(t);
     }
+  }
+
+  /** One catch-up at a time from the earliest gap asked for; a gap noted while one runs starts the next. Never throws. */
+  private loadGapCatchUp(fromMs: number): void {
+    this.gapFrom = Math.min(this.gapFrom ?? fromMs, fromMs);
+    if (this.gapCatchUp || !this.armedState) return;
+    const from = this.gapFrom - HUD_LATE_WINDOW_SLACK_MS;
+    this.gapFrom = null;
+    noteFire('opponent_hud_gap_catchup');
+    this.gapCatchUps += 1;
+    this.gapCatchUp = this.catchUpInto(from, null)
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        this.gapCatchUp = null;
+        if (this.gapFrom !== null) this.loadGapCatchUp(this.gapFrom);
+      });
   }
 
   private setReady(family: HudFamily, u: string, profile: OpponentHudProfile, now: number): void {
@@ -599,8 +647,10 @@ export class OpponentHudStore {
       if (typeof rec === 'string') return 0;
       this.ring.push(rec);
       const cutoff = rec.at - HUD_RING_MS;
-      while (this.ring.length && (this.ring.length > HUD_RING_MAX || this.ring[0].at < cutoff))
-        this.ring.shift();
+      while (this.ring.length && (this.ring.length > HUD_RING_MAX || this.ring[0].at < cutoff)) {
+        const dropped = this.ring.shift()!;
+        if (dropped.at > this.ringDroppedAt) this.ringDroppedAt = dropped.at;
+      }
       const deltas = extractHandDeltas(rec);
       let updated = 0;
       for (const d of deltas) {
@@ -884,16 +934,25 @@ export class OpponentHudStore {
   }
 
   /**
-   * NIGHTLY RECONCILIATION: compare, for every player dealt into a PLO4/PLO5 cash hand on that Chicago day, the hands
-   * hand_history holds with the hands his profile applied (its day list), apply every missing hand (repair, each
-   * still once), and raise OpponentHudDrift when any player had one (resolved by the next clean night). Hands with no
-   * person are purged after 7 days, so the day is reconciled while all of its hands still exist. A profile whose day
-   * lists started after that day is skipped (it cannot prove what it applied). Never throws.
+   * NIGHTLY VERIFICATION (rebuild and compare; it never writes a count). For every player dealt into a PLO4/PLO5 cash
+   * hand on that Chicago day, the day is rebuilt from the raw hand_history rows (which hands he was dealt, and the
+   * sum of what each adds to a profile, hudHandDigest) and compared with what his profile recorded when it counted
+   * them (its day list and day sum): a hand hand_history holds that the profile did not count (missed), a hand the
+   * profile counted that hand_history does not hold (extra), or the same hands with a different sum (miscounted)
+   * raises OpponentHudDrift, resolved by the next clean night. NOTHING IS REPAIRED HERE (owner's standard: no job
+   * stands in place of a fix): the counter is exactly-once at its root (applyHudHand, loadGapCatchUp); a difference is
+   * a defect to be found, and the profiles are rebuilt by the operator backfill once it is. Hands with no person are
+   * purged after 7 days, so the day is verified while all of its hands still exist. A profile whose day lists started
+   * after that day began is skipped (it cannot prove what it counted). Never throws.
    */
-  async reconcileDay(
-    day: string
-  ): Promise<{ compared: number; drifted: number; repaired: number }> {
-    const out = { compared: 0, drifted: 0, repaired: 0 };
+  async reconcileDay(day: string): Promise<{
+    compared: number;
+    drifted: number;
+    missed: number;
+    extra: number;
+    miscounted: number;
+  }> {
+    const out = { compared: 0, drifted: 0, missed: 0, extra: 0, miscounted: 0 };
     if (!this.deps.handsPage || this.reconciling) return out;
     this.reconciling = true;
     try {
@@ -904,46 +963,50 @@ export class OpponentHudStore {
       while (hudDayOf(start - 60_000) === day) start -= 60_000;
       let end = start + 22 * 3600_000;
       while (hudDayOf(end) === day) end += 60_000;
-      const walk = async (visit: (rec: HudHandRecord) => void): Promise<boolean> => {
-        let afterAt = new Date(start - 1).toISOString();
-        let afterId = '00000000-0000-0000-0000-000000000000';
-        for (let page = 0; page < 400; page++) {
-          const ac = new AbortController();
-          const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-          (t as { unref?: () => void }).unref?.();
-          try {
-            const rows = await this.deps.handsPage!(
-              afterAt,
-              afterId,
-              1000,
-              ac.signal,
-              new Date(end - 1).toISOString()
-            );
-            if (!Array.isArray(rows) || !rows.length) return true;
-            for (const r of rows) {
-              const rec = handRecordFromRow(r);
-              if (typeof rec !== 'string' && hudDayOf(rec.at) === day) visit(rec);
-            }
-            afterAt = rows[rows.length - 1].created_at;
-            afterId = rows[rows.length - 1].id;
-            if (rows.length < 1000) return true;
-          } finally {
-            clearTimeout(t);
+      // the rebuild: per player, the hands he was dealt and the sum of their digests, from the raw rows
+      const expected = new Map<string, { ids: Set<string>; sum: number }>();
+      let afterAt = new Date(start - 1).toISOString();
+      let afterId = '00000000-0000-0000-0000-000000000000';
+      let complete = false;
+      for (let page = 0; page < 400 && !complete; page++) {
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
+        (t as { unref?: () => void }).unref?.();
+        try {
+          const rows = await this.deps.handsPage(
+            afterAt,
+            afterId,
+            1000,
+            ac.signal,
+            new Date(end - 1).toISOString()
+          );
+          if (!Array.isArray(rows) || !rows.length) {
+            complete = true;
+            break;
           }
+          for (const r of rows) {
+            const rec = handRecordFromRow(r);
+            if (typeof rec === 'string' || hudDayOf(rec.at) !== day) continue;
+            const deltas = extractHandDeltas(rec);
+            for (const d of deltas) {
+              const k = key(rec.family, d.user);
+              let e = expected.get(k);
+              if (!e) expected.set(k, (e = { ids: new Set(), sum: 0 }));
+              const prefix = hudIdPrefix(rec.id);
+              if (e.ids.has(prefix)) continue;
+              e.ids.add(prefix);
+              e.sum = (e.sum + (hudHandDigest(d.user, rec, deltas) ?? 0)) >>> 0;
+            }
+          }
+          afterAt = rows[rows.length - 1].created_at;
+          afterId = rows[rows.length - 1].id;
+          if (rows.length < 1000) complete = true;
+        } finally {
+          clearTimeout(t);
         }
-        return false;
-      };
-      // pass 1: who was dealt into what
-      const expected = new Map<string, Set<string>>();
-      const ok = await walk((rec) => {
-        for (const seat of rec.seats) {
-          const k = key(rec.family, seat.userId);
-          let set = expected.get(k);
-          if (!set) expected.set(k, (set = new Set()));
-          set.add(hudIdPrefix(rec.id));
-        }
-      });
-      if (!ok) throw new Error('reconciliation page limit');
+        await new Promise<void>((r) => setImmediate(r));
+      }
+      if (!complete) throw new Error('verification page limit');
       // every player of the day warm (bounded loads), then compare
       for (const family of HUD_FAMILIES) {
         // only players not already warm: a warm profile holds hands not yet saved and is never replaced
@@ -952,7 +1015,6 @@ export class OpponentHudStore {
           .map((k) => k.slice(family.length + 1));
         for (let i = 0; i < users.length; i += 50) await this.load(users.slice(i, i + 50), family);
       }
-      const missing = new Map<string, Set<string>>();
       for (const [k, want] of expected) {
         const e = this.cache.get(k);
         if (e?.state !== 'ready') continue;
@@ -960,39 +1022,30 @@ export class OpponentHudStore {
         if (p.daysSince === undefined || p.daysSince >= start) continue;
         out.compared += 1;
         const have = new Set(p.days?.[day] ?? []);
-        const lack = [...want].filter((x) => !have.has(x));
-        if (lack.length) missing.set(k, new Set(lack));
+        let missed = 0;
+        let extra = 0;
+        for (const x of want.ids) if (!have.has(x)) missed += 1;
+        for (const x of have) if (!want.ids.has(x)) extra += 1;
+        const sumKnown = p.dsumSince !== undefined && p.dsumSince < start;
+        const miscounted =
+          missed === 0 && extra === 0 && sumKnown && (p.dsum?.[day] ?? 0) !== want.sum ? 1 : 0;
+        out.missed += missed;
+        out.extra += extra;
+        out.miscounted += miscounted;
+        if (missed || extra || miscounted) out.drifted += 1;
       }
-      out.drifted = missing.size;
-      // pass 2: apply the missing hands (repair), each once
-      if (missing.size)
-        await walk((rec) => {
-          const prefix = hudIdPrefix(rec.id);
-          const deltas = extractHandDeltas(rec);
-          for (const d of deltas) {
-            const k = key(rec.family, d.user);
-            if (!missing.get(k)?.has(prefix)) continue;
-            const e = this.cache.get(k);
-            if (
-              e?.state === 'ready' &&
-              applyHudHand(e.profile, rec, deltas, undefined, true) === null
-            ) {
-              e.dirty = true;
-              out.repaired += 1;
-            }
-          }
-        });
       this.lastReconcile = { day, ...out };
       noteFire(out.drifted ? 'opponent_hud_reconcile_drift' : 'opponent_hud_reconcile_clean');
       this.setAlert(
         'OpponentHudDrift',
         out.drifted > 0,
-        `reconciliation of ${day}: ${out.drifted} of ${out.compared} opponent profiles missed hands (${out.repaired} applied now)`
+        `verification of ${day} against hand_history: ${out.drifted} of ${out.compared} opponent profiles differ ` +
+          `(${out.missed} hands not counted, ${out.extra} counted but not in hand_history, ${out.miscounted} profiles ` +
+          `with a different day sum); nothing was rewritten: find the cause, then rebuild with scripts/opponent-hud-build.ts`
       );
-      if (out.repaired) void this.persist();
     } catch {
       noteFire('opponent_hud_reconcile_failed');
-      this.setAlert('OpponentHudDrift', true, `reconciliation of ${day} could not complete`);
+      this.setAlert('OpponentHudDrift', true, `verification of ${day} could not complete`);
     } finally {
       this.reconciling = false;
     }

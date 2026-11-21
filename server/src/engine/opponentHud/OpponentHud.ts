@@ -21,6 +21,9 @@ import {
   HUD_RECENCY_HALF_LIFE_MS,
   HUD_STATS,
   HUD_CONTEXT_STATS,
+  HUD_SESSION_GAP_MS,
+  HUD_SESSION_STATS,
+  type HudSessionSums,
   hudStatIsRegistered,
   recallKeys,
   type HudBand,
@@ -56,6 +59,10 @@ export interface HudPacketOpponent {
   rc: Record<string, HudRecallCell>;
   /** raw lifetime counts of the context statistics with at least one opportunity (absent when none) */
   lc?: Record<string, HudCount>;
+  /** his session sums of responses to a street's first wager (HudSessionSums; absent before his first response).
+   *  Store only (2026-11-21): hudStat, hudStatIn and every other read are unchanged by it; hudSessionRecord returns
+   *  it for the FADE cold-start estimator once that estimator is confirmed. */
+  ss?: HudSessionSums;
 }
 export interface OpponentHudPacket {
   v: typeof HUD_PACKET_VERSION;
@@ -115,7 +122,24 @@ export function buildHudPacketOpponent(
     const c = p.life[stat];
     if (c && c[0] > 0) lc[stat] = [c[0], Math.min(c[0], c[1])];
   }
-  return Object.keys(lc).length ? { hands: p.hands, eff, rc, lc } : { hands: p.hands, eff, rc };
+  const out: HudPacketOpponent = Object.keys(lc).length
+    ? { hands: p.hands, eff, rc, lc }
+    : { hands: p.hands, eff, rc };
+  if (p.ses) {
+    const r6 = (x: number): number => Math.round(x * 1e6) / 1e6;
+    const st: Record<string, HudCount> = {};
+    for (const k of Object.keys(p.ses.st).sort()) st[k] = [p.ses.st[k][0], p.ses.st[k][1]];
+    out.ss = {
+      at: p.ses.at,
+      m: p.ses.m,
+      sW: r6(p.ses.sW),
+      sSw: r6(p.ses.sSw),
+      n: p.ses.n,
+      f: p.ses.f,
+      st,
+    };
+  }
+  return out;
 }
 
 /**
@@ -156,6 +180,13 @@ export function validHudPacket(x: unknown): x is OpponentHudPacket {
   for (const o of Object.values(p.opp)) {
     if (!o || typeof o !== 'object' || !Number.isSafeInteger(o.hands)) return false;
     if (!o.eff || typeof o.eff !== 'object' || !o.rc || typeof o.rc !== 'object') return false;
+    if (o.ss !== undefined) {
+      const x = o.ss as unknown as Record<string, unknown>;
+      if (!x || typeof x !== 'object' || !x.st || typeof x.st !== 'object') return false;
+      for (const k of ['at', 'm', 'sW', 'sSw', 'n', 'f'])
+        if (typeof x[k] !== 'number' || !Number.isFinite(x[k]) || (x[k] as number) < 0)
+          return false;
+    }
   }
   return true;
 }
@@ -386,6 +417,54 @@ export function hudFirstWagerRecord(
         sizeSum: Math.round(2 * (sz ? sz[1] : 0) * 1000) / 1000,
       },
       firstToAct: { bets: ld.hits, opps: ld.n },
+    };
+  } catch {
+    return null;
+  }
+}
+/**
+ * His session sums of responses to a street's first wager, as of the decision in flight (store only: nothing calls
+ * this yet). `atMs` is the decision time: when his last response is more than HUD_SESSION_GAP_MS before it the
+ * session is over, so the session sums read as zero and his whole lifetime is the prior (`prior` = lifetime counts
+ * of the sessions before the current one, over the twelve first-wager statistics). Null with no packet or opponent.
+ * Never throws.
+ */
+export function hudSessionRecord(
+  opponentId: string,
+  family: HudFamily,
+  atMs: number
+): {
+  m: number;
+  sW: number;
+  sSw: number;
+  session: { n: number; f: number };
+  prior: { n: number; f: number };
+  live: boolean;
+} | null {
+  try {
+    const o = installed && installed.family === family ? installed.opp[opponentId] : undefined;
+    if (!o) return null;
+    let n = 0;
+    let f = 0;
+    for (const stat of HUD_SESSION_STATS) {
+      const c = o.lc?.[stat];
+      if (c) {
+        n += c[0];
+        f += Math.min(c[0], c[1]);
+      }
+    }
+    const ss = o.ss;
+    const live =
+      !!ss && Number.isFinite(atMs) && atMs - ss.at <= HUD_SESSION_GAP_MS && ss.n <= n && ss.f <= f;
+    if (!ss || !live)
+      return { m: 0, sW: 0, sSw: 0, session: { n: 0, f: 0 }, prior: { n, f }, live: false };
+    return {
+      m: ss.m,
+      sW: ss.sW,
+      sSw: ss.sSw,
+      session: { n: ss.n, f: ss.f },
+      prior: { n: n - ss.n, f: f - ss.f },
+      live: true,
     };
   } catch {
     return null;

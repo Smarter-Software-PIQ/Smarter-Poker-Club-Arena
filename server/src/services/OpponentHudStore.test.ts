@@ -1,4 +1,6 @@
 /** OPPONENT HUD STORE (2026-11-20, lane OPPONENT-HUD): event loading, the 15-second deadline, hardening. */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
 import {
@@ -6,6 +8,7 @@ import {
   HUD_CATCHUP_PAGE_ROWS,
   HUD_CATCHUP_PAUSE_MS,
   HUD_READY_DEADLINE_MS,
+  HUD_RING_MS,
   OpponentHudStore,
   type HudStoredRow,
   type OpponentHudStoreDeps,
@@ -494,7 +497,7 @@ describe('OpponentHudStore', () => {
     ]);
   });
 
-  it('nightly reconciliation applies a hand the profile missed, raises drift, and resolves on a clean night', async () => {
+  it('nightly verification rebuilds the day from the raw rows and compares; any difference alerts; it never writes a count', async () => {
     const alerts: [string, boolean][] = [];
     const stored = new Map<string, HudStoredRow>();
     const deps = fakeDeps(stored);
@@ -505,30 +508,70 @@ describe('OpponentHudStore', () => {
       row(60_002, 1, 2, day0 + 60_000),
       row(60_003, 1, 2, day0 + 120_000),
     ];
+    let history = hands;
     deps.handsPage = async (
       afterAt: string,
       _id: string,
       _l: number,
       _s: AbortSignal,
       until?: string
-    ) => hands.filter((r) => r.created_at > afterAt && (!until || r.created_at <= until));
+    ) => history.filter((r) => r.created_at > afterAt && (!until || r.created_at <= until));
     const store = new OpponentHudStore(deps);
+    // armed with no history to catch up, then the profiles track days from the day before
+    history = [];
     store.setArmed(true);
-    // the profiles track days from the day before; hand 60_002 never reached the engine
+    await flush();
     store.warm([U(1), U(2)], 'plo5', 'sit');
     await flush();
     store.onAcceptedHand(row(59_000, 1, 2, day0 - 86_400_000));
     store.onAcceptedHand(hands[0]);
     store.onAcceptedHand(hands[2]);
+    history = hands;
+    const before = JSON.stringify(store.profile(U(1), 'plo5'));
+    const writes = deps.upserts.length;
+    // hand 60_002 never reached the engine: reported, NOT applied
+    expect(await store.reconcileDay('2027-01-14')).toEqual({
+      compared: 2,
+      drifted: 2,
+      missed: 2,
+      extra: 0,
+      miscounted: 0,
+    });
+    expect(JSON.stringify(store.profile(U(1), 'plo5'))).toBe(before);
     expect(store.profile(U(1), 'plo5')!.hands).toBe(3);
-    const r = await store.reconcileDay('2027-01-14');
-    expect(r).toEqual({ compared: 2, drifted: 2, repaired: 2 });
+    expect(deps.upserts.length).toBe(writes);
+    // the root path counts it (the hand arrives late, out of order): the next verification is clean
+    store.onAcceptedHand(hands[1]);
     expect(store.profile(U(1), 'plo5')!.hands).toBe(4);
+    expect((await store.reconcileDay('2027-01-14')).drifted).toBe(0);
+    // a hand counted that hand_history does not hold
+    history = hands.slice(0, 2);
+    expect(await store.reconcileDay('2027-01-14')).toMatchObject({
+      drifted: 2,
+      extra: 2,
+      missed: 0,
+    });
+    // the same hands, a different sum (a count that is not what the raw rows give)
+    history = hands;
+    store.profile(U(1), 'plo5')!.dsum!['2027-01-14'] += 1;
+    expect(await store.reconcileDay('2027-01-14')).toMatchObject({ drifted: 1, miscounted: 1 });
+    store.profile(U(1), 'plo5')!.dsum!['2027-01-14'] -= 1;
     expect((await store.reconcileDay('2027-01-14')).drifted).toBe(0);
     expect(alerts).toEqual([
       ['OpponentHudDrift', true],
       ['OpponentHudDrift', false],
+      ['OpponentHudDrift', true],
+      ['OpponentHudDrift', false],
     ]);
+    const src = readFileSync(
+      fileURLToPath(new URL('./OpponentHudStore.ts', import.meta.url)),
+      'utf8'
+    );
+    const body = src.slice(
+      src.indexOf('async reconcileDay('),
+      src.indexOf('/** Operator / metrics snapshot. */')
+    );
+    expect(body).not.toMatch(/applyHudHand|\.dirty|persist\(|upsert\(/);
   });
 
   it('boot prewarm loads stored profiles and the population priors', async () => {
@@ -550,5 +593,160 @@ describe('OpponentHudStore', () => {
     store.setArmed(true);
     expect(await store.prewarm()).toBeGreaterThanOrEqual(1);
     expect(store.ready(U(1), 'plo5')).toBe(true);
+  });
+});
+
+/**
+ * OWNER REQUIREMENTS (3:20 PM Chicago Nov 20; lane OPPONENT-HUD-4, Nov 21): the laws the earlier blocks did not hold.
+ */
+describe('OpponentHudStore: owner requirements (15 seconds on every seat change; never miscounts; live counters)', () => {
+  const ask = (store: OpponentHudStore, opp: number) =>
+    store.packetFor({
+      family: 'plo5',
+      cash: true,
+      heroId: U(9),
+      opponentIds: [U(opp)],
+      street: 'flop',
+      atMs: T0,
+    });
+
+  it.each(['sit', 'move', 'lightning', 'hand', 'boot'] as const)(
+    'a %s starts the load at the seat change: ready ahead of the first decision, with its own load-time counter',
+    async (event) => {
+      enableBrainTelemetry();
+      const stored = new Map([[`plo5|${U(1)}`, lifetime(1, 40)]]);
+      const deps = fakeDeps(stored);
+      const store = new OpponentHudStore(deps);
+      store.setArmed(true);
+      await flush();
+      drainFires();
+      store.warm([U(1)], 'plo5', event);
+      await flush();
+      expect(store.ready(U(1), 'plo5')).toBe(true);
+      const pk = ask(store, 1).opponentHud!;
+      expect(pk.opp[U(1)]).toBeDefined();
+      const fires = drainFires().map((f) => f.feature);
+      expect(fires).toContain(`opponent_hud_event_${event}`);
+      expect(fires).toContain(`opponent_hud_ready_${event}_ms_le100`);
+      expect(fires).toContain('opponent_hud_ready_ms_le100');
+      // the share of decisions with the profile ready: one ready, none missing or late
+      expect(fires).toContain('opponent_hud_packet_opponent_ready');
+      expect(fires.some((f) => /packet_opponent_(missing|late)/.test(f))).toBe(false);
+      expect(store.readyLatencies.at(-1)).toBeLessThanOrEqual(HUD_READY_DEADLINE_MS);
+    }
+  );
+
+  it.each(['sit', 'move', 'lightning', 'hand', 'boot'] as const)(
+    'a %s whose profile is still not ready after 15 seconds: every such decision is counted late and alerts',
+    async (event) => {
+      enableBrainTelemetry();
+      const alerts: [string, boolean][] = [];
+      const deps = fakeDeps(new Map(), { hang: true });
+      deps.alert = (name, firing) => alerts.push([name, firing]);
+      const store = new OpponentHudStore(deps);
+      store.setArmed(true);
+      drainFires();
+      store.warm([U(1)], 'plo5', event);
+      deps.tick(HUD_READY_DEADLINE_MS);
+      expect(ask(store, 1).opponentHud!.opp[U(1)]).toBeUndefined();
+      expect(drainFires().map((f) => f.feature)).toContain('opponent_hud_packet_opponent_missing');
+      deps.tick(1);
+      // the decision is answered at once on the population read, never waiting on the store
+      const t0 = Date.now();
+      expect(ask(store, 1).opponentHud!.opp[U(1)]).toBeUndefined();
+      expect(Date.now() - t0).toBeLessThan(50);
+      expect(drainFires().map((f) => f.feature)).toContain('opponent_hud_packet_opponent_late');
+      store.tickAlerts();
+      expect(alerts).toContainEqual(['OpponentHudProfileLate', true]);
+    }
+  );
+
+  it('a catch-up walking old hands while live hands arrive counts every hand once; none is refused as stale', async () => {
+    enableBrainTelemetry();
+    const stored = new Map([[`plo5|${U(1)}`, lifetime(1, 10)]]);
+    const deps = fakeDeps(stored);
+    deps.tick(2 * 86_400_000);
+    const old = Array.from({ length: 30 }, (_, i) =>
+      row(70_000 + i, 1, 2, T0 + 3_600_000 + i * 60_000)
+    );
+    deps.handsPage = async (afterAt: string) => old.filter((r) => r.created_at > afterAt);
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    store.warm([U(1)], 'plo5', 'sit');
+    await flush();
+    drainFires();
+    // a live hand first (the watermark is now two days ahead of the history still to be walked)
+    store.onAcceptedHand(row(80_000, 1, 3, T0 + 2 * 86_400_000));
+    await store.catchUp(new Date(T0).toISOString());
+    await store.catchUp(new Date(T0).toISOString());
+    for (let i = 0; i < 100 && store.catchupStats.pages < 2; i++) await flush();
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(10 + 30 + 1);
+    expect(drainFires().map((f) => f.feature)).not.toContain('opponent_hud_apply_stale');
+  });
+
+  it('a load that succeeds after the ring of recent hands moved on reads the gap back from hand_history, once', async () => {
+    const opts = { fail: true };
+    const deps = fakeDeps(new Map(), opts);
+    const played = [row(90_001, 1, 2, T0 + 1000), row(90_002, 1, 2, T0 + 2000)];
+    const elsewhere = row(90_003, 3, 4, T0 + HUD_RING_MS + 60_000);
+    deps.handsPage = async (afterAt: string) =>
+      [...played, elsewhere].filter((r) => r.created_at > afterAt);
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    await flush();
+    // the database is down while he sits and plays two hands; the ring then moves past them
+    store.warm([U(1)], 'plo5', 'sit');
+    await flush();
+    for (const h of played) store.onAcceptedHand(h);
+    deps.tick(HUD_RING_MS + 60_000);
+    store.onAcceptedHand(elsewhere);
+    expect(store.stats().ring).toBe(1);
+    opts.fail = false;
+    store.warm([U(1)], 'plo5', 'hand');
+    for (let i = 0; i < 400 && store.profile(U(1), 'plo5')?.hands !== 2; i++)
+      await new Promise((r) => setTimeout(r, 5));
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(2);
+    expect(store.gapCatchUps).toBe(1);
+    // read again (a retry): nothing is counted twice
+    await store.catchUp(new Date(T0).toISOString());
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(2);
+  });
+
+  it('the engine wires every seat change to the load and no decision path awaits the store', () => {
+    const code = (rel: string) =>
+      readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
+    // sit-down, table move and Lightning conversion all adopt a seat roster; each hand start; each Lightning hand
+    expect(code('engine/ServerTableEngineBase.ts')).toMatch(
+      /adoptSeatRoster\(nextRoster: SeatedPlayer\[\]\): string\[\] \{[\s\S]{0,900}?warmOpponentHudSeats\(\s*nextRoster\.map/
+    );
+    expect(code('engine/ServerTableEngineHandEvents.ts')).toMatch(
+      /warmOpponentHudSeats\(\s*players\.map\(\(p\) => p\.user_id\),[\s\S]{0,120}?'hand'/
+    );
+    expect(code('lightning/LightningHandHost.ts')).toMatch(
+      /warmOpponentHudSeats\(\s*\[\.\.\.this\.participants\.keys\(\)\],[\s\S]{0,80}?'lightning'/
+    );
+    // boot and cutover: the lane starts the store and every switch delivery arms it (activation catches up)
+    const lane = code('engine/horseDecision/lane.ts');
+    expect(lane).toMatch(/startOpponentHudStore\(\)/);
+    expect(lane).toMatch(/armOpponentHudFromSwitch\(message\)/);
+    // every accepted hand reaches the profiles
+    expect(code('services/supabase/handHistory.ts')).toMatch(/opponentHudOnAcceptedHand\(/);
+    // the decision takes what is warm: the snapshot field is spread synchronously, never awaited
+    for (const f of ['engine/ServerTableEngineTurns.ts', 'lightning/LightningHorse.ts']) {
+      const src = code(f);
+      expect(src).toMatch(/\.\.\.opponentHudSnapshotField\(/);
+      expect(src).not.toMatch(/await\s+opponentHudSnapshotField|await\s+warmOpponentHudSeats/);
+    }
+    const store = code('services/OpponentHudStore.ts');
+    const packetFor = store.slice(
+      store.indexOf('  packetFor(input: {'),
+      store.indexOf('  onAcceptedHand(row: unknown)')
+    );
+    expect(packetFor).not.toMatch(/\bawait\b|\basync\b/);
+    const field = store.slice(
+      store.indexOf('export function opponentHudSnapshotField('),
+      store.indexOf('export function armOpponentHudFromSwitch(')
+    );
+    expect(field).not.toMatch(/\bawait\b|\basync\b/);
   });
 });

@@ -579,10 +579,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   }
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
+    this.lastStyleSwitch = message;
     // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while the reading the
     // workers get has omahaOpponentLifetimeHud on (an unreadable reading disarms; never throws).
     armOpponentHudFromSwitch(message);
-    this.lastStyleSwitch = message;
     for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {

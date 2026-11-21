@@ -54,6 +54,18 @@ async function main() {
   console.log(
     `OPPONENT HUD ${family} ${user}  lifetime hands ${p.hands}  last hand ${new Date(p.wm).toISOString()}`
   );
+  const listed = Object.entries(p.days ?? {})
+    .sort()
+    .map(([d, ids]) => `${d}: ${ids.length}`)
+    .join(', ');
+  console.log(
+    `hands counted on the listed days (the idempotency key and the nightly verification): ${listed || 'none'}`
+  );
+  console.log(
+    p.ses
+      ? `current session (responses to a first wager): ${p.ses.m} responses, ${p.ses.f} folds, last ${new Date(p.ses.at).toISOString()}`
+      : 'current session (responses to a first wager): none'
+  );
   console.log(
     'stat'.padEnd(18),
     'raw'.padStart(7),

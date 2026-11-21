@@ -3,12 +3,17 @@
  * per-opponent counts through the ONE accessor (hudStat / hudStatIn), from public history only, shrunk by n / (n + k)
  * with no sample cliff; the offline as-of builder returns the same counts (countsBefore).
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   applyHudHand,
   emptyHudProfile,
   extractHandDeltas,
   handRecordFromRow,
+  HUD_SESSION_DECAY,
+  HUD_SESSION_GAP_MS,
+  HUD_SESSION_STATS,
   HUD_STATS,
   type HudHandRecord,
 } from './OpponentHudProfile.js';
@@ -18,6 +23,7 @@ import {
   hudContextStatId,
   hudFirstWagerRecord,
   hudLifetimeCount,
+  hudSessionRecord,
   hudStat,
   hudStatIn,
   installDecisionHud,
@@ -259,5 +265,124 @@ describe('context reads: MATHCORE-2 fold to the first wager, STAB-DEFENCE stab a
     const rec = handRecordFromRow(withCards) as HudHandRecord;
     expect(JSON.stringify(rec)).not.toContain('Qx');
     expect(extractHandDeltas(rec).length).toBe(2);
+  });
+});
+
+/**
+ * SESSION SUMS IN THE PACKET (2026-11-21, lane OPPONENT-HUD-4): the store carries what the FADE cold-start estimator
+ * needs; nothing reads it for a decision. Additive: every existing read answers exactly as without it.
+ */
+describe('session sums of responses to a first wager (store only, additive)', () => {
+  // seat 1 answers seat 2's flop bet: fold (1) or call (0); the hand's time is T0 + id seconds
+  const resp = (id: number, fold: 0 | 1, bet = 2) =>
+    hu(id, [
+      ['flop', 1, 'check', 0],
+      ['flop', 2, 'bet', bet],
+      ['flop', 1, fold ? 'fold' : 'call', fold ? 0 : bet],
+    ]);
+  const ys: (0 | 1)[] = [1, 0, 0, 1, 1, 0, 1];
+
+  it("the sums are the measurement's recurrence: decay per response, raw session counts, one sequence over sizes", () => {
+    const p = emptyHudProfile(U(1), 'plo5');
+    let sW = 0;
+    let sSw = 0;
+    ys.forEach((y, i) => {
+      applyHudHand(p, handRecordFromRow(resp(10 + i, y, i % 2 ? 4 : 2)) as HudHandRecord);
+      sSw = sSw * HUD_SESSION_DECAY + y;
+      sW = sW * HUD_SESSION_DECAY + 1;
+    });
+    expect(HUD_SESSION_STATS.length).toBe(12);
+    expect(HUD_SESSION_DECAY).toBeCloseTo(0.5 ** (1 / 30), 12);
+    expect(p.ses).toMatchObject({ at: T0 + 16_000, m: 7, n: 7, f: 4 });
+    expect(p.ses!.sW).toBeCloseTo(sW, 12);
+    expect(p.ses!.sSw).toBeCloseTo(sSw, 12);
+    expect(p.ses!.st).toEqual({ 'f.fb.sm.hu': [4, 3], 'f.fb.bg.hu': [3, 1] });
+    // the bettor made no response to a first wager: no session layer for him
+    const bettor = life(
+      ys.map((y, i) => resp(10 + i, y)),
+      2
+    );
+    expect(bettor.ses).toBeUndefined();
+    // a retry changes nothing
+    const snap = JSON.stringify(p.ses);
+    expect(applyHudHand(p, handRecordFromRow(resp(12, 0)) as HudHandRecord)).toBe('duplicate');
+    expect(JSON.stringify(p.ses)).toBe(snap);
+    // an older hand applied out of order counts for the lifetime only
+    expect(applyHudHand(p, handRecordFromRow(resp(5, 1)) as HudHandRecord)).toBeNull();
+    expect(JSON.stringify(p.ses)).toBe(snap);
+    expect(p.life['f.fb.sm.hu'][0] + p.life['f.fb.bg.hu'][0]).toBe(8);
+    // more than an hour after his last response: a new session
+    const gapId = 16 + HUD_SESSION_GAP_MS / 1000 + 1;
+    applyHudHand(p, handRecordFromRow(resp(gapId, 1)) as HudHandRecord);
+    expect(p.ses).toEqual({
+      at: T0 + gapId * 1000,
+      m: 1,
+      sW: 1,
+      sSw: 1,
+      n: 1,
+      f: 1,
+      st: { 'f.fb.sm.hu': [1, 1] },
+    });
+  });
+
+  it('the packet carries them; the session record splits the lifetime into this session and the sessions before', () => {
+    const rows = [resp(1, 1), resp(2, 1), ...ys.map((y, i) => resp(4000 + i, y))];
+    const p = life(rows, 1);
+    const at = T0 + 4_010_000;
+    installDecisionHud(buildHudPacket('plo5', [p], {}, at, 'flop'));
+    const live = hudSessionRecord(U(1), 'plo5', at)!;
+    expect(live).toMatchObject({
+      m: 7,
+      session: { n: 7, f: 4 },
+      prior: { n: 2, f: 2 },
+      live: true,
+    });
+    expect(live.sW).toBeCloseTo(p.ses!.sW, 5);
+    // an hour after his last response the session is over: his whole lifetime is the prior
+    expect(hudSessionRecord(U(1), 'plo5', at + HUD_SESSION_GAP_MS)).toEqual({
+      m: 0,
+      sW: 0,
+      sSw: 0,
+      session: { n: 0, f: 0 },
+      prior: { n: 9, f: 6 },
+      live: false,
+    });
+    expect(hudSessionRecord(U(7), 'plo5', at)).toBeNull();
+    clearDecisionHud();
+    expect(hudSessionRecord(U(1), 'plo5', at)).toBeNull();
+  });
+
+  it('additive: with or without the session sums every existing read answers the same', () => {
+    const p = life([resp(1, 1), resp(2, 0), resp(3, 1)], 1);
+    const at = T0 + 60_000;
+    const withSs = buildHudPacket('plo5', [p], {}, at, 'flop');
+    expect(withSs.opp[U(1)].ss).toBeDefined();
+    const without = JSON.parse(JSON.stringify(withSs));
+    delete without.opp[U(1)].ss;
+    const reads = () =>
+      JSON.stringify([
+        HUD_STATS.map((stat) => hudStat(U(1), 'plo5', stat, undefined, false)),
+        hudStatIn(U(1), 'plo5', 'x.foldToBet.small', { street: 'flop', players: 'hu' }, 0.5, false),
+        hudLifetimeCount(U(1), 'plo5', 'x.lead', { street: 'flop', players: 'hu' }),
+        hudFirstWagerRecord(U(1), 'plo5', 'flop', 'hu'),
+      ]);
+    installDecisionHud(withSs);
+    const a = reads();
+    installDecisionHud(without);
+    expect(reads()).toBe(a);
+    clearDecisionHud();
+    // a malformed session field makes the packet invalid (nothing installed), never a throw
+    const bad = JSON.parse(JSON.stringify(withSs));
+    bad.opp[U(1)].ss = { at: 'x' };
+    installDecisionHud(bad);
+    expect(hudStat(U(1), 'plo5', 'f.fb.sm.hu', undefined, false).source).not.toBe('lifetime');
+    clearDecisionHud();
+    // no decision source reads the session sums yet: only the provider files name them
+    const src = readFileSync(fileURLToPath(new URL('./OpponentHud.ts', import.meta.url)), 'utf8');
+    const reader = src.slice(
+      src.indexOf('export function hudStat('),
+      src.indexOf('export function hudSessionRecord(')
+    );
+    expect(reader).not.toMatch(/\.ss\b/);
   });
 });
