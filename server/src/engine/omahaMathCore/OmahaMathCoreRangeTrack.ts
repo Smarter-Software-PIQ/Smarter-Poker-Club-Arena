@@ -404,6 +404,20 @@ function pIn(q: number, se: number, lo: number, hi: number): number {
   return Math.max(0, phi((hi - q) / s) - phi((lo - q) / s));
 }
 
+/** pIn with its own blur width at each edge (lane CORE-POOLED-10); equal widths = pIn exactly. */
+export function pInEdges(q: number, lo: number, seLo: number, hi: number, seHi: number): number {
+  return Math.max(0, phi((hi - q) / Math.max(1e-6, seHi)) - phi((lo - q) / Math.max(1e-6, seLo)));
+}
+
+/** The facing-a-wager edge widths (lane CORE-POOLED-10): exported for the law test. */
+export function boundedEdges(
+  se: number,
+  vTop: number,
+  bluffWidth: number
+): { eV: number; eB: number } {
+  return { eV: Math.min(se, vTop), eB: Math.min(se, bluffWidth) };
+}
+
 /**
  * Weighted "share stronger" of each holding inside a range on a board: F_i = weight of the range
  * strictly stronger than i plus half the weight of i (0 = his strongest, 1 = his weakest).
@@ -502,9 +516,14 @@ function likelihood(
   // A bluff-raise comes from holdings that would otherwise fold: bottom alpha*r of the whole range.
   const vTop = (1 - alpha) * r;
   const bluffLo = 1 - alpha * r;
+  // lane CORE-POOLED-10 (criteria d851afb1): an edge is never blurred wider than the measured region it bounds
+  // (value region vTop, bluff region alpha*r); a holding's strength error used to let a large weak share of his
+  // range into a ~1%-wide bluff-raise region, so the Horse priced calls against raises far weaker than shown ones
+  const wB = alpha * r;
   for (let i = 0; i < n; i++) {
-    const praise = pIn(F[i], seF[i], -1, vTop) + pIn(F[i], seF[i], bluffLo, 2);
-    const pfold = pIn(F[i], seF[i], cont, bluffLo);
+    const { eV, eB } = boundedEdges(seF[i], vTop, wB);
+    const praise = pIn(F[i], eV, -1, vTop) + pIn(F[i], eB, bluffLo, 2);
+    const pfold = pInEdges(F[i], cont, seF[i], bluffLo, eB);
     const pcall = Math.max(0, 1 - praise - pfold);
     L[i] =
       a.action === 'raise'
