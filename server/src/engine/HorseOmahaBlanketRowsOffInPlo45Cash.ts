@@ -79,6 +79,7 @@ export const OMAHA_BLANKET_ROWS_OFF_REGISTRY: readonly string[] = Object.freeze(
   'omahaReraisedPotStackOffFold',
   'omahaReraisedFoldVsTight',
   'omahaTightOpponent',
+  'omahaTurnBetNeedsRiverPlan',
   'v9Mood',
   // OMAHA_BLANKET_ROWS_OFF_EXTRA (below), in its order
   'omahaBigBetIsPotShare',

@@ -419,7 +419,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaSlowplayMixInLightning: priced(
     'the game of omahaStrongHandSlowplayMix opened to the Lightning pools when that option is on (a scope, not a rule site)'
   ),
-  omahaTurnBetNeedsRiverPlan: priced('a look-ahead on every river card'),
+  omahaTurnBetNeedsRiverPlan: open(
+    'reclassed open 2026-11-21 (EMERG lane BLANKET-AUDIT-3; it was classed priced as "a look-ahead on every river card"): the look-ahead prices nothing. A turn bet that leaves under half the resulting pot behind becomes a check when the categorical river fold rules fold to the all-in on more than a fixed share of the river cards (HorseOmahaOopChecks.ts omahaTurnBetLacksRiverPlan, OMAHA_TURN_PLAN_FOLD_SHARE): a stack share and a fixed percentage decide, no expected value is compared'
+  ),
   omahaRiverMediumBetStrongHandCalls: priced('stands aside for the expected-value verdict'),
   omahaPairedBoardFoldRespectsPrice: priced(
     'stands aside for the expected-value verdict on the turn and river'

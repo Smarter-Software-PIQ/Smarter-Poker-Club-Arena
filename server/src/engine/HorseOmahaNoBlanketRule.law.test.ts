@@ -261,6 +261,8 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
         'omahaNoRiverBluffIntoValueLeader',
         'omahaOnePairDiscipline',
         'omahaReraisedPotFlopContinueNeedsEquityShape',
+        // reclassed 2026-11-21 (EMERG BLANKET-AUDIT-3): a stack share and a fixed share of river cards decide
+        'omahaTurnBetNeedsRiverPlan',
         'ploPairedBoardFold',
       ].sort()
     );
