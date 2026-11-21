@@ -1227,6 +1227,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOpponentLifetimeHud',
+    "PLO-OWNER lane OPPONENT-HUD 2026-11-20 (owner 3:15 PM Chicago: the Horses hold a built-in heads-up display of every opponent from his lifetime hand history, from hand one; 3:18 PM: all previously played hands, never hole cards; lead ruling 3:19 PM: one mechanism and one formula for every opponent, person or Horse, shrunk by evidence). PLO4/PLO5 cash, provider only (branch hud-provider, 2026-11-21): while on, the engine attaches each opponent's lifetime public profile to the decision request and the worker installs it for the accessor (hudStat, hudStatIn, hudLifetimeCount, hudFirstWagerRecord); no decision rule on this branch reads it, so option on changes no decision. Default OFF; off, requests and decisions are byte-identical.",
+    'V94'
+  ),
+  flag(
     'omahaRiverCurrentNutsCallFloor',
     "EMERG lane RANGE-MODEL-2 2026-11-20 (owner 9:42 AM Chicago: EVERYTHING DEPENDS ON THE MATH; 9:52 AM: the same corrections against all players, human or Horse; lane RANGE-MODEL graded a facing-bet range read that folded the current river nuts, hand 60226889). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). The outermost answer of the wager_rules node: on the river facing a wager, a final fold becomes the legal call (the whole-stack all-in when the call is the stack) when hero holds the exact current nuts (HorseRiverNuts.hasRiverNuts: every unseen two-card holding enumerated, exactly two hole and three board cards) and a full chop with every live opponent still returns the call, (pot + paid) / (live opponents + 1) >= paid, so the call's expected value is never negative. Public information only; no opponent label, account or person/Horse flag. Near-nut hands are not floored (a range question). The response validator re-runs the floor on the request. PLO6, PLO8, hold'em and tournaments untouched. HorseOmahaRiverCurrentNutsCallFloor.ts",
     'V94'
@@ -1404,6 +1409,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaNoCategoricalRules',
     'Lane UNBLOCK 2026-11-19 (owner 8:37 PM Chicago: "Every decision needs to be made independently on each and every hand. No law or rule should ever prevent the correct decision from happening."). Default OFF (opt-in, read === true), unevaluated. In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot; HorseOmahaNoCategoricalRules.omahaNoCategoricalRulesInScope; never PLO6, PLO8, hold\'em or a tournament) every rule of the old decision path that forces or forbids an action by a hand class, a label, a position, a street or a fixed threshold is off for that decision: the options in OMAHA_NO_CATEGORICAL_RULES_OFF (HorseOmahaRuleSites categorical and open classes, the hidden default-on ones omahaRiverNutRaiseOnly, ploPairedBoardFold, ploPairedBoardRiverCheck, v74OmahaSemiBluffNeedsDraw, v81OmahaBigBetCalls, v84OmahaRiverReraiseCalls and v9Mood among them, the preflop class gates, the slowplay and priced-mix random draws and the street-plan priors) and the V81 / V84 / V86 / V87 big-bet call cells (omahaBigBetCallFoldCells). Paired with omahaMathCore so that nothing categorical decides before the core answers or when the core falls back on an error. Off: byte-identical; PLO6 byte-identical with it on.',
+    'V94'
+  ),
+  flag(
+    'omahaBlanketRowsOffInPlo45Cash',
+    "EMERG lane BLANKET-AUDIT 2026-11-21 (owner 2026-11-20 3:28 PM Chicago: THERE SHOULD NEVER EVER EVER BY ANY BLANKET RULES; PLO-OWNER lead ruling 2026-11-21 ~1:55 AM: an OFF row for a hidden default-on blanket rule is global and would change PLO6, which must not be touched). Default off (read === true). With it on, in a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every blanket row named in the declared list omahaBlanketRowsOffList as false (its off path, the same one omahaNoCategoricalRules uses) right after the game scope and before any rule reads it (HorseOmahaBlanketRowsOffInPlo45Cash.withBlanketRowsOffInPlo45Cash). Only OMAHA_BLANKET_ROWS_OFF_REGISTRY members can be listed: the rules of OMAHA_NO_CATEGORICAL_RULES_OFF that the rule-site register does not class priced, then five named blanket rules that list does not hold (OMAHA_BLANKET_ROWS_OFF_EXTRA, BLANKET-AUDIT-2 2026-11-21: omahaBigBetIsPotShare, omahaCurrentNutsRaise, ploSuitedAcesFourBet, v86PloOverhaul, v46Charts; none priced), and only a decision state that says gameMode cash is in scope (the mode is never guessed), so a priced rule cannot be switched off through it. Off, no list, PLO6, PLO8, hold'em or a tournament: the same options object runs (byte-identical). Receipt omaha_blanket_rows_off_in_plo45_cash_applied.",
+    'V94'
+  ),
+  flag(
+    'omahaBlanketRowsOffList',
+    'EMERG lane BLANKET-AUDIT 2026-11-21: the declared list of omahaBlanketRowsOffInPlo45Cash. A PARAMETER, not an on/off option, absent at the compiled defaults: the OMAHA_BLANKET_ROWS_OFF_REGISTRY members whose engine runtime setting horse.blanketRowOffInPlo45Cash.<option> is 1 (0 = not listed; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover). Read only while omahaBlanketRowsOffInPlo45Cash is on and only in a PLO4 or PLO5 cash decision; any name outside the registry is ignored.',
     'V94'
   ),
   flag(
@@ -5654,6 +5669,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'opponent_hud_*',
+    'opponentHud/OpponentHud (hudStat, hudStatIn, hudLifetimeCount, hudFirstWagerRecord, hudRecall; no decision consumer on this branch), services/OpponentHudStore',
+    'OPPONENT HUD (lane OPPONENT-HUD 2026-11-20): read_<plo4|plo5>_<lifetime|prior> per accessor read; recall_<family>_<found|none>; exploit_counters when an exploit read took lifetime counters; event_<sit|move|lightning|boot|hand|decision> per warm trigger; ready_ms_<le100|le1000|le5000|le15000|gt15000> and ready_<event>_ms_<bucket> from the trigger to the warm profile (the 15-second deadline); packet_attached / packet_opponent_ready / packet_opponent_missing / packet_opponent_late (not ready 15 s after he was asked for); load_ok / load_failed / load_timeout, hand_applied, apply_stale, persist_ok / persist_failed / persist_refused, prewarm_failed, priors_failed, cache_evicted and the error counters',
+    'V94'
+  ),
+  receipt(
     'omaha_river_current_nuts_call_floor',
     'HorseLogic wager_rules (omahaRiverCurrentNutsCallFloorRule, omahaRiverCurrentNutsCallFloor)',
     'a PLO4/PLO5 cash river decision facing a wager in which the final fold of the exact current nuts became the legal call (a full chop with every live opponent still returns the call)',
@@ -8836,6 +8857,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_ev_fold_model_priced',
     'HorseMind.omahaEvFoldMulOf (omahaEvFoldModel)',
     'the Omaha EV fold model priced one opponent fold for the EV bet engine at a PLO4, PLO5 or PLO6 cash table (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  // Zero in production by design: the switch is off and no list is published at the compiled defaults.
+  receipt(
+    'omaha_blanket_rows_off_in_plo45_cash_applied',
+    'HorseLogic.decide (HorseOmahaBlanketRowsOffInPlo45Cash, omahaBlanketRowsOffInPlo45Cash + runtime settings horse.blanketRowOffInPlo45Cash.<option>)',
+    'a PLO4 or PLO5 cash decision in which at least one blanket row on the declared list was passed off (one count per decision)',
     'Omaha threshold calibration'
   ),
   // Zero in production by design: no option has a game scope at the compiled defaults, so a fire means a scope was published.

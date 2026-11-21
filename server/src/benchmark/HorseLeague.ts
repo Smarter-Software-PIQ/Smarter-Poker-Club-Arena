@@ -4009,6 +4009,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverFirstToActBetIsPriced: true },
     b: {},
   })),
+  // 2026-11-21 EMERG lane BLANKET-AUDIT (default OFF, PLO4/PLO5 cash): omahaBlanketRowsOffInPlo45Cash with the first
+  // declared members (v74OmahaSemiBluffNeedsDraw and the hidden four); a switches it on with that list, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_blanket_rows_off_in_plo45_cash`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaBlanketRowsOffInPlo45Cash: true,
+      omahaBlanketRowsOffList: [
+        'v74OmahaSemiBluffNeedsDraw',
+        'ploPairedBoardFold',
+        'ploPairedBoardRiverCheck',
+        'omahaRiverNutRaiseOnly',
+        'omahaTurnSetPound',
+      ],
+    },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane RANGE-MODEL-2 (default OFF, PLO4/PLO5 cash): omahaRiverCurrentNutsCallFloor (a final river
   // fold facing a wager with the exact current nuts becomes the call where a full chop still returns it); a switches it
   // on, b is today's brain.
@@ -5999,6 +6018,23 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'this: league stacks above 250 bb, or different stacks per seat.',
     }))
   ),
+  // 2026-11-21 (PLO-OWNER lane RELEASE-13, list train): omahaOpponentLifetimeHud,
+  // default off. Refused, not dealt: league opponents have no stored lifetime history.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_opponent_lifetime_hud`,
+    variant,
+    seats: 6,
+    a: { omahaOpponentLifetimeHud: true },
+    b: {},
+    reason:
+      "Unanswerable by this league: the option only builds and serves each opponent's lifetime public profile " +
+      'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
+      'arms read nothing and play the same hands; the provider by itself changes no decision ' +
+      '(TheHudProviderChangesNoDecision.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
+      'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
+      'change this: a league that seeds each opponent with a lifetime history.',
+  })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
   {

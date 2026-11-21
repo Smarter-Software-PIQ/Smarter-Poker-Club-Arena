@@ -125,6 +125,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off river checked-to bet (EMERG lane OFFENCE-BUILD 2026-11-20, omahaRiverCheckedToBetIsMeasured): in PLO4/PLO5 cash on the river heads-up after the opponent checked, a final check becomes the bet of highest expected value on the measured response curve when it beats the calibrated showdown value by more than its standard error; no opponent kind; pure',
     'src/engine/HorseOmahaRiverFirstToActBet.ts':
       'the default-off river first-to-act bet (EMERG lane OFFENCE-BUILD 2026-11-20, omahaRiverFirstToActBetIsPriced): in PLO4/PLO5 cash on the river heads-up with nothing to call and the opponent still to act, a final check becomes the bet of highest expected value on the measured response curve when it beats the check by more than its standard error; pure',
+    'src/engine/opponentHud/OpponentHud.ts':
+      'the one opponent-profile accessor (hudStat, hudRecall) and the decision packet the worker installs from the request; shrinkage toward the population prior; pure, no database, no clock',
+    'src/engine/opponentHud/OpponentHudProfile.ts':
+      'the lifetime public opponent profile: statistic registry, public hand record and recall keys read by the accessor; public fields only',
     'src/engine/HorseOmahaRiverCurrentNutsCallFloor.ts':
       'the default-off river current-nuts call floor (EMERG lane RANGE-MODEL-2 2026-11-20, omahaRiverCurrentNutsCallFloor): in PLO4/PLO5 cash on the river facing a wager, a final fold with the exact current nuts becomes the legal call where a full chop with every live opponent still returns the call; the outermost answer of the wager_rules node; pure',
     'src/engine/HorseOmahaFourBetFoldPricedCall.ts':
@@ -173,6 +177,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha flop bet raise branch (WooWoo audit FLOPBET-RAISE 2026-11-18, omahaFlopBetPricesTheRaise): PLO4/PLO5 cash, flop, heads-up against a person, nothing to call: each v38 EV engine bet size is priced with his raise as a third branch, his measured raising share (the one owner OMAHA_PRICED_SITES_FLOP_RAISE_SHARE), the Horse equity against the strongest share of his holdings from the flop facing-bet sampler (a seed taken from the cards, never the brain random stream) and the Horse priced call-off or fold (omahaPricedSitesFlopRaiseAnswer); receipts omaha_flop_bet_raise_branch_*',
     'src/engine/HorseOmahaNoCategoricalRules.ts':
       'the default-off scope and option list of omahaNoCategoricalRules (lane UNBLOCK, 2026-11-19): reached only from HorseLogic.decide behind opts.omahaNoCategoricalRules === true in PLO4/PLO5 cash; with it unset or false the options are the ones given (HorseOmahaNoCategoricalRules.law.test.ts), so no reference decision depends on it',
+    'src/engine/HorseOmahaBlanketRowsOffInPlo45Cash.ts':
+      'the declared blanket rows off in PLO4/PLO5 cash (EMERG lane BLANKET-AUDIT 2026-11-21, omahaBlanketRowsOffInPlo45Cash, default OFF): reached from HorseLogic.decide and prepareOriginalReads only when the switch is on; with a declared list (engine runtime settings horse.blanketRowOffInPlo45Cash.<option>, absent at the compiled defaults) each listed registry member is passed false in a PLO4/PLO5 cash decision; it decides no action itself; pure',
     'src/engine/HorseOmahaOptionGameScope.ts':
       'the game scope of the omaha* options (EMERG lane PLO4-FIX 2026-11-20): reached from HorseLogic.decide and prepareOriginalReads only when opts.omahaOptionGameScope is given (engine runtime settings horse.omahaGameScope.<option>, absent at the compiled defaults); in a PLO4/PLO5 cash decision a listed option scoped to the other game is passed false; with no scope, and in PLO6 and every other game, the options are the ones given (HorseOmahaOptionGameScope.law.test.ts)',
     'src/engine/HorseOmahaColdCallMeasured.ts':

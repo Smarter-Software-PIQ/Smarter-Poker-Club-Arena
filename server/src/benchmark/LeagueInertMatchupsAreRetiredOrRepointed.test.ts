@@ -124,6 +124,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo5_omaha_pack_effective_depth',
         'plo4_omaha_pack_clamp_deep_depth',
         'plo5_omaha_pack_clamp_deep_depth',
+        // 2026-11-21 (list train): league opponents have no lifetime history (omahaOpponentLifetimeHud).
+        'plo4_opponent_lifetime_hud',
+        'plo5_opponent_lifetime_hud',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));
