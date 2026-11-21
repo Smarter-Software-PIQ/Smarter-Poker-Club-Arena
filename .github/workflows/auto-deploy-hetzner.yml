@@ -1246,8 +1246,10 @@ jobs:
 
       # Incident 075013fd (Lane 1): every failed or unverified release raises a
       # durable EngineReleaseFailed alert in engine_alerts so no failure is silent.
+      # A shipped run resolves every failure still firing for its exact SHA
+      # (incident 484c4cee); record-engine-release-alert.mjs decides which.
       - name: Raise durable alert on failed release
-        if: always() && needs.deploy.outputs.shipped != 'true' && needs.deploy.outputs.release_result != 'superseded'
+        if: always() && needs.deploy.outputs.release_result != 'superseded'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}

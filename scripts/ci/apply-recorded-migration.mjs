@@ -58,6 +58,7 @@ import {
 } from './serial-journal-index.mjs';
 import { join } from 'node:path';
 import { supersededBy } from './check-migrations-are-live.mjs';
+import { awaitOlderMergedMigrations } from './merged-migration-order.mjs';
 import {
   minutesBeforeBreakWindow,
   concurrentIndexBudget,
@@ -521,6 +522,10 @@ if (ordinaryTransaction) {
       `[apply]   declared offline install budget ${ordinaryBudgetMs / 1000} s admitted (every touched relation and function is offline; lock_timeout <= 2 s); the transaction's held locks are re-checked before COMMIT`
     );
 }
+
+// AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77): merges
+// released by the same boundary install in version order, bounded.
+if (ordinaryTransaction && !DRY_RUN) await awaitOlderMergedMigrations(client, version);
 
 console.log(`[apply] ${file}`);
 console.log(`[apply]   version ${version}, slug ${slug}, ${Buffer.byteLength(sql)} bytes`);
