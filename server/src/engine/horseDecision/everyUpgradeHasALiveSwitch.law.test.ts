@@ -817,11 +817,17 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       'omahaReraisedPotStackOffRealistic',
       'fixedLimitHiLoNutLowRiverBet',
       'fixedLimitRiverOneBetValueRaise',
-      'fixedLimitCallIsNotACommitment',
       'fixedLimitHiLoLowHalfFloor',
       'fixedLimitOmahaNoPresumption',
     ])
       expect(optionSwitchOffOnly(name), name).toBeNull();
+    // 2026-11-20: measured harm in the scripted fixed-limit league field (PR #11565), off-only since
+    expectStatus(
+      'fixedLimitCallIsNotACommitment',
+      'harm',
+      /^league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 /
+    );
+    expect(OPTION_SWITCH_OFF_ONLY.fixedLimitCallIsNotACommitment!.reason).toMatch(/z -4\.53/);
     expectStatus('v55OmahaRiverTripsFlat', 'superseded', /made-hand defense repair/);
     expect(OPTION_SWITCH_OFF_ONLY.commitUnderPot!.reason).toMatch(/RESULTS-HU-NLH-016, FAIL/);
     // future options are held by name pattern: a steal, All-In-Or-Fold widening

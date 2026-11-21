@@ -703,6 +703,17 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     source:
       'Lightning selection stage, 09-EVALUATION-PROTOCOL-v2.md section 6, graded 2026-11-20 (docs/changelog/2026-11-20-lightning-full-matrix-graded.md; LightningEvalSummary-20261118.json sha256 28fb1550)',
   }),
+  // 2026-11-20 Antigravity Coordinator: the scripted fixed-limit field (PR #11565, docs/horse-league-fixed-limit.md),
+  // measured after the league memory fix (HorseMind.observe now gets the betting structure, as production does).
+  // Against the scripted maniac it loses on both seeds; against the tight-value control it is flat. No cell anywhere
+  // is positive, so the measured-harm off-only entry stands until a new evaluation says otherwise.
+  fixedLimitCallIsNotACommitment: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: scripted flh maniac field -24.68 bb/100 (SE 5.45, z -4.53; seeds 20261120 -28.02 +/- 7.30 and 20261121 -21.35 +/- 8.10, 12,000 pairs each); tight-value harm control 0.00 (SE 0.02); no positive cell',
+    source:
+      'league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 (docs/horse-league-fixed-limit.md; docs/changelog/2026-11-20-league-scripted-fixed-limit-field.md)',
+  }),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
     reason: 'off-only stops an explicit true; it changes nothing by default',
