@@ -33,8 +33,23 @@ def epoch(value):
     return moment.timestamp()
 
 
+THREE_HOURLY_START_HOURS = (1, 4, 7, 10, 13, 16, 19, 22)
+
+
+def cycle_cutoff(identity):
+    """`YYYY-MM-DDTHH` names a three-hourly cycle (owner order 2026-11-21): its
+    selection cutoff is 30 minutes before it. A repeated fall-back hour names
+    its first occurrence (fold=0)."""
+    day, hour = identity.split('T')
+    if not re.fullmatch(r'\d{2}', hour) or int(hour) not in THREE_HOURLY_START_HOURS:
+        raise ValueError('invalid three-hourly cycle identity')
+    start = datetime.combine(date.fromisoformat(day), time(int(hour)), ZoneInfo('America/Chicago'))
+    return int(start.timestamp()) - 1800
+
+
+# The plain Chicago date names the 04:00 anchor (cutoff 03:30).
 def cutoff(day):
-    return int(datetime.combine(date.fromisoformat(day), time(3, 30),
+    return cycle_cutoff(day) if 'T' in day else int(datetime.combine(date.fromisoformat(day), time(3, 30),
                                 ZoneInfo('America/Chicago')).timestamp())
 
 

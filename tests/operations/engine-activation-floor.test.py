@@ -447,7 +447,11 @@ recovery_window_reason() { echo no-emergency; }
         (requests / '123-1.activation-entry').unlink()
         schedule_path = self.repo / 'server/src/maintenance/maintenanceSchedulePolicy.json'
         for status in ('active', 'complete', 'off'):
-            policy = json.loads(schedule_path.read_text())
+            # The retained v1 Phase1 shape (the protected v2 three-hourly policy
+            # of 2026-11-21 has no Phase1 'active' state).
+            policy = {'schema': 'engine-maintenance-schedule/v1', 'policyId': 'phase1-hourly-01a1944f',
+                      'timeZone': 'America/Chicago', 'phase1Status': 'off',
+                      'ownerMessageId': '01a1944f-7131-7f11-8dcc-873d576e781c', 'completionEvidence': None}
             policy.update(phase1Status=status, completionEvidence=None if status == 'active' else 'Verified Phase1 completion fixture')
             schedule_path.write_text(json.dumps(policy)); self.sha = self.commit()
             for mode in ('prepare', 'admit', 'entry-check', 'disposition'):

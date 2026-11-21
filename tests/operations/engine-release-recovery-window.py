@@ -647,7 +647,9 @@ class OwnerWitnessRealHistory(unittest.TestCase):
             # selector under test, rather than admitting via hourly policy.
             policy_path = repo / 'server/src/maintenance/maintenanceSchedulePolicy.json'
             policy_path.parent.mkdir(parents=True)
-            policy = json.loads((ROOT / 'server/src/maintenance/maintenanceSchedulePolicy.json').read_text())
+            # The retained v1 daily shape keeps this owner-window fixture on the
+            # daily route (no three-hourly cycle spacing, 2026-11-21).
+            policy = {'schema': 'engine-maintenance-schedule/v1', 'policyId': 'phase1-hourly-01a1944f', 'timeZone': 'America/Chicago', 'phase1Status': 'off', 'ownerMessageId': '01a1944f-7131-7f11-8dcc-873d576e781c', 'completionEvidence': None}
             policy.update(phase1Status='off', completionEvidence='Isolated owner-witness daily-policy fixture')
             policy_path.write_text(json.dumps(policy))
             helper = repo / 'server/scripts/engine-release-seal.py'
