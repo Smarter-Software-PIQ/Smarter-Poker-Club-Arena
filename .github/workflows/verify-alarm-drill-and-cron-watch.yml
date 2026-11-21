@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   verify:
-    if: ${{ !(github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]') }}
+    if: ${{ (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: Verify live alarm drill and cron watch
     runs-on: ubuntu-latest
     environment: ci-main
