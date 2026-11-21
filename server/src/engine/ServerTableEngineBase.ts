@@ -2509,6 +2509,27 @@ export abstract class ServerTableEngineBase {
    */
   protected currentHandAllInShowdown = false;
   protected completedOriginalShowdownReadMs = 0;
+  /**
+   * HOLD JITTER DOES NOT STACK ONTO REST (incident 1e532243, 2026-11-21).
+   *
+   * `acceptedHandEndedAt` is stamped synchronously at HAND_COMPLETE (the same
+   * instant written to `hand_history.ended_at` and broadcast to clients). Two
+   * consecutive uncompensated `setTimeout` sleeps (`awaitHandCompletionDisplay`
+   * followed by `armNextHandRest`) stacked entry lag + hold timer overshoot +
+   * rest timer overshoot past `ENGINE_BETWEEN_HANDS_BUDGET_MS` (250 ms) under
+   * event-loop load.
+   *
+   * 1. `lastAcceptedHandEndedAtMs` anchors the completion hold to the actual
+   *    HAND_COMPLETE instant so real elapsed time before entering
+   *    `awaitHandCompletionDisplay` is absorbed without shortening the visible
+   *    client display below `targetHoldMs`.
+   * 2. `lastHoldDeadlineMs` records the hold's target end instant so
+   *    `armNextHandRest` can absorb hold overshoot up to
+   *    `MAX_HOLD_OVERSHOOT_ABSORB_MS` (never below the board-clear floor).
+   */
+  static readonly MAX_HOLD_OVERSHOOT_ABSORB_MS = 500;
+  protected lastAcceptedHandEndedAtMs: number | null = null;
+  protected lastHoldDeadlineMs: number | null = null;
 
   protected async awaitHandCompletionDisplay(totalMs: number): Promise<void> {
     // Multi-board and BBJ hold formulas do not contain this showdown-read
@@ -2518,7 +2539,17 @@ export abstract class ServerTableEngineBase {
         ? this.completedOriginalShowdownReadMs
         : 0;
     this.completedOriginalShowdownReadMs = 0;
-    await this.sleep(Math.max(0, totalMs - completedRead));
+    const targetHoldMs = Math.max(0, totalMs - completedRead);
+    const enteredAt = Date.now();
+    const handEndedAt = this.lastAcceptedHandEndedAtMs;
+    this.lastAcceptedHandEndedAtMs = null;
+    // Anchor only to a valid real-elapsed timestamp at or before entry; a
+    // backward clock step or absent stamp (direct unit-test call) anchors now.
+    const holdAnchorMs = handEndedAt !== null && handEndedAt <= enteredAt ? handEndedAt : enteredAt;
+    const holdDeadlineMs = holdAnchorMs + targetHoldMs;
+    this.lastHoldDeadlineMs = holdDeadlineMs;
+    const sleepMs = Math.max(0, holdDeadlineMs - enteredAt);
+    if (sleepMs > 0) await this.sleep(sleepMs);
   }
 
   /**
