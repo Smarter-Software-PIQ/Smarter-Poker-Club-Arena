@@ -1929,7 +1929,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   protected armNextHandRest(restMs: number): void {
     const now = Date.now();
-    this.nextHandNotBeforeMs = now + restMs;
+    // Absorb hold-timer overshoot into the rest deadline so two consecutive
+    // setTimeout sleeps (post_hand_hold + next_hand_rest) cannot stack their
+    // event-loop jitter past ENGINE_BETWEEN_HANDS_BUDGET_MS. Never shorten the
+    // rest below the board-clear floor or by more than MAX_HOLD_OVERSHOOT_ABSORB_MS
+    // so client board-clear and Rabbit Hunt visibility stay intact.
+    const holdOvershootMs =
+      this.lastHoldDeadlineMs !== null ? Math.max(0, now - this.lastHoldDeadlineMs) : 0;
+    this.lastHoldDeadlineMs = null;
+    const minVisibleRestMs = Math.min(restMs, HAND_COMPLETION.BOARD_CLEAR_SHOWDOWN_MS);
+    const maxAbsorbMs = Math.min(
+      ServerTableEngineBase.MAX_HOLD_OVERSHOOT_ABSORB_MS,
+      Math.max(0, restMs - minVisibleRestMs)
+    );
+    const effectiveRestMs = restMs - Math.min(holdOvershootMs, maxAbsorbMs);
+    this.nextHandNotBeforeMs = now + effectiveRestMs;
     this.lastCompletionAtMs = now;
     // Observation only. A failed clock leaves the exact-hand anchor unknown.
     try {
@@ -3228,6 +3242,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.currentHandInsuranceNet = 0; // chip standard 2026-09-04: declared to the stack write
       this.currentHandCashoutRedirects = new Map(); // EV CASHOUT 2026-08-28: reset per hand
       this.completedOriginalShowdownReadMs = 0;
+      this.lastAcceptedHandEndedAtMs = null;
+      this.lastHoldDeadlineMs = null;
       this.currentHandShowdownResults = []; // BBJ: Reset showdown results for new hand
       this.currentHandAllInShowdown = false; // Dan 2026-10-24: the all-in tail is per hand
       this.currentHandTimerLog = []; // Bible V8 §2.15: Reset timer log

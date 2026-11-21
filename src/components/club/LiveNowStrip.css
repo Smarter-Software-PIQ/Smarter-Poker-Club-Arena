@@ -36,6 +36,17 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+.members-live-now__scope {
+  color: var(--members-cyan);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.members-live-now__scope::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--members-text);
+  opacity: 0.5;
+}
 .members-live-now__chips {
   display: flex;
   gap: 8px;

@@ -37,6 +37,23 @@ export const LAST_HAND_LEAD_MINUTES = 2;
 export const CERTIFICATE_LEAD_MS = 15 * 60_000;
 const BREAK_ANNOUNCED_SETTLE_MS = 30_000;
 
+export const THREE_HOURLY_START_HOURS = [1, 4, 7, 10, 13, 16, 19, 22];
+const chicagoHourOf = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  hour: '2-digit',
+  hourCycle: 'h23',
+});
+/** First three-hourly cycle start strictly after `afterMs` (epoch ms). */
+export function nextThreeHourlyStart(afterMs) {
+  let start = Math.floor(afterMs / 3_600_000) * 3_600_000 + 3_600_000;
+  for (let i = 0; i < 12; i++, start += 3_600_000) {
+    const hour = Number(chicagoHourOf.format(start));
+    if (THREE_HOURLY_START_HOURS.includes(hour) && Number(chicagoHourOf.format(start - 3_600_000)) !== hour)
+      return start;
+  }
+  throw new Error('three_hourly_maintenance_schedule_unresolvable');
+}
+
 /** Milliseconds from `wallMs` (UTC epoch) to the next :53:00 announcement. */
 export function msUntilNextAnnouncement(wallMs, schedule) {
   if (schedule?.frequency === 'phase1-hourly') {
@@ -49,6 +66,19 @@ export function msUntilNextAnnouncement(wallMs, schedule) {
     let announcement = hour + 3_600_000 - LAST_HAND_LEAD_MINUTES * 60_000;
     if (announcement <= wallMs) announcement += 3_600_000;
     return announcement-wallMs;
+  }
+  if (schedule?.frequency === 'three-hourly') {
+    // Owner order 2026-11-21: a dedicated cutover at 01,04,07,10,13,16,19,22
+    // America/Chicago. Real epoch hours; the repeated fall-back 01:00 is ONE
+    // cycle (the first), and no spring-forward hour is invented.
+    if (schedule.timeZone !== 'America/Chicago' || schedule.policyId !== 'three-hourly-01Gw7aDs' ||
+        schedule.startHour !== 4 || schedule.startMinute !== 0 || schedule.durationMs !== 300000 ||
+        schedule.hourlyCashFreeze !== false || !Array.isArray(schedule.startHours) ||
+        schedule.startHours.join(',') !== THREE_HOURLY_START_HOURS.join(','))
+      throw new Error('Observed three-hourly maintenance schedule is unproved.');
+    const announcement = nextThreeHourlyStart(wallMs + LAST_HAND_LEAD_MINUTES * 60_000) -
+      LAST_HAND_LEAD_MINUTES * 60_000;
+    return announcement - wallMs;
   }
   if (schedule && (schedule.timeZone !== 'America/Chicago' || schedule.startHour !== 4 ||
       schedule.startMinute !== 0 || schedule.durationMs !== 300000 || schedule.hourlyCashFreeze !== false ||

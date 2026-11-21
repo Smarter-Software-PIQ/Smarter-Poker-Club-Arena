@@ -112,7 +112,9 @@ export function MaintenanceBreakBanner() {
           <span className="maintenance-banner__text">
             {routineSchedule === 'phase1-hourly'
               ? 'Hourly Maintenance At The Top Of The Hour. Expected Resume Five Minutes Later.'
-              : 'Daily Maintenance At 4 AM Chicago Time. Expected Resume At 4:05 AM.'}
+              : routineSchedule === 'three-hourly'
+                ? 'Scheduled Maintenance At The Top Of The Hour. Expected Resume Five Minutes Later.'
+                : 'Daily Maintenance At 4 AM Chicago Time. Expected Resume At 4:05 AM.'}
           </span>
         </div>
       );

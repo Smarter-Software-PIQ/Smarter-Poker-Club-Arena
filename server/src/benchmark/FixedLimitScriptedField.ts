@@ -38,7 +38,9 @@ import {
   FLH_MANIAC_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
+  FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
+  FLH_VALUE_ONLY_BLINDS_PERSONA,
   type FixedLimitScriptedPersona,
 } from './HorseLeagueHumanField.js';
 import type { LeagueSeatPolicy, LeagueSeatSpot } from './HorseLeague.js';
@@ -337,6 +339,107 @@ export const flhOverFoldingBlindsPolicy: LeagueSeatPolicy = (s) =>
   (s.stage as HandStage) === 'preflop' ? overFoldingBlindsPreflop(s) : foldOrCheck(s);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The steal's harm controls (2026-11-21)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// fixedLimitStealVsTightBlinds widens a late first-in open when every player
+// behind reads as an over-folder (postflop fold to a bet engaged high on at
+// least 15 decayed opportunities, no preflop statistic engaged wide). The
+// over-folding blinds above are the range it is most favoured against. A harm
+// control is a range where the same postflop folding is real but the widened
+// open is punished: by a value-only range that re-raises it, or by blinds
+// that call it preflop. Neither is a favourable-range measurement.
+
+/**
+ * flh_value_only_blinds_v1: a value-only range.
+ *
+ * Preflop is flh_tight_value_v1's raise or fold (FLH_TIGHT_VALUE_PREFLOP,
+ * sourced from ExploiterLeague.ts regPreflop / openTop): it enters only by
+ * raising, re-raises a single raise with the top 6% at six seats (top 15%
+ * heads-up) and calls a band below that, so a widened steal meets a value
+ * re-raise or a value call.
+ *
+ * Postflop: DESIGN VALUE (no record in this repository states a value-only
+ * player's postflop continuation thresholds). It continues only with two
+ * pair or better (made class counted only when its own cards improve on the
+ * board, as flh_tight_value_v1): checked to it bets two pair or better, else
+ * checks; facing a wager it raises two pair or better (a third wager or more
+ * only with trips or better, as flh_tight_value_v1) and folds everything
+ * else, one pair included. So it folds to most postflop bets, which is what
+ * the over-folder read measures, while every chip it puts in after the flop
+ * is value. Its fold frequency is set by its cards, not by a random draw.
+ */
+export const FLH_VALUE_ONLY_POSTFLOP = Object.freeze({
+  /** Made class (scoreHoldem category: 3 two pair) to bet, raise or continue. DESIGN VALUE. */
+  continueClass: 3,
+  /** Made class (4 trips) to put in a third wager or more (FLH_TIGHT_VALUE_POSTFLOP.reraiseClass). */
+  reraiseClass: FLH_TIGHT_VALUE_POSTFLOP.reraiseClass,
+});
+
+function valueOnlyPostflop(s: LeagueSeatSpot): Decision {
+  const t = FLH_VALUE_ONLY_POSTFLOP;
+  const made = ownMadeClass(s.cards, s.board);
+  const wager = fixedWager(s);
+  if (s.toCall <= 0) return made >= t.continueClass && wager ? wager : { action: 'check' };
+  if (made < t.continueClass) return { action: 'fold' };
+  if (wager && made >= (streetWagers(s) >= 2 ? t.reraiseClass : t.continueClass)) return wager;
+  return { action: 'call' };
+}
+
+export const flhValueOnlyBlindsPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop' ? tightValuePreflop(s) : valueOnlyPostflop(s);
+
+/**
+ * flh_preflop_defending_blinds_v1: blinds that defend preflop and fold
+ * postflop.
+ *
+ * Preflop: never raises. First in it calls the share flh_tight_value_v1 opens
+ * (FLH_TIGHT_VALUE_PREFLOP.openTop*) and folds the rest; the big blind checks
+ * its option; facing two raises or more it calls at FLH_TIGHT_VALUE_PREFLOP
+ * .facingReraise.call (0.95). Facing one raise it defends at the published
+ * fixed-limit blind defence widths quoted in HorseFixedLimitPreflop.ts
+ * (REFERENCES): "vs the button ~75-85%" and "heads-up ~85-90%". It calls at
+ * percentile 0.20 or better at three to six seats (80% defended, the middle
+ * of the button range, the steal being a late open) and at 0.12 or better
+ * heads-up (88%, the middle of the heads-up range). Above six seats it uses
+ * the early-raise width "vs early ~45-55%" (0.50, 50% defended).
+ *
+ * Postflop: checks whenever it may and folds to every wager, as
+ * flh_over_folding_blinds_v1. DESIGN VALUE.
+ */
+export const FLH_PREFLOP_DEFENDING_BLINDS_PREFLOP = Object.freeze({
+  /** Facing one raise, calls at or above this percentile (HorseFixedLimitPreflop REFERENCES). */
+  defendHeadsUp: 0.12,
+  defendShortHanded: 0.2,
+  defendFullRing: 0.5,
+});
+
+function preflopDefendingBlindsPreflop(s: LeagueSeatSpot): Decision {
+  const p = humanCalibratedPreflopPercentile(s.cards, s.variant);
+  const t = FLH_TIGHT_VALUE_PREFLOP;
+  const d = FLH_PREFLOP_DEFENDING_BLINDS_PREFLOP;
+  const hu = s.numSeats <= 2;
+  const raises = streetWagers(s);
+  if (raises === 0) {
+    if (s.toCall <= 0) return { action: 'check' };
+    const top = hu ? t.openTopHeadsUp : s.numSeats <= 6 ? t.openTopSixMax : t.openTopFullRing;
+    return p >= 1 - top ? { action: 'call' } : { action: 'fold' };
+  }
+  const bar =
+    raises === 1
+      ? hu
+        ? d.defendHeadsUp
+        : s.numSeats <= 6
+          ? d.defendShortHanded
+          : d.defendFullRing
+      : t.facingReraise.call;
+  return p >= bar ? callOrCheck(s) : foldOrCheck(s);
+}
+
+export const flhPreflopDefendingBlindsPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop' ? preflopDefendingBlindsPreflop(s) : foldOrCheck(s);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The no-limit probe history (LeagueMatchup.probeHistoryHands)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -372,6 +475,8 @@ export function fixedLimitScriptedPolicy(persona: FixedLimitScriptedPersona): Le
   if (persona === FLH_TIGHT_VALUE_PERSONA) return flhTightValuePolicy;
   if (persona === FLH_PASSIVE_CALLER_PERSONA) return flhPassiveCallerPolicy;
   if (persona === FLH_OVER_FOLDING_BLINDS_PERSONA) return flhOverFoldingBlindsPolicy;
+  if (persona === FLH_VALUE_ONLY_BLINDS_PERSONA) return flhValueOnlyBlindsPolicy;
+  if (persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA) return flhPreflopDefendingBlindsPolicy;
   throw new Error(`Unknown scripted fixed-limit persona: ${String(persona)}`);
 }
 

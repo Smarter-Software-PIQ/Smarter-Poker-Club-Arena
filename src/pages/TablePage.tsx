@@ -302,6 +302,7 @@ import {
   isLightningObserverSnapshot,
   mapEngineSnapshot,
 } from '../utils/mapEngineSnapshot';
+import { selectBoundaryHoldBanner } from '../utils/boundaryHoldBanner';
 import {
   foldRevealed,
   hasCommittedSeatFold,
@@ -981,6 +982,7 @@ interface TableState {
    */
   spinPrizePool?: number;
   handForHand?: boolean;
+  pauseOwners?: string[];
   bubbleInfo?: { playersRemaining: number; paidPositions: number };
   /** Authoritative MTT milestone; activates the event-only broadcast skin. */
   isFinalTable?: boolean;
@@ -3551,6 +3553,7 @@ function LiveTablePage({
         waitingForBBUserIds: mapped.waitingForBBUserIds,
         postBBDeferredUserIds: mapped.postBBDeferredUserIds,
         postingBBUserIds: mapped.postingBBUserIds,
+        pauseOwners: mapped.pauseOwners ?? [],
       };
     });
     // tableState.maxPlayers is read through tableStateRef above, deliberately:
@@ -32961,6 +32964,52 @@ function LiveTablePage({
           await handleLeaveTable();
         }}
       />
+      {(() => {
+        const holdBanner = selectBoundaryHoldBanner({
+          isTournament: Boolean(tableState.tournamentId),
+          isHandInProgress: tableState.isHandInProgress,
+          handForHand: tableState.handForHand,
+          pauseOwners: tableState.pauseOwners,
+        });
+        if (!holdBanner) return null;
+        return (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid={`boundary-hold-banner-${holdBanner.kind}`}
+            style={{
+              position: 'fixed',
+              left: '50%',
+              top: '18%',
+              transform: 'translateX(-50%)',
+              zIndex: 45,
+              pointerEvents: 'none',
+              background: 'rgba(12, 18, 28, 0.88)',
+              border: '1px solid rgba(250, 204, 21, 0.55)',
+              borderRadius: '999px',
+              padding: '8px 18px',
+              textAlign: 'center',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.45)',
+              color: '#f8fafc',
+              maxWidth: '90vw',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                color: '#facc15',
+                letterSpacing: '0.02em',
+              }}
+            >
+              {holdBanner.title}
+            </div>
+            <div style={{ fontSize: '11px', opacity: 0.9, marginTop: '2px' }}>
+              {holdBanner.detail}
+            </div>
+          </div>
+        );
+      })()}
       <TableModalsLayer
         cashStatsClusterId={lightningRoom?.clusterId}
         isActive={isActive}
