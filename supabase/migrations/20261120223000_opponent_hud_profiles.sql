@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS public.opponent_hud_profiles (
   PRIMARY KEY (user_id, family)
 );
 CREATE INDEX IF NOT EXISTS opponent_hud_profiles_recent ON public.opponent_hud_profiles (family, updated_at DESC);
+ALTER TABLE public.opponent_hud_profiles ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.opponent_hud_profiles FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.opponent_hud_profiles TO service_role;
 
