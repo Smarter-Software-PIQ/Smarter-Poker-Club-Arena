@@ -472,13 +472,13 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  * calibrated-only call -> fold on the PLO5 flop graded -1,986 +- 648 bb all-in, -483 +- 297 realised, Nov 19).
  */
 export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
-  version: 'core-pooled4-realization-v2',
+  version: 'core-pooled5-realization-v3-full-window',
   // the applied cells (streets below: PLO5 flop only) are population_all_cards_capped: an anonymous population
-  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 1.7% of a fit cell
+  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 0.96% of a fit cell
   // (cap 20% never binds), never read live. The PLO4 and turn cells are kept for the record (own_cards_history).
   provenance: 'population_all_cards_capped' as const,
   source:
-    'PLO5 flop: hand_history population realization (lane CORE-POOLED-4, amendment sha d7fbd6c8); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
+    'PLO5 flop: hand_history population realization, full window (lane CORE-POOLED-4 amendment sha d7fbd6c8, confirmation sha 0eb833be; raised-own call: lane CORE-POOLED-7 sha ae1fcd66); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
   minN: 20,
   // CORE-4 criterion 2 (CRITERIA-CORE4-2.md sha b95d08ec..., exact-replay cross-validation by day vs c3c, delta M1 all-in
   // / M2 realised): PLO5 flop PASS (Nov 19 +644 +- 255 realised, -77 +- 364 all-in; Nov 18 +288 +- 196, -163 +- 183);
@@ -492,16 +492,25 @@ export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
     'plo4|turn': { r: 0.85, n: 203 },
     'plo4|turn|bet': { r: 0.952, n: 63 },
     'plo4|turn|check': { r: 0.894, n: 77 },
-    // PLO5 flop: lane CORE-POOLED-4 (CRITERIA-CORE-POOLED-4-REALIZATION-AMENDMENT sha d7fbd6c8...1c79), measured
-    // from hand_history offline, every player pooled: realised chips at hand end (all-in adjusted) over equity vs
-    // the opponents' actual holdings x the net pot after the flop round; fit Oct 16 - Nov 16, check Nov 18-20 by
-    // serving era. One factor (R1) unless a pair of actions differs at |z| >= 2 with n >= 100 in both sets:
-    // only check vs raise does, so check and raise carry their own fit value, call and bet take R1.
-    'plo5|flop': { r: 0.8091, n: 8973 },
-    'plo5|flop|bet': { r: 0.8091, n: 1996 },
-    'plo5|flop|call': { r: 0.8091, n: 1898 },
-    'plo5|flop|check': { r: 0.6768, n: 4847 },
-    'plo5|flop|raise': { r: 1.0342, n: 232 },
+    // PLO5 flop: lane CORE-POOLED-4 (CRITERIA-CORE-POOLED-4-REALIZATION-AMENDMENT sha d7fbd6c8...1c79, applied ONCE
+    // to the FULL window by CRITERIA-CORE-POOLED-4-REALIZATION-CONFIRMATION sha 0eb833be...0d44; lanes CORE-POOLED-5/6/7),
+    // measured from hand_history offline, every player pooled: realised chips at hand end (all-in adjusted) over
+    // equity vs the opponents' actual holdings x the net pot after the flop round; fit = every PLO5 cash hand with a
+    // flop Oct 16 06:00Z - Nov 17 06:00Z (274,929 hands, 571,358 decisions, 867 players, top 0.88%), check Nov 18-21
+    // by serving era (25,011 hands). One factor (R1) unless a pair of actions differs at |z| >= 2 with n >= 100 in
+    // both sets: check vs call / bet / raise does, so check, call and bet carry their own fit value (pooled check-set
+    // z 1.56 / 1.30 / -1.17); raise fails pooled stability (z 2.08) and takes R1. Fit +- SE: R1 0.8184 +- 0.0028,
+    // check 0.6263 +- 0.0085, call 0.8979 +- 0.0130, bet 0.9075 +- 0.0111, raise 0.9126 +- 0.0142.
+    'plo5|flop': { r: 0.8184, n: 571358 },
+    'plo5|flop|bet': { r: 0.9075, n: 125091 },
+    'plo5|flop|call': { r: 0.8979, n: 120127 },
+    // a call facing a raise of the hero's own flop wager (lane CORE-POOLED-7, CRITERIA-CORE-POOLED-7-PLO5-FLOP-RAISED-
+    // CALL-REALIZATION sha ae1fcd66...1418, same rows): fit 0.8116 +- 0.0284 (n 9,365, 747 players, top 1.3%) vs
+    // every other call 0.9246 +- 0.0146 (z -3.53); check set 0.8665 +- 0.0697 (n 874, z vs fit 0.73): ADOPT,
+    // shrunk to the call cell, r = (9365 x 0.8116 + 100 x 0.8979) / 9465.
+    'plo5|flop|call|raised_own': { r: 0.8125, n: 9365 },
+    'plo5|flop|check': { r: 0.6263, n: 313637 },
+    'plo5|flop|raise': { r: 0.8184, n: 12503 },
     'plo5|turn': { r: 0.655, n: 1310 },
     'plo5|turn|all_in': { r: 0.697, n: 35 },
     'plo5|turn|bet': { r: 0.663, n: 468 },
@@ -511,17 +520,44 @@ export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
   } as Record<string, { r: number; n: number }>,
 };
 
-/** the calibration cell for a candidate (game | street | action, else game | street), null when not calibrated */
+/**
+ * true when the hero faces a raise of his own wager on this street: he bet or raised earlier this street (public
+ * history) and a wager is in front of him again. A call there realizes its own measured share (lanes CORE-EXTEND-4 /
+ * CORE-POOLED-7: the call of a check-raise of the caller's own flop wager is followed by a later-street fold far more
+ * often than any other call), so it reads the cell '<game>|<street>|call|raised_own' first.
+ */
+export function facesRaiseOfOwnWager(state: {
+  street: string;
+  toCall: number;
+  heroSeat: number;
+  history?: { street: string; seat: number; action: string }[];
+}): boolean {
+  if (!(state.toCall > 0) || !state.history) return false;
+  return state.history.some(
+    (h) =>
+      h.street === state.street &&
+      h.seat === state.heroSeat &&
+      (h.action === 'bet' || h.action === 'raise')
+  );
+}
+
+/**
+ * the calibration cell for a candidate (game | street | call | raised_own for a call facing a raise of the hero's own
+ * wager, then game | street | action, else game | street), null when not calibrated
+ */
 export function realizationCalibrationCell(
   variant: string,
   street: string,
-  action: string
+  action: string,
+  raisedOwn = false
 ): { r: number; cell: string } | null {
   const C = OMAHA_MATH_CORE_REALIZATION_CALIBRATION;
   if (action === 'fold') return null;
   const streets = C.streets[variant];
   if (!streets || !streets.includes(street)) return null;
-  for (const key of [`${variant}|${street}|${action}`, `${variant}|${street}`]) {
+  const keys = [`${variant}|${street}|${action}`, `${variant}|${street}`];
+  if (raisedOwn && action === 'call') keys.unshift(`${variant}|${street}|call|raised_own`);
+  for (const key of keys) {
     const c = C.cells[key];
     if (c && c.n >= C.minN && Number.isFinite(c.r) && c.r > 0)
       return { r: c.r, cell: `${key} r=${c.r} n=${c.n}` };
@@ -533,11 +569,12 @@ export function realizationCalibrationCell(
 export function applyRealizationCalibration(
   evs: CoreActionEv[],
   variant: string,
-  street: string
+  street: string,
+  raisedOwn = false
 ): number {
   let applied = 0;
   for (const a of evs) {
-    const c = realizationCalibrationCell(variant, street, a.action);
+    const c = realizationCalibrationCell(variant, street, a.action, raisedOwn);
     if (!c) continue;
     // the one-step fallback path carries no showdown term: it took min(r, 1) inside realized() already
     if (!(typeof a.sd === 'number' && Number.isFinite(a.sd))) continue;
@@ -802,10 +839,16 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   // path keeps no raw price to hold the fold boundary against). The planValue path is calibrated on its showdown
   // term in applyRealizationCalibration. Elsewhere 1.
   const real = 1;
+  const raisedOwn = facesRaiseOfOwnWager(state);
   const realCell = { source: 'realization: measured cell on a calibrated street, else none' };
   const realized = (closing: boolean, action?: string): number => {
     if (closing || !action || pre) return real;
-    const c = realizationCalibrationCell(String(state.variant).toLowerCase(), street, action);
+    const c = realizationCalibrationCell(
+      String(state.variant).toLowerCase(),
+      street,
+      action,
+      raisedOwn
+    );
     return c ? Math.min(1, c.r) : real;
   };
 
@@ -1440,7 +1483,8 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     }
   }
   if (evs.length === 0) throw new Error('omahaMathCore: no legal action priced');
-  if (!pre) applyRealizationCalibration(evs, String(state.variant).toLowerCase(), street);
+  if (!pre)
+    applyRealizationCalibration(evs, String(state.variant).toLowerCase(), street, raisedOwn);
   // ranked by the lower confidence bound (selectionScore, OmahaMathCoreWire.ts); ties: fewer chips
   let best = evs[0];
   for (const a of evs) {
