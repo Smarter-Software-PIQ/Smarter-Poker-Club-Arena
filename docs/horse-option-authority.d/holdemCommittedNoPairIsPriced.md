@@ -17,7 +17,7 @@ No-limit hold'em cash, one board, no bomb pot, no All-In-Or-Fold, not Lightning,
 - `f` MEASURED: the share of people who fold a postflop bet to a Horse raise, by the price the raise lays them, `(R - C)/(P + 2R - C)`: under `0.20`, `0` of `5`; `0.20-0.30`, `24` of `55`; `0.30` and above, `28` of `64` (NLH cash with a person seated, `2026-10-20 05:00Z` to `2026-11-19 06:00Z`; `HOLDEM_RAISE_FOLD_SHARE_BY_PRICE`, Laplace posterior means; SQL in `scripts/horse-measure/sql/nlh-vpip-floor-and-danger-baseline.sql`). No per-player counter of folds to a postflop raise exists, so every bettor gets his price class's population figure.
 - `Ec` hero's exact equity against the strongest `(1 - f)` of the bettor's range, where his range is the strongest prefix (by made strength now) of the unseen two-card combos whose mean hero equity first reaches `E` (`holdemCalledRangeEquity`: calibrated to the engine's own read). River exact, turn every river card, flop a fixed stride of 45 turn-river runouts; no random number.
 
-Stated assumptions, not measurements: future betting after a call is not priced (the committed branch is the stack decision); the bettor folds the weakest part of his range; a Horse bettor is priced at the people's fold curve. Off (absent, false or a truthy non-boolean): never entered, byte-identical.
+Stated assumptions and sample limitations, not unconditioned range measurements: the empirical raise-fold curve (`n = 124` person responses to Horse postflop raises across `<0.20`: `0/5`, `0.20-0.30`: `24/55`, `>=0.30`: `28/64`; pooled `52/124`) measures observed responses to raises Horses actually made rather than the bettor's full betting range, and `HOLDEM_DANGER_BOARD_BETTOR_SHOWN` (`n = 50` showdowns) in the companion module is likewise a called-hand showdown distribution biased toward hands that reached showdown rather than the bettor's unconditioned betting range; future betting after a call is not priced (the committed branch is the stack decision); the bettor is modeled as folding the weakest part of his range; a Horse bettor is priced at the people's fold curve. Off (absent, false or a truthy non-boolean): never entered, byte-identical.
 
 ## Measurements behind it (read-only, 2026-11-19/20, SQL in `scripts/horse-measure/sql/nlh-vpip-floor-and-danger-baseline.sql`)
 
@@ -43,7 +43,12 @@ Stated assumptions, not measurements: future betting after a call is not priced 
 
 ## League
 
-Card `nlh_committed_no_pair_is_priced` (`HorseLeague.ts`; arm `a` the option, arm `b` live), declared, not run. A Horse field is not the people the fold curve was measured on.
+Card `nlh_committed_no_pair_is_priced` (`HorseLeague.ts`; arm `a` `{"holdemCommittedNoPairIsPriced":true}`, arm `b` `{}`, 6-seat 100bb NLH cash mirror, `6,000` pairs / `12,000` hands per seed on engine `eca4fd3abcca`):
+
+- Seed `20261120`: `-0.49 +/- 0.77 bb/100` (`20` divergent pairs, `0` illegal actions)
+- Seed `20261121`: `-1.01 +/- 0.84 bb/100` (`34` divergent pairs, `0` illegal actions)
+- Seed `20261122`: `-0.00 +/- 1.10 bb/100` (`80` divergent pairs, `0` illegal actions)
+- Combined (`36,000` hands): `-0.50 +/- 0.53 bb/100` (`z = -0.95`, not resolved). A Horse mirror is not the human bettor field (`n = 124` raise responses) the fold curve was measured on.
 
 ## Evidence rows
 
