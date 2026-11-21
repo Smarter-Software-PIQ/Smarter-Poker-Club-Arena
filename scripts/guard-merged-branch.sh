@@ -26,6 +26,15 @@ else
   echo "[merged-branch guard] BLOCKED: remote '$REMOTE_NAME' is not an identified Smarter Poker GitHub destination." >&2
   exit 1
 fi
+# GitHub repository names are case-insensitive, and a clone made from a
+# lowercase URL (a cloud session's own clone, 2026-11-21) pushed to
+# .../smarter-poker-club-arena. The trust check below compares exact approved
+# names, so that push was refused as "GitHub did not identify the trusted
+# destination repository" although it was the right repository. Canonicalize
+# the one known name; the immutable repository ID is still checked.
+if [ "$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')" = "smarter-poker-club-arena" ]; then
+  REPO="Smarter-Poker-Club-Arena"
+fi
 SLUG="$OWNER/$REPO"
 
 if ! command -v gh >/dev/null 2>&1; then

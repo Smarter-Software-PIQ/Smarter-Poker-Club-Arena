@@ -735,6 +735,21 @@ export class LightningHandHost {
     return [...this.participants.keys()];
   }
 
+  /**
+   * Read-only identification of horse participants holding chips in this hand
+   * (CLAUDE.md 10.5: counts, decides nothing, zero side effects). Used by
+   * `GameServer.getPrometheusMetrics()` for `poker_horses_seated`.
+   */
+  seatedHorseParticipants(): Array<{ playerId: string; poolSessionId: string }> {
+    const out: Array<{ playerId: string; poolSessionId: string }> = [];
+    for (const p of this.participants.values()) {
+      if (p.isHorse === true && p.stackBefore > 0) {
+        out.push({ playerId: p.playerId, poolSessionId: p.poolSessionId });
+      }
+    }
+    return out;
+  }
+
   // ─── LIFECYCLE ──────────────────────────────────────────────────────────
 
   /** Deal the hand. Never throws; any failure abandons the instance. */

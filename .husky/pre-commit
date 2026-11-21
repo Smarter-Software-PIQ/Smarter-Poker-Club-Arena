@@ -43,13 +43,21 @@ bash "$(git rev-parse --show-toplevel)/scripts/guard-mass-deletion.sh"
 # this would have stalled every commit an agent makes. A gate people wait on is
 # a gate people --no-verify past, and --no-verify also disables the two guards
 # above, which are the ones that must never be skipped.
-LS="$(git rev-parse --show-toplevel)/node_modules/.bin/lint-staged"
+TOP="$(git rev-parse --show-toplevel)"
+LS="$TOP/node_modules/.bin/lint-staged"
 if [ -x "$LS" ]; then
+  # In linked agent worktrees on external SSDs, lint-staged's default backup
+  # step runs `git stash` across ~80k tracked files and stalls for minutes.
+  # Passing --no-stash formats only the staged files cleanly without stalling.
+  LS_STASH_FLAG=""
+  if [ -f "$TOP/.git" ]; then
+    LS_STASH_FLAG="--no-stash"
+  fi
   LINT_BASE="$(node scripts/ci/precommit-lint-base.mjs)"
   if [ -n "$LINT_BASE" ]; then
-    "$LS" --diff "$LINT_BASE"
+    "$LS" --diff "$LINT_BASE" $LS_STASH_FLAG
   else
-    "$LS"
+    "$LS" $LS_STASH_FLAG
   fi
 else
   echo "[pre-commit] no local node_modules - skipped formatting (guards above still ran)."

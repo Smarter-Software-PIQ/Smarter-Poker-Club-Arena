@@ -172,10 +172,12 @@ describe('the engine release runbook quotes the constants the code holds', () =>
   });
 
   it('the preparation window is the one both workflows admit', () => {
-    expect(STAGE).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
-    expect(RECEIVER).toContain('now.hour == 3 and 30 <= now.minute < 50');
+    // Since 2026-11-21 the preparation opens 30 minutes before each
+    // scheduled cycle (03:30-03:50 for the 04:00 anchor).
+    expect(STAGE).toContain('WINDOW_MINUTES = 20');
+    expect(RECEIVER).toContain('if not (30 <= now.minute < 50 and local.hour in hours');
     expect(FLAT).toContain('03:30-03:50');
-    expect(FLAT).toContain('`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`');
+    expect(FLAT).toContain('`WINDOW_MINUTES = 20`');
   });
 
   it('the cutover window is the host clock', () => {
@@ -183,9 +185,9 @@ describe('the engine release runbook quotes the constants the code holds', () =>
       TRANSACTION.indexOf('daily_cutover_clock() {'),
       TRANSACTION.indexOf('\n}\n', TRANSACTION.indexOf('daily_cutover_clock() {'))
     );
-    expect(clock).toContain('n.hour == 4 and n.minute < 5');
+    expect(clock).toContain('n.hour in hours and n.minute < 5');
     expect(FLAT).toContain('04:00-04:05');
-    expect(FLAT).toContain('(hour 4, minute under 5)');
+    expect(FLAT).toContain('(a scheduled cycle hour, minute under 5)');
   });
 
   it('the last-hand notice and break length are the engine constants', () => {
@@ -219,15 +221,15 @@ describe('the engine release runbook quotes the constants the code holds', () =>
     expect(at(109)).toMatch(/^MIN_BREAK_REMAINING_MS=/);
     expect(at(115)).toMatch(/^BREAK_WINDOW_MS=/);
     expect(FLAT).toContain('(lines 52, 53, 109, 115)');
-    expect(at(3289)).toContain('require_backup_certificate ||');
-    expect(at(3856)).toContain('require_backup_certificate ||');
-    expect(at(3912)).toContain('require_backup_certificate ||');
-    expect(at(3913)).toContain('daily_cutover_clock ||');
-    expect(at(4077)).toContain('persist_result sealed');
-    expect(FLAT).toContain('line 3289');
-    expect(FLAT).toContain('line 3856');
-    expect(FLAT).toContain('line 3912');
-    expect(FLAT).toContain('line 3913');
-    expect(FLAT).toContain('line 4077');
+    expect(at(3321)).toContain('require_backup_certificate ||');
+    expect(at(3888)).toContain('require_backup_certificate ||');
+    expect(at(3944)).toContain('require_backup_certificate ||');
+    expect(at(3945)).toContain('daily_cutover_clock ||');
+    expect(at(4109)).toContain('persist_result sealed');
+    expect(FLAT).toContain('line 3321');
+    expect(FLAT).toContain('line 3888');
+    expect(FLAT).toContain('line 3944');
+    expect(FLAT).toContain('line 3945');
+    expect(FLAT).toContain('line 4109');
   });
 });

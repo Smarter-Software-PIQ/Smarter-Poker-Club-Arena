@@ -137,14 +137,40 @@ export function isLedgerInvariantRefusal(
   );
 }
 
+/**
+ * THE DOOR'S DURABLE "NOT COMPLETED" ANSWERS ARE STANDING TOO (2026-11-21).
+ *
+ * fn_ca_resume_hand_submission answers found=true, completed=false with a
+ * reason. Two of those reasons are decided by rows only an operator
+ * correction can change:
+ *   - successor_financial_refused: the successor's financial commit was
+ *     refused and its handoff result is recorded;
+ *   - successor_financial_claim_spent: the hand's one correction claim is
+ *     spent (or no matching certified correction exists).
+ * Production 2026-11-21 08:17-14:31 UTC: cash table dbbc148e hand #60380607
+ * answered these on every start, and every start was a watchdog kill
+ * (`start_failed:start_seed_hand_count`, mislabelled), about twenty kills a
+ * minute for six hours with nine seats frozen (ClubArenaEngineKillStorm).
+ * The other reasons (accepted_postcommit_pending, resume_scan_continues,
+ * original_failure_or_handoff_unproven) can change on their own and keep the
+ * ordinary retry.
+ */
+export const RETAINED_HAND_STANDING_PENDING: ReadonlySet<string> = new Set([
+  'successor_financial_refused',
+  'successor_financial_claim_spent',
+]);
+
 /** The door's standing refusal, named, for the one table it was asked about. */
 export class RetainedHandSubmissionRefusedError extends Error {
   constructor(
     readonly tableId: string,
-    readonly code: string
+    readonly code: string,
+    prefix:
+      | 'retained_hand_submission_readback_failed'
+      | 'retained_hand_submission_pending' = 'retained_hand_submission_readback_failed'
   ) {
     // The same text every log line and dashboard has matched since 2026-09-18.
-    super(`retained_hand_submission_readback_failed: ${code}`);
+    super(`${prefix}: ${code}`);
     this.name = 'RetainedHandSubmissionRefusedError';
   }
 }
@@ -175,8 +201,21 @@ export async function resumeRetainedHandSubmission(
   if (!data || typeof data !== 'object' || typeof data.found !== 'boolean')
     throw new Error('retained_hand_submission_receipt_unproven');
   if (!data.found) return null;
-  if (data.completed !== true)
-    throw new Error(`retained_hand_submission_pending: ${String(data.reason ?? 'unknown')}`);
+  if (data.completed !== true) {
+    const reason = String(data.reason ?? 'unknown');
+    // A successor whose financial commit was refused, or whose one correction
+    // claim is spent, is answered from durable rows (2026-11-21, table
+    // dbbc148e): every rebuilt engine reads the same rows and gets the same
+    // answer, so it holds the table instead of rebuilding it twenty times a
+    // minute. The message text is unchanged for every log line and dashboard.
+    if (RETAINED_HAND_STANDING_PENDING.has(reason))
+      throw new RetainedHandSubmissionRefusedError(
+        tableId,
+        reason,
+        'retained_hand_submission_pending'
+      );
+    throw new Error(`retained_hand_submission_pending: ${reason}`);
+  }
   const handNumber = Number(data.hand_number);
   if (
     data.success !== true ||

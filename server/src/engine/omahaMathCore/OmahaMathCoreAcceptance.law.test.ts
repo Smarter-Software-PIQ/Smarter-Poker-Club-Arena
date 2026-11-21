@@ -41,7 +41,12 @@ import { omahaMathCoreRule, omahaMathCoreStreetAdmitted } from './OmahaMathCoreR
 import { holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
 import { OMAHA_MATH_CORE_ALL_STREETS } from './OmahaMathCoreRule.js';
-import { OMAHA_MATH_CORE_REALIZATION_CALIBRATION } from './OmahaMathCore.js';
+import {
+  OMAHA_MATH_CORE_REALIZATION_CALIBRATION,
+  OMAHA_MATH_CORE_WORK_BUDGET,
+  omahaMathCoreDrawCost,
+  omahaMathCoreLateDraws,
+} from './OmahaMathCore.js';
 import { setWiredValueForTests } from './OmahaMathCoreWire.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
@@ -910,6 +915,8 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     let riverChecks = 0;
     const sane: string[] = [];
     let keptUnpriced = 0;
+    const workMax: Record<number, number> = {};
+    let workChecked = 0;
     let riverCheckGap = 0;
     const riverEx: string[] = [];
     let closingGap = 0;
@@ -1038,6 +1045,23 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
           if (raw > winnable + 0.011) sane.push(`${w}: ev ${raw} above winnable ${r2(winnable)}`);
           if (e.action === 'call' && raw < -adds - 0.011)
             sane.push(`${w}: call ev ${raw} below -adds`);
+        }
+      }
+      // the equity work of a decision stays inside the budget whatever the seat count: the budget, plus the one
+      // call that crossed it, plus the reduced floor of every call after it
+      {
+        const wire = rec.core!.wire;
+        const k = gs.players.filter((p) => p.seat !== hero.seat && !p.is_folded).length;
+        // every receipt carries the units it spent: without the field the bound below would check nothing
+        if (!wire || typeof wire.work !== 'number')
+          sane.push(`${tag}: the receipt carries no wire.work`);
+        else {
+          const bound =
+            OMAHA_MATH_CORE_WORK_BUDGET +
+            (1 + wire.lateEquityCalls) * 600 * omahaMathCoreDrawCost(Math.max(1, k));
+          workChecked++;
+          workMax[k] = Math.max(workMax[k] ?? 0, wire.work);
+          if (wire.work > bound) sane.push(`${tag}: work ${wire.work} over ${Math.round(bound)}`);
         }
       }
       // a river check that closes the action (the hero is last, everyone checked) is equity x the pot
@@ -1170,7 +1194,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       `CORE-POOLED-6 property: riverChecks=${riverChecks} worst gap/pot=${riverCheckGap.toFixed(4)}\n${riverEx.join('\n')}`
     );
     console.info(
-      `CORE-POOLED-6 property: sane violations=${sane.length} keptUnpriced=${keptUnpriced}\n${sane.slice(0, 12).join('\n')}`
+      `CORE-POOLED-6 property: sane violations=${sane.length} keptUnpriced=${keptUnpriced} workMaxByOpponents=${JSON.stringify(workMax)}\n${sane.slice(0, 12).join('\n')}`
     );
     if (bad.length)
       console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
@@ -1186,6 +1210,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(closingCalls).toBeGreaterThan(20);
     // a river check that closes the action is priced at equity x the pot
     expect(sane).toEqual([]);
+    expect(workChecked).toBe(applied);
     expect(riverEx).toEqual([]);
     expect(riverChecks).toBeGreaterThan(10);
     // every change the core made had today's action priced among its candidates (prove it to change it)
@@ -1200,6 +1225,24 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
  * the PLO5 flop call realization factor (0.81) discounted it: the core priced calling a shove as if 19% of the
  * equity were lost to later play that cannot happen. The hero-all-in call was already exempt; this one was not.
  */
+describe('CORE-POOLED-6: the work budget charges a draw by the seats it draws', () => {
+  it('heads-up is charged as before (1 per draw, 600 late draws); a first call gets 4,000 / 3,750 / 1,562 / 732 / 366 draws against 1 to 5 ranges', () => {
+    expect(omahaMathCoreDrawCost(1)).toBe(1);
+    expect(omahaMathCoreLateDraws(1)).toBe(600);
+    const first = [1, 2, 3, 4, 5].map((k) =>
+      Math.min(4000, Math.floor(OMAHA_MATH_CORE_WORK_BUDGET / omahaMathCoreDrawCost(k)))
+    );
+    expect(first).toEqual([4000, 3750, 1562, 732, 366]);
+    // more seats never get more draws, and the late floor never goes under 150
+    for (let k = 1; k < 8; k++) {
+      expect(omahaMathCoreDrawCost(k + 1)).toBeGreaterThan(omahaMathCoreDrawCost(k));
+      expect(omahaMathCoreLateDraws(k + 1)).toBeLessThanOrEqual(omahaMathCoreLateDraws(k));
+      expect(omahaMathCoreLateDraws(k)).toBeGreaterThanOrEqual(150);
+    }
+    expect(omahaMathCoreDrawCost(0)).toBe(1);
+  });
+});
+
 describe('CORE-POOLED-6: a call that closes the hand is priced at its exact showdown value', () => {
   it('heads-up PLO5 flop, the bettor all-in and covered by the hero: the call carries no realization discount', () => {
     let closing = 0;
