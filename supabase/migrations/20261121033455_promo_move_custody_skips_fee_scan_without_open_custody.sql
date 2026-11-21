@@ -96,12 +96,14 @@ BEGIN
     '00000000-0000-0000-0000-000000000000'::uuid,
     'player_wallet',
     '00000000-0000-0000-0000-000000000000'::uuid,
-    0
+    100
   ) INTO v_moved;
   IF v_moved IS DISTINCT FROM 0 THEN
     RAISE EXCEPTION 'fn_ca_promo_move_custody probe expected 0, got %', v_moved;
   END IF;
-END;
-$probe$;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;
