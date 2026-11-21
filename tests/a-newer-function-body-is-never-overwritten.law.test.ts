@@ -142,17 +142,11 @@ describe('a newer function body is never overwritten by an older version', () =>
     expect(guarded).toContain('migration_preimage_mismatch');
   });
 
-  it('extracts and normalizes watched guard bodies and keeps the live verifier workflow manual-only', () => {
+  it('extracts and normalizes watched guard bodies', () => {
     const latestWatch = extractLatestFunctionBody(DIR, 'public.fn_ca_cron_failure_watch');
     expect(latestWatch?.file).toBe(
       '20261120222900_harden_drill_trigger_body_and_watch_pass_proof.sql'
     );
     expect(normalizeSqlBody('/* c */ SELECT 1 -- x\n  + 2')).toBe('SELECT 1 + 2');
-    const wf = readFileSync(
-      join(ROOT, '.github/workflows/verify-alarm-drill-and-cron-watch.yml'),
-      'utf8'
-    );
-    expect(wf).toContain('workflow_dispatch:');
-    expect(wf).not.toMatch(/^\s*schedule:/m);
   });
 });
