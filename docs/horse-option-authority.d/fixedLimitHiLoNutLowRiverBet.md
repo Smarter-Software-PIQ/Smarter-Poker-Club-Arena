@@ -25,7 +25,7 @@ Receipt `hilo_nut_low_freeroll_bet`. Law `server/src/engine/AFixedLimitNutLowBet
 
 1. Hi-lo settlement in the league (`playHand`: the qualifying low, the halves per side pot, quartering and the odd chip, proven against a real `HandController` on flo8), then a card and a field in which the option acts.
 2. The Value row: three opponent ranges, one value-only, with a per-node table.
-3. An audited fixed-limit Omaha hi-lo decision set against people. None is named in this repository, so no Replay row can be written.
+3. An audited fixed-limit Omaha hi-lo decision set against people. None is named in this repository, so no Replay row can be written. Counted read-only on 2026-11-21 at 15:10 UTC (production `hand_history`, `has_human`, every hand a person was dealt into; hands with a person are kept forever, so this is every such hand ever recorded): flh 0 hands; flo8 107 hands, all at one table between 2026-11-03 02:40 and 03:53 UTC, one person and five Horses. Against 230,155 flh and 81,351 flo8 Horse-only hands retained at the same moment. So no fixed-limit hold'em set against people can be extracted at all, and a fixed-limit Omaha hi-lo set would be 107 hands of a single person.
 4. A PASS-BAR for that replay, declared here before it runs, then its run rows under "Replay".
 5. An order to activate, recorded verbatim above.
 
