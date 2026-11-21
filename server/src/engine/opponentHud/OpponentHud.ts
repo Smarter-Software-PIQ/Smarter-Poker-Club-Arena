@@ -353,7 +353,8 @@ export function hudFirstWagerRecord(
 ): {
   bets: number;
   opps: number;
-  checkedTo: { bets: number; opps: number };
+  /** sizeSum = sum over his stabs of wager / pot before it (each capped at 2 pots) */
+  checkedTo: { bets: number; opps: number; sizeSum: number };
   firstToAct: { bets: number; opps: number };
 } | null {
   try {
@@ -361,10 +362,15 @@ export function hudFirstWagerRecord(
     if (!pk?.opp[opponentId]) return null;
     const st = hudLifetimeCount(opponentId, family, 'x.stab', { street, players });
     const ld = hudLifetimeCount(opponentId, family, 'x.lead', { street, players });
+    const sz = pk.opp[opponentId].lc?.[`${SK[street]}.stabsz.${players}`];
     return {
       bets: st.hits + ld.hits,
       opps: st.n + ld.n,
-      checkedTo: { bets: st.hits, opps: st.n },
+      checkedTo: {
+        bets: st.hits,
+        opps: st.n,
+        sizeSum: Math.round(2 * (sz ? sz[1] : 0) * 1000) / 1000,
+      },
       firstToAct: { bets: ld.hits, opps: ld.n },
     };
   } catch {

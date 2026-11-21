@@ -122,10 +122,15 @@ describe('context reads: MATHCORE-2 fold to the first wager, STAB-DEFENCE stab a
     expect(hudFirstWagerRecord(U(1), 'plo5', 'flop', 'hu')).toEqual({
       bets: 1,
       opps: 3,
-      checkedTo: { bets: 0, opps: 0 },
+      checkedTo: { bets: 0, opps: 0, sizeSum: 0 },
       firstToAct: { bets: 1, opps: 3 },
     });
-    expect(hudFirstWagerRecord(U(2), 'plo5', 'flop', 'hu')).toMatchObject({ bets: 2, opps: 2 });
+    // seat 2 stabbed 2 into 4 (0.5 pot) and 4 into 4 (1 pot): sizeSum 1.5
+    expect(hudFirstWagerRecord(U(2), 'plo5', 'flop', 'hu')).toMatchObject({
+      bets: 2,
+      opps: 2,
+      checkedTo: { bets: 2, opps: 2, sizeSum: 1.5 },
+    });
     expect(hudFirstWagerRecord(U(7), 'plo5', 'flop', 'hu')).toBeNull();
     clearDecisionHud();
     // three-way: multiway cells

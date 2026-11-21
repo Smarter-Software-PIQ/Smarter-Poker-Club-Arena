@@ -375,6 +375,30 @@ describe('OpponentHudProfile: hand-constructed histories', () => {
 function generatedHistories(): Spec[] {
   const out: Spec[] = [S1, S2];
   let id = 100;
+  // a multiway flop stab after two checks (stab size cell, 2026-11-21)
+  out.push({
+    id: id++,
+    button: 3,
+    seats: [
+      [1, 1, 1000],
+      [2, 2, 1000],
+      [3, 3, 1000],
+    ],
+    acts: [
+      ['preflop', 1, 'sb', 1],
+      ['preflop', 2, 'bb', 2],
+      ['preflop', 3, 'call', 2],
+      ['preflop', 1, 'call', 1],
+      ['preflop', 2, 'check', 0],
+      ['flop', 1, 'check', 0],
+      ['flop', 2, 'check', 0],
+      ['flop', 3, 'bet', 4],
+      ['flop', 1, 'fold', 0],
+      ['flop', 2, 'fold', 0],
+    ],
+    board: ['Ah', '7d', '2c'],
+    winners: [3],
+  });
   // value share by line and size (2026-11-21): leads and raises of both sizes on every street, shown at showdown
   for (const [lead, raiseTo] of [
     [(pot: number) => pot * 0.25, (pot: number, l: number) => l + 1.5 * (pot + 2 * l)],

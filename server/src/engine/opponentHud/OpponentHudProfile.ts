@@ -327,6 +327,8 @@ function registry(): string[] {
     // shown at showdown, by line (stab after checks / lead first to act / raise) and size. Public history only.
     for (const z of ['sm', 'bg']) for (const pl of ['hu', 'mw']) out.push(`${s}.fb.${z}.${pl}`);
     out.push(`${s}.stab.hu`, `${s}.stab.mw`, `${s}.lead.hu`, `${s}.lead.mw`);
+    // stab size: one opportunity per stab, hits = wager / pot before it, halved and capped at 1 (sizeSum = 2 x hits)
+    out.push(`${s}.stabsz.hu`, `${s}.stabsz.mw`);
     for (const ln of ['stab', 'lead', 'raise'])
       for (const z of ['sm', 'bg']) out.push(`vs.${s}.${ln}.${z}`);
   }
@@ -338,7 +340,7 @@ function registry(): string[] {
 export const HUD_STATS: readonly string[] = Object.freeze(registry());
 /** The context statistics (MATHCORE-2 opponent layer, STAB-DEFENCE) whose RAW lifetime counts ride in the packet. */
 export const HUD_CONTEXT_STATS: readonly string[] = Object.freeze(
-  HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|lead)\.|^vs\./.test(s))
+  HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|stabsz|lead)\.|^vs\./.test(s))
 );
 const STAT_SET = new Set(HUD_STATS);
 export function hudStatIsRegistered(stat: string): boolean {
@@ -573,11 +575,13 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     }
     return d;
   };
-  const add = (user: string, stat: string, hit: boolean) => {
+  const add = (user: string, stat: string, hit: boolean | number) => {
     const m = D(user).stats;
     const c = m.get(stat) ?? [0, 0];
     c[0] += 1;
-    if (hit) c[1] += 1;
+    // a number in [0, 1] adds its value (the stab size cell); a boolean adds 1 or 0
+    if (typeof hit === 'number') c[1] += Math.min(1, Math.max(0, hit));
+    else if (hit) c[1] += 1;
     m.set(stat, c);
   };
   for (const s of seats.values()) D(s.user);
@@ -804,6 +808,8 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
       }
       if (aggressive && ratio !== null) add(user, `${sk}.bsz.${hudBand(ratio)}`, true);
       if (code === 'k') st.checkedThisStreet = true;
+      if (aggressive && facingLevel === 0 && checkedTo && ratio !== null && !st.aggressedThisStreet)
+        add(user, `${sk}.stabsz.${liveNow === 2 ? 'hu' : 'mw'}`, Math.min(2, ratio) / 2);
       if (aggressive) {
         const ws = wagerLines.get(user) ?? [];
         ws.push({
