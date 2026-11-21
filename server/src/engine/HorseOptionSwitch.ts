@@ -413,6 +413,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaTightOpponent',
   'readScopedShrink',
   'huBbDefendsToPrice',
+  // 2026-11-20: read once, as `opts.huBbDefendsUnreadToPrice === true` (HorseLogic huBbUnreadPrice; pinned by
+  // HorseHeadsUpBigBlindDefendsUnreadToPrice.law.test.ts), so off in source. It had reported 'code' while off-only.
+  'huBbDefendsUnreadToPrice',
   'huOpenerDefendsToPrice',
   'huLimpDefendsToPrice',
   'committedStackPricedIn',
@@ -550,8 +553,15 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   ),
   huOpenerDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
-  // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
-  huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // huBbDefendsUnreadToPrice is NOT held (lifted BY NAME, 2026-11-20; OPTION_SWITCH_PREFLOP_HOLD_LIFTED below).
+  // Dan's exact message of 2026-11-20 15:01 America/Chicago to the Antigravity Coordinator chat, about the Heads Up,
+  // Hold'em, PLO6, Lightning, Limit, Human vs Horse and Hand Analysis lanes:
+  // "YOU OWN THIS CODE BASE AND ARE TO MAKE ANY AND ALL DECISIONS, CHANGES, UPGRADES, ENHANCEMENTS ETC. AND COORDIANTE WITH THE ENGINE CUT OVER, HORSE DECISIONS AND ON OFF SWITCH CHATS AS NEEDED."
+  // On that order the ANTIGRAVITY COORDINATOR (session_01UxDLnHu4P9fWx3X7Mp5FjM) lifted the owner preflop range hold
+  // for this option alone. It is switchable, default OFF, and goes on only through its evidence (league card +
+  // replay; docs/horse-option-authority.d/huBbDefendsUnreadToPrice.md, "Evidence NOT MET" on the day of the lift).
+  // huBbDefendsToPrice (not supported by its declared evaluation, HU-NLH-001c), huOpenerDefendsToPrice,
+  // huLimpDefendsToPrice and every other PREFLOP_HOLD_SOURCE entry stay off-only.
   lightningCheapEntryHoldem: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   lightningCheapEntryOmaha: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 PLO Strategy wave two: the preflop stack-to-pot plan turns a heads-up preflop call into a fold
@@ -733,6 +743,12 @@ export interface OptionSwitchPreflopHoldLift {
  * checkpoint ("you own this code base ... turn activation on and off as you see fit"). The lift makes the switch
  * accept `on` and `off`; it turns nothing on. omahaPreflopReraiseDefencePriced itself and every other
  * PREFLOP_HOLD_SOURCE entry stay off-only.
+ * huBbDefendsUnreadToPrice (Heads Up HU-NLH-001d, default OFF): the heads-up big blind facing the only open from an
+ * unread opener calls to its price at 20-50bb (it widens a big-blind calling range). Lifted for this name alone by the
+ * Antigravity Coordinator (session_01UxDLnHu4P9fWx3X7Mp5FjM) under the owner's delegation of 2026-11-20 15:01
+ * America/Chicago, quoted in the entry. The lift makes the switch accept `on` and `off`; it turns nothing on.
+ * huBbDefendsToPrice, huOpenerDefendsToPrice, huLimpDefendsToPrice and every other PREFLOP_HOLD_SOURCE entry stay
+ * off-only.
  */
 export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
   Record<string, OptionSwitchPreflopHoldLift>
@@ -750,6 +766,13 @@ export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
     file: 'woowoo-48h-audit-01BNteGYgf/CHECKPOINT.md',
     sha256: '63f041c4ca82354bcc6bec5edd93d7e121a56d6f8518aa99507d1d9de53b1be6',
     readAt: '2026-11-19T01:14:21Z (135,509 bytes; append-only, the digest moves as the file grows)',
+  }),
+  huBbDefendsUnreadToPrice: Object.freeze({
+    source:
+      'owner 2026-11-20 15:01 Chicago, to the Antigravity Coordinator chat: "YOU OWN THIS CODE BASE AND ARE TO MAKE ANY AND ALL DECISIONS, CHANGES, UPGRADES, ENHANCEMENTS ETC. AND COORDIANTE WITH THE ENGINE CUT OVER, HORSE DECISIONS AND ON OFF SWITCH CHATS AS NEEDED." Lift for huBbDefendsUnreadToPrice by name, alone (coordinator decision under that delegation, session_01UxDLnHu4P9fWx3X7Mp5FjM)',
+    file: 'antigravity-coordinator-01UxDLnH/OWNER-TEXT-20261120-ANTIGRAVITY-COORDINATOR-VERBATIM.md',
+    sha256: '90351f60b2dbcd6f7ce541d137fe4139c988893abf074e49de6031e5e2d9013e',
+    readAt: '2026-11-20T21:15:22Z (1,595 bytes)',
   }),
 });
 /** The names whose off-only entry is the owner preflop range hold (used by the lift law test). */

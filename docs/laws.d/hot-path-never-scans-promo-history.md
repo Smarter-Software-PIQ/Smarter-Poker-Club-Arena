@@ -1,0 +1,3 @@
+# tests/hot-path-never-scans-promo-history.law.test.ts
+
+Hot-path hand-commit, payout, and rebuy functions (`fn_ca_commit_hand_settlement*`, `fn_ca_process_hand_post_commit_obligations`, `process_tournament_rebuy`, `fn_ca_promo_profit_credit_owned`, `fn_ca_promo_custody_on_ledger`, `fn_ca_promo_realize_event_principal`, `fn_ca_promo_roll_event_principal`, and `fn_ca_promo_profit_return_entitlement_ticket`) never transitively call `fn_ca_promo_shared_fee_state_live` or any settle/refresh wrapper on their hot paths, verified by a real PostgreSQL `pg_proc` recursive CTE call-graph proof wired into `promo-play-through.yml`.

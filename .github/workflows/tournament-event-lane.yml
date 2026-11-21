@@ -33,6 +33,7 @@ on:
       - scripts/ci/test-rebuy-never-pauses-the-tournament.py
       - scripts/ci/test-a-rebuy-never-blocks-a-hand-commit-on-the-tournament-row.py
       - scripts/ci/test-remaining-tournament-row-locks-never-block-hands.py
+      - tests/hot-path-lock-matrix-exercised-in-ci.law.test.ts
       - .github/workflows/tournament-event-lane.yml
 
 permissions:

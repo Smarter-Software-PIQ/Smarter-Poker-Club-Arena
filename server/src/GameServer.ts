@@ -49,9 +49,11 @@ import {
 } from './services/TournamentRetirementCustody.js';
 import {
   EMPTY_PAST_START_CANCEL_RETRY_MS,
+  emptyEventAwaitsOnlyItsTopUp,
   isCancellationLaneBusy,
   laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
+  type EmptyPastStartEvent,
 } from './tournament/emptyPastStartEvent.js';
 import { throughCancellationLane } from './tournament/cancellationLane.js';
 import { wakeCommitsASeat } from './tournament/committedSeatShow.js';
@@ -447,6 +449,8 @@ const PAST_START_TOP_UP_CONCURRENCY = 4;
  * branch of discoverTournaments for the backoff that reaches it.
  */
 const PAST_START_TOP_UP_MAX_INTERVAL_MS = 10 * 60 * 1000;
+/** How long a host pool's horse read stands for an empty event (2026-11-20). */
+const EMPTY_EVENT_POOL_READ_TTL_MS = 5 * 60 * 1000;
 /**
  * One past-start event's top-up clock. cancelAskedAt is when an event nobody
  * entered was last offered to atomic_cancel_tournament (2026-10-15, see
@@ -3908,6 +3912,32 @@ export class GameServer {
    * tournament/emptyPastStartEvent.ts (EMPTY_PAST_START_LANE_BUSY_RETRY_MS).
    */
   private readonly emptyEventCancelsInFlight = new Map<string, Promise<void>>();
+
+  /**
+   * Whether each empty past-start event's host pool holds a horse, read at most
+   * every EMPTY_EVENT_POOL_READ_TTL_MS (2026-11-20). Only for events whose
+   * cancel waits on nothing but the empty top-up, a small set by construction.
+   * An unreadable pool is not cached, so it is asked again next pass.
+   */
+  private readonly emptyEventHostPoolHorse = new Map<string, { hasHorse: boolean; at: number }>();
+
+  private async readEmptyEventHostPoolHorse(
+    tournamentId: string,
+    now: number
+  ): Promise<boolean | undefined> {
+    const cached = this.emptyEventHostPoolHorse.get(tournamentId);
+    if (cached && now - cached.at < EMPTY_EVENT_POOL_READ_TTL_MS) return cached.hasHorse;
+    try {
+      const hasHorse = await this.tournamentRecurring.hostPoolHasHorse(tournamentId);
+      if (hasHorse === null) return undefined;
+      if (this.emptyEventHostPoolHorse.size > 1000) this.emptyEventHostPoolHorse.clear();
+      this.emptyEventHostPoolHorse.set(tournamentId, { hasHorse, at: now });
+      return hasHorse;
+    } catch (error) {
+      reportError(error, 'GameServer.empty_event_host_pool_unreadable', { tournamentId });
+      return undefined;
+    }
+  }
 
   private launchEmptyEventCancel(
     tournamentId: string,
@@ -9795,22 +9825,32 @@ export class GameServer {
                paid; atomic_cancel_tournament writes the receipt. A club whose
                horses can fill the event is filled by the top-up below first. */
             const emptyClock = this.pastStartTopUpClock.get(tournament.id);
-            if (
-              shouldCancelEmptyPastStartEvent({
-                seatFirst: isSngOrSpin,
-                poolFinalized,
-                rosterCount: rosterByTournament.get(tournament.id),
-                currentPlayers: tournament.current_players,
-                startTimeMs: startTime,
-                nowMs: now,
-                /* This process's count, or the one the previous process wrote
-                   down (2026-10-26): a restart forgets the first, not the second. */
-                emptyTopUps: Math.max(
-                  emptyClock?.misses ?? 0,
-                  durableEmptyTopUps.get(tournament.id) ?? 0
-                ),
-              })
-            ) {
+            const emptyEvent: EmptyPastStartEvent = {
+              seatFirst: isSngOrSpin,
+              poolFinalized,
+              rosterCount: rosterByTournament.get(tournament.id),
+              currentPlayers: tournament.current_players,
+              startTimeMs: startTime,
+              nowMs: now,
+              /* This process's count, or the one the previous process wrote
+                 down (2026-10-26): a restart forgets the first, not the second. */
+              emptyTopUps: Math.max(
+                emptyClock?.misses ?? 0,
+                durableEmptyTopUps.get(tournament.id) ?? 0
+              ),
+            };
+            /* A CANCEL DOES NOT WAIT FOR A TOP-UP THAT CANNOT ADD ANYONE
+               (2026-11-20). Due on every count but the empty top-up: ask once
+               whether the host pool holds any horse. None means no top-up can
+               ever fill it, so the shared top-up queue (starved after every
+               restart) no longer decides when it is cancelled. */
+            if (emptyEventAwaitsOnlyItsTopUp(emptyEvent)) {
+              emptyEvent.hostPoolHasHorse = await this.readEmptyEventHostPoolHorse(
+                tournament.id,
+                now
+              );
+            }
+            if (shouldCancelEmptyPastStartEvent(emptyEvent)) {
               const fixedSatellite =
                 tournament.format_contract === 'sng-v1' && isFixedSngSatellite(tournament);
               const askedAt = emptyClock?.cancelAskedAt ?? 0;
