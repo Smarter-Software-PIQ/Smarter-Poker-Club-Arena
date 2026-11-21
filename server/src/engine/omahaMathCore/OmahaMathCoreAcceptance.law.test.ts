@@ -885,6 +885,8 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     let legalized = 0;
     let wagers = 0;
     let shortHero = 0;
+    let callOffs = 0;
+    let nutsSpots = 0;
     for (let i = 0; i < PROPERTY_STATES; i++) {
       const variant = rng() < 0.3 ? 'plo4' : 'plo5';
       const n = 2 + Math.floor(rng() * 5);
@@ -919,6 +921,24 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       applied++;
       if (rec.core?.legalized) legalized++;
       count[d.action] = (count[d.action] ?? 0) + 1;
+      // the two money invariants on the same random states: no call-off at zero equity, no fold of the nuts
+      const coreRec = (rec as unknown as OmahaMathCoreRecoveredReceipt).core!;
+      const facing = gs.toCall ?? 0;
+      if (d.action === 'call' || (d.action === 'all_in' && hero.stack <= facing + 0.005)) {
+        callOffs++;
+        const priced = coreRec.evs.find((e) => e.action === d.action);
+        if (priced && priced.equity !== null && coreRec.nutFloor == null && !(priced.equity > 0))
+          bad.push(`${tag}: ${d.action} with zero equity`);
+      }
+      const boardInts = (gs.communityCards ?? []).map(cardToInt);
+      if (
+        facing > 0.005 &&
+        boardInts.length >= 3 &&
+        holdsCurrentNuts(hero.cards.map(cardToInt), boardInts)
+      ) {
+        nutsSpots++;
+        if (d.action === 'fold') bad.push(`${tag}: folded the exact current nuts`);
+      }
       const toCall = gs.toCall ?? 0;
       const heroTo = r2(hero.bet + hero.stack);
       const potCap = r2(gs.currentBet + gs.pot + Math.max(0, gs.currentBet - hero.bet));
@@ -988,7 +1008,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
         refusals++;
     }
     console.info(
-      `CORE-POOLED-6 property: states=${PROPERTY_STATES} applied=${applied} fallbacks=${fallbacks} refusals=${refusals} legalized=${legalized} wagersChecked=${wagers} shortHero=${shortHero} actions=${JSON.stringify(count)} bad=${bad.length}`
+      `CORE-POOLED-6 property: states=${PROPERTY_STATES} applied=${applied} fallbacks=${fallbacks} refusals=${refusals} legalized=${legalized} wagersChecked=${wagers} shortHero=${shortHero} callOffs=${callOffs} nutsSpots=${nutsSpots} actions=${JSON.stringify(count)} bad=${bad.length}`
     );
     if (bad.length)
       console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
@@ -998,5 +1018,6 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(legalized).toBe(0);
     expect(applied).toBe(PROPERTY_STATES);
     expect(wagers).toBeGreaterThan(1000);
+    expect(callOffs).toBeGreaterThan(100);
   }, 1_800_000);
 });
