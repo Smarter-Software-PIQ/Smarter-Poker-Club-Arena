@@ -33,12 +33,16 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # when that descends from its own push, and plans nothing when that commit
 # already carries a success certificate, so no commit is certified twice.
 #
-# THE BOOKED CANDIDATE GOES FIRST (2026-11-14). While an owner engine window
-# booked on main is open or upcoming and its release is not yet serving, a
-# push run asks scripts/ci/backup-candidate-priority.py (read-only) where its
-# own commit stands. The BOOKING commit (the first main commit carrying
-# main's release controls) is certified exactly: it is neither superseded by
-# later ordinary pushes nor retargeted. A commit whose release controls
+# THE BOOKED CANDIDATE GOES FIRST (2026-11-14; hardened 2026-11-21). While an
+# owner engine window booked on main is open or upcoming and its release is not
+# yet serving, a push run asks scripts/ci/backup-candidate-priority.py
+# (read-only) where its own commit stands. The BOOKING commit (the first main
+# commit carrying main's release controls) is certified exactly: it is neither
+# superseded by later ordinary pushes nor retargeted. A post-booking push commit
+# whose booking commit does not yet carry backup-engine/certified = success gets
+# `booking_pending` and ends as DEFERRED (never racing onto the single Backup
+# host ahead of the booking commit); once the booking commit is certified,
+# post-booking pushes proceed as `candidate`. A commit whose release controls
 # differ from main's cannot be the owner window's selection while it is open; if it
 # was neither superseded nor retargeted it ends as DEFERRED with nothing
 # planned and no status written. Any unreadable answer is "unknown" and the
@@ -244,11 +248,21 @@ jobs:
               verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$sha" 2>/dev/null) || verdict=''
               answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
               case "$answer" in
-                none|booking|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+                none|booking|booking_pending|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
               esac
             fi
             rm -f "$tool"
             echo "owner window priority: $priority${window:+ ($window)}"
+            if [ "$priority" = booking_pending ]; then
+              # A post-booking push must not race onto the single Backup host
+              # ahead of the booking commit while the booking commit is not yet
+              # certified (T7, 2026-11-21). Nothing planned, no status written.
+              echo "DEFERRED: owner engine window $window is booked and open on main, and its booking commit is not yet certified; post-booking push $sha yields the Backup host until the booking commit carries backup-engine/certified = success. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$sha\`: post-booking push yielded to uncertified booking commit of owner window \`$window\`; nothing built, no certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             if [ "$priority" = booking ]; then
               # The booking commit is the window's one deterministic candidate:
               # later ordinary pushes neither supersede nor replace it.
@@ -633,12 +647,12 @@ jobs:
             verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || verdict=''
             answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
             case "$answer" in
-              none|booking|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+              none|booking|booking_pending|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
             esac
           fi
           rm -f "$tool"
           echo "owner window priority before certify: $priority${window:+ ($window)}"
-          if [ "$priority" != predates ]; then
+          if [ "$priority" != predates ] && [ "$priority" != booking_pending ]; then
             exit 0
           fi
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -659,8 +673,13 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
-          echo "DEFERRED: owner engine window $window was booked while $SHA waited; it predates the window, so it hands the Backup host back and certifies nothing."
-          { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\` before certify: predates owner window \`$window\` booked while it waited; host handed back, nothing certified."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          if [ "$priority" = booking_pending ]; then
+            echo "DEFERRED: owner engine window $window is booked and open on main and its booking commit is not yet certified; post-booking push $SHA hands the Backup host back and certifies nothing."
+            { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\` before certify: post-booking push yielded to uncertified booking commit of owner window \`$window\`; host handed back, nothing certified."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          else
+            echo "DEFERRED: owner engine window $window was booked while $SHA waited; it predates the window, so it hands the Backup host back and certifies nothing."
+            { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\` before certify: predates owner window \`$window\` booked while it waited; host handed back, nothing certified."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
           echo "deferred=1" >> "$GITHUB_OUTPUT"
 
   certify:

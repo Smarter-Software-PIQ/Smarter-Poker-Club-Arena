@@ -233,6 +233,7 @@ import {
   withOmahaOptionGameScope,
   type OmahaOptionGameScope,
 } from './HorseOmahaOptionGameScope.js';
+import { withBlanketRowsOffInPlo45Cash } from './HorseOmahaBlanketRowsOffInPlo45Cash.js';
 import {
   omahaStrongHandRaiseVerdict,
   omahaStrongHandValueDecision,
@@ -2886,6 +2887,12 @@ export interface GtoV31DecisionReceipt {
 
 /** V3/V4/V5 decision options (benchmark/test hooks — production uses defaults). */
 export interface HorseDecideOpts {
+  /** OPPONENT HUD PROVIDER (2026-11-21, lane OPPONENT-HUD; branch hud-provider): while on, the engine attaches each
+   * PLO4/PLO5 cash opponent's lifetime public profile to the decision request (opponentHud) and the worker installs it
+   * for the accessor (hudStat / hudStatIn / hudLifetimeCount / hudFirstWagerRecord). On this branch NO decision rule
+   * reads it: option on changes no decision (law TheHudProviderChangesNoDecision). Default OFF (read === true);
+   * scopable by horse.omahaGameScope.omahaOpponentLifetimeHud. */
+  omahaOpponentLifetimeHud?: boolean;
   /**
    * Epoch captured when the turn decision was requested. Live decisions can
    * wait in the isolated worker's FIFO; pinning time here prevents queue
@@ -4318,6 +4325,15 @@ export interface HorseDecideOpts {
    * every listed option scoped to the other game is passed false (its off path) before anything reads it. Absent:
    * byte-identical. PLO6, PLO8, hold'em and tournaments are never in scope. */
   omahaOptionGameScope?: OmahaOptionGameScope;
+  /** omahaBlanketRowsOffInPlo45Cash (EMERG lane BLANKET-AUDIT 2026-11-21; HorseOmahaBlanketRowsOffInPlo45Cash.ts):
+   * opt-in (`=== true`), default OFF. With it on, in a PLO4 or PLO5 cash decision every blanket row named in
+   * omahaBlanketRowsOffList (and in OMAHA_BLANKET_ROWS_OFF_REGISTRY) is passed false (its off path) before anything
+   * reads it. Off, no list, PLO6, PLO8, hold'em or a tournament: byte-identical. */
+  omahaBlanketRowsOffInPlo45Cash?: boolean;
+  /** The declared list of omahaBlanketRowsOffInPlo45Cash: a parameter, not an on/off option, set from the engine
+   * runtime settings `horse.blanketRowOffInPlo45Cash.<option>` (absent at the compiled defaults). Only registry
+   * members are read; any other name is ignored. */
+  omahaBlanketRowsOffList?: readonly string[];
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
@@ -15925,6 +15941,10 @@ export class HorseLogic {
     // The game scope of the omaha* options (HorseOmahaOptionGameScope; absent: the same object). The identity when
     // decide already applied it.
     if (opts.omahaOptionGameScope) opts = withOmahaOptionGameScope(opts, player, gameState);
+    // omahaBlanketRowsOffInPlo45Cash (HorseOmahaBlanketRowsOffInPlo45Cash; off or no list: the same object). The
+    // identity when decide already applied it.
+    if (opts.omahaBlanketRowsOffInPlo45Cash === true && opts.omahaBlanketRowsOffList)
+      opts = withBlanketRowsOffInPlo45Cash(opts, player, gameState);
     // V45 SCOPED READS: every read in this decision sees the bucket for
     // this card family and table size (HorseMind.readStats). Cleared on
     // every exit, including a throw.
@@ -15949,6 +15969,10 @@ export class HorseLogic {
     // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
     HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
+    // OPPONENT HUD PROVIDER (2026-11-21, branch hud-provider): the option is read here for its receipt only; no
+    // decision rule reads it (law TheHudProviderChangesNoDecision).
+    if (opts.omahaOpponentLifetimeHud === true && telemetryOn(opts))
+      noteFire('opponent_hud_provider_armed_seen');
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
       shrinkResponseReads: opts.readShrinkResponse === true,
@@ -16052,6 +16076,18 @@ export class HorseLogic {
       });
       for (const [option, game] of scopedOff)
         if (telemetryOn(opts)) noteFire(`omaha_option_game_scope_${option}_off_in_plo${game}_seen`);
+    }
+    // omahaBlanketRowsOffInPlo45Cash (EMERG lane BLANKET-AUDIT 2026-11-21, default OFF;
+    // HorseOmahaBlanketRowsOffInPlo45Cash.ts): with the switch on, in a PLO4/PLO5 cash decision every blanket row on
+    // the declared list is off for this decision, before any rule reads it. Off, no list, PLO6 or any other game:
+    // the same opts object runs.
+    if (opts.omahaBlanketRowsOffInPlo45Cash === true && opts.omahaBlanketRowsOffList) {
+      let blanketRowsOff = 0;
+      opts = withBlanketRowsOffInPlo45Cash(opts, player, gameState, () => {
+        blanketRowsOff++;
+      });
+      if (blanketRowsOff > 0 && telemetryOn(opts))
+        noteFire('omaha_blanket_rows_off_in_plo45_cash_applied');
     }
     // omahaNoCategoricalRules (default OFF, lane UNBLOCK 2026-11-19): in a PLO4/PLO5 cash decision every
     // categorical rule's option is off for this decision; off or out of scope the same opts object runs.

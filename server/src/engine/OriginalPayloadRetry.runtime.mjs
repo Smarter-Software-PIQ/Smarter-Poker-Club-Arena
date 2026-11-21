@@ -115,6 +115,9 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     publicMemoryDomainFromRules,
     // The extracted logHandHistory counts each accepted hand once (HVH2D-EXE-002).
     countLoggedHandMemoryDomain,
+    // The extracted logHandHistory feeds the accepted hand to the opponent HUD store (fire and forget,
+    // never throws); this VM models the commit boundary only, so the store is an inert receiver here.
+    opponentHudOnAcceptedHand: () => {},
     // postHandTasks counts each settled hand's memory domain once (evidence only).
     noteFire,
     handStackBefore,

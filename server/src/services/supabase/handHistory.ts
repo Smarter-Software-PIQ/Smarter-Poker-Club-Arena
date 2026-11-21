@@ -1,4 +1,5 @@
 import { handRowEngineBuild, resolveReleaseIdentity } from '../../releaseIdentity.js';
+import { opponentHudOnAcceptedHand } from '../OpponentHudStore.js';
 import {
   captureAcceptedTerminal,
   readAcceptedTerminal,
@@ -1101,6 +1102,10 @@ export async function logHandHistory(params: {
   if (params.atomicCommit.acceptedPostCommitFacts?.stats_facts) {
     releaseHandFactsCapture(params.tableId, params.handNumber);
   }
+
+  // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the accepted hand updates the Horses' shared lifetime memory of
+  // everyone dealt in (public fields only; the store never reads a card). Fire and forget; never throws.
+  opponentHudOnAcceptedHand({ ...row, id: handId, created_at: endedAtIso });
 
   // Observe only after the authoritative transaction accepts the hand above.
   // ROOT-CAUSE CAPACITY FIX (2026-09-08): HorseMind now lives beside
