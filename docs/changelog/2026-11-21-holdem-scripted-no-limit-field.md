@@ -34,4 +34,15 @@ A first form of the committed-spot field (a turn jammer that put its whole stack
 
 ## Results
 
-(Recorded below once the declared runs finish.)
+Engine `af27d76821c` (this branch), 60,000 pairs per seed, seeds `20261120` and `20261121`. Every run: illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`.
+
+| card                                                 | seed 20261120                               | seed 20261121                     | together                                       |
+| ---------------------------------------------------- | ------------------------------------------- | --------------------------------- | ---------------------------------------------- |
+| `nlh_committed_no_pair_is_priced_vs_pot_barreler`    | `-0.74 +/- 1.01` (`z -0.74`, 576 divergent) | `+0.33 +/- 0.98` (`z +0.33`, 520) | `-0.21 +/- 0.70` (`z -0.30`), not resolved     |
+| `nlh_committed_no_pair_is_priced_vs_value_barreler`  | `-0.20 +/- 0.10` (`z -2.02`, 10)            | `-0.22 +/- 0.10` (`z -2.26`, 6)   | `-0.21 +/- 0.07` (`z -3.02`), significant harm |
+| `nlh_danger_board_equity_is_priced_vs_danger_bettor` | `-7.31 +/- 1.11` (`z -6.61`, 522)           | `-8.49 +/- 1.19` (`z -7.16`, 870) | `-7.90 +/- 0.81` (`z -9.74`), significant harm |
+| `nlh_danger_board_equity_is_priced_vs_danger_value`  | `+2.14 +/- 0.45` (`z +4.78`, 269)           | `+2.52 +/- 0.42` (`z +6.03`, 399) | `+2.33 +/- 0.31` (`z +7.61`), significant      |
+
+bb/100 is arm A (option on) minus arm B (off), per 100 hero hands.
+
+Status, recorded in both authority files: both options stay **Evidence NOT MET** and OFF. `holdemCommittedNoPairIsPriced` is not resolved against the barreler and significantly negative against its value-only harm control. `holdemDangerBoardEquityIsPriced` gains against the value-only control and loses about three times as much against a bettor who bluffs. No replay row was added; the existing rows (`0`/`0` and `1`/`1`) stand. The measured harm is reported to the coordinator for an off-only decision; this change locks nothing and writes no switch row.
