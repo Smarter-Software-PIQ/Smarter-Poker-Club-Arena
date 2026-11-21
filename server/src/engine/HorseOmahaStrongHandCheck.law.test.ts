@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card, CardRank, HorseDecision, SeatPlayer } from '../types.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind, OmahaLifetimeStreetRecordMemory } from './HorseMind.js';
+import { omahaLifetimeProviderFromHud } from './HorseOmahaLifetimeHudAdapter.js';
 import { seedFastRandom } from './HorseEval.js';
 import { omahaEvPriorBluffShare } from './HorseOmahaFacingBetEv.js';
 import {
@@ -16,7 +17,15 @@ import {
   omahaStabDefenceShare,
 } from './HorseOmahaStabDefence.js';
 import {
+  OMAHA_STRONG_HAND_CHECK_FOLD_POPULATION,
+  OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS,
   OMAHA_STRONG_HAND_CHECK_STAB_SIZE,
+  OMAHA_STRONG_HAND_CHECK_STAB_SIZE_PRIOR_STABS,
+  OMAHA_STRONG_HAND_CHECK_STAB_SIZE_TABLE,
+  OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE,
+  omahaStrongHandCheckCurveOf,
+  omahaStrongHandCheckFoldMultiplier,
+  omahaStrongHandCheckStabSize,
   omahaStrongHandCheck,
   omahaStrongHandCheckRule,
   omahaStrongHandCheckSpot,
@@ -324,5 +333,178 @@ describe('the decision-level laws of the two options', () => {
         expect(['fold', 'call', 'raise', 'all_in']).toContain(d.action);
       }
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-DEFENCE-3)', () => {
+  it('12. no fold record: the multiplier is 1 and the curve is the population curve exactly', () => {
+    for (const variant of ['plo4', 'plo5'])
+      for (const street of ['turn', 'river'] as const) {
+        for (const rec of [null, undefined, {}, { foldSmall: { folds: 0, opps: 0 }, foldBig: null }]) {
+          const m = omahaStrongHandCheckFoldMultiplier(variant, street, rec);
+          expect(m.m).toBe(1);
+          expect(m.weight).toBe(0);
+          expect(m.se).toBe(0);
+        }
+      }
+    expect(omahaStrongHandCheckCurveOf(OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE, 1)).toEqual(
+      OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE.map((p) => ({ ...p }))
+    );
+    expect(omahaStrongHandCheckFoldMultiplier('plo6', 'turn', { foldBig: { folds: 9, opps: 9 } }).m).toBe(1);
+  });
+
+  it('13. the record moves the fold share by n / (n + k): population-like counts give 1, a non-folder goes to 0', () => {
+    for (const street of ['turn', 'river'] as const) {
+      const pop = OMAHA_STRONG_HAND_CHECK_FOLD_POPULATION[`plo5|${street}`];
+      const k = OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS[street];
+      const like = omahaStrongHandCheckFoldMultiplier('plo5', street, {
+        foldSmall: { folds: 100 * pop.small, opps: 100 },
+        foldBig: { folds: 60 * pop.big, opps: 60 },
+      });
+      expect(like.m).toBeCloseTo(1, 10);
+      expect(like.weight).toBeCloseTo(160 / (160 + k), 10);
+      let last = 1;
+      for (const n of [5, 20, 80, 320, 5000]) {
+        const st = omahaStrongHandCheckFoldMultiplier('plo5', street, {
+          foldSmall: { folds: 0, opps: n },
+          foldBig: { folds: 0, opps: n },
+        });
+        expect(st.m).toBeCloseTo((k * pop.all) / (n * (pop.small + pop.big) + k * pop.all), 10);
+        expect(st.m).toBeLessThan(last);
+        expect(st.se).toBeGreaterThanOrEqual(0);
+        last = st.m;
+      }
+      expect(last).toBeLessThan(0.02);
+      const over = omahaStrongHandCheckFoldMultiplier('plo5', street, {
+        foldSmall: { folds: 300, opps: 300 },
+      });
+      expect(over.m).toBeGreaterThan(1);
+    }
+  });
+
+  it('14. the moved curve keeps shares legal and the raise share of his continues', () => {
+    for (const m of [0, 0.3, 1, 1.7, 9]) {
+      const c = omahaStrongHandCheckCurveOf(OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE, m);
+      c.forEach((p, i) => {
+        const o = OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE[i];
+        expect(p.cont).toBeGreaterThanOrEqual(0);
+        expect(p.cont).toBeLessThanOrEqual(1);
+        expect(1 - p.cont).toBeCloseTo(Math.min(1, m * (1 - o.cont)), 10);
+        expect(p.raise).toBeLessThanOrEqual(p.cont + 1e-12);
+        if (p.cont > 0) expect(p.raise / p.cont).toBeCloseTo(o.raise / o.cont, 10);
+      });
+    }
+  });
+
+  it('15. his fold record moves only the bet side of the comparison; the check keeps its price', () => {
+    let priced = 0;
+    let moved = 0;
+    for (const s of FIRST) {
+      const sp = omahaStrongHandCheckSpot(s.hero, s.gs);
+      const pop = omahaStrongHandCheck(s.hero, s.gs, sp!, 40, 0.05, null, 0.5, null);
+      const none = omahaStrongHandCheck(s.hero, s.gs, sp!, 40, 0.05, null, 0.5);
+      const station = omahaStrongHandCheck(s.hero, s.gs, sp!, 40, 0.05, null, 0.5, {
+        foldSmall: { folds: 0, opps: 400 },
+        foldBig: { folds: 0, opps: 400 },
+      });
+      const nit = omahaStrongHandCheck(s.hero, s.gs, sp!, 40, 0.05, null, 0.5, {
+        foldSmall: { folds: 400, opps: 400 },
+        foldBig: { folds: 400, opps: 400 },
+      });
+      if (!pop || !station || !none || !nit) continue;
+      priced++;
+      expect(none).toEqual(pop);
+      expect(pop.foldMultiplier).toBe(1);
+      expect(pop.foldWeight).toBe(0);
+      expect(station.foldMultiplier).toBeLessThan(0.1);
+      expect(nit.foldMultiplier).toBeGreaterThan(1);
+      // the check is priced on his stab record, not on his fold record
+      expect(station.evCheck).toBe(pop.evCheck);
+      expect(nit.evCheck).toBe(pop.evCheck);
+      const a = station.evBet - pop.evBet;
+      const b = nit.evBet - pop.evBet;
+      if (Math.abs(a) > 0.02 || Math.abs(b) > 0.02) moved++;
+      for (const v of [station, nit]) {
+        expect(v.mix).toBeGreaterThanOrEqual(0);
+        expect(v.mix).toBeLessThanOrEqual(1);
+        expect(v.error).toBeGreaterThan(0);
+      }
+    }
+    expect(priced).toBeGreaterThan(0);
+    expect(moved).toBeGreaterThan(0);
+  });
+
+  it('16. stab size: the population size with no record, his own mean by stabs / (stabs + k), capped at 2 pots', () => {
+    for (const variant of ['plo4', 'plo5'])
+      for (const street of ['turn', 'river'] as const) {
+        const pop = OMAHA_STRONG_HAND_CHECK_STAB_SIZE_TABLE[`${variant}|${street}`];
+        const k = OMAHA_STRONG_HAND_CHECK_STAB_SIZE_PRIOR_STABS[street];
+        expect(pop).toBeGreaterThan(0.3);
+        expect(pop).toBeLessThan(1.2);
+        expect(omahaStrongHandCheckStabSize(variant, street, null)).toEqual({ size: pop, weight: 0 });
+        expect(omahaStrongHandCheckStabSize(variant, street, { stabs: 0, sizeSum: 0 })!.size).toBe(pop);
+        const big = omahaStrongHandCheckStabSize(variant, street, { stabs: 40, sizeSum: 40 })!;
+        expect(big.size).toBeCloseTo((40 + k * pop) / (40 + k), 10);
+        expect(big.weight).toBeCloseTo(40 / (40 + k), 10);
+        const wild = omahaStrongHandCheckStabSize(variant, street, { stabs: 10, sizeSum: 999 })!;
+        expect(wild.size).toBeCloseTo((20 + k * pop) / (10 + k), 10);
+      }
+    expect(omahaStrongHandCheckStabSize('plo6', 'turn', null)).toBeNull();
+  });
+
+  it('17. the HUD adapter maps counts only, and a missing or throwing read is no record', () => {
+    const calls: string[] = [];
+    const p = omahaLifetimeProviderFromHud({
+      hudFirstWagerRecord: (id, fam, street, players) => {
+        calls.push(`fw|${id}|${fam}|${street}|${players}`);
+        if (id === 'none') return null;
+        if (id === 'boom') throw new Error('x');
+        return {
+          bets: 30,
+          opps: 50,
+          checkedTo: { bets: 20, opps: 30, sizeSum: 15 },
+          firstToAct: { bets: 10, opps: 20 },
+        };
+      },
+      hudLifetimeCount: (id, fam, alias, ctx) => {
+        calls.push(`lc|${id}|${fam}|${alias}|${ctx.street}|${ctx.players}`);
+        if (id === 'boom') throw new Error('x');
+        return id === 'none' ? { n: 0, hits: 0 } : { n: 12, hits: alias === 'x.foldToBet.big' ? 9 : 3 };
+      },
+    });
+    expect(p.unopenedWagerRecord('a', 'plo5', 'river', 'hu')).toEqual({ bets: 30, opps: 50 });
+    expect(p.firstWagerFoldRecord!('a', 'plo5', 'river', 'hu', 'big')).toEqual({ folds: 9, opps: 12 });
+    expect(p.firstWagerFoldRecord!('a', 'plo4', 'turn', 'mw', 'small')).toEqual({ folds: 3, opps: 12 });
+    expect(p.stabSizeRecord!('a', 'plo5', 'river', 'hu')).toEqual({ stabs: 20, sizeSum: 15 });
+    for (const id of ['none', 'boom']) {
+      expect(p.unopenedWagerRecord(id, 'plo5', 'turn', 'hu')).toBeNull();
+      expect(p.firstWagerFoldRecord!(id, 'plo5', 'turn', 'hu', 'big')).toBeNull();
+      expect(p.stabSizeRecord!(id, 'plo5', 'turn', 'hu')).toBeNull();
+    }
+    expect(calls).toContain('lc|a|plo4|x.foldToBet.small|turn|mw');
+    HorseMind.setOmahaLifetimeStreetRecordProvider(p);
+    try {
+      expect(HorseMind.omahaStabDefenceRecordOf('a', 'PLO5', 'river', 1)).toEqual({ bets: 30, opps: 50 });
+      expect(HorseMind.omahaStrongHandCheckRecordsOf('a', 'plo5', 'river', 1)).toEqual({
+        foldSmall: { folds: 3, opps: 12 },
+        foldBig: { folds: 9, opps: 12 },
+        stabSize: { stabs: 20, sizeSum: 15 },
+      });
+      expect(HorseMind.omahaStrongHandCheckRecordsOf('a', 'plo6', 'river', 1).foldBig).toBeNull();
+      expect(HorseMind.omahaStrongHandCheckRecordsOf('boom', 'plo5', 'river', 1)).toEqual({
+        foldSmall: null,
+        foldBig: null,
+        stabSize: null,
+      });
+    } finally {
+      HorseMind.setOmahaLifetimeStreetRecordProvider(null);
+    }
+    const mem = new OmahaLifetimeStreetRecordMemory();
+    mem.noteFirstWagerAnswer('u', 'plo5', 'turn', 'hu', 'big', true);
+    mem.noteFirstWagerAnswer('u', 'plo5', 'turn', 'hu', 'big', false);
+    mem.noteStab('u', 'plo5', 'turn', 'hu', 3);
+    expect(mem.firstWagerFoldRecord('u', 'plo5', 'turn', 'hu', 'big')).toEqual({ folds: 1, opps: 2 });
+    expect(mem.firstWagerFoldRecord('u', 'plo5', 'turn', 'hu', 'small')).toBeNull();
+    expect(mem.stabSizeRecord('u', 'plo5', 'turn', 'hu')).toEqual({ stabs: 1, sizeSum: 2 });
   });
 });

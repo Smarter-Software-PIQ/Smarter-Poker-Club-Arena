@@ -83,6 +83,119 @@ export const OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE: readonly OmahaRiverFirstToAc
     { share: 1.0, cont: 0.4843, raise: 0.0881, foldSe: 0.028, n: 318 },
   ]);
 
+/**
+ * THE OPPONENT'S OWN ANSWER TO A FIRST WAGER (STAB-DEFENCE-3 2026-11-20). The bet is priced on the population curve
+ * moved by his lifetime public record of answers to a street's first wager: m = (F + k x g) / (E + k x g), where
+ * F = his folds (small + big size cells), E = the folds the population makes at his counts in the same cells
+ * (n_small x g_small + n_big x g_big), g = the population's fold share over both cells, and k = the measured prior
+ * weight of the fold rate. fold'(size) = m x fold(size) on the curve. No record: m = 1, the curve exactly. One formula
+ * for every opponent; public history only.
+ *
+ * Population rates and k are measured in the record's own definition (OPPONENT-HUD's x.foldToBet cells: every first
+ * answer to a street's first wager, two players live when it was made, size at most 0.7 pot / above it or all-in),
+ * through OPPONENT-HUD's profile builder on public PLO4/PLO5 cash rows 2026-11-15 00:00Z - 2026-11-17 00:00Z
+ * (121,291 hands, no player above 20% of a cell). k = p(1-p)/tau^2 - 1, empirical Bayes on players with at least 5
+ * answers, both games pooled by street: turn 27.8 (OFFENCE-BUILD measured 27 on its own extract), river 75.9
+ * (OFFENCE-BUILD 47; the like-for-like measure is used, and it is the larger). Source: STAB-DEFENCE-3
+ * sd3/measure.json, sha256 below.
+ */
+export const OMAHA_STRONG_HAND_CHECK_MEASURE_SHA256 =
+  'd7ab4f7922f696af1be7f915929c2ab672b4aac1f04508cf91f604dfd6e34152';
+export const OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS: Readonly<Record<'turn' | 'river', number>> =
+  Object.freeze({ turn: 27.8, river: 75.9 });
+export const OMAHA_STRONG_HAND_CHECK_FOLD_POPULATION: Readonly<
+  Record<string, { small: number; big: number; all: number }>
+> = Object.freeze({
+  'plo4|turn': { small: 0.2196, big: 0.6608, all: 0.4101 },
+  'plo4|river': { small: 0.5821, big: 0.8192, all: 0.7249 },
+  'plo5|turn': { small: 0.2081, big: 0.5934, all: 0.4039 },
+  'plo5|river': { small: 0.5754, big: 0.8169, all: 0.7176 },
+});
+export interface OmahaStrongHandCheckFoldCell {
+  folds: number;
+  opps: number;
+}
+export interface OmahaStrongHandCheckRecords {
+  foldSmall?: OmahaStrongHandCheckFoldCell | null;
+  foldBig?: OmahaStrongHandCheckFoldCell | null;
+  stabSize?: { stabs: number; sizeSum: number } | null;
+}
+export function omahaStrongHandCheckFoldMultiplier(
+  variant: string,
+  street: 'turn' | 'river',
+  records: OmahaStrongHandCheckRecords | null | undefined
+): { m: number; se: number; weight: number } {
+  const none = { m: 1, se: 0, weight: 0 };
+  const pop = OMAHA_STRONG_HAND_CHECK_FOLD_POPULATION[`${variant}|${street}`];
+  if (!pop) return none;
+  const k = OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS[street];
+  const take = (c: OmahaStrongHandCheckFoldCell | null | undefined, g: number) => {
+    if (!c || !fin(c.opps) || !fin(c.folds) || !(c.opps > 0) || c.folds < 0) return null;
+    return { F: Math.min(c.folds, c.opps), n: c.opps, E: c.opps * g };
+  };
+  const a = take(records?.foldSmall, pop.small);
+  const b = take(records?.foldBig, pop.big);
+  const n = (a?.n ?? 0) + (b?.n ?? 0);
+  if (!(n > 0)) return none;
+  const F = (a?.F ?? 0) + (b?.F ?? 0);
+  const E = (a?.E ?? 0) + (b?.E ?? 0);
+  const m = (F + k * pop.all) / (E + k * pop.all);
+  if (!fin(m) || !(m >= 0)) return none;
+  // his shrunk fold rate m x g is a rate on n + k answers: its binomial error, as a multiplier
+  const rate = clamp(m * pop.all, 0, 1);
+  const se = Math.sqrt((rate * (1 - rate)) / (n + k)) / pop.all;
+  return { m, se, weight: n / (n + k) };
+}
+/** The curve with his multiplier on the fold share; the raise share of his continues is unchanged. */
+export function omahaStrongHandCheckCurveOf(
+  curve: readonly OmahaRiverFirstToActPoint[],
+  m: number
+): OmahaRiverFirstToActPoint[] {
+  if (m === 1) return curve.map((p) => ({ ...p }));
+  return curve.map((p) => {
+    const cont = 1 - clamp(m * (1 - p.cont), 0, 1);
+    return { ...p, cont, raise: p.cont > 0 ? (p.raise * cont) / p.cont : 0 };
+  });
+}
+
+/**
+ * HIS STAB SIZE (STAB-DEFENCE-3 2026-11-20; VERIFIER V47). The size of his bet after a check is his own mean stab size
+ * (public: wager / pot before it, each capped at 2 pots) shrunk to the population's: z = (sizeSum + k x zPop) /
+ * (stabs + k). Same source as the fold rates above (heads-up at the wager; 12,084 turn and 7,027 river stabs).
+ * k = within-stab variance / between-player variance, by least squares of the squared deviation of a player's mean
+ * on 1 / his stabs (players with at least 5 stabs), both games pooled by street: turn 32.9, river 254.9 (the
+ * single-game fits scatter from 13 to 812 and are not used).
+ */
+export const OMAHA_STRONG_HAND_CHECK_STAB_SIZE_PRIOR_STABS: Readonly<
+  Record<'turn' | 'river', number>
+> = Object.freeze({ turn: 32.9, river: 254.9 });
+export const OMAHA_STRONG_HAND_CHECK_STAB_SIZE_TABLE: Readonly<Record<string, number>> =
+  Object.freeze({
+    'plo4|turn': 0.6117,
+    'plo4|river': 0.7511,
+    'plo5|turn': 0.6665,
+    'plo5|river': 0.7565,
+  });
+export function omahaStrongHandCheckStabSize(
+  variant: string,
+  street: 'turn' | 'river',
+  record: { stabs: number; sizeSum: number } | null | undefined
+): { size: number; weight: number } | null {
+  const pop = OMAHA_STRONG_HAND_CHECK_STAB_SIZE_TABLE[`${variant}|${street}`];
+  const k = OMAHA_STRONG_HAND_CHECK_STAB_SIZE_PRIOR_STABS[street];
+  if (!(pop > 0) || !(k > 0)) return null;
+  if (
+    !record ||
+    !fin(record.stabs) ||
+    !fin(record.sizeSum) ||
+    !(record.stabs > 0) ||
+    record.sizeSum < 0
+  )
+    return { size: pop, weight: 0 };
+  const sum = Math.min(record.sizeSum, 2 * record.stabs);
+  return { size: (sum + k * pop) / (record.stabs + k), weight: record.stabs / (record.stabs + k) };
+}
+
 function foldSeAt(curve: readonly OmahaRiverFirstToActPoint[], share: number): number {
   let best = curve[0];
   for (const p of curve) if (Math.abs(p.share - share) < Math.abs(best.share - share)) best = p;
@@ -138,11 +251,13 @@ export function omahaStrongHandCheckSpot(
 export function omahaStrongHandCheckStab(
   variant: string,
   street: 'turn' | 'river',
-  record: OmahaStabDefenceRecord | null | undefined
+  record: OmahaStabDefenceRecord | null | undefined,
+  /** his stab size as a pot share (omahaStrongHandCheckStabSize); absent = the old fixed prior size */
+  size: number = OMAHA_STRONG_HAND_CHECK_STAB_SIZE
 ): { s: number; q: number; sPop: number; qPop: number; se: number; weight: number } | null {
   const row = OMAHA_STAB_DEFENCE_TABLE[omahaStabDefenceCell(variant, street, 1)];
   if (!row) return null;
-  const q0 = omahaEvPriorBluffShare(street, OMAHA_STRONG_HAND_CHECK_STAB_SIZE, false);
+  const q0 = omahaEvPriorBluffShare(street, size, false);
   const pop = omahaStabDefenceShare(q0, null, variant, street, 1);
   const own = omahaStabDefenceShare(q0, record ?? null, variant, street, 1);
   if (!pop || !own) return null;
@@ -170,6 +285,11 @@ export interface OmahaStrongHandCheckVerdict {
   q: number;
   weight: number;
   value: boolean;
+  /** his fold multiplier on the population curve (1 = no record) and its evidence weight n / (n + k) */
+  foldMultiplier: number;
+  foldWeight: number;
+  /** the stab size the check was priced at (pot share) */
+  stabSize: number;
 }
 
 /** The comparison for the bet `amount`; null when a number cannot be computed. */
@@ -181,20 +301,26 @@ export function omahaStrongHandCheck(
   rake: number,
   record: OmahaStabDefenceRecord | null | undefined,
   /** tests only */
-  drawOverride?: number
+  drawOverride?: number,
+  /** his lifetime public answers to a first wager and his stab sizes; absent = the population */
+  records?: OmahaStrongHandCheckRecords | null
 ): OmahaStrongHandCheckVerdict | null {
   const pot = gs.pot;
   if (!fin(pot) || !(pot > 0) || !fin(amount) || !(amount > 0)) return null;
   const r = fin(rake) ? clamp(rake, 0, 0.2) : 0;
   const opp = spot.opponent;
   const variant = String(gs.gameVariant ?? '').toLowerCase();
-  const stab = omahaStrongHandCheckStab(variant, spot.street, record);
+  const size = omahaStrongHandCheckStabSize(variant, spot.street, records?.stabSize);
+  if (!size) return null;
+  const stab = omahaStrongHandCheckStab(variant, spot.street, record, size.size);
   if (!stab) return null;
-  const curve =
+  const popCurve =
     spot.street === 'river'
       ? omahaRiverFirstToActResponseOf(opp, gs)
       : OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE;
-  if (curve.length === 0) return null;
+  if (popCurve.length === 0) return null;
+  const own = omahaStrongHandCheckFoldMultiplier(variant, spot.street, records);
+  const curve = omahaStrongHandCheckCurveOf(popCurve, own.m);
   const responseAt: OmahaCardImpactResponseCurve = curve.map((p) => ({
     share: p.share,
     cont: p.cont,
@@ -222,6 +348,7 @@ export function omahaStrongHandCheck(
       amounts: [a],
       seedSalt: opp.seat * 16 + hero.seat,
       responseAt,
+      stabSize: size.size,
     });
   };
   const impact = run(stab.s, stab.q);
@@ -252,8 +379,12 @@ export function omahaStrongHandCheck(
     if (base && fin(base.ev))
       stabVar = (((check.ev - base.ev) * (1 - r)) / (stab.s - stab.sPop)) ** 2 * stab.se ** 2;
   }
+  // His own fold record's error: the fold share moves with the multiplier, whose error is binomial on n + k answers.
+  const popFold = own.m > 0 ? fold / own.m : 0;
+  const ownFoldVar = own.weight > 0 ? (own.se * clamp(popFold, 0, 1) * ride) ** 2 : 0;
   const variance =
     (fse * ride) ** 2 +
+    ownFoldVar +
     (call * (pot + 2 * B) * (1 - r)) ** 2 * eVar +
     pot * pot * ((sd * (1 - sd)) / eff + MODEL_ROUNDING ** 2) +
     stabVar +
@@ -273,6 +404,9 @@ export function omahaStrongHandCheck(
     q: stab.q,
     weight: stab.weight,
     value: bet.value === true,
+    foldMultiplier: own.m,
+    foldWeight: own.weight,
+    stabSize: size.size,
   };
 }
 
@@ -294,7 +428,8 @@ export function omahaStrongHandCheckRule(
   gs: HorseGameStateV2,
   on: boolean,
   rake: number,
-  recordOf: (opponent: SeatPlayer, street: 'turn' | 'river') => OmahaStabDefenceRecord | null
+  recordOf: (opponent: SeatPlayer, street: 'turn' | 'river') => OmahaStabDefenceRecord | null,
+  recordsOf?: (opponent: SeatPlayer, street: 'turn' | 'river') => OmahaStrongHandCheckRecords | null
 ): OmahaStrongHandCheckResult {
   const same: OmahaStrongHandCheckResult = { decision, priced: false, changed: false };
   if (!on || (decision.action !== 'bet' && decision.action !== 'all_in')) return same;
@@ -308,7 +443,13 @@ export function omahaStrongHandCheckRule(
     } catch {
       record = null;
     }
-    const verdict = omahaStrongHandCheck(hero, gs, spot, amount, rake, record);
+    let records: OmahaStrongHandCheckRecords | null = null;
+    try {
+      records = recordsOf ? recordsOf(spot.opponent, spot.street) : null;
+    } catch {
+      records = null;
+    }
+    const verdict = omahaStrongHandCheck(hero, gs, spot, amount, rake, record, undefined, records);
     if (!verdict) return same;
     if (verdict.action !== 'check') return { decision, priced: true, changed: false, verdict };
     const checked: HorseDecision = { ...decision, action: 'check' };

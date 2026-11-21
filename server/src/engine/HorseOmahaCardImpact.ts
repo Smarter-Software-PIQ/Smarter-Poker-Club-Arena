@@ -361,6 +361,11 @@ export interface OmahaCardImpactInput {
    * given pot share, measured (HorseOmahaSmallBet.omahaSmallBetResponseAt). Absent: the pot-odds keep and the prior raise share.
    */
   responseAt?: OmahaCardImpactResponseCurve;
+  /**
+   * omahaStrongHandCheckIsPriced (default absent): the size of his bet after a check, as a share of the pot, from his
+   * own public stab sizes shrunk to the population's. Absent: the fixed prior size (P.betSize), as before.
+   */
+  stabSize?: number;
 }
 
 /**
@@ -887,7 +892,11 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     const beta = clamp(read.betCheckedTo, 0, 1);
     const value = beta * (1 - read.bluffShare);
     const bluff = beta * read.bluffShare;
-    const D = Math.min(P.betSize * pot, eff);
+    const stabSize =
+      typeof input.stabSize === 'number' && Number.isFinite(input.stabSize) && input.stabSize > 0
+        ? Math.min(2, input.stabSize)
+        : P.betSize;
+    const D = Math.min(stabSize * pot, eff);
     let acc = 0;
     let betMass = 0;
     let betEq = 0;

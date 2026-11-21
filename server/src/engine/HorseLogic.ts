@@ -18459,6 +18459,13 @@ export class HorseLogic {
             String(gs.gameVariant ?? ''),
             street,
             1
+          ),
+        (opponent, street) =>
+          HorseMind.omahaStrongHandCheckRecordsOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            street,
+            1
           )
       );
       if (strongCheck.changed && tele) {
