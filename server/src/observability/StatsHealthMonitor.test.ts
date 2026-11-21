@@ -13,6 +13,8 @@ import {
   STATS_HEALTH_COMPONENT,
   STATS_INDEX_LAG_THRESHOLD_S,
   STATS_HEALTH_PERIOD_MS,
+  STATS_INDEX_POST_FREEZE_GRACE_S,
+  STATS_INDEX_REFRESH_CADENCE_S,
 } from './StatsHealthMonitor.js';
 
 // What the phase 3 migrations add to the payload: the 7-day all-in runout
@@ -771,5 +773,81 @@ describe('StatsHealthMonitor', () => {
     release!();
     await Promise.all([first, second]);
     expect(mon.publish()?.indexLagSeconds).toBe(600.5);
+  });
+});
+
+/**
+ * Production alert stats-index-lag-skipped-refresh (rows 445830/445833 and
+ * 18 earlier, 2026-11-16..19). The index refresh skips a run by design while
+ * the platform is frozen, so the lag crosses 30 minutes for ~5 minutes after
+ * every release freeze and resolves on the next run. The raise waits one
+ * refresh cadence after a freeze ends; a second missed run still raises.
+ */
+describe('index lag after a platform freeze (one designed skipped refresh)', () => {
+  function freezeHarness(opts: { lastFreezeEndedAt?: number | null }) {
+    let clock = 1_000_000_000;
+    let paused = false;
+    let lag = 1811;
+    const raise = vi.fn<(a: StatsHealthAlert) => Promise<boolean>>(async () => true);
+    const resolve = vi.fn<(n: string, c: string, note: string) => Promise<boolean>>(async () => true);
+    const mon = new StatsHealthMonitor({
+      read: async () => ({ ...LIVE_SAMPLE, indexLagSeconds: lag }),
+      raise,
+      resolve,
+      paused: () => paused,
+      lastFreezeEndedAt:
+        opts.lastFreezeEndedAt === undefined ? undefined : () => opts.lastFreezeEndedAt ?? null,
+      now: () => clock,
+      log: () => {},
+    });
+    const lagRaises = () => raise.mock.calls.filter(([a]) => a.alertname === STATS_INDEX_LAG_ALERT).length;
+    return {
+      mon,
+      lagRaises,
+      setPaused: (p: boolean) => (paused = p),
+      setLag: (l: number) => (lag = l),
+      advance: (ms: number) => (clock += ms),
+      at: () => clock,
+    };
+  }
+
+  it('does not raise for the one refresh a freeze skipped (observed break end)', async () => {
+    const h = freezeHarness({});
+    h.setPaused(true);
+    await h.mon.tick();
+    h.advance(60_000);
+    h.setPaused(false);
+    await h.mon.tick(); // freeze ended here
+    h.advance(8 * 60_000);
+    await h.mon.tick(); // lag 1811 s, the next refresh has not run yet
+    expect(h.lagRaises()).toBe(0);
+  });
+
+  it('does not raise for the refresh skipped by the freeze a fresh engine was installed in', async () => {
+    const h = freezeHarness({ lastFreezeEndedAt: 1_000_000_000 - 9 * 60_000 });
+    await h.mon.tick();
+    expect(h.lagRaises()).toBe(0);
+  });
+
+  it('still raises when the first refresh after the freeze also fails to advance', async () => {
+    const h = freezeHarness({ lastFreezeEndedAt: 1_000_000_000 });
+    h.advance((STATS_INDEX_POST_FREEZE_GRACE_S + 1) * 1000);
+    h.setLag(3000);
+    await h.mon.tick();
+    expect(h.lagRaises()).toBe(1);
+  });
+
+  it('raises immediately with no freeze in sight (a refresh that is simply missing)', async () => {
+    const h = freezeHarness({ lastFreezeEndedAt: null });
+    await h.mon.tick();
+    expect(h.lagRaises()).toBe(1);
+  });
+
+  it('never delays a resolve during the grace', async () => {
+    const h = freezeHarness({ lastFreezeEndedAt: 1_000_000_000 });
+    h.setLag(600);
+    await h.mon.tick();
+    expect(h.lagRaises()).toBe(0);
+    expect(STATS_INDEX_POST_FREEZE_GRACE_S).toBeGreaterThan(STATS_INDEX_REFRESH_CADENCE_S);
   });
 });
