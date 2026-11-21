@@ -2598,6 +2598,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PersonaPostflop'
   ),
   flag(
+    'v65TurnOnePairShadeIsPriced',
+    "Horse Switch lane 2026-11-21 (owner orders 2026-11-20 15:27 and 2026-11-21 02:00 America/Chicago: no blanket rule in Horse decisions; each goes off one at a time, tested and validated). Default off (read === true), unevaluated, not carried by the option switch until a switch-list migration registers it (OPTION_SWITCH_REFUSED). In single-board two-card no-limit hold'em, the TURN call of a wager the Horse did not start holding the V65 class (one pair, high card or two pair through the board's pair, no hole-card draw) is decided heads-up by EV(call) > 0 against the bettor's line range (HorseHoldemValueAndCallsArePriced holdemPricedVerdict: preflop band re-weighted by his line, his measured bet share when checked to and fold to a bet as statRead posteriors on the population cell OPPONENT_EXPLOIT_ENVELOPE, so no read = the population price); no raise priced; no random number. Not priced (more than one opponent, no cell, empty range): receipt holdem_one_pair_priced_unpriced and the site is as the parents leave it. Off: byte-identical. HorseHoldemOnePairCallIsPriced. Replaces the V65 price shade at the V38 continuation verdict and the heuristic call line; the over-bluffer label withhold is not read. Independent of v65TurnOnePairShade.",
+    'OnePairPriced'
+  ),
+  flag(
+    'v61RiverOnePairShadeIsPriced',
+    "Horse Switch lane 2026-11-21 (owner orders 2026-11-20 15:27 and 2026-11-21 02:00 America/Chicago: no blanket rule in Horse decisions; each goes off one at a time, tested and validated). Default off (read === true), unevaluated, not carried by the option switch until a switch-list migration registers it (OPTION_SWITCH_REFUSED). In single-board two-card no-limit hold'em, the RIVER call of the V61 class (one pair, high card or two pair through the board's pair; not the V67 raised-river class) at every price is decided heads-up by EV(call) > 0 against the bettor's line range (HorseHoldemValueAndCallsArePriced holdemPricedVerdict: preflop band re-weighted by his line, his measured bet share when checked to and fold to a bet as statRead posteriors on the population cell OPPONENT_EXPLOIT_ENVELOPE, so no read = the population price); no raise priced; no random number. Not priced (more than one opponent, no cell, empty range): receipt holdem_one_pair_priced_unpriced and the site is as the parents leave it. Off: byte-identical. HorseHoldemOnePairCallIsPriced. Replaces the V61/V63 price shade in the committed branch (a priced call that clears the branch's jam bar keeps the branch's own continuation) and the V38 river verdict. Independent of v61RiverOnePairShade and v63LargeRiverBetShade.",
+    'OnePairPriced'
+  ),
+  flag(
+    'v63LargeRiverBetShadeIsPriced',
+    "Horse Switch lane 2026-11-21 (owner orders 2026-11-20 15:27 and 2026-11-21 02:00 America/Chicago: no blanket rule in Horse decisions; each goes off one at a time, tested and validated). Default off (read === true), unevaluated, not carried by the option switch until a switch-list migration registers it (OPTION_SWITCH_REFUSED). As v61RiverOnePairShadeIsPriced, only above a half-pot river wager (toCall / pot > 1/3, where V63 departs from V61): the river call of the V61 class there is decided heads-up by EV(call) > 0 against the bettor's line range (HorseHoldemValueAndCallsArePriced holdemPricedVerdict: preflop band re-weighted by his line, his measured bet share when checked to and fold to a bet as statRead posteriors on the population cell OPPONENT_EXPLOIT_ENVELOPE, so no read = the population price); no raise priced; no random number. Not priced (more than one opponent, no cell, empty range): receipt holdem_one_pair_priced_unpriced and the site is as the parents leave it. Off: byte-identical. HorseHoldemOnePairCallIsPriced. Below the knee the river is unchanged. Inert where v61RiverOnePairShadeIsPriced is on. Independent of v63LargeRiverBetShade and v61RiverOnePairShade.",
+    'OnePairPriced'
+  ),
+  flag(
     'holdemPersonaPostflopIsPriced',
     "Horse Switch lane 2026-11-21 (owner orders 2026-11-20 15:27 and 2026-11-21 02:00 America/Chicago: no blanket rule in Horse decisions; each goes off one at a time, tested and validated). Default off (read === true), unevaluated, not carried by the option switch until a switch-list migration registers it (OPTION_SWITCH_REFUSED). In two-card no-limit hold'em, not All-In-Or-Fold, the four V87 spots holdemPersonaPostflop scales (heads-up in-position dry-flop range c-bet, turn takeaway, out-of-position flop check-trap into a stabber, flop check-raise into a stabber) are decided by EV instead of a fixed or persona frequency: heads-up against the opponent's line range (HorseHoldemValueAndCallsArePriced: preflop band re-weighted by his line) with his measured fold to a bet and bet share when checked to (statRead posteriors on the population cell OPPONENT_EXPLOIT_ENVELOPE); the c-bet and takeaway bet at the site's mid size when EV(bet) > EV(check), the trap checks when EV(check) is at least every priced bet, the check-raise raises when its value-raise EV beats fold and call. More than one opponent, no cell or an empty range: the spot is declined. Independent of holdemPersonaPostflop: with this on the persona scales are not read at the four spots whatever that option's state. No random number. Off: byte-identical. HorseHoldemPersonaPostflopIsPriced.",
     'PersonaPostflop'
@@ -8492,6 +8507,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic V87 flop check-raise into a stabber (holdemPersonaPostflop)',
     "default-off holdemPersonaPostflop: the flop check-raise into a high-frequency stabber was made with the persona's trap threshold in force; an occurrence counter with no floor, named *_seen",
     'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_one_pair_priced_turn_call',
+    'HorseLogic one-pair turn call (v65TurnOnePairShadeIsPriced)',
+    'default-off v65TurnOnePairShadeIsPriced: the heads-up one-pair-class call facing a wager was priced and called: EV(call) beat the fold against the line range and measured reads',
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_turn_fold',
+    'HorseLogic one-pair turn call (v65TurnOnePairShadeIsPriced)',
+    'default-off v65TurnOnePairShadeIsPriced: the heads-up one-pair-class call facing a wager was priced and folded (or left to the rest of the engine as a refused call): EV(call) did not beat the fold',
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_river_call',
+    'HorseLogic one-pair river call (v61RiverOnePairShadeIsPriced)',
+    'default-off v61RiverOnePairShadeIsPriced: the heads-up one-pair-class call facing a wager was priced and called: EV(call) beat the fold against the line range and measured reads',
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_river_fold',
+    'HorseLogic one-pair river call (v61RiverOnePairShadeIsPriced)',
+    'default-off v61RiverOnePairShadeIsPriced: the heads-up one-pair-class call facing a wager was priced and folded: EV(call) did not beat the fold',
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_river_large_call',
+    'HorseLogic one-pair river call (v63LargeRiverBetShadeIsPriced)',
+    'default-off v63LargeRiverBetShadeIsPriced: the heads-up one-pair-class call facing a wager was priced and called (above a half-pot wager): EV(call) beat the fold against the line range and measured reads',
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_river_large_fold',
+    'HorseLogic one-pair river call (v63LargeRiverBetShadeIsPriced)',
+    'default-off v63LargeRiverBetShadeIsPriced: the heads-up one-pair-class call facing a wager was priced and folded (above a half-pot wager): EV(call) did not beat the fold',
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_deferred',
+    'HorseLogic one-pair turn and river calls (v65TurnOnePairShadeIsPriced, v61RiverOnePairShadeIsPriced, v63LargeRiverBetShadeIsPriced)',
+    "default-off one-pair priced options: another rule had already cut this hand's equity (a class cap such as V20/V21/V79/V80, or the V11 domination penalty), so the price did not stand in for it; the site is as the parent options leave it",
+    'OnePairPriced'
+  ),
+  receipt(
+    'holdem_one_pair_priced_unpriced',
+    'HorseLogic one-pair turn and river calls (v65TurnOnePairShadeIsPriced, v61RiverOnePairShadeIsPriced, v63LargeRiverBetShadeIsPriced)',
+    "default-off one-pair priced options: the call could not be priced (more than one live opponent, not no-limit hold'em, no population cell, an empty range or an error); the site is as the parent options leave it",
+    'OnePairPriced'
   ),
   receipt(
     'holdem_persona_postflop_priced_cbet_taken',

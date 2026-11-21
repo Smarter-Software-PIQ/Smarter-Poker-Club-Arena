@@ -301,6 +301,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off heads-up hold’em postflop balance (holdemHeadsUpPostflopBalance, HV31 FLOP-5): the in-position flop continuation-bet mix, bounded flop check-raise defence and checked-to turn bet mix; river decisions remain unchanged',
     'src/engine/HorseHoldemPersonaPostflop.ts':
       "the default-off persona postflop scales (holdemPersonaPostflop, 2026-11-15): the persona's check-trap threshold and the archetype's turn-takeaway and range continuation-bet multipliers in no-limit hold'em",
+    'src/engine/HorseHoldemOnePairCallIsPriced.ts':
+      "the default-off priced one-pair turn and river calls (v65TurnOnePairShadeIsPriced, v61RiverOnePairShadeIsPriced, v63LargeRiverBetShadeIsPriced, Horse Switch lane 2026-11-21): which option prices a river call, and the call rule EV(call) > EV(fold) from the hold'em priced verdict; off is never entered",
     'src/engine/HorseHoldemPersonaPostflopIsPriced.ts':
       "the default-off priced persona postflop spots (holdemPersonaPostflopIsPriced, Horse Switch lane 2026-11-21): the take rule of the flop range c-bet, turn takeaway, OOP flop check-trap and flop check-raise into a stabber by EV from the hold'em priced verdict, and the size each is priced at; off is never entered",
     'src/engine/HorseHoldemPersonaPreflop.ts':

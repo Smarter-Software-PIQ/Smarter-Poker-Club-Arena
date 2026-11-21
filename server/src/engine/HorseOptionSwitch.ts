@@ -1052,6 +1052,12 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   // directly). Remove this line in the change that adds the list migration.
   holdemPersonaPostflopIsPriced:
     'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
+  v65TurnOnePairShadeIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
+  v61RiverOnePairShadeIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
+  v63LargeRiverBetShadeIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

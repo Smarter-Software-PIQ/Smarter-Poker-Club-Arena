@@ -964,6 +964,11 @@ import {
   HOLDEM_PERSONA_PRICED_STAB_FRACTION,
   type HoldemPersonaPricedSpot,
 } from './HorseHoldemPersonaPostflopIsPriced.js';
+import {
+  holdemOnePairPricedCalls,
+  holdemOnePairPricedRiverKind,
+  type HoldemOnePairPricedKind,
+} from './HorseHoldemOnePairCallIsPriced.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
 // the hold'em solver range did not answer. See HorseEvEngine.ts.
@@ -5026,6 +5031,19 @@ export interface HorseDecideOpts {
    *  against the opponent's line range and measured reads instead of a fixed or persona frequency; independent of
    *  holdemPersonaPostflop (HorseHoldemPersonaPostflopIsPriced). */
   holdemPersonaPostflopIsPriced?: boolean;
+  /** v65TurnOnePairShadeIsPriced (2026-11-21, default OFF, read === true): the turn call of a wager the Horse did not
+   *  start, holding the V65 class (one pair, high card or two pair through the board's pair, no hole-card draw), is
+   *  decided by EV(call) against the bettor's line range and measured reads (holdemPricedVerdict) instead of the V65
+   *  price shade, heads-up; independent of v65TurnOnePairShade (HorseHoldemOnePairCallIsPriced). */
+  v65TurnOnePairShadeIsPriced?: boolean;
+  /** v61RiverOnePairShadeIsPriced (2026-11-21, default OFF, read === true): the river call of the V61 class is decided
+   *  by EV(call) against the bettor's line range and measured reads instead of the V61/V63 price shade, heads-up, at
+   *  every price; independent of v61RiverOnePairShade and v63LargeRiverBetShade (HorseHoldemOnePairCallIsPriced). */
+  v61RiverOnePairShadeIsPriced?: boolean;
+  /** v63LargeRiverBetShadeIsPriced (2026-11-21, default OFF, read === true): as v61RiverOnePairShadeIsPriced, only
+   *  above a half-pot wager (toCall / pot > 1/3, where V63 departs from V61); below it the river is unchanged;
+   *  independent of v63LargeRiverBetShade (HorseHoldemOnePairCallIsPriced). */
+  v63LargeRiverBetShadeIsPriced?: boolean;
   /** HOLD'EM PERSONA PREFLOP (2026-11-15, plan lines 85 and 152; module
    *  HorseHoldemPersonaPreflop). One option for the Hold'em persona's preflop
    *  layer, two-card no-limit hold'em only: (1) turns on the persona re-raise
@@ -28572,8 +28590,46 @@ export class HorseLogic {
       // tournaments alike at an average price of 0.38 (-178,000bb), while
       // better hands won 35-37%. Same gate as below: single-board hold'em,
       // the bluff-catch class, no over-bluffer read on the opponent.
+      // v61RiverOnePairShadeIsPriced / v63LargeRiverBetShadeIsPriced (2026-11-21, default OFF): the same class,
+      // heads-up, called or folded by EV against the bettor's line range (HorseHoldemOnePairCallIsPriced); where it
+      // prices, the V61/V63 shade is not applied whatever those options' state.
+      const pricedKind61c =
+        isRiver &&
+        !v67Class &&
+        !vi.isOmaha &&
+        !vi.isShortDeck &&
+        vi.holeCount === 2 &&
+        player.cards.length === 2 &&
+        !multiBoard36 &&
+        !gs.bombPot &&
+        cat > 0 &&
+        (cat <= 2 || (cat === 3 && pairedBoard)) &&
+        toCall > 0 &&
+        pot > 0
+          ? holdemOnePairPricedRiverKind(
+              {
+                v61RiverOnePairShadeIsPriced: opts.v61RiverOnePairShadeIsPriced,
+                v63LargeRiverBetShadeIsPriced: opts.v63LargeRiverBetShadeIsPriced,
+              },
+              toCall,
+              pot
+            )
+          : null;
+      const priced61c =
+        pricedKind61c !== null
+          ? this.holdemOnePairCallPriced(
+              pricedKind61c,
+              eq15 < equity || dominationPenaltyCall > 0,
+              player,
+              gs,
+              vi,
+              opts,
+              tele15
+            )
+          : null;
       let shade61c = 0;
       if (
+        priced61c === null &&
         (opts.v61RiverOnePairShade ?? true) !== false &&
         // V62 sampled this bettor polar: the model carries what the shade
         // corrected for, so the price shade is not stacked on top of it.
@@ -28672,6 +28728,14 @@ export class HorseLogic {
         if (telemetryOn(opts)) noteFire('token_call_price_river_covered');
         return { action: 'call', amount: toCall, thinkTime: 0 };
       }
+      // v61RiverOnePairShadeIsPriced / v63LargeRiverBetShadeIsPriced: the priced class folds, or calls; a priced call
+      // that clears the branch's own jam bar keeps the branch's own continuation below (jam or flat, as today).
+      if (priced61c === 'fold') return { action: 'fold', thinkTime: 0 };
+      if (
+        priced61c === 'call' &&
+        !(eq15 >= Math.max(required, 0.42 + mw + dominationPenalty * 0.5))
+      )
+        return { action: 'call', amount: toCall, thinkTime: 0 };
       // STYLE READ #4b: at the commitment node a hand under the whole price
       // folds, and a hand that continues by this bar puts the rest in.
       if (styleCommitNode && matchedCommitment) {
@@ -29969,8 +30033,38 @@ export class HorseLogic {
     // after hero's own wager was raised (the committed branch above owns
     // that line). Omaha, short deck, multiple boards and bomb pots keep
     // their own pricing; the river keeps V61.
+    // v65TurnOnePairShadeIsPriced (2026-11-21, default OFF): the same class, heads-up, called or folded by EV against
+    // the bettor's line range (HorseHoldemOnePairCallIsPriced) at both places the shade is read below (the V38
+    // continuation verdict and the heuristic call line); where it prices, the V65 shade is not applied whatever
+    // v65TurnOnePairShade's state. The over-bluffer label withhold is not read: the price carries his measured rates.
+    const priced65 =
+      opts.v65TurnOnePairShadeIsPriced === true &&
+      street === 'turn' &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      vi.holeCount === 2 &&
+      player.cards.length === 2 &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      !raisedAfterAggr &&
+      cat > 0 &&
+      (cat <= 2 || (cat === 3 && pairedBoard)) &&
+      toCall > 0 &&
+      pot > 0 &&
+      !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board)
+        ? this.holdemOnePairCallPriced(
+            'turn',
+            eq15 < equity || dominationPenaltyCall > 0,
+            player,
+            gs,
+            vi,
+            opts,
+            tele15
+          )
+        : null;
     let shade65 = 0;
     if (
+      priced65 === null &&
       (opts.v65TurnOnePairShade ?? true) !== false &&
       street === 'turn' &&
       !vi.isOmaha &&
@@ -30152,6 +30246,44 @@ export class HorseLogic {
         // break-even, so the shade starts there and reaches its 12-point cap
         // at half the pot. Omaha, multiple boards and bomb pots keep their own
         // pricing; the committed branch above carries the same shade.
+        // v61RiverOnePairShadeIsPriced / v63LargeRiverBetShadeIsPriced (2026-11-21, default OFF): the same class,
+        // heads-up, called or folded by EV against the bettor's line range (HorseHoldemOnePairCallIsPriced) in place
+        // of this verdict; the V61/V63 shade is not applied whatever those options' state.
+        const pricedKind61 =
+          !v67Class &&
+          !vi.isOmaha &&
+          !vi.isShortDeck &&
+          vi.holeCount === 2 &&
+          player.cards.length === 2 &&
+          !multiBoard36 &&
+          !gs.bombPot &&
+          cat > 0 &&
+          (cat <= 2 || (cat === 3 && pairedBoard)) &&
+          toCall > 0 &&
+          pot > 0
+            ? holdemOnePairPricedRiverKind(
+                {
+                  v61RiverOnePairShadeIsPriced: opts.v61RiverOnePairShadeIsPriced,
+                  v63LargeRiverBetShadeIsPriced: opts.v63LargeRiverBetShadeIsPriced,
+                },
+                toCall,
+                pot
+              )
+            : null;
+        const priced61 =
+          pricedKind61 !== null
+            ? this.holdemOnePairCallPriced(
+                pricedKind61,
+                eq15 < equity || dominationPenaltyCall > 0,
+                player,
+                gs,
+                vi,
+                opts,
+                tele15
+              )
+            : null;
+        if (priced61 === 'call') return { action: 'call', amount: toCall, thinkTime: 0 };
+        if (priced61 === 'fold') return { action: 'fold', thinkTime: 0 };
         let shade61 = 0;
         if (
           (opts.v61RiverOnePairShade ?? true) !== false &&
@@ -30388,9 +30520,12 @@ export class HorseLogic {
           }
         }
       }
-      const takeCall38 = indifference38
-        ? verdict38.pick.kind === 'call'
-        : !!callEv && callEv.ev >= 0;
+      const takeCall38 =
+        priced65 !== null
+          ? priced65 === 'call'
+          : indifference38
+            ? verdict38.pick.kind === 'call'
+            : !!callEv && callEv.ev >= 0;
       if (continuation38 && tele15)
         noteFire(takeCall38 ? 'horse_continuation_budget_call' : 'horse_continuation_budget_fold');
       if (takeCall38) {
@@ -30407,11 +30542,15 @@ export class HorseLogic {
       };
     }
     if (
-      // V65 / V66 / V68: each shade comes off the equity, not onto the bar,
-      // so the same line that always decided this call still decides it;
-      // the three are exclusive by their gates.
-      eq15 + impliedBonus68 - shade65 - shade66 - shade68 - shadeDeep86 - shade87Omaha >=
-      potOdds + 0.03 * respect + sizingPenalty + posEdge + dominationPenaltyCall
+      // v65TurnOnePairShadeIsPriced: the priced class calls or does not by its price (a priced fold goes on below,
+      // as a call this line refuses does).
+      priced65 !== null
+        ? priced65 === 'call'
+        : // V65 / V66 / V68: each shade comes off the equity, not onto the bar,
+          // so the same line that always decided this call still decides it;
+          // the three are exclusive by their gates.
+          eq15 + impliedBonus68 - shade65 - shade66 - shade68 - shadeDeep86 - shade87Omaha >=
+          potOdds + 0.03 * respect + sizingPenalty + posEdge + dominationPenaltyCall
     ) {
       return { action: 'call', amount: toCall, thinkTime: 0 };
     }
@@ -30554,6 +30693,71 @@ export class HorseLogic {
     const toCall = Math.max(0, currentBet - (isFinite(player.bet) ? player.bet : 0));
     const potTo = potLimitRaiseTo(gs.pot, currentBet, toCall);
     return ploRaiseTo(params.sizingMultiplier, potTo, fastRandom, floorTo);
+  }
+
+  /**
+   * v65TurnOnePairShadeIsPriced / v61RiverOnePairShadeIsPriced / v63LargeRiverBetShadeIsPriced (default off): the
+   * call or fold of a one-pair-class hand facing a wager, by EV(call) against the bettor's line range and measured
+   * reads (holdemPricedVerdict facing a wager, no raise priced; HorseHoldemOnePairCallIsPriced). Null when it cannot
+   * be priced (not two-card no-limit hold'em on one board, more than one live opponent, not facing a wager, no
+   * population cell, an empty range, an error): receipt holdem_one_pair_priced_unpriced, and the site is left as
+   * the parents' own states make it. `deferred`: another rule already cut this hand's equity (a class cap on the
+   * equity read, V15/V20/V21/V79/V80 and the like, or the V11 domination penalty); each of those comes off on its own
+   * grade, so the price does not stand in for it here: receipt holdem_one_pair_priced_deferred, null. Draws nothing
+   * from fastRandom.
+   */
+  private static holdemOnePairCallPriced(
+    kind: HoldemOnePairPricedKind,
+    deferred: boolean,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts,
+    tele: boolean
+  ): 'call' | 'fold' | null {
+    if (deferred) {
+      if (tele) noteFire('holdem_one_pair_priced_deferred');
+      return null;
+    }
+    try {
+      const opp = holdemPersonaPricedOpponent(player, gs, vi);
+      const built =
+        opp === 'out' || opp === 'multiway'
+          ? null
+          : this.holdemPricedRangeSpot(
+              player,
+              gs,
+              opts,
+              opp,
+              holdemHandIsMade(player.cards, gs.communityCards ?? [])
+            );
+      const calls =
+        built !== null && built.spot.currentBet > built.spot.heroIn + 1e-9
+          ? holdemOnePairPricedCalls(holdemPricedVerdict(built.spot, built.range, []))
+          : null;
+      if (calls === null) {
+        if (tele) noteFire('holdem_one_pair_priced_unpriced');
+        return null;
+      }
+      if (tele) {
+        if (kind === 'turn')
+          noteFire(calls ? 'holdem_one_pair_priced_turn_call' : 'holdem_one_pair_priced_turn_fold');
+        else if (kind === 'river')
+          noteFire(
+            calls ? 'holdem_one_pair_priced_river_call' : 'holdem_one_pair_priced_river_fold'
+          );
+        else
+          noteFire(
+            calls
+              ? 'holdem_one_pair_priced_river_large_call'
+              : 'holdem_one_pair_priced_river_large_fold'
+          );
+      }
+      return calls ? 'call' : 'fold';
+    } catch {
+      if (tele) noteFire('holdem_one_pair_priced_unpriced');
+      return null;
+    }
   }
 
   /**

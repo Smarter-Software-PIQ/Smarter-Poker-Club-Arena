@@ -4691,6 +4691,78 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemPersonaPostflop: true },
     b: {},
   },
+  // 2026-11-21 Horse Switch lane (v65TurnOnePairShadeIsPriced, default OFF, unevaluated): both arms at release defaults (the V65 /
+  // V61 / V63 shades default ON); a prices the turn one-pair-class call by EV against the bettor's line range and measured reads,
+  // b keeps the price shade. The grading criteria are written before any run (CRITERIA.md of the lane). Declared,
+  // not graded.
+  {
+    name: 'cash6_v65_turn_one_pair_shade_is_priced',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v65TurnOnePairShadeIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'hu_v65_turn_one_pair_shade_is_priced',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v65TurnOnePairShadeIsPriced: true },
+    b: {},
+  },
+  // 2026-11-21 Horse Switch lane (v61RiverOnePairShadeIsPriced, default OFF, unevaluated): both arms at release defaults (the V65 /
+  // V61 / V63 shades default ON); a prices the river one-pair-class call at every price by EV against the bettor's line range and measured reads,
+  // b keeps the price shade. The grading criteria are written before any run (CRITERIA.md of the lane). Declared,
+  // not graded.
+  {
+    name: 'cash6_v61_river_one_pair_shade_is_priced',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v61RiverOnePairShadeIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'hu_v61_river_one_pair_shade_is_priced',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v61RiverOnePairShadeIsPriced: true },
+    b: {},
+  },
+  // 2026-11-21 Horse Switch lane (v63LargeRiverBetShadeIsPriced, default OFF, unevaluated): both arms at release defaults (the V65 /
+  // V61 / V63 shades default ON); a prices the river one-pair-class call above a half-pot wager by EV against the bettor's line range and measured reads,
+  // b keeps the price shade. The grading criteria are written before any run (CRITERIA.md of the lane). Declared,
+  // not graded.
+  {
+    name: 'cash6_v63_large_river_bet_shade_is_priced',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v63LargeRiverBetShadeIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'hu_v63_large_river_bet_shade_is_priced',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v63LargeRiverBetShadeIsPriced: true },
+    b: {},
+  },
   // 2026-11-21 Horse Switch lane (holdemPersonaPostflopIsPriced, default OFF, unevaluated): both arms carry
   // holdemPersonaPostflop on (its production row); a prices the four V87 spots it scales (range c-bet, turn
   // takeaway, OOP check-trap, check-raise into a stabber) by EV against the line range and measured reads, b keeps
