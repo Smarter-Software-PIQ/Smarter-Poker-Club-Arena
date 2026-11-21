@@ -68,7 +68,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout protected main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -87,7 +87,7 @@ jobs:
           fi
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
 

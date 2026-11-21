@@ -141,7 +141,7 @@ describe('an engine alert resolves its own episode', () => {
     expect(r.fingerprint).toBe(a.fingerprint);
     // The open-row query reads a column engine_alerts actually has.
     expect(RELEASE_SCRIPT).not.toMatch(/created_at\s*>=|ORDER BY fingerprint, created_at/);
-    expect(RELEASE_SCRIPT).toContain("received_at >= now() - interval '72 hours'");
+    expect(RELEASE_SCRIPT).toContain("received_at >= now() - interval '14 days'");
   });
 
   it('the engine journal resolve carries the firing episode', () => {

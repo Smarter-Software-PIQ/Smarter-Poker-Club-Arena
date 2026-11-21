@@ -619,4 +619,80 @@ exit 0
     expect(['firing', 'resolved']).toContain(firing!.status);
     expect(['firing', 'resolved']).toContain(resolved[0].status);
   });
+
+  it('wave 4: suppresses failure alerts for ancestor-superseded SHAs, widens auto-resolve lookback to 14 days, and supports verified superseded resolution', () => {
+    const olderSha = 'e2140d2d1581daaf84857d98e671f2be832162c6';
+    const newerSha = 'bb21dc82673117a937f67c9498dec46b8c27522e';
+    const staleFailure = buildReleaseFailureAlert({
+      SHIPPED: 'false',
+      RELEASE_RESULT: 'failed',
+      RUN_ID: '44900000001-1',
+      TARGET_SHA: olderSha,
+      EXIT_STAGE: 'prepare',
+      EXIT_OUTCOME: 'failed',
+    });
+    expect(staleFailure).not.toBeNull();
+    // Exact match still returns null when only a different SHA exists without ancestry proof
+    expect(
+      shippedSibling(staleFailure, [
+        { run_id: '44900000002-1', target_sha: newerSha, shipped: true },
+      ])
+    ).toBeNull();
+    // With ancestry proof (olderSha is ancestor of shipped newerSha), false alert is suppressed
+    expect(
+      shippedSibling(
+        staleFailure,
+        [{ run_id: '44900000002-1', target_sha: newerSha, shipped: true }],
+        (ancestor: string, descendant: string) => ancestor === olderSha && descendant === newerSha
+      )
+    ).toBe('44900000002-1');
+
+    // Verified superseded stand-down resolves stale open alerts; unverified does not
+    expect(
+      buildReleaseResolvedAlerts(
+        {
+          SHIPPED: 'false',
+          RELEASE_RESULT: 'superseded',
+          VERIFIED: 'false',
+          RUN_ID: '44900000003-1',
+          TARGET_SHA: newerSha,
+        },
+        [
+          {
+            fingerprint: 'engine-release-failed:old-1',
+            labels: { alertname: 'EngineReleaseFailed' },
+          },
+        ]
+      )
+    ).toEqual([]);
+    const resolvedOnSuperseded = buildReleaseResolvedAlerts(
+      {
+        SHIPPED: 'false',
+        RELEASE_RESULT: 'superseded',
+        VERIFIED: 'true',
+        RUN_ID: '44900000003-1',
+        TARGET_SHA: newerSha,
+      },
+      [
+        {
+          fingerprint: 'engine-release-failed:old-1',
+          labels: {
+            alertname: 'EngineReleaseFailed',
+            component: 'engine-release',
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:old-1'),
+          },
+        },
+      ]
+    );
+    expect(resolvedOnSuperseded).toHaveLength(1);
+    expect(resolvedOnSuperseded[0].status).toBe('resolved');
+    expect(resolvedOnSuperseded[0].fingerprint).toBe('engine-release-failed:old-1');
+
+    const alertScript = readFileSync(
+      join(ROOT, 'scripts/ci/record-engine-release-alert.mjs'),
+      'utf8'
+    );
+    expect(alertScript).toContain("interval '14 days'");
+    expect(alertScript).toContain('shippedSibling(alert, receipts.rows, gitIsAncestor)');
+  });
 });

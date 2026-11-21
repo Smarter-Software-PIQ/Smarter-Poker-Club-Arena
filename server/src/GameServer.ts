@@ -9,6 +9,7 @@ import {
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
 import { tournamentStallExposure } from './observability/tournamentStallExposure.js';
+import { snapshotEventLoopDelay } from './observability/eventLoopMonitor.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -127,6 +128,7 @@ import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
 import { countHorseTablesByVariant } from './engine/HorsePolicyLedgerObserver.js';
+import { countHorseSeats } from './engine/HorseSeatCounter.js';
 import {
   settlementHealthSnapshot,
   settlementPrometheusLines,
@@ -6636,6 +6638,7 @@ export class GameServer {
             .reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
         ),
       },
+      eventLoopDelay: snapshotEventLoopDelay(),
       ...(livenessQuery
         ? { tableLiveness: selectPublicTableLiveness(tableLiveness, livenessQuery) }
         : {}),
@@ -6818,18 +6821,13 @@ export class GameServer {
     const neverStartedOldestSeconds = Math.round(
       neverStarted.reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
     );
-    /* One walk of the live engines for the two horse gauges below. Counted
-       here rather than from `liveness` because the seat rows carry the flag
-       and the liveness snapshot does not. */
-    const horseSeatCounts = { horses: 0, tables: 0 };
+    /* One walk of the live engines + Lightning pools for the two horse gauges
+       below. Counted here rather than from `liveness` because the seat rows
+       carry the flag and the liveness snapshot does not. Lightning pool horses
+       are included cleanly via `countHorseSeats` (read-only identification
+       only, deduplicated against anchor engines, never throws). */
+    const horseSeatCounts = countHorseSeats(this.tableEngines.values(), this.lightningRooms);
     const horseTablesByVariant = countHorseTablesByVariant(this.tableEngines.values());
-    for (const engine of this.tableEngines.values()) {
-      const n = engine.horsesSeated();
-      if (n > 0) {
-        horseSeatCounts.horses += n;
-        horseSeatCounts.tables += 1;
-      }
-    }
     /**
      * 2026-09-05: the gauge below used `stalled.length === 0` — the 120s
      * VISIBILITY list — while getStatus() killed on the 300s list. Two
@@ -6863,7 +6861,7 @@ export class GameServer {
 
          Identification only (CLAUDE.md 10.5): they count, they decide
          nothing, and the same line publishes the human count beside them. */
-      '# HELP poker_horses_seated Horses seated with chips across every live table',
+      '# HELP poker_horses_seated Horses seated with chips across every live table and Lightning pool',
       '# TYPE poker_horses_seated gauge',
       `poker_horses_seated ${horseSeatCounts.horses}`,
       '# HELP poker_tables_with_horses Live tables holding at least one horse with chips',
