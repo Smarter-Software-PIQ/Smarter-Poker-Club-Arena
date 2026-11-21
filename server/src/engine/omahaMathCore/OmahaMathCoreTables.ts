@@ -1,28 +1,21 @@
 /**
- * omahaMathCore measured tables (lane MATHCORE 2026-11-19). LEAD RULING: live
- * inputs are PUBLIC INFORMATION ONLY. Every table the core loads carries a
- * `provenance` in OMAHA_MATH_CORE_ALLOWED_PROVENANCE (law test); nothing built
- * from hole cards that were never shown is shipped.
+ * omahaMathCore measured tables. LEAD RULING: live inputs are PUBLIC INFORMATION ONLY. Every table the core
+ * loads carries a `provenance` in OMAHA_MATH_CORE_ALLOWED_PROVENANCE (law test); nothing built from hole cards
+ * that were never shown is shipped.
  *
- * publicTables.v3.json: lane RANGES' measured-ranges-public-v3 (every cell provenance public_actions or
- * showdown_only; source sha256 3bdd8ce1...), earlier: public-action sections (responses to
- * wagers by street/line/size/players/actor, preflop action frequencies by
- * position and level, fold facing a Horse raise preflop, VPIP/PFR, per-user
- * public facing rows), PLO4/PLO5 cash with a person, Nov 1 to Nov 19 6:49 PM
- * Chicago (source sha256 54ab0460...; hidden-card sections removed, names
- * removed). Each lookup returns its key and n for the receipt; a missing cell
- * is "no measurement" and is said so in the receipt.
+ * publicTables.v4-pooled.json (lane CORE-POOLED, Nov 20 2026; owner 9:52 AM: "THE SAME CORRECTIONS... AGAINST
+ * ALL PLAYERS, REGARDLESS IF THEY ARE HUMAN OR HORSES"): lane RANGES' public extracts (action log and hands
+ * shown at showdown) of every PLO4/PLO5 cash hand with a person, Nov 1 to Nov 19 6:49 PM Chicago, re-measured
+ * with EVERY player pooled: no person/Horse field, no table-composition field, no per-user rows. Responses to
+ * wagers by street/line/size/players, wager frequencies, shown non-value shares, preflop action frequencies
+ * by position and level, fold facing a raise preflop. Each lookup returns its key and n for the receipt; a
+ * missing cell is "no measurement" and is said so in the receipt. The same lookup answers for every player:
+ * no lookup here accepts or derives a person/Horse label or a user id (OmahaMathCoreIdentityFree.law.test.ts).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  lookupResponse,
-  personFoldRate,
-  type Band,
-  type Line,
-  type MeasuredRanges,
-} from './MeasuredRanges.js';
+import { lookupResponse, type Band, type Line, type MeasuredRanges } from './MeasuredRanges.js';
 
 // The table is read from the source tree at load, not imported: the engine image is compiled by
 // tsconfig.emit.json (noResolve, explicit files) under a 1 GB heap, where importing these tables is either not
@@ -46,7 +39,8 @@ function omahaMathCoreTable(name: string): unknown {
     );
   return JSON.parse(readFileSync(found, 'utf8'));
 }
-const publicTables: unknown = omahaMathCoreTable('publicTables.v3.json');
+export const OMAHA_MATH_CORE_PUBLIC_TABLE_FILE = 'publicTables.v4-pooled.json';
+const publicTables: unknown = omahaMathCoreTable(OMAHA_MATH_CORE_PUBLIC_TABLE_FILE);
 
 export const OMAHA_MATH_CORE_ALLOWED_PROVENANCE: ReadonlySet<string> = new Set([
   'public_actions',
@@ -71,7 +65,7 @@ function provenanceOf(t: Record<string, unknown>): string[] {
 /** Every table the core loads, by name, with the provenance of its cells (law: each in the allowed set). */
 export const OMAHA_MATH_CORE_TABLES: ReadonlyArray<{ name: string; provenance: string }> =
   provenanceOf(RAW as unknown as Record<string, unknown>).map((provenance) => ({
-    name: 'publicTables.v3.json',
+    name: OMAHA_MATH_CORE_PUBLIC_TABLE_FILE,
     provenance,
   }));
 for (const t of OMAHA_MATH_CORE_TABLES)
@@ -81,7 +75,6 @@ export const TABLE = RAW;
 export const OMAHA_MATH_CORE_TABLE_VERSION = `${RAW.version}@${String(RAW.sourceSha256).slice(0, 8)}`;
 export type Street = 'preflop' | 'flop' | 'turn' | 'river';
 export type Mode = 'table' | 'lightning';
-export type Actor = 'person' | 'horse';
 export type PreflopPosition = 'UTG' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB';
 export type PreflopLevel = 'open' | '3bet' | '4bet' | '5bet+';
 const MIN_N = 30;
@@ -92,7 +85,7 @@ export interface FoldCell {
   source: string;
 }
 
-/** Response of `responder` facing a wager by `bettor` (population cell; person-specific shrunk when he has a row). */
+/** The pooled response (every responder) facing a wager on this spot. */
 export function responseTo(k: {
   game: 'plo4' | 'plo5';
   mode: Mode;
@@ -100,28 +93,9 @@ export function responseTo(k: {
   line: Line;
   band: Band;
   players: 'hu' | 'mw';
-  bettor: Actor;
-  responder: Actor;
-  user: string | null;
 }): { fold: number; raise: number; n: number; source: string } | null {
-  const game = k.game;
-  const pop = lookupResponse(
-    TABLE,
-    { ...k, game: game as 'plo4', opp: 'horse_present' },
-    k.responder,
-    MIN_N
-  );
+  const pop = lookupResponse(TABLE, k, MIN_N);
   if (!pop) return null;
-  if (k.responder === 'person' && k.user) {
-    const per = personFoldRate(TABLE, k.user, { ...k, game: game as 'plo4' }, pop.cell.fold);
-    if (per.source === 'person_shrunk')
-      return {
-        fold: per.rate,
-        raise: pop.cell.raise,
-        n: per.n,
-        source: `person shrunk (n=${per.n}, k+20pop/(n+20)) to ${pop.key} (n=${pop.cell.n})`,
-      };
-  }
   return {
     fold: pop.cell.fold,
     raise: pop.cell.raise,
@@ -130,18 +104,17 @@ export function responseTo(k: {
   };
 }
 
-/** Preflop action frequencies (fold/call/check/raise) of a seat kind at a position and raise level. */
+/** Preflop action frequencies (fold/call/check/raise) at a position and raise level, every player pooled. */
 export function preflopFreq(k: {
   game: 'plo4' | 'plo5';
   mode: Mode;
   position: PreflopPosition | 'all';
   lvl: 0 | 1 | 2 | 3;
-  actor: Actor;
 }): { fold: number; call: number; raise: number; check: number; n: number; source: string } | null {
   const t = TABLE.preflop ?? {};
   for (const g of [k.game, 'pooled'])
     for (const m of [k.mode, 'all']) {
-      const key = [g, m, k.position, `lvl${k.lvl}`, k.actor].join('|');
+      const key = [g, m, k.position, `lvl${k.lvl}`].join('|');
       const c = t[key] as Record<string, number> | undefined;
       if (c && (c.n ?? 0) >= MIN_N)
         return {
@@ -156,34 +129,31 @@ export function preflopFreq(k: {
   return null;
 }
 
-/** Fold rate facing a Horse's preflop raise (open / 3-bet / 4-bet+). */
-export function preflopFoldToHorse(k: {
+/** Fold rate facing a preflop raise (open / 3-bet / 4-bet+), every player pooled. */
+export function preflopFoldToRaise(k: {
   game: 'plo4' | 'plo5';
   mode: Mode;
   position: PreflopPosition | 'all';
   facing: 'facing_open' | 'facing_3bet' | 'facing_4bet+';
-  actor: Actor;
 }): FoldCell | null {
   const t = TABLE.preflopFacingRaise ?? {};
   for (const p of [k.position, 'all'])
     for (const g of [k.game, 'pooled'])
       for (const m of [k.mode, 'all']) {
-        const key = [g, m, p, k.facing, 'vs_horse', k.actor].join('|');
+        const key = [g, m, p, k.facing].join('|');
         const c = t[key];
         if (c && c.n >= MIN_N) return { p: c.fold, n: c.n, source: `${key} (n=${c.n})` };
       }
   return null;
 }
 
-/** How often this kind of player wagers on this line when he can (public action log; persons shrunk to population). */
+/** How often a player wagers on this line when he can (public action log; every player pooled). */
 export function betRate(k: {
   game: 'plo4' | 'plo5';
   mode: Mode;
   street: Exclude<Street, 'preflop'>;
   line: Line;
   players: 'hu' | 'mw';
-  actor: Actor;
-  user: string | null;
 }): { b: number; n: number; source: string; size: number } | null {
   const t =
     (
@@ -197,36 +167,44 @@ export function betRate(k: {
   for (const pl of [k.players, 'all'])
     for (const ln of k.line === 'all' ? ['all'] : [k.line, 'all'])
       for (const g of [k.game, 'pooled'])
-        for (const m of [k.mode, 'all'])
-          for (const o of ['horse_present', 'any']) {
-            const key = [g, m, k.street, ln, pl, o, k.actor].join('|');
-            const c = t[key];
-            if (!c || c.n < MIN_N) continue;
-            const size = typicalSize(c.betBands);
-            if (k.actor === 'person' && k.user) {
-              const row = (
-                TABLE.persons?.[k.user] as unknown as
-                  | { betOpportunities?: Record<string, Record<string, number>> }
-                  | undefined
-              )?.betOpportunities?.[[k.game, k.street, k.line, k.players].join('|')];
-              if (row) {
-                const n = Object.values(row).reduce((x, y) => x + y, 0);
-                const bets = row.bet ?? 0;
-                if (n > 0)
-                  return {
-                    b: (bets + 20 * c.betRate) / (n + 20),
-                    n,
-                    size,
-                    source: `person shrunk (n=${n}) to ${key} (n=${c.n})`,
-                  };
-              }
-            }
-            return { b: c.betRate, n: c.n, size, source: `${key} (n=${c.n})` };
-          }
+        for (const m of [k.mode, 'all']) {
+          const key = [g, m, k.street, ln, pl].join('|');
+          const c = t[key];
+          if (!c || c.n < MIN_N) continue;
+          return {
+            b: c.betRate,
+            n: c.n,
+            size: typicalSize(c.betBands),
+            source: `${key} (n=${c.n})`,
+          };
+        }
   return null;
 }
 
-/** The non-value share of a wager on this line and size, from hands shown at showdown (lead decision: shownNonValue). */
+/** Wager sizes of a line (the measured size bands, every player pooled). */
+export function betBands(k: {
+  game: 'plo4' | 'plo5';
+  mode: Mode;
+  street: Exclude<Street, 'preflop'>;
+  players: 'hu' | 'mw';
+}): { bands: Record<string, number>; key: string } | null {
+  const t =
+    (
+      TABLE as unknown as {
+        betFrequency?: Record<string, { n: number; betBands?: Record<string, number> }>;
+      }
+    ).betFrequency ?? {};
+  for (const pl of [k.players, 'all'])
+    for (const g of [k.game, 'pooled'])
+      for (const m of [k.mode, 'all']) {
+        const key = [g, m, k.street, 'all', pl].join('|');
+        const c = t[key];
+        if (c && c.n >= MIN_N && c.betBands) return { bands: c.betBands, key };
+      }
+  return null;
+}
+
+/** The non-value share of a wager on this line and size, from hands shown at showdown (every bettor pooled). */
 export function wagerNonValue(k: {
   game: 'plo4' | 'plo5';
   mode: Mode;
@@ -234,7 +212,6 @@ export function wagerNonValue(k: {
   line: Line;
   band: Band;
   players: 'hu' | 'mw';
-  bettor: Actor;
 }): { nv: number; n: number; source: string } | null {
   const t =
     (TABLE as unknown as { ranges?: Record<string, { shownNonValue?: number; nShown?: number }> })
@@ -243,17 +220,16 @@ export function wagerNonValue(k: {
     for (const ln of k.line === 'all' ? ['all'] : [k.line, 'all'])
       for (const g of [k.game, 'pooled'])
         for (const b of k.band === 'all' ? ['all'] : [k.band, 'all'])
-          for (const m of [k.mode, 'all'])
-            for (const o of ['horse_present', 'any']) {
-              const key = [g, m, k.street, ln, b, pl, o, k.bettor].join('|');
-              const c = t[key];
-              if (c && typeof c.shownNonValue === 'number' && (c.nShown ?? 0) >= 20)
-                return {
-                  nv: c.shownNonValue,
-                  n: c.nShown ?? 0,
-                  source: `${key} shown (n=${c.nShown})`,
-                };
-            }
+          for (const m of [k.mode, 'all']) {
+            const key = [g, m, k.street, ln, b, pl].join('|');
+            const c = t[key];
+            if (c && typeof c.shownNonValue === 'number' && (c.nShown ?? 0) >= 20)
+              return {
+                nv: c.shownNonValue,
+                n: c.nShown ?? 0,
+                source: `${key} shown (n=${c.nShown})`,
+              };
+          }
   return null;
 }
 

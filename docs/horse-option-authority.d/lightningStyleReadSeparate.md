@@ -32,8 +32,8 @@ Source: `docs/changelog/2026-11-15-a-lightning-style-read-can-keep-its-own-evide
 - **Probe Q3 (2026-11-14):** In a 72-hour window of the newest 12,000 `has_human` cash hands, 304 player IDs were seen in Lightning, 357 in Classic table hands, and 220 in both. On constructed evidence (a player passive in Lightning with 1 turn raise in 34 opportunities, but aggressive at Classic tables with 12 turn raises in 40), a Lightning 4x turn check-raise that folded 24 of 24 seeds under `styleRaiseRespect` on the Lightning record alone was called 24 of 24 seeds once the Classic hands pooled in; with `lightningStyleReadSeparate: true`, the Lightning decision reads the Lightning-only map and folds 24 of 24 seeds again.
 - **Known limits (recorded in changelog 2026-11-16):**
   1. The durable shown-river record (`horse_exact_profiles.shown_river`) has no speed key; if `lightningStyleReadSeparate` and `styleLongShownMemory` are both on, the long shown-river merge can bring a Classic showdown into the Lightning read.
-  2. `HorseMind.omahaFacingBetEvReadOf` (used by `omahaFacingBetEv`) reads `this.styleSizeShown` directly even when `lightningStyleReadSeparate` is on.
-  3. The `style_lightning_separate_*` receipts fire in `styleReadUntimed`, so they count fresh reads (one per opponent per decision when the per-decision style memo `C6` is active).
+  2. The `style_lightning_separate_*` receipts fire in `styleReadUntimed`, so they count fresh reads (one per opponent per decision when the per-decision style memo `C6` is active).
+  - Note: `HorseMind.omahaFacingBetEvReadOf` (used by `omahaFacingBetEv`) now also reads `this.styleSizeShownLightning` when `this.decisionReadOptions.lightningStyleReadSeparate === true` (and `this.styleSizeShown` otherwise).
 
 ## Receipts
 

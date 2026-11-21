@@ -23,12 +23,11 @@ describe('omahaMathCore PLAYBOOK board texture', () => {
     expect(boardTexture([])).toBeNull();
   });
 
-  it("a paired flop raises a person's fold share against a small heads-up bet; an unpaired rainbow flop lowers it", () => {
+  it('a paired flop raises the pooled fold share against a small heads-up bet; an unpaired rainbow flop lowers it', () => {
     const base = {
       street: 'flop' as const,
       band: 'small' as const,
       players: 'hu' as const,
-      responder: 'person' as const,
       p: 0.2,
     };
     const paired = textureFold({ ...base, board: parseCardString('KsKd5h') });
@@ -38,12 +37,11 @@ describe('omahaMathCore PLAYBOOK board texture', () => {
     expect(paired.source).toContain('texture paired_rainbow');
   });
 
-  it("the person lift survives: the adjustment is a ratio on the core's own fold probability", () => {
+  it("the adjustment is a ratio on the core's own fold probability", () => {
     const k = {
       street: 'flop' as const,
       band: 'small' as const,
       players: 'hu' as const,
-      responder: 'person' as const,
       board: parseCardString('KsKd5h'),
     };
     const a = textureFold({ ...k, p: 0.1 });
@@ -56,7 +54,6 @@ describe('omahaMathCore PLAYBOOK board texture', () => {
       street: 'flop' as const,
       band: 'small' as const,
       players: 'hu' as const,
-      responder: 'person' as const,
     };
     expect(textureFold({ ...k, board: [], p: 0.4 }).p).toBe(0.4);
     expect(textureFold({ ...k, board: parseCardString('Ks9d5h'), p: 0 }).p).toBe(0);
@@ -67,7 +64,6 @@ describe('omahaMathCore PLAYBOOK board texture', () => {
         street: 'river',
         band: 'allin',
         players: 'mw',
-        responder: 'horse',
         board: parseCardString('Ks9d5h2c3d'),
         p: 0.5,
       }).p

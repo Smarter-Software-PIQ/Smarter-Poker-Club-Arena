@@ -131,8 +131,8 @@ Realtime's logical replication also requires **postgresql-17-wal2json=2.6-2+b1**
 The [Debian amd64 package record](https://packages.debian.org/trixie/amd64/postgresql-17-wal2json/download)
 lists SHA-256 `70371bb2072d904ad381d29df2c50f5f2fe8c12583bc0207336b2d5772a0ac36`;
 its [file inventory](https://packages.debian.org/trixie/amd64/postgresql-17-wal2json/filelist)
-includes `/usr/lib/postgresql/17/lib/wal2json.so`. The build uses the same signed
-snapshot and the native smoke must create and drop a real temporary logical
+includes `/usr/lib/postgresql/17/lib/wal2json.so`. The build installs that exact
+file and the native smoke must create and drop a real temporary logical
 slot using this plugin before exercising Realtime. The earlier image build
 passed the file check; run `34660221728` also passed native slot creation and removal.
 PostgreSQL 17.11 also checks the explicit
@@ -142,13 +142,26 @@ including for superusers. Both fixture startup paths set it to
 plugin only. The unused `test_decoding` default is excluded. The native smoke
 asserts this exact live setting before creating, inspecting and dropping its
 temporary wal2json slot. No privilege increase or plugin-check bypass is used.
-Both APT sources are the signed official Debian archives (`deb.debian.org`
-`trixie` and `trixie-security`). PostgreSQL 17.11, libpq5, pgvector 0.8.0-1 and
-wal2json 2.6-2+b1 stay pinned to exact versions, verified in those amd64 package
-indexes on 2026-11-05; other packages follow Debian stable updates. Package
-signature and Release expiry checks stay enabled. The dated snapshot archive was
-dropped on 2026-11-05 after it answered hosted runners with 504 Gateway Timeout
-and roughly ten seconds per package. Retries are immediate, because apt before
+PostgreSQL itself never comes from APT's index. The Dockerfile's `postgres-debs`
+stage lists each PostgreSQL package once (postgresql-17, postgresql-client-17,
+libpq5, libpq-dev, postgresql-server-dev-17, pgvector, wal2json) with its exact
+version, Debian pool path, SHA-1 and SHA-256; that list is the only place those
+versions are written. It fetches each file by pool path from `deb.debian.org`
+(`debian`, then `debian-security`) and, once Debian's pool no longer serves it,
+from `snapshot.debian.org/file/<sha1>`, Debian's permanent content-addressed
+archive; every file must match its SHA-256. The runtime and every builder install
+those same files, `apt-mark hold` them and assert the installed versions against
+the list. On 2026-11-21 the Debian 13.8 point release removed 17.11-0+deb13u1 and
+wal2json 2.6-2+b1 from the index and exact APT pins failed every native build;
+a Debian release can no longer do that, and changing the PostgreSQL version is
+one deliberate edit to that list for the runtime and builders together.
+Every other package comes from the signed official Debian archives
+(`deb.debian.org` `trixie` and `trixie-security`) and follows Debian stable
+updates. Package signature and Release expiry checks stay enabled. The dated
+snapshot archive stopped being an APT source on 2026-11-05 after it answered
+hosted runners with 504 Gateway Timeout and roughly ten seconds per package;
+only the handful of PostgreSQL files can ever be read from it, by hash, and only
+after Debian's pool has dropped them. Retries are immediate, because apt before
 3.1.3 can loop forever on a delayed retry. PostgreSQL's package supplies the required contrib extensions;
 the image build checks for dblink, pg_stat_statements, pg_trgm, pgcrypto,
 uuid-ossp, and vector control files, and the native smoke creates all six.
@@ -163,7 +176,7 @@ the build immediately instead of appearing later as missing dependencies.
 The npm lock pins `@playwright/test` 1.58.0, `pg` 8.20.0, and `tsx` 4.23.13,
 including package integrity hashes. The locked Playwright browser revision is
 installed at build time; its [Debian 13 dependencies](https://github.com/microsoft/playwright/blob/v1.58.0/packages/playwright-core/src/server/registry/nativeDeps.ts)
-come from the same dated APT snapshot. Nothing installs packages at runtime.
+come from the same signed Debian archives. Nothing installs packages at runtime.
 The final built image identity must be recorded and admitted by immutable OCI
 digest; these base-image pins are not that final image's identity.
 
@@ -469,7 +482,7 @@ independent current-schema qualification.
 The image builds [official Supautils 3.4.3](https://github.com/supabase/supautils/tree/e35f8affc4467202ff0d98f8dd14cb955bc13c75)
 from an immutable source archive (SHA256
 `36c758bd7facda65e1c8ce4a59ebf714d36f3054a2d898a1e8d53cae37e71bec`)
-against the same signed-snapshot PostgreSQL17.11 development headers. Only its
+against the same pinned PostgreSQL17.11 development headers (the `postgres-debs` files). Only its
 shared library enters the final image; compiler packages remain in the CI build
 stage. Both entrypoints load it through session_preload_libraries, matching the
 managed configuration observed on September12. The installed production binary

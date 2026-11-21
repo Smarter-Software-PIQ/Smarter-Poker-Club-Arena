@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261121024624
 -- HORSE OPTION SWITCH: THE REGISTERED NAMES, RE-ASSERTED (20261121005533_horse_option_switch_lightning_participation_holdem_harm; follow-up of 20261114072215)
 -- registry:follows: 20261120210905_horse_option_switch_heads_up_big_blind_hold_lift
 --

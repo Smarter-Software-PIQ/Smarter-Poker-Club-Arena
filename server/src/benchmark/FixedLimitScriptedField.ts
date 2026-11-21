@@ -36,6 +36,8 @@ import { scoreHoldem } from '../engine/HorseEval.js';
 import { humanCalibratedPreflopPercentile } from './HumanCalibratedPopulation.js';
 import {
   FLH_MANIAC_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
   type FixedLimitScriptedPersona,
 } from './HorseLeagueHumanField.js';
@@ -203,6 +205,138 @@ export const flhTightValuePolicy: LeagueSeatPolicy = (s) =>
   (s.stage as HandStage) === 'preflop' ? tightValuePreflop(s) : tightValuePostflop(s);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// flh_passive_caller_v1 (2026-11-21)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A passive caller: calls wide preflop, never folds after the flop, bets only
+ * strong hands and rarely raises. It is the field a first-to-act river lead
+ * can be paid by (it checks behind most hands that call a bet) and a third
+ * river-betting range for the one-bet value raise (it bets a made hand and
+ * never folds it to a raise).
+ *
+ * Source: the calling station of ExploiterLeague.ts (callingStation: "Never
+ * folds after the flop; calls wide preflop; bets only strong hands"), the
+ * repository's one recorded passive-caller policy. Preflop is its percentile
+ * bars unchanged, each no-limit size replaced by the one fixed-limit wager:
+ * unraised it calls at percentile 0.40 or better and never raises first in;
+ * facing one raise it re-raises at 0.92, calls at 0.40; facing two or more it
+ * calls at 0.60. Postflop "never folds" is kept as written.
+ */
+export const FLH_PASSIVE_CALLER_PREFLOP = Object.freeze({
+  /** Unraised or facing one raise: calls at or above (callingStation: p >= 0.4). */
+  callAt: 0.4,
+  /** Facing one raise: re-raises at or above (callingStation: p >= 0.92). */
+  reraiseAt: 0.92,
+  /** Facing two raises or more: calls at or above (callingStation: p >= 0.6). */
+  callReraisedAt: 0.6,
+});
+
+/**
+ * Postflop bars by made class. DESIGN VALUE: callingStation bets at a Monte
+ * Carlo equity of 0.75 or better and raises at 0.95 or better, and a script
+ * here may consume no randomness, so each equity bar is replaced by a made
+ * class chosen here (no record states a class for them):
+ *  - checked to, it bets with two pair or better, otherwise checks;
+ *  - facing a wager it raises only with a full house or better, otherwise
+ *    calls: it never folds after the flop (sourced, above).
+ */
+export const FLH_PASSIVE_CALLER_POSTFLOP = Object.freeze({
+  /** Made class (scoreHoldem category: 3 two pair) to bet when checked to. DESIGN VALUE. */
+  betClass: 3,
+  /** Made class (7 full house) to raise a wager. DESIGN VALUE. */
+  raiseClass: 7,
+});
+
+function passiveCallerPreflop(s: LeagueSeatSpot): Decision {
+  const p = humanCalibratedPreflopPercentile(s.cards, s.variant);
+  const t = FLH_PASSIVE_CALLER_PREFLOP;
+  const raises = streetWagers(s);
+  if (raises === 0) {
+    if (s.toCall <= 0) return { action: 'check' };
+    return p >= t.callAt ? { action: 'call' } : { action: 'fold' };
+  }
+  if (raises === 1) {
+    if (p >= t.reraiseAt) return fixedWager(s) ?? callOrCheck(s);
+    return p >= t.callAt ? callOrCheck(s) : foldOrCheck(s);
+  }
+  return p >= t.callReraisedAt ? callOrCheck(s) : foldOrCheck(s);
+}
+
+function passiveCallerPostflop(s: LeagueSeatSpot): Decision {
+  const t = FLH_PASSIVE_CALLER_POSTFLOP;
+  const made = ownMadeClass(s.cards, s.board);
+  const wager = fixedWager(s);
+  if (s.toCall <= 0) return made >= t.betClass && wager ? wager : { action: 'check' };
+  if (wager && made >= t.raiseClass) return wager;
+  return { action: 'call' };
+}
+
+export const flhPassiveCallerPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop' ? passiveCallerPreflop(s) : passiveCallerPostflop(s);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// flh_over_folding_blinds_v1 (2026-11-21)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Over-folding blinds: the field fixedLimitStealVsTightBlinds was built for.
+ *
+ * What the option reads (HorseFixedLimitPreflop.fixedLimitOverFolder): the
+ * opponent's own POSTFLOP fold to a bet engaged high on at least
+ * FIXED_LIMIT_STEAL_MIN_OPPS (15) decayed opportunities, with no preflop
+ * statistic (vpip, pfr, rfi, threeBet) engaged wide. So the script must give
+ * up its blinds, fold postflop, and not be wide preflop.
+ *
+ * Why every postflop and raising frequency here is 0% or 100%. The read ages
+ * an opportunity-gated statistic at the fast rate (half-life 8 hands instead
+ * of 30 opportunity hands) whenever a fast-window rate differs from the long
+ * one by 0.2 (HorseOpponentExploit.styleShiftReleased, STYLE_SHIFT_PFR_GAP),
+ * and a mixed frequency trips that by chance. The first form of this script
+ * (flh_tight_value_v1's raise-or-fold preflop with a fit-or-fold postflop that
+ * continued with two pair or better) was measured on 2026-11-21, seed
+ * 20261115: 0 of 10,000 pairs diverged, and the one counter row printed
+ * during a separate 2,500-pair run held 12.4 decayed fold opportunities,
+ * under the 15 the option needs (docs/horse-league-fixed-limit.md).
+ * A script with no mixed frequency keeps its opportunities.
+ *
+ * Preflop: never raises. Its entry shares and calling bars are
+ * flh_tight_value_v1's (FLH_TIGHT_VALUE_PREFLOP, sourced from ExploiterLeague
+ * .ts regPreflop / openTop) with every raise replaced by a call; that
+ * replacement is a DESIGN VALUE. First in it calls the share tight-value
+ * opens (26% at up to six seats) and folds the rest; the big blind checks its
+ * option; facing one raise it calls at percentile 0.82 or better (heads-up
+ * 0.50) and folds the rest, so at six seats a blind folds to a single raise
+ * 82% of the time, where the published fixed-limit defence widths quoted in
+ * HorseFixedLimitPreflop.ts (REFERENCES) are 45 to 55 percent defended against
+ * an early raise and 75 to 85 against the button; facing two raises or more
+ * it calls at 0.95.
+ *
+ * Postflop: checks whenever it may and folds to every wager. DESIGN VALUE (no
+ * record in this repository states the lane's over-folder thresholds,
+ * docs/horse-league-fixed-limit.md): this is the extreme over-folder, the one
+ * range the option is most favoured against, and a card against it is a
+ * favourable-range measurement, never a harm control.
+ */
+function overFoldingBlindsPreflop(s: LeagueSeatSpot): Decision {
+  const p = humanCalibratedPreflopPercentile(s.cards, s.variant);
+  const t = FLH_TIGHT_VALUE_PREFLOP;
+  const hu = s.numSeats <= 2;
+  const raises = streetWagers(s);
+  if (raises === 0) {
+    if (s.toCall <= 0) return { action: 'check' };
+    const top = hu ? t.openTopHeadsUp : s.numSeats <= 6 ? t.openTopSixMax : t.openTopFullRing;
+    return p >= 1 - top ? { action: 'call' } : { action: 'fold' };
+  }
+  const bar =
+    raises === 1 ? (hu ? t.facingRaise.callHeadsUp : t.facingRaise.call) : t.facingReraise.call;
+  return p >= bar ? callOrCheck(s) : foldOrCheck(s);
+}
+
+export const flhOverFoldingBlindsPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop' ? overFoldingBlindsPreflop(s) : foldOrCheck(s);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The no-limit probe history (LeagueMatchup.probeHistoryHands)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -236,6 +370,8 @@ export const nlhProbeWarmupPolicy: LeagueSeatPolicy = (s) => {
 export function fixedLimitScriptedPolicy(persona: FixedLimitScriptedPersona): LeagueSeatPolicy {
   if (persona === FLH_MANIAC_PERSONA) return flhManiacPolicy;
   if (persona === FLH_TIGHT_VALUE_PERSONA) return flhTightValuePolicy;
+  if (persona === FLH_PASSIVE_CALLER_PERSONA) return flhPassiveCallerPolicy;
+  if (persona === FLH_OVER_FOLDING_BLINDS_PERSONA) return flhOverFoldingBlindsPolicy;
   throw new Error(`Unknown scripted fixed-limit persona: ${String(persona)}`);
 }
 
