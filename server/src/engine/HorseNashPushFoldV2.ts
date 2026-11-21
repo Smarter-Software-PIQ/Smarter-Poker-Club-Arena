@@ -220,3 +220,141 @@ export function nashV2CallWidth(
   }
   return (100 * w) / 1326;
 }
+
+/** Evidenced tight-jammer read supplied to nashV2TightJammerParams (2026-11-21). */
+export interface NashTightJammerInput {
+  /** Shrunk observed open-raise width of the jammer in (0, 1], e.g. from RFI/PFR posterior. */
+  observedOpenWidth: number;
+  /** Sample-size / credibility / gear-shift confidence in [0, 1]; 0 = unknown or stood down. */
+  confidence: number;
+}
+
+export interface NashTightJammerParams {
+  /** Effective jammer-behind index in [jammerBehind, 9] (fractional for smooth interpolation). */
+  effectiveBehind: number;
+  /** Effective bubble factor (>= baseBubble, capped so premiums always call). */
+  effectiveBubble: number;
+  /** True only when the tight read actually moved the call parameters tighter. */
+  tightened: boolean;
+}
+
+const TIGHT_JAMMER_MIN_OBS_PCT = 3;
+const TIGHT_JAMMER_MIN_GAP_PCT = 0.5;
+const TIGHT_JAMMER_MAX_ULTRA_BUBBLE_MUL = 2;
+
+/**
+ * Tighten a nashCallVsJam lookup when the lone open-jammer has an evidenced
+ * tight/nit read (shrunk by sample size and gear-shift release).
+ *
+ * Maps the credibility-blended jammer range width onto the already-solved
+ * HorseNashPushFoldV2 caller table (n = jammerBehind..9, whose equilibrium jam
+ * widths span ~66% down to ~6-10%), and only applies a bounded extra bubble
+ * factor (<= 2x) when the target width is even tighter than a 10-handed UTG
+ * jammer (n = 9). Returns exact unchanged parameters when the jammer is
+ * unknown, confidence is 0, or observedOpenWidth >= the seat's Nash jam width.
+ */
+export function nashV2TightJammerParams(args: {
+  jammerBehind: number;
+  depthBB: number;
+  anteBB: number;
+  bubble?: number;
+  tightRead: NashTightJammerInput | null | undefined;
+}): NashTightJammerParams {
+  const nStart = behindKey(args.jammerBehind);
+  const baseBubble = args.bubble ?? 1;
+  const r = args.tightRead;
+  if (
+    !r ||
+    !Number.isFinite(r.confidence) ||
+    !(r.confidence > 0) ||
+    !Number.isFinite(r.observedOpenWidth)
+  ) {
+    return { effectiveBehind: nStart, effectiveBubble: baseBubble, tightened: false };
+  }
+  const k = Math.max(0, Math.min(1, r.confidence));
+  const obsPct = Math.max(TIGHT_JAMMER_MIN_OBS_PCT, Math.min(100, r.observedOpenWidth * 100));
+  const nashPct = nashV2JamWidth(nStart, args.depthBB, args.anteBB, 1);
+  if (!(obsPct < nashPct - TIGHT_JAMMER_MIN_GAP_PCT)) {
+    return { effectiveBehind: nStart, effectiveBubble: baseBubble, tightened: false };
+  }
+  const targetPct = nashPct - k * (nashPct - obsPct);
+  let prevN = nStart;
+  let prevW = nashPct;
+  for (let n = nStart + 1; n <= MAX_BEHIND; n++) {
+    const w = nashV2JamWidth(n, args.depthBB, args.anteBB, 1);
+    if (targetPct >= w) {
+      const span = prevW - w;
+      const frac = span > 1e-6 ? Math.max(0, Math.min(1, (prevW - targetPct) / span)) : 1;
+      return {
+        effectiveBehind: prevN + frac,
+        effectiveBubble: baseBubble,
+        tightened: true,
+      };
+    }
+    prevN = n;
+    prevW = w;
+  }
+  // Tighter than a 10-handed UTG Nash jammer (n = 9): hold n = 9 and apply a
+  // bounded bubble multiplier (at most 2x, within the table's max bubble level).
+  const maxBubble = BUBBLES[BUBBLES.length - 1];
+  const ultraMul = Math.max(
+    1,
+    Math.min(
+      TIGHT_JAMMER_MAX_ULTRA_BUBBLE_MUL,
+      prevW / Math.max(TIGHT_JAMMER_MIN_OBS_PCT, targetPct)
+    )
+  );
+  const effectiveBubble = Math.min(maxBubble, baseBubble * ultraMul);
+  return {
+    effectiveBehind: MAX_BEHIND,
+    effectiveBubble,
+    tightened: MAX_BEHIND > nStart || effectiveBubble > baseBubble + 1e-9,
+  };
+}
+
+/**
+ * Call probability against a lone open-jam with optional tight-jammer respect.
+ * Identical to nashV2CallProbability when tightRead is null or does not tighten.
+ */
+export function nashV2TightJammerCallProbability(args: {
+  hand: string | null;
+  jammerBehind: number;
+  callerKind: NashCallerKind;
+  depthBB: number;
+  anteBB: number;
+  bubble?: number;
+  tightRead: NashTightJammerInput | null | undefined;
+}): { probability: number | null; tightened: boolean } {
+  if (!args.hand || !(args.depthBB > 0)) return { probability: null, tightened: false };
+  const adj = nashV2TightJammerParams({
+    jammerBehind: args.jammerBehind,
+    depthBB: args.depthBB,
+    anteBB: args.anteBB,
+    bubble: args.bubble,
+    tightRead: args.tightRead,
+  });
+  if (!adj.tightened) {
+    return {
+      probability: nashV2CallProbability({
+        hand: args.hand,
+        jammerBehind: args.jammerBehind,
+        callerKind: args.callerKind,
+        depthBB: args.depthBB,
+        anteBB: args.anteBB,
+        bubble: args.bubble,
+      }),
+      tightened: false,
+    };
+  }
+  const n0 = Math.floor(adj.effectiveBehind);
+  const n1 = Math.min(MAX_BEHIND, n0 + 1);
+  const wn = adj.effectiveBehind - n0;
+  const up0 = nashV2CallUpTo(args.hand, n0, args.callerKind, args.anteBB, adj.effectiveBubble);
+  if (up0 === null) return { probability: null, tightened: false };
+  let upTo = up0;
+  if (wn > 0 && n1 !== n0) {
+    const up1 = nashV2CallUpTo(args.hand, n1, args.callerKind, args.anteBB, adj.effectiveBubble);
+    if (up1 !== null) upTo = (1 - wn) * up0 + wn * up1;
+  }
+  return { probability: probabilityAt(upTo, args.depthBB), tightened: true };
+}
