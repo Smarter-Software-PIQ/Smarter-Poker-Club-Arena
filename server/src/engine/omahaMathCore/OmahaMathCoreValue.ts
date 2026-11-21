@@ -87,6 +87,12 @@ export interface ValueSpot {
   heroStack: number;
   /** the largest live opponent's chips behind (his current street bet excluded) */
   oppStack: number;
+  /**
+   * lane CORE-POOLED-6: chips of the wager faced that the hero's whole stack does not cover (0 when he covers
+   * it). They sit in the pot figure but go back to the bettor (or to a side pot the hero is not in), so a
+   * call for the whole stack cannot win them.
+   */
+  uncoveredOnCall?: number;
   /** live opponents */
   nOpp: number;
   /** the hero acts last on the later streets */
@@ -634,7 +640,12 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   // position the hero's own next-street plan). Without it the raise alone carried the later streets.
   if (spot.toCall > 1e-9) {
     const callAdds = Math.min(spot.toCall, spot.heroStack);
-    const potC = spot.pot + callAdds;
+    // a call for the whole stack wins only what the stack covers (lane CORE-POOLED-6: the one-step path netted
+    // the uncovered part of the wager, this path counted it as winnable)
+    const potC =
+      spot.pot +
+      callAdds -
+      (callAdds >= spot.heroStack - 1e-9 ? Math.max(0, spot.uncoveredOnCall ?? 0) : 0);
     let ev: number;
     let plan: string;
     let seLater = 0;

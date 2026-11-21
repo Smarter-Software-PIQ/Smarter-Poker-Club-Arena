@@ -888,6 +888,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     let wagers = 0;
     let shortHero = 0;
     let callOffs = 0;
+    let closingCalls = 0;
+    let closingGap = 0;
+    const arith: string[] = [];
     let changes = 0;
     const unpriced: Record<string, number> = {};
     const unpricedEx: string[] = [];
@@ -926,6 +929,34 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       applied++;
       if (rec.core?.legalized) legalized++;
       count[d.action] = (count[d.action] ?? 0) + 1;
+      const facing = gs.toCall ?? 0;
+      // arithmetic of a closing heads-up call (nobody can act after it): its raw price is the hero's equity x the
+      // pot he can win (the part of the wager his stack does not cover is not his to win) minus what he adds
+      {
+        const opp = gs.players.filter((p) => p.seat !== hero.seat);
+        const callEv = rec.core!.evs.find(
+          (e) => e.action === 'call' || (e.action === 'all_in' && hero.stack <= facing + 0.005)
+        );
+        if (
+          spec.street !== 'preflop' &&
+          opp.length === 1 &&
+          facing > 0.005 &&
+          callEv &&
+          callEv.equity !== null &&
+          (hero.stack <= facing + 0.005 || opp[0].stack <= 0.005)
+        ) {
+          const A = Math.min(facing, hero.stack);
+          const uncovered = Math.max(0, gs.currentBet - hero.bet - hero.stack);
+          const raw = (callEv as { calibration?: { raw: number } }).calibration?.raw ?? callEv.ev;
+          const exact = callEv.equity * (gs.pot + A - uncovered) - A;
+          closingCalls++;
+          closingGap = Math.max(closingGap, Math.abs(raw - exact) / Math.max(1, gs.pot));
+          if (Math.abs(raw - exact) > 0.02 + 0.005 * (gs.pot + A))
+            arith.push(
+              `${tag} raw ${raw} exact ${r2(exact)} eq ${callEv.equity} pot ${gs.pot} A ${A} unc ${uncovered}`
+            );
+        }
+      }
       // prove it to change it: a change of today's action always has today's action priced to beat
       const today = decide(st, {});
       if (today.action !== d.action) {
@@ -941,7 +972,6 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
       }
       // the two money invariants on the same random states: no call-off at zero equity, no fold of the nuts
       const coreRec = (rec as unknown as OmahaMathCoreRecoveredReceipt).core!;
-      const facing = gs.toCall ?? 0;
       if (d.action === 'call' || (d.action === 'all_in' && hero.stack <= facing + 0.005)) {
         callOffs++;
         const priced = coreRec.evs.find((e) => e.action === d.action);
@@ -1031,6 +1061,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     console.info(
       `CORE-POOLED-6 property: changes=${changes} unpricedIncumbent=${JSON.stringify(unpriced)}\n${unpricedEx.join('\n')}`
     );
+    console.info(
+      `CORE-POOLED-6 property: closingCalls=${closingCalls} worst |raw-exact|/pot=${closingGap.toFixed(4)} over=${arith.length}\n${arith.slice(0, 8).join('\n')}`
+    );
     if (bad.length)
       console.info(`CORE-POOLED-6 property failures (first 25):\n${bad.slice(0, 25).join('\n')}`);
     expect(bad).toEqual([]);
@@ -1040,6 +1073,9 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
     expect(applied).toBe(PROPERTY_STATES);
     expect(wagers).toBeGreaterThan(1000);
     expect(callOffs).toBeGreaterThan(100);
+    // a closing heads-up call is priced at equity x the pot the hero can win, minus what he adds
+    expect(arith).toEqual([]);
+    expect(closingCalls).toBeGreaterThan(20);
     // every change the core made had today's action priced among its candidates (prove it to change it)
     expect(unpriced).toEqual({});
     expect(changes).toBeGreaterThan(100);

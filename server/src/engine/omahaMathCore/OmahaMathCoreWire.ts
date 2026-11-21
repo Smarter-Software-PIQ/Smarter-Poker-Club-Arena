@@ -742,6 +742,11 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       holeCount: s.hole.length,
       blockers: null, // one blocker term: PLAYBOOK's, already inside the response cells
     }) ?? undefined;
+  // a wager larger than the hero's whole stack: the excess is not his to win (same figure as the one-step path)
+  const uncoveredOnCall =
+    stack <= s.toCall + 0.005
+      ? c.live.reduce((a, o) => a + Math.max(0, o.bet - (s.heroBet + stack)), 0)
+      : 0;
   const spot: ValueSpot = {
     variant: game,
     street,
@@ -749,6 +754,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     toCall,
     heroStack: stack,
     oppStack,
+    uncoveredOnCall,
     nOpp: c.live.length,
     ip: s.ip,
     checkCloses,
