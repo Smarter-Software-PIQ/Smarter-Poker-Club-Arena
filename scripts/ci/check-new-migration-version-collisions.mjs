@@ -103,8 +103,17 @@ export function namingProblems(file) {
  */
 const FN_DEF = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?([a-z_][a-z0-9_]*)"?\.)?"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
 const FN_REWRITE = /pg_get_functiondef\(\s*'(?:([a-z_][a-z0-9_]*)\.)?([a-z_][a-z0-9_]*)\s*\(/gi;
+const VIEW_DEF = /CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?([a-z_][a-z0-9_]*)"?\.)?"?([a-z_][a-z0-9_]*)"?\b/gi;
+const TRIGGER_DEF = /CREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+"?([a-z_][a-z0-9_]*)"?\b[^;]{0,200}?\bON\s+(?:"?([a-z_][a-z0-9_]*)"?\.)?"?([a-z_][a-z0-9_]*)"?\b/gi;
+const CRON_DEF = /\bcron\.schedule\(\s*'([^']+)'/gi;
+
+function stripSqlComments(sql) {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+}
+
 export function definedFunctions(sql) {
-  const code = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+  if (!/function|pg_get_functiondef/i.test(sql)) return new Set();
+  const code = stripSqlComments(sql);
   const out = new Set();
   for (const re of [FN_DEF, FN_REWRITE]) {
     re.lastIndex = 0;
@@ -113,19 +122,44 @@ export function definedFunctions(sql) {
   return out;
 }
 
+export function definedObjects(sql) {
+  const out = definedFunctions(sql);
+  if (!/view|trigger|cron\.schedule/i.test(sql)) return out;
+  const code = stripSqlComments(sql);
+  if (/view/i.test(code)) {
+    VIEW_DEF.lastIndex = 0;
+    for (const m of code.matchAll(VIEW_DEF)) {
+      out.add(`view:${(m[1] || 'public').toLowerCase()}.${m[2].toLowerCase()}`);
+    }
+  }
+  if (/trigger/i.test(code)) {
+    TRIGGER_DEF.lastIndex = 0;
+    for (const m of code.matchAll(TRIGGER_DEF)) {
+      out.add(`trigger:${(m[2] || 'public').toLowerCase()}.${m[3].toLowerCase()}.${m[1].toLowerCase()}`);
+    }
+  }
+  if (/cron\.schedule/i.test(code)) {
+    CRON_DEF.lastIndex = 0;
+    for (const m of code.matchAll(CRON_DEF)) {
+      out.add(`cron:${m[1].toLowerCase()}`);
+    }
+  }
+  return out;
+}
+
 export function redefinitionOrderProblems(addedFile, addedSql, baseFiles) {
   const version = addedFile.split('_', 1)[0];
-  const mine = definedFunctions(addedSql);
+  const mine = definedObjects(addedSql);
   const problems = [];
   if (mine.size === 0) return problems;
-  for (const fn of [...mine].sort()) {
+  for (const obj of [...mine].sort()) {
     const newer = baseFiles
-      .filter((f) => f.name.split('_', 1)[0] > version && f.functions.has(fn))
+      .filter((f) => f.name.split('_', 1)[0] > version && (f.objects ?? f.functions).has(obj))
       .map((f) => f.name)
       .sort();
     if (newer.length > 0) {
       problems.push(
-        `redefines ${fn}, which newer-versioned ${newer[newer.length - 1]} already defines on the base; ` +
+        `redefines ${obj}, which newer-versioned ${newer[newer.length - 1]} already defines on the base; ` +
           'installed after it, this file would overwrite the newer body. Give it a version above that file.'
       );
     }
@@ -228,7 +262,7 @@ function main() {
         } catch {
           // Unreadable base file defines nothing this gate can name.
         }
-        return { name, functions: definedFunctions(sql) };
+        return { name, functions: definedFunctions(sql), objects: definedObjects(sql) };
       });
     const overwrites = [];
     for (const path of added) {
