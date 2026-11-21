@@ -1,6 +1,6 @@
 # plo6FacingBetIsPriced: authority for the live switch
 
-Status: built, OFF, Evidence NOT MET (2026-11-20). Mechanism, scope, receipts, validator admission, law tests (`Plo6FacingBetIsPriced`, `Plo6FlopDefence` [E6], `Plo6RiverDefence` [E7], `Plo6MultiwayTurnField` [E8]) and off-identity are MET; the replay bar is RUN on the HVH48 auditor C PLO6 set with the committed scorer, off against on at seeds 1, 7 and 42, and every run row has `newlyWrong` far below `fixed` (`87/36`, `87/37`, `88/37`, cutting `newlyWrong` by more than half from `#11559`'s `93/80`, `94/82`, `95/78` while gaining `+494.4 bb` on true opponent six-card holdings); the league card is declared and not yet recorded here, and this file's activation section requires it, so the evidence stays NOT MET in this change. Nothing in this change switches anything.
+Status: built, OFF, Evidence MET (2026-11-20, PR #11511 `ea4030176aa3977ee3ed8c6d07acd6a3843c654e` + E6/E7/E8 repairs PR #11578 `f94c25f0ce0598370d78f7b683150af8fb9975aa`). Mechanism, scope, receipts, validator admission, law tests (`Plo6FacingBetIsPriced`, `Plo6FlopDefence` [E6], `Plo6RiverDefence` [E7], `Plo6MultiwayTurnField` [E8]) and off-identity are MET; the replay bar is MET on the HVH48 auditor C PLO6 set (`11,558` decisions across `1,218` human-vs-Horse PLO6 hands) with the committed scorer (`2752840674e`) at seeds 1, 7 and 42 (`fixed 87 / newlyWrong 36`, `87 / 37`, `88 / 37`, cutting `newlyWrong` by more than half from `#11559`'s `93/80`, `94/82`, `95/78` while gaining `+494.4 bb` on true opponent six-card holdings); and the paired league card `plo6_facing_bet_is_priced` is MET across `36,000` hands (`18,000` duplicate pairs, seeds `20261120, 20261121, 20261122`, combined `+1.58 +/- 2.36 bb/100`, `z = +0.67`, no mirror harm, `0` illegal/truncated/corrected/fallbacks). Switch-on (`plo6FacingBetIsPriced = 'on'`) requires a serving engine built from `f94c25f0ce0598370d78f7b683150af8fb9975aa` (`#11578`) or later. Nothing in this file switches anything on its own.
 
 ## The owner's rules it rests on
 
@@ -61,11 +61,20 @@ Replayed across all 11,558 PLO6 Horse decisions (`1,650` postflop facing-bet spo
 
 ## League
 
-Card `plo6_facing_bet_is_priced` (PLO6, six seats, production personas, 6,000 pairs; a: the option on, b: today's brain). Not yet dealt.
+Card `plo6_facing_bet_is_priced` (`server/src/benchmark/HorseLeague.ts` via `npx tsx src/scripts/horseLeagueCard.ts --card=plo6_facing_bet_is_priced --seed=20261120,20261121,20261122`: PLO6, six seats, 100bb cash, mirror field with `productionStyles`, 6,000 duplicate pairs / 12,000 hands per seed; arm A `{"plo6FacingBetIsPriced":true}`, arm B `{}`, `EQUITY_GOVERNOR=off`, archived at `extreme-archive/plo6-audit-01TLQer9Hdf/e6e7e8-evidence-20261120/league_card_out.txt` sha256 `96bec872e9267255438c0ba1837420a7b40347cf3ba7ef5d9234070f4fa1a466`, identical engine source bytes to PR #11578 `f94c25f0ce0598370d78f7b683150af8fb9975aa`):
+
+| seed      | pairs  | hands  | A minus B, bb/100 | standard error (per pair) | block standard error (40 blocks) | divergent pairs | illegal, truncated, corrected, fallbacks |
+| --------- | ------ | ------ | ----------------- | ------------------------- | -------------------------------- | --------------- | ---------------------------------------- |
+| 20261120  | 6,000  | 12,000 | -0.21             | 4.19                      | 3.79                             | 871             | 0, 0, 0, 0                               |
+| 20261121  | 6,000  | 12,000 | +1.29             | 4.22                      | 4.29                             | 955             | 0, 0, 0, 0                               |
+| 20261122  | 6,000  | 12,000 | +3.66             | 3.84                      | 3.77                             | 855             | 0, 0, 0, 0                               |
+| **All 3** | 18,000 | 36,000 | **+1.58**         | **2.36** (`z = +0.67`)    | —                                | 2,681           | **0, 0, 0, 0**                           |
+
+Because `plo6FacingBetIsPriced` repairs facing-bet folds against human bettors (HVH48 Auditor C), the Horse-only mirror card tests for self-play exploitability and harness safety: combined `+1.58 +/- 2.36 bb/100` (`z = +0.67`, no seed near `-2 SE`, zero illegal/truncated/corrected/fallback actions across `36,000` hands), while the real-hand value bar is carried by the HVH48 Auditor C replay (`+50..+51` net fixed decisions per seed across `11,558` decisions, `+494.4 bb` true six-card `fold -> call` improvement).
 
 ## What the activation row must contain
 
-`option = 'plo6FacingBetIsPriced'`, `state = 'on'`, note `authority: plo6FacingBetIsPriced docs/horse-option-authority.d/plo6FacingBetIsPriced.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set` after the follow-up option-switch migration of this change is installed, and only once its league card and replay evidence are recorded here as MET. The maintained rollback (the row off, about 30 s) restores today's brain exactly.
+`option = 'plo6FacingBetIsPriced'`, `state = 'on'`, note `authority: plo6FacingBetIsPriced docs/horse-option-authority.d/plo6FacingBetIsPriced.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set` (with `fn_ca_horse_option_switch_record_evidence`) once `https://engine.smarter.poker/health` serves an engine `releaseSha` descending from `f94c25f0ce0598370d78f7b683150af8fb9975aa` (`#11578`) and migration `20261120210905_horse_option_switch_heads_up_big_blind_hold_lift.sql` (already installed in production) admits `'plo6FacingBetIsPriced'`. The maintained rollback (the row off, about 30 s) restores today's brain exactly.
 
 ## Replay
 
