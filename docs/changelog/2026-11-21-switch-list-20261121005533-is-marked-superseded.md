@@ -1,0 +1,3 @@
+# Switch list 20261121005533 is marked superseded
+
+After the 0300z seal the installer resume sent four held migrations at once. Horse switch lists 20261121024624 and 20261121032246 installed first, so production refused 20261121005533 with its own guard ("older than the installed list 20261121024624: it is superseded and installing it would put back older allowed states"). Nothing was written. The newer lists are generated from the same registry and already carry its Lightning participation options, and the newest list is the database whitelist. The file now opens with `-- SUPERSEDED BY 20261121024624`, the established marker the applier and the merged-equals-installed checks honour, so no applier sends it and the next engine booking can certify.
