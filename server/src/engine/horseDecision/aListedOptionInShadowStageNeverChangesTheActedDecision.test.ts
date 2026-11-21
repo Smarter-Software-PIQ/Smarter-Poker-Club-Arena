@@ -18,7 +18,14 @@
  *    decision drops the re-decision; the receipt rides in the next decision record (no new journal record kind);
  *  - the cost of a staged re-decision and the time from request to response with and without staging, measured.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  clearOmahaMathCoreCaches,
+  warmOmahaMathCore,
+} from '../omahaMathCore/OmahaMathCoreWarmUp.js';
+import { OMAHA_MATH_CORE_ALL_STREETS } from '../omahaMathCore/OmahaMathCoreRule.js';
+import { dealToFlop } from '../HorseStyleVariantModeMatrix.test-support.js';
+import { captureHorseHandJournalContext } from '../HorseDecisionHandBinding.js';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
@@ -851,5 +858,76 @@ describe('the cost of one re-decision on PLO5 postflop spots, measured (HorseLog
       }
     }
     expect(timed).toBeGreaterThan(0);
+  });
+});
+
+describe('the worker-start math core warm-up (2026-11-21, lane CORE-POOLED-3)', () => {
+  const fixtures = recordedFast();
+  const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
+  // the recorded FAST sample plus controller-dealt PLO4 and PLO5 cash flop decisions (the sample holds no PLO4/PLO5
+  // postflop decision); built inside the test, after the worker harness is set up
+  const omahaFlops = () => {
+    const out: FastHorseDecisionRequest[] = [];
+    const tpl = plo4Snapshot() as unknown as Record<string, unknown>;
+    for (const variant of ['plo4', 'plo5'] as const)
+      for (let cell = 0; cell < 6; cell++) {
+        const { spot, config } = dealToFlop(variant, 'cash', cell);
+        out.push({
+          ...tpl,
+          fence: `${config.tableId}:${config.handNumber}:${spot.hero.seat}:${cell}:1`,
+          player: spot.hero,
+          gameState: spot.state,
+          handJournalContext: captureHorseHandJournalContext(spot.state.actionHistory!),
+        } as unknown as FastHorseDecisionRequest);
+      }
+    return out;
+  };
+  const requests = (flops: FastHorseDecisionRequest[]) =>
+    [...fixtures.map((f) => f.snapshot), ...flops].map((s, i) => fastRequest(s, i + 1));
+  // the core on every PLO4/PLO5 street, so every Omaha cash decision of the sample is the core's
+  const CORE = Object.fromEntries(
+    ['omahaMathCore', ...Object.keys(OMAHA_MATH_CORE_ALL_STREETS)].map((n) => [n, 'on'])
+  ) as unknown as OptionSwitchStates;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    clearOmahaMathCoreCaches();
+  });
+
+  it('prices its own spot and clears every core cache it filled', () => {
+    expect(warmOmahaMathCore().ok).toBe(true);
+  });
+
+  it('acted decisions, journal records and the worker event order are those of no warm-up; it runs once, before READY and before any decision', async () => {
+    // a clock that does not move: the core's work budget then bounds the work alone, so two runs are comparable
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    clearOmahaMathCoreCaches();
+    const flops = omahaFlops();
+    const cold = await run(requests(flops), decide, CORE);
+    clearOmahaMathCoreCaches();
+    const order: string[] = [];
+    let warmOk: boolean | null = null;
+    const warm = await run(
+      requests(flops),
+      ((...a: Parameters<Decide>) => {
+        order.push('decide');
+        return decide(...a);
+      }) as Decide,
+      CORE,
+      {
+        warmUp: () => {
+          order.push('warm');
+          warmOk = warmOmahaMathCore(() => 0).ok;
+        },
+      }
+    );
+    expect(warmOk).toBe(true);
+    expect(order.filter((x) => x === 'warm')).toEqual(['warm']);
+    expect(order[0]).toBe('warm');
+    // the core decided in this sample (otherwise the comparison would prove nothing)
+    expect(cold.fasts.filter((f) => f.decision.omahaMathCore).length).toBeGreaterThan(0);
+    expect(warm.fasts.map(comparable)).toEqual(cold.fasts.map(comparable));
+    expect(warm.events).toEqual(cold.events);
+    expect(warm.journaled.map((j) => j.requestId)).toEqual(cold.journaled.map((j) => j.requestId));
+    expect(warm.calls).toEqual(cold.calls);
   });
 });

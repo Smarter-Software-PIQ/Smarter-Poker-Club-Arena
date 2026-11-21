@@ -1,4 +1,5 @@
 import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { warmOmahaMathCore } from '../omahaMathCore/OmahaMathCoreWarmUp.js';
 import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
@@ -399,6 +400,12 @@ export interface HorseDecisionWorkerDependencies {
   /** Release SHA bound into each receipt; absent means unavailable (null). */
   sourceRelease?: () => string | null;
   startServices(): Promise<HorseDecisionWorkerReadiness>;
+  /**
+   * Worker-start warm-up (2026-11-21, lane CORE-POOLED-3): called once, after startServices and before READY is
+   * sent, so no request can be waiting for it. Production: one throwaway PLO math core computation
+   * (OmahaMathCoreWarmUp.ts). Absent: nothing runs.
+   */
+  warmUp?(): void;
   publicProfileBootstrap?(): HorsePooledPublicBootstrap | null;
   exploitFloorBootstrap?(): ExploitHydrationResult | null;
   stopServices(): Promise<void>;
@@ -800,6 +807,13 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   journalPlanReceipt: journalHorsePlanReceipt,
   sourceRelease: () => resolveReleaseIdentity().releaseSha,
   startServices: startOwnedServices,
+  warmUp: () => {
+    const warm = warmOmahaMathCore();
+    // boot log only (like the boot steps): no counter, no decision, no journal record
+    console.log(
+      `[HorseDecisionWorker] omaha math core warm-up ${warm.ok ? 'ok' : 'failed'} in ${Math.round(warm.ms)}ms`
+    );
+  },
   publicProfileBootstrap: () => {
     const saved = publicProfileBootstrap;
     publicProfileBootstrap = null;
@@ -1357,6 +1371,11 @@ export class HorseDecisionWorkerRuntime {
     // taken before that is silently dropped (no phaseN_authority_worker_*
     // counter had ever reached horse_brain_telemetry before this).
     this.readyPromise = this.deps.startServices().then((readiness) => {
+      try {
+        this.deps.warmUp?.();
+      } catch {
+        /* a warm-up never stops a worker */
+      }
       const saved = this.deps.publicProfileBootstrap?.();
       if (saved && !this.observerReads.bootstrapPublicProfiles(saved))
         this.deps.noteFeature('horse_pooled_public_bootstrap_refused');

@@ -924,6 +924,11 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
 
 /** Measured size of a line's wagers: the public bet-band mix of betFrequency, as a mean pot share. */
 const SIZE_MIX_CACHE = new Map<string, { frac: number; source: string } | null>();
+/** Clears the tracked-range and size-mix caches (the worker-start warm-up, OmahaMathCoreWarmUp.ts, and tests). */
+export function clearOmahaMathCoreWireCaches(): void {
+  TRACK_CACHE.clear();
+  SIZE_MIX_CACHE.clear();
+}
 function sizeMixOf(
   game: 'plo4' | 'plo5',
   mode: Mode,
