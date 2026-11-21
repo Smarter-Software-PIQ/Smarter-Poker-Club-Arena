@@ -49,7 +49,8 @@ if [ -x "$LS" ]; then
   if [ -n "$LINT_BASE" ]; then
     "$LS" --diff "$LINT_BASE"
   else
-    "$LS"
+    # .husky/reference-transaction refuses refs/stash across shared worktrees (#11620).
+    "$LS" --no-stash
   fi
 else
   echo "[pre-commit] no local node_modules - skipped formatting (guards above still ran)."
