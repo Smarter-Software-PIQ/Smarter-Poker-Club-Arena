@@ -38,6 +38,9 @@ CUTOVER = MIGRATIONS / '20261109024836_a_missed_engine_cutover_and_a_failing_lob
 INSTALL_WATCH = MIGRATIONS / '20261109182123_a_merged_migration_still_uninstalled_after_an_hour_pages_the.sql'
 READINESS = MIGRATIONS / '20261119234116_the_3_am_check_says_whether_the_4_am_cutover_will_ship.sql'
 MIGRATION = MIGRATIONS / '20261121011654_a_person_beating_the_plo_horses_reaches_production_alerts.sql'
+# The hands helper as production runs it now: the same body through RETURN QUERY EXECUTE,
+# so every call gets a custom plan for its own window. Every case below runs against it.
+PLANNED = MIGRATIONS / '20261122094628_the_horse_exposure_hands_are_planned_for_their_own_window.sql'
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 FLEET = '01a09b86-5ba8-7290-8657-1041f13dd3ca'
 
@@ -145,6 +148,13 @@ def main():
         assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
         assert sql("SELECT count(*) FROM smarter_private.ca_horse_exposure_runs") == '0', 'the probe must leave nothing'
         ok('the exact migration installs, its probe leaves nothing, and its live proof holds')
+        r = psql(['-f', str(PLANNED)])
+        assert r.returncode == 0, f'{PLANNED.name}: {r.stderr}'
+        planned_proof = re.search(r'^-- @live-proof: (.+)$', PLANNED.read_text(), re.M).group(1)
+        assert sql(f'SELECT {planned_proof}') == 't', 'the planned helper live proof must hold after install'
+        assert sql("SELECT l.lanname FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang "
+                   "WHERE p.oid = to_regprocedure('smarter_private.fn_ca_horse_exposure_hands(timestamptz, integer)')") == 'plpgsql'
+        ok('the hands helper is replaced by its EXECUTE form, and every case below runs against it')
         assert sql("SELECT (c).incident_class || ' ' || (c).is_incident || ' ' || (c).escalate_immediately FROM (SELECT smarter_private.reliability_classify('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false) c) z") == 'horse_exposure_analysis false false'
         assert sql("SELECT (c).incident_class FROM (SELECT smarter_private.reliability_classify('another-source', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false) c) z") == 'unclassified'
         ok('the reliability controller classifies the warning as never an incident and never escalated; other sources are untouched')

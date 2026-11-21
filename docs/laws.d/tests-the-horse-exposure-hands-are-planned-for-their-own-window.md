@@ -1,0 +1,3 @@
+# tests/the-horse-exposure-hands-are-planned-for-their-own-window.law.test.ts
+
+smarter_private.fn_ca_horse_exposure_hands runs its body through plpgsql RETURN QUERY EXECUTE ... USING (migration 20261122094628), so every call is planned for its own 60-day window and uses idx_hand_history_human_created. The LANGUAGE sql form was planned generically, scanned every hand through idx_hand_history_created, and timed out ca-horse-exposure-watch-hourly on every run of 2026-11-21. The law pins the EXECUTE form as the newest definition, the body unchanged apart from $1/$2, no raised timeout or new index, and that the native proof runs every case against the fixed helper.
