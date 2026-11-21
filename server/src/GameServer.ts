@@ -22,7 +22,10 @@ import {
   type CompletedF06Custody,
 } from './tournament/completedF06Custody.js';
 import { LightningObserverProjection } from './lightning/LightningObserverProjection.js';
-import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
+import {
+  nearbyMaintenanceWindows,
+  MAINTENANCE_FREQUENCY,
+} from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
@@ -6997,6 +7000,19 @@ export class GameServer {
       '# TYPE poker_maintenance_breaks_since_restart_certified gauge',
       `poker_maintenance_breaks_since_restart_certified ${
         (this.maintenanceBreak.snapshot().breaksSinceRestartCertified as number) ?? 0
+      }`,
+      /* How many scheduled maintenance breaks this engine takes per day (1
+         daily, 8 three-hourly, 24 Phase1 hourly). EngineCannotBeReplaced reads
+         it so its threshold means the same TIME, about two days of uncertified
+         scheduled breaks, whatever the schedule (owner order 2026-11-21). */
+      '# HELP poker_maintenance_scheduled_breaks_per_day Scheduled maintenance breaks per day under the serving schedule',
+      '# TYPE poker_maintenance_scheduled_breaks_per_day gauge',
+      `poker_maintenance_scheduled_breaks_per_day ${
+        MAINTENANCE_FREQUENCY === 'three-hourly'
+          ? 8
+          : MAINTENANCE_FREQUENCY === 'phase1-hourly'
+            ? 24
+            : 1
       }`,
       '# HELP poker_db_clock_skew_ms Engine clock minus database clock, ms; 0 when unmeasured',
       '# TYPE poker_db_clock_skew_ms gauge',

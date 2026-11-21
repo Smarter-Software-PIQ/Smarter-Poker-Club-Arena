@@ -18,15 +18,17 @@ Receipts `fixed_limit_call_not_a_commitment_seen`, `fixed_limit_call_priced_rema
 
 League figures are arm A (option on) minus arm B (off) in bb/100 +/- standard error, big blinds (a fixed-limit big blind is the small bet), one hero Horse on the live cash Hybrid persona against the scripted field `flh_scripted_field_v1` (`server/src/benchmark/FixedLimitScriptedField.ts`), run with `npx tsx src/scripts/horseLeagueCard.ts` from server/ with empty solver stores. Significant means |bb/100| > 2 standard errors. Every run listed had 0 illegal actions, 0 truncated streets and 0 brain exception fallbacks.
 
-| Card (6 seats) | Pairs per seed | Seed 20261120 | Seed 20261121 | Seeds together |
-| --- | --- | --- | --- | --- |
-| `flh_call_is_not_a_commitment_vs_maniac` | 12,000 | -28.02 +/- 7.30, 928 diverged | -21.35 +/- 8.10, 952 diverged | -24.68 +/- 5.45, z -4.53, SIGNIFICANT harm |
-| `flh_call_is_not_a_commitment_vs_tight_value` (harm control) | 50,000 | +0.02 +/- 0.01, 4 diverged | -0.02 +/- 0.03, 2 diverged | +0.00 +/- 0.02, not resolved |
+| Card (6 seats)                                               | Pairs per seed | Seed 20261120                 | Seed 20261121                 | Seeds together                             |
+| ------------------------------------------------------------ | -------------- | ----------------------------- | ----------------------------- | ------------------------------------------ |
+| `flh_call_is_not_a_commitment_vs_maniac`                     | 12,000         | -28.02 +/- 7.30, 928 diverged | -21.35 +/- 8.10, 952 diverged | -24.68 +/- 5.45, z -4.53, SIGNIFICANT harm |
+| `flh_call_is_not_a_commitment_vs_tight_value` (harm control) | 50,000         | +0.02 +/- 0.01, 4 diverged    | -0.02 +/- 0.03, 2 diverged    | +0.00 +/- 0.02, not resolved               |
 
 Measured 2026-11-20 (PR #11565, `docs/horse-league-fixed-limit.md`), after that pull request's league memory fix. An earlier +124 bb/100 reading of the first card came from the memory defect and is withdrawn. The source-default file `docs/horse-default-on.d/fixedLimitCallIsNotACommitment.md` records the lane's own offline figure (+9.34 +/- 4.10 big bets per 100 hands against its maniac), which this field does not reproduce.
 
 - Value: FAILED. Significant loss against the maniac, flat against the value-only player, no positive cell.
+- Horse mirror after the league memory fix (re-run 2026-11-21, seed 20261120, arm A the option on, 0 illegal actions, 0 truncated streets, 0 fallbacks): six seats, Hybrid cash with the deal-seeded mood clock, 2,000 pairs: 1 diverged, +0.0375 +/- 0.0375 bb/100; production personas, 600 pairs: 2 diverged, +0.25 +/- 0.18. Both equal the readings taken before the fix.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
+- Audited set against people: none possible for fixed-limit hold'em. Counted read-only on 2026-11-21 at 15:10 UTC (production `hand_history`, `has_human`, every hand a person was dealt into; hands with a person are kept forever, so this is every such hand ever recorded): flh 0 hands; flo8 107 hands, all at one table between 2026-11-03 02:40 and 03:53 UTC, one person and five Horses. Against 230,155 flh and 81,351 flo8 Horse-only hands retained at the same moment.
 
 ## What would lift the lock
 

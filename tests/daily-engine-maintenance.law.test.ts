@@ -42,9 +42,17 @@ function admit(
     // Daily/owner-window authority remains independently qualified with the
     // explicit completed/off source policy. The maintained helper reads its
     // exact immutable Git bytes rather than inheriting today's active policy.
-    const policy = JSON.parse(
-      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
-    );
+    const policy = {
+      // The retained v1 shape keeps this daily/Phase1 law on its own route;
+      // the protected v2 three-hourly policy (2026-11-21) is pinned by
+      // tests/the-engine-cuts-over-every-three-hours.law.test.ts.
+      schema: 'engine-maintenance-schedule/v1',
+      policyId: 'phase1-hourly-01a1944f',
+      timeZone: 'America/Chicago',
+      phase1Status: 'off',
+      ownerMessageId: '01a1944f-7131-7f11-8dcc-873d576e781c',
+      completionEvidence: null as string | null,
+    };
     policy.phase1Status = 'off';
     policy.completionEvidence = 'isolated daily-admission fixture';
     mkdirSync(join(dir, 'server/scripts'), { recursive: true });

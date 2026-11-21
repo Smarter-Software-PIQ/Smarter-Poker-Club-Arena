@@ -103,7 +103,7 @@ LEGACY_CENSUS_ALLOWANCE_MS=59000
 CERTIFIED_AUTOHEAL_FENCED=0
 CERTIFIED_AUTOHEAL_ID=''
 NON_BREAK_RECOVERY_MAX_SECONDS=300
-# CLAUDE.md 13: routine activation starts at 04:00 America/Chicago. This is the same minute every other surface reads, and
+# CLAUDE.md 13: routine activation starts on the hour of each scheduled Chicago cycle (three-hourly; 04:00 daily). Same minute every other surface reads, and
 # tests/the-break-clocks-agree.law.test.ts pins them together.
 BREAK_START_MINUTE=0
 MIN_BREAK_REMAINING_MS=$(((BREAK_CUTOVER_PROOF_SECONDS + BREAK_ROLLBACK_RESERVE_SECONDS + BREAK_DEADLINE_SLACK_SECONDS) * 1000))
@@ -682,7 +682,8 @@ if m.get("phase") == "last_hand":
     raise SystemExit(0)
 if not (m.get("active") is True and m.get("phase") == "counting_down" and m.get("durableConfirmed") is True): raise SystemExit(1)
 local = datetime.now(ZoneInfo("America/Chicago"))
-daily = (local.hour == 3 and local.minute >= 58) or (local.hour == 4 and local.minute < 5)
+hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))
+hour0 = int(local.timestamp()) // 3600 * 3600; following = datetime.fromtimestamp(hour0 + 3600, ZoneInfo("America/Chicago")).hour; previous = datetime.fromtimestamp(hour0 - 3600, ZoneInfo("America/Chicago")).hour; daily = (following in hours and following != local.hour and local.minute >= 58) or (local.hour in hours and previous != local.hour and local.minute < 5)  # first fall-back 01:00 only
 cycle = int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     schedule=m.get("schedule")
@@ -1064,12 +1065,21 @@ cycle = int(os.environ.get('PHASE1_CYCLE_START', '0'))
 if cycle:
     print(max(0, int(cycle-now.timestamp())))
     raise SystemExit(0)
-start = local.replace(hour=4, minute=0, second=0, microsecond=0)
-if start <= local < start + timedelta(minutes=5):
+hours = tuple(int(h) for h in os.environ.get('ROUTINE_START_HOURS', '4').split(','))
+base = int(now.timestamp()) // 3600 * 3600
+starts = []
+for offset in range(-1, 49):
+    epoch = base + offset * 3600
+    hour = datetime.fromtimestamp(epoch, ZoneInfo('America/Chicago')).hour
+    # Real epoch hours; the repeated fall-back hour is one cycle (the first).
+    if hour in hours and datetime.fromtimestamp(epoch - 3600, ZoneInfo('America/Chicago')).hour != hour:
+        starts.append(epoch)
+current = [e for e in starts if e <= now.timestamp() < e + 300]
+if current:
     print(0)
 else:
-    if local >= start: start += timedelta(days=1)
-    print(max(0, int((start.astimezone(timezone.utc)-now).total_seconds())))
+    start = min(e for e in starts if e > now.timestamp())
+    print(max(0, int(start - now.timestamp())))
 DAILY
 }
 
@@ -1395,13 +1405,34 @@ except (ValueError,TypeError,OSError):
 ' "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
 }
 
+# Owner order 2026-11-21: the scheduled cycle starts on every Chicago hour the
+# exact target's protected policy names (ROUTINE_START_HOURS, set once from
+# `engine-release-seal.py schedule-policy`; 4 alone for the daily route). The
+# serving engine's own durable break is still required by every certificate.
 daily_cutover_clock() {
   python3 -c '
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import os
+hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))
 n = datetime.now(ZoneInfo("America/Chicago"))
-raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
+first = datetime.fromtimestamp(int(n.timestamp()) // 3600 * 3600 - 3600, ZoneInfo("America/Chicago")).hour != n.hour; raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)  # first fall-back 01:00 only
 '
+}
+
+routine_start_hours() {
+  local policy hours
+  ROUTINE_START_HOURS=4
+  if timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
+    git -C "$REPO_DIR" cat-file -e "$SHA:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
+    policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$SHA")" \
+      || die 'routine source policy is invalid'
+    hours="$(printf '%s' "$policy" | python3 -c 'import json,sys; p=json.load(sys.stdin); print(",".join(str(h) for h in p["startHours"]) if p.get("frequency")=="three-hourly" else "4")')" \
+      || die 'routine source policy start hours are unreadable'
+    [[ "$hours" =~ ^[0-9]{1,2}(,[0-9]{1,2})*$ ]] || die 'routine source policy start hours are invalid'
+    ROUTINE_START_HOURS="$hours"
+  fi
+  export ROUTINE_START_HOURS
 }
 
 # The Nov 7 order has exactly one predecessor, one protected floor and one
@@ -1520,7 +1551,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
-daily=(local.hour==4 and local.minute<5)
+daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)  # first fall-back 01:00 only
 cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     import time
@@ -1809,7 +1840,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
-daily=(local.hour==4 and local.minute<5)
+daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)  # first fall-back 01:00 only
 cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     import time
@@ -3286,6 +3317,7 @@ source_target_is_current
 if [ -z "${DRILL_MODE:-}" ]; then
   read_prepared_image
 fi
+routine_start_hours
 require_backup_certificate || die 'exact target Backup certificate is not currently successful; no cycle reserved'
 initialise_phase1_cycle
 if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then emit_already_released "$EXACT_INSTANCE"; fi

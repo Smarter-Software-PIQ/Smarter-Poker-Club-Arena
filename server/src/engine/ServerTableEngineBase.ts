@@ -4682,10 +4682,14 @@ export abstract class ServerTableEngineBase {
       await this.seedHandCountFromHistory();
       if (!this.lifecycleCanMutate()) return;
 
+      // Every start step names itself, so a start_failed kill names the step
+      // that failed rather than the last read that set a phase (2026-11-21).
+      this.setLoopPhase('start_restore_button');
       // Dan 2026-08-25, BINDING: "IN THE EVENT OF AN ENGINE RESTART, WHILE PLAY
       // IS RUNNING, IT MUST ALWAYS RESTART IN THE SAME POSITION."
       await this.restoreButtonFromHistory();
       if (!this.lifecycleCanMutate()) return;
+      this.setLoopPhase('start_restore_kill');
       // KILL POTS (kill-v1): the pending kill comes back with the button.
       await this.restoreKillFromHistory();
       if (!this.lifecycleCanMutate()) return;
@@ -4699,6 +4703,7 @@ export abstract class ServerTableEngineBase {
         await this.f06MovementAdmission.revalidate();
         this.assertF06MovementOwner();
       }
+      this.setLoopPhase('start_crash_recovery');
       const recovered = this.f06MovementAdmission ? false : await this.checkCrashRecovery();
       if (!this.lifecycleCanMutate()) return;
       if (recovered) {
@@ -13506,6 +13511,10 @@ export abstract class ServerTableEngineBase {
     // before legacy snapshot cleanup, under the current table generation.
     if (authority?.scope === 'cash' && authority.verified && authority.generation) {
       if (!this.hasCurrentEngineLeaseAuthority()) return false;
+      // Name this step: a refusal here used to be reported under the last
+      // retryStartRead phase (start_seed_hand_count), which sent the
+      // 2026-11-21 dbbc148e kill storm to the wrong read for six hours.
+      this.setLoopPhase('start_retained_hand_resume');
       const retained = await this.resumeRetainedHandAcrossTheFreeze(authority.generation);
       if (!this.lifecycleCanMutate() || !this.hasCurrentEngineLeaseAuthority()) return false;
       if (retained) {

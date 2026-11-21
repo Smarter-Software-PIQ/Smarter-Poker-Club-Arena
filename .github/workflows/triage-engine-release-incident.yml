@@ -1,0 +1,88 @@
+name: Triage Engine Release Incident (Read-Only & Claim)
+
+# Manual-only diagnostic triage for EngineReleaseFailed alerts and sanctioned
+# incident-claim submission via smarter_private.fn_claim_reliability_incident.
+# Never schedules, restarts, mutates, or retries any engine release.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Operation: triage (read-only live health vs target SHA) or claim (fn_claim_reliability_incident)'
+        required: true
+        type: choice
+        options:
+          - triage
+          - claim
+      target_sha:
+        description: 'Full 40-char target SHA (required for operation=triage)'
+        required: false
+        type: string
+      incident_id:
+        description: 'Reliability incident UUID (required for operation=claim)'
+        required: false
+        type: string
+      agent_session:
+        description: 'Claiming agent/operator session identity (required for operation=claim)'
+        required: false
+        type: string
+      branch:
+        description: 'Optional working branch name for claim'
+        required: false
+        type: string
+      pull_request:
+        description: 'Optional PR URL or number for claim'
+        required: false
+        type: string
+      ttl_hours:
+        description: 'Claim TTL in hours (1-24, default 4)'
+        required: false
+        default: '4'
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: triage-engine-release-incident-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: ${{ inputs.operation == 'claim' && 'Claim Reliability Incident' || 'Read-Only EngineReleaseFailed Triage' }}
+    if: >-
+      (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]')
+      && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout protected main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pg client for claim operation
+        if: inputs.operation == 'claim'
+        run: npm install pg@8 --no-save --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
+
+      - name: Run bounded incident operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          INCIDENT_ID: ${{ inputs.incident_id }}
+          AGENT_SESSION: ${{ inputs.agent_session }}
+          CLAIM_BRANCH: ${{ inputs.branch }}
+          CLAIM_PR: ${{ inputs.pull_request }}
+          CLAIM_TTL_HOURS: ${{ inputs.ttl_hours }}
+          DATABASE_URL: ${{ inputs.operation == 'claim' && secrets.DATABASE_URL || '' }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 60s node scripts/ci/triage-engine-release-incident.mjs
