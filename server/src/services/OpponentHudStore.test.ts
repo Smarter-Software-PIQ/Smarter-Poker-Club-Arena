@@ -44,6 +44,16 @@ function fakeDeps(
   stored: Map<string, HudStoredRow>,
   opts: { fail?: boolean; hang?: boolean } = {}
 ) {
+  // a sync point at T0 (as after a backfill), unless the test stores its own
+  if (!stored.has('plo5|*'))
+    stored.set('plo5|*', {
+      user_id: '*',
+      family: 'plo5',
+      version: 1,
+      hands: 0,
+      wm_ms: T0,
+      profile: { family: {}, stakes: {} },
+    });
   let now = T0;
   const upserts: object[][] = [];
   const deps: OpponentHudStoreDeps & { tick(ms: number): void; upserts: object[][] } = {
@@ -92,6 +102,72 @@ function lifetime(user: number, n: number): HudStoredRow {
     );
   return { user_id: U(user), family: 'plo5', version: 1, hands: p.hands, wm_ms: p.wm, profile: p };
 }
+
+describe('OpponentHudStore: option off is a build without the HUD', () => {
+  it('off: zero database statements and zero work on the seat, hand, decision, timer and reconcile paths', async () => {
+    let statements = 0;
+    const count = <T>(v: T) => {
+      statements += 1;
+      return v;
+    };
+    const deps = fakeDeps(new Map([[`plo5|${U(1)}`, lifetime(1, 5)]]));
+    const real = { read: deps.read, recent: deps.recent, upsert: deps.upsert };
+    deps.read = async (...a) => count(await real.read(...a));
+    deps.recent = async (...a) => count(await real.recent(...a));
+    deps.upsert = async (...a) => count(await real.upsert(...a));
+    deps.handsPage = async () => count([]);
+    const alerts: string[] = [];
+    deps.alert = (n) => alerts.push(n);
+    const store = new OpponentHudStore(deps);
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    expect(store.onAcceptedHand(row(1, 1, 2))).toBe(0);
+    expect(
+      store.packetFor({
+        family: 'plo5',
+        cash: true,
+        heroId: U(9),
+        opponentIds: [U(1)],
+        street: 'flop',
+        atMs: T0,
+      })
+    ).toEqual({});
+    await store.persist();
+    await store.prewarm();
+    store.tickAlerts();
+    deps.tick(36 * 3600_000);
+    await store.maybeReconcile();
+    await flush();
+    expect(statements).toBe(0);
+    expect(alerts).toEqual([]);
+    expect(store.stats()).toEqual({ ready: 0, loading: 0, failed: 0, dirty: 0, ring: 0 });
+  });
+
+  it('switching on catches up from the sync point, then switching off saves once and drops everything', async () => {
+    const stored = new Map<string, HudStoredRow>([[`plo5|${U(1)}`, lifetime(1, 5)]]);
+    stored.set('plo5|*', {
+      user_id: '*',
+      family: 'plo5',
+      version: 1,
+      hands: 0,
+      wm_ms: T0 - 60_000,
+      profile: { family: {}, stakes: {} },
+    });
+    const deps = fakeDeps(stored);
+    const since = [row(70_001, 1, 2, T0 - 30_000), row(70_002, 1, 3, T0 - 20_000)];
+    deps.handsPage = async (afterAt: string) => since.filter((r) => r.created_at > afterAt);
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    for (let i = 0; i < 20 && !store.lastActivation; i++) await flush();
+    expect(store.lastActivation).toMatchObject({ applied: 4, capped: false });
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(7);
+    expect(stored.get(`plo5|${U(1)}`)!.hands).toBe(7);
+    expect(stored.get('plo5|#sync')).toBeDefined();
+    store.setArmed(false);
+    await flush();
+    await flush();
+    expect(store.stats().ready).toBe(0);
+  });
+});
 
 describe('OpponentHudStore', () => {
   it('a sit-down loads the profile ahead of the first decision, and the packet carries it', async () => {
@@ -173,6 +249,7 @@ describe('OpponentHudStore', () => {
     const stored = new Map([[`plo5|${U(1)}`, lifetime(1, 10)]]);
     const deps = fakeDeps(stored);
     const store = new OpponentHudStore(deps);
+    store.setArmed(true);
     store.warm([U(1)], 'plo5', 'sit');
     await flush();
     expect(store.onAcceptedHand(row(1, 1, 2))).toBe(1);
@@ -187,6 +264,7 @@ describe('OpponentHudStore', () => {
     const stored = new Map<string, HudStoredRow>();
     const deps = fakeDeps(stored);
     const store = new OpponentHudStore(deps);
+    store.setArmed(true);
     store.warm([U(1)], 'plo5', 'sit');
     await flush();
     store.onAcceptedHand(row(2, 1, 3));
@@ -242,6 +320,7 @@ describe('OpponentHudStore', () => {
     ];
     deps.handsPage = async (afterAt: string) => late.filter((r) => r.created_at > afterAt);
     const store = new OpponentHudStore(deps);
+    store.setArmed(true);
     await store.prewarm();
     expect(store.profile(U(1), 'plo5')!.hands).toBe(12);
     await store.catchUp(new Date(T0).toISOString());
@@ -331,6 +410,7 @@ describe('OpponentHudStore', () => {
       until?: string
     ) => hands.filter((r) => r.created_at > afterAt && (!until || r.created_at <= until));
     const store = new OpponentHudStore(deps);
+    store.setArmed(true);
     // the profiles track days from the day before; hand 60_002 never reached the engine
     store.warm([U(1), U(2)], 'plo5', 'sit');
     await flush();
@@ -364,6 +444,7 @@ describe('OpponentHudStore', () => {
       ],
     ]);
     const store = new OpponentHudStore(fakeDeps(stored));
+    store.setArmed(true);
     expect(await store.prewarm()).toBeGreaterThanOrEqual(1);
     expect(store.ready(U(1), 'plo5')).toBe(true);
   });

@@ -43,6 +43,8 @@ const profiles = new Map<string, OpponentHudProfile>();
 const refusals = new Map<string, number>();
 const stakePools: Record<string, Record<string, Record<string, [number, number]>>> = {};
 let hands = 0;
+/** the newest hand applied: the sync point the engine catches up from when the option is switched on */
+let lastHandAt = -1;
 const t0 = Date.now();
 
 function take(row: unknown): void {
@@ -52,6 +54,7 @@ function take(row: unknown): void {
     return;
   }
   hands += 1;
+  if (rec.at > lastHandAt) lastHandAt = rec.at;
   // pooled counts per family and stake band: the stake priors of a new opponent
   const band = hudStakeBand(rec.bb);
   if (band) {
@@ -203,7 +206,7 @@ async function main(): Promise<void> {
         family: fam,
         version: 1,
         hands: 0,
-        wm_ms: -1,
+        wm_ms: Math.round(lastHandAt),
         profile: s.priors[fam],
         rebuild: true,
       });

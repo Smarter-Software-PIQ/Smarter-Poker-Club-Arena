@@ -64,6 +64,10 @@ export const HUD_PERSIST_MS = 30 * 60_000;
 export const HUD_BOOT_CATCHUP_MS = 45 * 60_000;
 export const HUD_BOOT_WINDOW_MS = 6 * 3600 * 1000;
 export const HUD_READY_DEADLINE_MS = 15_000;
+/** the stored row whose watermark is the sync point (user id not a uuid; never a profile) */
+export const HUD_SYNC_ROW = '#sync';
+/** switching on more than this long after the last sync point catches up only this much and asks for a backfill */
+export const HUD_ACTIVATION_MAX_CATCHUP_MS = 48 * 3600_000;
 export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
 
 export type HudAlertName =
@@ -164,10 +168,156 @@ export class OpponentHudStore {
 
   constructor(private readonly deps: OpponentHudStoreDeps) {}
 
-  /** Main-side option state (lane.ts feeds the switch reading the workers get). Off: no packet is ever attached, so
-   *  decisions and their keys are byte-identical to a build without this store. Profiles still warm and update. */
+  /**
+   * Main-side option state (lane.ts feeds the switch reading the workers get). OFF, THE STORE DOES NOTHING AT ALL
+   * (VERIFIER 2026-11-20): no database statement, no warm, no after-hand update, no persistence, no reconciliation, no
+   * alert, and no packet, so decisions, their keys and the database load are exactly a build without the HUD
+   * (OpponentHudStore.test.ts, "option off" law). Switching ON starts the work: the population priors are read, the
+   * hands since the last saved sync point (the backfill's end, or the last persistence) are caught up into the stored
+   * profiles of everyone who played them, and from then on every seat event warms and every hand updates. Until a
+   * player's profile is ready his decisions use the population prior (receipts packet_opponent_missing / _late).
+   * Switching OFF saves what changed once and drops the cache.
+   */
   setArmed(on: boolean): void {
-    this.armedState = on === true;
+    const next = on === true;
+    if (next === this.armedState) return;
+    this.armedState = next;
+    if (next) {
+      noteFire('opponent_hud_activated');
+      void this.activate();
+    } else {
+      noteFire('opponent_hud_deactivated');
+      void this.deactivate();
+    }
+  }
+  private activating: Promise<void> | null = null;
+  private activationPending = false;
+  private priorsReadFailed = false;
+  /** the last activation catch-up: from, hands applied, players loaded, milliseconds */
+  lastActivation: {
+    fromMs: number;
+    applied: number;
+    loaded: number;
+    ms: number;
+    capped: boolean;
+  } | null = null;
+  private async activate(): Promise<void> {
+    if (this.activating) return this.activating;
+    this.activating = (async () => {
+      const startedAt = this.deps.now();
+      try {
+        const syncMs = await this.loadPriors();
+        if (this.priorsReadFailed) {
+          // the database could not be read: retried on the next alert tick (counted as a load failure)
+          this.activationPending = true;
+          this.window.loadFailed += 1;
+          noteFire('opponent_hud_activation_failed');
+          return;
+        }
+        this.activationPending = false;
+        const floor = startedAt - HUD_ACTIVATION_MAX_CATCHUP_MS;
+        const capped = syncMs === null || !(syncMs > floor);
+        const fromMs = Math.max(floor, (syncMs ?? floor) - HUD_RING_MS);
+        if (capped) {
+          noteFire('opponent_hud_catchup_capped');
+          this.setAlert(
+            'OpponentHudDrift',
+            true,
+            'opponent HUD switched on more than 48 hours after its last sync point: re-run the backfill (scripts/opponent-hud-build.ts --apply)'
+          );
+        }
+        const r = await this.catchUpInto(fromMs, null);
+        this.lastActivation = { fromMs, ...r, ms: this.deps.now() - startedAt, capped };
+        noteFire('opponent_hud_activation_done');
+        if (this.armedState) await this.persist();
+      } catch {
+        noteFire('opponent_hud_activation_failed');
+      } finally {
+        this.activating = null;
+      }
+    })();
+    return this.activating;
+  }
+  private async deactivate(): Promise<void> {
+    try {
+      await this.persist(true);
+    } finally {
+      if (!this.armedState) {
+        this.cache.clear();
+        this.asked.clear();
+        this.ring.length = 0;
+        this.packetCache.clear();
+        for (const name of [...this.alerting])
+          this.setAlert(name, false, 'opponent HUD switched off');
+      }
+    }
+  }
+
+  /**
+   * Catch the stored profiles of every player in the PLO4/PLO5 cash hands from `fromMs` (to `toMs`, or now) up with
+   * those hands: pass 1 names the players, their profiles are loaded (bounded batches), pass 2 applies each hand once
+   * (a hand already in a profile is refused by its id or as older than its watermark). Never throws.
+   */
+  private async catchUpInto(
+    fromMs: number,
+    toMs: number | null
+  ): Promise<{ applied: number; loaded: number }> {
+    const out = { applied: 0, loaded: 0 };
+    if (!this.deps.handsPage) return out;
+    const walk = async (visit: (rec: HudHandRecord) => void): Promise<void> => {
+      let afterAt = new Date(fromMs).toISOString();
+      let afterId = '00000000-0000-0000-0000-000000000000';
+      const untilIso = toMs === null ? undefined : new Date(toMs).toISOString();
+      for (let page = 0; page < 400; page++) {
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
+        (t as { unref?: () => void }).unref?.();
+        try {
+          const rows = await this.deps.handsPage!(afterAt, afterId, 1000, ac.signal, untilIso);
+          if (!Array.isArray(rows) || !rows.length) return;
+          for (const r of rows) {
+            const rec = handRecordFromRow(r);
+            if (typeof rec !== 'string') visit(rec);
+          }
+          afterAt = rows[rows.length - 1].created_at;
+          afterId = rows[rows.length - 1].id;
+          if (rows.length < 1000) return;
+        } finally {
+          clearTimeout(t);
+        }
+      }
+    };
+    try {
+      const players = new Map<HudFamily, Set<string>>([
+        ['plo4', new Set()],
+        ['plo5', new Set()],
+      ]);
+      await walk((rec) => {
+        for (const seat of rec.seats) players.get(rec.family)!.add(seat.userId);
+      });
+      for (const [family, users] of players) {
+        const cold = [...users].filter((u) => this.cache.get(key(family, u))?.state !== 'ready');
+        for (let i = 0; i < cold.length; i += 50) {
+          if (!this.armedState) return out;
+          await this.load(cold.slice(i, i + 50), family);
+          out.loaded += Math.min(50, cold.length - i);
+        }
+      }
+      await walk((rec) => {
+        if (!this.armedState) return;
+        const deltas = extractHandDeltas(rec);
+        for (const d of deltas) {
+          const e = this.cache.get(key(rec.family, d.user));
+          if (e?.state === 'ready' && applyHudHand(e.profile, rec, deltas) === null) {
+            e.dirty = true;
+            out.applied += 1;
+          }
+        }
+      });
+    } catch {
+      noteFire('opponent_hud_catchup_failed');
+    }
+    return out;
   }
   armed(): boolean {
     return this.armedState;
@@ -176,6 +326,7 @@ export class OpponentHudStore {
   /** Warm the named players' profiles for a family (event-driven, fire and forget, never throws). */
   warm(userIds: readonly string[], family: HudFamily, event: HudEvent): void {
     try {
+      if (!this.armedState) return;
       if (!HUD_FAMILIES.includes(family)) return;
       if (this.deps.now() < this.disabledUntil) return;
       noteFire(`opponent_hud_event_${EVENTS.includes(event) ? event : 'hand'}`);
@@ -361,6 +512,7 @@ export class OpponentHudStore {
    * in the ring for profiles still loading. Never throws. Returns how many profiles it updated.
    */
   onAcceptedHand(row: unknown): number {
+    if (!this.armedState) return 0;
     try {
       const rec = handRecordFromRow(row);
       if (typeof rec === 'string') return 0;
@@ -394,10 +546,13 @@ export class OpponentHudStore {
   }
 
   /** Persist every dirty profile (bounded batches); refused rows are dropped from the cache and reloaded. */
-  async persist(): Promise<void> {
+  async persist(force = false): Promise<void> {
+    if (!this.armedState && !force) return;
     if (this.persisting) return;
     this.persisting = true;
     try {
+      const startedAt = this.deps.now();
+      let failedBatches = 0;
       const dirty: [string, OpponentHudProfile][] = [];
       for (const [k, e] of this.cache)
         if (e.state === 'ready' && e.dirty) dirty.push([k, e.profile]);
@@ -430,8 +585,29 @@ export class OpponentHudStore {
         } catch {
           noteFire('opponent_hud_persist_failed');
           this.window.persistFailed += 1;
+          failedBatches += 1;
         } finally {
           clearTimeout(t);
+        }
+      }
+      // the sync point: every hand accepted before this persistence began is in a saved profile or in the ring
+      if (dirty.length && failedBatches === 0) {
+        try {
+          await this.deps.upsert(
+            [
+              {
+                user_id: HUD_SYNC_ROW,
+                family: 'plo5',
+                version: 1,
+                hands: 0,
+                wm_ms: startedAt,
+                profile: {},
+              },
+            ],
+            AbortSignal.timeout(HUD_DB_TIMEOUT_MS * 5)
+          );
+        } catch {
+          noteFire('opponent_hud_persist_failed');
         }
       }
       this.evict();
@@ -442,6 +618,7 @@ export class OpponentHudStore {
 
   /** Engine boot: warm every profile updated in the last HUD_BOOT_WINDOW_MS, both families, in pages. */
   async prewarm(): Promise<number> {
+    if (!this.armedState) return 0;
     let n = 0;
     const since = new Date(this.deps.now() - HUD_BOOT_WINDOW_MS).toISOString();
     for (const family of HUD_FAMILIES) {
@@ -522,27 +699,35 @@ export class OpponentHudStore {
     return applied;
   }
 
-  /** Population priors of both families (the '*' rows). */
-  async loadPriors(): Promise<void> {
+  /** Population priors of both families (the '*' rows); returns the newest sync point (the backfill's last hand, or
+   *  the last complete persistence), or null when none is stored. */
+  async loadPriors(): Promise<number | null> {
+    let sync: number | null = null;
+    this.priorsReadFailed = false;
     for (const family of HUD_FAMILIES) {
       const ac = new AbortController();
       const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS);
       (t as { unref?: () => void }).unref?.();
       try {
-        const rows = await this.deps.read(['*'], family, ac.signal);
+        const rows = await this.deps.read(['*', HUD_SYNC_ROW], family, ac.signal);
+        for (const x of rows)
+          if ((x.user_id === '*' || x.user_id === HUD_SYNC_ROW) && Number(x.wm_ms) > (sync ?? -1))
+            sync = Number(x.wm_ms);
         const r = rows.find((x) => x.user_id === '*');
         if (r && r.profile && typeof r.profile === 'object') this.setPriors(family, r.profile);
       } catch {
         noteFire('opponent_hud_priors_failed');
+        this.priorsReadFailed = true;
       } finally {
         clearTimeout(t);
       }
     }
+    return sync;
   }
 
+  /** Timers only: every one of them does nothing while the option is off (the switch arms the store). */
   start(): void {
     if (this.timer) return;
-    void this.loadPriors().then(() => this.prewarm());
     this.timer = setInterval(() => void this.persist(), HUD_PERSIST_MS);
     (this.timer as { unref?: () => void }).unref?.();
     this.alertTimer = setInterval(() => {
@@ -572,6 +757,8 @@ export class OpponentHudStore {
 
   /** Close the alert window: raise each condition seen in it, resolve each that stayed clean (never throws). */
   tickAlerts(): void {
+    if (!this.armedState) return;
+    if (this.activationPending && !this.activating) void this.activate();
     try {
       const w = this.window;
       this.window = { loadFailed: 0, late: 0, persistFailed: 0, schemaMissing: 0 };
@@ -598,6 +785,7 @@ export class OpponentHudStore {
 
   /** Once a day, from HUD_RECONCILE_HOUR:HUD_RECONCILE_MINUTE Chicago, reconcile the previous Chicago day. */
   async maybeReconcile(): Promise<void> {
+    if (!this.armedState) return;
     const now = this.deps.now();
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Chicago',
@@ -820,10 +1008,9 @@ export function opponentHudSnapshotField(
 export function armOpponentHudFromSwitch(message: { status?: unknown; config?: unknown }): void {
   try {
     if (!shared) return;
-    if (message.status !== 'ok') {
-      shared.setArmed(false);
-      return;
-    }
+    // an unreadable reading keeps the last state (the workers turn every option off on their own; flapping the
+    // store would drop and re-load every profile)
+    if (message.status !== 'ok') return;
     const parsed = parseOptionSwitchConfig(message.config);
     shared.setArmed(
       parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaOpponentLifetimeHud === true
