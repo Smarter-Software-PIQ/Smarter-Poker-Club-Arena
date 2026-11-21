@@ -183,9 +183,49 @@ export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[]
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
 ]);
+/**
+ * THE SCRIPTED NO-LIMIT FIELD (2026-11-21, Hold'em Strategy lane). Two
+ * default-off hold'em options (holdemCommittedNoPairIsPriced and
+ * holdemDangerBoardEquityIsPriced) are priced for opponents a Horse mirror
+ * barely plays: their mirror cards diverged on 20 to 132 of 6,000 pairs per
+ * seed and never resolved. This field seats scripted no-limit players instead,
+ * each a pure function of its own cards and the public state
+ * (NlhScriptedField.ts), offered the same legal no-limit menu a calibrated seat
+ * gets and validated like a Horse. No-limit hold'em only. Personas
+ * (LeagueMatchup.humanPersona):
+ *  - nlh_pot_barreler_v1: enters wide and bets the pot on every street with
+ *    any two cards; dealt 40bb deep, a Horse that floats its flop bet faces a
+ *    turn pot bet at a stack-to-pot ratio near 1 (the committed branch).
+ *  - nlh_value_barreler_v1: its harm control: the same entry and depth, but it
+ *    bets only two pair or better and never bluffs, so its bets are strong.
+ *  - nlh_danger_board_bettor_v1: enters wide and never folds before the
+ *    river, then on a four-flush or four-straight turn or river bets half the
+ *    pot with a straight or better (value) and with no pair (bluff), and
+ *    checks everything between.
+ *  - nlh_danger_board_value_v1: its harm control: the same, value only.
+ * Development personas, not calibrated populations.
+ */
+export const NLH_SCRIPTED_POPULATION_ID = 'nlh_scripted_field_v1' as const;
+export const NLH_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['nlh']);
+export const NLH_POT_BARRELER_PERSONA = 'nlh_pot_barreler_v1' as const;
+export const NLH_VALUE_BARRELER_PERSONA = 'nlh_value_barreler_v1' as const;
+export const NLH_DANGER_BOARD_BETTOR_PERSONA = 'nlh_danger_board_bettor_v1' as const;
+export const NLH_DANGER_BOARD_VALUE_PERSONA = 'nlh_danger_board_value_v1' as const;
+export type NlhScriptedPersona =
+  | typeof NLH_POT_BARRELER_PERSONA
+  | typeof NLH_VALUE_BARRELER_PERSONA
+  | typeof NLH_DANGER_BOARD_BETTOR_PERSONA
+  | typeof NLH_DANGER_BOARD_VALUE_PERSONA;
+export const NLH_SCRIPTED_PERSONAS: readonly NlhScriptedPersona[] = Object.freeze([
+  NLH_POT_BARRELER_PERSONA,
+  NLH_VALUE_BARRELER_PERSONA,
+  NLH_DANGER_BOARD_BETTOR_PERSONA,
+  NLH_DANGER_BOARD_VALUE_PERSONA,
+]);
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
   | FixedLimitScriptedPersona
+  | NlhScriptedPersona
   | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
@@ -206,4 +246,8 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
+  NLH_POT_BARRELER_PERSONA,
+  NLH_VALUE_BARRELER_PERSONA,
+  NLH_DANGER_BOARD_BETTOR_PERSONA,
+  NLH_DANGER_BOARD_VALUE_PERSONA,
 ]);
