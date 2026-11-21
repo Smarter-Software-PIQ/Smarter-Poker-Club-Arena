@@ -247,6 +247,8 @@ export interface CoreReceipt {
     preflop: string | null;
     /** equity calls made in the last 40 ms of the time box (reduced sample floor) */
     lateEquityCalls: number;
+    /** budget units spent on equity draws (draws x omahaMathCoreDrawCost of the ranges drawn); lane CORE-POOLED-6 */
+    work?: number;
   };
 }
 
@@ -279,6 +281,27 @@ const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000 };
  * 5 opponents (200-254 ms). Past the budget every equity call takes the reduced floor (150-600 draws).
  */
 export const OMAHA_MATH_CORE_WORK_BUDGET = 12000;
+/**
+ * What one equity draw against k opponent ranges costs, in units of the work budget (lane CORE-POOLED-6, Nov 21;
+ * the checker's V126: with five opponents the PLO5 flop decision cost p50 54 / p95 102 ms, four of 72 over 100
+ * ms, while one to three opponents met every bar). A draw scores k + 1 hands and draws k holdings jointly, with
+ * more collision redraws the more seats there are. Measured on the single "anchor" call against the whole field
+ * (generated PLO5 flops, Mac load 30): about 1.6 / 2 / 4 / 9 / 26 microseconds a draw against 1 / 2 / 3 / 4 / 5
+ * ranges; that call was 19-54 ms of a 33-115 ms six-handed decision. The budget used to charge k per draw, so a
+ * five-way call was allowed 2,400 draws. Charging k x 1.6^(k-1) keeps heads-up exactly as it was (1 per draw)
+ * and gives a first call 4,000 / 3,750 / 1,562 / 732 / 366 draws against 1 / 2 / 3 / 4 / 5 ranges: about the
+ * same time whatever the seat count. A smaller sample has a larger standard error, and the change margin
+ * (k x SE) then asks more proof of a multiway change. It is arithmetic on the seat count, never a clock, so the
+ * answer stays the same on any host.
+ */
+export function omahaMathCoreDrawCost(k: number): number {
+  const n = Math.max(1, Math.floor(k));
+  return n * Math.pow(1.6, n - 1);
+}
+/** Draws of one equity call past the work budget: 600 heads-up, fewer the more ranges it draws (never under 150). */
+export function omahaMathCoreLateDraws(k: number): number {
+  return Math.max(150, Math.min(600, Math.floor(1800 / omahaMathCoreDrawCost(k))));
+}
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -584,7 +607,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       150,
       Math.min(
         EQ_OPTS.maxSamples,
-        Math.floor((OMAHA_MATH_CORE_WORK_BUDGET - work) / Math.max(1, k))
+        Math.floor((OMAHA_MATH_CORE_WORK_BUDGET - work) / omahaMathCoreDrawCost(k))
       )
     );
   const coreSampler = (ranges: RangeSpec[]) =>
@@ -595,7 +618,12 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       ranges,
       seededRng(`${state.seed}|eq`),
       late()
-        ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, now: clock.now }
+        ? {
+            ...EQ_OPTS,
+            minSamples: 150,
+            maxSamples: omahaMathCoreLateDraws(ranges.length),
+            now: clock.now,
+          }
         : {
             ...EQ_OPTS,
             minSamples: Math.min(EQ_OPTS.minSamples, drawCap(ranges.length)),
@@ -635,7 +663,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
     if (!Number.isFinite(r.equity)) throw new Error('omahaMathCore: equity unavailable');
     if (late()) lateCalls++;
     samples += r.samples;
-    work += r.samples * Math.max(1, ranges.length);
+    work += r.samples * omahaMathCoreDrawCost(ranges.length);
     return r;
   };
 
@@ -1464,6 +1492,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         value: wired ? wired.receipt : null,
         preflop: pfm ? 'preflop-ev bands and fold / re-raise' : wiredNote,
         lateEquityCalls: lateCalls,
+        work: Math.round(work),
       },
     },
   };
