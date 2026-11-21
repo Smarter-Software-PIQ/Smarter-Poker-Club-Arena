@@ -48,7 +48,9 @@ concurrency:
 jobs:
   execute:
     name: ${{ inputs.operation == 'claim' && 'Claim Reliability Incident' || 'Read-Only EngineReleaseFailed Triage' }}
-    if: github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]'
+    if: >-
+      (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]')
+      && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 5
