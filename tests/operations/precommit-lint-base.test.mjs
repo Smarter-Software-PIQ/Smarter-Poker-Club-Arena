@@ -47,6 +47,6 @@ test('partly staged merge refuses instead of silently committing unreviewed byte
 test('pre-commit invokes the selector and preserves all existing guard calls', () => {
   const hook = readFileSync(new URL('../../.husky/pre-commit', import.meta.url), 'utf8');
   assert.match(hook, /LINT_BASE="\$\(node scripts\/ci\/precommit-lint-base\.mjs\)"/);
-  assert.match(hook, /"\$LS" --diff "\$LINT_BASE"/);
+  assert.match(hook, /"\$LS" --no-stash --diff "\$LINT_BASE"/);
   for (const guard of ['check-canonical-clone', 'guard-shared-clone', 'guard-commit-identity', 'guard-mass-deletion']) assert.ok(hook.includes(`${guard}.sh`));
 });
