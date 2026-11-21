@@ -134,4 +134,32 @@ $function$;
 REVOKE ALL ON FUNCTION public.ca_club_live_seats(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.ca_club_live_seats(uuid) TO authenticated, service_role;
 
+-- Runs the new body once as the service role (whole club) and, where one
+-- exists, as an active agent of a club (the downline-only branch this file
+-- adds), inside a subtransaction that is always undone; the claims set here
+-- are local to it and unwind with it.
+-- @probe-for: public.ca_club_live_seats
+DO $probe$
+DECLARE
+  v_club uuid;
+  v_agent uuid;
+BEGIN
+  PERFORM * FROM public.ca_club_live_seats(gen_random_uuid());
+  SELECT m.club_id, m.user_id INTO v_club, v_agent
+    FROM public.club_members m
+   WHERE m.role IN ('super_agent', 'agent', 'sub_agent')
+     AND coalesce(m.status, 'approved') IN ('active', 'approved')
+   LIMIT 1;
+  IF v_agent IS NOT NULL THEN
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v_agent, 'role', 'authenticated')::text, true);
+    PERFORM set_config('request.jwt.claim.sub', v_agent::text, true);
+    PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+    PERFORM * FROM public.ca_club_live_seats(v_club);
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
