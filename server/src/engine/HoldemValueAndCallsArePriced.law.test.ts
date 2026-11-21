@@ -210,6 +210,21 @@ describe('holdemValueAndCallsArePriced: scope', () => {
     const onL = replayAt(light, PROFILE, SEEDS, ON);
     expect(onL.receipts.holdem_priced_bet).toBe(SEEDS.length);
   });
+  it("production's single-board state (communityCards2: []) is in scope; a dealt second board is out", () => {
+    // Production and the league hand the brain communityCards2 = [] on every single-board table
+    // (ServerTableEngineTurns, LightningHorse, LeagueDecisionState). Testing `!== undefined` read
+    // that as a second board, so the option never acted live (league card inert: 0 receipts in 600 hands).
+    const f = bySlug('turn-77-boat-checks');
+    const t = state(f);
+    const single = { ...t, gs: { ...t.gs, communityCards2: [] } as unknown as typeof t.gs };
+    const onS = replayAt(single, PROFILE, SEEDS, ON);
+    expect(onS.receipts.holdem_priced_bet).toBe(SEEDS.length);
+    const dealt = {
+      ...t,
+      gs: { ...t.gs, communityCards2: t.gs.communityCards.slice(0, 3) } as unknown as typeof t.gs,
+    };
+    expect(replayAt(dealt, PROFILE, SEEDS, ON)).toEqual(replayAt(dealt, PROFILE, SEEDS, LIVE));
+  });
 });
 
 describe('holdemValueAndCallsArePriced: no value-raise decision reads fastRandom', () => {
