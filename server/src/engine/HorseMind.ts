@@ -747,6 +747,26 @@ export const OMAHA_EV_FOLD_MODEL: Readonly<
   plo5: Object.freeze({ foldOverMdf: 1.458, population: 0.536 }),
   plo6: Object.freeze({ foldOverMdf: 1.409, population: 0.497 }),
 });
+/**
+ * OPPONENT HUD, MEASURED 2026-11-21 (lane OPPONENT-HUD-2, CRITERIA-OPPONENT-HUD-2-MEASURED sha 3cba1dd5): actual fold
+ * share to a Horse's first bet of a street over the pooled model's prediction from the responder's as-of LIFETIME
+ * fold-to-first-bet counts, PLO4 + PLO5 person-seated cash hands before Nov 17 (22,244 responses), each cell adopted
+ * only where it lowered the held-out log-loss on Nov 18-20 (4,108 responses):
+ *   flop  small n 7,733 actual .4005 model .3836 (factor 1.044: NOT adopted, held-out .6160 vs .6159) -> 1
+ *   flop  big   n 2,785 actual .6118 model .6219 -> 0.984 (held-out .6672 vs .6702)
+ *   turn  small n 5,261 actual .3870 model .4019 -> 0.963 (held-out .61781 vs .61783)
+ *   turn  big   n 2,885 actual .6135 model .6181 -> 0.993 (held-out .6388 vs .6395)
+ *   river small n 1,442 actual .6033 model .4185 -> 1.442 (held-out .6361 vs .7092)
+ *   river big   n 2,138 actual .7399 model .6152 -> 1.203 (held-out .5442 vs .5857)
+ * small = a bet up to 0.7 pot, big = above 0.7 pot or all-in. Population parameters from public actions only.
+ */
+export const HUD_EV_FOLD_CALIBRATION: Readonly<
+  Record<string, Readonly<{ sm: number; bg: number }>>
+> = Object.freeze({
+  flop: Object.freeze({ sm: 1, bg: 0.984 }),
+  turn: Object.freeze({ sm: 0.963, bg: 0.993 }),
+  river: Object.freeze({ sm: 1.442, bg: 1.203 }),
+});
 /** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
 export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
 
@@ -5579,6 +5599,23 @@ export class HorseMind {
     const model = this.omahaEvFoldMulOf(userId, headsUpStreet);
     if (model !== null) return model;
     return this.exploit(userId, recencyBlend).bluffMod;
+  }
+
+  /**
+   * OPPONENT HUD: the measured calibration of the EV fold model when its input is the lifetime record
+   * (HUD_EV_FOLD_CALIBRATION), for hero's first bet of `street`; null unless omahaOpponentLifetimeHud reads this
+   * decision AND the pooled Omaha EV fold model is the one pricing PLO4 / PLO5 cash (the model the factors were
+   * measured against). Pure.
+   */
+  static evFoldCalibrationOf(street: string): { sm: number; bg: number } | null {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true || !this.decisionScope) return null;
+    if (this.decisionReadOptions.omahaEvFoldModel !== true || this.decisionMode !== 'cash')
+      return null;
+    if (this.decisionReadOptions.omahaEvFoldModelHeadsUp === true) return null;
+    if (this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true) return null;
+    const v = (this.decisionVariant ?? '').toLowerCase();
+    if (v !== 'plo4' && v !== 'plo5') return null;
+    return HUD_EV_FOLD_CALIBRATION[street] ?? null;
   }
 
   /**

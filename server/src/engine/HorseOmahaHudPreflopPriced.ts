@@ -8,9 +8,13 @@
  *     an opener facing the raise folds at his fold-to-3-bet rate and continues with the top of his open range; a
  *     player not yet in folds at 1 - VPIP and continues with his VPIP range;
  *   - hero's equity against the continuing ranges (omahaReraisedEquityAgainst, the measured preflop percentile);
- *   - realization from the measured re-raised-pot table (omahaReraisedCallRealization: position, depth, players in),
- *     reduced by the opponents' turn / river stab excess over the population, which takes the pot when hero's hand
- *     does not continue: R x (1 - max(0, stab - stabPop) x (1 - equity)).
+ *   - realization from the measured re-raised-pot table (omahaReraisedCallRealization: position, depth, players in).
+ *     MEASURED 2026-11-21 (lane OPPONENT-HUD-2, CRITERIA-OPPONENT-HUD-2-MEASURED sha 3cba1dd5): a Horse's realized
+ *     share of a raised pot (return minus postflop investment over the pot at the flop; 25,050 fit rows before
+ *     Nov 17, 4,463 check rows Nov 18-20) shows no held-out dependence on the opponents' lifetime turn / river
+ *     first-wager, raise or check-raise rates in any cell (raiser heads-up slope 0.51 +- 0.53, raiser multiway
+ *     -0.13 +- 0.61, both caller cells chose no feature), so the multiplier is 1: the earlier modelled term
+ *     (stab excess over 0.35) is removed and no opponent-aggression read is consumed in this price.
  * Pure: no state, no telemetry, no draw from the brain's random stream. Null when the equity cannot be sampled.
  */
 import type { Card } from '../types.js';
@@ -29,9 +33,6 @@ export interface HudPreflopOpponent {
   f3bet: number;
   /** he made the last raise (the opener / raiser hero faces) */
   raised: boolean;
-  /** turn / river first-wager rate when checked to or first to act (shrunk), and the population's */
-  stab: number;
-  stabPop: number;
 }
 export interface HudPreflopSpot {
   hole: readonly Card[];
@@ -64,10 +65,8 @@ const top = (w: number) => {
 export function omahaHudPreflopPriced(s: HudPreflopSpot): HudPreflopVerdict | null {
   if (!(s.pot > 0) || !(s.stack > 0) || s.opponents.length === 0) return null;
   const opps = s.opponents;
-  const stabExcess = Math.max(0, ...opps.map((o) => Math.max(0, o.stab - o.stabPop)));
-  const real = (eq: number, potAfter: number, behind: number, othersIn: number) =>
-    omahaReraisedCallRealization(s.inPosition, behind / Math.max(1e-9, potAfter), othersIn) *
-    (1 - stabExcess * (1 - eq));
+  const real = (potAfter: number, behind: number, othersIn: number) =>
+    omahaReraisedCallRealization(s.inPosition, behind / Math.max(1e-9, potAfter), othersIn);
   // the call: against each opponent's present range (the raiser's open range, the others' VPIP range)
   let evCall: number | null = null;
   let equityCall: number | null = null;
@@ -84,7 +83,7 @@ export function omahaHudPreflopPriced(s: HudPreflopSpot): HudPreflopVerdict | nu
     const potAfter = s.pot + call;
     const behind = Math.max(0, Math.min(s.stack - call, Math.max(...opps.map((o) => o.stack))));
     equityCall = eq;
-    evCall = real(eq, potAfter, behind, opps.length - 1) * eq * potAfter - call;
+    evCall = real(potAfter, behind, opps.length - 1) * eq * potAfter - call;
   }
   // the raise: each folds at his rate; the continuing ranges are the top of his range
   let evRaise: number | null = null;
@@ -111,7 +110,7 @@ export function omahaHudPreflopPriced(s: HudPreflopSpot): HudPreflopVerdict | nu
     equityRaise = eq;
     evRaise =
       foldAll * s.pot +
-      (1 - foldAll) * (real(eq, potAfter, behind, opps.length - 1) * eq * potAfter - invest);
+      (1 - foldAll) * (real(potAfter, behind, opps.length - 1) * eq * potAfter - invest);
   }
   const best: [HudPreflopVerdict['action'], number][] = s.toCall > 0.005 ? [['fold', 0]] : [];
   if (evCall !== null) best.push(['call', evCall]);

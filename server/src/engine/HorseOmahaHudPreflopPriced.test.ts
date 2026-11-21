@@ -17,8 +17,6 @@ const opp = (o: Partial<HudPreflopOpponent> = {}): HudPreflopOpponent => ({
   pfr: 0.2,
   f3bet: 0.5,
   raised: false,
-  stab: 0.35,
-  stabPop: 0.35,
   ...o,
 });
 const spot = (hole: Card[], o: HudPreflopOpponent) => ({
@@ -40,10 +38,13 @@ describe('omahaHudPreflopPriced', () => {
     expect(omahaHudPreflopPriced(spot(ACES, opp()))!.action).toBe('raise');
     expect(omahaHudPreflopPriced(spot(TRASH, opp({ vpip: 0.9 })))!.action).not.toBe('raise');
   });
-  it("an opponent's turn/river stab excess lowers the raise's value (the postflop cost of the pot)", () => {
+  it('the price reads only the measured inputs: an unknown extra field of the opponent changes nothing', () => {
     const calm = omahaHudPreflopPriced(spot(TRASH, opp({ vpip: 0.6 })))!;
-    const stabber = omahaHudPreflopPriced(spot(TRASH, opp({ vpip: 0.6, stab: 0.8 })))!;
-    expect(stabber.evRaise!).toBeLessThan(calm.evRaise!);
+    const other = omahaHudPreflopPriced(
+      spot(TRASH, { ...opp({ vpip: 0.6 }), stab: 0.8 } as ReturnType<typeof opp>)
+    )!;
+    expect(other.evRaise).toBe(calm.evRaise);
+    expect(other.evCall).toBe(calm.evCall);
   });
   it('facing no bet there is no fold: the check is the alternative', () => {
     const v = omahaHudPreflopPriced({ ...spot(TRASH, opp()), toCall: 0, heroBet: 2, pot: 4 })!;

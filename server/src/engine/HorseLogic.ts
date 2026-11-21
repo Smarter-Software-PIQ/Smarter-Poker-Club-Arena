@@ -638,7 +638,7 @@ import {
   omahaHudPricedBetOverCheck,
   omahaHudPricedRaiseOverCall,
 } from './HorseOmahaPricedWiring.js';
-import { hudFirstWagerRecord, hudStat } from './opponentHud/OpponentHud.js';
+import { hudStat } from './opponentHud/OpponentHud.js';
 import { omahaHudPreflopPriced, type HudPreflopVerdict } from './HorseOmahaHudPreflopPriced.js';
 import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
@@ -9466,12 +9466,18 @@ const OMAHA_PRESSURE_OPTION_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'pl
  */
 /**
  * OPPONENT HUD PRICED PREFLOP: the spot for omahaHudPreflopPriced from the public state and the decision's lifetime
- * packet (hudStat shrinks each rate n / (n + k) to the population prior; hudFirstWagerRecord gives his turn / river
- * first-wager counts, shrunk here with the measured STAB-DEFENCE pooled constant k = 37). Null when out of scope.
+ * packet (hudStat shrinks each rate n / (n + k) to the population prior). Null when out of scope or when a rate has
+ * neither a record nor a prior (an unpriced spot is not decided by this comparison).
  */
 const hudNum = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
-const HUD_STAB_K = 37;
-const HUD_STAB_POP_DEFAULT = 0.35;
+/** OPPONENT HUD: the measured calibration of the lifetime-fed EV fold model for hero's first bet (null = today). */
+function hudEvFoldCalibration(street: string): { sm: number; bg: number } | null {
+  try {
+    return HorseMind.evFoldCalibrationOf(street);
+  } catch {
+    return null;
+  }
+}
 function omahaHudPreflopVerdictAt(
   player: SeatPlayer,
   gs: HorseGameStateV2,
@@ -9493,28 +9499,21 @@ function omahaHudPreflopVerdictAt(
       (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out && !p.is_all_in
     );
     if (!live.length || !(pot > 0) || !(stack > 0)) return null;
+    let unread = false;
     const rate = (u: string, st: string) => {
       const r = hudStat(u, fam, st, null, false);
-      return r.p ?? r.prior ?? 0.3;
-    };
-    const stabOf = (u: string) => {
-      let bets = 0;
-      let opps = 0;
-      for (const street of ['turn', 'river'] as const)
-        for (const pl of ['hu', 'mw'] as const) {
-          const w = hudFirstWagerRecord(u, fam, street, pl);
-          if (w) {
-            bets += w.bets;
-            opps += w.opps;
-          }
-        }
-      return (bets + HUD_STAB_K * HUD_STAB_POP_DEFAULT) / (opps + HUD_STAB_K);
+      const v = r.p ?? r.prior;
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        unread = true;
+        return 0;
+      }
+      return v;
     };
     const order = (seat: number) => postflopOrder(seat, gs.dealerSeat);
     const legal = Array.isArray(gs.legalActions) ? gs.legalActions : null;
     // the pot-limit raise: to the current bet plus the pot after the call
     const raiseTo = Math.min(heroBet + stack, currentBet + pot + toCall);
-    return omahaHudPreflopPriced({
+    const spot = {
       hole,
       dead: player.knownDeadCards ?? [],
       pot,
@@ -9532,10 +9531,9 @@ function omahaHudPreflopVerdictAt(
         pfr: rate(p.user_id, 'pf.pfr'),
         f3bet: rate(p.user_id, 'pf.f3bet'),
         raised: p.seat === lastRaiserSeat,
-        stab: stabOf(p.user_id),
-        stabPop: HUD_STAB_POP_DEFAULT,
       })),
-    });
+    };
+    return unread ? null : omahaHudPreflopPriced(spot);
   } catch {
     return null;
   }
@@ -25291,7 +25289,12 @@ export class HorseLogic {
                 /* an unavailable read keeps the neutral fold model */
               }
             }
-            return { foldMul, canRespond: !o.is_all_in && o.stack > 0 };
+            const foldCal = useMind ? hudEvFoldCalibration('flop') : null;
+            return {
+              foldMul,
+              canRespond: !o.is_all_in && o.stack > 0,
+              ...(foldCal ? { foldCal } : {}),
+            };
           }),
           realization: realizationFactor({
             street: 'flop',
@@ -27063,7 +27066,8 @@ export class HorseLogic {
           }
           // horsePlayStyles: the pressure style in position (fold-equity prior).
           if (styleFoldEquityMul !== undefined) foldMul *= styleFoldEquityMul;
-          models38.push({ foldMul, canRespond });
+          const foldCal38 = useMind ? hudEvFoldCalibration(street) : null;
+          models38.push({ foldMul, canRespond, ...(foldCal38 ? { foldCal: foldCal38 } : {}) });
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
         // omahaFoldModelFittedOnPeople (default off): a person's fold share to the bet is

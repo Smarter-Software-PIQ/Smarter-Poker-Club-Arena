@@ -75,6 +75,12 @@ export interface EvOpponentModel {
   /** False for an all-in holding: it cannot fold or fund another wager.
    * Omission preserves older pure callers' ordinary live-opponent model. */
   canRespond?: boolean;
+  /**
+   * OPPONENT HUD (omahaOpponentLifetimeHud): the measured calibration of the fold model's lifetime input for hero's
+   * FIRST bet of the street, by size (sm = up to 0.7 pot, bg = above 0.7 pot or all-in). Applied to the fold share
+   * after the model's own clamps (HUD_EV_FOLD_CALIBRATION in HorseMind). Absent = today's price.
+   */
+  foldCal?: { sm: number; bg: number };
 }
 
 import {
@@ -256,6 +262,20 @@ const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.m
  * rest. Scaled by the opponent's read, clamped so a read reshapes but never
  * zeroes.
  */
+/** The fold share with the lifetime-input calibration of a first bet (see EvOpponentModel.foldCal); else unchanged. */
+export function hudCalibratedFold(
+  fold: number,
+  cal: { sm: number; bg: number } | undefined,
+  facing: boolean,
+  potFacing: number,
+  wager: number,
+  stack: number
+): number {
+  if (!cal || facing || !(potFacing > 0) || !(wager > 0)) return fold;
+  const big = wager / potFacing > 0.7 || (stack > 0 && wager >= stack - 1e-9);
+  const f = big ? cal.bg : cal.sm;
+  return Number.isFinite(f) && f > 0 ? clamp(fold * f, 0.02, 0.92) : fold;
+}
 export function mdfFold(potFacing: number, wager: number, foldMul: number = 1): number {
   if (!(wager > 0) || !(potFacing > 0)) return 0;
   const base = wager / (potFacing + wager);
@@ -449,7 +469,14 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
       const baseMdf =
         measured !== null && Number.isFinite(measured)
           ? clamp(measured, 0.02, 0.92)
-          : mdfFold(P + c, s, m);
+          : hudCalibratedFold(
+              mdfFold(P + c, s, m),
+              models[i]?.foldCal,
+              facing,
+              P + c,
+              s,
+              spot.stack
+            );
       const singleFold = clamp(
         baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
         0.02,
