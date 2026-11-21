@@ -12,8 +12,9 @@ A Lightning Horse is asked an early look off its turn (`LightningHandHost.offerH
 
 - if the first decision answers `fold` (and is not owned by `omahaMathCore`) while live, not-all-in seats after the street's last full aggression (preflop with none: after the big blind) and before the Horse still have to act (`lightningFoldThroughSeats`), the policy is asked once more on the fold-through frame (`lightningFoldThroughFrame`);
 - in the fold-through frame those seats are marked folded, their folds are appended to the street's `actionHistory`, and they leave every pot's `eligiblePlayers` list, using public state and the Horse's own cards only;
+- the frame ask replays the strategy stream (`fastRandom`) from the position before the first ask, and the stream is restored to where the first ask left it afterwards (since 2026-11-21);
 - the frame ask runs as a side ask with `observeMind: false`, `telemetry: false`, brain telemetry suspended and the first ask's style records kept, so the opponent model never learns the hypothetical folds and a frame failure is reported as `HorseLogic.lightning_fold_through_frame_threw` rather than `decide_threw`;
-- if the frame also folds (or throws, or hits `policyFallback === 'brain_exception'`), the first answer is returned (`lightning_fold_through_kept`) and the early fold stands; otherwise the frame's answer is returned (`lightning_fold_through_released`), which the Lightning host treats as an early look that did not fold (the Horse waits for its own turn and decides afresh).
+- if the frame also folds (or throws, or hits `policyFallback === 'brain_exception'`), the first answer is returned (`lightning_fold_through_kept`) and the early fold stands; if the frame's only answer is a preflop call into a street with no voluntary aggression (an unraised limp or small-blind complete) without a Lightning cheap entry branch, the first answer is returned too (`lightning_fold_through_limp_kept`, since 2026-11-21); otherwise the frame's answer is returned (`lightning_fold_through_released`), which the Lightning host treats as an early look that did not fold (the Horse waits for its own turn and decides afresh).
 
 At the Horse's own turn no seat is before it, so nothing changes there. The river, Classic tables (`speed !== 'lightning'`) and tournaments are untouched.
 
@@ -70,11 +71,11 @@ Source: `docs/changelog/2026-11-15-a-lightning-early-fold-needs-the-fold-through
 
 ## Receipts
 
-`lightning_fold_through_kept`, `lightning_fold_through_released`, `lightning_fold_through_math_core_owned` (`HorseDataLedger.ts`, source `'HorseLogic (lightningEarlyFoldNeedsFoldThrough)'`); ledger flag `lightningEarlyFoldNeedsFoldThrough`.
+`lightning_fold_through_kept`, `lightning_fold_through_released`, `lightning_fold_through_limp_kept` (2026-11-21), `lightning_fold_through_math_core_owned` (`HorseDataLedger.ts`, source `'HorseLogic (lightningEarlyFoldNeedsFoldThrough)'`); ledger flag `lightningEarlyFoldNeedsFoldThrough`.
 
 ## Tests
 
-- `server/src/engine/HorseLightningFoldThrough.test.ts` (11 unit tests: `lightningFoldThroughSeats`, `lightningFoldThroughFrame`, `HorseLogic.decide` with `lightningEarlyFoldNeedsFoldThrough`, side-ask isolation of telemetry, style records and error reporting).
+- `server/src/engine/HorseLightningFoldThrough.test.ts` (17 unit tests: `lightningFoldThroughSeats`, `lightningFoldThroughFrame`, `lightningFoldThroughFrameIsUnraisedLimp`, `HorseLogic.decide` with `lightningEarlyFoldNeedsFoldThrough`, side-ask isolation of telemetry, style records and error reporting, the unraised-limp rule and the one-roll stream replay of 2026-11-21).
 - `server/src/lightning/anEarlyFoldNeedsTheFoldThrough.regression.test.ts` (6 host regression tests through `LightningHandHost` and `HorseLogic.decide`: button fold-through open, public-only frame, trash still fast-folds before UTG acts, flop early fold released when seat between can undo it, river early look unchanged, option off unchanged).
 - Refused league matchup `nlh_lightning_early_fold_needs_fold_through` (`server/src/benchmark/HorseLeague.ts` `UNMEASURABLE_MATCHUPS`: the league deals no early look; 0 of 2,000 pairs diverged on seed 20261114).
 
@@ -87,7 +88,7 @@ Source: `docs/changelog/2026-11-15-a-lightning-early-fold-needs-the-fold-through
 
 ## What is still owed before this file may say the evidence is met
 
-1. Resolve the NLH first-in limp / double-jitter mechanism (or scope/gate the fold-through release so it never releases an early fold for an unraised limp or a second random jitter draw) and pass the declared 270-cell paired Lightning evaluation (`LightningPairedEval.test.ts` full, selection and final seeds). The NLH half run on 2026-11-21 shows the limp shape persists (Q4 45.1%, Q3 +1.08 points) without a significant chip result either way, so the mechanism fix comes before any further evaluation.
+1. The NLH first-in limp / double-jitter mechanism is fixed at the root in source (`docs/changelog/2026-11-21-lightning-fold-through-limp-and-one-roll.md`): the frame ask replays the first ask's strategy stream (one roll for a mixed border hand, and the stream is put back where the first ask left it), and an early fold is no longer released when the frame's only answer is an unraised limp or small-blind complete (receipt `lightning_fold_through_limp_kept`; a strength-gated Lightning cheap entry complete or over-limp still releases). No evaluation has been run on the fixed code: every reading above (the five-cell run and the NLH half of 2026-11-21) measured the code before the fix and no longer describes the option. The declared 270-cell paired Lightning evaluation (`LightningPairedEval.test.ts` full, selection and final seeds) must be re-run on a revision containing the fix, and must pass.
 2. A declared PASS-BAR and a replay on real audited Lightning decisions, off against on, scored by `server/scripts/audited-decision-replay.ts --row` with `newlyWrong <= fixed`.
 3. An explicit owner or lane-lead order to activate recorded verbatim in "The order it rests on", plus a live post-activation check and rollback trigger.
 

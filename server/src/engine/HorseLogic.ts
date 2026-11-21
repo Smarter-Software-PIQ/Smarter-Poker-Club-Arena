@@ -651,6 +651,7 @@ import {
 import { omahaFlopBetMeasuredFoldShareOf } from './HorseOmahaFlopBetMeasuredFoldShare.js';
 import {
   lightningFoldThroughFrame,
+  lightningFoldThroughFrameIsUnraisedLimp,
   lightningFoldThroughSeats,
 } from './HorseLightningFoldThrough.js';
 import {
@@ -16098,6 +16099,11 @@ export class HorseLogic {
     // on the frame where those seats fold (never learned: observeMind false).
     if (opts.lightningEarlyFoldNeedsFoldThrough === true) {
       const inner: HorseDecideOpts = { ...opts, lightningEarlyFoldNeedsFoldThrough: false };
+      // ONE ROLL, NOT TWO (2026-11-21): the strategy stream position before the first ask. The frame ask
+      // replays from it, so a mixed border hand (the preflop strengthJitter, any mixing draw) is rolled once
+      // for the early look, and the stream is put back where the first ask left it afterwards, so the
+      // option never consumes draws the option-off decision would not have.
+      const streamBeforeFirst = saveFastRandom();
       const first = HorseLogic.decide(
         player,
         gameState,
@@ -16128,6 +16134,8 @@ export class HorseLogic {
         // receipts below are counted for it.
         const wasFrameAsk = lightningFoldThroughFrameAsk;
         lightningFoldThroughFrameAsk = true;
+        const streamAfterFirst = saveFastRandom();
+        restoreFastRandom(streamBeforeFirst);
         try {
           through = withStyleRecordsKept(() =>
             withBrainTelemetrySuspended(() =>
@@ -16139,6 +16147,7 @@ export class HorseLogic {
             )
           );
         } finally {
+          restoreFastRandom(streamAfterFirst);
           lightningFoldThroughFrameAsk = wasFrameAsk;
         }
       } catch (err) {
@@ -16149,6 +16158,14 @@ export class HorseLogic {
       if (through.policyFallback === 'brain_exception') return first;
       if (String(through.action) === 'fold') {
         if (telemetryOn(opts)) noteFire('lightning_fold_through_kept');
+        return first;
+      }
+      // NO RELEASE FOR AN UNRAISED LIMP (2026-11-21, lightningFoldThroughFrameIsUnraisedLimp): folding the
+      // seats before an unopened small blind makes the frame blind-vs-blind, where the 75% complete mix runs
+      // down to sbLimpFloor; that bottom-of-range complete is not a strength continuation, so the early fold
+      // stands. A strength-gated Lightning cheap entry complete / over-limp still releases (its own option).
+      if (lightningFoldThroughFrameIsUnraisedLimp(gameState, through)) {
+        if (telemetryOn(opts)) noteFire('lightning_fold_through_limp_kept');
         return first;
       }
       if (telemetryOn(opts)) noteFire('lightning_fold_through_released');

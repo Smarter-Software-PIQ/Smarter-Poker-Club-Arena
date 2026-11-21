@@ -33,6 +33,7 @@ import {
 import type {
   AcceptedActionOrigin,
   Card,
+  Pot,
   SeatPlayer,
   HandStage,
   ActionRecord,
@@ -77,7 +78,13 @@ const CAT_NAMES = [
   'Straight Flush',
   'Royal Flush',
 ];
-import { SUITS, RANKS, validateAction, calculateBettingState } from '../engine/PokerEngine.js';
+import {
+  SUITS,
+  RANKS,
+  validateAction,
+  calculateBettingState,
+  determineWinners,
+} from '../engine/PokerEngine.js';
 import {
   HUMAN_CALIBRATED_POPULATION_ID,
   humanCalibratedDecide,
@@ -890,6 +897,120 @@ interface Seat {
 }
 
 /**
+ * The league's showdown settlement: what each seat is paid from the pot.
+ *
+ * HI-LO (2026-11-21): a hi-lo hand (plo8, flo8; VariantRules.isHiLoVariant)
+ * is paid by the live engine's own determineWinners (PokerEngine.ts), the
+ * function HandController.completeHand pays every real pot with: the same
+ * Omaha high and eight-or-better low evaluators, half of each layer to the
+ * best qualifying low, the odd unit to the high half, ties within a half
+ * split with the odd unit clockwise of the button, a scoop when no hand
+ * qualifies low. Before this, every hi-lo pot went to the high hand alone,
+ * so every PLO8 league card measured a high-only game. The cent unit is the
+ * league's (BB = 2 chips): the tournament whole-chip unit would be half a big
+ * blind here, a rounding no real tournament pot sees.
+ *
+ * Every other variant keeps the league's exact-fraction high settlement,
+ * unchanged, so no non-hi-lo card moves.
+ */
+export function settleLeagueShowdown(
+  seats: ReadonlyArray<{ player: SeatPlayer; contributed: number }>,
+  board: Card[],
+  gameVariant: string,
+  dealerSeat: number,
+  pot: number
+): number[] {
+  const SEATS = seats.length;
+  const vi = variantInfo(gameVariant);
+  const live = () => seats.filter((s) => !s.player.is_folded).map((s) => s.player);
+  const contenders = seats
+    .map((s, i) => ({ i, folded: s.player.is_folded, contributed: s.contributed }))
+    .filter((c) => c.contributed > 0 || !c.folded);
+  const winnings = new Array(SEATS).fill(0);
+
+  if (live().length === 1) {
+    winnings[seats.findIndex((s) => s.player === live()[0])] = pot;
+  } else if (vi.isHiLo) {
+    // The same layers as below, handed to the engine as its Pot[].
+    const levels = [...new Set(contenders.map((c) => c.contributed))].sort((a, b) => a - b);
+    const pots: Pot[] = [];
+    let prev = 0;
+    for (const lvl of levels) {
+      if (lvl - prev <= 0) continue;
+      let amount = 0;
+      const eligiblePlayers: string[] = [];
+      for (let i = 0; i < SEATS; i++) {
+        amount += Math.min(seats[i].contributed, lvl) - Math.min(seats[i].contributed, prev);
+        if (!seats[i].player.is_folded && seats[i].contributed >= lvl)
+          eligiblePlayers.push(seats[i].player.user_id);
+      }
+      pots.push({ amount, eligiblePlayers });
+      prev = lvl;
+    }
+    const awards = determineWinners(
+      seats.map((s) => s.player),
+      board,
+      pots,
+      gameVariant,
+      dealerSeat,
+      undefined,
+      undefined,
+      0.01
+    );
+    let paid = 0;
+    for (const w of awards) {
+      const i = seats.findIndex((s) => s.player.user_id === w.userId);
+      winnings[i] += w.amount;
+      paid += w.amount;
+    }
+    // Chips never evaporate: a sub-cent float residue rides with the first
+    // award, as distributePot rides its sub-unit residue with the first winner.
+    const residue = pot - paid;
+    if (residue !== 0 && awards.length > 0)
+      winnings[seats.findIndex((s) => s.player.user_id === awards[0].userId)] += residue;
+  } else {
+    const scores = seats.map((s) =>
+      s.player.is_folded
+        ? -1
+        : vi.isOmaha
+          ? scoreOmahaHi(s.player.cards, board)
+          : scoreHoldem(s.player.cards.concat(board), s.player.cards.length + 5, vi.isShortDeck)
+    );
+    // Layered side pots by contribution level.
+    const levels = [...new Set(contenders.map((c) => c.contributed))].sort((a, b) => a - b);
+    let prev = 0;
+    for (const lvl of levels) {
+      const layer = lvl - prev;
+      if (layer <= 0) continue;
+      let layerPot = 0;
+      const eligible: number[] = [];
+      for (let i = 0; i < SEATS; i++) {
+        const contrib = Math.min(seats[i].contributed, lvl) - Math.min(seats[i].contributed, prev);
+        layerPot += contrib;
+        if (!seats[i].player.is_folded && seats[i].contributed >= lvl) eligible.push(i);
+      }
+      if (eligible.length > 0) {
+        let best = -1;
+        for (const i of eligible) if (scores[i] > best) best = scores[i];
+        const winners = eligible.filter((i) => scores[i] === best);
+        for (const w of winners) winnings[w] += layerPot / winners.length;
+      } else {
+        // Cannot happen in a legal sequence (a live player always matches the
+        // top contribution), but chips must NEVER evaporate: hand the layer
+        // to the best live hand overall.
+        let bestI = -1;
+        for (let i = 0; i < SEATS; i++) {
+          if (!seats[i].player.is_folded && (bestI === -1 || scores[i] > scores[bestI])) bestI = i;
+        }
+        if (bestI >= 0) winnings[bestI] += layerPot;
+      }
+      prev = lvl;
+    }
+  }
+  return winnings;
+}
+
+/**
  * Play one full NLH hand. `configOf(seatIdx)` maps a seat to its engine
  * config. Returns net chips per seat (sum is always 0) — verified by the
  * conservation test.
@@ -1431,52 +1552,13 @@ export function playHand(
   if (!endedByFolds && canAct().length >= 2) endedByFolds = runStreet('river', firstPostflop());
 
   // ── Settlement with proper side pots ──
-  const contenders = seats
-    .map((s, i) => ({ i, folded: s.player.is_folded, contributed: s.contributed }))
-    .filter((c) => c.contributed > 0 || !c.folded);
-  const winnings = new Array(SEATS).fill(0);
-
-  if (live().length === 1) {
-    winnings[seats.indexOf(live()[0])] = pot;
-  } else {
-    const scores = seats.map((s) =>
-      s.player.is_folded
-        ? -1
-        : vi.isOmaha
-          ? scoreOmahaHi(s.player.cards, board)
-          : scoreHoldem(s.player.cards.concat(board), s.player.cards.length + 5, vi.isShortDeck)
-    );
-    // Layered side pots by contribution level.
-    const levels = [...new Set(contenders.map((c) => c.contributed))].sort((a, b) => a - b);
-    let prev = 0;
-    for (const lvl of levels) {
-      const layer = lvl - prev;
-      if (layer <= 0) continue;
-      let layerPot = 0;
-      const eligible: number[] = [];
-      for (let i = 0; i < SEATS; i++) {
-        const contrib = Math.min(seats[i].contributed, lvl) - Math.min(seats[i].contributed, prev);
-        layerPot += contrib;
-        if (!seats[i].player.is_folded && seats[i].contributed >= lvl) eligible.push(i);
-      }
-      if (eligible.length > 0) {
-        let best = -1;
-        for (const i of eligible) if (scores[i] > best) best = scores[i];
-        const winners = eligible.filter((i) => scores[i] === best);
-        for (const w of winners) winnings[w] += layerPot / winners.length;
-      } else {
-        // Cannot happen in a legal sequence (a live player always matches the
-        // top contribution), but chips must NEVER evaporate: hand the layer
-        // to the best live hand overall.
-        let bestI = -1;
-        for (let i = 0; i < SEATS; i++) {
-          if (!seats[i].player.is_folded && (bestI === -1 || scores[i] > scores[bestI])) bestI = i;
-        }
-        if (bestI >= 0) winnings[bestI] += layerPot;
-      }
-      prev = lvl;
-    }
-  }
+  const winnings = settleLeagueShowdown(
+    seats.map((s) => ({ player: s.player, contributed: s.contributed })),
+    board,
+    gameVariant,
+    dealerSeat,
+    pot
+  );
 
   // ═══ V16 DEEP-READS HARNESS (2026-08-26) ═══
   // Production learns fold-to-c-bet / fold-to-3-bet / sizing tells from
@@ -5708,14 +5790,15 @@ function fixedLimitHiLoRefusal(o: {
 }): string {
   return (
     "Unanswerable by this league: it deals fixed-limit hold'em only (since 2026-11-20, LeagueDecisionState.ts). " +
-    'A flo8 hand still gets no-limit betting and a high-only showdown: no fixed-limit street unit, wager cap or ' +
-    `controller menu, and no low half of the pot. ${o.gate} The option is DEFAULT OFF (read as === true). ` +
+    'A flo8 hand still gets no-limit betting: no fixed-limit street unit, wager cap or controller menu (its ' +
+    "showdown has paid the low half by the engine's determineWinners since 2026-11-21, settleLeagueShowdown). " +
+    `${o.gate} The option is DEFAULT OFF (read as === true). ` +
     'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
     `${o.diverged} of 300 pairs diverged${o.note ?? ''}. The league deals the variant's cards with its own betting while ` +
     'the brain takes the fixed-limit path from the variant name, so that divergence is not a ' +
     'fixed-limit measurement and decides nothing. ' +
-    `What would change this: a hi-lo settlement in the league's hand (the low half, quartering and the odd chip as ` +
-    `HandController pays them; ${FIXED_LIMIT_FIELD_DESIGN}) or a fixed-limit duplicate league on the real ` +
+    `What would change this: fixed-limit betting for flo8 in the league's hand (${FIXED_LIMIT_FIELD_DESIGN}) ` +
+    `or a fixed-limit duplicate league on the real ` +
     `HandController (flo8, ${o.needs}); until one is built, the fixtures in ` +
     `${o.law}.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.`
   );
