@@ -126,10 +126,10 @@ describe('the verdict', () => {
 });
 
 describe('the runtime allocation', () => {
-  it('the live writer defaults to 30 h and a 32 GiB floor; 0 turns it off; bad values are refused', () => {
+  it('the live writer defaults to 72 h and a 32 GiB floor; 0 turns it off; bad values are refused', () => {
     const d = runtimeHorseJournalWriterArchiveOptions('/j', {});
     expect(d.minRetentionMs).toBe(HORSE_JOURNAL_MIN_RETENTION_HOURS * H);
-    expect(HORSE_JOURNAL_MIN_RETENTION_HOURS).toBe(30);
+    expect(HORSE_JOURNAL_MIN_RETENTION_HOURS).toBe(72);
     expect(d.diskFloorBytes).toBe(HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES);
     expect(
       runtimeHorseJournalWriterArchiveOptions('/j', {

@@ -22,12 +22,14 @@ import { describe, expect, it } from 'vitest';
 import {
   definedFunctions,
   definedObjects,
+  missingPreimagePinProblems,
   redefinitionOrderProblems,
 } from '../scripts/ci/check-new-migration-version-collisions.mjs';
 import { replacesMd5Pins, stalePinGuardSQL } from '../scripts/ci/migration-stale-pins.mjs';
 import {
   extractLatestFunctionBody,
   normalizeSqlBody,
+  sqlBodyMd5,
 } from '../scripts/ci/verify-alarm-drill-and-cron-watch.mjs';
 
 const ROOT = join(__dirname, '..');
@@ -81,9 +83,8 @@ describe('a newer function body is never overwritten by an older version', () =>
       join(ROOT, 'scripts/ci/check-new-migration-version-collisions.mjs'),
       'utf8'
     );
-    expect(gate).toContain(
-      "redefinitionOrderProblems(file, readFileSync(path, 'utf8'), baseFiles)"
-    );
+    expect(gate).toContain('redefinitionOrderProblems(file, sql, baseFiles)');
+    expect(gate).toContain('missingPreimagePinProblems(sql, baseFiles)');
     expect(gate).toContain('if (overwrites.length > 0) process.exit(1);');
   });
 
@@ -148,5 +149,30 @@ describe('a newer function body is never overwritten by an older version', () =>
       '20261120222900_harden_drill_trigger_body_and_watch_pass_proof.sql'
     );
     expect(normalizeSqlBody('/* c */ SELECT 1 -- x\n  + 2')).toBe('SELECT 1 + 2');
+    expect(sqlBodyMd5('/* c */ SELECT 1 -- x\n  + 2')).toHaveLength(32);
+  });
+
+  it('requires -- @replaces-md5 when replacing a watched guard function', () => {
+    const unpinned =
+      'CREATE OR REPLACE FUNCTION public.fn_ca_cron_failure_watch() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;';
+    expect(missingPreimagePinProblems(unpinned, base('99999999999999_x.sql')).join('\n')).toContain(
+      'replaces watched guard public.fn_ca_cron_failure_watch without -- @replaces-md5'
+    );
+    const pinned =
+      '-- @replaces-md5: public.fn_ca_cron_failure_watch()=0123456789abcdef0123456789abcdef\n' +
+      unpinned;
+    expect(missingPreimagePinProblems(pinned, base('99999999999999_x.sql'))).toEqual([]);
+  });
+
+  it('wires live watched-guard body drift detection into check-cron-health.mjs and fn_ca_cron_health', () => {
+    const cronHealthScript = readFileSync(join(ROOT, 'scripts/ci/check-cron-health.mjs'), 'utf8');
+    expect(cronHealthScript).toContain('fn_ca_watched_guard_hashes');
+    expect(cronHealthScript).toContain('if (guardDrifts.length > 0) process.exit(1);');
+    const latestHealth = extractLatestFunctionBody(DIR, 'public.fn_ca_cron_health');
+    expect(latestHealth?.file).toBe(
+      '20261121153438_cron_health_proven_jobs_and_watched_guard_hashes.sql'
+    );
+    expect(latestHealth?.body).toContain('public.ca_detector_runs pr');
+    expect(latestHealth?.body).toContain("coalesce((pr.detail->>'pass')::boolean, true)");
   });
 });
