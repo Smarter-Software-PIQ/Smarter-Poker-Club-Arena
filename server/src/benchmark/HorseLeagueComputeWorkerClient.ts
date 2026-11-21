@@ -30,6 +30,7 @@ import type { LeagueMatchup, LeagueResult } from './HorseLeague.js';
 import {
   FIXED_LIMIT_SCRIPTED_POPULATION_ID,
   HUMAN_FIELD_COMPONENT_SCENARIOS,
+  NLH_SCRIPTED_POPULATION_ID,
   V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
 import {
@@ -187,7 +188,10 @@ interface PendingJob<T> {
   resolve: (result: T) => void;
   reject: (error: Error) => void;
   resultType:
-    'MATCHUP_RESULT' | 'AGREEMENT_RESULT' | 'GTO_V31_AGREEMENT_RESULT' | 'TOURNAMENT_RESULT';
+    | 'MATCHUP_RESULT'
+    | 'AGREEMENT_RESULT'
+    | 'GTO_V31_AGREEMENT_RESULT'
+    | 'TOURNAMENT_RESULT';
   heartbeatTimer: ReturnType<typeof setTimeout>;
   cancelTimer: ReturnType<typeof setInterval> | null;
   tournamentRequest?: TournamentLeagueRequest;
@@ -557,11 +561,13 @@ const HUMAN_RESPONSE_ACTIONS = new Set(['fold', 'check', 'call', 'bet', 'raise',
 
 function isHumanFieldLeagueEvidence(value: Record<string, unknown>): boolean {
   // The human-calibrated field, (2026-10-31) the V53 aggressor field, or
-  // (2026-11-20) the scripted fixed-limit field (FixedLimitScriptedField.ts).
+  // (2026-11-20) the scripted fixed-limit field (FixedLimitScriptedField.ts), or
+  // (2026-11-21) the scripted no-limit field (NlhScriptedField.ts).
   if (
     value.opponentPopulation !== HUMAN_CALIBRATED_POPULATION_ID &&
     value.opponentPopulation !== V53_PRESSURE_POPULATION_ID &&
-    value.opponentPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID
+    value.opponentPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID &&
+    value.opponentPopulation !== NLH_SCRIPTED_POPULATION_ID
   )
     return false;
   const responses = value.humanResponses;

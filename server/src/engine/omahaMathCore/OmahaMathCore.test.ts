@@ -826,7 +826,9 @@ describe('omahaMathCore realization calibration (CORE-4: the core prices only wh
     expect(bare.calibration ?? null).toBeNull();
   });
   it('a factor above 1 never by itself turns a fold into a raise: the raise must beat the fold at its raw price (r = 1)', () => {
-    const rr = realizationCalibrationCell('plo5', 'flop', 'raise')!.r;
+    // the guard is about any factor above 1: since the full-window factors (raise 0.8184) no applied cell is above 1,
+    // so the law uses the sample-era raise factor as its example; the guard must hold whatever a future fit gives
+    const rr = 1.0342;
     expect(rr).toBeGreaterThan(1);
     const fold = { ev: 0, se: 0 };
     // raw -1 (fold equity plus equity as priced loses to the fold); the factor lifts the calibrated price to +9

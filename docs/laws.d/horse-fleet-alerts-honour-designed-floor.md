@@ -1,0 +1,3 @@
+# tests/horse-fleet-alerts-honour-designed-floor.law.test.ts
+
+All six audited `horse-fleet` alert rules in `infra/monitoring/alert-rules.yml` (`HorseFleetCollapsed`, `HorseFleetNotSeated`, `HorseCashActionsStopped`, `ClassicCashFloorDark`, `HorseFleetThroughputRelativeDrop`, `HorseFleetHeartbeatStale`) reject stale September table (`< 20`) and horse (`< 40`) floors that conflict with `StableHand.ts` overnight curve (`NIGHT_MIN_OPEN_TABLES`, `NIGHT_MIN_PLAYERS`, `occupancyTargetForHost`, `hostSeatCeiling`), preserve maintenance-break and owner-floor-park guards on every floor-level rule, and bind `GameServer.ts` to include Lightning seated horses in `poker_horses_seated`.
