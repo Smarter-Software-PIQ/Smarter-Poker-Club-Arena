@@ -153,6 +153,14 @@ export const OMAHA_TIGHT_FIELD_PERSONA = 'omaha_tight_field_v1' as const;
  *    control: tight preflop entry, bets and raises only made hands, never
  *    bluffs. Its thresholds are stated in FixedLimitScriptedField.ts with
  *    their sources, and the ones no record gives are labelled design values.
+ *  - flh_passive_caller_v1 (2026-11-21): the calling station of
+ *    ExploiterLeague.ts (calls wide preflop, never folds after the flop, bets
+ *    only strong hands, rarely raises), with its equity bars replaced by made
+ *    classes (design values) so the script stays a pure function.
+ *  - flh_over_folding_blinds_v1 (2026-11-21): never raises; enters and
+ *    defends on the tight-value bars (a six-max blind folds to one raise 82%
+ *    of the time) and after the flop checks or folds to every wager (design
+ *    value: the extreme over-folder).
  * Development personas, not calibrated populations.
  */
 export const FIXED_LIMIT_SCRIPTED_POPULATION_ID = 'flh_scripted_field_v1' as const;
@@ -162,10 +170,18 @@ export const FIXED_LIMIT_SCRIPTED_POPULATION_ID = 'flh_scripted_field_v1' as con
 export const FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['flh', 'nlh']);
 export const FLH_MANIAC_PERSONA = 'flh_maniac_v1' as const;
 export const FLH_TIGHT_VALUE_PERSONA = 'flh_tight_value_v1' as const;
-export type FixedLimitScriptedPersona = typeof FLH_MANIAC_PERSONA | typeof FLH_TIGHT_VALUE_PERSONA;
+export const FLH_PASSIVE_CALLER_PERSONA = 'flh_passive_caller_v1' as const;
+export const FLH_OVER_FOLDING_BLINDS_PERSONA = 'flh_over_folding_blinds_v1' as const;
+export type FixedLimitScriptedPersona =
+  | typeof FLH_MANIAC_PERSONA
+  | typeof FLH_TIGHT_VALUE_PERSONA
+  | typeof FLH_PASSIVE_CALLER_PERSONA
+  | typeof FLH_OVER_FOLDING_BLINDS_PERSONA;
 export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[] = Object.freeze([
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
 ]);
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
@@ -188,4 +204,6 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   OMAHA_TIGHT_FIELD_PERSONA,
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
+  FLH_PASSIVE_CALLER_PERSONA,
+  FLH_OVER_FOLDING_BLINDS_PERSONA,
 ]);

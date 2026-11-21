@@ -128,7 +128,10 @@ describe('a Horse bet size is public information only', () => {
     expect(node.match(/const ownersFinal = publicSized\(/g)).toHaveLength(1);
     // (omahaMathCore, default OFF, 2026-11-19: the node's third return is the core's, outermost over
     // riverNoBlocker(wagerRulesNode()); with the switch off it returns that answer unchanged.)
-    expect(node.match(/return \{\s*decision:/g)).toHaveLength(3);
+    // (omahaFourBetFoldPricedCall, default OFF, lane PREFLOP-UNCONTESTED 2026-11-20: the node's fourth return is
+    // the four-bet rule's. It turns only a final preflop fold into the legal call; the amount is the price to
+    // call (the smaller of the call and the stack), so it carries no bet size and nothing chosen from cards.)
+    expect(node.match(/return \{\s*decision:/g)).toHaveLength(4);
     expect(node.match(/return \{\s*(?:\/\/[^\n]*\s*)*decision: omahaMathCoreRule\(/g)).toHaveLength(
       1
     );

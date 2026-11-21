@@ -98,6 +98,7 @@ import {
   omahaFacingEquityAdmitsCall,
 } from '../HorseOmahaFacingBetEquity.js';
 import { omahaRiverCurrentNutsCallFloorAdmitsCall } from '../HorseOmahaRiverCurrentNutsCallFloor.js';
+import { omahaFourBetFoldPricedCallAdmitsCall } from '../HorseOmahaFourBetFoldPricedCall.js';
 import {
   OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
   omahaMultiwayWeakHandSpot,
@@ -1696,6 +1697,24 @@ function policyGraphIsValidInScope(
         context.gameState,
         transition.after.amount
       );
+    // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (HorseOmahaFourBetFoldPricedCall, option
+    // omahaFourBetFoldPricedCall): in PLO4/PLO5 cash preflop, after hero's own raise, facing a 4-bet or
+    // more heads-up, the node's final fold becomes the call where the engine's priced call of a re-raise
+    // is positive. The spot and the price are re-run here from the request (and the same registered
+    // pricing inputs): fold -> call is admitted only where it holds, for the exact chips the call puts in.
+    const omahaFourBetFoldCalled =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      (transition.after.action === 'call' || transition.after.action === 'all_in') &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFourBetFoldPricedCallAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
     // HORSE DECISIONS lane 2026-11-19 (HorsePlo6FacingBetIsPriced, option
     // plo6FacingBetIsPriced, default off): in PLO6 cash facing a bet on the
     // flop, the turn or the river, a fold (or a raise the paired-board fold
@@ -2005,6 +2024,7 @@ function policyGraphIsValidInScope(
       !omahaFlopFacingBetEvCalled &&
       !omahaFacingEquityCalled &&
       !omahaRiverNutsFloorCalled &&
+      !omahaFourBetFoldCalled &&
       !plo6FacingBetPricedCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
