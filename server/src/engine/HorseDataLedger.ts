@@ -4658,7 +4658,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade10_*',
     'HorseOpponentExploit',
-    'the fast recency window switched a read on, or a gear shift engaged; counts read computations, not decisions',
+    'the fast recency window switched a read on, a gear shift engaged, or (upgrade10_fast_window_calmed_seen, 2026-11-21) the window withdrew a read from a player it calls calm; counts read computations, not decisions',
     '2026-11-12'
   ),
   receipt(
