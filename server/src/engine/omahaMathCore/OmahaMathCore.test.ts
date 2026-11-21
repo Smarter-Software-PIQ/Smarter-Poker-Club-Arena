@@ -581,6 +581,25 @@ describe('omahaMathCore per-street admission (lead 10:55 PM, lane COREWIRE-2) an
       expect(clockReads).toBe(0);
     }
   });
+  it('core off: the realization placement changes nothing (same decision object back, no receipt) on every recorded PLO5 flop state', () => {
+    let n = 0;
+    for (const r of recs) {
+      const { fx, node } = expandFlop(r);
+      const st = stateAt(fx, node);
+      for (const incoming of [
+        { action: 'fold' as const, thinkTime: 1 },
+        { action: 'call' as const, amount: 1, thinkTime: 1 },
+      ]) {
+        for (const opts of [{}, { omahaMathCore: false, ...OMAHA_MATH_CORE_ALL_STREETS }]) {
+          const out = omahaMathCoreRule(incoming, st.hero, st.gs, opts, (d) => d);
+          expect(out).toBe(incoming);
+          expect(out.omahaMathCore).toBeUndefined();
+          n++;
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(0);
+  });
   it('the core changes today action only when its best beats it by more than k standard errors; else the receipt says kept and executes today action', () => {
     expect(OMAHA_MATH_CORE_CHANGE_MARGIN_K).not.toBeNull();
     let kept = 0;
@@ -741,7 +760,7 @@ describe('omahaMathCore realization calibration (CORE-4: the core prices only wh
       expect(realizationCalibrationCell('plo4', 'flop', a)).toBeNull();
     }
   });
-  it('ev = r x (raw + adds) - adds and se = r x se, with the raw price on the receipt', () => {
+  it('ev = raw - (1 - r) x showdown term (CORE-POOLED-4 placement), se unchanged, the raw price on the receipt; a candidate without a showdown term is left alone', () => {
     const evs = [
       {
         action: 'fold',
@@ -759,8 +778,32 @@ describe('omahaMathCore realization calibration (CORE-4: the core prices only wh
         amount: 10,
         adds: 10,
         ev: 20,
+        sd: 24,
         equity: 0.5,
         se: 4,
+        foldProb: 0,
+        foldSource: null,
+        range: null,
+      },
+      {
+        action: 'raise',
+        amount: 40,
+        adds: 40,
+        ev: 7,
+        sd: 50,
+        equity: 0.5,
+        se: 3,
+        foldProb: 0.3,
+        foldSource: null,
+        range: null,
+      },
+      {
+        action: 'call',
+        amount: 10,
+        adds: 10,
+        ev: 5,
+        equity: 0.5,
+        se: 1,
         foldProb: 0,
         foldSource: null,
         range: null,
@@ -768,11 +811,50 @@ describe('omahaMathCore realization calibration (CORE-4: the core prices only wh
     ] as never[];
     applyRealizationCalibration(evs, 'plo5', 'flop');
     const r = realizationCalibrationCell('plo5', 'flop', 'call')!.r;
-    const [f, c] = evs as unknown as { ev: number; se: number; calibration?: { raw: number } }[];
+    const [f, c, ra, bare] = evs as unknown as {
+      ev: number;
+      se: number;
+      calibration?: { raw: number };
+    }[];
     expect(f.ev).toBe(0);
-    expect(c.ev).toBeCloseTo(r * 30 - 10, 9);
-    expect(c.se).toBeCloseTo(r * 4, 9);
+    // only the showdown term is scaled: fold equity, the chips added and later streets are not
+    expect(c.ev).toBeCloseTo(20 - (1 - r) * 24, 9);
+    expect(c.se).toBe(4);
     expect(c.calibration!.raw).toBe(20);
+    const rr = realizationCalibrationCell('plo5', 'flop', 'raise')!.r;
+    expect(ra.ev).toBeCloseTo(7 - (1 - rr) * 50, 9);
+    expect(ra.calibration!.raw).toBe(7);
+    expect(bare.ev).toBe(5);
+    expect(bare.calibration ?? null).toBeNull();
+  });
+  it('a factor above 1 never by itself turns a fold into a raise: the raise must beat the fold at its raw price (r = 1)', () => {
+    const rr = realizationCalibrationCell('plo5', 'flop', 'raise')!.r;
+    expect(rr).toBeGreaterThan(1);
+    const fold = { ev: 0, se: 0 };
+    // raw -1 (fold equity plus equity as priced loses to the fold); the factor lifts the calibrated price to +9
+    const lifted = { ev: -1 + (rr - 1) * 300, se: 0.1, calibration: { raw: -1, rawSe: 0.1 } };
+    expect(lifted.ev).toBeGreaterThan(5 * 0.1);
+    expect(omahaMathCoreFoldBoundaryRawOk(lifted, fold, 'fold', 'raise', 5)).toBe(false);
+    // raw +0.4 with SE 0.1: inside 5 SE at the raw price, still refused whatever the calibrated price says
+    expect(
+      omahaMathCoreFoldBoundaryRawOk(
+        { ev: 12, se: 0.1, calibration: { raw: 0.4, rawSe: 0.1 } },
+        fold,
+        'fold',
+        'raise',
+        5
+      )
+    ).toBe(false);
+    // a raise that wins at the raw price passes this test (the calibrated margin is then applied by the rule)
+    expect(
+      omahaMathCoreFoldBoundaryRawOk(
+        { ev: 12, se: 0.1, calibration: { raw: 8, rawSe: 0.1 } },
+        fold,
+        'fold',
+        'raise',
+        5
+      )
+    ).toBe(true);
   });
   it('a PLO5 flop decision carries the calibration on every non-fold candidate; a river decision on none', () => {
     const flop = decideOmahaMathCore(

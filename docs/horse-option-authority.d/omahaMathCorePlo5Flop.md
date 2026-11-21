@@ -30,5 +30,6 @@ CRITERIA-CORE-POOLED-2-LATENCY as amended (CRITERIA-CORE-POOLED-3-LATENCY-AMEND,
 
 - Mechanism, scope, receipts, law tests, byte-identical off: MET.
 - Value against people: NOT MET (CRITERIA-CORE-POOLED-2-SYM grade INSUFFICIENT: 11 person-live changes, 2 persons; SYM2 not yet replayable).
-- Realization factors measured on the shipped tree: NOT MET (CORE-AUDIT gap 4).
+- Realization factors: re-measured from hand_history (lane CORE-POOLED-4, CRITERIA-CORE-POOLED-4-REALIZATION-AMENDMENT sha256 d7fbd6c8...1c79; placement note sha256 57bd475c...7e50): check 0.677, call 0.809, bet 0.809, raise 1.034; they multiply the action's flop-round showdown term only. The raise factor is the least certain: fit 1.034 +- 0.101 (n 232) against 0.847 +- 0.097 (n 125) on the Nov 18-20 check set; a factor above 1 never by itself turns a fold into a raise (the raise must beat the fold at its raw price). This is a measurement, not a value grade: Evidence stays NOT MET until the SYM2 grade.
+- Raise factor unconfirmed; no activation. The raise cell's level awaits the full-window confirmation (CRITERIA-CORE-POOLED-4-REALIZATION-CONFIRMATION: every hand Oct 16 - Nov 16 and Nov 18-20, same estimator, the adoption rule applied once).
 - Do not switch on.

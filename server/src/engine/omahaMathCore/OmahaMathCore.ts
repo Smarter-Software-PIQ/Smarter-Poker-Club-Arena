@@ -182,9 +182,12 @@ export interface CoreActionEv {
   /** lane DRAWS: later-street chips the showdown equity leaves out (implied / reverse implied / barrel); null = none */
   /**
    * lane CORE-4: measured realization of the core's own priced EV for this street and action (flop and turn);
-   * ev above is the calibrated value r x (raw + adds) - adds; raw is the uncalibrated price
+   * ev above is the calibrated value raw - (1 - r) x sd (lane CORE-POOLED-4 placement, note sha 57bd475c: the
+   * factor multiplies the action's flop-round showdown term only); raw is the uncalibrated price
    */
   calibration?: { r: number; raw: number; rawSe: number | null; cell: string } | null;
+  /** the action's showdown term on this street as priced (planValue path): what realization multiplies */
+  sd?: number;
   future?: {
     chips: number;
     implied: number;
@@ -503,10 +506,11 @@ export function applyRealizationCalibration(
   for (const a of evs) {
     const c = realizationCalibrationCell(variant, street, a.action);
     if (!c) continue;
+    // the one-step fallback path carries no showdown term: it took min(r, 1) inside realized() already
+    if (!(typeof a.sd === 'number' && Number.isFinite(a.sd))) continue;
     const raw = a.ev;
     const rawSe = a.se;
-    a.ev = c.r * (raw + a.adds) - a.adds;
-    if (a.se !== null && Number.isFinite(a.se)) a.se = c.r * a.se;
+    a.ev = raw - (1 - c.r) * Math.max(0, a.sd);
     a.calibration = {
       r: c.r,
       raw: Math.round(raw * 100) / 100,
@@ -757,9 +761,17 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   if (pfm) for (const [seat, r] of pfm.rangeOf) rangeOf.set(seat, r);
 
   // realization: no public measurement yet (the measured tables used exact equity against hidden cards)
+  // lane CORE-POOLED-4 (placement note sha 57bd475c): on a calibrated street the one-step path below multiplies the
+  // equity x pot term of a line that does not close the hand by min(r, 1) of the action's measured cell (min: this
+  // path keeps no raw price to hold the fold boundary against). The planValue path is calibrated on its showdown
+  // term in applyRealizationCalibration. Elsewhere 1.
   const real = 1;
-  const realCell = { source: 'no public realization measurement: none applied' };
-  const realized = (_closing: boolean): number => real;
+  const realCell = { source: 'realization: measured cell on a calibrated street, else none' };
+  const realized = (closing: boolean, action?: string): number => {
+    if (closing || !action || pre) return real;
+    const c = realizationCalibrationCell(String(state.variant).toLowerCase(), street, action);
+    return c ? Math.min(1, c.r) : real;
+  };
 
   // ── lane DRAWS: later streets (PLO4/PLO5 flop and turn; PLO6 and the river get none) ──
   const drawF: OmahaDrawFeatures | null =
@@ -957,7 +969,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       let ev: number;
       let behindNote: string | null = null;
       if ((pfm ? behindPf : behind).length === 0) {
-        let rz = realized(callAllIn || street === 'river');
+        let rz = realized(callAllIn || street === 'river', 'call');
         if (pfm && !callAllIn) {
           // preflop, nobody behind: the measured realization of this call line (admitted own_cards_history)
           const effC = Math.min(
@@ -1079,7 +1091,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           extra += Math.max(0, Math.min(o.stack + o.bet, state.currentBet) - o.bet);
         }
         const e2 = eq([...base, ...cont]);
-        const r = realized(callAllIn);
+        const r = realized(callAllIn || street === 'river', 'call');
         ev =
           pAllFold * (r * e1.equity * rakeNet(state, P + toCall - uncovered) - toCall) +
           (1 - pAllFold) *
@@ -1103,7 +1115,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   } else if (!wired && legalHas(state, 'check')) {
     const rs = live.map((o) => rangeOf.get(o.seat)!);
     const e = eq(rs);
-    let ev = realized(false) * e.equity * rakeNet(state, P);
+    let ev = realized(street === 'river', 'check') * e.equity * rakeNet(state, P);
     let note = 'check closes the street';
     const futCheck = future(P, 0, false, null);
     // The check is a line, not a terminal: heads-up, an opponent still to act wagers at his public
@@ -1145,9 +1157,12 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         const eCheck = eq([checkRange]);
         const heroAllIn = B >= stack - 0.005;
         const callEv =
-          realized(heroAllIn || street === 'river') * eBet.equity * rakeNet(state, P + 2 * B) - B;
+          realized(heroAllIn || street === 'river', 'check') *
+            eBet.equity *
+            rakeNet(state, P + 2 * B) -
+          B;
         const evIfBet = Math.max(0, callEv);
-        const evIfCheck = realized(street === 'river') * eCheck.equity * rakeNet(state, P);
+        const evIfCheck = realized(street === 'river', 'check') * eCheck.equity * rakeNet(state, P);
         ev = br.b * evIfBet + (1 - br.b) * evIfCheck;
         note = `he wagers ${round2(br.b)} [${br.source}] -> hero ${callEv > 0 ? 'calls' : 'folds'} (eq ${round2(eBet.equity)}); checks behind -> eq ${round2(eCheck.equity)}`;
       }
@@ -1310,7 +1325,9 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       let ev =
         pAllFold * rakeNet(state, P, true) +
         (1 - pAllFold) *
-          (realized(anyAllIn || street === 'river') * e.equity * rakeNet(state, P + adds + calls) -
+          (realized(anyAllIn || street === 'river', action) *
+            e.equity *
+            rakeNet(state, P + adds + calls) -
             adds);
       // Heads-up, the opponent may re-raise at his public raise frequency: priced one step deep
       // (his pot-size re-raise from the top of his range; the hero then folds or calls, the better).
@@ -1341,7 +1358,7 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
           ev =
             f.p * rakeNet(state, P, true) +
             pc *
-              (realized(anyAllIn || street === 'river') *
+              (realized(anyAllIn || street === 'river', action) *
                 eCall.equity *
                 rakeNet(state, P + adds + calls) -
                 adds) +
