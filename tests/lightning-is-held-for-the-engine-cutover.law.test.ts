@@ -73,7 +73,7 @@ describe('Lightning is held for the engine cutover', () => {
     // Since 2026-11-21 every scheduled cycle start hour of the target's
     // policy (ROUTINE_START_HOURS; 4 alone when daily).
     expect(fn).toContain(
-      'daily = (((local.hour + 1) % 24) in hours and local.minute >= 58) or (local.hour in hours and local.minute < 5)'
+      'daily = (following in hours and following != local.hour and local.minute >= 58) or (local.hour in hours and previous != local.hour and local.minute < 5)'
     );
     expect(fn).toContain('emergency = m.get("reason") == "Deployment Recovery"');
     // ...narrowed to what THIS run can consume: an owner-window release only

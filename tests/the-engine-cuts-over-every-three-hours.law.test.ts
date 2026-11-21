@@ -170,10 +170,108 @@ describe('every reader of the schedule agrees on the eight hours and the fall-ba
     expect(read('scripts/ci/read-engine-prequalification.py')).toContain(
       `THREE_HOURLY_START_HOURS = ${HOURS_PY}`
     );
-    expect(read('scripts/ci/prestage-engine-image.sh')).toContain(`in ${HOURS_PY}`);
+    expect(read('scripts/ci/prestage-engine-image.sh')).toContain(`hours = ${HOURS_PY} if`);
     const transaction = read('server/scripts/engine-release-transaction.sh');
     expect(transaction).toContain('routine_start_hours\nrequire_backup_certificate');
-    expect(transaction).toContain('raise SystemExit(0 if n.hour in hours and n.minute < 5 else 1)');
+    expect(transaction).toContain(
+      'raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)'
+    );
+    // A v2 policy always lists the eight hours; daily still resolves to 4 alone.
+    expect(transaction).toContain(
+      'print(",".join(str(h) for h in p["startHours"]) if p.get("frequency")=="three-hourly" else "4")'
+    );
+  });
+  // The release transaction's cycle clocks, executed at a pinned instant.
+  const transactionText = read('server/scripts/engine-release-transaction.sh');
+  const pinNow = (code: string) =>
+    code
+      .replace(
+        'datetime.now(ZoneInfo("America/Chicago"))',
+        'datetime.fromtimestamp(int(os.environ["NOW"]), ZoneInfo("America/Chicago"))'
+      )
+      .replace(
+        'local = datetime.now(ZoneInfo("America/Chicago"))',
+        'local = datetime.fromtimestamp(int(os.environ["NOW"]), ZoneInfo("America/Chicago"))'
+      );
+  const clockAt = (code: string, iso: string, hours: string) =>
+    spawnSync('python3', ['-c', `import os\n${pinNow(code)}`], {
+      encoding: 'utf8',
+      env: { ...process.env, NOW: String(Date.parse(iso) / 1000), ROUTINE_START_HOURS: hours },
+    }).status;
+  it('the transaction cycle clock admits only the FIRST fall-back 01:00', () => {
+    const start = transactionText.indexOf('daily_cutover_clock() {');
+    const body = transactionText.slice(
+      transactionText.indexOf("python3 -c '", start) + "python3 -c '".length,
+      transactionText.indexOf("\n'\n}", start)
+    );
+    const three = HOURS.join(',');
+    expect(clockAt(body, '2026-11-01T06:02:00Z', three)).toBe(0); // 01:02 CDT, first
+    expect(clockAt(body, '2026-11-01T07:02:00Z', three)).toBe(1); // 01:02 CST, repeat
+    expect(clockAt(body, '2026-11-01T10:02:00Z', three)).toBe(0); // 04:02 CST
+    expect(clockAt(body, '2026-11-01T10:02:00Z', '4')).toBe(0);
+    expect(clockAt(body, '2026-11-01T06:02:00Z', '4')).toBe(1);
+    expect(clockAt(body, '2026-11-01T10:06:00Z', three)).toBe(1);
+  });
+  it('every daily= admission in the transaction applies the same first-occurrence rule', () => {
+    const lines = transactionText.split('\n').filter((l) => /^\s*daily ?= ?\(/.test(l));
+    expect(lines.length).toBe(3);
+    for (const line of lines) expect(line).toMatch(/!= ?local\.hour/);
+    const snippet = (iso: string, hours: string) =>
+      clockAt(
+        `from datetime import datetime\nfrom zoneinfo import ZoneInfo\nlocal=datetime.now(ZoneInfo("America/Chicago"))\n${lines.find(
+          (l) => l.startsWith('daily=(')
+        )!}\nraise SystemExit(0 if daily else 1)`,
+        iso,
+        hours
+      );
+    expect(snippet('2026-11-01T06:02:00Z', HOURS.join(','))).toBe(0);
+    expect(snippet('2026-11-01T07:02:00Z', HOURS.join(','))).toBe(1);
+    const hold = transactionText.slice(
+      transactionText.indexOf(
+        'hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))\n# Real'
+      )
+    );
+    const holdDaily = hold.slice(0, hold.indexOf('\ncycle = '));
+    const holdAt = (iso: string) =>
+      clockAt(
+        `import os\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nlocal = datetime.now(ZoneInfo("America/Chicago"))\n${holdDaily}\nraise SystemExit(0 if daily else 1)`,
+        iso,
+        HOURS.join(',')
+      );
+    expect(holdAt('2026-11-01T05:59:00Z')).toBe(0); // 00:59 CDT, before the first 01:00
+    expect(holdAt('2026-11-01T06:02:00Z')).toBe(0);
+    expect(holdAt('2026-11-01T06:59:00Z')).toBe(1); // 01:59 CDT: next hour is the repeat
+    expect(holdAt('2026-11-01T07:02:00Z')).toBe(1);
+    expect(holdAt('2026-11-01T09:58:00Z')).toBe(0); // 03:58 CST
+  });
+  it('the host prestage door closes only the cycles the target policy names', () => {
+    const prestage = read('scripts/ci/prestage-engine-image.sh');
+    const code = prestage
+      .slice(prestage.indexOf("<<'PY'\n") + 6, prestage.indexOf('\nPY\n'))
+      .replace('now = int(time.time())', 'now = int(os.environ["NOW"])');
+    const door = (iso: string, hours: string) => {
+      const r = spawnSync('python3', ['-c', code], {
+        encoding: 'utf8',
+        env: { ...process.env, NOW: String(Date.parse(iso) / 1000), START_HOURS: hours },
+      });
+      return r.status === 0 ? Number(r.stdout.trim()) : null;
+    };
+    const three = HOURS.join(',');
+    // 06:40Z Nov 20 = 00:40 CST: inside the 01:00 cycle's closed window.
+    expect(door('2026-11-20T06:40:00Z', three)).toBeNull();
+    expect(door('2026-11-20T06:40:00Z', '4')).toBe(Date.parse('2026-11-20T06:50:00Z') / 1000);
+    // 09:40Z = 03:40 CST: closed under both policies.
+    expect(door('2026-11-20T09:40:00Z', '4')).toBeNull();
+    expect(door('2026-11-20T09:40:00Z', three)).toBeNull();
+    // 09:25Z = 03:25 CST: the daily deadline stops before the 03:30 cutoff.
+    expect(door('2026-11-20T09:25:00Z', '4')).toBe(Date.parse('2026-11-20T09:29:50Z') / 1000);
+    // Fall back: 06:40Z = 01:40 CDT. The repeated 01:00 CST (07:00Z) is not a
+    // cycle, so the door stays open; the next cutoff is 03:30 CST (09:30Z).
+    expect(door('2026-11-01T06:40:00Z', three)).toBe(Date.parse('2026-11-01T06:50:00Z') / 1000);
+    expect(prestage).toContain('[[ "$hours" = 4 || "$hours" = 1,4,7,10,13,16,19,22 ]]');
+    const prequal = read('.github/workflows/engine-release-prequalification.yml');
+    expect(prequal).toContain("'$transport' '$hours'");
+    expect(prequal).toContain('schedule-policy --repo . --sha "$GITHUB_SHA"');
   });
   it('the receiver admits the 30-50 minute preparation of a scheduled cycle only', () => {
     const deploy = read('.github/workflows/auto-deploy-hetzner.yml');
@@ -212,8 +310,10 @@ describe('Stage prepares once per cycle start, never a later cycle early', () =>
     const utc = new Set<number>();
     for (const m of stage.matchAll(/cron: '31,35,39,43 ([0-9,]+) \* \* \*'/g))
       for (const h of m[1].split(',')) utc.add(Number(h));
+    // Preparation hour AND the reservation hour before it, in CST and CDT.
     for (const local of [0, 3, 6, 9, 12, 15, 18, 21])
-      for (const offset of [5, 6]) expect(utc.has((local + offset) % 24)).toBe(true);
+      for (const offset of [5, 6])
+        for (const early of [0, 1]) expect(utc.has((local - early + offset + 24) % 24)).toBe(true);
   });
   it('a run reserves the nearest cycle whose preparation has not ended, at most 100 minutes early', () => {
     // 11:00Z Nov 20 = 05:00 CST; nearest cycle 07:00 CST, preparation 12:30Z.

@@ -683,7 +683,11 @@ if m.get("phase") == "last_hand":
 if not (m.get("active") is True and m.get("phase") == "counting_down" and m.get("durableConfirmed") is True): raise SystemExit(1)
 local = datetime.now(ZoneInfo("America/Chicago"))
 hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))
-daily = (((local.hour + 1) % 24) in hours and local.minute >= 58) or (local.hour in hours and local.minute < 5)
+# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
+hour0 = int(local.timestamp()) // 3600 * 3600
+following = datetime.fromtimestamp(hour0 + 3600, ZoneInfo("America/Chicago")).hour
+previous = datetime.fromtimestamp(hour0 - 3600, ZoneInfo("America/Chicago")).hour
+daily = (following in hours and following != local.hour and local.minute >= 58) or (local.hour in hours and previous != local.hour and local.minute < 5)
 cycle = int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     schedule=m.get("schedule")
@@ -1416,7 +1420,9 @@ from zoneinfo import ZoneInfo
 import os
 hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))
 n = datetime.now(ZoneInfo("America/Chicago"))
-raise SystemExit(0 if n.hour in hours and n.minute < 5 else 1)
+# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
+first = datetime.fromtimestamp(int(n.timestamp()) // 3600 * 3600 - 3600, ZoneInfo("America/Chicago")).hour != n.hour
+raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)
 '
 }
 
@@ -1427,7 +1433,7 @@ routine_start_hours() {
     git -C "$REPO_DIR" cat-file -e "$SHA:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
     policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$SHA")" \
       || die 'routine source policy is invalid'
-    hours="$(printf '%s' "$policy" | python3 -c 'import json,sys; print(",".join(str(h) for h in json.load(sys.stdin).get("startHours") or [4]))')" \
+    hours="$(printf '%s' "$policy" | python3 -c 'import json,sys; p=json.load(sys.stdin); print(",".join(str(h) for h in p["startHours"]) if p.get("frequency")=="three-hourly" else "4")')" \
       || die 'routine source policy start hours are unreadable'
     [[ "$hours" =~ ^[0-9]{1,2}(,[0-9]{1,2})*$ ]] || die 'routine source policy start hours are invalid'
     ROUTINE_START_HOURS="$hours"
@@ -1551,7 +1557,8 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
-daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5)
+# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
+daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)
 cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     import time
@@ -1840,7 +1847,8 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
-daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5)
+# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
+daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)
 cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     import time
