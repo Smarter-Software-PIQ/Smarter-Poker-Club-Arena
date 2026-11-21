@@ -16,7 +16,7 @@
  * (GREEN). Personas: the base request's own, except where it does not reproduce the recorded fold (stated per
  * fixture: the Hybrid persona, the live fleet's, at the stated tightness).
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HorseLogic,
   holdemAllInCallReversal,
@@ -116,7 +116,10 @@ function verdictOf(name: string, persona: Persona = BASE_PERSONA): HoldemAllInCa
   return v;
 }
 
-afterEach(() => HorseMind.reset());
+afterEach(() => {
+  HorseMind.reset();
+  vi.restoreAllMocks();
+});
 
 describe('the price (HorseHoldemTournamentAllInCall)', () => {
   it('with nobody behind the margin is equity minus BF x C / (W + BF x C)', () => {
@@ -339,6 +342,8 @@ describe('postflop: the call is checked against the price with the equity the en
   it('review N3: only a jam is priced postflop; a river bet that is not all in (2b5b823c) is not priced and decides as with the option off', () => {
     // The Phase 7 equity is taken against the preflop bands, not the bettor's line range; against a river bet
     // after two check-calls that pushed folds toward calls (the reverse of audit E's "river calls too light").
+    // Frozen clock: the shadow joint-sampling budget is wall-clock (4 ms), so a loaded runner would otherwise perturb one side.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
     const { gs, player } = buildSpot(AUDIT_CASES['2b5b823c'].spec);
     expect(gs.players.some((p) => p.seat !== player.seat && p.is_all_in === true)).toBe(false);
     for (const seed of SEEDS) {
@@ -392,6 +397,8 @@ const withoutClocks = (d: unknown): string =>
 
 describe('option off: nothing of it runs', () => {
   it('absent and false give the same decision, the same generator state, and no verdict, on every fixture', () => {
+    // Frozen clock: the shadow joint-sampling budget is wall-clock (4 ms), so a loaded runner would otherwise perturb one side.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
     const bodies: Array<[HorseGameStateV2, SeatPlayer, Persona]> = [
       ...Object.values(AUDIT_CASES).map((c) => {
         const { gs, player } = buildSpot(c.spec);

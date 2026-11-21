@@ -46,6 +46,8 @@ import {
   type ExploiterPolicy,
 } from './ExploiterLeague.js';
 import {
+  dealMoodClockMs,
+  leaguePairHandClock,
   playHand,
   type LeagueGameContext,
   type LeagueHandObserver,
@@ -144,9 +146,11 @@ function eqVsRanges(s: LeagueSeatSpot, iterations = 140): number {
 }
 
 /**
- * A deterministic uniform draw in [0, 1) from the public state and own cards. ExploiterLeague's hashRand
- * ends on a signed 32-bit xor, so its value lies in [-0.5, 0.5) and `hashRand() < p` holds for every
- * negative draw (a 45% branch fires about 72% of the time); this folds it back onto [0, 1).
+ * A deterministic uniform draw in [0, 1) from the public state and own cards. Until 2026-11-21
+ * ExploiterLeague's hashRand ended on a signed 32-bit xor, so its value lay in [-0.5, 0.5) and
+ * `hashRand() < p` held for every negative draw (a 45% branch fired about 72% of the time). It is fixed
+ * at its source now; the fold stays because this file is also run against older trees (the overlay of
+ * scripts/sparring.sh), and it is the identity on a fixed one: the draw is the same number either way.
  */
 function rnd(s: LeagueSeatSpot, salt: number): number {
   const x = H.hashRand(s, salt);
@@ -541,9 +545,164 @@ export interface SparringArmResult {
   /** keepPerHand: seat-0 net and Horse-mirror net per hand, bb, in deal order. */
   perHand?: number[];
   perHandMirror?: number[];
+  /** Totals over every seat of both deals (kept for older readers). A verdict's hard flag reads `bySeat.horse`. */
   illegal: number;
   truncated: number;
   brainFallbacks: number;
+  /** The same counts by who acted: `horse` = the opposing Horse seats (the arm's own option set),
+   *  `seat0Brain` = the Horse brain's unchanged answer in seat 0 (probe off its spot, and the mirror),
+   *  `scripted` = the adversary script's own answer. */
+  bySeat: Record<SparringSeatClass, SparringSeatCounts>;
+  /** Scripted wagers this harness moved onto the legal range before the street engine saw them
+   *  (0 on a tree whose ExploiterLeague.wager is legal by construction). */
+  scriptedSnapped: number;
+  /** First divergence per hand from arm 0 on the same deal (arm 0: absent). */
+  flips?: { main: SparringFlipDeal; mirror?: SparringFlipDeal };
+  /** keepPerHand: the public action line of each hand (seat, street, action, amount; no cards). */
+  perHandLine?: string[];
+  perHandMirrorLine?: string[];
+}
+
+export type SparringSeatClass = 'horse' | 'seat0Brain' | 'scripted';
+export interface SparringSeatCounts {
+  illegal: number;
+  brainFallback: number;
+  corrected: number;
+}
+
+/** One applied action of a hand as the street engine recorded it (public; no cards). */
+export type SparringTraceEvent = { s: number; st: string; a: string; m: number };
+
+/**
+ * FLIPS (2026-11-21, BENCH-FIX). Two arms play the same deal; the first action at which their lines
+ * part is the hand's flip. `compared` is the denominator: the decisions of arm 0 that the other arm
+ * met on the SAME line of the hand (the common prefix, and the parting decision itself), by who acted
+ * and street. Decisions after the parting point are not comparable and are not counted.
+ */
+export interface SparringFlipDeal {
+  hands: number;
+  handsDiffering: number;
+  /** Index of the first hand of the cell whose line differs (null: none). */
+  firstDifferingHand: number | null;
+  /** `${'horse' | 'seat0'}|${street}` -> decisions compared. */
+  compared: Record<string, number>;
+  /** `${'horse' | 'seat0'}|${street}|${class}` -> hands; class = `a->b` or `size`. */
+  flips: Record<string, number>;
+  /** Hands whose seat-0 net differs from arm 0's, and the summed absolute difference in bb. */
+  netDiffHands: number;
+  netAbsDiffBb: number;
+}
+
+export function newSparringFlipDeal(): SparringFlipDeal {
+  return {
+    hands: 0,
+    handsDiffering: 0,
+    firstDifferingHand: null,
+    compared: {},
+    flips: {},
+    netDiffHands: 0,
+    netAbsDiffBb: 0,
+  };
+}
+
+/** Fold one hand into `acc`: `base` is arm 0's line, `other` the compared arm's, on the same deal. */
+export function addSparringFlipHand(
+  acc: SparringFlipDeal,
+  base: readonly SparringTraceEvent[],
+  other: readonly SparringTraceEvent[],
+  handIdx: number,
+  netBaseBb: number,
+  netOtherBb: number
+): void {
+  const who = (s: number) => (s === EXPLOITER_SEAT ? 'seat0' : 'horse');
+  const inc = (o: Record<string, number>, k: string) => (o[k] = (o[k] ?? 0) + 1);
+  acc.hands++;
+  const n = Math.min(base.length, other.length);
+  let k = 0;
+  while (k < n) {
+    const x = base[k];
+    const y = other[k];
+    if (x.s !== y.s || x.st !== y.st || x.a !== y.a || x.m !== y.m) break;
+    k++;
+  }
+  const differs = !(k === base.length && k === other.length);
+  const upto = differs ? Math.min(k + 1, base.length) : k;
+  for (let j = 0; j < upto; j++) inc(acc.compared, `${who(base[j].s)}|${base[j].st}`);
+  if (netBaseBb !== netOtherBb) {
+    acc.netDiffHands++;
+    acc.netAbsDiffBb += Math.abs(netOtherBb - netBaseBb);
+  }
+  if (!differs) return;
+  acc.handsDiffering++;
+  if (acc.firstDifferingHand === null) acc.firstDifferingHand = handIdx;
+  if (k >= n) {
+    inc(acc.flips, 'line|length');
+    return;
+  }
+  const x = base[k];
+  const y = other[k];
+  if (x.s !== y.s || x.st !== y.st) {
+    inc(acc.flips, 'line|actor');
+    return;
+  }
+  inc(acc.flips, `${who(x.s)}|${x.st}|${x.a === y.a ? 'size' : `${x.a}->${y.a}`}`);
+}
+
+/** The public line of a hand as one string (cross-tree pairing; scripts/sparring-compare.py reads it). */
+export function sparringLineOf(line: readonly SparringTraceEvent[]): string {
+  return line.map((e) => `${e.s}/${e.st}/${e.a}/${e.m}`).join(';');
+}
+
+/**
+ * The legal wager nearest `to` (the copy of ExploiterLeague.legalWagerTo this harness applies to the
+ * script's own wagers, so a tree whose ExploiterLeague still rounds after the clamp is measured with a
+ * legal adversary too): the whole chip nearest `to` when it lies in [minTo, maxTo], else the range's
+ * own bound in whole cents.
+ */
+export function sparringLegalWagerTo(minTo: number, maxTo: number, to: number): number {
+  const lo = Math.ceil(minTo * 100 - 1e-6) / 100;
+  const hi = Math.floor(maxTo * 100 + 1e-6) / 100;
+  return Math.min(hi, Math.max(lo, Math.round(to)));
+}
+
+/** Standard-normal quantile (Acklam's rational approximation; relative error under 1.2e-9). */
+export function normalQuantile(p: number): number {
+  if (!(p > 0 && p < 1)) throw new Error('normalQuantile: p must be inside (0, 1)');
+  const a = [
+    -39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716,
+    2.506628277459239,
+  ];
+  const b = [
+    -54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972,
+    -13.28068155288572,
+  ];
+  const c = [
+    -0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734,
+    4.374664141464968, 2.938163982698783,
+  ];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const lo = 0.02425;
+  if (p < lo) {
+    const q = Math.sqrt(-2 * Math.log(p));
+    return (
+      (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+      ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    );
+  }
+  if (p > 1 - lo) return -normalQuantile(1 - p);
+  const q = p - 0.5;
+  const r = q * q;
+  return (
+    ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q) /
+    (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+  );
+}
+
+/** LEAD-3 RULING 1: the guard bar for a family of m looks, z_fam(m) = the normal quantile of 0.8413^(1/m). */
+export function guardFamilyZ(m: number): number {
+  if (!(Number.isInteger(m) && m >= 1))
+    throw new Error('guardFamilyZ: m must be a positive integer');
+  return normalQuantile(Math.pow(0.8413, 1 / m));
 }
 
 export interface SparringCellResult {
@@ -575,7 +734,15 @@ interface ArmState {
   stats: Record<string, number>;
   fold: Record<string, { n: number; fold: number }>;
   tells: TellTable;
-  counters: { illegal: number; truncated: number; brainFallback?: number };
+  counters: { illegal: number; truncated: number; brainFallback?: number; corrected?: number };
+  bySeat: Record<SparringSeatClass, SparringSeatCounts>;
+  snapped: number;
+  lineE: SparringTraceEvent[];
+  lineC: SparringTraceEvent[];
+  linesE: string[];
+  linesC: string[];
+  flipE: SparringFlipDeal;
+  flipC: SparringFlipDeal;
 }
 
 function devTag(s: LeagueSeatSpot, d: Decision): string {
@@ -598,19 +765,53 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       ? { gameMode: 'cash', format: 'cash', ante: (spec.bbAnte ?? 0) * BB, bigBlindAnte: true }
       : { gameMode: 'cash', format: 'cash', ante: 0 };
   const seat0Opts: HorseDecideOpts = spec.seat0Opts ?? spec.arms[0].horseOpts;
-  const states: ArmState[] = spec.arms.map((arm) => ({
-    arm,
-    sbE: HorseMind.createSandbox(),
-    sbC: HorseMind.createSandbox(),
-    e: [],
-    c: [],
-    chip: {},
-    dev: {},
-    stats: {},
-    fold: {},
-    tells: {},
-    counters: { illegal: 0, truncated: 0 },
-  }));
+  // WHO ACTED, for the legality counters. playHand counts an illegal action, a brain-exception
+  // fallback and a corrected action on one tally for every seat; the street engine validates an
+  // answer right after the seat gave it and before the next seat is asked, so the class of the seat
+  // that answered last is the class the increment belongs to. Seat 0 sets it when it answers; the
+  // action observer (called after validation, for every seat) sets it back to `horse`.
+  let actor: SparringSeatClass = 'horse';
+  const seatCounters = (
+    by: Record<SparringSeatClass, SparringSeatCounts>
+  ): ArmState['counters'] => {
+    const tot = { illegal: 0, brainFallback: 0, corrected: 0 };
+    const c = { truncated: 0 } as ArmState['counters'];
+    for (const k of ['illegal', 'brainFallback', 'corrected'] as const)
+      Object.defineProperty(c, k, {
+        enumerable: true,
+        get: () => tot[k],
+        set: (v: number) => {
+          by[actor][k] += v - tot[k];
+          tot[k] = v;
+        },
+      });
+    return c;
+  };
+  const zero = (): SparringSeatCounts => ({ illegal: 0, brainFallback: 0, corrected: 0 });
+  const states: ArmState[] = spec.arms.map((arm) => {
+    const bySeat = { horse: zero(), seat0Brain: zero(), scripted: zero() };
+    return {
+      arm,
+      sbE: HorseMind.createSandbox(),
+      sbC: HorseMind.createSandbox(),
+      e: [],
+      c: [],
+      chip: {},
+      dev: {},
+      stats: {},
+      fold: {},
+      tells: {},
+      counters: seatCounters(bySeat),
+      bySeat,
+      snapped: 0,
+      lineE: [],
+      lineC: [],
+      linesE: [],
+      linesC: [],
+      flipE: newSparringFlipDeal(),
+      flipC: newSparringFlipDeal(),
+    };
+  });
 
   // Per-hand tracking (one hand is played at a time).
   let devFirst: string | null = null;
@@ -715,7 +916,22 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       seat === EXPLOITER_SEAT
         ? (spot) => {
             let h: Decision | null = null;
-            const d = pol(spot, () => (h = spot.horseDecide(hybrid.style, mods, seat0Opts)));
+            let d = pol(spot, () => (h = spot.horseDecide(hybrid.style, mods, dealt(seat0Opts))));
+            // The Horse brain's own answer passes through untouched (an illegal one must be seen
+            // and counted as the brain's); the script's own wager is legal by construction.
+            actor = h !== null && d === h ? 'seat0Brain' : 'scripted';
+            if (
+              actor === 'scripted' &&
+              (d.action === 'bet' || d.action === 'raise') &&
+              spot.minRaiseTo !== null &&
+              spot.maxRaiseTo !== null
+            ) {
+              const legal = sparringLegalWagerTo(spot.minRaiseTo, spot.maxRaiseTo, d.amount ?? 0);
+              if (legal !== d.amount) {
+                st.snapped++;
+                d = { ...d, amount: legal };
+              }
+            }
             if (track && devFirst === null && h !== null) {
               const hd = h as Decision;
               if (hd.action !== d.action || (H.isWager(d) && hd.amount !== d.amount))
@@ -725,6 +941,17 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
           }
         : undefined;
   const mirrorPolicy: ExploiterPolicy = (_s, horse) => horse();
+  let moodMs = 0;
+  const dealt = (o: HorseDecideOpts): HorseDecideOpts => ({ ...o, decisionTimeMs: moodMs });
+  /** Records the hand's public line and hands the legality tally back to the Horse seats. */
+  const traced = (line: SparringTraceEvent[], inner?: LeagueHandObserver): LeagueHandObserver => ({
+    onAction: (e) => {
+      actor = 'horse';
+      line.push({ s: e.seatIdx, st: e.stage, a: e.action, m: e.amount });
+      inner?.onAction?.(e);
+    },
+    onEnd: (e) => inner?.onEnd?.(e),
+  });
 
   const rng = saveFastRandom();
   try {
@@ -732,6 +959,21 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
       const handSeed = (seed ^ (p * 2654435761)) >>> 0 || 1;
       const dealerSeat = (p % seats) + 1;
+      // ONE HAND CLOCK FOR EVERY DEAL OF THE PAIR (2026-11-21, BENCH-FIX). playHand without a clock
+      // takes the next slot of a process-wide counter, so each arm (and each arm's mirror) was dealt
+      // on other timestamps; the brain keys per-hand draws on `timestamp:userId` (persona
+      // indifference band, chart adherence), so two arms with IDENTICAL options drew different
+      // mixes and parted. The league runners were moved to leaguePairHandClock on 2026-11-13; this
+      // card was written after and still passed none. Each deal keeps its own HorseMind sandbox.
+      const handClock = leaguePairHandClock(p, seed);
+      // THE MOOD HOUR IS PART OF THE DEAL. The brain's hourly mood (HorseLogic moodOf: bluff volume
+      // x 0.88-1.12, aggression x 0.96-1.04 per Horse and hour) reads the WALL CLOCK unless a decision
+      // carries decisionTimeMs, so a cell gave other hands in another hour, a replay of a cell did not
+      // match its first run, and in cross-tree mode the two trees' processes could play one cell in
+      // two different hours. Every decision of the pair, in every arm and deal, now carries
+      // dealMoodClockMs(handSeed) (the league's own 'deal_seed' mood clock): an hour drawn uniformly
+      // from the day, like production play, and the same whenever and wherever the cell runs.
+      moodMs = dealMoodClockMs(handSeed);
       for (const st of states) {
         cur = st;
         const field: LeagueHumanField = {
@@ -748,11 +990,15 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
         stageNow = 'preflop';
         prevAggSeat = -1;
         curAggSeat = -1;
+        actor = 'horse';
+        st.lineE = [];
+        st.lineC = [];
+        const armOpts = dealt(st.arm.horseOpts);
         const e =
           playHand(
             handSeed,
             dealerSeat,
-            () => st.arm.horseOpts,
+            () => armOpts,
             st.counters,
             st.sbE,
             variant,
@@ -763,7 +1009,8 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
             field,
             (): HorseStyle => hybrid.style,
             true,
-            observer(st)
+            traced(st.lineE, observer(st)),
+            handClock
           )[EXPLOITER_SEAT] / BB;
         st.e.push(e);
         const s = st.stats;
@@ -788,7 +1035,7 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
             playHand(
               handSeed,
               dealerSeat,
-              () => st.arm.horseOpts,
+              () => armOpts,
               st.counters,
               st.sbC,
               variant,
@@ -799,7 +1046,8 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
               control,
               (): HorseStyle => hybrid.style,
               true,
-              undefined
+              traced(st.lineC),
+              handClock
             )[EXPLOITER_SEAT] / BB;
           st.c.push(c);
           if (tag !== null) {
@@ -808,6 +1056,16 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
             t.edge += e - c;
           }
         }
+        if (spec.keepPerHand) {
+          st.linesE.push(sparringLineOf(st.lineE));
+          if (spec.mirror) st.linesC.push(sparringLineOf(st.lineC));
+        }
+      }
+      const s0 = states[0];
+      for (let i = 1; i < states.length; i++) {
+        const st = states[i];
+        addSparringFlipHand(st.flipE, s0.lineE, st.lineE, p, s0.e[p], st.e[p]);
+        if (spec.mirror) addSparringFlipHand(st.flipC, s0.lineC, st.lineC, p, s0.c[p], st.c[p]);
       }
     }
   } finally {
@@ -857,8 +1115,13 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
         ? {
             perHand: st.e.map((x) => Math.round(x * 100) / 100),
             ...(spec.mirror ? { perHandMirror: st.c.map((x) => Math.round(x * 100) / 100) } : {}),
+            perHandLine: st.linesE,
+            ...(spec.mirror ? { perHandMirrorLine: st.linesC } : {}),
           }
         : {}),
+      bySeat: st.bySeat,
+      scriptedSnapped: st.snapped,
+      ...(i > 0 ? { flips: { main: st.flipE, ...(spec.mirror ? { mirror: st.flipC } : {}) } } : {}),
       illegal: st.counters.illegal,
       truncated: st.counters.truncated,
       brainFallbacks: st.counters.brainFallback ?? 0,
