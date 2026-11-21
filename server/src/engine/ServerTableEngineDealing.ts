@@ -1606,153 +1606,51 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                 );
               }
             } else if (this.tableInfo?.tournament_id) {
-              try {
-                // .maybeSingle(), never .single() (2026-08-26). This was
-                // .single(), which answers zero rows with
-                // { data: null, error: PGRST116 } instead of throwing — so the
-                // catch below never fired, the error was discarded with the
-                // destructure, `t` came back null, needsRebuyPause stayed
-                // false, and a busted player in a rebuy tournament lost the
-                // five second window to buy back in. The next hand simply
-                // started. Nothing logged.
-                const { data: t, error: tErr } = await supabase
-                  .from('tournaments')
-                  .select(
-                    'is_rebuy, is_reentry, rebuy_levels, late_reg_levels, addon_levels, add_on_available, current_level, prize_pool_finalized'
-                  )
-                  .eq('id', this.tableInfo.tournament_id)
-                  .maybeSingle();
+              /**
+               * Dan 2026-08-30: "REBUYS IN A TOURNAMENT SHOULD NOT PAUSE THE
+               * ACTION." The 5-second rebuy pause is CASH-ONLY. A busted
+               * tournament player's rebuy decision window lives in the
+               * elimination sweep (REBUY_DECISION_GRACE_MS in
+               * TournamentManagerEliminations).
+               *
+               * 2026-11-20: Removed the dead blocking `supabase.from('tournaments')`
+               * round-trip that used to sit here purely to log that the table
+               * does not pause. Because this runs immediately after
+               * `armNextHandRest`, that unnecessary DB read burned 200-700ms+
+               * of the 1500ms rest on every tournament bust (especially
+               * all_in_showdown hands) before emitting `seat_left`, waking
+               * TournamentManager, or entering `prepareNextHand()`.
+               *
+               * The hand-stack RPC commits stack=0, tournament_players=0,
+               * the physical seat exit and the table count in one database
+               * transaction. The engine only publishes that committed fact
+               * and wakes the rebuy/elimination state machine; it never
+               * performs a second compensating seat or roster write.
+               */
+              for (const player of justBustedPlayers) {
+                if (!player.user_id) continue;
+                this.hub?.emitEvent(this.tableId, {
+                  type: 'seat_left',
+                  table_id: this.tableId,
+                  user_id: player.user_id,
+                  reason: 'busted_awaiting_rebuy_decision',
+                  timestamp: Date.now(),
+                } as never);
+              }
 
-                if (tErr) throw tErr;
-
-                if (t && (t.is_rebuy || (t as { is_reentry?: boolean }).is_reentry)) {
-                  /* REBUY-WINDOW 2026-08-27: this gate now does the same
-                     arithmetic process_tournament_rebuy does, because four
-                     sites were computing three different answers.
-
-                     Production config on the dominant template is
-                     rebuy_levels 6 / late_reg_levels 8 / addon_levels 1 /
-                     add_on_available true, and the four sites disagreed:
-
-                       SQL (the authority)   levels 0-6   (cap 6+1, closed >= 7)
-                       this gate             levels 0-6   by luck; ignored add-on
-                       client canRebuy       levels 0-8   late_reg_levels FIRST
-                       tryTournamentRebuys   levels 0-6   permissive by one
-
-                     So at levels 7-8 the client opened a modal, the table did
-                     NOT pause, and the RPC threw 'Rebuy period has closed'.
-
-                     Four corrections, all matching the SQL:
-                       - NULLIF(...,0) semantics, not `??`. `rebuy_levels = 0`
-                         yielded cap 0 here, which this code read as "no cap" —
-                         an unconditional 5s stall on every bust for the whole
-                         event. A stray pause is as much a tell as a missing one.
-                       - rebuy_levels FIRST, then late_reg_levels.
-                       - + addon_levels when add_on_available (migration
-                         20260823310000, rebuys stay open through the add-on
-                         window).
-                       - closed at `>= cap`, not `<= cap`. */
-                  const nz = (v: unknown): number | null => {
-                    const n = Number(v);
-                    return Number.isFinite(n) && n !== 0 ? n : null;
-                  };
-                  let cap = nz(t.rebuy_levels) ?? nz(t.late_reg_levels) ?? 0;
-                  if (cap > 0 && (t as { add_on_available?: boolean }).add_on_available) {
-                    cap += nz((t as { addon_levels?: number }).addon_levels) ?? 1;
-                  }
-                  const level = Number(t.current_level ?? 0);
-                  const windowOpen = cap === 0 || level < cap;
-                  /* A finalized prize pool cannot take another chip — the RPC
-                     refuses it. Holding the felt for a purchase that is going
-                     to be refused helps nobody. */
-                  const poolOpen = !(t as { prize_pool_finalized?: boolean }).prize_pool_finalized;
-                  /**
-                   * Dan 2026-08-30, verbatim: "REBUYS IN A TOURNAMENT SHOULD
-                   * NOT PAUSE THE ACTION." The felt rolls on; the busted
-                   * player's DECISION WINDOW lives in the elimination sweep
-                   * now (REBUY_DECISION_GRACE_MS in
-                   * TournamentManagerEliminations), and a landed rebuy
-                   * re-seats them wherever the balancer most needs a player —
-                   * same table and seat included. The window arithmetic above
-                   * is still computed so the log says WHY nothing paused.
-                   * The 5-second pause remains CASH-ONLY (section 10.5: same
-                   * pause for horse and human at cash tables).
-                   */
-                  if (windowOpen && poolOpen) {
-                    console.log(
-                      `[ServerTableEngine:${this.tableId}] Tournament bust - rebuy window open, table does NOT pause (Dan 2026-08-30); elimination grace covers the decision`
-                    );
-                  }
+              if (this.handCompleteCallback && justBustedPlayers.length > 0) {
+                try {
+                  this.handCompleteCallback(
+                    this.tableId,
+                    justBustedPlayers
+                      .filter((player) => !!player.user_id)
+                      .map((player) => ({ user_id: player.user_id!, stack: 0 }))
+                  );
+                } catch (wakeErr) {
+                  reportError(wakeErr, 'ServerTableEngine.busted_fallback_wake_failed', {
+                    tableId: this.tableId,
+                  });
                 }
-
-                /**
-                 * THE BLOCK BELOW USED TO SIT INSIDE THE REBUY BRANCH ABOVE,
-                 * AND THAT MADE IT UNREACHABLE FOR MOST OF THE PRODUCT (Dan
-                 * 2026-09-05: "IM SURE THIS SAME BUG EXISTS IN ALL THE OTHER
-                 * SEATS FOR MTT, SPINS AND HEADS UP AS WELL. CHECK FOR ALL
-                 * SIMILAR BUGS GLOBALLY.").
-                 *
-                 * The gate it sat behind is `is_rebuy || is_reentry`. spinSpec
-                 * and headsUpSpec declare neither, and a freezeout MTT declares
-                 * neither by definition - so a busted Spin, Heads-Up or
-                 * freezeout seat was NEVER vacated here. It sat on the felt
-                 * until the former polling sweep noticed it later, which is
-                 * exactly the lingering
-                 * this block was written to end.
-                 *
-                 * The rebuy arithmetic has not moved and is still gated, because
-                 * it is genuinely about rebuy events. Vacating a busted seat is
-                 * not: a seat with no chips in it is finished at every format.
-                 */
-
-                // The hand-stack RPC commits stack=0, tournament_players=0,
-                // the physical seat exit and the table count in one database
-                // transaction. The engine only publishes that committed fact
-                // and wakes the rebuy/elimination state machine; it never
-                // performs a second compensating seat or roster write.
-                for (const player of justBustedPlayers) {
-                  if (!player.user_id) continue;
-                  this.hub?.emitEvent(this.tableId, {
-                    type: 'seat_left',
-                    table_id: this.tableId,
-                    user_id: player.user_id,
-                    reason: 'busted_awaiting_rebuy_decision',
-                    timestamp: Date.now(),
-                  } as never);
-                }
-
-                if (this.handCompleteCallback && justBustedPlayers.length > 0) {
-                  try {
-                    this.handCompleteCallback(
-                      this.tableId,
-                      justBustedPlayers
-                        .filter((player) => !!player.user_id)
-                        .map((player) => ({ user_id: player.user_id!, stack: 0 }))
-                    );
-                  } catch (wakeErr) {
-                    reportError(wakeErr, 'ServerTableEngine.busted_fallback_wake_failed', {
-                      tableId: this.tableId,
-                    });
-                  }
-                }
-              } catch (err) {
-                /* FAIL OPEN, not closed (2026-08-27). This read decides whether
-                   a busted player gets the window they are entitled to. It used
-                   to log and leave `needsRebuyPause` false, so one transient
-                   Supabase blip silently deleted somebody's chance to buy back
-                   in and the next hand just started. Erring toward the pause
-                   costs five seconds; erring away from it costs a tournament
-                   life. Every other money-adjacent read in this codebase was
-                   converted to treat unreadable as UNKNOWN rather than as NO
-                   (see PAYOUT-INTEGRITY 2026-08-25); this one had not been. */
-                // Tournament tables never pause for rebuys (Dan 2026-08-30);
-                // an unreadable window costs a log line, not a stall. The
-                // elimination-side grace is the fail-open that protects the
-                // player now.
-                console.error(
-                  `[ServerTableEngine:${this.tableId}] Rebuy-window read failed (tournament - no pause either way):`,
-                  err
-                );
               }
             }
 

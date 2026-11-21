@@ -1,0 +1,3 @@
+# A second owner-window dispatch joins the offer dedupe
+
+On 2026-11-21 00:02Z three Stage dispatches for window 2026-11-20-owner-no-notice-engine-2330z landed inside seven seconds. Owner windows skipped the offer step's receiver check, so each sent a request; two shared one receiver, the third receiver failed at prepare (refused by the host's single-use claim) and raised a false release alert. The offer step now applies the same receiver/interval dedupe to owner windows, and the signal job takes turns per engine SHA (concurrency, never cancelled) so the second offer reads the first one's receiver. Pinned in `tests/an-owed-engine-release-is-offered-until-production-holds-it.law.test.ts`.

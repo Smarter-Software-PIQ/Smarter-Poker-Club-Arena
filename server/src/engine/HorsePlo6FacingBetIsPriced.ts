@@ -57,14 +57,19 @@
  */
 import type { SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import {
-  omahaFlopFacingBetEvSpot,
-  omahaFlopFacingBetEvVerdict,
-} from './HorseOmahaFlopFacingBetEv.js';
 import { omahaPricedBet, omahaPricedRaise } from './HorseOmahaPricedRules.js';
 import { OMAHA_PRICED_MODE_OFF, withOmahaPricedMode } from './HorseOmahaPricedMode.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 import { realizationFactor } from './GtoFacingDefenseV32.js';
+import { plo6FlopDefenceVerdict } from './HorsePlo6FlopDefence.js';
+import {
+  plo6HasPrivateRiverNuts,
+  plo6MultiwayRiverVerdict,
+  plo6RiverCurrentNutsCallSpot,
+  plo6RiverFoldGuardStands,
+  plo6RiverStandingCallHolds,
+} from './HorsePlo6RiverDefence.js';
+import { plo6MultiwayTurnVerdict } from './HorsePlo6MultiwayTurnField.js';
 
 export type Plo6FacingBetStreet = 'flop' | 'turn' | 'river';
 
@@ -101,6 +106,14 @@ export interface Plo6FacingBetPricedVerdict {
   pTie: number;
   price: number;
   source: 'exact' | 'sampled';
+  /** E7: exact six-card M1 river fold bar (beaten >= 0.15 paired / >= 0.30 unpaired, price > 0.10) */
+  riverFoldGuardStands?: boolean;
+  /** E7: true when a standing river call has >= 20% equity against the bettor's value region */
+  standingRiverCallHolds?: boolean;
+  /** E7: exact unbeatable six-card current river nuts where worst-case chop >= call */
+  currentRiverNutsFloor?: boolean;
+  /** E7: exact unbeatable private-card river nuts (a standing river raise must never be flattened) */
+  privateRiverNuts?: boolean;
 }
 
 /**
@@ -161,23 +174,17 @@ export function plo6FacingBetPriced(
     return withOmahaPricedMode(OMAHA_PRICED_MODE_OFF, () => {
       const rake = Math.max(0, Math.min(0.2, Number.isFinite(inputs.rake) ? inputs.rake : 0));
       if (street === 'flop') {
-        const spot = omahaFlopFacingBetEvSpot(player, gs, { plo6Priced: true });
-        if (!spot) return null;
-        const v = omahaFlopFacingBetEvVerdict(
-          spot,
-          player.cards ?? [],
-          gs.communityCards ?? [],
-          player.knownDeadCards ?? [],
-          null,
-          { rake, inPosition: inputs.inPosition === true, sixCards: true }
-        );
+        const v = plo6FlopDefenceVerdict(player, gs, {
+          rake,
+          inPosition: inputs.inPosition === true,
+        });
         if (!v) return null;
         return {
           street,
           action: v.call ? 'call' : 'fold',
           raiseTo: 0,
-          paid: spot.paid,
-          allInCall: spot.allIn,
+          paid: v.spot.paid,
+          allInCall: v.spot.allIn,
           evCall: v.ev,
           margin: v.margin,
           callPriced: v.call,
@@ -188,30 +195,124 @@ export function plo6FacingBetPriced(
           source: 'sampled',
         };
       }
+      if (street === 'turn') {
+        const mw = plo6MultiwayTurnVerdict(player, gs, {
+          rake,
+          inPosition: inputs.inPosition === true,
+        });
+        if (mw) {
+          return {
+            street,
+            action: mw.call ? 'call' : 'fold',
+            raiseTo: 0,
+            paid: mw.spot.paid,
+            allInCall: mw.spot.allIn,
+            evCall: mw.ev,
+            margin: mw.margin,
+            callPriced: mw.call,
+            evRaise: null,
+            pWin: mw.pWin,
+            pTie: mw.pTie,
+            price: mw.price,
+            source: 'sampled',
+          };
+        }
+      }
       const r = omahaPricedRaise(player, gs, {
         rake,
         realization: inputs.realization,
         plo6Priced: true,
       });
-      if (!r) return null;
-      const callPriced = r.call.call;
-      // The turn: fold or call only (a turn raise is not priced by this option).
-      const action: Plo6FacingBetPricedVerdict['action'] =
-        street === 'river' ? r.action : callPriced ? 'call' : 'fold';
+      if (!r) {
+        if (street === 'river') {
+          const nutsSpot = plo6RiverCurrentNutsCallSpot(player, gs);
+          if (nutsSpot) {
+            const pot = Math.max(0, Number.isFinite(gs.pot) ? gs.pot : 0);
+            const price = nutsSpot.paid / Math.max(1e-9, pot + nutsSpot.paid);
+            return {
+              street,
+              action: 'call',
+              raiseTo: 0,
+              paid: nutsSpot.paid,
+              allInCall: nutsSpot.allIn,
+              evCall: Math.max(0.01, pot - nutsSpot.paid),
+              margin: 0,
+              callPriced: true,
+              evRaise: null,
+              pWin: 1,
+              pTie: 0,
+              price,
+              source: 'exact',
+              riverFoldGuardStands: false,
+              currentRiverNutsFloor: true,
+              privateRiverNuts: plo6HasPrivateRiverNuts(player, gs),
+            };
+          }
+        }
+        return null;
+      }
+      if (street === 'turn') {
+        const callPriced = r.call.call;
+        return {
+          street,
+          action: callPriced ? 'call' : 'fold',
+          raiseTo: 0,
+          paid: r.spot.paid,
+          allInCall: r.spot.allIn,
+          evCall: r.call.ev,
+          margin: r.call.margin,
+          callPriced,
+          evRaise: null,
+          pWin: r.call.pWin,
+          pTie: r.call.pTie,
+          price: r.call.price,
+          source: 'exact',
+        };
+      }
+      // E7 (river): joint six-card multiway river field + value-domination guard + current-nuts floor + nut-raise protection.
+      const nutsSpot = plo6RiverCurrentNutsCallSpot(player, gs);
+      const privateRiverNuts = plo6HasPrivateRiverNuts(player, gs, r.spot);
+      const mwRiver =
+        r.spot.callers + r.spot.allIns + r.spot.behind > 0
+          ? plo6MultiwayRiverVerdict(player, gs, { rake }, r.spot)
+          : null;
+      const guardStands =
+        nutsSpot !== null ? false : plo6RiverFoldGuardStands(player, gs, r.spot) === true;
+      const standingCallHolds =
+        !guardStands && mwRiver === null && plo6RiverStandingCallHolds(player, gs, r.spot);
+      const baseCallOk = mwRiver !== null ? mwRiver.call : r.call.call;
+      const callPriced = nutsSpot !== null ? true : baseCallOk && !guardStands;
+      const evCallRaw = mwRiver !== null ? mwRiver.ev : r.call.ev;
+      const marginRaw = mwRiver !== null ? mwRiver.margin : r.call.margin;
+      let action: Plo6FacingBetPricedVerdict['action'];
+      if (guardStands) {
+        action = 'fold';
+      } else if (
+        (r.action === 'raise' || r.action === 'all_in') &&
+        (mwRiver === null || callPriced || privateRiverNuts)
+      ) {
+        action = r.action;
+      } else {
+        action = callPriced ? 'call' : 'fold';
+      }
       return {
         street,
         action,
         raiseTo: action === 'raise' || action === 'all_in' ? r.amount : 0,
         paid: r.spot.paid,
         allInCall: r.spot.allIn,
-        evCall: r.call.ev,
-        margin: r.call.margin,
+        evCall: nutsSpot !== null && evCallRaw <= marginRaw ? marginRaw + 0.01 : evCallRaw,
+        margin: marginRaw,
         callPriced,
-        evRaise: street === 'river' && r.best ? r.best.ev : null,
-        pWin: r.call.pWin,
-        pTie: r.call.pTie,
+        evRaise: r.best ? r.best.ev : null,
+        pWin: mwRiver !== null ? mwRiver.pWin : r.call.pWin,
+        pTie: mwRiver !== null ? mwRiver.pTie : r.call.pTie,
         price: r.call.price,
-        source: 'exact',
+        source: mwRiver !== null ? 'sampled' : 'exact',
+        riverFoldGuardStands: guardStands,
+        standingRiverCallHolds: standingCallHolds,
+        currentRiverNutsFloor: nutsSpot !== null,
+        privateRiverNuts,
       };
     });
   } catch {

@@ -742,9 +742,25 @@ jobs:
           python3 "$STAGE/server/scripts/engine-release-activation-floor.py" prepare \
             --repo "$REPO_DIR" --target "$TARGET_SHA" --control "$CONTROL_SHA" --deadline "$NOT_AFTER_EPOCH"
           [[ "$(docker image inspect -f '{{.Id}}' "club-arena-engine:$TARGET_SHA")" = "$PREPARED_IMAGE" ]]
+          DESIRED_SHA="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-sha)"
+          DESIRED_IMAGE="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-image-id)"
+          RUNNING_IMAGE="$(docker container inspect -f '{{if .State.Running}}{{.Image}}{{end}}' club-arena-engine)"
+          # Exact-SHA redelivery after a prior run already sealed and pruned
+          # ROLLBACK_IMAGE: retain prepared-image evidence and let the durable
+          # intake prove already-released instead of failing on the pruned old image.
+          if [ "$PREPARED_IMAGE" != "$ROLLBACK_IMAGE" ] \
+            && [ "$DESIRED_SHA" = "$TARGET_SHA" ] \
+            && [ "$DESIRED_IMAGE" = "$PREPARED_IMAGE" ] \
+            && [ "$RUNNING_IMAGE" = "$PREPARED_IMAGE" ]; then
+            echo "Exact target $TARGET_SHA ($PREPARED_IMAGE) is already the sealed running engine; skipping stale rollback-image assertion and prewarm."
+            umask 077
+            printf '%s\n' "$TARGET_SHA" "$CONTROL_SHA" "$PREPARED_IMAGE" "$ROLLBACK_IMAGE" > "$STAGE/prepared-image"
+            sync -f "$STAGE/prepared-image"
+            exit 0
+          fi
           [[ "$(docker image inspect -f '{{.Id}}' "$ROLLBACK_IMAGE")" = "$ROLLBACK_IMAGE" ]]
-          [[ "$(docker container inspect -f '{{if .State.Running}}{{.Image}}{{end}}' club-arena-engine)" = "$ROLLBACK_IMAGE" ]]
-          [[ "$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-image-id)" = "$ROLLBACK_IMAGE" ]]
+          [[ "$RUNNING_IMAGE" = "$ROLLBACK_IMAGE" ]]
+          [[ "$DESIRED_IMAGE" = "$ROLLBACK_IMAGE" ]]
           # The durable transaction reloads this run's exact admission evidence.
           # Stage is private to root and retained while its transaction is active.
           umask 077

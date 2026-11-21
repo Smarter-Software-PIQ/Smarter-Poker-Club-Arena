@@ -102,8 +102,19 @@ import {
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
+  FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS,
+  FIXED_LIMIT_SCRIPTED_PERSONAS,
+  FLH_MANIAC_PERSONA,
+  FLH_TIGHT_VALUE_PERSONA,
+  type FixedLimitScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
+import {
+  fixedLimitScriptedNode,
+  fixedLimitScriptedPolicy,
+  nlhProbeWarmupPolicy,
+} from './FixedLimitScriptedField.js';
 import { leagueLearnStreetRead } from './HorseLeagueStreetRead.js';
 import {
   leagueSpotProbe,
@@ -116,12 +127,17 @@ import {
 } from './HorseLeagueSpotSelection.js';
 import { pressureOpponentDecision } from './V53PressurePopulation.js';
 import {
+  leagueActionState,
   leagueDealsFixedLimit,
   leagueFixedLimitBounds,
   leagueFixedLimitRefusal,
   leagueHorseDecisionInput,
 } from './LeagueDecisionState.js';
-import { fixedLimitBetSize, substituteOnCappedStreet } from '../engine/BettingStructure.js';
+import {
+  bettingStructureFor,
+  fixedLimitBetSize,
+  substituteOnCappedStreet,
+} from '../engine/BettingStructure.js';
 
 export {
   HUMAN_FIELD_COMPONENT_SCENARIOS,
@@ -140,6 +156,12 @@ export {
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
+  FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS,
+  FIXED_LIMIT_SCRIPTED_PERSONAS,
+  FLH_MANIAC_PERSONA,
+  FLH_TIGHT_VALUE_PERSONA,
+  type FixedLimitScriptedPersona,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
 
@@ -148,7 +170,8 @@ export {
 export type LeagueOpponentPopulation =
   | typeof HUMAN_CALIBRATED_POPULATION_ID
   | typeof V53_PRESSURE_POPULATION_ID
-  | typeof HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID;
+  | typeof HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID
+  | typeof FIXED_LIMIT_SCRIPTED_POPULATION_ID;
 
 /** Variants each field may be dealt, or null for an unknown field. */
 export function leagueFieldVariants(population: unknown): readonly string[] | null {
@@ -156,6 +179,7 @@ export function leagueFieldVariants(population: unknown): readonly string[] | nu
   if (population === V53_PRESSURE_POPULATION_ID) return V53_PRESSURE_FIELD_VARIANTS;
   if (population === HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID)
     return HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS;
+  if (population === FIXED_LIMIT_SCRIPTED_POPULATION_ID) return FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS;
   return null;
 }
 import { supabase } from '../services/supabase.js';
@@ -384,6 +408,18 @@ export interface LeagueMatchup {
    * A selected result measures the spot, not overall win rate.
    */
   spot?: LeagueSpotSelection;
+  /**
+   * NO-LIMIT PROBE HISTORY (2026-11-20, docs/horse-league-fixed-limit.md
+   * section 2; scripted fixed-limit field only). Absent: each pass sandbox
+   * starts empty, as every card before. Set to N: before the first pair, each
+   * pass sandbox plays N no-limit hold'em hands at the same seats, the hero on
+   * its own arm and every field seat on the no-limit probe script
+   * (FixedLimitScriptedField.nlhProbeWarmupPolicy), learning on, so the
+   * field's pooled no-limit probe share is non-zero when the fixed-limit pairs
+   * start (fixedLimitReadIgnoresProbes acts only against such a player). The
+   * warm-up hands are not scored.
+   */
+  probeHistoryHands?: number;
 }
 
 /** The human field inside one dealt hand (see LeagueMatchup.opponentPopulation). */
@@ -914,6 +950,7 @@ export function playHand(
       gameMode: gameContext.gameMode,
       ante: gameContext.ante ?? 0,
       humanField: humanField !== undefined,
+      ...(humanField ? { fieldPopulation: humanField.population } : {}),
     });
     if (refusal) throw new Error(refusal);
   }
@@ -1091,6 +1128,19 @@ export function playHand(
         }) ?? { player: p, gameState: gs };
 
       const toCall = Math.max(0, currentBet - p.bet);
+      // A fixed-limit field seat is played only by a scripted policy offered the
+      // controller's fixed-limit menu (seatPolicyDecision); the calibrated and
+      // pressure decisions build a no-limit menu, so they never reach this hand.
+      if (
+        (fixedLimit || humanField?.population === FIXED_LIMIT_SCRIPTED_POPULATION_ID) &&
+        humanField?.isHuman(i) === true &&
+        humanField.seatPolicyOf?.(i) === undefined
+      ) {
+        throw new Error(
+          `A fixed-limit league hand, or a ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} hand, seats a field player only ` +
+            `through a scripted seat policy (seat ${i + 1})`
+        );
+      }
       leaguePinPublicStreams(handSeed, i, history.length);
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
@@ -1475,7 +1525,20 @@ export function playHand(
         const previousScope = HorseMind.currentScope();
         HorseMind.setDecisionScope(handScope);
         try {
-          HorseMind.observe(history, [], undefined, undefined, BB);
+          // 2026-11-20: with the hand's betting structure, as production's
+          // accepted-hand learner passes it (workerRuntime
+          // observeCompletedHandInMind: bettingStructureFor(variant)). Without
+          // it every fixed-limit bet a league hand completed was tallied as a
+          // probe (FIXED-LIMIT BETS ARE NEVER PROBES is on in production), so
+          // league memory held a fixed-limit probe share production never has.
+          HorseMind.observe(
+            history,
+            [],
+            undefined,
+            undefined,
+            BB,
+            bettingStructureFor(gameVariant)
+          );
         } finally {
           HorseMind.setDecisionScope(previousScope);
         }
@@ -1612,6 +1675,22 @@ function seatPolicyDecision(
 ): { action: string; amount?: number } {
   const { p, pot, currentBet, lastRaise, toCall } = t;
   const isPotLimit = variantInfo(t.gameVariant).isPotLimit;
+  // FIXED LIMIT (2026-11-20, FixedLimitScriptedField.ts): the seat is offered
+  // the controller's own fixed-limit menu (the street unit, the cap and the one
+  // legal wager), the same menu leagueHorseDecisionInput hands a Horse.
+  const fixedMenu = leagueDealsFixedLimit(t.gameVariant)
+    ? leagueActionState({
+        player: p,
+        gameVariant: t.gameVariant,
+        pot,
+        currentBet,
+        lastRaise,
+        bigBlind: BB,
+        wholeChip: false,
+        stage: t.stage,
+        history: t.history,
+      })
+    : null;
   const legalActions: string[] = [];
   if (toCall > 0) legalActions.push('fold');
   else legalActions.push('check');
@@ -1623,6 +1702,7 @@ function seatPolicyDecision(
   const canWager = maxTo > currentBet && maxTo >= minTo;
   if (canWager) legalActions.push(currentBet > 0 ? 'raise' : 'bet');
   if (p.stack > 0 && stackTo <= potCapTo) legalActions.push('all_in');
+  if (fixedMenu) legalActions.splice(0, legalActions.length, ...fixedMenu.legalActions);
   return policy({
     variant: t.gameVariant,
     isPotLimit,
@@ -1640,8 +1720,8 @@ function seatPolicyDecision(
     stack: p.stack,
     liveCount: t.liveCount,
     legalActions,
-    minRaiseTo: canWager ? minTo : null,
-    maxRaiseTo: canWager ? maxTo : null,
+    minRaiseTo: fixedMenu ? fixedMenu.minRaiseTo : canWager ? minTo : null,
+    maxRaiseTo: fixedMenu ? fixedMenu.maxRaiseTo : canWager ? maxTo : null,
     history: t.history,
     userId: p.user_id,
     horseDecide: t.horseDecide,
@@ -2047,6 +2127,13 @@ export function humanFieldPersonaProfile(
   if (!HUMAN_FIELD_PERSONAS.includes(persona)) {
     throw new Error(`Unknown human-field persona: ${String(persona)}`);
   }
+  if (persona === FLH_MANIAC_PERSONA || persona === FLH_TIGHT_VALUE_PERSONA) {
+    throw new Error(
+      `${persona} is a scripted persona of the ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} field ` +
+        `(FixedLimitScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +
+        `${table.variant} at ${table.seats} seats`
+    );
+  }
   if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
     if (
       table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
@@ -2154,6 +2241,54 @@ export function humanFieldPersonaProfile(
   }
 }
 
+/**
+ * THE NO-LIMIT PROBE HISTORY (2026-11-20, LeagueMatchup.probeHistoryHands).
+ * Plays `hands` no-limit hold'em hands into `sandbox` with learning on: the
+ * hero Horse at HUMAN_FIELD_HERO_SEAT on the given options, every other seat
+ * on the no-limit probe script, the same seat identities the fixed-limit
+ * pairs use, so the field's pooled probe tallies (OpponentStats.ctBets /
+ * ctProbes) are what the Horse's memory holds when the fixed-limit hands
+ * start. Deals are their own: seeded from the run seed with a separate salt,
+ * and dealt on even hand-clock slots, which no pair uses
+ * (leaguePairHandClock). Unscored; returns nothing.
+ */
+export function leagueProbeHistoryWarmup(
+  sandbox: HorseMindSandbox,
+  hands: number,
+  runSeed: number,
+  seats: number,
+  stackBB: number,
+  configOf: (seatIdx: number) => HorseDecideOpts,
+  modsOf?: (seatIdx: number) => HorseProfileMods,
+  styleOf?: (seatIdx: number) => HorseStyle
+): void {
+  const field: LeagueHumanField = {
+    population: FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+    isHuman: (s) => s !== HUMAN_FIELD_HERO_SEAT,
+    seatPolicyOf: () => nlhProbeWarmupPolicy,
+  };
+  for (let w = 0; w < hands; w++) {
+    const handSeed = (runSeed ^ 0x5eed9b0b ^ (w * 2654435761)) >>> 0 || 1;
+    playHand(
+      handSeed,
+      (w % seats) + 1,
+      configOf,
+      { illegal: 0, truncated: 0 },
+      sandbox,
+      'nlh',
+      seats,
+      stackBB,
+      CASH_LEAGUE_CONTEXT,
+      modsOf,
+      field,
+      styleOf,
+      true,
+      undefined,
+      leaguePairHandClock(w, runSeed) - TS_STRIDE
+    );
+  }
+}
+
 /** Seat index the hero horse takes on a human-field card. The dealer button
  *  rotates every pair, so the hero plays every position once per SEATS pairs. */
 export const HUMAN_FIELD_HERO_SEAT = 0;
@@ -2202,8 +2337,38 @@ async function runHumanFieldMatchup(
   if (matchup.productionStyles === true) {
     throw new Error(`${matchup.name}: productionStyles is a mirror-card option`);
   }
+  // SCRIPTED FIXED-LIMIT FIELD (2026-11-20): every field seat plays the
+  // named script (FixedLimitScriptedField.ts) through seatPolicyOf instead of a
+  // calibrated profile; the persona is required and must be one of its scripts.
+  const scriptedFixedLimit = population === FIXED_LIMIT_SCRIPTED_POPULATION_ID;
+  if (
+    scriptedFixedLimit &&
+    (variant !== 'flh' ||
+      !FIXED_LIMIT_SCRIPTED_PERSONAS.includes(matchup.humanPersona as FixedLimitScriptedPersona))
+  ) {
+    throw new Error(
+      `${matchup.name}: a ${population} card deals flh and names one of its scripted personas ` +
+        `(${FIXED_LIMIT_SCRIPTED_PERSONAS.join(', ')}); got ${String(matchup.humanPersona)}`
+    );
+  }
+  const warmupHands = matchup.probeHistoryHands ?? 0;
+  if (warmupHands !== 0) {
+    if (
+      !scriptedFixedLimit ||
+      !Number.isSafeInteger(warmupHands) ||
+      warmupHands < 0 ||
+      warmupHands > LEAGUE_HAND_CLOCK_MAX_PAIRS ||
+      matchup.memoryLearning === 'off' ||
+      matchup.spot !== undefined
+    ) {
+      throw new Error(
+        `${matchup.name}: probeHistoryHands is a whole number of no-limit hands for a ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} ` +
+          'card with learning on and no spot selection'
+      );
+    }
+  }
   const persona =
-    matchup.humanPersona === undefined
+    matchup.humanPersona === undefined || scriptedFixedLimit
       ? undefined
       : humanFieldPersonaProfile(matchup.humanPersona, {
           population,
@@ -2229,11 +2394,32 @@ async function runHumanFieldMatchup(
   const netB: number[] = [];
   let divergentPairs = 0;
   const responses: Record<string, Record<string, number>> = {};
+  const script = scriptedFixedLimit
+    ? fixedLimitScriptedPolicy(matchup.humanPersona as FixedLimitScriptedPersona)
+    : undefined;
+  // The script's answers are tallied per node like a calibrated seat's (counts
+  // only), so the result proves the field played. Probe passes get their own tally.
+  const scriptedSeat =
+    (tally: Record<string, Record<string, number>>): LeagueSeatPolicy =>
+    (spot) => {
+      const d = script!(spot);
+      const node = (tally[fixedLimitScriptedNode(spot)] ??= {});
+      node[d.action] = (node[d.action] ?? 0) + 1;
+      return d;
+    };
   const field: LeagueHumanField = {
     population,
     isHuman: (s) => s !== HERO,
     responses,
     ...(persona ? { profileOf: () => persona } : {}),
+    ...(script
+      ? {
+          seatPolicyOf: (() => {
+            const pol = scriptedSeat(responses);
+            return () => pol;
+          })(),
+        }
+      : {}),
   };
   const rngBefore = saveFastRandom();
   const sb1 = HorseMind.createSandbox();
@@ -2265,10 +2451,46 @@ async function runHumanFieldMatchup(
   const spot = matchup.spot;
 
   try {
+    // NO-LIMIT PROBE HISTORY: each pass sandbox learns the field's no-limit
+    // probes first, the hero on that pass's own arm (LeagueMatchup.probeHistoryHands).
+    if (warmupHands > 0) {
+      leagueProbeHistoryWarmup(
+        sb1,
+        warmupHands,
+        runSeed,
+        SEATS,
+        matchup.stackBB ?? 100,
+        () => optsA,
+        () => modsA,
+        styleOf
+      );
+      leagueProbeHistoryWarmup(
+        sb2,
+        warmupHands,
+        runSeed,
+        SEATS,
+        matchup.stackBB ?? 100,
+        () => optsB,
+        () => modsB,
+        styleOf
+      );
+    }
     // SPOT-SEEDED: the probe plays the hero on arm B (or either arm) against
     // the same field, on a fresh sandbox with learning off and its own response
     // tally (HorseLeagueSpotSelection.ts); the pass sandboxes never see it.
-    const probeField: LeagueHumanField = { ...field, responses: {} };
+    const probeResponses: Record<string, Record<string, number>> = {};
+    const probeField: LeagueHumanField = {
+      ...field,
+      responses: probeResponses,
+      ...(script
+        ? {
+            seatPolicyOf: (() => {
+              const pol = scriptedSeat(probeResponses);
+              return () => pol;
+            })(),
+          }
+        : {}),
+    };
     const spotDeals = spot
       ? await selectLeagueSpotDeals(
           spot,
@@ -2730,6 +2952,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'nlh',
     pairs: 6000,
     a: { holdemValueAndCallsArePriced: true },
+    b: {},
+  },
+  // 2026-11-20 Hold'em Strategy lane (holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced, default OFF,
+  // unevaluated): the priced rebuilds of the Antigravity ace-high jam gate and board discipline. a prices, b is the
+  // live line. Declared, not run; a Horse field is not the people the measured constants describe.
+  {
+    name: 'nlh_committed_no_pair_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemCommittedNoPairIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_danger_board_equity_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemDangerBoardEquityIsPriced: true },
     b: {},
   },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
@@ -5008,20 +5247,18 @@ export const HU_EXPLOITER_CARDS: readonly LeagueMatchup[] = Object.freeze(
       ['small_stab', HU_SMALL_STAB_EVERY_STREET_PERSONA, { huBbDefendsToPrice: true }, {}],
     ] as const
   )
-    .map(
-      ([short, persona, a, b]): LeagueMatchup => ({
-        name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
-        seats: 2,
-        stackBB: 40,
-        pairs: HUMAN_FIELD_PAIRS,
-        hybridBaseline: true,
-        moodClock: 'deal_seed',
-        a: { ...a },
-        b: { ...b },
-        opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
-        humanPersona: persona,
-      })
-    )
+    .map(([short, persona, a, b]): LeagueMatchup => ({
+      name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
+      seats: 2,
+      stackBB: 40,
+      pairs: HUMAN_FIELD_PAIRS,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+      a: { ...a },
+      b: { ...b },
+      opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+      humanPersona: persona,
+    }))
     .concat([
       {
         name: `${HUMAN_FIELD_NAME_PREFIX}hu_v7_preflop_vs_limper_40bb`,
@@ -5247,6 +5484,104 @@ export const FIXED_LIMIT_HOLDEM_CARDS: readonly LeagueMatchup[] = Object.freeze(
   },
 ] satisfies LeagueMatchup[]);
 LEAGUE_MATCHUPS.push(...FIXED_LIMIT_HOLDEM_CARDS);
+
+/**
+ * THE SCRIPTED FIXED-LIMIT FIELD CARDS (2026-11-20, docs/horse-league-fixed-limit.md).
+ *
+ * One hero Horse (live cash Hybrid persona, deal-seeded mood clock) against
+ * the scripted fixed-limit field in every other seat
+ * (FIXED_LIMIT_SCRIPTED_POPULATION_ID, FixedLimitScriptedField.ts), arm A
+ * with the option on, arm B off, on the same deals (runHumanFieldMatchup).
+ * Each value card against the maniac has its harm control against the
+ * tight-value player beside it, with the same arms and table size. The
+ * fixedLimitReadIgnoresProbes pair first plays 300 no-limit hands into each
+ * pass sandbox (LeagueMatchup.probeHistoryHands): without them the option is
+ * inert by construction (measured: 0 of 1,000 pairs against the maniac).
+ * Measured 2026-11-20 as defined here (seed 20261115):
+ *   flh_call_is_not_a_commitment_vs_maniac        16 of 200 pairs diverged, -86.00 +/- 21.43 bb/100
+ *   flh_call_is_not_a_commitment_vs_tight_value    1 of 3,000 pairs diverged, -1.28 +/- 1.28 bb/100
+ *   flh_river_one_bet_value_raise_vs_maniac       15 of 3,000 pairs diverged, +1.00 +/- 0.55 bb/100
+ *   flh_river_one_bet_value_raise_vs_tight_value   5 of 3,000 pairs diverged, +0.07 +/- 0.22 bb/100
+ *   flh_read_ignores_probes_vs_maniac            333 of 1,000 pairs diverged, +163.00 +/- 72.36 bb/100
+ *   flh_read_ignores_probes_vs_tight_value         0 of 3,000 pairs diverged
+ * Probes, not results. A harm control that changes almost nothing is the
+ * expected reading (the lane recorded its tight-value cells at +0.00 to
+ * +0.11 big bets per 100 hands, docs/horse-default-on.d/
+ * fixedLimitCallIsNotACommitment.md) and may read inert on a night: that
+ * says the arms played identical poker against a value-only field, which is
+ * the harm question answered, not a harness defect.
+ *
+ * The cards only measure. Every option stays default OFF; nothing here
+ * switches one on. bb/100 is in big blinds (a fixed-limit big blind is the
+ * small bet).
+ */
+function fixedLimitScriptedCard(
+  name: string,
+  seats: number,
+  pairs: number,
+  humanPersona: FixedLimitScriptedPersona,
+  a: HorseDecideOpts,
+  probeHistoryHands?: number
+): LeagueMatchup {
+  return {
+    name,
+    variant: 'flh',
+    seats,
+    pairs,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+    humanPersona,
+    a,
+    b: {},
+    ...(probeHistoryHands ? { probeHistoryHands } : {}),
+  };
+}
+/** No-limit hands each pass sandbox plays before a probe-read card's pairs. */
+export const FIXED_LIMIT_PROBE_HISTORY_HANDS = 300;
+export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  fixedLimitScriptedCard('flh_call_is_not_a_commitment_vs_maniac', 6, 2000, FLH_MANIAC_PERSONA, {
+    fixedLimitCallIsNotACommitment: true,
+  }),
+  fixedLimitScriptedCard(
+    'flh_call_is_not_a_commitment_vs_tight_value',
+    6,
+    3000,
+    FLH_TIGHT_VALUE_PERSONA,
+    {
+      fixedLimitCallIsNotACommitment: true,
+    }
+  ),
+  fixedLimitScriptedCard('flh_river_one_bet_value_raise_vs_maniac', 2, 3000, FLH_MANIAC_PERSONA, {
+    fixedLimitRiverOneBetValueRaise: true,
+  }),
+  fixedLimitScriptedCard(
+    'flh_river_one_bet_value_raise_vs_tight_value',
+    2,
+    3000,
+    FLH_TIGHT_VALUE_PERSONA,
+    {
+      fixedLimitRiverOneBetValueRaise: true,
+    }
+  ),
+  fixedLimitScriptedCard(
+    'flh_read_ignores_probes_vs_maniac',
+    6,
+    1000,
+    FLH_MANIAC_PERSONA,
+    { fixedLimitReadIgnoresProbes: true },
+    FIXED_LIMIT_PROBE_HISTORY_HANDS
+  ),
+  fixedLimitScriptedCard(
+    'flh_read_ignores_probes_vs_tight_value',
+    6,
+    3000,
+    FLH_TIGHT_VALUE_PERSONA,
+    { fixedLimitReadIgnoresProbes: true },
+    FIXED_LIMIT_PROBE_HISTORY_HANDS
+  ),
+]);
+LEAGUE_MATCHUPS.push(...FIXED_LIMIT_SCRIPTED_FIELD_CARDS);
 
 /**
  * Why a fixed-limit arm is still refused (2026-11-20). Hold'em: the league
@@ -5564,8 +5899,13 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       diverged: 0,
       why:
         'With production personas at both seats (seed 20261120) 0 of 300 pairs diverged too: ' +
-        'no league hand reached a decision the option changes.',
-      needs: 'a scripted river-betting field (a seat that bets every river it is checked to)',
+        'no league hand reached a decision the option changes. Since 2026-11-20 the scripted river-betting field ' +
+        'is built and this option is on the card against it: flh_river_one_bet_value_raise_vs_maniac (15 of 3,000 ' +
+        'pairs diverged, seed 20261115) with its harm control flh_river_one_bet_value_raise_vs_tight_value ' +
+        '(5 of 3,000); this Horse-mirror arm stays refused as the mirror reading.',
+      needs:
+        'a Horse that bets every river it is checked to (the scripted field that measures the option instead is ' +
+        'built, FixedLimitScriptedField.ts)',
       law: 'AFixedLimitStrongHandRaisesOneRiverBet',
     }),
   },
@@ -5603,8 +5943,13 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         '(seed 20261115) 0 of 300 pairs, where a call facing a bet closes the action and carries no price for a raise behind. ' +
         'The option prices the chance that a player behind raises, and on recorded Horse-only hands a player behind raised ' +
         '4 times in 254 (docs/horse-default-on.d/fixedLimitCallIsNotACommitment.md), so a Horse mirror almost never moves it; ' +
-        'the lane measured its value against a scripted maniac.',
-      needs: 'a scripted fixed-limit maniac field (and a tight-value field as the harm control)',
+        'the lane measured its value against a scripted maniac. Since 2026-11-20 that field is built and this ' +
+        'option is on the card against it: flh_call_is_not_a_commitment_vs_maniac (16 of 200 pairs diverged, seed ' +
+        '20261115) with its harm control flh_call_is_not_a_commitment_vs_tight_value (1 of 3,000); this Horse-mirror ' +
+        'arm stays refused as the mirror reading.',
+      needs:
+        'Horses that raise behind a call far more often than the recorded 4 in 254 (the scripted field that ' +
+        'measures the option instead is built, FixedLimitScriptedField.ts)',
       law: 'AFixedLimitCallIsNotACommitment',
     }),
   },
@@ -5650,8 +5995,14 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       diverged: 0,
       why:
         'Heads-up (seed 20261115) 0 of 300 pairs diverged, and with production personas at every seat ' +
-        '(seed 20261120) 1 of 300 pairs.',
-      needs: 'Horse, tight-value and maniac fields (the lead is judged by who would have bet behind it)',
+        '(seed 20261120) 1 of 300 pairs. Against the scripted fixed-limit field built 2026-11-20 ' +
+        '(FixedLimitScriptedField.ts, seed 20261115, the hero on the cash Hybrid persona): 0 of 3,000 pairs against ' +
+        'the maniac at six seats, 0 of 3,000 against it heads-up, and 0 of 3,000 against the tight-value player at ' +
+        'six seats. Not measured, only read from the scripts: a maniac bets behind every check, so a lead may gain ' +
+        'nothing over a check-call, and a value-only player behind folds what a lead would be paid by.',
+      needs:
+        'a field that checks behind a river check with hands that would call a lead (a passive caller; not built: ' +
+        'no record in this repository describes the lane script for it)',
       law: 'AFixedLimitStrongRiverHandLeads',
     }),
   },
@@ -5727,10 +6078,14 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       diverged: 0,
       why:
         'Heads-up (seed 20261115) 0 of 300 pairs diverged, and with production personas at every seat (seed 20261120) ' +
-        '0 of 300 pairs: a league card deals one variant, so no opponent in its sandbox carries a no-limit probe history.',
+        '0 of 300 pairs: a league card deals one variant, so no opponent in its sandbox carries a no-limit probe history. ' +
+        'Since 2026-11-20 a scripted-field card can seed that history (LeagueMatchup.probeHistoryHands) and this option ' +
+        'is on the card that way: flh_read_ignores_probes_vs_maniac (333 of 1,000 pairs diverged, seed 20261115; 0 of ' +
+        '1,000 without the history) with its harm control flh_read_ignores_probes_vs_tight_value (0 of 3,000); this ' +
+        'Horse-mirror arm stays refused as the mirror reading.',
       needs:
-        'opponents whose sandbox memory is seeded with a no-limit probe history before the fixed-limit hands ' +
-        '(the lane evidence is AB-EVALUATION-2.md 3.1 and 3.10)',
+        'Horse opponents carrying a no-limit probe history (the lane measured 1 of 4,011 flh deals changed even then, ' +
+        'docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md, Reach)',
       law: 'AFixedLimitReadIsNeverProbeDiscounted',
     }),
   },
@@ -6150,38 +6505,36 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'nodes. V31 is certified through fn_audit_gto_v31_certified and ' +
       'benchmark/GtoV31CandidateEvaluation.ts, which is where its verdict lives.',
   },
-  ...(['plo4', 'plo5', 'plo6'] as const).map(
-    (variant): UnmeasurableMatchup => ({
-      name: `${variant}_v55_river_trips_flat`,
-      variant,
-      stackBB: 400,
-      a: { v55OmahaRiverTripsFlat: true },
-      b: {},
-      reason:
-        'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
-        '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
-        'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
-        'straight/flush-possible board, facing a raise with the money committed. The flag ' +
-        'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
-        'turning into a call. But the league stopped dealing that spot when the ' +
-        '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
-        'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
-        '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
-        'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
-        'branch V55 changes. ' +
-        (variant === 'plo6'
-          ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
-            'zero divergent pairs. '
-          : `Nightly at 400bb: ${
-              variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
-            } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
-            `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
-        'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
-        '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
-        'promotion claim. What would change this: switching the paired-board fold and ' +
-        'V56 off on both arms, which would measure a brain production does not play.',
-    })
-  ),
+  ...(['plo4', 'plo5', 'plo6'] as const).map((variant): UnmeasurableMatchup => ({
+    name: `${variant}_v55_river_trips_flat`,
+    variant,
+    stackBB: 400,
+    a: { v55OmahaRiverTripsFlat: true },
+    b: {},
+    reason:
+      'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
+      '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
+      'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
+      'straight/flush-possible board, facing a raise with the money committed. The flag ' +
+      'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
+      'turning into a call. But the league stopped dealing that spot when the ' +
+      '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
+      'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
+      '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
+      'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
+      'branch V55 changes. ' +
+      (variant === 'plo6'
+        ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
+          'zero divergent pairs. '
+        : `Nightly at 400bb: ${
+            variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
+          } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
+          `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
+      'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
+      '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
+      'promotion claim. What would change this: switching the paired-board fold and ' +
+      'V56 off on both arms, which would measure a brain production does not play.',
+  })),
 ] as UnmeasurableMatchup[]);
 
 for (const u of UNMEASURABLE_MATCHUPS) {

@@ -218,6 +218,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
               hands: turn.vpipFloor.own.hands,
               vpipHands: turn.vpipFloor.own.vpipHands,
               leavingEntered: turn.vpipFloor.own.leavingEntered === true,
+              fromFirstHand: turn.vpipFloor.own.fromFirstHand === true,
             },
           },
         }

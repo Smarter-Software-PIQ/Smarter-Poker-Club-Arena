@@ -111,3 +111,41 @@
 .card[data-unframed] {
   --tournament-unit: 4px;
 }
+
+.inviteRow {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.inviteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgb(69 173 255 / 42%);
+  border-radius: 999px;
+  background: rgb(22 139 255 / 14%);
+  color: #8fd4ff;
+  font:
+    800 0.75rem/1 'Roboto Condensed',
+    Inter,
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.inviteBtn:active {
+  filter: brightness(1.25);
+}
+
+.inviteBtn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}

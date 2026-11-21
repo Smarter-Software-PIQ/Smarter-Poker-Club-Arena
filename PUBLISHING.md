@@ -1,3 +1,7 @@
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-0825z` (08:25 to 09:20 UTC November 21; 2:25 AM to 3:20 AM Chicago) is the next engine cutover of the owner's three-hour cadence, serving `bb21dc82673` (sealed under 0300z), no advance notice.
+
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-0300z` (03:00 to 09:00 UTC November 21; 9:00 PM November 20 to 3:00 AM November 21 Chicago) is the next engine cutover of the owner's three-hour cadence, serving `e2140d2d1581` (sealed under 2330z), no advance notice.
+
 2026-11-20: owner window `2026-11-20-owner-no-notice-engine-2330z` (23:30 UTC November 20 to 05:30 UTC November 21; 5:30 PM to 11:30 PM Chicago) is the next engine cutover of the owner's three-hour cadence (15:16 Chicago, "CUT OVERS EVER 3 HOURS ... UNTIL FURTHER NOTICE"), serving `95dae3848e51` after the 2130z seal, no advance notice.
 
 **2026-11-20 owner engine window 2026-11-20-owner-no-notice-engine-2130z.** Window 1730z was consumed at 19:08 UTC: receiver run 44797999314 sealed 26c2e74930dd and every table resumed. On the owner's 09:48 Chicago order "AUTHORIZED: TAKE OVER THE ENGINE RELEASE NOW" and his rule that nothing ready waits for 4 AM, this books one more no-notice activation of protected main 023f78891f1e (the river current-nuts call floor #11522 and the rake options #11523 to #11526): admission 21:30 UTC November 20 through fixed 03:30 UTC November 21, serving 26c2e74930dd. No player notice; the engine finishes and settles every hand before freezing.

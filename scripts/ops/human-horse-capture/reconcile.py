@@ -6,8 +6,12 @@ C = Path(sys.argv[1])
 census = json.loads((C / 'human-hand-keys.json').read_text()); ch = {h['h']: h for h in census['hands']}
 den = json.loads((C / 'window-denominators-hands.json').read_text())['hands']; dh = {h['hand_id'] for h in den if h.get('has_human')}
 light = {}
-for f in sorted(glob.glob(str(C / 'human-hand-keys-part[12].json'))):
-    for h in json.loads(Path(f).read_text())['hands']: light[h['h']] = h
+part_files = sorted(glob.glob(str(C / 'human-hand-keys-part[12].json')))
+if part_files:
+    for f in part_files:
+        for h in json.loads(Path(f).read_text())['hands']: light[h['h']] = h
+else:
+    light = dict(ch)
 wit = {}; summ = []
 for f in sorted(glob.glob(str(C / 'originals-witness-*.jsonl'))):
     for l in Path(f).read_text().splitlines():

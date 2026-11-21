@@ -46,6 +46,9 @@ import {
  */
 
 import { useState, useEffect, useRef, memo } from 'react';
+import { gameInviteText, shareLink, tournamentShareUrl } from '../../lib/share';
+import { ShareLinkFallback } from '../common/ShareLinkFallback';
+import { InviteLinkIcon } from '../table/TableMenuIcons';
 /* Dan 2026-08-28: this card is the SatellitesTab of TournamentDetails, which
    MultiTablePage renders inside a lobby tab. All three of its navigate calls
    target /tournaments/:id, and every one of them used to drop a seated player
@@ -283,6 +286,36 @@ function TournamentLobbyCardInner({
   const [lateRegCountdown, setLateRegCountdown] = useState<string>('');
   const [lateRegActive, setLateRegActive] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteFallbackUrl, setInviteFallbackUrl] = useState('');
+  const inviteCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (inviteCopiedTimer.current) clearTimeout(inviteCopiedTimer.current);
+    },
+    []
+  );
+
+  const handleInviteToTournament = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = tournamentShareUrl(tournament.id);
+    setInviteFallbackUrl('');
+    void shareLink({
+      source: 'TournamentLobbyCard.inviteToGame',
+      title: tournament.name || 'Tournament',
+      text: gameInviteText(tournament.name),
+      url,
+    }).then((outcome) => {
+      if (outcome === 'copied') {
+        setInviteCopied(true);
+        if (inviteCopiedTimer.current) clearTimeout(inviteCopiedTimer.current);
+        inviteCopiedTimer.current = setTimeout(() => setInviteCopied(false), 2400);
+      } else if (outcome === 'failed') {
+        setInviteFallbackUrl(url);
+      }
+    });
+  };
 
   useEffect(() => {
     // BUG FIX (mount-timer): track timer so it cancels on unmount — prevents stale setState
@@ -1058,6 +1091,24 @@ function TournamentLobbyCardInner({
           </span>
         </div>
       </div>
+      {tournament.status !== 'finished' && tournament.status !== 'cancelled' && (
+        <div className={styles.inviteRow}>
+          <button
+            type="button"
+            className={styles.inviteBtn}
+            data-testid="tournament-card-invite-btn"
+            onClick={handleInviteToTournament}
+          >
+            <InviteLinkIcon />
+            <span>{inviteCopied ? 'Invite Link Copied' : 'Invite To Game'}</span>
+          </button>
+          {inviteFallbackUrl && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
+            </div>
+          )}
+        </div>
+      )}
     </Section>
   );
 }

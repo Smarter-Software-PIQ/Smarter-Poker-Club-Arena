@@ -38,6 +38,51 @@ export function allowedStalePins(sql) {
   return [...sql.matchAll(/^--\s*@stale-pin-ok:\s*([0-9a-f]{32})\s+\S/gm)].map((m) => m[1]);
 }
 
+/**
+ * Expected preimage md5s a migration declares before replacing an existing
+ * function (prevents concurrent PR lost-updates regardless of version order):
+ *   -- @replaces-md5: public.fn_name(arg_types)=<32-hex-md5>
+ */
+export function replacesMd5Pins(sql) {
+  return [
+    ...sql.matchAll(
+      /^--\s*@replaces-md5:\s*([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\([^)]*\))\s*=\s*([0-9a-f]{32})\b/gim
+    ),
+  ].map((m) => ({ signature: m[1].trim(), md5: m[2].toLowerCase() }));
+}
+
+function preimageCheckSQL(pins) {
+  if (!pins.length) return '';
+  const checks = pins
+    .map(({ signature, md5 }) => {
+      const sigLit = signature.replace(/'/g, "''");
+      return `
+ v_oid := to_regprocedure('${sigLit}');
+ IF v_oid IS NULL THEN
+  RAISE EXCEPTION 'migration_preimage_mismatch: % does not exist (expected md5 %)', '${sigLit}', '${md5}'
+   USING ERRCODE = '55000';
+ END IF;
+ PERFORM set_config('search_path', 'pg_catalog', true);
+ v_cat := md5(pg_get_functiondef(v_oid));
+ PERFORM set_config('search_path', 'public', true);
+ v_pub := md5(pg_catalog.pg_get_functiondef(v_oid));
+ SELECT md5(prosrc) INTO v_src FROM pg_catalog.pg_proc WHERE oid = v_oid;
+ IF '${md5}' NOT IN (v_cat, v_pub, v_src) THEN
+  PERFORM pg_catalog.set_config('search_path', previous, true);
+  RAISE EXCEPTION 'migration_preimage_mismatch: % expected md5 %, live is catalog=% public=% prosrc=%', '${sigLit}', '${md5}', v_cat, v_pub, v_src
+   USING ERRCODE = '55000',
+   HINT = 'Another migration changed this function in production; merge both bodies and update -- @replaces-md5.';
+ END IF;`;
+    })
+    .join('\n');
+  return `
+DO $ca_replaces_md5_check$
+DECLARE previous text := current_setting('search_path'); v_oid oid; v_cat text; v_pub text; v_src text;
+BEGIN${checks}
+ PERFORM pg_catalog.set_config('search_path', previous, true);
+END $ca_replaces_md5_check$;`;
+}
+
 // The snapshot lives in a transaction-local setting, not a temporary table:
 // creating a table is DDL, and DDL makes PostgREST reload its schema cache
 // (about 28 s here) even for a migration that only moves data.
@@ -97,9 +142,17 @@ export function stalePinParts(file, source, body) {
   if (!isPinChecked(file)) return { snapshot: '', check: '' };
   if (!/^[ \t]*BEGIN[ \t]*;/im.test(body) || !/COMMIT\s*;\s*$/i.test(body))
     throw new Error('stale-pin guard requires one BEGIN; ... COMMIT; transaction');
-  if (body.includes('$ca_stale_pin_snapshot$') || body.includes('$ca_stale_pin_check$'))
+  if (
+    body.includes('$ca_stale_pin_snapshot$') ||
+    body.includes('$ca_stale_pin_check$') ||
+    body.includes('$ca_replaces_md5_check$')
+  )
     throw new Error('migration conflicts with the reserved stale-pin delimiters');
-  return { snapshot: '\n' + SNAPSHOT, check: checkSQL(allowedStalePins(source)) + '\n' };
+  const preimage = preimageCheckSQL(replacesMd5Pins(source));
+  return {
+    snapshot: '\n' + SNAPSHOT + (preimage ? '\n' + preimage : ''),
+    check: checkSQL(allowedStalePins(source)) + '\n',
+  };
 }
 
 /**

@@ -28,7 +28,14 @@ connection), migrations 20261119052955 and 20261119180500 exactly as on disk:
     20261120034809 installs and its live proof holds; the watch sends NO
     notification of its own on open or on clear (the defect above: one push
     per flap), and a flapping episode pages the owner ONCE through the page
-    route (kind hand_delay) while the second open is held and counted.
+    route (kind hand_delay) while the second open is held and counted;
+  * 20261119211558 (hand-for-hand is owed) is applied in its production order,
+    and 20261121000757 then re-creates the grader from that text by anchors:
+    the hand-for-hand exclusion survives, the grade splits graded hands by a
+    bust on the previous hand and a tournament seat move inside the gap, the
+    history keeps the split, the opened alert names it in one sentence
+    (windows recorded before the upgrade are left out, never counted as
+    zero), and the owner's page carries that sentence.
 """
 import argparse
 import datetime as dt
@@ -48,6 +55,10 @@ MIGRATION = ROOT / 'supabase' / 'migrations' / FILE
 ROUTE_FILE = '20261120034809_a_hand_delay_pages_through_the_owner_page_route.sql'
 ROUTE_MIGRATION = ROOT / 'supabase' / 'migrations' / ROUTE_FILE
 ROUTE_PREIMAGE = ROOT / 'scripts' / 'ci' / 'fixtures' / 'owner-page-route-preimage-20261120.sql'
+H4H_FILE = '20261119211558_a_hand_for_hand_wait_is_an_owed_wait.sql'
+H4H_MIGRATION = ROOT / 'supabase' / 'migrations' / H4H_FILE
+SPLIT_FILE = '20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql'
+SPLIT_MIGRATION = ROOT / 'supabase' / 'migrations' / SPLIT_FILE
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -99,7 +110,11 @@ CREATE INDEX idx_hand_history_table_created ON hand_history(table_id, created_at
 CREATE TABLE lightning_hand(hand_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hand_history_id uuid);
 CREATE INDEX idx_lightning_hand_hand_history_id ON lightning_hand(hand_history_id);
 CREATE TABLE engine_maintenance_break_log(break_started_at timestamptz PRIMARY KEY, break_ended_at timestamptz);
-CREATE TABLE tournaments(id uuid PRIMARY KEY, break_started_at timestamptz, break_ends_at timestamptz);
+CREATE TABLE tournaments(id uuid PRIMARY KEY, break_started_at timestamptz, break_ends_at timestamptz,
+  created_at timestamptz DEFAULT now());
+CREATE TABLE tournament_seat_move_receipts(request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid NOT NULL,
+  user_id uuid, source_table_id uuid NOT NULL, destination_table_id uuid NOT NULL, moved_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX idx_tsmr_tournament_moved_at ON tournament_seat_move_receipts(tournament_id, moved_at DESC);
 CREATE TABLE financial_alerts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), severity text, source text, message text,
   context jsonb DEFAULT '{{}}'::jsonb, resolved boolean DEFAULT false, resolved_at timestamptz,
   created_at timestamptz DEFAULT now(), resolved_by uuid, resolution text);
@@ -133,9 +148,9 @@ T0 = dt.datetime(2026, 11, 19, 12, 0, tzinfo=dt.timezone.utc)  # window k ends a
 HAND_S = 10.0
 
 
-def payload(shape):
+def payload(shape, bust=False):
     shown = [{'user_id': U1}, {'user_id': U2}]
-    players = [{'userId': U1, 'stack': 100}, {'userId': U2, 'stack': 100}]
+    players = [{'userId': U1, 'stack': 100}, {'userId': U2, 'stack': 0 if bust else 100}]
     actions = [{'stage': 'preflop', 'action': 'raise', 'amount': 2, 'userId': U1}]
     showdown = shown
     rit = None
@@ -154,7 +169,8 @@ def payload(shape):
             'pots': [{'awards': [{'userId': U1, 'amount': 10}]}]}
 
 
-def table(shape, extra_ms, windows, tournament=None, lightning=False, gap_ms=None, cadence=None, base_owed_ms=None):
+def table(shape, extra_ms, windows, tournament=None, lightning=False, gap_ms=None, cadence=None, base_owed_ms=None,
+          bust=False):
     """A table dealing `shape` hands across `windows` (list of window ends, as k), with
     extra_ms(k) unintended delay on the hands whose NEXT hand is written in window k."""
     tid = str(uuid.uuid4())
@@ -171,7 +187,7 @@ def table(shape, extra_ms, windows, tournament=None, lightning=False, gap_ms=Non
         s = e + dt.timedelta(milliseconds=gap)
         if s + dt.timedelta(seconds=HAND_S) > stop - dt.timedelta(seconds=1):
             break
-    p = payload(shape)
+    p = payload(shape, bust)
     cad_sql = f"'{json.dumps(cadence)}'::jsonb" if cadence is not None else 'NULL'
     vals = []
     for idx, (s, e) in enumerate(rows):
@@ -224,6 +240,10 @@ try:
     run(MIGRATION.read_text())
     proof = MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
     check('migration 20261119180500 installs as written and its live proof holds', run('SELECT ' + proof) == 't', proof)
+    run(H4H_MIGRATION.read_text())
+    check('migration 20261119211558 (hand-for-hand is owed) edits the grader as on production',
+          run("SELECT strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'"
+              "::regprocedure), 'FROM ca_tournament_hand_for_hand h4h') > 0") == 't')
     check('the grade is STABLE and the watch is not',
           run("SELECT string_agg(proname || ':' || provolatile::text, ',' ORDER BY proname) FROM pg_proc "
               "WHERE proname IN ('fn_ca_hand_gap_unintended_delay', 'fn_ca_hand_gap_watch')")
@@ -408,6 +428,93 @@ try:
           [r28, pages()])
     check('route: a hand delay never touches the dealing clock a stopped table needs',
           run("SELECT last_firing_at IS NULL AND pages_sent = 0 FROM ca_owner_page_state WHERE kind = 'dealing'") == 't')
+    # Phase 3 (20261121000757): the alert names where the delay comes from.
+    # Tournament all_in_showdown, windows 30..32: table X busts a player every
+    # hand and balances (a seat-move receipt inside every gap), 1500 ms late;
+    # table Y busts a player every hand without a move, 1200 ms late; table Z
+    # busts nobody and is 100 ms late (inside the budget). Window 30 is
+    # recorded BEFORE the upgrade, so it carries no split.
+    tour3 = str(uuid.uuid4())
+    run(f"INSERT INTO tournaments(id) VALUES ('{tour3}')")
+    split_w = [30, 31, 32]
+    tx = table('all_in_showdown', lambda k: 1500, split_w, tournament=tour3, bust=True)
+    table('all_in_showdown', lambda k: 1200, split_w, tournament=tour3, bust=True)
+    table('all_in_showdown', lambda k: 100, split_w, tournament=tour3)
+    other = str(uuid.uuid4())
+    run(f"""INSERT INTO tournament_seat_move_receipts(tournament_id, source_table_id, destination_table_id, moved_at)
+      SELECT '{tour3}', table_id, '{other}', next_start - interval '100 milliseconds'
+        FROM (SELECT table_id, lead(started_at) OVER (ORDER BY started_at) AS next_start
+                FROM hand_history WHERE table_id = '{tx}') g WHERE next_start IS NOT NULL""")
+    w30 = watch(30)
+    check('split: the window recorded before the upgrade opens nothing', w30['opened'] == 0, w30)
+    pre3 = run("SELECT md5(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure))"
+               " || ',' || md5(pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure))"
+               " || ',' || md5(pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure))")
+    results['split_preimage_md5'] = pre3
+    check('split: the grader, watch and page route here are byte-equal to production before 20261121000757 (md5 of pg_get_functiondef, read 2026-11-21)',
+          pre3 == 'af9240f68db8e5ee82e56785c5044f58,c4055ac1f91c17038a340ba938121fb1,cd785681c14f0ba6ae38fe944069e6ab', pre3)
+    run(SPLIT_MIGRATION.read_text())
+    split_proof = SPLIT_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261121000757 installs on the production text and its live proof holds',
+          run('SELECT ' + split_proof) == 't', split_proof)
+    check('split: the re-created grader keeps the hand-for-hand, break and Lightning exclusions and stays STABLE',
+          run("SELECT strpos(d, 'FROM ca_tournament_hand_for_hand h4h') > 0 AND strpos(d, 'FROM tournaments t') > 0"
+              " AND strpos(d, 'FROM engine_maintenance_break_log b') > 0 AND strpos(d, 'FROM lightning_hand lh') > 0"
+              " FROM (SELECT pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'"
+              "::regprocedure) d) x") == 't'
+          and run("SELECT provolatile FROM pg_proc WHERE proname = 'fn_ca_hand_gap_unintended_delay'") == 's')
+    check('split: the grader is still service_role only after its re-creation',
+          run("SELECT has_function_privilege('service_role', 'public.fn_ca_hand_gap_unintended_delay(timestamptz,integer)', 'EXECUTE')"
+              " AND NOT has_function_privilege('anon', 'public.fn_ca_hand_gap_unintended_delay(timestamptz,integer)', 'EXECUTE')"
+              " AND NOT has_function_privilege('authenticated', 'public.fn_ca_hand_gap_unintended_delay(timestamptz,integer)', 'EXECUTE')") == 't')
+    g31 = grade(31)[('tournament', 'all_in_showdown')]
+    n_x = g31['after_seat_move']
+    check('split: the grade splits graded hands by a bust and a seat move inside the gap',
+          g31['graded'] and g31['after_bust'] == g31['after_bust_over_budget'] == g31['over_budget']
+          and 5 <= n_x == g31['after_seat_move_over_budget'] == g31['after_bust_and_seat_move_over_budget'] < g31['over_budget']
+          and g31['after_bust_unintended_p95_ms'] == 1500 and g31['after_seat_move_unintended_p95_ms'] == 1500
+          and g31['neither_unintended_p95_ms'] == 100 and g31['hands'] > g31['after_bust'], g31)
+    on_time_g = grade(31).get(('cash', 'fold')) or grade(2).get(('cash', 'fold'))
+    check('split: a table with no bust and no move reports zero split counts, never NULL',
+          on_time_g and on_time_g['after_bust'] == 0 and on_time_g['after_seat_move'] == 0
+          and on_time_g['after_bust_unintended_p95_ms'] is None, on_time_g)
+    run("UPDATE ca_owner_page_state SET last_firing_at = NULL, last_paged_at = NULL, held_since_page = 0 WHERE kind = 'hand_delay'")
+    pages_before = len(pages())
+    w31, w32 = watch(31), watch(32)
+    check('split: the 15-minute breach still opens ONE alert per kind x shape (identity unchanged)',
+          w31['opened'] == 0 and w32['opened'] == 1, [w31, w32])
+    sctx = json.loads(run("SELECT context FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch' "
+                          "AND NOT resolved AND context->>'shape' = 'all_in_showdown'"))
+    hist = json.loads(run("SELECT jsonb_agg(to_jsonb(h) ORDER BY window_end) FROM ca_hand_gap_watch_history h "
+                          "WHERE kind = 'tournament' AND shape = 'all_in_showdown' AND window_end >= "
+                          f"'{(T0 + dt.timedelta(minutes=150)).isoformat()}'"))
+    check('split: the history keeps the split for windows after the upgrade and NULL before it',
+          len(hist) == 3 and hist[0]['after_bust'] is None
+          and hist[1]['after_bust_over_budget'] == hist[1]['over_budget']
+          and hist[2]['after_seat_move_over_budget'] >= 5, hist)
+    over_split = hist[1]['over_budget'] + hist[2]['over_budget']
+    moved_split = hist[1]['after_seat_move_over_budget'] + hist[2]['after_seat_move_over_budget']
+    move_pct = round(100.0 * moved_split / over_split)
+    want = (f'Over budget in 10 min: {over_split} hands; 100% after a bust, {move_pct}% after a tournament seat move, '
+            f'{move_pct}% both. Latest 5 min p95 +1500 ms after a bust, +100 ms after neither.')
+    check('split: the alert names where the delay comes from, leaving out the window recorded before the upgrade',
+          sctx['attribution'] == want and sctx['attribution_minutes'] == 10
+          and sctx['over_budget_attributed'] == over_split and sctx['over_budget_after_bust'] == over_split
+          and sctx['over_budget_after_seat_move'] == moved_split
+          and sctx['over_budget_after_bust_and_seat_move'] == moved_split
+          and sctx['after_bust_unintended_p95_ms'] == 1500 and sctx['neither_unintended_p95_ms'] == 100
+          and sctx['unintended_p95_ms'] == 1500 and sctx['budget_ms'] == 250 and sctx['sustained_minutes'] == 15,
+          [want, sctx])
+    p3 = pages()
+    check('split: the owner page carries the attribution sentence after the delay sentence',
+          len(p3) == pages_before + 1 and p3[-1][1] == 'Unintended Delay Between Hands'
+          and p3[-1][2] == 'tournament all_in_showdown hands have been delayed for 15 minutes '
+                           '(p95 +1500 ms over the 250 ms budget). ' + want
+          and p3[-1][3] == 'hand_delay', p3[-1:])
+    check('split: the alert message stays constant, so one cause is still one incident',
+          run("SELECT count(DISTINCT message) FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'") == '1')
+    run(SCRIPT_SQL.read_text())
+    check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly with the split', True)
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True
 finally:

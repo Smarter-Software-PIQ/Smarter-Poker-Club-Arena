@@ -415,6 +415,7 @@ jobs:
     # turn touched no copy and tested nothing (incident 076ff467, 2026-11-20).
     outputs:
       turn: ${{ steps.turn.outputs.acquired }}
+      deferred: ${{ steps.late_priority.outputs.deferred }}
     timeout-minutes: 120
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
@@ -599,11 +600,68 @@ jobs:
             git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py;
             standby-engine restore schema.dump; standby-engine seed seed'
 
+      # A BOOKING MADE WHILE THIS RUN WAITED STILL GOES FIRST (2026-11-21).
+      # The plan step asks backup-candidate-priority.py once, at plan time.
+      # Twice on 2026-11-20 an ordinary push run planned before an owner window
+      # was booked, took the host minutes before the booking merged and then
+      # certified for 55 minutes while the booked build waited (27118303 ahead
+      # of 2330z; f90f60b7 took the turn at 01:48:38Z, booking at 01:56:14Z,
+      # certify at 01:57:43Z). Ask again here, after the copy and before
+      # certify: a push run whose commit now PREDATES an open booked window
+      # can never be that window's selection, so it hands the host back and
+      # certifies nothing. Any other answer (including unknown) changes nothing.
+      - name: Yield the host to an owner window booked while this run waited
+        id: late_priority
+        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          priority=unknown; window=''
+          tool=$(mktemp)
+          if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-candidate-priority.py?ref=$GITHUB_SHA" > "$tool" 2>/dev/null; then
+            verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || verdict=''
+            answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
+            case "$answer" in
+              none|booking|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+            esac
+          fi
+          rm -f "$tool"
+          echo "owner window priority before certify: $priority${window:+ ($window)}"
+          if [ "$priority" != predates ]; then
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+          printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+            "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY
+          echo "DEFERRED: owner engine window $window was booked while $SHA waited; it predates the window, so it hands the Backup host back and certifies nothing."
+          { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\` before certify: predates owner window \`$window\` booked while it waited; host handed back, nothing certified."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "deferred=1" >> "$GITHUB_OUTPUT"
+
   certify:
     needs: [plan, refresh]
     # Publish a failure for this exact SHA if refresh failed, including when a
     # previous attempt left a success status. Never certify a partial copy.
-    if: always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75

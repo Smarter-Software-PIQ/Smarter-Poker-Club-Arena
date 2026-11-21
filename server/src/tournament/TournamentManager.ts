@@ -4412,12 +4412,17 @@ export class TournamentManager extends TournamentManagerEliminations {
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return;
     }
+    // A fenced source this fresh plan does not need is handed back now, while
+    // its completion hold is still playing (see releaseGapFencesNotIn).
+    if (freshTableIds.length <= 1) this.releaseGapFencesNotIn(new Set());
     if (freshTableIds.length > 1) {
       const freshTables = await this.loadBalancerTables(freshTableIds, 'balanceFresh');
       if (!freshTables) return;
 
+      if (!this.tableBalancer.shouldRebalance(freshTables)) this.releaseGapFencesNotIn(new Set());
       if (this.tableBalancer.shouldRebalance(freshTables)) {
         const moves = this.tableBalancer.calculateMoves(freshTables);
+        this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
         if (moves.length === 0) {
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
         }
@@ -4713,13 +4718,7 @@ export class TournamentManager extends TournamentManagerEliminations {
     if (
       epoch !== this.balanceBoardEpoch ||
       this.isProcessingEliminations ||
-      this.boundaryBalanceInFlight ||
-      this.seatMoveBatchesInFlight > 0 ||
-      this.pendingTournamentSeatMoveOutcomes.size > 0 ||
-      !!this.pendingTableBreakRetirement ||
-      !this.tournamentBreakDiscoveryComplete ||
-      this.mixedRecovery !== null ||
-      !this.boundaryPlanLifecycleAllowed()
+      this.boundaryBalanceInFlight
     )
       return;
     const needed = new Set<string>();
@@ -4731,6 +4730,51 @@ export class TournamentManager extends TournamentManagerEliminations {
       }));
       for (const move of this.tableBalancer.calculateMoves(board)) needed.add(move.fromTableId);
     }
+    this.releaseGapFencesNotIn(needed);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  THE SWEEP'S OWN PLAN LIFTS THE FENCES IT DOES NOT NEED
+   *  (2026-11-21, incident 1e532243: all_in_showdown delay after a bust)
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * A gap-balance source is fenced while it is the big table. When its hand
+   * busts a player it often stops being one, but nothing told it: the bust
+   * admits a sweep (balanceBoardEpoch moves, so the plan prepared under the
+   * hold is void), the sweep's balance stage planned from fresh rows and
+   * fenced the sources it needed, and the fences it did NOT need were left
+   * standing. The source then parked at the end of its hold and waited for
+   * the next boundary drain, which itself waits for whatever sweep holds the
+   * manager, to be told it was free.
+   *
+   * Production 2026-11-21 01:05-01:15 UTC: two-hand all-in showdowns that
+   * busted a player reached the next deal log p50 5.96 s / p90 6.99 s after
+   * settlement against 5.49 s / 5.61 s for the same showdown with no bust,
+   * and the slow ones parked ("Parked between hands") at the end of the hold
+   * and dealt only after an unrelated move landed (7973d396, d80a187c:
+   * settled 01:11:25.36, parked 01:11:30.27, dealt 01:11:32.35).
+   *
+   * So every plan made while the manager is held - the sweep's balance stage
+   * and the plan prepared under the hold - hands back each fenced source it
+   * does not name as a move source, at the moment it decides. A source the
+   * sweep reaches while its hold plays never parks at all. The guards are the
+   * ones the prepared plan always used: a source already at the gate awaiting
+   * its claim, one whose boundary a move has claimed, a durable break source,
+   * pending move outcomes, a pending break retirement, unfinished discovery,
+   * recovery, a freeze, the tournament break and a refused mutation all keep
+   * the fence exactly as before.
+   */
+  private releaseGapFencesNotIn(needed: ReadonlySet<string>): void {
+    if (
+      this.seatMoveBatchesInFlight > 0 ||
+      this.pendingTournamentSeatMoveOutcomes.size > 0 ||
+      !!this.pendingTableBreakRetirement ||
+      !this.tournamentBreakDiscoveryComplete ||
+      this.mixedRecovery !== null ||
+      !this.boundaryPlanLifecycleAllowed()
+    )
+      return;
     for (const tableId of [...this.gapBalanceFencedSources]) {
       if (needed.has(tableId)) continue;
       const engine = this.tableEngines.get(tableId);

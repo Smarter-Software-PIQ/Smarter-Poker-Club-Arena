@@ -23,20 +23,15 @@
  *        continue share c of a reference field (hero cards unknown) defines a
  *        strength threshold; the hero's field (his cards removed) continues with
  *        the share of holdings at or above it.
- *      exploitBack: how this opponent actually answered OUR wagers of a line
- *        (public actions only), as a Beta posterior shrunk to the measured cell
- *        with the same prior weight the opponent model uses; the measured fold /
- *        raise rates are scaled to it, so a player who stops folding to our
- *        check-raises stops being check-raise-bluffed (safeguard against being
- *        exploited back).
+ *      (the per-opponent exploit-back tracker was removed by lane CORE-POOLED, Nov 20:
+ *        identity-free, no per-user row; it never recorded in production.)
  *  - receipts: bluffSelectionReceipt names why a hand is a candidate bluff
  *    (DRAWS' omahaDrawFeatures + blockers) for the decision receipt only.
  *
  * Scope: PLO4 and PLO5 cash only. holeCount 6 (and anything else) returns null /
  * no context: PLO6 behaviour is untouched (owner 8:27 PM, law test).
  *
- * Public information only: own cards, board, and the opponent's public answers
- * to our wagers. Pure and deterministic for a given input (seeded sampler).
+ * Public information only: own cards and the board. Pure and deterministic for a given input (seeded sampler).
  */
 
 export const OMAHA_MATH_CORE_BLUFF_VERSION = 'omaha-math-core-xr-bluff-v1';
@@ -202,99 +197,10 @@ export function blockerShiftOf(i: BlockerInput): BlockerShift | null {
   };
 }
 
-// ───────────────────────────── exploit-back tracker ─────────────────────────────
-
-export interface ExploitBackCell {
-  foldMult: number;
-  raiseMult: number;
-  n: number;
-  source: string;
-}
-
-interface Counts {
-  fold: number;
-  call: number;
-  raise: number;
-  t: number;
-}
-
-/**
- * How each opponent answers OUR wagers by line (public actions). Bounded: at most
- * `maxOpponents` opponents (least recently seen dropped). The posterior of his
- * fold (raise) rate is (k + m x measured) / (n + m), m the opponent model's prior
- * weight for responses (lane OPPMODEL params.response.m, passed in by the core);
- * the multipliers are posterior / measured, so with no observations they are 1.
- */
-export class OurWagerResponseTracker {
-  private readonly rows = new Map<string, Counts>();
-  private tick = 0;
-  constructor(private readonly maxOpponents = 5000) {}
-
-  private key(user: string, line: XrLine): string {
-    return `${user}|${line}`;
-  }
-
-  record(user: string, line: XrLine, response: XrResponse): void {
-    if (!user) return;
-    const k = this.key(user, line);
-    const row = this.rows.get(k) ?? { fold: 0, call: 0, raise: 0, t: 0 };
-    row[response] += 1;
-    row.t = ++this.tick;
-    this.rows.delete(k);
-    this.rows.set(k, row);
-    while (this.rows.size > this.maxOpponents * 3) {
-      const first = this.rows.keys().next().value as string;
-      this.rows.delete(first);
-    }
-  }
-
-  counts(user: string, line: XrLine): { fold: number; call: number; raise: number; n: number } {
-    const r = this.rows.get(this.key(user, line));
-    const fold = r?.fold ?? 0;
-    const call = r?.call ?? 0;
-    const raise = r?.raise ?? 0;
-    return { fold, call, raise, n: fold + call + raise };
-  }
-
-  /** Multipliers for the measured cell (fold, raise) of `user` facing our `line`; prior weight m. */
-  exploitBack(
-    user: string | null,
-    line: XrLine,
-    measured: { fold: number; raise: number },
-    m: number
-  ): ExploitBackCell {
-    const none = (why: string): ExploitBackCell => ({
-      foldMult: 1,
-      raiseMult: 1,
-      n: 0,
-      source: `exploit-back: ${why}`,
-    });
-    if (!user) return none('no opponent id');
-    if (!(m > 0)) return none('no prior weight');
-    const c = this.counts(user, line);
-    if (c.n === 0) return none(`no observed answers to our ${line}`);
-    const f0 = Math.min(1, Math.max(1e-6, measured.fold));
-    const r0 = Math.min(1, Math.max(1e-6, measured.raise));
-    const fPost = (c.fold + m * f0) / (c.n + m);
-    const rPost = (c.raise + m * r0) / (c.n + m);
-    const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
-    return {
-      foldMult: fPost / f0,
-      raiseMult: rPost / r0,
-      n: c.n,
-      source: `exploit-back ${line}: ${c.fold}F/${c.call}C/${c.raise}R of ${c.n}, fold ${r4(f0)} -> ${r4(fPost)}, raise ${r4(r0)} -> ${r4(rPost)} (m=${m})`,
-    };
-  }
-}
-
-/** The process-wide tracker the core reads and the hand-history hook writes (public actions only). */
-export const OUR_WAGER_RESPONSES = new OurWagerResponseTracker();
-
 // ───────────────────────────── the context planValue reads ─────────────────────────────
 
 export interface XrBluffCtx {
   blockerShift?: (continueShare: number) => number;
-  exploitBack?: (line: XrLine) => { foldMult: number; raiseMult: number; source: string };
 }
 
 /**
@@ -307,24 +213,10 @@ export function xrBluffCtx(i: {
   variant: string;
   holeCount: number;
   blockers: BlockerShift | null;
-  opponent: string | null;
-  measured: (line: XrLine) => { fold: number; raise: number } | null;
-  priorWeight: number;
-  tracker?: OurWagerResponseTracker;
 }): XrBluffCtx | null {
   if (!xrBluffInScope(i.variant, i.holeCount)) return null;
-  const tracker = i.tracker ?? OUR_WAGER_RESPONSES;
   const ctx: XrBluffCtx = {};
   if (i.blockers) ctx.blockerShift = i.blockers.shift;
-  if (i.opponent) {
-    const user = i.opponent;
-    ctx.exploitBack = (line) => {
-      const m = i.measured(line);
-      if (!m) return { foldMult: 1, raiseMult: 1, source: 'exploit-back: no measured cell' };
-      const e = tracker.exploitBack(user, line, m, i.priorWeight);
-      return { foldMult: e.foldMult, raiseMult: e.raiseMult, source: e.source };
-    };
-  }
   return ctx;
 }
 

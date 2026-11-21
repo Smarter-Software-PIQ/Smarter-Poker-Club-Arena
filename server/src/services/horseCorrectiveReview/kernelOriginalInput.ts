@@ -5,6 +5,10 @@ import type {
   DeepHorseDecisionRequest,
 } from '../../engine/horseDecision/protocol.js';
 import { buildHorseDecisionKey } from '../../engine/horseDecision/protocol.js';
+import {
+  HORSE_NOT_EXECUTED_RETIREMENT_REASONS,
+  type HorseNotExecutedRetirement,
+} from '../../engine/HorseExecutionWitness.js';
 import type { HorseJournalRecord } from '../horseDecisionJournal/record.js';
 import { validateHorseJournalRecord } from '../horseDecisionJournal/record.js';
 import type { CorrectiveReferenceBinding } from './contract.js';
@@ -198,15 +202,10 @@ export function kernelReconciledExecutionDisposition(
       w.acceptedActions.length === 0 &&
       w.executedAction === null &&
       w.executedAmount === null &&
-      [
-        'caller_settled',
-        'turn_abandoned',
-        'response_fence',
-        'second_look_replaced',
-        'second_look_unchanged',
-        'brain_exception',
-        'action_rejected',
-      ].includes(w.retirementReason)
+      typeof w.retirementReason === 'string' &&
+      (HORSE_NOT_EXECUTED_RETIREMENT_REASONS as readonly string[]).includes(
+        w.retirementReason as HorseNotExecutedRetirement
+      )
     )
       return 'retired';
     if (

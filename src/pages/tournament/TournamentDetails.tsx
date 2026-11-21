@@ -112,7 +112,7 @@ import { useTournamentStageView } from '../../hooks/useTournamentStageView';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
-import { shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
+import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { ShareLinkFallback } from '../../components/common/ShareLinkFallback';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
@@ -1747,6 +1747,7 @@ export default function TournamentDetails({
     const outcome = await shareLink({
       source: 'TournamentDetails.share',
       title: tournament.name || 'Tournament',
+      text: gameInviteText(tournament.name),
       url,
     });
     if (outcome === 'copied') toast?.success?.('Tournament Link Copied');
@@ -2185,7 +2186,16 @@ export default function TournamentDetails({
               {lobbyStatus.label}
             </span>
             <span className="tournament-id">ID:{tournament.id.slice(0, 8)}</span>
-            <div className="details-header__actions">{tournamentAction('header')}</div>
+            <div className="details-header__actions">
+              <TournamentRegisterButton
+                className="btn-invite-game"
+                data-testid="tournament-invite-btn"
+                onClick={() => void shareTournament()}
+              >
+                Invite To Game
+              </TournamentRegisterButton>
+              {tournamentAction('header')}
+            </div>
             {closeButton}
           </div>
           <h1 className="tournament-name">{formatTournamentTitle(tournament.name)}</h1>
@@ -2281,7 +2291,12 @@ export default function TournamentDetails({
             wrong. */}
         {shareFallbackUrl && <ShareLinkFallback url={shareFallbackUrl} label="Tournament Link" />}
         <div className="details-footer">
-          <button className="btn btn-share" type="button" onClick={() => void shareTournament()}>
+          <button
+            className="btn btn-share"
+            type="button"
+            data-testid="tournament-footer-invite-btn"
+            onClick={() => void shareTournament()}
+          >
             {shareButtonLabel()}
           </button>
           {tournamentAction('footer')}
