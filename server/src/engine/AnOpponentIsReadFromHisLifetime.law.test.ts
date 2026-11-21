@@ -141,11 +141,12 @@ describe('a PLO4/PLO5 opponent is read from his lifetime public profile from han
     const src = readFileSync(resolve(__dirname, 'HorseLogic.ts'), 'utf8');
     expect(src.split('{ opponentLifetimeHud: true }').length - 1).toBe(1);
     expect(src).toMatch(
-      /opts\.omahaOpponentLifetimeHud === true &&\s*String\(\(gameState as \{ stage\?: unknown \}\)\.stage \?\? 'preflop'\) !== 'preflop' &&/
+      /opts\.omahaOpponentLifetimeHud === true &&\s*opts\.omahaOpponentLifetimeHudDecides === true &&\s*String\(\(gameState as \{ stage\?: unknown \}\)\.stage \?\? 'preflop'\) !== 'preflop' &&/
     );
     // every consuming site asks HorseMind.hudReadActive(), which is that read option: none reads the decide option
-    const direct = src.split('opts.omahaOpponentLifetimeHud').length - 1;
+    const direct = src.split('opts.omahaOpponentLifetimeHud ').length - 1;
     expect(direct).toBe(1);
+    expect(src.split('opts.omahaOpponentLifetimeHudDecides').length - 1).toBe(1);
   });
 
   it('the snapshot carries the packet only while armed, and the sampling key never reads it', () => {

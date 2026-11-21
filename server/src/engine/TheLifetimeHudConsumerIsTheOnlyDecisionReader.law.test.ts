@@ -2,8 +2,10 @@
  * LAW: THE LIFETIME-HUD CONSUMER IS THE ONLY DECISION READER, AND IT IS DEFAULT OFF (2026-11-21, lane OPPONENT-HUD-9;
  * lead rulings 12:58 PM Chicago, item 4). Replaces TheHudProviderChangesNoDecision.law (provider-only branch): the
  * consumer now ships on the provider, so the provider may be read by a decision, but only by the consumer's named
- * sources, only under omahaOpponentLifetimeHud, and that option ships OFF. With it off an opponent read is the same
- * with a lifetime packet installed. A new reader must name itself here and carry its own option and criteria.
+ * sources and only under its OWN option omahaOpponentLifetimeHudDecides (default OFF) together with the store option
+ * omahaOpponentLifetimeHud: the store option alone arms, loads and attaches and decides nothing, so the store can be
+ * switched on and backfilled before any decision reads it. With the consumer off an opponent read is the same with a
+ * lifetime packet installed. A new reader must name itself here and carry its own option and criteria.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -53,9 +55,28 @@ describe('the lifetime-HUD consumer is the only decision reader, and it is defau
     expect(importers).toContain('HorseMind.ts');
   });
 
-  it('omahaOpponentLifetimeHud ships OFF', () => {
-    expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF).toContain('omahaOpponentLifetimeHud');
-    expect(OPTION_SWITCH_RELEASE_DEFAULT_ON).not.toContain('omahaOpponentLifetimeHud');
+  it('both options ship OFF', () => {
+    for (const name of ['omahaOpponentLifetimeHud', 'omahaOpponentLifetimeHudDecides']) {
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF).toContain(name);
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_ON).not.toContain(name);
+    }
+  });
+
+  it('the decision read option is produced at one place and needs the consumer option AND the store option', () => {
+    const reads: string[] = [];
+    for (const f of files) {
+      const lines = readFileSync(f.p, 'utf8').split('\n');
+      lines.forEach((l, i) => {
+        if (/opts(\?)?\.omahaOpponentLifetimeHudDecides\b/.test(l)) reads.push(`${f.rel}:${i}`);
+      });
+    }
+    expect(reads.length).toBe(1);
+    expect(reads[0]).toMatch(/^HorseLogic\.ts:/);
+    const src = readFileSync(join(ENGINE, 'HorseLogic.ts'), 'utf8');
+    expect(src).toMatch(
+      /\.\.\.\(opts\.omahaOpponentLifetimeHud === true &&\s*opts\.omahaOpponentLifetimeHudDecides === true &&/
+    );
+    expect(src.split('{ opponentLifetimeHud: true }').length - 1).toBe(1);
   });
 
   it('with the option off an opponent read is identical with a lifetime packet installed', () => {

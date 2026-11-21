@@ -1227,6 +1227,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOpponentLifetimeHudDecides',
+    "PLO-OWNER lane OPPONENT-HUD-9 2026-11-21 (lead rulings 12:58 PM Chicago item 4: the consumer rebuilt on the list train). PLO4/PLO5 cash, postflop; default off (read === true); acts only together with omahaOpponentLifetimeHud (the store and packet). HorseMind.opponentRead takes the opponent's counters from his lifetime public profile (shrunk n/(n+k)) in place of the shared presumption, plus the measured fold calibration; graded record 2 (seed 20261124) as omahaOpponentLifetimeHud on lifetime-hud3.",
+    'V94'
+  ),
+  flag(
     'omahaRiverCurrentNutsCallFloor',
     "EMERG lane RANGE-MODEL-2 2026-11-20 (owner 9:42 AM Chicago: EVERYTHING DEPENDS ON THE MATH; 9:52 AM: the same corrections against all players, human or Horse; lane RANGE-MODEL graded a facing-bet range read that folded the current river nuts, hand 60226889). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). The outermost answer of the wager_rules node: on the river facing a wager, a final fold becomes the legal call (the whole-stack all-in when the call is the stack) when hero holds the exact current nuts (HorseRiverNuts.hasRiverNuts: every unseen two-card holding enumerated, exactly two hole and three board cards) and a full chop with every live opponent still returns the call, (pot + paid) / (live opponents + 1) >= paid, so the call's expected value is never negative. Public information only; no opponent label, account or person/Horse flag. Near-nut hands are not floored (a range question). The response validator re-runs the floor on the request. PLO6, PLO8, hold'em and tournaments untouched. HorseOmahaRiverCurrentNutsCallFloor.ts",
     'V94'

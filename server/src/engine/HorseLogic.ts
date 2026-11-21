@@ -3671,6 +3671,11 @@ export interface HorseDecideOpts {
    * for every opponent, person or Horse, no unshown card. Default OFF (read === true); scopable by
    * horse.omahaGameScope.omahaOpponentLifetimeHud. */
   omahaOpponentLifetimeHud?: boolean;
+  /** OPPONENT HUD CONSUMER (2026-11-21, PLO-OWNER lane OPPONENT-HUD-9; lead rulings 12:58 PM Chicago item 4): the
+   * decision READS the lifetime profile only with this on AND omahaOpponentLifetimeHud on (which arms the store and
+   * attaches the packet). omahaOpponentLifetimeHud alone stores, loads and attaches, and decides nothing, so the store
+   * can be switched on and backfilled before any decision reads it. Default OFF (read === true). */
+  omahaOpponentLifetimeHudDecides?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -16119,6 +16124,7 @@ export class HorseLogic {
       // and river only. A preflop decision reads its opponents exactly as with the option off (the heads-up button
       // open, where the read only removed a presumption, is priced by its own option omahaButtonOpenIsPriced).
       ...(opts.omahaOpponentLifetimeHud === true &&
+      opts.omahaOpponentLifetimeHudDecides === true &&
       String((gameState as { stage?: unknown }).stage ?? 'preflop') !== 'preflop' &&
       (String(gameState.gameVariant).toLowerCase() === 'plo4' ||
         String(gameState.gameVariant).toLowerCase() === 'plo5') &&

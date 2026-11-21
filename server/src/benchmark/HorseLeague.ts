@@ -6118,7 +6118,23 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       "Unanswerable by this league: the option only builds and serves each opponent's lifetime public profile " +
       'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
       'arms read nothing and play the same hands; the provider by itself changes no decision ' +
-      '(TheHudProviderChangesNoDecision.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      '(TheLifetimeHudConsumerIsTheOnlyDecisionReader.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
+      'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
+      'change this: a league that seeds each opponent with a lifetime history.',
+  })),
+  // 2026-11-21 (PLO-OWNER lane OPPONENT-HUD-9): omahaOpponentLifetimeHudDecides (the consumer),
+  // default off. Refused, not dealt: league opponents have no stored lifetime history.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_opponent_lifetime_hud_decides`,
+    variant,
+    seats: 6,
+    a: { omahaOpponentLifetimeHud: true, omahaOpponentLifetimeHudDecides: true },
+    b: {},
+    reason:
+      "Unanswerable by this league: the option reads each opponent's lifetime public profile, which the store builds " +
+      'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
+      'arms read nothing and play the same hands. Measured instead on the learning bench with SPARRING_HUD=1 and ' +
       'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
       'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
       'change this: a league that seeds each opponent with a lifetime history.',

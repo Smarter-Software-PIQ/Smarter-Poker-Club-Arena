@@ -369,6 +369,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaOpponentLifetimeHud: priced(
     'the per-opponent lifetime public HUD provider every priced comparison may read; it decides nothing by itself (an input, not a rule site)'
   ),
+  omahaOpponentLifetimeHudDecides: priced(
+    'the opponent read takes his counters from the lifetime HUD postflop, the one shrunk n/(n+k) mechanism every priced comparison reads (an input, not a rule site)'
+  ),
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
