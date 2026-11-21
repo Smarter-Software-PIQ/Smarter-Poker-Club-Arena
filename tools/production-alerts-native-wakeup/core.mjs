@@ -131,7 +131,47 @@ export function createIntake({
     }
     await wakeAccepted();
   };
+  // Explicit operator recovery of ONE accepted operation whose native reader turn
+  // is proven terminated (inspected outside this process) while its deliveries
+  // remain unacknowledged. Without it a reader turn that ends in a fatal error
+  // leaves the consumer waiting forever: acknowledgement never arrives and the
+  // accepted wake is never repeated. The caller must name the exact recorded
+  // operation and native message and give the inspected reason. Nothing here
+  // runs on a timer; acknowledged state is never retired; one call retires one
+  // operation and the ordinary event path queues the still-pending deliveries.
+  const recover = async ({ operationId, messageId, reason } = {}) => {
+    if (!loaded) {
+      active = validateState(await load());
+      loaded = true;
+    }
+    if (
+      typeof reason !== 'string' ||
+      reason.trim().length < 10 ||
+      reason.length > 500 ||
+      !active ||
+      active.phase !== 'queued' ||
+      active.wake !== 'requested' ||
+      active.operationId !== operationId ||
+      active.messageId !== messageId
+    )
+      throw new Error('recovery refused: name the exact requested operation and inspected reason');
+    const result = await pending(active.ids);
+    if (!result || result.version !== 1 || typeof result.active_acknowledged !== 'boolean')
+      throw new Error('invalid opaque pending response');
+    if (result.active_acknowledged)
+      throw new Error('recovery refused: accepted operation already acknowledged');
+    const retired = { operationId, messageId };
+    await save(null);
+    active = null;
+    return retired;
+  };
   return {
+    async recover(request) {
+      await running?.catch(() => {});
+      const retired = await recover(request);
+      await this.event();
+      return { retired, active: active ?? null };
+    },
     event() {
       requested = true;
       if (!running) {

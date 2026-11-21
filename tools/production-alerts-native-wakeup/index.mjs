@@ -39,6 +39,21 @@ export function createPlugin({
           ...(intake?.status() ?? { state: 'not_started' }),
         });
       });
+      api.registerGatewayMethod(
+        'production-alerts-native-wakeup.recover',
+        async ({ params, respond }) => {
+          if (!intake || lifecycle !== 'active') {
+            respond(false, { error: 'native intake service not active' });
+            return;
+          }
+          try {
+            respond(true, await intake.recover(params ?? {}));
+          } catch (error) {
+            api.logger.error('Production Alerts explicit recovery refused or failed');
+            respond(false, { error: error.message, ...intake.status() });
+          }
+        }
+      );
       api.registerService({
         id: 'production-alerts-native-wakeup',
         async start() {
