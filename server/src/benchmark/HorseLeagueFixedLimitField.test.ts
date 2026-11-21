@@ -28,6 +28,8 @@ import {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
+  FLH_VALUE_ONLY_BLINDS_PERSONA,
+  FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
   LEAGUE_MATCHUPS,
   UNMEASURABLE_MATCHUPS,
   humanFieldPersonaProfile,
@@ -44,7 +46,9 @@ import {
   flhManiacPolicy,
   flhOverFoldingBlindsPolicy,
   flhPassiveCallerPolicy,
+  flhPreflopDefendingBlindsPolicy,
   flhTightValuePolicy,
+  flhValueOnlyBlindsPolicy,
   ownMadeClass,
 } from './FixedLimitScriptedField.js';
 import type { FixedLimitScriptedPersona } from './HorseLeagueHumanField.js';
@@ -283,6 +287,10 @@ describe('the scripted fixed-limit field plays the live controller hand', () => 
     [FLH_PASSIVE_CALLER_PERSONA, 2, 60],
     [FLH_OVER_FOLDING_BLINDS_PERSONA, 6, 60],
     [FLH_OVER_FOLDING_BLINDS_PERSONA, 2, 60],
+    [FLH_VALUE_ONLY_BLINDS_PERSONA, 6, 60],
+    [FLH_VALUE_ONLY_BLINDS_PERSONA, 2, 60],
+    [FLH_PREFLOP_DEFENDING_BLINDS_PERSONA, 6, 60],
+    [FLH_PREFLOP_DEFENDING_BLINDS_PERSONA, 2, 60],
   ] as const)(
     '%s at %i seats: every node, menu, script answer and settlement equals a real HandController',
     (persona, seats, hands) => {
@@ -302,7 +310,11 @@ describe('the scripted fixed-limit field plays the live controller hand', () => 
       }
       expect(seen.scripted).toBeGreaterThan(hands);
       // The over-folding blinds never bet or raise; every other script does.
-      if (persona === FLH_OVER_FOLDING_BLINDS_PERSONA) expect(seen.wagers).toBe(0);
+      if (
+        persona === FLH_OVER_FOLDING_BLINDS_PERSONA ||
+        persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA
+      )
+        expect(seen.wagers).toBe(0);
       else expect(seen.wagers).toBeGreaterThan(0);
       if (persona === FLH_MANIAC_PERSONA) {
         // The maniac never folds, reaches every street, and caps streets.
@@ -539,6 +551,112 @@ describe('the scripts', () => {
     expect(pre(['Jh', '9s'], raised)).toEqual({ action: 'fold' });
   });
 
+  it('the value-only blinds continue after the flop with two pair or better only, and raise it', () => {
+    const board = ['Kh', '7d', '2c'].map(c);
+    const facing = {
+      toCall: 2,
+      currentBet: 2,
+      legalActions: ['fold', 'call', 'raise', 'all_in'],
+      minRaiseTo: 4,
+      maxRaiseTo: 4,
+    };
+    const bet = { seat: 3, userId: 'x', action: 'bet', amount: 2, stage: 'flop', timestamp: 1 };
+    // One pair (top pair, an overpair) folds to a wager and checks when checked to.
+    for (const cards of [
+      ['Kd', 'Qs'],
+      ['Ad', 'As'],
+      ['9d', '8s'],
+    ]) {
+      expect(flhValueOnlyBlindsPolicy(spot({ cards: cards.map(c), board }))).toEqual({
+        action: 'check',
+      });
+      expect(
+        flhValueOnlyBlindsPolicy(
+          spot({ cards: cards.map(c), board, ...facing, history: [bet as never] })
+        )
+      ).toEqual({ action: 'fold' });
+    }
+    // Two pair bets when checked to and raises one wager.
+    expect(flhValueOnlyBlindsPolicy(spot({ cards: ['Kd', '7s'].map(c), board }))).toEqual({
+      action: 'bet',
+      amount: 2,
+    });
+    expect(
+      flhValueOnlyBlindsPolicy(
+        spot({ cards: ['Kd', '7s'].map(c), board, ...facing, history: [bet as never] })
+      )
+    ).toEqual({ action: 'raise', amount: 4 });
+    // Facing a bet and a raise, two pair calls and trips re-raises.
+    const twoWagers = [bet, { ...bet, seat: 4, action: 'raise', amount: 4 }] as never[];
+    expect(
+      flhValueOnlyBlindsPolicy(
+        spot({ cards: ['Kd', '7s'].map(c), board, ...facing, history: twoWagers })
+      )
+    ).toEqual({ action: 'call' });
+    expect(
+      flhValueOnlyBlindsPolicy(
+        spot({ cards: ['7c', '7s'].map(c), board, ...facing, history: twoWagers })
+      )
+    ).toEqual({ action: 'raise', amount: 4 });
+    // Preflop it is the tight-value raise or fold.
+    expect(
+      flhValueOnlyBlindsPolicy(spot({ stage: 'preflop', cards: ['Ah', 'As'].map(c), ...facing }))
+    ).toEqual({ action: 'raise', amount: 4 });
+    expect(
+      flhValueOnlyBlindsPolicy(spot({ stage: 'preflop', cards: ['7h', '2s'].map(c), ...facing }))
+    ).toEqual({ action: 'fold' });
+  });
+
+  it('the preflop-defending blinds call a single raise at the published defence width and fold to every postflop wager', () => {
+    const facing = {
+      toCall: 2,
+      currentBet: 4,
+      legalActions: ['fold', 'call', 'raise', 'all_in'],
+      minRaiseTo: 6,
+      maxRaiseTo: 6,
+    };
+    const raised = [
+      { seat: 5, userId: 'x', action: 'raise', amount: 4, stage: 'preflop', timestamp: 1 },
+    ] as never[];
+    const pre = (cards: string[], over: Partial<LeagueSeatSpot> = {}) =>
+      flhPreflopDefendingBlindsPolicy(
+        spot({ stage: 'preflop', cards: cards.map(c), ...facing, history: raised, ...over })
+      );
+    // A middling hand the over-folding blinds fold (below 0.82) is defended here (at 0.20 or better).
+    expect(pre(['Jh', '9s'])).toEqual({ action: 'call' });
+    expect(
+      flhOverFoldingBlindsPolicy(
+        spot({ stage: 'preflop', cards: ['Jh', '9s'].map(c), ...facing, history: raised })
+      )
+    ).toEqual({ action: 'fold' });
+    // Aces call, never re-raise; the worst hand folds.
+    expect(pre(['Ah', 'As'])).toEqual({ action: 'call' });
+    expect(pre(['7h', '2s'])).toEqual({ action: 'fold' });
+    // Postflop it checks or folds whatever it holds.
+    const board = ['Kh', '7d', '2c'].map(c);
+    for (const cards of [
+      ['Kd', '7s'],
+      ['Ad', 'As'],
+    ]) {
+      expect(flhPreflopDefendingBlindsPolicy(spot({ cards: cards.map(c), board }))).toEqual({
+        action: 'check',
+      });
+      expect(
+        flhPreflopDefendingBlindsPolicy(
+          spot({
+            cards: cards.map(c),
+            board,
+            toCall: 2,
+            currentBet: 2,
+            legalActions: ['fold', 'call', 'raise', 'all_in'],
+            minRaiseTo: 4,
+            maxRaiseTo: 4,
+          })
+        )
+      ).toEqual({ action: 'fold' });
+    }
+  });
+
   it('the tight-value player raises or folds first in: it never limps', () => {
     const pre = (cards: string[]) =>
       flhTightValuePolicy(
@@ -566,7 +684,14 @@ describe('the field is deterministic from the deal seed', () => {
       const b = fieldHand(persona, 424242, 3, 6);
       expect(b.actions).toEqual(a.actions);
       expect(b.net).toEqual(a.net);
-      const card = FIXED_LIMIT_SCRIPTED_FIELD_CARDS.find((m) => m.humanPersona === persona)!;
+      // flh_value_only_blinds_v1 has no kept card (almost inert, 2026-11-21): the steal card's shape seats it.
+      const card = FIXED_LIMIT_SCRIPTED_FIELD_CARDS.find((m) => m.humanPersona === persona) ?? {
+        ...FIXED_LIMIT_SCRIPTED_FIELD_CARDS.find(
+          (m) => m.humanPersona === FLH_OVER_FOLDING_BLINDS_PERSONA
+        )!,
+        name: `flh_steal_vs_tight_blinds_vs_${persona}`,
+        humanPersona: persona,
+      };
       vi.restoreAllMocks();
       const r1 = await runMatchup(card, 20, 99);
       const r2 = await runMatchup(card, 20, 99);
@@ -733,6 +858,31 @@ describe('the scripted fixed-limit field cards', () => {
     },
     300_000
   );
+});
+
+describe('the steal harm control card (2026-11-21)', () => {
+  it('the preflop-defending blinds card diverges, with every action legal, and the value-only blinds are not on the card', async () => {
+    const card = LEAGUE_MATCHUPS.find(
+      (m) => m.name === 'flh_steal_vs_tight_blinds_vs_preflop_defending_blinds'
+    )!;
+    expect(card.humanPersona).toBe(FLH_PREFLOP_DEFENDING_BLINDS_PERSONA);
+    expect(card.a).toEqual({ fixedLimitStealVsTightBlinds: true });
+    expect(card.seats).toBe(6);
+    expect(
+      FIXED_LIMIT_SCRIPTED_FIELD_CARDS.some((m) => m.humanPersona === FLH_VALUE_ONLY_BLINDS_PERSONA)
+    ).toBe(false);
+    // Fixed seed and size: deterministic for a strategy build (measured 2026-11-21: 29 of 900).
+    const r = await runMatchup(card, 900, 20261120);
+    expect(r.illegalActions).toBe(0);
+    expect(r.truncatedStreets).toBe(0);
+    expect(r.brainExceptionFallbacks).toBe(0);
+    expect(r.divergentPairs).toBeGreaterThan(0);
+    expect(r.inert).toBe(false);
+    for (const [node, counts] of Object.entries(r.humanResponses ?? {})) {
+      expect(counts.bet ?? 0, node).toBe(0);
+      expect(counts.raise ?? 0, node).toBe(0);
+    }
+  }, 300_000);
 });
 
 describe('the passive caller and the over-folding blinds cards (2026-11-21)', () => {

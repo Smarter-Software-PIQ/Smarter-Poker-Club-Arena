@@ -116,7 +116,12 @@ describe('the merge dispatches the migrations it added', () => {
     expect(step.env.GH_TOKEN).toBe('${{ github.token }}');
     expect(step.env.MERGED_BY).toBe('${{ github.event.pull_request.merged_by.login }}');
     expect(step.run).toBe('bash .github/scripts/dispatch-merged-migrations.sh');
-    expect(workflow.permissions).toEqual({ contents: 'write', 'pull-requests': 'write' });
+    expect(workflow.permissions).toEqual({
+      contents: 'write',
+      'pull-requests': 'write',
+      // Reads the applier's runs only: an older merge installs first (incident 90972d77).
+      actions: 'read',
+    });
     expect(job.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
     // Every merge dispatches its own migrations, whoever merged it (2026-11-07:
     // an agent's hand merge of #9876 left 20261107130652 uninstalled for hours).

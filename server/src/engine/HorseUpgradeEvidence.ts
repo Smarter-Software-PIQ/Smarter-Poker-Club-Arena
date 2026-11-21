@@ -37,9 +37,11 @@
  * decisions and all 762 Horses as upgrade 10 invoked while the window engaged
  * 42 times. Needles in PER_HORSE_OPPORTUNITY_ONLY_NEEDLES are therefore not
  * invocation evidence here; the fleet list and the manifest are unchanged.
- * Only upgrade 10's needles have been classified this way so far; an
- * upgrade 10 invocation is a floor (the window's other read changes fire no
- * counter).
+ * Only upgrade 10's needles have been classified this way so far. Since
+ * 2026-11-21 an upgrade 10 invocation also counts the 0.90 reach
+ * (holdem_gear_shift_reach_seen) and the window's OFF switch
+ * (upgrade10_fast_window_calmed_seen); it is still a floor (a read the window
+ * only rescales fires no counter).
  *
  * WHAT A NEEDLE IS. The manifest lists each upgrade's counters as source text:
  * a quoted needle is one exact counter name, a needle that opens with a

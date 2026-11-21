@@ -7,6 +7,7 @@
  * Run from server/ (local files only; nothing is read from or written to a database):
  *   npx tsx scripts/audited-node-option-replay.ts --job <job.json> --switch <switch-rows.json> \
  *     --arms <arm>=<option>[+<option>][,<arm>=...] --out <replay.jsonl> [--seeds 1,7,42] [--shard <i>/<n>]
+ *     [--history <dir of part*.jsonl.gz>]
  *
  * job.json (scripts/hvh48-audit-nodes.py writes it): {set, hands: [{hand: <ExtractedHand of
  * engine/HorseComplaintReplay>, nodes: [{ord, seat, street, k}]}]}. switch-rows.json: the rows of
@@ -17,14 +18,32 @@
  *    Horse's own hole cards; the brain is today's source at this checkout, the live hybrid profile of the hand's
  *    format, over the fixed seeds. The arm's action is the action kind most seeds chose (the first seed's on a
  *    tie); its amount is the first size that kind chose.
- *  - Opponent memory is OFF (HorseComplaintReplay.replayAt passes mind: false): an option that reads a per-opponent
- *    record sees none and falls back to whatever it uses without one. It is not the original worker request.
+ *  - Opponent memory: OFF by default (HorseComplaintReplay.replayAt passes mind: false; seats are p<seat>): an option
+ *    that reads a per-opponent record sees none and falls back to whatever it uses without one. With
+ *    --history <dir> (REPLAY-V2) it is ON AS OF THE DECISION (src/benchmark/ReplayOpponentMemory.ts): the nodes are
+ *    re-decided in the order of their recorded action time; before each, every retained hand settled strictly
+ *    before that time (never the hand itself) is learned by the live completed-hand learner into one private
+ *    sandbox; the decision reads it with mind on, observeMind off, intent captured, real seat ids. <dir> holds the
+ *    pull's part*.jsonl.gz (hand_history public columns; no hole cards). Each line then carries `facing` (people /
+ *    horses / mixed, with each live opponent's record size in hands) and `memory` (as-of time, hands learned).
+ *    It is not the original worker request.
  *  - The base arm is the switch rows given, as the live holder would apply them: a style-switch row goes to the
  *    style options, a registered option row to the option set, an off-only option that a row holds on is set off
  *    (sanitized, counted), a row the registry does not know is dropped (sanitized, counted).
  *  - An arm option that the registry refuses is an error here, before anything runs.
  */
-import { createWriteStream, readFileSync } from 'node:fs';
+import { createWriteStream, readFileSync, readdirSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { join } from 'node:path';
+import {
+  AsOfOpponentMemory,
+  decisionTimeMs,
+  facingOf,
+  historyHandOf,
+  replayAtWithMemory,
+  withSeatIds,
+  type HistoryHand,
+} from '../src/benchmark/ReplayOpponentMemory.js';
 import {
   actionKind,
   replayAt,
@@ -45,6 +64,7 @@ import {
   styleSwitchDecisionOpts,
   type StyleSwitchStates,
 } from '../src/engine/HorseStyleSwitch.js';
+import { replayReceiptKeep } from '../src/benchmark/ReplayArmReceipts.js';
 
 const args = process.argv.slice(2);
 const opt = (name: string): string | undefined => {
@@ -74,6 +94,27 @@ const rows = JSON.parse(readFileSync(need('switch'), 'utf8')) as {
 }[];
 const seeds = (opt('seeds') ?? '1,7,42').split(',').map(Number);
 const [shard, shards] = (opt('shard') ?? '0/1').split('/').map(Number);
+
+// REPLAY-V2: opponent memory as of each decision, from the retained public history.
+const historyDir = opt('history');
+let memory: AsOfOpponentMemory | null = null;
+let historyHands = 0;
+if (historyDir) {
+  const hands: HistoryHand[] = [];
+  for (const f of readdirSync(historyDir)
+    .filter((n) => /^part\d+\.jsonl\.gz$/.test(n))
+    .sort())
+    for (const l of gunzipSync(readFileSync(join(historyDir, f)))
+      .toString('utf8')
+      .split('\n')) {
+      if (!l.trim()) continue;
+      const h = historyHandOf(JSON.parse(l) as Record<string, unknown>);
+      if (h) hands.push(h);
+    }
+  historyHands = hands.length;
+  memory = new AsOfOpponentMemory(hands);
+  console.error(`history: ${hands.length} hands loaded from ${historyDir}`);
+}
 
 // The base arm: the rows as the live holder applies them.
 const style: Record<string, string> = Object.fromEntries(
@@ -107,6 +148,18 @@ for (const [arm, set] of Object.entries(arms))
       `arm ${arm}: today's option registry refuses its option set; nothing would be switched`
     );
 
+// The receipts each arm keeps: those the ledger attributes to the options under test, plus the earlier families
+// (src/benchmark/ReplayArmReceipts.ts). An option the ledger names no receipt for is reported, not guessed.
+const receiptKeep = replayReceiptKeep(
+  Object.values(arms).flatMap((set) =>
+    Object.keys(set).filter((o) => set[o] === 'on' && base[o] !== 'on')
+  )
+);
+for (const o of receiptKeep.unattributed)
+  console.error(
+    `note: the ledger names no receipt for ${o}; its rows keep only the receipt families`
+  );
+
 const brainOpts = (set: Record<string, 'on' | 'off'>, horseId: string) => ({
   ...styleSwitchBrainOpts(
     styleSwitchDecisionOpts(style as unknown as StyleSwitchStates, horseId, false)
@@ -129,17 +182,36 @@ out.write(
       seeds,
       style,
       shard: `${shard}/${shards}`,
+      memory: memory
+        ? {
+            on: true,
+            historyHands,
+            rule: 'as of the decision action time; settled hands only; never the hand itself',
+          }
+        : { on: false },
     },
   }) + '\n'
 );
 let done = 0;
 let errors = 0;
 const started = Date.now();
+// The nodes of this shard; with memory on, in the order of their recorded action time (the memory only moves forward).
+const work: {
+  hand: ExtractedHand;
+  n: JobNode;
+  node: ComplaintAction | undefined;
+  t: number | null;
+}[] = [];
 job.hands.forEach((item, hi) => {
   if (hi % shards !== shard) return;
-  const hand = item.hand;
   for (const n of item.nodes) {
-    const node = hand.actions.find((a: ComplaintAction) => a.ord === n.ord);
+    const node = item.hand.actions.find((a: ComplaintAction) => a.ord === n.ord);
+    work.push({ hand: item.hand, n, node, t: node ? decisionTimeMs(node) : null });
+  }
+});
+if (memory) work.sort((a, b) => (a.t ?? Infinity) - (b.t ?? Infinity));
+for (const { hand, n, node, t } of work) {
+  {
     const line: Record<string, unknown> = {
       hand: hand.handId,
       seat: n.seat,
@@ -147,27 +219,49 @@ job.hands.forEach((item, hi) => {
       k: n.k,
     };
     const armsOut: Record<string, unknown> = {};
+    const facing = node ? facingOf(hand, node) : null;
+    if (memory && t !== null) {
+      memory.learnThrough(t, hand.handId);
+      line.memory = {
+        asOfMs: t,
+        learnedHands: memory.learned.length,
+        latestLearnedMs: memory.latestLearnedMs,
+      };
+    }
+    if (facing)
+      line.facing = {
+        kind: facing.kind,
+        opponents: facing.opponents.map((o) => ({
+          seat: o.seat,
+          isHorse: o.isHorse,
+          ...(memory ? { recordHands: memory.handsOf.get(o.userId) ?? 0 } : {}),
+        })),
+      };
     for (const [arm, set] of Object.entries(arms)) {
       try {
         if (!node?.publicNode) throw new Error('no recorded public snapshot at this node');
-        const st = stateAt(hand, node);
+        if (memory && t === null)
+          throw new Error('no recorded action time at this node (memory on)');
+        const st0 = stateAt(hand, node);
+        const st = memory ? withSeatIds(st0, hand) : st0;
         const prof = replayProfiles(st.pn.mode).find((p) => p.live)!;
-        const r = replayAt(st, prof, seeds, brainOpts(set, node.userId ?? ''));
+        const run = (s: readonly number[]) =>
+          memory
+            ? replayAtWithMemory(memory, st, prof, s, brainOpts(set, node.userId ?? ''))
+            : replayAt(st, prof, s, brainOpts(set, node.userId ?? ''));
+        const r = run(seeds);
         const kinds = Object.entries(r.kinds).sort((a, b) => b[1]! - a[1]!);
         let kind = kinds[0][0];
         if (kinds.length > 1 && kinds[0][1] === kinds[1][1]) {
           // a tie: the first seed's kind
-          const first = replayAt(st, prof, seeds.slice(0, 1), brainOpts(set, node.userId ?? ''));
-          kind = Object.keys(first.kinds)[0];
+          kind = Object.keys(run(seeds.slice(0, 1)).kinds)[0];
         }
         armsOut[arm] = {
           action: word(kind, st.pn.toCall),
           amount: kind === 'raise' || kind === 'jam' ? (r.sizesBb[0] ?? null) : null,
           legal: true,
           refusal: false,
-          receipts: Object.keys(r.receipts).filter((k) =>
-            /priced|value_share|multiway|plo6_facing|holdem_|^hu_/.test(k)
-          ),
+          receipts: Object.keys(r.receipts).filter(receiptKeep.keep),
           kinds: r.kinds,
         };
       } catch (e) {
@@ -186,7 +280,7 @@ job.hands.forEach((item, hi) => {
         `${done} nodes, ${errors} arm errors, ${Math.round((Date.now() - started) / 1000)} s`
       );
   }
-});
+}
 out.end(() =>
   console.error(
     `done: ${done} nodes, ${errors} arm errors, ${Math.round((Date.now() - started) / 1000)} s`

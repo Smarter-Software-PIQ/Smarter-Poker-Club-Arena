@@ -17,6 +17,20 @@
  *  - COMPANIONS: an option that acts only with another option on (the math core's street flag needs omahaMathCore)
  *    is re-decided with the companion true as well when it is flipped to true.
  *
+ * TIMING (2026-11-20, VERIFIER V52). Nothing of a staged re-decision runs before the answer is sent: up to the
+ * FAST_RESULT the worker does exactly what it does with no row, and reads no seat of the table for the stage. After
+ * the answer the pick is handed over; when its job has ended it is dropped at once if any request is waiting,
+ * otherwise it is put on the worker's one lane behind an event-loop turn and starts only if the worker is still idle
+ * and no job has started since its decision (the Horse memory is what the decision left). The stage's gates (acted
+ * time, governor scale, breaker, Horse-only cap, the shared per-minute budget) are taken then. Its receipt cannot
+ * ride in its own decision's journal record (already written). It adds NO journal record kind (an engine of an older
+ * release rejects an unknown kind, and after a rollback would meet it in a segment): it is held in the worker (at
+ * most 8, older ones dropped and counted option_shadow_stage_receipt_dropped_seen) and rides in the NEXT decision
+ * record that worker journals, field `stagedOptionShadowReceipts`: [{ decisionKey, requestId, decisionTimeMs,
+ * receipt }], each naming the decision it re-decided. A reader joins on decisionKey. Receipts held when a worker
+ * stops are lost (a measurement sample, never a decision). What remains: a request that arrives WHILE a
+ * re-decision is running waits for it to end (at most one re-decision; the breaker bounds how long and how often).
+ *
  * WHAT IT NEVER DOES. It runs after the acted decision is final and changes nothing of it (the law
  * aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts). It adds no row, no state and no setting: a listed
  * option is staged by the same `shadow` row as any option. With no listed option in shadow nothing here runs past a
@@ -39,7 +53,15 @@ const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([
 /**
  * The staged options. A name the registry does not hold, or that does not take shadow there, is inert (the shadow
  * only ever picks a registered option in shadow or on_shadow). omahaOpponentLifetimeHud is NOT listed: in shadow
- * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely.
+ * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely. The math core's street flags
+ * were taken out on 2026-11-20 (VERIFIER V59: a re-decision with the core cost 50-125 ms on PLO5 postflop, and a
+ * request arriving on the same worker would wait behind it). omahaMathCorePlo5Flop returns on 2026-11-21 (lead-2
+ * order, lane CORE-POOLED-3) because that cost is now lower: the core's 2+3 evaluator is table driven and it does no
+ * work on a street whose flag is off, so a PLO5 flop decision with the core on costs p50 14.0 / p95 28.8 / max 39.9 ms
+ * in all (added p50 11.5 / p95 26.5 ms; CRITERIA-CORE-POOLED-3-LATENCY-AMEND run, load 16), under the breaker's 50 ms
+ * slow line. It is staged on PLO5 flop only, with omahaMathCore as its companion (the street flag acts only with it).
+ * The other core street flags stay out. Like every listed name it re-decides only once its registry entry takes
+ * shadow (a release-default classification, a separate switch-list change).
  */
 export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaBetSizeIsPricedForTheRange: PLO4_PLO5,

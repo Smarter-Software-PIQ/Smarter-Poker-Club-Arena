@@ -39,6 +39,9 @@ describe('boot read progress survives the zombie sweep', () => {
   it.each([
     'start_load_table',
     'start_seed_hand_count',
+    'start_restore_button',
+    'start_restore_kill',
+    'start_retained_hand_resume',
     'start_crash_recovery',
     'start_time_bank_restore',
     'start_wait_for_players',
