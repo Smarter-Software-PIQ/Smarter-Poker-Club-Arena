@@ -86,6 +86,11 @@ const PRESUME_ROSTER =
   'humanUserIds (Dan 2026-10-25, "TAG THEM ALL FROM THE START, UNLESS OTHERWISE PROVEN DIFFERENTLY", PLO only) hands the horse brain the roster of seats a person plays, so presumedAggressorRead can read each PERSON as an aggressive raiser until their own hands prove otherwise. It is IDENTIFICATION passed as data to the brain\'s opponent read: no horse is denied, paid, timed or treated differently by it, and it is recorded as the owner exception in CLAUDE.md 10.5. See docs/changelog/2026-10-25-plo-every-person-is-an-aggressive-raiser-until-proven-otherwise.md.';
 
 const REGISTER = {
+  'server/src/benchmark/ReplayOpponentMemory.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'The offline opponent-memory replay labels each replayed Horse decision by who it faced (people, horse_only or mixed) so a replay result can be reported separately for decisions against people: the owner rule is that Horse-vs-Horse play never proves an improvement against people. It reads the flag as data for a report; it seats, pays, times and decides nothing for any horse, and no engine path imports it.',
+  },
   'server/src/engine/HorseComplaintReplay.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',

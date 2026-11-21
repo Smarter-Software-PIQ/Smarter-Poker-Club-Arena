@@ -45,7 +45,14 @@ function verdict(playerId: string, handCount: number, equity = 0.5): 'once' | 'm
 describe('a horse can decline run it twice', () => {
   it('the verdict function exists, reads the equity rule, and both branches are reachable', () => {
     expect(SRC).toContain("protected horseRitVerdict(playerId: string): 'once' | 'multi'");
-    expect(SRC).toContain("return this.horseRitRuns(playerId) === 1 ? 'once' : 'multi';");
+    // The responder's verdict names its role (horseRunItTwiceIsPriced, default OFF, prices the two roles apart);
+    // with that option off the role is not read and the answer is horseRunItTwiceRuns, as before.
+    expect(SRC).toContain(
+      "return this.horseRitRuns(playerId, 'responder') === 1 ? 'once' : 'multi';"
+    );
+    expect(SRC).toContain(
+      "protected horseRitRuns(playerId: string, role: 'chooser' | 'responder' = 'chooser'): 1 | 2 | 3"
+    );
     expect(SRC).toContain("import { horseRunItTwiceRuns } from './HorseRunItTwice.js';");
     expect(SRC).toContain('return horseRunItTwiceRuns({');
   });
