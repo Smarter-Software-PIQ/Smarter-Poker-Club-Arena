@@ -26,7 +26,10 @@ import {
   HUD_CBR_SIZES,
   HUD_FW_BINS,
   HUD_FW_EDGES_ID,
+  HUD_PF_SPLIT_STATS,
+  HUD_TABLE_SIZES,
   type HudCbrSize,
+  type HudTableSize,
   type HudSessionSums,
   hudStatIsRegistered,
   recallKeys,
@@ -132,8 +135,9 @@ export function buildHudPacketOpponent(
   const out: HudPacketOpponent = Object.keys(lc).length
     ? { hands: p.hands, eff, rc, lc }
     : { hands: p.hands, eff, rc };
-  if (p.xc && street !== 'preflop') {
-    const prefix = `${street[0]}.`;
+  if (p.xc) {
+    // the decision street's exact counters only (preflop: the pf.* table-size split, pf.lr, pf.bvo)
+    const prefix = street === 'preflop' ? 'pf.' : `${street[0]}.`;
     const xc: Record<string, number> = {};
     for (const k of Object.keys(p.xc).sort())
       if (k.startsWith(prefix) && p.xc[k] > 0) xc[k] = p.xc[k];
@@ -498,6 +502,36 @@ export function hudFirstWagerRaisedRecord(
     if (!xc || !sk || (ctx.players !== 'hu' && ctx.players !== 'mw')) return null;
     const at = (k: string) => xc[`${sk}.fwr.${ctx.players}.${k}`] ?? 0;
     return { opps: at('opps'), fold: at('fold'), call: at('call'), raise: at('raise') };
+  } catch {
+    return null;
+  }
+}
+/**
+ * PREFLOP EXACT COUNTS (additive; lead-3 ruling 8:16 AM Nov 21 item 5): raw lifetime counts at one table size (hu 2,
+ * sh 3-6, fr 7+ dealt in). `stat` is one of HUD_PF_SPLIT_STATS (answer {opps, hits}) or 'pf.lr' / 'pf.bvo' (answer
+ * {opps, fold, call, raise}). Read only from a preflop packet. Null as hudFirstWagerSizeCounts (no packet, no profile,
+ * a profile built before the counters existed) and for an unknown statistic or size.
+ */
+export function hudPreflopExactCounts(
+  opponentId: string,
+  family: HudFamily,
+  stat: string,
+  size: HudTableSize
+): Record<string, number> | null {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const xc = pk?.opp[opponentId]?.xc;
+    if (!xc || !(HUD_TABLE_SIZES as readonly string[]).includes(size)) return null;
+    const keys =
+      stat === 'pf.lr' || stat === 'pf.bvo'
+        ? ['opps', 'fold', 'call', 'raise']
+        : (HUD_PF_SPLIT_STATS as readonly string[]).includes(stat)
+          ? ['opps', 'hits']
+          : null;
+    if (!keys) return null;
+    const out: Record<string, number> = {};
+    for (const k of keys) out[k] = xc[`${stat}.${size}.${k}`] ?? 0;
+    return out;
   } catch {
     return null;
   }

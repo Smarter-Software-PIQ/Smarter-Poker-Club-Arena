@@ -14,7 +14,9 @@ import {
   HUD_EXACT_COUNTERS,
   HUD_FW_BINS,
   HUD_FW_EDGES,
+  HUD_PF_SPLIT_STATS,
   HUD_STATS,
+  HUD_TABLE_SIZES,
   applyHudHand,
   emptyHudProfile,
   extractHandDeltas,
@@ -22,6 +24,7 @@ import {
   hudCbrSize,
   hudFwBin,
   hudHandDigest,
+  hudTableSize,
   validHudProfile,
   type HudHandRecord,
   type OpponentHudProfile,
@@ -35,6 +38,7 @@ import {
   hudFirstWagerRecord,
   hudFirstWagerSizeCounts,
   hudLifetimeCount,
+  hudPreflopExactCounts,
   hudStat,
   installDecisionHud,
 } from './OpponentHud.js';
@@ -85,8 +89,20 @@ function preflop(players: 2 | 3, pfa: number): A[] {
       });
   return a;
 }
+/** his POSTFLOP exact counters of one hand (the preflop pf.* counters are pinned in their own blocks below) */
 const xcOf = (r: unknown, user: number): Record<string, number> =>
-  Object.fromEntries(extractHandDeltas(rec(r)).find((d) => d.user === U(user))!.xc ?? []);
+  Object.fromEntries(
+    [...(extractHandDeltas(rec(r)).find((d) => d.user === U(user))!.xc ?? [])].filter(
+      ([k]) => !k.startsWith('pf.')
+    )
+  );
+/** his PREFLOP exact counters of one hand */
+const pfOf = (r: unknown, user: number): Record<string, number> =>
+  Object.fromEntries(
+    [...(extractHandDeltas(rec(r)).find((d) => d.user === U(user))!.xc ?? [])].filter(([k]) =>
+      k.startsWith('pf.')
+    )
+  );
 function profileOf(user: number, rows: unknown[]): OpponentHudProfile {
   const p = emptyHudProfile(U(user), 'plo5');
   for (const r of rows) applyHudHand(p, rec(r));
@@ -95,13 +111,18 @@ function profileOf(user: number, rows: unknown[]): OpponentHudProfile {
 afterEach(() => clearDecisionHud());
 
 describe('exact counters: registry', () => {
-  it('168 first-wager bins, 24 raise answers, 40 continuation-bet answers; none is a blended statistic', () => {
+  it('168 first-wager bins, 24 raise answers, 40 continuation-bet answers, 90 preflop counters; none is a blended statistic', () => {
     expect(HUD_FW_BINS).toBe(14);
     expect(HUD_EXACT_COUNTERS.filter((k) => /\.fw\./.test(k)).length).toBe(168);
     expect(HUD_EXACT_COUNTERS.filter((k) => /\.fwr\./.test(k)).length).toBe(24);
     expect(HUD_EXACT_COUNTERS.filter((k) => /^f\.cbr\./.test(k)).length).toBe(40);
     expect(HUD_EXACT_COUNTERS.filter((k) => /\.brl\./.test(k)).length).toBe(12);
-    expect(new Set(HUD_EXACT_COUNTERS).size).toBe(244);
+    expect(HUD_EXACT_COUNTERS.filter((k) => /^pf\.(lr|bvo)\./.test(k)).length).toBe(24);
+    const split = HUD_EXACT_COUNTERS.filter(
+      (k) => /^pf\.[a-z0-9]+\.(hu|sh|fr)\.(opps|hits)$/.test(k) && !/^pf\.(lr|bvo)\./.test(k)
+    );
+    expect(split.length).toBe(66); // 11 statistics x 3 sizes x {opps, hits}
+    expect(new Set(HUD_EXACT_COUNTERS).size).toBe(334); // 244 + 90 preflop (lead-3 ruling 8:16 AM Nov 21 item 5)
     for (const k of HUD_EXACT_COUNTERS) expect(HUD_STATS).not.toContain(k);
     expect(HUD_STATS.length).toBe(177); // 162 + the 15 added for the priced replacements, none of them a counter here
   });
@@ -563,7 +584,11 @@ describe('exact counters on generated hands', () => {
             }
         for (const [k, v] of d.xc ?? []) {
           expect(HUD_EXACT_COUNTERS).toContain(k);
-          if (k.includes('.brl.')) {
+          const split = /^(pf\.[a-z0-9]+)\.(hu|sh|fr)\.(opps|hits)$/.exec(k);
+          if (split && (HUD_PF_SPLIT_STATS as readonly string[]).includes(split[1])) {
+            if (split[3] === 'hits')
+              expect(v).toBeLessThanOrEqual(d.xc!.get(k.replace(/hits$/, 'opps')) ?? 0);
+          } else if (k.includes('.brl.')) {
             if (k.endsWith('.bets'))
               expect(v).toBeLessThanOrEqual(d.xc!.get(k.replace(/bets$/, 'opps')) ?? 0);
           } else if (k.endsWith('.opps')) {
@@ -683,8 +708,10 @@ describe('exact counters are ADDITIVE', () => {
       const b = buildHudPacket('plo5', [before], {}, T0 + 1e7, street);
       const { xc, ...rest } = a.opp[U(1)];
       expect(rest).toEqual(b.opp[U(1)]);
-      expect(xc === undefined).toBe(street === 'preflop');
-      for (const k of Object.keys(xc ?? {})) expect(k.startsWith(`${street[0]}.`)).toBe(true);
+      // every street carries its own exact counters (preflop: the pf.* counters, since the 8:16 AM item 5 head)
+      expect(xc).toBeDefined();
+      const prefix = street === 'preflop' ? 'pf.' : `${street[0]}.`;
+      for (const k of Object.keys(xc ?? {})) expect(k.startsWith(prefix)).toBe(true);
       installDecisionHud(a);
       const ra = [
         hudStat(U(1), 'plo5', 'f.fBet'),
@@ -751,5 +778,232 @@ describe('the barrel record has one counter and two readers (STAB-DEFENCE-7; lea
     expect('afterOwnWager' in hudFirstWagerRecord(U(1), 'plo5', 'flop', 'hu')!).toBe(false);
     clearDecisionHud();
     expect(hudBarrelRecord(U(1), 'plo5', { street: 'turn', players: 'hu' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// PREFLOP EXACT COUNTERS (lane OPPONENT-HUD-7; lead-3 ruling 8:16 AM Nov 21 item 5): the table-size split of the
+// eleven unsplit preflop statistics, pf.lr (a limper's answer to a raise) and pf.bvo (a blind facing one raise).
+// ---------------------------------------------------------------------------------------------------------------
+const P = (seat: number, action: string, amount: number): A => ({
+  seat,
+  stage: 'preflop',
+  action,
+  amount,
+});
+const blinds = (): A[] => [P(1, 'sb', 1), P(2, 'bb', 2)];
+/** seat 3 opens, everybody else folds but the big blind, who calls */
+function openHand(seats: number): A[] {
+  const a = [...blinds(), P(3 % seats || seats, 'raise', 7)];
+  for (let s = 4; s <= seats; s++) a.push(P(s, 'fold', 0));
+  if (seats >= 3) a.push(P(1, 'fold', 0));
+  a.push(P(2, 'call', 5));
+  return a;
+}
+
+describe('preflop exact counters: the table-size split', () => {
+  it('hudTableSize: 2 heads-up, 3-6 short-handed, 7+ full ring', () => {
+    expect([2, 3, 6, 7, 9, 10].map(hudTableSize)).toEqual(['hu', 'sh', 'sh', 'fr', 'fr', 'fr']);
+    expect(HUD_TABLE_SIZES).toEqual(['hu', 'sh', 'fr']);
+  });
+  it('the split of each statistic is the unsplit cell of the same hand, at the size dealt in, and nothing else', () => {
+    for (const [seats, z] of [
+      [2, 'hu'],
+      [4, 'sh'],
+      [6, 'sh'],
+      [7, 'fr'],
+      [9, 'fr'],
+    ] as const) {
+      const r = rowOf(seats, openHand(seats));
+      for (const d of extractHandDeltas(rec(r))) {
+        const want: Record<string, number> = {};
+        for (const [stat, c] of d.stats)
+          if ((HUD_PF_SPLIT_STATS as readonly string[]).includes(stat)) {
+            if (c[0] > 0) want[`${stat}.${z}.opps`] = c[0];
+            if (c[1] > 0) want[`${stat}.${z}.hits`] = c[1];
+          }
+        const got = Object.fromEntries(
+          [...(d.xc ?? [])].filter(
+            ([k]) =>
+              /^pf\.[a-z0-9]+\.(hu|sh|fr)\.(opps|hits)$/.test(k) && !/^pf\.(lr|bvo)\./.test(k)
+          )
+        );
+        expect(got).toEqual(want);
+      }
+    }
+  });
+  it('pinned: the opener of a 7-handed pot counts one fr open, vpip and pfr; the 4-handed one counts sh', () => {
+    const fr = pfOf(rowOf(7, openHand(7)), 3);
+    expect(fr['pf.open.fr.opps']).toBe(1);
+    expect(fr['pf.open.fr.hits']).toBe(1);
+    expect(fr['pf.vpip.fr.hits']).toBe(1);
+    expect(fr['pf.pfr.fr.hits']).toBe(1);
+    expect(fr['pf.limp.fr.opps']).toBe(1);
+    expect(fr['pf.limp.fr.hits']).toBeUndefined();
+    expect(Object.keys(fr).some((k) => /\.(hu|sh)\./.test(k))).toBe(false);
+    const sh = pfOf(rowOf(4, openHand(4)), 3);
+    expect(sh['pf.open.sh.hits']).toBe(1);
+    expect(Object.keys(sh).some((k) => /\.(hu|fr)\./.test(k))).toBe(false);
+  });
+});
+
+describe('preflop exact counters: pf.lr (a limper raised) and pf.bvo (a blind facing one raise)', () => {
+  it('pf.lr: each limper answers the raise once (fold, call, raise); the completing small blind is a limper', () => {
+    const acts = [
+      ...blinds(),
+      P(3, 'call', 2),
+      P(4, 'call', 2),
+      P(1, 'call', 1),
+      P(2, 'raise', 12),
+      P(3, 'fold', 0),
+      P(4, 'call', 10),
+      P(1, 'raise', 40),
+      P(2, 'fold', 0),
+      P(4, 'fold', 0),
+    ];
+    const r = rowOf(4, acts);
+    expect(pfOf(r, 3)).toMatchObject({ 'pf.lr.sh.opps': 1, 'pf.lr.sh.fold': 1 });
+    expect(pfOf(r, 4)).toMatchObject({ 'pf.lr.sh.opps': 1, 'pf.lr.sh.call': 1 }); // the later fold to the 3-bet is not a second one
+    expect(pfOf(r, 4)['pf.lr.sh.fold']).toBeUndefined();
+    expect(pfOf(r, 1)).toMatchObject({ 'pf.lr.sh.opps': 1, 'pf.lr.sh.raise': 1 });
+    for (const u of [1, 2, 3, 4])
+      expect(Object.keys(pfOf(r, u)).some((k) => k.startsWith('pf.bvo.'))).toBe(false);
+    expect(Object.keys(pfOf(r, 2)).some((k) => k.startsWith('pf.lr.'))).toBe(false); // the raiser did not limp
+  });
+  it('pf.bvo: each blind at its first decision facing exactly one raise (an open or an isolation raise)', () => {
+    const open = rowOf(4, [
+      ...blinds(),
+      P(3, 'raise', 7),
+      P(4, 'fold', 0),
+      P(1, 'call', 6),
+      P(2, 'raise', 25),
+      P(3, 'call', 18),
+      P(1, 'fold', 0),
+    ]);
+    expect(pfOf(open, 1)).toMatchObject({ 'pf.bvo.sh.opps': 1, 'pf.bvo.sh.call': 1 });
+    expect(pfOf(open, 2)).toMatchObject({ 'pf.bvo.sh.opps': 1, 'pf.bvo.sh.raise': 1 });
+    expect(Object.keys(pfOf(open, 3)).some((k) => /^pf\.(lr|bvo)\./.test(k))).toBe(false);
+    const iso = rowOf(4, [
+      ...blinds(),
+      P(3, 'call', 2),
+      P(4, 'raise', 10),
+      P(1, 'fold', 0),
+      P(2, 'fold', 0),
+      P(3, 'call', 8),
+    ]);
+    expect(pfOf(iso, 1)).toMatchObject({ 'pf.bvo.sh.opps': 1, 'pf.bvo.sh.fold': 1 });
+    expect(pfOf(iso, 2)).toMatchObject({ 'pf.bvo.sh.opps': 1, 'pf.bvo.sh.fold': 1 });
+    expect(pfOf(iso, 3)).toMatchObject({ 'pf.lr.sh.opps': 1, 'pf.lr.sh.call': 1 });
+    const hu = rowOf(2, [...blinds(), P(1, 'raise', 6), P(2, 'call', 4)]);
+    expect(pfOf(hu, 2)).toMatchObject({ 'pf.bvo.hu.opps': 1, 'pf.bvo.hu.call': 1 });
+    expect(Object.keys(pfOf(hu, 1)).some((k) => /^pf\.(lr|bvo)\./.test(k))).toBe(false); // he raised first: no raise faced
+  });
+  it('no event: a blind whose first decision faces a 3-bet; a blind checked to; a pot nobody raised', () => {
+    const three = rowOf(4, [
+      ...blinds(),
+      P(3, 'raise', 7),
+      P(4, 'raise', 25),
+      P(1, 'fold', 0),
+      P(2, 'fold', 0),
+      P(3, 'fold', 0),
+    ]);
+    for (const u of [1, 2])
+      expect(Object.keys(pfOf(three, u)).some((k) => /^pf\.(lr|bvo)\./.test(k))).toBe(false);
+    const limped = rowOf(3, [...blinds(), P(3, 'call', 2), P(1, 'call', 1), P(2, 'check', 0)]);
+    for (const u of [1, 2, 3])
+      expect(Object.keys(pfOf(limped, u)).some((k) => /^pf\.(lr|bvo)\./.test(k))).toBe(false);
+  });
+  it('generated hands: opps = the three answers; at most one pf.lr and one pf.bvo per player per hand, never both', () => {
+    let lr = 0;
+    let bvo = 0;
+    for (const h of generated(20261124, 3000))
+      for (const d of extractHandDeltas(rec(h.row))) {
+        const x = d.xc ?? new Map<string, number>();
+        for (const ev of ['lr', 'bvo']) {
+          let opps = 0;
+          for (const z of HUD_TABLE_SIZES) {
+            const o = x.get(`pf.${ev}.${z}.opps`) ?? 0;
+            const ans = ['fold', 'call', 'raise'].reduce(
+              (a, k) => a + (x.get(`pf.${ev}.${z}.${k}`) ?? 0),
+              0
+            );
+            expect(ans).toBe(o);
+            opps += o;
+          }
+          expect(opps).toBeLessThanOrEqual(1);
+          if (ev === 'lr') lr += opps;
+          else bvo += opps;
+        }
+        const both =
+          HUD_TABLE_SIZES.some((z) => x.has(`pf.lr.${z}.opps`)) &&
+          HUD_TABLE_SIZES.some((z) => x.has(`pf.bvo.${z}.opps`));
+        expect(both).toBe(false);
+      }
+    expect(lr).toBeGreaterThan(50);
+    expect(bvo).toBeGreaterThan(200);
+  });
+});
+
+describe('preflop exact counters: the lifetime profile, the packet and the reader', () => {
+  const hands = generated(11, 1500).map((h) => rec(h.row) as HudHandRecord);
+  const p = emptyHudProfile(U(1), 'plo5');
+  for (const h of hands) applyHudHand(p, h);
+  it('the sizes of a statistic sum to its lifetime opportunities and hits (a profile built from its first hand)', () => {
+    let checked = 0;
+    for (const stat of HUD_PF_SPLIT_STATS) {
+      const sum = (k: string) =>
+        HUD_TABLE_SIZES.reduce((a, z) => a + (p.xc![`${stat}.${z}.${k}`] ?? 0), 0);
+      const life = p.life[stat] ?? [0, 0];
+      expect(sum('opps')).toBe(life[0]);
+      expect(sum('hits')).toBe(life[1]);
+      checked += life[0];
+    }
+    expect(checked).toBeGreaterThan(1000);
+    expect(validHudProfile(JSON.parse(JSON.stringify(p)))).toBe(true);
+  });
+  it('a preflop packet carries only the pf.* counters; hudPreflopExactCounts reads them; null where unknown', () => {
+    installDecisionHud(buildHudPacket('plo5', [p], {}, T0 + 1e8, 'preflop'));
+    for (const k of Object.keys(
+      buildHudPacket('plo5', [p], {}, T0 + 1e8, 'preflop').opp[U(1)].xc ?? {}
+    ))
+      expect(k.startsWith('pf.')).toBe(true);
+    for (const z of HUD_TABLE_SIZES) {
+      expect(hudPreflopExactCounts(U(1), 'plo5', 'pf.open', z)).toEqual({
+        opps: p.xc![`pf.open.${z}.opps`] ?? 0,
+        hits: p.xc![`pf.open.${z}.hits`] ?? 0,
+      });
+      expect(hudPreflopExactCounts(U(1), 'plo5', 'pf.bvo', z)).toEqual({
+        opps: p.xc![`pf.bvo.${z}.opps`] ?? 0,
+        fold: p.xc![`pf.bvo.${z}.fold`] ?? 0,
+        call: p.xc![`pf.bvo.${z}.call`] ?? 0,
+        raise: p.xc![`pf.bvo.${z}.raise`] ?? 0,
+      });
+    }
+    expect(hudPreflopExactCounts(U(1), 'plo5', 'pf.vpip@BTN', 'sh')).toBeNull(); // not a split statistic
+    expect(hudPreflopExactCounts(U(1), 'plo5', 'pf.open', 'xx' as never)).toBeNull();
+    expect(hudPreflopExactCounts(U(1), 'plo4', 'pf.open', 'sh')).toBeNull(); // another family's packet
+    expect(hudPreflopExactCounts(U(99), 'plo5', 'pf.open', 'sh')).toBeNull(); // no profile
+    const before = emptyHudProfile(U(1), 'plo5');
+    delete before.xc;
+    for (const h of hands) applyHudHand(before, h);
+    installDecisionHud(buildHudPacket('plo5', [before], {}, T0 + 1e8, 'preflop'));
+    expect(hudPreflopExactCounts(U(1), 'plo5', 'pf.open', 'sh')).toBeNull(); // built before the counters: null, not zeros
+    clearDecisionHud();
+    expect(hudPreflopExactCounts(U(1), 'plo5', 'pf.open', 'sh')).toBeNull(); // no packet
+  });
+  it('no existing read changes: every blended statistic and lifetime count is the same with the counters removed', () => {
+    const { xc: _x, ...rest } = p;
+    const q = { ...rest } as OpponentHudProfile;
+    for (const street of ['preflop', 'flop'] as const) {
+      const a = buildHudPacket('plo5', [p], {}, T0 + 1e8, street);
+      const b = buildHudPacket('plo5', [q], {}, T0 + 1e8, street);
+      const { xc: _y, ...ra } = a.opp[U(1)];
+      expect(ra).toEqual(b.opp[U(1)]);
+      installDecisionHud(a);
+      const got = HUD_PF_SPLIT_STATS.map((s) => hudStat(U(1), 'plo5', s));
+      installDecisionHud(b);
+      expect(HUD_PF_SPLIT_STATS.map((s) => hudStat(U(1), 'plo5', s))).toEqual(got);
+    }
+    clearDecisionHud();
   });
 });

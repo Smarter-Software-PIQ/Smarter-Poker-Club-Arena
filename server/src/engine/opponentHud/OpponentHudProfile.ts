@@ -377,6 +377,16 @@ const STAT_SET = new Set(HUD_STATS);
  * 4. <s>.brl.<hu|mw>.{opps,bets} (STAB-DEFENCE-6): he made the last wager of the previous street (preflop for the
  *    flop) and the street is unopened at his turn: the opportunity, and whether he wagers (the <s>.barrel / f.cbet
  *    event, raw and by players live at his action).
+ * 5. pf.<stat>.<hu|sh|fr>.{opps,hits} (lead-3 ruling 8:16 AM Nov 21, item 5): the TABLE-SIZE SPLIT of the eleven
+ *    unsplit preflop statistics (HUD_PF_SPLIT_STATS), by players dealt in (hu = 2, sh = 3-6, fr = 7+; hudTableSize).
+ *    Same events as the unsplit cell, so the three sizes of a statistic sum to its lifetime count on a profile built
+ *    from its first hand.
+ * 6. pf.lr.<hu|sh|fr>.{opps,fold,call,raise}: he limped (his first preflop action a call with no raise before it,
+ *    the small blind's completion included) and a raise followed: his first action after it, whatever the number of
+ *    raises by then. One opportunity per hand; opps = the three answers summed.
+ * 7. pf.bvo.<hu|sh|fr>.{opps,fold,call,raise}: a blind (he posted sb or bb) facing exactly one raise (an open or an
+ *    isolation raise over limpers) at his first preflop decision. One opportunity per hand; disjoint from pf.lr (a
+ *    small blind who completed and is then raised is pf.lr).
  */
 export const HUD_FW_EDGES: readonly number[] = Object.freeze([
   0.2, 0.232, 0.269, 0.312, 0.362, 0.42, 0.487, 0.565, 0.656, 0.761, 0.882, 1.024, 1.187,
@@ -393,8 +403,34 @@ export type HudCbrSize = (typeof HUD_CBR_SIZES)[number];
 export function hudCbrSize(frac: number): HudCbrSize {
   return frac < 0.4 ? 'small' : frac < 0.6 ? 'half' : frac < 0.85 ? 'twothirds' : 'pot';
 }
+/** The unsplit preflop statistics whose table-size split is kept as exact counters (item 5 of the doc above). */
+export const HUD_PF_SPLIT_STATS = Object.freeze([
+  'pf.vpip',
+  'pf.pfr',
+  'pf.open',
+  'pf.limp',
+  'pf.3bet',
+  'pf.4bet',
+  'pf.f3bet',
+  'pf.cc',
+  'pf.f4bet',
+  'pf.c4bet',
+  'pf.cold4',
+] as const);
+const PF_SPLIT_SET = new Set<string>(HUD_PF_SPLIT_STATS);
+export const HUD_TABLE_SIZES = ['hu', 'sh', 'fr'] as const;
+export type HudTableSize = (typeof HUD_TABLE_SIZES)[number];
+/** players dealt in -> table size: 2 heads-up, 3-6 short-handed, 7+ full ring */
+export function hudTableSize(dealt: number): HudTableSize {
+  return dealt <= 2 ? 'hu' : dealt <= 6 ? 'sh' : 'fr';
+}
 function exactRegistry(): string[] {
   const out: string[] = [];
+  for (const st of HUD_PF_SPLIT_STATS)
+    for (const z of HUD_TABLE_SIZES) out.push(`${st}.${z}.opps`, `${st}.${z}.hits`);
+  for (const ev of ['lr', 'bvo'])
+    for (const z of HUD_TABLE_SIZES)
+      for (const k of ['opps', 'fold', 'call', 'raise']) out.push(`pf.${ev}.${z}.${k}`);
   for (const s of POST) {
     for (const ln of ['stab', 'lead'])
       for (const pl of ['hu', 'mw'])
@@ -743,11 +779,21 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     m.set(stat, c);
   };
   for (const s of seats.values()) D(s.user);
-  const addX = (user: string, counter: string) => {
+  const addX = (user: string, counter: string, n = 1) => {
+    if (n <= 0) return;
     const d = D(user);
     const m = (d.xc ??= new Map());
-    m.set(counter, (m.get(counter) ?? 0) + 1);
+    m.set(counter, (m.get(counter) ?? 0) + n);
   };
+  /** table size by players dealt in, and the seats that posted a blind (exact counters 5-7) */
+  const tableSize = hudTableSize(rec.seats.length);
+  const blindSeats = new Set(
+    rec.actions
+      .filter((a) => a.stage === 'preflop' && (a.action === 'sb' || a.action === 'bb'))
+      .map((a) => a.seat)
+  );
+  const limpers = new Set<string>();
+  const limpRaisedDone = new Set<string>();
   /** who made the current street's first wager */
   let streetFirstWagerUser: string | null = null;
   /** the flop continuation bet: its maker and size, while it is the line of the hand */
@@ -899,6 +945,18 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
       if (f3betOpp.has(user) && pfLevel === 2 && pfLastRaiser !== user) {
         f3betOpp.delete(user);
         add(user, 'pf.f3bet', code === 'f');
+      }
+      // exact counters 6-7 (pf.lr, pf.bvo): his answer, fold / call / raise (a check cannot face a raise)
+      const answer = code === 'f' ? 'fold' : code === 'c' ? 'call' : aggressive ? 'raise' : null;
+      if (firstPf && pfLevel === 0 && code === 'c') limpers.add(user);
+      else if (pfLevel >= 1 && answer && limpers.has(user) && !limpRaisedDone.has(user)) {
+        limpRaisedDone.add(user);
+        addX(user, `pf.lr.${tableSize}.opps`);
+        addX(user, `pf.lr.${tableSize}.${answer}`);
+      }
+      if (firstPf && pfLevel === 1 && answer && blindSeats.has(a.seat)) {
+        addX(user, `pf.bvo.${tableSize}.opps`);
+        addX(user, `pf.bvo.${tableSize}.${answer}`);
       }
       if (code === 'c' || aggressive) st.voluntary = true;
       if (aggressive) {
@@ -1071,6 +1129,13 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
       add(s.user, `pf.pfr@${dep}`, pfr);
     }
   }
+  // exact counter 5: the table-size split of the unsplit preflop statistics (the same events, so the sizes sum to it)
+  for (const d of deltas.values())
+    for (const [stat, c] of d.stats)
+      if (PF_SPLIT_SET.has(stat)) {
+        addX(d.user, `${stat}.${tableSize}.opps`, c[0]);
+        addX(d.user, `${stat}.${tableSize}.hits`, c[1]);
+      }
   // showdown: went to showdown (listed, shown or mucked) of those who saw the flop; won at showdown; revealed
   // strength of his bets by street (shown entries only: a mucked entry reveals nothing)
   const sdUsers = new Map(rec.showdown.map((e) => [e.userId, e]));

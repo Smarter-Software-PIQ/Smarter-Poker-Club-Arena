@@ -91,14 +91,19 @@ async function db() {
  * RATE LIMIT (2026-11-21): the backfill shares the production database with live play, so it pauses between pages
  * and between write batches (--pause-ms, default 200) and doubles the pause after any call slower than one second
  * (capped at 10 s, halving back after fast calls), the same rule as the engine's switch-on catch-up.
+ * --slow-ms N (default 1000) sets what "slower" means. A 1,500-hand page is 4.0-5.3 MB and takes 0.8-1.6 s inside the
+ * database alone (read-only measurement, OPPONENT-HUD-7, 8:25 AM Nov 21), so at the default every page counts as slow
+ * and the pause sits at its 10 s cap (about 3 h of pauses over 1,102 pages) although nothing got slower. The engine's
+ * catch-up reads pages of at most 250 rows and keeps the 1 s rule; the backfill run names its own threshold.
  */
 const BASE_PAUSE_MS = Math.max(0, Number(opt('--pause-ms') ?? 200) || 0);
+const SLOW_MS = Math.max(1000, Number(opt('--slow-ms') ?? 1000) || 1000);
 let pauseMs = BASE_PAUSE_MS;
 async function paced<T>(call: () => PromiseLike<T>): Promise<T> {
   const t0 = Date.now();
   const out = await call();
   pauseMs =
-    Date.now() - t0 > 1000
+    Date.now() - t0 > SLOW_MS
       ? Math.min(10_000, Math.max(pauseMs, 100) * 2)
       : Math.max(BASE_PAUSE_MS, Math.floor(pauseMs / 2));
   if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
