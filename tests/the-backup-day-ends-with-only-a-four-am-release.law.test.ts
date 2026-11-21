@@ -521,6 +521,11 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
     it('runs only for a push run that holds the host, after the copy and before certify', () => {
       expect(late.if).toContain("github.event_name == 'push'");
       expect(late.if).toContain("steps.turn.outputs.acquired == '1'");
+      // Tonight's freeze baseline is the 04:00 build and never yields.
+      expect(late.if).toContain("needs.plan.outputs.freeze_baseline != '1'");
+      expect(backup.jobs.plan.outputs.freeze_baseline).toBe('${{ steps.plan.outputs.freeze_baseline }}');
+      const planRun = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+      expect(planRun).toContain('echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"');
       const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
       expect(ids.indexOf('late_priority')).toBe(ids.length - 1);
       expect(backup.jobs.refresh.outputs.deferred).toBe('${{ steps.late_priority.outputs.deferred }}');

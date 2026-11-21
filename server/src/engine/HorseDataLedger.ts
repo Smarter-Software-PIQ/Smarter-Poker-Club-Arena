@@ -966,7 +966,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaPreflopReraiseDefencePricedInPosition',
-    "THREEBET-2 lane 2026-11-19 (WooWoo audit THREEBET-DEFENCE, measured 2026-11-11..19: a Horse that opened and is in position against one player's 3-bet, heads-up, folded hands with 0.484 mean equity against that player's recorded 3-bet range at a 0.31 price; 148 of 149 of those folds were +EV calls at the lower end of the measured in-position realization 0.82, +4.1 bb each). The companion scope of omahaPreflopReraiseDefencePriced, which stays off-only under the owner preflop hold: only where the Horse opened, faces exactly one PERSON's 3-bet (gs.humanUserIds, else the seat's is_horse) with everyone else folded and acts after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition; one seat-order definition on table cash and fast-table cash; never a tournament), and only when the decision with this option off is a FOLD, the fold becomes a CALL when that option's priced verdict is a call (equity against the 3-bettor's measured re-raise width, measured realization, price after rake; one owner per cell: where the re-raised-pot call cell judges, the fold stands). It never makes a fold, never changes a call, a 4-bet or any other decision, and never invents a raise. Every out-of-position decision, every multiway one, a 4-bet, a cold 3-bet and a Horse's 3-bet are exactly as with this off. Default OFF (read === true) until its declared evaluation passes; switchable on and off (preflop hold lifted for this name alone, HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).",
+    "THREEBET-2 lane 2026-11-19 (WooWoo audit THREEBET-DEFENCE, measured 2026-11-11..19: a Horse that opened and is in position against one player's 3-bet, heads-up, folded hands with 0.484 mean equity against that player's recorded 3-bet range at a 0.31 price; 148 of 149 of those folds were +EV calls at the lower end of the measured in-position realization 0.82, +4.1 bb each). The companion scope of omahaPreflopReraiseDefencePriced, which stays off-only under the owner preflop hold: only where the Horse opened, faces exactly one 3-bet from ANY player (identity-free since 2026-11-20, lane THREEBET-POT: the spot reads nobody's kind; the price reads only the 3-bettor's public re-raise rate) with everyone else folded and acts after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition; one seat-order definition on table cash and fast-table cash; never a tournament), and only when the decision with this option off is a FOLD, the fold becomes a CALL when that option's priced verdict is a call (equity against the 3-bettor's measured re-raise width, measured realization, price after rake; one owner per cell: where the re-raised-pot call cell judges, the fold stands). It never makes a fold, never changes a call, a 4-bet or any other decision, and never invents a raise. Every out-of-position decision, every multiway one, a 4-bet, and a cold 3-bet are exactly as with this off. Default OFF (read === true) until its declared evaluation passes; switchable on and off (preflop hold lifted for this name alone, HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).",
     'V94'
   ),
   flag(
@@ -1204,6 +1204,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaFlopVerdictReadsTheBettor',
     "PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision is priced from the hand and its equity against the opponent's perceived range for that action, line and board, his measured tendencies, the price, the stack depth and the position; how far the Horse moves from the population toward one player's measured tendency grows smoothly with the sample; no blanket rule): it acts only where omahaFlopFacingBetEv decides (PLO4/PLO5 cash, high only, one board, the FLOP facing a bet or a raise). The flop verdict priced every bettor's flop bet as the same range and called too much against a player whose flop bets are narrow and folded too much against one whose flop bets are wide (archive plo-handoff-review-01a1cbbd/flopev3-013U37/FINDINGS.md). With this option the verdict also reads THIS bettor's durable street record (HorseMind.omahaStreetReadOf: public actions and board cards only): (1) how often he bets this flop texture on this line (his continuation-bet cell as the last preflop raiser, else his flop-bet cell) beside players of his kind moves the value share and the non-value share of his bet by one factor, 1 + 2 x slope x ln(his rate / the kind's rate) / (the two shares), where slope is MEASURED on production hands with every bettor's cards known (the mean strength percentile of the hand behind a first flop bet rises by 0.23 per unit of ln rate for a person's continuation bets, 0.135 for a person's other first bets, 0.09 and 0.10 for a Horse); (2) how often he bets the turn and the river beside his kind multiplies the share of later streets a non-value holding bets in the verdict's realization model (the model's own mechanism with his rate in place of the population's; the size of that effect on realized chips is not separately measured). Each rate is the posterior mean of his decayed cell against his kind's rate with a measured number of pseudo-opportunities, so with no opportunity both factors are exactly 1 and they move continuously with every opportunity: no threshold. A person is read against persons and a Horse against Horses, each with its own rates, strengths and slopes; a bettor whose kind the decision does not know is not read. Nothing is keyed to an account. With no record for the bettor or the mind off the verdict is exactly omahaFlopFacingBetEv's (HorseOmahaFlopBettorRead.ts; the rule is HorseOmahaFlopFacingBetEvRule.ts). Receipt omaha_flop_verdict_read_the_bettor. Default OFF (opt-in, read `=== true`); NOT EVALUATED (docs/horse-option-authority.d/omahaFlopVerdictReadsTheBettor.md); league cards plo4/plo5 _omaha_flop_verdict_reads_the_bettor.",
+    'V94'
+  ),
+  flag(
+    'omahaFourBetFoldPricedCall',
+    "EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (LIVEGRADE-7 duty 5: persons win the hands that end preflop; the channel is re-raises the Horses fold to; Horse folds facing a 4-bet after their own raise, heads-up, gave up EV(call) +346 +/- 50 bb without the most frequent re-raiser, n 26): in PLO4/PLO5 cash a final preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only when omahaReraisedCallPriced (the engine's own priced call, its inputs) is positive. Changes only a fold. Default OFF.",
+    'V94'
+  ),
+  flag(
+    'omahaRiverCheckedToBetIsMeasured',
+    "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
+    'V94'
+  ),
+  flag(
+    'omahaRiverFirstToActBetIsPriced',
+    "EMERG lane OFFENCE-BUILD 2026-11-20 (owner 3:05 PM Chicago: upgrade the Horses' offence, deny the equity, put the humans in difficult spots; every decision priced). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). In the wager_rules node, before the river current-nuts floor: on the river, heads-up, nothing to call and the opponent still to act (the Horse acts first), the node's final check is priced beside the engine's bet sizes with the card-impact model and the measured pooled response curve of river first-to-act heads-up bets (hands with a person seated, Nov 13-17, every player pooled, no responder above 20% of a cell), the called branch at the lower of the model's and the production-fitted continue equity, a raise charged as the bet lost; the best bet replaces the check only when it beats it by more than the comparison's standard error. No identity, no hand class. HorseOmahaRiverFirstToActBet.ts",
     'V94'
   ),
   flag(
@@ -5606,6 +5621,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_flop_verdict_read_the_bettor',
     'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopVerdictReadsTheBettor)',
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
+    'V94'
+  ),
+  receipt(
+    'omaha_four_bet_fold_priced_call',
+    'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
+    "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_checked_to_bet_measured',
+    'HorseLogic wager_rules (omahaRiverCheckedToBetRule, omahaRiverCheckedToBetIsMeasured)',
+    'a PLO4/PLO5 cash river decision, heads-up, after the opponent checked, in which the final check became the bet priced on the measured response curve',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_first_to_act_bet_priced',
+    'HorseLogic wager_rules (omahaRiverFirstToActBetRule, omahaRiverFirstToActBetIsPriced)',
+    'a PLO4/PLO5 cash river decision, heads-up, first to act with nothing to call, in which the final check became the bet priced on the measured response curve',
     'V94'
   ),
   receipt(

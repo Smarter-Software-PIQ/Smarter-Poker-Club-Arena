@@ -1,0 +1,161 @@
+/**
+ * SHADOW STAGE FOR THE DARK PLO4/PLO5 CASH OPTIONS (2026-11-20, PLO-OWNER lane SHADOW).
+ *
+ * WHY. A PLO4/PLO5 cash option that ships dark cannot be graded offline: replays find too few decisions with a
+ * person in the hand. The option shadow (HorseOptionShadow.ts, Horse Switch lane) already re-decides a committed
+ * decision once with one option flipped and journals the counterfactual, never acting on it. For the options listed
+ * here (and only for them) this file fits that shadow to PLO4/PLO5 cash:
+ *  - SCOPE: a listed option is re-decided only in a PLO4 or PLO5 cash decision (table and Lightning; the scope the
+ *    omaha option game scope reads, omahaOptionGameOf), in its listed games and streets. Never PLO6, PLO8, hold'em,
+ *    a tournament or a bomb pot: there it is left out before the pick, so it spends no budget.
+ *  - ACTED-TIME BUDGET: 50 ms instead of the shadow's 15 ms (most priced Omaha postflop decisions take over 15 ms).
+ *  - SAMPLING: a hand with no person dealt in takes at most OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE re-decisions
+ *    per worker per clock minute; the rest of the shadow's per-minute budget is left for hands with a person dealt
+ *    in. This orders a measurement only: no decision reads it.
+ *  - LATENCY BREAKER (automatic self-disable): per option and worker, one re-decision over 150 ms, or three over
+ *    50 ms within the last 20, stops that option's re-decisions in this worker until the worker restarts.
+ *  - COMPANIONS: an option that acts only with another option on (the math core's street flag needs omahaMathCore)
+ *    is re-decided with the companion true as well when it is flipped to true.
+ *
+ * WHAT IT NEVER DOES. It runs after the acted decision is final and changes nothing of it (the law
+ * aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts). It adds no row, no state and no setting: a listed
+ * option is staged by the same `shadow` row as any option. With no listed option in shadow nothing here runs past a
+ * name lookup. It reads no hole card, no opponent identity and no person/Horse fact for any decision.
+ */
+import { omahaOptionGameOf, type OmahaOptionGame } from './HorseOmahaOptionGameScope.js';
+
+export interface OptionShadowStageEntry {
+  /** The games (4 = PLO4 cash, 5 = PLO5 cash) the option is re-decided in. */
+  readonly games: readonly OmahaOptionGame[];
+  /** The streets it is re-decided on (gameState.stage); absent = every street. */
+  readonly streets?: readonly string[];
+  /** Options passed true with it when it is flipped to true. */
+  readonly companions?: readonly string[];
+}
+export type OptionShadowStageTable = Readonly<Record<string, OptionShadowStageEntry>>;
+
+const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([4, 5] as const) });
+
+/**
+ * The staged options. A name the registry does not hold, or that does not take shadow there, is inert (the shadow
+ * only ever picks a registered option in shadow or on_shadow). omahaOpponentLifetimeHud is NOT listed: in shadow
+ * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely.
+ */
+export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
+  omahaBetSizeIsPricedForTheRange: PLO4_PLO5,
+  omahaRiverCheckedToBetIsMeasured: PLO4_PLO5,
+  omahaRiverFirstToActBetIsPriced: PLO4_PLO5,
+  omahaFourBetFoldPricedCall: PLO4_PLO5,
+  omahaStabDefenceIsPriced: PLO4_PLO5,
+  omahaMathCorePlo5Flop: Object.freeze({
+    games: Object.freeze([5] as const),
+    streets: Object.freeze(['flop']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
+});
+
+/** The acted decision may have taken this long and a listed option is still re-decided. */
+export const OPTION_SHADOW_STAGE_ACTED_BUDGET_MS = 50;
+/** A staged re-decision over this is a slow one. */
+export const OPTION_SHADOW_STAGE_SLOW_MS = 50;
+/** One staged re-decision over this disables the option in this worker at once. */
+export const OPTION_SHADOW_STAGE_HARD_MS = 150;
+/** This many slow ones within the last OPTION_SHADOW_STAGE_WINDOW disable it. */
+export const OPTION_SHADOW_STAGE_SLOW_STRIKES = 3;
+export const OPTION_SHADOW_STAGE_WINDOW = 20;
+/** Staged re-decisions per worker per clock minute in hands with no person dealt in. */
+export const OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE = 2;
+
+export function optionShadowStaged(
+  option: string | null | undefined,
+  table: OptionShadowStageTable = OPTION_SHADOW_STAGE
+): boolean {
+  return typeof option === 'string' && Object.hasOwn(table, option);
+}
+
+/**
+ * The options in shadow this decision may re-decide: every option that is not listed, unchanged and in order, and a
+ * listed option only when the decision is in its games and streets. With no listed option in `options` the same
+ * array is returned and the decision is not read.
+ */
+export function optionShadowStageInScope(
+  options: readonly string[],
+  player: unknown,
+  gameState: unknown,
+  table: OptionShadowStageTable = OPTION_SHADOW_STAGE
+): readonly string[] {
+  if (!options.some((o) => Object.hasOwn(table, o))) return options;
+  let game: OmahaOptionGame | null = null;
+  let street = '';
+  try {
+    game = omahaOptionGameOf(
+      player as Parameters<typeof omahaOptionGameOf>[0],
+      gameState as Parameters<typeof omahaOptionGameOf>[1]
+    );
+    street = String((gameState as { stage?: unknown } | null)?.stage ?? '').toLowerCase();
+  } catch {
+    game = null;
+  }
+  return options.filter((o) => {
+    if (!Object.hasOwn(table, o)) return true;
+    const entry = table[o]!;
+    if (game === null || !entry.games.includes(game)) return false;
+    return !entry.streets || entry.streets.includes(street);
+  });
+}
+
+/** The companions a staged re-decision passes true: only when the option is flipped to true, only those not on. */
+export function optionShadowStageCompanions(
+  option: string,
+  flippedTo: boolean,
+  acted: Readonly<Record<string, unknown>>,
+  table: OptionShadowStageTable = OPTION_SHADOW_STAGE
+): Readonly<Record<string, true>> {
+  const out: Record<string, true> = {};
+  if (!flippedTo || !Object.hasOwn(table, option)) return out;
+  for (const c of table[option]!.companions ?? []) if (acted[c] !== true) out[c] = true;
+  return out;
+}
+
+/** Per worker: the latency breaker of each staged option and the Horse-only per-minute cap. */
+export class OptionShadowStageGuard {
+  private readonly off = new Set<string>();
+  private readonly recent = new Map<string, boolean[]>();
+  private window = Number.NaN;
+  private horseOnlyUsed = 0;
+
+  /** True once the option's breaker has tripped in this worker; it stays true. */
+  disabled(option: string): boolean {
+    return this.off.has(option);
+  }
+
+  /** Records one staged re-decision's time. True exactly when this one trips the breaker. */
+  note(option: string, ms: number): boolean {
+    if (this.off.has(option)) return false;
+    const slow = !(ms <= OPTION_SHADOW_STAGE_SLOW_MS);
+    const ring = this.recent.get(option) ?? [];
+    ring.push(slow);
+    if (ring.length > OPTION_SHADOW_STAGE_WINDOW) ring.shift();
+    this.recent.set(option, ring);
+    const strikes = ring.reduce((n, s) => n + (s ? 1 : 0), 0);
+    if (!(ms <= OPTION_SHADOW_STAGE_HARD_MS) || strikes >= OPTION_SHADOW_STAGE_SLOW_STRIKES) {
+      this.off.add(option);
+      this.recent.delete(option);
+      return true;
+    }
+    return false;
+  }
+
+  /** A hand with no person dealt in: true at most OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE times a clock minute. */
+  admitHorseOnly(nowMs: number): boolean {
+    if (!Number.isFinite(nowMs)) return false;
+    const w = Math.floor(nowMs / 60_000);
+    if (w !== this.window) {
+      this.window = w;
+      this.horseOnlyUsed = 0;
+    }
+    if (this.horseOnlyUsed >= OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE) return false;
+    this.horseOnlyUsed++;
+    return true;
+  }
+}
