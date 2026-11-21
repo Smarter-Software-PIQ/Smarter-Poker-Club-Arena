@@ -529,10 +529,10 @@ describe('ReplayOpponentMemory: publicMemoryDomain propagates through stateAt an
           anteType: publicMemoryDomain?.ante === 'big_blind' ? 'big_blind' : null,
           mode: 'cash',
           seats: [
-            [1, 152, 10, 18, 0, 0, 0],
+            [1, 500, 10, 18, 0, 0, 0],
             [2, 199, 0, 1, 0, 0, 1],
             [3, 198, 0, 2, 0, 0, 1],
-            [4, 152, 40, 48, 0, 0, 0],
+            [4, 500, 40, 48, 0, 0, 0],
             [5, 200, 0, 0, 0, 0, 1],
             [6, 200, 0, 0, 0, 0, 1],
           ],
@@ -541,7 +541,7 @@ describe('ReplayOpponentMemory: publicMemoryDomain propagates through stateAt an
           toCall: 30,
           currentBet: 40,
           minRaiseTo: 70,
-          maxRaiseTo: 162,
+          maxRaiseTo: 510,
           legalActions: ['fold', 'call', 'raise', 'all_in'],
           dealerSeat: 1,
           chipUnit: 0.01,
@@ -629,5 +629,263 @@ describe('ReplayOpponentMemory: publicMemoryDomain propagates through stateAt an
       ante: 'none',
     });
     expect(withSeatIds(stateAt(badHand, badNode), badHand).gs.publicMemoryDomain).toBeUndefined();
+  });
+
+  it('AsOfOpponentMemory isolates and populates pooled vs Lightning style maps in its sandbox without static bleed', () => {
+    const lightningDomain = {
+      version: 1 as const,
+      speed: 'lightning' as const,
+      ante: 'big_blind' as const,
+    };
+    // 200 Lightning hands where Horse h5 faces a turn bet (raises 20/200 = 10%) so the in-format
+    // Horse reference reaches streetRaiseReferenceMinOpps (200) purely via AsOfOpponentMemory.learn().
+    // Also includes 120 preflop-fold hands for person-4 so person-4 has realistic ~25% VPIP.
+    const horseRefHand = (idx: number, t: number, horseRaises: boolean): HistoryHand => ({
+      id: uuid(idx),
+      settledAtMs: t,
+      variant: 'nlh',
+      tableId: TABLE,
+      handNumber: 3_000_000 + idx,
+      tournament: false,
+      speed: 'lightning',
+      bigBlind: 2,
+      board: [
+        { rank: 'K', suit: 'spades' },
+        { rank: '9', suit: 'diamonds' },
+        { rank: '4', suit: 'clubs' },
+        { rank: '2', suit: 'hearts' },
+      ],
+      showdown: null,
+      dealt: 6,
+      players: [
+        { seat: 1, userId: 'h1' },
+        { seat: 2, userId: 'h2' },
+        { seat: 3, userId: 'h3' },
+        { seat: 4, userId: 'person-4' },
+        { seat: 5, userId: 'h5' },
+        { seat: 6, userId: 'h6' },
+      ],
+      actions: [
+        {
+          stage: 'preflop',
+          seat: 2,
+          userId: 'h2',
+          action: 'sb',
+          amount: 1,
+          origin: 'forced',
+          timestamp: t - 500,
+        },
+        {
+          stage: 'preflop',
+          seat: 3,
+          userId: 'h3',
+          action: 'bb',
+          amount: 2,
+          origin: 'forced',
+          timestamp: t - 490,
+        },
+        {
+          stage: 'preflop',
+          seat: 4,
+          userId: 'person-4',
+          action: 'fold',
+          amount: 0,
+          origin: 'player',
+          timestamp: t - 480,
+        },
+        {
+          stage: 'preflop',
+          seat: 5,
+          userId: 'h5',
+          action: 'call',
+          amount: 2,
+          origin: 'horse_policy',
+          timestamp: t - 470,
+        },
+        {
+          stage: 'preflop',
+          seat: 1,
+          userId: 'h1',
+          action: 'raise',
+          amount: 6,
+          origin: 'horse_policy',
+          isFullRaise: true,
+          timestamp: t - 460,
+        },
+        {
+          stage: 'preflop',
+          seat: 5,
+          userId: 'h5',
+          action: 'call',
+          amount: 4,
+          origin: 'horse_policy',
+          timestamp: t - 450,
+        },
+        {
+          stage: 'flop',
+          seat: 5,
+          userId: 'h5',
+          action: 'check',
+          amount: 0,
+          origin: 'horse_policy',
+          timestamp: t - 400,
+        },
+        {
+          stage: 'flop',
+          seat: 1,
+          userId: 'h1',
+          action: 'check',
+          amount: 0,
+          origin: 'horse_policy',
+          timestamp: t - 390,
+        },
+        {
+          stage: 'turn',
+          seat: 5,
+          userId: 'h5',
+          action: 'bet',
+          amount: 10,
+          origin: 'horse_policy',
+          isFullRaise: true,
+          timestamp: t - 300,
+        },
+        horseRaises
+          ? {
+              stage: 'turn',
+              seat: 1,
+              userId: 'h1',
+              action: 'raise',
+              amount: 30,
+              origin: 'horse_policy',
+              isFullRaise: true,
+              timestamp: t - 290,
+            }
+          : {
+              stage: 'turn',
+              seat: 1,
+              userId: 'h1',
+              action: 'call',
+              amount: 10,
+              origin: 'horse_policy',
+              timestamp: t - 290,
+            },
+        ...(horseRaises
+          ? [
+              {
+                stage: 'turn',
+                seat: 5,
+                userId: 'h5',
+                action: 'call',
+                amount: 20,
+                origin: 'horse_policy',
+                timestamp: t - 285,
+              },
+            ]
+          : []),
+        {
+          stage: 'river',
+          seat: 5,
+          userId: 'h5',
+          action: 'bet',
+          amount: 20,
+          origin: 'horse_policy',
+          isFullRaise: true,
+          timestamp: t - 280,
+        },
+        {
+          stage: 'river',
+          seat: 1,
+          userId: 'h1',
+          action: 'fold',
+          amount: 0,
+          origin: 'horse_policy',
+          timestamp: t - 270,
+        },
+      ],
+    });
+    const multiHistory: HistoryHand[] = [
+      ...Array.from({ length: 520 }, (_, i) => horseRefHand(6000 + i, 400_000 + i * 1_000, i < 60)),
+      // 34 Lightning hands: person-4 is passive on the turn (0 raises in 34 opps)
+      ...Array.from({ length: 34 }, (_, i) =>
+        postflopTurnHand(3000 + i, 1_000_000 + i * 1_000, 'person-4', 'h1', 'lightning', false)
+      ),
+      // 40 Classic table hands: person-4 raises 12 of 40 turns (30%, not a 100% maniac)
+      ...Array.from({ length: 40 }, (_, i) =>
+        postflopTurnHand(4000 + i, 1_100_000 + i * 1_000, 'person-4', 'h1', 'table', i < 12)
+      ),
+    ];
+    const mem = new AsOfOpponentMemory(multiHistory);
+    mem.learnThrough(2_000_000);
+
+    // Sandbox style maps must be populated with distinct pooled vs Lightning-only aggression rows.
+    const sm = mem.sandbox.styleMaps;
+    expect(sm).toBeDefined();
+    const key = 'nlh|cash|full|person-4';
+    const aggPooled = sm!.styleAggression.get(key);
+    const aggLightning = sm!.styleAggressionLightning.get(key);
+    expect(aggPooled).toBeDefined();
+    expect(aggLightning).toBeDefined();
+    expect(aggPooled!.turn.raises).toBe(12);
+    expect(aggPooled!.turn.raiseOpps).toBe(74);
+    expect(aggLightning!.turn.raises).toBe(0);
+    expect(aggLightning!.turn.raiseOpps).toBe(34);
+
+    // Process-wide live style maps must stay completely untouched (zero static bleed).
+    expect(HorseMind.styleHorseReferenceOf('nlh', 'cash', 'full', 'pooled')).toBeNull();
+    expect(HorseMind.styleHorseReferenceOf('nlh', 'cash', 'full', 'lightning')).toBeNull();
+    expect(
+      HorseMind.runInSandbox(mem.sandbox, () =>
+        HorseMind.styleHorseReferenceOf('nlh', 'cash', 'full', 'pooled')
+      )
+    ).not.toBeNull();
+    expect(
+      HorseMind.runInSandbox(mem.sandbox, () =>
+        HorseMind.styleHorseReferenceOf('nlh', 'cash', 'full', 'lightning')
+      )
+    ).not.toBeNull();
+
+    // A separate sandbox with ONLY Classic table history must stay isolated from `mem` and fire
+    // style_lightning_separate_empty_seen when replaying a Lightning node with lightningStyleReadSeparate.
+    const classicOnlyHistory: HistoryHand[] = Array.from({ length: 40 }, (_, i) =>
+      postflopTurnHand(5000 + i, 1_000_000 + i * 1_000, 'person-4', 'h1', 'table', i < 12)
+    );
+    const classicMem = new AsOfOpponentMemory(classicOnlyHistory);
+    classicMem.learnThrough(2_000_000);
+    expect(
+      HorseMind.runInSandbox(classicMem.sandbox, () =>
+        HorseMind.styleHorseReferenceOf('nlh', 'cash', 'full', 'lightning')
+      )
+    ).toBeNull();
+    expect(
+      HorseMind.runInSandbox(classicMem.sandbox, () =>
+        HorseMind.styleHorseReferenceOf('nlh', 'cash', 'full', 'pooled')
+      )
+    ).not.toBeNull();
+
+    const prof = replayProfiles('cash').find((p) => p.live)!;
+    const { hand: lHand, node: lNode } = turnCheckRaiseHand(lightningDomain);
+    const lState = withSeatIds(stateAt(lHand, lNode), lHand);
+    const emptyReplay = replayAtWithMemory(classicMem, lState, prof, [1, 7, 42], {
+      styleRaiseRespect: true,
+      lightningStyleReadSeparate: true,
+    });
+    expect(emptyReplay.receipts.style_lightning_separate_read_seen ?? 0).toBeGreaterThan(0);
+    expect(emptyReplay.receipts.style_lightning_separate_empty_seen ?? 0).toBeGreaterThan(0);
+
+    // Multi-domain replay must actually diverge on the style read when pooled (13/74 turn raises)
+    // vs Lightning-only (1/34 turn raises) disagree: Lightning-only respects the rare turn check-raise.
+    const multiPooled = replayAtWithMemory(mem, lState, prof, [1, 7, 42], {
+      styleRaiseRespect: true,
+    });
+    const multiSeparate = replayAtWithMemory(mem, lState, prof, [1, 7, 42], {
+      styleRaiseRespect: true,
+      lightningStyleReadSeparate: true,
+    });
+    expect(multiSeparate.receipts.style_lightning_separate_read_seen ?? 0).toBeGreaterThan(0);
+    expect(multiSeparate.receipts.style_lightning_separate_empty_seen ?? 0).toBe(0);
+    expect(multiSeparate.receipts.style_raise_respect_seen ?? 0).toBeGreaterThan(
+      multiPooled.receipts.style_raise_respect_seen ?? 0
+    );
+    expect(multiSeparate.actions).not.toEqual(multiPooled.actions);
   });
 });

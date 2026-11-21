@@ -140,7 +140,10 @@ export function historyHandOf(row: Record<string, unknown>): HistoryHand | null 
 
 /** The opponent records a replay reads, learned forward in time inside one private sandbox. */
 export class AsOfOpponentMemory {
-  readonly sandbox: HorseMindSandbox = HorseMind.createSandbox();
+  readonly sandbox: HorseMindSandbox = {
+    ...HorseMind.createSandbox(),
+    styleMaps: HorseMind.createStyleMaps(),
+  };
   private readonly hands: HistoryHand[];
   private next = 0;
   private throughMs = -Infinity;
