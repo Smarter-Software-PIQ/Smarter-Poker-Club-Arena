@@ -32,7 +32,8 @@
 --    Horse's part ended (hand over preflop; all-in; Horse folded preflop/flop/turn/river;
 --    called to a showdown; won without one) in real and EV chips, and the table /
 --    Lightning split. Severity warning and a source fn_ca_owner_page_kind does not map:
---    it never pages the owner's phone. A repeat while it fires only bumps the receipt; a
+--    it never pages the owner's phone. Its own reliability-controller class makes it never an
+--    incident, never escalated, never a Messenger message or push. A repeat while it fires only bumps the receipt; a
 --    run that finds no window above +2 SE resolves it; a later episode gets a new key.
 --    Every run is kept in smarter_private.ca_horse_exposure_runs.
 --
@@ -47,7 +48,7 @@
 --
 -- periodic-work: a detector that reports a measured result to the Production Alerts fleet; it moves no money, seats, lobbies, settings or Horse decisions and repairs nothing. Persons' results against the Horses accrue hand by hand with no event to hang a check on, so the hour is the product: an early warning is a read of the last hours of play.
 --
--- @live-proof: (SELECT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-horse-exposure-watch-hourly' AND schedule = '17 * * * *' AND active) AND to_regprocedure('public.fn_ca_horse_exposure_watch(timestamp with time zone, boolean)') IS NOT NULL AND to_regprocedure('smarter_private.fn_ca_horse_exposure_hands(timestamp with time zone, integer)') IS NOT NULL AND to_regclass('smarter_private.ca_horse_exposure_runs') IS NOT NULL AND public.fn_ca_owner_page_kind('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning') IS NULL AND public.fn_ca_owner_page_kind('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'critical') IS NULL AND NOT has_function_privilege('anon', 'public.fn_ca_horse_exposure_watch(timestamp with time zone, boolean)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_horse_exposure_watch(timestamp with time zone, boolean)', 'EXECUTE'))
+-- @live-proof: (SELECT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-horse-exposure-watch-hourly' AND schedule = '17 * * * *' AND active) AND to_regprocedure('public.fn_ca_horse_exposure_watch(timestamp with time zone, boolean)') IS NOT NULL AND to_regprocedure('smarter_private.fn_ca_horse_exposure_hands(timestamp with time zone, integer)') IS NOT NULL AND to_regclass('smarter_private.ca_horse_exposure_runs') IS NOT NULL AND public.fn_ca_owner_page_kind('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning') IS NULL AND public.fn_ca_owner_page_kind('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'critical') IS NULL AND EXISTS (SELECT 1 FROM smarter_private.reliability_alert_classes WHERE source_pattern = 'horse-exposure-watch' AND alertname_pattern = 'PersonBeatsHorsesBeyondTwoSE' AND NOT is_incident AND NOT escalate_immediately) AND NOT has_function_privilege('anon', 'public.fn_ca_horse_exposure_watch(timestamp with time zone, boolean)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_horse_exposure_watch(timestamp with time zone, boolean)', 'EXECUTE'))
 
 BEGIN;
 SET LOCAL lock_timeout = '4s';
@@ -303,6 +304,25 @@ REVOKE ALL ON FUNCTION public.fn_ca_horse_exposure_watch(timestamptz, boolean) F
 GRANT EXECUTE ON FUNCTION public.fn_ca_horse_exposure_watch(timestamptz, boolean) TO service_role;
 COMMENT ON FUNCTION public.fn_ca_horse_exposure_watch(timestamptz, boolean) IS
   'Hourly read-only early warning (20261121011654): a person whose EV-adjusted bb/100 against the PLO4/PLO5 cash Horses is above +2 SE over a full rolling 500/1,000/2,500-hand window raises one PersonBeatsHorsesBeyondTwoSE warning for Production Alerts with the leak breakdown. Analysis only; never pages; changes no Horse decision.';
+
+-- The reliability controller (zzz_reliability_intake_insert) turns an alert it has no class for into an
+-- 'unclassified' incident that escalates; today notify_mode critical_only suppresses a warning, but a later
+-- notify_mode must not turn this analysis warning into a Messenger message or a push. Its own class: never an
+-- incident, never escalated (the pattern of 20261118165420).
+INSERT INTO smarter_private.reliability_alert_classes
+  (priority, source_pattern, alertname_pattern, severity_pattern, incident_class, default_severity, escalate_immediately, is_incident, note)
+SELECT 305, 'horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', '%', 'horse_exposure_analysis', 'warning', false, false,
+       'fn_ca_horse_exposure_watch (20261121011654): an hourly analysis trigger for the Production Alerts fleet when a person''s EV-adjusted result against the PLO Horses is above +2 SE; it starts an investigation, changes nothing, and is never an incident, a Messenger message or a push'
+ WHERE NOT EXISTS (SELECT 1 FROM smarter_private.reliability_alert_classes
+                    WHERE source_pattern = 'horse-exposure-watch' AND alertname_pattern = 'PersonBeatsHorsesBeyondTwoSE' AND severity_pattern = '%');
+
+DO $class_proof$
+BEGIN
+  IF (smarter_private.reliability_classify('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false)).is_incident IS NOT FALSE
+     OR (smarter_private.reliability_classify('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false)).escalate_immediately IS NOT FALSE THEN
+    RAISE EXCEPTION 'the exposure warning still classifies as an escalating incident';
+  END IF;
+END $class_proof$;
 
 -- @probe-for: public.fn_ca_horse_exposure_watch
 DO $probe$

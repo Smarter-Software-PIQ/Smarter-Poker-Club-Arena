@@ -75,6 +75,21 @@ CREATE INDEX idx_hand_history_human_created ON public.hand_history USING btree (
 CREATE TABLE public.ca_hand_facts (hand_id uuid NOT NULL, user_id uuid NOT NULL, seat smallint, game_variant text,
   tournament_id uuid, played_at timestamptz, net_bb numeric, ev_net_bb numeric, was_all_in boolean,
   went_to_showdown boolean, PRIMARY KEY (hand_id, user_id));
+-- The reliability controller's class table and classifier, as production has them (columns and function text).
+CREATE TABLE smarter_private.reliability_alert_classes (id serial PRIMARY KEY, priority integer NOT NULL,
+  source_pattern text NOT NULL DEFAULT '%', alertname_pattern text NOT NULL DEFAULT '%', severity_pattern text NOT NULL DEFAULT '%',
+  incident_class text NOT NULL, default_severity text NOT NULL DEFAULT 'warning', escalate_immediately boolean NOT NULL DEFAULT false,
+  is_incident boolean NOT NULL DEFAULT true, note text, hold_down_seconds integer, hold_down_flaps integer,
+  hold_down_flap_window_seconds integer, quiet_window_seconds integer NOT NULL DEFAULT 1800,
+  UNIQUE (source_pattern, alertname_pattern, severity_pattern));
+INSERT INTO smarter_private.reliability_alert_classes (priority, incident_class, default_severity, escalate_immediately, is_incident)
+  VALUES (1000, 'unclassified', 'warning', true, true);
+CREATE FUNCTION smarter_private.reliability_classify(p_source text, p_alertname text, p_severity text, p_resolved boolean)
+ RETURNS smarter_private.reliability_alert_classes LANGUAGE sql STABLE SET search_path TO 'pg_catalog', 'smarter_private' AS $f$
+  SELECT c FROM smarter_private.reliability_alert_classes c
+   WHERE p_source ILIKE c.source_pattern AND p_alertname ILIKE c.alertname_pattern
+     AND CASE WHEN p_resolved THEN c.is_incident ELSE lower(p_severity) ILIKE c.severity_pattern END
+   ORDER BY c.priority, c.id LIMIT 1 $f$;
 CREATE TABLE public.lightning_hand (hand_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hand_history_id uuid, hand_number integer);
 CREATE UNIQUE INDEX lightning_hand_one_per_hand_number ON public.lightning_hand USING btree (hand_number) WHERE (hand_number IS NOT NULL);
 """
@@ -130,6 +145,9 @@ def main():
         assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
         assert sql("SELECT count(*) FROM smarter_private.ca_horse_exposure_runs") == '0', 'the probe must leave nothing'
         ok('the exact migration installs, its probe leaves nothing, and its live proof holds')
+        assert sql("SELECT (c).incident_class || ' ' || (c).is_incident || ' ' || (c).escalate_immediately FROM (SELECT smarter_private.reliability_classify('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false) c) z") == 'horse_exposure_analysis false false'
+        assert sql("SELECT (c).incident_class FROM (SELECT smarter_private.reliability_classify('another-source', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false) c) z") == 'unclassified'
+        ok('the reliability controller classifies the warning as never an incident and never escalated; other sources are untouched')
 
         rnd = random.Random(20261120)
         horses = [str(uuid.UUID(int=rnd.getrandbits(128))) for _ in range(8)]

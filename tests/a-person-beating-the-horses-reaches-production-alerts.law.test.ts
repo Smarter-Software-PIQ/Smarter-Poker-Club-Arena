@@ -43,6 +43,10 @@ describe('the exposure watch only starts an analysis', () => {
     expect(new Set(writes)).toEqual(
       new Set(['smarter_private.ca_horse_exposure_runs', 'public.operational_alert_events'])
     );
+    // three writes: its run row, alert records through fn_record_operational_alert, 'resolved' on its own alerts
+    expect(code(body)).toMatch(
+      /WHERE e\.source = c_source AND e\.alertname = c_alert AND e\.status = 'firing'/
+    );
     expect(code(body)).not.toMatch(/\bDELETE\b|\bTRUNCATE\b|\bALTER\b/i);
     expect(code(body)).toContain(
       "public.fn_record_operational_alert(c_source, v_key, c_alert, 'firing', 'warning'"
@@ -85,6 +89,17 @@ describe('the exposure warning never pages the owner', () => {
     );
     expect(migration).toMatch(
       /@live-proof: .*fn_ca_owner_page_kind\('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning'\) IS NULL/
+    );
+  });
+});
+
+describe('the reliability controller never escalates it', () => {
+  it('its own class row: never an incident, never escalated, proved at install', () => {
+    expect(code(migration)).toMatch(
+      /SELECT 305, 'horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', '%', 'horse_exposure_analysis', 'warning', false, false/
+    );
+    expect(code(migration)).toContain(
+      "reliability_classify('horse-exposure-watch', 'PersonBeatsHorsesBeyondTwoSE', 'warning', false)).is_incident IS NOT FALSE"
     );
   });
 });
