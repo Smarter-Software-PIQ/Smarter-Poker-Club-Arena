@@ -6,6 +6,7 @@ import {
   readStyleSwitchFromDatabase,
   type StyleSwitchStateMessage,
 } from './styleSwitchDelivery.js';
+import { receiveHorseRunItTwiceSwitchMessage } from '../HorseRunItTwiceSwitch.js';
 import { publishOptionRegistryToDatabase } from './optionRegistryPublisher.js';
 import {
   startEngineRuntimeSettingsFromDatabase,
@@ -895,7 +896,11 @@ export async function startLiveHorseDecisionWorker(
           }
         : switchRead,
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
-      broadcast: (message) => singleton?.broadcastStyleSwitch(message),
+      broadcast: (message) => {
+        // horseRunItTwiceIsPriced is read on the main thread (HorseRunItTwiceSwitch.ts): the same message.
+        receiveHorseRunItTwiceSwitchMessage(message);
+        singleton?.broadcastStyleSwitch(message);
+      },
     });
     styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
   }
