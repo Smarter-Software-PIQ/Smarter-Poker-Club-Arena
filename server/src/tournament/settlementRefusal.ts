@@ -44,6 +44,25 @@ export function isLaneContention(error: unknown): boolean {
 }
 
 /**
+ * THE SETTLEMENT RAN ITS WHOLE CEILING AND WAS CANCELLED (2026-11-17).
+ *
+ * 57014 from the database is the terminal authority's own 45-second statement
+ * timeout. The write loop used to send the identical request again 200 ms
+ * later, up to five times, so one admission of a finish that cannot complete
+ * held its locks for about 225 seconds. Tournament 4cea3f54 (547 entries) did
+ * that for ninety minutes and stalled every cash table behind the wallet row
+ * it held.
+ *
+ * This only ends the write retry loop, exactly as a deterministic refusal
+ * does. A cancel is still an uncertain SQLSTATE class, so the attempt stays
+ * unproven and the serialized outcome resolver still decides what happened.
+ */
+export function isStatementTimeoutCancel(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return false;
+  return (error as Record<string, unknown>).code === '57014';
+}
+
+/**
  * These P0404 refusals need missing durable evidence, not another identical
  * money request. Match both the installed authority's exact message and this
  * event; P0404 alone (or a transport error carrying similar text) is not enough.

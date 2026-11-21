@@ -150,8 +150,11 @@ import {
   tournamentFinishRefusalAlertsSuppressedTotal,
   eliminationSweepStepMs,
   classifyFinishRefusal,
+  finishRefusalIsMaintenanceDeferral,
+  finishRefusalIsStatementTimeout,
   finishRefusalIsTransient,
   finishRefusalRetryDelayMs,
+  finishStatementTimeoutRetryDelayMs,
   type FinishRefusalReason,
 } from '../observability/engineInstruments.js';
 import {
@@ -870,6 +873,17 @@ export abstract class TournamentManagerBase {
    * awaitsItsOwnFinishRetry; set beside the streak in noteFinishRefusal.
    */
   private finishRefusalRetryDueAtMs: number | null = null;
+  /**
+   * A FINISH THAT TIMES OUT BACKS OFF (2026-11-17). How many times running
+   * THIS finish was cancelled at its statement ceiling (57014). See
+   * FINISH_STATEMENT_TIMEOUT_BACKOFF_CAP_MS in engineInstruments for the
+   * incident. In memory only: a restarted engine starts again from the base.
+   */
+  private finishStatementTimeoutStreak = 0;
+  /** The last refusal was the maintenance break deferring the finish to the thaw. */
+  private lastFinishRefusalWasMaintenanceDeferral = false;
+  /** Which finish the streaks above count: a different one starts them again. */
+  private finishRefusalAttemptKey: string | null = null;
 
   /**
    * A TRANSIENT REFUSAL IS NEWS ONLY WHEN IT STOPS BEING TRANSIENT (2026-10-01).
@@ -902,16 +916,33 @@ export abstract class TournamentManagerBase {
    */
   protected noteFinishRefusal(provenRefusal: boolean, error: unknown): boolean {
     if (!provenRefusal) return true;
-    const reason = classifyFinishRefusal(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = classifyFinishRefusal(message);
+    const delayBefore = this.finishRefusalStreak >= 1 ? this.finishRetryDelayMs() : 0;
     if (reason === this.lastFinishRefusalReason) {
       this.finishRefusalStreak += 1;
     } else {
       this.lastFinishRefusalReason = reason;
       this.finishRefusalStreak = 1;
     }
+    const timedOut = finishRefusalIsStatementTimeout(message);
+    this.finishStatementTimeoutStreak = timedOut
+      ? this.finishStatementTimeoutStreak >= 1
+        ? this.finishStatementTimeoutStreak + 1
+        : 1
+      : 0;
+    this.lastFinishRefusalWasMaintenanceDeferral =
+      !timedOut && finishRefusalIsMaintenanceDeferral(message);
     // The same delay releaseFinishGuard and the finish-stage re-arm hand the
     // scheduler, computed from the streak just recorded.
-    this.finishRefusalRetryDueAtMs = Date.now() + this.finishRetryDelayMs();
+    const delay = this.finishRetryDelayMs();
+    this.finishRefusalRetryDueAtMs = Date.now() + delay;
+    if (delayBefore > 0 && delay > delayBefore) {
+      console.warn(
+        `[Tournament:${this.tournamentId}] terminal settlement refused ${this.finishRefusalStreak} times running ` +
+          `(${timedOut ? 'statement timeout' : reason}); backing off, next attempt in ${Math.round(delay / 1000)}s`
+      );
+    }
     if (finishRefusalIsTransient(reason)) {
       // News exactly once: on the pass the streak reaches the threshold.
       return (
@@ -919,6 +950,17 @@ export abstract class TournamentManagerBase {
       );
     }
     return this.finishRefusalStreak === 1;
+  }
+
+  /**
+   * Name the finish about to be asked. A materially different one (another
+   * winner) is a new question, so the streaks and the backed-off delay of the
+   * previous one do not carry over: its first refusal retries at the base.
+   */
+  protected noteFinishAttempt(attemptKey: string): void {
+    if (this.finishRefusalAttemptKey === attemptKey) return;
+    if (this.finishRefusalAttemptKey != null) this.clearFinishRefusalStreak();
+    this.finishRefusalAttemptKey = attemptKey;
   }
 
   /** How many times running this tournament has reported its current refusal reason. */
@@ -931,6 +973,13 @@ export abstract class TournamentManagerBase {
     const base = TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS;
     const reason = this.lastFinishRefusalReason;
     if (!reason || this.finishRefusalStreak < 1) return base;
+    // A statement timeout backs off whatever its label: `timeout` is also the
+    // lock timeout of a busy lane, which keeps the base pass below.
+    if (this.finishStatementTimeoutStreak >= 1) {
+      return finishStatementTimeoutRetryDelayMs(this.finishStatementTimeoutStreak, base);
+    }
+    // The break defers a finish to the thaw; it is not a rule to back off from.
+    if (this.lastFinishRefusalWasMaintenanceDeferral === true) return base;
     return finishRefusalRetryDelayMs(reason, this.finishRefusalStreak, base);
   }
 
@@ -939,6 +988,9 @@ export abstract class TournamentManagerBase {
     this.finishRefusalStreak = 0;
     this.lastFinishRefusalReason = null;
     this.finishRefusalRetryDueAtMs = null;
+    this.finishStatementTimeoutStreak = 0;
+    this.lastFinishRefusalWasMaintenanceDeferral = false;
+    this.finishRefusalAttemptKey = null;
   }
 
   /**
