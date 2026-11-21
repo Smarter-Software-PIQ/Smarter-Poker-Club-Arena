@@ -195,7 +195,7 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       compiledDefault: 0,
       consumer: 'horse_blanket_rows_off',
       source: `HorseOmahaBlanketRowsOffInPlo45Cash.ts (opts.omahaBlanketRowsOffList includes '${option}'; 0 is not listed)`,
-      description: `PLO4/PLO5 Cash Only: Blanket Row ${option} Off While omahaBlanketRowsOffInPlo45Cash Is On (0 = No, 1 = Off)`,
+      description: `PLO4/PLO5 Cash Only: Blanket Row ${option} Off While The Blanket Rows Off List Switch Is On (0 = No, 1 = Off)`,
     })),
   ].map((spec) => Object.freeze(spec as RuntimeSettingSpec))
 );
