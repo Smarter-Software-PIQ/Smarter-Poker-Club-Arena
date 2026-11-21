@@ -509,6 +509,9 @@ export interface SparringCellSpec {
   bbAnte?: number;
   /** Collect the Horses' value share by line and size band (for tellProbe). */
   collectTells?: boolean;
+  /** Keep each arm's per-hand seat-0 net (bb) and mirror net, so two runs of the same cell in two
+   *  trees can be paired hand by hand (a code change, not a switch, between them). Numbers only. */
+  keepPerHand?: boolean;
 }
 
 export interface SparringArmResult {
@@ -531,6 +534,9 @@ export interface SparringArmResult {
   /** Horse answers to seat-0 wagers by street and size band: fold share. */
   horseFoldToBet: Record<string, { n: number; fold: number }>;
   tells?: TellTable;
+  /** keepPerHand: seat-0 net and Horse-mirror net per hand, bb, in deal order. */
+  perHand?: number[];
+  perHandMirror?: number[];
   illegal: number;
   truncated: number;
   brainFallbacks: number;
@@ -842,6 +848,12 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       },
       horseFoldToBet: st.fold,
       ...(spec.collectTells ? { tells: st.tells } : {}),
+      ...(spec.keepPerHand
+        ? {
+            perHand: st.e.map((x) => Math.round(x * 100) / 100),
+            ...(spec.mirror ? { perHandMirror: st.c.map((x) => Math.round(x * 100) / 100) } : {}),
+          }
+        : {}),
       illegal: st.counters.illegal,
       truncated: st.counters.truncated,
       brainFallbacks: st.counters.brainFallback ?? 0,

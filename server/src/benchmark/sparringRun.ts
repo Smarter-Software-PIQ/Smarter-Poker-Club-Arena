@@ -12,6 +12,7 @@
  *   SPARRING_PROFILE optional JSON of SparringProfile fields merged over aggro_reg
  *   SPARRING_OUT    file to append the cell result (JSON line)
  *   SPARRING_REPORT a results file to print as the matchup table (report mode)
+ *   SPARRING_PERHAND=1 keep per-hand nets (for pairing two trees with scripts/sparring-compare.py)
  * Adversaries: profile:<name> (SPARRING_PROFILES), probe:<name> (SPARRING_PROBES), probe:tell.
  * Prints aggregates only: no hole card is ever printed or written.
  */
@@ -124,9 +125,12 @@ async function main(): Promise<void> {
   const [variant, seatsS, stackS, pairsS, seedS] = parts.slice(2);
   const read = (f?: string): SwitchStates =>
     f ? (JSON.parse(readFileSync(f, 'utf8')) as SwitchStates) : {};
-  const baseStates = read(process.env.SPARRING_BASE);
+  const { decide: baseDecide, ...baseSw } = read(process.env.SPARRING_BASE) as unknown as CandFile;
+  const baseStates = baseSw as SwitchStates;
   const base = decideOptsOf(baseStates);
-  const arms: SparringArm[] = [{ label: 'BASE', horseOpts: base.opts }];
+  const arms: SparringArm[] = [
+    { label: 'BASE', horseOpts: { ...base.opts, ...((baseDecide ?? {}) as HorseDecideOpts) } },
+  ];
   let dropped = base.dropped;
   if (process.env.SPARRING_CAND) {
     const raw = JSON.parse(readFileSync(process.env.SPARRING_CAND, 'utf8')) as CandFile;
@@ -153,6 +157,7 @@ async function main(): Promise<void> {
     seed: Number(seedS),
     arms,
     bbAnte: variant === 'plo5' ? 1 : 0,
+    keepPerHand: process.env.SPARRING_PERHAND === '1',
   };
   let result: SparringCellResult;
   if (kind === 'profile') {
