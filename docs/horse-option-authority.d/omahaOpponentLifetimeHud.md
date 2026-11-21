@@ -16,7 +16,8 @@ Receipts: `opponent_hud_*` (reads by family and source, recall found/none, explo
 
 - Audit (OPPONENT-HUD.md): the existing memory caps every read at 43.8 effective hands per fragment, is never loaded ahead of a hand, and presumes every Omaha opponent a maniac until 15 decayed hands (24 h: 4,747,996 presumed vs 882,394 disproved).
 - Dry run of the builder on 33,689 PLO4/PLO5 cash hands (Nov 19-20) and both watched persons' lifetime: profiles p50 26 KB, max 60 KB; WooWoo 10,171 PLO5 hands, nevin 943.
-- The profile is infrastructure: the real-chip grade belongs to each consuming rule under its own declared criteria. Replay: exact-replay byte identity with the option off is the release check.
+- Off means off: with the option off the profile store makes no database statement and does no work on the seat, hand, decision, timer or reconcile paths (law test in `OpponentHudStore.test.ts`). Switching it on loads the population priors and the backfill's sync point, catches up the hands since (45 minutes of overlap, capped at 48 h; past the cap `OpponentHudDrift` asks for a re-run of the backfill), then persists; until an opponent's profile is ready the decision reads the population prior for him. Switching it off saves once and drops everything.
+- Criteria, replay grade and rollback rule: `CRITERIA-OPPONENT-HUD.md` (archive repairs/EMERG, sha256 af2a8f5c93973fb9540e31f858bbffc107a5497c25b75c0d71fdd53aca871704). Replay: exact-replay byte identity with the option off is the release check.
 
 ## Follow-Up (Lead 2026-11-20)
 
