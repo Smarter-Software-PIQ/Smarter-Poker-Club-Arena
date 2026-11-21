@@ -41,6 +41,8 @@ import { omahaMathCoreRule, omahaMathCoreStreetAdmitted } from './OmahaMathCoreR
 import { holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
 import { OMAHA_MATH_CORE_ALL_STREETS } from './OmahaMathCoreRule.js';
+import { OMAHA_MATH_CORE_REALIZATION_CALIBRATION } from './OmahaMathCore.js';
+import { setWiredValueForTests } from './OmahaMathCoreWire.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
 const SUIT: Record<string, Card['suit']> = {
@@ -1071,5 +1073,65 @@ describe('CORE-POOLED-6: a call that closes the hand is priced at its exact show
     );
     expect(closing).toBeGreaterThanOrEqual(40);
     expect(positive).toBeGreaterThan(5);
+  }, 300_000);
+
+  it('the one-step fallback path too: with the plan path off, the closing call is priced the same with and without the PLO5 flop factors', () => {
+    const streets = OMAHA_MATH_CORE_REALIZATION_CALIBRATION.streets;
+    const shipped = streets.plo5;
+    let closing = 0;
+    let open = 0;
+    let openDiscounted = 0;
+    setWiredValueForTests(false);
+    try {
+      for (let i = 0; i < 400 && closing < 40; i++) {
+        const short = r2(9 + (i % 10));
+        const mk = (stacks: number[]): Spec => ({
+          variant: 'plo5',
+          n: 2,
+          street: 'flop',
+          facing: true,
+          deep: false,
+          lightning: false,
+          seed: 710_000 + i,
+          stacks,
+          frac: 1,
+        });
+        const callOf = (st: ReturnType<typeof stateAt>, factors: boolean) => {
+          streets.plo5 = factors ? shipped : [];
+          const d = decide(st, { omahaMathCore: true, omahaMathCorePlo5Flop: true });
+          return d.omahaMathCore?.core?.evs.find((e) => e.action === 'call');
+        };
+        // closing: the bettor is all-in and the hero covers
+        let st = gen(mk([short, 400])).st;
+        const closes = (s: typeof st) =>
+          Math.abs((s.gs.toCall ?? 0) - (short - 6)) < 0.005 &&
+          s.hero.stack > (s.gs.toCall ?? 0) + 1;
+        if (!closes(st)) st = gen(mk([400, short])).st;
+        if (closes(st)) {
+          const withF = callOf(st, true);
+          const without = callOf(st, false);
+          if (withF && without) {
+            closing++;
+            expect(withF.ev, `closing state ${i}`).toBe(without.ev);
+          }
+        }
+        // control: the same deal with both stacks deep is NOT closing, and there the factor does discount the call
+        const deep = gen(mk([400, 400])).st;
+        const dWith = callOf(deep, true);
+        const dWithout = callOf(deep, false);
+        if (dWith && dWithout) {
+          open++;
+          if (dWith.ev < dWithout.ev - 0.005) openDiscounted++;
+        }
+      }
+    } finally {
+      streets.plo5 = shipped;
+      setWiredValueForTests(true);
+    }
+    console.info(
+      `CORE-POOLED-6 closing call, one-step path: closing=${closing} open=${open} openDiscounted=${openDiscounted}`
+    );
+    expect(closing).toBeGreaterThanOrEqual(20);
+    expect(openDiscounted).toBeGreaterThan(5);
   }, 300_000);
 });
