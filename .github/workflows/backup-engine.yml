@@ -137,6 +137,7 @@ jobs:
       sha: ${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.sha || '' }}
       control_sha: ${{ steps.plan.outputs.control_sha || github.sha }}
       refresh: ${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.refresh || '' }}
+      freeze_baseline: ${{ steps.plan.outputs.freeze_baseline }}
     steps:
       - name: Prove the original sealed receiver and claim its first Backup run
         id: seal
@@ -224,6 +225,7 @@ jobs:
               { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\`: certified on tonight's frozen copy (refresh forced)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               echo "sha=$baseline" >> "$GITHUB_OUTPUT"
               echo "refresh=force" >> "$GITHUB_OUTPUT"
+              echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -610,9 +612,13 @@ jobs:
       # certify: a push run whose commit now PREDATES an open booked window
       # can never be that window's selection, so it hands the host back and
       # certifies nothing. Any other answer (including unknown) changes nothing.
+      # Tonight's FREEZE BASELINE never yields (2026-11-21): it is the 04:00
+      # build, and after the freeze every push run certifies it, so its commit
+      # always predates a booking made later; yielding it left the 04:00 route
+      # with no certificate (runs 44878744044 and 44884252356).
       - name: Yield the host to an owner window booked while this run waited
         id: late_priority
-        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1'
+        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1'
         env:
           GH_TOKEN: ${{ github.token }}
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
