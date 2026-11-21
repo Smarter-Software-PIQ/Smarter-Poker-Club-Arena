@@ -18,3 +18,5 @@ empty; a nightly league row may differ. No 8 bb or 20 bb card exists for this op
 
 Nothing is switched on. The file stays Evidence NOT MET: the replay on real audited decisions is still not run,
 and no audited PLO8 heads-up tournament decision set exists in the repository.
+
+**Note (2026-11-21):** every PLO8 figure above from the evaluation league (`server/src/benchmark/HorseLeague.ts`, `playHand`) came from the high-only league, which paid every hi-lo pot to the high hand with no low half; it needs re-measurement on the league with hi-lo settlement (`settleLeagueShowdown`, `docs/changelog/2026-11-21-league-pays-the-low-half.md`).
