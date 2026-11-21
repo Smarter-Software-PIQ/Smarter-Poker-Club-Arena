@@ -161,6 +161,15 @@ export const OMAHA_TIGHT_FIELD_PERSONA = 'omaha_tight_field_v1' as const;
  *    defends on the tight-value bars (a six-max blind folds to one raise 82%
  *    of the time) and after the flop checks or folds to every wager (design
  *    value: the extreme over-folder).
+ *  - flh_value_only_blinds_v1 (2026-11-21, steal harm control): the
+ *    tight-value preflop (raise or fold), and after the flop it continues
+ *    only with two pair or better (raising it) and folds everything else to a
+ *    wager (design value). Folds postflop often, but its preflop entries and
+ *    re-raises are value only.
+ *  - flh_preflop_defending_blinds_v1 (2026-11-21, steal harm control): never
+ *    raises; defends a single raise at the published blind defence widths
+ *    (80% six-max, 88% heads-up) and after the flop checks or folds to every
+ *    wager (design value).
  * Development personas, not calibrated populations.
  */
 export const FIXED_LIMIT_SCRIPTED_POPULATION_ID = 'flh_scripted_field_v1' as const;
@@ -172,16 +181,22 @@ export const FLH_MANIAC_PERSONA = 'flh_maniac_v1' as const;
 export const FLH_TIGHT_VALUE_PERSONA = 'flh_tight_value_v1' as const;
 export const FLH_PASSIVE_CALLER_PERSONA = 'flh_passive_caller_v1' as const;
 export const FLH_OVER_FOLDING_BLINDS_PERSONA = 'flh_over_folding_blinds_v1' as const;
+export const FLH_VALUE_ONLY_BLINDS_PERSONA = 'flh_value_only_blinds_v1' as const;
+export const FLH_PREFLOP_DEFENDING_BLINDS_PERSONA = 'flh_preflop_defending_blinds_v1' as const;
 export type FixedLimitScriptedPersona =
   | typeof FLH_MANIAC_PERSONA
   | typeof FLH_TIGHT_VALUE_PERSONA
   | typeof FLH_PASSIVE_CALLER_PERSONA
-  | typeof FLH_OVER_FOLDING_BLINDS_PERSONA;
+  | typeof FLH_OVER_FOLDING_BLINDS_PERSONA
+  | typeof FLH_VALUE_ONLY_BLINDS_PERSONA
+  | typeof FLH_PREFLOP_DEFENDING_BLINDS_PERSONA;
 export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[] = Object.freeze([
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
+  FLH_VALUE_ONLY_BLINDS_PERSONA,
+  FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
 ]);
 /**
  * THE SCRIPTED NO-LIMIT FIELD (2026-11-21, Hold'em Strategy lane). Two
@@ -246,6 +261,8 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
+  FLH_VALUE_ONLY_BLINDS_PERSONA,
+  FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
   NLH_POT_BARRELER_PERSONA,
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
