@@ -40,6 +40,9 @@ def qualify(ROOT, sql, psql, ok, psql_cmd):
     install(ROOT, psql, 'a_shipped_or_stale_incident_claim_stops_blocking')
     contract(sql, psql, ok, psql_cmd, iid, '[with lifetime and shipped rules] ')
     stale_and_shipped(sql, psql, ok, iid)
+    # 20261121183712: class=release handoffs name the sanctioned triage workflow.
+    install(ROOT, psql, 'release_incident_handoff_names_sanctioned_triage_workflow')
+    release_handoff_enrichment(sql, psql, ok, iid)
 
 
 def contract(sql, psql, ok, psql_cmd, iid, label):
@@ -275,3 +278,26 @@ def stale_and_shipped(sql, psql, ok, iid):
             r = psql(['-c', f"SET ROLE {role}; {call}"])
             assert r.returncode != 0 and 'permission denied' in r.stderr, (role, call, r.stderr)
     ok('no browser role can read a claim state, its handoff line or the merge reader')
+
+
+def release_handoff_enrichment(sql, psql, ok, iid):
+    orig_class = sql(f"SELECT incident_class FROM smarter_private.reliability_incidents WHERE id = '{iid}'")
+    sql(f"DELETE FROM smarter_private.reliability_incident_claims WHERE incident_id = '{iid}'")
+    try:
+        sql(f"UPDATE smarter_private.reliability_incidents SET incident_class = 'release' WHERE id = '{iid}'")
+        rel_line = sql(f"SELECT smarter_private.reliability_claim_owner_line('{iid}')")
+        expected = f"gh workflow run triage-engine-release-incident.yml --ref main -f operation=inspect -f incident_id={iid}"
+        assert expected in rel_line, rel_line
+        rel_esc = sql(f"SELECT smarter_private.reliability_render_escalation('{iid}', 'escalation', NULL)")
+        assert expected in rel_esc, rel_esc
+
+        sql(f"UPDATE smarter_private.reliability_incidents SET incident_class = 'engine_liveness' WHERE id = '{iid}'")
+        other_line = sql(f"SELECT smarter_private.reliability_claim_owner_line('{iid}')")
+        assert 'triage-engine-release-incident.yml' not in other_line, other_line
+    finally:
+        sql(f"UPDATE smarter_private.reliability_incidents SET incident_class = '{orig_class}' WHERE id = '{iid}'")
+
+    for role in ('anon', 'authenticated'):
+        r = psql(['-c', f"SET ROLE {role}; SELECT smarter_private.reliability_claim_owner_line('{iid}')"])
+        assert r.returncode != 0 and 'permission denied' in r.stderr, (role, r.stderr)
+    ok('class=release handoff names the sanctioned triage/inspect workflow, non-release classes omit it, and browser roles stay denied')
