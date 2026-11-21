@@ -633,6 +633,18 @@ exit 0
         (ancestor: string, descendant: string) => ancestor === olderSha && descendant === newerSha
       )
     ).toBe('44900000002-1');
+    // Fail-closed negative proofs: failed descendant, self run_id, or malformed SHA MUST NOT suppress
+    expect(
+      shippedSibling(
+        staleFailure,
+        [
+          { run_id: '44900000002-1', target_sha: newerSha, shipped: false },
+          { run_id: '44900000001-1', target_sha: newerSha, shipped: true },
+          { run_id: '44900000009-1', target_sha: 'not-a-sha', shipped: true },
+        ],
+        () => true
+      )
+    ).toBeNull();
 
     // Verified superseded stand-down resolves stale open alerts; unverified does not
     expect(
