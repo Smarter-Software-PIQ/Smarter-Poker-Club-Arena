@@ -13,6 +13,7 @@
 import type { HorseDecision, SeatPlayer } from '../../types.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
+import { CURRENT_NUTS_CALL_FLOOR, holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import { publicHistoryOf, selectionScore } from './OmahaMathCoreWire.js';
 import {
   decideOmahaMathCore,
@@ -33,7 +34,7 @@ const ACTS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
 /**
  * Per-street admission (lead decision 2026-11-19 10:55 PM: the core ships street by street). With omahaMathCore
  * on, the core OWNS a postflop decision only on a street whose flag is on for that game; on every other street it
- * still computes and writes its receipt (shadow) and today's action stands. Default all OFF (read === true).
+ * does no work at all (no receipt; OmahaMathCoreOffScopeNoWork) and today's action stands. Default all OFF (read === true).
  */
 export const OMAHA_MATH_CORE_STREET_FLAGS = {
   plo4: {
@@ -250,6 +251,10 @@ export function omahaMathCoreInScope(player: SeatPlayer, gs: HorseGameStateV2): 
     (gs.bettingStructure !== undefined && gs.bettingStructure !== 'pot_limit')
   )
     return false;
+  // lane CORE-POOLED-5: Diamond Arena is closed (platform hard rule). The core is never consulted on a
+  // Diamond table; its Diamond fee branch (rake.platform.diamond, platformDeduction) is not applicable and is
+  // unreachable from a decision (law: OmahaMathCoreOffScopeNoWork.law.test.ts, 'a Diamond table').
+  if (gs.asset === 'diamonds') return false;
   if (!STREETS.includes(gs.stage as (typeof STREETS)[number])) return false;
   const hole = player.cards ?? [];
   if (hole.length !== Number(variant.at(-1))) return false;
@@ -294,7 +299,6 @@ export function omahaMathCoreState(
   const variant = String(gs.gameVariant).toLowerCase() as 'plo4' | 'plo5';
   const street = gs.stage as CoreState['street'];
   const history = (gs.actionHistory ?? []).filter((a) => ACTS.has(a.action));
-  const persons = new Set(gs.humanUserIds ?? []);
   const toCall = Number.isFinite(gs.toCall)
     ? Math.max(0, gs.toCall as number)
     : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
@@ -421,8 +425,6 @@ export function omahaMathCoreState(
     .filter((p) => p.seat !== player.seat)
     .map((p) => ({
       seat: p.seat,
-      user: p.user_id,
-      person: persons.has(p.user_id),
       stack: Math.max(0, p.stack || 0),
       bet: Math.max(0, p.bet || 0),
       folded: !!p.is_folded,
@@ -437,31 +439,62 @@ export function omahaMathCoreState(
   const live = opponents.filter((o) => !o.folded);
   const heroRank = orderRank(player.seat, gs.dealerSeat);
   const ip = live.every((o) => orderRank(o.seat, gs.dealerSeat) < heroRank);
-  const dealt = gs.dealtSeatIds?.length ?? seated.length;
+  // lane CORE-POOLED-5: the rated player count is the platform's own count at settlement
+  // (HandController.priceDeductions: the seats not sitting out), from the same flags; the dealt-seat census
+  // and the all-in / chips-in exception above are for ranges and positions, not for the rake tier
+  // (law: OmahaMathCorePlatformRake.law.test.ts).
+  const dealt = gs.players.filter((p) => !p.is_sitting_out).length;
   const rc = gs.rakeConfig;
   const tableCap = rc && Number.isFinite(rc.cap) ? rc.cap : Infinity;
-  // omahaMathCoreNetsTheWholeDeduction: the cap of the dealt-player tier (the controller's own ladder) and the
-  // fixed jackpot drop, both public table rules
-  const tier =
-    wholeDeduction && rc?.playerCountCaps?.length
-      ? [...rc.playerCountCaps]
-          .sort((a, b) => b.players - a.players)
-          .find((t) => dealt >= t.players)
-      : undefined;
+  // lane CORE-POOLED-4 (CORE-AUDIT note 9): the core nets every pot exactly as the platform deducts it, by
+  // default (the cap of the dealt-player tier, the heads-up ceiling, cent rounding, the jackpot drop clipped to the
+  // pot, a Diamond table: rake.platform, OmahaMathCore.ts platformDeduction). omahaMathCoreNetsTheWholeDeduction
+  // is kept as a name and no longer changes anything (`wholeDeduction` is read by nothing below).
+  void wholeDeduction;
+  const tier = rc?.playerCountCaps?.length
+    ? [...rc.playerCountCaps].sort((a, b) => b.players - a.players).find((t) => dealt >= t.players)
+    : undefined;
   const bbj = gs.bbjConfig;
   const drop =
-    wholeDeduction && bbj?.enabled === true && dealt >= bbj.minPlayersDealt && gs.bigBlind > 0
+    bbj?.enabled === true && dealt >= bbj.minPlayersDealt && gs.bigBlind > 0
       ? Math.round(gs.bigBlind * bbj.feeBB * 100) / 100
       : 0;
-  const rake =
-    rc && Number.isFinite(rc.percent)
-      ? {
-          percent: dealt <= 2 ? Math.min(rc.percent, HEADS_UP_RAKE_PERCENT) : rc.percent,
-          cap: tier && Number.isFinite(tier.cap) ? Math.max(0, tier.cap) : tableCap,
-          noFlopNoDrop: rc.noFlopNoDrop !== false,
-          ...(wholeDeduction ? { whole: true, drop: Number.isFinite(drop) ? drop : 0 } : {}),
-        }
-      : null;
+  const pct = rc && Number.isFinite(rc.percent) ? rc.percent : 0;
+  const rake = rc
+    ? {
+        percent: dealt <= 2 ? Math.min(pct, HEADS_UP_RAKE_PERCENT) : pct,
+        cap: tier && Number.isFinite(tier.cap) ? Math.max(0, tier.cap) : tableCap,
+        noFlopNoDrop: rc.noFlopNoDrop !== false,
+        whole: true,
+        drop: Number.isFinite(drop) ? drop : 0,
+        platform: {
+          config: {
+            percent: pct,
+            cap: Number.isFinite(rc.cap) ? rc.cap : Infinity,
+            noFlopNoDrop: rc.noFlopNoDrop !== false,
+            ...(rc.playerCountCaps?.length
+              ? {
+                  playerCountCaps: rc.playerCountCaps.map((t) => ({
+                    players: t.players,
+                    cap: t.cap,
+                  })),
+                }
+              : {}),
+          },
+          players: dealt,
+          bbjFee: Number.isFinite(drop) ? drop : 0,
+          ...(rc.diamondCashFees && gs.asset === 'diamonds'
+            ? {
+                diamond: {
+                  schedule: rc.diamondCashFees.schedule,
+                  variant: rc.diamondCashFees.variant,
+                  doubleBoard: rc.diamondCashFees.doubleBoard,
+                },
+              }
+            : {}),
+        },
+      }
+    : null;
   const hole = (player.cards ?? []).map(cardToInt);
   const board = (gs.communityCards ?? []).map(cardToInt);
   // the hand's public line for lanes RANGEADV (postflop) and PREFLOP-EV (preflop bands)
@@ -551,6 +584,20 @@ export function omahaMathCoreRule(
   now: () => number = () => performance.now()
 ): HorseDecision {
   if (opts.omahaMathCore !== true) return decision;
+  // Lane CORE-POOLED-2 latency (lead order 04:3xZ Nov 21; VERIFIER V60, SHADOW: with only the PLO5 flop flag on,
+  // turn and river decisions cost 51 ms / 15 ms more and the flop 65 ms): a street whose admission flag is off is
+  // not the core's decision, so the core does no work there at all - no state build, no pool, no equity draw, no
+  // receipt. This replaces the COREWIRE-2 shadow receipt on non-admitted streets (2026-11-19); acted decisions are
+  // unchanged because a non-admitted street always executed today's action. Cheap checks first: the admission flag
+  // reads only the variant and the stage.
+  if (
+    !omahaMathCoreStreetAdmitted(
+      String(gs.gameVariant ?? '').toLowerCase(),
+      String(gs.stage ?? ''),
+      opts
+    )
+  )
+    return decision;
   let inScope = false;
   try {
     inScope = omahaMathCoreInScope(player, gs);
@@ -560,10 +607,12 @@ export function omahaMathCoreRule(
   if (!inScope) return decision;
   const incoming = { action: decision.action, amount: decision.amount ?? null };
   try {
-    const { receipt } = decideOmahaMathCore(
-      omahaMathCoreState(player, gs, opts.omahaMathCoreNetsTheWholeDeduction === true),
-      { now }
+    const coreState = omahaMathCoreState(
+      player,
+      gs,
+      opts.omahaMathCoreNetsTheWholeDeduction === true
     );
+    const { receipt } = decideOmahaMathCore(coreState, { now });
     // The executed action is a priced candidate exactly as the legalizer leaves it: the best EV
     // whose legal form is itself (cent rounding and the all-in amount aside). A candidate the
     // legalizer would resize (a 90-100% pot wager made the full pot, a wager of nearly the whole
@@ -619,7 +668,29 @@ export function omahaMathCoreRule(
         legal.action,
         String(gs.gameVariant).toLowerCase()
       );
-      if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
+      if (K !== null && !inc && incoming.action !== legal.action) {
+        // lane CORE-POOLED-6 (owner-ordered sweep): today's action has no price among the core's candidates (a
+        // bet into an opponent with almost nothing behind, where the core priced the check alone; a raise where
+        // only the all-in was priced). Without its price nothing was proven against it, so it stands: "prove it
+        // to change it" has no exception for an action the core could not price. It is already legal here.
+        const kept: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+        if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+          kept.amount = incoming.amount;
+        receipt.kept = {
+          incoming: `${incoming.action}${incoming.amount !== null ? ' ' + incoming.amount : ''}`,
+          best: `${legal.action}${legal.amount != null ? ' ' + legal.amount : ''}`,
+          gap: 0,
+          se: 0,
+          k: K,
+          unpriced: true,
+        };
+        receipt.choice = {
+          action: incoming.action as CoreReceipt['choice']['action'],
+          amount: incoming.amount,
+          ev: 0,
+        };
+        legal = kept;
+      } else if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
         const se = Math.sqrt(
           Math.pow(Math.max(0, best.se ?? 0), 2) + Math.pow(Math.max(0, inc.se ?? 0), 2)
         );
@@ -686,23 +757,45 @@ export function omahaMathCoreRule(
       };
       legal = narrowed;
     }
-    // Lead decision 2026-11-19: omahaMathCore owns postflop; preflop is owned only with
-    // omahaMathCorePreflop on. Off, the preflop EV is computed and receipted (shadow) and today's
-    // preflop action stands.
-    if (!omahaMathCoreStreetAdmitted(String(gs.gameVariant).toLowerCase(), String(gs.stage), opts))
-      return {
-        ...decision,
-        omahaMathCore: {
-          switch: 'omahaMathCore',
-          applied: false,
-          shadow: true,
-          action: legal.action,
-          amount: legal.amount ?? null,
-          incoming,
-          error: null,
-          core: receipt,
-        },
-      };
+    // Current-nuts call floor, last word (lane CORE-POOLED-2 phase 2): whatever path reached a fold - the
+    // change margin keeping today's fold, the PLO5 river fold -> call narrowing keeping it (an all-in call or
+    // a fold that is no longer a priced candidate) - the exact current nuts facing a wager is called when a
+    // call (or an all-in for no more than the call) is legal. Public information only: the hero's own cards
+    // and the board, the same for every player.
+    if (
+      CURRENT_NUTS_CALL_FLOOR &&
+      legal.action === 'fold' &&
+      coreState.board.length >= 3 &&
+      coreState.toCall > 0.005 &&
+      holdsCurrentNuts(coreState.hole, coreState.board)
+    ) {
+      const stack = Math.max(0, player.stack ?? 0);
+      const tries: HorseDecision[] =
+        coreState.toCall < stack - 0.005
+          ? [{ action: 'call', amount: coreState.toCall, thinkTime: decision.thinkTime }]
+          : [];
+      tries.push({ action: 'all_in', thinkTime: decision.thinkTime });
+      for (const t of tries) {
+        let l: HorseDecision;
+        try {
+          l = legalize(t);
+        } catch {
+          continue;
+        }
+        if (l.action === 'fold') continue;
+        if (l.action === 'all_in' && Math.max(0, stack) > coreState.toCall + 0.005) continue;
+        const chosen = receipt.evs.find((e) => e.action === l.action);
+        receipt.nutFloor = `current nuts facing a wager (${String(gs.stage)}): fold replaced by ${l.action}`;
+        receipt.choice = {
+          action: l.action as CoreReceipt['choice']['action'],
+          amount: l.amount ?? null,
+          ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
+        };
+        legal = l;
+        break;
+      }
+    }
+    // (a street that is not admitted never reaches this point: see the admission check at the top)
     const out: HorseDecision = {
       ...decision,
       action: legal.action,

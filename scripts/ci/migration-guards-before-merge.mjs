@@ -850,6 +850,13 @@ export function classifyExact(status, output, guardFunctions = []) {
       guard: 'applier stale-pin guard (migration-stale-pins.mjs)',
       detail: m[1].trim(),
     };
+  const pm = /migration_preimage_mismatch:\s*([^\n]*)/.exec(output);
+  if (pm)
+    return {
+      outcome: 'guard-refused',
+      guard: 'applier preimage-md5 guard (migration-stale-pins.mjs)',
+      detail: pm[1].trim(),
+    };
   const armed = new Set([
     ...guardFunctions.map((f) => f.replace(/^.*\./, '').replace(/\(.*$/, '')),
     ...COMMIT_TIME_GUARDS,

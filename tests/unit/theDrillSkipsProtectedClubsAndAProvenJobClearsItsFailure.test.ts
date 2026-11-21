@@ -23,7 +23,7 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../..');
 const DIR = join(ROOT, 'supabase/migrations');
-const FIX = '20261120001649';
+const FIX = '20261120222900';
 
 function newestBody(head: string) {
   const file = readdirSync(DIR)
@@ -54,6 +54,9 @@ describe('the drill skips delete-protected clubs', () => {
     expect(choice).toContain('(t.tgtype & 8) <> 0');
     expect(choice).toContain(
       "pg_catalog.pg_get_triggerdef(t.oid) LIKE '%' || cm.club_id::text || '%'"
+    );
+    expect(choice).toContain(
+      "pg_catalog.pg_get_functiondef(t.tgfoid) LIKE '%' || cm.club_id::text || '%'"
     );
   });
 
@@ -112,6 +115,7 @@ describe('a proven job clears its weekly failure', () => {
     );
     expect(rule).toContain("pr.detector = substring(day.command from '(fn_[A-Za-z0-9_]+)\\(')");
     expect(rule).toContain('pr.ran_at > day.last_finished_at');
+    expect(rule).toContain("COALESCE((pr.detail->>'pass')::boolean, true)");
     expect(watch.body).toContain('SELECT j.jobid, j.jobname, j.command,');
     expect(watch.body).toContain('GROUP BY j.jobid, j.jobname, j.command');
   });

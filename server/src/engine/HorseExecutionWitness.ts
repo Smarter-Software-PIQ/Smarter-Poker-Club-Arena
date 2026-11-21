@@ -28,14 +28,22 @@ import {
   type HorseDecisionHandBinding,
 } from './HorseDecisionHandBinding.js';
 
+export const HORSE_NOT_EXECUTED_RETIREMENT_REASONS = [
+  'caller_settled',
+  'turn_abandoned',
+  'response_fence',
+  'second_look_replaced',
+  'second_look_unchanged',
+  'second_look_wager_ignored',
+  'second_look_math_core_kept',
+  'brain_exception',
+  'action_rejected',
+] as const;
+
+export type HorseNotExecutedRetirement = (typeof HORSE_NOT_EXECUTED_RETIREMENT_REASONS)[number];
+
 export type HorseExecutionRetirement =
-  | 'caller_settled'
-  | 'turn_abandoned'
-  | 'response_fence'
-  | 'second_look_replaced'
-  | 'second_look_unchanged'
-  | 'brain_exception'
-  | 'action_rejected'
+  | HorseNotExecutedRetirement
   | 'accepted_without_record'
   | 'accepted_context_mismatch'
   | 'accepted_amount_unverifiable'

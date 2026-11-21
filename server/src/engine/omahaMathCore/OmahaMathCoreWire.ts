@@ -5,18 +5,18 @@
  * delivered components. No component's maths is rewritten here; each adapter only maps
  * the core's public state onto the component's interface. One implementation per term:
  *
- * - response to a wager (fold / raise): RANGES public population cell (responseTo with no
- *   user) -> PLAYBOOK board-texture fold cell -> OPPMODEL per-opponent posterior (the one
- *   person read; RANGES' (k+20pop)/(n+20) person shrink is not used: OPPMODEL won out of
- *   sample) -> PLAYBOOK blockers (hero wagers only; XR-BLUFF's blockerShift is NOT also
- *   applied: one blocker term).
- * - bet rate: RANGES population -> OPPMODEL posterior.
+ * - response to a wager (fold / raise): the pooled public population cell (responseTo; every
+ *   responder, every bettor) -> PLAYBOOK board-texture fold cell (pooled) -> PLAYBOOK blockers
+ *   (hero wagers only; XR-BLUFF's blockerShift is NOT also applied: one blocker term).
+ * - bet rate: the pooled public population cell.
+ * IDENTITY-FREE (lane CORE-POOLED, owner 9:52 AM Nov 20): no adapter reads a person/Horse label or a
+ *   user id; one rule answers for every player (OmahaMathCoreIdentityFree.law.test.ts).
  * - opponent ranges postflop: RANGEADV trackRanges (whole public history, Bayes on measured
  *   node frequencies; bettor non-value share = each cell's shownNonValue, lead decision),
  *   cached per hand-street; the core's current-street rules are the fallback.
  * - postflop check / call / bet / raise EV: VALUE planValue (check node, raised branch,
  *   multi-street continuation, size menu), field response from HVH-MULTI
- *   continuationOutcomes (measured fold correlation), XR-BLUFF exploit-back, and the call
+ *   continuationOutcomes (measured fold correlation), and the call
  *   with players still to act from HVH-MULTI callEvWithPlayersBehind (squeeze). The core's
  *   own one-step loop is the fallback when planValue answers null.
  * - preflop: PREFLOP-EV (strength order, public bands, size-aware fold / re-raise).
@@ -27,19 +27,7 @@ import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { omahaBest } from './OmahaMathCoreEval.js';
 import { seededRng, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
-import {
-  TABLE,
-  betRate,
-  responseTo,
-  wagerNonValue,
-  type Actor,
-  type Mode,
-} from './OmahaMathCoreTables.js';
-import {
-  OPPONENT_MODEL_SNAPSHOT,
-  opponentBetRate,
-  opponentResponse,
-} from './OmahaMathCoreOpponent.js';
+import { betBands, betRate, responseTo, wagerNonValue, type Mode } from './OmahaMathCoreTables.js';
 import { textureFold } from './OmahaMathCorePlaybookTexture.js';
 import { blockerAdjustedFold } from './OmahaMathCorePlaybookBlockers.js';
 import {
@@ -74,7 +62,7 @@ export function selectionScore(a: { ev: number; se: number | null }): number {
 }
 
 /**
- * Provenance (LEAD RULING 2026-11-19, relayed to COREWIRE-2): preflopRealization.v1.json (lane PREFLOP-EV) is built
+ * Provenance (LEAD RULING 2026-11-19, relayed to COREWIRE-2): preflopRealization.v2-pooled.json (lane PREFLOP-EV; CORE-POOLED kept only its every-opponent cells) is built
  * from the Horses' own hole cards in their own past hands: information a player legitimately has about itself; it
  * holds nothing about any opponent's hidden cards. Its provenance class is "own_cards_history" (allowed list,
  * OmahaMathCoreTables OMAHA_MATH_CORE_ALLOWED_PROVENANCE). Admitted; preflop stays behind omahaMathCorePreflop.
@@ -119,14 +107,14 @@ export interface WiredResponse {
   source: string;
 }
 
-/** Population cell -> board texture -> per-opponent posterior. Null when no population cell qualifies. */
+/** Pooled population cell (every responder) -> board texture. Null when no population cell qualifies. */
 export function wiredResponse(board: readonly number[], k: ResponseKey): WiredResponse | null {
-  const pop = responseTo({ ...k, user: null });
+  const pop = responseTo(k);
   if (!pop) return null;
   let fold = clamp01(pop.fold);
   let raise = clamp01(pop.raise);
   let source = pop.source;
-  // the population key is game|mode|street|line|band|players|opp|bettor (MeasuredRanges back-off)
+  // the population key is game|mode|street|line|band|players (MeasuredRanges back-off)
   const key = (/(\S+\|\S+) \(n=/.exec(pop.source)?.[1] ?? '').split('|');
   const exactN = key[2] === k.street && key[3] === k.line ? pop.n : 0;
   if (board.length >= 3 && k.band !== 'all') {
@@ -135,7 +123,6 @@ export function wiredResponse(board: readonly number[], k: ResponseKey): WiredRe
       board,
       band: k.band,
       players: k.players,
-      responder: k.responder,
       p: fold,
     });
     if (Number.isFinite(t.p) && Math.abs(t.p - fold) > 1e-9) {
@@ -145,25 +132,6 @@ export function wiredResponse(board: readonly number[], k: ResponseKey): WiredRe
       fold = clamp01(t.p);
     }
     source = `${source}; ${t.source}`;
-  }
-  const post = opponentResponse(
-    k.user,
-    k.responder,
-    {
-      game: k.game,
-      mode: k.mode,
-      street: k.street,
-      line: k.line,
-      band: k.band,
-      players: k.players,
-      vs: k.bettor,
-    },
-    { fold, raise, call: Math.max(0, 1 - fold - raise), n: pop.n, source }
-  );
-  if (post && Number.isFinite(post.fold) && Number.isFinite(post.raise)) {
-    fold = clamp01(post.fold);
-    raise = Math.min(clamp01(post.raise), 1 - fold);
-    source = post.source;
   }
   return { fold, raise, n: pop.n, exactN, source };
 }
@@ -189,38 +157,10 @@ export function wiredHeroResponse(
   };
 }
 
-/**
- * A Horse responder on this core defends to the price: it folds s / (1 + s) of its range to a wager of
- * pot share s (lane MATHCORE 9bacaeaf5ea: the table's Horse cells measure the pre-core brain, which
- * over-folded; pricing core Horses with them makes cores bluff each other without end, PROVE self-play).
- * The raise share stays the measured one.
- */
-export function horseDefenceFold(
-  frac: number,
-  measured: { fold: number; raise: number; source: string } | null
-): { p: number; r: number; source: string } {
-  const sc = Math.max(0, frac) / (1 + Math.max(0, frac));
-  return {
-    p: sc,
-    r: measured ? Math.max(0, Math.min(1 - sc, measured.raise)) : 0,
-    source: `self-consistent Horse defence: fold s/(1+s) = ${r2(sc)} at s = ${r2(frac)}${measured ? ` (old Horse cell ${r2(measured.fold)}: ${measured.source})` : ''}`,
-  };
-}
-
 export function wiredBetRate(
   k: BetRateKey
 ): { b: number; n: number; source: string; size: number } | null {
-  const pop = betRate({ ...k, user: null });
-  if (!pop) return null;
-  const post = opponentBetRate(
-    k.user,
-    k.actor,
-    { game: k.game, street: k.street },
-    { p: pop.b, n: pop.n, source: pop.source }
-  );
-  return post && Number.isFinite(post.p)
-    ? { b: clamp01(post.p), n: pop.n, source: post.source, size: pop.size }
-    : pop;
+  return betRate(k);
 }
 
 // ───────────────────────────── public history (for RANGEADV and PREFLOP-EV) ─────────────────────────────
@@ -353,7 +293,6 @@ export function wiredTrack(
   const bySeat = new Map(state.opponents.map((o) => [o.seat, o]));
   const game = state.variant;
   const mode = state.mode;
-  const actorOf = (o: CoreOpponent): Actor => (o.person ? 'person' : 'horse');
   const freq = (
     seat: number,
     street: PostStreet,
@@ -364,12 +303,10 @@ export function wiredTrack(
   ): (NodeFreq & { nonValue?: number }) | null => {
     const o = bySeat.get(seat);
     if (!o) return null;
-    const actor = actorOf(o);
     const pl: 'hu' | 'mw' = players <= 2 ? 'hu' : 'mw';
     const band: Band = sizeBand(Math.max(0, frac), allIn);
-    const user = o.person ? o.user : null;
     if (!facingW) {
-      const br = wiredBetRate({ game, mode, street, line: 'all', players: pl, actor, user });
+      const br = wiredBetRate({ game, mode, street, line: 'all', players: pl });
       if (!br) return null;
       const nv = wagerNonValue({
         game,
@@ -378,7 +315,6 @@ export function wiredTrack(
         line: 'all',
         band,
         players: pl,
-        bettor: actor,
       });
       return {
         wager: br.b,
@@ -387,8 +323,7 @@ export function wiredTrack(
         source: `${br.source}${nv ? `; ${nv.source}` : ''}`,
       };
     }
-    // the kind of the player whose wager he faced is not in the street action: the population
-    // cell of Horse wagers is used (the core's wagers and most persons' spots are vs Horses)
+    // the pooled response cell (every bettor, every responder)
     const r = wiredResponse(
       state.board.slice(0, street === 'flop' ? 3 : street === 'turn' ? 4 : 5),
       {
@@ -398,9 +333,6 @@ export function wiredTrack(
         line: 'all',
         band,
         players: pl,
-        bettor: 'horse',
-        responder: actor,
-        user,
       }
     );
     if (!r) return null;
@@ -411,7 +343,6 @@ export function wiredTrack(
       line: 'raise',
       band,
       players: pl,
-      bettor: actor,
     });
     return {
       wager: r.raise,
@@ -450,7 +381,7 @@ export function wiredTrack(
   const rangeOf = new Map<number, RangeSpec>();
   for (const o of live) {
     const t = th.ranges.get(o.seat);
-    if (t) rangeOf.set(o.seat, toRangeSpec(t, `s${o.seat} ${o.person ? 'person' : 'horse'}`));
+    if (t) rangeOf.set(o.seat, toRangeSpec(t, `s${o.seat}`));
   }
   return { pool: th.pool, rangeOf, ms: th.ms };
 }
@@ -462,9 +393,7 @@ export function heroEquityVector(
   hole: readonly number[],
   board: readonly number[],
   pool: Pool,
-  seed: string,
-  deadline: number,
-  now: () => number
+  seed: string
 ): { eq: Float64Array; runs: number } {
   const hc = pool.holeCount;
   const used = new Uint8Array(52);
@@ -500,7 +429,6 @@ export function heroEquityVector(
   for (let k = 0; k < board.length; k++) full[k] = board[k];
   let runs = 0;
   for (const ro of runouts) {
-    if (runs >= 12 && now() > deadline) break;
     for (let k = 0; k < ro.length; k++) full[board.length + k] = ro[k];
     const hs = omahaBest(heroArr, hole.length, full, 5);
     for (let i = 0; i < pool.size; i++) {
@@ -571,14 +499,13 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
   const st0 = POST.indexOf(street);
   const game = s.variant;
   const mode: Mode = s.mode;
-  const actorOf = (o: CoreOpponent): Actor => (o.person ? 'person' : 'horse');
   const stack = Math.max(0, s.heroStack);
   const toCall = Math.max(0, Math.min(s.toCall, stack));
   const playersNow: 'hu' | 'mw' = c.live.length === 1 ? 'hu' : 'mw';
 
   // equity against the strongest share of the field: one per-holding vector, anchored to the exact engine
   const tV = c.now();
-  const vec = heroEquityVector(s.hole, s.board, c.pool, s.seed, c.deadline, c.now);
+  const vec = heroEquityVector(s.hole, s.board, c.pool, s.seed);
   const tA = c.now();
   const w = new Float64Array(c.pool.size);
   for (const o of c.live) flatten(c.pool, c.rangeOf.get(o.seat)!, w);
@@ -695,16 +622,10 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         line: lineAt(off, line),
         band: sizeBand(frac, allIn),
         players: playersNow,
-        bettor: 'horse',
-        responder: actorOf(o),
-        user: o.person ? o.user : null,
       };
-      let r =
+      // one measured, pooled response rule for every responder (no person/Horse branch)
+      const r =
         off === 0 ? wiredHeroResponse(s.hole, s.board, s.seed, key) : wiredResponse(s.board, key);
-      if (!o.person) {
-        const h = horseDefenceFold(allIn ? Math.max(frac, 1) : frac, r);
-        r = { fold: h.p, raise: h.r, n: r ? r.n : 0, exactN: r ? r.exactN : 0, source: h.source };
-      }
       if (r) {
         measured++;
         // a raise line's fold credit rests on the exact street/line cell only (VALUE: n >= 30 or none)
@@ -713,7 +634,6 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       }
       resp.push({
         seat: o.seat,
-        actor: actorOf(o),
         fold: r ? r.fold : 0,
         raise: r ? r.raise : 0,
         callChips: 0,
@@ -723,7 +643,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     if (resp.length === 0)
       return { fold: 0, raise: 0, callers: 0, source: 'every opponent all-in' };
     if (measured === 0) return null;
-    const out = continuationOutcomes(resp, 'horse');
+    const out = continuationOutcomes(resp);
     if (!out) return null;
     const cont = Math.max(1e-9, 1 - out.pAllFold - out.pRaise);
     let callers = 0;
@@ -781,16 +701,13 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         street: stName,
         line: wl,
         players: playersNow,
-        actor: actorOf(o),
-        user: o.person ? o.user : null,
       });
       if (!br) continue;
       pNone *= 1 - br.b;
       if (Number.isFinite(br.n) && br.n > 0) nMinW = Math.min(nMinW, br.n);
       srcs.push(`s${o.seat}: ${r3(br.b)} ${br.source}`);
       // measured size mix of such wagers (public bet bands)
-      const bands =
-        br.size > 0 ? { frac: br.size } : sizeMixOf(game, mode, stName, playersNow, actorOf(o));
+      const bands = br.size > 0 ? { frac: br.size } : sizeMixOf(game, mode, stName, playersNow);
       if (bands) {
         fracSum += br.b * bands.frac;
         fracW += br.b;
@@ -802,7 +719,6 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         line: 'all',
         band: bands ? sizeBand(bands.frac, false) : 'all',
         players: playersNow,
-        bettor: actorOf(o),
       });
       if (v) nv = nv === undefined ? v.nv : Math.max(nv, v.nv);
     }
@@ -825,18 +741,12 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       variant: game,
       holeCount: s.hole.length,
       blockers: null, // one blocker term: PLAYBOOK's, already inside the response cells
-      opponent: opp ? opp.user : null,
-      measured: (line: XrLine) => {
-        const r = response(
-          Math.max(0.25, s.wagerFrac || 0.5),
-          false,
-          0,
-          line === 'bet' ? 'bet' : line
-        );
-        return r ? { fold: r.fold, raise: r.raise } : null;
-      },
-      priorWeight: OPPONENT_MODEL_SNAPSHOT.params.response.m,
     }) ?? undefined;
+  // a wager larger than the hero's whole stack: the excess is not his to win (same figure as the one-step path)
+  const uncoveredOnCall =
+    stack <= s.toCall + 0.005
+      ? c.live.reduce((a, o) => a + Math.max(0, o.bet - (s.heroBet + stack)), 0)
+      : 0;
   const spot: ValueSpot = {
     variant: game,
     street,
@@ -844,6 +754,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     toCall,
     heroStack: stack,
     oppStack,
+    uncoveredOnCall,
     nOpp: c.live.length,
     ip: s.ip,
     checkCloses,
@@ -876,6 +787,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         amount: null,
         adds: 0,
         ev: cd.ev,
+        sd: cd.sd,
         equity: equityAtShare(1),
         se: cd.se,
         foldProb: 0,
@@ -901,14 +813,10 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
                   line: s.line,
                   band: s.band,
                   players: playersNow,
-                  bettor: actorOf(c.live.find((x) => x.seat === s.aggressorSeat) ?? o),
-                  responder: actorOf(o),
-                  user: o.person ? o.user : null,
                 })
               : null;
           return {
             seat: o.seat,
-            actor: actorOf(o),
             fold: r ? r.fold : 0,
             raise: r ? r.raise : 0,
             callChips: Math.max(0, Math.min(o.stack + o.bet, s.currentBet) - o.bet),
@@ -939,7 +847,6 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
           equityVs: eqVs,
           potNet: c.rakeNet,
           realization: 1,
-          bettor: actorOf(c.live.find((x) => x.seat === s.aggressorSeat) ?? c.live[0]),
         });
         if (mw) {
           ev = mw.ev;
@@ -952,6 +859,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         amount: callAllIn ? r2(s.heroBet + stack) : r2(toCall),
         adds: toCall,
         ev,
+        sd: callAllIn ? 0 : cd.sd,
         equity: equityAtShare(1),
         se: cd.se,
         foldProb: 0,
@@ -990,6 +898,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         amount: action === 'bet' ? r2(adds) : r2(to),
         adds,
         ev: cd.ev,
+        sd: action === 'all_in' ? 0 : cd.sd,
         equity: equityAtShare(1 - cd.fold),
         se: cd.se,
         foldProb: cd.fold,
@@ -1021,45 +930,32 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
 
 /** Measured size of a line's wagers: the public bet-band mix of betFrequency, as a mean pot share. */
 const SIZE_MIX_CACHE = new Map<string, { frac: number; source: string } | null>();
+/** Clears the tracked-range and size-mix caches (the worker-start warm-up, OmahaMathCoreWarmUp.ts, and tests). */
+export function clearOmahaMathCoreWireCaches(): void {
+  TRACK_CACHE.clear();
+  SIZE_MIX_CACHE.clear();
+}
 function sizeMixOf(
   game: 'plo4' | 'plo5',
   mode: Mode,
   street: PostStreet,
-  players: 'hu' | 'mw',
-  actor: Actor
+  players: 'hu' | 'mw'
 ): { frac: number; source: string } | null {
-  const key = `${game}|${mode}|${street}|${players}|${actor}`;
+  const key = `${game}|${mode}|${street}|${players}`;
   if (SIZE_MIX_CACHE.has(key)) return SIZE_MIX_CACHE.get(key)!;
   const rep: Record<string, number> = { small: 1 / 3, half: 0.5, twothirds: 0.7, pot: 1, allin: 1 };
   let out: { frac: number; source: string } | null = null;
-  const t = sizeMixTable();
-  for (const pl of [players, 'all'])
-    for (const g of [game, 'pooled'])
-      for (const m of [mode, 'all']) {
-        if (out) break;
-        for (const o of ['horse_present', 'any']) {
-          const k = [g, m, street, 'all', pl, o, actor].join('|');
-          const c = t[k];
-          if (!c || !c.betBands) continue;
-          let n = 0;
-          let s = 0;
-          for (const [b, x] of Object.entries(c.betBands)) {
-            if (!(b in rep)) continue;
-            n += x;
-            s += x * rep[b];
-          }
-          if (n >= 30) {
-            out = { frac: s / n, source: `${k} bet bands (n=${n})` };
-            break;
-          }
-        }
-      }
+  const c = betBands({ game, mode, street, players });
+  if (c) {
+    let n = 0;
+    let s = 0;
+    for (const [b, x] of Object.entries(c.bands)) {
+      if (!(b in rep)) continue;
+      n += x;
+      s += x * rep[b];
+    }
+    if (n >= 30) out = { frac: s / n, source: `${c.key} bet bands (n=${n})` };
+  }
   SIZE_MIX_CACHE.set(key, out);
   return out;
-}
-function sizeMixTable(): Record<string, { betBands?: Record<string, number> }> {
-  return (
-    (TABLE as unknown as { betFrequency?: Record<string, { betBands?: Record<string, number> }> })
-      .betFrequency ?? {}
-  );
 }

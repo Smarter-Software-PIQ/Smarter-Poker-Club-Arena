@@ -36,6 +36,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { cleanupOnce, retireOnSignal } from './certification-run-cleanup.mjs';
 import {
   APP_ORIGIN,
   ENGINE_URL,
@@ -247,6 +248,70 @@ async function main() {
     log(ok ? 'PASS' : 'FAIL', name, detail ?? '');
   };
   let browser = null;
+
+  // One cleanup, run exactly once: on success, on a thrown failure, AND when
+  // the runner cancels or times the job out (SIGINT/SIGTERM), which skips a
+  // plain finally (scripts/ci/certification-run-cleanup.mjs, 2026-11-20).
+  const retireThisRunsFixtures = cleanupOnce(async () => {
+    // A finished game releases its seats; cleanup settles nothing while one is open.
+    const memberIds = ['a', 'b'].map((r) => S.accounts[r]?.id).filter(Boolean);
+    for (let i = 0; memberIds.length && i < 30; i++) {
+      const open = await svc(`table_seats?left_at=is.null&user_id=in.(${memberIds.join(',')})&select=table_id`);
+      if (Array.isArray(open) && !open.length) break;
+      await sleep(2000);
+    }
+    S.stopped = true;
+    S.sockets.forEach((w) => {
+      try { w.close(); } catch {}
+    });
+    if (browser) await browser.close().catch(() => {});
+    const note = (name, ok, detail) => {
+      cleanup.push({ step: name, ok, detail });
+      log(ok ? 'CLEANUP' : 'CLEANUP FAILED', name, detail ?? '');
+    };
+    try {
+      for (const id of [S.source?.tournamentId, S.target?.tournamentId].filter(Boolean)) {
+        const t = (await svc(`tournaments?id=eq.${id}&select=status`))[0];
+        if (String(t?.status).toUpperCase() !== 'COMPLETED')
+          note(`game ${id} is still ${t?.status}; its players are seated until it ends`, false);
+      }
+      const outcome = S.clubId
+        ? await settleRabbitHuntClub({
+            c: { svc, svcRpc, rpc, sessionFor },
+            clubId: S.clubId,
+            clubName: S.clubName,
+            ownerEmail: S.accounts.owner.email,
+            memberIds: Object.values(S.accounts).map((a) => a.id),
+            tableIds: [],
+            note,
+            retireHeadsUpFixture: true,
+            reason: 'Heads-up rematch certification club, cleanup',
+          })
+        : { settled: true, seated: [] };
+      if (!(outcome.seated === null || outcome.seated.length)) {
+        for (const role of ['a', 'b', 'owner']) {
+          if (!S.accounts[role]) continue;
+          try {
+            await cleanupProductionE2EAccount({ environment: envFor(role), expectedEmail: S.accounts[role].email });
+            note(`retire the ${role} account`, true);
+          } catch (e) {
+            if (role === 'owner' && S.clubId) {
+              const clubRow = (await svc(`clubs?id=eq.${S.clubId}&select=id,owner_id,lifecycle_status`))[0];
+              if (ownerRetainedAsRecord({ error: e, club: clubRow, ownerId: S.accounts.owner.id, clubId: S.clubId })) {
+                note('retire the owner account', true, `kept as the owner of record of retired club ${S.clubId}`);
+                continue;
+              }
+            }
+            note(`retire the ${role} account`, false, String(e?.message || e).slice(0, 200));
+          }
+        }
+      }
+    } catch (e) {
+      note('cleanup', false, String(e?.message || e));
+    }
+    rmSync(scratch, { recursive: true, force: true });
+  });
+  const releaseSignals = retireOnSignal(retireThisRunsFixtures);
 
   try {
     for (const role of ['owner', 'a', 'b']) {
@@ -546,63 +611,11 @@ async function main() {
     error = String(e?.message || e);
     log('ERROR', error);
   } finally {
-    // A finished game releases its seats; cleanup settles nothing while one is open.
-    const memberIds = ['a', 'b'].map((r) => S.accounts[r]?.id).filter(Boolean);
-    for (let i = 0; memberIds.length && i < 30; i++) {
-      const open = await svc(`table_seats?left_at=is.null&user_id=in.(${memberIds.join(',')})&select=table_id`);
-      if (Array.isArray(open) && !open.length) break;
-      await sleep(2000);
-    }
-    S.stopped = true;
-    S.sockets.forEach((w) => {
-      try { w.close(); } catch {}
-    });
-    if (browser) await browser.close().catch(() => {});
-    const note = (name, ok, detail) => {
-      cleanup.push({ step: name, ok, detail });
-      log(ok ? 'CLEANUP' : 'CLEANUP FAILED', name, detail ?? '');
-    };
     try {
-      for (const id of [S.source?.tournamentId, S.target?.tournamentId].filter(Boolean)) {
-        const t = (await svc(`tournaments?id=eq.${id}&select=status`))[0];
-        if (String(t?.status).toUpperCase() !== 'COMPLETED')
-          note(`game ${id} is still ${t?.status}; its players are seated until it ends`, false);
-      }
-      const outcome = S.clubId
-        ? await settleRabbitHuntClub({
-            c: { svc, svcRpc, rpc, sessionFor },
-            clubId: S.clubId,
-            clubName: S.clubName,
-            ownerEmail: S.accounts.owner.email,
-            memberIds: Object.values(S.accounts).map((a) => a.id),
-            tableIds: [],
-            note,
-            retireHeadsUpFixture: true,
-            reason: 'Heads-up rematch certification club, cleanup',
-          })
-        : { settled: true, seated: [] };
-      if (!(outcome.seated === null || outcome.seated.length)) {
-        for (const role of ['a', 'b', 'owner']) {
-          if (!S.accounts[role]) continue;
-          try {
-            await cleanupProductionE2EAccount({ environment: envFor(role), expectedEmail: S.accounts[role].email });
-            note(`retire the ${role} account`, true);
-          } catch (e) {
-            if (role === 'owner' && S.clubId) {
-              const clubRow = (await svc(`clubs?id=eq.${S.clubId}&select=id,owner_id,lifecycle_status`))[0];
-              if (ownerRetainedAsRecord({ error: e, club: clubRow, ownerId: S.accounts.owner.id, clubId: S.clubId })) {
-                note('retire the owner account', true, `kept as the owner of record of retired club ${S.clubId}`);
-                continue;
-              }
-            }
-            note(`retire the ${role} account`, false, String(e?.message || e).slice(0, 200));
-          }
-        }
-      }
-    } catch (e) {
-      note('cleanup', false, String(e?.message || e));
+      await retireThisRunsFixtures();
+    } finally {
+      releaseSignals();
     }
-    rmSync(scratch, { recursive: true, force: true });
   }
 
   const v = verdict({ gate, steps, error, cleanup });

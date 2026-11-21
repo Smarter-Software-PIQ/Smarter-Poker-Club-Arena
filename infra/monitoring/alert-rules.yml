@@ -193,8 +193,17 @@ groups:
         # budget set to the number you just read has no headroom - 10.86
         # rule 4). Six consecutive breaks is about six hours of undeployable
         # production, caught instead of the 57 hours it actually took.
+        #
+        # THREE-HOURLY CYCLES (owner order 2026-11-21). Eight scheduled breaks a
+        # day would make ">= 6" fire after 18 hours. The meaning is kept in
+        # TIME instead: an engine that publishes
+        # poker_maintenance_scheduled_breaks_per_day >= 8 is judged by the
+        # rule below at >= 16 consecutive uncertified breaks (48 hours of
+        # three-hourly cycles); every other engine, including one that does not
+        # publish the gauge yet, keeps ">= 6" exactly as before.
         expr: |
           max_over_time(poker_maintenance_breaks_since_restart_certified[15m]) >= 6
+            unless on(instance) (poker_maintenance_scheduled_breaks_per_day >= 8)
         # NO BREAK GUARD (2026-09-26). This alarm is ABOUT the break: the
         # counter only moves when a break ends uncertified. Guarding it with
         # the break flag muted it for 39% of 2026-09-25/26, when recovery
@@ -219,6 +228,28 @@ groups:
 
             This is NOT repaired by a job, a sweep or a retry (CLAUDE.md 10.12).
             Find the live path that wedged and fix that.
+
+      - alert: EngineCannotBeReplaced
+        # The three-hourly form of the rule above: >= 16 consecutive
+        # uncertified breaks is 48 hours of three-hourly cycles, the same
+        # "about two days of undeployable production" the daily >= 6 implies
+        # at most. No break guard, for the same reason as above.
+        expr: |
+          max_over_time(poker_maintenance_breaks_since_restart_certified[15m]) >= 16
+            and on(instance) (poker_maintenance_scheduled_breaks_per_day >= 8)
+        for: 10m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: 'Engine cannot be replaced: {{ $value }} consecutive three-hourly breaks certified no restart'
+          description: |
+            {{ $labels.instance }} has ended {{ $value }} consecutive scheduled
+            three-hourly breaks without ever opening readyForRestart (about 48
+            hours). Poker is unaffected and will look healthy; what is broken is
+            the DEPLOY ROUTE. Read /health maintenance.unparkedReasons for the
+            cause by name. This is NOT repaired by a job, a sweep or a retry
+            (CLAUDE.md 10.12). Find the live path that wedged and fix that.
 
       # THE PLATFORM IS FROZEN TOO MUCH OF THE TIME (2026-09-26).
       #
@@ -2372,15 +2403,32 @@ groups:
 
       - alert: HorseFleetNotSeated
         # poker_horses_seated counts horses holding chips at every live engine.
-        # PROVISIONAL THRESHOLD, and it says so: the series is published for
-        # the first time by this release, so it has no history to derive from.
-        # It is set as the horse-side equivalent of HorseFleetCollapsed - a
-        # dealing table holds at least two players, so fewer than 40 seated
-        # horses is the same floor as fewer than 20 dealing tables - and is to
-        # be re-derived from a week of the real series. Until then it is a
-        # backstop, not the sensitive detector: HorseCashActionsStopped is.
+        #
+        # ── THE SEPTEMBER FLOOR IS GONE (2026-11-21, incident 9d01a4c9) ──────
+        # This rule was originally set to `< 40` on 2026-09-11 as a provisional
+        # twin of HorseFleetCollapsed's old `< 20` table floor. HorseFleetCollapsed
+        # was re-derived on 2026-11-11 after the owner cash schedule reduced the
+        # overnight floor, while HorseFleetNotSeated was left at `< 40`.
+        #
+        # Under the live overnight policy (03:00-07:59 Chicago / 09:00-13:59 UTC,
+        # RELAUNCHED_CASH_ACTIVITY_SCALE = 0.6, hostSeatCeiling enforced):
+        #   - Midway Union (N ≈ 1,166): nightCap = 34 bodies (band min 20, max 34)
+        #   - hostSeatCeiling = floor(34 * 1.3) = 44 seats across the whole host
+        #   - NIGHT_MIN_OPEN_TABLES = 3, NIGHT_MIN_PLAYERS = 4 -> 12 seats floor.
+        # Measured on engine-01 Prometheus 2026-11-15..21 (09:00-14:00 UTC): every
+        # night naturally operates at 37-44 seated horses, and on 2026-11-21
+        # 09:16-13:45Z (when one table dbbc148e stranded 8 of 43 DB seats while
+        # Classic cash dealt at 1.3 actions/s across 5 tables), poker_horses_seated
+        # sat at 35 and paged critical.
+        #
+        # Derived floor: NIGHT_MIN_OPEN_TABLES (3) * NIGHT_MIN_PLAYERS (4) = 12.
+        # Strictly below the healthy overnight band (min 20 bodies, ceiling 44),
+        # so normal overnight operation or a single-table fault never false-pages
+        # a fleet-wide seating collapse, while a genuine fleet-wide failure still
+        # pages critical. Pinned by
+        # tests/horse-fleet-not-seated-honours-the-night-curve.law.test.ts.
         expr: |
-          poker_horses_seated < 40
+          poker_horses_seated < 12
           unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
           # An owner floor park holding half the cash floor or more is a stop
           # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
@@ -2396,9 +2444,10 @@ groups:
         annotations:
           summary: 'Only {{ $value }} horses are seated anywhere on the platform'
           description: |
-            Fewer than 40 horses hold a seat across every cash table and
-            tournament for 20 minutes outside a break, against a stable of
-            1,000. The floor is empty whatever the lobby says.
+            Fewer than 12 horses (below the designed overnight minimum of 3
+            four-handed tables) hold a seat across every cash table and
+            tournament for 20 minutes outside a break or owner park, against a
+            stable of 1,000. The floor is empty whatever the lobby says.
           runbook: docs/changelog/2026-09-11-the-horse-audit.md
 
       - alert: HorseFleetHeartbeatStale

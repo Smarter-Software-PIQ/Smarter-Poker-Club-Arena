@@ -966,7 +966,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaPreflopReraiseDefencePricedInPosition',
-    "THREEBET-2 lane 2026-11-19 (WooWoo audit THREEBET-DEFENCE, measured 2026-11-11..19: a Horse that opened and is in position against one player's 3-bet, heads-up, folded hands with 0.484 mean equity against that player's recorded 3-bet range at a 0.31 price; 148 of 149 of those folds were +EV calls at the lower end of the measured in-position realization 0.82, +4.1 bb each). The companion scope of omahaPreflopReraiseDefencePriced, which stays off-only under the owner preflop hold: only where the Horse opened, faces exactly one PERSON's 3-bet (gs.humanUserIds, else the seat's is_horse) with everyone else folded and acts after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition; one seat-order definition on table cash and fast-table cash; never a tournament), and only when the decision with this option off is a FOLD, the fold becomes a CALL when that option's priced verdict is a call (equity against the 3-bettor's measured re-raise width, measured realization, price after rake; one owner per cell: where the re-raised-pot call cell judges, the fold stands). It never makes a fold, never changes a call, a 4-bet or any other decision, and never invents a raise. Every out-of-position decision, every multiway one, a 4-bet, a cold 3-bet and a Horse's 3-bet are exactly as with this off. Default OFF (read === true) until its declared evaluation passes; switchable on and off (preflop hold lifted for this name alone, HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).",
+    "THREEBET-2 lane 2026-11-19 (WooWoo audit THREEBET-DEFENCE, measured 2026-11-11..19: a Horse that opened and is in position against one player's 3-bet, heads-up, folded hands with 0.484 mean equity against that player's recorded 3-bet range at a 0.31 price; 148 of 149 of those folds were +EV calls at the lower end of the measured in-position realization 0.82, +4.1 bb each). The companion scope of omahaPreflopReraiseDefencePriced, which stays off-only under the owner preflop hold: only where the Horse opened, faces exactly one 3-bet from ANY player (identity-free since 2026-11-20, lane THREEBET-POT: the spot reads nobody's kind; the price reads only the 3-bettor's public re-raise rate) with everyone else folded and acts after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition; one seat-order definition on table cash and fast-table cash; never a tournament), and only when the decision with this option off is a FOLD, the fold becomes a CALL when that option's priced verdict is a call (equity against the 3-bettor's measured re-raise width, measured realization, price after rake; one owner per cell: where the re-raised-pot call cell judges, the fold stands). It never makes a fold, never changes a call, a 4-bet or any other decision, and never invents a raise. Every out-of-position decision, every multiway one, a 4-bet, and a cold 3-bet are exactly as with this off. Default OFF (read === true) until its declared evaluation passes; switchable on and off (preflop hold lifted for this name alone, HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).",
     'V94'
   ),
   flag(
@@ -1158,42 +1158,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCorePlo4Flop',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash FLOP decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash FLOP decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo4Turn',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash TURN decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash TURN decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo4River',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash RIVER decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO4 cash RIVER decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo5Flop',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash FLOP decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash FLOP decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo5Turn',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash TURN decisions (table and Lightning). Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash TURN decisions (table and Lightning). Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePlo5River',
-    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning), narrowed by lane RIVER-CORE (CRITERIA-RIVER-CORE-3, after the full river core graded FAIL in real chips): it may only turn today's fold into a plain call that leaves chips behind, when the call beats the fold by the change margin; every other PLO5 river decision is today's action. Off (default), the core still computes and receipts that street's decision in shadow (omahaMathCore.shadow, within its time box) and today's action stands. Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
+    "Lane COREWIRE-2 2026-11-19 (lead decision 10:55 PM: the core ships street by street): with omahaMathCore on, the math core OWNS PLO5 cash RIVER decisions (table and Lightning), narrowed by lane RIVER-CORE (CRITERIA-RIVER-CORE-3, after the full river core graded FAIL in real chips): it may only turn today's fold into a plain call that leaves chips behind, when the call beats the fold by the change margin; every other PLO5 river decision is today's action. Off (default), the core does no work on that street (no state, no equity draw, no receipt: law OmahaMathCoreOffScopeNoWork, lane CORE-POOLED-3 Nov 21) and today's action stands; a failed decision there is not the core's to recover (lane CORE-AUDIT). Turned on per street only after that street passes the holdout ship gate (EMERG/PROVE CRITERIA-PROVE-AMENDMENT-2). Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCorePreflop',
-    "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core computes and receipts its preflop EV (omahaMathCore.shadow) and today's preflop action stands. Read === true; PLO6 never.",
+    "Lane MATHCORE 2026-11-19 (lead decision: split switch): with omahaMathCore on, the math core also owns PLO4/PLO5 cash PREFLOP decisions (the same expected-value maximum over every legal action, preflop ranges from public raise/call frequencies, fold equity from the public fold facing a Horse raise). Off (default), the core does no preflop work (no receipt: law OmahaMathCoreOffScopeNoWork) and today's preflop action stands. Read === true; PLO6 never.",
     'V94'
   ),
   flag(
     'omahaMathCore',
-    "Lane MATHCORE 2026-11-19 (owner 7:33-8:17 PM Chicago: \"ITS MATH FIRST ... make 100% of the decisions based on the math, the hand, the outs, the board. NEVER pre-determined choices\"; lead ruling: live inputs are public information only): in PLO4/PLO5 cash (table and Lightning; PLO6 never: owner 8:26 PM), high only, one board, every street, the decision is the expected-value maximum over every legal action (fold, check, call, bet or raise at several sizes on the table's chip unit, all-in): exact 2+3 showdown equity (lane EQUITY's equityVsRanges, the core's own exact sampler when it declines) against one range per live opponent built from public information (a wager is value from the top and non-value from the bottom at the share shown at showdown for that line and size, at the line's public wager frequency; a caller is the band between his public raise and fold frequencies; a preflop raiser the top share of his public raise frequency) on a pool of concrete holdings with card removal, plus fold equity from public response frequencies (person rows shrunk to the population), net of rake (omahaMathCore/OmahaMathCore.ts; table publicTables.v3.json, every cell provenance public_actions or showdown_only). The decision the owner rules produced is never an input; it stands only when the core throws (error receipt). Outermost owner of wager_rules, kept by the commit door, admitted by the response validator under the option. Default OFF (read === true); the lead switches it.",
+    "Lane MATHCORE 2026-11-19 (owner 7:33-8:17 PM Chicago: \"ITS MATH FIRST ... make 100% of the decisions based on the math, the hand, the outs, the board. NEVER pre-determined choices\"; lead ruling: live inputs are public information only): in PLO4/PLO5 cash (table and Lightning; PLO6 never: owner 8:26 PM), high only, one board, every street, the decision is the expected-value maximum over every legal action (fold, check, call, bet or raise at several sizes on the table's chip unit, all-in): exact 2+3 showdown equity (lane EQUITY's equityVsRanges, the core's own exact sampler when it declines) against one range per live opponent built from public information (a wager is value from the top and non-value from the bottom at the share shown at showdown for that line and size, at the line's public wager frequency; a caller is the band between his public raise and fold frequencies; a preflop raiser the top share of his public raise frequency) on a pool of concrete holdings with card removal, plus fold equity from public response frequencies pooled over every player (no person/Horse key, no per-user row: lane CORE-POOLED, owner 9:52 AM Nov 20), net of rake (omahaMathCore/OmahaMathCore.ts; table publicTables.v4-pooled.json, every cell provenance public_actions or showdown_only). The decision the owner rules produced is never an input; it stands only when the core throws (error receipt). Outermost owner of wager_rules, kept by the commit door, admitted by the response validator under the option. Default OFF (read === true); the lead switches it.",
     'V94'
   ),
   flag(
@@ -1204,6 +1204,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaFlopVerdictReadsTheBettor',
     "PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision is priced from the hand and its equity against the opponent's perceived range for that action, line and board, his measured tendencies, the price, the stack depth and the position; how far the Horse moves from the population toward one player's measured tendency grows smoothly with the sample; no blanket rule): it acts only where omahaFlopFacingBetEv decides (PLO4/PLO5 cash, high only, one board, the FLOP facing a bet or a raise). The flop verdict priced every bettor's flop bet as the same range and called too much against a player whose flop bets are narrow and folded too much against one whose flop bets are wide (archive plo-handoff-review-01a1cbbd/flopev3-013U37/FINDINGS.md). With this option the verdict also reads THIS bettor's durable street record (HorseMind.omahaStreetReadOf: public actions and board cards only): (1) how often he bets this flop texture on this line (his continuation-bet cell as the last preflop raiser, else his flop-bet cell) beside players of his kind moves the value share and the non-value share of his bet by one factor, 1 + 2 x slope x ln(his rate / the kind's rate) / (the two shares), where slope is MEASURED on production hands with every bettor's cards known (the mean strength percentile of the hand behind a first flop bet rises by 0.23 per unit of ln rate for a person's continuation bets, 0.135 for a person's other first bets, 0.09 and 0.10 for a Horse); (2) how often he bets the turn and the river beside his kind multiplies the share of later streets a non-value holding bets in the verdict's realization model (the model's own mechanism with his rate in place of the population's; the size of that effect on realized chips is not separately measured). Each rate is the posterior mean of his decayed cell against his kind's rate with a measured number of pseudo-opportunities, so with no opportunity both factors are exactly 1 and they move continuously with every opportunity: no threshold. A person is read against persons and a Horse against Horses, each with its own rates, strengths and slopes; a bettor whose kind the decision does not know is not read. Nothing is keyed to an account. With no record for the bettor or the mind off the verdict is exactly omahaFlopFacingBetEv's (HorseOmahaFlopBettorRead.ts; the rule is HorseOmahaFlopFacingBetEvRule.ts). Receipt omaha_flop_verdict_read_the_bettor. Default OFF (opt-in, read `=== true`); NOT EVALUATED (docs/horse-option-authority.d/omahaFlopVerdictReadsTheBettor.md); league cards plo4/plo5 _omaha_flop_verdict_reads_the_bettor.",
+    'V94'
+  ),
+  flag(
+    'omahaFourBetFoldPricedCall',
+    "EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (LIVEGRADE-7 duty 5: persons win the hands that end preflop; the channel is re-raises the Horses fold to; Horse folds facing a 4-bet after their own raise, heads-up, gave up EV(call) +346 +/- 50 bb without the most frequent re-raiser, n 26): in PLO4/PLO5 cash a final preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only when omahaReraisedCallPriced (the engine's own priced call, its inputs) is positive. Changes only a fold. Default OFF.",
+    'V94'
+  ),
+  flag(
+    'omahaRiverCheckedToBetIsMeasured',
+    "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
+    'V94'
+  ),
+  flag(
+    'omahaRiverFirstToActBetIsPriced',
+    "EMERG lane OFFENCE-BUILD 2026-11-20 (owner 3:05 PM Chicago: upgrade the Horses' offence, deny the equity, put the humans in difficult spots; every decision priced). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). In the wager_rules node, before the river current-nuts floor: on the river, heads-up, nothing to call and the opponent still to act (the Horse acts first), the node's final check is priced beside the engine's bet sizes with the card-impact model and the measured pooled response curve of river first-to-act heads-up bets (hands with a person seated, Nov 13-17, every player pooled, no responder above 20% of a cell), the called branch at the lower of the model's and the production-fitted continue equity, a raise charged as the bet lost; the best bet replaces the check only when it beats it by more than the comparison's standard error. No identity, no hand class. HorseOmahaRiverFirstToActBet.ts",
     'V94'
   ),
   flag(
@@ -2088,6 +2103,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-18'
   ),
   receipt(
+    'lightning_horse_fallback_*',
+    'LightningHorse.decideLightningHorse catch (noteLightningHorseFallback; TASK #8 2026-11-20)',
+    'lightning_horse_fallback_<reason>_seen: a Lightning Horse turn got the liveness answer because its decision job failed, <reason> the stamped rejection path (expired, capacity_refused, shard_failed, shard_stopping, enqueue_failed, validation_failed, result_refused, post_result_failed, unknown) or snapshot_unavailable when the turn snapshot could not be built; lightning_horse_fallback_street_<preflop|flop|turn|river|unknown>_seen: the street of such an answer on the seat own turn; lightning_horse_fallback_early_look_seen: such an answer on an early look. Until 2026-11-20 these failures left only a Prometheus count and the legalizer degraded reason lightning_timeout (seven PLO4/PLO5 turn folds Nov 16-19 with no recorded cause); occurrence counters; named *_seen',
+    '2026-11-20'
+  ),
+  receipt(
     'raise_ladder_*',
     'RaiseLadderAlarm (live raise-ladder alarm, measurement only; ServerTableEngineHandEvents PLAYER_ACTION)',
     'raise_ladder_<variant>_<horse_only|mixed>_seen: a no-limit or pot-limit street reached 4 consecutive minimum raises (a full raise whose increment is the minimum legal raise; calls between raises do not break the run, a larger raise, a short all in or a new street ends it; fixed limit is not counted), fired once per street on the 4th; <variant> is the watchcounter variant, horse_only when every raiser of the run is a Horse, mixed otherwise; changes no action; occurrence counter; named *_seen',
@@ -2230,6 +2251,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
     'a Lightning fold asked while live seats before the Horse still had to act (an early look) did NOT fold on the fold-through frame, so the frame answer was returned and the host left the Horse to decide afresh on its own turn',
     '2026-11-15'
+  ),
+  receipt(
+    'lightning_fold_through_limp_kept',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning early fold whose fold-through frame answered only an unraised limp or small-blind complete (no strength-gated Lightning entry branch) was kept: the blind-vs-blind complete mix does not release an early fold',
+    '2026-11-21'
   ),
   receipt(
     'lightning_cheap_entry_eligible_seen',
@@ -2501,6 +2528,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
+  ),
+  flag(
+    'holdemCommittedNoPairIsPriced',
+    "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemDangerBoardEquityIsPriced',
+    "Hold'em Strategy lane 2026-11-20 (priced rebuild of the 'board discipline' flat -0.15 in Antigravity 633eec005d5 and 6496e1610f0). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, turn or river, a four-flush or four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's range on this board (HorseHoldemCommittedPricing.holdemDangerBoardBettorEquity: the unseen combos split by what they make now, no pair / one pair / two pair or better, weighted by what people who bet such boards showed down, MEASURED 3 / 5 / 42 of 50, NLH cash 2026-10-20..11-19). Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Off: byte-identical.",
+    "Hold'em Strategy"
   ),
   flag(
     'omahaTightOpponentSteal',
@@ -4633,7 +4670,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade10_*',
     'HorseOpponentExploit',
-    'the fast recency window switched a read on, or a gear shift engaged; counts read computations, not decisions',
+    'the fast recency window switched a read on, a gear shift engaged, or (upgrade10_fast_window_calmed_seen, 2026-11-21) the window withdrew a read from a player it calls calm; counts read computations, not decisions',
     '2026-11-12'
   ),
   receipt(
@@ -5591,6 +5628,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_flop_verdict_read_the_bettor',
     'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopVerdictReadsTheBettor)',
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
+    'V94'
+  ),
+  receipt(
+    'omaha_four_bet_fold_priced_call',
+    'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
+    "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_checked_to_bet_measured',
+    'HorseLogic wager_rules (omahaRiverCheckedToBetRule, omahaRiverCheckedToBetIsMeasured)',
+    'a PLO4/PLO5 cash river decision, heads-up, after the opponent checked, in which the final check became the bet priced on the measured response curve',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_first_to_act_bet_priced',
+    'HorseLogic wager_rules (omahaRiverFirstToActBetRule, omahaRiverFirstToActBetIsPriced)',
+    'a PLO4/PLO5 cash river decision, heads-up, first to act with nothing to call, in which the final check became the bet priced on the measured response curve',
     'V94'
   ),
   receipt(
@@ -9159,6 +9214,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.holdemPricedReference (holdemValueAndCallsArePriced)',
     "not facing a wager on the flop or turn, a made hand below half the equity of the bettor's line range: the brain's check or bet is kept",
     'V94'
+  ),
+  receipt(
+    'holdem_committed_no_pair_jam_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor jams: EV(jam) beat EV(call) and zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_call_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor calls: EV(call) beat EV(jam) and zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_fold_priced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand facing one bettor folds: neither the call nor the jam has positive EV',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_committed_no_pair_unpriced',
+    'HorseLogic facing-bet committed branch (holdemCommittedNoPairIsPriced)',
+    'a committed no-pair no-draw NLH hand could not be priced (nothing to enumerate): the committed branch decides as with the option off',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_danger_board_equity_priced',
+    'HorseLogic facing-bet equity (holdemDangerBoardEquityIsPriced)',
+    'one pair facing one bettor on a four-flush or four-straight turn or river is priced at its exact equity against his range on this board',
+    "Hold'em Strategy"
   ),
   receipt(
     'v87_turn_takeaway',

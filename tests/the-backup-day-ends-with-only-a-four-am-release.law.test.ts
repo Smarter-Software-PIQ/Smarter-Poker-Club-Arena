@@ -51,7 +51,11 @@ describe('Backup qualification and the daily release are separate authorities', 
     );
     expect(gate.if).toBeUndefined();
     expect(gate['continue-on-error']).toBeUndefined();
-    expect(gate.run).toContain('now.hour == 3 and 30 <= now.minute < 50');
+    // Since 2026-11-21 (owner order: a cutover every three hours) the gate
+    // admits the 30-50 minute preparation of every scheduled cycle the
+    // target's policy names: 04:00 alone for daily, the eight hours for
+    // three-hourly (tests/the-engine-cuts-over-every-three-hours.law.test.ts).
+    expect(gate.run).toContain('if not (30 <= now.minute < 50 and local.hour in hours');
     expect(gate.run).toContain('policy.get("phase1Status") not in ("off", "complete")');
     expect(gate.env.CONTROL_SHA).toBe('${{ github.sha }}');
     expect(gate.run).toContain(
@@ -72,9 +76,19 @@ describe('Backup qualification and the daily release are separate authorities', 
     ['2026-11-06T09:50:00+00:00', 'off', 3],
     ['2026-11-06T20:00:00+00:00', 'off', 3],
     ['2026-11-06T09:30:00+00:00', 'active', 1],
+    // Three-hourly target at the 04:00 anchor: admitted without reading /health.
+    ['2026-11-06T09:30:00+00:00', 'off/three-hourly', 0],
+    // A three-hourly target outside any preparation window keeps serving.
+    ['2026-11-06T11:00:00+00:00', 'off/three-hourly', 3],
   ])('executes receiver admission for %s / %s', (stamp, status, expected) => {
     const code = gate.run.split("<<'PYTHON' || gate_status=$?\n")[1].split('\nPYTHON')[0];
-    const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(JSON.stringify({ phase1Status: status }))}\n`;
+    const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(
+      JSON.stringify(
+        status === 'off/three-hourly'
+          ? { phase1Status: 'off', frequency: 'three-hourly' }
+          : { phase1Status: status }
+      )
+    )}\n`;
     const result = spawnSync('python3', ['-c', prefix + code], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(expected);
   });
@@ -282,7 +296,7 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
         "needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
       );
       expect(backup.jobs.certify.if).toBe(
-        "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+        "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
       );
     });
     it('skips when a newer push run exists: empty sha, no status, exit 0', () => {
@@ -476,6 +490,84 @@ git() { echo unexpected-main-read >&2; return 99; }
   // manual run because a later ordinary push would have superseded the
   // booking commit's own push run. A push run now asks one read-only verdict
   // (scripts/ci/backup-candidate-priority.py); "unknown" changes nothing.
+  // 2026-11-21: twice on 2026-11-20 a push run planned before an owner window
+  // was booked took the Backup host minutes before the booking merged and
+  // certified for 55 minutes while the booked build waited. The run now asks
+  // again after its copy and before certify, and hands the host back when its
+  // commit predates the newly booked window.
+  describe('a booking made while a run waited still goes first', () => {
+    const late = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_priority');
+    const sha = 'c'.repeat(40);
+    function runLate(verdict: string) {
+      const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-'));
+      const calls = resolve(dir, 'calls');
+      const harness = `gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      verdict === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${verdict}')" "print('window=w-late')"`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
+`;
+      try {
+        const result = planShell(harness + late.run, {
+          CALLS: calls,
+          HOME: dir,
+          SHA: sha,
+          RUN_ID: '700',
+          RUN_ATTEMPT: '1',
+          SSH_KEY: 'fixture-key-not-a-credential',
+          STANDBY_HOST: '192.0.2.1',
+          STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+          GITHUB_REPOSITORY: 'o/r',
+          GITHUB_SHA: sha,
+        });
+        return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    it('runs only for a push run that holds the host, after the copy and before certify', () => {
+      expect(late.if).toContain("github.event_name == 'push'");
+      expect(late.if).toContain("steps.turn.outputs.acquired == '1'");
+      // Tonight's freeze baseline is the 04:00 build and never yields.
+      expect(late.if).toContain("needs.plan.outputs.freeze_baseline != '1'");
+      expect(backup.jobs.plan.outputs.freeze_baseline).toBe(
+        '${{ steps.plan.outputs.freeze_baseline }}'
+      );
+      const planRun = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+      expect(planRun).toContain('echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"');
+      const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
+      expect(ids.indexOf('late_priority')).toBe(ids.length - 1);
+      expect(backup.jobs.refresh.outputs.deferred).toBe(
+        '${{ steps.late_priority.outputs.deferred }}'
+      );
+      expect(backup.jobs.certify.if).toContain("needs.refresh.outputs.deferred != '1'");
+    });
+    it('a run whose commit now predates a booked window hands the host back and certifies nothing', () => {
+      const r = runLate('predates');
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('DEFERRED');
+      expect(r.stdout).toContain('deferred=1');
+      expect(r.calls).toMatch(/ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/);
+    });
+    it.each(['none', 'booking', 'candidate', 'FAIL'])(
+      'NEGATIVE: "%s" keeps the host and certifies',
+      (verdict) => {
+        const r = runLate(verdict);
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('DEFERRED');
+        expect(r.stdout).not.toContain('deferred=1');
+        expect(r.calls).not.toContain('ssh ');
+      }
+    );
+  });
+
   describe('the booked candidate goes first while an owner window is live', () => {
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
     const pushed = 'a'.repeat(40);
@@ -1302,7 +1394,7 @@ ${Object.entries(states)
     expect(plan).toContain('sha="$SEALED_SHA"');
     expect(plan).toContain('refresh=force');
     expect(backup.jobs.certify.if).toBe(
-      "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+      "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     );
     const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
     expect(certify.env.REFRESH_RESULT).toBe('${{ needs.refresh.result }}');

@@ -98,6 +98,7 @@ import {
   omahaFacingEquityAdmitsCall,
 } from '../HorseOmahaFacingBetEquity.js';
 import { omahaRiverCurrentNutsCallFloorAdmitsCall } from '../HorseOmahaRiverCurrentNutsCallFloor.js';
+import { omahaFourBetFoldPricedCallAdmitsCall } from '../HorseOmahaFourBetFoldPricedCall.js';
 import {
   OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
   omahaMultiwayWeakHandSpot,
@@ -1696,6 +1697,24 @@ function policyGraphIsValidInScope(
         context.gameState,
         transition.after.amount
       );
+    // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (HorseOmahaFourBetFoldPricedCall, option
+    // omahaFourBetFoldPricedCall): in PLO4/PLO5 cash preflop, after hero's own raise, facing a 4-bet or
+    // more heads-up, the node's final fold becomes the call where the engine's priced call of a re-raise
+    // is positive. The spot and the price are re-run here from the request (and the same registered
+    // pricing inputs): fold -> call is admitted only where it holds, for the exact chips the call puts in.
+    const omahaFourBetFoldCalled =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      (transition.after.action === 'call' || transition.after.action === 'all_in') &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFourBetFoldPricedCallAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
     // HORSE DECISIONS lane 2026-11-19 (HorsePlo6FacingBetIsPriced, option
     // plo6FacingBetIsPriced, default off): in PLO6 cash facing a bet on the
     // flop, the turn or the river, a fold (or a raise the paired-board fold
@@ -2005,6 +2024,7 @@ function policyGraphIsValidInScope(
       !omahaFlopFacingBetEvCalled &&
       !omahaFacingEquityCalled &&
       !omahaRiverNutsFloorCalled &&
+      !omahaFourBetFoldCalled &&
       !plo6FacingBetPricedCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
@@ -2380,6 +2400,42 @@ export function omahaMathCoreGate(
     }
   };
   return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
+}
+
+/**
+ * The math core's admission flags the worker may have run this decision with (lane CORE-AUDIT, Nov 21): each of
+ * omahaMathCorePreflop and the six street flags is on when the request's own option is on or the delivered switch
+ * row (or the one before it while it still counts) turns it on, exactly as omahaMathCoreGate reads omahaMathCore.
+ * The worker-failure doors use it so the core's recovery acts only on a street the core owns.
+ */
+export const OMAHA_MATH_CORE_ADMISSION_FLAGS = [
+  'omahaMathCorePreflop',
+  'omahaMathCorePlo4Flop',
+  'omahaMathCorePlo4Turn',
+  'omahaMathCorePlo4River',
+  'omahaMathCorePlo5Flop',
+  'omahaMathCorePlo5Turn',
+  'omahaMathCorePlo5River',
+] as const;
+export function omahaMathCoreAdmissionGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): Record<(typeof OMAHA_MATH_CORE_ADMISSION_FLAGS)[number], boolean> {
+  const fromConfig = (config: unknown): Readonly<Record<string, boolean>> => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states) : {};
+    } catch {
+      return {};
+    }
+  };
+  const current = fromConfig(switchConfig);
+  const previous = previousSwitchConfig !== undefined ? fromConfig(previousSwitchConfig) : {};
+  const out = {} as Record<(typeof OMAHA_MATH_CORE_ADMISSION_FLAGS)[number], boolean>;
+  for (const flag of OMAHA_MATH_CORE_ADMISSION_FLAGS)
+    out[flag] = requestOpts?.[flag] === true || current[flag] === true || previous[flag] === true;
+  return out;
 }
 
 /**

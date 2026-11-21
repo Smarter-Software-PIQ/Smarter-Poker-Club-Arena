@@ -120,7 +120,13 @@ function detect(
   return { out, stdout: run.stdout };
 }
 
-function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: boolean }) {
+function decide(opts: {
+  reason: string;
+  sha: string;
+  runs?: unknown;
+  ghFails?: boolean;
+  ownerWindow?: string;
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'ca-owed-offer-'));
   cleanups.push(dir);
   const bin = join(dir, 'bin');
@@ -146,6 +152,7 @@ function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: b
       GH_TOKEN: 'fixture-token-not-a-credential',
       GITHUB_OUTPUT: output,
       OFFER_REASON: opts.reason,
+      OWNER_WINDOW_ID: opts.ownerWindow ?? '',
       REF_SHA: opts.sha,
       REPO: 'fixture/repo',
       OFFER_INTERVAL_SECONDS: String(offer.env.OFFER_INTERVAL_SECONDS),
@@ -172,9 +179,17 @@ const minutesAgo = (m: number) =>
   new Date(Date.now() - m * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
 
 function scheduledPolicy(fx: ReturnType<typeof fixture>, status: 'active' | 'off') {
-  const policy = JSON.parse(
-    readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
-  );
+  const policy = {
+    // The retained v1 shape keeps this daily/Phase1 law on its own route;
+    // the protected v2 three-hourly policy (2026-11-21) is pinned by
+    // tests/the-engine-cuts-over-every-three-hours.law.test.ts.
+    schema: 'engine-maintenance-schedule/v1',
+    policyId: 'phase1-hourly-01a1944f',
+    timeZone: 'America/Chicago',
+    phase1Status: 'off',
+    ownerMessageId: '01a1944f-7131-7f11-8dcc-873d576e781c',
+    completionEvidence: null as string | null,
+  };
   policy.phase1Status = status;
   policy.completionEvidence =
     status === 'off' ? 'Isolated verified daily restoration fixture' : null;
@@ -399,6 +414,31 @@ describe('the offer: one per window, never racing a receiver', () => {
     expect(Number(offer.env.OFFER_INTERVAL_SECONDS)).toBeLessThan(60 * 60);
   });
 
+  it('NEGATIVE: a second dispatch of an owner window never offers while its receiver is queued or running', () => {
+    const ownerWindow = '2026-11-20-owner-no-notice-engine-2330z';
+    for (const status of ['queued', 'in_progress', 'pending']) {
+      const r = decide({
+        reason: 'changed',
+        sha,
+        ownerWindow,
+        runs: { workflow_runs: [run(11, sha, status, 0)] },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.output).toContain('send=false');
+      expect(r.stdout).toContain('receiver run 11 is already offering it');
+    }
+    const first = decide({ reason: 'changed', sha, ownerWindow });
+    expect(first.status, first.stderr).toBe(0);
+    expect(first.output).toContain('send=true');
+    expect(offer.env.OWNER_WINDOW_ID).toBe('${{ needs.detect.outputs.owner_window_id }}');
+  });
+
+  it('concurrent offers of the same engine SHA take turns instead of racing', () => {
+    const concurrency = stage.jobs.signal.concurrency;
+    expect(concurrency.group).toContain('needs.selection.outputs.sha');
+    expect(concurrency['cancel-in-progress']).toBe(false);
+  });
+
   it('a push that changed engine code is sent without reading the lane', () => {
     const r = decide({ reason: 'changed', sha, ghFails: true });
     expect(r.status, r.stderr).toBe(0);
@@ -459,8 +499,10 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 3,8 * * *' },
-      { cron: '31,35,39,43 4,9 * * *' },
+      // Every three-hourly preparation hour in both offsets (owner order
+      // 2026-11-21); the daily policy admits only 03:30 from the same events.
+      { cron: '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *' },
+      { cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
     ]);
     expect(
       stage.jobs.detect.steps.find((step: { id?: string }) => step.id === 'admission').run

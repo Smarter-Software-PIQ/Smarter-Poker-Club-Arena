@@ -6,14 +6,21 @@
  *   npx tsx scripts/audited-decision-replay.ts \
  *     [--audit2 <PLO5-...-DECISIONS.csv> --audit2-hands <audit2 hands.jsonl>] \
  *     [--woowoo <decision-audit/decisions-full.csv> --woowoo-findings <spec/decision-to-finding.csv>] \
+ *     [--plo6 <PLO6 audit decisions.csv> --plo6-meta <its meta.jsonl> --plo6-hands <its hands.jsonl>] \
+ *     [--placed <nodes.jsonl>] \
  *     (--replay <replay.jsonl> [--base off] [--json <report.json>] [--line <arm>]
  *        [--allow-unchanged <arm>[,<arm>]] [--row <arm> --set <set name> [--scorer-commit <sha>]]
  *      | --emit-nodes <nodes.jsonl>)
  *
+ * --placed reads audited decisions already placed at their node (scripts/hvh48-audit-nodes.py writes them for the
+ * HVH48 audits; one JSON line each, see placedDecisions), scored verdict-only.
  * --emit-nodes writes the audited nodes ({hand, seat, street, k, source, recorded, verdict}) for a replay harness
  * to re-decide; the harness writes one JSON line per node: {hand, seat, street, k, arms: {off: {action, amount,
  * legal, refusal, receipts}, <arm>: {...}}}. --line prints the authority-file replay line for one arm.
- * Exit 1 when an audit2 row cannot be placed at a node or a replay node repeats. A base arm that does not
+ * --plo6 reads the PLO6 audit set (HVH48 auditor C: decisions.csv, meta.jsonl, hands.jsonl; plo6Decisions has
+ * the layout and the verdict mapping); it is scored verdict-only, reads no card, and its emitted nodes also carry
+ * the audit's decision id and the action's index in the hand's actions array (id, actionIndex) for the harness.
+ * Exit 1 when an audit2 or plo6 row cannot be placed at a node or a replay node repeats. A base arm that does not
  * reproduce the recorded action is counted and listed (never matched to a neighbour).
  *
  * THE REPLAY MUST BE THE ARMS IT NAMES (2026-11-19). The harness declares the option-switch set it handed the brain,
@@ -35,6 +42,8 @@ import {
   audit2Decisions,
   nodeKey,
   parseReplayFile,
+  placedDecisions,
+  plo6Decisions,
   replayBarLine,
   replayBarRows,
   replayRefusals,
@@ -42,6 +51,7 @@ import {
   scoreReplay,
   wooWooDecisions,
   type AdapterResult,
+  type AuditSource,
   type AuditedDecision,
 } from '../src/benchmark/AuditedDecisionReplay.js';
 
@@ -71,16 +81,18 @@ function scorerCommit(): string {
   return git('log', '-1', '--format=%H', '--', ...files).slice(0, 11);
 }
 
-const audits: { source: 'audit2' | 'woowoo'; decisions: AuditedDecision[] }[] = [];
+const audits: { source: AuditSource; decisions: AuditedDecision[] }[] = [];
 let problems = 0;
-const take = (source: 'audit2' | 'woowoo', r: AdapterResult) => {
+const take = (source: AuditSource, r: AdapterResult) => {
   audits.push({ source, decisions: r.decisions });
   console.log(
     `${source}: ${r.decisions.length} audited decisions placed at a node, ${r.unplaced.length} not placed${r.ambiguous ? `, ${r.ambiguous} placed ambiguously (first in order)` : ''}`
   );
   for (const u of r.unplaced.slice(0, 20))
-    console.log(`  not placed: row ${u.row} hand ${u.hand} ${u.street}: ${u.reason}`);
-  if (r.unplaced.length && source === 'audit2') problems++;
+    console.log(
+      `  not placed: row ${u.row}${source === 'plo6' ? ` decision ${u.name}` : ''} hand ${u.hand} ${u.street}: ${u.reason}`
+    );
+  if (r.unplaced.length && source !== 'woowoo') problems++;
 };
 const a2 = opt('audit2');
 if (a2) {
@@ -94,7 +106,16 @@ if (ww) {
   if (!f) throw new Error('--woowoo needs --woowoo-findings');
   take('woowoo', wooWooDecisions(read(ww), read(f)));
 }
-if (audits.length === 0) throw new Error('give --audit2 and/or --woowoo');
+const p6 = opt('plo6');
+if (p6) {
+  const metaFile = opt('plo6-meta');
+  const hands = opt('plo6-hands');
+  if (!metaFile || !hands) throw new Error('--plo6 needs --plo6-meta and --plo6-hands');
+  take('plo6', plo6Decisions(read(p6), read(metaFile), read(hands)));
+}
+const pl = opt('placed');
+if (pl) take('placed', placedDecisions(read(pl)));
+if (audits.length === 0) throw new Error('give --audit2, --woowoo, --plo6 and/or --placed');
 
 const emit = opt('emit-nodes');
 if (emit) {
@@ -102,6 +123,7 @@ if (emit) {
     a.decisions.map((d) =>
       JSON.stringify({
         ...d.node,
+        ...(d.at ?? {}),
         key: nodeKey(d.node),
         source: d.source,
         recorded: d.recorded,

@@ -25,9 +25,9 @@ CERTIFIED_END = 1793854800
 
 # The directly authorized receipt successor binds its own fresh single-use claim.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-20-owner-no-notice-engine-2330z'
-NOV7_MANIFEST_DIGEST = '7b91ae5a9e5385f3e2ccef9f936e21ae1946a0450f7a13bf93188810b53b19d7'
-NOV7_ORDER_DIGEST = '48d0435596cf7febc8f860705837a9af8be2f0c981b1110851b47183c0bb2fee'
+NOV7_OWNER_ID = '2026-11-21-owner-no-notice-engine-1135z'
+NOV7_MANIFEST_DIGEST = '7c92ee79c272cd052b277bfeb4c18448579e7011cbd75ef9bb16b539ced97da6'
+NOV7_ORDER_DIGEST = '2de567968d553c8cd4d68c49127604d7a144979feb2490ab94b6b6fc9b951fa4'
 
 
 
@@ -58,13 +58,23 @@ def git(repo, *args):
                           env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'}, timeout=10).stdout
 
 
+SCHEDULED_START_HOURS = (1, 4, 7, 10, 13, 16, 19, 22)
+
+
 def daily_assessment_epoch(now, cutoff):
     zone = ZoneInfo('America/Chicago')
     local = datetime.fromtimestamp(cutoff or now, zone)
     boundary = local.replace(hour=3, minute=30, second=0, microsecond=0)
     if cutoff:
-        if boundary.timestamp() != cutoff:
+        # Every scheduled cycle's selection cutoff is 30 minutes before its
+        # start: 03:30 for the 04:00 anchor, slot-30m for the three-hourly
+        # cycles of the owner order of 2026-11-21. The repeated fall-back hour
+        # is one cycle, the first.
+        start = datetime.fromtimestamp(cutoff + 1800, zone)
+        if ((cutoff + 1800) % 3600 or start.hour not in SCHEDULED_START_HOURS
+                or datetime.fromtimestamp(cutoff + 1800 - 3600, zone).hour == start.hour):
             raise ValueError('daily compatibility requires the exact Chicago selection cutoff')
+        return int(cutoff)
     elif local > boundary:
         boundary += timedelta(days=1)
     return int(boundary.timestamp())
@@ -160,8 +170,8 @@ def policy(repo, target, control, *, fresh_at=None):
             if fresh_at is None or fresh_at < expiry.timestamp() or not expired_control(repo, control, fresh_at):
                 raise ValueError('control owner authorization differs')
     else:
-        if (local.hour, local.minute, local.second) != (4, 0, 0):
-            raise ValueError('activation floor must name the daily Chicago boundary')
+        if local.hour not in SCHEDULED_START_HOURS or (local.minute, local.second) != (0, 0):
+            raise ValueError('activation floor must name a scheduled Chicago cycle boundary')
         if (activation - preparation).total_seconds() != 1800 or (expiry - activation).total_seconds() != 300:
             raise ValueError('activation floor notice/window bounds refused')
     # An old control cannot silently ignore a newer target's scheduling contract.
