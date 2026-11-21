@@ -12,7 +12,7 @@ Consolidated into the Turn 4 pre-staged switch-list branch (`coord-plo6-harm-loc
 - `server/src/benchmark/HorseLeague.ts`: added `nlh_horse_run_it_twice_is_priced` to `UNMEASURABLE_MATCHUPS` (league never offers run-it-twice and `RUN_IT_TWICE_EV_GAP_BB = 0`).
 - `docs/horse-option-authority.d/horseRunItTwiceIsPriced.md`: renamed from `horseRunItTwiceIsPriced.UNREGISTERED.md`, updated state line (still `Evidence NOT MET`, `- Replay: NOT RUN` intact).
 - `server/src/engine/HorseRunItTwicePriced.test.ts`: folded in `1a0565b4cdbd`'s lane and `ServerTableEngineRunout` wiring tests and verified registered `on`/`off` zero-poll-lag transitions and fail-safe OFF behavior.
-- `supabase/migrations/20261121221646_horse_option_switch_plo6_harm_and_rit_priced.sql` and `scripts/ci/test-horse-option-switch-evidence-postgres.sh`: regenerated with `gen-horse-option-switch-sql.ts --follow-up` (7 style, 345 other options, 57 off-only).
+- `supabase/migrations/20261121222106_horse_option_switch_plo6_harm_and_rit_priced.sql` and `scripts/ci/test-horse-option-switch-evidence-postgres.sh`: regenerated with `gen-horse-option-switch-sql.ts --follow-up` (7 style, 347 other options, 57 off-only).
 
 ## What did not change
 
