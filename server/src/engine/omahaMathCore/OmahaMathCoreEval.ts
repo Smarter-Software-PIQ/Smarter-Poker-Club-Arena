@@ -117,6 +117,30 @@ for (let m = 0; m < 8192; m++) {
   }
 }
 
+/**
+ * 2+3 tables, lane CORE-POOLED-3 latency (Nov 21; VERIFIER V60). A five-card hand that is not a flush scores by
+ * its rank multiset alone. RANK_KEY gives every multiset of five ranks (at most four of one rank) its own sum
+ * (6,175 distinct sums, greatest 360,918), so the no-flush score of two hole cards and three board cards is one
+ * table read at (pair sum + triple sum). NO_FLUSH5 is filled at load from the original scorer (eval5Reference).
+ * Law: OmahaMathCoreEvalTwoPlusThree.law.test.ts.
+ */
+const RANK_KEY = [0, 1, 5, 22, 94, 312, 992, 2422, 5624, 12522, 19998, 43258, 79415];
+const NO_FLUSH5 = new Int32Array(4 * RANK_KEY[12] + RANK_KEY[11] + 1);
+for (let r0 = 0; r0 < 13; r0++)
+  for (let r1 = r0; r1 < 13; r1++)
+    for (let r2 = r1; r2 < 13; r2++)
+      for (let r3 = r2; r3 < 13; r3++)
+        for (let r4 = r3; r4 < 13; r4++) {
+          if (r0 === r4) continue; // five of one rank does not exist
+          // suits 0,1,2,3,0 in rank order: equal ranks sit next to each other, so no card repeats and no flush
+          NO_FLUSH5[RANK_KEY[r0] + RANK_KEY[r1] + RANK_KEY[r2] + RANK_KEY[r3] + RANK_KEY[r4]] =
+            eval5Reference(r0 * 4, r1 * 4 + 1, r2 * 4 + 2, r3 * 4 + 3, r4 * 4);
+        }
+const PAIR_KEYS = new Int32Array(15);
+const SUIT_COUNT = new Int8Array(4);
+const SUITED_HOLE = new Int32Array(6);
+const SUITED_BOARD = new Int32Array(5);
+
 export function eval5(a: number, b: number, c: number, d: number, e: number): number {
   const ra = a >> 2,
     rb = b >> 2,
@@ -258,6 +282,66 @@ export function omahaBest(
 }
 
 function omahaBestRaw(
+  hole: ArrayLike<number>,
+  holeLen: number,
+  board: ArrayLike<number>,
+  boardLen: number
+): number {
+  let best = -1;
+  let pairs = 0;
+  for (let i = 0; i < holeLen - 1; i++) {
+    const k1 = RANK_KEY[hole[i] >> 2];
+    for (let j = i + 1; j < holeLen; j++) PAIR_KEYS[pairs++] = k1 + RANK_KEY[hole[j] >> 2];
+  }
+  for (let x = 0; x < boardLen - 2; x++) {
+    const kx = RANK_KEY[board[x] >> 2];
+    for (let y = x + 1; y < boardLen - 1; y++) {
+      const kxy = kx + RANK_KEY[board[y] >> 2];
+      for (let z = y + 1; z < boardLen; z++) {
+        const triple = kxy + RANK_KEY[board[z] >> 2];
+        for (let p = 0; p < pairs; p++) {
+          const s = NO_FLUSH5[triple + PAIR_KEYS[p]];
+          if (s > best) best = s;
+        }
+      }
+    }
+  }
+  // a flush needs three board cards of one suit (at most one such suit on five cards) and two hole cards of it
+  SUIT_COUNT[0] = SUIT_COUNT[1] = SUIT_COUNT[2] = SUIT_COUNT[3] = 0;
+  for (let x = 0; x < boardLen; x++) SUIT_COUNT[board[x] & 3]++;
+  const suit =
+    SUIT_COUNT[0] >= 3
+      ? 0
+      : SUIT_COUNT[1] >= 3
+        ? 1
+        : SUIT_COUNT[2] >= 3
+          ? 2
+          : SUIT_COUNT[3] >= 3
+            ? 3
+            : -1;
+  if (suit < 0) return best;
+  let nh = 0;
+  for (let i = 0; i < holeLen; i++)
+    if ((hole[i] & 3) === suit) SUITED_HOLE[nh++] = 1 << (hole[i] >> 2);
+  if (nh < 2) return best;
+  let nb = 0;
+  for (let x = 0; x < boardLen; x++)
+    if ((board[x] & 3) === suit) SUITED_BOARD[nb++] = 1 << (board[x] >> 2);
+  for (let i = 0; i < nh - 1; i++)
+    for (let j = i + 1; j < nh; j++) {
+      const hm = SUITED_HOLE[i] | SUITED_HOLE[j];
+      for (let x = 0; x < nb - 2; x++)
+        for (let y = x + 1; y < nb - 1; y++)
+          for (let z = y + 1; z < nb; z++) {
+            const s = FLUSH5[hm | SUITED_BOARD[x] | SUITED_BOARD[y] | SUITED_BOARD[z]];
+            if (s > best) best = s;
+          }
+    }
+  return best;
+}
+
+/** The original 2+3 loop over eval5: the reference the table version is tested against. */
+export function omahaBestReference(
   hole: ArrayLike<number>,
   holeLen: number,
   board: ArrayLike<number>,
