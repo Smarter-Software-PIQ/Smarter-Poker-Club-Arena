@@ -691,6 +691,16 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
   ),
+  // 2026-11-20 Antigravity Coordinator: the 270-cell Lightning selection stage (2,970,000 paired hands, seeds
+  // 31470001-31470005) graded against its frozen protocol. It acts only at hold'em tables (the Omaha option owns the
+  // Omaha variants), so its NLH figures are its own. Guard G6 failed in NLH: any failed guard rejects the candidate.
+  lightningParticipationHoldem: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'failed its declared evaluation: guard G6 broke in NLH, nit field -0.75 bb/100 (SE 0.36, z -2.07) and tight_value field -1.01 bb/100 (SE 0.40, z -2.55); primary NLH -0.24 (SE 0.32, z -0.75), no variant +2 SE',
+    source:
+      'Lightning selection stage, 09-EVALUATION-PROTOCOL-v2.md section 6, graded 2026-11-20 (docs/changelog/2026-11-20-lightning-full-matrix-graded.md; LightningEvalSummary-20261118.json sha256 28fb1550)',
+  }),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
     reason: 'off-only stops an explicit true; it changes nothing by default',

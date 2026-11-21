@@ -47,6 +47,9 @@ const onDisk = () =>
 const listNames = (files: readonly { name: string; text: string }[]) =>
   files.filter((f) => f.text.includes(OPTION_SWITCH_LIST_MARKER)).map((f) => f.name);
 const ANCHOR = `${OPTION_SWITCH_CHAIN_ANCHOR}.sql`;
+/** The newest list migration in this tree: a new lane's follow-up is generated after it, never after the anchor once
+ * a later list has merged (a fixture following the anchor would itself be stale on every tree after the first one). */
+const newestList = () => listNames(onDisk()).sort().at(-1)!;
 const REMEDY = [
   /bring main into your branch/,
   /delete your list migration/,
@@ -96,23 +99,24 @@ describe('a switch list is never stale', () => {
 
   it('two lanes generated from the same list migration break the chain in any tree holding both, whichever is newer', () => {
     const files = onDisk();
+    const NEWEST = newestList();
     const lifted = { name: '29991231000001_horse_option_switch_lane_a.sql' };
     const stale = { name: '29991231000002_horse_option_switch_lane_b.sql' };
-    const a = { ...lifted, text: optionSwitchFollowUpSql(lifted.name.slice(0, -4), ANCHOR) };
-    const b = { ...stale, text: optionSwitchFollowUpSql(stale.name.slice(0, -4), ANCHOR) };
+    const a = { ...lifted, text: optionSwitchFollowUpSql(lifted.name.slice(0, -4), NEWEST) };
+    const b = { ...stale, text: optionSwitchFollowUpSql(stale.name.slice(0, -4), NEWEST) };
     // each lane alone is whole
     expect(optionSwitchChainProblem([...files, a])).toBeNull();
     expect(optionSwitchChainProblem([...files, b])).toBeNull();
     // the stale lane sorts after the merged one: it follows the anchor, not lane a
     const after = optionSwitchChainProblem([...files, a, b])!;
     expect(after).toContain(`${OPTION_SWITCH_MIGRATIONS_DIR}/${stale.name}`);
-    expect(after).toContain(`was generated after ${OPTION_SWITCH_CHAIN_ANCHOR}.sql`);
+    expect(after).toContain(`was generated after ${NEWEST}`);
     expect(after).toContain(lifted.name);
     for (const step of REMEDY) expect(after).toMatch(step);
     // the stale lane sorts BEFORE the merged one (the #11545 shape with an older version): lane a no longer follows
     // the file before it, so the tree is refused too
     const older = { name: '29991230000000_horse_option_switch_lane_b.sql' };
-    const o = { ...older, text: optionSwitchFollowUpSql(older.name.slice(0, -4), ANCHOR) };
+    const o = { ...older, text: optionSwitchFollowUpSql(older.name.slice(0, -4), NEWEST) };
     const before = optionSwitchChainProblem([...files, a, o])!;
     expect(before).toContain(`${OPTION_SWITCH_MIGRATIONS_DIR}/${lifted.name}`);
     expect(before).toContain(older.name);
@@ -146,7 +150,7 @@ describe('a switch list is never stale', () => {
   it('a list migration after the anchor without a follows line, or without its version stamp, is refused', () => {
     const files = onDisk();
     const name = '29991231000001_horse_option_switch_lane_a';
-    const sql = optionSwitchFollowUpSql(name, ANCHOR);
+    const sql = optionSwitchFollowUpSql(name, newestList());
     const unchained = optionSwitchChainProblem([
       ...files,
       { name: `${name}.sql`, text: sql.replace(/^-- registry:follows: .*\n/m, '') },
