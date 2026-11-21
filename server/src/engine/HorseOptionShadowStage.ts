@@ -71,6 +71,12 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     streets: Object.freeze(['flop', 'turn', 'river']),
     companions: Object.freeze(['omahaOpponentLifetimeHud']),
   }),
+  // PLO-OWNER lead-4 B4 2026-11-21: priced six-max preflop read on lifetime HUD cells
+  omahaPreflopReadIsPricedFromLifetime: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['preflop']),
+    companions: Object.freeze(['omahaOpponentLifetimeHud']),
+  }),
   omahaBetSizeIsPricedForTheRange: PLO4_PLO5,
   omahaRiverCheckedToBetIsMeasured: PLO4_PLO5,
   omahaRiverFirstToActBetIsPriced: PLO4_PLO5,

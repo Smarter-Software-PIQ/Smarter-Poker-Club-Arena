@@ -475,6 +475,10 @@ export interface DecisionReadOptions {
    *  exploit read takes each opponent's counters from his lifetime public profile carried by the decision
    *  (OpponentHudExploit.ts). Present only when true. */
   opponentLifetimeHud?: boolean;
+  /** B4 SIX-MAX PREFLOP HUD (2026-11-21, PLO-OWNER lead-4, HorseDecideOpts.omahaPreflopReadIsPricedFromLifetime):
+   *  in 3–6 seat PLO4/PLO5 cash preflop, retires presumedAggressorRead via the lifetime HUD packet and prices
+   *  widened maniac-pressure spots on sh + pf.lr + pf.bvo cells (HorseOmahaPreflopHudPriced.ts). Default OFF. */
+  opponentLifetimeHudPreflopSixMax?: boolean;
   /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane,
    *  HorseDecideOpts.fixedLimitOmahaNoPresumption): on a fixed-limit Omaha
    *  decision (flo8) the shared aggressive raise presumption is not applied;
@@ -2818,11 +2822,23 @@ export class HorseMind {
 
   /**
    * OPPONENT HUD NO-LOWERING (2026-11-21, lead order after the symmetric re-score): whether this decision reads PLO4 /
-   * PLO5 opponents from the lifetime HUD (option omahaOpponentLifetimeHud on). Off: false, and no caller below changes.
+   * PLO5 opponents from the lifetime HUD (postflop consumer or B4 six-max preflop). Off: false.
    */
   static hudReadActive(): boolean {
     const scope = this.decisionScope;
-    if (!scope || this.decisionReadOptions.opponentLifetimeHud !== true) return false;
+    if (
+      !scope ||
+      (this.decisionReadOptions.opponentLifetimeHud !== true &&
+        this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true)
+    )
+      return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /** B4 six-max preflop HUD active (option omahaPreflopReadIsPricedFromLifetime + omahaOpponentLifetimeHud). */
+  static hudPreflopSixMaxActive(): boolean {
+    const scope = this.decisionScope;
+    if (!scope || this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true) return false;
     const variant = memoryVariant(this.decisionVariant);
     return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
   }
@@ -2836,9 +2852,17 @@ export class HorseMind {
   }
   /** Run a read as without the lifetime HUD (receipts muted); with the option off, the read itself. */
   static withoutHud<T>(fn: () => T): T {
-    if (this.decisionReadOptions.opponentLifetimeHud !== true) return fn();
+    if (
+      this.decisionReadOptions.opponentLifetimeHud !== true &&
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true
+    )
+      return fn();
     const saved = this.decisionReadOptions;
-    this.decisionReadOptions = { ...saved, opponentLifetimeHud: false };
+    this.decisionReadOptions = {
+      ...saved,
+      opponentLifetimeHud: false,
+      opponentLifetimeHudPreflopSixMax: false,
+    };
     try {
       return withBrainTelemetrySuspended(fn);
     } finally {
@@ -2866,10 +2890,11 @@ export class HorseMind {
     // counters come from his LIFETIME public profile in this decision's packet (OpponentHudExploit.ts) instead of the
     // 30-hand decayed window, so every read below sees his whole history from his first hand. Absent (option off, no
     // packet, no profile of him): undefined, and every line below is what it was.
+    const hudOn =
+      this.decisionReadOptions.opponentLifetimeHud === true ||
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax === true;
     const hudCounters =
-      this.decisionReadOptions.opponentLifetimeHud === true &&
-      family === 'omaha' &&
-      (variant === 'plo4' || variant === 'plo5')
+      hudOn && family === 'omaha' && (variant === 'plo4' || variant === 'plo5')
         ? hudExploitCounters(
             userId,
             variant,
@@ -2931,11 +2956,7 @@ export class HorseMind {
     // read on, no Omaha opponent is presumed a maniac. An opponent with a lifetime profile is read from it (above);
     // one with no history is read as the population for his stake and game (no exploit engaged; the accessor's
     // priors carry the stake). The presumption below is unreachable on this path (AnOpponentIsReadFromHisLifetime law).
-    if (
-      family === 'omaha' &&
-      this.decisionReadOptions.opponentLifetimeHud === true &&
-      (variant === 'plo4' || variant === 'plo5')
-    ) {
+    if (family === 'omaha' && hudOn && (variant === 'plo4' || variant === 'plo5')) {
       noteFire(
         hudCounters
           ? 'opponent_hud_presumption_replaced_lifetime'

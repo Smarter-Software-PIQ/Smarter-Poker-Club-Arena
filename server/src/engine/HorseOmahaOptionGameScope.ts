@@ -103,6 +103,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaOpponentLifetimeHud',
   // PLO-OWNER lane OPPONENT-HUD-9 2026-11-21: the lifetime-HUD consumer, PLO4/PLO5 cash, default OFF
   'omahaOpponentLifetimeHudDecides',
+  // PLO-OWNER lead-4 B4 2026-11-21: priced six-max preflop read on lifetime HUD cells, PLO4/PLO5 cash, default OFF
+  'omahaPreflopReadIsPricedFromLifetime',
   'omahaFlopFacingBetEv',
   'omahaFlopVerdictReadsTheBettor',
   'omahaReadIsByStreetAndTexture',

@@ -129,6 +129,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off lifetime opponent read (PLO-OWNER lane OPPONENT-HUD 2026-11-20, omahaOpponentLifetimeHud): in PLO4/PLO5 cash HorseMind.opponentRead takes each opponent's exploit counters from his lifetime public profile carried by the decision request; pure over the installed packet",
     'src/engine/HorseOmahaHudPreflopPriced.ts':
       'the default-off priced preflop comparison at the maniac-pressure site (lane OPPONENT-HUD 2026-11-21, omahaOpponentLifetimeHud): the raise against the call and the fold on the read-adjusted response of the players left, measured realization reduced by their turn/river stab excess; pure',
+    'src/engine/HorseOmahaPreflopHudPriced.ts':
+      'the default-off priced six-max preflop read on lifetime HUD cells (PLO-OWNER lead-4 B4 2026-11-21, omahaPreflopReadIsPricedFromLifetime): retires presumedAggressorRead on 3–6 seat PLO4/PLO5 cash preflop and prices widened spots on sh + pf.lr + pf.bvo HUD cells with n/(n+k) shrinkage; pure over the installed packet',
     'src/engine/opponentHud/OpponentHud.ts':
       'the one opponent-profile accessor (hudStat, hudRecall) and the decision packet the worker installs from the request; shrinkage toward the population prior; pure, no database, no clock',
     'src/engine/opponentHud/OpponentHudProfile.ts':

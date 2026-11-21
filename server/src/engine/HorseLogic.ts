@@ -640,6 +640,10 @@ import {
 } from './HorseOmahaPricedWiring.js';
 import { hudStat } from './opponentHud/OpponentHud.js';
 import { omahaHudPreflopPriced, type HudPreflopVerdict } from './HorseOmahaHudPreflopPriced.js';
+import {
+  isOmahaPreflopHudPricedInScope,
+  priceOmahaPreflopHudSixMax,
+} from './HorseOmahaPreflopHudPriced.js';
 import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
@@ -3676,6 +3680,10 @@ export interface HorseDecideOpts {
    * attaches the packet). omahaOpponentLifetimeHud alone stores, loads and attaches, and decides nothing, so the store
    * can be switched on and backfilled before any decision reads it. Default OFF (read === true). */
   omahaOpponentLifetimeHudDecides?: boolean;
+  /** B4 SIX-MAX PREFLOP HUD PRICED (2026-11-21, PLO-OWNER lead-4): retires presumedAggressorRead on 3–6 seat
+   * PLO4/PLO5 cash preflop using the lifetime HUD packet and prices widened maniac-pressure spots on sh + pf.lr +
+   * pf.bvo cells (HorseOmahaPreflopHudPriced.ts). Requires omahaOpponentLifetimeHud === true. Default OFF. */
+  omahaPreflopReadIsPricedFromLifetime?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -16131,6 +16139,10 @@ export class HorseLogic {
       !(gameState.gameMode === 'tournament' || gameState.tournament)
         ? { opponentLifetimeHud: true }
         : {}),
+      ...(opts.omahaPreflopReadIsPricedFromLifetime === true &&
+      isOmahaPreflopHudPricedInScope(player, gameState, opts)
+        ? { opponentLifetimeHudPreflopSixMax: true }
+        : {}),
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),
@@ -19268,7 +19280,9 @@ export class HorseLogic {
             (legacyW.r !== null && maniacRaiserWidth === null) ||
             (legacyW.b !== null && maniacBehindWidth === null);
           if (widened) {
-            const verdict = omahaHudPreflopVerdictAt(player, gs, lastRaiserSeat);
+            const verdict = HorseMind.hudPreflopSixMaxActive()
+              ? priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts)
+              : omahaHudPreflopVerdictAt(player, gs, lastRaiserSeat);
             if (verdict?.action !== 'raise') {
               if (maniacRaiserWidth === null) maniacRaiserWidth = legacyW.r;
               if (maniacBehindWidth === null) maniacBehindWidth = legacyW.b;
