@@ -67,8 +67,10 @@ if d: b['decide'] = d
 json.dump(b, open(sys.argv[3], 'w'))
 PY
   echo "CROSS base tree $(head12 "$BT")  cand tree $(head12 "$TREE")  cand ${CAND}  pairs/cell $PAIRS  seed $SEED  jobs $JOBS  out $OUT"
-  { for c in "${cells[@]}"; do echo "$c|$BT|$OUT/overlay-base|$OUT/base.json|$OUT/results-base.jsonl"; echo "$c|$TREE|$OUT/overlay-cand|$OUT/cand-merged.json|$OUT/results-cand.jsonl"; done; } \
-    | xargs -P "$JOBS" -I{} bash -c 'IFS="|" read -r c t o b r <<<"$1"; run_cell "$c" "$2" "$t" "$o" "$b" "" "$r" 1' _ {} "$OUT"
+  : > "$OUT/jobs.txt"
+  for c in "${cells[@]}"; do echo "$c|$BT|$OUT/overlay-base|$OUT/base.json|$OUT/results-base.jsonl" >> "$OUT/jobs.txt"; echo "$c|$TREE|$OUT/overlay-cand|$OUT/cand-merged.json|$OUT/results-cand.jsonl" >> "$OUT/jobs.txt"; done
+  # macOS xargs -I caps a replaced line at 255 bytes: pass line numbers, read the job inside
+  seq 1 "$(wc -l < "$OUT/jobs.txt")" | xargs -P "$JOBS" -I{} bash -c 'IFS="|" read -r c t o b r <<<"$(sed -n "${1}p" "$2/jobs.txt")"; run_cell "$c" "$2" "$t" "$o" "$b" "" "$r" 1' _ {} "$OUT"
   python3 "$PY" "$OUT/results-base.jsonl" "$OUT/results-cand.jsonl" | tee "$OUT/TABLE.md"
 else
   overlay "$TREE" "$OUT/overlay"

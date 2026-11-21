@@ -512,6 +512,10 @@ export interface SparringCellSpec {
   /** Keep each arm's per-hand seat-0 net (bb) and mirror net, so two runs of the same cell in two
    *  trees can be paired hand by hand (a code change, not a switch, between them). Numbers only. */
   keepPerHand?: boolean;
+  /** Option set of the Horse brain a probe plays in seat 0 (and of its mirror). Default: arm 0's, in every
+   *  arm, so a candidate arm changes only the opposing Horses and the paired change measures their
+   *  defence, not the option's value in the probe's own hands. */
+  seat0Opts?: HorseDecideOpts;
 }
 
 export interface SparringArmResult {
@@ -593,6 +597,7 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
     (spec.bbAnte ?? 0) > 0
       ? { gameMode: 'cash', format: 'cash', ante: (spec.bbAnte ?? 0) * BB, bigBlindAnte: true }
       : { gameMode: 'cash', format: 'cash', ante: 0 };
+  const seat0Opts: HorseDecideOpts = spec.seat0Opts ?? spec.arms[0].horseOpts;
   const states: ArmState[] = spec.arms.map((arm) => ({
     arm,
     sbE: HorseMind.createSandbox(),
@@ -710,7 +715,7 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       seat === EXPLOITER_SEAT
         ? (spot) => {
             let h: Decision | null = null;
-            const d = pol(spot, () => (h = spot.horseDecide(hybrid.style, mods, st.arm.horseOpts)));
+            const d = pol(spot, () => (h = spot.horseDecide(hybrid.style, mods, seat0Opts)));
             if (track && devFirst === null && h !== null) {
               const hd = h as Decision;
               if (hd.action !== d.action || (H.isWager(d) && hd.amount !== d.amount))
