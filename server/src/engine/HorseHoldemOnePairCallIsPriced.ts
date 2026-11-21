@@ -40,8 +40,12 @@
  * like) or charges the V11 domination penalty, the price does not decide (receipt *_deferred) and the site is as
  * the parents leave it: each of those rules comes off on its own grade, one at a time, not inside this one.
  *
- * NOT CHANGED. The V67 raised-river class (v67RiverBetRaisedOnePair, its own option, which also reads the V61
- * switch) is left to V67. Raises are not priced here: the sites only call or fold. In the committed branch a
+ * NOT CHANGED. The raised-river class (the Horse bet the river and was raised) is V67's and is never priced here,
+ * whatever the V61 / V67 rows (V67 itself is gated by the V61 switch: turning V61 off removes V67 too, and this option
+ * does not take those spots over). The V87 deep-dive turn shade (v87DeepDiveDiscipline, owner-held) rides inside the
+ * V65 gate: where it would apply the turn price defers and the call is decided exactly as today, and the V65 block still
+ * runs for its bookkeeping with only V65's own shade skipped. The turn draw exemption is the hole-card draw
+ * (holdemHoleDrawPresent) whatever v69TurnCallGaps' row. Raises are not priced here: the sites only call or fold. In the committed branch a
  * priced call that clears the branch's own jam bar keeps the branch's own jam or flat logic (V51 and the plan
  * rules decide that, as today).
  *

@@ -28595,7 +28595,8 @@ export class HorseLogic {
       // prices, the V61/V63 shade is not applied whatever those options' state.
       const pricedKind61c =
         isRiver &&
-        !v67Class &&
+        // the raised-river class (hero bet the river and was raised) is V67's, whatever the V61 / V67 rows
+        !raisedAfterAggr &&
         !vi.isOmaha &&
         !vi.isShortDeck &&
         vi.holeCount === 2 &&
@@ -30035,8 +30036,16 @@ export class HorseLogic {
     // their own pricing; the river keeps V61.
     // v65TurnOnePairShadeIsPriced (2026-11-21, default OFF): the same class, heads-up, called or folded by EV against
     // the bettor's line range (HorseHoldemOnePairCallIsPriced) at both places the shade is read below (the V38
-    // continuation verdict and the heuristic call line); where it prices, the V65 shade is not applied whatever
+    // continuation verdict and the heuristic call line); where it prices, V65's own shade is not applied whatever
     // v65TurnOnePairShade's state. The over-bluffer label withhold is not read: the price carries his measured rates.
+    // The draw exemption is the hole-card draw alone, whatever v69TurnCallGaps' state (a board-only shape is
+    // everyone's draw). The V87 deep-dive turn shade (v87DeepDiveDiscipline, owner-held) is not V65's: where it would
+    // apply here the price defers (receipt _deferred) and the call is decided exactly as today; elsewhere the V65
+    // block below still runs for the deep-dive's own bookkeeping, with only V65's shade skipped.
+    const deepDive87TurnShade =
+      opts.v87DeepDiveDiscipline !== false && !bettorManiacOrStation87
+        ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
+        : 0;
     const priced65 =
       opts.v65TurnOnePairShadeIsPriced === true &&
       street === 'turn' &&
@@ -30051,10 +30060,10 @@ export class HorseLogic {
       (cat <= 2 || (cat === 3 && pairedBoard)) &&
       toCall > 0 &&
       pot > 0 &&
-      !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board)
+      !holdemHoleDrawPresent(player.cards, board)
         ? this.holdemOnePairCallPriced(
             'turn',
-            eq15 < equity || dominationPenaltyCall > 0,
+            eq15 < equity || dominationPenaltyCall > 0 || deepDive87TurnShade > 0,
             player,
             gs,
             vi,
@@ -30064,7 +30073,6 @@ export class HorseLogic {
         : null;
     let shade65 = 0;
     if (
-      priced65 === null &&
       (opts.v65TurnOnePairShade ?? true) !== false &&
       street === 'turn' &&
       !vi.isOmaha &&
@@ -30082,14 +30090,17 @@ export class HorseLogic {
       // board-only four-flush or four-rank window is everyone's draw.
       !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board)
     ) {
-      shade65 = v65TurnOnePairShade(
-        toCall,
-        pot,
-        opts.v65TurnShadeCapOverride ?? V65_TURN_SHADE_CAP
-      );
-      if (shade65 > 0 && tele15) {
-        noteFire('v65_turn_one_pair_shade');
-        if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
+      // v65TurnOnePairShadeIsPriced: where the call is priced, only V65's own shade is skipped.
+      if (priced65 === null) {
+        shade65 = v65TurnOnePairShade(
+          toCall,
+          pot,
+          opts.v65TurnShadeCapOverride ?? V65_TURN_SHADE_CAP
+        );
+        if (shade65 > 0 && tele15) {
+          noteFire('v65_turn_one_pair_shade');
+          if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
+        }
       }
       const extra87Turn =
         opts.v87DeepDiveDiscipline !== false && !bettorManiacOrStation87
@@ -30250,7 +30261,8 @@ export class HorseLogic {
         // heads-up, called or folded by EV against the bettor's line range (HorseHoldemOnePairCallIsPriced) in place
         // of this verdict; the V61/V63 shade is not applied whatever those options' state.
         const pricedKind61 =
-          !v67Class &&
+          // the raised-river class (hero bet the river and was raised) is V67's, whatever the V61 / V67 rows
+          !raisedAfterAggr &&
           !vi.isOmaha &&
           !vi.isShortDeck &&
           vi.holeCount === 2 &&

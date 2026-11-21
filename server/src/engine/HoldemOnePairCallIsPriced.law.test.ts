@@ -286,7 +286,13 @@ const ALL: ReadonlyArray<readonly [string, ReturnType<typeof stateAt>, Setup]> =
     facing('9s8s', 'Kd9h4c2s7c', 'river', 8),
     null,
   ],
-  ['turn multiway: Q9 facing 16', facing('Qs9d', 'Kd9h4c2s', 'turn', 16, true), null],
+  ['turn multiway: Q9 facing 12', facing('Qs9d', 'Kd9h4c2s', 'turn', 12, true), null],
+  [
+    'turn multiway: Q9 facing 16 (0.76 pot, the V87 deep-dive turn shade)',
+    facing('Qs9d', 'Kd9h4c2s', 'turn', 16, true),
+    null,
+  ],
+  ['turn: Q9 on a board-only four-flush facing 12', facing('Qs9c', 'Kd9d4d2d', 'turn', 12), null],
 ];
 const ALL_OPTIONS = [
   'v65TurnOnePairShadeIsPriced',
@@ -430,11 +436,16 @@ describe('6. it defers to a rule that already cut the equity, and declines a mul
       expect(strip(r, 'holdem_one_pair_priced_deferred')).toEqual(run(st, {}, null));
     }
   });
-  it('two live opponents: unpriced, and otherwise exactly as the option off', () => {
-    const st = facing('Qs9d', 'Kd9h4c2s', 'turn', 16, true);
+  it('two live opponents: never priced (unpriced; deferred or decided earlier on a seed where another rule bit), otherwise exactly as the option off', () => {
+    const st = facing('Qs9d', 'Kd9h4c2s', 'turn', 12, true);
     const r = run(st, TURN_ON, null);
-    expect(count(r, 'holdem_one_pair_priced_unpriced')).toBe(r.length);
-    expect(strip(r, 'holdem_one_pair_priced_unpriced')).toEqual(run(st, {}, null));
+    expect(count(r, 'holdem_one_pair_priced_unpriced')).toBeGreaterThan(r.length / 2);
+    // never a priced answer (a seed another rule decides first carries no receipt of this option)
+    for (const x of r)
+      expect(x.receipts.filter((f) => /^holdem_one_pair_priced_turn_/.test(f))).toEqual([]);
+    expect(
+      strip(strip(r, 'holdem_one_pair_priced_unpriced'), 'holdem_one_pair_priced_deferred')
+    ).toEqual(run(st, {}, null));
   });
 });
 
@@ -448,5 +459,41 @@ describe('7. v63LargeRiverBetShadeIsPriced prices only above a half-pot wager', 
     const r = run(st, { ...RIVER_ON, ...LARGE_ON }, null);
     expect(count(r, 'holdem_one_pair_priced_river_call')).toBe(r.length);
     expect(count(r, 'holdem_one_pair_priced_river_large_call')).toBe(0);
+  });
+});
+
+describe('8. the V87 deep-dive turn shade (v87DeepDiveDiscipline, owner-held) is untouched', () => {
+  const strip = (r: ReturnType<typeof run>) =>
+    r.map((x) => ({
+      ...x,
+      receipts: x.receipts.filter((f) => !f.startsWith('holdem_one_pair_priced')),
+    }));
+  it('where the deep-dive shade decides today (a 0.76-pot multiway turn barrel), the priced option on changes no decision and no receipt, V65 on or off', () => {
+    const st = facing('Qs9d', 'Kd9h4c2s', 'turn', 16, true);
+    const today = run(st, {}, null);
+    expect(count(today, 'v87_deep_dive_discipline')).toBe(today.length);
+    for (const parents of [{}, { v65TurnOnePairShade: false }, { v87DeepDiveDiscipline: false }]) {
+      const on = run(st, { ...parents, ...TURN_ON }, null);
+      expect(strip(on)).toEqual(run(st, parents, null));
+      expect(count(on, 'holdem_one_pair_priced_deferred')).toBe(
+        'v87DeepDiveDiscipline' in parents ? 0 : on.length
+      );
+    }
+  });
+});
+
+describe('9. independent of v69TurnCallGaps: the draw exemption is the hole-card draw', () => {
+  it('Q9 on a board-only four-flush is priced the same with V69 on or off', () => {
+    const st = facing('Qs9c', 'Kd9d4d2d', 'turn', 12);
+    const decided = (r: ReturnType<typeof run>) =>
+      r.map((x) => ({
+        decision: x.decision,
+        priced: x.receipts.filter((f) => f.startsWith('holdem_one_pair_priced')),
+      }));
+    const on = run(st, TURN_ON, null);
+    expect(
+      count(on, 'holdem_one_pair_priced_turn_call') + count(on, 'holdem_one_pair_priced_turn_fold')
+    ).toBe(on.length);
+    expect(decided(run(st, { ...TURN_ON, v69TurnCallGaps: false }, null))).toEqual(decided(on));
   });
 });
