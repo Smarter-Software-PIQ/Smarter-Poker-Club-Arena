@@ -1245,6 +1245,8 @@ export interface OmahaFlopFacingBetEvContext {
   sixCards?: boolean;
   /** omahaFlopVerdictReadsTheBettor only: this bettor's read. Absent: every number is the verdict's own. */
   bettor?: OmahaFlopBettorAdjustment;
+  /** omahaCbetRaiseIsPriced only: the spot's value share IS his measured raising range; no bluff share is added */
+  measuredRaiseRange?: boolean;
 }
 
 function binomial(n: number, k: number): number {
@@ -1318,7 +1320,7 @@ export function omahaFlopFacingBetEvVerdict(
   }
   if (!counted) return null;
   const hand = counted;
-  const q = omahaEvBluffShare(priorBluff, read);
+  const q = ctx.measuredRaiseRange === true ? 0 : omahaEvBluffShare(priorBluff, read);
   const inPosition = ctx.inPosition === true;
   let modelRealization = 1;
   let fitMultiplier = 1;

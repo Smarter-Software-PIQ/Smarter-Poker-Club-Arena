@@ -657,6 +657,7 @@ import {
   omahaFlopBetRaiseBranchChange,
   omahaFlopBetRaiseBranchOf,
 } from './HorseOmahaFlopBetRaiseBranch.js';
+import { omahaCbetRaiseBranchOf } from './HorseOmahaCbetRaisePriced.js';
 import { omahaFlopBetMeasuredFoldShareOf } from './HorseOmahaFlopBetMeasuredFoldShare.js';
 import {
   lightningFoldThroughFrame,
@@ -4460,6 +4461,8 @@ export interface HorseDecideOpts {
    * measured raising share, the Horse's equity against it, the Horse's priced
    * call-off or fold). Default off: the two-branch price as before. */
   omahaFlopBetPricesTheRaise?: boolean;
+  /** CBET-DEFENCE 2026-11-21 (default off): the raise of a flop c-bet is priced on the measured, per-opponent-shrunk raise share (HorseOmahaCbetRaisePriced) */
+  omahaCbetRaiseIsPriced?: boolean;
   /** WooWoo audit FOLD-SHARE (HorseOmahaFlopBetMeasuredFoldShare): PLO4/PLO5
    * cash, flop, heads-up against a person, nothing to call: his fold share to
    * every v38 bet size is the fitted person model (size, pot type, SPR band,
@@ -12992,6 +12995,7 @@ function omahaFacingBetEvRule(
       ...(opts.omahaFlopBetIsPricedOnHisResponse === true && omahaPricedInScope(player, gs, opts)
         ? { hudRaiserStabResponse: true }
         : {}),
+      ...(opts.omahaCbetRaiseIsPriced === true ? { cbetRaisePriced: true } : {}),
     });
   if (!omahaFacingBetEvOn(opts)) return decision;
   try {
@@ -18524,7 +18528,11 @@ export class HorseLogic {
       if (fourBetPriced !== strongCheck.decision) {
         if (tele) {
           noteFire('omaha_four_bet_fold_priced_call');
-          noteDecisionRuleReceipt('omaha_four_bet_fold_priced_call', strongCheck.decision, fourBetPriced);
+          noteDecisionRuleReceipt(
+            'omaha_four_bet_fold_priced_call',
+            strongCheck.decision,
+            fourBetPriced
+          );
         }
         return { decision: fourBetPriced };
       }
@@ -27003,6 +27011,23 @@ export class HorseLogic {
                   : 0
               )
             : null;
+        // omahaCbetRaiseIsPriced (default off): the c-bet's raise branch from the measured raise share
+        // (HorseOmahaCbetRaisePriced); it takes the place of the person-only branch above.
+        const cbetBranch38 =
+          opts.omahaCbetRaiseIsPriced === true && street === 'flop'
+            ? omahaCbetRaiseBranchOf(
+                player,
+                gs,
+                opts,
+                pot,
+                Math.min(stack, effOpp38 > 0 ? effOpp38 : stack),
+                ip,
+                useRake10 && !isTournamentMode(gs)
+                  ? rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+                  : 0
+              )
+            : null;
+        if (cbetBranch38 && tele15) noteFire('omaha_cbet_raise_priced_branch');
         if (raiseBranch38?.kind === 'unpriced' && tele15)
           noteFire('omaha_flop_bet_raise_branch_unpriced_kept');
         // omahaFlopBetUsesMeasuredFoldShare (default off): a person's fold share
@@ -27091,7 +27116,11 @@ export class HorseLogic {
                 runout: runout86,
               }
             : {}),
-          ...(raiseBranch38?.kind === 'priced' ? { raiseBranch: raiseBranch38.value.branch } : {}),
+          ...(cbetBranch38
+            ? { raiseBranch: cbetBranch38 }
+            : raiseBranch38?.kind === 'priced'
+              ? { raiseBranch: raiseBranch38.value.branch }
+              : {}),
           // One fold share per decision: the fold model fitted on people first; his measured flop
           // fold share only when that model did not price this spot (it is then not computed).
           ...(peopleFold38?.kind === 'priced'
