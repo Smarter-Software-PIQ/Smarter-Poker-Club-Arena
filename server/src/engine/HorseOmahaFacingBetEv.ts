@@ -197,6 +197,10 @@ export interface OmahaFacingBetEvRead {
    *  present it alone moves the prior (omahaBetReadBluffShare: the population prior exactly below its minimum
    *  sample); absent = the reads above, as before */
   betRead?: OmahaBetRead | null;
+  /** omahaStabDefenceIsPriced (default off): the non-value share of this bet priced from his own public bet
+   *  frequency (HorseOmahaStabDefence.omahaStabDefenceShare). When present it IS the share used; absent = the
+   *  reads above, as before */
+  pricedShare?: number | null;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -212,6 +216,9 @@ export function omahaEvBluffShare(
   read: OmahaFacingBetEvRead | null,
   street?: 'turn' | 'river'
 ): number {
+  // omahaStabDefenceIsPriced (default off): the share priced from his public bet frequency, as given.
+  if (typeof read?.pricedShare === 'number' && Number.isFinite(read.pricedShare))
+    return Math.max(0.02, Math.min(0.98, read.pricedShare));
   // omahaBetReadIsPerOpponent (default off): ONE rule for every bettor, his measured composition of this street
   // and size (HorseOmahaBetRead), the population prior exactly while his sample is below the minimum.
   if (read?.betRead)

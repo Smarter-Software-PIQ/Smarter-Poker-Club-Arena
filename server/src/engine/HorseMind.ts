@@ -1355,6 +1355,43 @@ export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;
  */
 export const FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false;
 
+/** Lifetime public per-street counts for one opponent (see HorseMind.setOmahaLifetimeStreetRecordProvider). */
+export interface OmahaLifetimeStreetRecordProvider {
+  /** his actions on the street with no wager yet made on it (opps) and those in which he made the first wager */
+  unopenedWagerRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { bets: number; opps: number } | null;
+}
+/** The in-memory provider (tests and benches; production gets OPPONENT-HUD's). Counts only. */
+export class OmahaLifetimeStreetRecordMemory implements OmahaLifetimeStreetRecordProvider {
+  private readonly cells = new Map<string, { bets: number; opps: number }>();
+  note(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    madeFirstWager: boolean
+  ): void {
+    const key = `${opponentId}|${game}|${street}|${players}`;
+    const c = this.cells.get(key) ?? { bets: 0, opps: 0 };
+    c.opps += 1;
+    if (madeFirstWager) c.bets += 1;
+    this.cells.set(key, c);
+  }
+  unopenedWagerRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { bets: number; opps: number } | null {
+    const c = this.cells.get(`${opponentId}|${game}|${street}|${players}`);
+    return c ? { bets: c.bets, opps: c.opps } : null;
+  }
+}
+
 export class HorseMind {
   private static stats = new Map<string, OpponentStats>();
   /** V45: the scoped overlay, keyed `${scope}|${userId}`. */
@@ -3192,6 +3229,49 @@ export class HorseMind {
     );
   }
 
+  /**
+   * LIFETIME STREET RECORD PROVIDER (2026-11-20, lanes STAB-DEFENCE / OPPONENT-HUD; read by omahaStabDefenceIsPriced
+   * and omahaStrongHandCheckIsPriced, both default off). One provider for every opponent alike: undecayed lifetime
+   * counts of PUBLIC actions per game, street and table (heads-up / multiway), as of the hands completed before the
+   * decision's hand. Null provider or null record = no record: the consumer prices the population exactly.
+   */
+  private static omahaLifetimeStreetRecords: OmahaLifetimeStreetRecordProvider | null = null;
+  static setOmahaLifetimeStreetRecordProvider(
+    provider: OmahaLifetimeStreetRecordProvider | null
+  ): void {
+    this.omahaLifetimeStreetRecords = provider ?? null;
+  }
+  static omahaLifetimeStreetRecordProviderIsSet(): boolean {
+    return this.omahaLifetimeStreetRecords !== null;
+  }
+  /**
+   * STAB DEFENCE RECORD: one opponent's lifetime public count of first wagers on unopened action of this street and
+   * of his opportunities, from the provider above. Counts, not a label: the consumer shrinks them by n / (n + k).
+   * Null with no provider, no record, outside PLO4 / PLO5 turn and river, or on any provider error. Pure: no fires,
+   * no writes, no random draws. One function for every opponent.
+   */
+  static omahaStabDefenceRecordOf(
+    userId: string,
+    variant: string,
+    street: string,
+    opponents: number
+  ): { bets: number; opps: number } | null {
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return null;
+    const game = String(variant ?? '').toLowerCase();
+    if ((game !== 'plo4' && game !== 'plo5') || (street !== 'turn' && street !== 'river'))
+      return null;
+    try {
+      const r = provider.unopenedWagerRecord(userId, game, street, opponents <= 1 ? 'hu' : 'mw');
+      if (!r) return null;
+      const bets = Number(r.bets);
+      const opps = Number(r.opps);
+      if (!Number.isFinite(bets) || !Number.isFinite(opps) || !(opps > 0) || bets < 0) return null;
+      return { bets: Math.min(bets, opps), opps };
+    } catch {
+      return null;
+    }
+  }
   /** His bet rate on the decision's street (omahaReadIsByStreetAndTexture on), or `pooledRate` itself. */
   private static omahaReadByStreetBetRate(userId: string, pooledRate: number): number {
     const byStreet = omahaReadByStreetNow();
