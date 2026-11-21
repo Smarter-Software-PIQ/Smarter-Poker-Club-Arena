@@ -20,6 +20,13 @@
  *    audit2 (PLO5-WOOWOO-AUDIT-PART2 decisions.csv + the audit's hands.jsonl,
  *    which places each row at its node), and the WooWoo 48 h audit
  *    (decision-audit/decisions-full.csv + spec/decision-to-finding.csv).
+ *    A third source, `placed` (2026-11-20), reads audited decisions another
+ *    tool already placed at their node (one JSON line each; placedDecisions):
+ *    the six HVH48 audits (PLO5 Lightning, PLO4/PLO5 table, PLO6, Hold'em
+ *    cash, Hold'em and PLO tournaments) each publish their own columns, and
+ *    scripts/hvh48-audit-nodes.py places their rows. It is scored
+ *    verdict-only, and where the audit names the better action a change
+ *    counts as fixed only when it is a change to that action.
  *  - audit2 has an action-level judge (its analyze.py rules, ported below as
  *    judgeAudit2): the base and the replayed action are each judged, so a
  *    change is fixed (bad -> ok), newly wrong (ok -> bad), still wrong or

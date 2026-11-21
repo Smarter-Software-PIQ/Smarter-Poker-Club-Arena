@@ -1,0 +1,53 @@
+# A Dedicated Engine Cutover Every Three Hours
+
+Owner order, Dan, November 21, 2026 02:22-02:23 America/Chicago (Claude session `session_01Gw7aDsC1z7GdpSYmDAM2kv`), verbatim:
+
+> "CREATE A DEDICATED ENGINE CUT OFF SWITCH TO WORK DIRECTLY WITH THE PLO STRATEGY CHAT, HORSE ON OFF SWITCHES CHAT, ANTIGRAVITY COORDINATION CHAT AND THE HORSE DECISIONS CHAT."
+>
+> "YOU OWN THIS CODE BASE AND MAKE ANY AND ALL DECISIONS AND CHOICES ON HOW THIS IS DONE. LAUNCH A SWARM TO HELP WITH THIS. I WANT A ENGINE CUT OVER EVERY 3 HOURS."
+
+This is the task-specific owner instruction CLAUDE.md 10.85 requires for scheduled business work, and it turns the November 20 15:16 standing order (cutovers every three hours, until then hand-booked as owner windows) into the scheduled route itself.
+
+## The Schedule
+
+| Cycle (America/Chicago) | Preparation opens | Last-hand drain | Break       |
+| ----------------------- | ----------------- | --------------- | ----------- |
+| 01:00                   | 00:30             | 00:58           | 01:00-01:05 |
+| 04:00 (anchor)          | 03:30             | 03:58           | 04:00-04:05 |
+| 07:00                   | 06:30             | 06:58           | 07:00-07:05 |
+| 10:00                   | 09:30             | 09:58           | 10:00-10:05 |
+| 13:00                   | 12:30             | 12:58           | 13:00-13:05 |
+| 16:00                   | 15:30             | 15:58           | 16:00-16:05 |
+| 19:00                   | 18:30             | 18:58           | 19:00-19:05 |
+| 22:00                   | 21:30             | 21:58           | 22:00-22:05 |
+
+- Selected by `server/src/maintenance/maintenanceSchedulePolicy.json` (`frequency: "three-hourly"`, `startHours`). Setting `frequency` to `"daily"` restores the 04:00-only route with one field. The engine publishes `maintenance.schedule.frequency = "three-hourly"` and `startHours` on `/health`.
+- Every cycle behaves exactly like the 04:00 break: the engine's own two-minute last-hand drain, the five-minute global break, park and v3 thaw. `hourlyCashFreeze` stays false. There is no player announcement beyond that drain (standing November 17 order, `scripts/ci/owner-notice-waiver.mjs`).
+- Real IANA epoch hours. Fall-back day: 01:00 happens twice; it is ONE cycle, the first (CDT). Spring-forward day: 02:00 does not exist; 01:00 and 04:00 both happen, two real hours apart. Pinned by `tests/the-engine-cuts-over-every-three-hours.law.test.ts`.
+- One certified cutover per cycle through the existing single route: `stage-engine-release.yml` reserves the cycle (at most 100 minutes early, so a run can never reserve a later cycle) and prepares protected main once at slot minus 30 minutes; `auto-deploy-hetzner.yml` is the single receiver; `server/scripts/engine-release-transaction.sh` drains, freezes, proves, seals or rolls back, and thaws. No second publisher, watcher, retry loop or repair job (CLAUDE.md 10.12).
+- A missing or failed Backup certificate leaves the current engine running for that cycle. The next cycle tries again with whatever is certified then. Nothing is dispatched twice.
+- Until a release carrying this schedule seals, the serving engine still breaks only at 04:00, so Stage and the receiver prepare ONLY the 04:00 anchor (they read `/health` and refuse every other cycle). The first sealed release that carries the three-hourly schedule turns on the other seven cycles by itself.
+
+## What Stays Daily (04:00 Only)
+
+- Window migrations (`-- @install-window: daily-maintenance`, `scripts/ci/maintenance-window-migrations.mjs` 03:55-04:05) install only in the 04:00 break. Stage runs the window installer only for the 04:00 preparation.
+- The nightly release schema freeze (23:45-04:15 Chicago, `scripts/ci/merged-migration-dispatch.mjs`), the Backup freeze baseline (`scripts/ci/backup-freeze-baseline.py`), the 03:00 readiness check and the 04:30 missed-cutover page judge the 04:00 anchor only. Daytime cycles use ordinary push certification: the newest certified protected main whose Backup copy equals production.
+- The 04:00-06:00 games-closed daily window (`server/src/maintenance/dailyWindow.ts`) and the lobby day start are unrelated to the engine break and unchanged.
+
+## Coexistence With Booked Owner Windows
+
+`scripts/release/book-owner-engine-window.py` and the owner-window playbook still work. A booked window and a scheduled cycle can never break within the same rolling hour: the seal's recovery reservation (`scheduled_cycle_spacing` in `server/scripts/engine-release-seal.py`) defers an owner-window announcement until one hour after the nearest cycle while the serving engine is three-hourly. A dead or wedged engine (`engine-degraded`) is never held.
+
+## The Contract With The Four Lanes
+
+For the PLO Strategy, Horse On/Off Switches, Antigravity Coordinator and Horse Decisions chats:
+
+1. **Your engine work rides the next cycle** when, before that cycle's preparation opens (cycle minus 30 minutes), it is merged to protected main with green required checks and every migration it needs is installed in production, and Backup certifies the resulting commit. Merging later rides the cycle after. Nobody books, dispatches or pauses anything to catch a cycle.
+2. **Horse option switches flip live** through `fn_ca_horse_option_switch_set` with evidence; no release is needed. Do not write a switch between a cycle's preparation opening (minus 30 minutes) and its SEALED result (about plus 10 minutes): a switch row the candidate does not accept makes every Horse option run at its release default (the fleet-reset trap, `server/scripts/engine-release-switch-rows.py`).
+3. **A new option** needs its generated whitelist migration merged and installed before the preparation of the cycle that should carry it.
+4. **What shipped** is posted after every cycle, sealed or refused, as one comment on issue #11599 "Engine cutover log" (cycle time, sealed SHA, PRs included since the previous seal, or the refusal reason). It is written by the receiver with the job token and is reporting only.
+5. No lane edits release controls (`server/release/**`, `server/scripts/engine-release-*`, `server/src/maintenance/**`, the release workflows) while a booked owner window is open.
+
+## Rolling Back The Cadence
+
+Set `frequency` to `"daily"` in `server/src/maintenance/maintenanceSchedulePolicy.json`, merge, and let the next 04:00 release seal; the engine then breaks only at 04:00 again, and every cycle-aware surface follows the serving schedule.

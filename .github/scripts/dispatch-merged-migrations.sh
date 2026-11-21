@@ -178,6 +178,10 @@ if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE" ${NOW_MS:+"$NOW_MS"}
   exit 1
 fi
 
+# AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77): merges woken
+# by the same boundary send in version order; bounded, never fatal.
+node scripts/ci/await-older-merged-applies.mjs "${DISPATCH[0]}" | while IFS= read -r line; do say "$line"; done || true
+
 SENT=0
 for f in "${DISPATCH[@]}"; do
   NONCE=$(jq -r --arg f "$f" 'select(.migration == $f) | .nonce' "$INTENT_STATE")

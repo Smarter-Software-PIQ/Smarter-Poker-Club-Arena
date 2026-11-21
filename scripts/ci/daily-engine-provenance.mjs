@@ -14,10 +14,15 @@ export function queuedDailyRelease(health, oldestUnservedAt, now = Date.now()) {
     first > now
   )
     return null;
-  // The daily preparation snapshot opens at 03:30. Missing that snapshot means
-  // tomorrow's window; later merges cannot reset the oldest unserved change.
+  // Each preparation snapshot opens 30 minutes before its cycle (03:30 for the
+  // daily 04:00; slot-30m for the three-hourly cycles, owner order 2026-11-21).
+  // Missing that snapshot means the next cycle; later merges cannot reset the
+  // oldest unserved change.
   const snapshotClock = first + 28 * 60_000 - 1;
-  const announcement = snapshotClock + msUntilNextAnnouncement(snapshotClock);
+  const announcement = snapshotClock + msUntilNextAnnouncement(
+    snapshotClock,
+    schedule.frequency === 'three-hourly' ? schedule : undefined
+  );
   const dueAt = announcement + 2 * 60_000 + 15 * 60_000;
   return now < dueAt ? { dueAt, oldestUnservedAt: first, status: 'queued' } : null;
 }

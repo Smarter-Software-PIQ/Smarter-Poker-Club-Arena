@@ -51,8 +51,8 @@ import {
   scoreReplay,
   wooWooDecisions,
   type AdapterResult,
-  type AuditedDecision,
   type AuditSource,
+  type AuditedDecision,
 } from '../src/benchmark/AuditedDecisionReplay.js';
 
 const args = process.argv.slice(2);

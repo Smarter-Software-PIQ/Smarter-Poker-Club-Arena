@@ -5,7 +5,15 @@ import {
   maintenanceFrequency,
 } from '../../server/src/maintenance/maintenanceSchedule';
 
-import policy from '../../server/src/maintenance/maintenanceSchedulePolicy.json';
+// The v1 Phase1 policy shape, retained so reverting stays a one-field change.
+const policy = {
+  schema: 'engine-maintenance-schedule/v1',
+  policyId: 'phase1-hourly-01a1944f',
+  timeZone: 'America/Chicago',
+  phase1Status: 'off',
+  ownerMessageId: '01a1944f-7131-7f11-8dcc-873d576e781c',
+  completionEvidence: 'Owner instruction 2026-11-06 retained daily baseline fixture',
+};
 
 describe('temporary Phase1 hourly top-of-hour maintenance', () => {
   it('announces the next ordinary hour at58 with an unchanged120second lead', () => {
@@ -71,9 +79,10 @@ it.each([{ phase1Status: ['active'] }, { phase1Status: true }, { phase1Status: '
   }
 );
 
-it('the current protected policy schedules only the daily boundary', () => {
-  expect(maintenanceFrequency()).toBe('daily');
+it('the current protected policy schedules the three-hourly cycles (owner order 2026-11-21)', () => {
+  expect(maintenanceFrequency()).toBe('three-hourly');
+  // 14:00 Chicago (CST) -> the 16:00 cycle, announced 15:58.
   expect(nextMaintenanceAnnouncement(Date.parse('2026-11-06T20:00:00Z'))).toBe(
-    Date.parse('2026-11-07T09:58:00Z')
+    Date.parse('2026-11-06T21:58:00Z')
   );
 });

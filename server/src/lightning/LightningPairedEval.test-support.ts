@@ -32,6 +32,26 @@ import { basename, dirname, join } from 'node:path';
 export const LIGHTNING_EVAL_SCHEMA = 'lightning-paired-eval/v2';
 export const LIGHTNING_EVAL_PAIRS_SCHEMA = 'lightning-paired-eval-pairs/v2';
 export const LIGHTNING_EVAL_MERGE_SCHEMA = 'lightning-paired-eval-merge/v2';
+/**
+ * The runner test's own timeout (2026-11-21). A timeout passed to `it` beats
+ * vitest's `--testTimeout`, so `--testTimeout=0` never lifted the fixed two
+ * hours, and a declared 90-cell run in one process died at about 60 cells.
+ * `LIGHTNING_EVAL_TIMEOUT_MS` sets it: unset or empty keeps the two hours, `0`
+ * means no timeout (vitest skips the race for a value of 0 or less), any other
+ * whole number of milliseconds is used as given. Anything else is refused,
+ * so a typo never silently runs under the default.
+ */
+export const LIGHTNING_EVAL_RUNNER_DEFAULT_TIMEOUT_MS = 7_200_000;
+export function lightningEvalRunnerTimeoutMs(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return LIGHTNING_EVAL_RUNNER_DEFAULT_TIMEOUT_MS;
+  const text = raw.trim();
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text))) {
+    throw new Error(
+      `LIGHTNING_EVAL_TIMEOUT_MS must be a whole number of milliseconds (0 for no timeout), got ${JSON.stringify(raw)}`
+    );
+  }
+  return Number(text);
+}
 /** The 1/2 stake: the one stake where NLH, PLO4 and PLO5 all deal Lightning. */
 export const LIGHTNING_EVAL_SMALL_BLIND = 1;
 export const LIGHTNING_EVAL_BIG_BLIND = 2;

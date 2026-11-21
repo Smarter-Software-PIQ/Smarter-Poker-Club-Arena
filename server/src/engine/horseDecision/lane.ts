@@ -6,6 +6,7 @@ import {
   readStyleSwitchFromDatabase,
   type StyleSwitchStateMessage,
 } from './styleSwitchDelivery.js';
+import { receiveHorseRunItTwiceSwitchMessage } from '../HorseRunItTwiceSwitch.js';
 import { publishOptionRegistryToDatabase } from './optionRegistryPublisher.js';
 import {
   startEngineRuntimeSettingsFromDatabase,
@@ -576,6 +577,8 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
     this.lastStyleSwitch = message;
+    // horseRunItTwiceIsPriced is decided on the main thread (HorseRunItTwiceSwitch.ts): it reads the same message.
+    receiveHorseRunItTwiceSwitchMessage(message);
     for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {

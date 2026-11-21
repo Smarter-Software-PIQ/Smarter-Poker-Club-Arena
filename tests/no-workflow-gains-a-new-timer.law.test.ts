@@ -56,8 +56,10 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // delivered the single :30 tick 5-6 h late on 10-30/10-31 and not at all on
   // 11-01 and again 11-08. The existing owner now reserves up to five elapsed
   // hours early and waits once for 03:30; one preparation per Chicago date.
-  ['stage-engine-release.yml', '31,35,39,43 3,8 * * *'],
-  ['stage-engine-release.yml', '31,35,39,43 4,9 * * *'],
+  // Owner order 2026-11-21 ("I WANT A ENGINE CUT OVER EVERY 3 HOURS"): the
+  // same preparation before every three-hourly cycle, one per cycle start.
+  ['stage-engine-release.yml', '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *'],
+  ['stage-engine-release.yml', '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *'],
   // Owner order 2026-11-05 (Backup Engine): refresh the isolated production
   // copy after midnight Chicago, three chances per DST twin because GitHub
   // delivers schedules late; the refresh itself runs once per Chicago date.
