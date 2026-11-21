@@ -683,11 +683,7 @@ if m.get("phase") == "last_hand":
 if not (m.get("active") is True and m.get("phase") == "counting_down" and m.get("durableConfirmed") is True): raise SystemExit(1)
 local = datetime.now(ZoneInfo("America/Chicago"))
 hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))
-# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
-hour0 = int(local.timestamp()) // 3600 * 3600
-following = datetime.fromtimestamp(hour0 + 3600, ZoneInfo("America/Chicago")).hour
-previous = datetime.fromtimestamp(hour0 - 3600, ZoneInfo("America/Chicago")).hour
-daily = (following in hours and following != local.hour and local.minute >= 58) or (local.hour in hours and previous != local.hour and local.minute < 5)
+hour0 = int(local.timestamp()) // 3600 * 3600; following = datetime.fromtimestamp(hour0 + 3600, ZoneInfo("America/Chicago")).hour; previous = datetime.fromtimestamp(hour0 - 3600, ZoneInfo("America/Chicago")).hour; daily = (following in hours and following != local.hour and local.minute >= 58) or (local.hour in hours and previous != local.hour and local.minute < 5)  # first fall-back 01:00 only
 cycle = int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     schedule=m.get("schedule")
@@ -1420,9 +1416,7 @@ from zoneinfo import ZoneInfo
 import os
 hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))
 n = datetime.now(ZoneInfo("America/Chicago"))
-# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
-first = datetime.fromtimestamp(int(n.timestamp()) // 3600 * 3600 - 3600, ZoneInfo("America/Chicago")).hour != n.hour
-raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)
+first = datetime.fromtimestamp(int(n.timestamp()) // 3600 * 3600 - 3600, ZoneInfo("America/Chicago")).hour != n.hour; raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)  # first fall-back 01:00 only
 '
 }
 
@@ -1557,8 +1551,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
-# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
-daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)
+daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)  # first fall-back 01:00 only
 cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     import time
@@ -1847,8 +1840,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
-# Real epoch hours: the repeated fall-back hour is ONE cycle (the first).
-daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)
+daily=(local.hour in tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(",")) and local.minute<5 and datetime.fromtimestamp(int(local.timestamp())//3600*3600-3600, ZoneInfo("America/Chicago")).hour!=local.hour)  # first fall-back 01:00 only
 cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
 if cycle:
     import time

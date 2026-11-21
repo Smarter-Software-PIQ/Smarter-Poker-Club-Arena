@@ -501,8 +501,8 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.on.schedule).toEqual([
       // Every three-hourly preparation hour in both offsets (owner order
       // 2026-11-21); the daily policy admits only 03:30 from the same events.
-      { cron: '31,35,39,43 0,2,3,5,6,8,9,11 * * *' },
-      { cron: '31,35,39,43 12,14,15,17,18,20,21,23 * * *' },
+      { cron: '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *' },
+      { cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
     ]);
     expect(
       stage.jobs.detect.steps.find((step: { id?: string }) => step.id === 'admission').run

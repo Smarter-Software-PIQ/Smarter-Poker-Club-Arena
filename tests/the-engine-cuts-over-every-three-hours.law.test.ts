@@ -174,7 +174,7 @@ describe('every reader of the schedule agrees on the eight hours and the fall-ba
     const transaction = read('server/scripts/engine-release-transaction.sh');
     expect(transaction).toContain('routine_start_hours\nrequire_backup_certificate');
     expect(transaction).toContain(
-      'raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)'
+      'raise SystemExit(0 if n.hour in hours and n.minute < 5 and first else 1)  # first fall-back 01:00 only'
     );
     // A v2 policy always lists the eight hours; daily still resolves to 4 alone.
     expect(transaction).toContain(
@@ -213,28 +213,21 @@ describe('every reader of the schedule agrees on the eight hours and the fall-ba
     expect(clockAt(body, '2026-11-01T10:06:00Z', three)).toBe(1);
   });
   it('every daily= admission in the transaction applies the same first-occurrence rule', () => {
-    const lines = transactionText.split('\n').filter((l) => /^\s*daily ?= ?\(/.test(l));
+    const lines = transactionText.split('\n').filter((l) => /(^|; )daily ?= ?\(/.test(l));
     expect(lines.length).toBe(3);
     for (const line of lines) expect(line).toMatch(/!= ?local\.hour/);
     const snippet = (iso: string, hours: string) =>
       clockAt(
-        `from datetime import datetime\nfrom zoneinfo import ZoneInfo\nlocal=datetime.now(ZoneInfo("America/Chicago"))\n${lines.find(
-          (l) => l.startsWith('daily=(')
-        )!}\nraise SystemExit(0 if daily else 1)`,
+        `from datetime import datetime\nfrom zoneinfo import ZoneInfo\nlocal=datetime.now(ZoneInfo("America/Chicago"))\n${lines.find((l) => l.startsWith('daily=('))!}\nraise SystemExit(0 if daily else 1)`,
         iso,
         hours
       );
     expect(snippet('2026-11-01T06:02:00Z', HOURS.join(','))).toBe(0);
     expect(snippet('2026-11-01T07:02:00Z', HOURS.join(','))).toBe(1);
-    const hold = transactionText.slice(
-      transactionText.indexOf(
-        'hours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))\n# Real'
-      )
-    );
-    const holdDaily = hold.slice(0, hold.indexOf('\ncycle = '));
+    const holdDaily = lines.find((l) => l.startsWith('hour0 = '))!;
     const holdAt = (iso: string) =>
       clockAt(
-        `import os\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nlocal = datetime.now(ZoneInfo("America/Chicago"))\n${holdDaily}\nraise SystemExit(0 if daily else 1)`,
+        `import os\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nlocal = datetime.now(ZoneInfo("America/Chicago"))\nhours = tuple(int(h) for h in os.environ.get("ROUTINE_START_HOURS", "4").split(","))\n${holdDaily}\nraise SystemExit(0 if daily else 1)`,
         iso,
         HOURS.join(',')
       );
