@@ -325,6 +325,32 @@ owned() {
   return "$rc"
 }
 
+# Keep agent-push's own state file and child TMPDIR off the macOS boot drive
+# (/tmp or /var/folders symlink) when an external SmarterWork scratch root is
+# writable. Matches .husky/pre-push's external-SSD scratch policy.
+if [ "$(uname -s)" = Darwin ]; then
+  case "${TMPDIR:-}" in
+    /Volumes/*)
+      if [ -d "$TMPDIR" ] && [ -w "$TMPDIR" ]; then
+        TMPDIR=$(cd "$TMPDIR" 2>/dev/null && pwd -P) || true
+        export TMPDIR
+      else
+        TMPDIR=""
+      fi
+      ;;
+    *) TMPDIR="" ;;
+  esac
+  if [ -z "${TMPDIR:-}" ]; then
+    for ca_tmp_root in ${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t}; do
+      if mkdir -p "$ca_tmp_root" 2>/dev/null && [ -w "$ca_tmp_root" ]; then
+        TMPDIR=$(cd "$ca_tmp_root" 2>/dev/null && pwd -P) || TMPDIR="$ca_tmp_root"
+        export TMPDIR
+        break
+      fi
+    done
+  fi
+fi
+
 # The watcher outlives this shell. It stops the running step when this shell
 # is gone (killed outright), keeps a once-a-second snapshot of the step's whole
 # tree, and, under the detached-launch rule above, tells this shell to stop
@@ -436,15 +462,34 @@ fi
 HEAD_SHA=$(git rev-parse HEAD)
 
 say "fetching $REMOTE main (the pre-push hook compares against it)"
-owned "${REMOTE_GIT[@]}" fetch "$REMOTE" main
-rc=$?
+rc=0
+for fetch_attempt in 1 2 3; do
+  owned "${REMOTE_GIT[@]}" fetch "$REMOTE" main
+  rc=$?
+  [ "$rc" -eq 0 ] && break
+  [ "$rc" -ge 128 ] && break
+  if [ "$fetch_attempt" -lt 3 ]; then
+    say "git fetch $REMOTE main exited $rc (transient ref lock?); retrying ($fetch_attempt/3)..."
+    sleep 1
+  fi
+done
 if [ "$rc" -ne 0 ]; then
   say "FAILED: git fetch $REMOTE main exited $rc."
   exit "$rc"
 fi
 # A plain `git fetch <remote> main` updates refs/remotes/<remote>/main only
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
-git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
+# Retry briefly if a sibling worktree is updating the same shared remote ref.
+ref_rc=0
+for ref_attempt in 1 2 3; do
+  git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD && { ref_rc=0; break; }
+  ref_rc=$?
+  [ "$ref_attempt" -lt 3 ] && sleep 1
+done
+if [ "$ref_rc" -ne 0 ]; then
+  say "FAILED: git update-ref refs/remotes/$REMOTE/main exited $ref_rc."
+  exit "$ref_rc"
+fi
 
 # A repeated request for the exact already-pushed source needs no new push or
 # hook execution. Read back the remote outcome first; never infer it from a

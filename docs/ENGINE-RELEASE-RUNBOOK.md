@@ -1,3 +1,5 @@
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-1906z` (19:06 to 22:06 UTC November 21; 1:06 PM to 4:06 PM Chicago) is the consolidated engine cutover of the owner's three-hour cadence booked by the Dedicated Engine Cutover chat after 1135z was abandoned; it carries the three-hourly scheduled cutover (#11609) and every lane's merged engine work, serving `bb21dc82673` (sealed under 0300z), no advance notice.
+
 2026-11-21: owner window `2026-11-21-owner-no-notice-engine-1135z` (11:35 to 17:35 UTC November 21; 5:35 AM to 11:35 AM Chicago) is the next engine cutover of the owner's three-hour cadence, serving `bb21dc82673` (sealed under 0300z), no advance notice.
 
 2026-11-21: **a dedicated engine cutover every three hours** (owner order 02:22 Chicago, session `session_01Gw7aDsC1z7GdpSYmDAM2kv`, "I WANT A ENGINE CUT OVER EVERY 3 HOURS"). The scheduled route now runs at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago through `.github/workflows/stage-engine-release.yml` (one preparation per cycle at cycle minus 30 minutes), the single receiver `.github/workflows/auto-deploy-hetzner.yml` and `server/scripts/engine-release-transaction.sh`, selected by `server/src/maintenance/maintenanceSchedulePolicy.json`. Wherever this runbook says 03:30 or 04:00 for the routine route, read the cycle's preparation and start; window migrations and the nightly schema freeze stay at 04:00. Contract and lane rules: `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md`; changelog `docs/changelog/2026-11-21-a-dedicated-engine-cutover-every-three-hours.md`; law `tests/the-engine-cuts-over-every-three-hours.law.test.ts`.
@@ -963,3 +965,17 @@ claim-back with the original or stable operation key, verifies its ledger and
 zero balance, then invokes the guarded retirement owner. It never creates a
 new purchase or repeats an unknown financial intent under a new key. Read `cleanup-only`
 separately from live gameplay acceptance; unknown money remains retained.
+
+### Read-only EngineReleaseFailed triage, inspection, and sanctioned claim
+
+When an `EngineReleaseFailed` incident handoff arrives, do not run ad-hoc local `psql` calls or touch `.env` credentials. Use the manual-only `.github/workflows/triage-engine-release-incident.yml` workflow on `main`:
+
+- **Triage live health vs. target SHA (read-only, no DB secret):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=triage -f target_sha=<40-char-sha>`
+- **Inspect incident row and recent observations/events (read-only, `ci-main` DB secret):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=inspect -f incident_id=<uuid>`
+- **Claim incident via `smarter_private.fn_claim_reliability_incident`:**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=claim -f incident_id=<uuid> -f agent_session=<session> -f branch=<branch> -f pull_request=<pr> -f ttl_hours=4`
+- **Resolve an engine-alerts incident by its original episode (the only sanctioned manual resolve):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=resolve -f incident_id=<uuid> -f agent_session=<session> -f resolution_note='<why, with evidence>'`
+  It appends one resolved `engine_alerts` row per open firing member through `public.fn_record_engine_alerts`, copying the firing row's exact alertname, component, fingerprint, startsAt and `labels.engine_alert_episode_id`, then reads back the intake disposition and fails unless each member resolved (`scripts/ci/resolve-engine-alert-episode.mjs`). It refuses another source family, a closed incident, an incident with no open firing member, and a member with no producer episode (rows raised before 2026-11-21). Never `UPDATE` an `engine_alerts` or `operational_alert_events` row to close an incident, and never insert a resolve by hand: a row without the firing row's episode is recorded `resolved_not_of_this_episode` and resolves nothing (incident 484c4cee).

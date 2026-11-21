@@ -5,6 +5,7 @@ import { parse } from 'yaml';
 import {
   classifyEngineReleaseTriage,
   validateIncidentClaimInputs,
+  validateIncidentInspectInputs,
 } from '../../scripts/ci/triage-engine-release-incident.mjs';
 
 const ROOT = process.cwd();
@@ -27,9 +28,7 @@ const HEALTHY_B = { ...HEALTHY_A, releaseSha: SHA_B };
 
 describe('triage-engine-release-incident — read-only triage and sanctioned claim', () => {
   it('classifies already-live exact SHA, superseded newer SHA, not-serving, unhealthy, and unknown', () => {
-    expect(
-      classifyEngineReleaseTriage({ targetSha: SHA_A, liveHealth: HEALTHY_A })
-    ).toMatchObject({
+    expect(classifyEngineReleaseTriage({ targetSha: SHA_A, liveHealth: HEALTHY_A })).toMatchObject({
       verdict: 'already_live_exact',
       actionableFailure: false,
       servingSha: SHA_A,
@@ -93,9 +92,9 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
       ttlHours: 6,
     });
 
-    expect(() =>
-      validateIncidentClaimInputs({ incidentId: 'bad-id', agentSession: 's1' })
-    ).toThrow(/UUID/);
+    expect(() => validateIncidentClaimInputs({ incidentId: 'bad-id', agentSession: 's1' })).toThrow(
+      /UUID/
+    );
     expect(() =>
       validateIncidentClaimInputs({
         incidentId: '484c4cee-5b54-4bbd-bbf1-3b6ebdcc2c4c',
@@ -111,12 +110,40 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
     ).toThrow(/ttl_hours/);
   });
 
-  it('keeps the workflow strictly manual-only, least-privilege, bot-guarded, and free of SSH/release mutation', () => {
+  it('validates inspect inputs strictly by UUID', () => {
+    expect(
+      validateIncidentInspectInputs({ incidentId: '484c4cee-5b54-4bbd-bbf1-3b6ebdcc2c4c' })
+    ).toEqual({ incidentId: '484c4cee-5b54-4bbd-bbf1-3b6ebdcc2c4c' });
+    expect(() => validateIncidentInspectInputs({ incidentId: 'not-a-uuid' })).toThrow(/UUID/);
+  });
+
+  it('keeps the workflow strictly manual-only, least-privilege, bot-guarded, fast-checkout, and free of SSH/release mutation', () => {
     expect(Object.keys(WF.on)).toEqual(['workflow_dispatch']);
+    expect(WF.on.workflow_dispatch.inputs.operation.options).toEqual([
+      'triage',
+      'inspect',
+      'claim',
+      'resolve',
+    ]);
     expect(WF.permissions).toEqual({});
     expect(WF.jobs.execute.permissions).toEqual({ contents: 'read' });
     expect(WF.jobs.execute.if).toContain("github.actor != 'github-actions[bot]'");
     expect(WF.jobs.execute.if).toContain("github.triggering_actor != 'github-actions[bot]'");
+    expect(WF.jobs.execute.if).toContain(
+      "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+    );
+    const checkout = WF.jobs.execute.steps.find(
+      (s: { uses?: string }) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@')
+    );
+    expect(checkout?.uses).toBe('actions/checkout@v7.0.1');
+    expect(checkout?.with?.['fetch-depth']).toBe(1);
+    expect(checkout?.with?.['fetch-tags']).toBe(false);
+    const setupNode = WF.jobs.execute.steps.find(
+      (s: { uses?: string }) =>
+        typeof s.uses === 'string' && s.uses.startsWith('actions/setup-node@')
+    );
+    expect(setupNode?.uses).toBe('actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020');
+    expect(WF_TEXT).not.toContain('@v4');
     expect(WF_TEXT).not.toContain('HETZNER_SSH_PRIVATE_KEY');
     expect(WF_TEXT).not.toContain('repository_dispatch');
     expect(WF_TEXT).not.toContain('schedule:');

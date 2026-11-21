@@ -17,6 +17,7 @@ import {
   buildReleaseResolvedAlerts,
   shippedSibling,
 } from '../scripts/ci/record-engine-release-alert.mjs';
+import { engineAlertEpisodeId } from '../scripts/ci/engine-alert-episode.mjs';
 
 /**
  * Incident 075013fd (Lane 1 — Engine Release Pipeline Hardening):
@@ -546,13 +547,21 @@ exit 0
           labels: {
             alertname: 'EngineReleaseFailed',
             severity: 'critical',
+            component: 'engine-release',
             run_id: '44841264851-1',
+            // A resolve must carry its firing row's episode or intake cannot
+            // pair them (tests/an-engine-alert-resolves-its-own-episode.law.test.ts).
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:44841264851-1'),
           },
           starts_at: '2026-11-21T00:19:02.000Z',
         },
         {
           fingerprint: 'engine-release-failed:44841264851-1',
-          labels: { alertname: 'EngineReleaseFailed' },
+          labels: {
+            alertname: 'EngineReleaseFailed',
+            component: 'engine-release',
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:44841264851-1'),
+          },
           starts_at: '2026-11-21T00:19:02.000Z',
         },
       ]
@@ -565,5 +574,125 @@ exit 0
     expect(resolved[0].labels.alertname).toBe('EngineReleaseFailed');
     expect(resolved[0].labels.resolved_by_run_id).toBe('888-1');
     expect(resolved[0].labels.resolved_by_sha).toBe('bb21dc82673117a937f67c9498dec46b8c27522e');
+    expect(resolved[0].labels.engine_alert_episode_id).toBe(
+      engineAlertEpisodeId('engine-release-failed:44841264851-1')
+    );
+  });
+
+  it('wave 3: firing and resolved EngineReleaseFailed payloads preserve exact fingerprint and label parity for fn_record_engine_alerts', () => {
+    const firing = buildReleaseFailureAlert({
+      SHIPPED: 'false',
+      RELEASE_RESULT: 'failed',
+      RUN_ID: '44841264851-1',
+      TARGET_SHA: 'e2140d2d1581daaf84857d98e671f2be832162c6',
+      EXIT_STAGE: 'prepare',
+      EXIT_OUTCOME: 'failed',
+      EXIT_ERROR: 'rollback image missing',
+    });
+    expect(firing).not.toBeNull();
+    const resolved = buildReleaseResolvedAlerts(
+      {
+        SHIPPED: 'true',
+        VERIFIED: 'true',
+        RUN_ID: '44900000000-1',
+        TARGET_SHA: 'bb21dc82673117a937f67c9498dec46b8c27522e',
+        RELEASE_RESULT: 'sealed',
+      },
+      [
+        {
+          fingerprint: firing!.fingerprint,
+          labels: firing!.labels,
+          starts_at: firing!.startsAt,
+        },
+      ]
+    );
+    expect(resolved).toHaveLength(1);
+    // Exact dedup/matching keys preserved so public.fn_record_engine_alerts + reliability controller close the matching row
+    expect(resolved[0].fingerprint).toBe(firing!.fingerprint);
+    expect(resolved[0].startsAt).toBe(firing!.startsAt);
+    expect(resolved[0].labels.alertname).toBe(firing!.labels.alertname);
+    expect(resolved[0].labels.severity).toBe(firing!.labels.severity);
+    expect(resolved[0].labels.component).toBe(firing!.labels.component);
+    expect(resolved[0].labels.run_id).toBe(firing!.labels.run_id);
+    expect(resolved[0].labels.target_sha).toBe(firing!.labels.target_sha);
+    expect(resolved[0].labels.engine_alert_episode_id).toBe(firing!.labels.engine_alert_episode_id);
+    expect(['firing', 'resolved']).toContain(firing!.status);
+    expect(['firing', 'resolved']).toContain(resolved[0].status);
+  });
+
+  it('wave 4: suppresses failure alerts for ancestor-superseded SHAs, widens auto-resolve lookback to 14 days, and supports verified superseded resolution', () => {
+    const olderSha = 'e2140d2d1581daaf84857d98e671f2be832162c6';
+    const newerSha = 'bb21dc82673117a937f67c9498dec46b8c27522e';
+    const staleFailure = buildReleaseFailureAlert({
+      SHIPPED: 'false',
+      RELEASE_RESULT: 'failed',
+      RUN_ID: '44900000001-1',
+      TARGET_SHA: olderSha,
+      EXIT_STAGE: 'prepare',
+      EXIT_OUTCOME: 'failed',
+    });
+    expect(staleFailure).not.toBeNull();
+    // Exact match still returns null when only a different SHA exists without ancestry proof
+    expect(
+      shippedSibling(staleFailure, [
+        { run_id: '44900000002-1', target_sha: newerSha, shipped: true },
+      ])
+    ).toBeNull();
+    // With ancestry proof (olderSha is ancestor of shipped newerSha), false alert is suppressed
+    expect(
+      shippedSibling(
+        staleFailure,
+        [{ run_id: '44900000002-1', target_sha: newerSha, shipped: true }],
+        (ancestor: string, descendant: string) => ancestor === olderSha && descendant === newerSha
+      )
+    ).toBe('44900000002-1');
+
+    // Verified superseded stand-down resolves stale open alerts; unverified does not
+    expect(
+      buildReleaseResolvedAlerts(
+        {
+          SHIPPED: 'false',
+          RELEASE_RESULT: 'superseded',
+          VERIFIED: 'false',
+          RUN_ID: '44900000003-1',
+          TARGET_SHA: newerSha,
+        },
+        [
+          {
+            fingerprint: 'engine-release-failed:old-1',
+            labels: { alertname: 'EngineReleaseFailed' },
+          },
+        ]
+      )
+    ).toEqual([]);
+    const resolvedOnSuperseded = buildReleaseResolvedAlerts(
+      {
+        SHIPPED: 'false',
+        RELEASE_RESULT: 'superseded',
+        VERIFIED: 'true',
+        RUN_ID: '44900000003-1',
+        TARGET_SHA: newerSha,
+      },
+      [
+        {
+          fingerprint: 'engine-release-failed:old-1',
+          labels: {
+            alertname: 'EngineReleaseFailed',
+            component: 'engine-release',
+            engine_alert_episode_id: engineAlertEpisodeId('engine-release-failed:old-1'),
+          },
+        },
+      ]
+    );
+    expect(resolvedOnSuperseded).toHaveLength(1);
+    expect(resolvedOnSuperseded[0].status).toBe('resolved');
+    expect(resolvedOnSuperseded[0].fingerprint).toBe('engine-release-failed:old-1');
+
+    const alertScript = readFileSync(
+      join(ROOT, 'scripts/ci/record-engine-release-alert.mjs'),
+      'utf8'
+    );
+    expect(alertScript).toContain("interval '14 days'");
+    expect(alertScript).toContain('shippedSibling(alert, receipts.rows, gitIsAncestor)');
   });
 });

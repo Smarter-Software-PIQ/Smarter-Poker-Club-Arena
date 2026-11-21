@@ -172,18 +172,16 @@ describe('the default scratch falls back to a short external root', () => {
   it('skips an external root that cannot be written, as the remounted stub is', () => {
     const box = sandbox(['$V/Work', '$V/Work/agent-work/extreme']);
     mkdirSync(join(box.vols, 'Work/agent-work/extreme'), { recursive: true });
+    // A FILE where the stub directory should be: nobody can create .t under
+    // it, root included (a mode-555 directory is still writable to root, so
+    // that model passed the hook's probe in a root cloud session, 2026-11-21).
     const stub = join(box.vols, 'Work/locked');
-    mkdirSync(stub);
-    chmodSync(stub, 0o555);
-    try {
-      const first = join(stub, '.t');
-      const second = join(box.vols, 'Work/agent-work/extreme/.t');
-      const r = pickRoot(box, { CA_PUSH_TMP_ROOTS: `${first} ${second}` });
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toContain(`TMPDIR=${second}/p.`);
-    } finally {
-      chmodSync(stub, 0o755);
-    }
+    writeFileSync(stub, '');
+    const first = join(stub, '.t');
+    const second = join(box.vols, 'Work/agent-work/extreme/.t');
+    const r = pickRoot(box, { CA_PUSH_TMP_ROOTS: `${first} ${second}` });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`TMPDIR=${second}/p.`);
   });
 
   it('gives RUNNER_TEMP the run scratch unless a writable external one was given', () => {
@@ -230,8 +228,20 @@ describe('the default scratch falls back to a short external root', () => {
     chmodSync(locked, 0o555);
     try {
       expect(run(box, `ca_dir_writable "${ok}"`).status).toBe(0);
-      expect(run(box, `ca_dir_writable "${locked}"`).status).toBe(1);
+      // The probe must agree with the kernel: a mode-555 directory refuses an
+      // ordinary user and admits root, so ask the filesystem which this is.
+      let kernelAdmits = true;
+      try {
+        writeFileSync(join(locked, '.probe'), '');
+        rmSync(join(locked, '.probe'));
+      } catch {
+        kernelAdmits = false;
+      }
+      expect(run(box, `ca_dir_writable "${locked}"`).status).toBe(kernelAdmits ? 0 : 1);
       expect(run(box, `ca_dir_writable "${join(box.vols, 'Work/missing')}"`).status).toBe(1);
+      const file = join(box.vols, 'Work/a-file');
+      writeFileSync(file, '');
+      expect(run(box, `ca_dir_writable "${file}"`).status).toBe(1);
     } finally {
       chmodSync(locked, 0o755);
     }
