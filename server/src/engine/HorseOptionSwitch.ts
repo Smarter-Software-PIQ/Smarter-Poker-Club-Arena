@@ -720,6 +720,27 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     source:
       'league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 (docs/horse-league-fixed-limit.md; docs/changelog/2026-11-20-league-scripted-fixed-limit-field.md)',
   }),
+  // 2026-11-21 Antigravity Coordinator: the scripted no-limit field (PR #11634, docs/changelog/2026-11-21-holdem-scripted-
+  // no-limit-field.md). Against its value-only harm control it loses on both seeds; against the pot barreler it is not
+  // resolved. No cell anywhere is significantly positive, so it is off-only as measured harm.
+  holdemCommittedNoPairIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: value-only harm control -0.21 bb/100 (SE 0.07, z -3.02; seeds -0.20 +/- 0.10, z -2.02 and -0.22 +/- 0.10, z -2.26, both significant); pot barreler not resolved (-0.21 +/- 0.70); no significant positive cell',
+    source:
+      'league card nlh_committed_no_pair_is_priced_vs_value_barreler and _vs_pot_barreler, PR #11634 (docs/horse-option-authority.d/holdemCommittedNoPairIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
+  }),
+  // 2026-11-21 Antigravity Coordinator: same field. Against a danger-board bettor that bets value and no-pair half-pot
+  // on four-flush/four-straight boards it loses heavily on both seeds; its gain against the value-only control is the
+  // field most favourable to it. Same shape as fixedLimitCallIsNotACommitment (harm in one field, nothing in the other).
+  // The known cause is its n = 50 call-biased showdown sample of the bettor's range.
+  holdemDangerBoardEquityIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: danger-board bettor (value and no-pair half-pot bets on four-flush/four-straight boards) -7.90 bb/100 (SE 0.81, z -9.74; seeds -7.31 +/- 1.11, z -6.61 and -8.49 +/- 1.19, z -7.16); its value-only control gain +2.33 (z +7.61) is the field most favourable to it; cause: n = 50 call-biased bettor-range showdown sample',
+    source:
+      'league card nlh_danger_board_equity_is_priced_vs_danger_bettor and _vs_danger_value, PR #11634 (docs/horse-option-authority.d/holdemDangerBoardEquityIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
+  }),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
     reason: 'off-only stops an explicit true; it changes nothing by default',
