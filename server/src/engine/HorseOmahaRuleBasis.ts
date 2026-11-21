@@ -149,6 +149,24 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
 
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
+  omahaFourBetFoldPricedCall: PREFLOP_PRICED,
+  omahaRiverCheckedToBetIsMeasured: {
+    kind: 'priced',
+    range: 'the checker range after his river check (card-impact range, no opponent kind)',
+    equity: 'equity of the hand against that range on the river',
+    realization:
+      'the measured response curve of river bets after a check (fold, call, raise by size), showdown when called',
+    price:
+      'the bet against the calibrated showdown value of the check, by more than its standard error',
+  },
+  omahaRiverFirstToActBetIsPriced: {
+    kind: 'priced',
+    range: "the second actor's river range (card-impact range, no opponent kind)",
+    equity: 'equity of the hand against that range on the river',
+    realization:
+      'the measured response curve of first-to-act river bets (fold, call, raise by size), showdown when called',
+    price: 'the bet against the check, by more than its standard error',
+  },
   omahaAcesReraiseIsMeasured: partly(
     [],
     'aces facing a 3-bet at 250 bb or less: the re-raise: a measured class-by-spot cell used directly as the action (fit and held-out real chips by structure class, spot and depth band), not an EV against a stated range at this decision'
@@ -566,6 +584,21 @@ export const OMAHA_SHARED_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>>
  * decides or shades a PLO4/PLO5 cash decision.
  */
 export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
+  omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
+  omaha_river_checked_to_bet_measured: {
+    kind: 'priced',
+    range: 'the checker range after his river check (card-impact range, no opponent kind)',
+    equity: 'equity of the hand against that range on the river',
+    realization: 'the measured response curve of river bets after a check, showdown when called',
+    price: 'the bet against the calibrated showdown value of the check',
+  },
+  omaha_river_first_to_act_bet_priced: {
+    kind: 'priced',
+    range: "the second actor's river range (card-impact range, no opponent kind)",
+    equity: 'equity of the hand against that range on the river',
+    realization: 'the measured response curve of first-to-act river bets, showdown when called',
+    price: 'the bet against the check',
+  },
   v38_river_fold: partly(
     ['omahaMathCore'],
     'riverCallVerdict prices the call, but its equity comes from the V40/V15-capped sampler minus class-keyed shades (shade87Omaha, the style bluff-catch cap)'
