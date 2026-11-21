@@ -2247,6 +2247,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   receipt(
+    'lightning_fold_through_limp_kept',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning early fold whose fold-through frame answered only an unraised limp or small-blind complete (no strength-gated Lightning entry branch) was kept: the blind-vs-blind complete mix does not release an early fold',
+    '2026-11-21'
+  ),
+  receipt(
     'lightning_cheap_entry_eligible_seen',
     'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
     'a preflop decision with a Lightning cheap entry option on and the hand inside the shared Lightning predicate (Lightning cash NLH / PLO4 / PLO5, four to six dealt, big-blind ante): the opportunity count; zero in Lightning with the option on is an unwired option; named *_seen',
