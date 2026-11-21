@@ -148,6 +148,28 @@ class DailySelection(unittest.TestCase):
         self.assertEqual({d['detail'] for d in report['deferredCandidates']},
                          {'qualification inputs differ from selected control'})
 
+    def test_keep_serving_deferred_prequalification_preserves_refusal_detail_and_run_id(self):
+        old, newest, serving = ('a' * 40, 'b' * 40, 'c' * 40)
+        args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving)
+        refusal = b'latest qualification is incomplete, unsuccessful or untrusted (run 44878744051, status=completed, conclusion=failure)\n'
+        processes = [mod.subprocess.CompletedProcess([], 3, b'', refusal),
+                     mod.subprocess.CompletedProcess([], 3, b'', b'qualification inputs differ from selected control\n')]
+        report = {'outcome': 'keep-serving', 'targetSha': None, 'cutoffEpoch': 1, 'deferredCandidates': []}
+        with (patch.object(mod, 'git', side_effect=[newest + '\n' + old, serving]),
+              patch.object(mod, 'current_schema', return_value=(True, '', {})),
+              patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
+              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving, 'playerReconnectedBothDirections': True,
+                                                       'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}),
+              patch.object(mod.subprocess, 'run', side_effect=processes)):
+            mod.select(args, report)
+        self.assertEqual(report['outcome'], 'keep-serving')
+        self.assertIsNone(report['targetSha'])
+        self.assertEqual([d['reason'] for d in report['deferredCandidates']], ['prequalification unavailable'] * 2)
+        self.assertEqual(report['deferredCandidates'][0]['sha'], newest)
+        self.assertIn('run 44878744051', report['deferredCandidates'][0]['detail'])
+        self.assertIn('conclusion=failure', report['deferredCandidates'][0]['detail'])
+        self.assertEqual(report['deferredCandidates'][1]['detail'], 'qualification inputs differ from selected control')
+
     def test_owner_ancestor_keeps_exact_controls_cutoff_and_admission_expiry(self):
         newest, old, serving = 'b'*40, 'a'*40, 'c'*40
         args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving, owner_window='finite-owner')

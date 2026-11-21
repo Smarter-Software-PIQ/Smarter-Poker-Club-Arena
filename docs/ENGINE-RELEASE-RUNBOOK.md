@@ -466,13 +466,14 @@ public `/health` only; the window, close and consumed rules are the ones in
 `scripts/ci/owner-window-ready.py`, the controls rule is `policy()` in
 `server/scripts/engine-release-activation-floor.py`):
 
-| Verdict     | Meaning                                                                                           | Push run does                                                                           |
-| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `booking`   | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
-| `candidate` | Carries main's two control files, after the booking commit                                        | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
-| `predates`  | Its control files differ from main's, so an owner selection refuses it while the window is open   | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
-| `none`      | No owner window on main, or it closed, or its release is serving                                  | Unchanged                                                                               |
-| `unknown`   | Anything unreadable or malformed                                                                  | Unchanged (CLAUDE.md 10.86)                                                             |
+| Verdict           | Meaning                                                                                                                                    | Push run does                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `booking`         | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's                                          | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
+| `booking_pending` | Carries main's two control files after the booking commit, while the booking commit does not yet carry `backup-engine/certified = success` | `DEFERRED`: nothing planned, no status written; yields the Backup host to the booking   |
+| `candidate`       | Carries main's two control files after the booking commit, and the booking commit already carries `backup-engine/certified = success`      | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
+| `predates`        | Its control files differ from main's, so an owner selection refuses it while the window is open                                            | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
+| `none`            | No owner window on main, or it closed, or its release is serving                                                                           | Unchanged                                                                               |
+| `unknown`         | Anything unreadable or malformed                                                                                                           | Unchanged (CLAUDE.md 10.86)                                                             |
 
 So the booking commit's own push run certifies it; do not also dispatch it by
 hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
