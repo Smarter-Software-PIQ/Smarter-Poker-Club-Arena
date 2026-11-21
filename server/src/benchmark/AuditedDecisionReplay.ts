@@ -20,6 +20,13 @@
  *    audit2 (PLO5-WOOWOO-AUDIT-PART2 decisions.csv + the audit's hands.jsonl,
  *    which places each row at its node), and the WooWoo 48 h audit
  *    (decision-audit/decisions-full.csv + spec/decision-to-finding.csv).
+ *    A third source, `placed` (2026-11-20), reads audited decisions another
+ *    tool already placed at their node (one JSON line each; placedDecisions):
+ *    the six HVH48 audits (PLO5 Lightning, PLO4/PLO5 table, PLO6, Hold'em
+ *    cash, Hold'em and PLO tournaments) each publish their own columns, and
+ *    scripts/hvh48-audit-nodes.py places their rows. It is scored
+ *    verdict-only, and where the audit names the better action a change
+ *    counts as fixed only when it is a change to that action.
  *  - audit2 has an action-level judge (its analyze.py rules, ported below as
  *    judgeAudit2): the base and the replayed action are each judged, so a
  *    change is fixed (bad -> ok), newly wrong (ok -> bad), still wrong or
@@ -81,7 +88,7 @@ export const nodeKey = (n: DecisionNode): string => `${n.hand}:${n.seat}:${n.str
 
 export type VerdictClass = 'bad' | 'ok' | 'unjudged';
 /** The audit sets the scorer reads. Only audit2 has an action-level judge; the others are scored verdict-only. */
-export type AuditSource = 'audit2' | 'woowoo' | 'plo6';
+export type AuditSource = 'audit2' | 'woowoo' | 'plo6' | 'placed';
 
 /** The inputs of the audit2 judge (columns of its decisions.csv; chips unless named _bb). */
 export interface Audit2JudgeInputs {
@@ -111,6 +118,11 @@ export interface AuditedDecision {
   cls: VerdictClass;
   finding?: string;
   judge?: Audit2JudgeInputs;
+  /**
+   * placed only: the action kinds the audit names as better than the recorded one. With it, a change away from a
+   * judged-bad action is fixed only when it is a change to one of these; any other change is still wrong.
+   */
+  better?: readonly string[];
 }
 
 export interface ReplayArm {
@@ -673,6 +685,47 @@ export function plo6Decisions(
   return { decisions, unplaced };
 }
 
+// ── audited decisions already placed at their node ─────────────────────────
+/**
+ * placed: one JSON line per audited decision, {hand, seat, street, k, recorded: {action, amount}, verdict,
+ * cls: 'bad' | 'ok' | 'unjudged', better?: [action kinds], finding?}. The tool that wrote the line placed the
+ * audit's row at its node and states the class rule it used; a line that is not a node, repeats a node or
+ * carries an unknown class is listed as not placed, never guessed.
+ */
+export function placedDecisions(nodesJsonl: string): AdapterResult {
+  const decisions: AuditedDecision[] = [];
+  const unplaced: AdapterResult['unplaced'] = [];
+  const seen = new Set<string>();
+  nodesJsonl.split('\n').forEach((line, i) => {
+    if (!line.trim()) return;
+    const o = JSON.parse(line) as Record<string, unknown>;
+    const rec = (o.recorded ?? {}) as { action?: unknown; amount?: unknown };
+    const street = String(o.street ?? '');
+    const refuse = (reason: string) =>
+      unplaced.push({ row: i + 1, hand: String(o.hand ?? ''), name: '', street, reason });
+    if (o.hand === undefined || typeof o.seat !== 'number' || typeof o.k !== 'number')
+      return refuse('needs hand, seat and k');
+    if (!isStreet(street)) return refuse('not a street');
+    if (typeof rec.action !== 'string' || !VOLUNTARY_ACTIONS.has(rec.action))
+      return refuse('not a voluntary decision');
+    if (o.cls !== 'bad' && o.cls !== 'ok' && o.cls !== 'unjudged') return refuse('unknown class');
+    const node = { hand: String(o.hand), seat: o.seat, street, k: o.k };
+    if (seen.has(nodeKey(node))) return refuse('the node is given twice');
+    seen.add(nodeKey(node));
+    const better = Array.isArray(o.better) ? o.better.map(String) : [];
+    decisions.push({
+      node,
+      source: 'placed',
+      recorded: { action: rec.action, amount: typeof rec.amount === 'number' ? rec.amount : null },
+      verdict: String(o.verdict ?? ''),
+      cls: o.cls,
+      ...(typeof o.finding === 'string' ? { finding: o.finding } : {}),
+      ...(better.length ? { better } : {}),
+    });
+  });
+  return { decisions, unplaced };
+}
+
 // ── replay rows ────────────────────────────────────────────────────────────
 /** Arm-wide facts a harness declares once, on a line `{"meta": {"arms": {"<arm>": {...}}}}`. */
 export interface ReplayArmMeta {
@@ -895,6 +948,8 @@ export function scoreReplay(
         } else {
           for (const r of receipts) buckets.push(bucketFor(r));
         }
+        // Where the audit names the better action, only a change to it is a fix (placed sources).
+        const toBetter = !d.better?.length || d.better.includes(a.action);
         const newJ = verdictOnly
           ? {
               cls: (a.action === b.action ? baseJ.cls : 'unjudged') as VerdictClass,
@@ -915,8 +970,10 @@ export function scoreReplay(
           if ((RANK[a.action] ?? 0) > (RANK[b.action] ?? 0)) c.moreAggressive++;
           else c.morePassive++;
           if (verdictOnly) {
-            if (baseJ.cls === 'bad') c.fixed++;
-            else if (baseJ.cls === 'ok') c.newlyWrong++;
+            if (baseJ.cls === 'bad') {
+              if (toBetter) c.fixed++;
+              else c.stillWrong++;
+            } else if (baseJ.cls === 'ok') c.newlyWrong++;
             else c.changedUnjudged++;
           } else if (baseJ.cls === 'unjudged' || newJ.cls === 'unjudged') c.changedUnjudged++;
           else if (baseJ.cls === 'bad' && newJ.cls === 'ok') c.fixed++;
@@ -927,7 +984,7 @@ export function scoreReplay(
         }
         if (a.action !== b.action) {
           const fixed = verdictOnly
-            ? baseJ.cls === 'bad'
+            ? baseJ.cls === 'bad' && toBetter
             : baseJ.cls === 'bad' && newJ.cls === 'ok';
           const neww = verdictOnly ? baseJ.cls === 'ok' : baseJ.cls === 'ok' && newJ.cls === 'bad';
           if (fixed) slot.fixedNodes.push(key);

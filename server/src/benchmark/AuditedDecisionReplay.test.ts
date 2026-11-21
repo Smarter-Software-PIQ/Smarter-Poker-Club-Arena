@@ -23,6 +23,7 @@ import {
   parseReplayJsonl,
   plo6Decisions,
   plo6VerdictClass,
+  placedDecisions,
   replayBarLine,
   replayBarRows,
   replayRefusals,
@@ -376,6 +377,78 @@ describe('AuditedDecisionReplay', () => {
         'on'
       )
     ).toContain('no bb (the audit declares no EV model)');
+  });
+
+  it('scores placed audited decisions verdict-only, and a fix is a change to the action the audit names', () => {
+    const node = (hand: string, cls: string, action: string, better?: string[]) =>
+      JSON.stringify({
+        hand,
+        seat: 1,
+        street: 'river',
+        k: 0,
+        recorded: { action, amount: 0 },
+        verdict: cls === 'bad' ? 'CLEAR' : 'OK',
+        cls,
+        ...(better ? { better } : {}),
+      });
+    const placed = placedDecisions(
+      [
+        node('900201', 'bad', 'fold', ['call']),
+        node('900202', 'bad', 'fold', ['call']),
+        node('900203', 'ok', 'call'),
+        node('900204', 'bad', 'check'),
+        node('900204', 'bad', 'check'), // the node twice: not placed
+        JSON.stringify({
+          hand: '900205',
+          seat: 1,
+          street: 'river',
+          k: 0,
+          recorded: { action: 'fold' },
+          cls: 'fine',
+        }),
+        JSON.stringify({
+          hand: '900206',
+          seat: 1,
+          street: 'showdown',
+          k: 0,
+          recorded: { action: 'fold' },
+          cls: 'ok',
+        }),
+      ].join('\n')
+    );
+    expect(placed.decisions.map((d) => d.node.hand)).toEqual([
+      '900201',
+      '900202',
+      '900203',
+      '900204',
+    ]);
+    expect(placed.decisions.every((d) => d.source === 'placed')).toBe(true);
+    expect(placed.unplaced.map((u) => u.reason)).toEqual([
+      'the node is given twice',
+      'unknown class',
+      'not a street',
+    ]);
+    const row = (hand: string, off: string, on: string) =>
+      JSON.stringify({
+        hand,
+        seat: 1,
+        street: 'river',
+        k: 0,
+        arms: { off: { action: off }, on: { action: on } },
+      });
+    const replay = parseReplayJsonl(
+      [
+        row('900201', 'fold', 'call'), // bad -> the audit's better action: fixed
+        row('900202', 'fold', 'raise'), // bad -> another action: still wrong
+        row('900203', 'call', 'fold'), // ok -> changed: newly wrong
+        row('900204', 'check', 'bet'), // bad, no better action named: any change is fixed
+      ].join('\n')
+    );
+    const s = scoreReplay([{ source: 'placed', decisions: placed.decisions }], replay).sources[0];
+    expect(s.method).toBe('verdict-only');
+    const on = s.arms.find((a) => a.arm === 'on')!;
+    expect([on.changed, on.fixed, on.stillWrong, on.newlyWrong]).toEqual([4, 2, 1, 1]);
+    expect(on.fixedNodes.sort()).toEqual(['900201:1:river:0', '900204:1:river:0']);
   });
 
   it('refuses a replay line without its node fields', () => {
