@@ -2,6 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
 import {
+  HUD_CATCHUP_MAX_PAUSE_MS,
+  HUD_CATCHUP_PAGE_ROWS,
+  HUD_CATCHUP_PAUSE_MS,
   HUD_READY_DEADLINE_MS,
   OpponentHudStore,
   type HudStoredRow,
@@ -166,6 +169,106 @@ describe('OpponentHudStore: option off is a build without the HUD', () => {
     await flush();
     await flush();
     expect(store.stats().ready).toBe(0);
+  });
+});
+
+describe('OpponentHudStore: the switch-on catch-up is rate limited and never ahead of seated players', () => {
+  const syncAt = (stored: Map<string, HudStoredRow>, at: number) =>
+    stored.set('plo5|*', {
+      user_id: '*',
+      family: 'plo5',
+      version: 1,
+      hands: 0,
+      wm_ms: at,
+      profile: { family: {}, stakes: {} },
+    });
+  const pager = (rows: ReturnType<typeof row>[], onCall?: (n: number) => void) => {
+    const limits: number[] = [];
+    let calls = 0;
+    const page = async (afterAt: string, afterId: string, limit: number) => {
+      limits.push(limit);
+      onCall?.(++calls);
+      return rows
+        .filter((r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId))
+        .slice(0, limit);
+    };
+    return { page, limits, calls: () => calls };
+  };
+
+  it('pages of at most HUD_CATCHUP_PAGE_ROWS rows, a pause between pages, doubling on slow pages and halving back', async () => {
+    const stored = new Map<string, HudStoredRow>();
+    syncAt(stored, T0 - 3 * 3600_000);
+    const deps = fakeDeps(stored);
+    const rows = Array.from({ length: 600 }, (_, i) =>
+      row(80_000 + i, 1 + (i % 20), 21 + (i % 20), T0 - 3 * 3600_000 + i * 1000)
+    );
+    // pages 2 and 3 of the first pass are slow (1.5 s each): the pause doubles twice, then halves back
+    const p = pager(rows, (n) => {
+      if (n === 2 || n === 3) deps.tick(1_500);
+    });
+    deps.handsPage = p.page;
+    const pauses: number[] = [];
+    deps.sleep = async (ms) => {
+      if (ms > 0) pauses.push(ms);
+    };
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    for (let i = 0; i < 400 && !store.lastActivation; i++) await flush();
+    expect(store.lastActivation).toMatchObject({ applied: 1200, capped: false });
+    expect(p.limits.every((l) => l <= HUD_CATCHUP_PAGE_ROWS)).toBe(true);
+    expect(p.calls()).toBe(6); // two passes of 250 + 250 + 100
+    expect(store.catchupStats.backoffs).toBe(2);
+    expect(store.catchupStats.rows).toBe(1200);
+    const pagePauses = pauses.filter((ms) => ms >= HUD_CATCHUP_PAUSE_MS);
+    expect(pagePauses.slice(0, 2)).toEqual([HUD_CATCHUP_PAUSE_MS, HUD_CATCHUP_PAUSE_MS * 2]); // doubled after slow page 2
+    expect(store.catchupStats.maxPauseMs).toBe(HUD_CATCHUP_PAUSE_MS * 4); // and again after slow page 3
+    expect(Math.max(...pagePauses)).toBeLessThanOrEqual(HUD_CATCHUP_MAX_PAUSE_MS);
+    expect(pagePauses[pagePauses.length - 1]).toBe(HUD_CATCHUP_PAUSE_MS); // recovered
+  });
+
+  it('a seated player is loaded before the catch-up reads its next page, and a decision is never blocked', async () => {
+    const stored = new Map<string, HudStoredRow>([[`plo5|${U(50)}`, lifetime(50, 12)]]);
+    syncAt(stored, T0 - 3600_000);
+    const deps = fakeDeps(stored);
+    const order: string[] = [];
+    const rows = [row(90_001, 1, 2, T0 - 1800_000)];
+    deps.handsPage = async (afterAt: string) => {
+      order.push('page');
+      return rows.filter((r) => r.created_at > afterAt);
+    };
+    const realRead = deps.read;
+    let release: (() => void) | null = null;
+    deps.read = async (ids, family, signal) => {
+      if (ids.includes(U(50))) {
+        await new Promise<void>((r) => (release = r));
+        order.push('seat');
+      }
+      return realRead(ids, family, signal);
+    };
+    let sleeps = 0;
+    deps.sleep = async (ms) => {
+      deps.tick(ms);
+      if (++sleeps === 5 && release) release();
+    };
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    store.warm([U(50)], 'plo5', 'sit'); // the table join, while the switch-on catch-up starts
+    // the decision path answers at once while the seat load and the catch-up are both in flight
+    const f = store.packetFor({
+      family: 'plo5',
+      cash: true,
+      heroId: U(9),
+      opponentIds: [U(50)],
+      street: 'preflop',
+      atMs: T0,
+    });
+    expect(f.opponentHud).toBeDefined();
+    for (let i = 0; i < 200 && !store.lastActivation; i++) await flush();
+    expect(order[0]).toBe('seat');
+    expect(order.indexOf('page')).toBeGreaterThan(0);
+    expect(store.catchupStats.yieldedToSeats).toBeGreaterThanOrEqual(1);
+    expect(store.profile(U(50), 'plo5')!.hands).toBe(12);
+    expect(store.readyLatencies.every((ms) => ms < HUD_READY_DEADLINE_MS)).toBe(true);
   });
 });
 

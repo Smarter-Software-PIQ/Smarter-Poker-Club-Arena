@@ -322,6 +322,13 @@ function registry(): string[] {
     for (const b of HUD_BANDS)
       out.push(`${s}.fBet.${b}`, `${s}.cBet.${b}`, `${s}.rBet.${b}`, `${s}.bsz.${b}`);
     out.push(`sd.strong.${s}`, `sd.strongBig.${s}`);
+    // 2026-11-21 (lead order 8 PM): fold to the street's FIRST wager by size (small <= 0.7 pot, big > 0.7 pot or
+    // all-in) and players when it was made (hu = 2 live); stab = bets when checked to; value share of his own wagers
+    // shown at showdown, by line (stab after checks / lead first to act / raise) and size. Public history only.
+    for (const z of ['sm', 'bg']) for (const pl of ['hu', 'mw']) out.push(`${s}.fb.${z}.${pl}`);
+    out.push(`${s}.stab.hu`, `${s}.stab.mw`, `${s}.lead.hu`, `${s}.lead.mw`);
+    for (const ln of ['stab', 'lead', 'raise'])
+      for (const z of ['sm', 'bg']) out.push(`vs.${s}.${ln}.${z}`);
   }
   for (const t of HUD_TEXTURES) out.push(`f.betCk.${t}`, `f.fBet.${t}`);
   return out;
@@ -329,6 +336,10 @@ function registry(): string[] {
 /** Every statistic the profile keeps; a new one must be added here AND covered by OpponentHudProfile.test.ts
  *  (the registry law enumerates this list against the tests' coverage table). */
 export const HUD_STATS: readonly string[] = Object.freeze(registry());
+/** The context statistics (MATHCORE-2 opponent layer, STAB-DEFENCE) whose RAW lifetime counts ride in the packet. */
+export const HUD_CONTEXT_STATS: readonly string[] = Object.freeze(
+  HUD_STATS.filter((s) => /^[ftr]\.(fb|stab|lead)\.|^vs\./.test(s))
+);
 const STAT_SET = new Set(HUD_STATS);
 export function hudStatIsRegistered(stat: string): boolean {
   return STAT_SET.has(stat);
@@ -578,6 +589,12 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
   let pfLastRaiser: string | null = null;
   let streetAggressions = 0;
   let lastAggressionRatio: number | null = null;
+  let lastAggressionBig = false;
+  let liveAtLastAggression = 0;
+  const wagerLines = new Map<
+    string,
+    { s: PostKey; ln: 'stab' | 'lead' | 'raise'; z: 'sm' | 'bg' }[]
+  >();
   let prevStreetAggressor: string | null = null;
   let streetAggressor: string | null = null;
   let prevStreetHadBet = true; // preflop always has the blinds
@@ -599,6 +616,8 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     streetAggressions = 0;
     streetAggressor = null;
     lastAggressionRatio = null;
+    lastAggressionBig = false;
+    liveAtLastAggression = 0;
     for (const s of seats.values()) {
       s.streetCommitted = 0;
       s.checkedThisStreet = false;
@@ -710,6 +729,14 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     } else {
       const sk = STREET_KEY[street];
       const facingLevel = betBefore > committedBefore + 1e-9 ? streetAggressions : 0;
+      let liveNow = 0;
+      let checkedTo = false;
+      for (const o of seats.values()) {
+        if (o.folded) continue;
+        liveNow += 1;
+        if (o !== st && o.checkedThisStreet) checkedTo = true;
+      }
+      const wagerBig = aggressive && ((ratio !== null && ratio > 0.7) || a.action === 'all_in');
       const band: HudBand | '-' =
         facingLevel > 0 && lastAggressionRatio !== null ? hudBand(lastAggressionRatio) : '-';
       const line =
@@ -748,12 +775,23 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
               add(user, `${sk}.donk`, aggressive);
           }
           if (sk !== 'f' && !prevStreetHadBet) add(user, `${sk}.probe`, aggressive);
+          // first wager on unopened action: after an opponent checked to him (stab) or first to act (lead)
+          add(
+            user,
+            `${sk}.${checkedTo ? 'stab' : 'lead'}.${liveNow === 2 ? 'hu' : 'mw'}`,
+            aggressive
+          );
         }
       } else if (facingLevel === 1 && !st.aggressedThisStreet && !st.facedOnStreet) {
         st.facedOnStreet = true;
         add(user, `${sk}.fBet`, code === 'f');
         add(user, `${sk}.cBet`, code === 'c');
         add(user, `${sk}.rBet`, aggressive);
+        add(
+          user,
+          `${sk}.fb.${lastAggressionBig ? 'bg' : 'sm'}.${liveAtLastAggression === 2 ? 'hu' : 'mw'}`,
+          code === 'f'
+        );
         if (band !== '-') {
           add(user, `${sk}.fBet.${band}`, code === 'f');
           add(user, `${sk}.cBet.${band}`, code === 'c');
@@ -767,6 +805,15 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
       if (aggressive && ratio !== null) add(user, `${sk}.bsz.${hudBand(ratio)}`, true);
       if (code === 'k') st.checkedThisStreet = true;
       if (aggressive) {
+        const ws = wagerLines.get(user) ?? [];
+        ws.push({
+          s: sk,
+          ln: facingLevel > 0 ? 'raise' : checkedTo ? 'stab' : 'lead',
+          z: wagerBig ? 'bg' : 'sm',
+        });
+        wagerLines.set(user, ws);
+        lastAggressionBig = wagerBig;
+        liveAtLastAggression = liveNow;
         st.aggressedThisStreet = true;
         streetAggressions += 1;
         streetAggressor = user;
@@ -831,6 +878,9 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
         const sk = STREET_KEY[i.s];
         add(d.user, `sd.strong.${sk}`, cls >= STRONG_MIN);
       }
+    if (cls !== null)
+      for (const w of wagerLines.get(d.user) ?? [])
+        add(d.user, `vs.${w.s}.${w.ln}.${w.z}`, cls >= STRONG_MIN);
   }
   return [...deltas.values()];
 }

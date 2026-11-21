@@ -68,6 +68,19 @@ export const HUD_READY_DEADLINE_MS = 15_000;
 export const HUD_SYNC_ROW = '#sync';
 /** switching on more than this long after the last sync point catches up only this much and asks for a backfill */
 export const HUD_ACTIVATION_MAX_CATCHUP_MS = 48 * 3600_000;
+/**
+ * Switch-on catch-up rate limit (VERIFIER 01:45Z / lead 01:50Z): the catch-up reads at most HUD_CATCHUP_PAGE_ROWS hand
+ * rows per page and pauses HUD_CATCHUP_PAUSE_MS between pages; a page slower than HUD_CATCHUP_SLOW_MS doubles the pause
+ * (up to HUD_CATCHUP_MAX_PAUSE_MS), a fast page halves it back. Seated players come first: while a seat/hand warm load
+ * is in flight the catch-up waits (bounded) before its next read. Applying yields the event loop every
+ * HUD_CATCHUP_APPLY_SLICE hands, so a decision's packet is never queued behind it.
+ */
+export const HUD_CATCHUP_PAGE_ROWS = 250;
+export const HUD_CATCHUP_PAUSE_MS = 200;
+export const HUD_CATCHUP_SLOW_MS = 1_000;
+export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
+export const HUD_CATCHUP_APPLY_SLICE = 50;
+export const HUD_CATCHUP_SEAT_WAIT_MS = 4_000;
 export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
 
 export type HudAlertName =
@@ -116,6 +129,8 @@ export interface OpponentHudStoreDeps {
   alert?(name: HudAlertName, firing: boolean, summary: string): void;
   now(): number;
   warn?(message: string): void;
+  /** pause used by the catch-up rate limit (tests inject a recorder); absent, a real unref'd timer */
+  sleep?(ms: number): Promise<void>;
 }
 
 type Entry =
@@ -264,24 +279,68 @@ export class OpponentHudStore {
   ): Promise<{ applied: number; loaded: number }> {
     const out = { applied: 0, loaded: 0 };
     if (!this.deps.handsPage) return out;
+    const st = this.catchupStats;
+    const sleep = (ms: number): Promise<void> =>
+      this.deps.sleep
+        ? this.deps.sleep(ms)
+        : new Promise((r) => {
+            const t = setTimeout(r, ms);
+            (t as { unref?: () => void }).unref?.();
+          });
+    let pause = HUD_CATCHUP_PAUSE_MS;
+    // seated players first: a seat / hand warm load in flight goes ahead of the next catch-up read (bounded wait)
+    const yieldToSeats = async (): Promise<void> => {
+      const until = this.deps.now() + HUD_CATCHUP_SEAT_WAIT_MS;
+      let waited = false;
+      while (this.seatLoads > 0 && this.armedState && this.deps.now() < until) {
+        waited = true;
+        await sleep(50);
+      }
+      if (waited) st.yieldedToSeats += 1;
+    };
     const walk = async (visit: (rec: HudHandRecord) => void): Promise<void> => {
       let afterAt = new Date(fromMs).toISOString();
       let afterId = '00000000-0000-0000-0000-000000000000';
       const untilIso = toMs === null ? undefined : new Date(toMs).toISOString();
-      for (let page = 0; page < 400; page++) {
+      for (let page = 0; page < 2000; page++) {
+        if (!this.armedState) return;
+        if (page > 0) {
+          await sleep(pause);
+          st.pausedMs += pause;
+        }
+        await yieldToSeats();
         const ac = new AbortController();
         const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
         (t as { unref?: () => void }).unref?.();
         try {
-          const rows = await this.deps.handsPage!(afterAt, afterId, 1000, ac.signal, untilIso);
+          const t0 = this.deps.now();
+          const rows = await this.deps.handsPage!(
+            afterAt,
+            afterId,
+            HUD_CATCHUP_PAGE_ROWS,
+            ac.signal,
+            untilIso
+          );
+          const took = this.deps.now() - t0;
+          st.pages += 1;
+          st.dbMs += took;
+          if (took > HUD_CATCHUP_SLOW_MS) {
+            pause = Math.min(HUD_CATCHUP_MAX_PAUSE_MS, pause * 2);
+            st.backoffs += 1;
+            noteFire('opponent_hud_catchup_backoff');
+          } else pause = Math.max(HUD_CATCHUP_PAUSE_MS, Math.floor(pause / 2));
+          st.maxPauseMs = Math.max(st.maxPauseMs, pause);
           if (!Array.isArray(rows) || !rows.length) return;
+          st.rows += rows.length;
+          let n = 0;
           for (const r of rows) {
             const rec = handRecordFromRow(r);
             if (typeof rec !== 'string') visit(rec);
+            if (++n % HUD_CATCHUP_APPLY_SLICE === 0) await sleep(0);
           }
           afterAt = rows[rows.length - 1].created_at;
           afterId = rows[rows.length - 1].id;
-          if (rows.length < 1000) return;
+          if (rows.length < HUD_CATCHUP_PAGE_ROWS) return;
         } finally {
           clearTimeout(t);
         }
@@ -299,6 +358,11 @@ export class OpponentHudStore {
         const cold = [...users].filter((u) => this.cache.get(key(family, u))?.state !== 'ready');
         for (let i = 0; i < cold.length; i += 50) {
           if (!this.armedState) return out;
+          if (i > 0) {
+            await sleep(pause);
+            st.pausedMs += pause;
+          }
+          await yieldToSeats();
           await this.load(cold.slice(i, i + 50), family);
           out.loaded += Math.min(50, cold.length - i);
         }
@@ -319,6 +383,18 @@ export class OpponentHudStore {
     }
     return out;
   }
+  /** seat / hand warm loads in flight (the catch-up yields to them) */
+  private seatLoads = 0;
+  /** the switch-on catch-up's rate-limit counters (pages, rows, database ms, pauses, backoffs, yields to seats) */
+  readonly catchupStats = {
+    pages: 0,
+    rows: 0,
+    dbMs: 0,
+    pausedMs: 0,
+    maxPauseMs: 0,
+    backoffs: 0,
+    yieldedToSeats: 0,
+  };
   armed(): boolean {
     return this.armedState;
   }
@@ -345,7 +421,12 @@ export class OpponentHudStore {
         if (e?.state === 'failed' && now < e.retryAt) continue;
         want.push(u);
       }
-      for (let i = 0; i < want.length; i += 50) void this.load(want.slice(i, i + 50), family);
+      for (let i = 0; i < want.length; i += 50) {
+        this.seatLoads += 1;
+        void this.load(want.slice(i, i + 50), family).finally(() => {
+          this.seatLoads -= 1;
+        });
+      }
     } catch {
       noteFire('opponent_hud_warm_error');
     }

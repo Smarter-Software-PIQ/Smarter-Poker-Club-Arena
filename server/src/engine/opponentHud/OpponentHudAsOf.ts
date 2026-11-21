@@ -82,6 +82,29 @@ export class OpponentHudAsOf {
     return out.sort((a, b) => (a.user < b.user ? -1 : 1));
   }
 
+  /**
+   * Lifetime public counts [opportunities, hits] of the named statistics (registered ids, or context aliases resolved
+   * with hudContextStatId) as they stood before the hand `handId`, per player: the replay twin of what production
+   * reads through hudStat / hudStatIn (MATHCORE-2 opponent layer, STAB-DEFENCE). Null when the hand is unknown.
+   */
+  countsBefore(
+    handId: string,
+    family: HudFamily,
+    users: readonly string[],
+    stats: readonly string[]
+  ): Record<string, Record<string, [number, number]>> | null {
+    const profiles = this.profilesBefore(handId, family, users);
+    if (profiles === null) return null;
+    const out: Record<string, Record<string, [number, number]>> = {};
+    for (const u of users) out[u] = {};
+    for (const p of profiles)
+      for (const st of stats) {
+        const c = p.life[st];
+        out[p.user][st] = c ? [c[0], Math.min(c[0], c[1])] : [0, 0];
+      }
+    return out;
+  }
+
   /** The packet production would attach to a decision in hand `handId` facing `opponents` at `street`. */
   packetBefore(
     handId: string,

@@ -375,6 +375,44 @@ describe('OpponentHudProfile: hand-constructed histories', () => {
 function generatedHistories(): Spec[] {
   const out: Spec[] = [S1, S2];
   let id = 100;
+  // value share by line and size (2026-11-21): leads and raises of both sizes on every street, shown at showdown
+  for (const [lead, raiseTo] of [
+    [(pot: number) => pot * 0.25, (pot: number, l: number) => l + 1.5 * (pot + 2 * l)],
+    [(pot: number) => pot, (pot: number, l: number) => l + 0.2 * (pot + 2 * l)],
+  ] as const) {
+    const acts: Act[] = [
+      ['preflop', 2, 'sb', 1],
+      ['preflop', 1, 'bb', 2],
+      ['preflop', 2, 'raise', 10],
+      ['preflop', 1, 'call', 8],
+    ];
+    let pot = 20;
+    for (const st of ['flop', 'turn', 'river'] as const) {
+      const l = Math.round(lead(pot) * 100) / 100;
+      const r = Math.round(raiseTo(pot, l) * 100) / 100;
+      acts.push(
+        [st, 1, 'bet', l],
+        [st, 2, 'raise', r],
+        [st, 1, 'call', Math.round((r - l) * 100) / 100]
+      );
+      pot += 2 * r;
+    }
+    out.push({
+      id: id++,
+      button: 2,
+      seats: [
+        [1, 1, 100000],
+        [2, 2, 100000],
+      ],
+      acts,
+      board: ['Ah', '7d', '2c', 'Kd', '9s'],
+      showdown: [
+        [2, false, 'Full House'],
+        [1, false, 'Pair'],
+      ],
+      winners: [2],
+    });
+  }
   const boards: Record<string, string[]> = {
     mono: ['Ah', 'Kh', '2h', '3d', '4c'],
     paired: ['Ah', 'Ad', '2c', '3d', '9c'],

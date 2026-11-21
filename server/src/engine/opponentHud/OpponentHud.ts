@@ -20,6 +20,7 @@ import {
   HUD_PROFILE_VERSION,
   HUD_RECENCY_HALF_LIFE_MS,
   HUD_STATS,
+  HUD_CONTEXT_STATS,
   hudStatIsRegistered,
   recallKeys,
   type HudBand,
@@ -53,6 +54,8 @@ export interface HudPacketOpponent {
   eff: Record<string, HudCount>;
   /** recall cells: every L0 cell, L1 and L2 cells of the decision's street */
   rc: Record<string, HudRecallCell>;
+  /** raw lifetime counts of the context statistics with at least one opportunity (absent when none) */
+  lc?: Record<string, HudCount>;
 }
 export interface OpponentHudPacket {
   v: typeof HUD_PACKET_VERSION;
@@ -106,7 +109,13 @@ export function buildHudPacketOpponent(
   fine.sort((a, b) => b[1][0] - a[1][0] || (a[0] < b[0] ? -1 : 1));
   for (const [key, cell] of fine.slice(0, HUD_PACKET_MAX_FINE_CELLS))
     rc[key] = [...cell] as HudRecallCell;
-  return { hands: p.hands, eff, rc };
+  // raw lifetime counts of the context statistics (consumers that apply their own shrinkage read these)
+  const lc: Record<string, HudCount> = {};
+  for (const stat of HUD_CONTEXT_STATS) {
+    const c = p.life[stat];
+    if (c && c[0] > 0) lc[stat] = [c[0], Math.min(c[0], c[1])];
+  }
+  return Object.keys(lc).length ? { hands: p.hands, eff, rc, lc } : { hands: p.hands, eff, rc };
 }
 
 /**
@@ -267,6 +276,112 @@ export interface HudRecall {
   /** the finest level with at least one instance, then the coarser ones (finest first) */
   levels: HudRecallLevel[];
   hands: number;
+}
+
+/**
+ * CONTEXT READS through the same accessor (2026-11-21, lead order 8 PM; MATHCORE-2 opponent layer, STAB-DEFENCE).
+ * An alias plus its context names one registered statistic; the read is hudStat's (lifetime counts n / hits, shrunk
+ * to the population prior by n / (n + k): no sample cliff). Public history only.
+ *   x.foldToBet.small | x.foldToBet.big  {street, players}: folds facing the street's FIRST wager, size <= 0.7 pot or
+ *                                        > 0.7 pot / all-in, players 'hu' (2 live when it was made) or 'mw'.
+ *   x.stab                               {street, players}: bets when checked to (an opponent checked before him).
+ *   x.valueShare                         {street, line, size}: share of his wagers shown at showdown with a strong
+ *                                        hand, line 'stab' | 'lead' | 'raise', size 'small' | 'big' (shown hands only).
+ */
+export type HudContextAlias =
+  | 'x.foldToBet.small'
+  | 'x.foldToBet.big'
+  | 'x.stab'
+  | 'x.lead'
+  | 'x.valueShare';
+export interface HudReadContext {
+  street: 'flop' | 'turn' | 'river';
+  players?: 'hu' | 'mw';
+  line?: 'stab' | 'lead' | 'raise';
+  size?: 'small' | 'big';
+}
+const SK: Record<HudReadContext['street'], string> = { flop: 'f', turn: 't', river: 'r' };
+export function hudContextStatId(alias: HudContextAlias, ctx: HudReadContext): string | null {
+  const s = SK[ctx?.street];
+  if (!s) return null;
+  if (alias === 'x.foldToBet.small' || alias === 'x.foldToBet.big') {
+    if (ctx.players !== 'hu' && ctx.players !== 'mw') return null;
+    return `${s}.fb.${alias === 'x.foldToBet.big' ? 'bg' : 'sm'}.${ctx.players}`;
+  }
+  if (alias === 'x.stab' || alias === 'x.lead') {
+    // first wagers on unopened action / opportunities: after a check to him (stab) or first to act (lead)
+    if (ctx.players !== 'hu' && ctx.players !== 'mw') return null;
+    return `${s}.${alias === 'x.stab' ? 'stab' : 'lead'}.${ctx.players}`;
+  }
+  if (alias === 'x.valueShare') {
+    if (!ctx.line || !['stab', 'lead', 'raise'].includes(ctx.line)) return null;
+    if (ctx.size !== 'small' && ctx.size !== 'big') return null;
+    return `vs.${s}.${ctx.line}.${ctx.size === 'big' ? 'bg' : 'sm'}`;
+  }
+  return null;
+}
+/**
+ * RAW lifetime counts {n opportunities, hits} of a context statistic for the decision's opponent, no decay and no
+ * shrinkage (the consumer applies its own n / (n + k)); {0, 0} with no packet, no profile or an unknown context.
+ */
+export function hudLifetimeCount(
+  opponentId: string,
+  family: HudFamily,
+  alias: HudContextAlias,
+  ctx: HudReadContext
+): { n: number; hits: number; stat: string | null } {
+  const stat = hudContextStatId(alias, ctx);
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    const c = stat ? pk?.opp[opponentId]?.lc?.[stat] : undefined;
+    return c ? { n: c[0], hits: Math.min(c[0], c[1]), stat } : { n: 0, hits: 0, stat };
+  } catch {
+    return { n: 0, hits: 0, stat };
+  }
+}
+/**
+ * STAB-DEFENCE's record (inbox 02:33Z): his first wagers on unopened postflop action / opportunities on one street,
+ * raw and undecayed, split after an opponent checked to him (stab) vs first to act (lead), by players live at his
+ * action ('hu' = one opponent). Null when the decision's packet holds no profile of him (the consumer then prices the
+ * population). Opportunities are his first action on the street with no wager yet made (a check or the first wager).
+ */
+export function hudFirstWagerRecord(
+  opponentId: string,
+  family: HudFamily,
+  street: HudReadContext['street'],
+  players: 'hu' | 'mw'
+): {
+  bets: number;
+  opps: number;
+  checkedTo: { bets: number; opps: number };
+  firstToAct: { bets: number; opps: number };
+} | null {
+  try {
+    const pk = installed && installed.family === family ? installed : null;
+    if (!pk?.opp[opponentId]) return null;
+    const st = hudLifetimeCount(opponentId, family, 'x.stab', { street, players });
+    const ld = hudLifetimeCount(opponentId, family, 'x.lead', { street, players });
+    return {
+      bets: st.hits + ld.hits,
+      opps: st.n + ld.n,
+      checkedTo: { bets: st.hits, opps: st.n },
+      firstToAct: { bets: ld.hits, opps: ld.n },
+    };
+  } catch {
+    return null;
+  }
+}
+/** hudStat for a context alias; an unknown alias or context reads as no evidence (the prior). */
+export function hudStatIn(
+  opponentId: string,
+  family: HudFamily,
+  alias: HudContextAlias,
+  ctx: HudReadContext,
+  prior?: number | null,
+  receipt = true
+): HudRead {
+  const id = hudContextStatId(alias, ctx);
+  return hudStat(opponentId, family, id ?? `${alias}?`, prior, receipt);
 }
 
 /** "What has this opponent done in spots like this before": his past instances of the spot at three levels of
