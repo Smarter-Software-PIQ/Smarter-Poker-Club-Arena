@@ -55,6 +55,7 @@ import {
   resetWinnerReads,
   type HorseWinnerReadState,
 } from './HorseWinnerRead.js';
+import { hudExploitCounters } from './opponentHud/OpponentHudExploit.js';
 import { noteFire, withBrainTelemetrySuspended } from './BrainTelemetry.js';
 import { bettingStructureFor, type BettingStructure } from './BettingStructure.js';
 import {
@@ -470,6 +471,10 @@ export interface DecisionReadOptions {
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
   omahaNeutralUnknown?: boolean;
+  /** OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, HorseDecideOpts.omahaOpponentLifetimeHud): in PLO4/PLO5 cash the
+   *  exploit read takes each opponent's counters from his lifetime public profile carried by the decision
+   *  (OpponentHudExploit.ts). Present only when true. */
+  opponentLifetimeHud?: boolean;
   /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane,
    *  HorseDecideOpts.fixedLimitOmahaNoPresumption): on a fixed-limit Omaha
    *  decision (flo8) the shared aggressive raise presumption is not applied;
@@ -2791,6 +2796,36 @@ export class HorseMind {
     return adjusted;
   }
 
+  /**
+   * OPPONENT HUD NO-LOWERING (2026-11-21, lead order after the symmetric re-score): whether this decision reads PLO4 /
+   * PLO5 opponents from the lifetime HUD (option omahaOpponentLifetimeHud on). Off: false, and no caller below changes.
+   */
+  static hudReadActive(): boolean {
+    const scope = this.decisionScope;
+    if (!scope || this.decisionReadOptions.opponentLifetimeHud !== true) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /**
+   * The read this opponent would get WITHOUT the lifetime HUD (the decayed window and the PLO presumption), receipts
+   * muted. Used only where a lifetime read would LOWER a raise or a bet by itself: the caller prices that lowering,
+   * and where it cannot price it the lifetime read is not consumed there (the site answers as with the option off).
+   */
+  static opponentReadWithoutHud(userId: string): OpponentExploitRead | null {
+    return this.withoutHud(() => this.opponentRead(userId));
+  }
+  /** Run a read as without the lifetime HUD (receipts muted); with the option off, the read itself. */
+  static withoutHud<T>(fn: () => T): T {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true) return fn();
+    const saved = this.decisionReadOptions;
+    this.decisionReadOptions = { ...saved, opponentLifetimeHud: false };
+    try {
+      return withBrainTelemetrySuspended(fn);
+    } finally {
+      this.decisionReadOptions = saved;
+    }
+  }
+
   static opponentRead(userId: string): OpponentExploitRead | null {
     const scope = this.decisionScope;
     if (!scope) return null;
@@ -2807,6 +2842,22 @@ export class HorseMind {
     // game's sibling table size, read against ITS own envelope, may
     // corroborate a statistic this size already places past every horse.
     const family = scope.split(':')[0];
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; option omahaOpponentLifetimeHud, default off, PLO4/PLO5 cash): his
+    // counters come from his LIFETIME public profile in this decision's packet (OpponentHudExploit.ts) instead of the
+    // 30-hand decayed window, so every read below sees his whole history from his first hand. Absent (option off, no
+    // packet, no profile of him): undefined, and every line below is what it was.
+    const hudCounters =
+      this.decisionReadOptions.opponentLifetimeHud === true &&
+      family === 'omaha' &&
+      (variant === 'plo4' || variant === 'plo5')
+        ? hudExploitCounters(
+            userId,
+            variant,
+            durable ?? this.exploitCounters.get(`${scope}|${userId}`)
+          )
+        : undefined;
+    if (hudCounters) noteFire('opponent_hud_exploit_counters');
+    const durableOrLifetime = hudCounters ?? durable;
     const siblings =
       durable && variant
         ? opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
@@ -2819,7 +2870,7 @@ export class HorseMind {
         : [];
     const readCounters = this.probeAdjusted(
       userId,
-      durable ??
+      durableOrLifetime ??
         (this.durableOpponentMemory && variant
           ? undefined
           : this.exploitCounters.get(`${scope}|${userId}`))
@@ -2856,6 +2907,22 @@ export class HorseMind {
         : gated;
     if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; lead 23:1xZ: replace the blanket presumption): with the lifetime
+    // read on, no Omaha opponent is presumed a maniac. An opponent with a lifetime profile is read from it (above);
+    // one with no history is read as the population for his stake and game (no exploit engaged; the accessor's
+    // priors carry the stake). The presumption below is unreachable on this path (AnOpponentIsReadFromHisLifetime law).
+    if (
+      family === 'omaha' &&
+      this.decisionReadOptions.opponentLifetimeHud === true &&
+      (variant === 'plo4' || variant === 'plo5')
+    ) {
+      noteFire(
+        hudCounters
+          ? 'opponent_hud_presumption_replaced_lifetime'
+          : 'opponent_hud_presumption_replaced_prior'
+      );
+      return read;
+    }
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.
@@ -2865,7 +2932,10 @@ export class HorseMind {
       // measured statistics with nothing engaged (see neutralUnknownRead).
       const neutral = neutralUnknownRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -2887,7 +2957,10 @@ export class HorseMind {
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );

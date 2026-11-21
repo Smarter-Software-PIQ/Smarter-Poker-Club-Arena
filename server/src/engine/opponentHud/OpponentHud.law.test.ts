@@ -26,6 +26,7 @@ import {
   priorsForStake,
   HUD_STAKE_PRIOR_MIN_N,
 } from './OpponentHud.js';
+import { hudExploitCounters, HUD_EXPLOIT_HANDS_CAP } from './OpponentHudExploit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -97,7 +98,7 @@ describe('law: no card that was not shown can enter a profile', () => {
     expect(p.recall['flop|b1x']?.[6] ?? 0).toBe(0);
   });
   it('the profile source never reads a player card field', () => {
-    for (const f of ['OpponentHudProfile.ts', 'OpponentHud.ts']) {
+    for (const f of ['OpponentHudProfile.ts', 'OpponentHud.ts', 'OpponentHudExploit.ts']) {
       const code = strip(readFileSync(join(here, f), 'utf8'));
       expect(code, f).not.toMatch(/\.cards\b|\[\s*''\s*\]\.cards|hole_cards|holeCards/);
     }
@@ -151,7 +152,9 @@ describe('law: one formula for every opponent; no kind branch, no named player',
     }
   });
   it('no source in the HUD path names a person or Horse kind, a roster flag or a player name', () => {
-    const files = ['OpponentHudProfile.ts', 'OpponentHud.ts'].map((f) => join(here, f));
+    const files = ['OpponentHudProfile.ts', 'OpponentHud.ts', 'OpponentHudExploit.ts'].map((f) =>
+      join(here, f)
+    );
     files.push(join(here, '../../services/OpponentHudStore.ts'));
     for (const f of files) {
       const code = strip(readFileSync(f, 'utf8'));
@@ -175,6 +178,9 @@ describe("law: the profile is used from an opponent's first hand of a session", 
     expect(r.source).toBe('lifetime');
     expect(r.n).toBeGreaterThan(9);
     expect(r.p!).toBeGreaterThan(0.5);
+    const counters = hudExploitCounters(U(5), 'plo5');
+    expect(counters!.hands).toBeGreaterThan(9);
+    expect(counters!.pfr / counters!.hands).toBeCloseTo(1, 6);
   });
   it('no sample cliff: one observation already moves the read, in proportion to its evidence', () => {
     const p = emptyHudProfile(U(6), 'plo5');
@@ -196,13 +202,18 @@ describe("law: the profile is used from an opponent's first hand of a session", 
     expect(none.source).toBe('prior');
     expect(none.p).toBe(0.2);
   });
-  it('the lifetime read is never discarded (400 hands all count)', () => {
+  it('the lifetime read is capped for the exploit counters but never discarded', () => {
     const p = emptyHudProfile(U(7), 'plo5');
     for (let i = 0; i < 400; i++) applyHudHand(p, rec(row(1000 + i, 7, 2)));
     installDecisionHud(
       buildHudPacket('plo5', [p], {}, 1_800_000_000_000 + 1400 * 60_000, 'preflop')
     );
-    expect(hudStat(U(7), 'plo5', 'pf.vpip', undefined, false).n).toBeGreaterThan(100);
+    expect(hudExploitCounters(U(7), 'plo5')!.hands).toBeLessThanOrEqual(
+      HUD_EXPLOIT_HANDS_CAP + 1e-9
+    );
+    expect(hudStat(U(7), 'plo5', 'pf.vpip', undefined, false).n).toBeGreaterThan(
+      HUD_EXPLOIT_HANDS_CAP / 3
+    );
   });
 });
 
@@ -215,6 +226,7 @@ describe('law: the helpers never throw into a decision', () => {
         p: 0.4,
       });
       expect(hudRecall(U(1), 'plo5', { street: 'flop', line: 'b1' }, false).levels).toEqual([]);
+      expect(hudExploitCounters(U(1), 'plo5')).toBeUndefined();
     }
   });
   it('an unregistered statistic is never answered from a profile', () => {
