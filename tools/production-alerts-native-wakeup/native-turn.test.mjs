@@ -5,7 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createIntake, TARGET } from './core.mjs';
-import { createNativeTurnProbe, lastRecordEndsTurnAfter, uuidV7Millis } from './native-turn.mjs';
+import {
+  createNativeTurnProbe,
+  lastRecordEndsTurnAfter,
+  USAGE_LIMIT_HOLD_MS,
+  uuidV7Millis,
+} from './native-turn.mjs';
 const A = '00000000-0000-4000-8000-00000000000a';
 const B = '00000000-0000-4000-8000-00000000000b';
 const C = '00000000-0000-4000-8000-00000000000c';
@@ -144,4 +149,32 @@ test('the probe reads the native queue and rollout read-only and refuses a still
   } finally {
     await rm(home, { recursive: true });
   }
+});
+
+test('a turn refused for the usage limit is released only after the hold since it completed', () => {
+  const since = 1794618930000;
+  const refused = JSON.stringify({
+    type: 'event_msg',
+    payload: {
+      type: 'task_complete',
+      started_at: 1794618940,
+      completed_at: 1794618942,
+      error: { message: 'You have hit your usage limit.', codex_error_info: 'usage_limit_exceeded' },
+    },
+  });
+  const completed = 1794618942000;
+  assert.equal(lastRecordEndsTurnAfter(refused, since, completed + 2_000), false);
+  assert.equal(lastRecordEndsTurnAfter(refused, since, completed + USAGE_LIMIT_HOLD_MS - 1), false);
+  assert.equal(lastRecordEndsTurnAfter(refused, since, completed + USAGE_LIMIT_HOLD_MS), true);
+  const noCompletion = JSON.stringify({
+    type: 'event_msg',
+    payload: {
+      type: 'task_complete',
+      started_at: 1794618940,
+      error: { codex_error_info: 'usage_limit_exceeded' },
+    },
+  });
+  assert.equal(lastRecordEndsTurnAfter(noCompletion, since, completed + 10 * USAGE_LIMIT_HOLD_MS), false);
+  // Any other ending is released at once, as before.
+  assert.equal(lastRecordEndsTurnAfter(ended(1794618940), since, completed), true);
 });
