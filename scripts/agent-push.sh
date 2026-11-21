@@ -528,6 +528,18 @@ elif [ "$(uname -s)" = Darwin ]; then
     say "WARNING: scripts/lib/heavy-queue.sh is missing or unreadable; pushing without the heavy-job queue (no check is skipped)."
   fi
   cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
+  # Cap local Vitest workers to this heavy-queue slot's CPU share when the
+  # caller did not set VITEST_MAX_THREADS explicitly (concurrent heavy jobs
+  # spawning uncapped workers drove load >40 and timed out spawnSync tests).
+  if [ -z "${VITEST_MAX_THREADS:-}" ] && [ "${cores:-0}" -gt 0 ]; then
+    hq_slots=$(( cores / 7 ))
+    [ "$hq_slots" -ge 1 ] || hq_slots=1
+    per_slot=$(( cores / hq_slots ))
+    [ "$per_slot" -ge 2 ] || per_slot=2
+    [ "$per_slot" -le 6 ] || per_slot=6
+    export VITEST_MAX_THREADS="$per_slot"
+    say "capping local Vitest workers to VITEST_MAX_THREADS=$VITEST_MAX_THREADS for this heavy-queue slot ($cores cores / $hq_slots slots)"
+  fi
   budget=${AGENT_PUSH_LOAD_WAIT_SECONDS:-900}
   waited=0
   while [ "$cores" -gt 0 ] && [ "$waited" -lt "$budget" ]; do
