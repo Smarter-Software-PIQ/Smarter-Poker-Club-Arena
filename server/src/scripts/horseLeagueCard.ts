@@ -6,10 +6,12 @@
  *   npx tsx src/scripts/horseLeagueCard.ts --card=<name> --seed=1,2,3      (one full run per seed)
  *   npx tsx src/scripts/horseLeagueCard.ts --list
  *
- * The card is looked up by exact name in LEAGUE_MATCHUPS and passed, as it is
- * declared, to the league's own runMatchup(matchup, pairs, seed): the function
- * the nightly compute worker calls for every card. An unknown name is refused;
- * a name in UNMEASURABLE_MATCHUPS is refused with its recorded reason.
+ * The card is looked up by exact name in LEAGUE_MATCHUPS, then in
+ * DEVELOPMENT_LEAGUE_CARDS (cards the nightly never deals, e.g. the Omaha
+ * development field's), and passed, as it is declared, to the league's own
+ * runMatchup(matchup, pairs, seed): the function the nightly compute worker
+ * calls for every card. An unknown name is refused; a name in
+ * UNMEASURABLE_MATCHUPS is refused with its recorded reason.
  *
  * Development measurement only. No database: nothing is read from or written
  * to horse_league_results, and the solver stores the nightly worker hydrates
@@ -49,16 +51,29 @@ function engineRevision(): string {
 
 try {
   const args = parseLeagueCardArgs(process.argv.slice(2));
-  const { LEAGUE_MATCHUPS, UNMEASURABLE_MATCHUPS, leagueResultConfig, runMatchup } =
-    await import('../benchmark/HorseLeague.js');
+  const {
+    LEAGUE_MATCHUPS,
+    DEVELOPMENT_LEAGUE_CARDS,
+    UNMEASURABLE_MATCHUPS,
+    leagueResultConfig,
+    runMatchup,
+  } = await import('../benchmark/HorseLeague.js');
   if (args.list) {
     console.log(`dealable (${LEAGUE_MATCHUPS.length}):`);
     for (const m of LEAGUE_MATCHUPS) console.log(`  ${m.name}`);
+    console.log(
+      `development, dealt by name only, never nightly (${DEVELOPMENT_LEAGUE_CARDS.length}):`
+    );
+    for (const m of DEVELOPMENT_LEAGUE_CARDS) console.log(`  ${m.name}`);
     console.log(`refused, never dealt (${UNMEASURABLE_MATCHUPS.length}):`);
     for (const u of UNMEASURABLE_MATCHUPS) console.log(`  ${u.name}`);
     process.exit(0);
   }
-  const matchup = resolveLeagueCard(args.card!, LEAGUE_MATCHUPS, UNMEASURABLE_MATCHUPS);
+  const matchup = resolveLeagueCard(
+    args.card!,
+    [...LEAGUE_MATCHUPS, ...DEVELOPMENT_LEAGUE_CARDS],
+    UNMEASURABLE_MATCHUPS
+  );
   const pairs = leagueCardPairs(matchup, args.pairs);
   const { prepareTournamentFutureHandFacts } =
     await import('../engine/HorseTournamentFutureHand.js');
