@@ -10,9 +10,14 @@ import {
   DELIVERED_SWITCH_CONFIGS_NONE,
   deliveredSwitchConfigsNote,
   deliveredSwitchConfigsPrevious,
+  omahaMathCoreAdmissionGate,
   omahaMathCoreGate,
   type DeliveredSwitchConfigs,
 } from '../horseDecision/responseValidation.js';
+import {
+  OMAHA_MATH_CORE_STREET_FLAG_NAMES,
+  type OmahaMathCoreStreetFlag,
+} from './OmahaMathCoreRule.js';
 
 let delivered: DeliveredSwitchConfigs = DELIVERED_SWITCH_CONFIGS_NONE;
 
@@ -42,6 +47,40 @@ export function omahaMathCoreSwitchOn(
   } catch {
     return false;
   }
+}
+
+/**
+ * The admission flags (omahaMathCorePreflop and the six street flags) a decision with these request options may
+ * have run with: the request's option, the delivered switch row, or the one before it while it still counts.
+ * Unreadable: every flag off (the core owns no street, so its recovery does not act).
+ */
+export function omahaMathCoreAdmissionOpts(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  nowMs: number = Date.now()
+): ReturnType<typeof omahaMathCoreAdmissionGate> | Record<string, never> {
+  try {
+    return omahaMathCoreAdmissionGate(
+      requestOpts,
+      delivered.current,
+      deliveredSwitchConfigsPrevious(delivered, nowMs)
+    );
+  } catch {
+    return {};
+  }
+}
+
+/** omahaMathCoreRecover's admission inputs (preflopOwned, streetOpts) for a worker-failure door. */
+export function omahaMathCoreRecoverAdmission(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  nowMs: number = Date.now()
+): {
+  preflopOwned: boolean;
+  streetOpts: Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
+} {
+  const a = omahaMathCoreAdmissionOpts(requestOpts, nowMs) as Partial<Record<string, boolean>>;
+  const streetOpts: Partial<Record<OmahaMathCoreStreetFlag, boolean>> = {};
+  for (const flag of OMAHA_MATH_CORE_STREET_FLAG_NAMES) streetOpts[flag] = a[flag] === true;
+  return { preflopOwned: a.omahaMathCorePreflop === true, streetOpts };
 }
 
 /** Tests only. */

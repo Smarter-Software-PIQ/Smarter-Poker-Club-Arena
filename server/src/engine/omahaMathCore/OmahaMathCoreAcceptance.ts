@@ -37,6 +37,7 @@ import { cardToInt, omahaBest } from './OmahaMathCoreEval.js';
 import {
   omahaMathCoreInScope,
   omahaMathCoreRule,
+  omahaMathCoreStreetAdmitted,
   type OmahaMathCoreDecisionReceipt,
 } from './OmahaMathCoreRule.js';
 import type { OmahaMathCoreStreetFlag } from './OmahaMathCoreRule.js';
@@ -188,8 +189,18 @@ function rngOf(seed: string): () => number {
 }
 
 /**
+ * The recovery computation's whole work: hands evaluated (the hero's and every opponent's, per runout). Fixed, so
+ * the answer of a failed decision does not depend on the machine's load (lane CORE-POOLED-6; BENCH-FIX's finding:
+ * the loop stopped on a 15 ms clock box, so a loaded host took fewer draws and could flip a call into a fold).
+ * 6,000 evaluations is about 3,000 runouts heads-up and 1,000 six-handed (equity SE 0.009 to 0.016).
+ */
+export const OMAHA_MATH_CORE_RECOVERY_EVALUATIONS = 6000;
+
+/**
  * Equity of the Horse's exact holding against a random holding of each live
- * opponent, run to the river (exact 2+3 evaluator), inside `budgetMs`.
+ * opponent, run to the river (exact 2+3 evaluator). The work is bounded by
+ * OMAHA_MATH_CORE_RECOVERY_EVALUATIONS, never by the clock: `budgetMs` and `now`
+ * are kept for the callers' signature and are not read.
  */
 export function omahaMathCoreRandomRangeEquity(
   player: SeatPlayer,
@@ -197,7 +208,8 @@ export function omahaMathCoreRandomRangeEquity(
   budgetMs: number,
   now: () => number = () => performance.now()
 ): { equity: number; samples: number } {
-  const t0 = now();
+  void budgetMs;
+  void now;
   const hole = (player.cards ?? []).map(cardToInt);
   const board = (gs.communityCards ?? []).map(cardToInt);
   const holeLen = hole.length;
@@ -215,7 +227,7 @@ export function omahaMathCoreRandomRangeEquity(
   const opp = new Array<number>(holeLen);
   let won = 0;
   let n = 0;
-  const MAX = 4000;
+  const MAX = Math.max(256, Math.floor(OMAHA_MATH_CORE_RECOVERY_EVALUATIONS / (opponents + 1)));
   while (n < MAX) {
     for (let i = 0; i < need; i++) {
       const j = i + Math.floor(rng() * (deck.length - i));
@@ -239,7 +251,6 @@ export function omahaMathCoreRandomRangeEquity(
     if (mine > best) won += 1;
     else if (mine === best) won += 1 / (ties + 1);
     n++;
-    if (n >= 64 && (n & 31) === 0 && now() - t0 > budgetMs) break;
   }
   return { equity: n > 0 ? won / n : 0, samples: n };
 }
@@ -258,9 +269,9 @@ export function omahaMathCoreRecover(input: {
   from: OmahaMathCoreRecoveredFrom;
   error: unknown;
   runCore: boolean;
-  /** omahaMathCorePreflop: the core also owns preflop (off: a preflop core run is a shadow and the minimal computation decides) */
+  /** omahaMathCorePreflop: the core also owns preflop (off: the core does not recover a failed preflop decision; the caller's path decides) */
   preflopOwned?: boolean;
-  /** per-street admission flags (OmahaMathCoreRule OMAHA_MATH_CORE_STREET_FLAGS): off, a postflop core run is a shadow */
+  /** per-street admission flags (OmahaMathCoreRule OMAHA_MATH_CORE_STREET_FLAGS): off, the core does not recover that street (the caller's path decides) */
   streetOpts?: Partial<Record<OmahaMathCoreStreetFlag, boolean>>;
   /** omahaMathCoreNetsTheWholeDeduction: the standalone core run nets the whole deduction, as the decision would have */
   wholeDeduction?: boolean;
@@ -272,6 +283,22 @@ export function omahaMathCoreRecover(input: {
     if (input.on !== true) return null;
     const { player, gs } = input;
     if (!omahaMathCoreInScope(player, gs)) return null;
+    // Lane CORE-AUDIT (Nov 21; lead decision 2026-11-19 10:55 PM: the core ships street by street): a brain
+    // exception or a worker failure is the core's to recover only on a street the core OWNS (omahaMathCorePreflop
+    // preflop, the game's street flag postflop). On any other street the caller's own path decides, exactly as
+    // with the switch off. A controller refusal follows an applied core receipt, so that street is already owned.
+    if (
+      input.from !== 'controller_refused' &&
+      !omahaMathCoreStreetAdmitted(
+        String(gs.gameVariant ?? '').toLowerCase(),
+        String(gs.stage ?? ''),
+        {
+          omahaMathCorePreflop: input.preflopOwned === true,
+          ...(input.streetOpts ?? {}),
+        }
+      )
+    )
+      return null;
     const errorText = String((input.error as Error)?.message ?? input.error).slice(0, 200);
     const thinkTime = Number.isFinite(input.thinkTime) ? (input.thinkTime as number) : 0;
     const toCall = Number.isFinite(gs.toCall)

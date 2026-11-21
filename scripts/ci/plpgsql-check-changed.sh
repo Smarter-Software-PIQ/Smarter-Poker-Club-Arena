@@ -149,6 +149,19 @@ DO $$ BEGIN
     CREATE EXTENSION plpgsql_check;
   END IF;
 END $$;
+-- THE MIGRATION HISTORY A BODY READS EXISTS HERE TOO (2026-11-21, incident
+-- bb04ee5f). The throwaway copy is production's application schema only, so
+-- supabase_migrations (owned by the platform, not dumped) is absent and every
+-- body that reads its own prerequisite from schema_migrations - each hand
+-- source-correction proof does - was refused 42P01 for a relation production
+-- has. Give the copy the same relation, empty and with production's columns,
+-- only when it is missing; nothing else is created and nothing is judged
+-- against its rows.
+CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+  version text PRIMARY KEY, statements text[], name text,
+  created_by text, idempotency_key text, rollback text[]
+);
 CREATE OR REPLACE FUNCTION pg_temp.ca_check_named(p_names text)
 RETURNS TABLE(fn text, verdict text, detail text) LANGUAGE plpgsql AS $f$
 DECLARE r record; c record; v_rel oid; v_ns text;
