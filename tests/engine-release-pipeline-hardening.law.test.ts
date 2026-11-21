@@ -606,4 +606,23 @@ exit 0
     expect(['firing', 'resolved']).toContain(firing!.status);
     expect(['firing', 'resolved']).toContain(resolved[0].status);
   });
+
+  it('wave 4: prepare serializes host prewarm under ENGINE_BUILD_LOCK_FILE and verified superseded stand-downs resolve stale EngineReleaseFailed alerts', () => {
+    expect(DEPLOY_WF).toContain(
+      'PREPARE_LOCK="${ENGINE_BUILD_LOCK_FILE:-/var/lock/club-arena-engine-build.lock}"'
+    );
+    expect(DEPLOY_WF).toContain('flock -w 30 8 || { echo "ENGINE_PREPARE_LOCK_BUSY=$PREPARE_LOCK"');
+    expect(DEPLOY_WF.indexOf('flock -w 30 8')).toBeLessThan(
+      DEPLOY_WF.indexOf('"$STAGE/server/scripts/prewarm-engine-image.sh" "$IMAGE_ID"')
+    );
+    expect(DEPLOY_WF).toContain(
+      'name: Resolve prior release failure alerts after verified superseded stand-down'
+    );
+    expect(DEPLOY_WF).toContain(
+      "if: always() && needs.deploy.outputs.release_result == 'superseded'"
+    );
+    expect(DEPLOY_WF).toContain(
+      'VERIFIED=true timeout --signal=TERM --kill-after=5s 60s node scripts/ci/record-engine-release-alert.mjs'
+    );
+  });
 });
