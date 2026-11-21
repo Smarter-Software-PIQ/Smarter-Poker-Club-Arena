@@ -153,7 +153,7 @@ describe('triage-engine-release-incident — read-only triage and sanctioned cla
       (s: { name?: string }) => s.name === 'Run bounded incident operation'
     );
     expect(runStep?.env?.DATABASE_URL).toBe(
-      "${{ (inputs.operation == 'claim' || inputs.operation == 'inspect') && secrets.DATABASE_URL || '' }}"
+      "${{ (inputs.operation == 'claim' || inputs.operation == 'inspect' || inputs.operation == 'resolve') && secrets.DATABASE_URL || '' }}"
     );
     const scriptText = readFileSync(
       join(ROOT, 'scripts/ci/triage-engine-release-incident.mjs'),
