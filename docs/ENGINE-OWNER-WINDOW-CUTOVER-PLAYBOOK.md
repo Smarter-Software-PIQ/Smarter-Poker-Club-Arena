@@ -120,6 +120,7 @@ All must hold:
 5. Served client (`https://smarter.poker/hub/club-arena/build-info.json`) carries the booked notice.
 6. Engine healthy: status ok, maintenance idle, 0 stalled, settlement ok, `recoveryWindowReady` true, no weekly payout.
 7. Host seal state clean; last recovery reservation more than 3600 s before your planned announcement.
+8. Every live Horse switch row is accepted by the target: `python3 -B server/scripts/engine-release-switch-rows.py candidate --repo . --sha TARGET_SHA` through the same read-only `DATABASE_URL` exits 0. Exit 1 lists the offenders: a swap with them runs EVERY Horse option at its release default (the fleet-reset trap); clear or fix the row first. Exit 3 (unreadable) is not a pass. Run it before booking too. After SEALED, run `... post-seal --serving TARGET_SHA --since <SEALED time>`: the serving registry accepts every row and no option-switch configuration alarm fired.
 
 ### 8. Dispatch Once
 
