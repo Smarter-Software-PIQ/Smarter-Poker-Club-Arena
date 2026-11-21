@@ -393,9 +393,7 @@ export function heroEquityVector(
   hole: readonly number[],
   board: readonly number[],
   pool: Pool,
-  seed: string,
-  deadline: number,
-  now: () => number
+  seed: string
 ): { eq: Float64Array; runs: number } {
   const hc = pool.holeCount;
   const used = new Uint8Array(52);
@@ -431,7 +429,6 @@ export function heroEquityVector(
   for (let k = 0; k < board.length; k++) full[k] = board[k];
   let runs = 0;
   for (const ro of runouts) {
-    if (runs >= 12 && now() > deadline) break;
     for (let k = 0; k < ro.length; k++) full[board.length + k] = ro[k];
     const hs = omahaBest(heroArr, hole.length, full, 5);
     for (let i = 0; i < pool.size; i++) {
@@ -508,7 +505,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
 
   // equity against the strongest share of the field: one per-holding vector, anchored to the exact engine
   const tV = c.now();
-  const vec = heroEquityVector(s.hole, s.board, c.pool, s.seed, c.deadline, c.now);
+  const vec = heroEquityVector(s.hole, s.board, c.pool, s.seed);
   const tA = c.now();
   const w = new Float64Array(c.pool.size);
   for (const o of c.live) flatten(c.pool, c.rangeOf.get(o.seat)!, w);

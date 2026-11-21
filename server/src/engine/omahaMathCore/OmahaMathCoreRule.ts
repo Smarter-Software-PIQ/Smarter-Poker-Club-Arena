@@ -251,6 +251,10 @@ export function omahaMathCoreInScope(player: SeatPlayer, gs: HorseGameStateV2): 
     (gs.bettingStructure !== undefined && gs.bettingStructure !== 'pot_limit')
   )
     return false;
+  // lane CORE-POOLED-5: Diamond Arena is closed (platform hard rule). The core is never consulted on a
+  // Diamond table; its Diamond fee branch (rake.platform.diamond, platformDeduction) is not applicable and is
+  // unreachable from a decision (law: OmahaMathCoreOffScopeNoWork.law.test.ts, 'a Diamond table').
+  if (gs.asset === 'diamonds') return false;
   if (!STREETS.includes(gs.stage as (typeof STREETS)[number])) return false;
   const hole = player.cards ?? [];
   if (hole.length !== Number(variant.at(-1))) return false;
@@ -435,7 +439,11 @@ export function omahaMathCoreState(
   const live = opponents.filter((o) => !o.folded);
   const heroRank = orderRank(player.seat, gs.dealerSeat);
   const ip = live.every((o) => orderRank(o.seat, gs.dealerSeat) < heroRank);
-  const dealt = gs.dealtSeatIds?.length ?? seated.length;
+  // lane CORE-POOLED-5: the rated player count is the platform's own count at settlement
+  // (HandController.priceDeductions: the seats not sitting out), from the same flags; the dealt-seat census
+  // and the all-in / chips-in exception above are for ranges and positions, not for the rake tier
+  // (law: OmahaMathCorePlatformRake.law.test.ts).
+  const dealt = gs.players.filter((p) => !p.is_sitting_out).length;
   const rc = gs.rakeConfig;
   const tableCap = rc && Number.isFinite(rc.cap) ? rc.cap : Infinity;
   // lane CORE-POOLED-4 (CORE-AUDIT note 9): the core nets every pot exactly as the platform deducts it, by

@@ -99,6 +99,8 @@ describe('a decision the math core does not own costs no core work', () => {
     ["hold'em", (gs) => ({ ...gs, gameVariant: 'holdem' }) as HorseGameStateV2],
     ['a tournament', (gs) => ({ ...gs, gameMode: 'tournament' }) as HorseGameStateV2],
     ['a bomb pot', (gs) => ({ ...gs, bombPot: true }) as HorseGameStateV2],
+    // lane CORE-POOLED-5: Diamond Arena is closed; the core is never consulted on a Diamond table
+    ['a Diamond table', (gs) => ({ ...gs, asset: 'diamonds' }) as HorseGameStateV2],
   ];
   it('control: the Rule with every street flag on works on each recorded PLO5 flop state', () => {
     for (const r of FLOP) {

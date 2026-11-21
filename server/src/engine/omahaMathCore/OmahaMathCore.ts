@@ -260,7 +260,9 @@ function seedNumber(seed: string): number {
 export const INTERIM_WAGER_FREQUENCY = 0.5;
 /** The core's whole time budget per decision (inside the 250 ms Lightning floor with the reference work). */
 export const OMAHA_MATH_CORE_BUDGET_MS = 150;
-const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000, maxMs: 40 };
+// No clock in the sampler (lane CORE-POOLED-5): the same state and seed give the same answer whatever the
+// machine load; the draws are bounded by OMAHA_MATH_CORE_WORK_BUDGET only (law: OmahaMathCoreDeterminism.law.test.ts).
+const EQ_OPTS = { targetSe: 0.01, minSamples: 400, maxSamples: 4000 };
 /**
  * Deterministic work budget per decision (lane COREWIRE-2, PROVE-2 gate G6): equity draws x opponents. The
  * 150 ms clock box cannot bind when the clock does not move (exact replay freezes performance.now) and a wall
@@ -561,14 +563,13 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
   const aggressor = live.find((o) => o.seat === state.aggressorSeat) ?? null;
   let samples = 0;
   let equityFallbacks = 0;
-  // the whole decision is time-boxed (the worker deadline turns a late answer into a fold)
+  // the box the wired value search is handed (the equity work itself is bounded by the work budget, not the clock)
   const deadline = t0 + OMAHA_MATH_CORE_BUDGET_MS;
-  const remaining = () => Math.max(5, Math.min(EQ_OPTS.maxMs, deadline - clock.now()));
-  // anytime (lane COREWIRE): inside the last 40 ms of the box every equity call takes the core sampler
-  // at a reduced sample floor (150 draws, SE ~0.04), so a wide decision still answers on time
+  // past the work budget every equity call takes the core sampler at a reduced sample floor (150 draws,
+  // SE ~0.04), so a wide decision still answers on time; the wall clock is never read here
   let lateCalls = 0;
   let work = 0;
-  const late = () => deadline - clock.now() < 40 || work >= OMAHA_MATH_CORE_WORK_BUDGET;
+  const late = () => work >= OMAHA_MATH_CORE_WORK_BUDGET;
   // draws this call may take inside the work budget (at least the reduced floor's 150)
   const drawCap = (k: number) =>
     Math.max(
@@ -586,12 +587,11 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
       ranges,
       seededRng(`${state.seed}|eq`),
       late()
-        ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, maxMs: 3, now: clock.now }
+        ? { ...EQ_OPTS, minSamples: 150, maxSamples: 600, now: clock.now }
         : {
             ...EQ_OPTS,
             minSamples: Math.min(EQ_OPTS.minSamples, drawCap(ranges.length)),
             maxSamples: drawCap(ranges.length),
-            maxMs: remaining(),
             now: clock.now,
           }
     );

@@ -522,7 +522,6 @@ describe('omahaMathCore equity terminates without the clock (frozen replay clock
       targetSe: 0.01,
       minSamples: 400,
       maxSamples: 4000,
-      maxMs: 40,
       now: () => 0,
     });
     expect(Number.isNaN(r.equity)).toBe(true);
@@ -530,7 +529,6 @@ describe('omahaMathCore equity terminates without the clock (frozen replay clock
       targetSe: 0.01,
       minSamples: 400,
       maxSamples: 4000,
-      maxMs: 40,
       now: () => 0,
     });
     expect(Number.isFinite(s.equity)).toBe(true);

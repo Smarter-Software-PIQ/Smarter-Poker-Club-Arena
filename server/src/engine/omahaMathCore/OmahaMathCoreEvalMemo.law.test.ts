@@ -274,6 +274,8 @@ function specs(variants: Spec['variant'][], count: number): Spec[] {
 }
 
 /**
+ * (Lane CORE-POOLED-5: the sampler no longer reads the clock at all, law OmahaMathCoreDeterminism.law.test.ts;
+ * the text below describes the state before that and why the clock is frozen here.)
  * A clock that does not move, as the exact replay runs the core. The core boxes its equity sampling with the
  * wall clock (OMAHA_MATH_CORE_BUDGET_MS deadline, per-call maxMs, the late() reduced draw floor); under a loaded
  * host a stall moves that clock between two runs of the same state, the runs take different draw counts and a

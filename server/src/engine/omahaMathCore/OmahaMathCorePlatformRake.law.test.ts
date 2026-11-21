@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { HandController } from '../HandController.js';
 import type { HandConfig, SeatPlayer } from '../../types.js';
 import { platformDeduction } from './OmahaMathCore.js';
+import { omahaMathCoreState } from './OmahaMathCoreRule.js';
+import type { HorseGameStateV2 } from '../HorseLogic.js';
 
 function players(n: number): SeatPlayer[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -108,4 +110,69 @@ describe('the core rake model is the platform deduction', () => {
           }
     expect(checked).toBe(RAKES.length * BBJS.length * 5 * 2 * POTS.length);
   });
+});
+
+/**
+ * Lane CORE-POOLED-5: the platform counts the seats that are not sitting out when it settles
+ * (HandController.priceDeductions: players.filter((p) => !p.is_sitting_out).length) for the cap tier, the
+ * heads-up ceiling and the jackpot drop. The core must count the same seats from the same flags, whatever the
+ * dealt-seat census says: a dealt seat that is now sitting out is not a rated player.
+ */
+describe('a dealt seat that is sitting out is counted as the platform counts it', () => {
+  const tiers = [
+    { players: 2, cap: 1 },
+    { players: 3, cap: 2.5 },
+    { players: 4, cap: 4 },
+  ];
+  const rake = { percent: 5, cap: 100, noFlopNoDrop: true, playerCountCaps: tiers } as Rake;
+  const bbj = { enabled: true, feeBB: 0.6, minPotBB: 10, minPlayersDealt: 4 } as Bbj;
+  const card = (c: string) => ({
+    rank: c[0],
+    suit: { h: 'hearts', d: 'diamonds', s: 'spades', c: 'clubs' }[c[1] as 'h'],
+  });
+  for (const n of [3, 4])
+    for (const census of [true, false])
+      for (const allIn of [false, true])
+        it(`${n} dealt, one now sitting out${allIn ? ' (all-in)' : ' (folded)'}, census ${census ? 'present' : 'absent'}`, () => {
+          const hc = controller(n, rake, bbj, true);
+          const st = (hc as unknown as { state: { players: SeatPlayer[] } }).state;
+          const out = st.players.find((p) => p.seat === n)!;
+          out.is_sitting_out = true;
+          if (allIn) out.is_all_in = true;
+          else out.is_folded = true;
+          const players = st.players.map((p) => ({
+            ...p,
+            bet: 0,
+            stack: p.seat === n && allIn ? 0 : 194,
+            cards: p.seat === 1 ? ['Ah', 'Kd', 'Qs', '9h', '8c'].map(card) : [],
+          })) as unknown as SeatPlayer[];
+          const gs = {
+            gameVariant: 'plo5',
+            gameMode: 'cash',
+            stage: 'flop',
+            players,
+            ...(census ? { dealtSeatIds: players.map((p) => p.seat) } : {}),
+            dealerSeat: n,
+            communityCards: ['Th', '7h', '2s'].map(card),
+            pot: 8,
+            currentBet: 0,
+            toCall: 0,
+            bigBlind: 2,
+            chipUnit: 0.01,
+            asset: 'chips',
+            legalActions: ['check', 'bet'],
+            actionHistory: [],
+            rakeConfig: rake,
+            bbjConfig: bbj,
+          } as unknown as HorseGameStateV2;
+          const core = omahaMathCoreState(players[0]!, gs);
+          expect(core.rake?.platform?.players).toBe(n - 1);
+          for (const pot of POTS) {
+            const want = hc.priceDeductions(true, pot);
+            expect(platformDeduction(core.rake!.platform!, pot, false), `pot ${pot}`).toBeCloseTo(
+              want.rake + want.bbjFee,
+              9
+            );
+          }
+        });
 });
