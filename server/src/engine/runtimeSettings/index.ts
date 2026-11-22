@@ -13,6 +13,7 @@ import type { RuntimeSettingsSnapshot } from './snapshot.js';
 
 export {
   COMPILED_RUNTIME_SETTINGS,
+  checkRuntimeSettingsJson,
   parseRuntimeSettings,
   type RuntimeSettingsSnapshot,
 } from './snapshot.js';
@@ -23,6 +24,15 @@ export {
   type LightningFastFoldTuning,
 } from './apply.js';
 export { RUNTIME_SETTINGS_REGISTRY } from './registry.js';
+export {
+  BLANKET_OFF_MULTI_STEP_REFUSED,
+  extractDisabledBlanketRules,
+  validateSingleBlanketOffStep,
+  type BlanketOffSettingsInput,
+  type BlanketOffSingleStepAllowed,
+  type BlanketOffSingleStepRefused,
+  type BlanketOffSingleStepVerdict,
+} from '../HorseBlanketOffSingleStepGuard.js';
 
 let processStore: RuntimeSettingsStore = createRuntimeSettingsStore();
 let started: Promise<void> | null = null;

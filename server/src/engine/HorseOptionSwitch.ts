@@ -1080,6 +1080,11 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   vpipFloorDeepStackOff: 'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   omahaPreflopCallWithActionBehind:
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
+  // 2026-11-21 Horse Switch lane: built dark. Registering it needs a switch-list migration, and those go one at a
+  // time; until one lists it the switch may not carry it (league and tests pass it directly). Remove this line in
+  // the change that adds the list migration.
+  v66BetRaisedOnePairIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */
