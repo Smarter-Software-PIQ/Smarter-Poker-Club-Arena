@@ -24,6 +24,8 @@
  * PLO4 / PLO5 only: every adapter answers null for any other variant or hole count.
  */
 import type { HorseGameStateV2 } from '../HorseLogic.js';
+import { omahaTrapRate } from './OmahaMathCoreTrapRate.js';
+import { omahaCheckRaiseCell } from './OmahaMathCoreCheckRaise.js';
 import { omahaBest } from './OmahaMathCoreEval.js';
 import { seededRng, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
@@ -368,6 +370,13 @@ export function wiredTrack(
     },
     history: state.history,
     freq,
+    // lane CORE-POOLED-8 (lead rulings 9:52 and 11:24 AM Nov 21): a check keeps the measured trap share of strong
+    // holdings, one table keyed by variant (PLO4, PLO5); any other game has no cell and keeps the old update
+    trap: (street, first, players) => omahaTrapRate(game, street, first, players),
+    // lane CORE-POOLED-9 (lead decision Nov 21): a check-raise of the hero's own flop wager is priced with its
+    // measured cell (PLO4, PLO5), shrunk n/(n+30) to the generic facing cell; every other spot keeps the generic cell
+    checkRaise: (street, players, frac, allIn) =>
+      omahaCheckRaiseCell(game, street, players, frac, allIn),
     // hand-street key: the same cards and board give the same pool and preflop strengths
     seed: `${state.hole.join('.')}|${state.board.join('.')}`,
     // latency (lane COREWIRE, measured): pool 360 and 80 refine runs keep the first, uncached call of a

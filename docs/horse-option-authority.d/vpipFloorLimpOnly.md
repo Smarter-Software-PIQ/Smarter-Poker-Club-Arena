@@ -1,6 +1,6 @@
 # vpipFloorLimpOnly: authority for the live switch
 
-Owner ruling of 2026-11-17 14:34 America/Chicago (finding F-10 of the WooWoo 48-hour audit). Evidence: mechanism, scope, receipts, tests and off-identity MET; Horse churn (evictions) measured offline per variant (see "Which variants it governs, and the churn"); a live read is owed after the release.
+Owner ruling of 2026-11-17 14:34 America/Chicago (finding F-10 of the WooWoo 48-hour audit). Evidence: mechanism, scope, receipts, tests and off-identity MET; Horse churn (evictions) measured offline per variant (see "Which variants it governs, and the churn"); LIVE ON 2026-11-18T20:18:59Z (evidence `#57`, migration `20261118092009`, serving `f3e99378ccbb`, `8/8` workers at `+71s`), +3h 43m live read CLEAN 2026-11-19T00:01:59Z (`0` `option_switch_config_*`, receipts `seen 34,825`, `limp 2,463`, `fold_kept 1,353`, `priced_out 5`), confirmed ON in `2026-11-21T20:00Z` prod switch snapshot.
 
 ## What it does
 

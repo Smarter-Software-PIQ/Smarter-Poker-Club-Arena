@@ -75,7 +75,48 @@ export interface NodeFreq {
    * break-even bluff share s / (1 + 2s)
    */
   nonValue?: number;
+  /**
+   * checked to: measured trap rate (lane CORE-POOLED-8, criteria 1a322479): the share of STRONG holdings
+   * that check, from public showdowns, shrunk n/(n+k). A check keeps this share of the value region instead
+   * of removing it. Absent: the old update, bit for bit.
+   */
+  trap?: number;
+  /**
+   * a flop RAISE after only checks, facing the hero's own wager (lane CORE-POOLED-9, criteria 7c45130b):
+   * the measured check-raise cell (raw counts); likelihood() shrinks it n/(n+30) to the generic raise
+   * share and non-value share. Absent: the generic cell, bit for bit.
+   */
+  checkRaise?: CheckRaiseCell;
 }
+/** Raw measured check-raise counts (public actions for the raise share, public showdowns for non-value). */
+export interface CheckRaiseCell {
+  /** decisions facing a flop wager after only checks, and the share that raised */
+  nFace: number;
+  raise: number;
+  /** shown check-raises of every size / of this size bucket, and their non-value shares */
+  nShownAll: number;
+  nvAll: number;
+  nShownBand: number;
+  nvBand: number;
+}
+/** The measured check-raise cell for a flop raise of this size; undefined = none (generic cell). */
+export type CheckRaiseFn = (
+  street: PostStreet,
+  players: number,
+  frac: number,
+  allIn: boolean
+) => CheckRaiseCell | undefined;
+/** Shrinkage, one mechanism (lane CORE-POOLED-9): n/(n+k) of the raw value, the rest the level above; n = 0 = the level above exactly. */
+export function shrinkToward(n: number, raw: number, above: number, k = 30): number {
+  if (!(n > 0) || !Number.isFinite(raw)) return above;
+  return (n * raw + k * above) / (n + k);
+}
+/** Measured trap rate of a checked-to node (street, first to act on the street, live players); undefined = none. */
+export type TrapRateFn = (
+  street: PostStreet,
+  first: boolean,
+  players: number
+) => number | undefined;
 export type NodeFreqFn = (
   seat: number,
   street: PostStreet,
@@ -363,6 +404,20 @@ function pIn(q: number, se: number, lo: number, hi: number): number {
   return Math.max(0, phi((hi - q) / s) - phi((lo - q) / s));
 }
 
+/** pIn with its own blur width at each edge (lane CORE-POOLED-10); equal widths = pIn exactly. */
+export function pInEdges(q: number, lo: number, seLo: number, hi: number, seHi: number): number {
+  return Math.max(0, phi((hi - q) / Math.max(1e-6, seHi)) - phi((lo - q) / Math.max(1e-6, seLo)));
+}
+
+/** The facing-a-wager edge widths (lane CORE-POOLED-10): exported for the law test. */
+export function boundedEdges(
+  se: number,
+  vTop: number,
+  bluffWidth: number
+): { eV: number; eB: number } {
+  return { eV: Math.min(se, vTop), eB: Math.min(se, bluffWidth) };
+}
+
 /**
  * Weighted "share stronger" of each holding inside a range on a board: F_i = weight of the range
  * strictly stronger than i plus half the weight of i (0 = his strongest, 1 = his weakest).
@@ -388,6 +443,15 @@ function rangeCdf(w: Float64Array, strength: Float64Array): Float64Array {
 }
 
 /**
+ * Likelihood of a CHECK when checked to, given the holding's chance of being in the value region (pv) and the
+ * bluff region (pb), with the measured trap rate tau (lane CORE-POOLED-8): the value region keeps tau.
+ * Law: with pb = 0 the result is never below tau; tau = 0 is the old 1 - pv - pb.
+ */
+export function checkKeep(pv: number, pb: number, tau: number): number {
+  return Math.max(0, 1 - (1 - tau) * pv - pb);
+}
+
+/**
  * Likelihood of one public action for every holding, from his current range on that street's board.
  *   wager share s -> bluff share alpha = s / (1 + 2s) (break-even for the caller; public size);
  *   checked to, wager rate b: value = top (1 - alpha) b of his range, bluffs = bottom alpha b;
@@ -406,7 +470,7 @@ function likelihood(
   const L = new Float64Array(n);
   const s = Math.max(0.05, a.frac);
   // lead decision: a wager's non-value share is the cell's measured shownNonValue when the caller has it
-  const alpha =
+  let alpha =
     nf.nonValue !== undefined && Number.isFinite(nf.nonValue)
       ? Math.min(0.95, Math.max(0, nf.nonValue))
       : s / (1 + 2 * s);
@@ -414,22 +478,52 @@ function likelihood(
     const b = Math.min(0.98, Math.max(0.02, nf.wager));
     const vTop = (1 - alpha) * b;
     const bluffLo = 1 - alpha * b;
+    const wagered = a.action === 'bet' || a.action === 'raise';
+    const tau =
+      !wagered && nf.trap !== undefined && Number.isFinite(nf.trap)
+        ? Math.min(1, Math.max(0, nf.trap))
+        : undefined;
     for (let i = 0; i < n; i++) {
-      const pw = pIn(F[i], seF[i], -1, vTop) + pIn(F[i], seF[i], bluffLo, 2);
-      L[i] = a.action === 'bet' || a.action === 'raise' ? pw : 1 - pw;
+      if (tau === undefined) {
+        const pw = pIn(F[i], seF[i], -1, vTop) + pIn(F[i], seF[i], bluffLo, 2);
+        L[i] = wagered ? pw : 1 - pw;
+      } else {
+        // a check keeps the measured trap share tau of the value region (never strips it below tau)
+        const pv = pIn(F[i], seF[i], -1, vTop);
+        const pb = pIn(F[i], seF[i], bluffLo, 2);
+        L[i] = checkKeep(pv, pb, tau);
+      }
     }
     return L;
   }
   const f = Math.min(0.98, Math.max(0, nf.fold));
-  const r = Math.min(0.98 - f, Math.max(0.01, nf.wager));
+  let rRaw = nf.wager;
+  const cr = a.action === 'raise' ? nf.checkRaise : undefined;
+  if (cr) {
+    // lane CORE-POOLED-9: a check-raise of the hero's own flop wager is priced with its measured cell, shrunk to the generic one
+    rRaw = shrinkToward(cr.nFace, cr.raise, nf.wager);
+    alpha = Math.min(
+      0.95,
+      Math.max(
+        0,
+        shrinkToward(cr.nShownBand, cr.nvBand, shrinkToward(cr.nShownAll, cr.nvAll, alpha))
+      )
+    );
+  }
+  const r = Math.min(0.98 - f, Math.max(0.01, rRaw));
   const cont = 1 - f;
   // raises: value from the top of his range, bluff-raises from the bottom of what does not fold?
   // A bluff-raise comes from holdings that would otherwise fold: bottom alpha*r of the whole range.
   const vTop = (1 - alpha) * r;
   const bluffLo = 1 - alpha * r;
+  // lane CORE-POOLED-10 (criteria d851afb1): an edge is never blurred wider than the measured region it bounds
+  // (value region vTop, bluff region alpha*r); a holding's strength error used to let a large weak share of his
+  // range into a ~1%-wide bluff-raise region, so the Horse priced calls against raises far weaker than shown ones
+  const wB = alpha * r;
   for (let i = 0; i < n; i++) {
-    const praise = pIn(F[i], seF[i], -1, vTop) + pIn(F[i], seF[i], bluffLo, 2);
-    const pfold = pIn(F[i], seF[i], cont, bluffLo);
+    const { eV, eB } = boundedEdges(seF[i], vTop, wB);
+    const praise = pIn(F[i], eV, -1, vTop) + pIn(F[i], eB, bluffLo, 2);
+    const pfold = pInEdges(F[i], cont, seF[i], bluffLo, eB);
     const pcall = Math.max(0, 1 - praise - pfold);
     L[i] =
       a.action === 'raise'
@@ -465,6 +559,10 @@ export interface TrackInput {
   preflopBand: (seat: number) => PreflopBand | null;
   history: readonly PublicStreetAction[];
   freq: NodeFreqFn;
+  /** measured trap rates (lane CORE-POOLED-8); absent: checks update as before */
+  trap?: TrapRateFn;
+  /** measured check-raise cell (lane CORE-POOLED-9); absent: the generic facing cell */
+  checkRaise?: CheckRaiseFn;
   seed: string;
   /** pool size (default 900 PLO4 / 700 PLO5) and runs (default preflop 24 + 160 refine, flop/turn 8) */
   size?: number;
@@ -578,11 +676,39 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
         eff = size;
         steps.push('preflop band empty in pool: full range');
       }
-      for (const a of inp.history) {
+      for (let hi = 0; hi < inp.history.length; hi++) {
+        const a = inp.history[hi];
         if (a.seat !== seat || a.street === undefined) continue;
         const bl = boardAt(a.street);
         if (bl.length < 3 || bl.length > inp.board.length) continue;
-        const nf = inp.freq(seat, a.street, a.facing, a.frac, !!a.allIn, a.players);
+        const nf0 = inp.freq(seat, a.street, a.facing, a.frac, !!a.allIn, a.players);
+        let nf = nf0;
+        if (nf0 && !a.facing && a.action === 'check' && inp.trap) {
+          let first = true;
+          for (let j = 0; j < hi; j++) if (inp.history[j].street === a.street) first = false;
+          const tau = inp.trap(a.street, first, a.players);
+          if (tau !== undefined)
+            nf = { ...nf0, trap: tau, source: `${nf0.source}; trap ${r3(tau)}` };
+        }
+        if (nf && a.facing && a.action === 'raise' && a.street === 'flop' && inp.checkRaise) {
+          // the spot: his only earlier flop actions are checks and the last flop wager is the hero's own
+          let checked = false;
+          let onlyChecks = true;
+          let lastWager = -1;
+          for (let j = 0; j < hi; j++) {
+            const b = inp.history[j];
+            if (b.street !== 'flop') continue;
+            if (b.seat === seat) {
+              if (b.action === 'check') checked = true;
+              else onlyChecks = false;
+            }
+            if (b.action === 'bet' || b.action === 'raise') lastWager = b.seat;
+          }
+          if (checked && onlyChecks && lastWager === inp.heroSeat) {
+            const cr = inp.checkRaise(a.street, a.players, a.frac, !!a.allIn);
+            if (cr) nf = { ...nf, checkRaise: cr, source: `${nf.source}; check-raise cell` };
+          }
+        }
         if (!nf) {
           steps.push(`${a.street} ${a.action}: no measured node, no update`);
           continue;
