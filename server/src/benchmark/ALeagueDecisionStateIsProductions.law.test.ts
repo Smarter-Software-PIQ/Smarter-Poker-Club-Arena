@@ -209,6 +209,32 @@ const NODES: Node[] = [
     },
     clampedShove: false,
   },
+  // 2026-11-21: fixed-limit Omaha hi-lo (flo8), which now uses the same
+  // controller fixed-limit menu (LeagueDecisionState.leagueFixedLimitActionState).
+  {
+    name: 'FLO8 six-max preflop, first in',
+    variant: 'flo8',
+    stacks: [200, 200, 200, 200, 200, 200],
+    dealer: 1,
+    script: () => undefined,
+    clampedShove: false,
+  },
+  {
+    name: 'FLO8 heads-up turn, facing a big bet and a raise',
+    variant: 'flo8',
+    stacks: [200, 200],
+    dealer: 1,
+    script: (hc) => {
+      expect(hc.performAction(1, 'call')).toBe(true);
+      expect(hc.performAction(2, 'check')).toBe(true);
+      expect(hc.performAction(2, 'bet', 2)).toBe(true);
+      expect(hc.performAction(1, 'call')).toBe(true);
+      expect(hc.getState().stage).toBe('turn');
+      expect(hc.performAction(2, 'bet', 4)).toBe(true);
+      expect(hc.performAction(1, 'raise', 8)).toBe(true);
+    },
+    clampedShove: false,
+  },
 ];
 
 /** The request the live table sends the decision worker at this node, and
@@ -425,6 +451,8 @@ describe('a league decision state is the state the live table sends', () => {
       ['plo4', 2],
       ['flh', 6],
       ['flh', 2],
+      ['flo8', 6],
+      ['flo8', 2],
     ];
     let seed = 20261115;
     for (const [variant, seats] of cells)
