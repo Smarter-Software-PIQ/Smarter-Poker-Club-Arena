@@ -52,6 +52,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v66BetRaisedOnePair',
   'v63LargeRiverBetShade',
   'v64RiverRaiseNeedsTwoPair',
+  'v21River',
   'v69TurnCallGaps',
   'v73Vs3BetDefence',
   'v87HoldemOverhaul',
@@ -136,6 +137,10 @@ describe('holdem-blanket-scoreboard-lib', () => {
       expect(sql).toContain('public.ca_engine_runtime_settings_versions');
       expect(sql).toContain('public.ca_horse_option_switch_evidence');
       expect(sql).toContain('public.horse_brain_telemetry');
+      expect(sql).toContain("feature LIKE 'v21_%'");
+      expect(sql).not.toContain("feature LIKE 'v15_%'");
+      expect(sql).not.toContain("feature LIKE 'token_call_%'");
+      expect(sql).not.toContain("feature LIKE 'v46_%'");
       expect(sql).toContain('- 2');
     });
 
@@ -239,6 +244,41 @@ describe('holdem-blanket-scoreboard-lib', () => {
       const couplings = detectSourceCouplings(inputs.horseLogicSource);
       expect(couplings.v69TurnCallGaps?.verifiedInSource).toBe(true);
       expect(couplings.v73Vs3BetDefence?.verifiedInSource).toBe(true);
+    });
+
+    it('excludes Omaha/non-NLH-only options and includes v21River with verified HorseLogic receipts', () => {
+      const inputs = loadLocalRepoInputs(REPO_ROOT);
+      const parsed = parseHorseOptionSwitchSource(inputs.horseOptionSwitchSource);
+      const catalogOptions = new Set(HOLDEM_BLANKET_CATALOG.map((e) => e.option));
+
+      // Omaha / short-deck only rules (zero NLH reach) must never appear in Hold'em catalog
+      for (const omahaOnly of [
+        'v15RiverNoNearLock',
+        'v88CommitmentHonored',
+        'tokenCallPrice',
+        'v46Charts',
+      ]) {
+        expect(catalogOptions.has(omahaOnly), `${omahaOnly} must be excluded`).toBe(false);
+      }
+
+      // v21River is a real high-volume NLH river blanket rule (`!vi.isOmaha`)
+      const v21Entry = HOLDEM_BLANKET_CATALOG.find((e) => e.option === 'v21River');
+      expect(v21Entry).toBeDefined();
+      expect(v21Entry?.role).toBe('blanket_parent');
+      expect(v21Entry?.family).toBe('river_defense');
+      expect(v21Entry?.receipts).toEqual([
+        'v21_nut_status',
+        'v21_dominated_cap',
+        'v21_scare_cap',
+        'v21_scare_commit',
+        'v21_war_gate',
+      ]);
+      expect(parsed.releaseDefaultOn.has('v21River')).toBe(true);
+
+      // Source contract: every v21River receipt must be emitted in HorseLogic.ts
+      for (const receipt of v21Entry?.receipts ?? []) {
+        expect(inputs.horseLogicSource).toContain(`noteFire('${receipt}')`);
+      }
     });
 
     it('detects when v69TurnCallGaps and v73Vs3BetDefence are decoupled in HorseLogic source', () => {
@@ -436,6 +476,10 @@ describe('holdem-blanket-scoreboard-lib', () => {
           telemetryRows: [
             { feature: 'v65_turn_one_pair_shade', total_fires: 900, days_seen: 3 },
             { feature: 'v57_turn_cell_initiative_skip', total_fires: 300, days_seen: 3 },
+            { feature: 'v21_nut_status', total_fires: 1200, days_seen: 3 },
+            { feature: 'v21_scare_commit', total_fires: 150, days_seen: 3 },
+            { feature: 'v21_war_gate', total_fires: 90, days_seen: 3 },
+            { feature: 'v21_dominated_cap', total_fires: 60, days_seen: 2 },
             {
               feature: 'option_shadow_v57TournamentAggression_same_seen',
               total_fires: 50,
@@ -452,6 +496,9 @@ describe('holdem-blanket-scoreboard-lib', () => {
       // 1. READY_FOR_SHADOW
       expect(byOpt.get('v65TurnOnePairShade')?.nextAction).toBe('READY_FOR_SHADOW');
       expect(byOpt.get('v65TurnOnePairShade')?.telemetry.avgFiresPerDay).toBe(300);
+      expect(byOpt.get('v21River')?.nextAction).toBe('READY_FOR_SHADOW');
+      expect(byOpt.get('v21River')?.telemetry.totalFires).toBe(1500);
+      expect(byOpt.get('v21River')?.telemetry.avgFiresPerDay).toBe(500);
 
       // 2. READY_FOR_OFF_AFTER_GRADE (via dev cards, via observed shadow receipts, AND via shadow-refused)
       expect(byOpt.get('v80TopPairStrongKicker')?.nextAction).toBe('READY_FOR_OFF_AFTER_GRADE');
