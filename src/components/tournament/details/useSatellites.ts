@@ -52,9 +52,9 @@ import { describeStoredMttStructure } from '../../../../server/src/tournament/mt
 import {
   readTournamentFormat,
   getTournamentEntryCapacity,
+  tournamentStartsWhenFull,
 } from '../../../utils/tournamentPresentation';
 import { totalBuyIn } from '../../../utils/buyIn';
-import { isFixedSngSatellite } from '../../../../server/src/tournament/tournamentEntryCapacity';
 
 /**
  * Explicit column list. `select('*')` on `tournaments` pulls well over a
@@ -187,7 +187,7 @@ export function mapSatelliteRowToCard(sat: Record<string, unknown>) {
     maxPlayers: getTournamentEntryCapacity(sat),
     registeredPlayers: num(sat.current_players),
     startsAt: sat.start_time as string | undefined,
-    startsWhenFull: readTournamentFormat(sat) === 'sng-v1' && isFixedSngSatellite(sat),
+    startsWhenFull: tournamentStartsWhenFull(sat),
     started_at: sat.started_at as string | undefined,
     status,
     gameType: (sat.game_type as string) || undefined,

@@ -1781,6 +1781,7 @@ gh() {
           });
           expect(sameId.status, sameId.stderr).toBe(0);
           expect(sameId.stdout).toContain('shares identical engine-source-identity');
+          expect(sameId.stdout).toContain('backup_projection');
           expect(sameId.stdout).toContain('acquired=1');
           expect(sameId.stdout).not.toContain('SUPERSEDED');
           expect(sameId.stdout).not.toContain('superseded=1');
@@ -1809,6 +1810,71 @@ gh() {
           expect(wfRun.status, wfRun.stderr).toBe(0);
           expect(wfRun.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
           expect(wfRun.stdout).toContain('superseded=1');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O11: a waiting push run supersedes cleanly when a newer active push has identical engine-source-identity and unchanged backup-engine.yml but different backup_projection', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // Replay 2026-11-22 16:35Z incident (b06d2db915bb vs ea92b56f0177):
+          // scripts/ci/read-engine-prequalification.py changes (CONTROL_INPUTS),
+          // while engine-source-identity and .github/workflows/backup-engine.yml
+          // stay identical. The newer run can NEVER inherit our certificate and
+          // our SHA is obsolete, so the waiting run must supersede cleanly.
+          const preqOriginal = readFileSync(
+            resolve(f.dir, 'scripts/ci/read-engine-prequalification.py'),
+            'utf8'
+          );
+          f.write(
+            'scripts/ci/read-engine-prequalification.py',
+            preqOriginal + '\n# o11 control input change replay\n'
+          );
+          const preqChanged = f.commit(
+            'c4: change read-engine-prequalification.py (CONTROL_INPUTS)'
+          );
+          origin.pushMain();
+
+          expect(f.identity(preqChanged).stdout.trim()).toBe(f.identity(f.shas.c1).stdout.trim());
+
+          const preqRun = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [preqChanged],
+            livePriority: 'none',
+          });
+          expect(preqRun.status, preqRun.stderr).toBe(0);
+          expect(preqRun.stdout).toContain('differs in backup_projection');
+          expect(preqRun.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+          expect(preqRun.stdout).toContain('superseded=1');
+          expect(preqRun.stdout).not.toContain('acquired=1');
+          expect(preqRun.calls).not.toContain('sleep ');
+          expect(preqRun.calls).not.toContain('/statuses/');
+
+          // Also verify supabase/migrations/ change (same engine-source-identity
+          // and unchanged backup-engine.yml, different backup_projection).
+          f.write('supabase/migrations/20261122000001_o11_test.sql', 'SELECT 1;\n');
+          const migChanged = f.commit('c5: add migration');
+          origin.pushMain();
+
+          expect(f.identity(migChanged).stdout.trim()).toBe(f.identity(preqChanged).stdout.trim());
+
+          const migRun = runTurn({
+            cwd: f.dir,
+            sha: preqChanged,
+            newerShas: [migChanged],
+            livePriority: 'none',
+          });
+          expect(migRun.status, migRun.stderr).toBe(0);
+          expect(migRun.stdout).toContain('differs in backup_projection');
+          expect(migRun.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+          expect(migRun.stdout).toContain('superseded=1');
+          expect(migRun.stdout).not.toContain('acquired=1');
+          expect(migRun.calls).not.toContain('sleep ');
+          expect(migRun.calls).not.toContain('/statuses/');
         } finally {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });
@@ -1874,6 +1940,46 @@ gh() {
           expect(unknownCommit.stdout).toContain('keeping wait (CLAUDE.md 10.86)');
           expect(unknownCommit.stdout).toContain('acquired=1');
           expect(unknownCommit.stdout).not.toContain('SUPERSEDED');
+
+          // O11 / CLAUDE.md 10.86: unreadable my_proj keeps waiting instead of superseding.
+          const preqOriginal = readFileSync(
+            resolve(f.dir, 'scripts/ci/read-engine-prequalification.py'),
+            'utf8'
+          );
+          f.write(
+            'scripts/ci/read-engine-prequalification.py',
+            'def backup_projection(_sha):\n    raise RuntimeError("unreadable")\n'
+          );
+          const myProjFail = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c0,
+            newerShas: [f.shas.c1],
+          });
+          expect(myProjFail.status, myProjFail.stderr).toBe(0);
+          expect(myProjFail.stdout).toContain('Could not verify backup_projection');
+          expect(myProjFail.stdout).toContain('keeping wait (CLAUDE.md 10.86)');
+          expect(myProjFail.stdout).toContain('acquired=1');
+          expect(myProjFail.stdout).not.toContain('SUPERSEDED');
+          expect(myProjFail.stdout).not.toContain('superseded=1');
+
+          // O11 / CLAUDE.md 10.86: unreadable other_proj keeps waiting instead of superseding.
+          f.write(
+            'scripts/ci/read-engine-prequalification.py',
+            `def backup_projection(sha):\n    if sha == ${JSON.stringify(f.shas.c0)}:\n        return "ok"\n    raise RuntimeError("unreadable other")\n`
+          );
+          const otherProjFail = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c0,
+            newerShas: [f.shas.c1],
+          });
+          expect(otherProjFail.status, otherProjFail.stderr).toBe(0);
+          expect(otherProjFail.stdout).toContain('Could not read backup_projection');
+          expect(otherProjFail.stdout).toContain('keeping wait (CLAUDE.md 10.86)');
+          expect(otherProjFail.stdout).toContain('acquired=1');
+          expect(otherProjFail.stdout).not.toContain('SUPERSEDED');
+          expect(otherProjFail.stdout).not.toContain('superseded=1');
+
+          f.write('scripts/ci/read-engine-prequalification.py', preqOriginal);
         } finally {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });

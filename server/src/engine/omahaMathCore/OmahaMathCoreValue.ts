@@ -322,14 +322,14 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   if (!(spot.pot > 0) || !(spot.heroStack >= 0) || !(spot.oppStack >= 0) || spot.nOpp < 1)
     throw new Error('omahaMathCoreValue: inconsistent spot');
   const menuSizes = (spot.sizes ?? VALUE_SIZE_MENU).filter((f) => f > 0 && f <= 1 + 1e-9);
-  const memo = new Map<string, number>();
+  const memo = new Map<number, number>();
   const eqAt = (s: number, effOpp: number): number => {
-    const k = Math.max(0.005, Math.round(clamp01(s) * 200) / 200);
-    const e = Math.max(1, Math.min(spot.nOpp, Math.round(effOpp * 100) / 100));
-    const key = `${k.toFixed(3)}|${e.toFixed(2)}`;
+    const ki = Math.max(1, Math.round(clamp01(s) * 200));
+    const ei = Math.max(100, Math.min(spot.nOpp * 100, Math.round(effOpp * 100)));
+    const key = ki * 2048 + ei;
     let v = memo.get(key);
     if (v === undefined) {
-      v = clamp01(spot.equityAtShare(k, e));
+      v = clamp01(spot.equityAtShare(ki / 200, ei / 100));
       if (!Number.isFinite(v)) throw new Error('omahaMathCoreValue: equity unavailable');
       memo.set(key, v);
     }
