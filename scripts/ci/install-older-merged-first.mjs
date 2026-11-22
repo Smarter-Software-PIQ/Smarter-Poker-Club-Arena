@@ -59,12 +59,26 @@
  *      its successor), never sending V over it.
  *   3  UNKNOWN: an older file's outcome is unknown. V is not sent.
  *
+ * AND A NEWER FILE HELD BEHIND A REFUSED OLDER ONE INSTALLS AFTER IT
+ * (alerts 447640/447641, 2026-11-22). Refusing V when an older file is refused
+ * is right, but it left V with no route back: on 2026-11-22 20261122192807 was
+ * refused, the runs for 201323, 203048 and 205903 each stopped behind it, and
+ * #11785's fix run installed 192807 ALONE because this step never looked above
+ * its target. 203048 and 201323 landed only because a lane re-sent one by hand;
+ * 205903 stayed uninstalled until another hand dispatch. So once V has
+ * installed, the same run calls this with --newer-after and installs every
+ * NEWER ordinary file on main that production does not hold, oldest first,
+ * once each through the same applier, under the same rule (floor, window and
+ * SUPERSEDED exclusions). At most MAX_OLDER are sent; the first that does not
+ * install stops the step and the run goes red naming it. A newer file's own
+ * run, if still queued, then answers ALREADY-APPLIED.
+ *
  * Not a watcher, timer, retry or repair job (CLAUDE.md 10.11, 10.12): it runs
  * only inside a dispatched applier run, sends each file at most once, and
  * retries nothing.
  *
  * usage: DATABASE_URL=... node scripts/ci/install-older-merged-first.mjs \
- *          --migration <file> --ssl-root-cert <path> [--dry-run]
+ *          --migration <file> --ssl-root-cert <path> [--dry-run] [--newer-after]
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -87,6 +101,18 @@ const FILE = /^(\d{14})_([a-z0-9_]+)\.sql$/;
  * `installed` is the rows of supabase_migrations.schema_migrations ({version, name}).
  */
 export function pendingOlderFiles({ target, files, readSql, installed }) {
+  return pendingFiles({ target, files, readSql, installed, side: 'older' });
+}
+
+/**
+ * The NEWER ordinary files production does not hold, oldest first: the files a
+ * refused older file held back. Same exclusions as pendingOlderFiles.
+ */
+export function pendingNewerFiles({ target, files, readSql, installed }) {
+  return pendingFiles({ target, files, readSql, installed, side: 'newer' });
+}
+
+function pendingFiles({ target, files, readSql, installed, side }) {
   const t = FILE.exec(target);
   if (!t) throw new Error(`"${target}" is not a migration filename`);
   const versions = new Set();
@@ -102,7 +128,8 @@ export function pendingOlderFiles({ target, files, readSql, installed }) {
     const m = FILE.exec(f);
     if (!m) continue;
     const [, version, slug] = m;
-    if (version < ORDER_FLOOR || version >= t[1]) continue;
+    if (version < ORDER_FLOOR) continue;
+    if (side === 'older' ? version >= t[1] : version <= t[1]) continue;
     if (versions.has(version) || names.has(slug) || names.has(slug.slice(0, 55))) continue;
     const sql = readSql(f);
     if (supersededBy(sql, files)) {
@@ -152,6 +179,44 @@ export function installOlderFirst({ target, plan, send, log }) {
   return 0;
 }
 
+/**
+ * After the target installed: send each newer pending file once, oldest
+ * first, at most MAX_OLDER, stopping at the first that does not install.
+ * 0 = all sent files installed and none is left; 1 = one was refused or more
+ * remain than one run sends; 3 = an outcome is unknown.
+ */
+export function installNewerAfter({ target, plan, send, log }) {
+  if (plan.install.length === 0) {
+    log(`[order] ${target} installed; no newer ordinary migration is pending.`);
+    return 0;
+  }
+  const batch = plan.install.slice(0, MAX_OLDER);
+  log(
+    `[order] ${target} installed; ${plan.install.length} newer migration(s) it held back are pending; installing ${batch.length} now, oldest first: ${batch.join(', ')}`
+  );
+  for (const f of batch) {
+    log(`[order] --- newer ${f} ---`);
+    const code = send(f);
+    if (code !== 0) {
+      const verdict = code === 1 ? 'REFUSED' : 'UNKNOWN';
+      const rest = plan.install.slice(plan.install.indexOf(f) + 1);
+      log(
+        `[order] ${verdict}: ${target} IS installed, but newer ${f} did not install (exit ${code})${rest.length ? `; not sent after it: ${rest.join(', ')}` : ''}. Fix ${f} in place or mark it SUPERSEDED BY its successor; its fix's run then installs the newer files after it.`
+      );
+      return code === 1 ? 1 : 3;
+    }
+  }
+  const left = plan.install.slice(batch.length);
+  if (left.length > 0) {
+    log(
+      `[order] REFUSED: ${target} and ${batch.length} newer file(s) are installed, but ${left.length} more remain (${left.join(', ')}), more than one run sends (${MAX_OLDER}). Dispatch apply-merged-migration for ${left[0]}; it installs the rest in order.`
+    );
+    return 1;
+  }
+  log(`[order] every newer pending migration is installed.`);
+  return 0;
+}
+
 async function readInstalled() {
   const conn = new URL(process.env.DATABASE_URL);
   const sslRoot = argValue('--ssl-root-cert');
@@ -185,6 +250,7 @@ function argValue(n) {
 async function main() {
   const target = argValue('--migration') || '';
   const dryRun = args.includes('--dry-run');
+  const newerAfter = args.includes('--newer-after');
   const DIR = 'supabase/migrations';
   if (!FILE.exec(target)) {
     // The applier refuses a malformed name itself, with its own sentence.
@@ -202,17 +268,18 @@ async function main() {
     return 1;
   }
   const files = readdirSync(DIR);
-  const plan = pendingOlderFiles({
+  const plan = (newerAfter ? pendingNewerFiles : pendingOlderFiles)({
     target,
     files,
     readSql: (f) => readFileSync(join(DIR, f), 'utf8'),
     installed,
   });
+  const side = newerAfter ? 'newer' : 'older';
   for (const f of plan.windowQueued)
-    console.log(`[order] older ${f} is QUEUED for the daily maintenance window; not sent here.`);
+    console.log(`[order] ${side} ${f} is QUEUED for the daily maintenance window; not sent here.`);
   for (const f of plan.superseded)
-    console.log(`[order] older ${f} is marked SUPERSEDED; it never installs.`);
-  return installOlderFirst({
+    console.log(`[order] ${side} ${f} is marked SUPERSEDED; it never installs.`);
+  return (newerAfter ? installNewerAfter : installOlderFirst)({
     target,
     plan,
     log: (m) => console.log(m),

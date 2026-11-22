@@ -16,7 +16,7 @@
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "d349c59e55f35a9f1f39b269664994f33df64fca4170ec209a5ae7d5b3c25fe6",
     "scripts/ci/apply-recorded-migration.mjs": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5",
-    ".github/workflows/apply-merged-migration.yml": "e5de82524b9b5b649ec040613f26b197aa3239f3233d0e5fb5f605dfd99debe2",
+    ".github/workflows/apply-merged-migration.yml": "17812a89bb361c3b80f1c0753410ea56e41c2c304071156c2d179ea0a2050c89",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
   },
@@ -208,5 +208,12 @@
     "after": "e5de82524b9b5b649ec040613f26b197aa3239f3233d0e5fb5f605dfd99debe2",
     "review": "Reviewed exact diff. In the 'Apply the migration' step, after the unchanged queue loop and before the unchanged recovery-argument assembly, a new call runs scripts/ci/install-older-merged-first.mjs (same TLS certificate argument, same dry-run flag, no recovery arguments) and, when it exits non-zero, records that code and exits before the target is sent; the unchanged apply-recorded-migration.mjs command for the target then appends to the same log (tee -a). The new script reads supabase_migrations.schema_migrations with a plain SELECT and sends each older ordinary file (version 20261110000000 or later, below the target, not installed by version/name/truncated name, not window-declared, not SUPERSEDED) once, oldest first, through the unchanged applier with no special-route arguments, stopping at the first non-zero outcome. Plus header and concurrency comments. Triggers, inputs, concurrency group and cancel-in-progress, permissions, environment, timeout, the queue and the target's applier command and its recovery arguments are unchanged. apply-recorded-migration.mjs is byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "Incident 90972d77 (2026-11-21): the queue runs files in dispatch order, not version order; 20261121024624 installed before 20261121005533, whose chain guard then refused it. Replaces the timing-based dispatcher wait of #11619 with a version-order guarantee."
+  },
+  "aNewerFileHeldBehindARefusedOlderOneInstallsAfterIt20261122": {
+    "path": ".github/workflows/apply-merged-migration.yml",
+    "before": "e5de82524b9b5b649ec040613f26b197aa3239f3233d0e5fb5f605dfd99debe2",
+    "after": "17812a89bb361c3b80f1c0753410ea56e41c2c304071156c2d179ea0a2050c89",
+    "review": "Reviewed exact diff. In the 'Apply the migration' step, after the unchanged target applier command and only when it exited 0 on a run that is not check-only, a new call runs scripts/ci/install-older-merged-first.mjs --newer-after (same TLS certificate argument, same target, no recovery arguments, no dry-run flag), and its exit code becomes the run's code. The script reads supabase_migrations.schema_migrations with a plain SELECT and sends each NEWER ordinary file (version 20261110000000 or later, above the target, not installed by version/name/truncated name, not window-declared, not SUPERSEDED) once, oldest first, at most MAX_OLDER (5), through the unchanged applier with no special-route arguments, stopping at the first non-zero outcome. Plus comments. Triggers, inputs, concurrency, permissions, environment, timeout, the queue, the older-first call and the target's applier command and recovery arguments are unchanged. apply-recorded-migration.mjs is byte-identical. No financial, native or production qualification is restamped or claimed.",
+    "reason": "Alerts 447640/447641 (2026-11-22): 20261122192807 was refused; the runs for 201323, 203048 and 205903 stopped behind it, and #11785's fix run installed 192807 alone because the older-first step never looked above its target. The held files reached production only by hand dispatch."
   }
 }

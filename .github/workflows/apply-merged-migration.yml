@@ -294,6 +294,21 @@ jobs:
             "${recovery_args[@]}" \
             ${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }} 2>&1 | tee -a /tmp/apply.log
           code=${PIPESTATUS[0]}
+          # A NEWER FILE HELD BEHIND A REFUSED OLDER ONE INSTALLS AFTER IT
+          # (alerts 447640/447641, 2026-11-22). Only once this file installed:
+          # every newer ordinary file on main that production does not hold,
+          # oldest first, once each through the same applier, at most five.
+          # Never on a check-only run: nothing was committed, so a newer file's
+          # check would run without the file it follows.
+          # scripts/ci/install-older-merged-first.mjs --newer-after.
+          check_only="${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }}"
+          if [[ "$code" == "0" && -z "$check_only" ]]; then
+            node scripts/ci/install-older-merged-first.mjs \
+              --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt \
+              --migration "$MIGRATION_FILE" \
+              --newer-after 2>&1 | tee -a /tmp/apply.log
+            code=${PIPESTATUS[0]}
+          fi
           set -e
           echo "code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
