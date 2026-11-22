@@ -20,7 +20,13 @@ import {
   validateCriteriaManifest,
   verifyCriteriaContent,
 } from '../../scripts/ops/grade-holdem-option-lib.mjs';
-import { EXIT_OK, EXIT_REFUSED, runGradeCli } from '../../scripts/ops/grade-holdem-option.mjs';
+import {
+  CONTROL_RUNNER_SOURCE,
+  EXIT_OK,
+  EXIT_REFUSED,
+  runGradeCli,
+} from '../../scripts/ops/grade-holdem-option.mjs';
+import { resolveLeagueCard } from '../../server/src/benchmark/HorseLeagueCard.js';
 
 const CRITERIA_TEXT = '# Pre-Run Criteria: v80TopPairStrongKicker\nFrozen before grade.\n';
 const CRITERIA_SHA = sha256Hex(CRITERIA_TEXT);
@@ -1083,5 +1089,390 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(cliSrc).toContain("'-n'");
     expect(cliSrc).toContain("'10'");
     expect(cliSrc).toContain('src/scripts/horseLeagueCard.ts');
+  });
+
+  it('26. CONTROL_RUNNER_SOURCE resolves DEVELOPMENT_LEAGUE_CARDS and falls back cleanly when undefined', async () => {
+    expect(CONTROL_RUNNER_SOURCE).toContain("await import('./src/benchmark/HorseLeague.js')");
+    expect(CONTROL_RUNNER_SOURCE).toContain('HL.DEVELOPMENT_LEAGUE_CARDS ?? []');
+
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
+      ...args: string[]
+    ) => (...args: unknown[]) => Promise<void>;
+
+    // Run the actual CONTROL_RUNNER_SOURCE code in-memory with mocked dynamic imports
+    async function runControlSource(
+      hlModule: Record<string, unknown>,
+      argvArgs: [string, string, string, string]
+    ) {
+      const capturedLogs: string[] = [];
+      let exitCode: number | null = null;
+      const rewritten = CONTROL_RUNNER_SOURCE.replace(
+        /await import\((['"][^'"]+['"])\)/g,
+        'await __import($1)'
+      );
+      const fn = new AsyncFunction('__import', 'process', 'console', rewritten);
+      const fakeProcess = {
+        env: {} as Record<string, string>,
+        argv: ['node', ...argvArgs],
+        exit: (code: number) => {
+          exitCode = code;
+        },
+      };
+      const fakeConsole = {
+        log: (msg: string) => capturedLogs.push(String(msg)),
+      };
+      await fn(
+        async (spec: string) => {
+          if (spec === './src/benchmark/HorseLeague.js') return hlModule;
+          if (spec === './src/benchmark/HorseLeagueCard.js') return { resolveLeagueCard };
+          if (spec === './src/engine/HorseTournamentFutureHand.js') {
+            return { prepareTournamentFutureHandFacts: () => {} };
+          }
+          throw new Error(`Unexpected import: ${spec}`);
+        },
+        fakeProcess,
+        fakeConsole
+      );
+      return { capturedLogs, exitCode, env: fakeProcess.env };
+    }
+
+    const baseCard = { name: 'nlh_hu_baseline', a: { optA: true }, b: { optA: false } };
+    const devCard = {
+      name: 'cash6_v80_top_pair_strong_kicker_off',
+      a: { v80TopPairStrongKicker: true },
+      b: { v80TopPairStrongKicker: false },
+    };
+
+    // Case A: branch exports DEVELOPMENT_LEAGUE_CARDS -> resolves devCard for OFF-vs-OFF control
+    const observedMatchups: Array<Record<string, unknown>> = [];
+    const withDev = await runControlSource(
+      {
+        LEAGUE_MATCHUPS: [baseCard],
+        DEVELOPMENT_LEAGUE_CARDS: [devCard],
+        UNMEASURABLE_MATCHUPS: [],
+        runMatchup: async (ctrl: Record<string, unknown>, pairs: number) => {
+          observedMatchups.push(ctrl);
+          return {
+            hands: pairs * 2,
+            bb100: 0,
+            stderr: 0,
+            divergentPairs: 0,
+            inert: true,
+            illegalActions: 0,
+            truncatedStreets: 0,
+            brainExceptionFallbacks: 0,
+            durationMs: 42,
+          };
+        },
+      },
+      ['cash6_v80_top_pair_strong_kicker_off', '20261122', '6000', GIT_HEAD]
+    );
+    expect(withDev.exitCode).toBe(0);
+    expect(withDev.env.EQUITY_GOVERNOR).toBe('off');
+    expect(observedMatchups).toHaveLength(1);
+    expect(observedMatchups[0].name).toBe('cash6_v80_top_pair_strong_kicker_off_control');
+    expect(observedMatchups[0].a).toEqual({ v80TopPairStrongKicker: false });
+    expect(observedMatchups[0].b).toEqual({ v80TopPairStrongKicker: false });
+    const devParsed = parseHorseLeagueOutput(withDev.capturedLogs.join('\n'));
+    expect(devParsed).toHaveLength(1);
+    expect(devParsed[0].divergentPairs).toBe(0);
+    expect(devParsed[0].hands).toBe(12000);
+
+    // Case B: older branch does NOT export DEVELOPMENT_LEAGUE_CARDS (undefined) -> graceful fallback
+    const legacyObserved: Array<Record<string, unknown>> = [];
+    const withoutDev = await runControlSource(
+      {
+        LEAGUE_MATCHUPS: [baseCard],
+        UNMEASURABLE_MATCHUPS: [],
+        runMatchup: async (ctrl: Record<string, unknown>, pairs: number) => {
+          legacyObserved.push(ctrl);
+          return {
+            hands: pairs * 2,
+            bb100: 0,
+            stderr: 0,
+            divergentPairs: 0,
+            inert: true,
+            illegalActions: 0,
+            truncatedStreets: 0,
+            brainExceptionFallbacks: 0,
+            durationMs: 19,
+          };
+        },
+      },
+      ['nlh_hu_baseline', '20261122', '6000', GIT_HEAD]
+    );
+    expect(withoutDev.exitCode).toBe(0);
+    expect(legacyObserved).toHaveLength(1);
+    expect(legacyObserved[0].name).toBe('nlh_hu_baseline_control');
+    expect(legacyObserved[0].a).toEqual({ optA: false });
+    expect(legacyObserved[0].b).toEqual({ optA: false });
+  });
+
+  it('27. enforcePerPrimaryCell / requirePerPrimaryCellNonInferiority fails if any PRIMARY cell < primaryMinZ even when combined pool passes', () => {
+    const baseMultiPrimaryManifest = {
+      option: 'hsRiverMultiPrimary',
+      description: 'Multi-option manifest (v64 + v51) testing per-PRIMARY-cell non-inferiority',
+      criteriaPath: 'CRITERIA.md',
+      criteriaSha256: CRITERIA_SHA,
+      bars: {
+        direction: 'higher_is_better',
+        zFamMethod: 'sidak',
+        primaryMinZ: -1.0,
+        includePrimarySeedsInCellGuard: false,
+        requireControl: true,
+      },
+      cells: [
+        {
+          id: 'primary_v64',
+          card: 'cash6_v64_river_card',
+          role: 'PRIMARY',
+          group: 'v64',
+          seeds: [101, 102],
+          pairs: 4000,
+        },
+        {
+          id: 'primary_v51',
+          card: 'cash6_v51_river_card',
+          role: 'PRIMARY',
+          group: 'v51',
+          seeds: [101, 102],
+          pairs: 4000,
+        },
+        {
+          id: 'ctrl_v64',
+          card: 'cash6_v64_river_card',
+          role: 'CONTROL',
+          group: 'ctrl',
+          seeds: [101],
+          pairs: 4000,
+        },
+      ],
+    };
+
+    // primary_v64 is strongly positive (+4.0 +- 1.5 each -> pooled z ~ +3.77)
+    // primary_v51 is negative (-2.0 +- 1.5 each -> pooled z ~ -1.89 < -1.0)
+    // Combined pool across all 4 seeds: mean = +1.0, se = 0.75 -> overall z = +1.33 >= -1.0!
+    const records = [
+      {
+        cellId: 'primary_v64',
+        seed: 101,
+        hands: 8000,
+        bb100: 4.0,
+        stderr: 1.5,
+        divergentPairs: 60,
+        partedHands: 60,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+      {
+        cellId: 'primary_v64',
+        seed: 102,
+        hands: 8000,
+        bb100: 4.0,
+        stderr: 1.5,
+        divergentPairs: 58,
+        partedHands: 58,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+      {
+        cellId: 'primary_v51',
+        seed: 101,
+        hands: 8000,
+        bb100: -2.0,
+        stderr: 1.5,
+        divergentPairs: 45,
+        partedHands: 45,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+      {
+        cellId: 'primary_v51',
+        seed: 102,
+        hands: 8000,
+        bb100: -2.0,
+        stderr: 1.5,
+        divergentPairs: 47,
+        partedHands: 47,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+      {
+        cellId: 'ctrl_v64',
+        seed: 101,
+        hands: 8000,
+        bb100: 0,
+        stderr: 0,
+        divergentPairs: 0,
+        partedHands: 0,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+    ];
+
+    // Default (enforcePerPrimaryCell=false): backward-compatible PASS on combined pool
+    const defaultRes = evaluateHoldemGrade({
+      manifest: baseMultiPrimaryManifest,
+      records,
+      provenance: { criteriaSha256: CRITERIA_SHA, gitHead: GIT_HEAD },
+    });
+    expect(defaultRes.verdict).toBe('PASS');
+    expect(defaultRes.bars.bar4.primary.overallNonInferiorityOk).toBe(true);
+    expect(defaultRes.bars.bar4.primary.enforcePerPrimaryCell).toBe(false);
+    expect(defaultRes.bars.bar4.primary.byCellId.primary_v64.passed).toBe(true);
+    expect(defaultRes.bars.bar4.primary.byCellId.primary_v51.passed).toBe(false);
+
+    // enforcePerPrimaryCell: true -> FAILS because primary_v51 pooled z (-1.886) < -1.0
+    const enforcedRes = evaluateHoldemGrade({
+      manifest: {
+        ...baseMultiPrimaryManifest,
+        bars: { ...baseMultiPrimaryManifest.bars, enforcePerPrimaryCell: true },
+      },
+      records,
+      provenance: { criteriaSha256: CRITERIA_SHA, gitHead: GIT_HEAD },
+    });
+    expect(enforcedRes.verdict).toBe('FAIL');
+    expect(enforcedRes.bars.bar4.ok).toBe(false);
+    expect(enforcedRes.bars.bar4.primary.overallNonInferiorityOk).toBe(true);
+    expect(enforcedRes.bars.bar4.primary.perCellNonInferiorityOk).toBe(false);
+    expect(enforcedRes.bars.bar4.primary.nonInferiorityOk).toBe(false);
+    expect(enforcedRes.bars.bar4.primary.perCellBreaches).toHaveLength(1);
+    expect(enforcedRes.bars.bar4.primary.perCellBreaches[0].cellId).toBe('primary_v51');
+    expect(enforcedRes.reasons.fail.map((r: { code: string }) => r.code)).toContain(
+      'PRIMARY_CELL_REGRESSION'
+    );
+
+    const md = renderVerdictMarkdown(enforcedRes);
+    expect(md).toContain('### Primary Cells (Per-Cell Pooling & Non-Inferiority)');
+    expect(md).toContain('`primary_v64`');
+    expect(md).toContain('`primary_v51`');
+    expect(md).toContain('enforcePerPrimaryCell=true');
+
+    // Alias requirePerPrimaryCellNonInferiority: true behaves identically
+    const aliasRes = evaluateHoldemGrade({
+      manifest: {
+        ...baseMultiPrimaryManifest,
+        bars: {
+          ...baseMultiPrimaryManifest.bars,
+          requirePerPrimaryCellNonInferiority: true,
+        },
+      },
+      records,
+      provenance: { criteriaSha256: CRITERIA_SHA, gitHead: GIT_HEAD },
+    });
+    expect(aliasRes.verdict).toBe('FAIL');
+    expect(aliasRes.bars.bar4.primary.perCellNonInferiorityOk).toBe(false);
+    expect(aliasRes.reasons.fail.map((r: { code: string }) => r.code)).toContain(
+      'PRIMARY_CELL_REGRESSION'
+    );
+  });
+
+  it('28. primaryPoolingMethod="equal_weight" gates on equal-weight mean/SE (pooledLeagueCardSeeds)', () => {
+    const manifestBase = {
+      option: 'v79EqualWeightCheck',
+      criteriaPath: 'CRITERIA.md',
+      criteriaSha256: CRITERIA_SHA,
+      bars: {
+        direction: 'higher_is_better',
+        zFamMethod: 'sidak',
+        primaryMinZ: -1.0,
+        requireControl: true,
+      },
+      cells: [
+        {
+          id: 'cash6_v79',
+          card: 'cash6_v79_card',
+          role: 'PRIMARY',
+          group: 'cash6_v79',
+          seeds: [201, 202],
+          pairs: 4000,
+        },
+        {
+          id: 'ctrl_v79',
+          card: 'cash6_v79_card',
+          role: 'CONTROL',
+          group: 'ctrl_v79',
+          seeds: [201],
+          pairs: 4000,
+        },
+      ],
+    };
+
+    // Seed 201: +0.8 +- 1.0 (z = +0.80, high precision)
+    // Seed 202: -6.5 +- 5.0 (z = -1.30, low precision; adverseZ=1.30 < z_fam(2)=1.385)
+    // IV pool: mean = +0.5192, se = 0.9806 -> z = +0.5295 >= -1.0 (PASS)
+    // EW pool: mean = -2.8500, se = 2.5495 -> z = -1.1179 < -1.0 (FAIL)
+    const records = [
+      {
+        cellId: 'cash6_v79',
+        seed: 201,
+        hands: 8000,
+        bb100: 0.8,
+        stderr: 1.0,
+        divergentPairs: 50,
+        partedHands: 50,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+      {
+        cellId: 'cash6_v79',
+        seed: 202,
+        hands: 8000,
+        bb100: -6.5,
+        stderr: 5.0,
+        divergentPairs: 48,
+        partedHands: 48,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+      {
+        cellId: 'ctrl_v79',
+        seed: 201,
+        hands: 8000,
+        bb100: 0,
+        stderr: 0,
+        divergentPairs: 0,
+        partedHands: 0,
+        exitCode: 0,
+        engineRevision: GIT_HEAD,
+      },
+    ];
+
+    const ivRes = evaluateHoldemGrade({
+      manifest: manifestBase,
+      records,
+      provenance: { criteriaSha256: CRITERIA_SHA, gitHead: GIT_HEAD },
+    });
+    expect(ivRes.verdict).toBe('PASS');
+    expect(ivRes.bars.bar4.primary.poolingMethod).toBe('inverse_variance');
+    expect(ivRes.bars.bar4.primary.gainZ).toBeCloseTo(
+      ivRes.bars.bar4.primary.inverseVariance.z,
+      10
+    );
+
+    const ewRes = evaluateHoldemGrade({
+      manifest: {
+        ...manifestBase,
+        bars: { ...manifestBase.bars, primaryPoolingMethod: 'equal_weight' },
+      },
+      records,
+      provenance: { criteriaSha256: CRITERIA_SHA, gitHead: GIT_HEAD },
+    });
+    const expectedEwMean = (0.8 - 6.5) / 2;
+    const expectedEwSe = Math.sqrt(1.0 ** 2 + 5.0 ** 2) / 2;
+    const expectedEwZ = expectedEwMean / expectedEwSe;
+    expect(ewRes.verdict).toBe('FAIL');
+    expect(ewRes.bars.bar4.primary.poolingMethod).toBe('equal_weight');
+    expect(ewRes.bars.bar4.primary.gainZ).toBeCloseTo(expectedEwZ, 10);
+    expect(ewRes.bars.bar4.primary.nonInferiorityOk).toBe(false);
+    expect(ewRes.reasons.fail.map((r: { code: string }) => r.code)).toContain('PRIMARY_REGRESSION');
+
+    // Invalid primaryPoolingMethod is refused by manifest validation
+    expect(() =>
+      validateCriteriaManifest({
+        ...manifestBase,
+        bars: { ...manifestBase.bars, primaryPoolingMethod: 'median' },
+      })
+    ).toThrow(/primaryPoolingMethod/);
   });
 });

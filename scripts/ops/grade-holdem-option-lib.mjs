@@ -17,6 +17,7 @@ export const CELL_ROLES = Object.freeze(['PRIMARY', 'GUARD', 'CONTROL']);
 export const VERDICTS = Object.freeze(['PASS', 'FAIL', 'NO-GAIN', 'INERT', 'VOID']);
 export const DIRECTIONS = Object.freeze(['higher_is_better', 'lower_is_better']);
 export const ZFAM_METHODS = Object.freeze(['sidak', 'bonferroni']);
+export const PRIMARY_POOLING_METHODS = Object.freeze(['inverse_variance', 'equal_weight']);
 
 export const DEFAULT_MAX_LOAD_1M = 35;
 export const DEFAULT_LOCK_DIR =
@@ -38,7 +39,10 @@ export const DEFAULT_BARS = Object.freeze({
   direction: 'higher_is_better',
   zFamMethod: 'sidak',
   alphaFamily: ONE_SIGMA_TAIL_ALPHA,
+  primaryPoolingMethod: 'inverse_variance',
   primaryMinZ: -1.0,
+  enforcePerPrimaryCell: false,
+  requirePerPrimaryCellNonInferiority: false,
   requirePositiveGain: false,
   primaryGainZ: 2.0,
   guardPooledZOverride: null,
@@ -373,11 +377,29 @@ export function validateCriteriaManifest(rawManifest) {
   }
 
   const rawBars = rawManifest.bars && typeof rawManifest.bars === 'object' ? rawManifest.bars : {};
+  if (
+    rawBars.enforcePerPrimaryCell !== undefined &&
+    typeof rawBars.enforcePerPrimaryCell !== 'boolean'
+  ) {
+    throw new Error('bars.enforcePerPrimaryCell must be a boolean');
+  }
+  if (
+    rawBars.requirePerPrimaryCellNonInferiority !== undefined &&
+    typeof rawBars.requirePerPrimaryCellNonInferiority !== 'boolean'
+  ) {
+    throw new Error('bars.requirePerPrimaryCellNonInferiority must be a boolean');
+  }
+  const enforcePerPrimaryCell = Boolean(
+    rawBars.enforcePerPrimaryCell === true || rawBars.requirePerPrimaryCellNonInferiority === true
+  );
   const bars = {
     direction: rawBars.direction ?? DEFAULT_BARS.direction,
     zFamMethod: rawBars.zFamMethod ?? DEFAULT_BARS.zFamMethod,
     alphaFamily: rawBars.alphaFamily ?? DEFAULT_BARS.alphaFamily,
+    primaryPoolingMethod: rawBars.primaryPoolingMethod ?? DEFAULT_BARS.primaryPoolingMethod,
     primaryMinZ: rawBars.primaryMinZ ?? DEFAULT_BARS.primaryMinZ,
+    enforcePerPrimaryCell,
+    requirePerPrimaryCellNonInferiority: enforcePerPrimaryCell,
     requirePositiveGain: Boolean(rawBars.requirePositiveGain ?? DEFAULT_BARS.requirePositiveGain),
     primaryGainZ: rawBars.primaryGainZ ?? DEFAULT_BARS.primaryGainZ,
     guardPooledZOverride: rawBars.guardPooledZOverride ?? DEFAULT_BARS.guardPooledZOverride,
@@ -394,6 +416,11 @@ export function validateCriteriaManifest(rawManifest) {
   }
   if (!ZFAM_METHODS.includes(bars.zFamMethod)) {
     throw new Error(`Invalid bars.zFamMethod "${String(bars.zFamMethod)}"`);
+  }
+  if (!PRIMARY_POOLING_METHODS.includes(bars.primaryPoolingMethod)) {
+    throw new Error(
+      `Invalid bars.primaryPoolingMethod "${String(bars.primaryPoolingMethod)}": use ${PRIMARY_POOLING_METHODS.join(', ')}`
+    );
   }
   if (
     typeof bars.alphaFamily !== 'number' ||
@@ -1170,18 +1197,116 @@ export function evaluateHoldemGrade({ manifest: rawManifest, records, provenance
   };
 
   // --- Bar 4: IV-Pooled, Equal-Weight Cross-Check, z_fam(P) & z_fam(m) -------------------------
+  const poolingMethod = bars.primaryPoolingMethod;
+  const poolLabel = poolingMethod === 'equal_weight' ? 'EW' : 'IV';
+  const selectPrimaryPool = (iv, ew) => {
+    if (poolingMethod === 'equal_weight') {
+      return ew && ew.valid ? { pool: ew, methodUsed: 'equal_weight', label: 'EW' } : null;
+    }
+    if (iv && iv.valid) {
+      return { pool: iv, methodUsed: 'inverse_variance', label: 'IV' };
+    }
+    if (ew && ew.valid) {
+      return { pool: ew, methodUsed: 'equal_weight', label: 'EW' };
+    }
+    return null;
+  };
+
   const primaryIv = poolInverseVariance(primaryRows);
   const primaryEw = poolEqualWeight(primaryRows);
 
-  // Per-cellId summary across seeds for PRIMARY
+  // Per-cellId summary across seeds for PRIMARY (+ optional per-cell non-inferiority check)
   const primaryByCellId = {};
+  const primaryPerCellBreaches = [];
+  let primaryPerCellNonInferiorityOk = true;
   for (const cell of manifest.cells.filter((c) => c.role === 'PRIMARY')) {
     const cRows = primaryRows.filter((r) => r.cellId === cell.id);
+    const iv = poolInverseVariance(cRows);
+    const ew = poolEqualWeight(cRows);
+    const cellAllInert =
+      cRows.length > 0 &&
+      cRows.every((r) => r.divergentPairs === 0 && r.partedHands === 0 && r.stderr === 0);
+
+    let cellGainZ = null;
+    let cellAdverseZ = null;
+    let cellPoolValid = true;
+    let cellNonInferiorityOk = true;
+    let cellSelected = null;
+
+    if (cRows.length > 0 && !primaryIsInert) {
+      if (cellAllInert) {
+        cellGainZ = 0;
+        cellAdverseZ = 0;
+        cellNonInferiorityOk = cellGainZ >= bars.primaryMinZ;
+      } else {
+        cellSelected = selectPrimaryPool(iv, ew);
+        if (!cellSelected || !Number.isFinite(cellSelected.pool.z)) {
+          cellPoolValid = false;
+          cellNonInferiorityOk = false;
+        } else {
+          cellGainZ = directionalGainZ(cellSelected.pool.z, direction);
+          cellAdverseZ = directionalAdverseZ(cellSelected.pool.z, direction);
+          cellNonInferiorityOk = cellGainZ >= bars.primaryMinZ;
+        }
+      }
+
+      if (bars.enforcePerPrimaryCell) {
+        if (!cellPoolValid) {
+          primaryPerCellNonInferiorityOk = false;
+          primaryPerCellBreaches.push({
+            cellId: cell.id,
+            card: cell.card,
+            group: cell.group,
+            poolingMethod,
+            mean: null,
+            stderr: null,
+            z: null,
+            gainZ: null,
+            primaryMinZ: bars.primaryMinZ,
+            reason: 'invalid_pool',
+          });
+          failReasons.push({
+            code: 'PRIMARY_CELL_POOL_INVALID',
+            reason: `PRIMARY cell "${cell.id}" (group="${cell.group}") pool (${poolingMethod}) invalid: ${
+              (poolingMethod === 'equal_weight' ? ew?.invalidReason : iv?.invalidReason) ??
+              'unknown'
+            }`,
+          });
+        } else if (!cellNonInferiorityOk) {
+          primaryPerCellNonInferiorityOk = false;
+          primaryPerCellBreaches.push({
+            cellId: cell.id,
+            card: cell.card,
+            group: cell.group,
+            poolingMethod: cellSelected?.methodUsed ?? poolingMethod,
+            mean: cellSelected?.pool.mean ?? 0,
+            stderr: cellSelected?.pool.stderr ?? 0,
+            z: cellSelected?.pool.z ?? 0,
+            gainZ: cellGainZ,
+            primaryMinZ: bars.primaryMinZ,
+          });
+          failReasons.push({
+            code: 'PRIMARY_CELL_REGRESSION',
+            reason: `PRIMARY cell "${cell.id}" (group="${cell.group}") ${cellSelected?.label ?? poolLabel} gain z=${cellGainZ.toFixed(3)} is below primaryMinZ=${bars.primaryMinZ.toFixed(3)} (${cellSelected?.label ?? poolLabel} bb100=${(cellSelected?.pool.mean ?? 0).toFixed(2)} +/- ${(cellSelected?.pool.stderr ?? 0).toFixed(2)})`,
+          });
+        }
+      }
+    }
+
     primaryByCellId[cell.id] = {
+      cellId: cell.id,
       card: cell.card,
       group: cell.group,
-      inverseVariance: poolInverseVariance(cRows),
-      equalWeight: poolEqualWeight(cRows),
+      poolingMethod,
+      inverseVariance: iv,
+      equalWeight: ew,
+      gainZ: cellGainZ,
+      adverseZ: cellAdverseZ,
+      primaryMinZ: bars.primaryMinZ,
+      enforced: bars.enforcePerPrimaryCell,
+      nonInferiorityOk: cellNonInferiorityOk,
+      passed: cellNonInferiorityOk,
+      allInert: cellAllInert,
       seeds: cRows.length,
     };
   }
@@ -1300,48 +1425,43 @@ export function evaluateHoldemGrade({ manifest: rawManifest, records, provenance
     }
   }
 
-  // Primary pooled bar check (only if primary is non-inert and valid IV pool)
-  let primaryNonInferiorityOk = true;
+  // Primary pooled bar check (only if primary is non-inert and valid selected pool)
+  let primaryOverallNonInferiorityOk = true;
   let primaryPositiveGainOk = !bars.requirePositiveGain;
   let primaryGainZ = null;
   let primaryAdverseZ = null;
   if (!primaryIsInert && primaryRows.length > 0) {
-    if (!primaryIv || !primaryIv.valid) {
-      // If some primary seeds were inert (stderr === 0) while others diverged, fall back to
-      // equal-weight pooling only for reporting, and mark IV invalid cleanly.
-      const fallbackZ = primaryEw && primaryEw.valid ? primaryEw.z : Number.NaN;
-      primaryGainZ = Number.isFinite(fallbackZ) ? directionalGainZ(fallbackZ, direction) : null;
-      primaryAdverseZ = Number.isFinite(fallbackZ)
-        ? directionalAdverseZ(fallbackZ, direction)
-        : null;
-      if (!Number.isFinite(fallbackZ)) {
-        primaryNonInferiorityOk = false;
-        failReasons.push({
-          code: 'PRIMARY_POOL_INVALID',
-          reason: `Primary pool invalid: ${primaryIv?.invalidReason ?? 'unknown'}`,
-        });
-      }
+    const selected = selectPrimaryPool(primaryIv, primaryEw);
+    if (!selected || !Number.isFinite(selected.pool.z)) {
+      primaryOverallNonInferiorityOk = false;
+      failReasons.push({
+        code: 'PRIMARY_POOL_INVALID',
+        reason: `Primary pool (${poolingMethod}) invalid: ${
+          (poolingMethod === 'equal_weight'
+            ? primaryEw?.invalidReason
+            : primaryIv?.invalidReason) ?? 'unknown'
+        }`,
+      });
     } else {
-      primaryGainZ = directionalGainZ(primaryIv.z, direction);
-      primaryAdverseZ = directionalAdverseZ(primaryIv.z, direction);
-    }
-
-    if (primaryGainZ !== null) {
+      primaryGainZ = directionalGainZ(selected.pool.z, direction);
+      primaryAdverseZ = directionalAdverseZ(selected.pool.z, direction);
       if (primaryGainZ < bars.primaryMinZ) {
-        primaryNonInferiorityOk = false;
+        primaryOverallNonInferiorityOk = false;
         failReasons.push({
           code: 'PRIMARY_REGRESSION',
-          reason: `PRIMARY pooled gain z=${primaryGainZ.toFixed(3)} is below primaryMinZ=${bars.primaryMinZ.toFixed(3)} (IV bb100=${primaryIv?.valid ? primaryIv.mean.toFixed(2) : 'n/a'} +/- ${primaryIv?.valid ? primaryIv.stderr.toFixed(2) : 'n/a'})`,
+          reason: `PRIMARY pooled (${selected.methodUsed}) gain z=${primaryGainZ.toFixed(3)} is below primaryMinZ=${bars.primaryMinZ.toFixed(3)} (${selected.label} bb100=${selected.pool.mean.toFixed(2)} +/- ${selected.pool.stderr.toFixed(2)})`,
         });
       } else if (bars.requirePositiveGain && primaryGainZ < bars.primaryGainZ) {
         primaryPositiveGainOk = false;
         noGainReasons.push({
           code: 'PRIMARY_NO_GAIN',
-          reason: `PRIMARY pooled gain z=${primaryGainZ.toFixed(3)} cleared non-inferiority (>= ${bars.primaryMinZ.toFixed(3)}) but did not clear primaryGainZ=${bars.primaryGainZ.toFixed(3)}`,
+          reason: `PRIMARY pooled (${selected.methodUsed}) gain z=${primaryGainZ.toFixed(3)} cleared non-inferiority (>= ${bars.primaryMinZ.toFixed(3)}) but did not clear primaryGainZ=${bars.primaryGainZ.toFixed(3)}`,
         });
       }
     }
   }
+
+  const primaryNonInferiorityOk = primaryOverallNonInferiorityOk && primaryPerCellNonInferiorityOk;
 
   const bar4 = {
     name: 'BAR_4_STATISTICAL_POOLED_AND_FAMILY_GUARDS',
@@ -1354,6 +1474,7 @@ export function evaluateHoldemGrade({ manifest: rawManifest, records, provenance
     zFamMethod: bars.zFamMethod,
     alphaFamily: bars.alphaFamily,
     primary: {
+      poolingMethod,
       inverseVariance: primaryIv,
       equalWeight: primaryEw,
       gainZ: primaryGainZ,
@@ -1362,6 +1483,11 @@ export function evaluateHoldemGrade({ manifest: rawManifest, records, provenance
       requirePositiveGain: bars.requirePositiveGain,
       primaryGainZ: bars.primaryGainZ,
       nonInferiorityOk: primaryNonInferiorityOk,
+      overallNonInferiorityOk: primaryOverallNonInferiorityOk,
+      enforcePerPrimaryCell: bars.enforcePerPrimaryCell,
+      requirePerPrimaryCellNonInferiority: bars.requirePerPrimaryCellNonInferiority,
+      perCellNonInferiorityOk: primaryPerCellNonInferiorityOk,
+      perCellBreaches: primaryPerCellBreaches,
       positiveGainOk: primaryPositiveGainOk,
       byCellId: primaryByCellId,
     },
@@ -1515,8 +1641,9 @@ export function renderVerdictMarkdown(result) {
   lines.push('');
   const pIv = bar4.primary.inverseVariance;
   const pEw = bar4.primary.equalWeight;
+  const pMethod = bar4.primary.poolingMethod ?? 'inverse_variance';
   lines.push(
-    `- Direction: \`${bar4.direction}\` | Family method: \`${bar4.zFamMethod}\` (\`alpha_fam = ${fmt(bar4.alphaFamily, 6)}\`)`
+    `- Direction: \`${bar4.direction}\` | Primary pooling: \`${pMethod}\` | Family method: \`${bar4.zFamMethod}\` (\`alpha_fam = ${fmt(bar4.alphaFamily, 6)}\`)`
   );
   lines.push(
     `- PRIMARY Inverse-Variance Pooled: **${pIv?.valid ? `${fmt(pIv.mean, 3)} ± ${fmt(pIv.stderr, 3)} bb/100 (z = ${fmt(pIv.z, 3)})` : 'n/a'}**`
@@ -1525,11 +1652,16 @@ export function renderVerdictMarkdown(result) {
     `- PRIMARY Equal-Weight Cross-Check: **${pEw?.valid ? `${fmt(pEw.mean, 3)} ± ${fmt(pEw.stderr, 3)} bb/100 (z = ${fmt(pEw.z, 3)})` : 'n/a'}**`
   );
   lines.push(
-    `- PRIMARY Bar: gainZ = **${fmt(bar4.primary.gainZ, 3)}** vs primaryMinZ = **${fmt(bar4.primary.primaryMinZ, 3)}**` +
+    `- PRIMARY Bar (\`${pMethod}\`): gainZ = **${fmt(bar4.primary.gainZ, 3)}** vs primaryMinZ = **${fmt(bar4.primary.primaryMinZ, 3)}** (${bar4.primary.overallNonInferiorityOk !== false ? 'PASS' : 'FAIL'})` +
       (bar4.primary.requirePositiveGain
         ? ` (requirePositiveGain: primaryGainZ = **${fmt(bar4.primary.primaryGainZ, 3)}**)`
         : '')
   );
+  if (bar4.primary.enforcePerPrimaryCell) {
+    lines.push(
+      `- PRIMARY Per-Cell Non-Inferiority (\`enforcePerPrimaryCell=true\`): **${bar4.primary.perCellNonInferiorityOk ? 'PASS' : 'FAIL'}** (breaches=${bar4.primary.perCellBreaches?.length ?? 0}, primaryMinZ = **${fmt(bar4.primary.primaryMinZ, 3)}**)`
+    );
+  }
   lines.push(
     `- Guard Pooled Bar (\`P = ${bar4.guardPooled.P}\`): \`z_fam(${bar4.guardPooled.P})\` = **${fmt(bar4.guardPooled.zBar, 3)}** (${bar4.guardPooled.ok ? 'PASS' : 'FAIL'}, breaches=${bar4.guardPooled.breaches.length})`
   );
@@ -1543,6 +1675,30 @@ export function renderVerdictMarkdown(result) {
     );
   }
   lines.push('');
+
+  const primaryCellEntries = Object.entries(bar4.primary.byCellId ?? {});
+  if (primaryCellEntries.length > 1 || bar4.primary.enforcePerPrimaryCell) {
+    lines.push('### Primary Cells (Per-Cell Pooling & Non-Inferiority)');
+    lines.push('');
+    lines.push(
+      '| Cell | Group | Seeds | IV bb/100 ± SE | IV z | EW bb/100 ± SE | EW z | gainZ | primaryMinZ | Enforced | Pass |'
+    );
+    lines.push('|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const [cellId, c] of primaryCellEntries) {
+      const ivStr = c.inverseVariance?.valid
+        ? `${fmt(c.inverseVariance.mean, 3)} ± ${fmt(c.inverseVariance.stderr, 3)}`
+        : c.allInert
+          ? 'inert'
+          : 'n/a';
+      const ewStr = c.equalWeight?.valid
+        ? `${fmt(c.equalWeight.mean, 3)} ± ${fmt(c.equalWeight.stderr, 3)}`
+        : 'n/a';
+      lines.push(
+        `| \`${cellId}\` | \`${c.group}\` | ${c.seeds} | ${ivStr} | ${fmt(c.inverseVariance?.z, 3)} | ${ewStr} | ${fmt(c.equalWeight?.z, 3)} | ${fmt(c.gainZ, 3)} | ${fmt(c.primaryMinZ, 3)} | ${c.enforced ? 'yes' : 'no'} | ${c.passed ? 'yes' : 'NO'} |`
+      );
+    }
+    lines.push('');
+  }
 
   if (bar4.guardPooled.groups.length > 0) {
     lines.push('### Guard Groups (IV-Pooled + Equal-Weight Cross-Check)');
@@ -1650,6 +1806,23 @@ export function compareVerdictsForRecompute(expected, recomputed, tolerance = 1e
       );
     }
   }
+  if (
+    expected?.bars?.bar4?.primary?.poolingMethod !== undefined &&
+    expected.bars.bar4.primary.poolingMethod !== recomputed?.bars?.bar4?.primary?.poolingMethod
+  ) {
+    diffs.push(
+      `bar4.primary.poolingMethod mismatch: expected ${String(expected.bars.bar4.primary.poolingMethod)}, recomputed ${String(recomputed?.bars?.bar4?.primary?.poolingMethod)}`
+    );
+  }
+  if (
+    expected?.bars?.bar4?.primary?.perCellNonInferiorityOk !== undefined &&
+    expected.bars.bar4.primary.perCellNonInferiorityOk !==
+      recomputed?.bars?.bar4?.primary?.perCellNonInferiorityOk
+  ) {
+    diffs.push(
+      `bar4.primary.perCellNonInferiorityOk mismatch: expected ${String(expected.bars.bar4.primary.perCellNonInferiorityOk)}, recomputed ${String(recomputed?.bars?.bar4?.primary?.perCellNonInferiorityOk)}`
+    );
+  }
 
   // Compare primary IV and EW pooled statistics
   const checks = [
@@ -1677,6 +1850,16 @@ export function compareVerdictsForRecompute(expected, recomputed, tolerance = 1e
       'bar4.primary.ew.stderr',
       expected?.bars?.bar4?.primary?.equalWeight?.stderr,
       recomputed?.bars?.bar4?.primary?.equalWeight?.stderr,
+    ],
+    [
+      'bar4.primary.ew.z',
+      expected?.bars?.bar4?.primary?.equalWeight?.z,
+      recomputed?.bars?.bar4?.primary?.equalWeight?.z,
+    ],
+    [
+      'bar4.primary.gainZ',
+      expected?.bars?.bar4?.primary?.gainZ,
+      recomputed?.bars?.bar4?.primary?.gainZ,
     ],
     [
       'bar4.guardPooled.zBar',

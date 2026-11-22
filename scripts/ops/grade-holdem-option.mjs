@@ -83,20 +83,23 @@ Options:
 
 // Offline CONTROL runner evaluated via `nice -n 10 npx tsx -e ...` inside <workdir>/server.
 // Mirrors horseLeagueCard.ts offline semantics with a = b = matchup.b (OFF-vs-OFF).
-const CONTROL_RUNNER_SOURCE = `
+// Uses a namespace dynamic import for HorseLeague.js so DEVELOPMENT_LEAGUE_CARDS is resolved
+// when exported and gracefully falls back to [] on older branches without that export.
+export const CONTROL_RUNNER_SOURCE = `
 process.env.EQUITY_GOVERNOR = 'off';
 process.env.SUPABASE_URL = 'https://supabase.invalid';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'horse-league-card-offline-placeholder';
 const [card, seedS, pairsS, revision] = process.argv.slice(1);
-const { LEAGUE_MATCHUPS, UNMEASURABLE_MATCHUPS, runMatchup } = await import('./src/benchmark/HorseLeague.js');
+const HL = await import('./src/benchmark/HorseLeague.js');
 const { resolveLeagueCard } = await import('./src/benchmark/HorseLeagueCard.js');
 const { prepareTournamentFutureHandFacts } = await import('./src/engine/HorseTournamentFutureHand.js');
 prepareTournamentFutureHandFacts();
-const base = resolveLeagueCard(card, LEAGUE_MATCHUPS, UNMEASURABLE_MATCHUPS);
+const matchups = [...HL.LEAGUE_MATCHUPS, ...(HL.DEVELOPMENT_LEAGUE_CARDS ?? [])];
+const base = resolveLeagueCard(card, matchups, HL.UNMEASURABLE_MATCHUPS ?? []);
 const ctrl = { ...base, name: base.name + '_control', a: { ...base.b }, b: { ...base.b } };
 const pairs = Number(pairsS);
 const seed = Number(seedS);
-const r = await runMatchup(ctrl, pairs, seed);
+const r = await HL.runMatchup(ctrl, pairs, seed);
 console.log('DEVRESULT ' + JSON.stringify({
   card,
   mode: 'control',
