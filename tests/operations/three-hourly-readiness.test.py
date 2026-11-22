@@ -3,6 +3,10 @@
 import importlib.util
 import io
 import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
@@ -544,6 +548,131 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         prequal = mod.load_prequalification_module(ROOT)
         self.assertTrue(callable(prequal.projection))
         self.assertIn("scripts/ci/read-engine-prequalification.py", prequal.CONTROL_INPUTS)
+
+    def test_repo_dir_works_from_unrelated_temp_directory(self):
+        with tempfile.TemporaryDirectory() as outer:
+            unrelated_cwd = Path(outer) / "outside"
+            unrelated_cwd.mkdir()
+            fake_repo = Path(outer) / "repo"
+            fake_repo.mkdir()
+
+            def run_git(*args):
+                subprocess.run(
+                    ["git", "-C", str(fake_repo), *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+            run_git("init", "-q")
+            run_git("config", "user.email", "test@example.com")
+            run_git("config", "user.name", "Test")
+            helper = fake_repo / "scripts/ci/read-engine-prequalification.py"
+            helper.parent.mkdir(parents=True, exist_ok=True)
+            helper.write_text(
+                "import subprocess\n"
+                "def projection(sha):\n"
+                "    return subprocess.check_output(['git', 'ls-tree', '-r', sha, '--', 'scripts/ci/read-engine-prequalification.py'], text=True).strip()\n",
+                encoding="utf-8",
+            )
+            run_git("add", "scripts/ci/read-engine-prequalification.py")
+            run_git("commit", "-q", "-m", "base commit")
+            serving = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            (fake_repo / "app.txt").write_text("v2\n", encoding="utf-8")
+            run_git("add", "app.txt")
+            run_git("commit", "-q", "-m", "feat: candidate change")
+            head = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            def gh_get(path):
+                if "stage-engine-release.yml/runs" in path or "backup-engine.yml/runs" in path:
+                    return {"workflow_runs": []}
+                if path.endswith("/git/ref/heads/main"):
+                    return {"object": {"sha": head}}
+                if "engine-release-prequalification.yml/runs" in path:
+                    return {
+                        "workflow_runs": [
+                            {
+                                "id": 9501,
+                                "status": "completed",
+                                "conclusion": "success",
+                                "event": "push",
+                                "head_branch": "main",
+                                "path": mod.PREQUAL_PATH,
+                                "head_sha": head,
+                                "run_attempt": 1,
+                                "updated_at": "2026-11-22T00:10:00Z",
+                                "html_url": "https://github.com/o/r/actions/runs/9501",
+                            }
+                        ]
+                    }
+                if f"/commits/{head}/status" in path:
+                    return {
+                        "statuses": [
+                            {
+                                "context": "backup-engine/certified",
+                                "state": "success",
+                                "target_url": "https://github.com/o/r/actions/runs/9500",
+                                "updated_at": "2026-11-22T00:05:00Z",
+                            }
+                        ]
+                    }
+                raise AssertionError(f"unexpected gh api path: {path}")
+
+            prev_cwd = os.getcwd()
+            try:
+                os.chdir(unrelated_cwd)
+                report = mod.collect_readiness(
+                    repo="o/r",
+                    control_ref="HEAD",
+                    repo_dir=str(fake_repo),
+                    now_utc=datetime(2026, 11, 22, 0, 20, tzinfo=timezone.utc),
+                    health_fn=lambda: _health(release_sha=serving),
+                    gh_get_fn=gh_get,
+                )
+            finally:
+                os.chdir(prev_cwd)
+
+            self.assertEqual(report["verdict"], "READY")
+            self.assertEqual(report["selectableSha"], head)
+            self.assertEqual(report["git"]["repoDir"], str(fake_repo.resolve()))
+            self.assertEqual(report["candidates"][0]["status"], "SELECTABLE")
+            self.assertTrue(report["candidates"][0]["controlInputsMatch"])
+
+            # Fallback order: when script_root has no .git, resolves from cwd inside a git repo.
+            self.assertEqual(
+                mod.resolve_repo_root(repo_dir=None, script_root=unrelated_cwd, cwd=fake_repo),
+                fake_repo.resolve(),
+            )
+            with self.assertRaises(mod.ReadError):
+                mod.resolve_repo_root(repo_dir=None, script_root=unrelated_cwd, cwd=unrelated_cwd)
+
+    def test_repo_dir_non_git_fails_closed_unknown_exit_3(self):
+        with tempfile.TemporaryDirectory() as outer:
+            non_git = Path(outer) / "not-a-repo"
+            non_git.mkdir()
+            missing = Path(outer) / "does-not-exist"
+
+            proc = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "--repo-dir", str(non_git), "--json"],
+                cwd=str(non_git),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["verdict"], "UNKNOWN")
+            self.assertIn("not a git repository", payload["summary"])
+            self.assertTrue(any("not a git repository" in e for e in payload["errors"]))
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = mod.main(["--repo-dir", str(missing), "--json"])
+            self.assertEqual(rc, 3)
+            missing_payload = json.loads(buf.getvalue())
+            self.assertEqual(missing_payload["verdict"], "UNKNOWN")
+            self.assertIn("not an existing directory", missing_payload["summary"])
 
 
 if __name__ == "__main__":

@@ -5584,6 +5584,24 @@ for (const [mirrorName, twinName] of [
   });
 }
 
+/** The human-field twin of mtt6_holdem_tournament_all_in_call_is_priced_12bb (2026-11-21). */
+export const HUMAN_MTT6_HOLDEM_TOURNAMENT_ALL_IN_CALL_IS_PRICED_12BB = `${HUMAN_FIELD_NAME_PREFIX}mtt6_holdem_tournament_all_in_call_is_priced_12bb`;
+{
+  const mirror = LEAGUE_MATCHUPS.find(
+    (m) => m.name === 'mtt6_holdem_tournament_all_in_call_is_priced_12bb'
+  );
+  if (!mirror) {
+    throw new Error(
+      'mtt6_holdem_tournament_all_in_call_is_priced_12bb left the card; its human twin has no mirror'
+    );
+  }
+  LEAGUE_MATCHUPS.push({
+    ...humanFieldTwin(mirror),
+    hybridBaseline: mirror.hybridBaseline,
+    moodClock: mirror.moodClock,
+  });
+}
+
 /**
  * THE HEADS-UP EXPLOITER CARDS (2026-11-12, HU-NLH-001). The live brain at
  * 40bb (the band V85 leaves on the V11 bars) against each exploiter persona.

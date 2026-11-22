@@ -139,4 +139,75 @@ describe('HeadsUpWaitingModal behavior', () => {
 
     expect(dialog.hasAttribute('open')).toBe(false);
   });
+
+  it('waits for async Specific Player persistence, stays on choice with inline error on failure, and shows tokenized URL on success', async () => {
+    const onChooseSpecific = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <HeadsUpWaitingModal
+        isOpen={true}
+        initialStep="choice"
+        tableName="NLH Heads Up"
+        inviteUrl="https://smarter.poker/hub/club-arena/table/tbl-4"
+        errorMessage="Could Not Update Waiting Mode, Please Try Again"
+        onChooseSpecific={onChooseSpecific}
+        onChooseAnyone={vi.fn()}
+        onClose={onClose}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could Not Update Waiting Mode, Please Try Again'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Specific Player' }));
+    await waitFor(() => expect(onChooseSpecific).toHaveBeenCalledTimes(1));
+    // Must NOT advance to invite step when RPC persistence returns false.
+    expect(screen.getByText('Waiting For Opponent')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Specific Player' }));
+    await waitFor(() => expect(screen.getByText('Invite Player')).toBeInTheDocument());
+
+    rerender(
+      <HeadsUpWaitingModal
+        isOpen={true}
+        initialStep="invite"
+        tableName="NLH Heads Up"
+        inviteUrl="https://smarter.poker/hub/club-arena/table/tbl-4?invite=a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        onChooseSpecific={onChooseSpecific}
+        onChooseAnyone={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    expect(
+      screen.getByText(
+        'https://smarter.poker/hub/club-arena/table/tbl-4?invite=a1b2c3d4e5f60718293a4b5c6d7e8f90'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('does not close on Play Anyone when async persistence fails, and closes when it succeeds', async () => {
+    const onChooseAnyone = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const onClose = vi.fn();
+
+    render(
+      <HeadsUpWaitingModal
+        isOpen={true}
+        initialStep="choice"
+        tableName="NLH Heads Up"
+        inviteUrl="https://smarter.poker/hub/club-arena/table/tbl-5"
+        onChooseSpecific={vi.fn()}
+        onChooseAnyone={onChooseAnyone}
+        onClose={onClose}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play Anyone' }));
+    await waitFor(() => expect(onChooseAnyone).toHaveBeenCalledTimes(1));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play Anyone' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
 });
