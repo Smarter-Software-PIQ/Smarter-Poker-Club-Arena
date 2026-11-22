@@ -137,10 +137,29 @@ describe('holdem-blanket-scoreboard-lib', () => {
       expect(sql).toContain('public.ca_engine_runtime_settings_versions');
       expect(sql).toContain('public.ca_horse_option_switch_evidence');
       expect(sql).toContain('public.horse_brain_telemetry');
-      expect(sql).toContain("feature LIKE 'v21_%'");
-      expect(sql).not.toContain("feature LIKE 'v15_%'");
-      expect(sql).not.toContain("feature LIKE 'token_call_%'");
-      expect(sql).not.toContain("feature LIKE 'v46_%'");
+      expect(sql).toContain("feature LIKE 'v21\\_%' ESCAPE '\\'");
+      expect(sql).toContain("feature LIKE 'holdem\\_%' ESCAPE '\\'");
+      expect(sql).toContain("feature LIKE 'flop\\_turn\\_%' ESCAPE '\\'");
+      expect(sql).toContain("feature LIKE 'option\\_shadow\\_%' ESCAPE '\\'");
+      expect(sql).toContain("feature LIKE 'option\\_switch\\_config\\_%' ESCAPE '\\'");
+      expect(sql).toContain("feature NOT LIKE 'fmt\\_%' ESCAPE '\\'");
+      // Zero unescaped underscore wildcards in any SQL LIKE / NOT LIKE pattern
+      const likeMatches = [
+        ...sql.matchAll(/(?:NOT\s+)?LIKE\s+'([^']+)'(?:\s+ESCAPE\s+'([^']+)')?/gi),
+      ];
+      expect(likeMatches.length).toBeGreaterThan(10);
+      for (const [, pattern, escapeChar] of likeMatches) {
+        if (pattern.includes('_')) {
+          expect(escapeChar, `LIKE '${pattern}' must specify ESCAPE '\\'`).toBe('\\');
+          expect(
+            pattern.replace(/\\_/g, ''),
+            `LIKE '${pattern}' must not contain unescaped underscores`
+          ).not.toContain('_');
+        }
+      }
+      expect(sql).not.toContain("feature LIKE 'v15");
+      expect(sql).not.toContain("feature LIKE 'token_call");
+      expect(sql).not.toContain("feature LIKE 'v46");
       expect(sql).toContain('- 2');
     });
 

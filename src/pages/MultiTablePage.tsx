@@ -5216,6 +5216,13 @@ export default function MultiTablePage() {
     // for the last slot.
     if (!tablesReady) return;
     drillInRestoredRef.current = true;
+    /* AN INVITE LINK NAMES THE TABLE TO SHOW (2026-11-22). The restore below
+       opens the tournament page this browser tab was reading up to half an
+       hour ago and FOCUSES it. Right after a reload; wrong for a person who
+       just opened an invite to a table, who was taken off the game they were
+       invited to and shown an older tournament's page instead. An arrival
+       carrying the invite's own keys keeps the table it asked for. */
+    if (routeTableIdRef.current && (searchParams.has('invite') || searchParams.has('i'))) return;
     const saved = readDrillIn();
     if (!saved) return;
     // Already showing a tournament (a deep link, a fast tap): the live state

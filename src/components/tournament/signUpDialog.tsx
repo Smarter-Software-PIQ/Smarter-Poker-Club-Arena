@@ -559,10 +559,11 @@ export function SignUpHost() {
               }}
             />
           )}
-          {/* Only true for a scheduled event you are entering BEFORE the off.
-              A late registration cannot be unregistered, and an SNG or Spin has
-              no scheduled boundary for the rule to describe. */}
-          {!o.isLateRegistration && !o.startsWhenFull && !!startLabel && (
+          {/* True for any event you are entering BEFORE the off: a scheduled
+              one until its clock, and a starts-when-full Sit And Go until its
+              field fills and it launches (migration 20261122192807). A late
+              registration cannot be unregistered. */}
+          {!o.isLateRegistration && !!startLabel && (
             <p className="signup-note">You Can Unregister Any Time Before The Tournament Starts</p>
           )}
         </SpadeConsole>

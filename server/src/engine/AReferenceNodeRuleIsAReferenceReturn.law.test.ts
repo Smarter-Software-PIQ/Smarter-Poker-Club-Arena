@@ -109,7 +109,7 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
     owner: 'holdemAllInCallReference',
     kind: 'post_route',
     proof:
-      'holdemTournamentAllInCallIsPriced (default OFF): preflop it leaves raises/raising all-ins and exact chart_bb_defend answers untouched, and resets any variant_price route to legacy_preflop before returning its priced call or fold; postflop no preflop receipt exists (AHoldemTournamentAllInCallIsPriced.law.test.ts)',
+      'holdemTournamentAllInCallIsPriced (default OFF): preflop it leaves raises/raising all-ins and exact chart_bb_defend answers untouched, and resets any chart_open_jam or variant_price route to the active preflop reference owner (intent_engine under V7, legacy_preflop otherwise) before returning its priced call or fold; postflop no preflop receipt exists (AHoldemTournamentAllInCallIsPriced.law.test.ts, AHoldemAllInCallReferenceReceiptIsValid.law.test.ts)',
   },
 ];
 
