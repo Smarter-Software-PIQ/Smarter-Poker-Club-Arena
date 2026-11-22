@@ -528,11 +528,11 @@ or in progress on `main`, (b) `projection(SHA)` from
 against current `main`), (c) fewer than 75 minutes (`4500` s) remain until the
 next scheduled three-hourly or daily cutoff (`THREE_HOURLY_START_HOURS`), and
 (d) every read succeeded (any unreadable check keeps soaking per CLAUDE.md
-10.86) - the runner terminates the SSH certify command, stops the
-`club-arena-engine-standby` container cleanly via SSH, releases the standby host
-lease, records `YIELDED_OBSOLETE` in the step summary, writes NO `failure` or
-`error` commit status, and exits `0` so the waiting selectable commit can
-immediately acquire `ca-backup`.
+10.86) - the runner terminates the SSH certify command, stops the standby
+container cleanly via `/usr/local/sbin/standby-engine`'s `stop_for_restore`
+helper over SSH, releases the standby host lease, records `YIELDED_OBSOLETE` in
+the step summary, writes NO `failure` or `error` commit status, and exits `0` so
+the waiting selectable commit can immediately acquire `ca-backup`.
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only

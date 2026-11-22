@@ -12,7 +12,8 @@ merge holds observed during the 2026-11-22T02:29Z three-hourly cutover cycle:
      GitHub Actions runner while a bounded 60 s runner-side check monitors
      non-`booking`, non-`freeze_baseline` `push` runs.
    - Yields cleanly (`YIELDED_OBSOLETE` in step summary, cleanly terminates SSH
-     and remote certify/container `club-arena-engine-standby`, releases the
+     and remote certify process, stops the standby container via
+     `/usr/local/sbin/standby-engine`'s `stop_for_restore` helper, releases the
      standby host lease via the existing `always()` release step, writes NO
      `failure` or `error` commit status, exits `0`) ONLY when ALL FOUR hold:
      - (a) a newer active (`queued`/`in_progress`/`waiting`/`pending`/`requested`)

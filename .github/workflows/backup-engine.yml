@@ -1145,7 +1145,7 @@ jobs:
               kill -KILL "$ssh_pid" 2>/dev/null || true
               wait "$ssh_pid" 2>/dev/null || true
               ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
-                "pids=\$(pgrep -f '[s]tandby-engine certify $SHA' || true); for p in \$pids; do pkill -TERM -P \"\$p\" 2>/dev/null || true; kill -TERM \"\$p\" 2>/dev/null || true; done; docker stop -t 30 club-arena-engine-standby >/dev/null 2>&1 || true" || true
+                "pids=\$(pgrep -f '[s]tandby-engine certify $SHA' || true); for p in \$pids; do pkill -TERM -P \"\$p\" 2>/dev/null || true; kill -TERM \"\$p\" 2>/dev/null || true; done; bash -c '. /usr/local/sbin/standby-engine && stop_for_restore' >/dev/null 2>&1 || true" || true
               break
             done
           fi

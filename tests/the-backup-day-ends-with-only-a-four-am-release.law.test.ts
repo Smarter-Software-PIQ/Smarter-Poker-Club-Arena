@@ -2249,7 +2249,7 @@ ssh() {
       sleep ${soakS}
       echo '{"verdict":"pass","sha":"${opts.sha}"}'
       return 0 ;;
-    *'docker stop -t 30 club-arena-engine-standby'*)
+    *'stop_for_restore'*)
       echo "CLEANUP_CALLED" >> "$CALLS"
       return 0 ;;
     *) return 0 ;;
@@ -2342,7 +2342,7 @@ gh() {
           expect(r.stdout).toContain('yielded=1');
           expect(r.stdout).not.toContain('rc=1');
           expect(r.calls).toContain('CLEANUP_CALLED');
-          expect(r.calls).toContain('docker stop -t 30 club-arena-engine-standby');
+          expect(r.calls).toContain('stop_for_restore');
           expect(r.summary).toContain('YIELDED_OBSOLETE');
 
           // Publish step exits 0 and writes ZERO failure/error status when YIELDED=1.
