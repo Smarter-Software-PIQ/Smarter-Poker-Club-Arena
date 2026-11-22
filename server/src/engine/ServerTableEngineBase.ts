@@ -194,6 +194,7 @@ import {
   claimTournamentMovePresence,
   depositMovedPresence,
   hasMovedPresence,
+  hasTournamentMovePresence,
 } from './SeatMovePresence.js';
 import {
   readCashMoveArrivals,
@@ -6526,13 +6527,23 @@ export abstract class ServerTableEngineBase {
     this.seatedPlayers = nextRoster;
     // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; owner 3:20 PM: "AS SOON AS A PLAYER JOINS A TABLE ... AS WELL AS
     // WHEN THEY MOVE TABLES"): every seated player's lifetime profile is warmed now, ahead of his first hand. Fire and
-    // forget; PLO4/PLO5 cash only; never throws.
-    warmOpponentHudSeats(
-      nextRoster.map((p) => p.user_id),
-      this.activeHandVariant(),
-      this.isTournamentTable(),
-      'sit'
-    );
+    // forget; PLO4/PLO5 cash and tournaments; never throws. A player arriving by a table move (a cash seat-move or a
+    // tournament balance move deposited for this table, read before this engine claims it) is the 'move' trigger
+    // (AUDIT-C item 5: opponent_hud_ready_move_ms_*); everyone else is 'sit'.
+    const tournamentTable = this.isTournamentTable();
+    const moved: string[] = [];
+    const seated: string[] = [];
+    for (const p of nextRoster)
+      (!previous.has(p.user_id) &&
+      (tournamentTable
+        ? hasTournamentMovePresence(p.user_id, this.tableId)
+        : hasMovedPresence(p.user_id, this.tableId))
+        ? moved
+        : seated
+      ).push(p.user_id);
+    const variant = this.activeHandVariant();
+    if (moved.length) warmOpponentHudSeats(moved, variant, tournamentTable, 'move');
+    warmOpponentHudSeats(seated, variant, tournamentTable, 'sit');
     // The roster now speaks for every committed arrival (SeatArrivalDisplay).
     this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one

@@ -2,23 +2,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #  THE BREAK'S WEEKLY SELF-REPORT (to-do #2563 item 16)
 #
-#  One command that answers "is the hourly restart regime healthy?" from the
-#  numbers rather than vibes: how many freezes ran, how long they really
-#  froze, what the thaw gave back, and the shape of the hourly dealing dip.
+#  One command that answers "is the scheduled maintenance break regime healthy?"
+#  from the numbers rather than vibes: observed cadence (three-hourly 8/day vs
+#  daily 1/day), how many freezes ran, how long they really froze, what the
+#  thaw gave back, and the dealing dip shape around scheduled Chicago :00-:04
+#  breaks.
 #
 #  What to look for, reading it week over week:
-#    * freezes.count      - should approach 24/day minus deploy-skipped hours.
-#                           A shortfall beyond dropped cron ticks means end()
-#                           or the thaw is failing.
+#    * observed_cadence   - 'three-hourly' (8/day: 01,04,07,10,13,16,19,22
+#                           America/Chicago) or 'daily' (1/day: 04:00 Chicago).
+#    * freezes.count      - compare against expected_breaks_per_day*window_days
+#                           minus skipped windows. A shortfall means end() or
+#                           the thaw is failing.
 #    * avg_frozen_seconds - healthy is ~300. Creeping up means countdowns are
 #                           being adopted late or tables are parking slowly.
-#    * over_360s          - should be 0. Each one names an hour to read the
+#    * over_360s          - should be 0. Each one names a cycle to read the
 #                           engine log for.
-#    * dealing_by_minute  - break_55_59 should be ~0 once the freeze is armed
-#                           (pre-arming baseline 2026-09-01: 127k hands, i.e.
-#                           the fleet dealt straight through). after_00_04
-#                           recovering to par with before_48_52 is the real
-#                           invisibility metric: a widening gap means
+#    * dealing_by_minute  - break_00_04 should be ~0 once the freeze is armed.
+#                           after_05_09 recovering to par with before_53_57 is
+#                           the real invisibility metric: a widening gap means
 #                           rehydration time is creeping.
 #
 #  Usage: bash scripts/dev/maintenance-week-report.sh [days]

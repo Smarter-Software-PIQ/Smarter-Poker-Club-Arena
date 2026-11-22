@@ -55,12 +55,19 @@ import type { CoreActionEv, CoreOpponent, CoreState } from './OmahaMathCore.js';
 export const OMAHA_MATH_CORE_WIRE_VERSION = 'omaha-math-core-wire-v1';
 
 /**
- * Selection by the lower confidence bound (PROVE-2 root cause 1, winner's curse): candidates are ranked by
- * EV minus one standard error of their EV (equity sampling and the measured cells' binomial error, as each
- * candidate reports it), so a candidate whose edge is inside its own noise does not win the argmax.
+ * The core's ranking score: the candidate's EV (lane CORE-FIX-1, AUDIT-A item 7; owner order Nov 21).
+ *
+ * It used to be the lower confidence bound EV - SE (PROVE-2 root cause 1, winner's curse). Fold is exact (EV 0,
+ * SE 0), so that score treated fold differently from every other action: any continue with 0 < EV < SE ranked
+ * BELOW fold. With a real incumbent the change margin kept today's action anyway, but the standalone recovery run
+ * (omahaMathCoreRecover, a synthetic incoming fold) folded those +EV spots systematically, more often the noisier
+ * the price (PR-2's multiway draw cost). The standard error now enters ONE place, the same for every action: the
+ * change margin (OmahaMathCoreRule.ts: best - today's > K x SE of the difference), which is where the winner's-curse
+ * guard belongs - a candidate whose edge over today's action is inside its noise still does not replace it.
+ * `se` stays in the signature so every caller reads one function.
  */
 export function selectionScore(a: { ev: number; se: number | null }): number {
-  return a.ev - (a.se !== null && Number.isFinite(a.se) ? Math.max(0, a.se) : 0);
+  return a.ev;
 }
 
 /**
@@ -499,6 +506,29 @@ export interface WireValueResult {
   };
 }
 
+/**
+ * Effective multiway equity exponent when `effOpp` of `nOpp` original opponents remain (lane core-repair effOpp):
+ * - at `effOpp = 1` (HU, 1 raiser, or 1 caller): returns 1 (exact HU equity against that opponent's narrowed range)
+ * - at `effOpp = nOpp` (root check, all opponents still in): returns `kFull` (exact anchor to `exact.equity`)
+ * - linearly interpolates between 1 and `kFull` for `1 < effOpp < nOpp`.
+ */
+export function mwEffectivePower(kFull: number, nOpp: number, effOpp: number): number {
+  if (nOpp <= 1) return 1;
+  const frac = clamp01((effOpp - 1) / (nOpp - 1));
+  return 1 + (kFull - 1) * frac;
+}
+
+/**
+ * Scales the probability that at least one of `whoCount` checked-to opponents wagers (`1 - pNone`)
+ * down to `effOpp` remaining opponents (`1 - pNone^(effOpp / whoCount)`). At `effOpp >= whoCount`
+ * or `whoCount <= 1` it is exact `1 - pNone`.
+ */
+export function mwScaledWagerRate(pNone: number, whoCount: number, effOpp: number): number {
+  if (whoCount <= 1 || effOpp >= whoCount) return clamp01(1 - pNone);
+  const ratio = Math.min(1, Math.max(1, effOpp) / whoCount);
+  return clamp01(1 - Math.pow(clamp01(pNone), ratio));
+}
+
 /** Postflop EV of check / call / every wager size from VALUE planValue (null: the core keeps its own loop). */
 export function wiredValue(c: WireValueCtx): WireValueResult | null {
   const s = c.state;
@@ -525,7 +555,8 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
   let k = 1;
   if (c.live.length > 1 && hu1 > 0.01 && hu1 < 0.99 && exact.equity > 0.001 && exact.equity < 0.999)
     k = Math.min(c.live.length, Math.max(1, Math.log(exact.equity) / Math.log(hu1)));
-  const equityAtShare = (share: number) => Math.pow(clamp01(curve(share)), k);
+  const equityAtShare = (share: number, effOpp = c.live.length) =>
+    Math.pow(clamp01(curve(share)), mwEffectivePower(k, c.live.length, effOpp));
   const equitySe = Math.max(exact.se, Math.abs(equityAtShare(1) - exact.equity));
 
   const lineAt = (off: number, line: 'bet' | 'raise' | 'check_raise'): Line => {
@@ -672,7 +703,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     pot: 1,
     allin: 1,
   };
-  const wagerWhenChecked = (off: number) => {
+  const wagerWhenChecked = (off: number, effOpp?: number) => {
     const stI = Math.min(2, st0 + off);
     const stName = POST[stI];
     // this street: only opponents still to act after the hero's check can wager
@@ -732,7 +763,8 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       if (v) nv = nv === undefined ? v.nv : Math.max(nv, v.nv);
     }
     if (srcs.length === 0) return null;
-    const p = 1 - pNone;
+    const p =
+      off > 0 && effOpp !== undefined ? mwScaledWagerRate(pNone, who.length, effOpp) : 1 - pNone;
     const frac = fracW > 0 ? fracSum / fracW : betBandFrac.half;
     return {
       p,
@@ -898,10 +930,14 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       )
         continue;
       const adds = Math.min(stack, to - s.heroBet);
+      // lane CORE-FIX-1 (AUDIT-A item 5): a VALUE size the table cannot take as priced (clamped onto the chip unit
+      // past one unit, to the min-raise / pot-limit cap, or past the stack to all-in) is not a candidate: its EV is
+      // the EV of a different wager, and the rule (OmahaMathCoreRule.ts) never executes a size the core did not
+      // price. The legal sizes VALUE did price (its all-in among them) stand for it.
+      if (Math.abs(adds - cd.adds) > Math.max(0.011, s.chipUnit)) continue;
       const key = `${action}|${r2(to)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const restated = Math.abs(adds - cd.adds) > Math.max(0.011, s.chipUnit);
       evs.push({
         action,
         amount: action === 'bet' ? r2(adds) : r2(to),
@@ -912,7 +948,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         se: cd.se,
         foldProb: cd.fold,
         foldSource:
-          `value ${cd.allIn ? 'all-in' : r3(cd.frac ?? 0)} pot: fold ${r3(cd.fold)} raise ${r3(cd.raise)} call ${r3(cd.call)}; ${cd.plan}${restated ? `; priced at ${r2(cd.adds)} chips, legal size ${r2(adds)}` : ''}; ${cd.source}`.slice(
+          `value ${cd.allIn ? 'all-in' : r3(cd.frac ?? 0)} pot: fold ${r3(cd.fold)} raise ${r3(cd.raise)} call ${r3(cd.call)}; ${cd.plan}; ${cd.source}`.slice(
             0,
             1500
           ),

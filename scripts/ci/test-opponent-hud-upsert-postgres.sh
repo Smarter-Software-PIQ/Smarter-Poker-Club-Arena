@@ -112,4 +112,24 @@ refusals="$(q -c "select count(*) from hud_proof_refusals")"
 both="$(up "[$(row 00000000-0000-4000-8000-00000000000b 0 1 | sed 's/^\[//;s/\]$//'),$(row 00000000-0000-4000-8000-00000000000a 0 1 | sed 's/^\[//;s/\]$//')]")"
 [ "$both" = "" ] || fail 'a two-row batch was refused'
 [ "$(q -c "select has_function_privilege('anon', 'public.fn_opponent_hud_profiles_upsert(jsonb)', 'execute') or has_table_privilege('authenticated', 'public.opponent_hud_profiles', 'select') or has_table_privilege('service_role', 'public.opponent_hud_profiles', 'insert')")" = "f" ] || fail 'privileges widened'
+# 5. (OPPONENT-HUD-FIX-1) the hands page counts PLO4/PLO5 tournaments as well as cash, never another game, and
+#    projects no card: the follow-up migration replaces only the function
+pages="${OPPONENT_HUD_PAGE_MIGRATION:-$repo/supabase/migrations/20261121190000_opponent_hud_hands_page_counts_tournaments.sql}"
+q -c "CREATE TABLE public.hand_history (id uuid PRIMARY KEY, created_at timestamptz, ended_at timestamptz,
+  game_variant text, tournament_id uuid, big_blind numeric, button_seat smallint, bomb_pot jsonb,
+  community_cards text[], community_cards2 text[], rit_boards jsonb, showdown jsonb, winners jsonb, players jsonb,
+  actions jsonb)"
+hh() { q -c "INSERT INTO public.hand_history VALUES ('$1', '2026-11-21T10:00:0$2Z', NULL, '$3', $4, 2, 1, NULL,
+  NULL, NULL, NULL, '[]', '[]', '[{\"seat\":1,\"userId\":\"$U1\",\"stack\":400,\"cards\":[\"As\",\"Ks\",\"Qs\",\"Js\"]}]',
+  '[{\"seat\":1,\"action\":\"bb\",\"amount\":2,\"stage\":\"preflop\"}]')"; }
+hh 10000000-0000-4000-8000-000000000001 1 plo5 NULL
+hh 10000000-0000-4000-8000-000000000002 2 plo4 "'20000000-0000-4000-8000-000000000001'"
+hh 10000000-0000-4000-8000-000000000003 3 plo6 NULL
+page() { q -c "select count(*) || ':' || count(*) filter (where tournament_id is not null) || ':' || coalesce(sum((players::text like '%cards%')::int), 0) from public.fn_opponent_hud_hands_page('2026-01-01', '00000000-0000-0000-0000-000000000000', '2027-01-01', 100)"; }
+[ "$(page)" = "1:0:0" ] || fail "creation migration page $(page), expected 1:0:0 (cash only)"
+q -f "$pages"
+[ "$(page)" = "2:1:0" ] || fail "follow-up page $(page), expected 2:1:0 (cash and tournament, no plo6, no card)"
+[ "$(q -c "select has_function_privilege('anon', 'public.fn_opponent_hud_hands_page(timestamptz,uuid,timestamptz,integer)', 'execute') or has_function_privilege('authenticated', 'public.fn_opponent_hud_hands_page(timestamptz,uuid,timestamptz,integer)', 'execute')")" = "f" ] || fail 'the hands page is executable by anon or authenticated'
+[ "$(q -c "select relrowsecurity from pg_class where oid = 'public.opponent_hud_profiles'::regclass")" = "t" ] || fail 'row level security is off'
+echo "OPPONENT_HUD_PAGE_POSTGRES PASS: the hands page counts PLO4/PLO5 cash and tournaments, no other game, no card; service_role only; RLS on"
 echo "OPPONENT_HUD_UPSERT_POSTGRES PASS: compare-and-swap on the row revision; concurrent same-revision writers: one written, one refused (existing row and first save); 8 writers x 50 hands (10 shared) -> 330 hands, 330 listed, 330 distinct, revision 330, $refusals refusals merged; rebuild moves the revision; sync point monotone"

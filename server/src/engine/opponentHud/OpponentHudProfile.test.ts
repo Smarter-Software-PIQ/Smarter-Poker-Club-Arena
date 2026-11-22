@@ -355,13 +355,83 @@ describe('OpponentHudProfile: hand-constructed histories', () => {
     expect(p.rec['pf.vpip'][0]).toBeCloseTo(1.5, 6);
   });
 
-  it('bomb pots, double boards, tournaments and other games are refused', () => {
-    expect(handRecordFromRow(row({ ...S1, extra: { bomb_pot: { on: true } } }))).toBe('bomb_pot');
+  it('double-board bomb pots and other games are refused; nothing else is', () => {
     expect(handRecordFromRow(row({ ...S1, extra: { community_cards2: ['Ah'] } }))).toBe(
       'multi_board'
     );
-    expect(handRecordFromRow(row({ ...S1, extra: { tournament_id: H(99) } }))).toBe('tournament');
+    expect(
+      handRecordFromRow(row({ ...S1, extra: { bomb_pot: { ante_amount: 2, board_count: 2 } } }))
+    ).toBe('multi_board');
     expect(handRecordFromRow(row({ ...S1, extra: { game_variant: 'plo6' } }))).toBe('not_plo45');
+  });
+
+  // OPPONENT-HUD-FIX-1 (AUDIT-C items 7-8; lead ruling 2026-11-21 18:38Z): tournaments, run-it-twice and single-board
+  // bomb pots are counted, from public fields only
+  it('a PLO tournament hand is counted into the same profile, marked tournament (no stake band from its chips)', () => {
+    const r = handRecordFromRow(row({ ...S1, extra: { tournament_id: H(99) } }));
+    expect(typeof r).toBe('object');
+    expect((r as HudHandRecord).tournament).toBe(true);
+    const cash = rec(S1);
+    expect(cash.tournament).toBeUndefined();
+    const p = emptyHudProfile(U(6), 'plo5');
+    expect(applyHudHand(p, r as HudHandRecord)).toBeNull();
+    expect(p.hands).toBe(1);
+    expect(p.life['pf.pfr']).toEqual([1, 1]);
+  });
+
+  it('a run-it-twice hand is counted once: every action, the first board, the public showdown of every board', () => {
+    const rit = row({
+      ...S1,
+      id: 40,
+      board: ['Ah', 'Kd', '7c', '2s', '3h'],
+      extra: { rit_boards: [['9h', '9d', '9c', '4s', '5h']] },
+    });
+    const r = handRecordFromRow(rit);
+    expect(typeof r).toBe('object');
+    const p = emptyHudProfile(U(6), 'plo5');
+    expect(applyHudHand(p, r as HudHandRecord)).toBeNull();
+    expect(applyHudHand(p, handRecordFromRow(rit) as HudHandRecord)).not.toBeNull(); // once
+    expect(p.hands).toBe(1);
+    expect(p.life['pf.vpip']).toEqual([1, 1]);
+  });
+
+  it('a single-board bomb pot is counted postflop only; its antes are dead money in the pot', () => {
+    const bomb: Spec = {
+      id: 41,
+      button: 3,
+      seats: [
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ],
+      acts: [
+        ['preflop', 1, 'bomb_ante', 2],
+        ['preflop', 2, 'bomb_ante', 2],
+        ['preflop', 3, 'bomb_ante', 2],
+        ['flop', 1, 'bet', 6],
+        ['flop', 2, 'fold', 0],
+        ['flop', 3, 'call', 6],
+      ],
+      board: ['Ah', 'Kd', '7c'],
+      extra: { bomb_pot: { trigger_reason: 'every_n_hands', ante_amount: 2, board_count: 1 } },
+    };
+    const r = handRecordFromRow(row(bomb));
+    expect(typeof r).toBe('object');
+    for (const u of [1, 2, 3]) {
+      const p = emptyHudProfile(U(u), 'plo5');
+      expect(applyHudHand(p, r as HudHandRecord)).toBeNull();
+      expect(p.hands).toBe(1);
+      // nobody had a preflop decision in a bomb pot: no preflop opportunity at all
+      expect(p.life['pf.vpip']).toBeUndefined();
+      expect(p.life['pf.pfr']).toBeUndefined();
+      const flop = p.last.filter((i) => i.s === 'flop');
+      expect(flop.length).toBe(1);
+      // the bet of 6 into the 6 of antes is pot-sized ('l'), never an overbet into an empty pot
+      expect(flop.every((i) => i.b === '-' || i.b === 'l')).toBe(true);
+    }
+    const caller = emptyHudProfile(U(3), 'plo5');
+    applyHudHand(caller, r as HudHandRecord);
+    expect(caller.last.find((i) => i.s === 'flop')!.b).toBe('l');
   });
 
   it('all-in raise and multiway: the all-in amount is the street total and counts as a raise', () => {

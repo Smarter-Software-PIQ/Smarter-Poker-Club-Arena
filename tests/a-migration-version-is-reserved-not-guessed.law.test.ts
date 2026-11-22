@@ -34,15 +34,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   accessSync,
   constants,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
@@ -53,7 +55,7 @@ const SCRIPT = resolve(ROOT, 'scripts/reserve-migration-version.sh');
 const MIG_DIR = resolve(ROOT, '.tmp-migration-reservation-probe');
 /** The fixture names this file creates. Matched by .gitignore too. */
 const DEBRIS =
-  /_(squatter_holding_this_second|the_first_agent_reserves_a_name|the_second_agent_reserves_a_name|a_second_agent_wants_the_same_second)\.sql$/;
+  /_(squatter_holding_this_second|the_first_agent_reserves_a_name|the_second_agent_reserves_a_name|a_second_agent_wants_the_same_second|a_request_behind_a_live_holder_lock|a_request_recovering_a_dead_pid_lock|a_request_recovering_an_old_empty_lock)\.sql$/;
 
 const created: string[] = [];
 
@@ -204,4 +206,68 @@ describe('a migration version is reserved, not guessed', () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it(
+    'a live holder still blocks concurrent reservation even when the lock dir is old',
+    { timeout: 30_000 },
+    () => {
+      const tmp = resolve(MIG_DIR, 'live-holder-lock-fixture');
+      const lock = resolve(tmp, 'club-arena-migration-version.lock');
+      mkdirSync(lock, { recursive: true });
+      writeFileSync(resolve(lock, 'pid'), `${process.pid}\n`);
+      writeFileSync(resolve(lock, 'ts'), '0\n');
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      utimesSync(lock, old, old);
+      try {
+        expect(() =>
+          reserve('a_request_behind_a_live_holder_lock', { ...probeEnv, TMPDIR: tmp })
+        ).toThrow();
+        expect(existsSync(lock)).toBe(true);
+        expect(readFileSync(resolve(lock, 'pid'), 'utf8').trim()).toBe(String(process.pid));
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('recovers cleanly when the lock dir names a dead holder PID', { timeout: 30_000 }, () => {
+    const tmp = resolve(MIG_DIR, 'dead-pid-lock-fixture');
+    const lock = resolve(tmp, 'club-arena-migration-version.lock');
+    mkdirSync(lock, { recursive: true });
+    const deadChild = spawnSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+    expect(typeof deadChild.pid).toBe('number');
+    writeFileSync(resolve(lock, 'pid'), `${deadChild.pid}\n`);
+    writeFileSync(resolve(lock, 'ts'), `${Math.floor(Date.now() / 1000)}\n`);
+    try {
+      const path = reserve('a_request_recovering_a_dead_pid_lock', { ...probeEnv, TMPDIR: tmp });
+      expect(() => statSync(resolve(ROOT, path))).not.toThrow();
+      expect(namingProblems(path)).toEqual([]);
+      expect(existsSync(lock)).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it(
+    'recovers cleanly when an empty lock dir is older than the grace threshold',
+    { timeout: 30_000 },
+    () => {
+      const tmp = resolve(MIG_DIR, 'stale-empty-lock-fixture');
+      const lock = resolve(tmp, 'club-arena-migration-version.lock');
+      mkdirSync(lock, { recursive: true });
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      utimesSync(lock, old, old);
+      try {
+        const path = reserve('a_request_recovering_an_old_empty_lock', {
+          ...probeEnv,
+          TMPDIR: tmp,
+        });
+        expect(() => statSync(resolve(ROOT, path))).not.toThrow();
+        expect(namingProblems(path)).toEqual([]);
+        expect(existsSync(lock)).toBe(false);
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    }
+  );
 });

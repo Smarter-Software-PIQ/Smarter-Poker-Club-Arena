@@ -1,6 +1,6 @@
 # horseRunItTwiceIsPriced: authority for the live switch
 
-**State: OFF in source (read `=== true` on the main thread), no switch row, not registered in the option switch yet (registration rides the switch-list route RELEASE-7 / lead-2 name), and the main-thread switch hook is not wired (asked of the Horse SWITCH lane). Evidence NOT MET.** Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md met: mechanism, scope, receipts-designed, tests and off-identity; replay result below; no live evidence.
+**State: OFF in source (read `=== true` on the main thread), no switch row, main-thread switch hook wired (`HorseRunItTwiceSwitch.ts`, `horseDecision/lane.ts`, `ServerTableEngineRunout.ts`), not yet registered in the option switch (registration rides the switch-list route: `HorseDataLedger.ts`, `HorseOptionSwitch.ts`, generated follow-up migration, and rename to `horseRunItTwiceIsPriced.md`). Evidence NOT MET.** Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md met: mechanism, scope, receipts-designed, tests and off-identity; replay result below; no live evidence.
 
 Owner orders it rests on (verbatim): 2026-11-20 3:27 PM Chicago, "THERE SHOULD NEVER EVER EVER BY ANY BLANKET RULES. MAKE SURE THEY ARE ALL REMOVED IF THEY SOMEHOW GOT ADDED BACK IN."; 2026-11-17, "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 2026-11-13 11:37 PM Chicago, "HORSE WITH BOTTOM SET SHOULD NOT BE AGREEING TO RUN IT 3 TIMES WITH ONE OUT. AND HORSES SHOULD ONLY BE RUNNING IT MULTIPLE TIMES (SOMETIMES) NOT ALL THE TIME". Built by the HORSE DECISIONS lane (helper UNOWNED-RULES, Claude session_01UxDLnMCzicBiaB19fA18T5); criteria declared before any replay: evidence folder horse-decisions-01UxDLnM/unowned/criteria/horseRunItTwiceIsPriced.CRITERIA.md, sha256 dafe541885c3faa729888c00c513827ac6cbcde56e10f4604e4432aef98f77cf.
 
@@ -20,7 +20,7 @@ Owner orders it rests on (verbatim): 2026-11-20 3:27 PM Chicago, "THERE SHOULD N
 
 People's answers 2026-10-03 .. 2026-11-20 UTC (earlier logs carry no actor): 789 decisions (376 chooser, 413 responder), 48 people, the most frequent person 45% of rows. Pooled multi share: chooser 0.569 (P(3|multi) 0.248), responder 0.383. With the most frequent person excluded: chooser 0.578, responder 0.574. Limitation: the equity is ca_hand_facts.all_in_equity (the hand's public all-in equity), not the exact figure the engine read at the offer.
 
-## Receipts (designed; emitted once the main-thread hook is wired)
+## Receipts (wired in `ServerTableEngineRunout.horseRitRuns`; registered with the switch-list turn)
 
 `horse_rit_priced_once`, `horse_rit_priced_multi`, `horse_rit_priced_three`, `horse_rit_priced_owner_cut`, `horse_rit_priced_equity_unknown`.
 
@@ -54,4 +54,4 @@ Set: every Horse run-it-twice answer 2026-10-21 .. 2026-11-20 UTC in action*audi
 
 Horse-only tables (not evidence about people): OFF multi 0.1501, ON 0.2665 (n 18,443). The OFF arm agrees with the recorded multi-vs-once answer on 56.9% of rows: the window includes Oct 21 - Nov 14, when an earlier rule served (the recorded column holds 4,592 lopsided multi-runs from that era), and the replay equity is the hand's all-in equity, not the figure read at the offer.
 
-Reading: the replay bar declared before the run passes on every item. This is a replay of recorded spots, not live evidence; the option stays OFF (Evidence NOT MET) until it is registered, its main-thread switch hook is wired, it is cut over, switched on by the Horse SWITCH lane and read live against the rollback rule above.
+Reading: the replay bar declared before the run passes on every item. This is a replay of recorded spots, not live evidence; the option stays OFF (Evidence NOT MET) until it is registered in the option switch (ledger, registry, generated follow-up migration, and authority file rename), cut over, switched on by the Horse SWITCH lane and read live against the rollback rule above.

@@ -29,7 +29,7 @@ describe('a Spin or Sit & Go lobby open at 3 AM is closed and refunded', () => {
     expect(fnBody).toContain(
       'IF NOT (local_t >= pol.spin_sng_stop AND local_t < pol.window_end) THEN'
     );
-    expect(fnBody).toContain("local_t := (p_at AT TIME ZONE pol.time_zone)::time;");
+    expect(fnBody).toContain('local_t := (p_at AT TIME ZONE pol.time_zone)::time;');
   });
 
   it('cancels only open, unstarted Spins and Sit & Gos through the one cancellation authority', () => {
@@ -53,7 +53,7 @@ describe('a Spin or Sit & Go lobby open at 3 AM is closed and refunded', () => {
   it('leaves a full game to deal and never cancels a drawn Spin', () => {
     expect(fnBody).toContain('cur.entrants >= cur.max_players');
     expect(fnBody).toContain('OR cur.drawn OR');
-    expect(fnBody).toContain("coalesce(t.spin_multiplier,0)>0");
+    expect(fnBody).toContain('coalesce(t.spin_multiplier,0)>0');
     expect(fnBody).toContain("l.kind='jackpot_draw'");
     expect(fnBody).toContain('public.spin_draw_receipts');
   });
@@ -74,17 +74,19 @@ describe('a Spin or Sit & Go lobby open at 3 AM is closed and refunded', () => {
     );
   });
 
-  it('is called by the engine every minute while Spin and Sit & Go boards are closed', () => {
+  it('is called by the engine every minute while Spin and Sit & Go boards are closed and not maintenance-frozen', () => {
     expect(engine).toContain("import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';");
-    expect(engine).toContain(
-      'if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {'
+    expect(engine).toMatch(
+      /if\s*\(\s*!isMaintenanceFrozen\(\)\s*&&\s*!spinSngBoardsOpen\(new Date\(\)\)\s*&&\s*Date\.now\(\)\s*-\s*this\.lastLobbyCloseAt\s*>\s*60\s*\*\s*1000\s*\)\s*\{/
     );
     expect(engine).toContain("'fn_daily_window_close_seat_first_lobbies'");
     expect(engine).toContain("'GameServer.daily_window_lobby_close_failed'");
   });
 
   it('has a database watchdog for the 4:00 hour that closes nothing', () => {
-    const wd = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION smarter_private.daily_window_lobby_watchdog'));
+    const wd = sql.slice(
+      sql.indexOf('CREATE OR REPLACE FUNCTION smarter_private.daily_window_lobby_watchdog')
+    );
     expect(wd).toContain(
       "IF NOT (local_t >= pol.window_start AND local_t < pol.window_start + interval '1 hour') THEN"
     );

@@ -237,6 +237,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'lane PREFLOP-EV two-card additive equity model (computed from random holdings only)',
     'src/engine/omahaMathCore/OmahaMathCoreValue.ts':
       'lane VALUE postflop plan: check node, raised branch, multi-street continuation and the size menu, priced by the math core',
+    'src/engine/omahaMathCore/OmahaMathCoreUntrackedCheck.ts':
+      'lane CORE-FIX-1 checked range of the untracked fallback: the pooled public bet rate b, and the typed seam for the measured trap rate (null until the trap-rate repair sets it)',
     'src/engine/omahaMathCore/OmahaMathCoreNutsFloor.ts':
       'lane CORE-POOLED-2 current-nuts call floor of the math core: exact enumeration of whether any two unseen cards beat the own hand on this board (own cards and board only); facing a flop/turn wager with a call available, the fold is not a candidate',
     'src/engine/omahaMathCore/OmahaMathCoreBluff.ts':
@@ -249,6 +251,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the math core public tables (provenance public_actions / showdown_only), every player pooled (lane CORE-POOLED): response frequencies to wagers, wager frequencies, shown non-value shares, preflop action frequencies, fold facing a raise; no person/Horse field, no per-user rows',
     'src/engine/omahaMathCore/OmahaMathCoreAcceptance.ts':
       'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
+    'src/engine/opponentHud/OmahaMathCoreHudRecords.ts':
+      'lane CORE-EXTEND-5 seat-only opponent-record adapter over the decision HUD packet (hudCbetRaiseRecord for PLO4 flop continuation bets); read only while a default-off math core street flag is on',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
     'src/engine/HorseOmahaBetRead.ts':

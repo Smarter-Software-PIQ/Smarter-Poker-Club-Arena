@@ -1,0 +1,3 @@
+# server/src/engine/HorsePlayStyles.law.test.ts
+
+The default-off horsePlayStyles option is read in one place in HorseLogic.ts as a strict boolean (`!== true`), changes zero decisions and emits zero horse*play_style*\* receipts when off/unset/non-boolean, assigns deterministic uniform thirds pinned to HORSE_PLAY_STYLE_SALT ('horse_play_style_v1') with valid authored playStyle override, and forces tight/pressure back to current with exact fallback receipts on unmapped games (NLH, PLO6, hi-lo, HU, bomb pots, All-In-Or-Fold), tournaments, Lightning, stacks at or below 50bb, and tight Horses on VPIP floors above tightExpectedVpipPct (2026-11-21).
