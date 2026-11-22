@@ -4,7 +4,7 @@ Written 2026-11-20. This file says what the nightly duplicate league (`server/sr
 
 ## What is dealt
 
-Fixed-limit hold'em (`flh`), cash, no ante, Horse seats only, stacks above 24 big blinds.
+Fixed-limit hold'em (`flh`, since 2026-11-20) and fixed-limit Omaha hi-lo (`flo8`, since 2026-11-21), cash, no ante, Horse seats only (plus the scripted `flh` field for `flh`), stacks above 24 big blinds.
 
 | Rule                                                                              | Where the league gets it                                                        | The live table's own code                                 |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
@@ -15,6 +15,7 @@ Fixed-limit hold'em (`flh`), cash, no ante, Horse seats only, stacks above 24 bi
 | A deep stack's all in executes as the street's one bet or raise                   | `playHand`, fixed-limit branch                                                  | `HandController.clampToStructure`                         |
 | `lastRaise` and `minRaise` sit at the street's wager and a raise never moves them | `runStreet`                                                                     | `HandController.advanceStage`, `performAction`            |
 | The menu handed to the brain                                                      | `leagueFixedLimitActionState`                                                   | `HandController.getAuthoritativeActionState`              |
+| Hi-lo showdown settlement (`flo8`): qualifying low, halves, quartering, odd cent  | `settleLeagueShowdown` (merged pot layers into `determineWinners`)              | `calculatePots`, `determineWinners`                       |
 
 Nothing is re-implemented: the league calls the functions the controller calls.
 
@@ -24,19 +25,18 @@ Nothing is re-implemented: the league calls the functions the controller calls.
 
 - **Stacks of 24 big blinds or less.** A fixed-limit hand costs one seat at most 4 + 4 + 8 + 8 = 24 big blinds. Above that no seat can be all in. At or below it a seat can go all in for less than a wager, and the rules for that short wager (completion below half a bet, reopening at half a bet or more: `fixedLimitStreetBounds.raiseSize`, `HandController.canReopenBetting`, uncalled excess when every opponent is all in) are not in the league's street loop.
 - **Tournament context or an ante.** Neither is modelled for this structure in the league.
-- **A field population, except the scripted fixed-limit field.** No population is calibrated for fixed limit, and the calibrated and pressure seats build a no-limit menu (`humanFieldDecision`, `pressureFieldDecision`). Since 2026-11-20 the one field a fixed-limit hand seats is `flh_scripted_field_v1`, whose seats are offered the controller's fixed-limit menu (below, "The scripted fixed-limit field").
-- **`flo8`.** Since 2026-11-21 the league's showdown pays a hi-lo pot by the engine's own `determineWinners` (`settleLeagueShowdown`), low half included; before that it awarded one high hand. A `flo8` hand still takes the league's no-limit betting path (no fixed-limit street unit, wager cap or controller menu), which is why every `flo8` arm stays refused.
+- **A field population, except the scripted fixed-limit hold'em field on `flh`.** No population is calibrated for fixed limit, and the calibrated and pressure seats build a no-limit menu (`humanFieldDecision`, `pressureFieldDecision`). Since 2026-11-20 the one field a fixed-limit hand seats is `flh_scripted_field_v1` (qualified for `flh` only; its postflop rules score Hold'em hands), whose seats are offered the controller's fixed-limit menu (below, "The scripted fixed-limit field"). `flo8` seats Horses only.
 
 ## The proof
 
 `server/src/benchmark/HorseLeagueFixedLimit.test.ts`:
 
-1. Every league hand in the sample (120 heads-up, 120 six-max) is replayed action by action through a real `HandController` dealt the same cards. At every node: the same seat on the clock, the same street, pot, bet level, `minRaise`, `lastRaise`, board, per-seat stack, bet and investment, and the same recorded action history; the menu the brain received (legal actions, price to call, the one legal wager, the street unit, the cap flag, the small bet) equals the controller's authoritative menu; the controller accepts the league's action; the controller's final stacks equal the league's settlement seat by seat.
-2. The structure read off the league's own actions (150 hands each, heads-up and six-max): unit by street, at most four wagers, fold and call only on a capped street, the pot equal to the chips put in, chips conserved, no seat losing more than 24 big blinds, no all in, zero illegal actions, zero truncated streets.
-3. The refusals above.
-4. The cards: on the card, inside the domain, arms that diverge, results the compute worker boundary accepts.
+1. Every league hand in the sample (`flh`: 120 heads-up, 120 six-max; `flo8`: 80 heads-up, 80 six-max) is replayed action by action through a real `HandController` dealt the same cards. At every node: the same seat on the clock, the same street, pot, bet level, `minRaise`, `lastRaise`, board, per-seat stack, bet and investment, and the same recorded action history; the menu the brain received (legal actions, price to call, the one legal wager, the street unit, the cap flag, the small bet) equals the controller's authoritative menu; the controller accepts the league's action; the controller's final stacks equal the league's settlement seat by seat (including `flo8` qualifying-low split showdowns).
+2. The structure read off the league's own actions (`flh`: 150 hands each heads-up and six-max; `flo8`: 100 hands each heads-up and six-max): unit by street, at most four wagers, fold and call only on a capped street, the pot equal to the chips put in, chips conserved, no seat losing more than 24 big blinds, no all in, zero illegal actions, zero truncated streets.
+3. The refusals above (both `flh` and `flo8`).
+4. The cards (`FIXED_LIMIT_HOLDEM_CARDS`, `FIXED_LIMIT_OMAHA_HILO_CARDS`, `FIXED_LIMIT_SCRIPTED_FIELD_CARDS`): on the card, inside the domain, arms that diverge, results the compute worker boundary accepts.
 
-`ALeagueDecisionStateIsProductions.law.test.ts` now carries three fixed-limit nodes (six-max first in, heads-up facing the cap, six-max turn facing a bet and a raise): the league state equals, key by key, the request the real `ServerTableEngine.scheduleHorseAction` sends.
+`ALeagueDecisionStateIsProductions.law.test.ts` carries five fixed-limit nodes (three `flh`: six-max first in, heads-up facing the cap, six-max turn facing a bet and a raise; two `flo8`: six-max first in, heads-up turn facing a big bet and a raise): the league state equals, key by key, the request the real `ServerTableEngine.scheduleHorseAction` sends.
 
 Mutation checks run on 2026-11-20 (file restored after each): pricing a turn wager at the small bet fails the replay and the structure tests; never reporting a street as capped fails both.
 
@@ -68,9 +68,30 @@ Mutation checks run on 2026-11-20 (file restored after each): pricing a turn wag
 
 Every run: 0 illegal actions, 0 truncated streets, 0 brain exception fallbacks. None of these is a verdict on an option. They show which arms a Horse mirror can and cannot move.
 
+### Fixed-limit Omaha hi-lo (`flo8`), measured 2026-11-21 on the legal game
+
+`runMatchup`, Horse mirror, `flo8`, 100 big blinds, `EQUITY_GOVERNOR=off`, seed 20261115, 300 pairs, arm A the option on and arm B off. Every run had 0 illegal actions, 0 truncated streets, 0 corrected actions and 0 brain exception fallbacks.
+
+| Arm                              | Seats | Setting                       | Pairs | Diverged | bb/100 | Std. error |
+| -------------------------------- | ----- | ----------------------------- | ----- | -------- | ------ | ---------- |
+| `fixedLimitOmahaNoPresumption`   | 2     | Hybrid cash, deal-seeded mood | 300   | 59       | +11.42 | 4.07       |
+| `fixedLimitOmahaNoPresumption`   | 2     | plain                         | 300   | 64       | +11.83 | 4.05       |
+| `fixedLimitPricedPreflop`        | 6     | Hybrid cash, deal-seeded mood | 300   | 68       | -0.44  | 1.88       |
+| `fixedLimitPricedPreflop`        | 6     | plain                         | 300   | 56       | -3.43  | 1.76       |
+| `fixedLimitRiverFullBetRead`     | 2     | Hybrid cash, deal-seeded mood | 300   | 5        | +0.33  | 1.20       |
+| `fixedLimitRiverFullBetRead`     | 2     | plain                         | 300   | 5        | -1.33  | 1.77       |
+| `fixedLimitHiLoNutLowRiverBet`   | 2     | Hybrid cash / plain           | 300   | 0 / 0    | 0.00   | 0.00       |
+| `fixedLimitHiLoLowHalfFloor`     | 6     | Hybrid cash / plain           | 300   | 0 / 0    | 0.00   | 0.00       |
+| `fixedLimitCallIsNotACommitment` | 6     | Hybrid cash / plain           | 300   | 0 / 0    | 0.00   | 0.00       |
+| `fixedLimitRiverStrongHandLeads` | 6     | Hybrid cash / plain           | 300   | 0 / 0    | 0.00   | 0.00       |
+| `fixedLimitStealVsTightBlinds`   | 6     | Hybrid cash / plain           | 300   | 0 / 0    | 0.00   | 0.00       |
+| `fixedLimitReadIgnoresProbes`    | 6     | Hybrid cash / plain           | 300   | 0 / 0    | 0.00   | 0.00       |
+
 ## The cards
 
-`FIXED_LIMIT_HOLDEM_CARDS`: `flh_priced_preflop` (six seats, 2,000 pairs) and `flh_river_full_bet_read` (heads-up), both on the live cash Hybrid persona with the deal-seeded mood clock. They only measure. Both options stay default off: `fixedLimitPricedPreflop` is under the owner's preflop range hold and `fixedLimitRiverFullBetRead` is an opt-in arm production never sets. Since 2026-11-20 `FIXED_LIMIT_SCRIPTED_FIELD_CARDS` are on the card too (six cards against the scripted field, nine since 2026-11-21); see "The scripted fixed-limit field" below.
+- `FIXED_LIMIT_HOLDEM_CARDS`: `flh_priced_preflop` (six seats, 2,000 pairs) and `flh_river_full_bet_read` (heads-up), both on the live cash Hybrid persona with the deal-seeded mood clock. They only measure. Both options stay default off: `fixedLimitPricedPreflop` is under the owner's preflop range hold and `fixedLimitRiverFullBetRead` is an opt-in arm production never sets.
+- `FIXED_LIMIT_OMAHA_HILO_CARDS` (added 2026-11-21): `flo8_no_omaha_presumption` (heads-up, 2,000 pairs), `flo8_priced_preflop` (six seats, 2,000 pairs) and `flo8_river_full_bet_read` (heads-up), all on the live cash Hybrid persona with the deal-seeded mood clock. They only measure; every option stays default off. The other six `flo8` arms diverged in 0 of 300 pairs on the legal game and stay refused in `UNMEASURABLE_MATCHUPS` with their counts.
+- `FIXED_LIMIT_SCRIPTED_FIELD_CARDS` (since 2026-11-20, nine cards since 2026-11-21): `flh` cards against the scripted field; see "The scripted fixed-limit field" below.
 
 ## The scripted fixed-limit field (built 2026-11-20)
 
@@ -290,9 +311,9 @@ Evidence note: the Value row of `docs/HORSE-DECISION-CHANGE-EVIDENCE.md` asks fo
 
 The option acts only against a player whose pooled no-limit or pot-limit probe share is non-zero. A league card deals one variant into two fresh sandboxes, so that share is always zero. Needed: a card setting that plays a fixed number of no-limit hold'em hands into both pass sandboxes before the fixed-limit pairs (same seats, same seed, learning on), and a test that the probe share is non-zero when the fixed-limit hands start. Without it the arm is inert by construction. BUILT 2026-11-20 as `LeagueMatchup.probeHistoryHands` (below); see the results there for whether the arm became measurable.
 
-### 3. Hi-lo settlement (every `flo8` arm: `fixedLimitHiLoNutLowRiverBet`, `fixedLimitHiLoLowHalfFloor`, `fixedLimitOmahaNoPresumption`, and the `flo8` halves of the others)
+### 3. Hi-lo settlement and fixed-limit `flo8` betting: BUILT 2026-11-21
 
-Needed in `playHand` settlement: the qualifying low (eight or better, two hole cards and three board cards), the high and low halves per side pot, quartering, and the odd chip, exactly as `HandController` pays them. The proof is the same replay against a real `HandController` on `flo8`, plus `leagueDealsFixedLimit` admitting it. An alternative that needs no new settlement code exists in the repository: `Plo4PolicyLeague.playPlo4PolicyHand` drives a real `HandController` and already deals `flh` and `flo8` (`RemainingVariantPolicyLeague.ts`), but it is a hero-against-field league with a fresh memory sandbox per hand and its own contract, not the nightly card.
+Hi-lo showdown settlement (`settleLeagueShowdown` via `determineWinners`, with merged equal-eligibility pot layers matching `calculatePots`) and `flo8` fixed-limit betting (`leagueDealsFixedLimit` admitting `flo8`) are both built and proven node by node against a real `HandController` in `HorseLeagueFixedLimit.test.ts`. Three `flo8` arms moved onto the card (`FIXED_LIMIT_OMAHA_HILO_CARDS`: `flo8_no_omaha_presumption`, `flo8_priced_preflop`, `flo8_river_full_bet_read`). The remaining `flo8` arms (`flo8_nut_low_river_bet`, `flo8_hilo_low_half_floor`, `flo8_river_strong_hand_leads`, `flo8_steal_vs_tight_blinds`, `flo8_read_ignores_probes`, plus `flo8_call_is_not_a_commitment` which is inert by scope) diverged in 0 of 300 pairs in a Horse mirror and stay refused until a scripted `flo8` field exists (the existing `flh_scripted_field_v1` scores Hold'em hands and stays scoped to `flh`).
 
 ### 4. Short stacks
 

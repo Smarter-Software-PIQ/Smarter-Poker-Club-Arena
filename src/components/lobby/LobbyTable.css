@@ -1522,14 +1522,16 @@ abbr.lt-variant[title] {
 
   /* Dan: "you can remove the Late Reg pill in the right corner." On a
      tournament card the badge was saying what the headline already says in
-     more detail — "Late Reg 3:40 Left" — so it was a duplicate that also cost
-     the title 104px of its line. Cash cards keep theirs: Full / Running is
-     not written anywhere else on those. */
-  .lobby-table tr[data-kind='mtt'] td.lt-col-status {
+     more detail - "Late Reg 3:40 Left" - so hide only .lt-status while keeping
+     td.lt-col-status visible so .lt-invite-btn remains tappable on mobile MTT
+     cards. Reserve right padding on the title so text never collides with the
+     Invite button. Cash cards keep their status badge: Full / Running is not
+     written anywhere else on those. */
+  .lobby-table tr[data-kind='mtt'] td.lt-col-status .lt-status {
     display: none;
   }
   .lobby-table tr[data-kind='mtt'] td.lt-col-name {
-    padding-right: 0;
+    padding-right: 84px;
   }
   /* Heads-Up kept losing its badge to that rule. An MTT card can afford to
      drop the badge because its title's second line already says "Late Reg 3:40
@@ -1913,7 +1915,7 @@ abbr.lt-variant[title] {
   }
 
   .lobby-table tr[data-kind='mtt'] td.lt-col-name {
-    padding-right: 0;
+    padding-right: 84px;
   }
 
   .lt-name__line1,

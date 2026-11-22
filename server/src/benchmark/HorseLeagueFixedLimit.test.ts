@@ -34,7 +34,10 @@ import { resolve } from 'node:path';
 import { variantInfo } from '../engine/HorseEval.js';
 import {
   FIXED_LIMIT_HOLDEM_CARDS,
+  FIXED_LIMIT_OMAHA_HILO_CARDS,
   FIXED_LIMIT_SCRIPTED_FIELD_CARDS,
+  FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_FIELD_CARDS,
   LEAGUE_MATCHUPS,
   UNMEASURABLE_MATCHUPS,
   leagueDealtCards,
@@ -42,6 +45,7 @@ import {
   runMatchup,
   type LeagueHandObserver,
 } from './HorseLeague.js';
+import { evaluateOmahaLowHand } from '../engine/PokerEngine.js';
 import { horseLeagueComputeResponseIsValid } from './HorseLeagueComputeWorkerClient.js';
 import {
   LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB,
@@ -63,9 +67,18 @@ interface LeagueAction {
   toCall: number;
 }
 
-/** One league fixed-limit hold'em hand: its actions, the states the brain was handed, its settlement. */
-function leagueHand(handSeed: number, dealerSeat: number, seats: number, stackBB = STACK_BB) {
+/** One league fixed-limit hand (flh or flo8): its actions, the states the brain was handed, its settlement. */
+function leagueHand(
+  handSeed: number,
+  dealerSeat: number,
+  seats: number,
+  stackBB = STACK_BB,
+  variant: 'flh' | 'flo8' = 'flh'
+) {
   const actions: LeagueAction[] = [];
+  let endInfo:
+    | { endedByFolds: boolean; folded: boolean[]; cards: Card[][]; board: Card[]; net: number[] }
+    | undefined;
   const observer: LeagueHandObserver = {
     onAction: (e) =>
       actions.push({
@@ -76,6 +89,9 @@ function leagueHand(handSeed: number, dealerSeat: number, seats: number, stackBB
         pot: e.pot,
         toCall: e.toCall,
       }),
+    onEnd: (e) => {
+      endInfo = e;
+    },
   };
   const counters = { illegal: 0, truncated: 0, corrected: 0, brainFallback: 0 };
   const decide = vi.spyOn(HorseLogic, 'decide');
@@ -86,7 +102,7 @@ function leagueHand(handSeed: number, dealerSeat: number, seats: number, stackBB
     () => ({}),
     counters,
     undefined,
-    'flh',
+    variant,
     seats,
     stackBB,
     undefined,
@@ -99,11 +115,17 @@ function leagueHand(handSeed: number, dealerSeat: number, seats: number, stackBB
   const states = decide.mock.calls
     .slice(before)
     .map(([, gs]) => structuredClone(gs) as HorseGameStateV2);
-  return { actions, states, net, counters };
+  return { actions, states, net, counters, endInfo };
 }
 
 /** A real HandController dealt the league's own cards for the same deal. */
-function controllerFor(handSeed: number, dealerSeat: number, seats: number, stackBB = STACK_BB) {
+function controllerFor(
+  handSeed: number,
+  dealerSeat: number,
+  seats: number,
+  stackBB = STACK_BB,
+  variant: 'flh' | 'flo8' = 'flh'
+) {
   const players = Array.from({ length: seats }, (_, i) => ({
     seat: i + 1,
     user_id: `league-${i + 1}`,
@@ -119,9 +141,9 @@ function controllerFor(handSeed: number, dealerSeat: number, seats: number, stac
   })) as SeatPlayer[];
   const controller = new HandController(
     {
-      tableId: 'league-fixed-limit-replay',
+      tableId: `league-fixed-limit-replay-${variant}`,
       handNumber: 1,
-      gameVariant: 'flh',
+      gameVariant: variant,
       smallBlind: SB,
       bigBlind: BB,
       ante: 0,
@@ -133,7 +155,7 @@ function controllerFor(handSeed: number, dealerSeat: number, seats: number, stac
   // The controller deals hole cards in seat order and then the board with no
   // burn card, which is the order the league cuts its deck in. Only this
   // instance's deck is replaced (as Plo4PolicyLeague.playPlo4PolicyHand does).
-  const dealt = leagueDealtCards(handSeed, 'flh', seats);
+  const dealt = leagueDealtCards(handSeed, variant, seats);
   const deck: Card[] = [...dealt.holes.flat(), ...dealt.board];
   const instance = controller.getState().deck as unknown as {
     deal(n?: number): Card[];
@@ -163,16 +185,21 @@ function controllerFor(handSeed: number, dealerSeat: number, seats: number, stac
 const key = (c: Card) => `${c.rank}${c.suit}`;
 
 /** Replays one league hand through the real controller and compares every node. */
-function replayAgainstController(handSeed: number, dealerSeat: number, seats: number) {
-  const league = leagueHand(handSeed, dealerSeat, seats);
-  const label = `seed ${handSeed}, dealer ${dealerSeat}, ${seats} seats`;
+function replayAgainstController(
+  handSeed: number,
+  dealerSeat: number,
+  seats: number,
+  variant: 'flh' | 'flo8' = 'flh'
+) {
+  const league = leagueHand(handSeed, dealerSeat, seats, STACK_BB, variant);
+  const label = `${variant} seed ${handSeed}, dealer ${dealerSeat}, ${seats} seats`;
   expect(league.counters.illegal, label).toBe(0);
   expect(league.counters.truncated, label).toBe(0);
   expect(league.counters.brainFallback, label).toBe(0);
   // Every seat is a Horse and every decision is one brain call, in order.
   expect(league.states.length, label).toBe(league.actions.length);
 
-  const live = controllerFor(handSeed, dealerSeat, seats);
+  const live = controllerFor(handSeed, dealerSeat, seats, STACK_BB, variant);
   const c = live.controller;
   // The same cards at the same seats.
   c.getState().players.forEach((p, i) => {
@@ -257,9 +284,9 @@ function replayAgainstController(handSeed: number, dealerSeat: number, seats: nu
   expect(live.rake(), label).toBe(0);
   const end = c.getState();
   expect(
-    end.players.map((p) => p.stack - STACK_BB * BB),
+    end.players.map((p) => Math.round((p.stack - STACK_BB * BB) * 100)),
     label
-  ).toEqual(league.net);
+  ).toEqual(league.net.map((n) => Math.round(n * 100)));
   return league;
 }
 
@@ -267,32 +294,47 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the league's fixed-limit hold'em hand is the live controller's hand", () => {
+describe('the league fixed-limit hand (flh and flo8) is the live controller hand', () => {
   it.each([
-    ['heads-up', 2, 120],
-    ['six-max', 6, 120],
+    ['flh heads-up', 'flh', 2, 120],
+    ['flh six-max', 'flh', 6, 120],
+    ['flo8 heads-up', 'flo8', 2, 80],
+    ['flo8 six-max', 'flo8', 6, 80],
   ] as const)(
     '%s: every node, menu, action and settlement equals a real HandController',
-    (_name, seats, hands) => {
+    (_name, variant, seats, hands) => {
       let actions = 0;
       let showdowns = 0;
+      let qualifyingLowShowdowns = 0;
       let cappedNodes = 0;
       const streets = new Set<string>();
       for (let h = 0; h < hands; h++) {
         const handSeed = ((20261120 + seats) ^ (h * 2654435761)) >>> 0 || 1;
-        const league = replayAgainstController(handSeed, (h % seats) + 1, seats);
+        const league = replayAgainstController(handSeed, (h % seats) + 1, seats, variant);
         actions += league.actions.length;
         cappedNodes += league.states.filter((gs) => gs.wagersCapped === true).length;
         for (const a of league.actions) streets.add(a.stage);
         const folded = new Set(
           league.actions.filter((a) => a.action === 'fold').map((a) => a.seatIdx)
         );
-        if (seats - folded.size >= 2) showdowns++;
+        if (seats - folded.size >= 2) {
+          showdowns++;
+          if (variant === 'flo8' && league.endInfo) {
+            const hasLow = league.endInfo.cards.some(
+              (hole, idx) =>
+                !league.endInfo!.folded[idx] &&
+                evaluateOmahaLowHand(hole, league.endInfo!.board) !== null
+            );
+            if (hasLow) qualifyingLowShowdowns++;
+          }
+        }
       }
-      // The sample reaches what it claims to prove: every street and showdowns.
+      // The sample reaches what it claims to prove: every street, showdowns,
+      // and for flo8 qualifying-low hi-lo split showdowns.
       expect(actions).toBeGreaterThan(hands * 2);
       expect([...streets].sort()).toEqual(['flop', 'preflop', 'river', 'turn']);
       expect(showdowns).toBeGreaterThan(0);
+      if (variant === 'flo8') expect(qualifyingLowShowdowns).toBeGreaterThan(0);
       // Reported, not required: how many nodes sat on a capped street.
       expect(cappedNodes).toBeGreaterThanOrEqual(0);
     },
@@ -300,17 +342,25 @@ describe("the league's fixed-limit hold'em hand is the live controller's hand", 
   );
 });
 
-describe("the league's fixed-limit hold'em hand keeps the structure", () => {
+describe('the league fixed-limit hand (flh and flo8) keeps the structure', () => {
   it.each([
-    ['heads-up', 2],
-    ['six-max', 6],
+    ['flh heads-up', 'flh', 2, 150],
+    ['flh six-max', 'flh', 6, 150],
+    ['flo8 heads-up', 'flo8', 2, 100],
+    ['flo8 six-max', 'flo8', 6, 100],
   ] as const)(
     '%s: fixed units by street, four wagers a street, exact pot, conserved chips',
-    (_name, seats) => {
-      for (let h = 0; h < 150; h++) {
+    (_name, variant, seats, hands) => {
+      for (let h = 0; h < hands; h++) {
         const handSeed = ((7700000 + seats) ^ (h * 2654435761)) >>> 0 || 1;
-        const { actions, states, net, counters } = leagueHand(handSeed, (h % seats) + 1, seats);
-        const label = `seed ${handSeed}`;
+        const { actions, states, net, counters } = leagueHand(
+          handSeed,
+          (h % seats) + 1,
+          seats,
+          STACK_BB,
+          variant
+        );
+        const label = `${variant} seed ${handSeed}`;
         expect(counters.illegal, label).toBe(0);
         expect(counters.truncated, label).toBe(0);
 
@@ -360,122 +410,180 @@ describe("the league's fixed-limit hold'em hand keeps the structure", () => {
         });
 
         // Chips are conserved, and nobody can lose more than a hand can cost.
-        expect(
-          net.reduce((s, n) => s + n, 0),
-          label
-        ).toBe(0);
+        expect(Math.round(net.reduce((s, n) => s + n, 0) * 100), label).toBe(0);
         for (const n of net) {
-          expect(-n, label).toBeLessThanOrEqual(LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB * BB);
+          expect(-n, label).toBeLessThanOrEqual(LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB * BB + 1e-9);
         }
         // The winners are paid exactly the pot: the blinds plus every chip put in.
         const paidIn = SB + BB + put.reduce((s, n) => s + n, 0);
         expect(pot, label).toBe(paidIn);
-        const won = net.filter((n) => n > 0).reduce((s, n) => s + n, 0);
-        const lost = net.filter((n) => n < 0).reduce((s, n) => s - n, 0);
+        const won = Math.round(net.filter((n) => n > 0).reduce((s, n) => s + n, 0) * 100);
+        const lost = Math.round(net.filter((n) => n < 0).reduce((s, n) => s - n, 0) * 100);
         expect(won, label).toBe(lost);
-        expect(lost, label).toBeLessThanOrEqual(pot);
+        expect(lost, label).toBeLessThanOrEqual(Math.round(pot * 100));
       }
     },
     300_000
   );
 
-  it('a capped street has taken exactly four wagers and the league reaches one', () => {
+  it('a capped street has taken exactly four wagers and the league reaches one (flh and flo8)', () => {
     // A street is capped by play, not by construction: this asserts the cap
     // is actually reached in the sample the structure test reads.
-    let capped = 0;
-    for (let h = 0; h < 150 && capped === 0; h++) {
-      const handSeed = (7700002 ^ (h * 2654435761)) >>> 0 || 1;
-      capped += leagueHand(handSeed, (h % 2) + 1, 2).states.filter(
-        (gs) => gs.wagersCapped === true
-      ).length;
+    for (const variant of ['flh', 'flo8'] as const) {
+      let capped = 0;
+      for (let h = 0; h < 200 && capped === 0; h++) {
+        const handSeed = (7700002 ^ (h * 2654435761)) >>> 0 || 1;
+        capped += leagueHand(handSeed, (h % 2) + 1, 2, STACK_BB, variant).states.filter(
+          (gs) => gs.wagersCapped === true
+        ).length;
+      }
+      expect(capped, variant).toBeGreaterThan(0);
     }
-    expect(capped).toBeGreaterThan(0);
   });
 });
 
 describe('what the league cannot deal as fixed limit it refuses', () => {
   it('names the fixed-limit games it deals', () => {
     expect(leagueDealsFixedLimit('flh')).toBe(true);
-    // Hi-lo: the league settles no low half.
-    expect(leagueDealsFixedLimit('flo8')).toBe(false);
+    expect(leagueDealsFixedLimit('flo8')).toBe(true);
     for (const v of ['nlh', 'plo4', 'plo5', 'plo6', 'plo8', 'short_deck', 'pineapple'])
       expect(leagueDealsFixedLimit(v), v).toBe(false);
     expect(LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB).toBe(24);
   });
 
-  it('refuses a stack a hand can exhaust, a tournament, an ante and a field population', () => {
-    const ok = { gameVariant: 'flh', stackBB: 100, gameMode: 'cash', ante: 0, humanField: false };
-    expect(leagueFixedLimitRefusal(ok as never)).toBeNull();
-    expect(leagueFixedLimitRefusal({ ...ok, stackBB: 25 } as never)).toBeNull();
-    expect(leagueFixedLimitRefusal({ ...ok, stackBB: 24 } as never)).toMatch(/above 24 big blinds/);
-    expect(leagueFixedLimitRefusal({ ...ok, gameMode: 'tournament' } as never)).toMatch(/cash/);
-    expect(leagueFixedLimitRefusal({ ...ok, ante: 1 } as never)).toMatch(/ante/);
-    expect(leagueFixedLimitRefusal({ ...ok, humanField: true } as never)).toMatch(/Horses only/);
-    expect(leagueFixedLimitRefusal({ ...ok, gameVariant: 'flo8' } as never)).toMatch(/flo8/);
-  });
-
-  it('playHand throws instead of dealing a fixed-limit table it has no rules for', () => {
-    expect(() =>
-      playHand(1, 1, () => ({}), undefined, undefined, 'flh', 6, LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB)
-    ).toThrow(/above 24 big blinds/);
-    expect(() =>
-      playHand(1, 1, () => ({}), undefined, undefined, 'flh', 6, 100, {
-        gameMode: 'tournament',
-        format: 'mtt',
+  it('refuses a stack a hand can exhaust, a tournament, an ante and an unqualified field population', () => {
+    for (const gameVariant of ['flh', 'flo8'] as const) {
+      const ok = { gameVariant, stackBB: 100, gameMode: 'cash', ante: 0, humanField: false };
+      expect(leagueFixedLimitRefusal(ok as never), gameVariant).toBeNull();
+      expect(leagueFixedLimitRefusal({ ...ok, stackBB: 25 } as never), gameVariant).toBeNull();
+      expect(leagueFixedLimitRefusal({ ...ok, stackBB: 24 } as never), gameVariant).toMatch(
+        /above 24 big blinds/
+      );
+      expect(
+        leagueFixedLimitRefusal({ ...ok, gameMode: 'tournament' } as never),
+        gameVariant
+      ).toMatch(/cash/);
+      expect(leagueFixedLimitRefusal({ ...ok, ante: 1 } as never), gameVariant).toMatch(/ante/);
+      expect(leagueFixedLimitRefusal({ ...ok, humanField: true } as never), gameVariant).toMatch(
+        /Horses only/
+      );
+    }
+    // The scripted flh field is qualified for flh only, not flo8.
+    expect(
+      leagueFixedLimitRefusal({
+        gameVariant: 'flo8',
+        stackBB: 100,
+        gameMode: 'cash',
         ante: 0,
+        humanField: true,
+        fieldPopulation: FIXED_LIMIT_SCRIPTED_POPULATION_ID,
       })
-    ).toThrow(/cash hand/);
+    ).toMatch(/Horses only/);
+    expect(
+      leagueFixedLimitRefusal({
+        gameVariant: 'nlh',
+        stackBB: 100,
+        gameMode: 'cash',
+        ante: 0,
+        humanField: false,
+      })
+    ).toMatch(/nlh/);
   });
 
-  it('a fixed-limit menu refuses a seat that could not cover the wager', () => {
-    const spot = {
-      player: {
-        seat: 1,
-        stack: 1,
-        bet: 0,
-        is_folded: false,
-        is_all_in: false,
-        is_sitting_out: false,
-      },
-      gameVariant: 'flh',
-      pot: 3,
-      currentBet: 2,
-      lastRaise: 2,
-      bigBlind: 2,
-      wholeChip: false,
-      stage: 'preflop' as const,
-      history: [],
-    };
-    expect(() => leagueActionState(spot)).toThrow(/cannot cover a wager/);
-    expect(leagueActionState({ ...spot, player: { ...spot.player, stack: 200 } })).toMatchObject({
-      legalActions: ['fold', 'call', 'raise', 'all_in'],
-      toCall: 2,
-      minRaiseTo: 4,
-      maxRaiseTo: 4,
-      structure: 'fixed_limit',
-      fixedBetSize: 2,
-      wagersCapped: false,
-    });
-    // Fixed-limit hi-lo still has no league menu.
-    expect(leagueActionState({ ...spot, gameVariant: 'flo8' })).toBeNull();
+  it('playHand throws instead of dealing a fixed-limit table it has no rules for (flh and flo8)', () => {
+    for (const variant of ['flh', 'flo8'] as const) {
+      expect(
+        () =>
+          playHand(
+            1,
+            1,
+            () => ({}),
+            undefined,
+            undefined,
+            variant,
+            6,
+            LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB
+          ),
+        variant
+      ).toThrow(/above 24 big blinds/);
+      expect(
+        () =>
+          playHand(1, 1, () => ({}), undefined, undefined, variant, 6, 100, {
+            gameMode: 'tournament',
+            format: 'mtt',
+            ante: 0,
+          }),
+        variant
+      ).toThrow(/cash hand/);
+    }
+  });
+
+  it('a fixed-limit menu refuses a seat that could not cover the wager (flh and flo8)', () => {
+    for (const gameVariant of ['flh', 'flo8'] as const) {
+      const spot = {
+        player: {
+          seat: 1,
+          stack: 1,
+          bet: 0,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+        gameVariant,
+        pot: 3,
+        currentBet: 2,
+        lastRaise: 2,
+        bigBlind: 2,
+        wholeChip: false,
+        stage: 'preflop' as const,
+        history: [],
+      };
+      expect(() => leagueActionState(spot), gameVariant).toThrow(/cannot cover a wager/);
+      expect(
+        leagueActionState({ ...spot, player: { ...spot.player, stack: 200 } }),
+        gameVariant
+      ).toMatchObject({
+        legalActions: ['fold', 'call', 'raise', 'all_in'],
+        toCall: 2,
+        minRaiseTo: 4,
+        maxRaiseTo: 4,
+        structure: 'fixed_limit',
+        fixedBetSize: 2,
+        wagersCapped: false,
+      });
+    }
   });
 });
 
-describe("the fixed-limit hold'em cards", () => {
+describe('the fixed-limit cards (flh and flo8)', () => {
   const fixedLimitCards = LEAGUE_MATCHUPS.filter(
     (m) => variantInfo(m.variant ?? 'nlh').isFixedLimit
   );
 
   it('are on the card, in the domain the league deals, and no longer refused', () => {
-    // The Horse-field cards and (2026-11-20) the scripted-field cards
+    // The Horse-field cards (flh and flo8) and the scripted-field cards
     // (HorseLeagueFixedLimitField.test.ts).
     expect(fixedLimitCards.map((m) => m.name).sort()).toEqual(
-      [...FIXED_LIMIT_HOLDEM_CARDS, ...FIXED_LIMIT_SCRIPTED_FIELD_CARDS].map((m) => m.name).sort()
+      [
+        ...FIXED_LIMIT_HOLDEM_CARDS,
+        ...FIXED_LIMIT_OMAHA_HILO_CARDS,
+        ...FIXED_LIMIT_SCRIPTED_FIELD_CARDS,
+        ...FLO8_SCRIPTED_FIELD_CARDS,
+      ]
+        .map((m) => m.name)
+        .sort()
     );
     expect(FIXED_LIMIT_HOLDEM_CARDS.map((m) => [m.name, m.variant, m.seats, m.a, m.b])).toEqual([
       ['flh_priced_preflop', 'flh', 6, { fixedLimitPricedPreflop: true }, {}],
       ['flh_river_full_bet_read', 'flh', 2, { fixedLimitRiverFullBetRead: true }, {}],
     ]);
+    expect(FIXED_LIMIT_OMAHA_HILO_CARDS.map((m) => [m.name, m.variant, m.seats, m.a, m.b])).toEqual(
+      [
+        ['flo8_no_omaha_presumption', 'flo8', 2, { fixedLimitOmahaNoPresumption: true }, {}],
+        ['flo8_priced_preflop', 'flo8', 6, { fixedLimitPricedPreflop: true }, {}],
+        ['flo8_river_full_bet_read', 'flo8', 2, { fixedLimitRiverFullBetRead: true }, {}],
+      ]
+    );
     for (const m of fixedLimitCards) {
       // Every fixed-limit card is one playHand deals: it would throw on any other.
       expect(
@@ -494,19 +602,16 @@ describe("the fixed-limit hold'em cards", () => {
         m.name
       ).toBe(false);
     }
-    // A fixed-limit arm that is still refused says why on the legal game, or
-    // that its game (hi-lo) is not dealt; none repeats the retired claim.
+    // Every fixed-limit arm still refused says why on the legal game; none
+    // repeats the retired no-limit or hold'em-only claims.
     for (const u of UNMEASURABLE_MATCHUPS.filter(
       (r) => variantInfo(r.variant ?? 'nlh').isFixedLimit
     )) {
       expect(u.reason, u.name).not.toContain(
         'playHand deals no-limit and pot-limit betting and has no'
       );
-      expect(u.reason, u.name).toContain(
-        leagueDealsFixedLimit(u.variant!)
-          ? 'Refused, though the league deals this game'
-          : "it deals fixed-limit hold'em only"
-      );
+      expect(u.reason, u.name).not.toContain("it deals fixed-limit hold'em only");
+      expect(u.reason, u.name).toContain('Refused, though the league deals this game');
       expect(u.reason, u.name).toContain('docs/horse-league-fixed-limit.md');
     }
     expect(existsSync(resolve(__dirname, '../../../docs/horse-league-fixed-limit.md'))).toBe(true);
@@ -515,6 +620,9 @@ describe("the fixed-limit hold'em cards", () => {
   it.each([
     ['flh_priced_preflop', 120],
     ['flh_river_full_bet_read', 300],
+    ['flo8_no_omaha_presumption', 120],
+    ['flo8_priced_preflop', 120],
+    ['flo8_river_full_bet_read', 300],
   ] as const)(
     '%s: its arms do not play identical poker, and every action is legal',
     async (name, pairs) => {
@@ -525,6 +633,7 @@ describe("the fixed-limit hold'em cards", () => {
       expect(r.hands).toBe(pairs * 2);
       expect(r.illegalActions).toBe(0);
       expect(r.truncatedStreets).toBe(0);
+      expect(r.correctedActions ?? 0).toBe(0);
       expect(r.brainExceptionFallbacks).toBe(0);
       expect(r.divergentPairs).toBeGreaterThan(0);
       expect(r.inert).toBe(false);

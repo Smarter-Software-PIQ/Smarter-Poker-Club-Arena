@@ -6,6 +6,8 @@ This option is turned on by the owner's direct ruling on a reported hand ("pound
 
 ## Mechanism
 
+Status: MET
+
 Hand 59401453, PLO5 1/2 cash, heads-up on the turn. The Horse held top set on a turn board with two clubs on which the turn card made a straight possible. Pot 100, checked to the Horse, which bet 42.
 
 The bet was sized in the strong-value tier of the checked-to path in `server/src/engine/HorseLogic.ts` (`equity >= multiwayValueBar(0.62, oppCount) + ...`). At the node: equity 0.70 to 0.80, wetness 0.48, so `vulnerable` is true and the uncapped fraction is (0.468 + 0.12 + 0.10 + up to 0.15) x 0.86 (the five-card damp) = 0.59 to 0.72 of the pot. It was then capped at 0.5 by `cap40Frac`: `omahaMadeClass` marks a set `weak` wherever a straight or a flush is possible, and V40 sizes a weak class at half the pot or less from the turn on. `betSize` turned 0.5 into 39 to 46 chips over 60 seeds (median 42). With the opponent memory off the same tier checks 28 times in 60, because the fresh straight card reads as `dangered` when the blocker read is absent.
@@ -14,9 +16,14 @@ The change: an Omaha high set on a turn board where a straight is possible and n
 
 ## Input fidelity
 
+Status: MET
+
 The node is the hand's own recorded public snapshot (the complaint fixture, decision 20). It carries the public state and the table's VPIP floor; it does not carry the seat's judged VPIP, the opponent read or the second look. With the opponent memory on and empty the replay reproduces the recorded size (median 42, the recorded bet was 42); board texture and the blocker read come from the cards and are present. The opponent read the worker held is not reproduced; in this branch it enters only through `exploitValueSize`, which multiplies the old and the new size alike.
 
 ## Value
+
+Status: NOT MET
+Owner authority: agent-evidence/extreme-archive/plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 36620b8177ba5e44f4dc503f3f3246504078fbf216682dd7aea8a75da9c00d32
 
 Hero's equity at the turn node against classes of the caller's five cards, by exact enumeration of the river (1,200 sampled holdings per class), and the value of a called bet, `equity x (100 + 2 x bet) - bet`, ignoring river betting:
 
@@ -31,21 +38,33 @@ The larger bet is better by 18 to 33 chips against every drawing and worse-made 
 
 ## Continuation
 
+Status: NOT MET
+Owner authority: agent-evidence/extreme-archive/plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 36620b8177ba5e44f4dc503f3f3246504078fbf216682dd7aea8a75da9c00d32
+
 Whether draws call or fold to the larger bet was not measured for this spot; both cases are shown and both favour the larger bet against drawing hands. How often a player who check-calls the turn holds the made straight was not measured.
 
 ## Reach
+
+Status: NOT MET
+Owner authority: agent-evidence/extreme-archive/plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 36620b8177ba5e44f4dc503f3f3246504078fbf216682dd7aea8a75da9c00d32
 
 Not measured from recorded hands: the retained decision nodes this lane holds are river nodes, and counting turn set bets in production needs a classification of every turn bet that was not run inside the capture window. At the reported node 60 of 60 decisions change (size 39 to 46 becomes 81 to 87). The rule can only touch an Omaha high set that is checked to on the turn, on a board with a possible straight and no possible flush, whose equity already clears the strong-value bar.
 
 ## Scope
 
+Status: MET
+
 Gated in code to all of: Omaha, not Hi-Lo, not fixed limit, one board, the turn, `omahaMadeClass` class `set`, a straight possible, no flush possible. Cash and tournaments, heads-up and multiway, PLO4, PLO5 and PLO6 are inside. Decision-level cases in `HorseOmahaRiverNutRaise.test.ts`: the hand's node with the opponent memory off and on; PLO4 and PLO6 sets on the same turn; and three cases that keep today's decisions seed for seed: a turn with three of a suit, top two pair instead of a set, and Hi-Lo. The river, the flop, a facing-a-bet decision and hold'em never reach the two branches with this flag set. Tournaments and multiway pots have no decision-level case of their own.
 
 ## Visibility
 
+Status: MET
+
 `omaha_turn_set_pound` fires each time the size is applied (registered in `HorseDataLedger.ts`).
 
 ## Limits
+
+Status: MET
 
 - One reported hand and one node. The owner's ruling names the class by example (top set on a straightening two-tone board); the rule applies to every set on a straight-possible turn without three of a suit.
 - The value is negative against a caller who already holds the straight and positive against every other class shown. No river play is modelled and the caller's range is assumed.
