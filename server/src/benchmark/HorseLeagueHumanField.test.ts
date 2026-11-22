@@ -80,6 +80,11 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_hu_bb_defends_to_price_40bb', 'hu_bb_defends_to_price_40bb'],
   // 2026-11-12 (HU-AUDIT-002): the default-off flag no card had dealt.
   ['human_hu_commit_under_pot', 'hu_commit_under_pot'],
+  // 2026-11-21 (Hold'em Strategy): 12bb 6-max big-blind-ante MTT human-field twin.
+  [
+    'human_mtt6_holdem_tournament_all_in_call_is_priced_12bb',
+    'mtt6_holdem_tournament_all_in_call_is_priced_12bb',
+  ],
   // 2026-11-22 (RIVER-BLOCK): human-field twin of nlh_horse_river_no_blocker_bet (live cash Hybrid hero).
   ['human_nlh_horse_river_no_blocker_bet', 'nlh_horse_river_no_blocker_bet'],
 ];
