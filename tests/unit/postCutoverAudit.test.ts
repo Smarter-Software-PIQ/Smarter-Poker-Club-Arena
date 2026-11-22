@@ -97,11 +97,27 @@ describe('post-cutover-audit-lib', () => {
       ).toThrow(/mutating SQL/);
     });
 
-    it('parses Supabase CLI JSON output even when wrapped with CLI notices', () => {
+    it('parses Supabase CLI JSON output even when wrapped with CLI notices or {rows}/{data} envelopes', () => {
       const wrapped =
         'Some notice\n[{"release_sha":"c2d6e45e3bcc"}]\nA new version of Supabase CLI is available';
       expect(parseSupabaseJsonOutput(wrapped)).toEqual([{ release_sha: 'c2d6e45e3bcc' }]);
+      expect(parseSupabaseJsonOutput('{"rows":[{"release_sha":"c2d6e45e3bcc"}]}')).toEqual([
+        { release_sha: 'c2d6e45e3bcc' },
+      ]);
+      expect(parseSupabaseJsonOutput('{"data":[{"id":1}]}')).toEqual([{ id: 1 }]);
+      expect(parseSupabaseJsonOutput('Notice\n{"rows":[{"ok":true}]}\nUpdate available')).toEqual([
+        { ok: true },
+      ]);
       expect(() => parseSupabaseJsonOutput('')).toThrow(/empty output/);
+    });
+
+    it('runs git merge-base with cwd: REPO_ROOT instead of process.cwd()', () => {
+      const cliSource = readFileSync(
+        path.join(REPO_ROOT, 'scripts/ops/post-cutover-audit.mjs'),
+        'utf8'
+      );
+      expect(cliSource).toContain('cwd: REPO_ROOT');
+      expect(cliSource).not.toContain('cwd: process.cwd()');
     });
 
     it('auto-resolves linked Supabase workdir from git common dir when in a worktree', () => {
@@ -166,6 +182,115 @@ describe('post-cutover-audit-lib', () => {
       );
       expect(bad.status).toBe('fail');
       expect(bad.failures.length).toBeGreaterThanOrEqual(6);
+    });
+
+    it('Check 1b: live_health fails on liveHorseDecision.phase !== ready or recoverableRequestErrors > 0 (with lastRecoverableRequestError), warns on expiredJobs, and fails on horseDecisionLatency.starvationAlert under --strict-latency', async () => {
+      // Non-ready phase fails live_health
+      const notReady = evaluateLiveHealth(
+        {
+          ...HEALTHY_BODY,
+          liveHorseDecision: { phase: 'booting', recoverableRequestErrors: 0, expiredJobs: 0 },
+        },
+        200
+      );
+      expect(notReady.status).toBe('fail');
+      expect(notReady.failures[0]).toMatch(/liveHorseDecision\.phase=booting/);
+
+      // recoverableRequestErrors > 0 MUST FAIL live_health and include lastRecoverableRequestError
+      const refusalStorm = evaluateLiveHealth(
+        {
+          ...HEALTHY_BODY,
+          liveHorseDecision: {
+            phase: 'ready',
+            recoverableRequestErrors: 8,
+            lastRecoverableRequestError: 'reference_owner refusal: limp outside reference return',
+            expiredJobs: 0,
+          },
+        },
+        200
+      );
+      expect(refusalStorm.status).toBe('fail');
+      expect(refusalStorm.failures[0]).toMatch(/liveHorseDecision\.recoverableRequestErrors=8/);
+      expect(refusalStorm.failures[0]).toMatch(/reference_owner refusal/);
+
+      // expiredJobs > 0 emits a warning without false-failing when phase=ready and recoverableRequestErrors=0
+      const expiredWarn = evaluateLiveHealth(
+        {
+          ...HEALTHY_BODY,
+          liveHorseDecision: { phase: 'ready', recoverableRequestErrors: 0, expiredJobs: 3 },
+        },
+        200
+      );
+      expect(expiredWarn.status).toBe('pass');
+      expect(expiredWarn.warnings).toContain('liveHorseDecision.expiredJobs=3');
+
+      // horseDecisionLatency.starvationAlert warns normally, FAILS under --strict-latency
+      const starvedBody = {
+        ...HEALTHY_BODY,
+        liveHorseDecision: { phase: 'ready', recoverableRequestErrors: 0, expiredJobs: 0 },
+        horseDecisionLatency: {
+          totalDecisions: 1000,
+          over100msCount: 25,
+          over100msPct: 2.5,
+          maxMs: 410,
+          topHotNode: 'phase15_node_tournament_utility',
+          starvationAlert: true,
+        },
+      };
+      const nonStrict = evaluateLiveHealth(starvedBody, 200, { strictLatency: false });
+      expect(nonStrict.status).toBe('pass');
+      expect(nonStrict.warnings.some((w) => w.includes('starvationAlert=true'))).toBe(true);
+
+      const strict = evaluateLiveHealth(starvedBody, 200, { strictLatency: true });
+      expect(strict.status).toBe('fail');
+      expect(strict.failures.some((f) => f.includes('starvationAlert=true'))).toBe(true);
+
+      // End-to-end runPostCutoverAudit NEVER reports OVERALL: PASS on recoverableRequestErrors or --strict-latency starvationAlert
+      const cleanDb = vi.fn(async (sql: string) => {
+        if (sql.includes('ca_horse_option_registry_serving')) {
+          return [
+            { release_sha: HEALTHY_BODY.releaseSha, age_sec: 5, seen_at: '2026-11-22T02:40:00Z' },
+          ];
+        }
+        if (sql.includes('ca_horse_style_switch')) {
+          return [{ option: 'v87HoldemOverhaul', state: 'on', refusal: null }];
+        }
+        return [];
+      });
+
+      const stormReport = await runPostCutoverAudit(
+        { compareHours: 1 },
+        {
+          fetchHealth: async () => ({
+            status: 200,
+            body: {
+              ...HEALTHY_BODY,
+              liveHorseDecision: {
+                phase: 'ready',
+                recoverableRequestErrors: 4,
+                lastRecoverableRequestError: 'reference_owner: unexpected branch',
+                expiredJobs: 0,
+              },
+            },
+          }),
+          querySupabase: cleanDb,
+          isGitAncestor: () => ({ ok: true, reason: null }),
+        }
+      );
+      expect(stormReport.overallStatus).toBe('FAIL');
+      expect(stormReport.passed).toBe(false);
+      expect(formatAuditReportText(stormReport)).toContain('reference_owner: unexpected branch');
+
+      const strictReport = await runPostCutoverAudit(
+        { compareHours: 1, strictLatency: true },
+        {
+          fetchHealth: async () => ({ status: 200, body: starvedBody }),
+          querySupabase: cleanDb,
+          isGitAncestor: () => ({ ok: true, reason: null }),
+        }
+      );
+      expect(strictReport.overallStatus).toBe('FAIL');
+      expect(strictReport.passed).toBe(false);
     });
 
     it('Check 2: serving_registry_freshness enforces SHA match and <= 5m freshness', () => {

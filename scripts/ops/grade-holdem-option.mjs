@@ -73,8 +73,8 @@ Options:
   --results=<path>           Path to raw results.jsonl (for score / recompute)
   --compare=<path>           Existing verdict.json to verify parity against (recompute)
   --workdir=<dir>            Git worktree root containing server/ (defaults to cwd)
-  --shepherd-lock=<path>     Override shepherd.lock path (default: ${DEFAULT_SHEPHERD_LOCK})
-  --core-gate-script=<path>  Override core-gate-running.py path (default: ${DEFAULT_CORE_GATE_SCRIPT})
+  --shepherd-lock=<path>     Override shepherd.lock path (default: ${DEFAULT_SHEPHERD_LOCK}; respects HS_LOCK_DIR)
+  --core-gate-script=<path>  Override core-gate-running.py path (default: ${DEFAULT_CORE_GATE_SCRIPT}; respects HS_LOCK_DIR)
   --lane-lock=<path>         Optional owner-checked lane lock file (never steals foreign lock)
   --lane-owner=<id>          Lane owner string matching --lane-lock
   --max-load=<num>           Override 1-minute load ceiling (default: manifest.bars.maxLoad1m or 35)
@@ -867,13 +867,13 @@ async function handleRecompute(flags, deps) {
 // --- Entrypoint --------------------------------------------------------------------------------
 
 export async function runGradeCli(argv, injectedDeps = {}) {
-  const { command, flags } = parseGradeCliArgs(argv);
   const deps = {
     readFileBuffer: defaultReadFileBuffer,
     readFileUtf8: defaultReadFileUtf8,
     writeFileUtf8: defaultWriteFileUtf8,
     appendFileUtf8: defaultAppendFileUtf8,
     exists: defaultExists,
+    env: process.env,
     getLoad1m: defaultGetLoad1m,
     runCoreGate: defaultRunCoreGate,
     readGitState: defaultReadGitState,
@@ -886,6 +886,10 @@ export async function runGradeCli(argv, injectedDeps = {}) {
     stderr: (msg) => console.error(msg),
     ...injectedDeps,
   };
+  const { command, flags } = parseGradeCliArgs(argv, {
+    env: deps.env,
+    pathExists: deps.exists,
+  });
 
   if (command === 'help') {
     deps.stdout(USAGE);

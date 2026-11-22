@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  LOCK_DIR_CANDIDATES,
   ONE_SIGMA_TAIL_ALPHA,
   compareVerdictsForRecompute,
   computeZFam,
@@ -10,11 +11,14 @@ import {
   evaluateSystemGate,
   normalCdf,
   normalQuantile,
+  parseGradeCliArgs,
   parseHorseLeagueOutput,
   parseResultsJsonl,
   poolEqualWeight,
   poolInverseVariance,
   renderVerdictMarkdown,
+  resolveDefaultLockPaths,
+  resolveLockDir,
   serializeResultsJsonl,
   sha256Hex,
   validateCriteriaManifest,
@@ -1474,5 +1478,66 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
         bars: { ...manifestBase.bars, primaryPoolingMethod: 'median' },
       })
     ).toThrow(/primaryPoolingMethod/);
+  });
+
+  it('32. resolves lock dir via HS_LOCK_DIR env override and portable SmarterWork / SmarterWork 1 auto-discovery', () => {
+    expect(LOCK_DIR_CANDIDATES).toEqual([
+      '/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+    ]);
+
+    // 1. HS_LOCK_DIR env override wins (and trims trailing slashes)
+    expect(
+      resolveLockDir({
+        env: { HS_LOCK_DIR: '  /custom/ssd2/locks/// ' },
+        pathExists: () => true,
+      })
+    ).toBe('/custom/ssd2/locks');
+
+    // 2. Auto-discovers canonical /Volumes/SmarterWork path when present
+    expect(
+      resolveLockDir({
+        env: {},
+        pathExists: (p: string) =>
+          p === '/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+      })
+    ).toBe('/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4');
+
+    // 3. Auto-discovers suffixed /Volumes/SmarterWork 1 path when canonical mount is absent
+    expect(
+      resolveLockDir({
+        env: {},
+        pathExists: (p: string) =>
+          p === '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+      })
+    ).toBe('/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4');
+
+    // 4. Falls back cleanly to first candidate when no mount exists
+    expect(
+      resolveLockDir({
+        env: {},
+        pathExists: () => false,
+      })
+    ).toBe('/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4');
+
+    // 5. resolveDefaultLockPaths and parseGradeCliArgs wire HS_LOCK_DIR and suffixed mount cleanly
+    const suffixedPaths = resolveDefaultLockPaths({
+      env: {},
+      pathExists: (p: string) =>
+        p === '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+    });
+    expect(suffixedPaths.shepherdLock).toBe(
+      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4/shepherd.lock'
+    );
+    expect(suffixedPaths.coreGateScript).toBe(
+      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4/core-gate-running.py'
+    );
+
+    const parsedEnv = parseGradeCliArgs(['preflight', '--manifest=m.json'], {
+      env: { HS_LOCK_DIR: '/env/locks' },
+      pathExists: () => false,
+    });
+    expect(parsedEnv.flags.shepherdLock).toBe('/env/locks/shepherd.lock');
+    expect(parsedEnv.flags.coreGateScript).toBe('/env/locks/core-gate-running.py');
   });
 });
