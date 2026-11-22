@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TournamentManager } from './TournamentManager.js';
 import type { BalancerTable } from '../engine/TableBalancer.js';
+import { supabase } from '../services/supabase.js';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const EVENT = id(1);
@@ -511,7 +512,7 @@ describe('a boundary move is planned under the hold', () => {
       expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
     });
 
-    it('loadBalancerTables issues tables, table_seats, and tournament_players reads concurrently', () => {
+    it('loadBalancerTables issues tables, table_seats, and tournament_players reads concurrently and fails closed on any partial read', async () => {
       const src = readFileSync(
         fileURLToPath(new URL('./TournamentManager.ts', import.meta.url)),
         'utf8'
@@ -519,6 +520,96 @@ describe('a boundary move is planned under the hold', () => {
       const start = src.indexOf('private async loadBalancerTables(');
       const body = src.slice(start, src.indexOf('const tableById = new Map(', start));
       expect(body).toContain('const [tableRead, seatRead, rosterRead] = await Promise.all([');
+
+      // Behavioral proof: all three queries are started concurrently BEFORE any
+      // resolves, and any single query error fails closed (returns null).
+      const a = table(0, 8);
+      const b = table(1, 3);
+      const m: any = new TournamentManager(
+        EVENT,
+        {} as any,
+        GENERATION,
+        performance.now() + 60_000
+      );
+      m.running = true;
+      m.lifecycleEpoch.begin();
+      m.eliminationMutationAllowed = () => true;
+
+      const started: string[] = [];
+      const resolvers = new Map<string, (v: { data: unknown; error: unknown }) => void>();
+      const makeChain = (tbl: string) => {
+        started.push(tbl);
+        const promise = new Promise<{ data: unknown; error: unknown }>((resolve) => {
+          resolvers.set(tbl, resolve);
+        });
+        const chain: any = {
+          select: () => chain,
+          in: () => chain,
+          is: () => chain,
+          eq: () => chain,
+          then: promise.then.bind(promise),
+        };
+        return chain;
+      };
+      vi.spyOn(supabase, 'from').mockImplementation((tbl: string) => makeChain(tbl));
+
+      const loadPromise = m.loadBalancerTables([a.tableId, b.tableId], 'balanceAtBoundary');
+      await settle();
+      // All three reads must already be in flight before the first resolves.
+      expect(started).toEqual(['tables', 'table_seats', 'tournament_players']);
+
+      resolvers.get('tables')!({
+        data: [
+          { id: a.tableId, max_players: 9 },
+          { id: b.tableId, max_players: 9 },
+        ],
+        error: null,
+      });
+      resolvers.get('table_seats')!({
+        data: [
+          { table_id: a.tableId, user_id: a.players[0].userId, stack: 10_000, seat_number: 1 },
+          { table_id: b.tableId, user_id: b.players[0].userId, stack: 10_000, seat_number: 1 },
+        ],
+        error: null,
+      });
+      resolvers.get('tournament_players')!({
+        data: [
+          { table_id: a.tableId, seat_number: 1 },
+          { table_id: b.tableId, seat_number: 1 },
+        ],
+        error: null,
+      });
+      const loaded = await loadPromise;
+      expect(loaded).not.toBeNull();
+      expect(loaded).toHaveLength(2);
+
+      // Now fail ONE of the three concurrent reads (tournament_players) -> fail closed (null).
+      started.length = 0;
+      resolvers.clear();
+      const failPromise = m.loadBalancerTables([a.tableId, b.tableId], 'balanceAtBoundary');
+      await settle();
+      expect(started).toEqual(['tables', 'table_seats', 'tournament_players']);
+      resolvers.get('tables')!({ data: [{ id: a.tableId, max_players: 9 }], error: null });
+      resolvers.get('table_seats')!({ data: [], error: null });
+      resolvers.get('tournament_players')!({ data: null, error: { message: 'boom' } });
+      expect(await failPromise).toBeNull();
+    });
+
+    it('checkTableBalance budget-expired yield prefers an already-parked source over an unparked first source', async () => {
+      const a = table(0, 9);
+      const b = table(1, 9);
+      const c = table(2, 5);
+      const { m, engines, park } = manager([a, b, c]);
+      // Mark `b` as already fenced and parked; `a` is still dealing and appears first.
+      m.gapBalanceFencedSources.add(b.tableId);
+      park(b.tableId);
+      m.balancePreparationOpen = true;
+      m.eliminationWorkBudgetExpired = () => true;
+
+      await m.checkTableBalance();
+
+      expect(engines.get(b.tableId)!.parkForTournamentMove).toHaveBeenCalledTimes(1);
+      expect(engines.get(a.tableId)!.parkForTournamentMove).not.toHaveBeenCalled();
     });
   });
 
@@ -551,5 +642,87 @@ describe('a boundary move is planned under the hold', () => {
     const admitted = statements.indexOf('this.isProcessingEliminations = true;');
     expect(admitted).toBeGreaterThan(-1);
     expect(statements[admitted + 1]).toBe('this.balanceBoardEpoch++;');
+  });
+
+  describe('a missed boundary probe or completion hold never orphans a gap-balance fence (2026-11-22, incident 1e532243)', () => {
+    // Production 2026-11-22 on b31db252 (fb3edde2 20.55s, a515cc5d 20.47s,
+    // 9646acc0 8.13s): waitForHandComplete returned true during the 1.85-7s
+    // post-hand completion presentation hold, so checkTableBalance passed the
+    // source into executePlayerMoves -> claimTournamentMoveBoundary ->
+    // parkForTournamentMove(owner, 1000). The probe armed the pause owner,
+    // timed out, returned false leaving the owner armed, and checkTableBalance
+    // unconditionally deleted the source from gapBalanceFencedSources. When
+    // the source parked seconds later, claimGapBalanceAtBoundary returned false
+    // and releaseGapFencesNotIn ignored it, freezing the table for the full
+    // 15,000 ms TOURNAMENT_MOVE_UNCLAIMED_PARK_MS expiry.
+
+    it('waitForHandComplete returns false during the completion hold so checkTableBalance fences non-blocking', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines } = manager([big, short]);
+      const bigEngine: any = engines.get(big.tableId)!;
+      bigEngine.isBetweenHands = () => true;
+      bigEngine.hasSettlementInFlight = () => false;
+      bigEngine.isInCompletionPresentationHold = () => true;
+      // Use the real waitForHandComplete implementation.
+      m.waitForHandComplete = (TournamentManager.prototype as any).waitForHandComplete.bind(m);
+
+      await m.checkTableBalance();
+
+      expect(m.executePlayerMoves).not.toHaveBeenCalled();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+      expect(bigEngine.parkForTournamentMove).toHaveBeenCalledWith(
+        m.tournamentMoveBoundaryOwner,
+        0
+      );
+    });
+
+    it('a missed probe in claimTournamentMoveBoundary stays tracked so a balanced sweep lifts it and a park edge claims it', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines, park } = manager([big, short]);
+      const bigEngine: any = engines.get(big.tableId)!;
+      const pauseOwners = new Set<string>();
+      bigEngine.dealing = false; // passes waitForHandComplete, simulating a race into a new hand or hold
+      bigEngine.isBetweenHands = () => true;
+      bigEngine.parkForTournamentMove = vi.fn(async (ownerId: string) => {
+        pauseOwners.add(ownerId);
+        return false; // probe times out leaving owner armed
+      });
+      bigEngine.releaseTournamentMovePause = vi.fn((ownerId: string) => {
+        pauseOwners.delete(ownerId);
+      });
+      bigEngine.hasTournamentMovePauseOwner = vi.fn((ownerId: string) => pauseOwners.has(ownerId));
+      m.gameServer.getTableEngine = (tableId: string) => engines.get(tableId) ?? null;
+      m.redrivePendingTournamentSeatMoveOutcomesOwned = vi.fn(async () => true);
+      m.runWithTournamentSeatMoveAuthority = async (fn: () => Promise<number>) => fn();
+      m.executePlayerMoves = (TournamentManager.prototype as any).executePlayerMoves.bind(m);
+
+      await m.checkTableBalance();
+
+      // The pause owner was left armed by the missed probe and MUST remain tracked.
+      expect(pauseOwners.has(m.tournamentMoveBoundaryOwner)).toBe(true);
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+
+      // Scenario A: the field balances before the table parks -> sweep lifts it
+      // immediately instead of letting it sit for 15s TOURNAMENT_MOVE_UNCLAIMED_PARK_MS.
+      big.players = big.players.slice(0, 6);
+      big.playerCount = 6;
+      await m.checkTableBalance();
+      expect(bigEngine.releaseTournamentMovePause).toHaveBeenCalledWith(
+        m.tournamentMoveBoundaryOwner
+      );
+      expect(pauseOwners.has(m.tournamentMoveBoundaryOwner)).toBe(false);
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
+
+      // Scenario B: repeat with unbalanced field -> when the table finally parks,
+      // claimGapBalanceAtBoundary claims it immediately at its own park edge.
+      big.players = table(0, 8).players;
+      big.playerCount = 8;
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+      park(big.tableId);
+      expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(true);
+    });
   });
 });

@@ -520,6 +520,76 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       expect(unlocked.frozen).toBe(false);
       expect(unlocked.reason).toMatch(/CUTOVER-7 SEALED/);
     });
+
+    it('clears earlier CUTOVER-10 bookings on newer dated/named SEALED entries and ignores non-booking CUTOVER-10 TIME commentary', () => {
+      // Exact live false-positive: non-authority commentary mentioning "CUTOVER-10 BOOKING TIME"
+      const commentaryOnly = [
+        '## 2026-11-21T08:39:30Z FROM Horse SWITCH lane (Claude session_01Gw7aDsLdud3GnjZyZjuya9) TO PLO-OWNER lead-3, RELEASE-12 — SUBJECT: ACK lead-3 08:25:40Z WRITE PROTOCOL; ONE REQUEST ON THE CUTOVER-10 BOOKING TIME',
+      ].join('\n');
+      expect(evaluateInboxFreezeState(commentaryOnly).frozen).toBe(false);
+
+      // Even when CUTOVER-10 was authoritatively booked, a newer non-numbered/dated SEALED entry clears it
+      const bookedCutover10 =
+        '## 2026-11-21T08:39:30Z FROM RELEASE-12 TO ALL LANES — SUBJECT: CUTOVER-10 BOOKING (window 12:25Z)';
+      expect(evaluateInboxFreezeState(bookedCutover10).frozen).toBe(true);
+
+      const sealedVariants = [
+        '## 2026-11-21T19:54:19Z FROM PLO-OWNER lane RELEASE-14 TO ALL LANES — SUBJECT: 1906z SEALED 1a0a6047e1acb1a037cd43b36d9907a00103c5e4 (receiver 44942263145 success)',
+        '## 2026-11-22T13:07:45Z FROM PLO-OWNER lead-4 (release-verify) TO ALL LANES — SUBJECT: SEALED: 7:00 AM CST (13:00Z) ENGINE CUTOVER b31db252025bf65d1b07de7e356d2f56dd2c1daf (run 45022655575) — PICKUP & HEALTH 100% CLEAN',
+        '## 2026-11-22T13:07:45Z FROM Dedicated Engine Cutover TO ALL LANES — SUBJECT: 7:00 AM CST (13:00Z) SEALED (b31db252025b)',
+        '## 2026-11-22T13:07:45Z FROM RELEASE-14 TO ALL LANES — SUBJECT: Engine Release b31db252025b SEALED',
+      ];
+      for (const sealLine of sealedVariants) {
+        const res = evaluateInboxFreezeState(`${bookedCutover10}\n${sealLine}\n`);
+        expect(res.frozen, `expected seal line to clear CUTOVER-10: ${sealLine}`).toBe(false);
+        expect(res.reason).toMatch(/not frozen \(last SEALED/);
+      }
+    });
+
+    it('keeps genuine active unsealed bookings, dispatches, and combined cutover holds strictly frozen fail-closed', () => {
+      // Active CUTOVER-11 booked AFTER an earlier SEALED stays frozen, even if a later prospective HOLD mentions a future SEALED target
+      const activeBookingWithProspectiveMentions = [
+        '## 2026-11-22T13:07:45Z FROM PLO-OWNER lead-4 (release-verify) TO ALL LANES — SUBJECT: SEALED: 7:00 AM CST (13:00Z) ENGINE CUTOVER b31db252025b',
+        '## 2026-11-22T14:00:00Z FROM RELEASE-15 TO ALL LANES — SUBJECT: CUTOVER-11 BOOKING (window 16:00Z)',
+        '## 2026-11-22T14:03:00Z FROM PLO-OWNER lead-4 TO ALL LANES — SUBJECT: COMBINED HOLD ACTIVE AT 14:15Z (8:15 AM CST) -> 10:00 AM CST (16:00Z) SEALED (~16:10Z)',
+        '## 2026-11-22T14:05:00Z FROM Horse SWITCH lane TO ALL LANES — SUBJECT: PR #11699 HELD UNTIL 10:00 AM CST (16:00Z) SEALED',
+        '## 2026-11-22T14:06:00Z FROM PLO-OWNER lead-4 TO ALL LANES — SUBJECT: AUDIT CHECK ON SEALED b31db252025b SERVING BUILD',
+      ].join('\n');
+      const activeBooked = evaluateInboxFreezeState(activeBookingWithProspectiveMentions);
+      expect(activeBooked.frozen).toBe(true);
+      expect(activeBooked.reason).toMatch(/CUTOVER-11 booked at 2026-11-22T14:00:00Z/);
+
+      // Older numbered seal (CUTOVER-8 SEALED) arriving after newer CUTOVER-9 BOOKING must NOT clear CUTOVER-9
+      const overlappingNumbered = [
+        '## 2026-11-20T23:33:42Z FROM PLO-OWNER lead-2 / RELEASE-7 TO ALL LANES — SUBJECT: CUTOVER-8 DRIVEN BY RELEASE-7 + CUTOVER-9 BOOKING WRITTEN',
+        '## 2026-11-21T00:15:34Z FROM PLO-OWNER lead-2 / RELEASE-7 TO ALL LANES — SUBJECT: CUTOVER-8 SEALED e2140d2d1581daaf84857d98e671f2be832162c6',
+      ].join('\n');
+      const overlapRes = evaluateInboxFreezeState(overlappingNumbered);
+      expect(overlapRes.frozen).toBe(true);
+      expect(overlapRes.reason).toMatch(/CUTOVER-9 booked/);
+
+      // Active ENGINE CUTOVER DISPATCHED stays frozen until a later SEALED lands
+      const dispatchedInbox = [
+        '## 2026-11-22T12:32:45Z FROM PLO-OWNER lead-4 / release-verify TO ALL LANES — SUBJECT: 7:00 AM CST (13:00Z) ENGINE CUTOVER DISPATCHED — Engine Release b31db252025b (run 45022655575)',
+      ].join('\n');
+      const dispatchedFrozen = evaluateInboxFreezeState(dispatchedInbox);
+      expect(dispatchedFrozen.frozen).toBe(true);
+      expect(dispatchedFrozen.reason).toMatch(/CUTOVER DISPATCHED at 2026-11-22T12:32:45Z/);
+
+      const dispatchedSealed = `${dispatchedInbox}\n## 2026-11-22T13:07:45Z FROM PLO-OWNER lead-4 (release-verify) TO ALL LANES — SUBJECT: SEALED: 7:00 AM CST (13:00Z) ENGINE CUTOVER b31db252025b (run 45022655575)\n`;
+      expect(evaluateInboxFreezeState(dispatchedSealed).frozen).toBe(false);
+
+      // Active COMBINED CUTOVER HOLD stays frozen until a later SEALED or HOLD LIFTED lands
+      const combinedCutoverHold = [
+        '## 2026-11-22T14:15:00Z FROM PLO-OWNER lead-4 TO ALL LANES — SUBJECT: COMBINED CUTOVER HOLD NOW IN FORCE UNTIL 10:00 AM CST (16:00Z) SEALED (~16:10Z)',
+      ].join('\n');
+      const holdFrozen = evaluateInboxFreezeState(combinedCutoverHold);
+      expect(holdFrozen.frozen).toBe(true);
+      expect(holdFrozen.reason).toMatch(/COMBINED CUTOVER HOLD at 2026-11-22T14:15:00Z/);
+
+      const holdCleared = `${combinedCutoverHold}\n## 2026-11-22T16:08:00Z FROM PLO-OWNER lead-4 (release-verify) TO ALL LANES — SUBJECT: SEALED: 10:00 AM CST (16:00Z) ENGINE CUTOVER 3f0a9967d5f4\n`;
+      expect(evaluateInboxFreezeState(holdCleared).frozen).toBe(false);
+    });
   });
 
   describe('SQL generation safety, escaping, and zero-secret guarantee', () => {

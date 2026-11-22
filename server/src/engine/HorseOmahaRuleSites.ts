@@ -375,6 +375,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPreflopReadIsPricedFromLifetime: priced(
     'retires presumedAggressorRead on 3-6 seat PLO4/PLO5 cash preflop and prices widened maniac-pressure spots on six-max (sh) HUD cells (pf.*, pf.lr, pf.bvo) with n/(n+k) shrinkage'
   ),
+  omahaBigBetSizeIsPriced: priced(
+    'continuous pot-share + lifetime public HUD aggressor strength and EV-priced limped-pot bet sizing in place of #18 omahaBigBetIsPotShare (default OFF; PLO-OWNER lead-4 2026-11-21)'
+  ),
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
@@ -401,6 +404,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'every v38 flop bet size, heads-up against a person facing no bet, is priced with his measured fold share (the fitted person model by size, pot type, SPR band, variant and position, shifted by his own shrunk fold read); default OFF'
   ),
   omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
+  omahaFlopBetIsPricedOnHisResponse: priced(
+    'R2: the bare big pair flop bet with the lead (HU and multiway, OOP and IP) priced beside the check using lifetime HUD fold, raise-vs-bet and OOP stab rate/size with prove-it-to-bet uncertainty bar, plus lifetime HUD raiser/stabber range scaling in omahaFlopFacingBetEv (default OFF)'
+  ),
   omahaCheckedToBetIsPriced: priced(
     'the check priced beside every bet when every opponent has checked the river, the showdown share fitted (default OFF)'
   ),
@@ -420,15 +426,20 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBigDrawAggression: priced(
     'the wager beside the passive line (its bars: omahaDrawRaiseIsPriced)'
   ),
+  omahaBigDrawBetIsPricedOnHisResponse: priced(
+    'R4: PLO4/PLO5 cash flop/turn checked-to big-draw bets priced on lifetime HUD fold, raise-back and stab cells with a prove-it-to-bet bar (default OFF)'
+  ),
   omahaStrongHandValue: priced('value bet, induce check and value raise by expected value'),
   omahaStrongHandSlowplayMix: priced('a mixed frequency over a priced raise and call'),
   omahaSlowplayMixInLightning: priced(
     'the game of omahaStrongHandSlowplayMix opened to the Lightning pools when that option is on (a scope, not a rule site)'
   ),
-  omahaTurnBetNeedsRiverPlan: priced('a look-ahead on every river card'),
+  omahaTurnBetNeedsRiverPlan: open(
+    'reclassed open 2026-11-21 (EMERG lane BLANKET-AUDIT-3; it was classed priced as "a look-ahead on every river card"): the look-ahead prices nothing. A turn bet that leaves under half the resulting pot behind becomes a check when the categorical river fold rules fold to the all-in on more than a fixed share of the river cards (HorseOmahaOopChecks.ts omahaTurnBetLacksRiverPlan, OMAHA_TURN_PLAN_FOLD_SHARE): a stack share and a fixed percentage decide, no expected value is compared'
+  ),
   omahaRiverMediumBetStrongHandCalls: priced('stands aside for the expected-value verdict'),
-  omahaPairedBoardFoldRespectsPrice: priced(
-    'stands aside for the expected-value verdict on the turn and river'
+  omahaPairedBoardFoldRespectsPrice: open(
+    'reclassed open 2026-11-21 (EMERG lane RULES-FIX-1, AUDIT-B item 5; it was classed priced as "stands aside for the expected-value verdict on the turn and river"): where no facing-bet verdict answers, fixed thresholds decide (a price of 0.25 or better with a straight or flush, or 60% of a stack in), not a priced comparison. It is a carve-out of ploPairedBoardFold: listed off alone it removes the carve-out (the paired-board fold stands), so list it only with ploPairedBoardFold'
   ),
   // verifier D10 (2026-11-19): a size line, not a priced comparison
   omahaBigBetIsPotShare: open(
@@ -501,6 +512,18 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
+  ),
+  omahaStabDefenceIsPriced: priced(
+    "facing the first wager of a turn or river street, the bettor's non-value share is priced from his own lifetime public first-wager frequency against the population's, shrunk n / (n + k) with the measured k; no record is the population prior exactly (default OFF)"
+  ),
+  omahaStrongHandCheckIsPriced: priced(
+    "a heads-up first-to-act turn or river value bet is priced beside the check (the bet on the measured answer curve moved by his own public fold record, the check on his stab frequency and measured stab size) and taken as a check with the probability the comparison's standard error gives; held, not graded (default OFF)"
+  ),
+  omahaRiverBetFoldIsHisRecord: priced(
+    "the answer curve the two river bet rules price a heads-up river bet with is the population's with its fold share multiplied by the opponent's own lifetime public fold record at a river's first wager over the population's, shrunk n / (n + k) with the measured k; no record is the population curve exactly (default OFF)"
+  ),
+  omahaCbetRaiseIsPriced: priced(
+    "facing a raise of its own flop continuation bet, the Horse prices the call against the top W x rho of holdings, rho the raiser's lifetime public raise share facing a first flop c-bet shrunk to the population's by K; heads-up bluff and semi-bluff c-bets carry that raise branch"
   ),
   omahaRiverCheckedToBetIsMeasured: priced(
     'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'
