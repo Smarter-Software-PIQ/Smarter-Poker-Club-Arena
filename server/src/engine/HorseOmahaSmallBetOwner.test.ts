@@ -76,50 +76,26 @@ async function replay(hand: number, override: Record<string, OptionState> = {}) 
   return { action: d.action, amount: d.amount ?? null, fires };
 }
 
-const SMALL_BET_VETOED = /^omaha_small_bet_(priced_bet|resized|paired_board_press_bet)_vetoed$/;
-
-describe('the priced small bet is the one owner of its size (real hands, verifier D1)', () => {
-  it('hand 60003529: the price chose 3 into 33; the floor no longer lifts it to 13 and the bet the price chose is played', async () => {
-    const on = await replay(60003529);
-    expect({ action: on.action, amount: on.amount }).toEqual({ action: 'bet', amount: 3 });
-    expect(on.fires.has('omaha_small_bet_floor_size_priced_kept')).toBe(true);
-    expect(on.fires.has('omaha_small_bet_priced_bet')).toBe(true);
-    expect([...on.fires].filter((f) => SMALL_BET_VETOED.test(f))).toEqual([]);
-    // the owner's check, as recorded, without the option
+describe('the priced small bet is locked OFF-ONLY at the worker runtime (2026-11-21 lead-4 hold); historical on-journals are refused while off replays stay identical', () => {
+  it('hand 60003529: worker runtime refuses omahaSmallBetIsPriced=on (off-only); with off override the owner check stands', async () => {
+    await expect(replay(60003529)).rejects.toThrow(/omahaSmallBetIsPriced=on \(off-only: hold\)/);
     const off = await replay(60003529, { omahaSmallBetIsPriced: 'off' });
     expect(off.action).toBe('check');
     expect([...off.fires].filter((f) => f.startsWith('omaha_small_bet'))).toEqual([]);
   });
 
-  it('hand 60009050: the priced bet of 1 stands; neither the floor nor the owner-ruled check of the floor size vetoes it', async () => {
-    const on = await replay(60009050);
-    expect({ action: on.action, amount: on.amount }).toEqual({ action: 'bet', amount: 1 });
-    expect(on.fires.has('omaha_small_bet_priced_bet')).toBe(true);
-    expect([...on.fires].filter((f) => SMALL_BET_VETOED.test(f))).toEqual([]);
+  it('hand 60009050: worker runtime refuses omahaSmallBetIsPriced=on (off-only)', async () => {
+    await expect(replay(60009050)).rejects.toThrow(/omahaSmallBetIsPriced=on \(off-only: hold\)/);
   });
 
-  it('hand 60004351: the priced bet of 3 is not silently resized to the floor size (13 in production)', async () => {
-    const on = await replay(60004351);
-    expect({ action: on.action, amount: on.amount }).toEqual({ action: 'bet', amount: 3 });
-    expect(on.fires.has('omaha_small_bet_floor_size_priced_kept')).toBe(true);
-    expect(on.fires.has('omaha_small_bet_priced_bet')).toBe(true);
+  it('hand 60004351: worker runtime refuses omahaSmallBetIsPriced=on (off-only)', async () => {
+    await expect(replay(60004351)).rejects.toThrow(/omahaSmallBetIsPriced=on \(off-only: hold\)/);
   });
 });
 
-describe('the paired-board press is priced by the small-bet rule, not withheld by the label (real hand, verifier D2/D11)', () => {
-  it('hand 60006966: the press goes to the small-bet price; with the option off the label still withholds it', async () => {
-    const on = await replay(60006966);
-    expect(on.fires.has('omaha_card_impact_paired_board_press_to_small_bet')).toBe(true);
-    expect(on.fires.has('omaha_card_impact_paired_board_press_withheld')).toBe(false);
-    // one owner: the small-bet rule answered the spot (here the owner-ruled check stands over its priced bet)
-    expect(
-      [...on.fires].some((f) =>
-        /^omaha_small_bet_(owner_check_kept|kept|priced_bet|resized|paired_board_press_bet)$/.test(
-          f
-        )
-      )
-    ).toBe(true);
-    expect(on.action).toBe('check');
+describe('the paired-board press is locked off when omahaSmallBetIsPriced is OFF-ONLY (real hand, verifier D2/D11)', () => {
+  it('hand 60006966: worker runtime refuses omahaSmallBetIsPriced=on (off-only); with off override the label still withholds it', async () => {
+    await expect(replay(60006966)).rejects.toThrow(/omahaSmallBetIsPriced=on \(off-only: hold\)/);
     const off = await replay(60006966, { omahaSmallBetIsPriced: 'off' });
     expect(off.fires.has('omaha_card_impact_paired_board_press_withheld')).toBe(true);
     expect(off.fires.has('omaha_card_impact_paired_board_press_to_small_bet')).toBe(false);

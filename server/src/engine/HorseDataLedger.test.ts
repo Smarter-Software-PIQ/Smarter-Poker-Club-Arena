@@ -100,6 +100,8 @@ const BRAIN_FILES = [
   // Omaha bluff priced against the target (2026-11-19, default off): the outermost wager_rules
   // answer reads its own option and fires its own receipts where it answers.
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
+  // R4 (2026-11-21, default off): checked-to flop/turn big-draw bets priced on lifetime HUD response.
+  'engine/HorseOmahaBigDrawBetPriced.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit
