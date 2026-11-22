@@ -150,6 +150,17 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
   omahaFourBetFoldPricedCall: PREFLOP_PRICED,
+  omahaBigBetSizeIsPriced: {
+    kind: 'priced',
+    range:
+      'continuous pot-share aggressor strength frac/(frac+0.55) moved by lifetime public HUD showdown big-bet strength and bet rate shrunk n/(n+k) via hudStat; live opponents calling/raising ranges for limped-pot sizing',
+    equity:
+      'exact/sampled Omaha equity against the priced range (omahaFacingBetEv / omahaPricedLimpedPotSize)',
+    realization:
+      'lifetime public HUD fold-to-bet and raise-vs-bet interpolated smoothly by pot share, street realization, and showdown',
+    price:
+      'the call against the pot after deduction and candidate limped-pot bet size against current size with 0.02*pot certainty margin',
+  },
   omahaCbetRaiseIsPriced: {
     kind: 'priced',
     range:
@@ -665,6 +676,9 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   ),
   omaha_cbet_raise_priced_branch: BET_EV,
   omaha_cbet_raise_priced_range: FACING_BET_EV,
+  omaha_priced_big_bet_size_range_applied: FACING_BET_EV,
+  omaha_priced_big_bet_size_resized: CARD_IMPACT,
+  omaha_priced_big_bet_size_kept: CARD_IMPACT,
   omaha_flop_bet_on_his_response_checked: CARD_IMPACT,
   omaha_flop_bet_on_his_response_kept: CARD_IMPACT,
   omaha_flop_bet_on_his_response_unpriced_kept: exempt(

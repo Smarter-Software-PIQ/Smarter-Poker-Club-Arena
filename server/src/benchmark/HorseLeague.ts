@@ -4078,6 +4078,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { omahaRiverFirstToActBetIsPriced: true, omahaRiverCheckedToBetIsMeasured: true },
   })),
+  // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES (default OFF, PLO4/PLO5 cash): #18 omahaBigBetSizeIsPriced
+  // (replaces #18 omahaBigBetIsPotShare with continuous pot-share/HUD aggressor range + priced limped-pot bet sizing).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_bet_size_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigBetIsPotShare: false, omahaBigBetSizeIsPriced: true },
+    b: { omahaBigBetIsPotShare: true },
+  })),
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5 (default OFF, PLO4/PLO5 cash): R2 omahaFlopBetIsPricedOnHisResponse
   // (replaces #13 omahaBareOverpairOopFlopCheck + HUD flop raiser/stabber range); a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

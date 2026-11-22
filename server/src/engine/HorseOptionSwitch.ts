@@ -393,6 +393,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-21 EMERG lane STAB-DEFENCE-5: the two river bet rules price the opponent's own lifetime public river
   // fold record (ships dark; silent without lifetime counts and without one of the two river rules on)
   'omahaRiverBetFoldIsHisRecord',
+  // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
+  'omahaBigBetSizeIsPriced',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',

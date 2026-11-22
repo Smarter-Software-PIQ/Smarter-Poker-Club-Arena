@@ -1242,6 +1242,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBigBetSizeIsPriced',
+    'PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-21 (frees #18 omahaBigBetIsPotShare; zero blanket cliffs, zero person-vs-Horse key, zero unshown cards). PLO4/PLO5 cash (high-only, single board, not tournament/bomb-pot/all-in-or-fold/fixed-limit); default OFF (read === true). Replaces both the 20 BB / 0.70 turn-river aggressor-tier cliff (continuous pricedBetStrength from pot share frac/(frac+0.55), line count, and lifetime public HUD sd.strongBig/sd.strong/betCk via hudStat shrinkage n/(n+k)) and the blanket limped-pot 2 BB / 40% pot bet floor (EV comparison of current vs candidate size using exact/sampled equity, lifetime HUD fold-to-bet and raise-vs-bet interpolated smoothly by pot share, realization, and rake drag; resizes only when EV(target) > EV(amt) + 0.02 * pot). Off and out-of-scope games (PLO6, PLO8, holdem, tournaments) are byte-identical. HorseOmahaBigBetSizeIsPriced.ts',
+    'V94'
+  ),
+  flag(
     'omahaRiverCurrentNutsCallFloor',
     "EMERG lane RANGE-MODEL-2 2026-11-20 (owner 9:42 AM Chicago: EVERYTHING DEPENDS ON THE MATH; 9:52 AM: the same corrections against all players, human or Horse; lane RANGE-MODEL graded a facing-bet range read that folded the current river nuts, hand 60226889). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). The outermost answer of the wager_rules node: on the river facing a wager, a final fold becomes the legal call (the whole-stack all-in when the call is the stack) when hero holds the exact current nuts (HorseRiverNuts.hasRiverNuts: every unseen two-card holding enumerated, exactly two hole and three board cards) and a full chop with every live opponent still returns the call, (pot + paid) / (live opponents + 1) >= paid, so the call's expected value is never negative. Public information only; no opponent label, account or person/Horse flag. Near-nut hands are not floored (a range question). The response validator re-runs the floor on the request. PLO6, PLO8, hold'em and tournaments untouched. HorseOmahaRiverCurrentNutsCallFloor.ts",
     'V94'
@@ -5459,6 +5464,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_big_bet_by_pot_share',
     'HorseLogic decidePostflop range reads (omahaBigBetIsPotShare; HorseEval.omahaAggressorTier)',
     'a PLO4/PLO5 cash turn or river decision in which some opponent wager of 20 big blinds or more but under 70 percent of the pot was tiered lower than the legacy tier (the 20 big blind mark not counted)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_size_range_applied',
+    'HorseLogic decidePostflop range reads (HorseOmahaBigBetSizeIsPriced, omahaBigBetSizeIsPriced)',
+    'a PLO4/PLO5 cash turn or river decision where continuous pricedBetStrength replaced the 20 BB / 0.70 aggressor-tier cliff using pot share and lifetime public HUD',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_size_resized',
+    'HorseLogic omahaLimpedPotMinBetFloor (HorseOmahaBigBetSizeIsPriced, omahaBigBetSizeIsPriced)',
+    'a PLO4/PLO5 cash limped-pot small bet resized upward to the candidate size because EV(target) beat EV(current) by more than 2% of the pot',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_size_kept',
+    'HorseLogic omahaLimpedPotMinBetFloor (HorseOmahaBigBetSizeIsPriced, omahaBigBetSizeIsPriced)',
+    'a PLO4/PLO5 cash limped-pot small bet kept at its proposed size because the larger candidate did not beat EV(current) by 2% of the pot',
     'V94'
   ),
   receipt(

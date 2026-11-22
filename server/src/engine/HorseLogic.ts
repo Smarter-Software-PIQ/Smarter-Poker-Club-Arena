@@ -618,6 +618,10 @@ import {
   withOmahaPricedMode,
 } from './HorseOmahaPricedMode.js';
 import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
+import {
+  applyOmahaBigBetSizeRange,
+  omahaPricedLimpedPotSize,
+} from './HorseOmahaBigBetSizeIsPriced.js';
 import { omahaBluffIsPricedAgainstTheTargetRule } from './HorseOmahaBluffPricedAgainstTheTarget.js';
 import {
   omahaPricedBigBetCallRule,
@@ -3539,6 +3543,11 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_big_bet_is_pot_share. */
   omahaBigBetIsPotShare?: boolean;
+  /** PLO-OWNER lead-4 lane LEAKS-RULES (2026-11-21, default OFF, read `=== true`):
+   * priced, lifetime-HUD replacement for `#18` (`omahaBigBetIsPotShare`) in PLO4/PLO5 cash.
+   * Replaces both the 20 BB / 0.70 aggressor-tier cliff and the blanket limped-pot bet floor
+   * with continuous pot-share + HUD pricing (HorseOmahaBigBetSizeIsPriced.ts). */
+  omahaBigBetSizeIsPriced?: boolean;
   /** Owner 2026-11-15 (hand 59517323, HorseOmahaOopChecks.ts): PLO4/PLO5 cash,
    * one board, high only, river, nothing to call: on a final board that is
    * paired a Horse with less than a full house does not bet into opponents of
@@ -12259,9 +12268,21 @@ function omahaLimpedPotMinBetFloor(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  if (opts.omahaBigBetIsPotShare !== true || decision.action !== 'bet') return decision;
+  if (decision.action !== 'bet') return decision;
   // omahaSmallBetIsPriced owns the size of the bet it placed: this floor was priced against it there (omahaSmallBetRule).
   if (omahaSmallBetOwns(decision)) return decision;
+  // omahaBigBetSizeIsPriced (default off): priced EV comparison owns the limped-pot small-bet spot and supersedes the blanket floor.
+  if (opts.omahaBigBetSizeIsPriced === true) {
+    const tele = telemetryOn(opts);
+    const rake = rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat));
+    const priced = omahaPricedLimpedPotSize(decision, player, gs, rake, tele);
+    if (tele) {
+      if (priced.outcome === 'resized') noteFire('omaha_priced_big_bet_size_resized');
+      else if (priced.outcome === 'kept') noteFire('omaha_priced_big_bet_size_kept');
+    }
+    return priced.decision;
+  }
+  if (opts.omahaBigBetIsPotShare !== true) return decision;
   const stage = String(gs.stage ?? '');
   if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return decision;
   if (gs.bettingStructure === 'fixed_limit' || gs.allInOrFold === true || gs.wagersCapped === true)
@@ -22673,6 +22694,14 @@ export class HorseLogic {
             }
           }
         }
+        // ═══ omahaBigBetSizeIsPriced (PLO-OWNER lead-4 2026-11-21, default OFF) ═══
+        // Replaces both the 20 BB chip cliff and #18's 0.70 pot-share step with continuous
+        // pot-share + lifetime public HUD priced aggressor strength (HorseOmahaBigBetSizeIsPriced).
+        const bigBetPricedOn =
+          opts.omahaBigBetSizeIsPriced === true &&
+          oppReads != null &&
+          applyOmahaBigBetSizeRange(oppReads, opponents, player, gs, tele15);
+        if (bigBetPricedOn && tele15) noteFire('omaha_priced_big_bet_size_range_applied');
         // ═══ omahaBigBetIsPotShare (PLO Strategy lane 2026-11-15, opt-in) ═══
         // The range read marks any wager of 20 big blinds or more as a big
         // bet, and omahaAggressorTier adds a tier for that mark exactly as
@@ -22685,6 +22714,7 @@ export class HorseLogic {
         // both streets; the flop keeps the mark. `bigBet` itself is not
         // touched, so every other consumer reads it as before.
         if (
+          !bigBetPricedOn &&
           opts.omahaBigBetIsPotShare === true &&
           oppReads &&
           omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&
