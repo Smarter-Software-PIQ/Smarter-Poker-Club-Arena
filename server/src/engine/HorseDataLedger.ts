@@ -1233,7 +1233,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaPreflopReadIsPricedFromLifetime',
-    'PLO-OWNER lead-4 B4 2026-11-21: retires presumedAggressorRead on 3–6 seat PLO4/PLO5 cash preflop using the installed lifetime HUD packet (opponentLifetimeHudPreflopSixMax) and prices widened maniac-pressure spots directly on six-max (sh) HUD cells (pf.* table-size split, exact pf.lr, exact pf.bvo) with continuous n/(n+k) shrinkage, SRP vs 3-bet realization, zero sample cliff, zero person-vs-Horse key, and zero unshown hole cards. Requires omahaOpponentLifetimeHud === true; default OFF (read === true); HU, PLO6, hi-lo, bomb pots, multi-board, and tournaments untouched.',
+    'PLO-OWNER lead-4 B4 2026-11-21: retires presumedAggressorRead on 3-6 seat PLO4/PLO5 cash preflop using the installed lifetime HUD packet (opponentLifetimeHudPreflopSixMax) and prices widened maniac-pressure spots directly on six-max (sh) HUD cells (pf.* table-size split, exact pf.lr, exact pf.bvo) with continuous n/(n+k) shrinkage, SRP vs 3-bet realization, zero sample cliff, zero person-vs-Horse key, and zero unshown hole cards. Requires omahaOpponentLifetimeHud === true; default OFF (read === true); HU, PLO6, hi-lo, bomb pots, multi-board, and tournaments untouched.',
     'V94'
   ),
   flag(
