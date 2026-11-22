@@ -20158,20 +20158,35 @@ export class HorseLogic {
                 'threebet'
               );
               const callProved = omahaPreflopHudWideningProved(hudOpenVerdict, potOpen, 'call');
+              const fallbackOpener =
+                opts.v87DeepDiveDiscipline !== false
+                  ? v87SanitizeOmahaOpenerExploit(
+                      rawOpener,
+                      true,
+                      vi.isOmaha,
+                      vi.isHiLo,
+                      vi.holeCount,
+                      callers
+                    )
+                  : rawOpener;
               if (rawOpener && rawOpener.wide) {
-                if (raiseProved || callProved || rawOpener.noBluffThreeBet) {
+                if (raiseProved || callProved) {
                   exploitOpener = {
-                    wide: raiseProved || callProved,
-                    threeBetBar: raiseProved ? rawOpener.threeBetBar : null,
-                    flatBar: callProved ? rawOpener.flatBar : null,
-                    bbFlatBar: callProved ? rawOpener.bbFlatBar : null,
+                    wide: true,
+                    threeBetBar: raiseProved
+                      ? rawOpener.threeBetBar
+                      : (fallbackOpener?.threeBetBar ?? null),
+                    flatBar: callProved ? rawOpener.flatBar : (fallbackOpener?.flatBar ?? null),
+                    bbFlatBar: callProved
+                      ? rawOpener.bbFlatBar
+                      : (fallbackOpener?.bbFlatBar ?? null),
                     noBluffThreeBet: rawOpener.noBluffThreeBet,
                   };
                 } else {
-                  exploitOpener = undefined;
+                  exploitOpener = fallbackOpener;
                 }
               } else {
-                exploitOpener = rawOpener;
+                exploitOpener = fallbackOpener;
               }
               exploitPressure = raiseProved ? rawPressure : undefined;
               evidencedWideRaiser87 =
