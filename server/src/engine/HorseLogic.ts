@@ -77,6 +77,11 @@ import {
 } from './HorseOmahaFourBetFoldPricedCall.js';
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
+import {
+  omahaRiverBetFoldRecordCurve,
+  type OmahaRiverBetAnswerPoint,
+} from './HorseOmahaRiverBetFoldRecord.js';
+import { omahaStrongHandCheckRule } from './HorseOmahaStrongHandCheck.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   omahaBeatenByBoard,
@@ -140,6 +145,7 @@ import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardI
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import {
   OMAHA_EV_UNKNOWN_READ,
+  OMAHA_EV_BLUFF_POOL,
   omahaFacingBetEvSpot,
   omahaFacingBetEvVerdict,
 } from './HorseOmahaFacingBetEv.js';
@@ -187,6 +193,7 @@ import {
   OMAHA_BET_READ_TURN_REALIZATION,
   type OmahaBetRead,
 } from './HorseOmahaBetRead.js';
+import { omahaStabDefencePoolShare, omahaStabDefenceShare } from './HorseOmahaStabDefence.js';
 import { omahaColdCallOutsideBigBlindRule } from './HorseOmahaColdCallMeasured.js';
 import { omahaOpenMeasuredRule } from './HorseOmahaOpenMeasured.js';
 import {
@@ -611,6 +618,10 @@ import {
   withOmahaPricedMode,
 } from './HorseOmahaPricedMode.js';
 import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
+import {
+  applyOmahaBigBetSizeRange,
+  omahaPricedLimpedPotSize,
+} from './HorseOmahaBigBetSizeIsPriced.js';
 import { omahaBluffIsPricedAgainstTheTargetRule } from './HorseOmahaBluffPricedAgainstTheTarget.js';
 import {
   omahaPricedBigBetCallRule,
@@ -627,6 +638,7 @@ import {
   omahaPricedOwnsPairedBoardBet,
   omahaPricedOwnsTurnRiverRaise,
   omahaPricedPairedBoardBetRule,
+  omahaPricedInScope,
   omahaPricedPressureWithheld,
   omahaPricedPopulationRates,
   omahaPricedReadOfUser,
@@ -650,6 +662,7 @@ import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
   omahaPricedSitesFlopBet,
+  omahaPricedSitesFlopBetOnHisResponse,
   omahaPricedSitesMadeHandBet,
   omahaPricedSitesOwnsBlockerBluff,
   omahaPricedSitesOwnsMadeHandBet,
@@ -660,6 +673,7 @@ import {
   omahaFlopBetRaiseBranchChange,
   omahaFlopBetRaiseBranchOf,
 } from './HorseOmahaFlopBetRaiseBranch.js';
+import { omahaCbetRaiseBranchOf } from './HorseOmahaCbetRaisePriced.js';
 import { omahaFlopBetMeasuredFoldShareOf } from './HorseOmahaFlopBetMeasuredFoldShare.js';
 import {
   lightningFoldThroughFrame,
@@ -1028,6 +1042,7 @@ import {
   omahaStrategyHoleCount,
   withOmahaStrategyGameScope,
 } from './HorseOmahaStrategyGame.js';
+import { omahaBigDrawBetOnHisResponseRule } from './HorseOmahaBigDrawBetPriced.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -3545,6 +3560,11 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_big_bet_is_pot_share. */
   omahaBigBetIsPotShare?: boolean;
+  /** PLO-OWNER lead-4 lane LEAKS-RULES (2026-11-21, default OFF, read `=== true`):
+   * priced, lifetime-HUD replacement for `#18` (`omahaBigBetIsPotShare`) in PLO4/PLO5 cash.
+   * Replaces both the 20 BB / 0.70 aggressor-tier cliff and the blanket limped-pot bet floor
+   * with continuous pot-share + HUD pricing (HorseOmahaBigBetSizeIsPriced.ts). */
+  omahaBigBetSizeIsPriced?: boolean;
   /** Owner 2026-11-15 (hand 59517323, HorseOmahaOopChecks.ts): PLO4/PLO5 cash,
    * one board, high only, river, nothing to call: on a final board that is
    * paired a Horse with less than a full house does not bet into opponents of
@@ -3681,6 +3701,13 @@ export interface HorseDecideOpts {
    * bets after a check, no opponent kind (HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
    */
   omahaRiverCheckedToBetIsMeasured?: boolean;
+  /**
+   * EMERG lane STAB-DEFENCE-5 2026-11-21 (default off, read `=== true`): the two river bet rules above price the
+   * opponent's answer with the population curve moved by his own lifetime PUBLIC fold record at a river's first
+   * wager, shrunk by n / (n + k) (HorseOmahaRiverBetFoldRecord.ts). It does nothing unless one of those two rules is
+   * on; with no record it is the population curve exactly. One formula for every opponent. Never PLO6.
+   */
+  omahaRiverBetFoldIsHisRecord?: boolean;
   /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
    * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
    * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
@@ -3812,6 +3839,20 @@ export interface HorseDecideOpts {
    * priced with the measured realization (in position .84, out of position .60) when the read acts. One rule for
    * every opponent. Public information only. Never PLO6. Default OFF. */
   omahaBetReadIsModeSplit?: boolean;
+  /** EMERG lane STAB-DEFENCE 2026-11-20. PLO4/PLO5 cash, turn and river, facing the first wager of the street
+   * (never a raise), where omahaFacingBetEv prices the call: the bettor's non-value share is priced from his own
+   * PUBLIC frequency of first wagers on unopened action against the population's (HorseOmahaStabDefence: value
+   * density of a spot = population frequency x value share / (1 - measured trap share); a bettor cannot bet more
+   * value than he holds), shrunk by n / (n + k) from his first hand, the population prior exactly with no
+   * record. One formula for every opponent; no hand class, size band, position or kind. Never PLO6. Default OFF. */
+  omahaStabDefenceIsPriced?: boolean;
+  /** EMERG lane STAB-DEFENCE-2 2026-11-20. PLO4/PLO5 cash, turn and river, heads-up, the Horse acts first with
+   * nothing to call: a final value bet is priced beside the check (HorseOmahaStrongHandCheck: bet on the measured
+   * fold-by-size curve; check on the opponent's stab frequency, the population's moved by his lifetime public
+   * record with n / (n + k), and the non-value share that frequency allows) and the check is taken with the
+   * probability the comparison gives (indifference mix, deterministic draw). It changes only a bet into a check.
+   * One formula for every opponent; no hand class, size band, position or kind. Never PLO6. Default OFF. */
+  omahaStrongHandCheckIsPriced?: boolean;
   /** HORSE DECISIONS lane 2026-11-19 (audits A and B of the 48-hour slice: the
    * largest loss class is a fold with the price met; the facing-bet verdict's
    * value region is a stated top share of ALL holdings, on PLO5 boards
@@ -4450,12 +4491,19 @@ export interface HorseDecideOpts {
    * lead is priced beside the check, heads-up, in either position (replaces
    * the out-of-position check of omahaBareOverpairOopFlopCheck). */
   omahaFlopBetIsPriced?: boolean;
+  /** R2 (lane REPLACEMENTS-5 2026-11-21, default OFF, strict === true, PLO4/PLO5 cash):
+   * replaces #13 omahaBareOverpairOopFlopCheck and addresses the flop facing-bet unmeasured raiser/stabber
+   * range using lifetime HUD cells (f.fb.{sm|bg}.{hu|mw}, f.rBet.{hu|mw}, f.stab.{hu|mw}, 2*f.stabsz.{hu|mw})
+   * with prove-it-to-bet uncertainty bar (evBet - evCheck > sampleSe + readSpread), identity-free. */
+  omahaFlopBetIsPricedOnHisResponse?: boolean;
   /** WooWoo audit FLOPBET-RAISE (finding FOURBET F1, HorseOmahaFlopBetRaiseBranch):
    * PLO4/PLO5 cash, flop, heads-up against a person, nothing to call: every bet
    * size of the v38 EV engine is priced with his raise as a third branch (his
    * measured raising share, the Horse's equity against it, the Horse's priced
    * call-off or fold). Default off: the two-branch price as before. */
   omahaFlopBetPricesTheRaise?: boolean;
+  /** CBET-DEFENCE 2026-11-21 (default off): the raise of a flop c-bet is priced on the measured, per-opponent-shrunk raise share (HorseOmahaCbetRaisePriced) */
+  omahaCbetRaiseIsPriced?: boolean;
   /** WooWoo audit FOLD-SHARE (HorseOmahaFlopBetMeasuredFoldShare): PLO4/PLO5
    * cash, flop, heads-up against a person, nothing to call: his fold share to
    * every v38 bet size is the fitted person model (size, pot type, SPR band,
@@ -4586,6 +4634,11 @@ export interface HorseDecideOpts {
    * made hands. Default OFF (opt-in, read `=== true`) until its declared
    * evaluation passes; league cards plo4/plo5 _omaha_big_draw_aggression. */
   omahaBigDrawAggression?: boolean;
+  /** R4 (PLO-OWNER lane REPLACEMENTS-5, 2026-11-21; default OFF, strict `=== true`):
+   * PLO4/PLO5 cash flop/turn checked-to big-draw bet priced on lifetime HUD fold,
+   * raise-back and stab cells with a prove-it-to-bet uncertainty bar (replaces the
+   * checked-to half of omahaBigDrawAggression without categorical OOP bars). */
+  omahaBigDrawBetIsPricedOnHisResponse?: boolean;
   /** Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF
    * POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH
    * DRAWS."): on a PLO4/PLO5 cash flop or turn the brain's existing raises
@@ -11011,6 +11064,15 @@ export function omahaBigDrawAggression(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // R4 (default off): checked-to flop/turn big-draw bet priced on lifetime HUD response.
+  if (opts.omahaBigDrawBetIsPricedOnHisResponse === true && decision.action === 'check') {
+    const pub = omahaPublicSizeOf('bet', decision, player, gs, opts);
+    const r4 = omahaBigDrawBetOnHisResponseRule(decision, player, gs, opts, {
+      ...(pub === undefined ? {} : { publicTo: pub }),
+      finalCheckVetoes: (w) => omahaBigDrawBetIsVetoed(decision, w, player, gs, opts),
+    });
+    if (r4 !== null) return r4;
+  }
   if (opts.omahaBigDrawAggression !== true) return decision;
   if (decision.action !== 'check' && decision.action !== 'call') return decision;
   try {
@@ -11963,7 +12025,8 @@ function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
     opts.omahaStreetPlanThreeWay === true ||
     opts.omahaStrongHandValue === true ||
     opts.omahaCheckedToBetIsPriced === true ||
-    opts.omahaBigDrawAggression === true
+    opts.omahaBigDrawAggression === true ||
+    opts.omahaBigDrawBetIsPricedOnHisResponse === true
   );
 }
 
@@ -12344,9 +12407,21 @@ function omahaLimpedPotMinBetFloor(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  if (opts.omahaBigBetIsPotShare !== true || decision.action !== 'bet') return decision;
+  if (decision.action !== 'bet') return decision;
   // omahaSmallBetIsPriced owns the size of the bet it placed: this floor was priced against it there (omahaSmallBetRule).
   if (omahaSmallBetOwns(decision)) return decision;
+  // omahaBigBetSizeIsPriced (default off): priced EV comparison owns the limped-pot small-bet spot and supersedes the blanket floor.
+  if (opts.omahaBigBetSizeIsPriced === true) {
+    const tele = telemetryOn(opts);
+    const rake = rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat));
+    const priced = omahaPricedLimpedPotSize(decision, player, gs, rake, tele);
+    if (tele) {
+      if (priced.outcome === 'resized') noteFire('omaha_priced_big_bet_size_resized');
+      else if (priced.outcome === 'kept') noteFire('omaha_priced_big_bet_size_kept');
+    }
+    return priced.decision;
+  }
+  if (opts.omahaBigBetIsPotShare !== true) return decision;
   const stage = String(gs.stage ?? '');
   if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return decision;
   if (gs.bettingStructure === 'fixed_limit' || gs.allInOrFold === true || gs.wagersCapped === true)
@@ -12681,9 +12756,10 @@ function omahaOopCheckRulesCore(
   const pairedTurnOn = opts.omahaPairedTurnNoBarrelWithoutBoatVsValueLeader === true;
   const planOn = opts.omahaTurnBetNeedsRiverPlan === true;
   const oopTurnOn = opts.omahaOopTurnCheckAfterFlopCall === true;
-  // omahaFlopBetIsPriced also prices the bare big pair's flop bet where no categorical rule acts (in
-  // position, or with omahaBareOverpairOopFlopCheck off): it must reach the flop branch (sites review N1).
-  const flopPricedOn = opts.omahaFlopBetIsPriced === true;
+  // omahaFlopBetIsPriced / omahaFlopBetIsPricedOnHisResponse also price the bare big pair's flop bet where no
+  // categorical rule acts (in position, or with omahaBareOverpairOopFlopCheck off): they must reach the flop branch.
+  const flopPricedOn =
+    opts.omahaFlopBetIsPriced === true || opts.omahaFlopBetIsPricedOnHisResponse === true;
   if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn && !oopTurnOn && !flopPricedOn)
     return decision;
   // omahaOopTurnCheckAfterFlopCall, facing the turn bet after the check: the
@@ -12711,6 +12787,15 @@ function omahaOopCheckRulesCore(
     };
     if (stage === 'flop') {
       const flopSpot = flopOn && omahaBareOverpairOopFlopSpot(player, gs);
+      // R2 omahaFlopBetIsPricedOnHisResponse (default off): lifetime HUD response + OOP stab + proof guard.
+      const pricedResponse = omahaPricedSitesFlopBetOnHisResponse(
+        decision,
+        player,
+        gs,
+        opts,
+        flopSpot
+      );
+      if (pricedResponse !== null) return pricedResponse;
       // omahaFlopBetIsPriced (default off): the bare big pair's flop bet is priced beside the check.
       const pricedFlop = omahaPricedSitesFlopBet(decision, player, gs, opts, flopSpot);
       if (pricedFlop !== null) return pricedFlop;
@@ -13067,6 +13152,10 @@ function omahaFacingBetEvRule(
       ...(opts.omahaFlopDefenceIsPriced === true ? { flopDefenceTree: true } : {}),
       ...(!flopVerdictOn ? { flopDefenceOnly: true } : {}),
       readsTheBettor: opts.omahaFlopVerdictReadsTheBettor === true || valueShareMeasured,
+      ...(opts.omahaFlopBetIsPricedOnHisResponse === true && omahaPricedInScope(player, gs, opts)
+        ? { hudRaiserStabResponse: true }
+        : {}),
+      ...(opts.omahaCbetRaiseIsPriced === true ? { cbetRaisePriced: true } : {}),
     });
   if (!omahaFacingBetEvOn(opts)) return decision;
   try {
@@ -13166,6 +13255,8 @@ let omahaFacingBetEvCountMemo: {
   betRead: boolean;
   /** omahaBetReadIsModeSplit */
   betReadModeSplit: boolean;
+  /** omahaStabDefenceIsPriced */
+  stabDefence: boolean;
   valueShareMeasured: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
@@ -13295,6 +13386,11 @@ function omahaFacingBetEvCount(
   const turnStabLightningRow = turnStabLightning && opts.omahaTurnStabLightningRow === true;
   const betReadOn = opts.omahaBetReadIsPerOpponent === true;
   const betReadModeSplit = betReadOn && opts.omahaBetReadIsModeSplit === true;
+  // omahaStabDefenceIsPriced (default off): PLO4/PLO5 cash only (PLO6 and tournaments untouched).
+  const stabDefence =
+    opts.omahaStabDefenceIsPriced === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   // omahaFacingBetValueShareIsMeasured (default off): PLO4/PLO5 cash only (PLO6 and tournaments untouched).
   const valueShareMeasured =
     opts.omahaFacingBetValueShareIsMeasured === true &&
@@ -13318,6 +13414,7 @@ function omahaFacingBetEvCount(
     memo.turnStabLightningRow === turnStabLightningRow &&
     memo.betRead === betReadOn &&
     memo.betReadModeSplit === betReadModeSplit &&
+    memo.stabDefence === stabDefence &&
     memo.valueShareMeasured === valueShareMeasured
   )
     return memo.answer;
@@ -13401,6 +13498,42 @@ function omahaFacingBetEvCount(
         spot.priorBluff
       );
       if (betRead) read = { ...(read ?? OMAHA_EV_UNKNOWN_READ), betRead };
+      // omahaStabDefenceIsPriced (default off): the first wager of the street is priced with the non-value share
+      // his own public bet frequency allows (HorseOmahaStabDefence); the population prior with no record.
+      if (stabDefence && !spot.isRaise && bettor) {
+        try {
+          const others = (gs.players ?? []).filter(
+            (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+          ).length;
+          const share = omahaStabDefenceShare(
+            spot.priorBluff,
+            HorseMind.omahaStabDefenceRecordOf(
+              bettor.user_id,
+              String(gs.gameVariant ?? ''),
+              spot.street,
+              others
+            ),
+            String(gs.gameVariant ?? ''),
+            spot.street,
+            others
+          );
+          if (share && share.weight > 0) {
+            const pricedShare =
+              spot.street === 'river'
+                ? omahaStabDefencePoolShare(
+                    share.q,
+                    spot.priorBluff,
+                    OMAHA_EV_BLUFF_POOL,
+                    spot.valueShare
+                  )
+                : share.q;
+            read = { ...(read ?? OMAHA_EV_UNKNOWN_READ), pricedShare };
+            if (telemetryOn(opts)) noteFire('omaha_stab_defence_priced');
+          }
+        } catch {
+          /* the population prior stands */
+        }
+      }
       // omahaBetReadIsModeSplit (default off): where the mode-split read acts on the turn, the call is priced with
       // the realization measured for the Horses' heads-up turn calls (LIVEGRADE-2: in position .84, out of .60)
       if (
@@ -13584,6 +13717,7 @@ function omahaFacingBetEvCount(
     turnStabLightningRow,
     betRead: betReadOn,
     betReadModeSplit,
+    stabDefence,
     valueShareMeasured,
     answer,
   };
@@ -18445,13 +18579,34 @@ export class HorseLogic {
       // the measured response curve and replaced by the best bet only when it beats the check by more than its own
       // standard error (HorseOmahaRiverFirstToActBet.ts). It changes only a check into a bet.
       const firstToActOn = opts.omahaRiverFirstToActBetIsPriced === true;
+      // EMERG lane STAB-DEFENCE-5 2026-11-21 (omahaRiverBetFoldIsHisRecord, default off): the answer curve the two
+      // river bet rules price with is the population's moved by the opponent's own lifetime public river fold record
+      // (HorseOmahaRiverBetFoldRecord.ts). Absent = the population curve, as before.
+      let riverFoldRecordWeight = 0;
+      const riverResponseOf =
+        opts.omahaRiverBetFoldIsHisRecord === true
+          ? <P extends OmahaRiverBetAnswerPoint>(
+              opponent: SeatPlayer,
+              population: readonly P[]
+            ): readonly P[] => {
+              const variant = String(gs.gameVariant ?? '');
+              const his = omahaRiverBetFoldRecordCurve(
+                variant,
+                population,
+                HorseMind.omahaStrongHandCheckRecordsOf(opponent.user_id, variant, 'river', 1)
+              );
+              riverFoldRecordWeight = his.weight;
+              return his.curve;
+            }
+          : undefined;
       const firstToAct = omahaRiverFirstToActBetRule(
         openMeasured,
         player,
         gs,
         firstToActOn,
         firstToActOn ? omahaPricedDeps(player, gs).rake : 0,
-        (d) => this.legalize(d, player, gs, vi)
+        (d) => this.legalize(d, player, gs, vi),
+        riverResponseOf
       );
       if (firstToAct.changed && tele) {
         noteFire('omaha_river_first_to_act_bet_priced');
@@ -18471,8 +18626,10 @@ export class HorseLogic {
         gs,
         checkedToOn,
         checkedToOn ? omahaPricedDeps(player, gs).rake : 0,
-        (d) => this.legalize(d, player, gs, vi)
+        (d) => this.legalize(d, player, gs, vi),
+        riverResponseOf
       );
+      if (riverFoldRecordWeight > 0 && tele) noteFire('omaha_river_bet_fold_his_record_read');
       if (checkedTo2.changed && tele) {
         noteFire('omaha_river_checked_to_bet_measured');
         noteDecisionRuleReceipt(
@@ -18496,25 +18653,63 @@ export class HorseLogic {
           nutsFloored
         );
       }
+      // EMERG lane STAB-DEFENCE-2 2026-11-20 (omahaStrongHandCheckIsPriced, default off): PLO4/PLO5 cash turn and
+      // river, heads-up, the Horse acts first: a final value bet is priced beside the check on the opponent's stab
+      // frequency and taken as a check with the probability the comparison gives (HorseOmahaStrongHandCheck.ts). It
+      // changes only a bet into a check, and never a bet the two river rules above have just made.
+      const strongCheckOn = opts.omahaStrongHandCheckIsPriced === true;
+      const strongCheck = omahaStrongHandCheckRule(
+        nutsFloored,
+        player,
+        gs,
+        strongCheckOn && !firstToAct.changed && !checkedTo2.changed,
+        strongCheckOn ? omahaPricedDeps(player, gs).rake : 0,
+        (opponent, street) =>
+          HorseMind.omahaStabDefenceRecordOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            street,
+            1
+          ),
+        (opponent, street) =>
+          HorseMind.omahaStrongHandCheckRecordsOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            street,
+            1
+          )
+      );
+      if (strongCheck.changed && tele) {
+        noteFire('omaha_strong_hand_check_priced');
+        noteDecisionRuleReceipt(
+          'omaha_strong_hand_check_priced',
+          nutsFloored,
+          strongCheck.decision
+        );
+      }
       // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (omahaFourBetFoldPricedCall, default off): a final
       // preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only
       // when the engine's priced call of a re-raise has EV(call) > 0 (HorseOmahaFourBetFoldPricedCall.ts).
       // It changes only a fold.
       const fourBetPriced = omahaFourBetFoldPricedCallRule(
-        nutsFloored,
+        strongCheck.decision,
         player,
         gs,
         opts.omahaFourBetFoldPricedCall === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (fourBetPriced !== nutsFloored) {
+      if (fourBetPriced !== strongCheck.decision) {
         if (tele) {
           noteFire('omaha_four_bet_fold_priced_call');
-          noteDecisionRuleReceipt('omaha_four_bet_fold_priced_call', nutsFloored, fourBetPriced);
+          noteDecisionRuleReceipt(
+            'omaha_four_bet_fold_priced_call',
+            strongCheck.decision,
+            fourBetPriced
+          );
         }
         return { decision: fourBetPriced };
       }
-      return { decision: nutsFloored };
+      return { decision: strongCheck.decision };
     };
     decision = graph.run('wager_rules', decision, () => {
       const ruled = riverNoBlocker(wagerRulesNode());
@@ -22821,6 +23016,14 @@ export class HorseLogic {
             }
           }
         }
+        // ═══ omahaBigBetSizeIsPriced (PLO-OWNER lead-4 2026-11-21, default OFF) ═══
+        // Replaces both the 20 BB chip cliff and #18's 0.70 pot-share step with continuous
+        // pot-share + lifetime public HUD priced aggressor strength (HorseOmahaBigBetSizeIsPriced).
+        const bigBetPricedOn =
+          opts.omahaBigBetSizeIsPriced === true &&
+          oppReads != null &&
+          applyOmahaBigBetSizeRange(oppReads, opponents, player, gs, tele15);
+        if (bigBetPricedOn && tele15) noteFire('omaha_priced_big_bet_size_range_applied');
         // ═══ omahaBigBetIsPotShare (PLO Strategy lane 2026-11-15, opt-in) ═══
         // The range read marks any wager of 20 big blinds or more as a big
         // bet, and omahaAggressorTier adds a tier for that mark exactly as
@@ -22833,6 +23036,7 @@ export class HorseLogic {
         // both streets; the flop keeps the mark. `bigBet` itself is not
         // touched, so every other consumer reads it as before.
         if (
+          !bigBetPricedOn &&
           opts.omahaBigBetIsPotShare === true &&
           oppReads &&
           omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&
@@ -27428,6 +27632,23 @@ export class HorseLogic {
                   : 0
               )
             : null;
+        // omahaCbetRaiseIsPriced (default off): the c-bet's raise branch from the measured raise share
+        // (HorseOmahaCbetRaisePriced); it takes the place of the person-only branch above.
+        const cbetBranch38 =
+          opts.omahaCbetRaiseIsPriced === true && street === 'flop'
+            ? omahaCbetRaiseBranchOf(
+                player,
+                gs,
+                opts,
+                pot,
+                Math.min(stack, effOpp38 > 0 ? effOpp38 : stack),
+                ip,
+                useRake10 && !isTournamentMode(gs)
+                  ? rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+                  : 0
+              )
+            : null;
+        if (cbetBranch38 && tele15) noteFire('omaha_cbet_raise_priced_branch');
         if (raiseBranch38?.kind === 'unpriced' && tele15)
           noteFire('omaha_flop_bet_raise_branch_unpriced_kept');
         // omahaFlopBetUsesMeasuredFoldShare (default off): a person's fold share
@@ -27516,7 +27737,11 @@ export class HorseLogic {
                 runout: runout86,
               }
             : {}),
-          ...(raiseBranch38?.kind === 'priced' ? { raiseBranch: raiseBranch38.value.branch } : {}),
+          ...(cbetBranch38
+            ? { raiseBranch: cbetBranch38 }
+            : raiseBranch38?.kind === 'priced'
+              ? { raiseBranch: raiseBranch38.value.branch }
+              : {}),
           // One fold share per decision: the fold model fitted on people first; his measured flop
           // fold share only when that model did not price this spot (it is then not computed).
           ...(peopleFold38?.kind === 'priced'

@@ -38,6 +38,8 @@ This reader only READS (GitHub GETs) and prints for the plan job:
                    after tonight's freeze began; plan as before
   state=claimed    baseline=<sha> is being certified right now by an active
                    run (its pending status names it); plan as before
+  state=unselectable  baseline=<sha> has diverged CONTROL_INPUTS from main
+                   and can never pass select-daily-engine.py; plan as before
 
 ONE CERTIFICATION PER BASELINE (incident 076ff467, 2026-11-20). `done` used
 to be the only answer that stopped a re-certification, so every push merged
@@ -51,6 +53,20 @@ the plan job writes that claim (a pending status naming its run) the moment
 it answers `due`, so the next planner sees it.
   state=unknown    could not tell; plan exactly as before (CLAUDE.md 10.86)
 
+ZERO-MIGRATION ADVANCE AND CONTROL_INPUTS SELECTABILITY (O6, 2026-11-22).
+On 2026-11-22, CONTROL_INPUTS changed after the pre-freeze baseline
+(0a3a6a5211db) with zero new migrations (#11703/#11702/#11697/#11701), making
+0a3a6a5211db permanently unselectable by select-daily-engine.py (RC=3). Yet
+backup-freeze-baseline.py still returned state=due for 0a3a6a5211db and
+Backup 45000042601 spent 62 minutes certifying an unselectable commit. Before
+checking certification status, this reader now (1) advances the baseline across
+any zero-migration prefix on main (strictly before the first commit touching
+supabase/migrations/) to the newest first-parent commit touching server/ or any
+non-test CONTROL_INPUTS path, and (2) verifies that no non-test CONTROL_INPUTS
+path diverged between the resulting baseline and main (returning
+state=unselectable instead of wasting a Backup soak). Unreadable or truncated
+GitHub API answers fail open to existing behavior (CLAUDE.md 10.86).
+
 The certification window is [freeze start, selection - one worst Backup run):
 a run started inside it finishes before the selection reads (the freeze start
 from the dispatcher's own source, the 03:30 cutoff from select-daily-engine.py
@@ -63,6 +79,7 @@ the last minutes before the freeze has been installed before it is relied on
 Pinned by tests/the-four-am-build-is-certified-against-the-frozen-copy.law.test.ts.
 """
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -75,10 +92,176 @@ SETTLE = timedelta(minutes=30)
 FREEZE_SOURCE = 'scripts/ci/merged-migration-dispatch.mjs'
 CONTEXT = 'backup-engine/certified'
 SELECTOR_SOURCE = 'scripts/ci/select-daily-engine.py'
+PREQUAL_SOURCE = 'scripts/ci/read-engine-prequalification.py'
+MIGRATIONS_PREFIX = 'supabase/migrations/'
+SERVER_PREFIX = 'server/'
+COMPARE_MAX_COMMITS = 250
+COMPARE_MAX_FILES = 300
 # One Backup run (refresh + certify), measured over the 29 most recent
 # successful backup-engine.yml runs on 2026-11-19: min 43.2, p50 62.0,
 # p90 67.3, max 68.7 minutes.
 BACKUP_RUN_WORST_MINUTES = 70
+
+
+def parse_control_spec(prequal_text):
+    """Parse CONTROL_INPUTS and O4/O9 exclusion constants from
+    scripts/ci/read-engine-prequalification.py via AST (zero code execution)."""
+    tree = ast.parse(prequal_text)
+    found = {}
+    wanted = {
+        'CONTROL_INPUTS',
+        'CONTROL_INPUT_TEST_EXCLUDED_DIRS',
+        'PURE_TEST_FILE_SUFFIXES',
+        'NON_RELEASE_SERVER_SCRIPT_PREFIXES',
+        'NON_RELEASE_SERVER_SCRIPT_EXACT',
+    }
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in wanted:
+                    found[target.id] = ast.literal_eval(node.value)
+    inputs = found.get('CONTROL_INPUTS')
+    if not isinstance(inputs, (list, tuple)) or not inputs or not all(isinstance(x, str) for x in inputs):
+        raise ValueError('CONTROL_INPUTS not found or invalid')
+    excluded_dirs = found.get('CONTROL_INPUT_TEST_EXCLUDED_DIRS', ())
+    suffixes = found.get('PURE_TEST_FILE_SUFFIXES', ())
+    non_release_prefixes = found.get('NON_RELEASE_SERVER_SCRIPT_PREFIXES', ())
+    non_release_exact = found.get('NON_RELEASE_SERVER_SCRIPT_EXACT', ())
+    for name, val in (
+        ('CONTROL_INPUT_TEST_EXCLUDED_DIRS', excluded_dirs),
+        ('PURE_TEST_FILE_SUFFIXES', suffixes),
+        ('NON_RELEASE_SERVER_SCRIPT_PREFIXES', non_release_prefixes),
+        ('NON_RELEASE_SERVER_SCRIPT_EXACT', non_release_exact),
+    ):
+        if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
+            raise ValueError(f'{name} invalid')
+    return {
+        'inputs': tuple(inputs),
+        'excluded_dirs': tuple(excluded_dirs),
+        'suffixes': tuple(suffixes),
+        'non_release_prefixes': tuple(non_release_prefixes),
+        'non_release_exact': frozenset(non_release_exact),
+    }
+
+
+def _is_pure_test_control_path(path, control_spec):
+    excluded_dirs = control_spec['excluded_dirs']
+    if not excluded_dirs or not path.startswith(excluded_dirs):
+        return False
+    name = path.rsplit('/', 1)[-1]
+    if any(name.endswith(suffix) and len(name) > len(suffix) for suffix in control_spec['suffixes']):
+        return True
+    if name.startswith('test_') and name.endswith('.py') and len(name) > len('test_.py'):
+        return True
+    return False
+
+
+def _is_non_release_server_script_path(path, control_spec):
+    if path in control_spec.get('non_release_exact', ()):
+        return True
+    prefixes = control_spec.get('non_release_prefixes', ())
+    return bool(prefixes and path.startswith(prefixes))
+
+
+def is_non_test_control_path(path, control_spec):
+    if not isinstance(path, str) or not path or not control_spec:
+        return False
+    matched = any(
+        path == entry or path.startswith(entry.rstrip('/') + '/')
+        for entry in control_spec['inputs']
+    )
+    if not matched:
+        return False
+    if _is_pure_test_control_path(path, control_spec):
+        return False
+    if _is_non_release_server_script_path(path, control_spec):
+        return False
+    return True
+
+
+def _file_paths_of(files):
+    paths = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        for key in ('filename', 'previous_filename'):
+            val = entry.get(key)
+            if isinstance(val, str) and val:
+                paths.append(val)
+    return paths
+
+
+def find_zero_migration_advance(pre_freeze, compare_doc, commit_files_reader, control_spec):
+    """Return the newest first-parent commit after pre_freeze, strictly before
+    the first commit touching supabase/migrations/, that touched server/ or any
+    non-test CONTROL_INPUTS path. Fail-open to pre_freeze when truncated or
+    unreadable (CLAUDE.md 10.86)."""
+    if not isinstance(compare_doc, dict) or not control_spec:
+        return pre_freeze
+    status = compare_doc.get('status')
+    if status == 'identical' or status != 'ahead':
+        return pre_freeze
+    commits = compare_doc.get('commits')
+    total = compare_doc.get('total_commits')
+    if (not isinstance(commits, list) or not commits
+            or not isinstance(total, int) or total <= 0
+            or total > COMPARE_MAX_COMMITS or total != len(commits)):
+        return pre_freeze
+    by_sha = {}
+    for c in commits:
+        sha = c.get('sha') if isinstance(c, dict) else None
+        if isinstance(sha, str) and re.fullmatch(r'[0-9a-f]{40}', sha):
+            by_sha[sha] = c
+    head_sha = commits[-1].get('sha') if isinstance(commits[-1], dict) else None
+    if not head_sha or head_sha not in by_sha:
+        return pre_freeze
+    chain_rev = []
+    seen = set()
+    cur = head_sha
+    while cur != pre_freeze:
+        if cur in seen or cur not in by_sha:
+            return pre_freeze
+        seen.add(cur)
+        chain_rev.append(cur)
+        parents = by_sha[cur].get('parents')
+        if not isinstance(parents, list) or not parents or not isinstance(parents[0], dict):
+            return pre_freeze
+        parent_sha = parents[0].get('sha')
+        if not isinstance(parent_sha, str) or not re.fullmatch(r'[0-9a-f]{40}', parent_sha):
+            return pre_freeze
+        cur = parent_sha
+    best = pre_freeze
+    for sha in reversed(chain_rev):
+        files = commit_files_reader(sha)
+        if not isinstance(files, list) or len(files) >= COMPARE_MAX_FILES:
+            break
+        paths = _file_paths_of(files)
+        if any(p.startswith(MIGRATIONS_PREFIX) for p in paths):
+            break
+        if any(p.startswith(SERVER_PREFIX) or is_non_test_control_path(p, control_spec) for p in paths):
+            best = sha
+    return best
+
+
+def is_control_selectable(compare_doc, control_spec):
+    """True when no non-test CONTROL_INPUTS path changed between baseline and
+    main; False when one did; None when unreadable/truncated (CLAUDE.md 10.86)."""
+    if not isinstance(compare_doc, dict) or not control_spec:
+        return None
+    status = compare_doc.get('status')
+    if status == 'identical':
+        return True
+    if status != 'ahead':
+        return None
+    files = compare_doc.get('files')
+    if not isinstance(files, list):
+        return None
+    paths = _file_paths_of(files)
+    if any(is_non_test_control_path(p, control_spec) for p in paths):
+        return False
+    if len(files) >= COMPARE_MAX_FILES:
+        return None
+    return True
 
 
 def clock_of(dispatcher_text, selector_text):
@@ -111,13 +294,24 @@ def window(now_utc, start_hm, by_hm):
     return start.astimezone(ZoneInfo('UTC')), True
 
 
-def decide(now_utc, clock, baseline_reader, certified_after):
+def decide(now_utc, clock, baseline_reader, certified_after,
+           advance_zero_migration=None, control_selectable=None):
     start, inside = window(now_utc, *clock)
     if not inside:
         return {'state': 'outside'}
     baseline = baseline_reader(start - SETTLE)
     if not baseline or not re.fullmatch(r'[0-9a-f]{40}', baseline):
         return {'state': 'unknown', 'why': 'baseline unreadable'}
+    if advance_zero_migration is not None:
+        advanced = advance_zero_migration(baseline)
+        if isinstance(advanced, str) and re.fullmatch(r'[0-9a-f]{40}', advanced):
+            baseline = advanced
+    if control_selectable is not None:
+        selectable = control_selectable(baseline)
+        if selectable is False:
+            return {'state': 'unselectable', 'baseline': baseline,
+                    'why': 'control_inputs_diverged',
+                    'freezeStart': start.strftime('%Y-%m-%dT%H:%M:%SZ')}
     done = certified_after(baseline, start)
     if done is None:
         return {'state': 'unknown', 'why': 'certificate unreadable', 'baseline': baseline}
@@ -185,7 +379,56 @@ def main():
             rows = json.loads(gh(f'repos/{a.repo}/commits/{sha}/statuses?per_page=100'))
             return certification_state(rows, start, run_status)
 
-        verdict = decide(now, clock, baseline_reader, certified_after)
+        spec_cache = {'loaded': False, 'value': None}
+
+        def get_control_spec():
+            if not spec_cache['loaded']:
+                spec_cache['loaded'] = True
+                try:
+                    spec_cache['value'] = parse_control_spec(raw(PREQUAL_SOURCE))
+                except Exception:  # noqa: BLE001 - unreadable control spec fails open (CLAUDE.md 10.86)
+                    spec_cache['value'] = None
+            return spec_cache['value']
+
+        compare_cache = {}
+
+        def compare_to_main(sha):
+            if sha not in compare_cache:
+                try:
+                    compare_cache[sha] = json.loads(gh(f'repos/{a.repo}/compare/{sha}...main'))
+                except Exception:  # noqa: BLE001 - unreadable compare fails open (CLAUDE.md 10.86)
+                    compare_cache[sha] = None
+            return compare_cache[sha]
+
+        def commit_files(sha):
+            try:
+                doc = json.loads(gh(f'repos/{a.repo}/commits/{sha}'))
+                return doc.get('files') if isinstance(doc, dict) else None
+            except Exception:  # noqa: BLE001 - unreadable commit fails open (CLAUDE.md 10.86)
+                return None
+
+        def advance_zero_migration(pre_freeze):
+            control_spec = get_control_spec()
+            if control_spec is None:
+                return pre_freeze
+            return find_zero_migration_advance(
+                pre_freeze, compare_to_main(pre_freeze), commit_files, control_spec
+            )
+
+        def control_selectable(sha):
+            control_spec = get_control_spec()
+            if control_spec is None:
+                return None
+            return is_control_selectable(compare_to_main(sha), control_spec)
+
+        verdict = decide(
+            now,
+            clock,
+            baseline_reader,
+            certified_after,
+            advance_zero_migration=advance_zero_migration,
+            control_selectable=control_selectable,
+        )
     except Exception as error:  # noqa: BLE001 - every unreadable answer is unknown
         verdict = {'state': 'unknown', 'why': str(error)[:200]}
     for k, v in verdict.items():

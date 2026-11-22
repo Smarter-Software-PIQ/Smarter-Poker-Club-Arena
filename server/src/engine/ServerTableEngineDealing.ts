@@ -1684,14 +1684,24 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               rebuyPauseMs = Math.max(0, Math.round(Date.now() - rebuyPauseStart));
             }
           }
-          // Incident 075013fd lane 3: record actual pause times so the NEXT
-          // hand's hand_history.cadence lets fn_ca_hand_gap_unintended_delay
-          // grade cash_bust and rit hands alongside every other shape.
+          // Incident 075013fd lane 3 + incident 1e532243 parity hardening:
+          // record actual pause times and bounded boolean shape facts so the
+          // NEXT hand's hand_history.cadence lets fn_ca_hand_gap_unintended_delay
+          // grade cash_bust, rit, all-in call/blind showdowns, and conservative
+          // sweep holds with zero +500 ms discrepancy against handCompletionHoldMs.
+          const priorBetsSweepOwed = showdownSweepOwed({
+            wentToShowdown,
+            ritRuns: this.currentHandRitBoards,
+            boardCardCount: this.currentHandCommunityCards.length,
+            actions: this.currentHandActions,
+          });
           this.pendingPriorHandCadence = {
             hold_ms: Math.round(resultDisplayMs),
             rest_ms: Math.round(restMs),
             rebuy_pause_ms: rebuyPauseMs,
             ...(ritRevealMs !== undefined ? { rit_reveal_ms: ritRevealMs } : {}),
+            all_in_showdown: this.currentHandAllInShowdown,
+            bets_sweep_owed: priorBetsSweepOwed,
           };
 
           // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──

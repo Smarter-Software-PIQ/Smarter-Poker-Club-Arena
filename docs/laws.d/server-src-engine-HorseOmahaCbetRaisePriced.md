@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaCbetRaisePriced.law.test.ts
+
+With omahaCbetRaiseIsPriced on (default OFF), in PLO4/PLO5 cash on the flop, a raise of the Horse's own continuation bet is ranged on the raiser's measured raise share: rho = (his lifetime public raises facing a first flop c-bet + K x the population share for the players and c-bet size) / (his opportunities + K), the range the top W x rho (clamped to [0.02, 0.95]) of holdings on the flop; no record gives the population share exactly; the option absent and false decide identically with identical receipts; PLO6, Hold'em and tournament spots get no c-bet line, so the option never acts there.
