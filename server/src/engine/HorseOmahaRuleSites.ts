@@ -369,6 +369,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaOpponentLifetimeHud: priced(
     'the per-opponent lifetime public HUD provider every priced comparison may read; it decides nothing by itself (an input, not a rule site)'
   ),
+  omahaOpponentLifetimeHudDecides: priced(
+    'the opponent read takes his counters from the lifetime HUD postflop, the one shrunk n/(n+k) mechanism every priced comparison reads (an input, not a rule site)'
+  ),
+  omahaPreflopReadIsPricedFromLifetime: priced(
+    'retires presumedAggressorRead on 3-6 seat PLO4/PLO5 cash preflop and prices widened maniac-pressure spots on six-max (sh) HUD cells (pf.*, pf.lr, pf.bvo) with n/(n+k) shrinkage'
+  ),
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
