@@ -1,7 +1,15 @@
 /** Owner 2026-11-06: isolated Backup qualification, daily-only replacement. */
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -1006,6 +1014,7 @@ gh() {
     );
     const inherit = backup.jobs.plan.steps.find((s: any) => s.id === 'inherit');
     const identityScript = read('scripts/ci/engine-source-identity.sh');
+    const repoDockerignore = read('server/.dockerignore');
     const candidate = 'a'.repeat(40);
     const pushBase = {
       INPUT_SHA: '',
@@ -1015,7 +1024,7 @@ gh() {
       GITHUB_REPOSITORY: 'o/r',
     };
     /** A repo whose engine identity is readable at every commit after C0. */
-    function fixture(options: { scriptFrom?: 'c1' } = {}) {
+    function fixture(options: { scriptFrom?: 'c1'; withDockerignore?: boolean } = {}) {
       const dir = mkdtempSync(resolve(tmpdir(), 'engine-identity-'));
       const cleanEnv = hookFreeEnv();
       const git = (...args: string[]) => {
@@ -1049,6 +1058,7 @@ gh() {
         read('scripts/ci/read-engine-prequalification.py')
       );
       if (!options.scriptFrom) write('scripts/ci/engine-source-identity.sh', identityScript);
+      if (options.withDockerignore !== false) write('server/.dockerignore', repoDockerignore);
       write(
         'server/Dockerfile',
         [
@@ -1067,7 +1077,17 @@ gh() {
       write('server/package-lock.json', '{"lockfileVersion":3}\n');
       write('server/native/kernel.cc', 'int main() {}\n');
       write('server/src/index.ts', 'export const v = 1;\n');
+      write('server/src/GameServer.ts', 'export const g = 1;\n');
+      write('server/src/benchmark/HorseLeague.ts', 'export const hl = 1;\n');
+      write('server/src/benchmark/SparringLeague.ts', 'export const sp = 1;\n');
+      write('server/src/benchmark/sparringRun.ts', 'export const sr = 1;\n');
+      write('server/src/benchmark/fixtures/snap.json', '{"v":1}\n');
+      write('server/src/engine/testing/frozenDecisionClock.ts', 'export const c = 1;\n');
+      write('server/src/testing/waitBudget.ts', 'export const w = 1;\n');
+      write('server/src/engine/__tests__/fixture.ts', 'export const f = 1;\n');
+      write('server/src/engine/helper.test-support.ts', 'export const h = 1;\n');
       write('server/src/index.test.ts', 'test 1\n');
+      write('server/src/engine/sample.law.test.ts', 'law 1\n');
       write('server/release-evidence/r.json', '{}\n');
       write('server/tests/engine.test.ts', 'test 1\n');
       write('server/standby/standby-engine.sh', 'echo standby 1\n');
@@ -1142,7 +1162,7 @@ gh() {
     describe('the identity script', () => {
       const f = fixture();
       afterAll(() => rmSync(f.dir, { recursive: true, force: true }));
-      it('is deterministic and names only the Dockerfile COPY sources, the Dockerfile and itself', () => {
+      it('is deterministic and names only the Dockerfile COPY sources, Dockerfile, .dockerignore and itself', () => {
         const a = f.identity(f.shas.c1, '--manifest');
         expect(a.status, a.stderr).toBe(0);
         const lines = a.stdout.trim().split('\n');
@@ -1150,44 +1170,98 @@ gh() {
         expect(identity).toMatch(/^[0-9a-f]{64}$/);
         expect(lines[0]).toMatch(/^identity-script [0-9a-f]{40}$/);
         expect(lines[1]).toMatch(/^dockerfile [0-9a-f]{40}$/);
-        expect(lines.slice(2).map((l) => l.split(' ')[1])).toEqual([
+        expect(lines[2]).toMatch(/^dockerignore [0-9a-f]{40}$/);
+        expect(lines.slice(3).map((l) => l.split(' ')[1])).toEqual([
           'native/kernel.cc',
           'package-lock.json',
           'package.json',
           'release-evidence',
           'src',
         ]);
+        expect(lines.find((l) => l.startsWith('copy src '))).toMatch(
+          /^copy src filtered-tree:[0-9a-f]{64}$/
+        );
         expect(lines.some((l) => l.includes('kernel.node'))).toBe(false);
         expect(f.identity(f.shas.c1).stdout.trim()).toBe(identity);
       });
-      it('changes when an enumerated input changes and not when anything outside it does', () => {
+      it('stays identical when only .dockerignore-excluded test, testing-helper or sparring files change', () => {
         const id = (s: string) => f.identity(s).stdout.trim();
         expect(id(f.shas.c0)).not.toBe(id(f.shas.c1));
         expect(id(f.shas.c2)).toBe(id(f.shas.c1));
         expect(id(f.shas.c3)).toBe(id(f.shas.c1));
-        f.write('server/src/index.test.ts', 'test 2\n');
-        const srcTest = f.commit('a test under src ships in the image');
-        expect(id(srcTest)).not.toBe(id(f.shas.c3));
-        f.write('server/package-lock.json', '{"lockfileVersion":3,"x":1}\n');
-        const lock = f.commit('lockfile');
-        expect(id(lock)).not.toBe(id(srcTest));
-        f.write('server/release-evidence/r.json', '{"a":1}\n');
-        const evidence = f.commit('evidence');
-        expect(id(evidence)).not.toBe(id(lock));
+        const baseline = id(f.shas.c3);
+        const excludedMutations: Array<[string, string]> = [
+          ['server/src/index.test.ts', 'test 2\n'],
+          ['server/src/engine/sample.law.test.ts', 'law 2\n'],
+          ['server/src/engine/testing/frozenDecisionClock.ts', 'export const c = 2;\n'],
+          ['server/src/testing/waitBudget.ts', 'export const w = 2;\n'],
+          ['server/src/engine/__tests__/fixture.ts', 'export const f = 2;\n'],
+          ['server/src/engine/helper.test-support.ts', 'export const h = 2;\n'],
+          ['server/src/benchmark/fixtures/snap.json', '{"v":2}\n'],
+          ['server/src/benchmark/SparringLeague.ts', 'export const sp = 2;\n'],
+          ['server/src/benchmark/sparringRun.ts', 'export const sr = 2;\n'],
+          ['server/src/benchmark/newBench.test.ts', 'added test\n'],
+        ];
+        for (const [path, content] of excludedMutations) {
+          f.write(path, content);
+          const next = f.commit(`mutate excluded ${path}`);
+          expect(id(next), `${path} must not change engine source identity`).toBe(baseline);
+        }
       });
-      it('changes when the Dockerfile COPY set or the script itself changes', () => {
+      it('changes when any runtime file, lockfile, release-evidence, Dockerfile, .dockerignore or script changes', () => {
         const id = (s: string) => f.identity(s).stdout.trim();
-        const before = f.git('rev-parse', 'HEAD');
+        let prev = f.git('rev-parse', 'HEAD');
+        const runtimeMutations: Array<[string, string]> = [
+          ['server/src/GameServer.ts', 'export const g = 2;\n'],
+          ['server/src/benchmark/HorseLeague.ts', 'export const hl = 2;\n'],
+          ['server/package-lock.json', '{"lockfileVersion":3,"x":1}\n'],
+          ['server/release-evidence/r.json', '{"a":1}\n'],
+        ];
+        for (const [path, content] of runtimeMutations) {
+          f.write(path, content);
+          const next = f.commit(`mutate runtime ${path}`);
+          expect(id(next), `${path} must change engine source identity`).not.toBe(id(prev));
+          prev = next;
+        }
+        f.write(
+          'server/.dockerignore',
+          readFileSync(resolve(f.dir, 'server/.dockerignore'), 'utf8') + '\n# comment\n'
+        );
+        const dockerignoreChanged = f.commit('dockerignore changed');
+        expect(id(dockerignoreChanged)).not.toBe(id(prev));
+        prev = dockerignoreChanged;
         f.write(
           'server/Dockerfile',
           readFileSync(resolve(f.dir, 'server/Dockerfile'), 'utf8') + 'COPY tests/ ./tests/\n'
         );
         const widened = f.commit('copy tests too');
-        expect(id(widened)).not.toBe(id(before));
+        expect(id(widened)).not.toBe(id(prev));
         expect(f.identity(widened, '--manifest').stdout).toContain('copy tests ');
         f.write('scripts/ci/engine-source-identity.sh', identityScript + '# revised\n');
         const revised = f.commit('identity script revised');
         expect(id(revised)).not.toBe(id(widened));
+      });
+      it('fails closed on unsupported .dockerignore syntax and preserves historical commits without .dockerignore', () => {
+        const legacy = fixture({ withDockerignore: false });
+        try {
+          const out = legacy.identity(legacy.shas.c1, '--manifest');
+          expect(out.status, out.stderr).toBe(0);
+          expect(out.stdout).toContain('dockerignore absent\n');
+          legacy.write('server/src/index.test.ts', 'legacy test edit\n');
+          const edited = legacy.commit('legacy commit without dockerignore includes test');
+          expect(legacy.identity(edited).stdout.trim()).not.toBe(
+            legacy.identity(legacy.shas.c1).stdout.trim()
+          );
+          for (const badRule of ['!src/keep.ts\n', 'src/[a-z].ts\n', 'src/foo**bar.ts\n']) {
+            legacy.write('server/.dockerignore', badRule);
+            const bad = legacy.commit(`bad rule ${badRule.trim()}`);
+            const res = legacy.identity(bad);
+            expect(res.status, `rule ${badRule.trim()} must fail closed`).not.toBe(0);
+            expect(res.stdout).toBe('');
+          }
+        } finally {
+          rmSync(legacy.dir, { recursive: true, force: true });
+        }
       });
       it('answers nothing for a commit that cannot be read, a non-sha, or one without the script or Dockerfile', () => {
         expect(f.identity('f'.repeat(40)).status).not.toBe(0);
@@ -1197,6 +1271,143 @@ gh() {
         const noDockerfile = f.commit('dockerfile gone');
         expect(f.identity(noDockerfile).status).not.toBe(0);
         expect(f.identity(noDockerfile).stdout).toBe('');
+      });
+      it('server/tsconfig.runtime.json excludes every TypeScript path ignored by server/.dockerignore and no runtime source imports an ignored path', () => {
+        const serverRoot = resolve(__dirname, '..', 'server');
+        const runtimeConfig = JSON.parse(read('server/tsconfig.runtime.json')) as {
+          exclude?: string[];
+        };
+        const tsconfigExcludes = new Set(runtimeConfig.exclude ?? []);
+        const rawRules = repoDockerignore
+          .split('\n')
+          .map((l) => l.replace(/\r$/, ''))
+          .filter((l) => !l.startsWith('#') && l.trim() !== '')
+          .map((l) => l.trim());
+        expect(rawRules.length).toBeGreaterThan(0);
+
+        const compilePattern = (rule: string): RegExp => {
+          expect(rule.startsWith('!'), `unsupported negation: ${rule}`).toBe(false);
+          expect(/[[\]\\]/.test(rule), `unsupported syntax: ${rule}`).toBe(false);
+          const norm = rule
+            .replace(/^(\.\/)+/, '')
+            .replace(/^\/+|\/+$/g, '')
+            .replace(/\/+/g, '/');
+          const segs = norm.split('/');
+          const parts: string[] = [];
+          for (let i = 0; i < segs.length; i++) {
+            const seg = segs[i]!;
+            if (seg === '**') {
+              if (i === segs.length - 1) parts.push(parts.length ? '(?:/.*)?' : '.*');
+              else parts.push(parts.length ? '/(?:.+/)?' : '(?:.+/)?');
+            } else {
+              if (parts.length && !parts[parts.length - 1]!.endsWith('/)?')) parts.push('/');
+              parts.push(
+                seg
+                  .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                  .replace(/\*/g, '[^/]*')
+                  .replace(/\?/g, '[^/]')
+              );
+            }
+          }
+          return new RegExp(`^${parts.join('')}$`);
+        };
+        const compiled = rawRules.map(compilePattern);
+        const isIgnored = (serverRel: string): boolean => {
+          const parts = serverRel.split('/');
+          for (let end = 1; end <= parts.length; end++) {
+            const prefix = parts.slice(0, end).join('/');
+            if (compiled.some((rx) => rx.test(prefix))) return true;
+          }
+          return false;
+        };
+
+        // Every TypeScript-relevant .dockerignore pattern must also be in tsconfig.runtime.json exclude.
+        for (const rule of rawRules) {
+          if (/\.(js|mjs|cjs)$/.test(rule)) continue;
+          const expectedTsExclude =
+            !rule.includes('*') && !/\.[a-z]+$/i.test(rule) ? `${rule}/**` : rule;
+          const dirFormCovered = rule.endsWith('/__tests__') && tsconfigExcludes.has(`${rule}/**`);
+          expect(
+            tsconfigExcludes.has(expectedTsExclude) || dirFormCovered,
+            `server/tsconfig.runtime.json "exclude" is missing ${expectedTsExclude} (from server/.dockerignore rule ${rule})`
+          ).toBe(true);
+        }
+
+        // Runtime modules must remain in the Docker context and identity.
+        for (const mustKeep of [
+          'src/index.ts',
+          'src/GameServer.ts',
+          'src/benchmark/HorseLeague.ts',
+          'src/benchmark/Plo4StrengthContract.ts',
+        ]) {
+          expect(isIgnored(mustKeep), `${mustKeep} must never be ignored`).toBe(false);
+        }
+
+        // Verified non-runtime files must be ignored.
+        for (const mustIgnore of [
+          'src/engine/testing/frozenDecisionClock.ts',
+          'src/engine/AHoldemTournamentAllInCallIsPriced.law.test.ts',
+          'src/testing/waitBudget.ts',
+          'src/engine/__tests__/public215Fixture.ts',
+          'src/benchmark/SparringLeague.ts',
+          'src/benchmark/sparringRun.ts',
+          'src/benchmark/fixtures/sparring-live-switches-20261120.json',
+        ]) {
+          expect(isIgnored(mustIgnore), `${mustIgnore} must be ignored`).toBe(true);
+        }
+
+        // Walk every non-ignored TypeScript runtime source and prove ZERO relative imports target an ignored path.
+        const walk = (dir: string, out: string[] = []): string[] => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) walk(full, out);
+            else if (/\.(ts|tsx|mts|cts)$/.test(entry.name)) out.push(full);
+          }
+          return out;
+        };
+        const importRe = /(?:from\s+|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g;
+        const violations: string[] = [];
+        for (const full of walk(join(serverRoot, 'src'))) {
+          const rel = relative(serverRoot, full).split(sep).join('/');
+          if (isIgnored(rel)) continue;
+          const text = readFileSync(full, 'utf8');
+          for (const m of text.matchAll(importRe)) {
+            const spec = m[1]!;
+            if (!spec.startsWith('.')) continue;
+            const resolvedBase = resolve(dirname(full), spec);
+            const candidates: string[] = [];
+            if (resolvedBase.endsWith('.js')) {
+              const stem = resolvedBase.slice(0, -3);
+              candidates.push(`${stem}.ts`, `${stem}.tsx`, `${stem}.js`);
+            } else if (resolvedBase.endsWith('.mjs')) {
+              const stem = resolvedBase.slice(0, -4);
+              candidates.push(`${stem}.mts`, `${stem}.mjs`);
+            } else if (resolvedBase.endsWith('.cjs')) {
+              const stem = resolvedBase.slice(0, -4);
+              candidates.push(`${stem}.cts`, `${stem}.cjs`);
+            } else {
+              candidates.push(
+                resolvedBase,
+                `${resolvedBase}.ts`,
+                `${resolvedBase}.tsx`,
+                join(resolvedBase, 'index.ts')
+              );
+            }
+            for (const cand of candidates) {
+              if (!existsSync(cand)) continue;
+              const targetRel = relative(serverRoot, cand).split(sep).join('/');
+              if (targetRel.startsWith('src/') && isIgnored(targetRel)) {
+                violations.push(`${rel} -> ${targetRel}`);
+              }
+              break;
+            }
+          }
+        }
+        expect(
+          violations,
+          `runtime source imports a server/.dockerignore-excluded file:\n${violations.join('\n')}`
+        ).toEqual([]);
       });
     });
     describe('the inherit step', () => {

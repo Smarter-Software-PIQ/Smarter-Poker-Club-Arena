@@ -346,9 +346,9 @@ migration commit identity must also match. Changed or unreadable qualification
 inputs stop the walk and run full certification; they are never skipped to find
 an older success.
 `bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
-exactly what `server/Dockerfile` copies into the image at that commit (plus
-the Dockerfile and the script itself), read from git blobs; `--manifest`
-lists the inputs. Walking the first-parent history (60 commits), the nearest
+exactly what `server/Dockerfile` copies into the image at that commit after
+applying `server/.dockerignore` (plus the Dockerfile, `.dockerignore` and the
+script itself), read from git objects; `--manifest` lists the inputs. Walking the first-parent history (60 commits), the nearest
 ancestor with the same identity decides: `success` there is written on the
 candidate as `Inherited from <sha>: identical engine source (<12hex>)` and
 the run plans nothing; `failure` or `error` there, a different identity, an
