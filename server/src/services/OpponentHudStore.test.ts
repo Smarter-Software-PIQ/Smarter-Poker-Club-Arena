@@ -861,8 +861,9 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
 
     // Flood NLH past HUD_CACHE_MAX clean entries: NLH evicts only NLH, never PLO4 or PLO5
     const nlhBatch = Array.from({ length: HUD_CACHE_MAX + 5 }, (_, i) => U(10_000 + i));
-    for (let i = 0; i < nlhBatch.length; i += 250) {
-      store.warm(nlhBatch.slice(i, i + 250), 'nlh', 'sit');
+    const batchSize = 250;
+    for (let i = 0; i < nlhBatch.length; i += batchSize) {
+      store.warm(nlhBatch.slice(i, i + batchSize), 'nlh', 'sit');
     }
     await flush();
     await flush();
