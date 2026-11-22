@@ -32,6 +32,7 @@ import {
   FLO8_SCRIPTED_POPULATION_ID,
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   NLH_SCRIPTED_POPULATION_ID,
+  PLO8_HU_SCRIPTED_POPULATION_ID,
   V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
 import {
@@ -563,14 +564,16 @@ const HUMAN_RESPONSE_ACTIONS = new Set(['fold', 'check', 'call', 'bet', 'raise',
 function isHumanFieldLeagueEvidence(value: Record<string, unknown>): boolean {
   // The human-calibrated field, (2026-10-31) the V53 aggressor field,
   // (2026-11-20) the scripted fixed-limit hold'em field (FixedLimitScriptedField.ts),
-  // (2026-11-21) the scripted no-limit field (NlhScriptedField.ts), or
-  // (2026-11-21) the scripted fixed-limit Omaha hi-lo field (Flo8ScriptedField.ts).
+  // (2026-11-21) the scripted no-limit field (NlhScriptedField.ts),
+  // (2026-11-21) the scripted fixed-limit Omaha hi-lo field (Flo8ScriptedField.ts), or
+  // (2026-11-21) the scripted PLO8 heads-up field (Plo8HuScriptedField.ts).
   if (
     value.opponentPopulation !== HUMAN_CALIBRATED_POPULATION_ID &&
     value.opponentPopulation !== V53_PRESSURE_POPULATION_ID &&
     value.opponentPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID &&
     value.opponentPopulation !== NLH_SCRIPTED_POPULATION_ID &&
-    value.opponentPopulation !== FLO8_SCRIPTED_POPULATION_ID
+    value.opponentPopulation !== FLO8_SCRIPTED_POPULATION_ID &&
+    value.opponentPopulation !== PLO8_HU_SCRIPTED_POPULATION_ID
   )
     return false;
   const responses = value.humanResponses;

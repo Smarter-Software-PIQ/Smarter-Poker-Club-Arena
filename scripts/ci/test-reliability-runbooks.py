@@ -42,8 +42,12 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'scripts/ci/fixtures/reliability-controller-production-objects.sql'
 STAGE_B = ROOT / 'supabase/migrations/20261110000020_reliability_controller_stage_b.sql'
 MIGRATION = ROOT / 'supabase/migrations/20261119234324_the_controller_runs_recovery_runbooks.sql'
-# Installed after it: a cron proof's fix evidence is a migration that redefines the function.
-FOLLOW_UPS = [ROOT / 'supabase/migrations/20261120011743_a_cron_proof_needs_a_migration_that_redefines_the_function.sql']
+# Installed after it: a cron proof's fix evidence is a migration that redefines the function,
+# and CutoverReadinessAtRisk is classified as release and diagnosed by cutover_diagnosis.
+FOLLOW_UPS = [
+    ROOT / 'supabase/migrations/20261120011743_a_cron_proof_needs_a_migration_that_redefines_the_function.sql',
+    ROOT / 'supabase/migrations/20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql',
+]
 
 PLATFORM = r"""
 ALTER TABLE public.profiles ADD COLUMN is_horse boolean, ADD COLUMN horse_status text;
@@ -99,6 +103,24 @@ CREATE TABLE public.lightning_hand (hand_history_id uuid);
 CREATE TABLE public.engine_maintenance_break_log (break_started_at timestamptz, break_ended_at timestamptz);
 CREATE TABLE smarter_private.ca_engine_cutover_days (chicago_day date PRIMARY KEY, checked_at timestamptz, serving_sha text,
   serving_since timestamptz, owed_sha text, owed_committed_at timestamptz, verdict text, reason text, alert_id bigint, resolved_at timestamptz);
+CREATE TABLE smarter_private.ca_cutover_readiness_runs (id bigserial PRIMARY KEY, cutover_day date NOT NULL, checked_at timestamptz NOT NULL,
+  verdict text NOT NULL, reasons jsonb NOT NULL DEFAULT '[]', unknowns jsonb NOT NULL DEFAULT '[]', facts jsonb NOT NULL DEFAULT '{}', alert_id bigint);
+CREATE TABLE public.engine_leader (id boolean PRIMARY KEY DEFAULT true, instance_id text, engine_version text, acquired_at timestamptz, heartbeat_at timestamptz);
+CREATE TABLE public.ca_guard_defs (proname text PRIMARY KEY, def_hash text, updated_at timestamptz, declared_ref text, declared_at timestamptz);
+CREATE TABLE public.ca_guard_inventory (kind text, object_a text, active boolean);
+CREATE TABLE public.ca_drift_incidents (id uuid PRIMARY KEY, status text NOT NULL);
+CREATE FUNCTION public.fn_ca_declare_guard_redefinition(p_proname text, p_ref text) RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO public.ca_guard_defs (proname, def_hash, updated_at, declared_ref, declared_at)
+  VALUES (p_proname, md5(p_proname), now(), p_ref, now())
+  ON CONFLICT (proname) DO UPDATE SET declared_ref = EXCLUDED.declared_ref, declared_at = now();
+  RETURN md5(p_proname);
+END $$;
+CREATE FUNCTION public.fn_ca_raise_drift_incident(p_source text, p_kind text, p_severity text, p_key text,
+  a5 numeric, a6 numeric, a7 numeric, a8 text, a9 text, a10 text, a11 text, a12 text, a13 text, a14 text,
+  a15 text, a16 text, a17 text, a18 text, p_detail text, a20 jsonb, p_context jsonb) RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$;
+CREATE FUNCTION public.fn_ca_ledger_invariant_refusal_watch() RETURNS integer LANGUAGE sql AS $$ SELECT 0 $$;
+CREATE FUNCTION public.fn_cron_failing_jobs() RETURNS TABLE(jobname text, is_guard boolean, failed_in_a_row integer, failing_since timestamptz, failed_of_last_20 integer, last_success timestamptz, last_error text) LANGUAGE sql AS $$ SELECT NULL::text, false, 0, NULL::timestamptz, 0, NULL::timestamptz, NULL::text WHERE false $$;
 CREATE TABLE public.engine_deploy_exit_paths (run_id text, stage text, outcome text, error text, release_result text,
   recorded_at timestamptz, target_sha text);
 CREATE TABLE public.stub_http (url_like text, body jsonb);
@@ -403,6 +425,21 @@ def main():
         a = attempts(rel)
         assert a[-1]['detail']['cause'] == 'owed_build_carries_uninstalled_migrations' and a[-1]['detail']['uninstalled_migrations'] == ['20261119181143'], a
         ok('the cutover runbook attaches the precise cause, reads only GitHub GETs and requests nothing')
+
+        # CutoverReadinessAtRisk classifies as release, rakeback_settler_read_horizon_held as money_integrity,
+        # and cutover_diagnosis diagnoses CutoverReadinessAtRisk from ca_cutover_readiness_runs with zero dispatches.
+        assert sql("SELECT (smarter_private.reliability_classify('cutover-readiness-watch', 'CutoverReadinessAtRisk', 'critical', false)).incident_class") == 'release'
+        assert sql("SELECT (smarter_private.reliability_classify('rakeback-settler-read-horizon', 'rakeback_settler_read_horizon_held', 'warning', false)).incident_class") == 'money_integrity'
+        sql(f"""INSERT INTO smarter_private.ca_cutover_readiness_runs (cutover_day, checked_at, verdict, reasons, facts, alert_id)
+                VALUES ('2026-11-22', '2026-11-22 09:00:00+00', 'not_ready',
+                        '["no Backup-certified build the 03:30 selection can take"]'::jsonb,
+                        jsonb_build_object('serving_sha', '{SERVING}', 'baseline_sha', '{OWED}'), 447351)""")
+        readiness_inc = incident('release', 'CutoverReadinessAtRisk', '{}', 'escalated', '{"inbox_event_id": 447351}')
+        run(T0, incident=readiness_inc)
+        a = attempts(readiness_inc)
+        assert a[-1]['outcome'] == 'diagnosed' and a[-1]['detail']['cause'] == 'cutover_readiness_at_risk', a
+        assert 'no Backup-certified build' in a[-1]['summary'] and 'nothing was requested' in a[-1]['summary'], a
+        ok('CutoverReadinessAtRisk classifies as release and cutover_diagnosis diagnoses it read-only')
 
         # ------------------------------------------------------------- hand gap
         tt = sql("INSERT INTO public.tournaments (id, tournament_type, status, club_id, break_started_at, break_ends_at, is_rebuy) VALUES "

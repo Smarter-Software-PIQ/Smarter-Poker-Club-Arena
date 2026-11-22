@@ -23,10 +23,14 @@
  */
 import type { SeatPlayer } from '../../types.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
-import { decideOmahaMathCore } from './OmahaMathCore.js';
+import { decideOmahaMathCore, rakeNet } from './OmahaMathCore.js';
 import { resetOmahaBestMemo } from './OmahaMathCoreEval.js';
 import { clearPlaybookBlockerCache } from './OmahaMathCorePlaybookBlockers.js';
 import { omahaMathCoreState } from './OmahaMathCoreRule.js';
+import {
+  OMAHA_MATH_CORE_TR_FW_EDGES,
+  priceTurnRiverLifetimeCall,
+} from './OmahaMathCoreTurnRiver.js';
 import { clearOmahaMathCoreWireCaches } from './OmahaMathCoreWire.js';
 
 const card = (s: string) => ({ rank: s.slice(0, -1), suit: s.slice(-1) });
@@ -213,6 +217,31 @@ export function warmOmahaMathCore(now: () => number = () => performance.now()): 
         ok = ok && priced;
         const key = `${shape.variant ?? 'plo5'}|${shape.stage ?? 'flop'}`;
         if (priced && !warmed.includes(key)) warmed.push(key);
+      } catch {
+        ok = false;
+      }
+    }
+    // B3 turn/river HUD pricing warm-up (lane core-repair, 2026-11-22): warm holdsCurrentNuts +
+    // priceTurnRiverLifetimeCall (5-card/4-card board evaluation & polarized pool) on synthetic
+    // public turn/river spots so the first live turn/river decision never pays cold JIT compilation.
+    const warmBins = new Array<number>(OMAHA_MATH_CORE_TR_FW_EDGES.length + 1).fill(0);
+    warmBins[warmBins.length - 1] = 160;
+    const warmCounts = { opps: 200, bets: 160, bins: warmBins, priorRate: 0.3 };
+    for (const { variant, stage } of OMAHA_MATH_CORE_WARM_STREETS) {
+      if (stage !== 'turn' && stage !== 'river') continue;
+      try {
+        const { player, gs } = warmSpot(streetShape(variant, stage));
+        const st = omahaMathCoreState(player, gs);
+        const tr = priceTurnRiverLifetimeCall({
+          state: st,
+          counts: warmCounts,
+          pooledCounts: warmCounts,
+          barrel: null,
+          riverCounts: null,
+          net: (p) => rakeNet(st, p),
+          k: 5,
+        });
+        ok = ok && tr.applies === true;
       } catch {
         ok = false;
       }
