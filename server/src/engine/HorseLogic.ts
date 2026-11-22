@@ -16573,8 +16573,9 @@ export function holdemAllInCallReversal(
  * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, runs after the reference chooses its
  * action so a raise or raising all-in is never removed and exact Nash V2 / PioSolver chart_bb_defend answers
  * on lone open-jams stay intact; every other in-scope fold or call is answered by its price (clearing any
- * variant_price route when the priced answer takes ownership). Postflop the price is taken here (the engine's
- * equity is known now) and a call or fold beyond the lock is turned to the priced answer.
+ * chart_open_jam or variant_price route to the active preflop reference owner — intent_engine under V7,
+ * legacy_preflop otherwise — when the priced answer takes ownership). Postflop the price is taken here (the
+ * engine's equity is known now) and a call or fold beyond the lock is turned to the priced answer.
  */
 function holdemAllInCallReference(
   decision: HorseDecision,
@@ -16604,7 +16605,7 @@ function holdemAllInCallReference(
       phase6Ref &&
       (phase6Ref.route === 'chart_open_jam' || phase6Ref.route === 'variant_price')
     ) {
-      phase6Ref.route = 'legacy_preflop';
+      phase6Ref.route = (opts.v7Preflop ?? opts.v7 !== false) ? 'intent_engine' : 'legacy_preflop';
       phase6Ref.lookup = null;
     }
     if (tele) {
