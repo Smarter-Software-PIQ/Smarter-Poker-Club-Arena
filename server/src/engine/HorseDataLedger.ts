@@ -2864,6 +2864,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Flop/turn bluff baseline'
   ),
   flag(
+    'holdemFlopTurnBluffIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for flopTurnBluffBaseline (A3, REVIEW-HOLDEM-OFFLIST-20261121.md §5) on unopened / checked-to flops and turns in single-board 2-card NLH; evaluates legal candidate bluff and semi-bluff bet sizes (0.33x, 0.55x, 0.75x, 1.0x pot / stack cap) vs realized EV(check) deterministically using empirical NLH flop/turn fold-to-bet curves, multiway discount, selection-bias surplus retention, and draw equity realization (HorseHoldemFlopTurnBluffIsPriced); zero fastRandom coin flips, independent of flopTurnBluffBaseline, zero PLO4/5/6 reach',
+    'Horse Switch'
+  ),
+  flag(
     'riverBluffBaseline',
     'baseline heads-up river bluff range (HorseRiverBluffRange): air and missed draws on a coherent line bluff at the balanced rate for the bet size, blockers first, reads reshaping it and never zero without one; default on, false ablates (Dan 2026-11-06)',
     'River bluff baseline'
@@ -9335,6 +9340,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_bet_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn qualified bluff/semi-bluff placed a priced bet because EV(bestBet) beat realized EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_semibluff_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn draw candidate (strongDraw, pairDraw, or weakDraw) placed a priced semi-bluff bet',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_air_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn non-draw candidate (backdoor, overcards, or blocker) placed a priced bluff bet',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_check_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn qualified bluff/semi-bluff candidate checked deterministically because no legal bet size beat realized EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_station_check_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn qualified bluff/semi-bluff candidate checked deterministically against a confirmed calling station',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn priced bluff bet could not be legalized as a bet or all-in',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.

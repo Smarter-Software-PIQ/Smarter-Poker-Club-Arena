@@ -3284,6 +3284,36 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  // 2026-11-22 Horse Switch lane (holdemFlopTurnBluffIsPriced, default OFF, dark):
+  // arm B keeps production flopTurnBluffBaseline on; arm A switches on its EV-priced replacement
+  // (HorseHoldemFlopTurnBluffIsPriced.ts) on unopened / checked-to single-board 2-card NLH flops
+  // and turns. Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via
+  // horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_flop_turn_bluff_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { flopTurnBluffBaseline: true, holdemFlopTurnBluffIsPriced: true },
+    b: { flopTurnBluffBaseline: true },
+  },
+  // The same question heads-up, where unopened / checked-to NLH flop and turn spots are frequent.
+  {
+    name: 'hu_holdem_flop_turn_bluff_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { flopTurnBluffBaseline: true, holdemFlopTurnBluffIsPriced: true },
+    b: { flopTurnBluffBaseline: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
