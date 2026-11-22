@@ -131,6 +131,15 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-21 (B4): priced 6-max preflop HUD reads the same absent history (omahaPreflopReadIsPricedFromLifetime).
         'plo4_omaha_preflop_read_is_priced_from_lifetime',
         'plo5_omaha_preflop_read_is_priced_from_lifetime',
+        // 2026-11-22 (HORSE DECISIONS lane): HorseLeague deals single-board hands only (boardCount: 1),
+        // while multiBoardFreerollIsPriced acts strictly on multiBoard36 hands (nBoards36 >= 2).
+        'multiboard_freeroll_is_priced',
+        // 2026-11-22 (HORSE DECISIONS lane): HorseLeague deals single-board hands only (boardCount: 1),
+        // while multiBoardNonFreerollIsPriced acts strictly on multiBoard36 non-freeroll hands (nBoards36 >= 2).
+        'multiboard_non_freeroll_is_priced',
+        // 2026-11-22 (HORSE DECISIONS lane): HorseLeague deals single-board hands only (boardCount: 1),
+        // while multiBoardBluffTrimIsPriced acts strictly on multiBoard36 hands (nBoards36 >= 2).
+        'multiboard_bluff_trim_is_priced',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

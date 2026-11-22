@@ -55,6 +55,7 @@ import type { PayoutPlace } from '../tournament/details/types';
 import { staffTickLine, tickIsStale } from './cashGameTick';
 import { lobbyDayStart } from './lobbyDay';
 import { titleCase } from '../../utils/titleCase';
+import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import './GameLobbyPanel.css';
 import './PremiumGameLobbyPanel.css';
 import { formatPrizeAtUnit, formatTableChips } from '../../utils/format';
@@ -1192,14 +1193,19 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                     <div>
                       <dt>Starts</dt>
                       <dd>
-                        {entry.startTime && Number.isFinite(new Date(entry.startTime).getTime())
-                          ? new Date(entry.startTime).toLocaleString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })
-                          : 'When Full'}
+                        {entry.kind === 'spin' ||
+                        entry.kind === 'sng' ||
+                        tournamentStartsWhenFull(entry.raw) ||
+                        (tournament && tournamentStartsWhenFull(tournament))
+                          ? 'When Full'
+                          : entry.startTime && Number.isFinite(new Date(entry.startTime).getTime())
+                            ? new Date(entry.startTime).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })
+                            : 'When Full'}
                       </dd>
                     </div>
                     {/* The lobby row already carries starting_chips, and the
