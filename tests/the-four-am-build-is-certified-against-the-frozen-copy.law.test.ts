@@ -35,9 +35,15 @@ const num = (re: RegExp, text: string) => {
   if (!m) throw new Error(`not found: ${re}`);
   return m.slice(1).map(Number);
 };
-const [freezeH, freezeM] = num(/RELEASE_SCHEMA_FREEZE_CHICAGO\s*=\s*\{\s*from:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/, dispatcher);
+const [freezeH, freezeM] = num(
+  /RELEASE_SCHEMA_FREEZE_CHICAGO\s*=\s*\{\s*from:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/,
+  dispatcher
+);
 const selector = read('scripts/ci/select-daily-engine.py');
-const [selH, selM] = num(/def cutoff\(day\):\s*\n\s*return [\s\S]*?time\((\d+),\s*(\d+)\)/, selector);
+const [selH, selM] = num(
+  /def cutoff\(day\):\s*\n\s*return [\s\S]*?time\((\d+),\s*(\d+)\)/,
+  selector
+);
 const [runWorst] = num(/BACKUP_RUN_WORST_MINUTES\s*=\s*(\d+)/, reader);
 const [settle] = num(/SETTLE\s*=\s*timedelta\(minutes=(\d+)\)/, reader);
 
@@ -60,13 +66,21 @@ describe('the Backup certifies the build the freeze can ship', () => {
   it('asks the freeze-baseline reader before anything can supersede or skip the run', () => {
     const ask = plan.indexOf('scripts/ci/backup-freeze-baseline.py?ref=main');
     expect(ask).toBeGreaterThan(0);
-    for (const later of ['SUPERSEDED:', 'RETARGETED:', 'ALREADY CERTIFIED:', 'inherit_eligible=true']) {
+    for (const later of [
+      'SUPERSEDED:',
+      'RETARGETED:',
+      'ALREADY CERTIFIED:',
+      'inherit_eligible=true',
+    ]) {
       expect(plan.indexOf(later)).toBeGreaterThan(ask);
     }
   });
 
   it('a due answer certifies exactly that build with the copy refreshed, and stops planning', () => {
-    const block = plan.slice(plan.indexOf('if [ "$baseline_state" = due ]'), plan.indexOf('SUPERSEDED:'));
+    const block = plan.slice(
+      plan.indexOf('if [ "$baseline_state" = due ]'),
+      plan.indexOf('SUPERSEDED:')
+    );
     expect(block).toContain('echo "sha=$baseline" >> "$GITHUB_OUTPUT"');
     expect(block).toContain('echo "refresh=force" >> "$GITHUB_OUTPUT"');
     expect(block).toContain('exit 0');
@@ -123,6 +137,10 @@ describe('the cutover watch owes the same build', () => {
     // the cutover date: its offset from that date's midnight is negative.
     const start = freezeH * 60 + freezeM;
     const fromMidnight = (start >= 12 * 60 ? start - 24 * 60 : start) - settle;
-    expect(sql).toContain(`(v_day::timestamp + interval ''${fromMidnight} minutes'') AT TIME ZONE c_tz`);
+    expect(sql).toMatch(
+      new RegExp(
+        `\\(v_day::timestamp \\+ interval ''?${fromMidnight} minutes''?\\) AT TIME ZONE c_tz`
+      )
+    );
   });
 });
