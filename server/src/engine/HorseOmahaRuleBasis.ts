@@ -603,6 +603,22 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
     'scope',
     'counts a PLO4/PLO5 cash decision made with a listed blanket row passed off; it marks the scope, it decides nothing'
   ),
+  omaha_math_core_fallback_core_error: exempt(
+    'legality',
+    'CORE-FIX-1 (#11684) fail-safe counter when omahaMathCore throws and falls back to the rules decision; decides nothing'
+  ),
+  omaha_math_core_fallback_equity_collision: exempt(
+    'legality',
+    'CORE-FIX-1 (#11684) fail-safe counter when narrow range sampling collides and falls back to the unconditioned pool; decides nothing'
+  ),
+  omaha_math_core_fallback_tracker_failure: exempt(
+    'legality',
+    'CORE-FIX-1 (#11684) fail-safe counter when range tracking throws and falls back to untracked public ranges; decides nothing'
+  ),
+  omaha_math_core_fallback_value_search_error: exempt(
+    'legality',
+    'CORE-FIX-1 (#11684) fail-safe counter when wired value search throws and falls back to the one-step loop; decides nothing'
+  ),
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
   omaha_river_checked_to_bet_measured: {
     kind: 'priced',
