@@ -272,7 +272,8 @@ export function plo6FacingBetPricedV2Scope(
       gs.communityCards3?.length ||
       gs.bombPot === true ||
       gs.allInOrFold ||
-      gs.wagersCapped === true
+      gs.wagersCapped === true ||
+      gs.bettingStructure === 'fixed_limit'
     )
       return null;
     const street: Plo6V2Street | null =

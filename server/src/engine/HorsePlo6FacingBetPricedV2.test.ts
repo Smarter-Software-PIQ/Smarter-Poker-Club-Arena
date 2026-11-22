@@ -6,7 +6,12 @@ import type { Card, SeatPlayer } from '../types.js';
 import { HorseLogic, plo6FacingBetPricedV2VerdictOf, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
-import { plo6FacingBetPricedV2, plo6V2Spot } from './HorsePlo6FacingBetPricedV2.js';
+import {
+  plo6FacingBetPricedV2,
+  plo6FacingBetPricedV2Scope,
+  plo6V2Spot,
+} from './HorsePlo6FacingBetPricedV2.js';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import {
   actionKind,
   replayProfiles,
@@ -188,29 +193,156 @@ describe('HorsePlo6FacingBetPricedV2: root-cause fixes for F6 bleed and HVH48 ri
   });
 
   it('Default OFF: unset, false, and truthy non-boolean produce byte-identical decisions on all audit fixtures', () => {
-    for (const h of FIXTURE.hands) {
-      for (const ord of h.ords) {
-        const node = h.hand.actions.find(
-          (a) => (a as unknown as { ord: number }).ord === ord
-        )! as ComplaintAction;
-        const st = stateAt(h.hand, node);
-        const run = (opts: Record<string, unknown>) => {
+    withFrozenDecisionClock(() => {
+      for (const h of FIXTURE.hands) {
+        for (const ord of h.ords) {
+          const node = h.hand.actions.find(
+            (a) => (a as unknown as { ord: number }).ord === ord
+          )! as ComplaintAction;
+          const st = stateAt(h.hand, node);
+          const run = (opts: Record<string, unknown>) => {
+            seedFastRandom(7);
+            HorseMind.reset();
+            return JSON.stringify(
+              withoutMeasurements(
+                HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+                  mind: false,
+                  ...opts,
+                } as never)
+              )
+            );
+          };
+          const unset = run({});
+          expect(run({ plo6FacingBetIsPricedV2: false })).toBe(unset);
+          expect(run({ plo6FacingBetIsPricedV2: 'yes' })).toBe(unset);
+          expect(run({ plo6FacingBetIsPricedV2: 1 as unknown as boolean })).toBe(unset);
+        }
+      }
+    });
+  });
+
+  it('Scope isolation: returns null and decides byte-identically on PLO4, PLO5, NLH, tournament, hi-lo, multi-board, bomb pot, AoF, and fixed-limit', () => {
+    const baseHero: SeatPlayer = {
+      seat: 2,
+      user_id: '00000000-0000-4000-8000-000000000002',
+      name: 'hero',
+      stack: 120,
+      bet: 0,
+      totalInvested: 40,
+      cards: cards('Ah Kh Qd Jd 9c 8c'),
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+      is_horse: true,
+    } as unknown as SeatPlayer;
+    const baseBettor: SeatPlayer = {
+      seat: 1,
+      user_id: '00000000-0000-4000-8000-000000000001',
+      name: 'bettor',
+      stack: 80,
+      bet: 40,
+      totalInvested: 80,
+      cards: [],
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    } as unknown as SeatPlayer;
+    const baseGs: HorseGameStateV2 = {
+      gameVariant: 'plo6',
+      gameMode: 'cash',
+      bettingStructure: 'pot_limit',
+      stage: 'river',
+      boardCount: 1,
+      bombPot: false,
+      allInOrFold: false,
+      wagersCapped: false,
+      rakeConfig: { percent: 0, cap: 0 },
+      bigBlind: 2,
+      smallBlind: 1,
+      dealerSeat: 2,
+      pot: 120,
+      currentBet: 40,
+      toCall: 40,
+      minRaiseTo: 80,
+      maxRaiseTo: 200,
+      communityCards: cards('7h 7s 5h 3h 2c'),
+      players: [baseBettor, baseHero],
+      legalActions: ['fold', 'call', 'raise', 'all_in'],
+      actionHistory: [
+        { userId: 'u1', seat: 1, stage: 'preflop', action: 'raise', amount: 7, timestamp: 1 },
+        { userId: 'u2', seat: 2, stage: 'preflop', action: 'call', amount: 5, timestamp: 2 },
+        { userId: 'u1', seat: 1, stage: 'river', action: 'bet', amount: 40, timestamp: 3 },
+      ],
+    } as unknown as HorseGameStateV2;
+
+    const cases: Array<{ label: string; hero: SeatPlayer; gs: HorseGameStateV2 }> = [
+      {
+        label: 'plo4',
+        hero: { ...baseHero, cards: cards('Ah Kh Qd Jd') },
+        gs: { ...baseGs, gameVariant: 'plo4' },
+      },
+      {
+        label: 'plo5',
+        hero: { ...baseHero, cards: cards('Ah Kh Qd Jd 9c') },
+        gs: { ...baseGs, gameVariant: 'plo5' },
+      },
+      {
+        label: 'nlh',
+        hero: { ...baseHero, cards: cards('Ah Kh') },
+        gs: { ...baseGs, gameVariant: 'nlh' },
+      },
+      {
+        label: 'plo6_tournament',
+        hero: baseHero,
+        gs: { ...baseGs, gameMode: 'tournament' },
+      },
+      {
+        label: 'plo6_hilo',
+        hero: baseHero,
+        gs: { ...baseGs, variantRules: { splitLow8OrBetter: true } as never },
+      },
+      {
+        label: 'plo6_multiboard',
+        hero: baseHero,
+        gs: { ...baseGs, boardCount: 2 },
+      },
+      {
+        label: 'plo6_bomb_pot',
+        hero: baseHero,
+        gs: { ...baseGs, bombPot: true },
+      },
+      {
+        label: 'plo6_aof',
+        hero: baseHero,
+        gs: { ...baseGs, allInOrFold: true },
+      },
+      {
+        label: 'plo6_fixed_limit',
+        hero: baseHero,
+        gs: { ...baseGs, bettingStructure: 'fixed_limit' },
+      },
+    ];
+
+    withFrozenDecisionClock(() => {
+      for (const c of cases) {
+        const gsWithHero = { ...c.gs, players: [baseBettor, c.hero] } as HorseGameStateV2;
+        expect(plo6FacingBetPricedV2Scope(c.hero, gsWithHero), c.label).toBeNull();
+        expect(plo6V2Spot(c.hero, gsWithHero), c.label).toBeNull();
+        const decide = (opts: Record<string, unknown>) => {
           seedFastRandom(7);
           HorseMind.reset();
           return JSON.stringify(
             withoutMeasurements(
-              HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+              HorseLogic.decide(c.hero, gsWithHero, LIVE.style, LIVE.mods, {
                 mind: false,
                 ...opts,
               } as never)
             )
           );
         };
-        const unset = run({});
-        expect(run({ plo6FacingBetIsPricedV2: false })).toBe(unset);
-        expect(run({ plo6FacingBetIsPricedV2: 'yes' })).toBe(unset);
+        expect(decide({ plo6FacingBetIsPricedV2: true }), c.label).toBe(decide({}));
       }
-    }
+    });
   });
 
   it('Receipt validator admits every V2 decision under plo6FacingBetIsPricedV2: true and refuses V2 fold->call when gate is off', () => {
