@@ -885,6 +885,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V67'
   ),
   flag(
+    'v67RiverBetRaisedOnePairIsPriced',
+    '2026-11-22 default OFF (read === true, dark in OPTION_SWITCH_REFUSED, Horse Switch lane): deterministic EV-priced single-board 2-card NLH river replacement for all three v67RiverBetRaisedOnePair blanket sites (river raise stratum, block-bet raised blanket fold, and v67Class/shade67 committed & V38 river overrides) via HorseV67RiverBetRaisedOnePairPriced backed by holdemEmpiricalPriors.ts; independent of v67RiverBetRaisedOnePair, zero PLO/flop/turn/multi-board reach, 100% bit-identical when OFF or unset',
+    'Horse Switch'
+  ),
+  flag(
     'v88CommitmentHonored',
     '2026-11-11 cash Omaha high, single board, heads-up, not over hero own raised wager, no non-nut straight or flush and no board-dominated hand: a made hand that called a wager on the previous street and now needs its whole stack at 0.345 of the pot or better does not fold when the new card neither completes a draw it does not beat nor pairs the board under trips and its uncapped range equity clears the price; hand 58656644 called a flop check-raise leaving 936 behind 1,212 and folded a blank turn at 0.32 capped equity against a 0.3235 bar; explicit off arm retained',
     'V88'
@@ -9466,6 +9471,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_call_taken',
+    'HorseLogic facing-a-bet river (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river bet-then-raised bluff-catcher called deterministically because risk-adjusted EV(call) > 0',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_fold_taken',
+    'HorseLogic facing-a-bet river (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river bet-then-raised bluff-catcher folded deterministically because risk-adjusted EV(call) <= 0',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_block_bet_call_taken',
+    'HorseLogic facing-a-bet river block-bet site (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river block-bet-then-raised bluff-catcher called deterministically because risk-adjusted EV(call) > 0 (replacing the blanket block-bet fold)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_block_bet_fold_taken',
+    'HorseLogic facing-a-bet river block-bet site (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river block-bet-then-raised bluff-catcher folded deterministically because risk-adjusted EV(call) <= 0',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.

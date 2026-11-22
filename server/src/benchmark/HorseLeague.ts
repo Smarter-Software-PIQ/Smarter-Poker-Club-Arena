@@ -3284,6 +3284,49 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  // 2026-11-22 Horse Switch lane (v67RiverBetRaisedOnePairIsPriced, default OFF, dark):
+  // arm B keeps production v67RiverBetRaisedOnePair on; arm A switches on its EV-priced NLH
+  // river replacement (HorseV67RiverBetRaisedOnePairPriced.ts) across all three V67 sites
+  // (river raise stratum, block-bet raised fold, and v67Class/shade67 committed & V38 overrides).
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_v67_river_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v67RiverBetRaisedOnePair: true, v67RiverBetRaisedOnePairIsPriced: true },
+    b: { v67RiverBetRaisedOnePair: true },
+  },
+  // Full-ring 9-max guard card: multiway river raised-bet bluff-catch density.
+  {
+    name: 'cash9_v67_river_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v67RiverBetRaisedOnePair: true, v67RiverBetRaisedOnePairIsPriced: true },
+    b: { v67RiverBetRaisedOnePair: true },
+  },
+  // Heads-up guard card: active HU river bet-then-raised one-pair & block-bet spots.
+  {
+    name: 'hu_v67_river_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v67RiverBetRaisedOnePair: true, v67RiverBetRaisedOnePairIsPriced: true },
+    b: { v67RiverBetRaisedOnePair: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
