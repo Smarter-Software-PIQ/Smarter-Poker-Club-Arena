@@ -84,15 +84,38 @@ export const DAILY_GUARD_CHICAGO = { from: [3, 50], until: [4, 10] };
  */
 export const RELEASE_SCHEMA_FREEZE_CHICAGO = { from: [23, 45], until: [4, 15] };
 /**
+ * AUTOMATIC PER-CYCLE PRE-CUTOFF DEFERRAL FOR THREE-HOURLY ENGINE CUTOVERS
+ * (2026-11-21, Optimization O3).
+ *
+ * When the serving engine runs the three-hourly cadence (01, 04, 07, 10, 13,
+ * 16, 19, 22 America/Chicago; server/src/maintenance/maintenanceSchedulePolicy.json),
+ * an ordinary migration installed between the Backup DB refresh and the :30
+ * preparation cutoff breaks `Backup copy migrations == production installed
+ * migrations`. Deferring merges inside [cycleStart - 90m, cycleStart + 10m)
+ * until cycleStart + 10m (strictly :10 UTC, outside the :50-:03 DDL refusal
+ * window) inside this same single bounded dispatcher run eliminates manual
+ * cross-chat migration holds without adding any cron, watcher or retry loop.
+ * The 04:00 anchor remains covered by the wider RELEASE_SCHEMA_FREEZE_CHICAGO
+ * (23:45-04:15 America/Chicago).
+ */
+export const THREE_HOURLY_START_HOURS = [1, 4, 7, 10, 13, 16, 19, 22];
+export const THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES = 90;
+export const THREE_HOURLY_POST_SEAL_CLEAR_MINUTE = 10;
+/**
  * The one bounded wait the merger may spend outside the nightly release
- * schema freeze. It covers every ordinary file at any minute of the day: the
- * worst hourly case is a merge at :49 waiting to :04 (15 min). Only a
- * CONCURRENTLY-preamble file merged late in the hour can exceed it, and that
- * is refused out loud. A hold by RELEASE_SCHEMA_FREEZE_CHICAGO (worst: a
- * merge at 23:45 Chicago held to 04:15, 270 min) has its own bound,
- * RELEASE_FREEZE_WAIT_BUDGET_MINUTES (job timeout 300 minutes).
+ * schema freeze and three-hourly cycle deferral. It covers every ordinary file
+ * at any minute of the day: the worst hourly case is a merge at :49 waiting to
+ * :04 (15 min). Only a CONCURRENTLY-preamble file merged late in the hour can
+ * exceed it, and that is refused out loud. A hold by
+ * RELEASE_SCHEMA_FREEZE_CHICAGO (worst: 270 min on daily, 285 min when 01:00
+ * three-hourly deferral meets 23:45) has its own bound,
+ * RELEASE_FREEZE_WAIT_BUDGET_MINUTES (job timeout 300 minutes); a daytime
+ * non-04:00 three-hourly deferral (worst: 100 min) has
+ * THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES.
  */
 export const WAIT_BUDGET_MINUTES = 22;
+/** The longer bounded wait allowed for a daytime non-04:00 three-hourly cutover deferral. */
+export const THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES = 115;
 /** The longer bounded wait allowed only for a hold by the nightly release schema freeze. */
 export const RELEASE_FREEZE_WAIT_BUDGET_MINUTES = 285;
 /** How far ahead the planner looks for an admitted instant. */
@@ -104,9 +127,17 @@ const chicago = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
   hourCycle: 'h23',
 });
+const chicagoHourOnly = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  hour: '2-digit',
+  hourCycle: 'h23',
+});
 function chicagoMinuteOfDay(ms) {
   const parts = Object.fromEntries(chicago.formatToParts(ms).map((p) => [p.type, p.value]));
   return Number(parts.hour) * 60 + Number(parts.minute);
+}
+function chicagoHour(ms) {
+  return Number(chicagoHourOnly.format(ms));
 }
 const inDailyGuard = (ms) => {
   const m = chicagoMinuteOfDay(ms);
@@ -122,6 +153,63 @@ export function inReleaseSchemaFreeze(ms) {
   return from > until ? m >= from || m < until : m >= from && m < until;
 }
 
+/** True when `schedule` explicitly selects the three-hourly cutover cadence. */
+export function isThreeHourlySchedule(schedule) {
+  if (!schedule) return false;
+  if (schedule === 'three-hourly') return true;
+  if (typeof schedule === 'object') {
+    return schedule.frequency === 'three-hourly' || schedule.threeHourly === true;
+  }
+  return false;
+}
+
+/**
+ * True when whole-UTC-hour `hourMs` is a scheduled three-hourly cycle start
+ * (DST-aware: only the first 01:00 on fall-back day; never an invented hour).
+ */
+function isThreeHourlyCycleStart(hourMs) {
+  const hour = chicagoHour(hourMs);
+  if (!THREE_HOURLY_START_HOURS.includes(hour)) return false;
+  return chicagoHour(hourMs - 3_600_000) !== hour;
+}
+
+/**
+ * If `ms` falls inside [cycleStart - 90m, cycleStart + 10m) for any non-04:00
+ * three-hourly cycle, return details of that cycle deferral window; else null.
+ * The 04:00 anchor is already covered by RELEASE_SCHEMA_FREEZE_CHICAGO.
+ */
+export function threeHourlyDeferralWindow(ms) {
+  const baseHour = Math.floor(ms / 3_600_000) * 3_600_000;
+  const deferMs = THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES * 60_000;
+  const clearMs = THREE_HOURLY_POST_SEAL_CLEAR_MINUTE * 60_000;
+  for (let offset = 0; offset <= 2; offset++) {
+    const cycleStartMs = baseHour + offset * 3_600_000;
+    if (!isThreeHourlyCycleStart(cycleStartMs)) continue;
+    const cycleHour = chicagoHour(cycleStartMs);
+    if (cycleHour === 4) continue;
+    if (ms >= cycleStartMs - deferMs && ms < cycleStartMs + clearMs) {
+      const clearAtMs = cycleStartMs + clearMs;
+      const cycleLabel = `${String(cycleHour).padStart(2, '0')}:00`;
+      const clearLabel = `${String(cycleHour).padStart(2, '0')}:${String(THREE_HOURLY_POST_SEAL_CLEAR_MINUTE).padStart(2, '0')}`;
+      return {
+        cycleHour,
+        cycleLabel,
+        clearLabel,
+        cycleStartMs,
+        clearAtMs,
+        cycleStartAt: new Date(cycleStartMs).toISOString(),
+        clearAt: new Date(clearAtMs).toISOString(),
+      };
+    }
+  }
+  return null;
+}
+
+/** True when `ms` is inside a non-04:00 three-hourly pre-cutoff deferral window. */
+export function inThreeHourlyCutoverDeferral(ms, schedule = 'three-hourly') {
+  return isThreeHourlySchedule(schedule) && threeHourlyDeferralWindow(ms) !== null;
+}
+
 /** Minutes needed before :50 UTC for `count` files, preamble or not. */
 export function minutesNeeded(count, preamble) {
   return (
@@ -130,22 +218,24 @@ export function minutesNeeded(count, preamble) {
 }
 
 /** True when the applier will admit every file dispatched at `ms`. */
-export function admissibleAt(ms, count, preamble) {
+export function admissibleAt(ms, count, preamble, schedule = null) {
   const d = new Date(ms);
   const minute = d.getUTCMinutes() + d.getUTCSeconds() / 60;
   if (minute < FIRST_ADMITTED_MINUTE) return false;
   if (WINDOW_OPENS_MINUTE - minute < minutesNeeded(count, preamble)) return false;
-  return !inDailyGuard(ms) && !inReleaseSchemaFreeze(ms);
+  if (inDailyGuard(ms) || inReleaseSchemaFreeze(ms)) return false;
+  if (isThreeHourlySchedule(schedule) && threeHourlyDeferralWindow(ms) !== null) return false;
+  return true;
 }
 
 /**
  * The earliest instant at or after `now` (15 s resolution, six hours ahead)
  * at which a dispatch of `count` files is admitted, or null if none is.
  */
-export function earliestDispatch(now, count, preamble) {
+export function earliestDispatch(now, count, preamble, schedule = null) {
   if (count === 0) return now;
   for (let t = now; t <= now + SEARCH_HORIZON_MINUTES * 60_000; t += 15_000) {
-    if (admissibleAt(t, count, preamble)) return t;
+    if (admissibleAt(t, count, preamble, schedule)) return t;
   }
   return null;
 }
@@ -196,8 +286,9 @@ export function parseFileList(text) {
  * @param {(name: string) => string | null} readSql  file text on main, null if absent
  * @param {number} now       epoch ms
  * @param {string[]} [modified]  PR file paths whose status is "modified"
+ * @param {string | { frequency?: string, threeHourly?: boolean } | null} [schedule]  serving engine schedule
  */
-export function planDispatch(added, readSql, now, modified = []) {
+export function planDispatch(added, readSql, now, modified = [], schedule = null) {
   const nameOf = (p) => MIGRATION_PATH.exec(p)?.[1];
   const addedNames = new Set(added.map(nameOf).filter(Boolean));
   const modifiedNames = new Set(
@@ -233,13 +324,23 @@ export function planDispatch(added, readSql, now, modified = []) {
     if (shape.ok && shape.indexes.length > 0) preamble = true;
     dispatch.push(name);
   }
-  const at = earliestDispatch(now, dispatch.length, preamble);
+  const at = earliestDispatch(now, dispatch.length, preamble, schedule);
   const waitSeconds = at === null ? null : Math.ceil((at - now) / 1000);
   const heldForDailyRelease =
     dispatch.length > 0 &&
     at !== null &&
     (inReleaseSchemaFreeze(now) || (at > now && inReleaseSchemaFreeze(at - 60_000)));
-  const budget = (heldForDailyRelease ? RELEASE_FREEZE_WAIT_BUDGET_MINUTES : WAIT_BUDGET_MINUTES) * 60;
+  const threeHourlyWindow =
+    dispatch.length > 0 && at !== null && isThreeHourlySchedule(schedule)
+      ? threeHourlyDeferralWindow(now) || (at > now ? threeHourlyDeferralWindow(at - 60_000) : null)
+      : null;
+  const heldForThreeHourlyCutover = !heldForDailyRelease && threeHourlyWindow !== null;
+  const budget =
+    (heldForDailyRelease
+      ? RELEASE_FREEZE_WAIT_BUDGET_MINUTES
+      : heldForThreeHourlyCutover
+        ? THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES
+        : WAIT_BUDGET_MINUTES) * 60;
   return {
     dispatch,
     // The dispatched files this PR modified rather than added: the applier
@@ -254,15 +355,31 @@ export function planDispatch(added, readSql, now, modified = []) {
     // The wait (if any) is the nightly release schema freeze, not the
     // ordinary :50-:03 break: the shell says so on the PR.
     heldForDailyRelease,
+    // The wait (if any) is a daytime three-hourly pre-cutoff deferral.
+    heldForThreeHourlyCutover,
+    threeHourlyCycle: heldForThreeHourlyCutover ? threeHourlyWindow.cycleLabel : null,
+    threeHourlyClearChicago: heldForThreeHourlyCutover ? threeHourlyWindow.clearLabel : null,
     withinBudget: waitSeconds !== null && waitSeconds <= budget,
   };
 }
 
-// CLI: node scripts/ci/merged-migration-dispatch.mjs plan <pr-files-file> [now-ms]
+// CLI: node scripts/ci/merged-migration-dispatch.mjs plan <pr-files-file> [now-ms] [--schedule <freq>]
 //        <pr-files-file>: one "<status>\t<filename>" per line (a bare path = added)
-//      node scripts/ci/merged-migration-dispatch.mjs admitted <count> <preamble 0|1> [now-ms]
+//      node scripts/ci/merged-migration-dispatch.mjs admitted <count> <preamble 0|1> [now-ms] [--schedule <freq>]
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [cmd, a, b, c] = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  let schedule = null;
+  const pos = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    if (rawArgs[i] === '--schedule') {
+      schedule = rawArgs[++i] ?? null;
+    } else if (rawArgs[i].startsWith('--schedule=')) {
+      schedule = rawArgs[i].slice('--schedule='.length);
+    } else {
+      pos.push(rawArgs[i]);
+    }
+  }
+  const [cmd, a, b, c] = pos;
   const dir = join(process.cwd(), 'supabase', 'migrations');
   if (cmd === 'plan') {
     const { added, modified } = changedPaths(parseFileList(readFileSync(a, 'utf8')));
@@ -271,13 +388,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const p = join(dir, name);
       return existsSync(p) ? readFileSync(p, 'utf8') : null;
     };
-    process.stdout.write(JSON.stringify(planDispatch(added, readSql, now, modified)) + '\n');
+    process.stdout.write(
+      JSON.stringify(planDispatch(added, readSql, now, modified, schedule)) + '\n'
+    );
   } else if (cmd === 'admitted') {
     const now = c ? Number(c) : Date.now();
-    process.exit(admissibleAt(now, Number(a), b === '1') ? 0 : 1);
+    process.exit(admissibleAt(now, Number(a), b === '1', schedule) ? 0 : 1);
   } else {
     console.error(
-      'usage: merged-migration-dispatch.mjs plan <file> [now] | admitted <count> <0|1> [now]'
+      'usage: merged-migration-dispatch.mjs plan <file> [now] [--schedule <freq>] | admitted <count> <0|1> [now] [--schedule <freq>]'
     );
     process.exit(2);
   }

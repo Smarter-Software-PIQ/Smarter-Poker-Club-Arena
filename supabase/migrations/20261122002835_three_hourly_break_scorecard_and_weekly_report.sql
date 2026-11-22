@@ -344,11 +344,15 @@ BEGIN
         'over_360s', COUNT(*) FILTER (WHERE frozen_seconds > 360),
         'total_shifted', (
           SELECT jsonb_object_agg(k, s) FROM (
-            SELECT k, SUM((t.shifted ->> k)::bigint) AS s
+            SELECT e.key AS k, SUM((e.value #>> '{}')::bigint) AS s
             FROM public.engine_maintenance_thaws t,
-                 LATERAL jsonb_object_keys(t.shifted) k
+                 LATERAL jsonb_each(
+                   CASE WHEN jsonb_typeof(t.shifted) = 'object' THEN t.shifted ELSE '{}'::jsonb END
+                 ) e
             WHERE t.thawed_at > NOW() - make_interval(days => p_days)
-            GROUP BY k
+              AND jsonb_typeof(e.value) = 'number'
+              AND (e.value #>> '{}') ~ '^-?[0-9]+$'
+            GROUP BY e.key
           ) agg
         )
       )

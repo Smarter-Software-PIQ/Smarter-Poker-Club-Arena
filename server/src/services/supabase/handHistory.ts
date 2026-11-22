@@ -1,4 +1,4 @@
-import { resolveReleaseIdentity } from '../../releaseIdentity.js';
+import { handRowEngineBuild, resolveReleaseIdentity } from '../../releaseIdentity.js';
 import { opponentHudOnAcceptedHand } from '../OpponentHudStore.js';
 import {
   captureAcceptedTerminal,
@@ -863,10 +863,10 @@ export async function logHandHistory(params: {
   // 20261118073245). Only a full 40-hex GIT_COMMIT_SHA is release authority;
   // otherwise the key is omitted and the column stays NULL. It rides the one
   // accepted-hand transaction: no extra write, and the insert ignores the key
-  // on a database that does not have the column yet.
-  const engineBuild = resolveReleaseIdentity().releaseSha;
+  // on a database that does not have the column yet. The same helper stamps
+  // the Lightning row (LightningHandHost.handRow).
   const row = {
-    ...(engineBuild ? { engine_build: engineBuild } : {}),
+    ...handRowEngineBuild(),
     ...(params.observedHands?.length ? { _observed_hands: params.observedHands } : {}),
     // The RLS roster can include non-dealt chairs. Only the authoritative
     // dealt-card map can state the population the opponent read belongs to.

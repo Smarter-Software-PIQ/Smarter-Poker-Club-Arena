@@ -218,6 +218,13 @@ export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[]
  *    pot with a straight or better (value) and with no pair (bluff), and
  *    checks everything between.
  *  - nlh_danger_board_value_v1: its harm control: the same, value only.
+ *  - nlh_nash_open_jammer_v1 (2026-11-21, nashCallVsJam): short-stack (<=20bb)
+ *    open-jammer using the HorseNashPushFoldV2 chip-EV equilibrium jam and
+ *    call thresholds (deterministic cutoff, design value) across UTG/HJ/CO/BTN/SB
+ *    in cash and BBA MTT so nashCallVsJam acts against a non-mirror field.
+ *  - nlh_tight_jammer_v1 (2026-11-21, nashCallVsJam harm control): short-stack
+ *    open-jammer that open-jams and continues only with the top ~9% of hands
+ *    (calibrated preflop percentile >= 0.91, design value) at <=20bb.
  * Development personas, not calibrated populations.
  */
 export const NLH_SCRIPTED_POPULATION_ID = 'nlh_scripted_field_v1' as const;
@@ -226,16 +233,50 @@ export const NLH_POT_BARRELER_PERSONA = 'nlh_pot_barreler_v1' as const;
 export const NLH_VALUE_BARRELER_PERSONA = 'nlh_value_barreler_v1' as const;
 export const NLH_DANGER_BOARD_BETTOR_PERSONA = 'nlh_danger_board_bettor_v1' as const;
 export const NLH_DANGER_BOARD_VALUE_PERSONA = 'nlh_danger_board_value_v1' as const;
+export const NLH_NASH_OPEN_JAMMER_PERSONA = 'nlh_nash_open_jammer_v1' as const;
+export const NLH_TIGHT_JAMMER_PERSONA = 'nlh_tight_jammer_v1' as const;
 export type NlhScriptedPersona =
   | typeof NLH_POT_BARRELER_PERSONA
   | typeof NLH_VALUE_BARRELER_PERSONA
   | typeof NLH_DANGER_BOARD_BETTOR_PERSONA
-  | typeof NLH_DANGER_BOARD_VALUE_PERSONA;
+  | typeof NLH_DANGER_BOARD_VALUE_PERSONA
+  | typeof NLH_NASH_OPEN_JAMMER_PERSONA
+  | typeof NLH_TIGHT_JAMMER_PERSONA;
 export const NLH_SCRIPTED_PERSONAS: readonly NlhScriptedPersona[] = Object.freeze([
   NLH_POT_BARRELER_PERSONA,
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  NLH_NASH_OPEN_JAMMER_PERSONA,
+  NLH_TIGHT_JAMMER_PERSONA,
+]);
+/**
+ * THE SCRIPTED FIXED-LIMIT OMAHA HI-LO FIELD (2026-11-21, Flo8ScriptedField.ts).
+ *
+ * Pure deterministic fixed-limit Omaha hi-lo (flo8) seat policies seated
+ * through the league's human-field mechanism for fixedLimitHiLoLowHalfFloor,
+ * fixedLimitHiLoNutLowRiverBet, and fixedLimitOmahaNoPresumption. Restricted
+ * to flo8 only; FIXED_LIMIT_SCRIPTED_POPULATION_ID stays flh-only.
+ */
+export const FLO8_SCRIPTED_POPULATION_ID = 'flo8_scripted_field_v1' as const;
+export const FLO8_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['flo8']);
+export const FLO8_HIGH_BARRELER_PERSONA = 'flo8_high_barreler_v1' as const;
+export const FLO8_MANIAC_PERSONA = 'flo8_maniac_v1' as const;
+export const FLO8_TIGHT_VALUE_PERSONA = 'flo8_tight_value_v1' as const;
+export const FLO8_RIVER_FOLDER_PERSONA = 'flo8_river_folder_v1' as const;
+export const FLO8_PASSIVE_CALLER_PERSONA = 'flo8_passive_caller_v1' as const;
+export type Flo8ScriptedPersona =
+  | typeof FLO8_HIGH_BARRELER_PERSONA
+  | typeof FLO8_MANIAC_PERSONA
+  | typeof FLO8_TIGHT_VALUE_PERSONA
+  | typeof FLO8_RIVER_FOLDER_PERSONA
+  | typeof FLO8_PASSIVE_CALLER_PERSONA;
+export const FLO8_SCRIPTED_PERSONAS: readonly Flo8ScriptedPersona[] = Object.freeze([
+  FLO8_HIGH_BARRELER_PERSONA,
+  FLO8_MANIAC_PERSONA,
+  FLO8_TIGHT_VALUE_PERSONA,
+  FLO8_RIVER_FOLDER_PERSONA,
+  FLO8_PASSIVE_CALLER_PERSONA,
 ]);
 /**
  * THE OMAHA VALUE-LEADER FIELD (2026-11-20, Horse SWITCH lane, task #6). The
@@ -259,6 +300,7 @@ export type HumanFieldPersona =
   | typeof OMAHA_VALUE_LEADER_FIELD_PERSONA
   | FixedLimitScriptedPersona
   | NlhScriptedPersona
+  | Flo8ScriptedPersona
   | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
@@ -286,4 +328,11 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  NLH_NASH_OPEN_JAMMER_PERSONA,
+  NLH_TIGHT_JAMMER_PERSONA,
+  FLO8_HIGH_BARRELER_PERSONA,
+  FLO8_MANIAC_PERSONA,
+  FLO8_TIGHT_VALUE_PERSONA,
+  FLO8_RIVER_FOLDER_PERSONA,
+  FLO8_PASSIVE_CALLER_PERSONA,
 ]);
