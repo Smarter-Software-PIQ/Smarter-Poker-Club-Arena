@@ -28,6 +28,7 @@ import {
   OMAHA_MATH_CORE_TR_FW_EDGES,
   cumulativeTailBets,
   lifetimeRiverShare,
+  omahaMathCoreTurnRiverProvider,
   priceTurnRiverLifetimeCall,
   setOmahaMathCoreTurnRiverProvider,
   turnRiverTailFrequency,
@@ -1219,11 +1220,15 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     expect(rec.omahaMathCore?.core?.tables).not.toBe('b3-turn-river-hud');
   });
 
-  it('21. audit P1-1: warmOmahaMathCore warms HorseLogic.decide + plo4Policy + B2 cbetRaiseShare without mutating fastRandom state', () => {
+  it('21. audit P1-1: warmOmahaMathCore warms HorseLogic.decide + plo4Policy + B2 cbetRaiseShare cleanly without throws, provider leaks, or fastRandom mutation', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prevProv = omahaMathCoreTurnRiverProvider();
     const before = saveFastRandom();
     const w = warmOmahaMathCore(() => 0);
     const after = saveFastRandom();
     expect(w.ok).toBe(true);
+    expect(errSpy).not.toHaveBeenCalled();
+    expect(omahaMathCoreTurnRiverProvider()).toBe(prevProv);
     expect(after).toBe(before);
   });
 });

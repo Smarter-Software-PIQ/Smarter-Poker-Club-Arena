@@ -23,8 +23,9 @@
  */
 import type { SeatPlayer } from '../../types.js';
 import { restoreFastRandom, saveFastRandom } from '../HorseEval.js';
-import { HorseLogic, type HorseGameStateV2 } from '../HorseLogic.js';
+import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
+import { warmOmahaDecidePaths } from '../horseDecision/warmOmahaDecidePaths.js';
 import { decideOmahaMathCore, rakeNet } from './OmahaMathCore.js';
 import { resetOmahaBestMemo } from './OmahaMathCoreEval.js';
 import { clearPlaybookBlockerCache } from './OmahaMathCorePlaybookBlockers.js';
@@ -264,39 +265,10 @@ export function warmOmahaMathCore(now: () => number = () => performance.now()): 
       }
     }
     // Audit P1-1 (2026-11-22): warm HorseLogic.decide + Plo4LivePolicy (plo4Policy) + B2 cbetRaiseShare
-    // + OmahaVariantLivePolicy on synthetic public PLO4 and PLO5 cash flop spots before READY, eliminating
-    // the ~83-135 ms cold item-#0 JIT spike that trips the 150 ms Hetzner shadow breaker. Runs with
-    // observeMind: false and telemetry: false; RNG, HorseMind, and core caches are restored in finally.
-    for (const { shape, extraOpts } of [
-      { shape: plo4CbetShape, extraOpts: { omahaMathCore: true, omahaMathCorePlo4Flop: true } },
-      {
-        shape: streetShape('plo4', 'flop'),
-        extraOpts: { omahaMathCore: true, omahaMathCorePlo4Flop: true },
-      },
-      {
-        shape: streetShape('plo5', 'flop'),
-        extraOpts: { omahaMathCore: true, omahaMathCorePlo5Flop: true },
-      },
-    ]) {
-      try {
-        const { player, gs } = warmSpot(shape);
-        const d = HorseLogic.decide(
-          player,
-          gs,
-          'balanced',
-          {},
-          {
-            observeMind: false,
-            telemetry: false,
-            decisionTimeMs: 1_794_938_400_000,
-            ...extraOpts,
-          }
-        );
-        ok = ok && !!d?.action;
-      } catch {
-        ok = false;
-      }
-    }
+    // + OmahaVariantLivePolicy + B3 turn/river rule on synthetic public PLO4/PLO5 spots before READY,
+    // eliminating the ~83-145 ms cold item-#0 JIT spike that trips the 150 ms Hetzner shadow breaker.
+    // Runs with observeMind: false and telemetry: false; RNG, HorseMind, and core caches are restored in finally.
+    ok = ok && warmOmahaDecidePaths();
   } catch {
     ok = false;
   } finally {
