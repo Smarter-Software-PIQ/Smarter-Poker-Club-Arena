@@ -13,12 +13,14 @@ import {
 const ROOT = resolve(__dirname, '../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
 
+import { parseAppUrl } from '../../src/lib/native/deepLinks';
+
 const CLUSTER_UUID = '11111111-2222-4333-8444-555555555555';
 
 describe('game invite URL builders', () => {
-  it('builds a canonical table share URL with encoded table id', () => {
+  it('builds a canonical table share URL (/g/:id) with encoded table id', () => {
     expect(tableShareUrl('tbl-123/4', 'https://smarter.poker')).toBe(
-      'https://smarter.poker/hub/club-arena/table/tbl-123%2F4'
+      'https://smarter.poker/g/tbl-123%2F4'
     );
   });
 
@@ -30,9 +32,7 @@ describe('game invite URL builders', () => {
         clusterId: CLUSTER_UUID.toUpperCase(),
         inviteToken: 'hu_token-99',
       })
-    ).toBe(
-      `https://smarter.poker/hub/club-arena/table/tbl-1?i=ABC2345&cluster=${CLUSTER_UUID}&invite=hu_token-99`
-    );
+    ).toBe(`https://smarter.poker/g/tbl-1?i=ABC2345&cluster=${CLUSTER_UUID}&invite=hu_token-99`);
 
     // Invalid params produce a clean URL with no stray '?'.
     expect(
@@ -42,16 +42,16 @@ describe('game invite URL builders', () => {
         clusterId: 'not-a-uuid',
         inviteToken: 'x',
       })
-    ).toBe('https://smarter.poker/hub/club-arena/table/tbl-1');
+    ).toBe('https://smarter.poker/g/tbl-1');
   });
 
-  it('builds a canonical Lightning share URL with encoded cluster id and optional inviteCode', () => {
+  it('builds a canonical Lightning share URL (/l/:id) with encoded cluster id and optional inviteCode', () => {
     expect(lightningShareUrl('cl-9/a', 'https://smarter.poker')).toBe(
-      'https://smarter.poker/hub/club-arena/lightning/cl-9%2Fa'
+      'https://smarter.poker/l/cl-9%2Fa'
     );
     expect(
       lightningShareUrl('cl-9/a', { origin: 'https://smarter.poker', inviteCode: 'xyz6789' })
-    ).toBe('https://smarter.poker/hub/club-arena/lightning/cl-9%2Fa?i=XYZ6789');
+    ).toBe('https://smarter.poker/l/cl-9%2Fa?i=XYZ6789');
   });
 
   it('routes table, lightning, and tournament targets to their canonical builders with query params', () => {
@@ -69,9 +69,7 @@ describe('game invite URL builders', () => {
         },
         'https://smarter.poker'
       )
-    ).toBe(
-      `https://smarter.poker/hub/club-arena/table/cash-99?i=ABC2345&cluster=${CLUSTER_UUID}&invite=hold_44`
-    );
+    ).toBe(`https://smarter.poker/g/cash-99?i=ABC2345&cluster=${CLUSTER_UUID}&invite=hold_44`);
     expect(gameInviteUrl({ kind: 'lightning', id: 'cluster-7' }, 'https://smarter.poker')).toBe(
       lightningShareUrl('cluster-7', 'https://smarter.poker')
     );
@@ -80,10 +78,21 @@ describe('game invite URL builders', () => {
         { kind: 'lightning', id: 'cluster-7', inviteCode: 'ABC2345' },
         'https://smarter.poker'
       )
-    ).toBe('https://smarter.poker/hub/club-arena/lightning/cluster-7?i=ABC2345');
+    ).toBe('https://smarter.poker/l/cluster-7?i=ABC2345');
     expect(gameInviteUrl({ kind: 'tournament', id: 'mtt-42' }, 'https://smarter.poker')).toBe(
       tournamentShareUrl('mtt-42', 'https://smarter.poker')
     );
+  });
+
+  it('native deepLinks parseAppUrl resolves /g/:id, /l/:id, and /t/:id preview links with query params', () => {
+    expect(
+      parseAppUrl(`https://smarter.poker/g/tbl-9?i=ABC2345&cluster=${CLUSTER_UUID}`)?.path
+    ).toBe(`/table/tbl-9?i=ABC2345&cluster=${CLUSTER_UUID}`);
+    expect(parseAppUrl('https://smarter.poker/l/cl-7?i=ABC2345')?.path).toBe(
+      '/lightning/cl-7?i=ABC2345'
+    );
+    expect(parseAppUrl('https://smarter.poker/t/mtt-42')?.path).toBe('/tournaments/mtt-42');
+    expect(parseAppUrl('clubarena://g/tbl-9?i=ABC2345')?.path).toBe('/table/tbl-9?i=ABC2345');
   });
 
   it('resolves lobby entry invite targets for classic cash, Must-Move cash, Lightning cash, and tournaments', () => {
@@ -223,6 +232,12 @@ describe('lobby and table invite wiring', () => {
     );
     expect(page).toContain('useSenderInviteCode(');
     expect(page).toContain('tableInviteFallbackUrl');
+    expect(bus).toContain("| 'INVITE_ONLINE_FRIEND'");
+    expect(menu).toContain("id: 'invite-online-friend'");
+    expect(menu).toContain("label: 'Invite Online Friend'");
+    expect(bar).toContain("action: 'INVITE_ONLINE_FRIEND'");
+    expect(page).toContain("case 'INVITE_ONLINE_FRIEND':");
+    expect(page).toContain('<OnlineFriendInvitePicker');
   });
 
   it('FriendListPanel Invite To Table button renders a visible icon', () => {

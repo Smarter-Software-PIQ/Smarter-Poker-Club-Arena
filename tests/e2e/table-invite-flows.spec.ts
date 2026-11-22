@@ -123,7 +123,7 @@ test('HeadsUpWaitingModal builds canonical invite URL and copies cleanly inside 
   await expect(page.getByText('Waiting For Opponent')).toBeVisible();
   await page.getByRole('button', { name: 'Specific Player' }).click();
 
-  const expectedUrl = `https://smarter.poker/hub/club-arena/table/${TABLE_UUID}?i=ABC2345&invite=hu_hold_99`;
+  const expectedUrl = `https://smarter.poker/g/${TABLE_UUID}?i=ABC2345&invite=hu_hold_99`;
   await expect(page.getByText(expectedUrl)).toBeVisible();
 
   await page.getByRole('button', { name: 'Copy Link' }).click();

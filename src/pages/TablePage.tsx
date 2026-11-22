@@ -77,6 +77,7 @@ import { ButtonImagePreloader } from '../components/table/ButtonImagePreloader';
 import { WaitlistCallToAction } from '../components/table/WaitlistCallToAction';
 import { TournamentLateRegCallToAction } from '../components/table/TournamentLateRegCallToAction';
 import { HeadsUpWaitingModal, type HeadsUpWaitMode } from '../components/table/HeadsUpWaitingModal';
+import { OnlineFriendInvitePicker } from '../components/table/OnlineFriendInvitePicker';
 import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
 import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
 import {
@@ -6479,9 +6480,11 @@ function LiveTablePage({
   const [headsUpPromptOpen, setHeadsUpPromptOpen] = useState(false);
   const [headsUpPromptStep, setHeadsUpPromptStep] = useState<'choice' | 'invite'>('choice');
   const [tableInviteFallbackUrl, setTableInviteFallbackUrl] = useState('');
+  const [showFriendInvitePicker, setShowFriendInvitePicker] = useState(false);
 
   useEffect(() => {
     setTableInviteFallbackUrl('');
+    setShowFriendInvitePicker(false);
   }, [tableId]);
 
   const handleCloseHeadsUpPrompt = useCallback(() => {
@@ -15712,6 +15715,9 @@ function LiveTablePage({
         break;
       case 'INVITE_TO_GAME':
         void handleInviteToGameRef.current();
+        break;
+      case 'INVITE_ONLINE_FRIEND':
+        setShowFriendInvitePicker(true);
         break;
     }
   });
@@ -31781,6 +31787,12 @@ function LiveTablePage({
           initialStep={headsUpPromptStep}
           tableName={tournamentEventName || tableState.tableName || 'Heads Up Sit N Go'}
           inviteUrl={tableShareUrl(tableId, { inviteCode: senderInviteCode })}
+          friendInviteTarget={{
+            tableId,
+            tournamentId: tableState.tournamentId,
+            clubId: lobbyClubId ?? (actualClubIdRef.current || null),
+            inviteCode: senderInviteCode,
+          }}
           onChooseSpecific={() => {
             setHeadsUpWaitMode('specific');
             setHeadsUpPromptStep('invite');
@@ -31793,6 +31805,36 @@ function LiveTablePage({
           onNotify={(kind, msg) => {
             if (kind === 'success') toast?.success?.(msg);
             else toast?.info?.(msg);
+          }}
+        />
+      )}
+      {tableId && (
+        <OnlineFriendInvitePicker
+          mode="modal"
+          isOpen={showFriendInvitePicker && isVisible}
+          onClose={() => setShowFriendInvitePicker(false)}
+          kind={
+            lightningRoom?.clusterId ? 'lightning' : tableState.isTournament ? 'tournament' : 'cash'
+          }
+          tableId={lightningRoom?.clusterId ? null : tableId}
+          tournamentId={tableState.isTournament ? tableState.tournamentId : null}
+          clusterId={
+            lightningRoom?.clusterId ?? (!tableState.isTournament ? tableState.clusterId : null)
+          }
+          clubId={lightningClubId ?? lobbyClubId ?? (actualClubIdRef.current || null)}
+          tableName={
+            (tableState.isTournament ? tournamentEventName : '') ||
+            lightningRoom?.meta?.name ||
+            tableState.tableName ||
+            'Club Arena Game'
+          }
+          inviteCode={senderInviteCode}
+          onShareLink={() => {
+            setShowFriendInvitePicker(false);
+            void handleInviteToGame();
+          }}
+          onInviteSent={(contact) => {
+            toast?.success?.(`Invite Sent To ${contact.displayName}`);
           }}
         />
       )}

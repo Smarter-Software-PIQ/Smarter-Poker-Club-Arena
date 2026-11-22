@@ -336,10 +336,13 @@ function withShareQueryParams(
 }
 
 /**
- * Direct link to a live table (cash game, or a seated Spin / Heads-Up table).
- * One builder, so every lobby and in-table invite sends the same address.
- * Optional query params attach the sender's club invite code (`i`), Must-Move
- * cluster id (`cluster`), and/or Heads-Up specific-player hold token (`invite`).
+ * Shareable link to a live table (cash game, or a seated Spin / Heads-Up table).
+ *
+ * Uses smarter.poker/g/<id> (World Hub SSR preview + 1200x630 OG card via
+ * fn_ca_table_share_preview, instant redirect to /hub/club-arena/table/<id>
+ * when signed in, rich invite card when signed out) while preserving optional
+ * sender club invite code (`i`), Must-Move cluster id (`cluster`), and
+ * Heads-Up specific-player hold token (`invite`).
  */
 export function tableShareUrl(
   tableId: string,
@@ -347,15 +350,18 @@ export function tableShareUrl(
 ): string {
   const opts =
     typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
-  const base = `${opts.origin ?? publicOrigin()}/hub/club-arena/table/${encodeURIComponent(tableId)}`;
+  const base = `${opts.origin ?? publicOrigin()}/g/${encodeURIComponent(tableId)}`;
   return withShareQueryParams(base, opts);
 }
 
 /**
- * Direct link to a Lightning Cash cluster's join door.
- * A Lightning pool session id belongs solely to one player — sharing that id
- * sends everyone else to a missing-table screen. Sharing the cluster's
- * `/lightning/:clusterId` route takes any club member straight into the pool.
+ * Shareable link to a Lightning Cash cluster's join door.
+ *
+ * Uses smarter.poker/l/<clusterId> (World Hub SSR preview + 1200x630 OG card
+ * via fn_ca_lightning_share_preview, instant redirect to
+ * /hub/club-arena/lightning/<clusterId> when signed in). A Lightning pool
+ * session id belongs solely to one player — sharing the cluster door takes any
+ * club member straight into the pool while preserving optional `?i=<CODE>`.
  */
 export function lightningShareUrl(
   clusterId: string,
@@ -363,7 +369,7 @@ export function lightningShareUrl(
 ): string {
   const opts =
     typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
-  const base = `${opts.origin ?? publicOrigin()}/hub/club-arena/lightning/${encodeURIComponent(clusterId)}`;
+  const base = `${opts.origin ?? publicOrigin()}/l/${encodeURIComponent(clusterId)}`;
   return withShareQueryParams(base, { inviteCode: opts.inviteCode });
 }
 
