@@ -42,8 +42,22 @@ describe('the PLO5 flop realization factors are the measured ones (pinned with t
       Object.entries(C.cells).filter(([k]) => k.startsWith('plo5|flop'))
     );
     expect(flop).toEqual(PLO5_FLOP);
-    expect(C.streets).toEqual({ plo4: [], plo5: ['flop'] });
-    expect(C.version).toBe('core-pooled5-realization-v3-full-window');
+    expect(C.streets).toEqual({ plo4: ['flop'], plo5: ['flop'] });
+    expect(C.version).toBe('core-pooled5-realization-v3-full-window+core-extend-plo4');
+    // PLO4 flop (lane CORE-EXTEND, criteria sha e8793e34): one factor for every action; a call facing a raise of the
+    // hero's own wager (lane CORE-EXTEND-4 criteria sha ad98efdc, ADOPT): shrunk n/(n+100) to that factor
+    const plo4 = Object.fromEntries(
+      Object.entries(C.cells).filter(([k]) => k.startsWith('plo4|flop'))
+    );
+    expect(plo4).toEqual({
+      'plo4|flop': { r: 0.7984, n: 13773 },
+      'plo4|flop|bet': { r: 0.7984, n: 3119 },
+      'plo4|flop|call': { r: 0.7984, n: 2809 },
+      'plo4|flop|check': { r: 0.7984, n: 7535 },
+      'plo4|flop|raise': { r: 0.7984, n: 310 },
+      'plo4|flop|call|raised_own': { r: 0.6762, n: 226 },
+    });
+    expect(C.source).toContain('criteria sha e8793e34');
     expect(C.provenance).toBe('population_all_cards_capped');
     expect(OMAHA_MATH_CORE_ALLOWED_PROVENANCE.has(C.provenance)).toBe(true);
     expect(C.source).toContain('amendment sha d7fbd6c8');
@@ -83,7 +97,6 @@ describe('the PLO5 flop realization factors are the measured ones (pinned with t
       ['plo5', 'preflop'],
       ['plo5', 'turn'],
       ['plo5', 'river'],
-      ['plo4', 'flop'],
       ['plo4', 'turn'],
       ['plo6', 'flop'],
     ])
@@ -146,7 +159,10 @@ describe("a call facing a raise of the hero's own flop wager realizes its own me
     expect(realizationCalibrationCell('plo5', 'flop', 'fold', true)).toBeNull();
     // no cell, no street: the lookup falls through exactly as before
     expect(realizationCalibrationCell('plo5', 'turn', 'call', true)).toBeNull();
-    expect(realizationCalibrationCell('plo4', 'flop', 'call', true)).toBeNull();
+    // PLO4 flop has its own raised-own cell (lane CORE-EXTEND-4, criteria sha ad98efdc); a bet never reads it
+    expect(realizationCalibrationCell('plo4', 'flop', 'call', true)?.r).toBe(0.6762);
+    expect(realizationCalibrationCell('plo4', 'flop', 'bet', true)?.r).toBe(0.7984);
+    expect(realizationCalibrationCell('plo4', 'turn', 'call', true)).toBeNull();
   });
 
   it('the priced call of a check-raise carries the raised-own factor on its showdown term only', () => {

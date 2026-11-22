@@ -123,6 +123,16 @@
       "fn": "fn_ca_tournament_share_preview(p_tournament_id uuid)",
       "reason": "public-read",
       "note": "A tournament share link. One uuid in, the lobby-card facts of one public tournament out; private, VIP-only and non-public-club events answer exactly like a missing id. A logged-out caller learns nothing else: no player, registration, wallet, seat, card, enumeration or write capability. Granted and asserted by migration 20261115161427, and recorded in public.ca_browser_definer_allowlist, reviewedAnonReaders and anonPublicSurface in the same change."
+    },
+    {
+      "fn": "fn_ca_table_share_preview(p_table_id uuid)",
+      "reason": "public-read",
+      "note": "A cash table share link (smarter.poker/g/<id>). One uuid in, the lobby-card facts of one public cash table out; private, VIP-only, password-protected, deleted, closed and non-public-club tables answer {found:false} exactly like a missing id. A logged-out caller learns nothing else: no player, seat, card, hand, wallet, chat, enumeration or write capability. Granted and asserted by migration 20261122025656, and recorded in public.ca_browser_definer_allowlist, reviewedAnonReaders and anonPublicSurface in the same change."
+    },
+    {
+      "fn": "fn_ca_lightning_share_preview(p_cluster_id uuid)",
+      "reason": "public-read",
+      "note": "A Lightning cluster share link (smarter.poker/l/<id>). One uuid in, the lobby-card facts of one public Lightning cluster out; private, VIP-only, disabled, closed, non-Lightning and non-public-club clusters answer {found:false} exactly like a missing id. A logged-out caller learns nothing else: no player, seat, card, hand, wallet, chat, enumeration or write capability. Granted and asserted by migration 20261122025656, and recorded in public.ca_browser_definer_allowlist, reviewedAnonReaders and anonPublicSurface in the same change."
     }
   ]
 }

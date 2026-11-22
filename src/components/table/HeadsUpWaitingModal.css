@@ -111,3 +111,45 @@
 .hu-waiting-dialog__fallback {
   margin-top: 10px;
 }
+.hu-waiting-dialog__friends-section {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hu-waiting-dialog__friends-toggle {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgb(69 173 255 / 36%);
+  background: rgb(14 26 42 / 78%);
+  color: #cfe8ff;
+  font:
+    700 0.78rem/1.2 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.hu-waiting-dialog__friends-toggle:active {
+  filter: brightness(1.2);
+}
+
+.hu-waiting-dialog__friends-toggle:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.hu-waiting-dialog__error {
+  margin: 10px 0 0;
+  color: #ff8e8e;
+  font:
+    600 0.8rem/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}

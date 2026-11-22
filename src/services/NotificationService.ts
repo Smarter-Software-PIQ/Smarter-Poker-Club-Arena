@@ -42,8 +42,103 @@ export interface Notification {
   title: string;
   message: string;
   metadata?: Record<string, unknown>;
+  actionUrl?: string;
   isRead: boolean;
   createdAt: string;
+}
+
+function cleanMetadataString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function appendInviteQueryParams(
+  basePath: string,
+  params: { i?: string; cluster?: string; invite?: string }
+): string {
+  const search = new URLSearchParams();
+  if (params.i) search.set('i', params.i);
+  if (params.cluster) search.set('cluster', params.cluster);
+  if (params.invite) search.set('invite', params.invite);
+  const qs = search.toString();
+  return qs ? `${basePath}?${qs}` : basePath;
+}
+
+/**
+ * Pure canonical deep-link resolver for `table_invite` notifications.
+ * Accepts both snake_case and camelCase metadata payloads so DB rows written
+ * by any producer resolve to the exact Club Arena in-app destination.
+ */
+export function buildTableInviteDeepLink(metadata?: Record<string, unknown> | null): string {
+  if (!metadata || typeof metadata !== 'object') return '/';
+
+  const kind = cleanMetadataString(metadata.kind).toLowerCase();
+  const tableId = cleanMetadataString(metadata.table_id) || cleanMetadataString(metadata.tableId);
+  const tournamentId =
+    cleanMetadataString(metadata.tournament_id) || cleanMetadataString(metadata.tournamentId);
+  const clusterId =
+    cleanMetadataString(metadata.cluster_id) || cleanMetadataString(metadata.clusterId);
+  const inviteToken =
+    cleanMetadataString(metadata.invite_token) || cleanMetadataString(metadata.inviteToken);
+  const inviteCode =
+    cleanMetadataString(metadata.invite_code) || cleanMetadataString(metadata.inviteCode);
+
+  if (kind === 'lightning') {
+    if (clusterId) {
+      return appendInviteQueryParams(`/lightning/${encodeURIComponent(clusterId)}`, {
+        i: inviteToken,
+        invite: inviteCode,
+      });
+    }
+    if (tableId) {
+      return appendInviteQueryParams(`/table/${encodeURIComponent(tableId)}`, {
+        i: inviteToken,
+        invite: inviteCode,
+      });
+    }
+    return '/';
+  }
+
+  if (kind === 'tournament') {
+    // Seat-first tables (Heads-Up SNG / Spin) provide a direct tableId so the
+    // invitee lands straight on the felt; otherwise open the tournament lobby.
+    if (tableId) {
+      return appendInviteQueryParams(`/table/${encodeURIComponent(tableId)}`, {
+        i: inviteToken,
+        invite: inviteCode,
+      });
+    }
+    if (tournamentId) {
+      return appendInviteQueryParams(`/tournaments/${encodeURIComponent(tournamentId)}`, {
+        i: inviteToken,
+        invite: inviteCode,
+      });
+    }
+    return '/';
+  }
+
+  if (tableId) {
+    return appendInviteQueryParams(`/table/${encodeURIComponent(tableId)}`, {
+      i: inviteToken,
+      cluster: clusterId,
+      invite: inviteCode,
+    });
+  }
+
+  if (clusterId) {
+    return appendInviteQueryParams(`/lightning/${encodeURIComponent(clusterId)}`, {
+      i: inviteToken,
+      invite: inviteCode,
+    });
+  }
+
+  if (tournamentId) {
+    return appendInviteQueryParams(`/tournaments/${encodeURIComponent(tournamentId)}`, {
+      i: inviteToken,
+      invite: inviteCode,
+    });
+  }
+
+  return '/';
 }
 
 interface NotificationCallbacks {
@@ -187,7 +282,7 @@ class NotificationServiceClass {
       return [];
     }
 
-    return (data || []).map(this.mapNotification);
+    return (data || []).map((row) => this.mapNotification(row));
   }
 
   /**
@@ -385,7 +480,7 @@ class NotificationServiceClass {
         return tid ? `/table/${tid}?buyin=1` : '/waitlist';
       }
       case 'table_invite':
-        return metadata.tableId ? `/table/${metadata.tableId}` : '/';
+        return buildTableInviteDeepLink(metadata);
       case 'club_announcement':
         return metadata.clubSlug
           ? `/clubs/${metadata.clubSlug}`
@@ -674,19 +769,35 @@ class NotificationServiceClass {
    * Map database record to Notification type
    */
   private mapNotification(data: Record<string, unknown>): Notification {
+    const type = data.type as Notification['type'];
+    const rawData =
+      data.data && typeof data.data === 'object' && !Array.isArray(data.data)
+        ? (data.data as Record<string, unknown>)
+        : {};
+    const rawMeta =
+      data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)
+        ? (data.metadata as Record<string, unknown>)
+        : {};
+    // The engine writes its payload into `data` (waitlist_seat_open and
+    // table_invite carry their target IDs there); older writers used
+    // `metadata`. Fold both so a deep link never depends on which column the
+    // writer chose.
+    const metadata: Record<string, unknown> = {
+      ...rawData,
+      ...rawMeta,
+    };
+    const rawActionUrl = cleanMetadataString(data.action_url);
+    const derivedActionUrl = this.getDeepLinkUrl(type, metadata);
+    const actionUrl = rawActionUrl || derivedActionUrl;
+
     return {
       id: data.id as string,
       userId: data.user_id as string,
-      type: data.type as Notification['type'],
+      type,
       title: data.title as string,
       message: data.message as string,
-      // The engine writes its payload into `data` (waitlist_seat_open carries
-      // { table_id } there); older writers used `metadata`. Fold both so a
-      // deep link never depends on which column the writer chose.
-      metadata: {
-        ...((data.data as Record<string, unknown>) || {}),
-        ...((data.metadata as Record<string, unknown>) || {}),
-      },
+      metadata,
+      ...(actionUrl ? { actionUrl } : {}),
       isRead: (data.read ?? false) as boolean,
       createdAt: data.created_at as string,
     };
