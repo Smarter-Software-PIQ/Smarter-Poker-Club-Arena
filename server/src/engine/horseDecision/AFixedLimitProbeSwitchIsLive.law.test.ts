@@ -298,7 +298,8 @@ describe('every process that counts applies the same value', () => {
   it('the worker applies the switch before it dispatches every job, and at the fast decision own read', () => {
     const runtime = strip(read('engine/horseDecision/workerRuntime.ts'));
     expect(runtime).toMatch(
-      /private applyProcessSwitches\(\): void \{\s*const states = this\.optionSwitch\.refresh\(performance\.now\(\)\);\s*HorseMind\.applyFixedLimitBetsAreNeverProbesOption\(optionSwitchDecisionOpts\(states\)\);\s*\}/
+      // 2026-11-21: the second process switch (styleShiftReleaseIsNoiseAware) is applied from the same read
+      /private applyProcessSwitches\(\): void \{\s*const states = this\.optionSwitch\.refresh\(performance\.now\(\)\);\s*const opts = optionSwitchDecisionOpts\(states\);\s*HorseMind\.applyFixedLimitBetsAreNeverProbesOption\(opts\);\s*HorseMind\.applyStyleShiftReleaseIsNoiseAwareOption\(opts\);\s*\}/
     );
     const execute = runtime.slice(runtime.indexOf('private async execute('));
     const applied = execute.indexOf('this.applyProcessSwitches();');

@@ -206,6 +206,10 @@ export default function TournamentPage() {
   const [isRegistered, setIsRegistered] = useState(false);
   const [inviteFallbackUrl, setInviteFallbackUrl] = useState('');
 
+  useEffect(() => {
+    setInviteFallbackUrl('');
+  }, [selectedTournament?.id]);
+
   const handleInviteSelectedTournament = useCallback(async () => {
     if (!selectedTournament?.id) return;
     const url = tournamentShareUrl(selectedTournament.id);
@@ -1774,20 +1778,24 @@ export default function TournamentPage() {
             )}
           </div>
 
-          <div className="tourn-invite-bar">
-            <button
-              type="button"
-              className="tourn-invite-btn"
-              data-testid="club-tournaments-invite-btn"
-              onClick={() => void handleInviteSelectedTournament()}
-            >
-              <InviteLinkIcon />
-              <span>Invite To Game</span>
-            </button>
-            {inviteFallbackUrl && (
-              <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
-            )}
-          </div>
+          {!['COMPLETED', 'CANCELLED', 'FINISHED'].includes(
+            String(selectedTournament.status || '').toUpperCase()
+          ) && (
+            <div className="tourn-invite-bar">
+              <button
+                type="button"
+                className="tourn-invite-btn"
+                data-testid="club-tournaments-invite-btn"
+                onClick={() => void handleInviteSelectedTournament()}
+              >
+                <InviteLinkIcon />
+                <span>Invite To Game</span>
+              </button>
+              {inviteFallbackUrl && (
+                <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
+              )}
+            </div>
+          )}
 
           {/* The money actions that are not the main one. The foot paints
               exactly two plates, so these are lit words on the glass. */}

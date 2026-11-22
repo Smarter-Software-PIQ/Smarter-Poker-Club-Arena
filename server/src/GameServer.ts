@@ -169,6 +169,9 @@ import {
   SEAT_FIRST_START_STALL_MS,
   seatFirstHumanPartnerHoldUntilMs,
   seatFirstHumanPartnerHoldJitterMs,
+  resolveHeadsUpWaitHoldOverride,
+  type HeadsUpWaitHoldRow,
+  type SeatFirstPartnerHoldOverride,
   firstHumanSeatedAtMs,
   HUMAN_SEAT_DEMAND_TTL_MS,
   SATELLITE_HU_TARGET_LEAD_MS,
@@ -689,6 +692,8 @@ interface SeatFirstOccupancy {
   hasHuman: boolean;
   /** Earliest live human seat, ms; NaN when no human sits. */
   firstHumanAtMs: number;
+  /** Live seated human user ids, used to ignore stale HU wait holds after a creator leaves. */
+  humanUserIds?: ReadonlySet<string>;
 }
 
 export class GameServer {
@@ -10465,7 +10470,13 @@ export class GameServer {
          * clock available; this is the same reasoning as the back-pay above,
          * whose comment says a repair gated on another job's clock runs at
          * boot and then effectively never. */
-        if (Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): unfilled-spin expiry cancels
+        // lobbies via atomic_cancel_tournament (writing table_seats.left_at and
+        // refunding chips). Because lastSpinExpireAt starts at 0 on boot, an
+        // unguarded pass fires immediately after adopting an active freeze.
+        // Skipping while frozen leaves lastSpinExpireAt untouched so the first
+        // pass after thaw runs immediately.
+        if (!isMaintenanceFrozen() && Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
           this.lastSpinExpireAt = Date.now();
           try {
             const { data: exp, error: expErr } = await supabase.rpc('fn_spin_expire_unfilled', {
@@ -10510,7 +10521,18 @@ export class GameServer {
          * (smarter_private.daily_window_lobby_watchdog) pages if any lobby is
          * still open at 4:00. The RPC only acts on open games, so a repeat or a
          * second engine costs nothing. */
-        if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): 3 AM lobby close cancels
+        // open used Spin/SNG lobbies via atomic_cancel_tournament (vacating
+        // table_seats and refunding chips). Without this gate, any break or
+        // cutover crossing 03:00 America/Chicago (09:00 UTC) mutates seats
+        // during the freeze (measured 2026-11-16 09:00:06Z and 2026-11-21
+        // 09:00:04Z in run 44887083680). Leaving lastLobbyCloseAt untouched
+        // ensures the first pass after thaw closes every open lobby at once.
+        if (
+          !isMaintenanceFrozen() &&
+          !spinSngBoardsOpen(new Date()) &&
+          Date.now() - this.lastLobbyCloseAt > 60 * 1000
+        ) {
           this.lastLobbyCloseAt = Date.now();
           try {
             const { data: lc, error: lcErr } = await supabase.rpc(
@@ -13252,9 +13274,11 @@ export class GameServer {
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
+    if (isMaintenanceFrozen()) return;
     if (this.tournamentEngines.size === 0) return;
 
     for (const [tournamentId, tm] of this.tournamentEngines) {
+      if (isMaintenanceFrozen()) return;
       if (!tm.isRunning()) continue;
       try {
         const moved = await tm.absorbOrphanedSeats();
@@ -13948,11 +13972,16 @@ export class GameServer {
        last HUMAN_SEAT_DEMAND_TTL_MS the seats are declared, so the horses
        this human will need are still free the moment the hold ends. */
     if (hasHuman) {
+      const waitOverride =
+        seats === 2
+          ? await this.readHeadsUpWaitHoldOverride(tournamentId, occupancy.humanUserIds)
+          : undefined;
       const holdUntil = seatFirstHumanPartnerHoldUntilMs(
         startMs,
         occupancy.firstHumanAtMs,
         seatFirstHumanPartnerHoldJitterMs(tournamentId),
-        createdAtMs
+        createdAtMs,
+        waitOverride
       );
       const now = Date.now();
       if (holdUntil > now) {
@@ -14170,6 +14199,36 @@ export class GameServer {
    * is_horse is used to IDENTIFY the occupant only (CLAUDE.md 10.5).
    */
   private seatFirstOccupancyReads = new Map<string, Promise<SeatFirstOccupancy | null>>();
+  private headsUpWaitHoldCache = new Map<
+    string,
+    { at: number; override: SeatFirstPartnerHoldOverride | undefined }
+  >();
+
+  private async readHeadsUpWaitHoldOverride(
+    tournamentId: string,
+    humanUserIds?: ReadonlySet<string>
+  ): Promise<SeatFirstPartnerHoldOverride | undefined> {
+    const now = Date.now();
+    const cached = this.headsUpWaitHoldCache.get(tournamentId);
+    if (cached && now - cached.at < 2_000) {
+      return cached.override;
+    }
+    const { data, error } = await supabase
+      .from('heads_up_wait_holds')
+      .select('tournament_id, creator_user_id, wait_mode, hold_expires_at')
+      .eq('tournament_id', tournamentId)
+      .maybeSingle();
+    if (error) {
+      return cached?.override;
+    }
+    const override = resolveHeadsUpWaitHoldOverride(
+      data as HeadsUpWaitHoldRow | null,
+      humanUserIds
+    );
+    if (this.headsUpWaitHoldCache.size > 500) this.headsUpWaitHoldCache.clear();
+    this.headsUpWaitHoldCache.set(tournamentId, { at: now, override });
+    return override;
+  }
 
   private seatFirstHasHuman(
     tournamentId: string,
@@ -14246,6 +14305,7 @@ export class GameServer {
         (occupants || []) as Array<{ user_id?: string | null; joined_at?: string | null }>,
         (id) => humans.has(id)
       ),
+      humanUserIds: humans,
     };
     this.seatFirstOccupancy.set(tournamentId, answer);
     return answer;
@@ -14332,6 +14392,7 @@ export class GameServer {
       this.tournamentRecurring.seatFirstPartnerHoldUntil(tournamentId) > Date.now()
     ) {
       this.seatFirstOccupancy.delete(tournamentId);
+      this.headsUpWaitHoldCache.delete(tournamentId);
       this.seatFirstFillMisses.delete(tournamentId);
       // Declared from a stale answer: the next pass re-declares it in the
       // hold's last stretch if the board still needs it.
@@ -14359,6 +14420,7 @@ export class GameServer {
       this.seatFirstFillMisses.delete(tournamentId);
       this.seatFirstStuckReported.delete(tournamentId);
       this.seatFirstOccupancy.delete(tournamentId);
+      this.headsUpWaitHoldCache.delete(tournamentId);
       this.tournamentRecurring.clearHumanSeatDemand(tournamentId);
       if (fillsTheBoard) {
         // The board is full now: start it now, not on the next poll.

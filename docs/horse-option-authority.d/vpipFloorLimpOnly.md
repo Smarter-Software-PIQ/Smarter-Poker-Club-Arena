@@ -50,7 +50,7 @@ It cannot leak onto a Classic table. "Known" needs the Horse's own judged row, w
 
 ## Tests
 
-server/src/engine/HorseVpipFloorLimpOnly.test.ts (the priced mechanism on the four measured variants; the declared table; the line follows the floor the table carries; the floor never calls or raises in a raised pot on PLO5/PLO6 at 40% and 50%, PLO4 and hold'em; nothing changes at or above the line; option off is identical; a limp folded to a raise counts as VPIP in the sitting harness); the existing floor suites (HorseOmahaVpipFloorByLimp, HorseVpipFloor, HorseVpipFloorCallDown, HorseVpipFloorDeepStackOff, aTightRaisersFoldIsNotBoughtBackByTheVpipFloor, HorseStoredNodeCarriesVpipFloor, HorsePublicActionNodeVpip) unchanged and passing.
+`server/src/engine/HorseVpipFloorLimpOnly.test.ts` (the priced mechanism on the four measured variants; the declared table; the line follows the floor the table carries; the floor never calls or raises in a raised pot on PLO5/PLO6 at 40% and 50%, PLO4 and hold'em; nothing changes at or above the line; option off is identical; a limp folded to a raise counts as VPIP in the sitting harness), `server/src/engine/AReferenceNodeRuleIsAReferenceReturn.law.test.ts` (`docs/laws.d/server-src-engine-AReferenceNodeRuleIsAReferenceReturn.md`), and `server/src/engine/aVpipFloorLimpIsAReferenceReturn.guard.test.ts` (reference-node return shape admits the limp); the existing floor suites (HorseOmahaVpipFloorByLimp, HorseVpipFloor, HorseVpipFloorCallDown, HorseVpipFloorDeepStackOff, aTightRaisersFoldIsNotBoughtBackByTheVpipFloor, HorseStoredNodeCarriesVpipFloor, HorsePublicActionNodeVpip) unchanged and passing.
 
 ## Evidence rows
 
@@ -71,3 +71,7 @@ The price the floor pays per needed hand (the limp price times the share of the 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+
+## Rollback
+
+Set `vpipFloorLimpOnly` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('vpipFloorLimpOnly', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

@@ -39,14 +39,12 @@
  *  - No commitment cap, no all-in-or-fold, no VPIP floor, no straddle, no
  *    bomb pot, one board, no bad-beat jackpot: the values a live table with
  *    none of them sends.
- *  - Fixed limit (2026-11-20): fixed-limit hold'em gets the controller's own
- *    menu (leagueFixedLimitActionState: the street unit, the four-wager cap
- *    and the single legal amount, from BettingStructure.ts and
- *    calculateBettingState, the functions HandController.buildBettingState
- *    calls), at stacks deep enough that no seat can be all in
- *    (leagueFixedLimitRefusal). Hi-lo fixed limit (flo8) still gets no menu
- *    here (null) and keeps the legacy state: the league settles no low half,
- *    so UNMEASURABLE_MATCHUPS refuses every flo8 card.
+ *  - Fixed limit (2026-11-20, extended to flo8 2026-11-21): fixed-limit hold'em
+ *    (flh) and fixed-limit Omaha hi-lo (flo8) get the controller's own menu
+ *    (leagueFixedLimitActionState: the street unit, the four-wager cap and the
+ *    single legal amount, from BettingStructure.ts and calculateBettingState,
+ *    the functions HandController.buildBettingState calls), at stacks deep
+ *    enough that no seat can be all in (leagueFixedLimitRefusal).
  */
 import type {
   ActionRecord,
@@ -73,7 +71,12 @@ import {
 } from '../engine/BettingStructure.js';
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
-import { FIXED_LIMIT_SCRIPTED_POPULATION_ID } from './HorseLeagueHumanField.js';
+import {
+  FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS,
+  FIXED_LIMIT_SCRIPTED_POPULATION_ID,
+  FLO8_SCRIPTED_FIELD_VARIANTS,
+  FLO8_SCRIPTED_POPULATION_ID,
+} from './HorseLeagueHumanField.js';
 
 /** The menu production composes (AuthoritativeActionState, then the table's
  *  commitment cap, null when the table has none). */
@@ -105,16 +108,17 @@ export interface LeagueMenuSpot {
 }
 
 /**
- * FIXED LIMIT IN THE LEAGUE (2026-11-20).
+ * FIXED LIMIT IN THE LEAGUE (2026-11-20; flo8 added 2026-11-21).
  *
- * The league deals fixed-limit hold'em only: two hole cards, one high hand,
- * the showdown playHand already scores. Fixed-limit Omaha hi-lo (flo8) splits
- * the pot with a low half the league's settlement does not award, so it stays
- * refused.
+ * The league deals both fixed-limit variants supported by BettingStructure:
+ * fixed-limit hold'em (flh) and fixed-limit Omaha hi-lo (flo8). Hi-lo showdown
+ * settlement uses the engine's own determineWinners (settleLeagueShowdown), so
+ * flo8 runs with both the controller's fixed-limit betting rules and its hi-lo
+ * split settlement.
  */
 export function leagueDealsFixedLimit(gameVariant: string): boolean {
   const vi = variantInfo(gameVariant);
-  return vi.isFixedLimit === true && !vi.isOmaha && !vi.isHiLo && !vi.isShortDeck;
+  return vi.isFixedLimit === true && !vi.isShortDeck;
 }
 
 /**
@@ -148,7 +152,7 @@ export function leagueFixedLimitRefusal(table: {
   fieldPopulation?: string;
 }): string | null {
   if (!leagueDealsFixedLimit(table.gameVariant)) {
-    return `The league deals no fixed-limit ${table.gameVariant} hand: only fixed-limit hold'em is dealt`;
+    return `The league deals no fixed-limit ${table.gameVariant} hand: only fixed-limit hold'em (flh) and fixed-limit Omaha hi-lo (flo8) are dealt`;
   }
   if (!(table.stackBB > LEAGUE_FIXED_LIMIT_MAX_COMMIT_BB)) {
     return (
@@ -159,14 +163,21 @@ export function leagueFixedLimitRefusal(table: {
   if (table.gameMode !== 'cash' || table.ante > 0) {
     return 'A fixed-limit league hand is a cash hand without an ante';
   }
-  // 2026-11-20: the one field a fixed-limit hand seats is the scripted
-  // fixed-limit field (FixedLimitScriptedField.ts), whose seats are offered
-  // this module's fixed-limit menu. No calibrated population is fitted for
-  // fixed limit, and the calibrated and pressure seats build no-limit menus.
-  if (table.humanField && table.fieldPopulation !== FIXED_LIMIT_SCRIPTED_POPULATION_ID) {
+  // 2026-11-20 (flh) and 2026-11-21 (flo8): the fields a fixed-limit hand seats
+  // are the scripted fixed-limit fields (FixedLimitScriptedField.ts for flh,
+  // Flo8ScriptedField.ts for flo8), whose seats are offered this module's
+  // fixed-limit menu. No calibrated population is fitted for fixed limit, and
+  // the calibrated and pressure seats build no-limit menus.
+  const allowedScriptedFixedLimit =
+    (table.fieldPopulation === FIXED_LIMIT_SCRIPTED_POPULATION_ID &&
+      FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS.includes(table.gameVariant)) ||
+    (table.fieldPopulation === FLO8_SCRIPTED_POPULATION_ID &&
+      FLO8_SCRIPTED_FIELD_VARIANTS.includes(table.gameVariant));
+  if (table.humanField && !allowedScriptedFixedLimit) {
     return (
       'A fixed-limit league hand seats Horses only, or the scripted fixed-limit field ' +
-      `(${FIXED_LIMIT_SCRIPTED_POPULATION_ID}): no field population is calibrated for fixed limit`
+      `(${FIXED_LIMIT_SCRIPTED_POPULATION_ID} for flh, ${FLO8_SCRIPTED_POPULATION_ID} for flo8): ` +
+      'no field population is calibrated for fixed limit'
     );
   }
   return null;
@@ -191,8 +202,8 @@ export function leagueFixedLimitBounds(
 }
 
 /**
- * The fixed-limit hold'em menu for the seat on the clock, in the shape of
- * HandController.getAuthoritativeActionState, for a table where every seat
+ * The fixed-limit menu for the seat on the clock (flh and flo8), in the shape
+ * of HandController.getAuthoritativeActionState, for a table where every seat
  * can cover every wager (leagueFixedLimitRefusal). On such a table every
  * wager is a full one, so every seat the league puts on the clock may reopen
  * (HandController.canReopenBetting) and some opponent can always respond.
@@ -259,8 +270,9 @@ function leagueFixedLimitActionState(spot: LeagueMenuSpot): LeagueActionState {
  * The league's legal menu for the seat on the clock, in the shape of
  * HandController.getAuthoritativeActionState composed with
  * applyTableCommitmentCap (no cap) and applyAllInOrFoldActionState (off).
- * Fixed-limit hold'em gets leagueFixedLimitActionState. Null for any other
- * fixed-limit variant (flo8): the league has no menu for it.
+ * Fixed-limit variants dealt by the league (flh, flo8) get
+ * leagueFixedLimitActionState. Null for any other fixed-limit variant the
+ * league does not deal.
  */
 export function leagueActionState(spot: LeagueMenuSpot): LeagueActionState | null {
   const vi = variantInfo(spot.gameVariant);
@@ -369,8 +381,8 @@ export interface LeagueDecisionTable {
 /**
  * The decision input production builds for this node (ServerTableEngineTurns
  * scheduleHorseAction): the hero with its own cards, and a state whose seats
- * are public only. Null when the league has no menu for the variant (fixed-
- * limit hi-lo); the caller keeps its legacy state there.
+ * are public only. Null when the league has no menu for the variant; the caller
+ * keeps its legacy state there.
  */
 export function leagueHorseDecisionInput(
   table: LeagueDecisionTable

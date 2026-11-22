@@ -55,7 +55,8 @@ import { prefetchIntent } from '../../utils/ChunkPreloader';
 import { observeLobbyScrollClearance } from './lobbyScrollClearance';
 import { observeLobbyTableWarmups, warmTable } from '../../services/tableWarmup';
 import { useSpinTierAvailability } from '../../hooks/useSpinTierAvailability';
-import { gameInviteText, gameInviteUrl, shareLink } from '../../lib/share';
+import { gameInviteText, gameInviteUrl, lobbyEntryInviteTarget, shareLink } from '../../lib/share';
+import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { InviteLinkIcon } from '../table/TableMenuIcons';
 import {
   lobbyPlayerStateOf as playerStateOf,
@@ -1333,7 +1334,15 @@ const STATUS_RANK: Record<LobbyStatusKey, number> = {
   closed: 7,
   completed: 8,
 };
-function InviteRowButton({ entry }: { entry: LobbyEntry }) {
+function InviteRowButton({
+  entry,
+  inviteCode,
+  onFailed,
+}: {
+  entry: LobbyEntry;
+  inviteCode?: string | null;
+  onFailed?: (url: string, label: string) => void;
+}) {
   const [feedback, setFeedback] = useState<'idle' | 'copied' | 'shared'>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1344,11 +1353,13 @@ function InviteRowButton({ entry }: { entry: LobbyEntry }) {
     []
   );
 
+  if (entry.status === 'completed' || entry.status === 'closed') {
+    return null;
+  }
+
   const handleInvite = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = gameInviteUrl(
-      entry.kind === 'cash' ? { kind: 'table', id: entry.id } : { kind: 'tournament', id: entry.id }
-    );
+    const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     void shareLink({
       source: 'LobbyTable.inviteToGame',
       title: entry.name || 'Club Arena Game',
@@ -1359,6 +1370,8 @@ function InviteRowButton({ entry }: { entry: LobbyEntry }) {
         setFeedback(outcome);
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => setFeedback('idle'), 2400);
+      } else if (outcome === 'failed') {
+        onFailed?.(url, entry.name ? `${entry.name} Invite Link` : 'Game Invite Link');
       }
     });
   };
@@ -1371,6 +1384,7 @@ function InviteRowButton({ entry }: { entry: LobbyEntry }) {
       aria-label={`Invite To ${entry.name}`}
       title="Invite To Game"
       onClick={handleInvite}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
       <InviteLinkIcon />
       <span>{feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}</span>
@@ -1385,9 +1399,9 @@ const COL_STATUS: ColumnDef = {
   sortable: true,
   sortValue: (e) => STATUS_RANK[e.status] ?? 9,
   /* The "you are in this game" chip used to live here and is now rendered in
-     the title cell — the phone layout hides this whole cell on tournament
-     cards, which is precisely where the chip mattered. See PlayerStateChip. */
-  render: (e) => (
+     the title cell — the phone layout hides the status badge on MTT cards,
+     which is precisely where the chip mattered. See PlayerStateChip. */
+  render: (e, ctx) => (
     <span className="lt-statuscell">
       {/* No countdown here any more, on any kind. An MTT carries a live
           seconds clock in its own two-line title; a Spin and a Heads-Up start
@@ -1395,7 +1409,7 @@ const COL_STATUS: ColumnDef = {
           Min..." beside a badge reading Filling was two different answers to
           the same question; and a cash game is running now. */}
       <LobbyStatusBadge status={e.status} label={e.statusLabel} />
-      <InviteRowButton entry={e} />
+      <InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />
     </span>
   ),
 };
@@ -2224,10 +2238,22 @@ export default function LobbyTable({
   /* Only the Spin tabs can render the badge (it requires kind === 'spin', and
      the ALL list never contains a Spin), so every other tab was fetching a
      view whose answer it could not display. */
+  const [inviteFallback, setInviteFallback] = useState<{ url: string; label: string } | null>(null);
+  useEffect(() => {
+    setInviteFallback(null);
+  }, [category, clubId]);
+  const handleInviteFailed = useCallback((url: string, label: string) => {
+    setInviteFallback({ url, label });
+  }, []);
+
   const spinTiers = useSpinTierAvailability(category === 'SPIN' ? clubId : undefined);
   const rowCtx = useMemo<LobbyRowContext>(
-    () => ({ ...ctx, spinTopTierLive: spinTiers?.can_draw_100x === true }),
-    [ctx, spinTiers]
+    () => ({
+      ...ctx,
+      spinTopTierLive: spinTiers?.can_draw_100x === true,
+      onInviteFailed: handleInviteFailed,
+    }),
+    [ctx, spinTiers, handleInviteFailed]
   );
 
   const [headingSort, setHeadingSort] = usePlayerPreference(
@@ -2911,6 +2937,19 @@ export default function LobbyTable({
           </tbody>
         </table>
       </div>
+      {inviteFallback && (
+        <div className="lt-invite-fallback" role="region" aria-label="Game Invite Link">
+          <ShareLinkFallback url={inviteFallback.url} label={inviteFallback.label} />
+          <button
+            type="button"
+            className="lt-invite-fallback__close"
+            aria-label="Dismiss Game Invite Link"
+            onClick={() => setInviteFallback(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
     </>
   );
 }

@@ -169,6 +169,7 @@ export function createDefaultMenuSections(
     onToggleStraddle?: () => void;
     onOpenMarketplace?: () => void;
     onInviteToGame?: () => void;
+    onInviteOnlineFriend?: () => void;
     onRebuy?: () => void;
     onAutoTopUp?: () => void;
     onAddOn?: () => void;
@@ -313,6 +314,16 @@ export function createDefaultMenuSections(
                 label: 'Invite To Game',
                 icon: <InviteLinkIcon />,
                 onClick: handlers.onInviteToGame,
+              },
+            ]
+          : []),
+        ...(handlers.onInviteOnlineFriend
+          ? [
+              {
+                id: 'invite-online-friend',
+                label: 'Invite Online Friend',
+                icon: <InviteLinkIcon />,
+                onClick: handlers.onInviteOnlineFriend,
               },
             ]
           : []),

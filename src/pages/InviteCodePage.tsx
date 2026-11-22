@@ -9,8 +9,9 @@
  * account and claims the invite for a signed-in one.
  */
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import PageSkeleton from '../components/common/PageSkeleton';
+import { appendInviteNextParam } from '../lib/inviteCode';
 import {
   normalizeInviteCode,
   rememberInviteCode,
@@ -21,6 +22,8 @@ import './InvitePage.css';
 
 export default function InviteCodePage() {
   const { code } = useParams();
+  const [searchParams] = useSearchParams();
+  const nextParam = searchParams.get('next');
   const navigate = useNavigate();
   const [failed, setFailed] = useState(false);
 
@@ -35,7 +38,7 @@ export default function InviteCodePage() {
     resolveInviteCode(normalized)
       .then((r) => {
         if (!alive) return;
-        if (r) navigate(r.inAppPath, { replace: true });
+        if (r) navigate(appendInviteNextParam(r.inAppPath, nextParam), { replace: true });
         else setFailed(true);
       })
       .catch((err) => {
@@ -45,7 +48,7 @@ export default function InviteCodePage() {
     return () => {
       alive = false;
     };
-  }, [code, navigate]);
+  }, [code, navigate, nextParam]);
 
   if (failed) {
     return (

@@ -11,13 +11,14 @@
 import { readFileSync } from 'node:fs';
 import {
   HUD_STATS,
+  familyForVariant,
   type HudFamily,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import { blendedCount, type HudPriors } from '../src/engine/opponentHud/OpponentHud.js';
 
 const [user, famArg] = process.argv.slice(2);
-const family = (famArg === 'plo4' ? 'plo4' : 'plo5') as HudFamily;
+const family: HudFamily = familyForVariant(famArg) ?? 'plo5';
 const fileIdx = process.argv.indexOf('--file');
 
 async function load(): Promise<{ profile: OpponentHudProfile | null; priors: HudPriors }> {

@@ -2,8 +2,11 @@
  * OPPONENT HUD BUILD (2026-11-20, PLO-OWNER lane OPPONENT-HUD): backfill, reconciliation and dry run of the lifetime
  * public opponent profiles (server/src/engine/opponentHud/OpponentHudProfile.ts).
  *
- *   npx tsx server/scripts/opponent-hud-build.ts --from-db --since 2026-10-01 [--until ISO] --dry-run --out FILE
- *   npx tsx server/scripts/opponent-hud-build.ts --from-db --since 2026-10-01 --apply          (backfill, rebuild)
+ *   npx tsx server/scripts/opponent-hud-build.ts --from-db [--since ISO] [--until ISO] --dry-run --out FILE
+ *   npx tsx server/scripts/opponent-hud-build.ts --from-db --apply                             (backfill, rebuild)
+ *
+ * --since defaults to the first PLO4/PLO5 hand hand_history holds (read from the database: the lifetime starts at
+ * hand one, lead ruling 2026-11-21 18:38Z); --apply refuses a later --since. Cash and tournament hands both count.
  *   npx tsx server/scripts/opponent-hud-build.ts --from-jsonl FILE --dry-run --out FILE        (offline copy)
  *
  * Source: fn_opponent_hud_hands_page (public fields only; the dealt cards never leave the database) or a JSON-lines
@@ -11,18 +14,18 @@
  * first, so a backfilled profile is exactly what the live engine would have built hand by hand. The population row
  * ('*') holds fitHudPriors of the result. --apply writes with rebuild=true (a backfill replaces the stored row);
  * (The nightly verification runs in the engine: OpponentHudStore.reconcileDay, which compares each profile's day
- * list and day sum with hand_history, alerts on any difference and never writes a count; a lifetime rebuild cannot reconcile a Horse because hands with
- * no person are purged after 7 days.)
+ * list and day sum with hand_history, alerts on any difference and never writes a count.)
+ * A stored row with more hands than the rebuild read is KEPT, always (OpponentHudBackfillPlan; no --force).
  * Operators only. Never prints a card (there is none in the input).
  */
 import { readFileSync, writeFileSync, createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import {
+  HUD_FAMILIES,
   HUD_STATS,
   applyHudHandToProfiles,
   emptyHudProfile,
   handRecordFromRow,
-  type HudFamily,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import {
@@ -31,6 +34,7 @@ import {
   type HudPopulation,
 } from '../src/engine/opponentHud/OpponentHud.js';
 import { extractHandDeltas } from '../src/engine/opponentHud/OpponentHudProfile.js';
+import { planOpponentHudBackfill } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
@@ -56,7 +60,8 @@ function take(row: unknown): void {
   hands += 1;
   if (rec.at > lastHandAt) lastHandAt = rec.at;
   // pooled counts per family and stake band: the stake priors of a new opponent
-  const band = hudStakeBand(rec.bb);
+  // a tournament big blind is chips, not a stake: no stake band
+  const band = rec.tournament ? null : hudStakeBand(rec.bb);
   if (band) {
     const fam = (stakePools[rec.family] ??= {});
     const pool = (fam[band] ??= {});
@@ -110,6 +115,20 @@ async function paced<T>(call: () => PromiseLike<T>): Promise<T> {
   return out;
 }
 
+/** created_at of the first PLO4/PLO5 hand (cash or tournament) hand_history holds, or null when none. */
+async function firstRetainedHandMs(): Promise<number | null> {
+  const client = await db();
+  const { data, error } = await client.rpc('fn_opponent_hud_hands_page', {
+    p_after_at: '1970-01-01T00:00:00Z',
+    p_after_id: '00000000-0000-0000-0000-000000000000',
+    p_until: new Date().toISOString(),
+    p_limit: 1,
+  });
+  if (error) throw new Error(`first hand read failed: ${error.message}`);
+  const first = ((data ?? []) as { created_at: string }[])[0];
+  return first ? Date.parse(first.created_at) : null;
+}
+
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
   let afterAt = since;
@@ -141,7 +160,7 @@ function summary() {
   const byFamily: Record<string, number> = {};
   for (const p of profiles.values()) byFamily[p.family] = (byFamily[p.family] ?? 0) + 1;
   const priors: Record<string, HudPopulation> = {};
-  for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+  for (const fam of HUD_FAMILIES) {
     const stakes: HudPopulation['stakes'] = {};
     for (const [band, pool] of Object.entries(stakePools[fam] ?? {})) {
       stakes[band] = {};
@@ -168,12 +187,27 @@ function summary() {
 async function main(): Promise<void> {
   const jsonl = opt('--from-jsonl');
   if (jsonl) await fromJsonl(jsonl);
-  else if (flag('--from-db'))
-    await fromDb(
-      opt('--since') ?? '2026-01-01T00:00:00Z',
-      opt('--until') ?? new Date().toISOString()
+  let since = opt('--since');
+  let firstRetainedMs: number | null = null;
+  if (!jsonl && flag('--from-db')) {
+    firstRetainedMs = await firstRetainedHandMs();
+    since ??= new Date(firstRetainedMs ?? Date.now()).toISOString();
+    console.log(
+      `first retained PLO4/PLO5 hand ${firstRetainedMs === null ? 'none' : new Date(firstRetainedMs).toISOString()}; since ${since}`
     );
-  else throw new Error('--from-jsonl FILE or --from-db');
+    if (flag('--apply')) {
+      const pre = planOpponentHudBackfill({
+        profiles: [],
+        storedHands: new Map(),
+        sinceMs: Date.parse(since),
+        firstRetainedMs,
+        forceRequested: flag('--force'),
+      });
+      if (!pre.ok) throw new Error(`refused: ${pre.refusal}`);
+    }
+    // the first hand itself is read: the keyset starts at (since, the zero id), and every hand id is above it
+    await fromDb(since, opt('--until') ?? new Date().toISOString());
+  } else if (!jsonl) throw new Error('--from-jsonl FILE or --from-db');
   const s = summary();
   const out = opt('--out');
   if (out) {
@@ -191,10 +225,10 @@ async function main(): Promise<void> {
   );
   if (flag('--apply')) {
     const client = await db();
-    // A stored profile with MORE hands than this rebuild keeps history hand_history no longer holds (hands with no
-    // person are purged after 7 days): it is never replaced unless --force. Every other row is rebuilt.
+    // A stored profile with MORE hands than this rebuild holds hands the rebuild did not read: it is KEPT, always
+    // (OpponentHudBackfillPlan, decided on the actual retained rows; no override). Every other row is rebuilt.
     const storedHands = new Map<string, number>();
-    for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+    for (const fam of HUD_FAMILIES) {
       const users = [...profiles.values()].filter((p) => p.family === fam).map((p) => p.user);
       for (let i = 0; i < users.length; i += 50) {
         const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
@@ -206,14 +240,17 @@ async function main(): Promise<void> {
           storedHands.set(`${fam}|${r.user_id}`, Number(r.hands));
       }
     }
-    let kept = 0;
+    const plan = planOpponentHudBackfill({
+      profiles: profiles.values(),
+      storedHands,
+      sinceMs: Date.parse(since ?? ''),
+      firstRetainedMs,
+      forceRequested: flag('--force'),
+    });
+    if (!plan.ok) throw new Error(`refused: ${plan.refusal}`);
+    const kept = plan.kept.length;
     const rows: object[] = [];
-    for (const p of profiles.values()) {
-      const stored = storedHands.get(`${p.family}|${p.user}`);
-      if (stored !== undefined && stored > p.hands && !flag('--force')) {
-        kept += 1;
-        continue;
-      }
+    for (const p of plan.write) {
       rows.push({
         user_id: p.user,
         family: p.family,
@@ -224,8 +261,8 @@ async function main(): Promise<void> {
         rebuild: true,
       });
     }
-    console.log(`KEPT ${kept} stored profiles that hold more hands than hand_history still has`);
-    for (const fam of ['plo4', 'plo5'] as HudFamily[])
+    console.log(`KEPT ${kept} stored profiles that hold more hands than this rebuild read`);
+    for (const fam of HUD_FAMILIES)
       rows.push({
         user_id: '*',
         family: fam,

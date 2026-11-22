@@ -267,6 +267,109 @@ describe('preflop: the audit fixtures fold without the option and call with it',
     for (const seed of SEEDS) expect(decide(gs, player, true, seed).action).toBe('fold');
     expect(holdemAllInCallVerdictOfLastDecision()!.price.verdict).toBe('fold');
   });
+
+  it('a short blind posted all-in under a larger non-all-in open is not priced as an all-in call', () => {
+    // Seat 1 posted a 0.5bb small blind all-in; Seat 4 (20bb) opened to 2.5bb (not all-in); Hero (20bb) on BTN.
+    // Calling 2.5bb leaves 17.5bb behind for postflop play, so preflop all-in call pricing stands aside.
+    const { gs, player } = buildSpot({
+      bb: 200,
+      seats: [1, 2, 3, 4, 5, 6],
+      dealer: 6,
+      hero: 6,
+      heroCards: 'KcQd',
+      stacks: { 1: 100, 2: 4000, 3: 4000, 4: 4000, 5: 4000, 6: 4000 },
+      streets: {
+        preflop: [
+          [3, 'fold', 0],
+          [4, 'raise', 500],
+          [5, 'fold', 0],
+        ],
+      },
+      playersLeft: 200,
+      spotsPaid: 30,
+    });
+    expect(gs.players.find((p) => p.seat === 1)?.is_all_in).toBe(true);
+    expect(gs.currentBet).toBe(500);
+    for (const seed of [1, 2, 3]) {
+      const off = decide(gs, player, false, seed);
+      const on = decide(gs, player, true, seed);
+      expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+      expect(on.action).toBe(off.action);
+    }
+  });
+
+  it('never removes a preflop raise or raising all-in over a short all-in with deeper stacks behind', () => {
+    // Seat 3 (4bb) open-jams; Hero (15bb) with AA in CO with deeper live seats behind chooses raise/all_in off.
+    // Preflop pricing runs after the reference chooses its action and keeps the raise/all_in untouched.
+    const { gs, player } = buildSpot({
+      bb: 200,
+      seats: [1, 2, 3, 4, 5, 6],
+      dealer: 6,
+      hero: 5,
+      heroCards: 'AsAh',
+      stacks: { 1: 3000, 2: 3000, 3: 800, 4: 3000, 5: 3000, 6: 3000 },
+      streets: {
+        preflop: [
+          [3, 'all_in', 0],
+          [4, 'fold', 0],
+        ],
+      },
+      playersLeft: 200,
+      spotsPaid: 30,
+    });
+    for (const seed of [1, 2, 3]) {
+      const off = decide(gs, player, false, seed);
+      const on = decide(gs, player, true, seed);
+      expect(['raise', 'all_in']).toContain(off.action);
+      expect(on.action).toBe(off.action);
+      expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+    }
+  });
+
+  it('preserves exact nashCallVsJam (chart_bb_defend) answers on standard-table lone open-jams', () => {
+    // Standard 9-max tournament, 10bb lone open-jam from HJ with 4 players behind; Hero in CO (10bb) with AJo
+    // is answered by nashCallVsJam (chart_bb_defend) and is not overridden by the Monte Carlo fold path.
+    const { gs, player } = buildSpot({
+      bb: 200,
+      seats: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      dealer: 9,
+      hero: 8,
+      heroCards: 'AsJd',
+      stacks: {
+        1: 2000,
+        2: 2000,
+        3: 2000,
+        4: 2000,
+        5: 2000,
+        6: 2000,
+        7: 2000,
+        8: 2000,
+        9: 2000,
+      },
+      streets: {
+        preflop: [
+          [3, 'fold', 0],
+          [4, 'fold', 0],
+          [5, 'fold', 0],
+          [6, 'fold', 0],
+          [7, 'all_in', 0],
+        ],
+      },
+      playersLeft: 200,
+      spotsPaid: 30,
+    });
+    // Live HandController marks a raising all-in with isFullRaise (undefined means an all-in call-off).
+    for (const a of gs.actionHistory ?? []) {
+      if (a.seat === 7 && a.action === 'all_in') a.isFullRaise = true;
+    }
+    for (const seed of [1, 2, 3]) {
+      const off = decide(gs, player, false, seed);
+      const on = decide(gs, player, true, seed);
+      expect(off.action).toBe('call');
+      expect(on.action).toBe('call');
+      expect(holdemAllInCallVerdictOfLastDecision()).toBeNull();
+    }
+  });
 });
 
 describe('All-In-Or-Fold: the ten production requests (AnAofClosingSeatCallsFromTheNashTable)', () => {

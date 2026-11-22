@@ -59,6 +59,8 @@ H4H_FILE = '20261119211558_a_hand_for_hand_wait_is_an_owed_wait.sql'
 H4H_MIGRATION = ROOT / 'supabase' / 'migrations' / H4H_FILE
 SPLIT_FILE = '20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql'
 SPLIT_MIGRATION = ROOT / 'supabase' / 'migrations' / SPLIT_FILE
+OWED_WAITS_FILE = '20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql'
+OWED_WAITS_MIGRATION = ROOT / 'supabase' / 'migrations' / OWED_WAITS_FILE
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -111,7 +113,15 @@ CREATE TABLE lightning_hand(hand_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), 
 CREATE INDEX idx_lightning_hand_hand_history_id ON lightning_hand(hand_history_id);
 CREATE TABLE engine_maintenance_break_log(break_started_at timestamptz PRIMARY KEY, break_ended_at timestamptz);
 CREATE TABLE tournaments(id uuid PRIMARY KEY, break_started_at timestamptz, break_ends_at timestamptz,
+  addon_period_started_at timestamptz, addon_period_ends_at timestamptz,
+  addon_break_minutes integer NOT NULL DEFAULT 1,
+  is_rebuy boolean DEFAULT false, is_reentry boolean DEFAULT false,
   created_at timestamptz DEFAULT now());
+CREATE TABLE tournament_bounty_awards(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id uuid NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  table_id uuid, hand_id text, reserved_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX idx_bounty_awards_tournament ON tournament_bounty_awards(tournament_id, reserved_at);
+CREATE SCHEMA smarter_private;
 CREATE TABLE tournament_seat_move_receipts(request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid NOT NULL,
   user_id uuid, source_table_id uuid NOT NULL, destination_table_id uuid NOT NULL, moved_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX idx_tsmr_tournament_moved_at ON tournament_seat_move_receipts(tournament_id, moved_at DESC);
@@ -515,6 +525,95 @@ try:
           run("SELECT count(DISTINCT message) FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'") == '1')
     run(SCRIPT_SQL.read_text())
     check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly with the split', True)
+
+    # Phase 4 (20261122054826): Mystery Bounty chest reveals and add-on breaks
+    # are owed waits; the hand-gap classification runbook scans 15 minutes,
+    # classifies mystery_bounty and addon_break as intended, and never labels a
+    # tournament bust in a rebuy event as an intended rebuy wait.
+    run(OWED_WAITS_MIGRATION.read_text())
+    owed_proof = OWED_WAITS_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261122054826 installs as written and its live proof holds',
+          run('SELECT ' + owed_proof) == 't', owed_proof)
+
+    # 4a. Mystery Bounty chest reveals on table_mb are excluded; a sibling table
+    # in the same tournament without a chest award is still graded over budget.
+    w40_start = T0 + dt.timedelta(minutes=5 * 39)
+    w40_end_dt = T0 + dt.timedelta(minutes=5 * 40)
+    tour_mb = str(uuid.uuid4())
+    run(f"INSERT INTO tournaments(id, is_rebuy) VALUES ('{tour_mb}', true)")
+    t_mb_chest = table('all_in_showdown', lambda k: 14_000, [40], tournament=tour_mb, bust=True)
+    t_mb_plain = table('all_in_showdown', lambda k: 1_800, [40], tournament=tour_mb, bust=True)
+    run(f"""INSERT INTO tournament_bounty_awards(tournament_id, table_id, hand_id, reserved_at)
+            SELECT tournament_id, table_id, id::text, ended_at + interval '2 seconds'
+              FROM hand_history WHERE table_id = '{t_mb_chest}'""")
+    g40 = grade(40).get(('tournament', 'all_in_showdown'))
+    plain_pairs = int(run(
+        f"SELECT count(*) FROM hand_history WHERE table_id = '{t_mb_plain}' "
+        f"AND created_at >= '{w40_start.isoformat()}' AND created_at < '{w40_end_dt.isoformat()}'"))
+    check('mystery bounty: chest-reveal gaps are excluded while non-chest gaps on the same tournament stay graded',
+          g40 and g40['hands'] == plain_pairs and g40['unintended_p95_ms'] == 1800,
+          {'g40': g40, 'plain_pairs': plain_pairs})
+
+    # 4b. Add-on break: only the final addon_break_minutes of an addon_from_start
+    # window is excluded; slow hands during earlier open play remain graded.
+    w42_start = T0 + dt.timedelta(minutes=5 * 41)
+    w42_end = T0 + dt.timedelta(minutes=5 * 42)
+    tour_addon = str(uuid.uuid4())
+    run(f"""INSERT INTO tournaments(id, addon_period_started_at, addon_period_ends_at, addon_break_minutes)
+            VALUES ('{tour_addon}', '{(w42_start - dt.timedelta(minutes=30)).isoformat()}',
+                    '{w42_end.isoformat()}', 1)""")
+    t_addon = table('showdown_checked_river', lambda k: 2_500, [42], tournament=tour_addon)
+    g42 = grade(42).get(('tournament', 'showdown_checked_river'))
+    total_addon_pairs = int(run(
+        f"SELECT count(*) FROM hand_history WHERE table_id = '{t_addon}' "
+        f"AND created_at >= '{w42_start.isoformat()}' AND created_at < '{w42_end.isoformat()}'"))
+    check('add-on break: only the final addon_break_minutes pause is excluded, not earlier addon_from_start play',
+          g42 and 0 < g42['hands'] < total_addon_pairs and g42['unintended_p95_ms'] == 2500,
+          {'g42': g42, 'total_addon_pairs': total_addon_pairs})
+
+    # 4c. Hand-gap classification runbook: tournament bust in a rebuy tournament
+    # is classified as 'other' (never 'rebuy') and does NOT auto-resolve; an alert
+    # whose slow hands are all mystery_bounty / addon_break DOES auto-resolve; and
+    # a slow hand 12 minutes before window_end (inside 15m, outside 10m) is seen.
+    run("UPDATE financial_alerts SET resolved = true WHERE source = 'fn_ca_hand_gap_watch' AND NOT resolved")
+    w40_end = (T0 + dt.timedelta(minutes=5 * 40)).isoformat()
+    fa_rebuy = run(
+        "INSERT INTO financial_alerts(severity, source, message, context) VALUES "
+        "('critical', 'fn_ca_hand_gap_watch', 'gap', "
+        f"jsonb_build_object('kind', 'tournament', 'shape', 'all_in_showdown', 'window_end', '{w40_end}', 'budget_ms', 250)) "
+        "RETURNING id")
+    rb_res = json.loads(run(
+        f"SELECT smarter_private.reliability_runbook_hand_gap_classification('{uuid.uuid4()}', false, '{{}}'::jsonb, now())"))
+    al_rb = rb_res['alerts'][0]
+    plain_pairs_15m = int(run(f"SELECT count(*) - 1 FROM hand_history WHERE table_id = '{t_mb_plain}'"))
+    check('runbook: tournament bust in a rebuy event is other (never intended rebuy) and alert stays open',
+          rb_res['outcome'] == 'diagnosed'
+          and al_rb['by_class'].get('rebuy') is None
+          and al_rb['by_class'].get('mystery_bounty', 0) > 0
+          and al_rb['by_class'].get('other', 0) == plain_pairs_15m
+          and not al_rb['all_intended']
+          and run(f"SELECT resolved FROM financial_alerts WHERE id = '{fa_rebuy}'") == 'f',
+          rb_res)
+
+    # Now alert covering ONLY mystery_bounty slow hands (remove plain table rows)
+    # plus a slow mystery_bounty hand 12 minutes before window_end (proving 15m window).
+    run(f"DELETE FROM hand_history WHERE table_id = '{t_mb_plain}'")
+    fa_mb_only = run(
+        "INSERT INTO financial_alerts(severity, source, message, context) VALUES "
+        "('critical', 'fn_ca_hand_gap_watch', 'gap', "
+        f"jsonb_build_object('kind', 'tournament', 'shape', 'all_in_showdown', 'window_end', '{(T0 + dt.timedelta(minutes=5 * 42)).isoformat()}', 'budget_ms', 250)) "
+        "RETURNING id")
+    run(f"UPDATE financial_alerts SET resolved = true WHERE id = '{fa_rebuy}'")
+    rb_mb = json.loads(run(
+        f"SELECT smarter_private.reliability_runbook_hand_gap_classification('{uuid.uuid4()}', false, '{{}}'::jsonb, now())"))
+    al_mb = rb_mb['alerts'][0]
+    check('runbook: 15-minute window sees mystery_bounty hands 10-15m prior and resolves when all waits are intended',
+          rb_mb['outcome'] == 'resolved_producer'
+          and al_mb['by_class'].get('mystery_bounty', 0) > 0
+          and al_mb['all_intended']
+          and run(f"SELECT resolved FROM financial_alerts WHERE id = '{fa_mb_only}'") == 't',
+          rb_mb)
+
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True
 finally:

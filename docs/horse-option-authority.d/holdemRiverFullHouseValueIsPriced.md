@@ -41,3 +41,7 @@ Machine-read (README.md, "The Replay row"); a run row is written by the scorer a
 - Replay: fixed 0; newlyWrong 0; changed 0; unchanged 2734; unjudged 0; set HVH48-D Hold'em cash vs people 48h; scorer 5302af2ab3e; source placed verdict-only; arm on vs off; replayed 2734 of 3891
 
 Run 2026-11-21 on `origin/main` `09986930d3db` (post-#11556 + #11622), scorer `5302af2ab3e`, base arm `off` = `prod-switch-20261121T1500Z.json` with `holdemRiverFullHouseValueIsPriced` set to `"off"` (keeping `holdemRiverFullHouseValue` `"on"`), arm `on` = `holdemRiverFullHouseValueIsPriced: "on"`, seeds `1,7,42`, opponent memory OFF (`mind: false`), `0` arm errors (scratch files with hole cards deleted after scoring). Unedited scorer line: `placed (verdict-only; 3891 audited decisions, 372 judged bad; joined by node: 2734 replayed, 1157 not replayed, base reproduces the recorded action on 2214): arm on changed 0 (0 more aggressive, 0 more passive), resized 2, illegal 0, refused 0, errors 0; fixed 0, newly wrong 0, still wrong 0, ok to ok 0, unjudged 0; judged bad left unchanged 226; no bb (the audit declares no EV model).` Differed from base on `2` of `2734` rows (2 resizes, 0 action changes, 0 newly wrong).
+
+## Rollback
+
+Set `holdemRiverFullHouseValueIsPriced` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('holdemRiverFullHouseValueIsPriced', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

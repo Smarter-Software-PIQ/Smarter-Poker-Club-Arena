@@ -127,3 +127,7 @@ Source: `docs/changelog/2026-11-15-a-lightning-early-fold-needs-the-fold-through
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-20 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it; the audited decision sets hold no early-look node record)
+
+## Rollback
+
+If enabled, set `lightningEarlyFoldNeedsFoldThrough` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('lightningEarlyFoldNeedsFoldThrough', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.
