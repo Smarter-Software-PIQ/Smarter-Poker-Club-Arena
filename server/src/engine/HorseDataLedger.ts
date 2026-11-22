@@ -806,7 +806,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v87HoldemOverhaul',
-    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, SPR postflop gameplan, anti-LAG bully-breaker, river block-bet balance, Hollywood tank mix, and tournament bubble/PKO discipline; false only to ablate',
+    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, low-stakes multiway defence, straddle normalization, and master gate for V87 postflop sub-flags; false only to ablate',
     'V87'
   ),
   flag(
@@ -822,6 +822,76 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'v87FlopStabCheckRaise',
     'V87 flop-stab check-raise policy with public reads retained; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87RangeCbet',
+    'V87 heads-up IP dry-flop 30-36% range c-bet (decoupled from v87HoldemOverhaul); default on, false only for isolated ablation',
+    'V87'
+  ),
+  flag(
+    'v87LowSprCommit',
+    'V87 low-SPR (<=3.5) flop/turn commitment bet or jam with TPTK, overpair, two-pair+ or 12+ out flop combo draw (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87TurnTakeaway',
+    'V87 IP heads-up turn 62-72% takeaway bet after flop stabber checks turn (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87IpCheckbackTrap',
+    'V87 IP heads-up dry-flop check-back trap (~25%) with non-QQ+ sets, two pair, straights and flushes (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87OopStabTrap',
+    'V87 OOP flop check-trap into high-frequency flop stabber (~42%) with TPTK+ or 12+ out combo draw (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87MultiwayWetAirCheck',
+    'V87 multiway wet-flop air check without 8+ clean outs (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87BubblePostflop',
+    'V87 tournament bubble/ITM postflop covered-medium pot-control check and cover-stack turn/river pressure (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87RiverBlockBalance',
+    'V87 OOP river block-bet balance non-trap branches: LAG one-pair check, nut-blocker block bluff, and raised block-bet bare one-pair fold/maniac-skip (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87DoubleBoardDeadHalfFold',
+    'V87 NLH double-board turn/river dead-half fold facing 60%+ pot pressure (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87DeepCashOnePairPotControl',
+    'V87 150bb+ deep cash bare one-pair river pot-control fold and maniacCallDown stack-off refusal (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87ComboDrawPump',
+    'V87 12+ clean-out NLH flop combo-draw semi-bluff raise/jam pump outside baseline HU owner (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87RiverBlockerBluffRaise',
+    'V87 V64-safe river air nut-blocker bluff-raise against observed non-station bettor (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87IpFlopFloat',
+    'V87 IP flop float facing <=55% pot stab from high-stab or turn-give-up opponent (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87BullyReadAdjust',
+    'V87 postflop bully-breaker read adjustments: turn/river give-up decay in maniacCallDown, V80 cap +0.05 vs LAG, and 3-way V53 pressure vs LAG/stabber (decoupled from v87HoldemOverhaul); default on',
     'V87'
   ),
   flag(

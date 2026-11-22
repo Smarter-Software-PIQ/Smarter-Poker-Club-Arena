@@ -5929,6 +5929,23 @@ export interface HorseDecideOpts {
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
+  /** V87 postflop sub-flags (decoupled from v87HoldemOverhaul; default true,
+   *  explicit false isolates only that postflop sub-rule without disabling
+   *  preflop V87 ranges or any other postflop V87 sub-rule). */
+  v87RangeCbet?: boolean;
+  v87LowSprCommit?: boolean;
+  v87TurnTakeaway?: boolean;
+  v87IpCheckbackTrap?: boolean;
+  v87OopStabTrap?: boolean;
+  v87MultiwayWetAirCheck?: boolean;
+  v87BubblePostflop?: boolean;
+  v87RiverBlockBalance?: boolean;
+  v87DoubleBoardDeadHalfFold?: boolean;
+  v87DeepCashOnePairPotControl?: boolean;
+  v87ComboDrawPump?: boolean;
+  v87RiverBlockerBluffRaise?: boolean;
+  v87IpFlopFloat?: boolean;
+  v87BullyReadAdjust?: boolean;
 }
 
 /**
@@ -7038,13 +7055,14 @@ function maniacCallDown(
     // V87: one-and-done flop stabbers whose turn/river barrel rate drops off
     // only fire later barrels with polarized value; decay maniac call-down
     // credit on the turn (* 0.65) and river (* 0.35).
-    const betRate = bullyRead87?.turnGiveUp
-      ? street === 'turn'
-        ? rawBetRate * 0.65
-        : street === 'river'
-          ? rawBetRate * 0.35
-          : rawBetRate
-      : rawBetRate;
+    const betRate =
+      opts.v87BullyReadAdjust !== false && bullyRead87?.turnGiveUp
+        ? street === 'turn'
+          ? rawBetRate * 0.65
+          : street === 'river'
+            ? rawBetRate * 0.35
+            : rawBetRate
+        : rawBetRate;
     // A wide preflop raiser that does NOT bet postflop far more than horses
     // do is a preflop maniac only; its postflop bets keep their meaning.
     if (street !== 'preflop' && betRate < 0.55) return decision;
@@ -7053,6 +7071,7 @@ function maniacCallDown(
       // V87 Ecosystem #1: never let maniacCallDown auto-pay off a large river
       // raise over hero's small (<= 35% pot) block-bet with bare one-pair.
       if (
+        opts.v87RiverBlockBalance !== false &&
         street === 'river' &&
         catManiac87 <= 2 &&
         toCall >= Math.max(1e-9, gs.pot - toCall) * 0.3 &&
@@ -7069,6 +7088,7 @@ function maniacCallDown(
       );
       const callManiac87 = Math.min(toCall, player.stack);
       if (
+        opts.v87DeepCashOnePairPotControl !== false &&
         !isTournamentMode(gs) &&
         catManiac87 <= 2 &&
         (investedManiac87 + player.stack) / bbManiac87 >= 150 &&
@@ -18573,6 +18593,7 @@ export class HorseLogic {
       const blockTrap87 =
         v87RiverBlockTrapPending &&
         opts.v87HoldemOverhaul !== false &&
+        opts.v87RiverBlockBetTrap !== false &&
         gs.stage === 'river' &&
         shoveDisciplined.action === 'bet' &&
         Number.isFinite(shoveDisciplined.amount) &&
@@ -25816,6 +25837,7 @@ export class HorseLogic {
         // (1) Covered medium stack on the bubble / pay jump: pot-control bare
         // one pair on wet turns and rivers (never a QQ+/AK Rule 3 hand).
         if (
+          opts.v87BubblePostflop !== false &&
           coveredMedium87 &&
           (street === 'turn' || isRiver) &&
           wetness >= 0.45 &&
@@ -25829,6 +25851,7 @@ export class HorseLogic {
         // real two pair+ and 12+ out flop combo draws instead of checking when
         // hero is not OOP facing a prior-street aggressor.
         if (
+          opts.v87LowSprCommit !== false &&
           !isRiver &&
           initiative !== 'opp' &&
           spr <= 3.5 &&
@@ -25854,6 +25877,7 @@ export class HorseLogic {
         // (3) IP dry-flop check-back trap (~25%): non-QQ+ sets, two pair,
         // straights and flushes only. QQ+/AK made hands keep Rule 3.
         if (
+          opts.v87IpCheckbackTrap !== false &&
           street === 'flop' &&
           ip &&
           oppCount === 1 &&
@@ -25873,6 +25897,7 @@ export class HorseLogic {
         // (4) OOP check-trap into a high-frequency flop stabber (~42%):
         // strong top pair+ and 12+ out combo draws check to check-raise.
         if (
+          opts.v87OopStabTrap !== false &&
           street === 'flop' &&
           !ip &&
           oppCount <= 2 &&
@@ -25886,6 +25911,7 @@ export class HorseLogic {
         }
         // (5) Turn takeaway: the flop stabber checked the turn. Fire 62-72%.
         if (
+          opts.v87TurnTakeaway !== false &&
           street === 'turn' &&
           ip &&
           oppCount === 1 &&
@@ -25910,6 +25936,7 @@ export class HorseLogic {
         }
         // (6) Multiway wet flop: no air c-bets without 8+ clean outs.
         if (
+          opts.v87MultiwayWetAirCheck !== false &&
           street === 'flop' &&
           initiative === 'hero' &&
           oppCount >= 2 &&
@@ -25924,6 +25951,7 @@ export class HorseLogic {
         // respecting V10 c-bet off-controls, station / low fold-to-cbet reads,
         // and HorseFlopTurnBluffRange ownership.
         if (
+          opts.v87RangeCbet !== false &&
           street === 'flop' &&
           useCbet10 &&
           initiative === 'hero' &&
@@ -26001,7 +26029,7 @@ export class HorseLogic {
             singleOpp87 != null
               ? (opponents.find((o) => o.user_id === singleOpp87)?.stack ?? 0)
               : (opponents[0]?.stack ?? 0);
-          if (lag87 && cat === 2 && equity < 0.62 + mw) {
+          if (opts.v87RiverBlockBalance !== false && lag87 && cat === 2 && equity < 0.62 + mw) {
             if (tele15) noteFire('v87_river_block_lag_check');
             return { action: 'check', thinkTime: 0 };
           }
@@ -26025,6 +26053,7 @@ export class HorseLogic {
             }
           }
           if (
+            opts.v87RiverBlockBalance !== false &&
             cat <= 1 &&
             equity < 0.35 &&
             blocker87 >= 0.5 &&
@@ -26041,6 +26070,7 @@ export class HorseLogic {
         // (9) Bubble cover stack: extra turn/river pressure into covered
         // 15-45bb stacks.
         if (
+          opts.v87BubblePostflop !== false &&
           coverBoost87 &&
           (street === 'turn' || isRiver) &&
           oppCount <= 2 &&
@@ -28372,7 +28402,7 @@ export class HorseLogic {
     // ═══ Facing a bet ═══
     // (V10 rake drag `rakeMarg` is computed above the V32 consult — V34.)
 
-    if (isV87Nlh) {
+    if (isV87Nlh && opts.v87DoubleBoardDeadHalfFold !== false) {
       const potFrac87 = toCall > 0 ? toCall / Math.max(1e-9, pot - toCall) : 0;
       // V87 NLH DOUBLE-BOARD DEAD HALF: one pair or worse on a board, facing
       // 60%+ pot turn/river pressure, without a locked or nutted other board,
@@ -29089,6 +29119,7 @@ export class HorseLogic {
           ? 0.315
           : strong80 &&
               isV87Nlh &&
+              opts.v87BullyReadAdjust !== false &&
               useMind &&
               bettor79 !== null &&
               lag87 &&
@@ -29293,6 +29324,7 @@ export class HorseLogic {
         }
         // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently gated.
         if (
+          opts.v87RiverBlockBalance !== false &&
           (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
           (cat <= 2 || (cat === 3 && pairedBoard)) &&
           toCall < stack &&
@@ -29306,6 +29338,7 @@ export class HorseLogic {
       // included) facing multi-street big barrels on the river does not
       // stack off unless the bettor is a verified multi-street maniac.
       if (
+        opts.v87DeepCashOnePairPotControl !== false &&
         !isTournamentMode(gs) &&
         cat === 2 &&
         isRiver &&
@@ -30020,7 +30053,11 @@ export class HorseLogic {
       drawsLive &&
       (oppCount === 1 ||
         (oppCount === 2 &&
-          (vi.isOmaha ? v86 : isV87Nlh && (lag87 || bully87?.highFlopStab === true)))) &&
+          (vi.isOmaha
+            ? v86
+            : isV87Nlh &&
+              opts.v87BullyReadAdjust !== false &&
+              (lag87 || bully87?.highFlopStab === true)))) &&
       !multiBoard36
     ) {
       try {
@@ -30581,6 +30618,7 @@ export class HorseLogic {
     // ═══ V87 FLOP COMBO-DRAW PUMP (outside baseline HU semi-bluff & combo_draw_pressure) ═══
     if (
       isV87Nlh &&
+      opts.v87ComboDrawPump !== false &&
       street === 'flop' &&
       !ftRaiseOwned &&
       !planCallOnly23 &&
@@ -30793,6 +30831,7 @@ export class HorseLogic {
     // sized under 38% of the stack (V78) or not at all.
     if (
       isV87Nlh &&
+      opts.v87RiverBlockerBluffRaise !== false &&
       isRiver &&
       useMind &&
       oppCount === 1 &&
@@ -30836,6 +30875,7 @@ export class HorseLogic {
     // gutshot hands float instead of folding; the turn takeaway follows.
     if (
       isV87Nlh &&
+      opts.v87IpFlopFloat !== false &&
       street === 'flop' &&
       ip &&
       oppCount <= 2 &&
