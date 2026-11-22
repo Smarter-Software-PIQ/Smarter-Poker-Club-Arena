@@ -85,3 +85,7 @@ How the rows are produced (run from `server/` on the operations Mac; `ARCHIVE` i
 2. Score with the committed scorer (`--placed`, `--line on`, `--row on`) and copy the printed `- Replay:` rows unedited:
    - `npx tsx scripts/audited-decision-replay.ts --placed $ARCHIVE/nodes_30d/E.nodes.jsonl --replay $ARCHIVE/runs-f90f60b7/HU30D.replay.jsonl --line on --row on --set "HU30D Hold'em 2-player tournaments 30d"`
    - `npx tsx scripts/audited-decision-replay.ts --placed $ARCHIVE/nodes/E.nodes.jsonl --replay $ARCHIVE/runs-f90f60b7/HU14D.replay.jsonl --line on --row on --set "HU14D Hold'em 2-player tournaments 14d"`
+
+## Rollback
+
+Set `huBbDefendsUnreadToPrice` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('huBbDefendsUnreadToPrice', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.
