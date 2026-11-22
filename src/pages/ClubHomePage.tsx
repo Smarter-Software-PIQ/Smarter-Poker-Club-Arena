@@ -21,7 +21,6 @@ import { LOBBY_PREFERENCE_ADOPT, flushLobby } from '../components/lobby/lobbyPre
 import { onResume, readPending } from '../lib/preferenceSync';
 import { PreferenceSaveStatus } from '../components/common/PreferenceSaveStatus';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { DiamondJackpotReadout } from '../components/bbj/DiamondJackpotReadout';
 import { capture } from '../lib/analytics';
 import { subscribeDiamondJackpot, type DiamondJackpotSnapshot } from '../lib/diamondJackpotFeed';
@@ -33,6 +32,7 @@ import {
   isTournamentEntryUnavailable,
   getTournamentFormatKind,
   readTournamentFormat,
+  tournamentStartsWhenFull,
 } from '../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -4708,7 +4708,7 @@ function ClubHomePageContent({
           is_pko: !!(t as any).is_pko,
           is_mystery_bounty: !!(t as any).is_mystery_bounty,
           start_time: (t as any).start_time ?? null,
-          startsWhenFull: satelliteStartsWhenFull(t),
+          startsWhenFull: tournamentStartsWhenFull(t),
           club_id: (t as any).club_id ?? resolvedClubIdRef.current ?? null,
           status: (t as any).status ?? null,
         },

@@ -3,6 +3,7 @@ import { FIXED_LIMIT_GAME_NAMES } from '../../lib/fixedLimitNames';
 import { AtlasSprite } from '../../throwables/AtlasSprite';
 import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
+import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import { useSatelliteDestination } from './game-cards/useTournamentCardText';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import { useSharedSecondTick } from './useSharedSecondTick';
@@ -731,7 +732,7 @@ function StartsCell({ entry }: { entry: LobbyEntry }) {
      printing it announced a clock time that means nothing — the same column
      that produced "Starting Soon" on a sold-out Spin before tournamentStatus
      was taught about seat-first games. */
-  if (entry.kind === 'spin' || entry.kind === 'sng')
+  if (entry.kind === 'spin' || entry.kind === 'sng' || tournamentStartsWhenFull(entry.raw))
     return <span className="lt-dim">When Full</span>;
   if (!entry.startTime) return <span className="lt-dim">When Full</span>;
   const d = new Date(entry.startTime);
@@ -957,7 +958,10 @@ function sngInviteInHeading(entry: LobbyEntry): boolean {
  * "Seats Available" or "STATUS" copy.
  */
 function spinInviteOnlyStatus(entry: LobbyEntry): boolean {
-  return entry.kind === 'spin' && (entry.status === 'registering' || entry.status === 'open');
+  return (
+    entry.kind === 'spin' &&
+    (entry.status === 'registering' || entry.status === 'open' || entry.status === 'starting_soon')
+  );
 }
 
 function TournamentHeadingRow({
