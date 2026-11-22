@@ -126,7 +126,9 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 75 since 2026-11-19: HorseEval reads the PLO4/PLO5 high-only scope from HorsePlo45High.
     // 78 since 2026-11-20: HorseMind reads the lifetime opponent profile (opponentHud/OpponentHudExploit, OpponentHud,
     // OpponentHudProfile; option omahaOpponentLifetimeHud).
-    expect(closure).toHaveLength(78);
+    // 101 since 2026-11-22: OpponentHud wires the math-core HUD adapters (OmahaMathCoreHudRecords,
+    // OmahaMathCoreTurnRiverHud; #11720/#11725), bringing the already-hashed OmahaMathCore files into closure.
+    expect(closure).toHaveLength(101);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');
