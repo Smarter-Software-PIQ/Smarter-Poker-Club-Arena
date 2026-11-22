@@ -37,6 +37,14 @@ describe('hot-path functions never transitively scan promo fee history', () => {
     expect(SCRIPT).toContain('mutation self-test catches synthetic transitive settle');
   });
 
+  it('closes the non-fn_ca_promo_ bridge blind spot across resolve_pending_addon -> fn_cash_record_funding_application (incidents 053d3341 & 515d6f24)', () => {
+    expect(SCRIPT).toContain('REQUIRED_BRIDGE_FNS');
+    expect(SCRIPT).toContain('"resolve_pending_addon"');
+    expect(SCRIPT).toContain('"fn_cash_record_funding_application"');
+    expect(SCRIPT).toContain('"fn_ca_promo_apply_pending_cash_funding"');
+    expect(SCRIPT).toContain('4-hop post-commit regressions');
+  });
+
   it('wires the PostgreSQL call-graph guard into the required promo-play-through CI workflow', () => {
     expect(WORKFLOW).toContain('scripts/ci/test-hot-path-no-history-scans.py');
     expect(WORKFLOW).toContain('tests/hot-path-never-scans-promo-history.law.test.ts');

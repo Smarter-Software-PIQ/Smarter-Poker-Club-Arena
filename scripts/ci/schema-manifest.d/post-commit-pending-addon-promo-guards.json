@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/antigravity-eef78c61/fix-post-commit-stranded-watchdog",
+  "_comment": "Already installed live on production by 20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql (verified in pg_proc 2026-11-22); redefined by 20261122205903.",
+  "functions": ["fn_ca_promo_apply_pending_cash_funding", "fn_ca_promo_locked_at"]
+}

@@ -2648,6 +2648,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V17'
   ),
   flag(
+    'v17PosIsPriced',
+    "HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): priced replacement (HorsePlayersBehindBluffPriced.ts) for the unowned V17 players-behind bluff multiplier (x1.1 / 1.0 / 0.72 / 0.5) in single-board no-limit Hold'em flop and turn spots: the measured probability that the whole respondable field folds, by each opponent's seat relation (bettor in / out of position) and own fold-to-bet read, against the bubble-factor break-even at the reference size. Zero RNG, public info only. OFF, river, Omaha, Short Deck, Fixed Limit, pot-limit, pineapple, multi-board and bomb pots byte-identical.",
+    'V17'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -9532,6 +9537,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v17_short_deck_priced_unpriceable',
     'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
     'Short Deck priced shift could not be priced (equity not finite, no live opponent, or a street other than flop/turn/river): delta 0, the fixed overlay is not re-applied',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_trim',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn: two or more players behind and the field folds below the risk-adjusted price; bluffScale multiplied by the priced multiplier (< 1) instead of the fixed 0.72 / 0.5',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_neutral',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn: zero or one player behind, or the field still folds often enough to beat the risk-adjusted price; priced multiplier 1 (the fixed table would have used 1.1 / 1.0 / 0.72 / 0.5)',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_unpriced',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn spot the pricing could not read (no dealer seat, no respondable opponent, zero pot or stack); kept the fixed V17 table',
     'V17'
   ),
   receipt(

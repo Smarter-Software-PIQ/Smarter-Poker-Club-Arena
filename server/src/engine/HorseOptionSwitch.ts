@@ -1203,6 +1203,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'dark zero-migration priced replacement for Run-It-Twice fixed thresholds (HORSE DECISIONS lane, UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22): default OFF, held out of SQL switch until switch-list registration and authority rename',
   v17ShortDeckIsPriced:
     'dark zero-migration priced replacement for the unowned V17 Short Deck multiway overlay (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until people evidence and switch-list registration',
+  v17PosIsPriced:
+    'dark zero-migration priced replacement for the unowned V17 players-behind bluff multiplier, single-board NLH flop and turn (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until real-human evidence (people n >= 20) and switch-list registration',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

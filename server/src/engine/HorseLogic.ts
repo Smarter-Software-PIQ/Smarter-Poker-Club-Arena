@@ -446,6 +446,10 @@ import {
   type MultiBoardBluffTrimOpponentInput,
   type MultiBoardBluffTrimStreet,
 } from './HorseMultiBoardBluffTrimPriced.js';
+import {
+  pricePlayersBehindBluff,
+  type PlayersBehindPrice,
+} from './HorsePlayersBehindBluffPriced.js';
 import type {
   Card,
   SeatPlayer,
@@ -3099,6 +3103,14 @@ export interface HorseDecideOpts {
    *  — the binary ip/oop model treated first-of-four like first-of-two
    *  (default: enabled) */
   v17Pos?: boolean;
+  /** V17 PLAYERS-BEHIND PRICED (2026-11-22, HORSE DECISIONS lane): dark, default OFF (`=== true`),
+   *  OPTION_SWITCH_REFUSED (zero SQL migrations). In single-board no-limit Texas Hold'em on the flop
+   *  and turn, replaces the fixed V17 players-behind table (x1.1 / 1.0 / 0.72 / 0.5) with the measured
+   *  probability that the whole respondable field folds, by each opponent's seat relation and own
+   *  fold-to-bet read, against the bubble-factor break-even at the reference size
+   *  (`HorsePlayersBehindBluffPriced.pricePlayersBehindBluff`). Draws no random number. OFF, river,
+   *  Omaha, Short Deck, Fixed Limit, pot-limit, pineapple, multi-board and bomb pots: byte-identical. */
+  v17PosIsPriced?: boolean;
   /** ENABLE the V17 river delayed probe: when the turn checked through, the
    *  capped field gets attacked on the river too, at a lower frequency than
    *  the turn probe. DEFAULT OFF since 2026-10-16: v17_river_probe resolved
@@ -8387,6 +8399,50 @@ function collectMultiBoardBluffTrimOpponents(
     }
     return { canRespond };
   });
+}
+
+/**
+ * v17PosIsPriced (2026-11-22, HORSE DECISIONS lane; default OFF, OPTION_SWITCH_REFUSED): the priced
+ * players-behind bluff multiplier for single-board no-limit Hold'em flop and turn spots. Reads only
+ * public seats, stacks, the board, hero's bubble factor and each live opponent's in-session fold-to-bet
+ * count. Draws no random number. Null when unpriceable (the caller keeps the V17 table).
+ */
+function v17PlayersBehindPriced(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  street: 'flop' | 'turn',
+  pot: number,
+  board: readonly Card[],
+  useMind: boolean
+): PlayersBehindPrice | null {
+  try {
+    if (gs.dealerSeat === undefined) return null;
+    const field = gs.players.filter(
+      (p) => !p.is_folded && !p.is_sitting_out && !p.is_all_in && p.seat !== player.seat
+    );
+    const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const riskCap = Math.min(heroStack, 0.67 * Math.max(0, pot));
+    const bf =
+      isTournamentMode(gs) && gs.bigBlind > 0
+        ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, riskCap)
+        : null;
+    return pricePlayersBehindBluff({
+      street,
+      heroSeat: player.seat,
+      dealerSeat: gs.dealerSeat,
+      heroStack,
+      pot,
+      board,
+      heroBubbleFactor: bf,
+      opponents: field.map((o) => ({
+        seat: o.seat,
+        stack: Number.isFinite(o.stack) ? Math.max(0, o.stack) : 0,
+        foldToBet: useMind ? HorseMind.foldToBetCountersOf(o.user_id) : null,
+      })),
+    });
+  } catch {
+    return null;
+  }
 }
 
 function multiBoardBluffTrimPriced(
@@ -16718,8 +16774,9 @@ export function holdemAllInCallReversal(
  * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, runs after the reference chooses its
  * action so a raise or raising all-in is never removed and exact Nash V2 / PioSolver chart_bb_defend answers
  * on lone open-jams stay intact; every other in-scope fold or call is answered by its price (clearing any
- * variant_price route when the priced answer takes ownership). Postflop the price is taken here (the engine's
- * equity is known now) and a call or fold beyond the lock is turned to the priced answer.
+ * chart_open_jam or variant_price route to the active preflop reference owner — intent_engine under V7,
+ * legacy_preflop otherwise — when the priced answer takes ownership). Postflop the price is taken here (the
+ * engine's equity is known now) and a call or fold beyond the lock is turned to the priced answer.
  */
 function holdemAllInCallReference(
   decision: HorseDecision,
@@ -16749,7 +16806,7 @@ function holdemAllInCallReference(
       phase6Ref &&
       (phase6Ref.route === 'chart_open_jam' || phase6Ref.route === 'variant_price')
     ) {
-      phase6Ref.route = 'legacy_preflop';
+      phase6Ref.route = (opts.v7Preflop ?? opts.v7 !== false) ? 'intent_engine' : 'legacy_preflop';
       phase6Ref.lookup = null;
     }
     if (tele) {
@@ -25220,17 +25277,37 @@ export class HorseLogic {
     // players who all still act is burning money the ip/oop binary and the
     // flat multiway penalty never fully priced.
     if ((opts.v17Pos ?? true) !== false && playersBehind17 >= 0) {
-      const behindMod =
-        playersBehind17 === 0
-          ? 1.1
-          : playersBehind17 === 1
-            ? 1.0
-            : playersBehind17 === 2
-              ? 0.72
-              : 0.5;
-      if (behindMod !== 1.0) {
-        bluffScale *= behindMod;
-        if (tele15) noteFire('v17_pos_behind');
+      const priced17 =
+        opts.v17PosIsPriced === true &&
+        !vi.isOmaha &&
+        !vi.isShortDeck &&
+        !vi.isFixedLimit &&
+        !vi.isPotLimit &&
+        vi.holeCount === 2 &&
+        player.cards.length === 2 &&
+        !gs.bombPot &&
+        !multiBoard36 &&
+        (street === 'flop' || street === 'turn')
+          ? v17PlayersBehindPriced(player, gs, street, pot, board, useMind)
+          : undefined;
+      if (priced17) {
+        bluffScale *= priced17.multiplier;
+        if (tele15)
+          noteFire(priced17.multiplier < 1 ? 'v17_pos_priced_trim' : 'v17_pos_priced_neutral');
+      } else {
+        if (priced17 === null && tele15) noteFire('v17_pos_priced_unpriced');
+        const behindMod =
+          playersBehind17 === 0
+            ? 1.1
+            : playersBehind17 === 1
+              ? 1.0
+              : playersBehind17 === 2
+                ? 0.72
+                : 0.5;
+        if (behindMod !== 1.0) {
+          bluffScale *= behindMod;
+          if (tele15) noteFire('v17_pos_behind');
+        }
       }
     }
     // ═══ V17 SHORT-DECK OVERLAY ═══ 36-card equities cluster: a "strong"

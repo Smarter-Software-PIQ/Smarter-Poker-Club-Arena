@@ -351,6 +351,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off priced monster slowplay replacement for unowned H4 (HORSE DECISIONS lane 2026-11-22, horseSlowplayIsPriced, OPTION_SWITCH_REFUSED): deterministic EV(check) vs EV(bet) comparison on flop/turn monsters using holdemEmpiricalPriors fold/stab shrinkage, continuous free-card equity erosion, and heroBubbleFactor; off/Omaha/FLH never enter',
     'src/engine/HorseShortDeckMultiwayPriced.ts':
       'dark default-off priced replacement for the unowned V17 Short Deck multiway overlay (HORSE DECISIONS lane 2026-11-22, v17ShortDeckIsPriced, OPTION_SWITCH_REFUSED): deterministic zero-RNG shift delta = e - e^rho of the multiway bars from measured 36-card vs 52-card continuation sharpness and each opponent shrunk fold-to-bet record',
+    'src/engine/HorsePlayersBehindBluffPriced.ts':
+      "dark default-off priced replacement for the unowned V17 players-behind bluff multiplier (HORSE DECISIONS lane 2026-11-22, v17PosIsPriced, OPTION_SWITCH_REFUSED): deterministic zero-RNG field fold-through from measured NLH flop/turn fold rates by seat relation and each opponent's fold-to-bet read, against the bubble-factor break-even",
     'src/engine/HorseHoldemPersonaPreflop.ts':
       "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
     'src/engine/HorseHoldemRiverFullHouseValue.ts':

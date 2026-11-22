@@ -725,4 +725,91 @@ describe('a boundary move is planned under the hold', () => {
       expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(true);
     });
   });
+
+  describe('a balanced sweep hands its fresh board to parked sources and hold-fenced sources prepare under their hold (2026-11-22, incident 1e532243)', () => {
+    // Production 2026-11-22 on ea92b56f (381c70ea +3044 ms at 20:22:56Z,
+    // 02665ea8 +2373 ms at 20:27:07Z): a fenced source parked while a sweep
+    // held isProcessingEliminations. checkTableBalance read freshTables and
+    // proved the field balanced, left the already-parked source for the
+    // boundary drain, and discarded freshTables. onEliminationSweepSettled
+    // then paid a full duplicate 5-query board read (~950 ms) just to discover
+    // the same balanced board and release the table.
+    it('a balanced sweep seeds preparedBoundaryPlan for an already-parked fenced source so onEliminationSweepSettled releases it with zero duplicate reads', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines, park, readsAtTheBoundary } = manager([big, short]);
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+
+      // Field becomes balanced (6/6) and the fenced source parks while a sweep holds the manager.
+      big.players = big.players.slice(0, 6);
+      big.playerCount = 6;
+      park(big.tableId);
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      // Existing invariant preserved: the sweep itself does not directly release an already-parked source.
+      expect(engines.get(big.tableId)!.releaseTournamentMovePause).not.toHaveBeenCalled();
+
+      // The sweep settles: balanceParkedGapSources reuses freshTables with ZERO duplicate DB reads.
+      m.liveTournamentTableIdsWithPlayers.mockClear();
+      m.loadBalancerTables.mockClear();
+      m.isProcessingEliminations = false;
+      m.onEliminationSweepSettled();
+      await settle();
+
+      expect(m.liveTournamentTableIdsWithPlayers).not.toHaveBeenCalled();
+      expect(m.loadBalancerTables).not.toHaveBeenCalled();
+      expect(readsAtTheBoundary()).toBe(0);
+      expect(engines.get(big.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(m.gapBalanceFencedSources.size).toBe(0);
+    });
+
+    it('a bust arriving during checkTableBalance invalidates the seeded board so the boundary drain reads fresh', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines, park, settleHand, readsAtTheBoundary } = manager([big, short]);
+      await m.checkTableBalance();
+
+      big.players = big.players.slice(0, 6);
+      big.playerCount = 6;
+      park(big.tableId);
+
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      m.loadBalancerTables.mockImplementation(async (ids: string[], tag: string) => {
+        // A bust at another table advances balanceBoardEpoch mid-STEP-2 read.
+        if (tag === 'balanceFresh') settleHand(short, [id(7777)]);
+        return baseLoad(ids, tag);
+      });
+
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      m.liveTournamentTableIdsWithPlayers.mockClear();
+      m.loadBalancerTables.mockClear();
+      m.isProcessingEliminations = false;
+      m.onEliminationSweepSettled();
+      await settle();
+
+      expect(readsAtTheBoundary()).toBe(1);
+      expect(engines.get(big.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+    });
+
+    it('fencing a source already in its completion hold registers it for hold-time board preparation once the sweep settles', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines } = manager([big, short]);
+      const bigEngine: any = engines.get(big.tableId)!;
+      bigEngine.isInCompletionPresentationHold = () => true;
+
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+
+      m.loadBalancerTables.mockClear();
+      m.isProcessingEliminations = false;
+      m.onEliminationSweepSettled();
+      await settle();
+
+      expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+    });
+  });
 });
