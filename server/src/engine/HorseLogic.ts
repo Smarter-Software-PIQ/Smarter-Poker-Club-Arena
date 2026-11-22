@@ -8428,6 +8428,7 @@ function plo6RiverNutDiscipline(
       return decision;
     }
     if (opts.plo6FacingBetIsPricedV2 === true && plo6FacingBetPricedV2Scope(player, gs) !== null) {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_v2_river_nut_rule_not_run');
       return decision;
     }
     const board = gs.communityCards ?? [];
@@ -8733,6 +8734,7 @@ function plo6FacingBetIsPricedV2Rule(
     v = null;
   }
   if (!v) return decision;
+  const tele = telemetryOn(opts);
   const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
   const toCall = Number.isFinite(gs.toCall)
     ? Math.max(0, gs.toCall as number)
@@ -8758,6 +8760,7 @@ function plo6FacingBetIsPricedV2Rule(
   };
   if (v.street !== 'river') {
     if (decision.action !== 'fold' || !v.callPriced) return decision;
+    if (tele) noteFire('plo6_facing_bet_priced_v2_called');
     return callFor();
   }
   if (isRaise && v.privateRiverNuts === true) {
@@ -8766,10 +8769,15 @@ function plo6FacingBetIsPricedV2Rule(
   if (v.action === 'fold') {
     if (decision.action === 'fold') return decision;
     if (isCall && !v.foldPriced) return decision;
+    if (tele) noteFire('plo6_facing_bet_priced_v2_folded');
     return foldFor();
   }
   if (v.action === 'call') {
     if (isCall) return decision;
+    if (tele)
+      noteFire(
+        isRaise ? 'plo6_facing_bet_priced_v2_raise_to_call' : 'plo6_facing_bet_priced_v2_called'
+      );
     return callFor();
   }
   const allIn = v.action === 'all_in' || v.raiseTo >= (player.bet || 0) + stack - 0.005;
@@ -8780,6 +8788,7 @@ function plo6FacingBetIsPricedV2Rule(
       : decision.action === 'raise' && decision.amount === v.raiseTo)
   )
     return decision;
+  if (tele) noteFire('plo6_facing_bet_priced_v2_raised');
   const raised: HorseDecision = allIn
     ? { ...decision, action: 'all_in' }
     : { ...decision, action: 'raise', amount: v.raiseTo };
@@ -8848,6 +8857,7 @@ function pairedBoardFold(
   if (opts.plo6FacingBetIsPricedV2 === true) {
     const pricedV2 = plo6FacingBetPricedV2Of(player, gs, opts);
     if (pricedV2 && !pricedV2.pairedBoardGuardStands && pricedV2.callPriced) {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_v2_paired_fold_priced_out');
       const raising =
         decision.action === 'raise' ||
         (decision.action === 'all_in' &&

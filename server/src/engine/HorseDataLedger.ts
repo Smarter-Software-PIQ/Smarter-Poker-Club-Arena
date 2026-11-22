@@ -6558,6 +6558,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'plo6_facing_bet_priced_v2_called',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash facing a bet (V2 native six-card model): a fold became the call because EV(call) clears the V2 margin on native six-card quantiles',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_folded',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): a call or raise became the fold because EV(call) fails the V2 fold margin and no raise is priced',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_raise_to_call',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): a standing raise became the call because no raise clears the V2 priced-raise margin above the call',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_raised',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): the answer became the raise at its V2 priced size because EV(raise) beats call and fold by the priced-raise margin',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_river_nut_rule_not_run',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet with a call or raise (V2 native six-card model): plo6RiverNutDiscipline (V58/V59) did not run; the V2 priced verdict answers outermost',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_paired_fold_priced_out',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash (V2 native six-card model): paired-board fold stood aside because pairedBoardGuardStands is false and callPriced holds (a flop or turn raise became the call)',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_draw_raise_mixed_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaPricedMix)',
     'the same decision with omahaPricedMix on: NOT priced above the call by the margin, within the noise of it and taken by the mix, and kept at the size given (with omahaSampledRaiseIsPricedAtEverySize on, the size given is the size of highest value)',
