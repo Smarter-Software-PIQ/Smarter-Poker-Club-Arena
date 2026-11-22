@@ -276,11 +276,26 @@ interface SessionState {
   seenHands: Set<number>;
   totalEligibleHands: number;
   warnedAtEligibleHands: number | null;
+  warnedAtHandNumber: number | null;
+  postWarningEligibleHands: number;
   evictPending: boolean;
   evicted: boolean;
   evictAttempts: number;
   evictToken: number;
   evictAskedAtMs: number | null;
+}
+
+function maxRecentHandNumber(
+  recent: ReadonlyArray<{ handNumber: number | null }>,
+  fallback: number | null
+): number | null {
+  let max: number | null = fallback;
+  for (const h of recent) {
+    if (h.handNumber !== null && (max === null || h.handNumber > max)) {
+      max = h.handNumber;
+    }
+  }
+  return max;
 }
 
 let registeredEvictHandler: LightningPoolVpipEvictHandler | null = null;
@@ -332,6 +347,8 @@ export class LightningPoolVpipJudge {
         seenHands: new Set<number>(),
         totalEligibleHands: 0,
         warnedAtEligibleHands: null,
+        warnedAtHandNumber: null,
+        postWarningEligibleHands: 0,
         evictPending: false,
         evicted: false,
         evictAttempts: 0,
@@ -359,7 +376,7 @@ export class LightningPoolVpipJudge {
     for (const h of row.recent) if (h.entered) vpipHands += 1;
     const warned = row.warnedAtEligibleHands !== null && !row.evicted;
     const graceRemaining = warned
-      ? Math.max(0, policy.graceHands - (row.totalEligibleHands - row.warnedAtEligibleHands!))
+      ? Math.max(0, policy.graceHands - row.postWarningEligibleHands)
       : null;
     return {
       clusterId: row.clusterId,
@@ -454,9 +471,24 @@ export class LightningPoolVpipJudge {
           insertAt -= 1;
         }
       }
-      row.recent.splice(insertAt, 0, { handNumber, entered: input.entered === true });
-      while (row.recent.length > policy.windowHands) row.recent.shift();
-      row.totalEligibleHands += 1;
+      const entry = { handNumber, entered: input.entered === true };
+      row.recent.splice(insertAt, 0, entry);
+      let shiftedOut = false;
+      while (row.recent.length > policy.windowHands) {
+        if (row.recent.shift() === entry) shiftedOut = true;
+      }
+      if (!shiftedOut) {
+        row.totalEligibleHands += 1;
+        if (
+          row.warnedAtEligibleHands !== null &&
+          !row.evicted &&
+          (handNumber === null ||
+            row.warnedAtHandNumber === null ||
+            handNumber > row.warnedAtHandNumber)
+        ) {
+          row.postWarningEligibleHands += 1;
+        }
+      }
 
       if (row.evicted) {
         return { ...this.snapshot(row, policy), verdict: 'ok', warningOpened: false };
@@ -475,6 +507,8 @@ export class LightningPoolVpipJudge {
       if (!belowFloor) {
         const wasWarned = row.warnedAtEligibleHands !== null || row.evictPending;
         row.warnedAtEligibleHands = null;
+        row.warnedAtHandNumber = null;
+        row.postWarningEligibleHands = 0;
         row.evictPending = false;
         return {
           ...this.snapshot(row, policy),
@@ -486,12 +520,13 @@ export class LightningPoolVpipJudge {
       // Below floor at >= graceHands: warn first, then evict only once grace is spent.
       if (row.warnedAtEligibleHands === null) {
         row.warnedAtEligibleHands = row.totalEligibleHands;
+        row.warnedAtHandNumber = maxRecentHandNumber(row.recent, handNumber);
+        row.postWarningEligibleHands = 0;
         row.evictPending = false;
         return { ...this.snapshot(row, policy), verdict: 'warn', warningOpened: true };
       }
 
-      const handsSinceWarning = row.totalEligibleHands - row.warnedAtEligibleHands;
-      if (handsSinceWarning < policy.graceHands) {
+      if (row.postWarningEligibleHands < policy.graceHands) {
         return { ...this.snapshot(row, policy), verdict: 'warn', warningOpened: false };
       }
 

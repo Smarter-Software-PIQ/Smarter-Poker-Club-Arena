@@ -314,8 +314,22 @@ describe('empiricalBayesShrink and OpponentHudStore integration', () => {
     // True villain call price = 15 / (95 + 15) = 15 / 110 = 0.1364.
     expect(holdemVillainRaiseCallPrice(60, 35, 0, 20, 35, 100)).toBeCloseTo(15 / 110, 10);
 
-    // Villain short stack caps villainCall.
-    expect(holdemVillainRaiseCallPrice(60, 100, 0, 20, 100, 10)).toBeCloseTo(10 / (160 + 10), 10);
+    // Villain short stack caps both villainCall and hero's matched wager (uncalled excess excluded).
+    // pot = 60 (40 dead + 20 villain), hero jams 100, villain has 10 behind -> matchedHeroAdd = 30,
+    // contested pot after hero raise = 90, villain calls 10 to win 100 -> 10 / 100 = 0.10.
+    expect(holdemVillainRaiseCallPrice(60, 100, 0, 20, 100, 10)).toBeCloseTo(10 / 100, 10);
+
+    // Exact uncalled-excess symmetry:
+    // Short villain: pot=100, heroIn=0, villainIn=50, heroStack=1000, villainStack=10, heroRaiseTo=500
+    // -> villainCall=10, matchedHeroAdd=60, potAfterHeroRaise=160 -> 10 / 170.
+    expect(holdemVillainRaiseCallPrice(100, 500, 0, 50, 1000, 10)).toBeCloseTo(10 / 170, 10);
+
+    // Short hero: pot=100, heroIn=0, villainIn=50, heroStack=60, villainStack=1000, heroRaiseTo=500
+    // -> actualRaiseTo=60, villainCall=10, matchedHeroAdd=60, potAfterHeroRaise=160 -> 10 / 170.
+    expect(holdemVillainRaiseCallPrice(100, 500, 0, 50, 60, 1000)).toBeCloseTo(10 / 170, 10);
+
+    // Hero stack cannot even cover villain's existing bet -> villain faces no incremental call (0).
+    expect(holdemVillainRaiseCallPrice(100, 500, 0, 50, 40, 1000)).toBe(0);
   });
 });
 
