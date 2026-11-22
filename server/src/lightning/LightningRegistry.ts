@@ -42,6 +42,7 @@ import {
   type LightningHub,
   type LightningLease,
 } from './LightningHandHost.js';
+import { lightningPoolVpipJudge, type LightningPoolVpipJudge } from './LightningPoolVpipJudge.js';
 import type { LightningHandBackend } from './LightningHandBackend.js';
 import type { LightningAutoRebuyReport } from './LightningAutoRebuy.js';
 import type { LightningConfig } from './LightningConfig.js';
@@ -139,6 +140,8 @@ export interface LightningRegistryDeps {
   now?: () => number;
   /** LIGHTNING PHASE 12: where hand_to_first_render goes (the process metrics otherwise). */
   metrics?: LightningMetrics;
+  /** Lightning pool VPIP judge whose session sample is cleared when an ended room closes. */
+  vpipJudge?: Pick<LightningPoolVpipJudge, 'resetSession'>;
 }
 
 /** LIGHTNING PHASE 12: a first hand frame waiting for its room's RENDER_ACK. */
@@ -237,6 +240,7 @@ export class LightningRegistry {
   private arrivalListener: ((clusterId: string) => void) | null = null;
   /** LIGHTNING PHASE 13: Cluster -> what its rooms are told about its hold. */
   private readonly clusterStatuses = new Map<string, 'ending' | 'paused'>();
+  private readonly vpipJudge: Pick<LightningPoolVpipJudge, 'resetSession'>;
 
   constructor(deps: LightningRegistryDeps = {}) {
     this.viewAccess = deps.viewAccess ?? lightningHandViewAccess;
@@ -247,6 +251,7 @@ export class LightningRegistry {
     this.anchorPresence = deps.anchorPresence ? new LightningPresence(deps.anchorPresence) : null;
     this.clock = deps.now ?? Date.now;
     this.metrics = deps.metrics ?? lightningMetrics;
+    this.vpipJudge = deps.vpipJudge ?? lightningPoolVpipJudge;
   }
 
   /**
@@ -726,6 +731,7 @@ export class LightningRegistry {
     if (this.hostByRoom.has(roomId) || this.rooms.get(roomId) !== info) return false;
     this.rooms.delete(roomId);
     this.proxies.delete(roomId);
+    this.vpipJudge.resetSession(roomId);
     try {
       this.closeRoom?.(roomId, reason);
     } catch {

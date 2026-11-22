@@ -91,6 +91,7 @@ import { lightningMetrics, type LightningMetrics } from './LightningMetrics.js';
 import { RateLimitedLog } from './RateLimitedLog.js';
 import type { LightningHosting } from './LightningRegistry.js';
 import { lightningFrontTable } from '../services/supabase/lightningAnchor.js';
+import { lightningPoolVpipJudge, type LightningPoolVpipJudge } from './LightningPoolVpipJudge.js';
 
 export interface LightningSupervisorDeps {
   /** This process's anchor-table presence (GameServer's engines). */
@@ -134,6 +135,8 @@ export interface LightningSupervisorDeps {
    * Called once per change. Absent (tests, an older wiring) tells nobody.
    */
   clusterStatus?: (clusterId: string, status: LightningClusterStatus | null) => void;
+  /** Lightning pool VPIP judge whose cluster sample is reset on switch-off / restart. */
+  vpipJudge?: Pick<LightningPoolVpipJudge, 'resetCluster'>;
 }
 
 /** LIGHTNING PHASE 13: what a held Cluster's rooms are told. */
@@ -333,6 +336,7 @@ export class LightningSupervisor {
   private readonly frontTables = new Map<string, { tableId: string | null; at: number }>();
   /** LIGHTNING PHASE 13: the room status each Cluster was last told. */
   private readonly statusTold = new Map<string, LightningClusterStatus>();
+  private readonly vpipJudge: Pick<LightningPoolVpipJudge, 'resetCluster'>;
 
   constructor(private readonly deps: LightningSupervisorDeps) {
     this.presence = new LightningPresence(deps.presenceSource);
@@ -341,6 +345,7 @@ export class LightningSupervisor {
     this.metrics = deps.metrics ?? lightningMetrics;
     this.logger = deps.logger ?? consoleLogger;
     this.frozen = deps.frozen ?? isMaintenanceFrozen;
+    this.vpipJudge = deps.vpipJudge ?? lightningPoolVpipJudge;
   }
 
   get isRunning(): boolean {
@@ -600,6 +605,7 @@ export class LightningSupervisor {
         `[LightningSupervisor] ${clusterId} no longer qualifies - stopping its worker`
       );
       this.tellStatus(clusterId, null);
+      this.vpipJudge.resetCluster(clusterId);
       await worker.stop();
       // After LIGHTNING -> MUST_MOVE nothing is left to abandon: the commit
       // waited for every hand to settle. Lightning switched off never lands
@@ -635,6 +641,7 @@ export class LightningSupervisor {
         this.tellStatus(clusterId, lightningClusterStatusOf(existing.currentHold));
         continue;
       }
+      this.vpipJudge.resetCluster(clusterId);
       const worker = this.createWorker(clusterId, config);
       this.workers.set(clusterId, worker);
       if (state?.hold) worker.setHold(hold);
@@ -653,6 +660,7 @@ export class LightningSupervisor {
     // hand already settling is left alone: settlement answers for itself).
     const onFrozen = (id: string): void => {
       if (this.workers.get(id) === worker) this.workers.delete(id);
+      this.vpipJudge.resetCluster(id);
       this.metrics.setWorkers(this.workers.size);
       void worker.stop().catch(() => undefined);
       void hosting?.abortCluster(id, 'cluster_frozen').catch(() => undefined);
@@ -721,9 +729,11 @@ export class LightningSupervisor {
   }
 
   private async stopAllWorkers(): Promise<void> {
+    const clusterIds = [...this.workers.keys()];
     const workers = [...this.workers.values()];
     this.workers.clear();
     this.statusTold.clear();
+    for (const clusterId of clusterIds) this.vpipJudge.resetCluster(clusterId);
     await Promise.allSettled(workers.map((w) => w.stop()));
     // Leadership is gone: no hand this process formed may be settled under it.
     await this.deps.hosting?.abortAll('leadership_lost');
