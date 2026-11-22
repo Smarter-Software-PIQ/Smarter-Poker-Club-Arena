@@ -104,11 +104,17 @@ BACKUP_RUN_WORST_MINUTES = 70
 
 
 def parse_control_spec(prequal_text):
-    """Parse CONTROL_INPUTS and O4 pure-test filter constants from
+    """Parse CONTROL_INPUTS and O4/O9 exclusion constants from
     scripts/ci/read-engine-prequalification.py via AST (zero code execution)."""
     tree = ast.parse(prequal_text)
     found = {}
-    wanted = {'CONTROL_INPUTS', 'CONTROL_INPUT_TEST_EXCLUDED_DIRS', 'PURE_TEST_FILE_SUFFIXES'}
+    wanted = {
+        'CONTROL_INPUTS',
+        'CONTROL_INPUT_TEST_EXCLUDED_DIRS',
+        'PURE_TEST_FILE_SUFFIXES',
+        'NON_RELEASE_SERVER_SCRIPT_PREFIXES',
+        'NON_RELEASE_SERVER_SCRIPT_EXACT',
+    }
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -119,14 +125,22 @@ def parse_control_spec(prequal_text):
         raise ValueError('CONTROL_INPUTS not found or invalid')
     excluded_dirs = found.get('CONTROL_INPUT_TEST_EXCLUDED_DIRS', ())
     suffixes = found.get('PURE_TEST_FILE_SUFFIXES', ())
-    if not isinstance(excluded_dirs, (list, tuple)) or not all(isinstance(x, str) for x in excluded_dirs):
-        raise ValueError('CONTROL_INPUT_TEST_EXCLUDED_DIRS invalid')
-    if not isinstance(suffixes, (list, tuple)) or not all(isinstance(x, str) for x in suffixes):
-        raise ValueError('PURE_TEST_FILE_SUFFIXES invalid')
+    non_release_prefixes = found.get('NON_RELEASE_SERVER_SCRIPT_PREFIXES', ())
+    non_release_exact = found.get('NON_RELEASE_SERVER_SCRIPT_EXACT', ())
+    for name, val in (
+        ('CONTROL_INPUT_TEST_EXCLUDED_DIRS', excluded_dirs),
+        ('PURE_TEST_FILE_SUFFIXES', suffixes),
+        ('NON_RELEASE_SERVER_SCRIPT_PREFIXES', non_release_prefixes),
+        ('NON_RELEASE_SERVER_SCRIPT_EXACT', non_release_exact),
+    ):
+        if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
+            raise ValueError(f'{name} invalid')
     return {
         'inputs': tuple(inputs),
         'excluded_dirs': tuple(excluded_dirs),
         'suffixes': tuple(suffixes),
+        'non_release_prefixes': tuple(non_release_prefixes),
+        'non_release_exact': frozenset(non_release_exact),
     }
 
 
@@ -142,6 +156,13 @@ def _is_pure_test_control_path(path, control_spec):
     return False
 
 
+def _is_non_release_server_script_path(path, control_spec):
+    if path in control_spec.get('non_release_exact', ()):
+        return True
+    prefixes = control_spec.get('non_release_prefixes', ())
+    return bool(prefixes and path.startswith(prefixes))
+
+
 def is_non_test_control_path(path, control_spec):
     if not isinstance(path, str) or not path or not control_spec:
         return False
@@ -151,7 +172,11 @@ def is_non_test_control_path(path, control_spec):
     )
     if not matched:
         return False
-    return not _is_pure_test_control_path(path, control_spec)
+    if _is_pure_test_control_path(path, control_spec):
+        return False
+    if _is_non_release_server_script_path(path, control_spec):
+        return False
+    return True
 
 
 def _file_paths_of(files):

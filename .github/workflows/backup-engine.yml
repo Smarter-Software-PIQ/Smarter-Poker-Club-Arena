@@ -832,6 +832,7 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GH_TOKEN: ${{ github.token }}
           MODE: ${{ needs.plan.outputs.refresh }}
           EVENT: ${{ github.event_name }}
           CONTROL: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
@@ -851,9 +852,10 @@ jobs:
           [ "$stamp" != 1970-01-01T00:00:00Z ] || copy_evidence_sha=''
           verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
             --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
-            --control "$CONTROL" --wait 240 2> due-reason.txt) || verdict='due=true'
+            --control "$CONTROL" --sha "$SHA" --wait 240 2> due-reason.txt) || verdict='due=true'
           contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
           pending_migrations=$(printf '%s\n' "$verdict" | sed -n 's/^pending=//p')
+          comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
           [ "$contents_due" = false ] || contents_due=true
           # PRE-SOAK UNINSTALLED-MIGRATION GUARD (2026-11-22, O7).
           # An ordinary push commit carrying recently-added ordinary migrations
@@ -892,6 +894,44 @@ jobs:
           [ "$MODE" = force ] && due=true
           [ "$contents_due" = true ] && due=true
           [ "$EVENT" = schedule ] && [ "$copy_day" != "$today" ] && due=true
+          # ALREADY CERTIFIED FOR CURRENT SCHEMA WITH FRESH COPY (2026-11-22, O10).
+          # A late-delivered schedule run (or push run) whose Backup copy is
+          # already current today (due=false) on a SHA that already carries
+          # backup-engine/certified = success for production's exact comparable
+          # installed migrations must not re-soak or overwrite the standing
+          # success certificate. Hand the host back cleanly and skip certify.
+          # Stale copies (due=true), forced runs, freeze baselines, mismatched
+          # digests, or unreadable statuses proceed normally (CLAUDE.md 10.86).
+          if [ "$due" = false ] && [ "$MODE" != force ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
+             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ]; } \
+             && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]]; then
+            standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
+              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)\t\(.description // \"\")\"" 2>/dev/null) || standing_line=''
+            IFS=$'\t' read -r standing_state standing_desc <<< "$standing_line"
+            if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]]; then
+              ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+                "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY
+              echo "ALREADY CERTIFIED: $SHA already carries backup-engine/certified = success for current installed migrations ($comparable_digest) and Backup copy is not due; handing host back cleanly without overwriting status or re-soaking."
+              { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\`: standing \`backup-engine/certified = success\` already matches current installed migrations \`$comparable_digest\` and Backup copy is not due; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "due=false" >> "$GITHUB_OUTPUT"
+              echo "deferred=1" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           newest=$(git log -1 --format=%cI origin/main -- supabase/migrations 2>/dev/null || echo unknown)
           echo "productionInstalledSet=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p') contentsDue=$contents_due due=$due"
           sed -n 's/^reason=/contents: /p' due-reason.txt
@@ -1052,9 +1092,27 @@ jobs:
         if: needs.refresh.result == 'success' || needs.refresh.outputs.turn == '1'
         env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}' }
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
-            -f description='Backup Engine is building, booting and soaking this version' \
-            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+          set -euo pipefail
+          # NEVER BLACK OUT A STANDING SUCCESS CERTIFICATE (2026-11-22, O10).
+          # A re-certification must not overwrite an existing
+          # backup-engine/certified = success with pending while soaking:
+          # select-daily-engine.py reads the newest status, so overwriting
+          # success with pending creates a 50-minute selection blackout. Only
+          # write pending when current is missing|pending|failure|error.
+          current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
+            --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || current=unreadable
+          case "$current" in
+            missing|pending|failure|error)
+              gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
+                -f description='Backup Engine is building, booting and soaking this version' \
+                -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+              echo "wrote=1" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "PRESERVED: $SHA already holds $STATUS_CONTEXT = success (or status unreadable: $current); skipping pending overwrite so selection is never blacked out during re-certification."
+              echo "wrote=0" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
@@ -1236,6 +1294,7 @@ jobs:
             JOB_STATUS: '${{ job.status }}',
             INSTALLED: '${{ steps.certify.outputs.installed }}',
             PENDING: '${{ steps.pending.outcome }}',
+            WROTE_PENDING: '${{ steps.pending.outputs.wrote }}',
             POLICY: '${{ steps.policy.outcome }}',
             REFRESH: '${{ needs.refresh.result }}',
             TURN: '${{ needs.refresh.outputs.turn }}',
@@ -1269,7 +1328,7 @@ jobs:
             reason=$state
             state=error; desc='Backup Engine reached no verdict: this run failed before certifying (provider, dispatch proof or checkout). See run.'
             if [ "$reason" = noturn ]; then desc='Backup Engine reached no verdict: this run never held the Backup host turn, so it tested nothing. See run.'; fi
-            if [ "$PENDING" != success ]; then
+            if [ "$PENDING" != success ] || [ "${WROTE_PENDING:-}" = 0 ]; then
               current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
                 --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || current=unreadable
               case "$current" in

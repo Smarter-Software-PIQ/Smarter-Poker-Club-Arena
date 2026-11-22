@@ -207,6 +207,56 @@ class RefreshDue(unittest.TestCase):
             self.assertEqual(res_err.returncode, 0, res_err.stderr)
             self.assertIn('due=true\n', res_err.stdout)
             self.assertNotIn('pending=', res_err.stdout)
+            self.assertNotIn('comparable=', res_err.stdout)
+
+    def test_refresh_due_emits_comparable_digest_excluding_window_versions(self):
+        with tempfile.TemporaryDirectory(prefix='refresh-due-comparable-') as tmp:
+            repo = Path(tmp, 'repo')
+            repo.mkdir()
+            run_git = lambda *a: subprocess.check_output(['git', '-C', str(repo), *a], text=True).strip()
+            run_git('init', '-q')
+            run_git('config', 'user.email', 'fixture@example.invalid')
+            run_git('config', 'user.name', 'Migration fixture')
+            mig_dir = repo / 'supabase' / 'migrations'
+            mig_dir.mkdir(parents=True)
+            (mig_dir / '20261122030000_window_only.sql').write_text(
+                '-- @install-window: daily-maintenance\nSELECT 1;\n')
+            run_git('add', '.')
+            run_git('commit', '-qm', 'add window migration')
+            cand = run_git('rev-parse', 'HEAD')
+            # Production includes the window version; comparable digest must exclude it.
+            with_window = {**AFTER, '20261122030000': 'window_only'}
+            copy, prod = Path(tmp, 'copy.json'), Path(tmp, 'production.json')
+            same = {s: hashlib.sha256(s.encode()).hexdigest() for s in se.SIGNATURES}
+            copy.write_bytes(evidence(with_window, same))
+            prod.write_text(json.dumps({'migrations': sorted([v, n] for v, n in with_window.items()),
+                                        'functions': {s: s for s in se.SIGNATURES}}))
+            sha = hashlib.sha256(copy.read_bytes()).hexdigest()
+            expected_comparable = im.digest(AFTER)
+            res = subprocess.run(
+                ['python3', '-B', HELPER, 'refresh-due', '--repo', str(repo),
+                 '--copy-evidence', str(copy), '--copy-evidence-sha', sha,
+                 '--production', str(prod), '--sha', cand],
+                capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn(f'production={im.digest(with_window)}\n', res.stdout)
+            self.assertIn(f'comparable={expected_comparable}\n', res.stdout)
+            # Fallback to --control when --sha is omitted.
+            res_ctrl = subprocess.run(
+                ['python3', '-B', HELPER, 'refresh-due', '--repo', str(repo),
+                 '--copy-evidence', str(copy), '--copy-evidence-sha', sha,
+                 '--production', str(prod), '--control', cand],
+                capture_output=True, text=True)
+            self.assertEqual(res_ctrl.returncode, 0, res_ctrl.stderr)
+            self.assertIn(f'comparable={expected_comparable}\n', res_ctrl.stdout)
+            # Omit comparable= when neither --sha nor --control is supplied (fail-open).
+            res_none = subprocess.run(
+                ['python3', '-B', HELPER, 'refresh-due', '--repo', str(repo),
+                 '--copy-evidence', str(copy), '--copy-evidence-sha', sha,
+                 '--production', str(prod)],
+                capture_output=True, text=True)
+            self.assertEqual(res_none.returncode, 0, res_none.stderr)
+            self.assertNotIn('comparable=', res_none.stdout)
 
 
 class InstalledDuringExport(unittest.TestCase):
