@@ -17,6 +17,7 @@ import type { Card, HandStage } from '../types.js';
 import {
   LEAGUE_MATCHUPS,
   NLH_SCRIPTED_FIELD_CARDS,
+  NLH_SCRIPTED_OPEN_JAMMER_CARDS,
   UNMEASURABLE_MATCHUPS,
   humanFieldPersonaProfile,
   playHand,
@@ -28,22 +29,33 @@ import {
 import {
   NLH_SCRIPTED_COMMITTED_STACK_BB,
   NLH_SCRIPTED_PREFLOP,
+  NLH_TIGHT_JAMMER_PREFLOP,
   nlhDangerBoard,
   nlhDangerBoardBettorPolicy,
   nlhDangerBoardValuePolicy,
+  nlhNashOpenJammerPolicy,
   nlhPotBarrelerPolicy,
   nlhScriptedPolicy,
+  nlhTightJammerPolicy,
   nlhValueBarrelerPolicy,
+  preflopSeatsBehind,
 } from './NlhScriptedField.js';
 import {
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  NLH_NASH_OPEN_JAMMER_PERSONA,
   NLH_POT_BARRELER_PERSONA,
   NLH_SCRIPTED_PERSONAS,
   NLH_SCRIPTED_POPULATION_ID,
+  NLH_TIGHT_JAMMER_PERSONA,
   NLH_VALUE_BARRELER_PERSONA,
   type NlhScriptedPersona,
 } from './HorseLeagueHumanField.js';
+import {
+  disarmBrainTelemetryForTest,
+  drainFires,
+  enableBrainTelemetry,
+} from '../engine/BrainTelemetry.js';
 import { HUMAN_CALIBRATED_POPULATION_ID } from './HumanCalibratedPopulation.js';
 import { horseLeagueComputeResponseIsValid } from './HorseLeagueComputeWorkerClient.js';
 
@@ -327,9 +339,108 @@ describe('each script plays its stated line', () => {
     expect(nlhScriptedPolicy(NLH_VALUE_BARRELER_PERSONA)).toBe(nlhValueBarrelerPolicy);
     expect(nlhScriptedPolicy(NLH_DANGER_BOARD_BETTOR_PERSONA)).toBe(nlhDangerBoardBettorPolicy);
     expect(nlhScriptedPolicy(NLH_DANGER_BOARD_VALUE_PERSONA)).toBe(nlhDangerBoardValuePolicy);
+    expect(nlhScriptedPolicy(NLH_NASH_OPEN_JAMMER_PERSONA)).toBe(nlhNashOpenJammerPolicy);
+    expect(nlhScriptedPolicy(NLH_TIGHT_JAMMER_PERSONA)).toBe(nlhTightJammerPolicy);
     expect(() => nlhScriptedPolicy('x' as NlhScriptedPersona)).toThrow(
       /Unknown scripted no-limit persona/
     );
+  });
+
+  it('preflopSeatsBehind matches the table blind assignment at 2 and 6 seats', () => {
+    // 2 seats, dealerSeat=1 -> seat 0 is SB (1 behind), seat 1 is BB (0 behind).
+    expect(preflopSeatsBehind(0, 1, 2)).toBe(1);
+    expect(preflopSeatsBehind(1, 1, 2)).toBe(0);
+    // 6 seats, dealerSeat=1 -> seat 0 BTN (2), 1 SB (1), 2 BB (0), 3 UTG (5), 4 HJ (4), 5 CO (3).
+    expect(preflopSeatsBehind(3, 1, 6)).toBe(5);
+    expect(preflopSeatsBehind(4, 1, 6)).toBe(4);
+    expect(preflopSeatsBehind(5, 1, 6)).toBe(3);
+    expect(preflopSeatsBehind(0, 1, 6)).toBe(2);
+    expect(preflopSeatsBehind(1, 1, 6)).toBe(1);
+    expect(preflopSeatsBehind(2, 1, 6)).toBe(0);
+  });
+
+  it('the Nash open-jammer jams <=20bb by position and dead ante, and calls lone open-jams from the Nash table', () => {
+    const sixMaxSpot = (
+      seatIdx: number,
+      hole: string[],
+      stackBB: number,
+      anteBB: number,
+      history: LeagueSeatSpot['history'] = []
+    ): LeagueSeatSpot => ({
+      ...spot({
+        stage: 'preflop',
+        hole,
+        pot: 3 + anteBB * BB,
+        toCall: seatIdx === 1 ? 1 : 2,
+        currentBet: 2,
+        myBet: seatIdx === 1 ? 1 : 0,
+        stack: stackBB * BB - (seatIdx === 1 ? 1 : 0),
+        history,
+      }),
+      seatIdx,
+      numSeats: 6,
+      dealerSeat: 1,
+      liveCount: 6,
+    });
+    // A2o at 12bb: folds UTG (5 behind, cash) but jams BTN (2 behind, BBA) and SB (1 behind).
+    expect(nlhNashOpenJammerPolicy(sixMaxSpot(3, ['As', '2d'], 12, 0))).toEqual({ action: 'fold' });
+    expect(nlhNashOpenJammerPolicy(sixMaxSpot(0, ['As', '2d'], 12, 1))).toEqual({
+      action: 'all_in',
+    });
+    expect(nlhNashOpenJammerPolicy(sixMaxSpot(1, ['As', '2d'], 12, 0))).toEqual({
+      action: 'all_in',
+    });
+    // Trash (72o) folds from BTN at 12bb; AA jams from UTG at 15bb.
+    expect(nlhNashOpenJammerPolicy(sixMaxSpot(0, ['7h', '2c'], 12, 1))).toEqual({ action: 'fold' });
+    expect(nlhNashOpenJammerPolicy(sixMaxSpot(3, ['Ah', 'As'], 15, 0))).toEqual({
+      action: 'all_in',
+    });
+    // Facing a lone BTN all-in at 12bb BBA, BB calls AJs (all_in for whole stack) and folds 72o.
+    const btnJamHistory = [
+      { seat: 1, userId: 'league-1', action: 'all_in', amount: 24, timestamp: 1, stage: 'preflop' },
+    ] as unknown as LeagueSeatSpot['history'];
+    const bbFacingJam = (hole: string[]): LeagueSeatSpot => ({
+      ...spot({
+        stage: 'preflop',
+        hole,
+        pot: 5 + 24,
+        toCall: 22,
+        currentBet: 24,
+        myBet: 2,
+        stack: 20,
+        history: btnJamHistory,
+      }),
+      seatIdx: 2,
+      numSeats: 6,
+      dealerSeat: 1,
+      liveCount: 2,
+    });
+    expect(nlhNashOpenJammerPolicy(bbFacingJam(['As', 'Js']))).toEqual({ action: 'all_in' });
+    expect(nlhNashOpenJammerPolicy(bbFacingJam(['7h', '2c']))).toEqual({ action: 'fold' });
+  });
+
+  it('the tight jammer harm control open-jams only the top ~9% hands at <=20bb and folds the rest', () => {
+    expect(NLH_TIGHT_JAMMER_PREFLOP.openJamAt).toBe(0.91);
+    const btnSpot = (hole: string[]): LeagueSeatSpot => ({
+      ...spot({
+        stage: 'preflop',
+        hole,
+        pot: 5,
+        toCall: 2,
+        currentBet: 2,
+        myBet: 0,
+        stack: 15 * BB,
+      }),
+      seatIdx: 0,
+      numSeats: 6,
+      dealerSeat: 1,
+      liveCount: 6,
+    });
+    expect(nlhTightJammerPolicy(btnSpot(['As', 'Kd']))).toEqual({ action: 'all_in' });
+    expect(nlhTightJammerPolicy(btnSpot(['Qd', 'Qh']))).toEqual({ action: 'all_in' });
+    expect(nlhTightJammerPolicy(btnSpot(['As', '2d']))).toEqual({ action: 'fold' });
+    expect(nlhTightJammerPolicy(btnSpot(['Ks', '9d']))).toEqual({ action: 'fold' });
+    expect(nlhTightJammerPolicy(btnSpot(['7h', '2c']))).toEqual({ action: 'fold' });
   });
 });
 
@@ -390,6 +501,8 @@ const STACK_OF: Record<NlhScriptedPersona, number> = {
   [NLH_VALUE_BARRELER_PERSONA]: NLH_SCRIPTED_COMMITTED_STACK_BB,
   [NLH_DANGER_BOARD_BETTOR_PERSONA]: 100,
   [NLH_DANGER_BOARD_VALUE_PERSONA]: 100,
+  [NLH_NASH_OPEN_JAMMER_PERSONA]: 12,
+  [NLH_TIGHT_JAMMER_PERSONA]: 15,
 };
 
 describe('the field plays legal hands and is deterministic', () => {
@@ -522,6 +635,62 @@ describe('the scripted no-limit field cards', () => {
       expect(r.divergentPairs).toBeGreaterThan(0);
       expect(r.inert).toBe(false);
       expect(r.opponentPopulation).toBe(NLH_SCRIPTED_POPULATION_ID);
+      expect(
+        horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })
+      ).toBe(true);
+    },
+    300_000
+  );
+});
+
+describe('the scripted open-jammer field cards (nashCallVsJam, 2026-11-21)', () => {
+  it('are on the card, six-max <=20bb, not refused, with default-ON nashCallVsJam arms', () => {
+    expect(NLH_SCRIPTED_OPEN_JAMMER_CARDS.map((m) => m.name).sort()).toEqual([
+      'nlh_scripted_nash_open_jammer_12bb',
+      'nlh_scripted_nash_open_jammer_15bb',
+      'nlh_scripted_nash_open_jammer_cash_12bb',
+      'nlh_scripted_tight_jammer_15bb',
+    ]);
+    const names = new Set(LEAGUE_MATCHUPS.map((m) => m.name));
+    for (const m of NLH_SCRIPTED_OPEN_JAMMER_CARDS) {
+      expect(names.has(m.name), m.name).toBe(true);
+      expect(
+        UNMEASURABLE_MATCHUPS.some((u) => u.name === m.name),
+        m.name
+      ).toBe(false);
+      expect(m.variant).toBe('nlh');
+      expect(m.seats).toBe(6);
+      expect(m.stackBB).toBeLessThanOrEqual(20);
+      expect(m.opponentPopulation).toBe(NLH_SCRIPTED_POPULATION_ID);
+      expect(m.a).toEqual({});
+      expect(m.b).toEqual({ nashCallVsJam: false });
+    }
+  });
+
+  it.each(NLH_SCRIPTED_OPEN_JAMMER_CARDS.map((m) => m.name))(
+    '%s: scripted jammers open-jam <=20bb, nashCallVsJam fires and diverges with 0 harness defects',
+    async (name) => {
+      const m = LEAGUE_MATCHUPS.find((x) => x.name === name)!;
+      enableBrainTelemetry();
+      drainFires();
+      let r: Awaited<ReturnType<typeof runMatchup>>;
+      let fires: Array<{ feature: string; fires: number }>;
+      try {
+        r = await runMatchup({ ...m, a: { ...m.a, telemetry: true } }, 200, 20261120);
+        fires = drainFires();
+      } finally {
+        disarmBrainTelemetryForTest();
+      }
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.correctedActions).toBe(0);
+      expect(r.brainExceptionFallbacks).toBe(0);
+      expect(r.divergentPairs).toBeGreaterThan(0);
+      expect(r.inert).toBe(false);
+      expect(r.opponentPopulation).toBe(NLH_SCRIPTED_POPULATION_ID);
+      expect(r.humanResponses?.['preflop/facing_bet']?.all_in ?? 0).toBeGreaterThan(0);
+      const nashFires = fires.find((f) => f.feature === 'nash_call_vs_jam')?.fires ?? 0;
+      expect(nashFires).toBeGreaterThan(0);
       expect(
         horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })
       ).toBe(true);

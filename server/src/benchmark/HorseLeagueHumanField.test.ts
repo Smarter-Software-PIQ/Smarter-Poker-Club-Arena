@@ -85,6 +85,9 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
     'human_mtt6_holdem_tournament_all_in_call_is_priced_12bb',
     'mtt6_holdem_tournament_all_in_call_is_priced_12bb',
   ],
+  // 2026-11-22 (Hold'em Strategy): 6-max and 9-max cash human-field twins for holdemValueAndCallsArePriced.
+  ['human_nlh_holdem_value_and_calls_are_priced', 'nlh_holdem_value_and_calls_are_priced'],
+  ['human_nlh9_holdem_value_and_calls_are_priced', 'nlh9_holdem_value_and_calls_are_priced'],
   // 2026-11-22 (RIVER-BLOCK): human-field twin of nlh_horse_river_no_blocker_bet (live cash Hybrid hero).
   ['human_nlh_horse_river_no_blocker_bet', 'nlh_horse_river_no_blocker_bet'],
 ];
