@@ -78,6 +78,10 @@ Options:
   --lane-lock=<path>         Optional owner-checked lane lock file (never steals foreign lock)
   --lane-owner=<id>          Lane owner string matching --lane-lock
   --max-load=<num>           Override 1-minute load ceiling (default: manifest.bars.maxLoad1m or 35)
+  --max-load-while-push-locked=<num>
+                             Opt-in: a present shepherd.lock does not refuse a job while the
+                             1-minute load is below <num> (must be below the load ceiling).
+                             Unset (default): any shepherd.lock refuses.
   --resume                   (run) Keep the cell-seed jobs an earlier run of this exact grade
                              already finished (same manifest, criteria, git HEAD/tree and harness
                              bytes) and run only the rest. A gate abort no longer throws away
@@ -401,6 +405,7 @@ function runPreflightCheck(flags, deps) {
   const gate = evaluateSystemGate({
     shepherdLockExists: deps.exists(flags.shepherdLock),
     shepherdLockPath: flags.shepherdLock,
+    maxLoad1mWhilePushLocked: flags.maxLoad1mWhilePushLocked,
     laneLock,
     expectedLaneOwner: flags.laneOwner,
     load1m: deps.getLoad1m(),
@@ -632,6 +637,7 @@ async function handleRun(flags, deps) {
         const midGate = evaluateSystemGate({
           shepherdLockExists: deps.exists(flags.shepherdLock),
           shepherdLockPath: flags.shepherdLock,
+          maxLoad1mWhilePushLocked: flags.maxLoad1mWhilePushLocked,
           laneLock: flags.laneLock ? deps.readLaneLock(flags.laneLock) : null,
           expectedLaneOwner: flags.laneOwner,
           load1m: deps.getLoad1m(),
