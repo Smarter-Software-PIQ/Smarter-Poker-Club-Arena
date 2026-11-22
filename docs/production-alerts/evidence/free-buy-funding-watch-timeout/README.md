@@ -69,3 +69,28 @@ writer of these keys (`git grep "':promo_head:'"` in supabase/migrations and ser
 the same rows. A production count of both predicates was attempted read-only and cancelled at 50 s, which
 is the full-scan cost the gate exists to keep out of migrations. `migrationCostRisks` now returns `[]`
 for the file.
+
+## Revision 3 (2026-11-22T15:50Z, PRIMARY): re-reserved and re-imaged
+
+Alert: alertmanager `PgCronJobFailingRepeatedly` for `ca-free-buy-funding-watch-15m`,
+operational_alert_events 447445 (2026-11-22 15:45 UTC). The fix above never merged.
+
+- `cron.job_run_details` per day (failed / avg successful seconds): 11-18 7 / 47.4,
+  11-19 3 / 50.8, 11-20 5 / 55.1, 11-21 10 / 53.6, 11-22 11 of 63 / 56.2 (up to 15:41).
+  Every failure is `canceling statement due to statement timeout` in the `gtd` CTE.
+- `gtd` selects 430 events. `fn_ca_guarantee_funding` once per event: 26.6 s
+  (2.50M buffers); `fn_ca_guarantee_house_supplements` once per event: 5.1 s.
+  Free Buy format build over 92 events: 0.12 s.
+- The live definition is no longer 37dd9112: migration 20261121154220 ran
+  `ALTER FUNCTION ... SET lock_timeout = '2s'` and `SET statement_timeout = '30s'`
+  on every `fn_ca_%_watch`. Live md5 is `81d72e4361a751945dc9087fff71a929`, so
+  20261120055128 would have raised FREE_BUY_FUNDING_WATCH_PREIMAGE_CHANGED.
+- Re-reserved as 20261122155311 with the new pre-image. The body restates both SET
+  clauses. Reverting the three intended changes (MATERIALIZED and its comment, the
+  promo_head LIKE rewrite) reproduces md5 81d72e43 exactly (checked line by line
+  against `pg_get_functiondef` on production, read-only).
+- Residual: the materialized scan is about 31 s against the 60 s job budget, and the
+  14-day window is full, so it is bounded by daily guaranteed-event volume. The
+  supplements helper is still evaluated twice per event inside
+  `fn_ca_guarantee_funding` (about 5 s); left unchanged because that function is
+  shared with settlement paths.

@@ -1,4 +1,4 @@
--- 20261120055128_the_free_buy_funding_watch_reads_each_guarantee_once.sql
+-- 20261122155311_the_free_buy_funding_watch_reads_each_guarantee_once.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
@@ -34,10 +34,24 @@
 -- its findings, alerts and resolution are byte-for-byte the same logic. The
 -- timeout is NOT widened: the scan drops to about half of it.
 --
+-- REVISION 2026-11-22 (PRIMARY, operational_alert_events 447445): this was
+-- first written as 20261120055128 and never merged. On 2026-11-21 migration
+-- 20261121154220 gave every public.fn_ca_%_watch `SET lock_timeout = '2s'`
+-- and `SET statement_timeout = '30s'` through ALTER FUNCTION, so the
+-- 2026-11-20 pre-image (37dd9112a5a5830b1847e0fe31065f77) no longer matched
+-- and the file would have refused at install. Re-reserved as 20261122155311.
+-- Meanwhile the watch kept failing: 11 of 63 runs on 2026-11-22 up to 15:41
+-- UTC hit the job's 60 s timeout, and the successful ones averaged 56.2 s.
+--
 -- The pre-image guard is the md5 of production's live definition read
--- 2026-11-20 05:50 UTC (37dd9112a5a5830b1847e0fe31065f77); the
--- body below is that definition with only the MATERIALIZED change and its
--- comment.
+-- 2026-11-22 15:50 UTC (81d72e4361a751945dc9087fff71a929). The body below is
+-- that definition with exactly three changes: MATERIALIZED and its comment,
+-- and the promo_head LIKE written as a literal prefix plus infix (same rows;
+-- the merge gate refuses a chip_ledger LIKE prefix). The two SET clauses the
+-- 20261121154220 sweep added are restated, because CREATE OR REPLACE resets
+-- a function's settings to the ones it names, and that migration's live proof
+-- requires lock_timeout on every fn_ca_%_watch. Reconstructing the live text
+-- from this body by reverting the three changes gives md5 81d72e43 exactly.
 --
 -- No chips move. No hot-table lock (CREATE OR REPLACE FUNCTION only).
 --
@@ -51,7 +65,7 @@ SET LOCAL statement_timeout = '20s';
 
 DO $pre$ BEGIN
   IF md5(pg_get_functiondef('public.fn_ca_free_buy_funding_watch()'::regprocedure))
-     IS DISTINCT FROM '37dd9112a5a5830b1847e0fe31065f77' THEN
+     IS DISTINCT FROM '81d72e4361a751945dc9087fff71a929' THEN
     RAISE EXCEPTION 'FREE_BUY_FUNDING_WATCH_PREIMAGE_CHANGED';
   END IF;
 END $pre$;
@@ -61,6 +75,8 @@ CREATE OR REPLACE FUNCTION public.fn_ca_free_buy_funding_watch()
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'public', 'smarter_private', 'pg_temp'
+ SET lock_timeout TO '2s'
+ SET statement_timeout TO '30s'
 AS $function$
 DECLARE
   -- The gross guarantee rule shipped at 20261105222502; the first Free Buy
@@ -80,7 +96,7 @@ DECLARE
   v_alert uuid;
   f record;  -- not r: the finding query aliases the redemptions r
 BEGIN
-  -- MATERIALIZED (20261120055128): finding reads g.f in its WHERE (twice),
+  -- MATERIALIZED (20261122155311): finding reads g.f in its WHERE (twice),
   -- its CASE and its detail. Inlined, Postgres re-evaluated
   -- fn_ca_guarantee_funding at those references: 41 s of a 60 s budget on
   -- 433 events, measured 2026-11-20. Once per event: about 25 s.
