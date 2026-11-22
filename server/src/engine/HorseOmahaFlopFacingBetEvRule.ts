@@ -72,9 +72,11 @@ import {
   omahaFlopBettorRead,
   type OmahaFlopBettorRead,
 } from './HorseOmahaFlopBettorRead.js';
+import { omahaCbetRaiseRangeOf } from './HorseOmahaCbetRaisePriced.js';
 import { omahaBareOverpairFlopFacingBetSpot } from './HorseOmahaOopChecks.js';
 import { omahaFlopDefenceTreeInputs } from './HorseOmahaFlopDefenceTree.js';
 import { omahaOpponentKindOf } from './HorseOmahaPricedMode.js';
+import { omahaFlopFacingHudRangeFactor } from './HorseOmahaPricedSites.js';
 import { flopTextureOf } from './HorseOmahaStreetRead.js';
 
 /** What HorseLogic hands the rule: its own reading of the decision's options and seats. */
@@ -104,6 +106,13 @@ export interface OmahaFlopFacingBetEvRuleContext {
   flopDefenceOnly?: boolean;
   /** omahaFlopVerdictReadsTheBettor is on: the verdict reads the bettor's street record */
   readsTheBettor?: boolean;
+  /**
+   * omahaFlopBetIsPricedOnHisResponse (R2): scales the flop raiser (`f.rBet.{hu|mw}`) and post-check stabber
+   * (`f.stab.{hu|mw}`) range by his lifetime HUD record (factor 1.0 when n === 0).
+   */
+  hudRaiserStabResponse?: boolean;
+  /** omahaCbetRaiseIsPriced is on: the raise of the Horse's own c-bet is ranged on his measured raise share */
+  cbetRaisePriced?: boolean;
 }
 
 export interface OmahaFlopFacingBetEvAnswer {
@@ -124,13 +133,20 @@ export function omahaFlopFacingBetEvAnswer(
   gs: HorseGameStateV2,
   ctx: OmahaFlopFacingBetEvRuleContext
 ): OmahaFlopFacingBetEvAnswer | null {
-  const spot = omahaFlopFacingBetEvSpot(player, gs);
-  if (!spot) return null;
+  const spot0 = omahaFlopFacingBetEvSpot(player, gs);
+  if (!spot0) return null;
+  // omahaCbetRaiseIsPriced: the stated raise row gives way to the measured raising range (no bluff share
+  // added, no read moving it: the range is his measured raise share).
+  const cbetRange =
+    ctx.cbetRaisePriced === true && spot0.isRaise ? omahaCbetRaiseRangeOf(player, gs) : null;
+  const spot: OmahaFlopFacingBetEvSpot = cbetRange
+    ? { ...spot0, valueShare: cbetRange.valueShare, priorBluff: 0 }
+    : spot0;
   if (ctx.bareOverpairContinuation && omahaBareOverpairFlopFacingBetSpot(player, gs) !== null)
     return null;
   let read: OmahaFacingBetEvRead | null = null;
   let bettorRead: OmahaFlopBettorRead | null = null;
-  if (ctx.mind) {
+  if (ctx.mind && !cbetRange) {
     const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
     try {
       // The read has no flop row of its own: the pooled postflop read of the
@@ -188,6 +204,37 @@ export function omahaFlopFacingBetEvAnswer(
       left: Math.min(Math.max(0, stack - spot.paid), his),
     };
   }
+  let hudRangeFactor = 1;
+  let hudRangeReceipt:
+    | 'omaha_flop_facing_raise_hud_range_scaled'
+    | 'omaha_flop_facing_stab_hud_range_scaled'
+    | null = null;
+  if (
+    ctx.hudRaiserStabResponse === true &&
+    ctx.mind &&
+    (spot.isRaise || spot.stab) &&
+    !(cbetRange && spot.isRaise)
+  ) {
+    const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+    const liveCount = (gs.players ?? []).filter((p) => !p.is_folded && !p.is_sitting_out).length;
+    const family = (player.cards?.length ?? 0) === 5 ? 'plo5' : 'plo4';
+    const line = spot.isRaise ? 'raise' : 'stab';
+    const scaled = omahaFlopFacingHudRangeFactor(
+      bettor?.user_id,
+      family,
+      liveCount <= 2,
+      line,
+      ctx.telemetry
+    );
+    hudRangeFactor = scaled.factor;
+    if (scaled.measured)
+      hudRangeReceipt =
+        line === 'raise'
+          ? 'omaha_flop_facing_raise_hud_range_scaled'
+          : 'omaha_flop_facing_stab_hud_range_scaled';
+  }
+  const combinedRangeFactor = (bettorRead ? bettorRead.rangeFactor : 1) * hudRangeFactor;
+  const hasBettorAdj = bettorRead !== null || hudRangeFactor !== 1;
   const verdict = omahaFlopFacingBetEvVerdict(
     spot,
     player.cards ?? [],
@@ -197,18 +244,26 @@ export function omahaFlopFacingBetEvAnswer(
     {
       rake: ctx.rake,
       inPosition: ctx.inPosition,
+      ...(cbetRange ? { measuredRaiseRange: true } : {}),
       ...(tree ? { tree } : {}),
-      ...(bettorRead
+      ...(hasBettorAdj
         ? {
             bettor: {
-              rangeFactor: bettorRead.rangeFactor,
-              laterBetFactor: bettorRead.laterBetFactor,
+              rangeFactor: combinedRangeFactor,
+              laterBetFactor: bettorRead ? bettorRead.laterBetFactor : 1,
             },
           }
         : {}),
     }
   );
   if (!verdict) return null;
+  if (ctx.telemetry) {
+    if (hudRangeReceipt === 'omaha_flop_facing_raise_hud_range_scaled')
+      noteFire('omaha_flop_facing_raise_hud_range_scaled');
+    else if (hudRangeReceipt === 'omaha_flop_facing_stab_hud_range_scaled')
+      noteFire('omaha_flop_facing_stab_hud_range_scaled');
+    if (cbetRange) noteFire('omaha_cbet_raise_priced_range');
+  }
   return bettorRead ? { spot, verdict, bettor: bettorRead } : { spot, verdict };
 }
 

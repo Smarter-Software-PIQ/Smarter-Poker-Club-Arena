@@ -1919,6 +1919,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     if (this.completionPresentation) this.completionPresentation.completed = true;
   }
 
+  /** True while the post-hand completion display is playing before the pause gate. */
+  override isInCompletionPresentationHold(): boolean {
+    return this.completionPresentation?.completed === true;
+  }
+
   /** The hold reaches seat moves and the seat_left announcement through Base. */
   protected noteHeldDeparture(userId: string, occupancyId: string): void {
     const seat = this.seatedPlayers.find(

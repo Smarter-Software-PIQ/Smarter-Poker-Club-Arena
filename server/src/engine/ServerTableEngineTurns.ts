@@ -3427,9 +3427,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // via scheduleHorseAction; purge any stale pre-action left behind.
       const stalePreAction = this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
       this.preActionEngine.clearPreAction?.(this.tableId, player.user_id);
-      // Evidence only: counted when there was something to purge.
+      // Evidence only: upgrade 09 is a GUARD (HorseUpgradeEvidence
+      // PER_HORSE_GUARD_UPGRADES). An armed pre-action here is its opportunity;
+      // it fired when the pre-action is gone after the clear.
       if (stalePreAction) {
-        noteFire('upgrade09_preaction_purge_table_seen');
+        noteFire('upgrade09_preaction_purge_opportunity_table_seen');
+        const purged = !this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
+        if (purged) noteFire('upgrade09_preaction_purge_table_seen');
         // Per-Horse evidence only: this branch is a server-owned Horse seat
         // (never a person's client). The tournament branch below is a Horse
         // seat a person's own client pilots, so it records no Horse event.
@@ -3438,7 +3442,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             player.user_id,
             this.activeHandVariant(),
             this.isTournamentTable() ? 'tournament' : 'cash',
-            'upgrade_09_preaction_purge'
+            'upgrade_09_preaction_purge',
+            purged
           );
       }
     } else if (
