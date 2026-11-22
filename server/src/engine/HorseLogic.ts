@@ -19818,7 +19818,6 @@ export class HorseLogic {
                   const hud53 = hudThreeBetRealizationMargin(raiser38.user_id, fam53, heroIp53);
                   v53Realization = hud53.realization;
                   v53ThreeBet =
-                    hud53.aggressiveThreeBettor ||
                     aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null;
                 }
               } else if (
