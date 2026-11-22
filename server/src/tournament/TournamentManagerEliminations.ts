@@ -6507,18 +6507,34 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       // subtracted again even if the answer already excludes it (runs low).
       bustsAtRead = this.satelliteBustsReported;
       const answer = await readSatelliteQualifierState(this.tournamentId);
-      // Only an authoritative 'continuing' answer can prove a field clear of
-      // its tickets. Every other answer withdraws the watermark, so every
-      // bust holds until a fresh 'continuing' read.
+      // Record the watermark whenever the authority already proves the
+      // boundary is unneeded (matches satelliteBoundaryIsUnneeded):
+      //  - 'entry_open' while prize_pool_finalized is still false (bounded by
+      //    same blind level and SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS), or
+      //  - 'continuing' / 'unresolved' with qualifierIds (which exclude 0-chip
+      //    players) strictly more than SATELLITE_BUBBLE_MARGIN above tickets.
+      // Any answer at/inside the margin, 'qualifying', or completed withdraws
+      // the watermark so every bust holds immediately.
       this.satelliteFieldWatermark =
-        answer.state === 'continuing'
-          ? {
-              liveField: answer.qualifierIds.length,
-              tickets: answer.fullTicketCount,
-              readAt,
-              bustsAtRead,
-            }
-          : null;
+        answer.state === 'entry_open'
+          ? !this.prizePoolFinalized && this.tournamentCache?.prize_pool_finalized !== true
+            ? {
+                kind: 'entry_open',
+                readAt,
+                levelAtRead: this.currentLevel,
+              }
+            : null
+          : (answer.state === 'continuing' || answer.state === 'unresolved') &&
+              answer.qualifierIds.length >
+                answer.fullTicketCount + TournamentManagerBase.SATELLITE_BUBBLE_MARGIN
+            ? {
+                kind: 'field',
+                liveField: answer.qualifierIds.length,
+                tickets: answer.fullTicketCount,
+                readAt,
+                bustsAtRead,
+              }
+            : null;
       return answer;
     };
     try {

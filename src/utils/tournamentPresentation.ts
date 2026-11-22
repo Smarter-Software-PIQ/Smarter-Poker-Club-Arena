@@ -4,6 +4,7 @@ import {
   type TournamentFormatContract,
   type PersistedTournamentEntryCapacitySubject,
 } from '../../server/src/tournament/tournamentEntryCapacity';
+import { satelliteStartsWhenFull } from './satelliteQualification';
 
 /** Presentation can show an unresolved historical row without inventing its format. */
 export function readTournamentFormat(row: unknown): TournamentFormatContract | null {
@@ -65,4 +66,81 @@ export function getTournamentFormatKind(row: unknown): 'mtt' | 'sng' | 'spin' | 
     default:
       return 'unknown';
   }
+}
+
+const STARTS_WHEN_FULL_LABELS = new Set([
+  'spin',
+  'sng',
+  'hu_sng',
+  'heads_up',
+  'sit_and_go',
+  'sit-and-go',
+  'spin_and_go',
+  'spin-and-go',
+]);
+
+const SCHEDULED_MTT_LABELS = new Set([
+  'mtt',
+  'xmtt',
+  'satellite',
+  'freezeout',
+  'bounty',
+  'progressive',
+  'progressive_bounty',
+  'pko',
+  'mystery',
+  'mystery_bounty',
+  'rebuy',
+  'reentry',
+  'mtt_freezeout',
+  'mtt_free_buy',
+  'mtt_rebuy',
+  'mtt_reentry',
+  'freeroll',
+  'cash',
+]);
+
+function normalizedFormatLabel(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Single authoritative start-mode predicate for client presentation.
+ *
+ * Returns true for ANY Spin, ANY Sit & Go (Heads-Up, 6-max, 9-max, and SNG
+ * satellites), and recorded fixed-field satellites - and false for scheduled
+ * MTTs (including scheduled MTT satellites). Also supports mapped client rows
+ * carrying `kind`, `type`, `variant`, `tournament_type`, or `tournamentType`
+ * when no persisted `format_contract` is attached, while never producing false
+ * positives on scheduled MTTs.
+ */
+export function tournamentStartsWhenFull(row: unknown): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const formatKind = getTournamentFormatKind(row);
+  if (formatKind === 'spin' || formatKind === 'sng') return true;
+  if (formatKind === 'mtt') return false;
+  if (satelliteStartsWhenFull(row)) return true;
+
+  const candidate = row as {
+    kind?: unknown;
+    type?: unknown;
+    variant?: unknown;
+    tournament_type?: unknown;
+    tournamentType?: unknown;
+  };
+
+  const kind = normalizedFormatLabel(candidate.kind);
+  if (kind === 'spin' || kind === 'sng') return true;
+  if (kind === 'mtt' || kind === 'cash') return false;
+
+  const explicitType = normalizedFormatLabel(
+    candidate.tournament_type ?? candidate.tournamentType ?? candidate.type
+  );
+  if (STARTS_WHEN_FULL_LABELS.has(explicitType)) return true;
+  if (SCHEDULED_MTT_LABELS.has(explicitType)) return false;
+
+  const variant = normalizedFormatLabel(candidate.variant);
+  return STARTS_WHEN_FULL_LABELS.has(variant);
 }

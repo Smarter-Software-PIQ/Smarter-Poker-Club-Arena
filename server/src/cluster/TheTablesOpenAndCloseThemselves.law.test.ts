@@ -1216,8 +1216,8 @@ describe('one tick RPC per pass, a rest for dormant games, and a wake on seat ch
     expect(SETTLEMENT).toMatch(/this\.wakeClusterGame\('hand_complete'\);/);
     // A move that landed.
     expect(BASE).toMatch(/this\.wakeClusterGame\('seat_move'\);/);
-    // A leave that cashed out between hands (both doors).
-    expect((SEATING.match(/this\.wakeClusterGame\('seat_left'\);/g) ?? []).length).toBe(2);
+    // A leave that cashed out between hands (forced, voluntary, and Lightning VPIP eviction doors).
+    expect((SEATING.match(/this\.wakeClusterGame\('seat_left'\);/g) ?? []).length).toBe(3);
   });
 });
 

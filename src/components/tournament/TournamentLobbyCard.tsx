@@ -11,6 +11,7 @@ import {
   isSeatFirstTournamentFormat,
   isTournamentEntryUnavailable,
   getTournamentEntryCapacity,
+  tournamentStartsWhenFull,
 } from '../../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -332,6 +333,8 @@ function TournamentLobbyCardInner({
     return () => clearTimeout(_mountTimer);
   }, []);
 
+  const startsWhenFull = Boolean(tournament.startsWhenFull) || tournamentStartsWhenFull(tournament);
+
   useEffect(() => {
     /* Only query when the caller has not already told us. `undefined` is "I
        do not know, go and look"; `null` is "my batch query failed", which is
@@ -345,16 +348,19 @@ function TournamentLobbyCardInner({
       checkRegistration();
     }
     let interval: ReturnType<typeof setInterval> | undefined;
-    if (tournament.startsAt) {
+    if (tournament.startsAt && !startsWhenFull) {
       updateCountdown();
       interval = setInterval(updateCountdown, 1000);
+    } else if (startsWhenFull) {
+      setCountdown('');
+      setMsToStart(null);
     }
     return () => {
       registrationRead.current++;
       registrationAbort.current?.abort();
       if (interval !== undefined) clearInterval(interval);
     };
-  }, [tournament.id, tournament.startsAt, knownRegistration, user?.id]);
+  }, [tournament.id, tournament.startsAt, startsWhenFull, knownRegistration, user?.id]);
 
   // See lateRegState() above for why these two are not one variable.
   const entryWindow = tournamentEntryWindow({
@@ -433,7 +439,7 @@ function TournamentLobbyCardInner({
   };
 
   const updateCountdown = () => {
-    if (!tournament.startsAt) return;
+    if (startsWhenFull || !tournament.startsAt) return;
     const now = new Date().getTime();
     const start = new Date(tournament.startsAt).getTime();
     if (!Number.isFinite(start)) {
@@ -1066,14 +1072,14 @@ function TournamentLobbyCardInner({
           </div>
         )}
 
-        {tournament.startsWhenFull && tournament.status === 'registering' && (
+        {startsWhenFull && tournament.status === 'registering' && (
           <div className={styles.row}>
             <span className="sc-label sc-ink--blue">Starts</span>
             <span className={`${styles.value} sc-ink--silver`}>When Full</span>
           </div>
         )}
 
-        {!tournament.startsWhenFull &&
+        {!startsWhenFull &&
           tournament.startsAt &&
           tournament.status === 'registering' &&
           countdown && (

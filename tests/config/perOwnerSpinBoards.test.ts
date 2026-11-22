@@ -101,8 +101,9 @@ describe('the house board is not replaced, it is joined', () => {
     expect(spinPass).toMatch(/const owners = await this\.activatedSpinOwners\(\);/);
     expect(spinPass).toMatch(/const room = await this\.seatFirstBoardRoom\('spin'\);/);
     expect(spinPass).toMatch(
-      /const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+      /const seedBudget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
     );
+    expect(spinPass).toMatch(/const budget = \{ left: boardBudgetShares\(1\) \};/);
     expect(spinPass).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
     expect(code).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
   });
@@ -170,7 +171,7 @@ describe('the work a single pass can do is bounded', () => {
 
   it('a board stops the moment its share is spent, mid-board', () => {
     expect(code).toMatch(/if \(budget\.left <= 0\) break;/);
-    expect(code).toMatch(/if \(budget\.left <= 0\) return;/);
+    expect(code).toMatch(/if \(budget\.left <= 0 && seedBudget\.left <= 0\) return;/);
   });
 
   it('only spends budget on a game that was actually created', () => {

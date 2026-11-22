@@ -2,6 +2,10 @@ import {
   startLightningBankTheWin,
   stopLightningBankTheWin,
 } from './services/LightningBankTheWinDoor.js';
+import {
+  startLightningPoolVpipDoor,
+  stopLightningPoolVpipDoor,
+} from './services/LightningPoolVpipDoor.js';
 import { subscribePlayerSessionRevocations } from './services/PlayerSessionAccess.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -368,6 +372,13 @@ async function startLeaderOwnedServices(handoffTakeover = false): Promise<void> 
   /* BANK THE WIN ON LIGHTNING (owner 2026-11-10): a horse that books its win
      between pool hands stands up through its anchor seat's ordinary Leave door. */
   startLightningBankTheWin((tableId) => gameServer.getTableEngine(tableId));
+  /* LIGHTNING POOL VPIP FLOOR JUDGE: humans and horses alike face the rolling
+     30-hand / 10-grace VPIP floor; evictions run cleanly between hands through
+     each participant's anchor seat atomicCashout door on leaveMode 'vpip_evicted'. */
+  startLightningPoolVpipDoor(
+    (tableId) => gameServer.getTableEngine(tableId),
+    (roomId, payload) => tableStateHub.emitEvent(roomId, payload)
+  );
   /* OPERATION STABLE HAND (Dan 2026-09-04): the floor planner's FIRST live
      order, and for now its only one. It stands a horse up when a human is on
      that table's waitlist, through the same hand-boundary-safe leaveTable()
@@ -398,6 +409,7 @@ function stopLeaderOwnedServices(): Promise<void> {
     ['HorseOverlayGuard', () => horseOverlayGuard?.stop()],
     ['HorseSessionRotator', () => horseSessionRotator?.stop()],
     ['LightningBankTheWin', stopLightningBankTheWin],
+    ['LightningPoolVpipDoor', stopLightningPoolVpipDoor],
     ['StableHandExecutor', () => stableHandExecutor?.stop()],
     ['HorseDiamondSpins', stopHorseDiamondSpins],
     ['HorseSelfTuner', stopHorseSelfTuner],
