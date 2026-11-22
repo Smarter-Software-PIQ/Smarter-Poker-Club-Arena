@@ -4813,6 +4813,13 @@ export interface HorseDecideOpts {
   /** Dan 2026-10-25 NLH tournament aggression (wider opens/3-bets/defence,
    *  more turn barrels). Default on; false is the historical arm. */
   v57TournamentAggression?: boolean;
+  /** V58 made-hand solver-cell skip (Dan 2026-10-26, #8144): when hero holds
+   *  a set/trips, straight, flush or better (cat >= 4), skip the hand-class-mean
+   *  gto_postflop_compact open cell so the value ladder bets it instead of
+   *  checking nut flushes/sets. Decoupled from v57TournamentAggression so
+   *  tournament aggression no longer reaches cash or Lightning made-hand skips.
+   *  Default on; explicit false disables only this cell skip. */
+  v58MadeHandCellSkip?: boolean;
   /** 2026-10-29 NLH cash pressure: wider value/bluff 3-bets and 3-bet defence. Default on. */
   v60CashPressure?: boolean;
   /** V70 (2026-10-31): Hold'em raise-first-in reads the hand on the seat's
@@ -22928,9 +22935,9 @@ export class HorseLogic {
     // priced second pair at 52-58% against a 3x raise that one-pair calls
     // won 12-19% of the time live. It replaces a V62 polar read for that
     // raiser. Same hand-class gate as the V67 call branch below.
+    // Decoupled from v61RiverOnePairShade so V61 OFF never silently turns off V67.
     if (
       (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
-      (opts.v61RiverOnePairShade ?? true) !== false &&
       isRiver &&
       facingBet &&
       !vi.isOmaha &&
@@ -26182,7 +26189,9 @@ export class HorseLogic {
         // says check 100%. It cannot know that THIS AJs holds the ace of the
         // board's suit. A set, trips, a straight, a flush or better on this
         // board is not the class average; the value ladder below bets it.
-        const madeBeyondClass58 = cat >= 4 && (opts.v57TournamentAggression ?? true) !== false;
+        // Decoupled from v57TournamentAggression onto v58MadeHandCellSkip so
+        // tournament aggression no longer gates cash/Lightning made-hand skips.
+        const madeBeyondClass58 = cat >= 4 && opts.v58MadeHandCellSkip !== false;
         if (madeBeyondClass58 && telemetryOn(opts)) noteFire('v58_made_hand_cell_skip');
         const advice29 =
           tooDeep29 || initiativeTurn57 || madeBeyondClass58
@@ -28117,9 +28126,9 @@ export class HorseLogic {
             return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
           return this.raiseTo(planHandKey, currentBet + (pot + toCall) * 0.9, player, gs, vi);
         }
+        // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently gated.
         if (
           (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
-          (opts.v61RiverOnePairShade ?? true) !== false &&
           (cat <= 2 || (cat === 3 && pairedBoard)) &&
           toCall < stack &&
           potFracAfterPlan87 >= 0.3
@@ -28315,9 +28324,9 @@ export class HorseLogic {
     // withheld for a V62 polar read, whose bluff share was fitted to river
     // BETS), in the committed branch and the V38 river verdict alike, and
     // the class calls or folds at that price: no 0.42 floor, no jam.
+    // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently controllable.
     const v67Class =
       (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
-      (opts.v61RiverOnePairShade ?? true) !== false &&
       raisedAfterAggr &&
       isRiver &&
       !vi.isOmaha &&
@@ -28653,9 +28662,10 @@ export class HorseLogic {
         if (shade61c > v61RiverOnePairShade(toCall, pot) && tele15)
           noteFire('v63_large_river_bet_shade');
       }
+      // Decoupled from v65TurnOnePairShade so V65 OFF never silently removes
+      // owner-held Pillar 2 (v87DeepDiveDiscipline) turn shade.
       const shade87NlhTurnCommit =
         opts.v87DeepDiveDiscipline !== false &&
-        (opts.v65TurnOnePairShade ?? true) !== false &&
         street === 'turn' &&
         !vi.isOmaha &&
         !vi.isShortDeck &&
@@ -30012,9 +30022,7 @@ export class HorseLogic {
     // after hero's own wager was raised (the committed branch above owns
     // that line). Omaha, short deck, multiple boards and bomb pots keep
     // their own pricing; the river keeps V61.
-    let shade65 = 0;
-    if (
-      (opts.v65TurnOnePairShade ?? true) !== false &&
+    const turnOnePairShadeEligible65 =
       street === 'turn' &&
       !vi.isOmaha &&
       (!vi.isShortDeck || v86) &&
@@ -30029,8 +30037,9 @@ export class HorseLogic {
       pot > 0 &&
       // V69 (2): only a draw a hole card is part of exempts the hand; a
       // board-only four-flush or four-rank window is everyone's draw.
-      !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board)
-    ) {
+      !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board);
+    let shade65 = 0;
+    if ((opts.v65TurnOnePairShade ?? true) !== false && turnOnePairShadeEligible65) {
       shade65 = v65TurnOnePairShade(
         toCall,
         pot,
@@ -30040,16 +30049,16 @@ export class HorseLogic {
         noteFire('v65_turn_one_pair_shade');
         if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
       }
-      const extra87Turn =
-        opts.v87DeepDiveDiscipline !== false && !bettorManiacOrStation87
-          ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
-          : 0;
-      if (opts.v87DeepDiveDiscipline !== false)
-        noteHorseDeepDiveRule('nlh_turn_shade', extra87Turn > 0, extra87Turn > 0);
-      if (extra87Turn > 0) {
-        shade65 += extra87Turn;
-        if (tele15) noteFire('v87_deep_dive_discipline');
-      }
+    }
+    // Decoupled from v65TurnOnePairShade so V65 OFF never silently removes
+    // owner-held Pillar 2 (v87DeepDiveDiscipline) deep-dive NLH turn shade.
+    let extra87Turn = 0;
+    if (opts.v87DeepDiveDiscipline !== false && turnOnePairShadeEligible65) {
+      extra87Turn = !bettorManiacOrStation87
+        ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
+        : 0;
+      noteHorseDeepDiveRule('nlh_turn_shade', extra87Turn > 0, extra87Turn > 0);
+      if (extra87Turn > 0 && tele15) noteFire('v87_deep_dive_discipline');
     }
     // ═══ V68 NO-PAIR TURN CALLS (2026-10-31) ═══ Hold'em, one board: a
     // high-card hand (cat 1; cat 0 is "unknown") calling a turn wager it did
@@ -30287,7 +30296,9 @@ export class HorseLogic {
         // shade is subtracted from the equity handed to the flop/turn
         // verdict, as V61 subtracts shade61 on the river. A draw carries
         // neither, so comboRaise38 is not affected.
-        equity: clamp01(eqRead38 - shade65 - shade66 - shade68 - shade87Omaha - shadeFlCall),
+        equity: clamp01(
+          eqRead38 - (shade65 + extra87Turn) - shade66 - shade68 - shade87Omaha - shadeFlCall
+        ),
         pot,
         toCall,
         stack,
@@ -30453,7 +30464,13 @@ export class HorseLogic {
       // V65 / V66 / V68: each shade comes off the equity, not onto the bar,
       // so the same line that always decided this call still decides it;
       // the three are exclusive by their gates.
-      eq15 + impliedBonus68 - shade65 - shade66 - shade68 - shadeDeep86 - shade87Omaha >=
+      eq15 +
+        impliedBonus68 -
+        (shade65 + extra87Turn) -
+        shade66 -
+        shade68 -
+        shadeDeep86 -
+        shade87Omaha >=
       potOdds + 0.03 * respect + sizingPenalty + posEdge + dominationPenaltyCall
     ) {
       return { action: 'call', amount: toCall, thinkTime: 0 };

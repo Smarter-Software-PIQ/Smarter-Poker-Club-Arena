@@ -1089,6 +1089,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   vpipFloorDeepStackOff: 'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   omahaPreflopCallWithActionBehind:
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
+  v58MadeHandCellSkip:
+    'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
   nashCallVsTightJammerRespect:
     'prototype hold: default-OFF prototype without a switch-list migration during the 4 PM hold; register in a follow-up migration PR',
 });
