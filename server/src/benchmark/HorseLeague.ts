@@ -6139,6 +6139,26 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
       'change this: a league that seeds each opponent with a lifetime history.',
   })),
+  // 2026-11-21 (PLO-OWNER lane B4): omahaPreflopReadIsPricedFromLifetime, default off.
+  // Refused, not dealt: requires seeded lifetime HUD profiles, which league opponents do not have.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_read_is_priced_from_lifetime`,
+    variant,
+    seats: 6,
+    a: {
+      omahaOpponentLifetimeHud: true,
+      omahaOpponentLifetimeHudDecides: true,
+      omahaPreflopReadIsPricedFromLifetime: true,
+    },
+    b: { omahaOpponentLifetimeHud: true, omahaOpponentLifetimeHudDecides: true },
+    reason:
+      'Unanswerable by this league: the option prices 3-to-6-handed Omaha preflop reads directly from each ' +
+      "opponent's lifetime public HUD profile (engine/opponentHud/), and league opponents have no stored lifetime " +
+      'history, so both arms see an absent HUD packet and play the same hands. Measured instead on the learning ' +
+      'bench with SPARRING_HUD=1 and seeded priors (CRITERIA-HUD-B4-V3-SIXMAX-PREFLOP, V303 PASS); in this league ' +
+      '0 of 0 pairs were dealt for it (not run: no seat has a lifetime history). The option is DEFAULT OFF ' +
+      '(read as === true). What would change this: a league that seeds each opponent with a lifetime history.',
+  })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
   {
