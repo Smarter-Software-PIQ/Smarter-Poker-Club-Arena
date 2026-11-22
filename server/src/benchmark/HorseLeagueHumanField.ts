@@ -250,18 +250,24 @@ export const NLH_SCRIPTED_PERSONAS: readonly NlhScriptedPersona[] = Object.freez
  *    any pair, made low or low draw).
  *  - plo8_hu_tight_blind_v1: short-stack tight-blind / nit harm control (tight
  *    top 25% SB opens, tight top 25% BB defence, value-heavy postflop).
+ *  - plo8_hu_aggro_3bettor_v1: aggressive short-stack 3-betting / jamming
+ *    harm control (opens top 70% SB, 3-bets pot / jams top 45% BB facing a
+ *    raise, pot-barrels postflop with any pair, made low or low draw).
  * Development personas, not calibrated populations.
  */
 export const PLO8_HU_SCRIPTED_POPULATION_ID = 'plo8_hu_scripted_field_v1' as const;
 export const PLO8_HU_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['plo8']);
 export const PLO8_HU_REC_CALLER_PERSONA = 'plo8_hu_rec_caller_v1' as const;
 export const PLO8_HU_TIGHT_BLIND_PERSONA = 'plo8_hu_tight_blind_v1' as const;
+export const PLO8_HU_AGGRO_3BETTOR_PERSONA = 'plo8_hu_aggro_3bettor_v1' as const;
 export type Plo8HuScriptedPersona =
   | typeof PLO8_HU_REC_CALLER_PERSONA
-  | typeof PLO8_HU_TIGHT_BLIND_PERSONA;
+  | typeof PLO8_HU_TIGHT_BLIND_PERSONA
+  | typeof PLO8_HU_AGGRO_3BETTOR_PERSONA;
 export const PLO8_HU_SCRIPTED_PERSONAS: readonly Plo8HuScriptedPersona[] = Object.freeze([
   PLO8_HU_REC_CALLER_PERSONA,
   PLO8_HU_TIGHT_BLIND_PERSONA,
+  PLO8_HU_AGGRO_3BETTOR_PERSONA,
 ]);
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
@@ -296,4 +302,5 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   NLH_DANGER_BOARD_VALUE_PERSONA,
   PLO8_HU_REC_CALLER_PERSONA,
   PLO8_HU_TIGHT_BLIND_PERSONA,
+  PLO8_HU_AGGRO_3BETTOR_PERSONA,
 ]);

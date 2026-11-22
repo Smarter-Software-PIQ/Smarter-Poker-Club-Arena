@@ -28,15 +28,18 @@ import {
   type LeagueSeatSpot,
 } from './HorseLeague.js';
 import {
+  PLO8_HU_AGGRO_3BETTOR_THRESHOLDS,
   PLO8_HU_REC_CALLER_THRESHOLDS,
   PLO8_HU_SCRIPTED_STACK_BB,
   PLO8_HU_TIGHT_BLIND_THRESHOLDS,
+  plo8HuAggro3BettorPolicy,
   plo8HuRecCallerPolicy,
   plo8HuScriptedPolicy,
   plo8HuTightBlindPolicy,
   plo8PostflopHandRead,
 } from './Plo8HuScriptedField.js';
 import {
+  PLO8_HU_AGGRO_3BETTOR_PERSONA,
   PLO8_HU_REC_CALLER_PERSONA,
   PLO8_HU_SCRIPTED_PERSONAS,
   PLO8_HU_SCRIPTED_POPULATION_ID,
@@ -119,38 +122,45 @@ afterEach(() => {
 
 describe('each PLO8 heads-up script plays its stated line', () => {
   // Hand-picked 4-card PLO8 hands verified against omahaPreflopPercentile(h, true).
-  const PREMIUM = ['As', 'Ah', '2s', '3h']; // elite double-suited A23A
+  const PREMIUM = ['As', 'Ah', '2s', '3h']; // elite double-suited A23A (~1.00)
+  const STRONG_MID = ['Ah', 'Qs', '5d', '3c']; // upper-middle hand (~0.67)
   const MEDIUM = ['As', 'Jd', '8c', '4s']; // playable middle-band hand (~0.49)
-  const TRASH = ['Kh', '9d', '6c', '2s']; // disconnected non-nut junk
+  const TRASH = ['Kh', '9d', '6c', '2s']; // disconnected non-nut junk (~0.003)
 
-  it('preflop bands separate premium, medium and trash hands cleanly', () => {
+  it('preflop bands separate premium, strong-mid, medium and trash hands cleanly', () => {
     const pPrem = omahaPreflopPercentile(cards(...PREMIUM), true);
+    const pStrong = omahaPreflopPercentile(cards(...STRONG_MID), true);
     const pMed = omahaPreflopPercentile(cards(...MEDIUM), true);
     const pTrash = omahaPreflopPercentile(cards(...TRASH), true);
     expect(pPrem).toBeGreaterThanOrEqual(PLO8_HU_TIGHT_BLIND_THRESHOLDS.vsRaiseThreeBetAt);
+    expect(pStrong).toBeGreaterThanOrEqual(PLO8_HU_AGGRO_3BETTOR_THRESHOLDS.vsRaiseThreeBetAt);
+    expect(pStrong).toBeLessThan(PLO8_HU_TIGHT_BLIND_THRESHOLDS.vsRaiseCallAt);
     expect(pMed).toBeGreaterThanOrEqual(PLO8_HU_REC_CALLER_THRESHOLDS.vsRaiseCallAt);
     expect(pMed).toBeLessThan(PLO8_HU_REC_CALLER_THRESHOLDS.sbRaiseAt);
     expect(pTrash).toBeLessThan(PLO8_HU_REC_CALLER_THRESHOLDS.sbLimpAt);
   });
 
-  it('preflop first-in (SB): rec caller raises/limps/folds; tight blind raises top 25% only and never limps', () => {
+  it('preflop first-in (SB): rec caller raises/limps/folds; tight blind raises top 25% only; aggro 3-bettor raises top 70% and never limps', () => {
     const sb = (hole: string[]) =>
       spot({ stage: 'preflop', hole, pot: 3, toCall: 1, currentBet: 2, myBet: 1 });
 
-    // Premium: both raise pot (to 6).
+    // Premium: all three raise pot (to 6).
     expect(plo8HuRecCallerPolicy(sb(PREMIUM))).toEqual({ action: 'raise', amount: 6 });
     expect(plo8HuTightBlindPolicy(sb(PREMIUM))).toEqual({ action: 'raise', amount: 6 });
+    expect(plo8HuAggro3BettorPolicy(sb(PREMIUM))).toEqual({ action: 'raise', amount: 6 });
 
-    // Medium (between 0.25 and 0.55): rec caller limps; tight blind folds.
+    // Medium (~0.49): rec caller limps; tight blind folds; aggro 3-bettor raises pot (>= 0.30).
     expect(plo8HuRecCallerPolicy(sb(MEDIUM))).toEqual({ action: 'call' });
     expect(plo8HuTightBlindPolicy(sb(MEDIUM))).toEqual({ action: 'fold' });
+    expect(plo8HuAggro3BettorPolicy(sb(MEDIUM))).toEqual({ action: 'raise', amount: 6 });
 
-    // Trash (< 0.25): both fold.
+    // Trash (< 0.25): all three fold.
     expect(plo8HuRecCallerPolicy(sb(TRASH))).toEqual({ action: 'fold' });
     expect(plo8HuTightBlindPolicy(sb(TRASH))).toEqual({ action: 'fold' });
+    expect(plo8HuAggro3BettorPolicy(sb(TRASH))).toEqual({ action: 'fold' });
   });
 
-  it('preflop facing one raise (BB): rec caller defends wide; tight blind folds medium hands', () => {
+  it('preflop facing one raise (BB): rec caller defends wide; tight blind folds medium/strong-mid; aggro 3-bettor 3-bets top 45%', () => {
     const facing = (hole: string[]) =>
       spot({
         stage: 'preflop',
@@ -162,17 +172,25 @@ describe('each PLO8 heads-up script plays its stated line', () => {
         history: [wager('preflop', 'raise')],
       });
 
-    // Premium (>= 0.90): both 3-bet pot (to 18).
+    // Premium (>= 0.90): all three 3-bet pot (to 18).
     expect(plo8HuRecCallerPolicy(facing(PREMIUM))).toEqual({ action: 'raise', amount: 18 });
     expect(plo8HuTightBlindPolicy(facing(PREMIUM))).toEqual({ action: 'raise', amount: 18 });
+    expect(plo8HuAggro3BettorPolicy(facing(PREMIUM))).toEqual({ action: 'raise', amount: 18 });
 
-    // Medium (0.30..0.55): rec caller calls; tight blind folds (< 0.75).
+    // Strong-mid (~0.67): aggro 3-bettor 3-bets pot (>= 0.55); rec caller calls; tight blind folds (< 0.75).
+    expect(plo8HuAggro3BettorPolicy(facing(STRONG_MID))).toEqual({ action: 'raise', amount: 18 });
+    expect(plo8HuRecCallerPolicy(facing(STRONG_MID))).toEqual({ action: 'call' });
+    expect(plo8HuTightBlindPolicy(facing(STRONG_MID))).toEqual({ action: 'fold' });
+
+    // Medium (~0.49): rec caller and aggro 3-bettor call (>= 0.30); tight blind folds (< 0.75).
     expect(plo8HuRecCallerPolicy(facing(MEDIUM))).toEqual({ action: 'call' });
+    expect(plo8HuAggro3BettorPolicy(facing(MEDIUM))).toEqual({ action: 'call' });
     expect(plo8HuTightBlindPolicy(facing(MEDIUM))).toEqual({ action: 'fold' });
 
-    // Trash (< 0.30): both fold.
+    // Trash (< 0.30): all three fold.
     expect(plo8HuRecCallerPolicy(facing(TRASH))).toEqual({ action: 'fold' });
     expect(plo8HuTightBlindPolicy(facing(TRASH))).toEqual({ action: 'fold' });
+    expect(plo8HuAggro3BettorPolicy(facing(TRASH))).toEqual({ action: 'fold' });
   });
 
   it('postflop: value betting, sticky calling vs tight folding, and low-draw detection', () => {
@@ -201,18 +219,26 @@ describe('each PLO8 heads-up script plays its stated line', () => {
       action: 'fold',
     });
 
-    // One pair, no low on dry high board: rec caller checks/calls, tight blind checks/folds.
+    // One pair, no low on dry high board: rec caller checks/calls, tight blind checks/folds,
+    // aggro 3-bettor pot-bets checked to and calls a bet.
     const dryBoard = ['Kd', 'Jc', '9s'];
     const onePairHole = ['Kh', '7h', '5c', '2d'];
     expect(
       plo8HuRecCallerPolicy(spot({ stage: 'flop', hole: onePairHole, board: dryBoard, pot: 12 }))
     ).toEqual({ action: 'check' });
+    expect(
+      plo8HuAggro3BettorPolicy(spot({ stage: 'flop', hole: onePairHole, board: dryBoard, pot: 12 }))
+    ).toEqual({ action: 'bet', amount: 12 });
     expect(plo8HuRecCallerPolicy(facingFlopBet(onePairHole, dryBoard))).toEqual({ action: 'call' });
+    expect(plo8HuAggro3BettorPolicy(facingFlopBet(onePairHole, dryBoard))).toEqual({
+      action: 'call',
+    });
     expect(plo8HuTightBlindPolicy(facingFlopBet(onePairHole, dryBoard))).toEqual({
       action: 'fold',
     });
 
-    // Two pair, no low: rec caller bets 75% pot (9), tight blind bets 50% pot (6).
+    // Two pair, no low: rec caller bets 75% pot (9), tight blind bets 50% pot (6),
+    // aggro 3-bettor bets full pot (12) and pot-raises facing a bet.
     const twoPairHole = ['Kh', 'Jh', '5c', '2d'];
     expect(
       plo8HuRecCallerPolicy(spot({ stage: 'flop', hole: twoPairHole, board: dryBoard, pot: 12 }))
@@ -220,6 +246,10 @@ describe('each PLO8 heads-up script plays its stated line', () => {
     expect(
       plo8HuTightBlindPolicy(spot({ stage: 'flop', hole: twoPairHole, board: dryBoard, pot: 12 }))
     ).toEqual({ action: 'bet', amount: 6 });
+    expect(
+      plo8HuAggro3BettorPolicy(spot({ stage: 'flop', hole: twoPairHole, board: dryBoard, pot: 12 }))
+    ).toEqual({ action: 'bet', amount: 12 });
+    expect(plo8HuAggro3BettorPolicy(facingFlopBet(twoPairHole, dryBoard)).action).toBe('raise');
 
     // Trips: both bet 75% pot when checked to and pot-raise facing one bet.
     const setHole = ['Kh', 'Ks', '5c', '2d'];
@@ -263,7 +293,7 @@ describe('each PLO8 heads-up script plays its stated line', () => {
         history: c.currentBet > 0 ? [wager('flop', 'bet')] : [],
       });
       const bs = calculateBettingState(c.pot, c.currentBet, c.myBet, BB, c.lastRaise, true);
-      for (const pol of [plo8HuRecCallerPolicy, plo8HuTightBlindPolicy]) {
+      for (const pol of [plo8HuRecCallerPolicy, plo8HuTightBlindPolicy, plo8HuAggro3BettorPolicy]) {
         const d = pol(s);
         expect(s.legalActions).toContain(d.action);
         if (d.action === 'bet' || d.action === 'raise') {
@@ -277,6 +307,7 @@ describe('each PLO8 heads-up script plays its stated line', () => {
   it('maps every persona to its script and refuses an unknown one', () => {
     expect(plo8HuScriptedPolicy(PLO8_HU_REC_CALLER_PERSONA)).toBe(plo8HuRecCallerPolicy);
     expect(plo8HuScriptedPolicy(PLO8_HU_TIGHT_BLIND_PERSONA)).toBe(plo8HuTightBlindPolicy);
+    expect(plo8HuScriptedPolicy(PLO8_HU_AGGRO_3BETTOR_PERSONA)).toBe(plo8HuAggro3BettorPolicy);
     expect(() => plo8HuScriptedPolicy('x' as Plo8HuScriptedPersona)).toThrow(
       /Unknown scripted PLO8 heads-up persona/
     );
@@ -409,6 +440,7 @@ describe('what the scripted PLO8 heads-up field may be seated with', () => {
 describe('the scripted PLO8 heads-up field cards', () => {
   it('are on LEAGUE_MATCHUPS, heads-up PLO8 12bb MTT, not refused, with default-off option on arm A', () => {
     expect(PLO8_HU_SCRIPTED_FIELD_CARDS.map((m) => m.name).sort()).toEqual([
+      'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_aggro_3bettor',
       'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_rec_caller',
       'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_tight_blind',
     ]);
@@ -433,6 +465,7 @@ describe('the scripted PLO8 heads-up field cards', () => {
   it.each([
     'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_rec_caller',
     'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_tight_blind',
+    'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_aggro_3bettor',
   ])(
     '%s: omahaHiLoTournamentFirstIn acts against the scripted field, every action is legal, and the worker accepts the result',
     async (name) => {

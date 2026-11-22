@@ -130,6 +130,7 @@ import {
   PLO8_HU_SCRIPTED_PERSONAS,
   PLO8_HU_REC_CALLER_PERSONA,
   PLO8_HU_TIGHT_BLIND_PERSONA,
+  PLO8_HU_AGGRO_3BETTOR_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
   type NlhScriptedPersona,
@@ -2304,7 +2305,11 @@ export function humanFieldPersonaProfile(
         `${table.variant} at ${table.seats} seats`
     );
   }
-  if (persona === PLO8_HU_REC_CALLER_PERSONA || persona === PLO8_HU_TIGHT_BLIND_PERSONA) {
+  if (
+    persona === PLO8_HU_REC_CALLER_PERSONA ||
+    persona === PLO8_HU_TIGHT_BLIND_PERSONA ||
+    persona === PLO8_HU_AGGRO_3BETTOR_PERSONA
+  ) {
     throw new Error(
       `${persona} is a scripted persona of the ${PLO8_HU_SCRIPTED_POPULATION_ID} field ` +
         `(Plo8HuScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +
@@ -6049,6 +6054,9 @@ LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_FIELD_CARDS);
  *  - plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_tight_blind: tight
  *    short-stack blind (harm control for 75% BB defence + steal test for 100%
  *    SB pot open).
+ *  - plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_aggro_3bettor:
+ *    aggressive short-stack 3-betting / jamming blind defender (harm control
+ *    that punishes wide first-in SB opens and pressures BB defence).
  * The cards only measure; omahaHiLoTournamentFirstIn stays default OFF.
  */
 function plo8HuScriptedCard(
@@ -6083,6 +6091,12 @@ export const PLO8_HU_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.fre
     'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_tight_blind',
     6000,
     PLO8_HU_TIGHT_BLIND_PERSONA,
+    { omahaHiLoTournamentFirstIn: true }
+  ),
+  plo8HuScriptedCard(
+    'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_aggro_3bettor',
+    6000,
+    PLO8_HU_AGGRO_3BETTOR_PERSONA,
     { omahaHiLoTournamentFirstIn: true }
   ),
 ]);

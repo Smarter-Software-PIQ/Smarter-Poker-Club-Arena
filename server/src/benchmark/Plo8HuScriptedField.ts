@@ -29,6 +29,7 @@ import { omahaPreflopPercentile } from '../engine/HorseEval.js';
 import { HAND_RANKINGS, evaluateOmahaHand, evaluateOmahaLowHand } from '../engine/PokerEngine.js';
 import { legalWagerTo } from './ExploiterLeague.js';
 import {
+  PLO8_HU_AGGRO_3BETTOR_PERSONA,
   PLO8_HU_REC_CALLER_PERSONA,
   PLO8_HU_TIGHT_BLIND_PERSONA,
   type Plo8HuScriptedPersona,
@@ -85,6 +86,29 @@ export const PLO8_HU_TIGHT_BLIND_THRESHOLDS = Object.freeze({
   vsThreeBetCallAt: 0.85,
   strongBetPotShare: 0.75,
   mediumBetPotShare: 0.5,
+});
+
+/**
+ * DESIGN VALUE thresholds for plo8_hu_aggro_3bettor_v1 (aggressive short-stack
+ * 3-betting / jamming harm control in PLO8 heads-up, built to punish wide
+ * first-in SB opens and pressure wide BB defence):
+ *  - First in (SB): raises pot with top 70%, never limps, folds bottom 30%.
+ *  - Checked-to BB: raises pot with top 50%, checks the rest.
+ *  - Facing one raise (BB): 3-bets pot (jamming or committing at 12bb) with
+ *    top 45%, calls next 25% (70% total defence), folds bottom 30%.
+ *  - Facing 2+ raises: continues (calls off / commits) with top 55%, folds
+ *    weaker.
+ *  - Postflop: bets full pot when checked to with any pair+, made low, or low
+ *    draw; raises pot facing a bet with two pair+, made low, or pair+low draw;
+ *    calls a bet with any pair or low draw; folds pure air.
+ */
+export const PLO8_HU_AGGRO_3BETTOR_THRESHOLDS = Object.freeze({
+  sbRaiseAt: 0.3,
+  bbIsoRaiseAt: 0.5,
+  vsRaiseThreeBetAt: 0.55,
+  vsRaiseCallAt: 0.3,
+  vsThreeBetCallAt: 0.45,
+  postflopBetPotShare: 1,
 });
 
 const LOW_RANK_VALUE: Readonly<Record<string, number>> = Object.freeze({
@@ -276,9 +300,48 @@ export const plo8HuTightBlindPolicy: LeagueSeatPolicy = (s) => {
   return solidShowdown ? callOrCheck(s) : foldOrCheck(s);
 };
 
+// plo8_hu_aggro_3bettor_v1 ----------------------------------------------------
+
+export const plo8HuAggro3BettorPolicy: LeagueSeatPolicy = (s) => {
+  const stage = s.stage as HandStage;
+  const t = PLO8_HU_AGGRO_3BETTOR_THRESHOLDS;
+  if (stage === 'preflop') {
+    const p = omahaPreflopPercentile([...s.cards], true);
+    const wagers = streetWagers(s);
+    if (wagers === 0) {
+      if (s.toCall <= 0) {
+        return p >= t.bbIsoRaiseAt ? (potWager(s, 1) ?? callOrCheck(s)) : callOrCheck(s);
+      }
+      if (p >= t.sbRaiseAt) return potWager(s, 1) ?? callOrCheck(s);
+      return foldOrCheck(s);
+    }
+    if (wagers === 1) {
+      if (p >= t.vsRaiseThreeBetAt) return potWager(s, 1) ?? callOrCheck(s);
+      if (p >= t.vsRaiseCallAt) return callOrCheck(s);
+      return foldOrCheck(s);
+    }
+    return p >= t.vsThreeBetCallAt ? callOrCheck(s) : foldOrCheck(s);
+  }
+
+  const read = plo8PostflopHandRead(s.cards, s.board, stage);
+  const aggroRaise =
+    read.highRanking >= HAND_RANKINGS.TWO_PAIR ||
+    read.hasMadeLow ||
+    (read.highRanking >= HAND_RANKINGS.PAIR && read.hasLowDraw);
+  const continueHand = aggroRaise || read.highRanking >= HAND_RANKINGS.PAIR || read.hasLowDraw;
+
+  if (s.toCall <= 0) {
+    if (continueHand) return potWager(s, t.postflopBetPotShare) ?? { action: 'check' };
+    return { action: 'check' };
+  }
+  if (aggroRaise && streetWagers(s) <= 1) return potWager(s, 1) ?? callOrCheck(s);
+  return continueHand ? callOrCheck(s) : foldOrCheck(s);
+};
+
 /** The seat policy a scripted PLO8 heads-up persona plays. */
 export function plo8HuScriptedPolicy(persona: Plo8HuScriptedPersona): LeagueSeatPolicy {
   if (persona === PLO8_HU_REC_CALLER_PERSONA) return plo8HuRecCallerPolicy;
   if (persona === PLO8_HU_TIGHT_BLIND_PERSONA) return plo8HuTightBlindPolicy;
+  if (persona === PLO8_HU_AGGRO_3BETTOR_PERSONA) return plo8HuAggro3BettorPolicy;
   throw new Error(`Unknown scripted PLO8 heads-up persona: ${String(persona)}`);
 }
