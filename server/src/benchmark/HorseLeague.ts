@@ -108,6 +108,7 @@ import {
   HU_NIT_BIG_BLIND_PERSONA,
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
+  OMAHA_VALUE_LEADER_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   FIXED_LIMIT_SCRIPTED_POPULATION_ID,
   FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS,
@@ -188,6 +189,7 @@ export {
   HU_NIT_BIG_BLIND_PERSONA,
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
+  OMAHA_VALUE_LEADER_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   FIXED_LIMIT_SCRIPTED_POPULATION_ID,
   FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS,
@@ -2360,6 +2362,46 @@ export function humanFieldPersonaProfile(
         `${table.variant} at ${table.seats} seats`
     );
   }
+  if (persona === OMAHA_VALUE_LEADER_FIELD_PERSONA) {
+    if (
+      table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
+      !HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS.includes(table.variant)
+    ) {
+      throw new Error(
+        `${persona} is a persona of the ${HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID} field; ` +
+          `refused for ${table.population} ${table.variant} at ${table.seats} seats`
+      );
+    }
+    const omaha = humanCalibratedProfileFor(table.variant);
+    // It sees flops at the calibrated rate (the Horse gets postflop
+    // opportunities to measure) but raises only top hands. Postflop it is the value
+    // leader HorseOmahaReadConditional reads: checked to it bets only its top
+    // hands (no bluffs, so its bet-when-checked-to never reads high), facing a
+    // bet it folds more than the calibrated field and raises only its best, and
+    // on the river it calls rarely. Every number is a strength cutoff on the
+    // seat's own holding; nothing reads the Horse's label.
+    return Object.freeze({
+      ...omaha,
+      id: `${omaha.id}-${persona}`,
+      preflop: Object.freeze({ ...omaha.preflop, freeRaise: 0.04 }),
+      cutoffs: Object.freeze({
+        ...(omaha.cutoffs ?? {}),
+        // Passive before the flop: it enters at the calibrated rate (same fold
+        // cutoffs) but limps or calls instead of raising unless it holds a top
+        // hand, so its own raising disproves the maniac presumption and the
+        // read becomes measured (presumedAggressorRead, then
+        // omahaReadConditional's `measured`).
+        'preflop/unopened': { fold: 0.628469, raise: 0.93 },
+        'preflop/facing_raise': { fold: 0.626802, raise: 0.96 },
+        'flop/checked_to': { bet: 0.85 },
+        'turn/checked_to': { bet: 0.86 },
+        'river/checked_to': { bet: 0.88 },
+        'flop/facing_bet': { fold: 0.66, raise: 0.88 },
+        'turn/facing_bet': { fold: 0.7, raise: 0.9 },
+        'river/facing_bet': { fold: 0.78, raise: 0.94 },
+      }),
+    });
+  }
   if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
     if (
       table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
@@ -3060,6 +3102,87 @@ export const OMAHA_LIVE_OPTIONS_20261118: HorseDecideOpts = Object.freeze({
 });
 
 /**
+ * Production's live Omaha set on 2026-11-20 at 7 PM Chicago: every Omaha row ON in
+ * public.ca_horse_style_switch then (read-only read by the Horse SWITCH lane), after
+ * the day's rows: omahaRiverCurrentNutsCallFloor ON 16:38, omahaBluffCatcherFoldVsValueLeader
+ * OFF 17:31, omahaTurnBetNeedsRiverPlan OFF 18:08 (Chicago). Options whose row is OFF
+ * are absent (their release default, off).
+ */
+export const OMAHA_LIVE_OPTIONS_20261120: HorseDecideOpts = Object.freeze({
+  horseActionTimeIsPublicOnly: true,
+  omahaBareOverpairOopFlopCheck: true,
+  omahaBigBetIsPotShare: true,
+  omahaBigDrawAggression: true,
+  omahaCardImpact: true,
+  omahaEliteContinuesVsMeasuredWideThreeBettor: true,
+  omahaFacingBetEv: true,
+  omahaFlopFacingBetEv: true,
+  omahaMadeHandDefenseVsValueLeader: true,
+  omahaManiacReRaiseWidthMeasured: true,
+  omahaNoCallColdFourBetWithoutPremium: true,
+  omahaNoDrawRaiseOutOfPosition: true,
+  omahaOopReraisedPotStrongRange: true,
+  omahaOverpairNoOopBarrelVsValueLeader: true,
+  omahaPairedBoardFoldRespectsPrice: true,
+  omahaPairedRiverNoThinLeadVsValueLeader: true,
+  omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true,
+  omahaPreflopReraiseDefencePricedInPosition: true,
+  omahaReraiseRangeEarlyPosition: true,
+  omahaRiverCurrentNutsCallFloor: true,
+  omahaRiverMediumBetStrongHandCalls: true,
+  omahaStrategyInTournaments: true,
+  omahaStreetPlan: true,
+  omahaStrongHandValue: true,
+  omahaTurnRiverRaiseIsPriced: true,
+  omahaTurnRiverRaiseNeedsNuts: true,
+  omahaUnderpairNoMultiwayFlopContinue: true,
+  omahaValueSizeIsUnreadable: true,
+  omahaVpipFloorByLimp: true,
+});
+/**
+ * 2026-11-20 (Horse SWITCH lane, task #6) THE VALUE-LEADER RULES: they act only
+ * against a measured postflop value leader (HorseOmahaReadConditional), which Horse
+ * self-play never produces, so before OMAHA_VALUE_LEADER_FIELD_PERSONA no card could
+ * grade them.
+ */
+export const VALUE_LEADER_FIELD_RULES: ReadonlyArray<keyof HorseDecideOpts & string> =
+  Object.freeze([
+    'omahaMadeHandDefenseVsValueLeader',
+    'omahaBluffCatcherFoldVsValueLeader',
+    'omahaOverpairNoOopBarrelVsValueLeader',
+    'omahaPairedRiverNoThinLeadVsValueLeader',
+    'omahaPairedTurnNoBarrelWithoutBoatVsValueLeader',
+  ]);
+/**
+ * One card per value-leader rule and Omaha variant: both arms play production's live
+ * set against the value-leader field; arm A has the rule ON, arm B has it OFF (the
+ * only difference). A rule whose live row is OFF (omahaBluffCatcherFoldVsValueLeader
+ * since 17:31) is measured as "switch it back on" (A adds it); a live rule as
+ * "switch it off" (B removes it). Measurement only: no row follows from a card.
+ * They seat the Omaha DEVELOPMENT field, which is never on the nightly card
+ * (HorseLeagueSpotConditioned.test.ts), so they are DEVELOPMENT_LEAGUE_CARDS, not
+ * LEAGUE_MATCHUPS.
+ */
+export const VALUE_LEADER_FIELD_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    VALUE_LEADER_FIELD_RULES.map((rule) => {
+      const live = OMAHA_LIVE_OPTIONS_20261120 as Record<string, unknown>;
+      const base = Object.fromEntries(
+        Object.entries(live).filter(([k]) => k !== rule)
+      ) as HorseDecideOpts;
+      return {
+        name: `${variant}_value_leader_field_${rule}`,
+        variant,
+        pairs: 6000,
+        opponentPopulation: HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID,
+        humanPersona: OMAHA_VALUE_LEADER_FIELD_PERSONA,
+        a: { ...base, [rule]: true } as HorseDecideOpts,
+        b: base,
+      };
+    })
+);
+
+/**
  * HOLD'EM BLANKET-OFF CANDIDATE CARDS (2026-11-21, Horse Switch lane):
  * The three clean Hold'em blanket-off candidates from
  * REVIEW-HOLDEM-OFFLIST-20261121.md whose OFF path routes directly to V38
@@ -3153,12 +3276,15 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
  * runMatchup, but by name only, for a declared grade run
  * (src/scripts/horseLeagueCard.ts --card=<name>). They are NOT in LEAGUE_MATCHUPS:
  * the nightly worker never deals them, they take no part in the rotation, and no
- * row of horse_league_results comes from one.
+ * row of horse_league_results comes from one. A card belongs here when its field
+ * is a development field (HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID), which the
+ * nightly card may not seat, or when it is a development candidate card graded by
+ * name only.
  */
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
 ]);
-
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
   { name: 'v10_strategy', a: {}, b: { v10: false } },
@@ -6239,6 +6365,24 @@ LEAGUE_MATCHUPS.push({
 });
 
 /**
+ * HORSE RIVER NO BLOCKER BET on the calibrated no-limit hold'em field (2026-11-22): six seats, the hero on the
+ * live cash Hybrid persona with the deal-seeded mood clock, a with horseRiverNoBlockerBet on, b off. Human-field
+ * twin of nlh_horse_river_no_blocker_bet (the mirror uses productionStyles; balanced alone is near-inert on
+ * sub-25% NLH river bets, while the live Hybrid persona reaches them).
+ */
+LEAGUE_MATCHUPS.push({
+  name: 'human_nlh_horse_river_no_blocker_bet',
+  variant: 'nlh',
+  seats: 6,
+  pairs: HUMAN_FIELD_PAIRS,
+  hybridBaseline: true,
+  moodClock: 'deal_seed',
+  a: { horseRiverNoBlockerBet: true },
+  b: {},
+  opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+});
+
+/**
  * THE SCRIPTED FIXED-LIMIT OMAHA HI-LO FIELD CARDS (2026-11-21,
  * Flo8ScriptedField.ts).
  *
@@ -6581,10 +6725,46 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       "Unanswerable by this league: the option only builds and serves each opponent's lifetime public profile " +
       'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
       'arms read nothing and play the same hands; the provider by itself changes no decision ' +
-      '(TheHudProviderChangesNoDecision.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      '(TheLifetimeHudConsumerIsTheOnlyDecisionReader.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
       'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
       'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
       'change this: a league that seeds each opponent with a lifetime history.',
+  })),
+  // 2026-11-21 (PLO-OWNER lane OPPONENT-HUD-9): omahaOpponentLifetimeHudDecides (the consumer),
+  // default off. Refused, not dealt: league opponents have no stored lifetime history.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_opponent_lifetime_hud_decides`,
+    variant,
+    seats: 6,
+    a: { omahaOpponentLifetimeHud: true, omahaOpponentLifetimeHudDecides: true },
+    b: {},
+    reason:
+      "Unanswerable by this league: the option reads each opponent's lifetime public profile, which the store builds " +
+      'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
+      'arms read nothing and play the same hands. Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
+      'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
+      'change this: a league that seeds each opponent with a lifetime history.',
+  })),
+  // 2026-11-21 (PLO-OWNER lane B4): omahaPreflopReadIsPricedFromLifetime, default off.
+  // Refused, not dealt: requires seeded lifetime HUD profiles, which league opponents do not have.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_read_is_priced_from_lifetime`,
+    variant,
+    seats: 6,
+    a: {
+      omahaOpponentLifetimeHud: true,
+      omahaOpponentLifetimeHudDecides: true,
+      omahaPreflopReadIsPricedFromLifetime: true,
+    },
+    b: { omahaOpponentLifetimeHud: true, omahaOpponentLifetimeHudDecides: true },
+    reason:
+      'Unanswerable by this league: the option prices 3-to-6-handed Omaha preflop reads directly from each ' +
+      "opponent's lifetime public HUD profile (engine/opponentHud/), and league opponents have no stored lifetime " +
+      'history, so both arms see an absent HUD packet and play the same hands. Measured instead on the learning ' +
+      'bench with SPARRING_HUD=1 and seeded priors (CRITERIA-HUD-B4-V3-SIXMAX-PREFLOP, V303 PASS); in this league ' +
+      '0 of 0 pairs were dealt for it (not run: no seat has a lifetime history). The option is DEFAULT OFF ' +
+      '(read as === true). What would change this: a league that seeds each opponent with a lifetime history.',
   })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
