@@ -102,6 +102,9 @@ const BRAIN_FILES = [
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
   // R4 (2026-11-21, default off): checked-to flop/turn big-draw bets priced on lifetime HUD response.
   'engine/HorseOmahaBigDrawBetPriced.ts',
+  // horseRunItTwiceIsPriced (2026-11-20, ledger-registered 2026-11-22, default off, OPTION_SWITCH_REFUSED):
+  // main-thread RIT switch reads opts.horseRunItTwiceIsPriced === true for ServerTableEngineRunout.horseRitRuns.
+  'engine/HorseRunItTwiceSwitch.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit

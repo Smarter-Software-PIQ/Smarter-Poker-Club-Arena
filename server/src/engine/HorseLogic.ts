@@ -5910,6 +5910,14 @@ export interface HorseDecideOpts {
    * independence exponent, hero's own cross-board blockers, street/pot/stack/wetness, and
    * `heroBubbleFactor`. Single-board hands (`!multiBoard36`) and OFF: 100% byte-identical. */
   multiBoardBluffTrimIsPriced?: boolean;
+  /** HORSE DECISIONS lane (UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22): dark,
+   * default OFF (`=== true`), held in `OPTION_SWITCH_REFUSED` (zero SQL migrations). Main-thread
+   * all-in Run-It-Twice switch read by `HorseRunItTwiceSwitch.horseRunItTwiceIsPricedOn` for
+   * `ServerTableEngineRunout.horseRitRuns` (`HorseRunItTwicePriced.ts`), replacing fixed
+   * `HorseRunItTwice.horseRunItTwiceRuns` thresholds with the measured people-curve mix + owner
+   * lopsided cut. Declared here for `HorseOptionSwitch` typing (same pattern as process switches
+   * `fixedLimitBetsAreNeverProbes` and `styleShiftReleaseIsNoiseAware`). */
+  horseRunItTwiceIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -8213,7 +8221,8 @@ function multiBoardNonFreerollPricedOpen(
   pairedBoard: boolean,
   board: readonly Card[],
   geomFrac: number,
-  useMind: boolean
+  useMind: boolean,
+  rakeFraction: number = 0
 ) {
   const mbStreet: MultiBoardNonFreerollStreet =
     street === 'flop' || street === 'turn' ? street : 'river';
@@ -8248,6 +8257,7 @@ function multiBoardNonFreerollPricedOpen(
     flopTexture:
       mbStreet === 'flop' ? classifyNonFreerollFlopTexture(board, pairedBoard) : undefined,
     heroBubbleFactor: bf,
+    rakeFraction,
     opponents: oppInputs,
   });
 }
@@ -8265,7 +8275,8 @@ function multiBoardNonFreerollPricedFacingBet(
   boardEquities: readonly number[],
   ip: boolean,
   canRaise: boolean,
-  useMind: boolean
+  useMind: boolean,
+  rakeFraction: number = 0
 ) {
   const mbStreet: MultiBoardNonFreerollStreet =
     street === 'flop' || street === 'turn' ? street : 'river';
@@ -8299,6 +8310,7 @@ function multiBoardNonFreerollPricedFacingBet(
     inPosition: ip,
     canRaise,
     heroBubbleFactor: bf,
+    rakeFraction,
     opponents: oppInputs,
   });
 }
@@ -24923,22 +24935,51 @@ export class HorseLogic {
     }
     // V36: a bluff has to fold out EVERY board. Random ranges, N boards:
     // somebody has a piece of one of them on almost every deal.
+    // Co-activation with `multiBoardNonFreerollIsPriced`: when both flags are ON,
+    // defer `multiBoardBluffTrimPriced` until after the non-freeroll priced intercept
+    // checks so superseded spots (non-freeroll flop/turn open & facing-bet) do not
+    // emit a misleading `v36_multiboard_bluff_trim_priced` receipt without consulting
+    // `bluffScale`, while fall-through spots (e.g., river open, barrelPlan, !v86) apply
+    // it cleanly before the first `bluffScale` read.
+    let deferredMultiBoardBluffTrim = false;
+    const applyDeferredMultiBoardBluffTrim = (): void => {
+      if (!deferredMultiBoardBluffTrim) return;
+      deferredMultiBoardBluffTrim = false;
+      const priced36Trim = multiBoardBluffTrimPriced(
+        player,
+        gs,
+        opts,
+        opponents,
+        street,
+        pot,
+        allBoards36,
+        wetness,
+        ip,
+        useMind
+      );
+      bluffScale *= priced36Trim.multiplier;
+      if (tele15) noteFire('v36_multiboard_bluff_trim_priced');
+    };
     if (multiBoard36) {
       if (opts.multiBoardBluffTrimIsPriced === true) {
-        const priced36Trim = multiBoardBluffTrimPriced(
-          player,
-          gs,
-          opts,
-          opponents,
-          street,
-          pot,
-          allBoards36,
-          wetness,
-          ip,
-          useMind
-        );
-        bluffScale *= priced36Trim.multiplier;
-        if (tele15) noteFire('v36_multiboard_bluff_trim_priced');
+        if (opts.multiBoardNonFreerollIsPriced === true) {
+          deferredMultiBoardBluffTrim = true;
+        } else {
+          const priced36Trim = multiBoardBluffTrimPriced(
+            player,
+            gs,
+            opts,
+            opponents,
+            street,
+            pot,
+            allBoards36,
+            wetness,
+            ip,
+            useMind
+          );
+          bluffScale *= priced36Trim.multiplier;
+          if (tele15) noteFire('v36_multiboard_bluff_trim_priced');
+        }
       } else {
         bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5;
         if (tele15) noteFire('v36_multiboard_bluff_trim');
@@ -26231,7 +26272,8 @@ export class HorseLogic {
           pairedBoard,
           board,
           geomFrac,
-          useMind
+          useMind,
+          callDeductionFraction ?? rakeMarg
         );
         if (priced86Open.action === 'bet') {
           const legal86Open = this.raiseTo(planHandKey, priced86Open.betAmount, player, gs, vi);
@@ -26264,6 +26306,7 @@ export class HorseLogic {
           useSizing
         );
       }
+      applyDeferredMultiBoardBluffTrim();
       // ═══ V54 RIVER BLUFF (Dan 2026-10-24) ═══════════════════════════════
       // "A player just said to me, I've never once seen a player bluff on the
       //  river, the bluff shove or big bet bluff needed to be implemented
@@ -28423,7 +28466,8 @@ export class HorseLogic {
           boardEq36,
           ip,
           !raisedAfterAggr,
-          useMind
+          useMind,
+          callDeductionFraction ?? rakeMarg
         );
         if (priced86.action === 'raise' && !raisedAfterAggr) {
           const legal86 = this.raiseTo(planHandKey, priced86.raiseTo, player, gs, vi);
@@ -28469,6 +28513,7 @@ export class HorseLogic {
         return this.raiseTo(planHandKey, raiseToMb86 * params.sizingMultiplier, player, gs, vi);
       }
     }
+    applyDeferredMultiBoardBluffTrim();
 
     // ═══ V29 GTO FLOP DEFENSE — REMOVED 2026-08-29, the same day it
     // shipped. ═══ The consult assumed the warehouse held facing-a-bet

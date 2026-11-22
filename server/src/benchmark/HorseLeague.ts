@@ -7796,6 +7796,21 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'multi-board NLH/PLO4 bomb-pot evaluation. What would change this: extending HorseLeague ' +
       'to deal multi-board bomb-pot hands.',
   },
+  {
+    name: 'horse_run_it_twice_is_priced',
+    variant: 'nlh',
+    a: { horseRunItTwiceIsPriced: true },
+    b: {},
+    reason:
+      'HorseLeague exercises HorseLogic.decide only and never runs all-in Run-It-Twice offers ' +
+      'or ServerTableEngineRunout.horseRitRuns (nor does it change chip EV, which is identical ' +
+      'across 1/2/3 runs because rake and BBJ are deducted once), whereas horseRunItTwiceIsPriced ' +
+      '(DEFAULT OFF, OPTION_SWITCH_REFUSED) acts exclusively on main-thread all-in RIT offers via ' +
+      'HorseRunItTwiceSwitch, so 0 of 6,000 pairs can ever diverge in this league harness. ' +
+      'Verified deterministically in server/src/engine/HorseRunItTwicePriced.test.ts and via ' +
+      'declared 20,431-decision replay in docs/horse-option-authority.d/horseRunItTwiceIsPriced.UNREGISTERED.md. ' +
+      'What would change this: extending HorseLeague to run ServerTableEngineRunout RIT offers.',
+  },
 ] as UnmeasurableMatchup[]);
 
 for (const u of UNMEASURABLE_MATCHUPS) {
