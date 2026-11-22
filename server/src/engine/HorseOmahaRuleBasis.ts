@@ -150,6 +150,50 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
   omahaFourBetFoldPricedCall: PREFLOP_PRICED,
+  omahaCbetRaiseIsPriced: {
+    kind: 'priced',
+    range:
+      "the flop c-bet raiser's measured raising share (top W x rho of holdings on the flop, rho shrunk n/(n+K) to the population raise share)",
+    equity: 'exact flop equity against that raising range with card removal (omahaFlopFacingBetEv)',
+    realization:
+      'measured flop-raise realization and heads-up c-bet raise-branch response frequencies',
+    price: 'the call or flop c-bet against the pot after projected rake and jackpot deduction',
+  },
+  omahaFlopBetIsPricedOnHisResponse: {
+    kind: 'priced',
+    range:
+      'each live opponent range on the flop (card-impact range for bets, lifetime HUD scaled raiser/stabber range when facing a flop raise or stab)',
+    equity:
+      'exact/sampled flop equity against continuing and raising/stabbing ranges with card removal',
+    realization:
+      'lifetime public HUD fold, raise-vs-bet, and OOP stab rate/size shrunk n/(n+k) via hudStat',
+    price: 'the flop bet beside the check with prove-it-to-bet uncertainty bar and flop call price',
+  },
+  omahaRiverBetFoldIsHisRecord: {
+    kind: 'priced',
+    range: 'the river checker/caller range (card-impact range, no opponent kind)',
+    equity: 'equity of the hand against that range on the river',
+    realization:
+      "the river answer curve with fold share moved by the opponent's lifetime public river fold record shrunk n/(n+k)",
+    price: 'the river bet against the check by more than its standard error',
+  },
+  omahaStabDefenceIsPriced: {
+    kind: 'priced',
+    range:
+      "the first-wager bettor's non-value share moved by his lifetime public first-wager frequency against the population shrunk n/(n+k)",
+    equity: 'exact 2+3 turn/river equity against that range (omahaFacingBetEv)',
+    realization: 'measured turn/river realization by street and runout of facing-bet calls',
+    price: 'the call against the pot after projected rake and jackpot deduction',
+  },
+  omahaStrongHandCheckIsPriced: {
+    kind: 'priced',
+    range:
+      'the opponent calling and stabbing ranges on turn/river heads-up (card-impact range, no opponent kind)',
+    equity: 'equity against his continuing range when betting and his stabbing range when checking',
+    realization:
+      'measured bet answer curve moved by his lifetime public fold record and check stab frequency/size shrunk n/(n+k)',
+    price: 'the value bet beside the check, mixed by comparison standard error (held dark)',
+  },
   omahaRiverCheckedToBetIsMeasured: {
     kind: 'priced',
     range: 'the checker range after his river check (card-impact range, no opponent kind)',
@@ -619,6 +663,19 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
     'legality',
     'CORE-FIX-1 (#11684) fail-safe counter when wired value search throws and falls back to the one-step loop; decides nothing'
   ),
+  omaha_cbet_raise_priced_branch: BET_EV,
+  omaha_cbet_raise_priced_range: FACING_BET_EV,
+  omaha_flop_bet_on_his_response_checked: CARD_IMPACT,
+  omaha_flop_bet_on_his_response_kept: CARD_IMPACT,
+  omaha_flop_bet_on_his_response_unpriced_kept: exempt(
+    'scope',
+    'R2 unpriced pass-through receipt when the flop bet spot cannot be priced; keeps existing decision'
+  ),
+  omaha_flop_facing_raise_hud_range_scaled: FACING_BET_EV,
+  omaha_flop_facing_stab_hud_range_scaled: FACING_BET_EV,
+  omaha_river_bet_fold_his_record_read: CARD_IMPACT,
+  omaha_stab_defence_priced: FACING_BET_EV,
+  omaha_strong_hand_check_priced: CARD_IMPACT,
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
   omaha_river_checked_to_bet_measured: {
     kind: 'priced',
