@@ -465,6 +465,55 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
     });
   });
 
+  describe('3-way all-in opponent handling (audit Finding #6)', () => {
+    it('treats an all-in opponent (canRespond=false) as never folding and never stabbing', () => {
+      const base = {
+        equity: 0.9,
+        pot: 200,
+        candidateBet: 120,
+        effectiveStack: 400,
+        oppCount: 2,
+        wetness: 0.1,
+        street: 'flop' as const,
+        inPosition: false,
+        flopTexture: 'unpaired_nonmono' as const,
+        spr: 2,
+        bubbleFactor: 1,
+      };
+      const livePassive = {
+        canRespond: true,
+        exploitCounters: {
+          foldToBet: 45,
+          foldToBetOpp: 50,
+          betCheckedTo: 2,
+          betCheckedToOpp: 50,
+        },
+      };
+      const allInAggro = {
+        canRespond: false,
+        exploitCounters: {
+          foldToBet: 45,
+          foldToBetOpp: 50,
+          betCheckedTo: 48,
+          betCheckedToOpp: 50,
+        },
+      };
+      const withAllIn = priceMonsterSlowplay({
+        ...base,
+        opponents: [livePassive, allInAggro],
+      });
+      const allInNoCounters = priceMonsterSlowplay({
+        ...base,
+        opponents: [livePassive, { canRespond: false }],
+      });
+      // An all-in seat cannot fold (so hero cannot take the pot uncontested: foldProb === 0)
+      expect(withAllIn.foldProb).toBe(0);
+      // An all-in seat cannot stab when checked to, so its historical betCheckedTo never inflates stabProb
+      expect(withAllIn.stabProb).toBeCloseTo(allInNoCounters.stabProb, 10);
+      expect(withAllIn.stabProb).toBeLessThan(0.25);
+    });
+  });
+
   describe('zero-migration OPTION_SWITCH_REFUSED governance', () => {
     it('keeps horseSlowplayIsPriced refused and unregistered in the SQL switch', () => {
       expect(Object.hasOwn(OPTION_SWITCH_REFUSED, 'horseSlowplayIsPriced')).toBe(true);

@@ -49,6 +49,8 @@ export type HorseSlowplayReason =
   | 'degenerate_pot_or_stack';
 
 export interface SlowplayOpponentInput {
+  /** False when the opponent is already all-in / has zero chips behind and cannot fold or stab. */
+  readonly canRespond?: boolean;
   readonly hudOpp?: HoldemHudPacketOpponent | null;
   readonly exploitCounters?: Pick<
     ExploitCounters,
@@ -205,6 +207,11 @@ export function priceMonsterSlowplay(input: PriceMonsterSlowplayInput): PriceMon
 
   for (let i = 0; i < opps; i++) {
     const opp = input.opponents?.[i];
+    if (opp?.canRespond === false) {
+      // An all-in / zero-stack opponent can neither fold to a bet nor stab when checked to.
+      allFoldProb = 0;
+      continue;
+    }
     const foldEst =
       input.street === 'flop'
         ? estimateHoldemFlopCbetFold(

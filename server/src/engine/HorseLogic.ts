@@ -8431,6 +8431,7 @@ function horseSlowplayPricedDecision(
     const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
     let deepestOppStack = 0;
     for (const opp of opponents) {
+      if (opp.is_all_in) continue;
       const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
       if (os > deepestOppStack) deepestOppStack = os;
     }
@@ -8444,15 +8445,17 @@ function horseSlowplayPricedDecision(
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
     const oppInputs: SlowplayOpponentInput[] = opponents.slice(0, 2).map((opp) => {
-      if (!useMind || opts.mind === false) return {};
+      const canRespond = !opp.is_all_in && Number.isFinite(opp.stack) && opp.stack > 0;
+      if (!canRespond || !useMind || opts.mind === false) return { canRespond };
       const direct = HorseMind.getExploitCounters(opp.user_id, scope);
-      if (direct) return { exploitCounters: direct };
+      if (direct) return { canRespond, exploitCounters: direct };
       const read = HorseMind.opponentRead(opp.user_id);
       if (read && read.presumed !== true) {
         const fb = read.stats.foldToBet;
         const bc = read.stats.betCheckedTo;
         if (fb.n > 0 || bc.n > 0) {
           return {
+            canRespond,
             exploitCounters: {
               foldToBet: fb.mean * fb.n,
               foldToBetOpp: fb.n,
@@ -8462,7 +8465,7 @@ function horseSlowplayPricedDecision(
           };
         }
       }
-      return {};
+      return { canRespond };
     });
 
     const bf =
