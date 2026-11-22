@@ -5488,7 +5488,7 @@ export interface HorseDecideOpts {
    *  in single-board 2-card NLH (non-Omaha, non-Short Deck, non-Fixed Limit,
    *  non-Pot Limit, non-bomb-pot, single board), replaces the flat 40%-of-stack
    *  bluff-raise veto with deterministic public-info EV pricing over measured
-   *  NLH fold priors (`holdemEmpiricalPriors.ts`) and tournament `heroBubbleFactor`
+   *  NLH fold-to-raise priors (#11759, read only inside the pricing module) and tournament `heroBubbleFactor`
    *  (`HorseV78CommittingBluffRaisePriced.priceCommittingBluffRaise`). Allows
    *  the raise iff `EV(bluffRaise) > baseline`; vetoes otherwise. Off / unset /
    *  false (and all non-NLH / multi-board / bomb-pot games): byte-identical. */
@@ -5883,7 +5883,7 @@ export interface HorseDecideOpts {
    * OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster
    * spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket
    * `wetness < 0.5 && fastRandom() < params.slowplayFreq` coin flip with deterministic EV pricing
-   * (`HorseSlowplayPriced.priceMonsterSlowplay`) using `holdemEmpiricalPriors` fold / betWhenCheckedTo
+   * (`HorseSlowplayPriced.priceMonsterSlowplay`) using the measured NLH fold / betWhenCheckedTo priors
    * shrinkage, continuous board-wetness free-card erosion, and `heroBubbleFactor`. Draws no random
    * number. OFF / Omaha / Fixed-Limit: byte-identical. */
   horseSlowplayIsPriced?: boolean;
@@ -8430,7 +8430,7 @@ function multiBoardBluffTrimPriced(
  * horseSlowplayIsPriced (2026-11-22, HORSE DECISIONS lane; default OFF, OPTION_SWITCH_REFUSED):
  * deterministic EV replacement for the unowned H4 monster slowplay mix in non-Omaha / non-FLH
  * flop and turn spots. Reads only public state, hero equity, heroBubbleFactor, and each live
- * opponent's HorseMind ExploitCounters shrunk onto `holdemEmpiricalPriors`. Draws no random number.
+ * opponent's HorseMind ExploitCounters shrunk onto the measured NLH priors. Draws no random number.
  */
 function horseSlowplayPricedDecision(
   player: SeatPlayer,
