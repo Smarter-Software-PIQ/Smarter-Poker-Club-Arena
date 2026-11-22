@@ -1,6 +1,6 @@
 # holdemValueAndCallsArePriced: authority for the live switch
 
-**State: OFF in source (read `=== true`), no switch row. Evidence NOT MET: paired 3-seed league evaluation on 2026-11-21 (post-#11684, live 66-row switch baseline) is SIGNIFICANT positive on 9-max NLH cash vs human-calibrated (`+22.40 +/- 5.95 bb/100`, `z = +3.76`), unresolved positive on 6-max human-calibrated (`+10.42 +/- 8.44 bb/100`, `z = +1.23`), and unresolved negative on 6-max mirror (`-3.77 +/- 2.65 bb/100`, `z = -1.42`, all `0/0/0/0`), while the post-#11684 replay of audited decisions on HVH48-D (`fixed 55`, `newlyWrong 36`, `changed 216`, `1.53:1`; see Replay below) still fails its declared 2:1 REPLAY-6 bar. Do not switch on.** Mechanism, scope, receipts, tests and off-identity are met.
+**State: OFF in source (read `=== true`), no switch row. Evidence NOT MET: paired 3-seed league evaluation on 2026-11-21 (post-#11684, live 66-row switch baseline) is SIGNIFICANT positive on 9-max NLH cash vs human-calibrated (`+22.40 +/- 5.95 bb/100`, `z = +3.76`), unresolved positive on 6-max human-calibrated (`+10.42 +/- 8.44 bb/100`, `z = +1.23`), and unresolved negative on 6-max mirror (`-3.77 +/- 2.65 bb/100`, `z = -1.42`, all `0/0/0/0`), and 2026-11-22 hosted solver-hydrated runs (`charts=240`, `postflop=7,747`) confirm SIGNIFICANT wins on both 9-max human-calibrated (`45012974150`: `+16.49 +/- 4.57 bb/100`, `z = +3.60`, 3/3 positive seeds, `0/0/0/0`) and 6-max human-calibrated (`45013620799`: `+22.41 +/- 6.20 bb/100`, `z = +3.62`, 3/3 positive seeds, `916/18,000` div, `0/0/0/0`) alongside a flat 6-max mirror (`44997647905`: `-1.29 +/- 1.94 bb/100`, `z = -0.66`, `0/0/0/0`), while the post-#11684 replay of audited decisions on HVH48-D (`fixed 55`, `newlyWrong 36`, `changed 216`, `1.53:1`; see Replay below) still fails its declared 2:1 REPLAY-6 bar. Do not switch on.** Mechanism, scope, receipts, tests and off-identity are met.
 
 Owner orders it rests on: 2026-11-17 11:49 America/Chicago (verbatim): "a blanket rule shouldn't be allowed to effect a decision, they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."; and of the same day, the size of a bet may only feed the range and the price. Built by the NLH price lane (builder D-FIX of the HORSE DECISIONS lane, lead session_01TLQer7J) on 2026-11-19 from Auditor D's report (hvh48-audit-01TLQer7J/D-nlh-cash/REPORT.md: 399 NLH cash hands with people, 3,891 Horse decisions, 2026-11-18/19).
 
@@ -89,6 +89,24 @@ Measured 2026-11-21 on `origin/main` (`f90aa478ae35`, post-#11684), `EQUITY_GOVE
   - `20261123`: `-4.88 +/- 4.90 bb/100` (`blockSE 5.87`, `z = -1.00`, `div = 523`, `0/0/0/0`)
   - **Pooled**: **`-3.77 +/- 2.65 bb/100`** (`z = -1.42`, unresolved, `div = 1,511`, `0/0/0/0`)
 
+Hosted solver-hydrated Tier 1 league confirmation (`horse-league-card-hydrated.yml`, 2026-11-22, hydrated solver stores `charts=240`, `postflop=7,747`, `postflopV31=0`, `EQUITY_GOVERNOR=off`; archive `HYDRATED-TIER1-RESULTS-20261122.md`, 3 seeds x 6,000 pairs = 36,000 hands per card, `0/0/0/0` safety on every seed):
+
+- **9-max NLH cash vs `HUMAN_CALIBRATED_POPULATION_ID`** (`human_nlh9_holdem_value_and_calls_are_priced`, Run `45012974150`, `2026-11-22T10:32:56Z` to `10:36:14Z`, engine `ec21275d2efe8739015e8c43d2c222ff0e621556`, arm A `{"holdemValueAndCallsArePriced":true,"opponentPopulation":"human-calibrated-v1-20261008"}` vs arm B `{"opponentPopulation":"human-calibrated-v1-20261008"}`):
+  - `20261121`: A `+105.69`, B `+93.56`, A - B `+12.13 +/- 7.99 bb/100` (`blockSE 8.94`, `z = +1.52`, not resolved, `154` div, `48.7 s`, `0/0/0/0`)
+  - `20261122`: A `+153.66`, B `+128.13`, A - B `+25.53 +/- 7.78 bb/100` (`blockSE 7.15`, `z = +3.28`, SIGNIFICANT, `157` div, `47.4 s`, `0/0/0/0`)
+  - `20261123`: A `+256.92`, B `+245.12`, A - B `+11.80 +/- 8.00 bb/100` (`blockSE 9.86`, `z = +1.48`, not resolved, `175` div, `45.8 s`, `0/0/0/0`)
+  - **Pooled (`18,000` pairs / `36,000` hands):** A `+172.09`, B `+155.60`, **A - B `+16.49 +/- 4.57 bb/100`** (`z = +3.60`, SIGNIFICANT, 3/3 positive seeds, `486` divergent pairs, `0/0/0/0`)
+- **6-max NLH cash vs `HUMAN_CALIBRATED_POPULATION_ID`** (`human_nlh_holdem_value_and_calls_are_priced`, Run `45013620799`, `2026-11-22T10:40:58Z` to `10:43:44Z`, engine `ec21275d2efe8739015e8c43d2c222ff0e621556`, arm A `{"holdemValueAndCallsArePriced":true,"opponentPopulation":"human-calibrated-v1-20261008"}` vs arm B `{"opponentPopulation":"human-calibrated-v1-20261008"}`):
+  - `20261121`: A `+114.59`, B `+99.18`, A - B `+15.41 +/- 10.99 bb/100` (`blockSE 12.76`, `z = +1.40`, not resolved, `322` div, `42.8 s`, `0/0/0/0`)
+  - `20261122`: A `+119.16`, B `+101.72`, A - B `+17.44 +/- 10.26 bb/100` (`blockSE 8.30`, `z = +1.70`, not resolved, `297` div, `38.7 s`, `0/0/0/0`)
+  - `20261123`: A `+145.26`, B `+110.88`, A - B `+34.38 +/- 10.94 bb/100` (`blockSE 10.39`, `z = +3.14`, SIGNIFICANT, `297` div, `36.8 s`, `0/0/0/0`)
+  - **Pooled (`18,000` pairs / `36,000` hands):** A `+126.34`, B `+103.93`, **A - B `+22.41 +/- 6.20 bb/100`** (`z = +3.62`, SIGNIFICANT, 3/3 positive seeds, `916` divergent pairs, `0/0/0/0`)
+- **6-max NLH cash Mirror** (`nlh_holdem_value_and_calls_are_priced`, Run `44997647905`, `2026-11-22T07:18:44Z` to `07:29:46Z`, engine `6336dcf6c90d3c02b38e5cb803ae264bd0b13e0d`, arm A `{"holdemValueAndCallsArePriced":true}` vs arm B `{}`):
+  - `20261120`: `-4.04 +/- 3.28 bb/100` (`blockSE 2.96`, `z = -1.23`, not resolved, `1,088` div, `204.5 s`, `0/0/0/0`)
+  - `20261121`: `+2.64 +/- 3.40 bb/100` (`blockSE 3.41`, `z = +0.78`, not resolved, `1,048` div, `200.8 s`, `0/0/0/0`)
+  - `20261122`: `-2.47 +/- 3.39 bb/100` (`blockSE 3.21`, `z = -0.73`, not resolved, `1,078` div, `197.3 s`, `0/0/0/0`)
+  - **Pooled (`18,000` pairs / `36,000` hands):** **`-1.29 +/- 1.94 bb/100`** (`z = -0.66`, not resolved / flat, `3,214` divergent pairs, `0/0/0/0`)
+
 ## Replay
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
@@ -112,3 +130,7 @@ Re-run 2026-11-21 on `origin/main` (`d647047b0aa1`, post-#11556, post-#11622, an
   - Pre-#11684, post-#11556 (2026-11-21 on `09986930d3db`, scorer `5302af2ab3e`, base fidelity `2214` / `81.0%`): `fixed 47; newlyWrong 44; changed 188; unchanged 2546; unjudged 96` (most frequent opponent removed: `179` changed, `44` fixed, `41` newly wrong). #11684 lifted `fixed/newlyWrong` from `47/44` (`1.07:1`) to `55/36` (`1.53:1`), cutting `holdem_priced_call` newly wrong from `19` to `5`.
   - Pre-#11556 (2026-11-20, REPLAY-6 on `95dae3848e5`, scorer `c4ab864f30f`, forced blinds/antes still in replayed `actionHistory`, base fidelity `2139` / `78.2%`): `fixed 49; newlyWrong 43; changed 192; unchanged 2542; unjudged 100` (most frequent opponent removed: `183` changed, `46` fixed, `40` newly wrong).
 - Limits: opponent memory is off (`mind: false`); the base arm uses the archived `2026-11-21T20:00Z` switch snapshot (database not read); the audit is verdict-only (no bb), and a change of a decision the audit priced `OK` is counted newly wrong whether or not the audit would also accept the new action. The file's own section "Disagreements with the audit" applies to the newly wrong count: the audit is the judge of this row, not the option.
+
+## Rollback
+
+No production switch row exists (source default OFF). If ever enabled, immediately roll back to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('holdemValueAndCallsArePriced', 'off', '<actor>', '<reason>')`), restoring the base brain within ~30s with zero data migration needed.

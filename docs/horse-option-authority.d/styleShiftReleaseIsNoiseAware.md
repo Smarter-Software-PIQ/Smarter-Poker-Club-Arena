@@ -119,3 +119,7 @@ Every pooled mean on the live 67-row production switch set is positive (`+3.33` 
 ## Verdict (2026-11-22)
 
 Status: merged (`PR #11643`, `01919ce6e496`, migrations `20261121171027` and `20261122011559` installed, `fn_ca_horse_option_switch_states` = `["off","on"]`), default OFF, Evidence NOT MET; the option stays OFF and no switch row is written. Missing for promotion: (1) significant positive production-switch runs on live-trafficked human variants (NLH/PLO4) under a formally declared card; (2) multi-hand stateful opponent-memory replay (process switches refuse `shadow`); and (3) owner/SWITCH approval.
+
+## Rollback
+
+If enabled, set `styleShiftReleaseIsNoiseAware` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('styleShiftReleaseIsNoiseAware', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

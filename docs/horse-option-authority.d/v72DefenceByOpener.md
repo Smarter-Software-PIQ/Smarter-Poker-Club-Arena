@@ -51,3 +51,7 @@ How the rows were produced (2026-11-21, on the operations Mac, checkout `dce4d6d
 4. `npx tsx scripts/audited-decision-replay.ts --placed <set>.nodes.jsonl --replay <set>.v72.replay.jsonl --line on --row on --set "<set name>"`, the `- Replay:` rows above copied unedited.
 
 Limits: the database was not read for the switch baseline (uses the archived `2026-11-20T21:15Z` + 3 rows snapshot); opponent memory is off in replay (`mind: false`); the audits are verdict-only (no bb); `1157` `HVH48-D` and `5581` `HVH48-E` decisions have unknown Horse cards and are not replayed.
+
+## Rollback
+
+Set `v72DefenceByOpener` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('v72DefenceByOpener', 'off', '<actor>', '<reason>')`) to override the release default within ~30s; zero data migration needed.

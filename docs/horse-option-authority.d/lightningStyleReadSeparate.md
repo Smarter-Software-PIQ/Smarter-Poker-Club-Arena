@@ -74,3 +74,7 @@ Machine-read (README.md, "The Replay row"); a run row is written by the scorer a
 - Replay: fixed 0; newlyWrong 0; changed 0; unchanged 3280; unjudged 0; set HVH48 A PLO5 Lightning (memory as of decision); scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 3280 of 3280
 - Replay: fixed 0; newlyWrong 0; changed 0; unchanged 551; unjudged 0; set HVH48 D NLH cash (memory as of decision) [Lightning only]; scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 551 of 551
 - Replay: fixed 0; newlyWrong 0; changed 0; unchanged 305; unjudged 0; set HVH48 B PLO4/PLO5 cash (memory as of decision) [Lightning only]; scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 305 of 305
+
+## Rollback
+
+If enabled, set `lightningStyleReadSeparate` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('lightningStyleReadSeparate', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

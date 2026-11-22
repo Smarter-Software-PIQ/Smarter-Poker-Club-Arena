@@ -35,6 +35,7 @@ Sizing probe (`seed 20261115`, `500` pairs): `vs_river_folder` `0/500`, `vs_pass
 - Mechanism: MET by the law's fixtures.
 - League: MEASURED on legal fixed-limit `flo8` (`FLO8_SCRIPTED_FIELD_CARDS`, 2026-11-21): `+0.12 +/- 0.10` (`z = +1.21`, `2/4,000` diverged) vs `flo8_river_folder_v1`, `+0.27 +/- 0.49` (`z = +0.56`, `53/4,000` diverged) vs `flo8_tight_value_v1`, `0/4,000` vs `flo8_passive_caller_v1` (station refusal), all not resolved / zero harm; `0/300` in the Horse mirror.
 - Value, continuation, reach against people: NOT MEASURED in this repository.
+- Historical human FLO8 micro-replay check (2026-11-21, read-only against the 107 retained `has_human` flo8 hands from 2026-11-03 02:40 to 03:53 UTC, 1 person and 5 Horses, `audited-node-option-replay.ts` with 76,098 `has_human` history hands as of decision and `prod-switch-20261121T1500Z.json`, zero hole cards stored): only 43 of 107 hands carry `hole_cards` (showdown hands), yielding 336 replayable `horse_policy` nodes (81 river; 0 arm errors; base fidelity 276/336 = 82.1%). On those 336 nodes, `fixedLimitHiLoNutLowRiverBet` fired `hilo_nut_low_freeroll_bet` twice and changed **1 / 336** decisions (1 river, `check->bet: 1`). Zero placed audit verdicts exist for these hands, and 1 changed decision from a single person's 73-minute session is not a replay gate.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 
 ## What is still owed before this file may say the evidence is met
