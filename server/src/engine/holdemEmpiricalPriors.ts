@@ -119,13 +119,15 @@ export const HOLDEM_EMPIRICAL_PRIORS_PROVENANCE = Object.freeze({
 export const HOLDEM_PRIOR_STRENGTH = Object.freeze({
   flopCbetFold: 16,
   turnBetFold: 14,
-  riverFoldToBet: 12,
   riverFoldToRaise: 12,
   riverBluffShare: 8,
   betWhenCheckedTo: 16,
   /** Prior strength when falling back to HorseMind ExploitCounters (matches EXPLOIT_PRIOR_STRENGTH = 6). */
   exploitCountersFallback: 6,
 });
+
+/** Empirical-Bayes prior strength (pseudo-observations k) for river fold-to-first-bet shrinkage. */
+export const HOLDEM_RIVER_FOLD_TO_BET_PRIOR_STRENGTH = 12;
 
 /** Maximum bluff share ever priced (a bettor always retains some value combinations). */
 export const HOLDEM_EMPIRICAL_RIVER_BLUFF_CAP = 0.95;
@@ -588,7 +590,7 @@ export function estimateHoldemRiverFoldToBet(
       ctxStat.hits,
       ctxStat.opportunities,
       prior,
-      HOLDEM_PRIOR_STRENGTH.riverFoldToBet,
+      HOLDEM_RIVER_FOLD_TO_BET_PRIOR_STRENGTH,
       'hud_context'
     );
   }
@@ -618,7 +620,7 @@ export function estimateHoldemRiverFoldToBet(
     return scaleRelativeToMedium(
       streetStat.hits,
       streetStat.opportunities,
-      HOLDEM_PRIOR_STRENGTH.riverFoldToBet,
+      HOLDEM_RIVER_FOLD_TO_BET_PRIOR_STRENGTH,
       'hud_street'
     );
   }
@@ -631,7 +633,7 @@ export function estimateHoldemRiverFoldToBet(
       'exploit_counters'
     );
   }
-  return empiricalBayesShrink(0, 0, prior, HOLDEM_PRIOR_STRENGTH.riverFoldToBet, 'pool_prior');
+  return empiricalBayesShrink(0, 0, prior, HOLDEM_RIVER_FOLD_TO_BET_PRIOR_STRENGTH, 'pool_prior');
 }
 
 /**

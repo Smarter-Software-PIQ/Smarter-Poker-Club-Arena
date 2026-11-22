@@ -26567,9 +26567,16 @@ export class HorseLogic {
           hiShare: hiLoSplit?.hi,
           quarterShare: hiLoSplit?.quarter,
         });
-        if (holdemRiverBluffPricedActive) {
+        const leadRb = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
+        // Guard OOP river lead bluffs (`leadDraw` / `leadBlank`) so that when
+        // `holdemRiverLeadRangeIsPriced` (Wave 7.2) is also enabled, it retains ownership
+        // of `leadRb` cleanly without `holdemRiverBluffIsPriced` preempting it.
+        const holdemRiverLeadRangePreemptsRb =
+          leadRb &&
+          (opts as { holdemRiverLeadRangeIsPriced?: unknown }).holdemRiverLeadRangeIsPriced ===
+            true;
+        if (holdemRiverBluffPricedActive && !holdemRiverLeadRangePreemptsRb) {
           if (eligRb.eligible && oppRb) {
-            const leadRbPriced = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
             const oppStackRbPriced =
               (isFinite(oppRb.stack) ? oppRb.stack : 0) + (isFinite(oppRb.bet) ? oppRb.bet : 0);
             let stationRbPriced = false;
@@ -26622,7 +26629,7 @@ export class HorseLogic {
               fastCalldownCallingMore: fcCallingMoreRbPriced,
               lightCallerFactor: lightCallerBluffMul,
               bluffMod: fcCallingMoreRbPriced ? Math.min(1, exploit.bluffMod) : exploit.bluffMod,
-              tightCheckedTo: leadRbPriced ? 1 : tightCheckedToMul(),
+              tightCheckedTo: leadRb ? 1 : tightCheckedToMul(),
               exploitCounters: countersRbPriced,
             });
             if (verdictRb.decision === 'bet' && verdictRb.betPotFrac !== null) {
@@ -26663,7 +26670,6 @@ export class HorseLogic {
             if (tele15) noteFire('river_bluff_baseline_skip_low_giveaway');
             return { action: 'check', thinkTime: 0 };
           }
-          const leadRb = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
           if (eligRb.eligible && oppRb) {
             const effRb = Math.min(stack, oppRb.stack + (isFinite(oppRb.bet) ? oppRb.bet : 0));
             const sizeRb = riverBluffSize({
