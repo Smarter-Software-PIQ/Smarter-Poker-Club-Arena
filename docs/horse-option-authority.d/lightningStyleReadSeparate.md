@@ -1,8 +1,8 @@
 # lightningStyleReadSeparate: authority for the live switch
 
-**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, receipts, law test and off-identity are recorded; no paired Lightning evaluation has been run for this option, the replay on real audited decisions was not run, and no live read exists.
+**State: OFF in source (read `=== true`), switchable, no switch row cited here. Do not switch on from this file.** Evidence NOT MET: mechanism, scope, receipts, law test and off-identity are recorded, and the multi-domain replay on real audited HVH48 Lightning decisions (2026-11-21, scorer `05dac62975c0`) measured 0 changed decisions across 4,136 Lightning nodes (`fixed 0; newlyWrong 0`) with 28.0% empty-map starvation (`176 / 629` Lightning style reads hit `style_lightning_separate_empty_seen`), while 5,641 Classic table control nodes had 0 fires and 0 changes. Keep OFF until Lightning sample volume is dense enough to show a real accuracy gain without starving thin Lightning records.
 
-Written 2026-11-20 from what the repository records (sources named per section). Nothing was run for this file and no number in it was measured on 2026-11-20.
+Written 2026-11-20 from what the repository records (sources named per section); updated 2026-11-21 with the multi-domain HVH48 A+B+D replay measured at `05dac62975c0`.
 
 ## What it does
 
@@ -49,14 +49,18 @@ Source: `docs/changelog/2026-11-15-a-lightning-style-read-can-keep-its-own-evide
 
 - Mechanism, scope, visibility (receipts), law and unit tests, off-identity: MET (sections above).
 - Paired Lightning evaluation: NOT RUN (in the paired evaluation harness every hand is Lightning, so no Classic hands are mixed into the in-process maps during a single-format cell).
-- Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
-- Value against people in production (how often a player's Classic and Lightning postflop aggression records differ enough to flip a live Lightning decision): NOT MEASURED.
+- Replay on real audited decisions (README.md, "Replay bar"): RUN 2026-11-21 (`05dac62975c0`, with `publicMemoryDomain` propagation + isolated `HorseMindSandbox.styleMaps` over the 76,098 retained `has_human` `hand_history` rows `2026-07-22 .. 2026-11-20 05:59:33Z`, containing 6,147 Lightning and 26,574 Classic `public_memory_domain` hands, against `prod-switch-20261121T1500Z.json`):
+  - **Pooled HVH48 Lightning (Sets A+B+D, 4,136 Lightning nodes, 0 arm errors):** `changed = 0`, `fixed = 0`, `newlyWrong = 0`, base fidelity `0.8441`; `style_lightning_separate_read_seen = 629` (15.2%), non-empty `453` (72.0%), `style_lightning_separate_empty_seen = 176` (28.0%).
+    - Set A (PLO5 Lightning, 700 hands / 3,280 nodes; 161/161 players cross-domain): `read_seen = 159`, non-empty `123` (77.4%), `empty_seen = 36` (22.6%), `changed = 0`.
+    - Set D (NLH cash, 107 Lightning hands / 551 Lightning nodes + 287 Classic hands / 2,183 Classic nodes): Lightning `read_seen = 431`, non-empty `301` (69.8%), `empty_seen = 130` (30.2%), `changed = 0`; Classic control `0` fires, `0` changes (byte-identical).
+    - Set B (PLO4/PLO5 cash, 159 Lightning hands / 305 Lightning nodes + 1,089 Classic hands / 3,458 Classic nodes): Lightning `read_seen = 39`, non-empty `29` (74.4%), `empty_seen = 10` (25.6%), `changed = 0`; Classic control `0` fires, `0` changes (byte-identical).
+  - **Classic table control (5,641 nodes = 2,183 Set D + 3,458 Set B):** `0` fires, `0` changes (byte-identical; scorer refused both table subsets as inert arm as expected).
+- Value against people in production (how often a player's Classic and Lightning postflop aggression records differ enough to flip a live Lightning decision): NOT MET (`0 / 4,136` real HVH48 Lightning decisions changed; `28.0%` empty-map rate `176 / 629` where Lightning-only maps lacked a row that pooled maps held).
 
 ## What is still owed before this file may say the evidence is met
 
-1. A declared PASS-BAR and a replay on real audited Lightning decisions (with hydrated multi-domain history so pooled and Lightning-only style maps differ where real players played both speeds), off against on, scored by `server/scripts/audited-decision-replay.ts --row` with `newlyWrong <= fixed`.
-2. Production measurement of `style_lightning_separate_empty_seen` vs `style_lightning_separate_read_seen` (or an offline replay over the 72-hour `hand_history` boot window) showing that separating the maps improves decision accuracy without starving thin Lightning samples.
-3. An explicit owner or lane-lead order to activate recorded verbatim in "The order it rests on", plus a live post-activation check and rollback trigger.
+1. A future multi-domain replay on a denser Lightning `hand_history` window demonstrating positive accuracy gain (`fixed > newlyWrong`, `changed > 0`) without starving thin Lightning samples (`style_lightning_separate_empty_seen` rate materially reduced from the 28.0% measured on 2026-11-21).
+2. An explicit owner or lane-lead order to activate recorded verbatim in "The order it rests on", plus a live post-activation check and rollback trigger.
 
 ## What the activation row must contain
 
@@ -66,4 +70,7 @@ Source: `docs/changelog/2026-11-15-a-lightning-style-read-can-keep-its-own-evide
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
-- Replay: NOT RUN (as of 2026-11-20 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 4136; unjudged 0; set HVH48 A+B+D Lightning pooled (memory as of decision); scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 4136 of 4136
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 3280; unjudged 0; set HVH48 A PLO5 Lightning (memory as of decision); scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 3280 of 3280
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 551; unjudged 0; set HVH48 D NLH cash (memory as of decision) [Lightning only]; scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 551 of 551
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 305; unjudged 0; set HVH48 B PLO4/PLO5 cash (memory as of decision) [Lightning only]; scorer 05dac62975c0; source placed verdict-only; arm sep vs off; replayed 305 of 305

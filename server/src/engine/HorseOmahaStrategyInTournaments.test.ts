@@ -15,6 +15,7 @@
  *     nothing in cash.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import {
   HorseLogic,
@@ -332,10 +333,12 @@ function play(
     seedFastRandom(s);
     const st = build();
     before?.(st);
-    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
-      telemetry: true,
-      ...opts,
-    } as never);
+    const d = withFrozenDecisionClock(() =>
+      HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        telemetry: true,
+        ...opts,
+      } as never)
+    );
     out.next.push(fastRandom());
     out.actions.push(d.action);
     out.bytes.push(bytesOf(d));

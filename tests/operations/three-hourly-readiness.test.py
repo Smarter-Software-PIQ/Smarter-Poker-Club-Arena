@@ -1,0 +1,550 @@
+#!/usr/bin/env python3
+"""Unit tests for scripts/release/three-hourly-readiness.py (pure mocked inputs)."""
+import importlib.util
+import io
+import json
+import unittest
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts/release/three-hourly-readiness.py"
+
+spec = importlib.util.spec_from_file_location("three_hourly_readiness", SCRIPT)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+
+def _sha(prefix):
+    return (prefix * 40)[:40]
+
+
+def _health(
+    release_sha=None,
+    frequency="three-hourly",
+    start_hours=None,
+    phase="idle",
+    stalled=0,
+):
+    return {
+        "url": mod.DEFAULT_HEALTH_URL,
+        "liveness": "ok",
+        "releaseSha": release_sha or _sha("0"),
+        "frequency": frequency,
+        "startHours": list(
+            start_hours
+            if start_hours is not None
+            else (mod.THREE_HOURLY_START_HOURS if frequency == "three-hourly" else mod.DAILY_START_HOURS)
+        ),
+        "phase": phase,
+        "stalledTables": stalled,
+        "deadStalledTables": 0,
+        "wholeFleetStalled": False,
+    }
+
+
+def _make_git_stub(control_sha, serving_sha, commits_with_subjects):
+    shas = [sha for sha, _ in commits_with_subjects]
+    subjects = dict(commits_with_subjects)
+
+    def git_fn(_repo_root, *args):
+        if args[:2] == ("rev-parse", "--verify"):
+            ref = args[2]
+            if ref.startswith(mod.DEFAULT_CONTROL_REF):
+                return control_sha
+            if ref.startswith(serving_sha):
+                return serving_sha
+            raise mod.ReadError(f"unknown ref {ref}")
+        if args[:2] == ("merge-base", "--is-ancestor"):
+            return ""
+        if args[:2] == ("rev-list", "--first-parent"):
+            return "\n".join(shas)
+        if args[:3] == ("show", "-s", "--format=%s"):
+            return subjects[args[3]]
+        raise AssertionError(f"unexpected git args: {args}")
+
+    return git_fn
+
+
+class ThreeHourlyReadinessTests(unittest.TestCase):
+    def test_schedule_cst_cdt_spring_forward_and_fall_back(self):
+        # Ordinary CST (2026-11-21 18:10 CST = 2026-11-22T00:10:00Z -> next 19:00 CST = 01:00Z)
+        cst = mod.compute_next_cycle(
+            datetime(2026, 11, 22, 0, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(cst["cycleId"], "2026-11-21T19")
+        self.assertEqual(cst["cycleStartUtc"], "2026-11-22T01:00:00Z")
+        self.assertEqual(cst["cycleStartChicago"], "2026-11-21T19:00:00-06:00")
+        self.assertEqual(cst["preparationCutoffUtc"], "2026-11-22T00:30:00Z")
+        self.assertEqual(cst["preparationCutoffChicago"], "2026-11-21T18:30:00-06:00")
+        self.assertEqual(cst["recommendedHoldStartUtc"], "2026-11-21T23:15:00Z")
+        self.assertEqual(cst["recommendedHoldStartChicago"], "2026-11-21T17:15:00-06:00")
+        self.assertTrue(cst["inHoldWindow"])
+        self.assertFalse(cst["cutoffPassed"])
+
+        # Ordinary CDT (2026-07-15 18:10 CDT = 2026-07-15T23:10:00Z -> next 19:00 CDT = 2026-07-16T00:00:00Z)
+        cdt = mod.compute_next_cycle(
+            datetime(2026, 7, 15, 23, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(cdt["cycleId"], "2026-07-15T19")
+        self.assertEqual(cdt["cycleStartUtc"], "2026-07-16T00:00:00Z")
+        self.assertEqual(cdt["cycleStartChicago"], "2026-07-15T19:00:00-05:00")
+        self.assertEqual(cdt["preparationCutoffUtc"], "2026-07-15T23:30:00Z")
+        self.assertEqual(cdt["recommendedHoldStartUtc"], "2026-07-15T22:15:00Z")
+
+        # Fall-back day 2026-11-01:
+        # 05:10Z = 00:10 CDT -> first 01:00 CDT (06:00Z)
+        fb_before = mod.compute_next_cycle(
+            datetime(2026, 11, 1, 5, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(fb_before["cycleId"], "2026-11-01T01")
+        self.assertEqual(fb_before["cycleStartUtc"], "2026-11-01T06:00:00Z")
+        self.assertEqual(fb_before["cycleStartChicago"], "2026-11-01T01:00:00-05:00")
+
+        # 06:10Z = 01:10 CDT -> must SKIP repeated 01:00 CST (07:00Z) and advance to 04:00 CST (10:00Z)!
+        fb_after = mod.compute_next_cycle(
+            datetime(2026, 11, 1, 6, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(fb_after["cycleId"], "2026-11-01")
+        self.assertEqual(fb_after["cycleStartUtc"], "2026-11-01T10:00:00Z")
+        self.assertEqual(fb_after["cycleStartChicago"], "2026-11-01T04:00:00-06:00")
+        self.assertEqual(fb_after["preparationCutoffUtc"], "2026-11-01T09:30:00Z")
+
+        # Spring-forward day 2026-03-08:
+        # 07:10Z = 01:10 CST -> 02:00 does not exist; next is 04:00 CDT (09:00Z), 2 real hours after 01:00 CST.
+        sf = mod.compute_next_cycle(
+            datetime(2026, 3, 8, 7, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(sf["cycleId"], "2026-03-08")
+        self.assertEqual(sf["cycleStartUtc"], "2026-03-08T09:00:00Z")
+        self.assertEqual(sf["cycleStartChicago"], "2026-03-08T04:00:00-05:00")
+
+        # Daily frequency (04:00 anchor only):
+        daily = mod.compute_next_cycle(
+            datetime(2026, 11, 21, 11, 0, tzinfo=timezone.utc), "daily"
+        )
+        self.assertEqual(daily["cycleId"], "2026-11-22")
+        self.assertEqual(daily["cycleStartUtc"], "2026-11-22T10:00:00Z")
+        self.assertEqual(daily["cycleStartChicago"], "2026-11-22T04:00:00-06:00")
+        self.assertEqual(daily["preparationCutoffUtc"], "2026-11-22T09:30:00Z")
+        self.assertEqual(daily["recommendedHoldStartUtc"], "2026-11-22T08:15:00Z")
+
+    def test_ready_candidate_with_newer_pending_and_older_control_mismatch(self):
+        serving = _sha("0")
+        sha_new = _sha("a")
+        sha_ready = _sha("b")
+        sha_old = _sha("c")
+        now = datetime(2026, 11, 22, 0, 20, tzinfo=timezone.utc)
+
+        control_tree = (
+            "100644 blob 1111111111111111111111111111111111111111\tscripts/ci/select-daily-engine.py\n"
+            "100644 blob 2222222222222222222222222222222222222222\t.github/workflows/backup-engine.yml"
+        )
+        stale_tree = (
+            "100644 blob 9999999999999999999999999999999999999999\tscripts/ci/select-daily-engine.py\n"
+            "100644 blob 2222222222222222222222222222222222222222\t.github/workflows/backup-engine.yml"
+        )
+        projections = {sha_new: control_tree, sha_ready: control_tree, sha_old: stale_tree}
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 9001,
+                            "status": "in_progress",
+                            "conclusion": None,
+                            "display_title": "Automatic Backup daily reservation",
+                            "event": "workflow_run",
+                            "head_sha": sha_ready,
+                            "created_at": "2026-11-21T23:10:00Z",
+                            "updated_at": "2026-11-21T23:10:05Z",
+                            "html_url": "https://github.com/o/r/actions/runs/9001",
+                        }
+                    ]
+                }
+            if "backup-engine.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 9100,
+                            "status": "in_progress",
+                            "conclusion": None,
+                            "display_title": "Backup newest",
+                            "event": "push",
+                            "head_sha": sha_new,
+                            "created_at": "2026-11-22T00:05:00Z",
+                            "updated_at": "2026-11-22T00:15:00Z",
+                            "html_url": "https://github.com/o/r/actions/runs/9100",
+                        }
+                    ]
+                }
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": sha_new}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 8200,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha_new,
+                            "run_attempt": 1,
+                            "updated_at": "2026-11-22T00:18:00Z",
+                            "html_url": "https://github.com/o/r/actions/runs/8200",
+                        },
+                        {
+                            "id": 8100,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha_ready,
+                            "run_attempt": 1,
+                            "updated_at": "2026-11-21T23:55:00Z",
+                            "html_url": "https://github.com/o/r/actions/runs/8100",
+                        },
+                        {
+                            "id": 8000,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha_old,
+                            "run_attempt": 1,
+                            "updated_at": "2026-11-21T22:00:00Z",
+                            "html_url": "https://github.com/o/r/actions/runs/8000",
+                        },
+                    ]
+                }
+            if f"/commits/{sha_new}/status" in path:
+                return {
+                    "statuses": [
+                        {
+                            "context": "backup-engine/certified",
+                            "state": "pending",
+                            "target_url": "https://github.com/o/r/actions/runs/9100",
+                            "updated_at": "2026-11-22T00:06:00Z",
+                        }
+                    ]
+                }
+            if f"/commits/{sha_ready}/status" in path:
+                return {
+                    "statuses": [
+                        {
+                            "context": "backup-engine/certified",
+                            "state": "success",
+                            "target_url": "https://github.com/o/r/actions/runs/9050",
+                            "updated_at": "2026-11-21T23:58:00Z",
+                        }
+                    ]
+                }
+            if f"/commits/{sha_old}/status" in path:
+                return {
+                    "statuses": [
+                        {
+                            "context": "backup-engine/certified",
+                            "state": "success",
+                            "target_url": "https://github.com/o/r/actions/runs/9010",
+                            "updated_at": "2026-11-21T22:10:00Z",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected gh api path: {path}")
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            limit=10,
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(
+                sha_new,
+                serving,
+                [(sha_new, "feat: newest"), (sha_ready, "fix: ready"), (sha_old, "fix: old")],
+            ),
+            projection_fn=lambda sha: projections[sha],
+        )
+
+        self.assertEqual(report["verdict"], "READY")
+        self.assertEqual(report["selectableSha"], sha_ready)
+        self.assertIn(sha_ready[:12], report["summary"])
+        self.assertEqual([c["status"] for c in report["candidates"]], ["PENDING", "SELECTABLE", "DISQUALIFIED"])
+        self.assertEqual(report["candidates"][2]["changedControlPaths"], ["scripts/ci/select-daily-engine.py"])
+        self.assertIn("CONTROL_INPUTS mismatch", report["candidates"][2]["reason"])
+        self.assertIn("RC=3", report["candidates"][2]["reason"])
+        self.assertEqual(len(report["activeRuns"]["stage"]), 1)
+        self.assertEqual(len(report["activeRuns"]["backup"]), 1)
+
+        table = mod.render_table(report)
+        self.assertIn("Verdict:         READY", table)
+        self.assertIn("SELECTABLE", table)
+        self.assertIn("CONTROL_INPUTS mismatch", table)
+
+    def test_in_flight_when_backup_or_prequal_pending_and_no_selectable(self):
+        serving = _sha("0")
+        sha_pending = _sha("d")
+        now = datetime(2026, 11, 22, 0, 15, tzinfo=timezone.utc)
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path:
+                return {"workflow_runs": []}
+            if "backup-engine.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 777,
+                            "status": "in_progress",
+                            "head_sha": sha_pending,
+                            "display_title": "Backup pending",
+                        }
+                    ]
+                }
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": sha_pending}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 888,
+                            "status": "in_progress",
+                            "conclusion": None,
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha_pending,
+                            "run_attempt": 1,
+                        }
+                    ]
+                }
+            if f"/commits/{sha_pending}/status" in path:
+                return {"statuses": []}
+            raise AssertionError(path)
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(sha_pending, serving, [(sha_pending, "feat: pending")]),
+            projection_fn=lambda _sha: "same-tree",
+        )
+        self.assertEqual(report["verdict"], "IN_FLIGHT")
+        self.assertIsNone(report["selectableSha"])
+        self.assertEqual(report["candidates"][0]["status"], "PENDING")
+        self.assertIn("777", report["candidates"][0]["reason"])
+        self.assertIn("888", report["candidates"][0]["reason"])
+
+    def test_no_candidate_when_all_disqualified_or_same_as_serving(self):
+        serving = _sha("0")
+        sha_bad = _sha("e")
+        now = datetime(2026, 11, 22, 0, 15, tzinfo=timezone.utc)
+
+        def gh_get_disq(path):
+            if "workflow" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 555,
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha_bad,
+                            "run_attempt": 1,
+                        }
+                    ]
+                    if "prequalification" in path
+                    else []
+                }
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": sha_bad}}
+            if f"/commits/{sha_bad}/status" in path:
+                return {
+                    "statuses": [
+                        {
+                            "context": "backup-engine/certified",
+                            "state": "success",
+                            "target_url": "https://github.com/o/r/actions/runs/554",
+                            "updated_at": "2026-11-22T00:05:00Z",
+                        }
+                    ]
+                }
+            raise AssertionError(path)
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get_disq,
+            git_fn=_make_git_stub(sha_bad, serving, [(sha_bad, "fix: prequal failed")]),
+            projection_fn=lambda _sha: "same-tree",
+        )
+        self.assertEqual(report["verdict"], "NO_CANDIDATE")
+        self.assertEqual(report["candidates"][0]["status"], "DISQUALIFIED")
+        self.assertIn("prequalification failure (run 555)", report["candidates"][0]["reason"])
+
+        # Also test 0 commits ahead of serving:
+        def gh_get_empty(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": serving}}
+            return {"workflow_runs": []}
+
+        empty_report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get_empty,
+            git_fn=_make_git_stub(serving, serving, []),
+            projection_fn=lambda _sha: "same-tree",
+        )
+        self.assertEqual(empty_report["verdict"], "NO_CANDIDATE")
+        self.assertIn("matches serving SHA", empty_report["summary"])
+
+    def test_late_evidence_after_cutoff_is_disqualified_for_this_cycle(self):
+        serving = _sha("0")
+        sha_late = _sha("f")
+        # 00:35Z is 5 minutes AFTER the 00:30Z preparation cutoff for 19:00 CST (01:00Z)
+        now = datetime(2026, 11, 22, 0, 35, tzinfo=timezone.utc)
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path or "backup-engine.yml/runs" in path:
+                return {"workflow_runs": []}
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": sha_late}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 601,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha_late,
+                            "run_attempt": 1,
+                            "updated_at": "2026-11-22T00:32:00Z",
+                        }
+                    ]
+                }
+            if f"/commits/{sha_late}/status" in path:
+                return {
+                    "statuses": [
+                        {
+                            "context": "backup-engine/certified",
+                            "state": "success",
+                            "target_url": "https://github.com/o/r/actions/runs/600",
+                            "updated_at": "2026-11-22T00:25:00Z",
+                        }
+                    ]
+                }
+            raise AssertionError(path)
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(sha_late, serving, [(sha_late, "fix: late prequal")]),
+            projection_fn=lambda _sha: "same-tree",
+        )
+        self.assertTrue(report["schedule"]["cutoffPassed"])
+        self.assertEqual(report["candidates"][0]["status"], "DISQUALIFIED")
+        self.assertIn("completed after 2026-11-22T00:30:00Z cutoff", report["candidates"][0]["reason"])
+        self.assertEqual(report["verdict"], "NO_CANDIDATE")
+
+    def test_unreadable_health_or_api_yields_unknown_never_ready(self):
+        # 1. Unreadable /health
+        r1 = mod.collect_readiness(
+            repo="o/r",
+            now_utc=datetime(2026, 11, 22, 0, 15, tzinfo=timezone.utc),
+            health_fn=lambda: (_ for _ in ()).throw(mod.ReadError("/health timeout")),
+        )
+        self.assertEqual(r1["verdict"], "UNKNOWN")
+        self.assertIn("/health timeout", r1["summary"])
+
+        # 2. Malformed /health payload
+        with self.assertRaises(mod.ReadError):
+            mod.parse_health_payload({"releaseSha": "not-a-sha"})
+
+        # 3. Unreadable GitHub API
+        r2 = mod.collect_readiness(
+            repo="o/r",
+            now_utc=datetime(2026, 11, 22, 0, 15, tzinfo=timezone.utc),
+            health_fn=lambda: _health(release_sha=_sha("0")),
+            gh_get_fn=lambda _path: (_ for _ in ()).throw(mod.ReadError("gh api HTTP 502")),
+        )
+        self.assertEqual(r2["verdict"], "UNKNOWN")
+        self.assertIn("HTTP 502", r2["summary"])
+
+        # 4. Unreadable projection()
+        serving = _sha("0")
+        head = _sha("1")
+
+        def gh_ok(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": head}}
+            return {"workflow_runs": []}
+
+        r3 = mod.collect_readiness(
+            repo="o/r",
+            now_utc=datetime(2026, 11, 22, 0, 15, tzinfo=timezone.utc),
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_ok,
+            git_fn=_make_git_stub(head, serving, [(head, "feat: x")]),
+            projection_fn=lambda _sha: (_ for _ in ()).throw(mod.ReadError("projection failed")),
+        )
+        self.assertEqual(r3["verdict"], "UNKNOWN")
+        self.assertIn("projection failed", r3["summary"])
+
+    def test_json_cli_output_and_exit_codes(self):
+        ready_report = {
+            "schema": 1,
+            "verdict": "READY",
+            "summary": "selectable candidate bbbbbbbbbbbb",
+            "checkedAtUtc": "2026-11-22T00:20:00Z",
+            "checkedAtChicago": "2026-11-21T18:20:00-06:00",
+            "checkedAtChicagoLabel": "2026-11-21 18:20:00 CST",
+            "repo": "o/r",
+            "health": _health(),
+            "schedule": mod.compute_next_cycle(
+                datetime(2026, 11, 22, 0, 20, tzinfo=timezone.utc), "three-hourly"
+            ),
+            "git": None,
+            "activeRuns": {"stage": [], "backup": []},
+            "selectableSha": _sha("b"),
+            "candidates": [],
+            "errors": [],
+        }
+        buf = io.StringIO()
+        with patch.object(mod, "collect_readiness", return_value=ready_report), redirect_stdout(buf):
+            rc = mod.main(["--json", "--limit", "5", "--repo", "o/r"])
+        self.assertEqual(rc, 0)
+        parsed = json.loads(buf.getvalue())
+        self.assertEqual(parsed["verdict"], "READY")
+        self.assertEqual(parsed["selectableSha"], _sha("b"))
+
+        unknown_report = dict(ready_report, verdict="UNKNOWN", selectableSha=None, errors=["api down"])
+        buf2 = io.StringIO()
+        with patch.object(mod, "collect_readiness", return_value=unknown_report), redirect_stdout(buf2):
+            rc2 = mod.main(["--json"])
+        self.assertEqual(rc2, 3)
+        self.assertEqual(json.loads(buf2.getvalue())["verdict"], "UNKNOWN")
+
+    def test_imports_real_prequalification_projection(self):
+        prequal = mod.load_prequalification_module(ROOT)
+        self.assertTrue(callable(prequal.projection))
+        self.assertIn("scripts/ci/read-engine-prequalification.py", prequal.CONTROL_INPUTS)
+
+
+if __name__ == "__main__":
+    unittest.main()

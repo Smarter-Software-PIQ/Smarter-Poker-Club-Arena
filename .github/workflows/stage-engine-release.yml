@@ -727,6 +727,11 @@ jobs:
           python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$CUTOFF_CONTROL" --stage "$GITHUB_SHA" \
             --serving "$serving" "${selection_args[@]}" --output daily-selection.json
           jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"
+          if jq -e '.outcome == "keep-serving" and ((.deferredCandidates // []) | length > 0)' daily-selection.json >/dev/null; then
+            deferred_summary=$(jq -r '[.deferredCandidates[] | "\((.sha // "unknown")[0:12]): \(.reason // "deferred")" + (if (.detail // "") != "" then " (" + ((.detail | tostring) | gsub("[\\r\\n]+"; " ")) + ")" else "" end)] | join("; ")' daily-selection.json)
+            echo "Selection kept serving $serving with deferred candidate(s): $deferred_summary"
+            echo "::error title=Engine selection deferred candidate(s) (keep-serving)::Selection kept serving $serving; deferred: $deferred_summary"
+          fi
       - name: Preserve the daily selection before offering the release
         if: always() && steps.freeze.outcome != 'skipped' && hashFiles('daily-selection.json') != ''
         uses: actions/upload-artifact@v4

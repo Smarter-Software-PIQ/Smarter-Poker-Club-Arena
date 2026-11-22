@@ -155,6 +155,38 @@ describe('the local pre-push gate runs only directly related tests', () => {
     expect(helper).toContain('for ref_attempt in 1 2 3; do');
   });
 
+  it('the push helper fetch retry loop recovers transient exit 1, aborts immediately on signal >= 128, and fails cleanly after 3 attempts', () => {
+    const start = helper.indexOf('for fetch_attempt in 1 2 3; do');
+    const end = helper.indexOf('# A plain `git fetch <remote> main`', start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const loop = helper.slice(start, end);
+
+    const runLoop = (codes: number[]) => {
+      const script = [
+        'REMOTE=origin; REMOTE_GIT=(true); CALLS=0',
+        `CODES=(${codes.join(' ')})`,
+        'say() { :; }',
+        'sleep() { :; }',
+        'owned() { local c=${CODES[$CALLS]:-1}; CALLS=$((CALLS+1)); return "$c"; }',
+        'rc=0',
+        loop,
+        'echo "OK CALLS=$CALLS RC=$rc"',
+      ].join('\n');
+      return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    };
+
+    const recovered = runLoop([1, 0]);
+    expect(recovered.status).toBe(0);
+    expect(recovered.stdout).toContain('OK CALLS=2 RC=0');
+
+    const signalStop = runLoop([143, 0]);
+    expect(signalStop.status).toBe(143);
+
+    const exhausted = runLoop([1, 1, 1]);
+    expect(exhausted.status).toBe(1);
+  });
+
   it('the hook, the publishing guide and the owner policy record the order and keep the later gates', () => {
     const publishing = readFileSync('PUBLISHING.md', 'utf8');
     const policy = readFileSync('docs/agent-policy/OWNER-POLICY.md', 'utf8');

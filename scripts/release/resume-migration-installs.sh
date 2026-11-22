@@ -4,6 +4,7 @@
 #
 # Usage:
 #   bash scripts/release/resume-migration-installs.sh <pause-start-sha> [--dry-run]
+#   Run at :05-:49 UTC (refuses at :48-:04 UTC for the database :50-:03 DDL refusal window).
 #
 # <pause-start-sha> is the main commit at which installs were paused: the
 # booking merge (docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md, step 5).
@@ -42,6 +43,7 @@ DRY_RUN=false
 
 if [[ ! "$SINCE" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "usage: $0 <pause-start-sha> [--dry-run]" >&2
+  echo "Run at :05-:49 UTC (refuses at :48-:04 UTC for the database :50-:03 DDL refusal window)." >&2
   exit 2
 fi
 

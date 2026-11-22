@@ -1,6 +1,6 @@
 # nashCallVsJam: authority for the live switch
 
-Programme option (2026-11-07, Nash push/fold V2), default ON in source (`OPTION_SWITCH_RELEASE_DEFAULT_ON`), read as `(opts.nashCallVsJam ?? true) !== false` (server/src/engine/HorseLogic.ts). It is not in `OPTION_SWITCH_OFF_ONLY` and is not an owner preflop range hold entry: it shipped on by the owner's league rule before that hold, and is registered with states `off`, `shadow`, `on_shadow`, `on` (release default `on`). Unlike the other files in this directory it describes an option that is on unless a switch row turns it off. Evidence NOT MET for this file's replay bar: the league evidence it shipped on is recorded below, but no replay on real audited decisions has been scored, and the replay history it would be scored on was corrected after it shipped (#11556). Missing: scorer-written Replay rows on the corrected history; a human-field card that reaches the spot (the human-calibrated field never open-jams).
+Programme option (2026-11-07, Nash push/fold V2), default ON in source (`OPTION_SWITCH_RELEASE_DEFAULT_ON`), read as `(opts.nashCallVsJam ?? true) !== false` (server/src/engine/HorseLogic.ts). It is not in `OPTION_SWITCH_OFF_ONLY` and is not an owner preflop range hold entry: it shipped on by the owner's league rule before that hold, and is registered with states `off`, `shadow`, `on_shadow`, `on` (release default `on`). Unlike the other files in this directory it describes an option that is on unless a switch row turns it off. Evidence NOT MET for this file's full bar: the league evidence it shipped on is recorded below and real-hand audited decision replays on the corrected history (#11556 + #11622) were scored on 2026-11-21 (`HVH48-E`: `fixed 1`, `newlyWrong 1`, `changed 194`; `HU30D`: `fixed 0`, `newlyWrong 0`, `changed 1`; `HVH48-D` cash: `0` changed, inert), meeting the replay build bar (`newlyWrong <= fixed`), with the reverse live-baseline check (`off vs on`) showing turning it off would flip `175` Auditor-E `OK` decisions while fixing `1`. Still missing: a human-field card that reaches the spot (the human-calibrated field never open-jams).
 
 ## What it does
 
@@ -19,15 +19,36 @@ nash_call_vs_jam (server/src/engine/HorseDataLedger.ts): a seat facing a lone op
 
 ## Evidence rows
 
-Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md. Nothing was run for this file; every number below is copied from the record named beside it.
+Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md. League rows below are copied from the record named beside them; Replay rows were measured on 2026-11-21 on the corrected history (#11556 + #11622).
 
 - Mechanism, scope, receipt, tests: recorded (docs/changelog/2026-11-07-nash-push-fold-v2.md).
 - Value (mirror league, shipped on by the owner rule): `runMatchup`, 20,000 pairs, charts hydrated, a = on, b = off, seeds 1107 / 2207: MTT 6-max 10bb `+4.72 +/- 0.64` / `+3.41 +/- 0.63`; 15bb `+2.40 +/- 0.68` / `+2.17 +/- 0.68`; 20bb `-0.08 +/- 0.63` / `+0.55 +/- 0.63`; MTT 9-max 12bb `+1.82 +/- 0.42` / `+2.23 +/- 0.44`; 20bb `+0.62 +/- 0.45` / `+0.17 +/- 0.45`; MTT heads-up 12bb `+4.86 +/- 1.17` / `+3.89 +/- 1.16`; cash 6-max 12bb `+0.80 +/- 0.38` / `+0.78 +/- 0.39`; cash 20bb cards inert. Human-calibrated field inert on both seeds (0 divergent pairs): that population never open-jams. Nothing below -2 stderr (same changelog; HorseDataLedger flag note).
 - Human-field value: NOT MET. No card reaches a lone open-jam against the human-calibrated field.
-- Replay on real audited decisions: NOT MET (see Replay). docs/changelog/2026-11-20-a-replayed-hand-has-no-forced-posts-in-its-history.md names this option among those whose replay evidence must be re-run on the corrected history.
+- Replay on real audited decisions (2026-11-21, corrected history without forced posts #11556 and ledger-attributed receipts #11622): `HVH48-E` (`fixed 1`, `newlyWrong 1`, `changed 194`, `unjudged 192`; `nash_call_vs_jam` `194 changed / 1 fixed / 1 newly wrong`) and `HU30D` (`fixed 0`, `newlyWrong 0`, `changed 1`, `unjudged 1`; `nash_call_vs_jam` `1 changed / 0 fixed / 0 newly wrong`) pass the build bar (`newlyWrong <= fixed`). `HVH48-D` cash had `0` changed decisions of `2734` replayed (inert: no <=20bb lone open-jams in the cash set).
 
 ## Replay
 
-Machine-read (README.md, "The Replay row").
+Machine-read (README.md, "The Replay row"); each run row is written by the scorer (`--row on`) and copied unedited.
 
-- Replay: NOT RUN (default ON in source since 2026-11-07 on its mirror league cards; no audited-decision replay was scored, and #11556 lists it among the preflop options whose replay must be run on the corrected history without forced posts)
+- Replay: fixed 1; newlyWrong 1; changed 194; unchanged 5162; unjudged 192; set HVH48-E Hold'em tournaments vs people 48h; scorer 5302af2ab3e; source placed verdict-only; arm on vs off; replayed 5356 of 10937
+- Replay: fixed 0; newlyWrong 0; changed 1; unchanged 2575; unjudged 1; set HU30D Hold'em 2-player tournaments 30d; scorer 5302af2ab3e; source placed verdict-only; arm on vs off; replayed 2576 of 2576
+
+Unedited scorer lines (`server/scripts/audited-decision-replay.ts --placed ... --line on --row on`):
+
+- `HVH48-E`: `placed (verdict-only; 10937 audited decisions, 244 judged bad; joined by node: 5356 replayed, 5581 not replayed, base reproduces the recorded action on 4237): arm on changed 194 (176 more aggressive, 18 more passive), resized 3, illegal 0, refused 0, errors 0; fixed 1, newly wrong 1, still wrong 0, ok to ok 0, unjudged 192; judged bad left unchanged 183; no bb (the audit declares no EV model); per receipt: holdem_premium_preflop_raise 2 changed / 0 fixed / 0 newly wrong; nash_call_vs_jam 194 changed / 1 fixed / 1 newly wrong.`
+- `HU30D`: `placed (verdict-only; 2576 audited decisions, 52 judged bad; joined by node: 2576 replayed, 0 not replayed, base reproduces the recorded action on 1699): arm on changed 1 (1 more aggressive, 0 more passive), resized 0, illegal 0, refused 0, errors 0; fixed 0, newly wrong 0, still wrong 0, ok to ok 0, unjudged 1; judged bad left unchanged 15; no bb (the audit declares no EV model); per receipt: nash_call_vs_jam 1 changed / 0 fixed / 0 newly wrong.`
+- `HVH48-D` cash (`3891` audited decisions, `2734` replayed in `394` hands, `0` arm errors): arm `on` differed from base `off` on `0` of `2734` rows (inert; refused by the scorer without `--allow-unchanged`, so no run row is recorded).
+
+Default-ON direction check (reverse `--base on --line off`, measuring what switching `nashCallVsJam` OFF from the live ON state would do): because `nashCallVsJam` was already default ON in production during the audited windows, `188` of the `194` changed `HVH48-E` nodes match `on == recorded` (making them `unjudged` in verdict-only `on vs off`, which only judges nodes where `base == recorded`). Scored with `--base on --line off`:
+
+- `HVH48-E` (`off vs on`, base reproduces recorded `4420` vs `4237` when off): `changed 194 (18 more aggressive, 176 more passive), resized 3, illegal 0, refused 0, errors 0; fixed 1, newly wrong 175, still wrong 1, ok to ok 0, unjudged 17`. Turning `nashCallVsJam` off would move `175` Auditor-E `OK` decisions away from `OK` (`157` calls turned into folds, `9` calls to all-in, `6` calls to raise, `2` raises to all-in, `1` fold to call) while fixing `1` `LIKELY PF_CALL_OFF_TOO_LIGHT` call.
+- `HU30D` (`off vs on`, base reproduces recorded `1700` vs `1699` when off): `changed 1 (0 more aggressive, 1 more passive); fixed 0, newly wrong 1, unjudged 0`.
+
+How the rows were produced (2026-11-21, on the operations Mac, checkout `dce4d6d6a44`, run from `server/`; scratch replay files held Horse hole cards and were deleted after scoring):
+
+1. Audit sets: `HVH48-E` (`shared-capacity/hvh48-audit-01TLQer7J/E/decisions.csv`, sha256 `b3e7f1ac105268462fb8c5e30d8f58c1ba6261256dd445f61249a035531144b3`), placed with `python3 server/scripts/hvh48-audit-nodes.py --set E` (`10937` audited decisions, `10937` placed, `0` not placed; bad `244`, ok `4113`, unjudged `6580`; `5356` replayable in `1478` hands); `HU30D` (`extreme-archive/hu-29a711f2-replay-20261120/nodes_30d/E.nodes.jsonl` and `E.job.json`, `2576` placed and replayed, bad `52`); and `HVH48-D` (`shared-capacity/hvh48-audit-01TLQer7J/D/decisions.csv`, sha256 `0e36700096a0906d07a5e1ecd0829c35f1ad6abe423f16543103541899c521f0`, `3891` placed, `2734` replayable in `394` hands).
+2. Switch baseline: the `66`-row archived production switch baseline (`antigravity-coordinator-20261121/holdem-replay-01Gw7aDt/switch-20261120T2115Z-plus3.json`: the `63` production switch rows of `2026-11-20T21:15Z` plus `huBbDefendsUnreadToPrice`, `holdemRiverFullHouseValueIsPriced`, and `omahaRiverCurrentNutsCallFloor`) plus an explicit `{"option": "nashCallVsJam", "state": "off"}` row so base arm `off` passes `nashCallVsJam: false` while `--arms on=nashCallVsJam` passes `nashCallVsJam: true` (other default-ON options stay at their release default `on`; `0` rows sanitized, `0` refused).
+3. `npx tsx scripts/audited-node-option-replay.ts --job <set>.job.json --switch switch-nash-off.json --arms on=nashCallVsJam --out <set>.nash.replay.jsonl` (seeds `1,7,42`, opponent memory OFF `mind: false`; `0` arm errors on all three sets).
+4. `npx tsx scripts/audited-decision-replay.ts --placed <set>.nodes.jsonl --replay <set>.nash.replay.jsonl --line on --row on --set "<set name>"`, the `- Replay:` rows above copied unedited.
+
+Limits: the database was not read for the switch baseline (uses the archived `2026-11-20T21:15Z` + 3 rows snapshot); opponent memory is off in replay (`mind: false`); the audits are verdict-only (no bb); `5581` `HVH48-E` preflop folds have unknown Horse cards and are not replayed.
