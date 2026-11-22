@@ -13,7 +13,7 @@
 --     1. public.ca_manual_adjustments (2,389 rows) had no index on
 --        tournament_id, so PostgreSQL drove fn_ca_guarantee_house_supplements
 --        from chip_ledger via BitmapAnd(idx_chip_ledger_union_promo_runway_legs,
---        idx_chip_ledger_correlation_id) — reading 53,111 index entries and
+--        idx_chip_ledger_correlation_id) - reading 53,111 index entries and
 --        1,071 shared buffers (53.4 ms) per call even when 0 adjustments exist.
 --     2. public.fn_ca_guarantee_funding(uuid) invoked
 --        fn_ca_guarantee_house_supplements(p_tournament_id) TWICE per
