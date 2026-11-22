@@ -118,6 +118,7 @@ import {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   NLH_SCRIPTED_POPULATION_ID,
   NLH_SCRIPTED_FIELD_VARIANTS,
   NLH_SCRIPTED_PERSONAS,
@@ -197,6 +198,7 @@ export {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   FLO8_SCRIPTED_POPULATION_ID,
   FLO8_SCRIPTED_FIELD_VARIANTS,
   FLO8_SCRIPTED_PERSONAS,
@@ -2322,7 +2324,8 @@ export function humanFieldPersonaProfile(
     persona === FLH_PASSIVE_CALLER_PERSONA ||
     persona === FLH_OVER_FOLDING_BLINDS_PERSONA ||
     persona === FLH_VALUE_ONLY_BLINDS_PERSONA ||
-    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA
+    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA ||
+    persona === FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA
   ) {
     throw new Error(
       `${persona} is a scripted persona of the ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} field ` +
@@ -3355,6 +3358,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     name: 'nlh_holdem_value_and_calls_are_priced',
     variant: 'nlh',
     pairs: 6000,
+    a: { holdemValueAndCallsArePriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh9_holdem_value_and_calls_are_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
     a: { holdemValueAndCallsArePriced: true },
     b: {},
   },
@@ -5703,6 +5716,33 @@ export const HUMAN_MTT6_HOLDEM_TOURNAMENT_ALL_IN_CALL_IS_PRICED_12BB = `${HUMAN_
 }
 
 /**
+ * HUMAN-FIELD CASH CARDS FOR holdemValueAndCallsArePriced (2026-11-22).
+ * 6-max and 9-max NLH 100bb cash human-calibrated twins (one live cash Hybrid
+ * hero Horse with deal-seeded mood clock vs HUMAN_CALIBRATED_POPULATION_ID).
+ */
+export const HUMAN_NLH_HOLDEM_VALUE_AND_CALLS_ARE_PRICED = `${HUMAN_FIELD_NAME_PREFIX}nlh_holdem_value_and_calls_are_priced`;
+export const HUMAN_NLH9_HOLDEM_VALUE_AND_CALLS_ARE_PRICED = `${HUMAN_FIELD_NAME_PREFIX}nlh9_holdem_value_and_calls_are_priced`;
+for (const [mirrorName, twinName] of [
+  ['nlh_holdem_value_and_calls_are_priced', HUMAN_NLH_HOLDEM_VALUE_AND_CALLS_ARE_PRICED],
+  ['nlh9_holdem_value_and_calls_are_priced', HUMAN_NLH9_HOLDEM_VALUE_AND_CALLS_ARE_PRICED],
+] as const) {
+  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === mirrorName);
+  if (!mirror) throw new Error(`${mirrorName} left the card; its human twin has no mirror`);
+  LEAGUE_MATCHUPS.push({
+    name: twinName,
+    variant: 'nlh',
+    ...(mirror.seats !== undefined ? { seats: mirror.seats } : {}),
+    ...(mirror.stackBB !== undefined ? { stackBB: mirror.stackBB } : {}),
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { ...mirror.a },
+    b: { ...mirror.b },
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+  });
+}
+
+/**
  * THE HEADS-UP EXPLOITER CARDS (2026-11-12, HU-NLH-001). The live brain at
  * 40bb (the band V85 leaves on the V11 bars) against each exploiter persona.
  * They are not twins of a mirror card: no Horse plays these lines. Against an
@@ -6142,6 +6182,15 @@ export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object
     6,
     3000,
     FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+    { fixedLimitStealVsTightBlinds: true }
+  ),
+  // 2026-11-21: the steal's harm control with blinds that defend preflop AND continue postflop
+  // with top pair or better (value-betting/raising two pair+, calling one wager with top pair/overpair).
+  fixedLimitScriptedCard(
+    'flh_steal_vs_tight_blinds_vs_defending_postflop_blinds',
+    6,
+    3000,
+    FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
     { fixedLimitStealVsTightBlinds: true }
   ),
   // 2026-11-21 STYLE SHIFT RELEASE IS NOISE-AWARE (styleShiftReleaseIsNoiseAware, default OFF, a process switch:

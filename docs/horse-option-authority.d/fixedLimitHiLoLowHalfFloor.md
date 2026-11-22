@@ -31,6 +31,7 @@ Sizing probe (`seed 20261115`, `500` pairs): `vs_high_barreler` `0/500`, `vs_tig
 - Mechanism: MET by the law's fixtures.
 - League: MEASURED on legal fixed-limit `flo8` (`FLO8_SCRIPTED_FIELD_CARDS`, 2026-11-21): `3/4,000` pairs diverged against `flo8_tight_value_v1` (`+0.23 +/- 0.32 bb/100`, `z = +0.73`, not resolved, zero harm) and `0/4,000` against `flo8_high_barreler_v1` and `flo8_maniac_v1`; `0/300` in the Horse mirror.
 - Value, continuation, reach against people: NOT MEASURED in this repository. The ledger records the lane's diagnosis before the fix (flo8 six seats: river hands with a low half of 0.46 and 0.59 capped to 0.10 and 0.13 and folded 66 of 83); its archive is outside this repository.
+- Historical human FLO8 micro-replay check (2026-11-21, 336 replayable `horse_policy` nodes from the 43/107 showdown hands of the 2026-11-03 02:40 to 03:53 UTC 1-person session, 0 arm errors, 0 placed audit verdicts): `fixed_limit_hilo_low_half_kept_seen` fired 6 times with **0 / 336** decisions changed.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 
 ## What is still owed before this file may say the evidence is met

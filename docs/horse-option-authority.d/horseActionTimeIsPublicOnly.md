@@ -40,3 +40,7 @@ Global: all games, not PLO only.
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+
+## Rollback
+
+If enabled, set `horseActionTimeIsPublicOnly` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('horseActionTimeIsPublicOnly', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.
