@@ -84,6 +84,7 @@ import { tournamentEntryTerms } from './entryTerms';
 import { tournamentRowUnitCents } from './types';
 import { tournamentEntryWindow } from '../../../utils/tournamentEntryWindow';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../../utils/multiDaySchedule';
+import { tournamentStartsWhenFull } from '../../../utils/tournamentPresentation';
 import '../../../styles/tournament-lobby-3d.css';
 import './BlindsTab.css';
 
@@ -173,12 +174,16 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
      from the raw row rather than from `isFinished` below, because that is
      computed after this effect. */
   const rowStatus = String(row.status || '').toUpperCase();
+  const startsWhenFull = tournamentStartsWhenFull(tournament);
+  const rowHasStarted =
+    rowStatus === 'RUNNING' || rowStatus === 'LATE_REG' || epoch(row.started_at) !== null;
   const clockIsDead =
     rowStatus === 'COMPLETED' ||
     rowStatus === 'CANCELLED' ||
     !!row.ended_at ||
     // Multi-day, between days: the clock is stopped overnight, not finished.
-    isBaggedStatus(rowStatus);
+    isBaggedStatus(rowStatus) ||
+    (!rowHasStarted && startsWhenFull);
 
   useEffect(() => {
     if (clockIsDead) return;
@@ -459,7 +464,10 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
     mainClock = '--:--';
     mainCaption = DAY_COMPLETE_LABEL;
   } else if (!hasStarted) {
-    if (secondsToStart === null) {
+    if (startsWhenFull) {
+      mainClock = '--:--';
+      mainCaption = 'Starts When Full';
+    } else if (secondsToStart === null) {
       mainClock = '--:--';
       mainCaption = 'Start Time Not Set';
     } else if (secondsToStart === 0) {

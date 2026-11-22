@@ -85,7 +85,12 @@
  * A raise is never made or removed here: only the call and the fold.
  */
 import type { Card, CardRank, CardSuit } from '../types.js';
-import { scoreHoldem } from './HorseEval.js';
+import {
+  holdemCardId,
+  packHoldemBoardBits,
+  scoreHoldemPlus2Ids,
+  type HoldemBoardBits,
+} from './HorseEval.js';
 import { NASH_PUSH_FOLD_V2 } from './HorseNashPushFoldV2.data.js';
 import {
   nashV2CallProbability,
@@ -295,50 +300,92 @@ const DECK: readonly Card[] = (() => {
     for (let s = 0; s < 4; s++) out.push({ rank: RANK_CHARS[r] as CardRank, suit: SUIT_LIST[s] });
   return out;
 })();
+const DECK_ID_TO_EVAL_ID = new Uint8Array(52);
+for (let i = 0; i < 52; i++) DECK_ID_TO_EVAL_ID[i] = holdemCardId(DECK[i]);
+
+const COMBO_DECK_IDS: ReadonlyArray<Uint8Array> = COMBOS.map((list) => {
+  const out = new Uint8Array(list.length * 2);
+  for (let k = 0; k < list.length; k++) {
+    out[k * 2] = cardId(list[k][0]);
+    out[k * 2 + 1] = cardId(list[k][1]);
+  }
+  return out;
+});
 
 interface WeightedCombos {
-  cards: Array<[Card, Card]>;
-  ids: Array<[number, number]>;
+  idA: Uint8Array;
+  idB: Uint8Array;
+  evalA: Uint8Array;
+  evalB: Uint8Array;
   cumulative: Float64Array;
   total: number;
 }
 
-function weightedCombos(range: HoldemClassRange, dead: ReadonlySet<number>): WeightedCombos {
-  const cards: Array<[Card, Card]> = [];
-  const ids: Array<[number, number]> = [];
+function weightedCombos(range: HoldemClassRange, deadFlags: Uint8Array): WeightedCombos {
+  const idA: number[] = [];
+  const idB: number[] = [];
   const weights: number[] = [];
   for (let i = 0; i < 169; i++) {
     const w = range[i];
     if (!(w > 0)) continue;
-    for (const combo of COMBOS[i]) {
-      const a = cardId(combo[0]);
-      const b = cardId(combo[1]);
-      if (dead.has(a) || dead.has(b)) continue;
-      cards.push(combo);
-      ids.push([a, b]);
+    const pairs = COMBO_DECK_IDS[i];
+    for (let k = 0; k < pairs.length; k += 2) {
+      const a = pairs[k];
+      const b = pairs[k + 1];
+      if (deadFlags[a] || deadFlags[b]) continue;
+      idA.push(a);
+      idB.push(b);
       weights.push(w);
     }
   }
-  const cumulative = new Float64Array(weights.length);
+  const len = weights.length;
+  const outA = new Uint8Array(len);
+  const outB = new Uint8Array(len);
+  const evalA = new Uint8Array(len);
+  const evalB = new Uint8Array(len);
+  const cumulative = new Float64Array(len);
   let total = 0;
-  for (let i = 0; i < weights.length; i++) {
+  for (let i = 0; i < len; i++) {
+    const a = idA[i];
+    const b = idB[i];
+    outA[i] = a;
+    outB[i] = b;
+    evalA[i] = DECK_ID_TO_EVAL_ID[a];
+    evalB[i] = DECK_ID_TO_EVAL_ID[b];
     total += weights[i];
     cumulative[i] = total;
   }
-  return { cards, ids, cumulative, total };
+  return { idA: outA, idB: outB, evalA, evalB, cumulative, total };
 }
 
 function drawCombo(w: WeightedCombos, rng: SeededRandom): number {
   const x = rng.next() * w.total;
+  const cum = w.cumulative;
   let lo = 0;
-  let hi = w.cumulative.length - 1;
+  let hi = cum.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (w.cumulative[mid] > x) hi = mid;
+    if (cum[mid] > x) hi = mid;
     else lo = mid + 1;
   }
   return lo;
 }
+
+const rangeEqBoardBits: HoldemBoardBits = {
+  once: 0,
+  twice: 0,
+  thrice: 0,
+  four: 0,
+  sm0: 0,
+  sm1: 0,
+  sm2: 0,
+  sm3: 0,
+  sc0: 0,
+  sc1: 0,
+  sc2: 0,
+  sc3: 0,
+  count: 0,
+};
 
 /**
  * The Horse's showdown share (0..1) against every range at once, by seeded
@@ -353,34 +400,56 @@ export function holdemRangeEquity(
   iterations: number
 ): number | null {
   if (hero.length !== 2 || ranges.length === 0 || board.length > 5) return null;
-  const dead = new Set<number>();
-  for (const c of [...hero, ...board]) {
-    const id = cardId(c);
-    if (id < 0 || dead.has(id)) return null;
-    dead.add(id);
+  const deadFlags = new Uint8Array(52);
+  const deadList = new Uint8Array(7);
+  let deadCount = 0;
+  const heroId0 = cardId(hero[0]);
+  const heroId1 = cardId(hero[1]);
+  if (heroId0 < 0 || heroId1 < 0 || heroId0 === heroId1) return null;
+  deadFlags[heroId0] = 1;
+  deadFlags[heroId1] = 1;
+  deadList[deadCount++] = heroId0;
+  deadList[deadCount++] = heroId1;
+  const boardLen = board.length;
+  const boardEvalIds = new Uint8Array(5);
+  for (let i = 0; i < boardLen; i++) {
+    const id = cardId(board[i]);
+    if (id < 0 || deadFlags[id]) return null;
+    deadFlags[id] = 1;
+    deadList[deadCount++] = id;
+    boardEvalIds[i] = DECK_ID_TO_EVAL_ID[id];
   }
-  const pools = ranges.map((r) => weightedCombos(r, dead));
-  if (pools.some((p) => !(p.total > 0))) return null;
+  const numPools = ranges.length;
+  const pools: WeightedCombos[] = new Array(numPools);
+  for (let p = 0; p < numPools; p++) {
+    const pool = weightedCombos(ranges[p], deadFlags);
+    if (!(pool.total > 0)) return null;
+    pools[p] = pool;
+  }
   const rng = new SeededRandom(seed);
   const used = new Uint8Array(52);
-  const seven: Card[] = new Array(7);
-  const boardOut: Card[] = new Array(5);
+  const villainEval0 = new Uint8Array(numPools);
+  const villainEval1 = new Uint8Array(numPools);
+  const heroEval0 = DECK_ID_TO_EVAL_ID[heroId0];
+  const heroEval1 = DECK_ID_TO_EVAL_ID[heroId1];
   let share = 0;
   let dealt = 0;
   for (let it = 0; it < iterations; it++) {
     used.fill(0);
-    for (const id of dead) used[id] = 1;
-    const villainCards: Array<[Card, Card]> = [];
+    for (let d = 0; d < deadCount; d++) used[deadList[d]] = 1;
     let ok = true;
-    for (const pool of pools) {
+    for (let p = 0; p < numPools; p++) {
+      const pool = pools[p];
       let placed = false;
       for (let attempt = 0; attempt < 24 && !placed; attempt++) {
         const k = drawCombo(pool, rng);
-        const [a, b] = pool.ids[k];
+        const a = pool.idA[k];
+        const b = pool.idB[k];
         if (used[a] || used[b]) continue;
         used[a] = 1;
         used[b] = 1;
-        villainCards.push(pool.cards[k]);
+        villainEval0[p] = pool.evalA[k];
+        villainEval1[p] = pool.evalB[k];
         placed = true;
       }
       if (!placed) {
@@ -389,24 +458,19 @@ export function holdemRangeEquity(
       }
     }
     if (!ok) continue;
-    for (let i = 0; i < board.length; i++) boardOut[i] = board[i];
-    for (let i = board.length; i < 5; i++) {
+    for (let i = boardLen; i < 5; i++) {
       let id: number;
       do id = rng.nextInt(52);
       while (used[id]);
       used[id] = 1;
-      boardOut[i] = DECK[id];
+      boardEvalIds[i] = DECK_ID_TO_EVAL_ID[id];
     }
-    for (let i = 0; i < 5; i++) seven[i + 2] = boardOut[i];
-    seven[0] = hero[0];
-    seven[1] = hero[1];
-    const heroScore = scoreHoldem(seven, 7, false);
+    packHoldemBoardBits(boardEvalIds, 5, rangeEqBoardBits);
+    const heroScore = scoreHoldemPlus2Ids(rangeEqBoardBits, heroEval0, heroEval1, false);
     let best = true;
     let ties = 1;
-    for (const v of villainCards) {
-      seven[0] = v[0];
-      seven[1] = v[1];
-      const s = scoreHoldem(seven, 7, false);
+    for (let p = 0; p < numPools; p++) {
+      const s = scoreHoldemPlus2Ids(rangeEqBoardBits, villainEval0[p], villainEval1[p], false);
       if (s > heroScore) {
         best = false;
         break;
