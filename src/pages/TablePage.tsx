@@ -70,6 +70,7 @@ import {
 } from '../utils/seatFirstPartnerHold';
 import { isUUID } from '../utils/clubIdResolver';
 import { TableLoadFailureOverlay } from '../components/table/TableLoadFailureOverlay';
+import { InviteLandedLateOverlay } from '../components/table/InviteLandedLateOverlay';
 /* #ClubArenaConsole: the felt's own dialogs print into Dan's approved master
    rather than drawing a card in CSS. See .claude/skills/club-arena-console. */
 import { SpadeConsole } from '../components/console/SpadeConsole';
@@ -94,7 +95,13 @@ import {
   parseTableInviteParams,
   resolveMustMoveRoutingOutcome,
 } from '../lib/mustMoveInviteRouting';
-import { gameInviteText, gameInviteUrl, shareLink, tableShareUrl } from '../lib/share';
+import {
+  gameInviteText,
+  gameInviteUrl,
+  shareLink,
+  tableInviteTarget,
+  tableShareUrl,
+} from '../lib/share';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -6641,31 +6648,32 @@ function LiveTablePage({
     };
   }, [tableId, tableState.tournamentId, tableState.heroSeat, userId, seatFirstBuyIn, playHasBegun]);
 
+  /* ONE TARGET FOR EVERY INVITE SENT FROM THIS TABLE (2026-11-22): the link,
+     the share sheet and the in-app friend invite all read tableInviteTarget
+     (src/lib/share.ts). A tournament table is never the address, except a
+     Heads Up seat held for a named player. */
+  const currentInviteTarget = useCallback(() => {
+    const current = tableStateRef.current;
+    const holdsSeatForInvitee =
+      seatFirstOpenRef.current && headsUpWaitModeRef.current === 'specific';
+    return tableInviteTarget({
+      tableId: tableId ?? '',
+      lightningClusterId: lightningRoomRef.current?.clusterId ?? null,
+      isTournament: current.isTournament,
+      tournamentId: current.tournamentId,
+      clusterId: current.clusterId,
+      inviteCode: senderInviteCodeRef.current,
+      seatHoldToken: holdsSeatForInvitee ? headsUpInviteTokenRef.current : null,
+    });
+  }, [tableId]);
+
   const handleInviteToGame = useCallback(async () => {
     if (!tableId) return;
     const current = tableStateRef.current;
     const lightning = lightningRoomRef.current;
-    const isSeatFirstOpen = seatFirstOpenRef.current;
-    const inviteCode = senderInviteCodeRef.current;
-    const isTournamentShare =
-      !lightning?.clusterId &&
-      current.isTournament &&
-      Boolean(current.tournamentId) &&
-      !isSeatFirstOpen;
-    const baseUrl = lightning?.clusterId
-      ? gameInviteUrl({ kind: 'lightning', id: lightning.clusterId, inviteCode })
-      : isTournamentShare && current.tournamentId
-        ? gameInviteUrl({ kind: 'tournament', id: current.tournamentId })
-        : gameInviteUrl({
-            kind: 'table',
-            id: tableId,
-            inviteCode,
-            clusterId: !current.isTournament ? current.clusterId : null,
-          });
-    const url =
-      isSeatFirstOpen && headsUpWaitModeRef.current === 'specific'
-        ? appendHeadsUpInviteToken(baseUrl, headsUpInviteTokenRef.current)
-        : baseUrl;
+    const target = currentInviteTarget();
+    const isTournamentShare = target.kind === 'tournament';
+    const url = gameInviteUrl(target);
     const gameTitle =
       (isTournamentShare ? tournamentEventNameRef.current : '') ||
       lightning?.meta?.name ||
@@ -6685,7 +6693,7 @@ function LiveTablePage({
     } else if (outcome === 'failed') {
       setTableInviteFallbackUrl(url);
     }
-  }, [tableId, toast]);
+  }, [tableId, toast, currentInviteTarget]);
   const handleInviteToGameRef = useRef(handleInviteToGame);
   handleInviteToGameRef.current = handleInviteToGame;
 
@@ -29439,6 +29447,22 @@ function LiveTablePage({
           )}
         </>
       )}
+      {/* An invite link opened after its game filled: say so and offer the
+          open game (2026-11-22). Asked of the game row and the viewer's own
+          entry, so a player who is in this game never sees it. */}
+      {tableId && !tableLoadFailure && !lightningRoom && (
+        <InviteLandedLateOverlay
+          active={
+            isVisible &&
+            Boolean(incomingTableInvite.inviteCode || incomingTableInvite.inviteToken) &&
+            tableState.isTournament &&
+            !heroSeatedOnTable
+          }
+          tableId={tableId}
+          tournamentId={tableState.tournamentId}
+          userId={userId}
+        />
+      )}
       {/* Phase 1.2 PR-F: hero disconnect banner. Only renders when the
           engine FSM reports MISSING or DISCONNECTED for this user. */}
       {/* ── Bounty knockout ────────────────────────────────────────────────
@@ -32004,7 +32028,13 @@ function LiveTablePage({
           kind={
             lightningRoom?.clusterId ? 'lightning' : tableState.isTournament ? 'tournament' : 'cash'
           }
-          tableId={lightningRoom?.clusterId ? null : tableId}
+          /* The in-app invite names the same game the link does
+             (tableInviteTarget): a tournament by its id, never by the table
+             the inviter happens to sit at, unless a Heads Up seat is being
+             held for the invited player. */
+          tableId={
+            lightningRoom?.clusterId || currentInviteTarget().kind === 'tournament' ? null : tableId
+          }
           tournamentId={tableState.isTournament ? tableState.tournamentId : null}
           clusterId={
             lightningRoom?.clusterId ?? (!tableState.isTournament ? tableState.clusterId : null)

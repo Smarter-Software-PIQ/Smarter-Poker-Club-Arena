@@ -149,22 +149,38 @@ export function parseSupabaseJsonOutput(raw) {
   if (!text) {
     throw new Error('Supabase query returned empty output');
   }
-  try {
-    return JSON.parse(text);
-  } catch {
+  const tryParse = (candidate) => {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      return undefined;
+    }
+  };
+
+  let parsed = tryParse(text);
+  if (parsed === undefined) {
     // Supabase CLI occasionally writes notices around JSON; recover outermost array/object.
     const firstBracket = text.indexOf('[');
     const lastBracket = text.lastIndexOf(']');
     if (firstBracket >= 0 && lastBracket > firstBracket) {
-      return JSON.parse(text.slice(firstBracket, lastBracket + 1));
+      parsed = tryParse(text.slice(firstBracket, lastBracket + 1));
     }
+  }
+  if (parsed === undefined) {
     const firstBrace = text.indexOf('{');
     const lastBrace = text.lastIndexOf('}');
     if (firstBrace >= 0 && lastBrace > firstBrace) {
-      return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+      parsed = tryParse(text.slice(firstBrace, lastBrace + 1));
     }
+  }
+  if (parsed === undefined) {
     throw new Error(`Failed to parse Supabase JSON output: ${text.slice(0, 200)}`);
   }
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && Array.isArray(parsed.rows)) return parsed.rows;
+  if (parsed && Array.isArray(parsed.data)) return parsed.data;
+  if (parsed && typeof parsed === 'object') return [parsed];
+  throw new Error('Unexpected JSON shape from Supabase query output');
 }
 
 export function buildServingRegistrySql() {
@@ -271,8 +287,9 @@ export function shaMatches(candidate, target) {
   return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
-export function evaluateLiveHealth(health, httpStatus = 200) {
+export function evaluateLiveHealth(health, httpStatus = 200, { strictLatency = false } = {}) {
   const failures = [];
+  const warnings = [];
   if (httpStatus !== 200) {
     failures.push(`HTTP status ${httpStatus} (expected 200)`);
   }
@@ -282,6 +299,7 @@ export function evaluateLiveHealth(health, httpStatus = 200) {
       status: 'fail',
       releaseSha: null,
       failures: [...failures, 'health body is not a JSON object'],
+      warnings,
       details: null,
     };
   }
@@ -343,11 +361,71 @@ export function evaluateLiveHealth(health, httpStatus = 200) {
     }
   }
 
+  const lhd =
+    health.liveHorseDecision &&
+    typeof health.liveHorseDecision === 'object' &&
+    !Array.isArray(health.liveHorseDecision)
+      ? health.liveHorseDecision
+      : null;
+  let liveHorseDecisionDetails = null;
+  if (lhd) {
+    const phase = lhd.phase ?? null;
+    const recoverableRequestErrors =
+      typeof lhd.recoverableRequestErrors === 'number' &&
+      Number.isFinite(lhd.recoverableRequestErrors)
+        ? lhd.recoverableRequestErrors
+        : null;
+    const lastRecoverableRequestError =
+      typeof lhd.lastRecoverableRequestError === 'string' && lhd.lastRecoverableRequestError.trim()
+        ? lhd.lastRecoverableRequestError.trim()
+        : null;
+    const expiredJobs =
+      typeof lhd.expiredJobs === 'number' && Number.isFinite(lhd.expiredJobs)
+        ? lhd.expiredJobs
+        : null;
+
+    if (phase !== null && phase !== 'ready') {
+      failures.push(`liveHorseDecision.phase=${String(phase)} (expected ready)`);
+    }
+    if (recoverableRequestErrors !== null && recoverableRequestErrors > 0) {
+      const errDetail = lastRecoverableRequestError
+        ? ` (lastRecoverableRequestError=${lastRecoverableRequestError})`
+        : '';
+      failures.push(
+        `liveHorseDecision.recoverableRequestErrors=${recoverableRequestErrors}${errDetail}`
+      );
+    }
+    if (expiredJobs !== null && expiredJobs > 0) {
+      warnings.push(`liveHorseDecision.expiredJobs=${expiredJobs}`);
+    }
+
+    liveHorseDecisionDetails = {
+      phase,
+      recoverableRequestErrors,
+      lastRecoverableRequestError,
+      expiredJobs,
+    };
+  }
+
+  const liveHealthLatency = health.horseDecisionLatency ?? null;
+  if (liveHealthLatency && liveHealthLatency.starvationAlert === true) {
+    const latencyMsg =
+      `live /health horseDecisionLatency.starvationAlert=true` +
+      ` (>100ms=${liveHealthLatency.over100msCount ?? '?'}/${liveHealthLatency.totalDecisions ?? '?'},` +
+      ` ${liveHealthLatency.over100msPct ?? '?'}%, max=${liveHealthLatency.maxMs ?? '?'}ms` +
+      `${liveHealthLatency.topHotNode ? `, topHotNode=${liveHealthLatency.topHotNode}` : ''})`;
+    warnings.push(latencyMsg);
+    if (strictLatency) {
+      failures.push(latencyMsg);
+    }
+  }
+
   return {
     name: 'live_health',
     status: failures.length === 0 ? 'pass' : 'fail',
     releaseSha,
     failures,
+    warnings,
     details: {
       httpStatus,
       releaseSha,
@@ -357,7 +435,8 @@ export function evaluateLiveHealth(health, httpStatus = 200) {
       maintenancePhase,
       resumeWaves,
       resumeWavesComplete,
-      liveHealthLatency: health.horseDecisionLatency ?? null,
+      liveHorseDecision: liveHorseDecisionDetails,
+      liveHealthLatency,
     },
   };
 }
@@ -671,7 +750,7 @@ export async function runPostCutoverAudit(options, deps) {
   let liveHealthCheck;
   try {
     const res = await deps.fetchHealth(healthUrl);
-    liveHealthCheck = evaluateLiveHealth(res.body, res.status);
+    liveHealthCheck = evaluateLiveHealth(res.body, res.status, { strictLatency });
   } catch (err) {
     liveHealthCheck = {
       name: 'live_health',
@@ -847,6 +926,12 @@ export function formatAuditReportText(report) {
       lines.push(
         `          liveness=${d.liveness} settlement=${d.settlementStatus} stalled=${d.stalledTableCount} maintenance=${d.maintenancePhase} resumeWaves=${rw}`
       );
+      if (d.liveHorseDecision) {
+        const lhd = d.liveHorseDecision;
+        lines.push(
+          `          liveHorseDecision: phase=${lhd.phase ?? 'n/a'} recoverableRequestErrors=${lhd.recoverableRequestErrors ?? 'n/a'} expiredJobs=${lhd.expiredJobs ?? 'n/a'}${lhd.lastRecoverableRequestError ? ` lastError=${lhd.lastRecoverableRequestError}` : ''}`
+        );
+      }
       if (d.liveHealthLatency) {
         const hl = d.liveHealthLatency;
         lines.push(

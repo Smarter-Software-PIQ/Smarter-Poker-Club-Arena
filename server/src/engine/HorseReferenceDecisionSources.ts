@@ -349,6 +349,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'dark default-off priced replacement for unowned V36 multi-board bluff-trim blanket multiplier (HORSE DECISIONS lane 2026-11-22, multiBoardBluffTrimIsPriced): deterministic zero-RNG public-info pricing of multi-board bluffScale multiplier in [0, 1] from shrunk per-opponent fold probability, public board-overlap independence exponent, hero cross-board blockers, street/pot/stack/wetness, and heroBubbleFactor; reached only behind opts.multiBoardBluffTrimIsPriced === true on multiBoard36 hands (off and single-board hands never enter)',
     'src/engine/HorseSlowplayPriced.ts':
       'the default-off priced monster slowplay replacement for unowned H4 (HORSE DECISIONS lane 2026-11-22, horseSlowplayIsPriced, OPTION_SWITCH_REFUSED): deterministic EV(check) vs EV(bet) comparison on flop/turn monsters using holdemEmpiricalPriors fold/stab shrinkage, continuous free-card equity erosion, and heroBubbleFactor; off/Omaha/FLH never enter',
+    'src/engine/HorseShortDeckMultiwayPriced.ts':
+      'dark default-off priced replacement for the unowned V17 Short Deck multiway overlay (HORSE DECISIONS lane 2026-11-22, v17ShortDeckIsPriced, OPTION_SWITCH_REFUSED): deterministic zero-RNG shift delta = e - e^rho of the multiway bars from measured 36-card vs 52-card continuation sharpness and each opponent shrunk fold-to-bet record',
     'src/engine/HorseHoldemPersonaPreflop.ts':
       "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
     'src/engine/HorseHoldemRiverFullHouseValue.ts':

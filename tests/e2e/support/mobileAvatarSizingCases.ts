@@ -231,6 +231,11 @@ export async function checkFixedMobileArtwork(
           violations.violations.filter((v: string) => v.includes('Nine-Max')),
           'nine-seat rail positions and both top portraits stay clear of the felt'
         ).toEqual([]);
+      if (settings.seats === '6')
+        expect(
+          violations.violations.filter((v: string) => /Six-Max Top Seat|Tab Bar/.test(v)),
+          'the six-max top seat stands on the rail, clear of the felt, under the tab bar'
+        ).toEqual([]);
       expect(
         violations.violations.filter((v: string) => v.startsWith('Action Caption')),
         `${actionCaption} appearing after allocation clears header, cards and peer plates`

@@ -308,7 +308,9 @@ filtered_fires AS (
         'option_shadow_unencodable_seen',
         'option_shadow_rotated_out_seen',
         'option_shadow_rate_person_over_seen',
-        'style_shadow_redecide_failed_seen'
+        'style_shadow_redecide_failed_seen',
+        'horse_decision_refused_isolated',
+        'phase15_execution_fallback'
       )
       OR feature LIKE 'option\\_switch\\_config\\_%' ESCAPE '\\'
       OR feature ILIKE '%alarm%'
@@ -399,7 +401,9 @@ SELECT json_build_object(
             'option_shadow_unencodable_seen',
             'option_shadow_rotated_out_seen',
             'option_shadow_rate_person_over_seen',
-            'style_shadow_redecide_failed_seen'
+            'style_shadow_redecide_failed_seen',
+            'horse_decision_refused_isolated',
+            'phase15_execution_fallback'
           )
           OR feature LIKE 'option\\_switch\\_config\\_%' ESCAPE '\\'
           OR feature ILIKE '%alarm%'
@@ -616,6 +620,9 @@ export function evaluateLiveHealth(health, httpStatus = 200) {
       stalledTableCount: null,
       activeTables: null,
       maintenancePhase: null,
+      decisionPhase: null,
+      recoverableRequestErrors: null,
+      lastRecoverableRequestError: null,
       issues: [`HTTP ${httpStatus}: /health response is not a JSON object`],
     };
   }
@@ -649,6 +656,32 @@ export function evaluateLiveHealth(health, httpStatus = 200) {
       : null;
   const maintenancePhase = health.maintenance?.phase ?? null;
 
+  const lhd =
+    health.liveHorseDecision &&
+    typeof health.liveHorseDecision === 'object' &&
+    !Array.isArray(health.liveHorseDecision)
+      ? health.liveHorseDecision
+      : null;
+  const decisionPhase = lhd?.phase ?? null;
+  if (decisionPhase !== null && decisionPhase !== 'ready') {
+    issues.push(`liveHorseDecision.phase=${String(decisionPhase)}`);
+  }
+  const recoverableRequestErrors =
+    typeof lhd?.recoverableRequestErrors === 'number' &&
+    Number.isFinite(lhd.recoverableRequestErrors)
+      ? lhd.recoverableRequestErrors
+      : null;
+  const lastRecoverableRequestError =
+    typeof lhd?.lastRecoverableRequestError === 'string' && lhd.lastRecoverableRequestError.trim()
+      ? lhd.lastRecoverableRequestError.trim()
+      : null;
+  if (recoverableRequestErrors !== null && recoverableRequestErrors > 0) {
+    const errDetail = lastRecoverableRequestError ? `(${lastRecoverableRequestError})` : '';
+    issues.push(
+      `liveHorseDecision.recoverableRequestErrors=${recoverableRequestErrors}${errDetail}`
+    );
+  }
+
   return {
     status: issues.length === 0 ? 'ok' : 'degraded',
     httpStatus,
@@ -658,6 +691,9 @@ export function evaluateLiveHealth(health, httpStatus = 200) {
     stalledTableCount,
     activeTables,
     maintenancePhase,
+    decisionPhase,
+    recoverableRequestErrors,
+    lastRecoverableRequestError,
     issues,
   };
 }
@@ -674,6 +710,7 @@ export function classifySafetyFeature(feature) {
     lower === 'option_shadow_stage_self_disabled_seen' ||
     lower === 'option_shadow_redecide_failed_seen' ||
     lower === 'style_shadow_redecide_failed_seen' ||
+    lower === 'horse_decision_refused_isolated' ||
     lower.includes('breaker')
   ) {
     return 'breaker';
@@ -684,7 +721,7 @@ export function classifySafetyFeature(feature) {
   if (lower.includes('illegal')) {
     return 'illegal';
   }
-  if (lower.includes('exception')) {
+  if (lower === 'phase15_execution_fallback' || lower.includes('exception')) {
     // Exclude benign poker-strategy rule exception counters (e.g. small_pot_near_nut_value_flat_exception).
     if (lower.endsWith('_flat_exception')) {
       return null;

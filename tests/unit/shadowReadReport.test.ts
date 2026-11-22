@@ -186,6 +186,8 @@ describe('shadow-read-report-lib', () => {
       expect(batchSql).toContain('public.horse_error_log');
       expect(batchSql).toContain('option\\_switch\\_holdemCallDownExcludesCurrentHand\\_%\\_seen');
       expect(batchSql).toContain('option_shadow_holdemCallDownExcludesCurrentHand_same_seen');
+      expect(batchSql).toContain("'horse_decision_refused_isolated'");
+      expect(batchSql).toContain("'phase15_execution_fallback'");
     });
 
     it('rejects mutating SQL, non-SELECT statements, and multi-statement strings', () => {
@@ -356,10 +358,12 @@ describe('shadow-read-report-lib', () => {
       expect(classifySafetyFeature('option_shadow_redecide_failed_seen')).toBe('breaker');
       expect(classifySafetyFeature('style_shadow_redecide_failed_seen')).toBe('breaker');
       expect(classifySafetyFeature('circuit_breaker_tripped_seen')).toBe('breaker');
+      expect(classifySafetyFeature('horse_decision_refused_isolated')).toBe('breaker');
       expect(classifySafetyFeature('raise_ladder_alarm_seen')).toBe('alarm');
       expect(classifySafetyFeature('promoted_shove_illegal')).toBe('illegal');
       expect(classifySafetyFeature('omaha_public_bet_size_illegal_kept')).toBe('illegal');
       expect(classifySafetyFeature('phase15_brain_exception')).toBe('exception');
+      expect(classifySafetyFeature('phase15_execution_fallback')).toBe('exception');
       expect(classifySafetyFeature('brain_exception')).toBe('exception');
 
       // Non-alerting counters must return null.
@@ -382,6 +386,25 @@ describe('shadow-read-report-lib', () => {
       );
       expect(bad.status).toBe('degraded');
       expect(bad.issues).toEqual(['liveness=degraded', 'stalledTableCount=2']);
+
+      const badDecision = evaluateLiveHealth(
+        {
+          ...HEALTHY_ENGINE,
+          liveHorseDecision: {
+            phase: 'degraded',
+            recoverableRequestErrors: 5,
+            lastRecoverableRequestError: 'reference_owner mismatch',
+          },
+        },
+        200
+      );
+      expect(badDecision.status).toBe('degraded');
+      expect(badDecision.decisionPhase).toBe('degraded');
+      expect(badDecision.recoverableRequestErrors).toBe(5);
+      expect(badDecision.issues).toEqual([
+        'liveHorseDecision.phase=degraded',
+        'liveHorseDecision.recoverableRequestErrors=5(reference_owner mismatch)',
+      ]);
     });
 
     it('summarizes latency rows and flags starvation only on non-phase15_node scopes with >=100 samples', () => {
@@ -603,6 +626,52 @@ describe('shadow-read-report-lib', () => {
           name: 'health_stalled',
           health: evaluateLiveHealth({ ...HEALTHY_ENGINE, stalledTableCount: 1 }, 200),
           expected: 'health:stalledTableCount=1',
+        },
+        {
+          name: 'horse_decision_refused_isolated',
+          snapOverride: {
+            receiptFires: [
+              ...makeHealthySnapshot().receiptFires,
+              { feature: 'horse_decision_refused_isolated', fires: 2, distinct_workers: 2 },
+            ],
+          },
+          expected: 'breaker=2',
+        },
+        {
+          name: 'phase15_execution_fallback',
+          snapOverride: {
+            receiptFires: [
+              ...makeHealthySnapshot().receiptFires,
+              { feature: 'phase15_execution_fallback', fires: 1, distinct_workers: 1 },
+            ],
+          },
+          expected: 'exception=1',
+        },
+        {
+          name: 'health_liveHorseDecision_recoverableRequestErrors',
+          health: evaluateLiveHealth(
+            {
+              ...HEALTHY_ENGINE,
+              liveHorseDecision: {
+                phase: 'ready',
+                recoverableRequestErrors: 3,
+                lastRecoverableRequestError: 'reference_owner refusal',
+              },
+            },
+            200
+          ),
+          expected: 'health:liveHorseDecision.recoverableRequestErrors=3(reference_owner refusal)',
+        },
+        {
+          name: 'health_liveHorseDecision_phase_not_ready',
+          health: evaluateLiveHealth(
+            {
+              ...HEALTHY_ENGINE,
+              liveHorseDecision: { phase: 'restarting', recoverableRequestErrors: 0 },
+            },
+            200
+          ),
+          expected: 'health:liveHorseDecision.phase=restarting',
         },
       ];
 

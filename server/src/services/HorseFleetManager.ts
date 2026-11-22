@@ -185,6 +185,12 @@ import {
   type FleetPolicy,
 } from './HorseFleetPolicy.js';
 import { isFullClassicQueueTable, queuePolicyWithheldReason } from './HorseQueueAdmission.js';
+import {
+  gameOwesALine,
+  lastChairGameKey,
+  lastChairVerdict,
+  openChairsByGame,
+} from './HorseLastChair.js';
 import { liveHorseDecisionWorkerStatus } from '../engine/horseDecision/lane.js';
 import {
   DEALABLE_MINIMUM,
@@ -1035,7 +1041,10 @@ export class HorseFleetManager {
     horseTables?: ReadonlyMap<string, ReadonlySet<string>>,
     /** The cycle's tag book (HorseWorkSchedule rest day / daily cap); null
      *  fails open on those two, the work hours always apply. */
-    dutyBook: TagBook | null = null
+    dutyBook: TagBook | null = null,
+    /** Seats each table gained in this cycle, on top of the cycle's seat
+     *  read: a game the fleet just filled is full NOW (HorseLastChair). */
+    seatedThisCycle: ReadonlyMap<string, number> = new Map()
   ): Promise<void> {
     try {
       const page = await fetchAllRows<{
@@ -1083,7 +1092,11 @@ export class HorseFleetManager {
         if (t.lifecycle && t.lifecycle !== 'live' && t.lifecycle !== 'opening') continue;
         const gameId = String(t.cluster_id);
         const seats = seatsByTable.get(t.id) ?? [];
-        gameTables.push({ gameId, maxPlayers: Number(t.max_players) || 0, seated: seats.length });
+        gameTables.push({
+          gameId,
+          maxPlayers: Number(t.max_players) || 0,
+          seated: seats.length + (seatedThisCycle.get(String(t.id)) ?? 0),
+        });
         const set = seatedByGame.get(gameId) ?? new Set<string>();
         for (const s of seats) set.add(String(s.user_id));
         seatedByGame.set(gameId, set);
@@ -3129,6 +3142,7 @@ export class HorseFleetManager {
           | 'lone_seat_left'
           | 'stale_snapshot'
           | 'seat_ceiling'
+          | 'last_chair_left_open'
           | `buyin_${BuyInRefusal}`
       ) => {
         if (diag) diag.skipped[r] = (diag.skipped[r] ?? 0) + 1;
@@ -3137,6 +3151,20 @@ export class HorseFleetManager {
          this cycle because only one horse could sit there. Counted once per
          table per cycle and logged once per cycle - see HorseLoneTable.ts. */
       let loneSeatRefused = 0;
+      /* A FULL GAME ALWAYS HAS A WAITING LIST (Dan 2026-11-22). The open
+         chairs of every game, counted once here and spent down as this cycle
+         seats, so the seat stage knows when it is about to buy a game's LAST
+         chair; and the seats each table gained this cycle, so the line is
+         asked for in the same cycle the game filled. See HorseLastChair. */
+      const openChairsLeft = openChairsByGame({
+        tables: orderedTables,
+        occupiedByTable: (id) =>
+          new Set((seatsByTable.get(id) ?? []).map((seat) => seat.seat_number)).size,
+        pendingArrivalsByTable: (id) => pendingMovesByTable.get(id) ?? 0,
+      });
+      const seatedThisCycleByTable = new Map<string, number>();
+      let lastChairLeftOpen = 0;
+      let lastChairPaired = 0;
       let seatCeilingTrimmed = 0;
       let seatCeilingSkipped = 0;
       /* Empty cluster tables that still ended a cycle with ONE horse after the
@@ -4314,6 +4342,45 @@ export class HorseFleetManager {
           // This deliberately supersedes the old simultaneous partner draw.
           for (const c of cleared.slice(hourly.maxHorses)) seatPicker.release(c.seatNumber);
           cleared.splice(hourly.maxHorses);
+          /* THE LAST CHAIR OF A GAME IS NEVER BOUGHT ON ITS OWN (Dan
+             2026-11-22: "ALL GAMES SHOULD NOT BE 'FULL WITH NO WAITING LISTS'
+             IN FACT THERE SHOULD ALWAYS BE ONE-SEATS OPEN IF THERE IS NO
+             WAITING LISTS"). Applied last, after every other trim, to what
+             this table is really about to seat: when these seats would take
+             the game's last open chair and nobody is on its list, the chair
+             is taken only together with a name for the list (the ask is
+             pushed below, in this same cycle); with nobody free to wait, the
+             chair stays open. Every variant and table size; a Lightning game
+             has no list and is not judged here. See HorseLastChair. */
+          const lastChairKey = lastChairGameKey(table);
+          const lastChairLightning =
+            !!table.cluster_id &&
+            cashPlanLightningGames !== null &&
+            cashPlanLightningGames.has(String(table.cluster_id));
+          const canCarryLine =
+            !!table.cluster_id && cashPlanLightningGames !== null && !lastChairLightning;
+          if (!lastChairLightning) {
+            const clearedIds = new Set(cleared.map((c) => c.horse.id));
+            const lastChair = lastChairVerdict({
+              seatsPlanned: cleared.length,
+              seatedHere: currentCount,
+              openInGame: openChairsLeft.get(lastChairKey) ?? 0,
+              gameHasList: listFeedsTable(table, listFedGames),
+              canCarryLine,
+              spareWaiters: pool.filter(
+                (h) => !clearedIds.has(h.id) && (horseTables.get(h.id)?.size ?? 0) === 0
+              ).length,
+            });
+            if (lastChair.seats < cleared.length) {
+              for (const c of cleared.slice(lastChair.seats)) seatPicker.release(c.seatNumber);
+              cleared.splice(lastChair.seats);
+              lastChairLeftOpen++;
+              noteSkip(diag, 'last_chair_left_open');
+              if (cleared.length === 0) continue;
+            } else if (lastChair.startsLine) {
+              lastChairPaired++;
+            }
+          }
           // Seat each horse at an ACTUAL empty seat
           let seated = 0;
           /* ONE SEATING, ONE PLACE. The main pass below and the lone-seat
@@ -4386,6 +4453,15 @@ export class HorseFleetManager {
             seated++;
             totalSeated++;
             seatBudget--;
+            // The chair is gone from its game (HorseLastChair).
+            openChairsLeft.set(
+              lastChairKey,
+              Math.max(0, (openChairsLeft.get(lastChairKey) ?? 0) - 1)
+            );
+            seatedThisCycleByTable.set(
+              String(table.id),
+              (seatedThisCycleByTable.get(String(table.id)) ?? 0) + 1
+            );
             // Update our in-memory map so we don't assign them to another table if they hit 4
             if (!horseTables.has(horse.id)) horseTables.set(horse.id, new Set());
             horseTables.get(horse.id)!.add(table.id);
@@ -4483,6 +4559,25 @@ export class HorseFleetManager {
           }
 
           if (diag) diag.seated = seated;
+          /* THE GAME FILLED THIS CYCLE: ITS LINE STARTS THIS CYCLE (Dan
+             2026-11-22). The seat that took a game's last chair asks for the
+             line here, so the queue sync after the loop puts a name down
+             before the cycle ends instead of one cycle later, or never when
+             that later cycle is withheld. planHorseQueues still checks every
+             live table is full, nobody is waiting already and the game is not
+             excluded; a horse seated this cycle is never its own waiter. */
+          if (
+            seated > 0 &&
+            gameOwesALine({ canCarryLine, openInGame: openChairsLeft.get(lastChairKey) ?? 0 })
+          ) {
+            horseQueueAsks.push({
+              gameId: String(table.cluster_id),
+              waitTarget: fullGameWaitTarget(table.id, table.max_players, Date.now()),
+              pool: pool.map((h) => h.id),
+              variant: table.game_variant,
+              bigBlind: Number(table.big_blind),
+            });
+          }
           if (seated > 0 && clusterPool) {
             /* The horses this table actually took go to the front of its
                pool, so the allocation after the loop hands out the same
@@ -4569,7 +4664,8 @@ export class HorseFleetManager {
           disabledGameIds,
           readIsCurrent,
           horseTables,
-          book
+          book,
+          seatedThisCycleByTable
         );
       }
       // The only place the census is stamped: a cycle that returned early
@@ -4654,6 +4750,12 @@ export class HorseFleetManager {
         console.log(
           `[HorseFleet] seat_ceiling trimmed=${seatCeilingTrimmed} skipped=${seatCeilingSkipped}: ` +
             "table(s) seated only up to the host's seat ceiling (the player curve)"
+        );
+      }
+      if (lastChairLeftOpen > 0 || lastChairPaired > 0) {
+        console.log(
+          `[HorseFleet] last_chair left_open=${lastChairLeftOpen} paired=${lastChairPaired}: ` +
+            'a game is never filled to its last chair without a name for its waiting list'
         );
       }
       if (loneSeatRefused > 0) {

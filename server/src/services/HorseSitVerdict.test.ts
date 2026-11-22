@@ -406,10 +406,19 @@ describe('the fleet: one predicate, asked for the count and for the chair', () =
             the host's seat ceiling, or with room for only a lone horse at an
             empty cluster table, is skipped before any seat is bought
             (seatCeilingSkipped++, diag seat_ceiling).
-       If a FIFTH appears, it needs a counter of its own before this number
+         5. PIN MOVED 2026-11-22, from 4 to 5, for the last chair (Dan: a
+            game is never full with nobody on its waiting list). When the only
+            seat this table would take is its game's last open chair and
+            nobody is free to wait, nothing is bought
+            (lastChairLeftOpen++, diag last_chair_left_open). See
+            HorseLastChair and aFullGameAlwaysHasAWaitingList.law.test.ts.
+       If a SIXTH appears, it needs a counter of its own before this number
        moves again. */
     const stage = seat.slice(0, seat.indexOf('const success = await this.seatHorse('));
-    expect(stage.match(/continue;/g)?.length).toBe(4);
+    expect(stage.match(/continue;/g)?.length).toBe(5);
+    expect(stage).toMatch(
+      /lastChairLeftOpen\+\+;\s*noteSkip\(diag, 'last_chair_left_open'\);\s*if \(cleared\.length === 0\) continue;/
+    );
     expect(stage).toMatch(
       /seatCeilingSkipped\+\+;\s*noteSkip\(diag, 'seat_ceiling'\);\s*continue;/
     );

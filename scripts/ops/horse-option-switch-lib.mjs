@@ -767,10 +767,15 @@ export function evaluateInboxFreezeState(inboxText) {
 
 /**
  * Evaluates live cutover/maintenance holds from all structured sources:
- * 1. DB `fn_platform_frozen()` + `engine_maintenance_break` + optional `engine_maintenance_windows`
- * 2. Repo `server/release/owner-maintenance-windows.json`
- * 3. Live engine `/health` maintenance & readiness state
- * 4. Optional coordination inbox text (fixed freeze_state parser)
+ * 1. DB `fn_platform_frozen()` + `engine_maintenance_break` (hard freeze holds — block even rollbacks)
+ *    + optional `engine_maintenance_windows` (advisory cutover hold)
+ * 2. Repo `server/release/owner-maintenance-windows.json` (advisory cutover hold)
+ * 3. Live engine `/health` maintenance & readiness state (advisory cutover hold)
+ * 4. Optional coordination inbox text (fixed freeze_state parser; advisory cutover hold)
+ *
+ * When `isRollback === true` and `hardFreezeHolds.length === 0`, emergency rollbacks are NEVER
+ * blocked by advisory cutover bookings or `/health` blips — they return `{ ok: true }` with
+ * explicit warnings listing every advisory hold.
  */
 export function checkMaintenanceAndCutoverHold({
   nowUtc,
@@ -783,25 +788,28 @@ export function checkMaintenanceAndCutoverHold({
 }) {
   const dt = nowUtc instanceof Date ? nowUtc : new Date(nowUtc);
   const nowMs = dt.getTime();
-  const holds = [];
+  const hardFreezeHolds = [];
+  const advisoryCutoverHolds = [];
 
   // 1. DB maintenance state (fn_platform_frozen / engine_maintenance_break / engine_maintenance_windows)
   if (dbMaintenance) {
     if (dbMaintenance.platformFrozen === true) {
-      holds.push('DB fn_platform_frozen() is TRUE');
+      hardFreezeHolds.push('DB fn_platform_frozen() is TRUE');
     }
     const breakRows = Array.isArray(dbMaintenance.breakRows) ? dbMaintenance.breakRows : [];
     for (const row of breakRows) {
       const phase = String(row.phase || '').toLowerCase();
       if (row.enforce_freeze === true || phase === 'last_hand' || phase === 'counting_down') {
-        holds.push(
+        hardFreezeHolds.push(
           `DB engine_maintenance_break active (phase=${row.phase}, enforce_freeze=${row.enforce_freeze})`
         );
       }
     }
     const winRows = Array.isArray(dbMaintenance.windowRows) ? dbMaintenance.windowRows : [];
     if (winRows.length > 0) {
-      holds.push(`DB engine_maintenance_windows has ${winRows.length} active window(s)`);
+      advisoryCutoverHolds.push(
+        `DB engine_maintenance_windows has ${winRows.length} active window(s)`
+      );
     }
   }
 
@@ -814,7 +822,7 @@ export function checkMaintenanceAndCutoverHold({
       const startMs = new Date(startIso).getTime();
       const endMs = new Date(endIso).getTime();
       if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && nowMs >= startMs && nowMs <= endMs) {
-        holds.push(
+        advisoryCutoverHolds.push(
           `owner-maintenance-windows.json window "${w.id || 'unnamed'}" active (${startIso} .. ${endIso})`
         );
       }
@@ -824,22 +832,24 @@ export function checkMaintenanceAndCutoverHold({
   // 3. Live engine /health maintenance & readiness
   if (engineHealth) {
     if (engineHealth.error) {
-      holds.push(`Engine /health unreachable: ${engineHealth.error}`);
+      advisoryCutoverHolds.push(`Engine /health unreachable: ${engineHealth.error}`);
     } else {
       if (engineHealth.status && engineHealth.status !== 'ok') {
-        holds.push(`Engine /health status=${engineHealth.status}`);
+        advisoryCutoverHolds.push(`Engine /health status=${engineHealth.status}`);
       }
       if (engineHealth.liveness && engineHealth.liveness !== 'ok') {
-        holds.push(`Engine /health liveness=${engineHealth.liveness}`);
+        advisoryCutoverHolds.push(`Engine /health liveness=${engineHealth.liveness}`);
       }
       const m = engineHealth.maintenance;
       if (m && typeof m === 'object') {
         if (m.active === true) {
-          holds.push(`Engine /health maintenance.active=true (phase=${m.phase ?? 'unknown'})`);
+          advisoryCutoverHolds.push(
+            `Engine /health maintenance.active=true (phase=${m.phase ?? 'unknown'})`
+          );
         } else if (m.phase && m.phase !== 'idle') {
-          holds.push(`Engine /health maintenance.phase=${m.phase}`);
+          advisoryCutoverHolds.push(`Engine /health maintenance.phase=${m.phase}`);
         } else if (m.readyForRestart === true || m.durableConfirmed === true) {
-          holds.push(
+          advisoryCutoverHolds.push(
             `Engine /health maintenance restart armed (readyForRestart=${m.readyForRestart}, durableConfirmed=${m.durableConfirmed})`
           );
         }
@@ -847,11 +857,11 @@ export function checkMaintenanceAndCutoverHold({
       const lhd = engineHealth.liveHorseDecision;
       if (lhd && typeof lhd === 'object') {
         if (lhd.phase && lhd.phase !== 'ready') {
-          holds.push(`Engine liveHorseDecision.phase=${lhd.phase}`);
+          advisoryCutoverHolds.push(`Engine liveHorseDecision.phase=${lhd.phase}`);
         }
         const manifestSha = lhd.upgradeManifest?.sourceRevision;
         if (manifestSha && engineHealth.releaseSha && manifestSha !== engineHealth.releaseSha) {
-          holds.push(
+          advisoryCutoverHolds.push(
             `Engine decision service revision mismatch (${String(manifestSha).slice(0, 12)} != ${String(engineHealth.releaseSha).slice(0, 12)})`
           );
         }
@@ -863,23 +873,46 @@ export function checkMaintenanceAndCutoverHold({
   if (requireInbox || inboxText !== undefined) {
     const inboxEval = evaluateInboxFreezeState(inboxText);
     if (inboxEval.frozen) {
-      holds.push(`Coordination inbox freeze: ${inboxEval.reason}`);
+      advisoryCutoverHolds.push(`Coordination inbox freeze: ${inboxEval.reason}`);
     }
   }
 
+  const holds = [...hardFreezeHolds, ...advisoryCutoverHolds];
+
+  if (isRollback && hardFreezeHolds.length === 0) {
+    const warnings = advisoryCutoverHolds.map(
+      (h) => `Rollback bypassing advisory cutover/health hold: ${h}`
+    );
+    return {
+      ok: true,
+      holds: [],
+      hardFreezeHolds: [],
+      advisoryCutoverHolds,
+      warnings,
+      isRollback: true,
+    };
+  }
+
   if (holds.length > 0) {
-    // Rollbacks are only blocked by an active DB platform freeze / engine break in progress
-    // (where the engine is restarting and writes must not collide), never silently ignored.
+    const activeBlockers = isRollback ? hardFreezeHolds : holds;
     return {
       ok: false,
       code: 'MAINTENANCE_OR_CUTOVER_HOLD',
-      reason: `Cutover/maintenance hold active (${holds.length}): ${holds.join('; ')}`,
+      reason: `Cutover/maintenance hold active (${activeBlockers.length}): ${activeBlockers.join('; ')}`,
       holds,
+      hardFreezeHolds,
+      advisoryCutoverHolds,
       isRollback,
     };
   }
 
-  return { ok: true, holds: [] };
+  return {
+    ok: true,
+    holds: [],
+    hardFreezeHolds: [],
+    advisoryCutoverHolds: [],
+    warnings: [],
+  };
 }
 
 // --- Full preflight orchestration (pure) -------------------------------------------------------
@@ -987,6 +1020,9 @@ export function evaluatePreflight(input) {
     isRollback,
   });
   if (!maintCheck.ok) failures.push(maintCheck);
+  else if (Array.isArray(maintCheck.warnings) && maintCheck.warnings.length > 0) {
+    warnings.push(...maintCheck.warnings);
+  }
 
   // 9. Active recent config alarms check (within last 15 minutes)
   const dtMs = (nowUtc instanceof Date ? nowUtc : new Date(nowUtc)).getTime();
@@ -1035,7 +1071,152 @@ export function evaluatePreflight(input) {
   };
 }
 
+// --- Source registry metadata helper (pure) ----------------------------------------------------
+
+/**
+ * Parses `OPTION_SWITCH_RELEASE_DEFAULT_ON` option names from `server/src/engine/HorseOptionSwitch.ts`
+ * source text so `preflight`/`set` knows whether an explicit `on` row is release-default-ON.
+ */
+export function parseReleaseDefaultOnOptions(sourceText) {
+  const result = new Set();
+  if (typeof sourceText !== 'string' || !sourceText) return result;
+  const anchor =
+    /export\s+const\s+OPTION_SWITCH_RELEASE_DEFAULT_ON\b[^=]*=\s*(?:Object\.freeze\s*\(\s*)?\[/.exec(
+      sourceText
+    );
+  if (!anchor) return result;
+  const openIdx = anchor.index + anchor[0].length - 1;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let closeIdx = -1;
+  for (let i = openIdx; i < sourceText.length; i += 1) {
+    const ch = sourceText[i];
+    const next = sourceText[i + 1];
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+    if (inSingle) {
+      if (ch === '\\') {
+        i += 1;
+      } else if (ch === "'") {
+        inSingle = false;
+      }
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '\\') {
+        i += 1;
+      } else if (ch === '"') {
+        inDouble = false;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === '[') depth += 1;
+    else if (ch === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        closeIdx = i;
+        break;
+      }
+    }
+  }
+  if (closeIdx < 0) return result;
+  const block = sourceText
+    .slice(openIdx + 1, closeIdx)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ');
+  for (const m of block.matchAll(/['"]([A-Za-z][A-Za-z0-9]{0,99})['"]/g)) {
+    result.add(m[1]);
+  }
+  return result;
+}
+
 // --- Pickup verification (pure) ----------------------------------------------------------------
+
+/**
+ * Extracts a `{ [feature]: fires }` map of pre-existing `option_switch_config_*` alarm counts
+ * from telemetry rows captured before a switch write so `verify-pickup` diffs against them.
+ */
+export function extractAlarmBaseline(telemetryRows) {
+  const baseline = {};
+  for (const row of telemetryRows ?? []) {
+    if (
+      !row ||
+      typeof row.feature !== 'string' ||
+      !row.feature.startsWith('option_switch_config_')
+    ) {
+      continue;
+    }
+    const fires = Number(row.fires ?? 0);
+    if (Number.isFinite(fires) && fires > 0) {
+      baseline[row.feature] = (baseline[row.feature] ?? 0) + Math.floor(fires);
+    }
+  }
+  return baseline;
+}
+
+/**
+ * Strictly parses and validates a JSON object passed to `--alarm-baseline <json>`.
+ */
+export function parseAlarmBaselineJson(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return {};
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch (err) {
+    throw new Error(`Invalid --alarm-baseline JSON: ${err?.message || String(err)}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid --alarm-baseline: must be a JSON object mapping feature -> count');
+  }
+  const normalized = {};
+  for (const [feature, count] of Object.entries(parsed)) {
+    if (!feature.startsWith('option_switch_config_') || !/^[A-Za-z0-9_]+$/.test(feature)) {
+      throw new Error(
+        `Invalid --alarm-baseline key "${feature}": must match option_switch_config_*`
+      );
+    }
+    const num = Number(count);
+    if (!Number.isInteger(num) || num < 0) {
+      throw new Error(
+        `Invalid --alarm-baseline count for "${feature}": must be a non-negative integer, got "${count}"`
+      );
+    }
+    normalized[feature] = num;
+  }
+  return normalized;
+}
 
 export function evaluatePickup({
   option,
@@ -1055,6 +1236,9 @@ export function evaluatePickup({
   if (!Number.isFinite(minW) || minW < 1) {
     throw new Error(`Invalid --min-workers "${minWorkers}": must be >= 1`);
   }
+  if (!alarmBaseline || typeof alarmBaseline !== 'object' || Array.isArray(alarmBaseline)) {
+    throw new Error('Invalid alarmBaseline: must be a plain object');
+  }
 
   const targetFeature = `option_switch_${safeOpt}_${safeState}_seen`;
   const byFeature = new Map();
@@ -1073,6 +1257,11 @@ export function evaluatePickup({
   for (const [feature, entry] of byFeature.entries()) {
     if (!feature.startsWith('option_switch_config_')) continue;
     const prev = Number(alarmBaseline?.[feature] ?? 0);
+    if (!Number.isFinite(prev) || prev < 0) {
+      throw new Error(
+        `Invalid alarmBaseline value for "${feature}": ${String(alarmBaseline[feature])}`
+      );
+    }
     const alarmDelta = entry.fires - prev;
     if (alarmDelta > 0) {
       alarms.push({ feature, fires: entry.fires, delta: alarmDelta, lastAt: entry.lastAt });
@@ -1102,6 +1291,7 @@ export function evaluatePickup({
     baseline: baseNum,
     delta,
     minWorkers: minW,
+    alarmBaseline,
     alarms,
     failures,
   };
@@ -1185,6 +1375,7 @@ export function parseCliArgs(argv) {
     workdir: '',
     baseline: 0,
     minWorkers: DEFAULT_MIN_PICKUP_WORKERS,
+    alarmBaseline: {},
     now: '',
   };
 
@@ -1201,6 +1392,7 @@ export function parseCliArgs(argv) {
     ['--workdir', 'workdir'],
     ['--baseline', 'baseline'],
     ['--min-workers', 'minWorkers'],
+    ['--alarm-baseline', 'alarmBaseline'],
     ['--now', 'now'],
   ]);
 
@@ -1228,6 +1420,8 @@ export function parseCliArgs(argv) {
           throw new Error(`Flag ${token} must be a non-negative integer, got "${val}"`);
         }
         flags[key] = num;
+      } else if (key === 'alarmBaseline') {
+        flags[key] = parseAlarmBaselineJson(val);
       } else {
         flags[key] = val;
       }

@@ -606,6 +606,58 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         violations.push(`Chair ${seat.dataset.seatNum} Left Its Nine-Max Rail Anchor`);
     }
   }
+  // THE SIX-MAX TOP SEAT STANDS ON THE RAIL (Dan 2026-11-22: "THEY MUST 100% OF
+  // THE TIME BE ON THE RAIL AND NEVER ON TOP OF THE TABLE OR OVERLAPPING THE
+  // FELT ... THE ACTION BAR BEING LAYER 1 AND THE AVATAR LAYER 2"). The plate
+  // rests on the chair's own rail station, neither it nor the portrait reaches
+  // the felt window, and the tab bar paints above the portrait. Seated and
+  // watched tables alike; src/components/table/sixSeatTopRail.ts.
+  if (
+    table.dataset.seats === '6' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  ) {
+    const chassisNode = table.querySelector('.table-scaler');
+    const feltNode = table.querySelector('.table-surface');
+    const header = document.querySelector('.multi-table-page__tab-bar-wrapper');
+    for (const wrapper of table.querySelectorAll<HTMLElement>(
+      '.seat-wrapper--cap:not(.seat-wrapper--hero),.seat-wrapper--top:not(.seat-wrapper--hero)'
+    )) {
+      const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
+      const plate = seat?.querySelector(':scope > .seat__info');
+      if (!seat || !plate || !visible(plate) || !chassisNode || !feltNode || !visible(feltNode))
+        continue;
+      const chassis = box(chassisNode),
+        felt = box(feltNode),
+        label = box(plate);
+      const station = chassis.top + (chassis.height * parseFloat(wrapper.style.top)) / 100;
+      if (!(station < felt.top)) violations.push('Six-Max Top Seat Station Is Not On The Rail');
+      if (Math.abs(label.bottom - station) > 1.5)
+        violations.push(
+          `Six-Max Top Seat Plate Left Its Rail Station By ${(label.bottom - station).toFixed(1)}px`
+        );
+      if (label.bottom > felt.top + 0.5) violations.push('Six-Max Top Seat Plate Over The Felt');
+      const portrait = seat.querySelector('.seat__avatar-img');
+      if (portrait && visible(portrait)) {
+        if (box(portrait).bottom > felt.top + 0.5)
+          violations.push('Six-Max Top Seat Portrait Over The Felt');
+        if (header && visible(header) && header.parentElement) {
+          // Paint order where the two meet: the bar and the branch holding the
+          // portrait are siblings under the bar's parent.
+          let branch: Element | null = portrait;
+          while (branch && branch.parentElement !== header.parentElement)
+            branch = branch.parentElement;
+          const layer = (element: Element) => parseInt(getComputedStyle(element).zIndex, 10) || 0;
+          if (!branch || layer(header) <= layer(branch))
+            violations.push('Six-Max Top Seat Portrait Is Not Under The Tab Bar');
+          const bar = getComputedStyle(header)
+            .backgroundColor.match(/[\d.]+/g)
+            ?.map(Number);
+          if (!bar || (bar.length > 3 && bar[3] < 1))
+            violations.push('Tab Bar Does Not Hide A Portrait Behind It');
+        }
+      }
+    }
+  }
   const footerControls = Array.from(
     table.querySelectorAll('.waitlist-cta, .action-panel, .pre-action-bar')
   ).filter(visible);
