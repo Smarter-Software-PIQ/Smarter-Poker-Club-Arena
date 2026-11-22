@@ -19,6 +19,7 @@ Receipt `fixed_limit_hilo_low_half_kept_seen`. Law `server/src/engine/AFixedLimi
 - Mechanism: MET by the law's fixtures.
 - League: NOT MEASURED on a legal game. The refused arm `flo8_hilo_low_half_floor`, run on the no-limit betting the league still gives flo8, diverged in 6 of 300 pairs (seed 20261115); that is not a fixed-limit measurement.
 - Value, continuation, reach against people: NOT MEASURED in this repository. The ledger records the lane's diagnosis before the fix (flo8 six seats: river hands with a low half of 0.46 and 0.59 capped to 0.10 and 0.13 and folded 66 of 83); its archive is outside this repository.
+- Historical human FLO8 micro-replay check (2026-11-21, 336 replayable `horse_policy` nodes from the 43/107 showdown hands of the 2026-11-03 02:40 to 03:53 UTC 1-person session, 0 arm errors, 0 placed audit verdicts): `fixed_limit_hilo_low_half_kept_seen` fired 6 times with **0 / 336** decisions changed.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 
 ## What is still owed before this file may say the evidence is met

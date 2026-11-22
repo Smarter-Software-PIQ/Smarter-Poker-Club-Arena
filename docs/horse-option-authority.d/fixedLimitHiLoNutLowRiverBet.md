@@ -19,6 +19,7 @@ Receipt `hilo_nut_low_freeroll_bet`. Law `server/src/engine/AFixedLimitNutLowBet
 - Mechanism: MET by the law's fixtures.
 - League: NOT MEASURED on a legal game. The refused arm `flo8_nut_low_river_bet`, run on the no-limit betting the league still gives flo8, diverged in 1 of 300 pairs (seed 20261115); that is not a fixed-limit measurement.
 - Value, continuation, reach against people: NOT MEASURED in this repository.
+- Historical human FLO8 micro-replay check (2026-11-21, read-only against the 107 retained `has_human` flo8 hands from 2026-11-03 02:40 to 03:53 UTC, 1 person and 5 Horses, `audited-node-option-replay.ts` with 76,098 `has_human` history hands as of decision and `prod-switch-20261121T1500Z.json`, zero hole cards stored): only 43 of 107 hands carry `hole_cards` (showdown hands), yielding 336 replayable `horse_policy` nodes (81 river; 0 arm errors; base fidelity 276/336 = 82.1%). On those 336 nodes, `fixedLimitHiLoNutLowRiverBet` fired `hilo_nut_low_freeroll_bet` twice and changed **1 / 336** decisions (1 river, `check->bet: 1`). Zero placed audit verdicts exist for these hands, and 1 changed decision from a single person's 73-minute session is not a replay gate.
 - Replay on real audited decisions (README.md, "Replay bar"): NOT RUN.
 
 ## What is still owed before this file may say the evidence is met
