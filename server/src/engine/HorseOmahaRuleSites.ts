@@ -628,7 +628,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaMathCorePreflop: outside(PREFLOP),
   omahaMathCoreNetsTheWholeDeduction: outside(
-    'a pricing term of omahaMathCore (the pot it prices is netted of the dealt-player rake cap, the jackpot drop, and both on a preflop line that reaches a flop; default OFF): it is no rule site of its own'
+    'INERT (lane CORE-FIX-1): formerly a pricing term of omahaMathCore; the core nets the whole deduction by default and this option changes no decision (law: OmahaMathCoreCoreFix1.law.test.ts); it is no rule site of its own'
   ),
   omahaFacingBetPaysTheWholeDeduction: priced(
     "the facing-bet call verdicts deduct the whole projected deduction of the pot after the call (capped rake plus the jackpot drop, the controller's own arithmetic) instead of the marginal rake rate (default OFF; EMERG lane RAKE 2026-11-20)"

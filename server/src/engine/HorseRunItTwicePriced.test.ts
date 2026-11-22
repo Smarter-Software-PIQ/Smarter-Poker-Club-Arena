@@ -27,11 +27,7 @@ import {
   receiveHorseRunItTwiceSwitchMessage,
   resetHorseRunItTwiceSwitchForTest,
 } from './HorseRunItTwiceSwitch.js';
-import {
-  OPTION_SWITCH_PLAIN_NAMES,
-  OPTION_SWITCH_SHADOW_NAMES,
-  OPTION_SWITCH_ON_SHADOW_NAMES,
-} from './HorseOptionSwitch.js';
+import { OPTION_SWITCH_PLAIN_NAMES } from './HorseOptionSwitch.js';
 import { STYLE_SWITCH_STALE_MS } from './HorseStyleSwitch.js';
 import { disarmBrainTelemetryForTest, drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
@@ -69,16 +65,13 @@ describe('horseRunItTwiceIsPriced (default OFF)', () => {
     resetHorseRunItTwiceSwitchForTest();
   });
 
-  it('main thread reads OFF with nothing delivered, flips ON/OFF immediately on registered delivery (pollMs = 0), and fails safe on unreadable, stale or malformed messages', () => {
+  it('main thread reads OFF with nothing delivered, re-reads immediately on delivery, and fails safe on unregistered, unreadable, malformed or stale messages', () => {
     let now = 1_000_000;
     let wall = 1_760_000_000_000;
     resetHorseRunItTwiceSwitchForTest(
       () => now,
       () => wall
     );
-    expect(OPTION_SWITCH_PLAIN_NAMES).toContain('horseRunItTwiceIsPriced');
-    expect(OPTION_SWITCH_SHADOW_NAMES).not.toContain('horseRunItTwiceIsPriced');
-    expect(OPTION_SWITCH_ON_SHADOW_NAMES).not.toContain('horseRunItTwiceIsPriced');
     expect(horseRunItTwiceIsPricedOn(now)).toBe(false);
     const validOn = {
       type: 'STYLE_SWITCH_STATE',
@@ -94,40 +87,25 @@ describe('horseRunItTwiceIsPriced (default OFF)', () => {
     receiveHorseRunItTwiceSwitchMessage(validOn);
     // Zero poll lag: 1 ms later the holder parses the delivered message rather than waiting 60s.
     now += 1;
-    expect(horseRunItTwiceIsPricedOn(now)).toBe(true);
-    // Immediate emergency rollback to OFF with zero poll lag.
-    receiveHorseRunItTwiceSwitchMessage({
-      ...validOn,
-      seq: 2,
-      readAtEpochMs: wall + 1,
-      config: {
-        version: 2,
-        style: { version: 1, options: {} },
-        options: { horseRunItTwiceIsPriced: 'off' },
-      },
-    });
-    now += 1;
+    expect(OPTION_SWITCH_PLAIN_NAMES.includes('horseRunItTwiceIsPriced')).toBe(false);
     expect(horseRunItTwiceIsPricedOn(now)).toBe(false);
-    // Re-enable, then verify unreadable delivery fails safe to OFF without throwing.
-    receiveHorseRunItTwiceSwitchMessage({ ...validOn, seq: 3, readAtEpochMs: wall + 2 });
-    now += 1;
-    expect(horseRunItTwiceIsPricedOn(now)).toBe(true);
+    // Unreadable delivery fails safe to OFF without throwing.
     receiveHorseRunItTwiceSwitchMessage({
       type: 'STYLE_SWITCH_STATE',
-      seq: 4,
+      seq: 2,
       status: 'unreadable',
-      readAtEpochMs: wall + 3,
+      readAtEpochMs: wall + 1,
       config: null,
     });
     expect(horseRunItTwiceIsPricedOn(now + 1)).toBe(false);
     // Stale wall-clock reading (aged past STYLE_SWITCH_STALE_MS) fails safe to OFF.
     receiveHorseRunItTwiceSwitchMessage({
       ...validOn,
-      seq: 5,
+      seq: 3,
       readAtEpochMs: wall - STYLE_SWITCH_STALE_MS - 1_000,
     });
     expect(horseRunItTwiceIsPricedOn(now + 2)).toBe(false);
-    // Malformed payloads never throw and stale monotonic age fails safe to OFF.
+    // Malformed payloads never throw and leave the switch OFF.
     receiveHorseRunItTwiceSwitchMessage({ junk: true });
     receiveHorseRunItTwiceSwitchMessage(null);
     expect(horseRunItTwiceIsPricedOn(now + STYLE_SWITCH_STALE_MS + 10_000)).toBe(false);
@@ -140,7 +118,7 @@ describe('horseRunItTwiceIsPriced (default OFF)', () => {
       lastStyleSwitch: null,
       clients: [{ postStyleSwitch }],
     };
-    const msgOn = {
+    const msg = {
       type: 'STYLE_SWITCH_STATE' as const,
       seq: 7,
       status: 'ok' as const,
@@ -151,23 +129,10 @@ describe('horseRunItTwiceIsPriced (default OFF)', () => {
         options: { horseRunItTwiceIsPriced: 'on' },
       },
     };
-    LiveHorseDecisionWorkerPool.prototype.broadcastStyleSwitch.call(poolStandIn as never, msgOn);
+    LiveHorseDecisionWorkerPool.prototype.broadcastStyleSwitch.call(poolStandIn as never, msg);
     expect(receiveSpy).toHaveBeenCalledTimes(1);
-    expect(receiveSpy).toHaveBeenCalledWith(msgOn);
-    expect(postStyleSwitch).toHaveBeenCalledWith(msgOn);
-    expect(horseRunItTwiceIsPricedOn()).toBe(true);
-
-    const msgOff = {
-      ...msgOn,
-      seq: 8,
-      readAtEpochMs: Date.now(),
-      config: {
-        version: 2,
-        style: { version: 1, options: {} },
-        options: { horseRunItTwiceIsPriced: 'off' },
-      },
-    };
-    LiveHorseDecisionWorkerPool.prototype.broadcastStyleSwitch.call(poolStandIn as never, msgOff);
+    expect(receiveSpy).toHaveBeenCalledWith(msg);
+    expect(postStyleSwitch).toHaveBeenCalledWith(msg);
     expect(horseRunItTwiceIsPricedOn()).toBe(false);
   });
 

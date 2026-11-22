@@ -346,9 +346,9 @@ migration commit identity must also match. Changed or unreadable qualification
 inputs stop the walk and run full certification; they are never skipped to find
 an older success.
 `bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
-exactly what `server/Dockerfile` copies into the image at that commit (plus
-the Dockerfile and the script itself), read from git blobs; `--manifest`
-lists the inputs. Walking the first-parent history (60 commits), the nearest
+exactly what `server/Dockerfile` copies into the image at that commit after
+applying `server/.dockerignore` (plus the Dockerfile, `.dockerignore` and the
+script itself), read from git objects; `--manifest` lists the inputs. Walking the first-parent history (60 commits), the nearest
 ancestor with the same identity decides: `success` there is written on the
 candidate as `Inherited from <sha>: identical engine source (<12hex>)` and
 the run plans nothing; `failure` or `error` there, a different identity, an
@@ -483,6 +483,22 @@ and writes `failure` even when a provider answer stopped the job before certify
 (review of #10805). Nothing cancels a certification that is
 already running: a run that started before the booking merged still holds the
 host until it ends (about 50 minutes on November 14).
+
+The standby host turn wait (`turn` step of `backup-engine.yml` `refresh` job)
+allows up to 120 minutes (`7200` s; `refresh` `timeout-minutes: 180`, host
+lease TTL `9000` s) so a queued candidate behind an active refresh plus 55-min
+certification does not time out right before its turn (2026-11-21, E3). While
+waiting for the lease in `turn`, and again in `late_priority` before `certify`,
+an ordinary `push` run that observes a newer push run (larger run id, different
+head SHA) yields cleanly as `SUPERSEDED`, releasing any held host lease and
+writing no `error` or `failure` status; `booking`, `freeze_baseline`, manual,
+nightly and post-seal runs are never superseded, and an unreadable GitHub
+answer proceeds (CLAUDE.md 10.86). Immediately after acquiring the host turn,
+`late_inherit` re-checks whether the target SHA is already certified or whether
+a first-parent ancestor with identical `scripts/ci/engine-source-identity.sh`
+and `backup_projection` (`scripts/ci/read-engine-prequalification.py`) gained
+`backup-engine/certified = success` while it waited; if so, it inherits the
+certificate, releases the host lease at once, and skips refresh and `certify`.
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only

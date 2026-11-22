@@ -483,7 +483,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'styleTightMultiSignal',
   'styleTightMethodLine',
   'horseActionTimeIsPublicOnly',
-  'horseRunItTwiceIsPriced',
   'horsePlayStyles',
   // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
   'omahaReraisedPotFlopContinueNeedsEquityShape',
@@ -734,6 +733,27 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     source:
       'league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 (docs/horse-league-fixed-limit.md; docs/changelog/2026-11-20-league-scripted-fixed-limit-field.md)',
   }),
+  // 2026-11-21 Antigravity Coordinator: the scripted no-limit field (PR #11634, docs/changelog/2026-11-21-holdem-scripted-
+  // no-limit-field.md). Against its value-only harm control it loses on both seeds; against the pot barreler it is not
+  // resolved. No cell anywhere is significantly positive, so it is off-only as measured harm.
+  holdemCommittedNoPairIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: value-only harm control -0.21 bb/100 (SE 0.07, z -3.02; seeds -0.20 +/- 0.10, z -2.02 and -0.22 +/- 0.10, z -2.26, both significant); pot barreler not resolved (-0.21 +/- 0.70); no significant positive cell',
+    source:
+      'league card nlh_committed_no_pair_is_priced_vs_value_barreler and _vs_pot_barreler, PR #11634 (docs/horse-option-authority.d/holdemCommittedNoPairIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
+  }),
+  // 2026-11-21 Antigravity Coordinator: same field. Against a danger-board bettor that bets value and no-pair half-pot
+  // on four-flush/four-straight boards it loses heavily on both seeds; its gain against the value-only control is the
+  // field most favourable to it. Same shape as fixedLimitCallIsNotACommitment (harm in one field, nothing in the other).
+  // The known cause is its n = 50 call-biased showdown sample of the bettor's range.
+  holdemDangerBoardEquityIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: danger-board bettor (value and no-pair half-pot bets on four-flush/four-straight boards) -7.90 bb/100 (SE 0.81, z -9.74; seeds -7.31 +/- 1.11, z -6.61 and -8.49 +/- 1.19, z -7.16); its value-only control gain +2.33 (z +7.61) is the field most favourable to it; cause: n = 50 call-biased bettor-range showdown sample',
+    source:
+      'league card nlh_danger_board_equity_is_priced_vs_danger_bettor and _vs_danger_value, PR #11634 (docs/horse-option-authority.d/holdemDangerBoardEquityIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
+  }),
   // 2026-11-21 Antigravity Coordinator: declared eval-40aba893fbc9 on the human-calibrated PLO6 field (F6 400/400
   // sessions, 200,000 pairs / 400,000 hands) failed with measured harm (-15.510 +/- 2.655 bb/100, z = -5.84);
   // Horse mirror M6 was not significant (+1.483 +/- 1.319, z = +1.12), and HVH48 true-card river fold->call bled
@@ -876,8 +896,6 @@ export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Ob
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
   omahaOpponentLifetimeHud:
     'its lifetime record is loaded and attached only while the switch is on (OpponentHudStore arms on the switch; off = zero work), so a shadow re-decision would read no record and journal "same" falsely (lane SHADOW, 2026-11-21)',
-  horseRunItTwiceIsPriced:
-    'a main-thread switch: ServerTableEngineRunout.horseRitRuns reads HorseRunItTwiceSwitch.horseRunItTwiceIsPricedOn outside HorseLogic.decide, not per worker decision',
 });
 
 /** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */
@@ -1021,11 +1039,6 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed-Limit',
     'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
     'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
-  ],
-  horseRunItTwiceIsPriced: [
-    'Programme',
-    'All cash tables offering run-it-twice, main thread (ServerTableEngineRunout.horseRitRuns)',
-    'run-it-twice answer priced from measured people curve and public all-in equity with owner lopsided cut (default OFF)',
   ],
   plo6FacingBetIsPricedV2: [
     'PLO6',

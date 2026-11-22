@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { parse } from 'yaml';
 import {
   maintenanceFrequency,
   nearbyMaintenanceWindows,
@@ -389,5 +390,188 @@ describe('the database freeze marks follow every cycle the engine actually annou
     expect(sql).toContain("IF v_hour <> 4 AND p_kind = 'pre' AND NOT EXISTS (");
     expect(sql).toContain("cron.schedule('ca-freeze-mark-pre','0 * * * *'");
     expect(sql).toContain("cron.schedule('ca-freeze-mark-post','5 * * * *'");
+  });
+});
+
+describe('prequalification waits once across a closed prestage window and keeps the host door fail-closed', () => {
+  const workflowRaw = read('.github/workflows/engine-release-prequalification.yml');
+  const workflow = parse(workflowRaw);
+  const prestageJob = workflow.jobs.prestage;
+  const stageStep = prestageJob.steps.find((s: { id?: string }) => s.id === 'stage');
+  const stageRun: string = stageStep.run;
+  const waitMarker = 'wait_seconds="$(START_HOURS="$hours" python3 - <<\'PRESTAGE_WAIT_PY\'\n';
+  const waitCodeStart = stageRun.indexOf(waitMarker) + waitMarker.length;
+  const waitCodeEnd = stageRun.indexOf('\nPRESTAGE_WAIT_PY\n', waitCodeStart);
+  const waitCode = stageRun.slice(waitCodeStart, waitCodeEnd);
+
+  const prestageScript = read('scripts/ci/prestage-engine-image.sh');
+  const hostDoorCode = prestageScript
+    .slice(prestageScript.indexOf("<<'PY'\n") + 6, prestageScript.indexOf('\nPY\n'))
+    .replace('now = int(time.time())', 'now = int(os.environ["NOW"])');
+
+  const computeWait = (iso: string, hours: string) => {
+    const pinned = waitCode.replace('now = int(time.time())', 'now = int(os.environ["NOW"])');
+    const r = spawnSync('python3', ['-c', pinned], {
+      encoding: 'utf8',
+      env: { ...process.env, NOW: String(Math.floor(Date.parse(iso) / 1000)), START_HOURS: hours },
+    });
+    return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr };
+  };
+
+  const hostDoor = (epochSec: number, hours: string) => {
+    const r = spawnSync('python3', ['-c', hostDoorCode], {
+      encoding: 'utf8',
+      env: { ...process.env, NOW: String(epochSec), START_HOURS: hours },
+    });
+    return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr };
+  };
+
+  it('bounds the prestage job timeout, parses cleanly in bash, and sleeps once without loops or retries', () => {
+    expect(prestageJob['timeout-minutes']).toBe(85);
+    expect(waitCodeStart).toBeGreaterThan(waitMarker.length);
+    expect(waitCodeEnd).toBeGreaterThan(waitCodeStart);
+    expect(waitCode).toContain('now = int(time.time())');
+    expect(waitCode).toContain(`hours = ${HOURS_PY}`);
+    expect(stageRun.indexOf("<<'PRESTAGE_WAIT_PY'")).toBeLessThan(
+      stageRun.indexOf('base64 -w0 scripts/ci/prestage-engine-image.sh')
+    );
+    expect(stageRun.indexOf('sleep "$wait_seconds"')).toBeLessThan(
+      stageRun.indexOf('gzip -1c "$dir/image.tar"')
+    );
+    expect(stageRun).not.toMatch(/^\s*(while|until)\b/m);
+    expect(stageRun.match(/\bsleep\b/g)).toHaveLength(1);
+    // Host-side fail-closed guard stays intact.
+    expect(prestageScript).toContain('raise SystemExit("production preparation window is closed")');
+    // Entire bash step parses cleanly.
+    const syntax = spawnSync('bash', ['-n'], { input: stageRun, encoding: 'utf8' });
+    expect(syntax.status, syntax.stderr).toBe(0);
+  });
+
+  it('returns exact seconds to cycle+305s (<= 2165s) during closed three-hourly windows and 0 outside', () => {
+    const three = HOURS.join(',');
+    // 2026-11-20 CST (UTC-6), 16:00 Chicago cycle = 22:00:00Z, wake target = 22:05:05Z.
+    const cases: Array<[string, number]> = [
+      ['2026-11-20T21:28:59Z', 0], // 15:28:59 CST: outside 60s lead
+      ['2026-11-20T21:29:00Z', 2165], // 15:29:00 CST: exact upper bound (start - 1860)
+      ['2026-11-20T21:30:00Z', 2105], // 15:30:00 CST: preparation cutoff (start - 1800)
+      ['2026-11-20T21:45:00Z', 1205], // 15:45:00 CST: mid-preparation
+      ['2026-11-20T22:00:00Z', 305], // 16:00:00 CST: break start
+      ['2026-11-20T22:04:00Z', 65], // 16:04:00 CST: break minute 4
+      ['2026-11-20T22:04:59Z', 6], // 16:04:59 CST: final closed second
+      ['2026-11-20T22:05:00Z', 0], // 16:05:00 CST: door reopened
+      ['2026-11-20T22:05:05Z', 0], // 16:05:05 CST: wake instant
+      ['2026-11-20T20:00:00Z', 0], // 14:00:00 CST: open afternoon
+      ['2026-11-20T23:00:00Z', 0], // 17:00:00 CST: open evening
+    ];
+    for (const [iso, expected] of cases) {
+      const r = computeWait(iso, three);
+      expect(r.status, `${iso}: ${r.stderr}`).toBe(0);
+      const wait = Number(r.stdout);
+      expect(wait, iso).toBe(expected);
+      expect(wait, iso).toBeLessThanOrEqual(2165);
+      // Every non-zero wait wakes at an instant accepted by the unchanged host door with a full 600s deadline.
+      if (wait > 0) {
+        const nowSec = Math.floor(Date.parse(iso) / 1000);
+        const wakeSec = nowSec + wait;
+        expect(wakeSec, `${iso} wake target`).toBe(Date.parse('2026-11-20T22:05:05Z') / 1000);
+        const after = hostDoor(wakeSec, three);
+        expect(after.status, `${iso} wake host door: ${after.stderr}`).toBe(0);
+        expect(Number(after.stdout)).toBe(wakeSec + 600);
+        // Inside [start - 1800, start + 300), the host door itself still refuses fail-closed.
+        if (nowSec >= Date.parse('2026-11-20T21:30:00Z') / 1000) {
+          const during = hostDoor(nowSec, three);
+          expect(during.status, `${iso} host door must still refuse`).not.toBe(0);
+          expect(during.stderr).toContain('production preparation window is closed');
+        }
+      }
+    }
+    // Every one of the eight Chicago cycles closes on its own :30-:05 window.
+    for (const utcHour of [6, 9, 12, 15, 18, 21]) {
+      const hh = String(utcHour).padStart(2, '0');
+      const r = computeWait(`2026-11-20T${hh}:45:00Z`, three);
+      expect(r.status, r.stderr).toBe(0);
+      expect(Number(r.stdout), `UTC ${hh}:45`).toBe(1205);
+    }
+  });
+
+  it('on a daily policy, returns 0 for non-04:00 cycles and waits only for 04:00', () => {
+    for (const iso of [
+      '2026-11-20T06:40:00Z', // 00:40 CST (01:00 cycle)
+      '2026-11-20T21:30:00Z', // 15:30 CST (16:00 cycle)
+      '2026-11-20T22:02:00Z', // 16:02 CST (16:00 cycle)
+      '2026-11-21T00:45:00Z', // 18:45 CST (19:00 cycle)
+    ]) {
+      const r = computeWait(iso, '4');
+      expect(r.status, `${iso}: ${r.stderr}`).toBe(0);
+      expect(Number(r.stdout), iso).toBe(0);
+    }
+    expect(Number(computeWait('2026-11-20T09:29:00Z', '4').stdout)).toBe(2165); // 03:29 CST
+    expect(Number(computeWait('2026-11-20T09:30:00Z', '4').stdout)).toBe(2105); // 03:30 CST
+    expect(Number(computeWait('2026-11-20T10:04:59Z', '4').stdout)).toBe(6); // 04:04:59 CST
+    expect(Number(computeWait('2026-11-20T10:05:00Z', '4').stdout)).toBe(0); // 04:05:00 CST
+  });
+
+  it('handles DST fall-back (only the first 01:00 is closed) and spring-forward accurately', () => {
+    const three = HOURS.join(',');
+    // Fall-back day 2026-11-01: first 01:00 CDT = 06:00Z; repeated 01:00 CST = 07:00Z; 04:00 CST = 10:00Z.
+    expect(Number(computeWait('2026-11-01T05:29:00Z', three).stdout)).toBe(2165);
+    expect(Number(computeWait('2026-11-01T05:30:00Z', three).stdout)).toBe(2105);
+    expect(Number(computeWait('2026-11-01T06:04:00Z', three).stdout)).toBe(65);
+    expect(Number(computeWait('2026-11-01T06:05:00Z', three).stdout)).toBe(0);
+    // Repeated 01:00 CST (07:00Z) is NOT a cycle: zero wait throughout its lead and break.
+    for (const iso of [
+      '2026-11-01T06:29:00Z',
+      '2026-11-01T06:30:00Z',
+      '2026-11-01T06:40:00Z',
+      '2026-11-01T07:00:00Z',
+      '2026-11-01T07:04:59Z',
+    ]) {
+      const r = computeWait(iso, three);
+      expect(r.status, `${iso}: ${r.stderr}`).toBe(0);
+      expect(Number(r.stdout), iso).toBe(0);
+    }
+    // Anchor 04:00 CST (10:00Z) still closes.
+    expect(Number(computeWait('2026-11-01T09:30:00Z', three).stdout)).toBe(2105);
+
+    // Spring-forward day 2026-03-08: 01:00 CST = 07:00Z; 04:00 CDT = 09:00Z.
+    expect(Number(computeWait('2026-03-08T06:30:00Z', three).stdout)).toBe(2105);
+    expect(Number(computeWait('2026-03-08T07:30:00Z', three).stdout)).toBe(0);
+    expect(Number(computeWait('2026-03-08T08:00:00Z', three).stdout)).toBe(0);
+    expect(Number(computeWait('2026-03-08T08:30:00Z', three).stdout)).toBe(2105);
+
+    // Unsupported START_HOURS fails closed.
+    expect(computeWait('2026-11-20T21:45:00Z', '1,2,3').status).not.toBe(0);
+  });
+
+  it('executes the workflow bash wait block once during a blackout and skips sleep when open', () => {
+    const blockStart = stageRun.indexOf('wait_seconds=');
+    const blockEnd = stageRun.indexOf('\ncode="$(base64', blockStart);
+    const bashWaitBlock = stageRun
+      .slice(blockStart, blockEnd)
+      .replace('now = int(time.time())', 'now = int(os.environ["NOW"])');
+    const runBlock = (iso: string, hours: string) =>
+      spawnSync(
+        'bash',
+        [
+          '-euo',
+          'pipefail',
+          '-c',
+          `hours=${JSON.stringify(hours)}\nsleep() { echo "MOCK_SLEEP:$*"; }\n${bashWaitBlock}`,
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, NOW: String(Math.floor(Date.parse(iso) / 1000)) },
+        }
+      );
+
+    const closed = runBlock('2026-11-20T21:45:00Z', HOURS.join(','));
+    expect(closed.status, closed.stderr).toBe(0);
+    expect(closed.stdout).toContain('sleeping once for 1205s until cycle+305s before SSH transfer');
+    expect(closed.stdout.match(/MOCK_SLEEP:/g)).toHaveLength(1);
+    expect(closed.stdout).toContain('MOCK_SLEEP:1205');
+
+    const open = runBlock('2026-11-20T23:00:00Z', HOURS.join(','));
+    expect(open.status, open.stderr).toBe(0);
+    expect(open.stdout).not.toContain('MOCK_SLEEP:');
   });
 });

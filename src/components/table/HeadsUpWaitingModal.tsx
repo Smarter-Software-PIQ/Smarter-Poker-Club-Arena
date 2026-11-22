@@ -46,18 +46,30 @@ export function HeadsUpWaitingModal({
   onNotify,
 }: HeadsUpWaitingModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const wasOpenRef = useRef(false);
   const [step, setStep] = useState<'choice' | 'invite'>(initialStep);
   const [copied, setCopied] = useState(false);
   const [fallbackUrl, setFallbackUrl] = useState('');
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Initialize the step only when transitioning from closed -> open so changing
+  // parent props while the modal is already open on 'invite' never bounces the
+  // player back to the 'choice' step.
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       setStep(initialStep);
       setCopied(false);
       setFallbackUrl('');
     }
-  }, [isOpen, initialStep, inviteUrl]);
+    wasOpenRef.current = isOpen;
+  }, [isOpen, initialStep]);
+
+  useEffect(() => {
+    setCopied(false);
+    setFallbackUrl('');
+  }, [inviteUrl]);
 
   useEffect(
     () => () => {
@@ -71,8 +83,12 @@ export function HeadsUpWaitingModal({
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (isOpen) {
-      if (!dialog.open && typeof dialog.showModal === 'function') {
-        dialog.showModal();
+      if (!dialog.open && dialog.isConnected && typeof dialog.showModal === 'function') {
+        try {
+          dialog.showModal();
+        } catch {
+          /* ignore InvalidStateError if already modal or detached mid-transition */
+        }
       }
     } else if (dialog.open && typeof dialog.close === 'function') {
       dialog.close();
@@ -80,16 +96,17 @@ export function HeadsUpWaitingModal({
   }, [isOpen]);
 
   // Listen for native close (Esc, backdrop light dismiss, programmatic close).
+  // Use a ref so parent render ticks never tear down and rebind this listener.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     const handleClose = () => {
       dialog.returnValue = '';
-      onClose();
+      onCloseRef.current();
     };
     dialog.addEventListener('close', handleClose);
     return () => dialog.removeEventListener('close', handleClose);
-  }, [onClose]);
+  }, []);
 
   // Progressive enhancement fallback for Safari where <dialog closedby="any">
   // is not yet implemented: require press AND release outside the dialog box.
@@ -142,7 +159,7 @@ export function HeadsUpWaitingModal({
     const outcome = await shareLink({
       source: 'HeadsUpWaitingModal.share',
       title: tableName || 'Heads Up Sit N Go',
-      text: gameInviteText(tableName || 'this Heads Up Sit N Go'),
+      text: gameInviteText(tableName || 'Heads Up Sit N Go'),
       url: inviteUrl,
     });
     if (outcome === 'copied') {

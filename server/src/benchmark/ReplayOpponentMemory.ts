@@ -37,6 +37,7 @@ import { horseMindHandFromHistory } from '../engine/HorseMindHandIdentity.js';
 import { completedHandActionsForMind } from '../engine/horseDecision/completedHandActions.js';
 import { bigBlindFromForcedPosts, type ExploitHandAction } from '../engine/HorseOpponentExploit.js';
 import { bettingStructureFor } from '../engine/BettingStructure.js';
+import { publicMemoryDomainIsValid } from '../engine/HorsePublicMemoryDomain.js';
 import { addStreetReadEvidence, streetReadHandIncrements } from '../engine/HorseOmahaStreetRead.js';
 import {
   memoryVariant,
@@ -139,7 +140,10 @@ export function historyHandOf(row: Record<string, unknown>): HistoryHand | null 
 
 /** The opponent records a replay reads, learned forward in time inside one private sandbox. */
 export class AsOfOpponentMemory {
-  readonly sandbox: HorseMindSandbox = HorseMind.createSandbox();
+  readonly sandbox: HorseMindSandbox = {
+    ...HorseMind.createSandbox(),
+    styleMaps: HorseMind.createStyleMaps(),
+  };
   private readonly hands: HistoryHand[];
   private next = 0;
   private throughMs = -Infinity;
@@ -313,6 +317,9 @@ export function withSeatIds(
   const next = {
     ...gs,
     players,
+    ...(gs.publicMemoryDomain === undefined && publicMemoryDomainIsValid(hand.publicMemoryDomain)
+      ? { publicMemoryDomain: { ...hand.publicMemoryDomain } }
+      : {}),
     ...(gs.actionHistory
       ? { actionHistory: gs.actionHistory.map((a) => ({ ...a, userId: map(a.userId) })) }
       : {}),

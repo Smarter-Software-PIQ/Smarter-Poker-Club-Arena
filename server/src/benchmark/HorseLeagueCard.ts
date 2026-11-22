@@ -20,12 +20,13 @@ export const LEAGUE_CARD_MAX_SEED = 0xffff_ffff;
 export const LEAGUE_CARD_MAX_PAIRS = 65_536;
 
 export const LEAGUE_CARD_USAGE =
-  'usage: npx tsx src/scripts/horseLeagueCard.ts --card=<name> --seed=<n>[,<n>...] [--pairs=<n>]\n' +
+  'usage: npx tsx src/scripts/horseLeagueCard.ts --card=<name> --seed=<n>[,<n>...] [--pairs=<n>] [--hydrate-solver-stores]\n' +
   '       npx tsx src/scripts/horseLeagueCard.ts --list\n' +
-  '  --card   exact name of one card in LEAGUE_MATCHUPS\n' +
-  '  --seed   one run seed, or several separated by commas (one full run each)\n' +
-  '  --pairs  duplicate pairs per seed; default is the pairs the card declares\n' +
-  '  --list   print every card name (dealable, then refused) and exit';
+  '  --card                    exact name of one card in LEAGUE_MATCHUPS\n' +
+  '  --seed                    one run seed, or several separated by commas (one full run each)\n' +
+  '  --pairs                   duplicate pairs per seed; default is the pairs the card declares\n' +
+  '  --hydrate-solver-stores   opt-in: load GTO charts/postflop/V31 stores from Supabase before running\n' +
+  '  --list                    print every card name (dealable, then refused) and exit';
 
 export interface LeagueCardArgs {
   list: boolean;
@@ -33,6 +34,14 @@ export interface LeagueCardArgs {
   seeds: number[];
   /** null: use the pairs the card declares. */
   pairs: number | null;
+  /** Opt-in: hydrate GTO solver stores from Supabase before dealing (default false: offline, zero DB). */
+  hydrateSolverStores: boolean;
+}
+
+export interface LeagueCardSolverStoreCounts {
+  charts: number;
+  postflop: number;
+  postflopV31: number;
 }
 
 /** A refusal the script prints and exits non-zero on; never a stack trace. */
@@ -57,9 +66,15 @@ function wholeNumber(text: string, what: string, min: number, max: number): numb
 export function parseLeagueCardArgs(argv: readonly string[]): LeagueCardArgs {
   const seen = new Map<string, string>();
   let list = false;
+  let hydrateSolverStores = false;
   for (const arg of argv) {
     if (arg === '--list') {
       list = true;
+      continue;
+    }
+    if (arg === '--hydrate-solver-stores') {
+      if (hydrateSolverStores) throw new LeagueCardRefusal('--hydrate-solver-stores given twice');
+      hydrateSolverStores = true;
       continue;
     }
     const m = /^--(card|seed|pairs)=(.+)$/.exec(arg);
@@ -68,8 +83,10 @@ export function parseLeagueCardArgs(argv: readonly string[]): LeagueCardArgs {
     seen.set(m[1], m[2]);
   }
   if (list) {
-    if (seen.size > 0) throw new LeagueCardRefusal('--list takes no other argument');
-    return { list: true, card: null, seeds: [], pairs: null };
+    if (seen.size > 0 || hydrateSolverStores) {
+      throw new LeagueCardRefusal('--list takes no other argument');
+    }
+    return { list: true, card: null, seeds: [], pairs: null, hydrateSolverStores: false };
   }
   const card = seen.get('card');
   if (!card) throw new LeagueCardRefusal(`--card is required\n${LEAGUE_CARD_USAGE}`);
@@ -86,7 +103,40 @@ export function parseLeagueCardArgs(argv: readonly string[]): LeagueCardArgs {
   const pairsText = seen.get('pairs');
   const pairs =
     pairsText === undefined ? null : wholeNumber(pairsText, '--pairs', 2, LEAGUE_CARD_MAX_PAIRS);
-  return { list: false, card, seeds, pairs };
+  return { list: false, card, seeds, pairs, hydrateSolverStores };
+}
+
+/**
+ * Opt-in solver store hydration for horseLeagueCard.ts. Matches
+ * HorseLeagueComputeWorker.ts by loading all three stores in parallel before
+ * dealing, and fails closed if all three return 0 rows.
+ */
+export async function hydrateLeagueCardSolverStores(loaders: {
+  loadCharts: () => Promise<number>;
+  loadPostflop: () => Promise<number>;
+  loadPostflopV31: () => Promise<number>;
+  getCounts: () => LeagueCardSolverStoreCounts;
+}): Promise<LeagueCardSolverStoreCounts> {
+  const [chartsLoaded, postflopLoaded, postflopV31Loaded] = await Promise.all([
+    loaders.loadCharts(),
+    loaders.loadPostflop(),
+    loaders.loadPostflopV31(),
+  ]);
+  const counts = loaders.getCounts();
+  if (
+    chartsLoaded === 0 &&
+    postflopLoaded === 0 &&
+    postflopV31Loaded === 0 &&
+    counts.charts === 0 &&
+    counts.postflop === 0 &&
+    counts.postflopV31 === 0
+  ) {
+    throw new LeagueCardRefusal(
+      'REFUSED: --hydrate-solver-stores requested, but all three solver stores returned 0 rows ' +
+        '(charts=0 postflop=0 postflopV31=0)'
+    );
+  }
+  return counts;
 }
 
 /**

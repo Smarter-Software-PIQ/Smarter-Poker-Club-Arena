@@ -515,6 +515,9 @@ export type LeagueSeatPolicy = (spot: LeagueSeatSpot) => { action: string; amoun
  * absent on every pre-existing path.
  */
 export interface LeagueHandObserver {
+  /** Called right before a seat is asked for its decision (2026-11-21, sparring's HUD provider: the bench installs
+   *  the acting seat's opponent packet here, the way the decision worker installs it around the decide call). */
+  beforeDecision?: (e: { seatIdx: number; stage: HandStage }) => void;
   onAction?: (e: {
     seatIdx: number;
     stage: HandStage;
@@ -533,6 +536,10 @@ export interface LeagueHandObserver {
     cards: Card[][];
     board: Card[];
     net: number[];
+    /** PUBLIC end of the hand (2026-11-21): every seat's chips won, and the hand NAME of each seat still in at a
+     *  showdown (empty when the hand ended by folds). A category name only: no card of a player is in it. */
+    winnings: number[];
+    shown: Array<{ seatIdx: number; handName: string }>;
   }) => void;
 }
 
@@ -1282,6 +1289,7 @@ export function playHand(
         );
       }
       leaguePinPublicStreams(handSeed, i, history.length);
+      observer?.beforeDecision?.({ seatIdx: i, stage });
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
@@ -1676,13 +1684,26 @@ export function playHand(
   }
 
   const net = seats.map((s, i) => winnings[i] - s.contributed);
-  observer?.onEnd?.({
-    endedByFolds: live().length === 1,
-    folded: seats.map((s) => s.player.is_folded),
-    cards: seats.map((s) => s.player.cards),
-    board,
-    net,
-  });
+  if (observer?.onEnd) {
+    const shown: Array<{ seatIdx: number; handName: string }> = [];
+    if (live().length >= 2)
+      seats.forEach((s, seatIdx) => {
+        if (s.player.is_folded) return;
+        const score = vi.isOmaha
+          ? scoreOmahaHi(s.player.cards, board)
+          : scoreHoldem(s.player.cards.concat(board), s.player.cards.length + 5, vi.isShortDeck);
+        shown.push({ seatIdx, handName: CAT_NAMES[Math.floor(score / 0x100000)] ?? '' });
+      });
+    observer.onEnd({
+      endedByFolds: live().length === 1,
+      folded: seats.map((s) => s.player.is_folded),
+      cards: seats.map((s) => s.player.cards),
+      board,
+      net,
+      winnings: [...winnings],
+      shown,
+    });
+  }
   return net;
 }
 
@@ -6080,23 +6101,6 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       '0 of 300 pairs diverged (inert, as the structure says). The think-time claim itself rests on the source ' +
       'law and the property test (200 private hands on three public states give one think-time distribution). ' +
       'What would change this: a league opponent that conditions its play on the recorded think time.',
-  },
-  // 2026-11-21 (HORSE DECISIONS lane): horseRunItTwiceIsPriced, default off.
-  // Refused, not dealt: this league never offers run-it-twice and every run count is chip-EV-identical.
-  {
-    name: 'nlh_horse_run_it_twice_is_priced',
-    variant: 'nlh',
-    seats: 6,
-    a: { horseRunItTwiceIsPriced: true },
-    b: {},
-    reason:
-      'Unanswerable by this league: horseRunItTwiceIsPriced acts only on the engine main thread in ' +
-      'ServerTableEngineRunout.horseRitRuns when an all-in run-it-twice offer is answered, never inside ' +
-      'HorseLogic.decide, and playHand never offers run-it-twice; furthermore EV(k runs) - EV(1 run) = 0 bb ' +
-      '(RUN_IT_TWICE_EV_GAP_BB = 0 pinned against RunItTwice.money.test.ts). The option is DEFAULT OFF ' +
-      '(read as === true). Evaluated instead on the declared 30-day replay of 20,431 recorded Horse RIT ' +
-      'answers (docs/horse-option-authority.d/horseRunItTwiceIsPriced.md) and HorseRunItTwicePriced.test.ts. ' +
-      'What would change this: a league harness that simulates all-in run-it-twice offers and scores variance or human-mix fidelity.',
   },
   // 2026-11-16 (PLO6 lane): omahaStrategyInPlo6, default off and off-only.
   // Refused, not dealt: alone the gate switches no option on, and the port

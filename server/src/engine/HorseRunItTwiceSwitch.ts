@@ -41,8 +41,11 @@ export function receiveHorseRunItTwiceSwitchMessage(message: unknown): void {
 /** True only when the delivered, fresh, valid configuration switches the option on. */
 export function horseRunItTwiceIsPricedOn(nowMs: number = performance.now()): boolean {
   try {
-    const opts = optionSwitchDecisionOpts(mainThread.holder.refresh(nowMs));
-    return opts.horseRunItTwiceIsPriced === true;
+    return (
+      optionSwitchDecisionOpts(mainThread.holder.refresh(nowMs))[
+        HORSE_RUN_IT_TWICE_PRICED_OPTION
+      ] === true
+    );
   } catch {
     return false;
   }

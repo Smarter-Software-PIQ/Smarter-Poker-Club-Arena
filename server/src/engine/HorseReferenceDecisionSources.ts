@@ -225,6 +225,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'lane PLAYBOOK blocker-conditioned fold share by exact card removal (the hero cards and the board only)',
     'src/engine/omahaMathCore/OmahaMathCoreRangeTrack.ts':
       'lane RANGEADV range tracking over the public action line (Bayes on measured public node frequencies)',
+    'src/engine/omahaMathCore/OmahaMathCoreTrapRate.ts':
+      'lane CORE-POOLED-8 measured PLO4/PLO5 trap rates (showdown_only, pooled, shrunk n/(n+30)) used by OmahaMathCoreRangeTrack so a check keeps the measured share of strong holdings; core default off',
+    'src/engine/omahaMathCore/OmahaMathCoreCheckRaise.ts':
+      'lane CORE-POOLED-9 measured PLO4/PLO5 flop check-raise cell (public actions + showdown_only non-value share, pooled, shrunk n/(n+30) to generic cell) used by OmahaMathCoreRangeTrack; core default off',
     'src/engine/omahaMathCore/OmahaMathCorePreflop.ts':
       'lane PREFLOP-EV preflop strength order, public-frequency bands and size-aware fold / re-raise for the math core',
     'src/engine/omahaMathCore/preflopTables.v2-pooled.json':
@@ -235,6 +239,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'lane PREFLOP-EV two-card additive equity model (computed from random holdings only)',
     'src/engine/omahaMathCore/OmahaMathCoreValue.ts':
       'lane VALUE postflop plan: check node, raised branch, multi-street continuation and the size menu, priced by the math core',
+    'src/engine/omahaMathCore/OmahaMathCoreUntrackedCheck.ts':
+      'lane CORE-FIX-1 checked range of the untracked fallback: the pooled public bet rate b, and the typed seam for the measured trap rate (null until the trap-rate repair sets it)',
     'src/engine/omahaMathCore/OmahaMathCoreNutsFloor.ts':
       'lane CORE-POOLED-2 current-nuts call floor of the math core: exact enumeration of whether any two unseen cards beat the own hand on this board (own cards and board only); facing a flop/turn wager with a call available, the fold is not a candidate',
     'src/engine/omahaMathCore/OmahaMathCoreBluff.ts':

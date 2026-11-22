@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LeagueCardRefusal,
   formatLeagueCardResult,
+  hydrateLeagueCardSolverStores,
   leagueCardOptionsUnderTest,
   leagueCardPairs,
   leagueCardVerdict,
@@ -57,26 +58,42 @@ function result(over: Partial<LeagueResult> = {}): LeagueResult {
 }
 
 describe('parseLeagueCardArgs', () => {
-  it('reads a card, one or several seeds and pairs', () => {
+  it('reads a card, one or several seeds, pairs and opt-in solver hydration', () => {
     expect(parseLeagueCardArgs(['--card=nlh_alpha', '--seed=7', '--pairs=600'])).toEqual({
       list: false,
       card: 'nlh_alpha',
       seeds: [7],
       pairs: 600,
+      hydrateSolverStores: false,
     });
     expect(parseLeagueCardArgs(['--card=nlh_alpha', '--seed=7,8,9'])).toEqual({
       list: false,
       card: 'nlh_alpha',
       seeds: [7, 8, 9],
       pairs: null,
+      hydrateSolverStores: false,
+    });
+    expect(
+      parseLeagueCardArgs(['--card=nlh_alpha', '--seed=7', '--hydrate-solver-stores'])
+    ).toEqual({
+      list: false,
+      card: 'nlh_alpha',
+      seeds: [7],
+      pairs: null,
+      hydrateSolverStores: true,
     });
     expect(parseLeagueCardArgs(['--list']).list).toBe(true);
+    expect(parseLeagueCardArgs(['--list']).hydrateSolverStores).toBe(false);
   });
 
   it.each([
     [['--seed=7'], '--card is required'],
     [['--card=nlh_alpha'], '--seed is required'],
     [['--card=nlh_alpha', '--seed=7', '--card=plo4_beta'], '--card given twice'],
+    [
+      ['--card=nlh_alpha', '--seed=7', '--hydrate-solver-stores', '--hydrate-solver-stores'],
+      '--hydrate-solver-stores given twice',
+    ],
     [['--card=nlh_alpha', '--seed=7', '--turbo'], 'unknown argument: --turbo'],
     [['--card=nlh_alpha', '--seed=0'], '--seed must be between'],
     [['--card=nlh_alpha', '--seed=4294967296'], '--seed must be between'],
@@ -86,9 +103,33 @@ describe('parseLeagueCardArgs', () => {
     [['--card=nlh_alpha', '--seed=7', '--pairs=65537'], '--pairs must be between'],
     [['--card=nlh_alpha', '--seed=7', '--pairs=many'], '--pairs must be a whole number'],
     [['--list', '--card=nlh_alpha'], '--list takes no other argument'],
+    [['--list', '--hydrate-solver-stores'], '--list takes no other argument'],
   ])('refuses %j', (argv, message) => {
     expect(() => parseLeagueCardArgs(argv)).toThrow(LeagueCardRefusal);
     expect(() => parseLeagueCardArgs(argv)).toThrow(message);
+  });
+});
+
+describe('hydrateLeagueCardSolverStores', () => {
+  it('loads all three stores and returns their counts when hydrated', async () => {
+    const counts = await hydrateLeagueCardSolverStores({
+      loadCharts: async () => 240,
+      loadPostflop: async () => 1800,
+      loadPostflopV31: async () => 500,
+      getCounts: () => ({ charts: 240, postflop: 1800, postflopV31: 500 }),
+    });
+    expect(counts).toEqual({ charts: 240, postflop: 1800, postflopV31: 500 });
+  });
+
+  it('fails closed with LeagueCardRefusal when all three stores return 0', async () => {
+    await expect(
+      hydrateLeagueCardSolverStores({
+        loadCharts: async () => 0,
+        loadPostflop: async () => 0,
+        loadPostflopV31: async () => 0,
+        getCounts: () => ({ charts: 0, postflop: 0, postflopV31: 0 }),
+      })
+    ).rejects.toThrow(LeagueCardRefusal);
   });
 });
 
