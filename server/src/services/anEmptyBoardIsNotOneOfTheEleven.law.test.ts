@@ -63,9 +63,10 @@ describe('2. existing empty boards are seeded first when seedBudget > 0, then mi
     expect(create).toBeGreaterThan(reopen);
     const block = open.slice(open.indexOf('if (seedBudget.left > 0) {'), create);
     // A reopen that found no free horse spends no seedBudget and breaks out of
-    // seeding for this owner while still letting missing 0/3 & 0/2 configs open.
+    // seeding for this owner; a 'skipped' board (e.g. human raced in) spends
+    // no seedBudget and continues to the next empty board.
     expect(block).toMatch(
-      /if \(!\(await this\.reopenEmptySeatFirstBoard\(board\)\)\) break;\s*seedBudget\.left--;/
+      /const outcome = await this\.reopenEmptySeatFirstBoard\(board\);\s*if \(outcome === 'no_horses'\) break;\s*if \(outcome === 'seeded'\) seedBudget\.left--;/
     );
   });
 
@@ -86,7 +87,7 @@ describe('2b. a board nobody can open spends no budget (2026-11-10)', () => {
   it('asks the owner pool before writing the window', () => {
     const reopen = method('private async reopenEmptySeatFirstBoard(');
     const pool = reopen.indexOf(
-      '(await this.pickFreeHorses(1, false, board.id)).length === 0) return false;'
+      "(await this.pickFreeHorses(1, false, board.id)).length === 0) return 'no_horses';"
     );
     expect(pool).toBeGreaterThan(0);
     expect(reopen.indexOf('.update({ start_time: startTime })')).toBeGreaterThan(pool);
@@ -96,13 +97,14 @@ describe('2b. a board nobody can open spends no budget (2026-11-10)', () => {
 describe('3. a reopened board gets its opening rung before its horse', () => {
   const reopen = method('private async reopenEmptySeatFirstBoard(');
 
-  it('writes start_time first, only on a still-REGISTERING row, and seats nobody if that fails', () => {
+  it('writes start_time first, only on a still-REGISTERING empty row (current_players = 0), and seats nobody if that fails', () => {
     const write = reopen.indexOf('.update({ start_time: startTime })');
     const seat = reopen.indexOf('await this.seedOpenSeatTable(');
     expect(write).toBeGreaterThan(0);
     expect(seat).toBeGreaterThan(write);
     expect(reopen).toContain(".eq('status', 'REGISTERING')");
-    expect(reopen).toMatch(/moved\.length !== 1\)[\s\S]*?return true;/);
+    expect(reopen).toContain(".eq('current_players', 0)");
+    expect(reopen).toMatch(/moved\.length !== 1\)[\s\S]*?return 'skipped';/);
     expect(reopen).toContain('seatFirstOpeningWindowMs(seats)');
   });
 

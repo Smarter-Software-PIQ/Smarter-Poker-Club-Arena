@@ -12843,6 +12843,12 @@ export class GameServer {
               if ((paidSeats.get(String(row.id)) ?? 0) === 2) spinTwoOfThreeCount++;
             }
           }
+          // Pass-scoped mutable tracker shared across every fire-and-forget
+          // fillPartialSeatFirstGame job launched in this pass: when a job
+          // succeeds in promoting a 1/3 Spin to 2/3, it increments `count`
+          // BEFORE releasing its in-flight claim so sibling jobs from the same
+          // pass never read a stale snapshot and overshoot SPIN_MAX_TWO_OF_THREE.
+          const spinTwoOfThreeTracker = { count: spinTwoOfThreeCount };
           for (const t of seatFirstRows) {
             if (!this.directAdmissionIsCurrent(generation)) break;
             // THE FREEZE IS TOTAL (Dan 2026-09-03): a seat-first start seats its
@@ -12929,7 +12935,7 @@ export class GameServer {
                   windowClosed,
                   startMs,
                   Date.parse(String((t as { created_at?: string | null }).created_at ?? '')),
-                  t.variant === 'spin' ? spinTwoOfThreeCount : 0
+                  t.variant === 'spin' ? spinTwoOfThreeTracker : undefined
                 ),
                 'GameServer.human_seat_first_fill_error',
                 { tournamentId: id }
@@ -13953,7 +13959,7 @@ export class GameServer {
     windowClosed: boolean,
     startMs: number = NaN,
     createdAtMs: number = NaN,
-    spinTwoOfThreeCount: number = 0
+    spinTwoOfThreeTracker: { count: number } = { count: 0 }
   ): Promise<void> {
     /* BACK OFF A BOARD THAT WILL NOT FILL (2026-09-02).
 
@@ -14036,6 +14042,7 @@ export class GameServer {
     });
     this.tournamentTopUpsInFlight.set(tournamentId, claim);
     let claimedSpinTwoOfThree = false;
+    let promotedSpinToTwoOfThree = false;
     try {
       /* CAP SIMULTANEOUS HORSE-ONLY 2/3 SPINS (Dan 2026-11-22). Keep a genuine
          mix of 1/3 and 2/3 among horse-seeded Spins instead of letting all 11
@@ -14043,7 +14050,8 @@ export class GameServer {
          this cap; a deferred horse-only 1/3 Spin updates start_time cleanly
          inside the SPIN_LADDER envelope so SpinUnfilledBacklog and
          SpinFleetProducingNothing never trip. */
-      const effectiveTwoOfThree = spinTwoOfThreeCount + this.spinTwoOfThreePromotionsInFlight.size;
+      const effectiveTwoOfThree =
+        spinTwoOfThreeTracker.count + this.spinTwoOfThreePromotionsInFlight.size;
       if (!hasHuman && seats >= 3 && paid === 1) {
         const deferMs = spinTwoOfThreeDeferMs({
           twoOfThreeCount: effectiveTwoOfThree,
@@ -14065,7 +14073,7 @@ export class GameServer {
          board with a person in it is unchanged: it fills completely, because
          somebody is waiting to play. See server/src/config/seatFirstLadder.ts. */
       const target = hasHuman ? seats : Math.min(seats, paid + 1);
-      await this.topUpPartialSeatFirst(
+      const reachedTarget = await this.topUpPartialSeatFirst(
         tournamentId,
         seats,
         paid,
@@ -14074,8 +14082,14 @@ export class GameServer {
         target,
         occupancy.oldestSeatAtMs
       );
+      if (claimedSpinTwoOfThree && reachedTarget && target === 2) {
+        promotedSpinToTwoOfThree = true;
+      }
     } finally {
       if (claimedSpinTwoOfThree) {
+        if (promotedSpinToTwoOfThree) {
+          spinTwoOfThreeTracker.count++;
+        }
         this.spinTwoOfThreePromotionsInFlight.delete(tournamentId);
       }
       // Released before it settles, so a start waiting on it finds the door open.
@@ -14453,7 +14467,7 @@ export class GameServer {
        is unchanged. */
     target: number = seats,
     oldestSeatAtMs: number = NaN
-  ): Promise<void> {
+  ): Promise<boolean> {
     /* A HUMAN'S BOARD FILLS FIRST (2026-10-03). The seats a waiting human
        still needs are declared before the ask, so every horse-only claim on
        the pool (board openers, window-closed fills, SNG and MTT top-ups)
@@ -14483,7 +14497,7 @@ export class GameServer {
       // Declared from a stale answer: the next pass re-declares it in the
       // hold's last stretch if the board still needs it.
       this.tournamentRecurring.clearHumanSeatDemand(tournamentId);
-      return;
+      return false;
     }
     let shortfall = ask - paid;
     /* THE ALARM IS JUDGED ON WHAT THE TOP-UP SAW, NOT ON THE COUNT THIS LANE
@@ -14571,6 +14585,7 @@ export class GameServer {
         );
       }
     }
+    return added >= shortfall;
   }
 
   /**

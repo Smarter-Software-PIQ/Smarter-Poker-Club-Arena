@@ -4892,8 +4892,9 @@ export class TournamentRecurringService {
           }
           for (const board of empty) {
             if (seedBudget.left <= 0 || isMaintenanceFrozen()) break;
-            if (!(await this.reopenEmptySeatFirstBoard(board))) break;
-            seedBudget.left--;
+            const outcome = await this.reopenEmptySeatFirstBoard(board);
+            if (outcome === 'no_horses') break;
+            if (outcome === 'seeded') seedBudget.left--;
           }
         }
       }
@@ -4922,6 +4923,7 @@ export class TournamentRecurringService {
          boards existed yet), seed the newly created board via
          reopenEmptySeatFirstBoard. */
       let launched = 0;
+      let ownerHasHorses = true;
       const defaultSeats = variant === 'spin' ? SPIN_SEATS : HEADS_UP_SEATS;
       for (const config of missing.slice(0, budget.left)) {
         // The tick may have started before :53; every creation is an entry
@@ -4932,13 +4934,14 @@ export class TournamentRecurringService {
         if (result.tournamentId) {
           launched++;
           budget.left--;
-          if (seedBudget.left > 0 && !isMaintenanceFrozen()) {
-            const seeded = await this.reopenEmptySeatFirstBoard({
+          if (ownerHasHorses && seedBudget.left > 0 && !isMaintenanceFrozen()) {
+            const outcome = await this.reopenEmptySeatFirstBoard({
               id: result.tournamentId,
               name: config.name,
               max_players: defaultSeats,
             });
-            if (seeded) seedBudget.left--;
+            if (outcome === 'seeded') seedBudget.left--;
+            else if (outcome === 'no_horses') ownerHasHorses = false;
           }
         }
         if (budget.left <= 0) break;
@@ -5658,17 +5661,22 @@ export class TournamentRecurringService {
     id: string;
     name: string;
     max_players: number;
-  }): Promise<boolean> {
+  }): Promise<'seeded' | 'no_horses' | 'skipped'> {
     const seats = Number(board.max_players) || 0;
     // The same pool seedOpenSeatTable draws from, scoped to this board's owner.
     // No free horse: no window write and no budget (see ensureBoardOpen).
-    if ((await this.pickFreeHorses(1, false, board.id)).length === 0) return false;
+    if ((await this.pickFreeHorses(1, false, board.id)).length === 0) return 'no_horses';
     const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(seats)).toISOString();
+    // Guard on current_players = 0 as well as status = REGISTERING (2026-11-22):
+    // if a human raced in and bought seat 1 on an empty 0/3 or 0/2 board during
+    // the read-to-write gap, never overwrite their board's start_time or bypass
+    // their 3-7 minute partner hold by seating a horse immediately.
     const { data: moved, error } = await supabase
       .from('tournaments')
       .update({ start_time: startTime })
       .eq('id', board.id)
       .eq('status', 'REGISTERING')
+      .eq('current_players', 0)
       .select('id, club_id, name');
     if (error || !moved || moved.length !== 1) {
       if (error)
@@ -5678,13 +5686,13 @@ export class TournamentRecurringService {
           ),
           'TournamentRecurring.reopen_window_write_failed'
         );
-      return true;
+      return 'skipped';
     }
     const row = moved[0] as { id: string; club_id?: string | null; name: string };
     // seedOpenSeatTable seats through the RPC by tournament id; the table id it
     // hands back is unused here.
     await this.seedOpenSeatTable(row, seats, '', true);
-    return true;
+    return 'seeded';
   }
 
   private async seedOpenSeatTable(

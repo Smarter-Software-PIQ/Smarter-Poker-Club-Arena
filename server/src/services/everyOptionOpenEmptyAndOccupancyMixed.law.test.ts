@@ -333,3 +333,49 @@ describe('5. empty 0/3 & 0/2 boards stay open for humans and never auto-cancel o
     expect(advance).toContain('clampSpinRungWaitMs(');
   });
 });
+
+describe('6. concurrency hardening: same-pass 2/3 tracker & human-seat race protection (2026-11-22)', () => {
+  it('discoverSeatFirstStarts shares one mutable spinTwoOfThreeTracker across sibling jobs and increments before releasing in-flight claim', () => {
+    const discover = GAME_SERVER.slice(
+      GAME_SERVER.indexOf('private async discoverSeatFirstStarts('),
+      GAME_SERVER.indexOf('private async fillPartialSeatFirstGame(')
+    );
+    expect(discover).toContain('const spinTwoOfThreeTracker = { count: spinTwoOfThreeCount };');
+    expect(discover).toContain("t.variant === 'spin' ? spinTwoOfThreeTracker : undefined");
+
+    const fill = GAME_SERVER.slice(
+      GAME_SERVER.indexOf('private async fillPartialSeatFirstGame('),
+      GAME_SERVER.indexOf('private async seatFirstNextWaitMs(')
+    );
+    expect(fill).toContain('spinTwoOfThreeTracker: { count: number } = { count: 0 }');
+    expect(fill).toContain(
+      'spinTwoOfThreeTracker.count + this.spinTwoOfThreePromotionsInFlight.size'
+    );
+    const incAt = fill.indexOf('spinTwoOfThreeTracker.count++;');
+    const delAt = fill.indexOf('this.spinTwoOfThreePromotionsInFlight.delete(tournamentId);');
+    expect(incAt).toBeGreaterThan(-1);
+    expect(delAt).toBeGreaterThan(incAt);
+  });
+
+  it('reopenEmptySeatFirstBoard guards on current_players = 0 and returns typed seeded/no_horses/skipped outcomes', () => {
+    const reopen = RECURRING.slice(
+      RECURRING.indexOf('private async reopenEmptySeatFirstBoard('),
+      RECURRING.indexOf('private async seedOpenSeatTable(')
+    );
+    expect(reopen).toContain("Promise<'seeded' | 'no_horses' | 'skipped'>");
+    expect(reopen).toContain(".eq('status', 'REGISTERING')");
+    expect(reopen).toContain(".eq('current_players', 0)");
+    expect(reopen).toContain("return 'no_horses';");
+    expect(reopen).toContain("return 'skipped';");
+    expect(reopen).toContain("return 'seeded';");
+
+    // A 'skipped' board (human raced in) does not break the owner loop and spends 0 seedBudget.
+    const open = RECURRING.slice(
+      RECURRING.indexOf('private async ensureBoardOpen<'),
+      RECURRING.indexOf('private async checkAndLaunchXMTTs(')
+    );
+    expect(open).toMatch(
+      /const outcome = await this\.reopenEmptySeatFirstBoard\(board\);\s*if \(outcome === 'no_horses'\) break;\s*if \(outcome === 'seeded'\) seedBudget\.left--;/
+    );
+  });
+});
