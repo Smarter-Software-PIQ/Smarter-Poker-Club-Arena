@@ -635,11 +635,13 @@ export const HOLDEM_BLANKET_CATALOG = Object.freeze([
     role: 'blanket_parent',
     family: 'umbrella',
     scope:
-      'V87 Holdem umbrella gating multiple preflop/postflop sub-rules (range cbet, low SPR, traps)',
+      'V87 Holdem preflop cash 25-30% VPIP, EP limp-reraise traps, low-stakes multiway defence & straddle master (postflop blanket sub-rules decoupled onto independent v87* sub-flags)',
     pricedChildren: Object.freeze([]),
     replacesBlankets: Object.freeze([]),
     nestedChild: false,
-    preflopOrOwnerHold: false,
+    preflopOrOwnerHold: true,
+    holdNote:
+      'preflop cash 25-30% VPIP, EP limp-reraise traps & straddle master (postflop sub-rules split onto independent v87* flags)',
     hasDevGradeCards: false,
     staticCoupling: Object.freeze({
       coupledWith: Object.freeze([
@@ -651,15 +653,192 @@ export const HOLDEM_BLANKET_CATALOG = Object.freeze([
       reason:
         'umbrella option gating >8 distinct preflop & postflop sub-rules; split before grading',
     }),
+    receipts: Object.freeze([]),
+  }),
+
+  // ── Decoupled V87 Postflop Sub-Rules (split from v87HoldemOverhaul) ────────────────────────
+  Object.freeze({
+    option: 'v87RangeCbet',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope: 'NLH HU IP dry-flop 30-36% range c-bet (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_range_cbet']),
+  }),
+  Object.freeze({
+    option: 'v87LowSprCommit',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope: 'NLH low-SPR (<=3.5) flop/turn commitment bet/jam (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_low_spr_commit']),
+  }),
+  Object.freeze({
+    option: 'v87TurnTakeaway',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH IP HU turn 62-72% takeaway bet after flop stabber checks turn (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_turn_takeaway']),
+  }),
+  Object.freeze({
+    option: 'v87IpCheckbackTrap',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope: 'NLH IP HU dry-flop check-back trap (~25%) (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_ip_checkback_trap']),
+  }),
+  Object.freeze({
+    option: 'v87OopStabTrap',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH OOP flop check-trap into high-frequency flop stabber (~42%) (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_oop_stab_trap']),
+  }),
+  Object.freeze({
+    option: 'v87MultiwayWetAirCheck',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH multiway wet-flop air check without 8+ clean outs (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_multiway_wet_air_check']),
+  }),
+  Object.freeze({
+    option: 'v87BubblePostflop',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH tournament bubble/ITM covered pot-control check & cover-stack turn/river pressure (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_bubble_covered_pot_control', 'v87_bubble_cover_pressure']),
+  }),
+  Object.freeze({
+    option: 'v87RiverBlockBalance',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH OOP river block-bet LAG check, nut-blocker bluff & raised one-pair fold (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
     receipts: Object.freeze([
-      'v87_range_cbet',
-      'v87_low_spr_commit',
-      'v87_turn_takeaway',
-      'v87_ip_checkback_trap',
-      'v87_deep_cash_onepair_pot_control',
-      'v87_multiway_wet_air_check',
-      'v87_bubble_covered_pot_control',
+      'v87_river_block_lag_check',
+      'v87_river_block_blocker_bluff',
+      'v87_river_block_raised_one_pair_fold',
     ]),
+  }),
+  Object.freeze({
+    option: 'v87DoubleBoardDeadHalfFold',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH double-board turn/river dead-half fold facing 60%+ pot pressure (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_double_board_dead_half_fold']),
+  }),
+  Object.freeze({
+    option: 'v87DeepCashOnePairPotControl',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH 150bb+ deep cash bare one-pair river pot-control fold & maniacCallDown guard (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_deep_cash_onepair_pot_control']),
+  }),
+  Object.freeze({
+    option: 'v87ComboDrawPump',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH 12+ clean-out flop combo-draw semi-bluff raise/jam pump (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_combo_draw_raise', 'v87_combo_draw_jam']),
+  }),
+  Object.freeze({
+    option: 'v87RiverBlockerBluffRaise',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH V64-safe river air nut-blocker bluff-raise vs observed folder (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_river_blocker_bluff_raise']),
+  }),
+  Object.freeze({
+    option: 'v87IpFlopFloat',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH IP flop float facing <=55% pot stab from high-stab/turn-give-up opponent (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze(['v87_ip_flop_float']),
+  }),
+  Object.freeze({
+    option: 'v87BullyReadAdjust',
+    role: 'blanket_parent',
+    family: 'v87_postflop',
+    scope:
+      'NLH postflop bully-breaker read modifiers in maniacCallDown, V80 cap & 3-way V53 pressure (decoupled from v87HoldemOverhaul)',
+    pricedChildren: Object.freeze([]),
+    replacesBlankets: Object.freeze([]),
+    nestedChild: false,
+    preflopOrOwnerHold: false,
+    hasDevGradeCards: false,
+    receipts: Object.freeze([]),
   }),
 
   // ── Refused / Owner-Held Defect Guards & Pillar 2 ──────────────────────────────────────────
@@ -1532,6 +1711,44 @@ export function detectSourceCouplings(horseLogicSource) {
           reason: 'decoupled from v75SqueezeDefence in HorseLogic.ts',
           verifiedInSource: true,
         };
+  }
+
+  // Coupling: v87HoldemOverhaul postflop blanket sub-rules
+  if (/const\s+isV87Nlh\s*=/.test(horseLogicSource)) {
+    const requiredV87SubFlags = [
+      'v87RangeCbet',
+      'v87LowSprCommit',
+      'v87TurnTakeaway',
+      'v87IpCheckbackTrap',
+      'v87OopStabTrap',
+      'v87MultiwayWetAirCheck',
+      'v87BubblePostflop',
+      'v87RiverBlockBalance',
+      'v87DoubleBoardDeadHalfFold',
+      'v87DeepCashOnePairPotControl',
+      'v87ComboDrawPump',
+      'v87RiverBlockerBluffRaise',
+      'v87IpFlopFloat',
+      'v87BullyReadAdjust',
+    ];
+    const missingSubFlags = requiredV87SubFlags.filter(
+      (flag) => !new RegExp(`opts\\.${flag}\\s*!==\\s*false`).test(horseLogicSource)
+    );
+    detected.v87HoldemOverhaul =
+      missingSubFlags.length > 0
+        ? {
+            coupled: true,
+            coupledWith: missingSubFlags,
+            reason: `umbrella option still gates postflop sub-rules without dedicated sub-flags: ${missingSubFlags.join(', ')}`,
+            verifiedInSource: true,
+          }
+        : {
+            coupled: false,
+            coupledWith: [],
+            reason:
+              'all 14 V87 postflop sub-rules decoupled onto independent v87* sub-flags in HorseLogic.ts',
+            verifiedInSource: true,
+          };
   }
 
   return detected;

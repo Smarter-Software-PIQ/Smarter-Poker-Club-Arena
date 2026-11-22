@@ -1096,6 +1096,34 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  v87RangeCbet:
+    'decoupled V87 postflop sub-rule (HU IP dry-flop range c-bet); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87LowSprCommit:
+    'decoupled V87 postflop sub-rule (low-SPR flop/turn commit bet/jam); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87TurnTakeaway:
+    'decoupled V87 postflop sub-rule (IP HU turn takeaway vs flop stabber); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87IpCheckbackTrap:
+    'decoupled V87 postflop sub-rule (IP HU dry-flop check-back trap); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87OopStabTrap:
+    'decoupled V87 postflop sub-rule (OOP flop check-trap into stabber); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87MultiwayWetAirCheck:
+    'decoupled V87 postflop sub-rule (multiway wet-flop air check); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87BubblePostflop:
+    'decoupled V87 postflop sub-rule (tournament bubble/ITM postflop pot control & cover pressure); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87RiverBlockBalance:
+    'decoupled V87 postflop sub-rule (OOP river block-bet LAG check, blocker bluff & raised one-pair fold); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87DoubleBoardDeadHalfFold:
+    'decoupled V87 postflop sub-rule (NLH double-board dead-half turn/river fold); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87DeepCashOnePairPotControl:
+    'decoupled V87 postflop sub-rule (150bb+ deep cash bare one-pair river pot control); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87ComboDrawPump:
+    'decoupled V87 postflop sub-rule (12+ out flop combo-draw semi-bluff raise/jam); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87RiverBlockerBluffRaise:
+    'decoupled V87 postflop sub-rule (V64-safe river nut-blocker bluff-raise); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87IpFlopFloat:
+    'decoupled V87 postflop sub-rule (IP flop float vs stabber); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87BullyReadAdjust:
+    'decoupled V87 postflop sub-rule (postflop anti-LAG/bully read modifiers in maniacCallDown, V80 & V53); split from v87HoldemOverhaul, not registered in SQL switch',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

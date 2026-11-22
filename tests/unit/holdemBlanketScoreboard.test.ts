@@ -80,6 +80,20 @@ export const OPTION_SWITCH_SHADOW_REFUSED = Object.freeze({
 export const OPTION_SWITCH_REFUSED = Object.freeze({
   v87DeepDiveDiscipline: 'owner hold: Pillar 2 lives inside the deep-dive discipline',
   v58MadeHandCellSkip: 'defect guard (#8144)',
+  v87RangeCbet: 'decoupled V87 postflop sub-rule',
+  v87LowSprCommit: 'decoupled V87 postflop sub-rule',
+  v87TurnTakeaway: 'decoupled V87 postflop sub-rule',
+  v87IpCheckbackTrap: 'decoupled V87 postflop sub-rule',
+  v87OopStabTrap: 'decoupled V87 postflop sub-rule',
+  v87MultiwayWetAirCheck: 'decoupled V87 postflop sub-rule',
+  v87BubblePostflop: 'decoupled V87 postflop sub-rule',
+  v87RiverBlockBalance: 'decoupled V87 postflop sub-rule',
+  v87DoubleBoardDeadHalfFold: 'decoupled V87 postflop sub-rule',
+  v87DeepCashOnePairPotControl: 'decoupled V87 postflop sub-rule',
+  v87ComboDrawPump: 'decoupled V87 postflop sub-rule',
+  v87RiverBlockerBluffRaise: 'decoupled V87 postflop sub-rule',
+  v87IpFlopFloat: 'decoupled V87 postflop sub-rule',
+  v87BullyReadAdjust: 'decoupled V87 postflop sub-rule',
 });
 `;
 }
@@ -239,6 +253,37 @@ describe('holdem-blanket-scoreboard-lib', () => {
       const couplings = detectSourceCouplings(inputs.horseLogicSource);
       expect(couplings.v69TurnCallGaps?.verifiedInSource).toBe(true);
       expect(couplings.v73Vs3BetDefence?.verifiedInSource).toBe(true);
+      expect(couplings.v87HoldemOverhaul?.verifiedInSource).toBe(true);
+      expect(couplings.v87HoldemOverhaul?.coupled).toBe(false);
+    });
+
+    it('detects when v87HoldemOverhaul postflop sub-rules are coupled vs decoupled in HorseLogic source', () => {
+      const coupledV87 = `const isV87Nlh = opts.v87HoldemOverhaul !== false; if (isV87Nlh) { /* missing sub-flags */ }`;
+      const coupled = detectSourceCouplings(coupledV87);
+      expect(coupled.v87HoldemOverhaul?.coupled).toBe(true);
+      expect(coupled.v87HoldemOverhaul?.coupledWith).toContain('v87RangeCbet');
+      expect(coupled.v87HoldemOverhaul?.coupledWith).toContain('v87LowSprCommit');
+
+      const decoupledV87 = `
+        const isV87Nlh = opts.v87HoldemOverhaul !== false;
+        opts.v87RangeCbet !== false &&
+        opts.v87LowSprCommit !== false &&
+        opts.v87TurnTakeaway !== false &&
+        opts.v87IpCheckbackTrap !== false &&
+        opts.v87OopStabTrap !== false &&
+        opts.v87MultiwayWetAirCheck !== false &&
+        opts.v87BubblePostflop !== false &&
+        opts.v87RiverBlockBalance !== false &&
+        opts.v87DoubleBoardDeadHalfFold !== false &&
+        opts.v87DeepCashOnePairPotControl !== false &&
+        opts.v87ComboDrawPump !== false &&
+        opts.v87RiverBlockerBluffRaise !== false &&
+        opts.v87IpFlopFloat !== false &&
+        opts.v87BullyReadAdjust !== false;
+      `;
+      const decoupled = detectSourceCouplings(decoupledV87);
+      expect(decoupled.v87HoldemOverhaul?.coupled).toBe(false);
+      expect(decoupled.v87HoldemOverhaul?.coupledWith).toEqual([]);
     });
 
     it('detects when v69TurnCallGaps and v73Vs3BetDefence are decoupled in HorseLogic source', () => {
@@ -531,7 +576,7 @@ describe('holdem-blanket-scoreboard-lib', () => {
     it('runs cleanly in --offline --json mode against real repo files without touching DB', async () => {
       const stdoutLines: string[] = [];
       let dbCalled = false;
-      const res = await runCli(['--offline', '--json', '--action', 'COUPLED_NEEDS_SPLIT'], {
+      const res = await runCli(['--offline', '--json', '--action', 'HELD_PREFLOP_OR_OWNER'], {
         querySupabase: async () => {
           dbCalled = true;
           return [];
@@ -546,8 +591,11 @@ describe('holdem-blanket-scoreboard-lib', () => {
       expect(parsed.globalShadowSlot.status).toBe('UNKNOWN_OFFLINE');
       expect(parsed.rules.length).toBeGreaterThan(0);
       expect(
-        parsed.rules.every((r: { nextAction: string }) => r.nextAction === 'COUPLED_NEEDS_SPLIT')
+        parsed.rules.every((r: { nextAction: string }) => r.nextAction === 'HELD_PREFLOP_OR_OWNER')
       ).toBe(true);
+      expect(parsed.rules.some((r: { option: string }) => r.option === 'v87HoldemOverhaul')).toBe(
+        true
+      );
     });
 
     it('exits with code 2 on invalid CLI arguments', async () => {
