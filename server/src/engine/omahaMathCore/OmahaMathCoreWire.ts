@@ -26,8 +26,13 @@
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { omahaTrapRate } from './OmahaMathCoreTrapRate.js';
 import { omahaCheckRaiseCell } from './OmahaMathCoreCheckRaise.js';
-import { omahaBest } from './OmahaMathCoreEval.js';
-import { seededRng, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
+import {
+  createBoardTable,
+  loadBoardTable,
+  scoreHandWithBoard,
+  scorePoolHoldingWithBoard,
+} from './OmahaMathCoreEval.js';
+import { getPoolFastData, seededRng, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
 import { betBands, betRate, responseTo, wagerNonValue, type Mode } from './OmahaMathCoreTables.js';
 import { textureFold } from './OmahaMathCorePlaybookTexture.js';
@@ -411,14 +416,14 @@ export function heroEquityVector(
   pool: Pool,
   seed: string
 ): { eq: Float64Array; runs: number } {
-  const hc = pool.holeCount;
   const used = new Uint8Array(52);
   for (const c of hole) used[c] = 1;
   for (const c of board) used[c] = 1;
   const deck: number[] = [];
   for (let c = 0; c < 52; c++) if (!used[c]) deck.push(c);
   const runouts: number[][] = [];
-  const missing = 5 - board.length;
+  const bLen = board.length;
+  const missing = 5 - bLen;
   if (missing === 0) runouts.push([]);
   else if (missing === 1) {
     // turn: 20 of the rivers (a seeded subset; every river when fewer), a fixed count for determinism
@@ -438,28 +443,41 @@ export function heroEquityVector(
       runouts.push([deck[i], deck[j]]);
     }
   }
-  const win = new Float64Array(pool.size);
-  const cnt = new Float64Array(pool.size);
+  const size = pool.size;
+  const fast = getPoolFastData(pool);
+  const maskLo = fast.maskLo;
+  const maskHi = fast.maskHi;
+  const pCards = pool.cards;
+  const win = new Float64Array(size);
+  const cnt = new Float64Array(size);
   const full = new Int8Array(5);
   const heroArr = Int8Array.from(hole);
-  for (let k = 0; k < board.length; k++) full[k] = board[k];
+  const heroLen = hole.length;
+  for (let k = 0; k < bLen; k++) full[k] = board[k];
+  const tbl = createBoardTable();
   let runs = 0;
   for (const ro of runouts) {
-    for (let k = 0; k < ro.length; k++) full[board.length + k] = ro[k];
-    const hs = omahaBest(heroArr, hole.length, full, 5);
-    for (let i = 0; i < pool.size; i++) {
-      const h = pool.cards.subarray(i * hc, i * hc + hc);
-      let clash = false;
-      for (let k = 0; k < hc && !clash; k++) for (const c of ro) if (h[k] === c) clash = true;
-      if (clash) continue;
-      const os = omahaBest(h, hc, full, 5);
-      win[i] += hs > os ? 1 : hs === os ? 0.5 : 0;
+    let roLo = 0;
+    let roHi = 0;
+    for (let k = 0; k < ro.length; k++) {
+      const c = ro[k];
+      full[bLen + k] = c;
+      if (c < 32) roLo |= 1 << c;
+      else roHi |= 1 << (c - 32);
+    }
+    loadBoardTable(tbl, full, 5);
+    const hs = scoreHandWithBoard(heroArr, heroLen, tbl);
+    for (let i = 0; i < size; i++) {
+      if ((maskLo[i] & roLo) | (maskHi[i] & roHi)) continue;
+      const os = scorePoolHoldingWithBoard(fast, pCards, i, tbl);
+      if (hs > os) win[i] += 1;
+      else if (hs === os) win[i] += 0.5;
       cnt[i] += 1;
     }
     runs++;
   }
-  const eq = new Float64Array(pool.size);
-  for (let i = 0; i < pool.size; i++) eq[i] = cnt[i] > 0 ? win[i] / cnt[i] : 0.5;
+  const eq = new Float64Array(size);
+  for (let i = 0; i < size; i++) eq[i] = cnt[i] > 0 ? win[i] / cnt[i] : 0.5;
   return { eq, runs };
 }
 
@@ -642,6 +660,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       source: `${raw.source}; monotone fold curve ${d > 0 ? '+' : ''}${r3(d)}`,
     };
   };
+  const respCellMemo = new Map<string, WiredResponse | null>();
   const responseUncached = (
     frac: number,
     allIn: boolean,
@@ -650,26 +669,39 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
   ): ValueResponse | null => {
     const stI = Math.min(2, st0 + off);
     const stName = POST[stI];
+    const effLine = lineAt(off, line);
+    const band = sizeBand(frac, allIn);
     const resp: Responder[] = [];
     let measured = 0;
     let nMin = Infinity;
+    // one measured, pooled, identity-free response rule for every responder: compute once per (off, stName, line, band)
+    let r: WiredResponse | null | undefined;
+    const ck = `${off}|${stName}|${effLine}|${band}`;
     for (const o of c.live) {
       if (o.allIn) continue;
-      const key: ResponseKey = {
-        game,
-        mode,
-        street: stName,
-        line: lineAt(off, line),
-        band: sizeBand(frac, allIn),
-        players: playersNow,
-      };
-      // one measured, pooled response rule for every responder (no person/Horse branch)
-      const r =
-        off === 0 ? wiredHeroResponse(s.hole, s.board, s.seed, key) : wiredResponse(s.board, key);
+      if (r === undefined) {
+        if (respCellMemo.has(ck)) {
+          r = respCellMemo.get(ck)!;
+        } else {
+          const key: ResponseKey = {
+            game,
+            mode,
+            street: stName,
+            line: effLine,
+            band,
+            players: playersNow,
+          };
+          r =
+            off === 0
+              ? wiredHeroResponse(s.hole, s.board, s.seed, key)
+              : wiredResponse(s.board, key);
+          respCellMemo.set(ck, r);
+        }
+      }
       if (r) {
         measured++;
         // a raise line's fold credit rests on the exact street/line cell only (VALUE: n >= 30 or none)
-        const isRaiseLine = key.line === 'raise' || key.line === 'check_raise';
+        const isRaiseLine = effLine === 'raise' || effLine === 'check_raise';
         nMin = Math.min(nMin, isRaiseLine ? r.exactN : r.n);
       }
       resp.push({
@@ -703,75 +735,105 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
     pot: 1,
     allin: 1,
   };
+  const wagerBaseMemo = new Map<
+    number,
+    {
+      pNone: number;
+      whoLen: number;
+      frac: number;
+      valueShare: number | undefined;
+      n: number | undefined;
+      source: string;
+    } | null
+  >();
   const wagerWhenChecked = (off: number, effOpp?: number) => {
-    const stI = Math.min(2, st0 + off);
-    const stName = POST[stI];
-    // this street: only opponents still to act after the hero's check can wager
-    const who =
-      off === 0
-        ? c.live.filter(
-            (o) => !o.allIn && (o.streetAction === 'none' || !s.ip) && o.streetAction !== 'check'
-          )
-        : c.live.filter((o) => !o.allIn);
-    if (who.length === 0) return null;
-    let pNone = 1;
-    let nMinW = Infinity;
-    let fracSum = 0;
-    let fracW = 0;
-    let nv: number | undefined;
-    const srcs: string[] = [];
-    for (const o of who) {
-      // PROVE-2 root cause 3: the opponent's wager after the hero's check is his measured rate for that
-      // line (this street: a probe after the hero's earlier aggression, a stab otherwise, his barrel when he
-      // was the aggressor; later streets: his barrel or probe the same way), not his all-lines rate
-      const heroWasAggressor = s.heroWagerLine === 'cbet' || s.heroWagerLine === 'barrel';
-      const wl: Line =
+    let base = wagerBaseMemo.get(off);
+    if (base === undefined) {
+      const stI = Math.min(2, st0 + off);
+      const stName = POST[stI];
+      // this street: only opponents still to act after the hero's check can wager
+      const who =
         off === 0
-          ? o.prevAggressor
-            ? street === 'flop'
-              ? 'cbet'
-              : 'barrel'
-            : heroWasAggressor
-              ? 'probe'
-              : 'stab'
-          : 'probe';
-      const br = wiredBetRate({
-        game,
-        mode,
-        street: stName,
-        line: wl,
-        players: playersNow,
-      });
-      if (!br) continue;
-      pNone *= 1 - br.b;
-      if (Number.isFinite(br.n) && br.n > 0) nMinW = Math.min(nMinW, br.n);
-      srcs.push(`s${o.seat}: ${r3(br.b)} ${br.source}`);
-      // measured size mix of such wagers (public bet bands)
-      const bands = br.size > 0 ? { frac: br.size } : sizeMixOf(game, mode, stName, playersNow);
-      if (bands) {
-        fracSum += br.b * bands.frac;
-        fracW += br.b;
+          ? c.live.filter(
+              (o) => !o.allIn && (o.streetAction === 'none' || !s.ip) && o.streetAction !== 'check'
+            )
+          : c.live.filter((o) => !o.allIn);
+      if (who.length === 0) {
+        base = null;
+      } else {
+        let pNone = 1;
+        let nMinW = Infinity;
+        let fracSum = 0;
+        let fracW = 0;
+        let nv: number | undefined;
+        const srcs: string[] = [];
+        for (const o of who) {
+          // PROVE-2 root cause 3: the opponent's wager after the hero's check is his measured rate for that
+          // line (this street: a probe after the hero's earlier aggression, a stab otherwise, his barrel when he
+          // was the aggressor; later streets: his barrel or probe the same way), not his all-lines rate
+          const heroWasAggressor = s.heroWagerLine === 'cbet' || s.heroWagerLine === 'barrel';
+          const wl: Line =
+            off === 0
+              ? o.prevAggressor
+                ? street === 'flop'
+                  ? 'cbet'
+                  : 'barrel'
+                : heroWasAggressor
+                  ? 'probe'
+                  : 'stab'
+              : 'probe';
+          const br = wiredBetRate({
+            game,
+            mode,
+            street: stName,
+            line: wl,
+            players: playersNow,
+          });
+          if (!br) continue;
+          pNone *= 1 - br.b;
+          if (Number.isFinite(br.n) && br.n > 0) nMinW = Math.min(nMinW, br.n);
+          srcs.push(`s${o.seat}: ${r3(br.b)} ${br.source}`);
+          // measured size mix of such wagers (public bet bands)
+          const bands = br.size > 0 ? { frac: br.size } : sizeMixOf(game, mode, stName, playersNow);
+          if (bands) {
+            fracSum += br.b * bands.frac;
+            fracW += br.b;
+          }
+          const v = wagerNonValue({
+            game,
+            mode,
+            street: stName,
+            line: 'all',
+            band: bands ? sizeBand(bands.frac, false) : 'all',
+            players: playersNow,
+          });
+          if (v) nv = nv === undefined ? v.nv : Math.max(nv, v.nv);
+        }
+        base =
+          srcs.length === 0
+            ? null
+            : {
+                pNone,
+                whoLen: who.length,
+                frac: fracW > 0 ? fracSum / fracW : betBandFrac.half,
+                valueShare: nv === undefined ? undefined : 1 - nv,
+                n: Number.isFinite(nMinW) ? nMinW : undefined,
+                source: srcs.join(' | '),
+              };
       }
-      const v = wagerNonValue({
-        game,
-        mode,
-        street: stName,
-        line: 'all',
-        band: bands ? sizeBand(bands.frac, false) : 'all',
-        players: playersNow,
-      });
-      if (v) nv = nv === undefined ? v.nv : Math.max(nv, v.nv);
+      wagerBaseMemo.set(off, base);
     }
-    if (srcs.length === 0) return null;
+    if (!base) return null;
     const p =
-      off > 0 && effOpp !== undefined ? mwScaledWagerRate(pNone, who.length, effOpp) : 1 - pNone;
-    const frac = fracW > 0 ? fracSum / fracW : betBandFrac.half;
+      off > 0 && effOpp !== undefined
+        ? mwScaledWagerRate(base.pNone, base.whoLen, effOpp)
+        : 1 - base.pNone;
     return {
       p,
-      frac,
-      valueShare: nv === undefined ? undefined : 1 - nv,
-      n: Number.isFinite(nMinW) ? nMinW : undefined,
-      source: srcs.join(' | '),
+      frac: base.frac,
+      valueShare: base.valueShare,
+      n: base.n,
+      source: base.source,
     };
   };
   const oppStack = Math.max(0, ...c.live.map((o) => o.stack));

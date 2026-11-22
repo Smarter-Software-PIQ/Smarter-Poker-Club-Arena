@@ -1,9 +1,11 @@
 import { formatTournamentTitle } from '../utils/formatGameTitle';
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { fetchAllRows } from '../utils/fetchAllRows';
-import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
+import {
+  getTournamentEntryCapacity,
+  tournamentStartsWhenFull,
+} from '../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CLUB ENGINE — Union Games Page
@@ -422,7 +424,7 @@ export default function UnionGamesPage() {
         buy_in_amount: Number((t as any).buy_in_amount ?? (t as any).buy_in ?? 0),
         buy_in_fee: Number((t as any).buy_in_fee ?? 0),
         start_time: (t as any).start_time ?? null,
-        startsWhenFull: satelliteStartsWhenFull(t),
+        startsWhenFull: tournamentStartsWhenFull(t),
         /* Deliberately NOT `t.club_id`. A union-owned tournament carries the
            UNION container in that column, and a union id handed to
            `fn_player_spendable_balance` resolves to no wallet at all. Null lets
@@ -620,7 +622,12 @@ export default function UnionGamesPage() {
                       {t.current_players || 0}
                       {getTournamentEntryCapacity(t) !== null ? `/${t.max_players}` : ''}
                     </span>
-                    <span> {formatDate(t.start_time || null)} CT</span>
+                    <span>
+                      {' '}
+                      {tournamentStartsWhenFull(t)
+                        ? 'When Full'
+                        : `${formatDate(t.start_time || null)} CT`}
+                    </span>
                     {t.guaranteed_prize ? <span>{fmtChips(t.guaranteed_prize)} GTD</span> : null}
                     {t.starting_chips ? (
                       <span>{fmtChips(t.starting_chips)} Starting Stack</span>

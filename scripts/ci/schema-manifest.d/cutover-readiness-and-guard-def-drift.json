@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/cutover-readiness-and-guard-def-drift",
+  "functions": ["smarter_private.reliability_runbook_cutover_diagnosis"]
+}
