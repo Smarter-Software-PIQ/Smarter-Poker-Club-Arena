@@ -19,9 +19,18 @@ import {
 } from '../../lib/share';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { OnlineFriendInvitePicker } from './OnlineFriendInvitePicker';
 import './HeadsUpWaitingModal.css';
 
 export type HeadsUpWaitMode = 'specific' | 'anyone';
+
+export interface HeadsUpFriendInviteTarget {
+  tableId: string;
+  tournamentId?: string | null;
+  clubId?: string | null;
+  inviteCode?: string | null;
+  inviteToken?: string | null;
+}
 
 export interface HeadsUpWaitingModalProps {
   isOpen: boolean;
@@ -29,6 +38,8 @@ export interface HeadsUpWaitingModalProps {
   initialStep?: 'choice' | 'invite';
   tableName: string;
   inviteUrl: string;
+  /** Optional target context enabling inline one-tap online friend invites. */
+  friendInviteTarget?: HeadsUpFriendInviteTarget | null;
   onChooseSpecific: () => void;
   onChooseAnyone: () => void;
   onClose: () => void;
@@ -40,6 +51,7 @@ export function HeadsUpWaitingModal({
   initialStep = 'choice',
   tableName,
   inviteUrl,
+  friendInviteTarget,
   onChooseSpecific,
   onChooseAnyone,
   onClose,
@@ -52,6 +64,7 @@ export function HeadsUpWaitingModal({
   const [step, setStep] = useState<'choice' | 'invite'>(initialStep);
   const [copied, setCopied] = useState(false);
   const [fallbackUrl, setFallbackUrl] = useState('');
+  const [showFriendPicker, setShowFriendPicker] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initialize the step only when transitioning from closed -> open so changing
@@ -62,6 +75,7 @@ export function HeadsUpWaitingModal({
       setStep(initialStep);
       setCopied(false);
       setFallbackUrl('');
+      setShowFriendPicker(false);
     }
     wasOpenRef.current = isOpen;
   }, [isOpen, initialStep]);
@@ -261,6 +275,33 @@ export function HeadsUpWaitingModal({
               {fallbackUrl && (
                 <div className="hu-waiting-dialog__fallback">
                   <ShareLinkFallback url={fallbackUrl} label="Game Invite Link" />
+                </div>
+              )}
+              {friendInviteTarget?.tableId && (
+                <div className="hu-waiting-dialog__friends-section">
+                  <button
+                    type="button"
+                    className="hu-waiting-dialog__friends-toggle"
+                    aria-expanded={showFriendPicker}
+                    onClick={() => setShowFriendPicker((prev) => !prev)}
+                  >
+                    {showFriendPicker ? 'Hide Online Friends' : 'Invite Online Friend'}
+                  </button>
+                  {showFriendPicker && (
+                    <OnlineFriendInvitePicker
+                      mode="inline"
+                      kind="tournament"
+                      tableId={friendInviteTarget.tableId}
+                      tournamentId={friendInviteTarget.tournamentId}
+                      clubId={friendInviteTarget.clubId}
+                      tableName={tableName || 'Heads Up Sit N Go'}
+                      inviteCode={friendInviteTarget.inviteCode}
+                      inviteToken={friendInviteTarget.inviteToken}
+                      onInviteSent={(contact) =>
+                        onNotify?.('success', `Invite Sent To ${contact.displayName}`)
+                      }
+                    />
+                  )}
                 </div>
               )}
             </SpadeConsole>
