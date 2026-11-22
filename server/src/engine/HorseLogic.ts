@@ -415,6 +415,27 @@ import {
  */
 
 import { horseCallDeductionFraction, horseWholeDeductionOfTheCall } from './HorseCallDeductions.js';
+import {
+  classifyFreerollFlopTexture,
+  priceMultiBoardFreerollFacingBet,
+  priceMultiBoardFreerollOpen,
+  type FreerollOpponentInput,
+  type MultiBoardFreerollStreet,
+} from './HorseMultiBoardFreerollPriced.js';
+import {
+  classifyNonFreerollFlopTexture,
+  priceMultiBoardNonFreerollFacingBet,
+  priceMultiBoardNonFreerollOpen,
+  type MultiBoardNonFreerollStreet,
+  type NonFreerollOpponentInput,
+} from './HorseMultiBoardNonFreerollPriced.js';
+import {
+  MULTI_BOARD_BLUFF_REF_POT_FRAC,
+  classifyBluffTrimFlopTexture,
+  priceMultiBoardBluffTrim,
+  type MultiBoardBluffTrimOpponentInput,
+  type MultiBoardBluffTrimStreet,
+} from './HorseMultiBoardBluffTrimPriced.js';
 import type {
   Card,
   SeatPlayer,
@@ -5878,6 +5899,33 @@ export interface HorseDecideOpts {
    * range on this board, by the measured showdown classes of people who bet such boards
    * (HorseHoldemCommittedPricing). Off: byte-identical. */
   holdemDangerBoardEquityIsPriced?: boolean;
+  /** HORSE DECISIONS lane 2026-11-22 (V36 multi-board freeroll bet/raise priced replacement):
+   * dark, default OFF (`=== true`), OPTION_SWITCH_REFUSED (zero SQL migrations). In multi-board
+   * hands (`multiBoard36`, `nBoards36 >= 2`) with a locked board (`lockShare36 >= 1 / nBoards36`),
+   * replaces the unowned `v36_freeroll_bet` (`fastRandom() < 0.9`) and `v36_freeroll_raise`
+   * (`fastRandom() < 0.85/0.9`) coin flips with deterministic zero-RNG EV pricing
+   * (`HorseMultiBoardFreerollPriced`), preserving `lockShare36` invariant, respecting Pot-Limit
+   * caps, and never folding a qualifying freeroll. Single-board hands and OFF: byte-identical. */
+  multiBoardFreerollIsPriced?: boolean;
+  /** HORSE DECISIONS lane 2026-11-22 (V86 multi-board non-freeroll dead-half fold & strong-board
+   * bet/raise priced replacement): dark, default OFF (`=== true`), OPTION_SWITCH_REFUSED (zero
+   * SQL migrations). In multi-board non-freeroll hands (`v86 && multiBoard36 && boardEq36.length
+   * >= 2 && lockShare36 < 1 / nBoards36`), replaces the unowned `v86_multiboard_dead_half_fold`
+   * cliff fold and `v86_multiboard_or_plo8` hash-randomized open/raise branches with deterministic
+   * zero-RNG, zero-hash EV pricing (`HorseMultiBoardNonFreerollPriced`) respecting Pot-Limit caps,
+   * continuous non-river dead-board realization penalty (`0` on river), shrunk fold/stab priors,
+   * and `heroBubbleFactor`. Single-board hands, freeroll hands (`lockShare36 >= 1 / nBoards36`),
+   * and OFF: byte-identical. */
+  multiBoardNonFreerollIsPriced?: boolean;
+  /** HORSE DECISIONS lane 2026-11-22 (V36 multi-board bluff-trim priced replacement): dark,
+   * default OFF (`=== true`), OPTION_SWITCH_REFUSED (zero SQL migrations). On multi-board hands
+   * (`multiBoard36 && nBoards36 >= 2`), replaces the unowned fixed blanket multiplier
+   * `bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5` (`v36_multiboard_bluff_trim`) with deterministic
+   * zero-RNG public-info pricing (`HorseMultiBoardBluffTrimPriced`, receipt
+   * `v36_multiboard_bluff_trim_priced`) from shrunk per-opponent fold rates, public board-overlap
+   * independence exponent, hero's own cross-board blockers, street/pot/stack/wetness, and
+   * `heroBubbleFactor`. Single-board hands (`!multiBoard36`) and OFF: 100% byte-identical. */
+  multiBoardBluffTrimIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -7973,6 +8021,386 @@ function holdemRiverBoatLeadPriced(
   } catch {
     return false;
   }
+}
+
+/**
+ * multiBoardFreerollIsPriced (HORSE DECISIONS lane 2026-11-22; dark, default OFF,
+ * OPTION_SWITCH_REFUSED / zero SQL migrations): public-info-only opponent counter
+ * collector shared by both V36 multi-board freeroll sites. Zero fastRandom() draw.
+ */
+function collectFreerollOpponents(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  useMind: boolean
+): FreerollOpponentInput[] {
+  const variant = String(gs.gameVariant ?? '').toLowerCase();
+  const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+  return opponents.map((opp) => {
+    const canRespond = !opp.is_all_in && Number.isFinite(opp.stack) && opp.stack > 0;
+    if (!useMind || opts.mind === false) return { canRespond };
+    const direct = HorseMind.getExploitCounters(opp.user_id, scope);
+    if (direct) return { exploitCounters: direct, canRespond };
+    const read = HorseMind.opponentRead(opp.user_id);
+    if (read && read.presumed !== true) {
+      const fb = read.stats.foldToBet;
+      const bc = read.stats.betCheckedTo;
+      const rc = read.stats.riverCall;
+      if (fb.n > 0 || bc.n > 0 || rc.n > 0) {
+        return {
+          canRespond,
+          exploitCounters: {
+            foldToBet: fb.mean * fb.n,
+            foldToBetOpp: fb.n,
+            betCheckedTo: bc.mean * bc.n,
+            betCheckedToOpp: bc.n,
+            riverCall: rc.mean * rc.n,
+            riverCallOpp: rc.n,
+          },
+        };
+      }
+    }
+    return { canRespond };
+  });
+}
+
+function multiBoardFreerollPricedOpen(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  street: HandStage,
+  pot: number,
+  lockShare: number,
+  unlockedEq: number,
+  wetness: number,
+  ip: boolean,
+  spr: number,
+  pairedBoard: boolean,
+  board: readonly Card[],
+  geomFrac: number,
+  useMind: boolean
+) {
+  const freerollStreet: MultiBoardFreerollStreet =
+    street === 'flop' || street === 'turn' ? street : 'river';
+  const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  let deepestOppStack = 0;
+  for (const opp of opponents) {
+    if (opp.is_all_in) continue;
+    const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    if (os > deepestOppStack) deepestOppStack = os;
+  }
+  const effectiveStack = Math.min(heroStack, deepestOppStack);
+  const oppInputs = collectFreerollOpponents(player, gs, opts, opponents, useMind);
+  const riskCap = Math.min(effectiveStack, vi.isPotLimit ? pot : Math.max(pot, effectiveStack));
+  const bf =
+    isTournamentMode(gs) && gs.bigBlind > 0
+      ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, riskCap)
+      : null;
+
+  return priceMultiBoardFreerollOpen({
+    lockShare,
+    unlockedEq,
+    pot,
+    heroStack,
+    effectiveStack,
+    minBet: Math.max(gs.minRaise || 0, gs.bigBlind || 0, 0.01),
+    isPotLimit: vi.isPotLimit,
+    geomFrac,
+    oppCount: Math.max(1, opponents.length),
+    wetness,
+    street: freerollStreet,
+    inPosition: ip,
+    spr,
+    flopTexture:
+      freerollStreet === 'flop' ? classifyFreerollFlopTexture(board, pairedBoard) : undefined,
+    heroBubbleFactor: bf,
+    opponents: oppInputs,
+  });
+}
+
+function multiBoardFreerollPricedFacingBet(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  street: HandStage,
+  pot: number,
+  currentBet: number,
+  toCall: number,
+  lockShare: number,
+  unlockedEq: number,
+  ip: boolean,
+  useMind: boolean
+) {
+  const freerollStreet: MultiBoardFreerollStreet =
+    street === 'flop' || street === 'turn' ? street : 'river';
+  const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const playerBet = Number.isFinite(player.bet) ? Math.max(0, player.bet) : 0;
+  let deepestOppStack = 0;
+  for (const opp of opponents) {
+    if (opp.is_all_in) continue;
+    const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    if (os > deepestOppStack) deepestOppStack = os;
+  }
+  const oppInputs = collectFreerollOpponents(player, gs, opts, opponents, useMind);
+  const riskCap = Math.min(heroStack, toCall + Math.min(deepestOppStack, pot + toCall));
+  const bf =
+    isTournamentMode(gs) && gs.bigBlind > 0
+      ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, riskCap)
+      : null;
+
+  return priceMultiBoardFreerollFacingBet({
+    lockShare,
+    unlockedEq,
+    pot,
+    currentBet,
+    playerBet,
+    toCall,
+    minRaise: Math.max(gs.minRaise || 0, gs.bigBlind || 0, 0.01),
+    heroStack,
+    deepestOppStack,
+    isPotLimit: vi.isPotLimit,
+    oppCount: Math.max(1, opponents.length),
+    street: freerollStreet,
+    inPosition: ip,
+    heroBubbleFactor: bf,
+    opponents: oppInputs,
+  });
+}
+
+/**
+ * multiBoardNonFreerollIsPriced (HORSE DECISIONS lane 2026-11-22; dark, default OFF,
+ * OPTION_SWITCH_REFUSED / zero SQL migrations): public-info-only opponent counter
+ * collector shared by both V86 non-freeroll multi-board sites. Zero fastRandom() / v86Hash01().
+ */
+function collectNonFreerollOpponents(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  useMind: boolean
+): NonFreerollOpponentInput[] {
+  const variant = String(gs.gameVariant ?? '').toLowerCase();
+  const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+  return opponents.map((opp) => {
+    const canRespond = !opp.is_all_in && Number.isFinite(opp.stack) && opp.stack > 0;
+    if (!useMind || opts.mind === false) return { canRespond };
+    const direct = HorseMind.getExploitCounters(opp.user_id, scope);
+    if (direct) return { exploitCounters: direct, canRespond };
+    const read = HorseMind.opponentRead(opp.user_id);
+    if (read && read.presumed !== true) {
+      const fb = read.stats.foldToBet;
+      const bc = read.stats.betCheckedTo;
+      const rc = read.stats.riverCall;
+      if (fb.n > 0 || bc.n > 0 || rc.n > 0) {
+        return {
+          canRespond,
+          exploitCounters: {
+            foldToBet: fb.mean * fb.n,
+            foldToBetOpp: fb.n,
+            betCheckedTo: bc.mean * bc.n,
+            betCheckedToOpp: bc.n,
+            riverCall: rc.mean * rc.n,
+            riverCallOpp: rc.n,
+          },
+        };
+      }
+    }
+    return { canRespond };
+  });
+}
+
+function multiBoardNonFreerollPricedOpen(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  street: HandStage,
+  pot: number,
+  boardEquities: readonly number[],
+  wetness: number,
+  ip: boolean,
+  spr: number,
+  pairedBoard: boolean,
+  board: readonly Card[],
+  geomFrac: number,
+  useMind: boolean
+) {
+  const mbStreet: MultiBoardNonFreerollStreet =
+    street === 'flop' || street === 'turn' ? street : 'river';
+  const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  let deepestOppStack = 0;
+  for (const opp of opponents) {
+    if (opp.is_all_in) continue;
+    const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    if (os > deepestOppStack) deepestOppStack = os;
+  }
+  const effectiveStack = Math.min(heroStack, deepestOppStack);
+  const oppInputs = collectNonFreerollOpponents(player, gs, opts, opponents, useMind);
+  const riskCap = Math.min(effectiveStack, vi.isPotLimit ? pot : Math.max(pot, effectiveStack));
+  const bf =
+    isTournamentMode(gs) && gs.bigBlind > 0
+      ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, riskCap)
+      : null;
+
+  return priceMultiBoardNonFreerollOpen({
+    boardEquities,
+    pot,
+    heroStack,
+    effectiveStack,
+    minBet: Math.max(gs.minRaise || 0, gs.bigBlind || 0, 0.01),
+    isPotLimit: vi.isPotLimit,
+    geomFrac,
+    oppCount: Math.max(1, opponents.length),
+    wetness,
+    street: mbStreet,
+    inPosition: ip,
+    spr,
+    flopTexture:
+      mbStreet === 'flop' ? classifyNonFreerollFlopTexture(board, pairedBoard) : undefined,
+    heroBubbleFactor: bf,
+    opponents: oppInputs,
+  });
+}
+
+function multiBoardNonFreerollPricedFacingBet(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  street: HandStage,
+  pot: number,
+  currentBet: number,
+  toCall: number,
+  boardEquities: readonly number[],
+  ip: boolean,
+  canRaise: boolean,
+  useMind: boolean
+) {
+  const mbStreet: MultiBoardNonFreerollStreet =
+    street === 'flop' || street === 'turn' ? street : 'river';
+  const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const playerBet = Number.isFinite(player.bet) ? Math.max(0, player.bet) : 0;
+  let deepestOppStack = 0;
+  for (const opp of opponents) {
+    if (opp.is_all_in) continue;
+    const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    if (os > deepestOppStack) deepestOppStack = os;
+  }
+  const oppInputs = collectNonFreerollOpponents(player, gs, opts, opponents, useMind);
+  const riskCap = Math.min(heroStack, toCall + Math.min(deepestOppStack, pot + toCall));
+  const bf =
+    isTournamentMode(gs) && gs.bigBlind > 0
+      ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, riskCap)
+      : null;
+
+  return priceMultiBoardNonFreerollFacingBet({
+    boardEquities,
+    pot,
+    currentBet,
+    playerBet,
+    toCall,
+    minRaise: Math.max(gs.minRaise || 0, gs.bigBlind || 0, 0.01),
+    heroStack,
+    deepestOppStack,
+    isPotLimit: vi.isPotLimit,
+    oppCount: Math.max(1, opponents.length),
+    street: mbStreet,
+    inPosition: ip,
+    canRaise,
+    heroBubbleFactor: bf,
+    opponents: oppInputs,
+  });
+}
+
+/**
+ * multiBoardBluffTrimIsPriced (HORSE DECISIONS lane 2026-11-22; dark, default OFF,
+ * OPTION_SWITCH_REFUSED / zero SQL migrations): public-info-only opponent counter collector
+ * for V36 multi-board bluff-trim pricing. Zero fastRandom(), zero opponent hole cards.
+ */
+function collectMultiBoardBluffTrimOpponents(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  useMind: boolean
+): MultiBoardBluffTrimOpponentInput[] {
+  const variant = String(gs.gameVariant ?? '').toLowerCase();
+  const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+  return opponents.map((opp) => {
+    const canRespond = !opp.is_all_in && Number.isFinite(opp.stack) && opp.stack > 0;
+    if (!useMind || opts.mind === false) return { canRespond };
+    const direct = HorseMind.getExploitCounters(opp.user_id, scope);
+    if (direct) return { exploitCounters: direct, canRespond };
+    const read = HorseMind.opponentRead(opp.user_id);
+    if (read && read.presumed !== true) {
+      const fb = read.stats.foldToBet;
+      const rc = read.stats.riverCall;
+      if (fb.n > 0 || rc.n > 0) {
+        return {
+          canRespond,
+          exploitCounters: {
+            foldToBet: fb.mean * fb.n,
+            foldToBetOpp: fb.n,
+            riverCall: rc.mean * rc.n,
+            riverCallOpp: rc.n,
+          },
+        };
+      }
+    }
+    return { canRespond };
+  });
+}
+
+function multiBoardBluffTrimPriced(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  street: HandStage,
+  pot: number,
+  allBoards36: readonly (readonly Card[])[],
+  wetness: number,
+  ip: boolean,
+  useMind: boolean
+) {
+  const mbStreet: MultiBoardBluffTrimStreet =
+    street === 'flop' || street === 'turn' ? street : 'river';
+  const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  let deepestOppStack = 0;
+  for (const opp of opponents) {
+    if (opp.is_all_in) continue;
+    const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    if (os > deepestOppStack) deepestOppStack = os;
+  }
+  const effStack = Math.min(heroStack, deepestOppStack);
+  const oppInputs = collectMultiBoardBluffTrimOpponents(player, gs, opts, opponents, useMind);
+  const riskCap = Math.min(effStack, Math.max(0, pot * MULTI_BOARD_BLUFF_REF_POT_FRAC));
+  const bf =
+    isTournamentMode(gs) && gs.bigBlind > 0
+      ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, riskCap)
+      : null;
+
+  return priceMultiBoardBluffTrim({
+    boards: allBoards36,
+    nBoards: allBoards36.length,
+    heroCards: player.cards,
+    street: mbStreet,
+    inPosition: ip,
+    potSize: pot,
+    effStack,
+    wetness,
+    oppCount: Math.max(1, opponents.length),
+    opponents: oppInputs,
+    flopTexture: classifyBluffTrimFlopTexture(allBoards36[0]),
+    heroBubbleFactor: bf,
+  });
 }
 
 /**
@@ -24512,8 +24940,25 @@ export class HorseLogic {
     // V36: a bluff has to fold out EVERY board. Random ranges, N boards:
     // somebody has a piece of one of them on almost every deal.
     if (multiBoard36) {
-      bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5;
-      if (tele15) noteFire('v36_multiboard_bluff_trim');
+      if (opts.multiBoardBluffTrimIsPriced === true) {
+        const priced36Trim = multiBoardBluffTrimPriced(
+          player,
+          gs,
+          opts,
+          opponents,
+          street,
+          pot,
+          allBoards36,
+          wetness,
+          ip,
+          useMind
+        );
+        bluffScale *= priced36Trim.multiplier;
+        if (tele15) noteFire('v36_multiboard_bluff_trim_priced');
+      } else {
+        bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5;
+        if (tele15) noteFire('v36_multiboard_bluff_trim');
+      }
     }
     // ═══ V23 RIVER READS (2026-08-28) ═══ heads-up on the river, the one
     // number that prices a bluff is whether THIS player folds rivers. Scale
@@ -25735,7 +26180,45 @@ export class HorseLogic {
       // hands that were beating hero on the other board(s). Bet, and bet
       // big — there is no raise that can hurt this hand. (All boards locked
       // is a plain monster and takes the monster line below.)
-      if (multiBoard36 && lockShare36 >= 1 / nBoards36 && lockShare36 < 1 && fastRandom() < 0.9) {
+      if (
+        opts.multiBoardFreerollIsPriced === true &&
+        multiBoard36 &&
+        lockShare36 >= 1 / nBoards36 &&
+        lockShare36 < 1
+      ) {
+        const priced36 = multiBoardFreerollPricedOpen(
+          player,
+          gs,
+          vi,
+          opts,
+          opponents,
+          street,
+          pot,
+          lockShare36,
+          unlockedEq36,
+          wetness,
+          ip,
+          spr,
+          pairedBoard,
+          board,
+          geomFrac,
+          useMind
+        );
+        if (priced36.action === 'bet') {
+          const legal36 = this.raiseTo(planHandKey, priced36.betAmount, player, gs, vi);
+          if (legal36.action === 'bet' || legal36.action === 'all_in') {
+            if (tele15) noteFire('v36_freeroll_priced_bet');
+            return legal36;
+          }
+        }
+        if (tele15) noteFire('v36_freeroll_priced_check');
+        return { action: 'check', thinkTime: 0 };
+      } else if (
+        multiBoard36 &&
+        lockShare36 >= 1 / nBoards36 &&
+        lockShare36 < 1 &&
+        fastRandom() < 0.9
+      ) {
         if (tele15) noteFire('v36_freeroll_bet');
         return this.betSize(
           planHandKey,
@@ -25749,6 +26232,41 @@ export class HorseLogic {
         );
       }
       if (
+        opts.multiBoardNonFreerollIsPriced === true &&
+        v86 &&
+        multiBoard36 &&
+        boardEq36.length >= 2 &&
+        !isRiver &&
+        barrelPlan !== true &&
+        lockShare36 < 1 / nBoards36
+      ) {
+        const priced86Open = multiBoardNonFreerollPricedOpen(
+          player,
+          gs,
+          vi,
+          opts,
+          opponents,
+          street,
+          pot,
+          boardEq36,
+          wetness,
+          ip,
+          spr,
+          pairedBoard,
+          board,
+          geomFrac,
+          useMind
+        );
+        if (priced86Open.action === 'bet') {
+          const legal86Open = this.raiseTo(planHandKey, priced86Open.betAmount, player, gs, vi);
+          if (legal86Open.action === 'bet' || legal86Open.action === 'all_in') {
+            if (tele15) noteFire('v86_multiboard_priced_open_bet');
+            return legal86Open;
+          }
+        }
+        if (tele15) noteFire('v86_multiboard_priced_open_check');
+        return { action: 'check', thinkTime: 0 };
+      } else if (
         v86 &&
         multiBoard36 &&
         !isRiver &&
@@ -28009,6 +28527,32 @@ export class HorseLogic {
       lockShare36 >= 1 / nBoards36 &&
       (nBoards36 === 2 || lockShare36 >= 2 / 3 || potFrac36 <= 1)
     ) {
+      if (opts.multiBoardFreerollIsPriced === true) {
+        const priced36 = multiBoardFreerollPricedFacingBet(
+          player,
+          gs,
+          vi,
+          opts,
+          opponents,
+          street,
+          pot,
+          currentBet,
+          toCall,
+          lockShare36,
+          unlockedEq36,
+          ip,
+          useMind
+        );
+        if (priced36.action === 'raise') {
+          const legal36 = this.raiseTo(planHandKey, priced36.raiseTo, player, gs, vi);
+          if (legal36.action === 'raise' || (legal36.action === 'all_in' && stack > toCall)) {
+            if (tele15) noteFire('v36_freeroll_priced_raise');
+            return legal36;
+          }
+        }
+        if (tele15) noteFire('v36_freeroll_priced_call');
+        return { action: 'call', amount: toCall, thinkTime: 0 };
+      }
       const raiseFreeroll =
         lockShare36 < 1 ? unlockedEq36 >= 0.2 && fastRandom() < 0.85 : fastRandom() < 0.9;
       if (raiseFreeroll) {
@@ -28020,6 +28564,42 @@ export class HorseLogic {
       return { action: 'call', amount: toCall, thinkTime: 0 };
     }
     if (v86 && multiBoard36 && boardEq36.length >= 2) {
+      if (opts.multiBoardNonFreerollIsPriced === true && lockShare36 < 1 / nBoards36) {
+        const priced86 = multiBoardNonFreerollPricedFacingBet(
+          player,
+          gs,
+          vi,
+          opts,
+          opponents,
+          street,
+          pot,
+          currentBet,
+          toCall,
+          boardEq36,
+          ip,
+          !raisedAfterAggr,
+          useMind
+        );
+        if (priced86.action === 'raise' && !raisedAfterAggr) {
+          const legal86 = this.raiseTo(planHandKey, priced86.raiseTo, player, gs, vi);
+          if (legal86.action === 'raise' || (legal86.action === 'all_in' && stack > toCall)) {
+            if (tele15) noteFire('v86_multiboard_priced_raise');
+            return legal86;
+          }
+          if (priced86.evCall > 0) {
+            if (tele15) noteFire('v86_multiboard_priced_call');
+            return { action: 'call', amount: toCall, thinkTime: 0 };
+          }
+          if (tele15) noteFire('v86_multiboard_priced_fold');
+          return { action: 'fold', thinkTime: 0 };
+        }
+        if (priced86.action === 'call') {
+          if (tele15) noteFire('v86_multiboard_priced_call');
+          return { action: 'call', amount: toCall, thinkTime: 0 };
+        }
+        if (tele15) noteFire('v86_multiboard_priced_fold');
+        return { action: 'fold', thinkTime: 0 };
+      }
       const minBoardEq86 = Math.min(...boardEq36);
       const maxBoardEq86 = Math.max(...boardEq36);
       if (potFrac36 >= 0.6 && minBoardEq86 < 0.18 && maxBoardEq86 < 0.88) {
