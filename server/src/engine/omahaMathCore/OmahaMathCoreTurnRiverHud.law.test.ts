@@ -20,6 +20,7 @@ import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
 import { rakeNet, type CoreState } from './OmahaMathCore.js';
 import { saveFastRandom } from '../HorseEval.js';
+import { HorseMind } from '../HorseMind.js';
 import { ServerTableEngineTurns } from '../ServerTableEngineTurns.js';
 import { omahaMathCoreOwns } from './OmahaMathCoreAcceptance.js';
 import { omahaMathCoreRule } from './OmahaMathCoreRule.js';
@@ -1220,9 +1221,38 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     expect(rec.omahaMathCore?.core?.tables).not.toBe('b3-turn-river-hud');
   });
 
-  it('21. audit P1-1: warmOmahaMathCore warms HorseLogic.decide + plo4Policy + B2 cbetRaiseShare cleanly without throws, provider leaks, or fastRandom mutation', () => {
+  it('21. audit P1-1: warmOmahaMathCore warms HorseLogic.decide + plo4Policy + B2 cbetRaiseShare cleanly without throws, provider leaks, HorseMind wipe/pollution, or fastRandom mutation', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const prevProv = omahaMathCoreTurnRiverProvider();
+    HorseMind.reset();
+    HorseMind.observe(
+      [
+        {
+          seat: 1,
+          userId: 'preseeded-opp',
+          action: 'raise',
+          amount: 6,
+          stage: 'preflop',
+          timestamp: 1,
+        },
+        {
+          seat: 2,
+          userId: 'preseeded-hero',
+          action: 'call',
+          amount: 6,
+          stage: 'preflop',
+          timestamp: 2,
+        },
+      ],
+      [
+        { user_id: 'preseeded-opp', seat: 1, stack: 200, bet: 6 },
+        { user_id: 'preseeded-hero', seat: 2, stack: 200, bet: 6 },
+      ] as unknown as SeatPlayer[],
+      undefined,
+      undefined,
+      2
+    );
+    expect(HorseMind.getStats('preseeded-opp')?.hands).toBe(1);
     const before = saveFastRandom();
     const w = warmOmahaMathCore(() => 0);
     const after = saveFastRandom();
@@ -1230,5 +1260,9 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     expect(errSpy).not.toHaveBeenCalled();
     expect(omahaMathCoreTurnRiverProvider()).toBe(prevProv);
     expect(after).toBe(before);
+    expect(HorseMind.getStats('preseeded-opp')?.hands).toBe(1);
+    expect(HorseMind.getStats('warm-seat-1')).toBeUndefined();
+    expect(HorseMind.getStats('warm-seat-2')).toBeUndefined();
+    HorseMind.reset();
   });
 });

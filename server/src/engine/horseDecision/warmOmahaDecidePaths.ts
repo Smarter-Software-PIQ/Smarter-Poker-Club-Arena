@@ -246,6 +246,7 @@ export function warmOmahaDecidePaths(): boolean {
           'balanced',
           {},
           {
+            mind: false,
             observeMind: false,
             telemetry: false,
             decisionTimeMs: WARM_TIME_MS,
