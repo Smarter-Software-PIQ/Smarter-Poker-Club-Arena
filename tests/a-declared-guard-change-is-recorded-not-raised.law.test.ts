@@ -95,10 +95,31 @@ const installedAutoledgerDeclaration: InstalledOmission = {
   successorSha256: BOARD_GUARD_SUCCESSOR_SHA256,
   guard: 'fn_ca_autoledger',
 };
+const WATCH_TIMEOUT_ORIGINAL =
+  '20261121154220_cashout_hotpath_active_seat_floor_guard_exit_and_watch_locks.sql';
+const WATCH_TIMEOUT_ORIGINAL_SHA256 =
+  '0cd4353c5263580fc141140e31d7d7fdd054d1538ddcc3cc5621489214d6199b';
+const WATCH_TIMEOUT_SUCCESSOR =
+  '20261122145633_declare_the_four_installed_watch_timeout_guards.sql';
+const WATCH_TIMEOUT_SUCCESSOR_SHA256 =
+  'fe5cb27889247b1a84f62ff42e1934de0db1c854f0e8e8563a5eaf3006da7bb1';
+const installedWatchTimeoutDeclarations: InstalledOmission[] = [
+  'fn_ca_guard_defs_watch',
+  'fn_ca_negative_balance_watch',
+  'fn_ca_mint_velocity_watch',
+  'fn_ca_cron_failure_watch',
+].map((guard) => ({
+  original: WATCH_TIMEOUT_ORIGINAL,
+  originalSha256: WATCH_TIMEOUT_ORIGINAL_SHA256,
+  successor: WATCH_TIMEOUT_SUCCESSOR,
+  successorSha256: WATCH_TIMEOUT_SUCCESSOR_SHA256,
+  guard,
+}));
 const installedOmissions: InstalledOmission[] = [
   installedFundingDeclaration,
   installedEscalationTickDeclaration,
   installedAutoledgerDeclaration,
+  ...installedWatchTimeoutDeclarations,
 ];
 const sha256 = (sql: string): string => createHash('sha256').update(sql).digest('hex');
 const matchesOmission = (
@@ -167,14 +188,45 @@ const watchedFrom = (): Map<string, string> => {
   return from;
 };
 
-/** Does this migration text redefine `guard`? */
-const redefines = (sql: string, guard: string): boolean =>
-  sql.includes(`CREATE OR REPLACE FUNCTION public.${guard}(`) ||
-  sql.includes(`CREATE OR REPLACE FUNCTION public.${guard}\n`) ||
-  // the asserted-substitution shape: read the live definition, replace, EXECUTE
-  (sql.includes('pg_get_functiondef') &&
-    sql.includes('EXECUTE') &&
-    sql.includes(`p.proname = '${guard}'`));
+const likeToRegExp = (pattern: string): RegExp =>
+  new RegExp(
+    '^' +
+      pattern
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/%/g, '.*')
+        .replace(/_/g, '.') +
+      '$'
+  );
+
+/** Does this migration text redefine (or alter pg_get_functiondef of) `guard`? */
+const redefines = (sql: string, guard: string): boolean => {
+  if (
+    sql.includes(`CREATE OR REPLACE FUNCTION public.${guard}(`) ||
+    sql.includes(`CREATE OR REPLACE FUNCTION public.${guard}\n`) ||
+    // the asserted-substitution shape: read the live definition, replace, EXECUTE
+    (sql.includes('pg_get_functiondef') &&
+      sql.includes('EXECUTE') &&
+      sql.includes(`p.proname = '${guard}'`))
+  ) {
+    return true;
+  }
+  // Static ALTER FUNCTION modifying pg_get_functiondef (SET/RESET/SECURITY/etc., excluding OWNER TO).
+  const staticAlter = new RegExp(
+    `ALTER\\s+FUNCTION\\s+public\\.${guard}\\s*\\([^;]{0,400}\\)\\s+(?!OWNER\\s+TO\\b)`,
+    'i'
+  );
+  if (staticAlter.test(sql)) return true;
+  // Dynamic ALTER FUNCTION in a DO/plpgsql loop over pg_proc (e.g. proname LIKE 'fn_ca_%_watch').
+  const dynamicAlter =
+    /\bEXECUTE\b/i.test(sql) && /\bALTER\s+FUNCTION\s+%s\s+(?!OWNER\s+TO\b)/i.test(sql);
+  if (dynamicAlter) {
+    if (sql.includes(`'${guard}'`)) return true;
+    for (const match of sql.matchAll(/proname\s+LIKE\s+'([^']+)'/gi)) {
+      if (likeToRegExp(match[1]).test(guard)) return true;
+    }
+  }
+  return false;
+};
 
 // A single declaration conditional on that SAME name being watched cannot
 // declare an unwatched function. Keep installed migration bytes immutable.
@@ -216,6 +268,18 @@ describe('a declared guard change is recorded, not raised', () => {
         'fn_real_guard'
       )
     ).toBe(true);
+    expect(
+      redefines("ALTER FUNCTION public.fn_real_guard() SET lock_timeout = '2s';", 'fn_real_guard')
+    ).toBe(true);
+    expect(
+      redefines(
+        "DO $$ BEGIN FOR r IN SELECT p.oid::regprocedure AS sig FROM pg_proc p WHERE p.proname LIKE 'fn_%_guard' LOOP EXECUTE format('ALTER FUNCTION %s SET lock_timeout = ''2s''', r.sig); END LOOP; END $$;",
+        'fn_real_guard'
+      )
+    ).toBe(true);
+    expect(
+      redefines('ALTER FUNCTION public.fn_real_guard() OWNER TO postgres;', 'fn_real_guard')
+    ).toBe(false);
   });
 
   it('only a same-name watchlist condition qualifies a conditional declaration', () => {
@@ -361,7 +425,7 @@ describe('a declared guard change is recorded, not raised', () => {
           corpus
         )
       ).toBe(false);
-      expect(hasExactInstalledDeclaration(original, 'fn_ca_guard_defs_watch', corpus)).toBe(false);
+      expect(hasExactInstalledDeclaration(original, 'fn_ca_guard_watchlist', corpus)).toBe(false);
       // and one entry's successor never pardons another entry's original
       for (const other of installedOmissions) {
         if (other.original === repair.original) continue;
@@ -370,7 +434,7 @@ describe('a declared guard change is recorded, not raised', () => {
       for (const mutate of [
         (sql: string) =>
           sql.replace(`v_declared := public.${DECLARE}(`, 'v_declared := public.unknown('),
-        (sql: string) => sql.replace(`'${repair.guard}',`, "'fn_ca_guard_defs_watch',"),
+        (sql: string) => sql.replace(`'${repair.guard}',`, "'fn_ca_guard_watchlist',"),
       ]) {
         expect(
           hasExactInstalledDeclaration(

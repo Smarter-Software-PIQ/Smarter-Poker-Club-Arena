@@ -162,10 +162,10 @@ describe('4. a person overtakes the ladder', () => {
   });
 });
 
-describe('5. the open board is eleven Spins and six regular heads-up', () => {
-  it('platform-wide, not per club and not per price point', () => {
+describe('5. horse-seeded occupancy is 11 Spins and 2 regular heads-up, while every remaining option stays open empty (Dan 2026-11-22)', () => {
+  it('platform-wide horse-seeded targets: 11 Spins and a couple (2) of Heads-Up', () => {
     expect(SPIN_BOARD_OPEN_TARGET).toBe(11);
-    expect(SNG_BOARD_OPEN_TARGET).toBe(6);
+    expect(SNG_BOARD_OPEN_TARGET).toBe(2);
     // Counted over REGISTERING rows of that variant with no owner scope.
     const room = RECURRING.slice(
       RECURRING.indexOf('private async seatFirstBoardRoom('),
@@ -192,27 +192,27 @@ describe('5. the open board is eleven Spins and six regular heads-up', () => {
       RECURRING.indexOf('private async seatFirstBoardRoom('),
       RECURRING.indexOf('private async checkAndLaunchSNGs(')
     );
-    expect(room).toMatch(
-      /\.eq\('tournament_type', variant === 'spin' \? 'SPIN' : 'SNG'\)/
-    );
+    expect(room).toMatch(/\.eq\('tournament_type', variant === 'spin' \? 'SPIN' : 'SNG'\)/);
     expect(room).toMatch(/\.is\('satellite_target_id', null\)/);
     expect(room).toMatch(/\.is\('satellite_target', null\)/);
   });
 
-  it('a count it could not read opens nothing, rather than reading as room to spare', () => {
-    // CLAUDE.md 10.86. Defaulting to "plenty of room" would re-open the whole
-    // 64-config catalogue, which is the failure the target exists to prevent.
-    expect(RECURRING).toMatch(/if \(room === null \|\| room <= 0\) return;/);
+  it('an unreadable count fails closed, while room === 0 still keeps empty 0/3 & 0/2 catalogue boards open', () => {
+    // CLAUDE.md 10.86 + Dan 2026-11-22: an unreadable occupancy read still
+    // fails closed (`room === null`), while `room === 0` keeps seedBudget at 0
+    // and still opens missing catalogue options as empty 0/3 & 0/2 boards.
+    expect(RECURRING).toMatch(/if \(room === null\) return;/);
     const room = RECURRING.slice(RECURRING.indexOf('private async seatFirstBoardRoom('));
     expect(room.slice(0, room.indexOf('private async checkAndLaunchSNGs('))).toMatch(
       /return null;/
     );
   });
 
-  it('never opens more in one tick than the platform has room for', () => {
+  it('never horse-seeds more in one tick than the platform has room for, and caps creations by BURST', () => {
     expect(RECURRING).toMatch(
-      /const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+      /const seedBudget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
     );
+    expect(RECURRING).toMatch(/const budget = \{ left: boardBudgetShares\(1\) \};/);
   });
 });
 
@@ -241,7 +241,7 @@ describe('6. concurrent launcher ticks cannot overrun the board or seat a horse 
   it('the budget is spent by one owner at a time, drawn in a fresh order each tick', () => {
     expect(RECURRING).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
     expect(RECURRING).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
-    expect(RECURRING).toMatch(/if \(budget\.left <= 0\) break;/);
+    expect(RECURRING).toMatch(/if \(budget\.left <= 0 && seedBudget\.left <= 0\) break;/);
   });
 });
 

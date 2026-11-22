@@ -11,6 +11,7 @@ on:
       - supabase/migrations/20261110000020_reliability_controller_stage_b.sql
       - supabase/migrations/*_the_controller_runs_recovery_runbooks.sql
       - supabase/migrations/*_a_cron_proof_needs_a_migration_that_redefines_the_function.sql
+      - supabase/migrations/20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql
       - scripts/ci/test-reliability-runbooks.py
       - scripts/ci/fixtures/reliability-controller-production-objects.sql
       - .github/workflows/reliability-runbooks.yml

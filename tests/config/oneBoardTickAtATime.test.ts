@@ -110,7 +110,10 @@ describe('a board refills one tick at a time', () => {
     expect(code).toMatch(
       /export function boardBudgetShares\(ownerCount: number, burst: number = BURST\)/
     );
-    expect(code).toMatch(/const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/);
+    expect(code).toMatch(
+      /const seedBudget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+    );
+    expect(code).toMatch(/const budget = \{ left: boardBudgetShares\(1\) \};/);
     expect(code).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
     expect(code).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
     // Changed 2026-08-23 with per-owner boards: a per-board cap stops being a

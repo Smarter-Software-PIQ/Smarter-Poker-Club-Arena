@@ -27,6 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql'
+READINESS_RESOLVE_MIGRATION = ROOT / 'supabase/migrations/20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql'
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 
 SERVING = '391f7bc0d57c71637bd4af5181f70520661e3593'
@@ -292,6 +293,45 @@ def main():
         r = psql(['-f', str(MIGRATION)])
         assert r.returncode != 0, 'a second install must be refused'
         ok('a second install is refused')
+
+        # ---- 20261122145848: CutoverReadinessAtRisk closes once serving holds baseline, cutover seals, or day passes.
+        sql(r"""
+            CREATE TABLE IF NOT EXISTS cron.job_run_details (runid bigserial PRIMARY KEY, jobid bigint, status text, return_message text, start_time timestamptz, end_time timestamptz);
+            CREATE TABLE IF NOT EXISTS public.ca_guard_inventory (kind text, object_a text, active boolean);
+            CREATE TABLE IF NOT EXISTS public.ca_detector_runs (id bigserial PRIMARY KEY, detector text, ran_at timestamptz DEFAULT clock_timestamp(), detail jsonb);
+            CREATE FUNCTION public.fn_ca_declare_guard_redefinition(p_proname text, p_ref text) RETURNS text LANGUAGE sql AS $$ SELECT md5(p_proname || ':' || p_ref) $$;
+            CREATE FUNCTION public.fn_ca_raise_drift_incident(p_source text, p_kind text, p_severity text, p_key text,
+              a5 numeric, a6 numeric, a7 numeric, a8 text, a9 text, a10 text, a11 text, a12 text, a13 text, a14 text,
+              a15 text, a16 text, a17 text, a18 text, p_detail text, a20 jsonb, p_context jsonb) RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$;
+            CREATE FUNCTION public.fn_ca_ledger_invariant_refusal_watch() RETURNS integer LANGUAGE sql AS $$ SELECT 0 $$;
+            CREATE FUNCTION public.fn_cron_failing_jobs() RETURNS TABLE(jobname text, is_guard boolean, failed_in_a_row integer, failing_since timestamptz, failed_of_last_20 integer, last_success timestamptz, last_error text) LANGUAGE sql AS $$ SELECT NULL::text, false, 0, NULL::timestamptz, 0, NULL::timestamptz, NULL::text WHERE false $$;
+        """)
+        r = psql(['-f', str(READINESS_RESOLVE_MIGRATION)])
+        assert r.returncode == 0, r.stderr
+
+        def readiness_alerts(status='firing'):
+            return int(sql(f"SELECT count(*) FROM operational_alert_events WHERE source='cutover-readiness-watch' AND alertname='CutoverReadinessAtRisk' AND status='{status}'"))
+
+        # Insert a firing 03:00 CutoverReadinessAtRisk alert for 2026-11-22 (matching live inbox 447351 shape).
+        sql(f"""INSERT INTO operational_alert_events (source, event_key, alertname, status, severity, payload)
+                VALUES ('cutover-readiness-watch', 'readiness:2026-11-22', 'CutoverReadinessAtRisk', 'firing', 'critical',
+                        jsonb_build_object('cutover_day', '2026-11-22', 'facts', jsonb_build_object('baseline_sha', '{OWED}', 'serving_sha', '{SERVING}')))""")
+        # Before serving advances, it stays firing.
+        world(SERVING, 'diverged')
+        r = watch('2026-11-22 09:40:00Z')  # 03:40 CST
+        assert readiness_alerts('firing') == 1, r
+        # Once production holds a build containing baseline_sha (e.g., 07:00 CST seal), it auto-resolves!
+        world(OWED, 'ahead')
+        r = watch('2026-11-22 13:05:00Z')  # 07:05 CST
+        assert readiness_alerts('firing') == 0 and readiness_alerts('resolved') == 1, r
+        assert 'contains the readiness baseline' in sql("SELECT payload->>'resolution' FROM operational_alert_events WHERE event_key='readiness:2026-11-22'")
+        # An earlier cutover day's firing readiness alert also closes automatically.
+        sql(f"""INSERT INTO operational_alert_events (source, event_key, alertname, status, severity, payload)
+                VALUES ('cutover-readiness-watch', 'readiness:2026-11-21', 'CutoverReadinessAtRisk', 'firing', 'critical',
+                        jsonb_build_object('cutover_day', '2026-11-21', 'facts', jsonb_build_object('baseline_sha', '{OWED}', 'serving_sha', '{SERVING}')))""")
+        r = watch('2026-11-22 13:10:00Z')
+        assert readiness_alerts('firing') == 0 and readiness_alerts('resolved') == 2, r
+        ok('CutoverReadinessAtRisk closes automatically when serving holds baseline_sha or cutover_day passes')
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

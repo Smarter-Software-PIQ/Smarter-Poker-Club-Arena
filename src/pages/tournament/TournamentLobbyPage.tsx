@@ -7,6 +7,7 @@ import {
   readTournamentFormat,
   isTournamentEntryUnavailable,
   getTournamentEntryCapacity,
+  tournamentStartsWhenFull,
 } from '../../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -708,6 +709,7 @@ function TournamentLobbyBoard() {
         is_pko: !!t.isPko,
         is_mystery_bounty: !!t.isMysteryBounty,
         start_time: t.startTime,
+        startsWhenFull: tournamentStartsWhenFull(t),
         club_id: t.clubId ?? null,
         union_id: t.unionId ?? null,
         // The hook derives late-registration from status — one definition for
@@ -1055,6 +1057,7 @@ function TournamentLobbyBoard() {
                       maxPlayers: tournament.maxPlayers,
                       registeredPlayers: tournament.currentPlayers,
                       startsAt: tournament.startTime,
+                      startsWhenFull: tournamentStartsWhenFull(tournament),
                       status:
                         tournament.status === 'COMPLETED'
                           ? 'finished'

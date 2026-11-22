@@ -3,7 +3,7 @@
  * cards in the repository.
  */
 import { describe, expect, it } from 'vitest';
-import { parseCardString } from './OmahaMathCoreEval.js';
+import { categoryOf, eval5, parseCardString } from './OmahaMathCoreEval.js';
 import {
   omahaDrawFeatures,
   omahaDrawFutureTerm,
@@ -112,5 +112,48 @@ describe('omahaDrawFutureTerm: later-street value from measured public payoff', 
   it('the payoff table states its measurement', () => {
     expect(OMAHA_DRAW_PAYOFF.flop.n.hitNut).toBeGreaterThan(30);
     expect(OMAHA_DRAW_PAYOFF.source).toMatch(/public chips/);
+  });
+
+  it('omahaBoardNuts matches brute-force eval5 on seeded boards and the mono-triple royal dead-card edge case', () => {
+    const bruteNuts = (board: readonly number[], dead: readonly number[]): number => {
+      const used = new Set([...board, ...dead]);
+      const live: number[] = [];
+      for (let c = 0; c < 52; c++) if (!used.has(c)) live.push(c);
+      let best = -1;
+      for (let x = 0; x < board.length - 2; x++)
+        for (let y = x + 1; y < board.length - 1; y++)
+          for (let z = y + 1; z < board.length; z++)
+            for (let i = 0; i < live.length - 1; i++)
+              for (let j = i + 1; j < live.length; j++) {
+                const s = eval5(live[i], live[j], board[x], board[y], board[z]);
+                if (s > best && categoryOf(s) < 7) best = s;
+              }
+      return best;
+    };
+    // Edge case: 4-card turn with 3 spades (As Ks Qs) + 1 offsuit (Td) and 5 dead cards blocking all non-spade J/T
+    const edgeBoard = parseCardString('AsKsQsTd');
+    const edgeDead = parseCardString('JhJdJcThTc');
+    expect(omahaBoardNuts(edgeBoard, edgeDead)).toBe(bruteNuts(edgeBoard, edgeDead));
+    let s = 20261122;
+    const rng = () => {
+      s = (s * 1103515245 + 12345) >>> 0;
+      return s / 4294967296;
+    };
+    for (let t = 0; t < 120; t++) {
+      const used = new Set<number>();
+      const bLen = t % 2 === 0 ? 3 : 4;
+      const dLen = 4 + (t % 2);
+      const cards: number[] = [];
+      while (cards.length < bLen + dLen) {
+        const c = Math.floor(rng() * 52);
+        if (!used.has(c)) {
+          used.add(c);
+          cards.push(c);
+        }
+      }
+      const board = cards.slice(0, bLen);
+      const dead = cards.slice(bLen);
+      expect(omahaBoardNuts(board, dead)).toBe(bruteNuts(board, dead));
+    }
   });
 });
