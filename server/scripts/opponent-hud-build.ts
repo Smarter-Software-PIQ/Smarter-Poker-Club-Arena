@@ -38,6 +38,7 @@ import {
   HUD_BACKFILL_PAGE_LIMIT,
   pageAllOpponentHudHands,
   planOpponentHudBackfill,
+  withTransientBackfillRetry,
 } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
 
 const args = process.argv.slice(2);
@@ -119,23 +120,32 @@ async function paced<T>(call: () => PromiseLike<T>): Promise<T> {
   return out;
 }
 
-/** created_at of the first PLO4/PLO5 hand (cash or tournament) hand_history holds, or null when none. */
+/** created_at of the first PLO4/PLO5/NLH hand (cash or tournament) hand_history holds, or null when none. */
 async function firstRetainedHandMs(): Promise<number | null> {
   const client = await db();
-  const { data, error } = await client.rpc('fn_opponent_hud_hands_page', {
-    p_after_at: '1970-01-01T00:00:00Z',
-    p_after_id: '00000000-0000-0000-0000-000000000000',
-    p_until: new Date().toISOString(),
-    p_limit: 1,
-  });
-  if (error) throw new Error(`first hand read failed: ${error.message}`);
-  const first = ((data ?? []) as { created_at: string }[])[0];
+  const data = await withTransientBackfillRetry(
+    async () => {
+      const { data: rows, error } = await client.rpc('fn_opponent_hud_hands_page', {
+        p_after_at: '1970-01-01T00:00:00Z',
+        p_after_id: '00000000-0000-0000-0000-000000000000',
+        p_until: new Date().toISOString(),
+        p_limit: 1,
+      });
+      if (error) throw new Error(`first hand read failed: ${error.message}`);
+      return (rows ?? []) as { created_at: string }[];
+    },
+    {
+      onRetry: ({ attempt, delayMs, message }) =>
+        process.stderr.write(`first hand read retry #${attempt} (${delayMs}ms): ${message}\n`),
+    }
+  );
+  const first = data[0];
   return first ? Date.parse(first.created_at) : null;
 }
 
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
-  await pageAllOpponentHudHands({
+  const res = await pageAllOpponentHudHands({
     since,
     until,
     limit: HUD_BACKFILL_PAGE_LIMIT,
@@ -155,7 +165,15 @@ async function fromDb(since: string, until: string): Promise<void> {
     onPage: ({ afterAt }) => {
       process.stderr.write(`hands ${hands} through ${afterAt}\n`);
     },
+    onRetry: ({ attempt, prevLimit, nextLimit, delayMs, afterAt, message }) => {
+      process.stderr.write(
+        `hands page retry #${attempt} at ${afterAt} (limit ${prevLimit} -> ${nextLimit}, wait ${delayMs}ms): ${message}\n`
+      );
+    },
   });
+  process.stderr.write(
+    `fromDb complete: pages=${res.pages} rows=${res.rows} retries=${res.retries} last=${res.afterAt}\n`
+  );
 }
 
 function summary() {
@@ -235,13 +253,23 @@ async function main(): Promise<void> {
     for (const fam of HUD_FAMILIES) {
       const users = [...profiles.values()].filter((p) => p.family === fam).map((p) => p.user);
       for (let i = 0; i < users.length; i += 50) {
-        const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
-          p_user_ids: users.slice(i, i + 50),
-          p_family: fam,
-        });
-        if (error) throw new Error(`read failed: ${error.message}`);
-        for (const r of (data ?? []) as { user_id: string; hands: number }[])
-          storedHands.set(`${fam}|${r.user_id}`, Number(r.hands));
+        const rowsRead = await withTransientBackfillRetry(
+          async () => {
+            const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
+              p_user_ids: users.slice(i, i + 50),
+              p_family: fam,
+            });
+            if (error) throw new Error(`read failed: ${error.message}`);
+            return (data ?? []) as { user_id: string; hands: number }[];
+          },
+          {
+            onRetry: ({ attempt, delayMs, message }) =>
+              process.stderr.write(
+                `stored read retry #${attempt} (${fam} @${i}, wait ${delayMs}ms): ${message}\n`
+              ),
+          }
+        );
+        for (const r of rowsRead) storedHands.set(`${fam}|${r.user_id}`, Number(r.hands));
       }
     }
     const plan = planOpponentHudBackfill({
@@ -290,11 +318,21 @@ async function main(): Promise<void> {
         batch.push(rows[i++]);
         bytes += size;
       }
-      const { data, error } = await paced(() =>
-        client.rpc('fn_opponent_hud_profiles_upsert', { p_rows: batch })
+      const refused = await withTransientBackfillRetry(
+        async () => {
+          const { data, error } = await paced(() =>
+            client.rpc('fn_opponent_hud_profiles_upsert', { p_rows: batch })
+          );
+          if (error) throw new Error(`upsert failed at ${i}: ${error.message}`);
+          return (data ?? []) as string[];
+        },
+        {
+          onRetry: ({ attempt, delayMs, message }) =>
+            process.stderr.write(
+              `upsert retry #${attempt} (@${i}, wait ${delayMs}ms): ${message}\n`
+            ),
+        }
       );
-      if (error) throw new Error(`upsert failed at ${i}: ${error.message}`);
-      const refused = (data ?? []) as string[];
       refusedKeys.push(...refused);
       written += batch.length - refused.length;
       calls += 1;
