@@ -32,7 +32,7 @@ This is the task-specific owner instruction CLAUDE.md 10.85 requires for schedul
 
 - Window migrations (`-- @install-window: daily-maintenance`, `scripts/ci/maintenance-window-migrations.mjs` 03:55-04:05) install only in the 04:00 break. Stage runs the window installer only for the 04:00 preparation.
 - The nightly release schema freeze (23:45-04:15 Chicago, `scripts/ci/merged-migration-dispatch.mjs`), the Backup freeze baseline (`scripts/ci/backup-freeze-baseline.py`), the 03:00 readiness check (`fn_ca_cutover_readiness_watch`) and the 04:30 missed-cutover page (`fn_ca_engine_cutover_watch`) judge the 04:00 anchor only. Daytime cycles use ordinary push certification: the newest certified protected main whose Backup copy equals production.
-- Break scorecard (`fn_ca_record_break_scorecard`, migration `20261020210313`): any cycle across all eight slots that runs and writes `engine_maintenance_break_log` is graded automatically; the `break_never_started` fallback synthesizes an expected end only for the 04:00 anchor (missed daytime cycles are logged on issue #11599 rather than failing synthetic scorecard rows). The legacy ad-hoc `service_role` helper `fn_maintenance_week_report` (migration `20260902120000`, not scheduled by cron) still carries its historical hourly (`24*window_days` / `:55-:59`) framing until a follow-up SQL cleanup updates it.
+- Break scorecard (`fn_ca_record_break_scorecard`, updated in migration `20261122002835_three_hourly_break_scorecard_and_weekly_report.sql`): grades every cycle that actually ran via `engine_maintenance_break_log`, and in the `break_never_started` fallback detects three-hourly cadence from recent break-log history (any scheduled non-04 Chicago slot in `{1, 7, 10, 13, 16, 19, 22}` within the last 24h) to check expected `:05` ends across all eight slots (excluding the repeated 01:00 CST hour on fall-back day), falling back to the 04:05 anchor when daily. The ad-hoc `service_role` helper `fn_maintenance_week_report` (updated in the same migration, not scheduled by cron) reports `observed_cadence` (`three-hourly` vs `daily`), `expected_breaks_per_day` (`8` vs `1`), `:00-:04` Chicago dealing buckets, and cadence-aware `breaks_without_thaw_note`.
 - The 04:00-06:00 games-closed daily window (`server/src/maintenance/dailyWindow.ts`) and the lobby day start are unrelated to the engine break and unchanged.
 - Pre-deploy web clients already open in a browser treat `maintenance.schedule.frequency = "three-hourly"` as `"unknown"` until refreshed (`src/utils/maintenanceSchedule.ts`), which suppresses only predictive pre-break copy while active engine break banners continue to render normally.
 
@@ -49,6 +49,24 @@ For the PLO Strategy, Horse On/Off Switches, Antigravity Coordinator and Horse D
 3. **A new option** needs its generated whitelist migration merged and installed before the preparation of the cycle that should carry it.
 4. **What shipped** is posted after every cycle, sealed or refused, as one comment on issue #11599 "Engine cutover log" (cycle time, sealed SHA, PRs included since the previous seal, or the refusal reason). It is written by the receiver with the job token and is reporting only.
 5. No lane edits release controls (`server/release/**`, `server/scripts/engine-release-*`, `server/src/maintenance/**`, the release workflows) while a booked owner window is open.
+
+## Checking Readiness Before Any Cycle
+
+Any of the four lanes (PLO Strategy, Horse On/Off Switches, Antigravity Coordinator, Horse Decisions) or the Dedicated Engine Cutover owner can inspect the next scheduled cycle with one read-only command:
+
+```bash
+python3 -B scripts/release/three-hourly-readiness.py
+```
+
+Options: `--json` (machine-readable payload), `--limit N` (default `10` first-parent commits on `refs/remotes/origin/main` since the serving SHA), `--repo owner/name` (default `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`).
+
+What it reports without mutating git, dispatching workflows, or touching credentials:
+
+- Live `https://engine.smarter.poker/health` serving `releaseSha`, `frequency`, `startHours`, `phase`, and `stalledTables`.
+- Next DST-aware `America/Chicago` cycle start, preparation cutoff (`start - 30m`, UTC and Chicago), and recommended combined migration + release-control hold start (`cutoff - 75m`).
+- Active `stage-engine-release.yml` reservation run and active `backup-engine.yml` runs on `main`.
+- Recent first-parent commits on `refs/remotes/origin/main` since the serving SHA with `backup-engine/certified` state, latest `engine-release-prequalification.yml` status and run ID, `CONTROL_INPUTS` projection equality vs `origin/main` (via `scripts/ci/read-engine-prequalification.py`), and per-candidate `SELECTABLE`, `PENDING`, or `DISQUALIFIED` classification with an exact single-line reason.
+- Top-level verdict: `READY`, `IN_FLIGHT`, `NO_CANDIDATE` (exit `0`), or `UNKNOWN` (exit `3`) whenever any live health, git, or GitHub API read is unavailable (CLAUDE.md 10.86).
 
 ## Rolling Back The Cadence
 

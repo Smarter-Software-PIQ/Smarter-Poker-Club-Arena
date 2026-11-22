@@ -463,6 +463,42 @@ describe('a staged option in PLO4 cash (scripted brain)', () => {
     expect(h.fasts.map(comparable)).toEqual(none.fasts.map(comparable));
   });
 
+  it('people first (2026-11-21): with the per-minute budget spent, a staged pick with a person is still re-decided; a Horse-only one is not', async () => {
+    const brain = scripted(STAGED, true, CALL, RAISE);
+    const person = [1, 2, 3].map((i) => fastRequest(plo4With('person'), i));
+    const p = await run(
+      person,
+      brain,
+      { [STAGED]: 'shadow' },
+      {
+        ...stage(),
+        optionShadowPerMinute: 1,
+      }
+    );
+    expect(p.staged).toHaveLength(3);
+    expect(p.features.filter((k) => k === 'option_shadow_rate_person_over_seen')).toHaveLength(2);
+    expect(p.features.filter((k) => k.startsWith('option_shadow_skipped_rate'))).toEqual([]);
+    const horses = [1, 2, 3].map((i) => fastRequest(plo4With('horses'), i));
+    const h = await run(
+      horses,
+      brain,
+      { [STAGED]: 'shadow' },
+      { ...stage(), optionShadowPerMinute: 1 }
+    );
+    expect(h.staged).toHaveLength(1);
+    // the second takes the Horse-only cap's second slot and meets the spent budget; the third meets the cap
+    expect(h.features.filter((k) => k === 'option_shadow_skipped_rate_seen')).toHaveLength(1);
+    expect(
+      h.features.filter((k) => k === 'option_shadow_skipped_stage_horse_only_seen')
+    ).toHaveLength(1);
+    expect(h.features.filter((k) => k === 'option_shadow_skipped_rate_person_seen')).toHaveLength(
+      0
+    );
+    // a measurement only: the acted decisions are those of no row
+    const none = await run(person, brain, null, stage());
+    expect(p.fasts.map(comparable)).toEqual(none.fasts.map(comparable));
+  });
+
   it('the latency breaker: one re-decision over the hard limit stops the option in this worker, and it stays stopped', async () => {
     const burn: Decide = (p, g, s, m, o = {}) => {
       if (o[STAGED] === true) {

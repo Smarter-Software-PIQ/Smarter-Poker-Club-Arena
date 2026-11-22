@@ -14,6 +14,10 @@ import {
   omahaMathCoreOwns,
   omahaMathCoreRecover,
 } from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
+import {
+  lightningOmahaRecoverState,
+  type LightningOmahaRecoverInput,
+} from './LightningOmahaRecoverState.js';
 
 import { publicHandStatsFrame } from '../engine/presentation/publicHandStats.js';
 import {
@@ -2897,19 +2901,19 @@ export class LightningHandHost {
           const priced = me
             ? omahaMathCoreRecover({
                 player: me as unknown as import('../types.js').SeatPlayer,
-                gs: {
-                  players: st.players,
-                  communityCards: st.communityCards,
-                  stage: st.stage,
-                  currentBet: st.currentBet,
-                  pot: st.pot,
-                  minRaise: st.minRaise,
-                  ...this.hc.getBlindSnapshot(),
-                  gameMode: 'cash',
-                  gameVariant: String(this.rules?.game_variant ?? 'nlh'),
-                  toCall: auth.toCall,
-                  legalActions: [...auth.legalActions],
-                } as unknown as import('../engine/HorseLogic.js').HorseGameStateV2,
+                // lane CORE-FIX-1 (AUDIT-A item 16): the whole fresh state, so the scope gate re-checks Diamond,
+                // the board count, all-in-or-fold and a capped street here and the price nets the table's rake
+                gs: lightningOmahaRecoverState({
+                  state: st as unknown as LightningOmahaRecoverInput['state'],
+                  heroUserId: userId,
+                  blinds: this.hc.getBlindSnapshot() as unknown as Record<string, unknown>,
+                  variant: String(this.hc.getGameVariant?.() || this.rules?.game_variant || 'nlh'),
+                  boardCount: this.hc.getActiveBoardCount(),
+                  asset: (this.rules?.arena?.asset as string | undefined) ?? null,
+                  allInOrFold,
+                  rakeConfig: this.hc.getRakeConfigSnapshot(),
+                  auth,
+                }),
                 on: true,
                 from: 'controller_refused',
                 error: 'controller_refused',

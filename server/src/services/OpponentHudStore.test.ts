@@ -306,7 +306,7 @@ describe('OpponentHudStore', () => {
     expect(store.readyLatencies.every((ms) => ms < HUD_READY_DEADLINE_MS)).toBe(true);
   });
 
-  it('not armed, or not PLO4/PLO5 cash: no field at all (the snapshot is unchanged)', async () => {
+  it('not armed, or not PLO4/PLO5: no field at all (the snapshot is unchanged); a PLO tournament decision gets it', async () => {
     const store = new OpponentHudStore(fakeDeps(new Map()));
     expect(
       store.packetFor({
@@ -329,6 +329,7 @@ describe('OpponentHudStore', () => {
         atMs: T0,
       })
     ).toEqual({});
+    // OPPONENT-HUD-FIX-1 (lead ruling 2026-11-21 18:38Z): tournaments are in scope, behind the same switch row
     expect(
       store.packetFor({
         family: 'plo5',
@@ -337,8 +338,9 @@ describe('OpponentHudStore', () => {
         opponentIds: [U(1)],
         street: 'flop',
         atMs: T0,
-      })
-    ).toEqual({});
+        bigBlind: 400,
+      }).opponentHud
+    ).toBeDefined();
   });
 
   it('a failing or hanging database never throws and never blocks; the decision proceeds without the profile', async () => {
@@ -624,6 +626,8 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       enableBrainTelemetry();
       const stored = new Map([[`plo5|${U(1)}`, lifetime(1, 40)]]);
       const deps = fakeDeps(stored);
+      // not among the profiles the switch-on prewarm loads: the seat change is what loads him
+      deps.recent = async () => [];
       const store = new OpponentHudStore(deps);
       store.setArmed(true);
       await flush();
@@ -725,7 +729,7 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
     // sit-down, table move and Lightning conversion all adopt a seat roster; each hand start; each Lightning hand
     expect(code('engine/ServerTableEngineBase.ts')).toMatch(
-      /adoptSeatRoster\(nextRoster: SeatedPlayer\[\]\): string\[\] \{[\s\S]{0,900}?warmOpponentHudSeats\(\s*nextRoster\.map/
+      /adoptSeatRoster\(nextRoster: SeatedPlayer\[\]\): string\[\] \{[\s\S]{0,1800}?for \(const p of nextRoster\)[\s\S]{0,400}?warmOpponentHudSeats\(moved, variant, tournamentTable, 'move'\);\s*warmOpponentHudSeats\(seated, variant, tournamentTable, 'sit'\);/
     );
     expect(code('engine/ServerTableEngineHandEvents.ts')).toMatch(
       /warmOpponentHudSeats\(\s*players\.map\(\(p\) => p\.user_id\),[\s\S]{0,120}?'hand'/

@@ -44,6 +44,7 @@ import {
   type RangeSpec,
   type Rng,
 } from './OmahaMathCoreEquity.js';
+import { noteFire } from '../BrainTelemetry.js';
 
 export const RANGE_TRACK_VERSION = 'rangeadv-track-v1';
 
@@ -767,6 +768,8 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
     };
     return { version: RANGE_TRACK_VERSION, pool, pfPct, pfSe: pf.se, ranges, ms: now() - t0 };
   } catch {
+    // lane CORE-FIX-1 (AUDIT-A item 14): the untracked fallback prices this decision; counted on the live ledger
+    noteFire('omaha_math_core_fallback_tracker_failure');
     return null;
   }
 }

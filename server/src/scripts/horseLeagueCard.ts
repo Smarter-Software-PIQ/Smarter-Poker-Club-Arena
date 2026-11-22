@@ -4,6 +4,7 @@
  *   cd server
  *   npx tsx src/scripts/horseLeagueCard.ts --card=nlh_hu_postflop_balance --seed=20261120 --pairs=600
  *   npx tsx src/scripts/horseLeagueCard.ts --card=<name> --seed=1,2,3      (one full run per seed)
+ *   npx tsx src/scripts/horseLeagueCard.ts --card=<name> --seed=1,2,3 --hydrate-solver-stores
  *   npx tsx src/scripts/horseLeagueCard.ts --list
  *
  * The card is looked up by exact name in LEAGUE_MATCHUPS, then in
@@ -12,20 +13,20 @@
  * function the nightly compute worker calls for every card. An unknown name is
  * refused; a name in UNMEASURABLE_MATCHUPS is refused with its recorded reason.
  *
- * Development measurement only. No database: nothing is read from or written
- * to horse_league_results, and the solver stores the nightly worker hydrates
- * from the database stay EMPTY here (the block prints their counts), so a
- * card whose decisions consult a solver store is not the nightly's
- * measurement. The equity governor is off, as in the nightly worker.
- * Arguments, refusals and the block: ../benchmark/HorseLeagueCard.ts.
+ * Development measurement only. Nothing is ever written to horse_league_results.
+ * By default no database is contacted and the solver stores stay EMPTY (the
+ * block prints their counts). Pass --hydrate-solver-stores (with SUPABASE_URL
+ * and SUPABASE_SERVICE_ROLE_KEY in the environment) to hydrate GTO charts,
+ * postflop and V31 stores read-only before dealing, matching
+ * HorseLeagueComputeWorker.ts. The equity governor is off, as in the nightly
+ * worker. Arguments, refusals and the block: ../benchmark/HorseLeagueCard.ts.
  */
 process.env.EQUITY_GOVERNOR = 'off';
-process.env.SUPABASE_URL = 'https://supabase.invalid';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'horse-league-card-offline-placeholder';
 import { execFileSync } from 'node:child_process';
 import {
   LeagueCardRefusal,
   formatLeagueCardResult,
+  hydrateLeagueCardSolverStores,
   leagueCardPairs,
   leagueCardVerdict,
   parseLeagueCardArgs,
@@ -50,6 +51,18 @@ function engineRevision(): string {
 
 try {
   const args = parseLeagueCardArgs(process.argv.slice(2));
+  if (args.hydrateSolverStores) {
+    const url = process.env.SUPABASE_URL?.trim();
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!url || !key || url === 'https://supabase.invalid') {
+      throw new LeagueCardRefusal(
+        'REFUSED: --hydrate-solver-stores requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment'
+      );
+    }
+  } else {
+    process.env.SUPABASE_URL = 'https://supabase.invalid';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'horse-league-card-offline-placeholder';
+  }
   const {
     LEAGUE_MATCHUPS,
     DEVELOPMENT_LEAGUE_CARDS,
@@ -79,6 +92,24 @@ try {
   const { gtoChartCount } = await import('../engine/GtoCharts.js');
   const { gtoPostflopCount } = await import('../engine/GtoPostflop.js');
   const { gtoPostflopV31Count } = await import('../engine/GtoPostflopV31.js');
+  if (args.hydrateSolverStores) {
+    const { loadGtoCharts } = await import('../services/GtoChartLoader.js');
+    const { loadGtoPostflop } = await import('../services/GtoPostflopLoader.js');
+    const { loadGtoPostflopV31 } = await import('../services/GtoPostflopV31Loader.js');
+    const hydrated = await hydrateLeagueCardSolverStores({
+      loadCharts: loadGtoCharts,
+      loadPostflop: loadGtoPostflop,
+      loadPostflopV31: loadGtoPostflopV31,
+      getCounts: () => ({
+        charts: gtoChartCount(),
+        postflop: gtoPostflopCount(),
+        postflopV31: gtoPostflopV31Count(),
+      }),
+    });
+    console.log(
+      `solver stores hydrated: charts=${hydrated.charts} postflop=${hydrated.postflop} postflopV31=${hydrated.postflopV31}`
+    );
+  }
   // The nightly worker prepares these before it reports READY.
   prepareTournamentFutureHandFacts();
   const revision = engineRevision();

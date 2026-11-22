@@ -1093,6 +1093,7 @@
     "supabase/migrations/20260902052302_a_half_guarded_feature_is_a_feature_that_can_be_half_built.sql",
     "supabase/migrations/20260902090000_the_platform_freezes_at_the_tables_not_the_functions.sql",
     "supabase/migrations/20260902110000_published_game_contracts_are_promises.sql",
+    "supabase/migrations/20260902120000_the_break_writes_its_own_weekly_report.sql",
     "supabase/migrations/20260902203100_engine_restart_phase1_scorecard_freezeproof_dispatcher.sql",
     "supabase/migrations/20260902211500_engine_restart_phase1_review_fixes.sql",
     "supabase/migrations/20260903170529_the_hierarchy_sends_are_one_journal_row_each.sql",
