@@ -20,6 +20,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'scripts/ci/fixtures/cron-failure-watch/fn_ca_cron_failure_watch.live-20261007.sql'
 MIGRATION = ROOT / 'supabase/migrations/20261007215818_a_failing_hourly_cron_reaches_the_board.sql'
+RECOVERY_MIGRATION = ROOT / 'supabase/migrations/20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql'
 LIVE_MD5 = '32c0a028ed80fd1d277515790d0b446e'
 POST_MD5 = 'f8657d84657bf72112cd07ae40798d73'
 PG = Path(os.environ.get('PG_BIN', '/usr/lib/postgresql/17/bin'))
@@ -178,6 +179,38 @@ try:
     # Re-applying refuses: the pre-image guard names the body it replaces.
     q(MIGRATION.read_text(), 'is not the pinned text')
     print('PASS: before ' + before[1] + ' | after ' + after[1], flush=True)
+
+    # 20261122145848: a fixed hourly job with 3 consecutive clean runs stops
+    # re-raising its stale 24h failure count so fn_ca_resolve_cleared_incidents
+    # closes it, while a job with only 2 successes or flapping 30m still fires.
+    q(r"""
+      CREATE SCHEMA IF NOT EXISTS smarter_private;
+      CREATE TABLE IF NOT EXISTS public.ca_detector_runs (id bigserial PRIMARY KEY, detector text, ran_at timestamptz DEFAULT clock_timestamp(), detail jsonb);
+      CREATE TABLE IF NOT EXISTS smarter_private.ca_engine_cutover_days (chicago_day date PRIMARY KEY, checked_at timestamptz, serving_sha text, serving_since timestamptz, owed_sha text, owed_committed_at timestamptz, verdict text, reason text, alert_id bigint, resolved_at timestamptz);
+      CREATE FUNCTION public.fn_cron_failing_jobs() RETURNS TABLE(jobname text, is_guard boolean, failed_in_a_row integer, failing_since timestamptz, failed_of_last_20 integer, last_success timestamptz, last_error text) LANGUAGE sql AS $$ SELECT NULL::text, false, 0, NULL::timestamptz, 0, NULL::timestamptz, NULL::text WHERE false $$;
+    """)
+    q(RECOVERY_MIGRATION.read_text())
+    # Job 307: failed 20 of 23 runs in 24h, then FIXED -> last 3 runs succeeded.
+    # Job 308: failed 21 of 23 runs in 24h, only 2 successes -> still fails.
+    q(r"""
+      INSERT INTO cron.job VALUES
+        (307, 'recovered-hourly', '15 * * * *', 'select 1', true),
+        (308, 'partially-recovered-hourly', '15 * * * *', 'select 1', true);
+      INSERT INTO cron.job_run_details (jobid, status, start_time)
+      SELECT 307, CASE WHEN h <= 3 THEN 'succeeded' ELSE 'failed' END, now() - h * interval '1 hour' - interval '2 minutes'
+        FROM generate_series(1, 23) h;
+      INSERT INTO cron.job_run_details (jobid, status, start_time)
+      SELECT 308, CASE WHEN h <= 2 THEN 'succeeded' ELSE 'failed' END, now() - h * interval '1 hour' - interval '2 minutes'
+        FROM generate_series(1, 23) h;
+    """)
+    recovered_out = raised()
+    recovered_set = set(recovered_out[1].split(','))
+    assert 'recovered-hourly=warning' not in recovered_set, recovered_out
+    assert 'partially-recovered-hourly=warning' in recovered_set, recovered_out
+    assert 'flapping-30m=warning' in recovered_set, recovered_out
+    assert 'guard-hourly=critical' in recovered_set, recovered_out
+    assert q("SELECT count(*) FROM public.declared WHERE proname = 'fn_ca_cron_failure_watch' AND ref LIKE '%20261122145848%'") == '1'
+    print('PASS: 3 consecutive clean runs clear stale 24h failures while flapping/partial-recovery still fire', flush=True)
 finally:
     if started and (data/'postmaster.pid').exists():
         run(as_owner + [PG/'pg_ctl', '-D', data, '-m', 'fast', '-w', 'stop'])

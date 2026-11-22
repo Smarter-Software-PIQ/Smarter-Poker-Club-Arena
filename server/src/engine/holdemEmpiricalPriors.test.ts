@@ -20,11 +20,16 @@ import {
   HOLDEM_EMPIRICAL_RIVER_BLUFF_SHARE_TABLE,
   HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET,
   HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE,
+  HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE,
   HOLDEM_EMPIRICAL_TURN_FOLD_TO_BET,
   HOLDEM_PRIOR_STRENGTH,
+  HOLDEM_RAISE_PRIOR_MODEL_PARAMS,
+  HOLDEM_RAISE_RANGE_TRUNCATION_SHARPNESS,
+  conditionEquityAgainstRaiseCallRange,
   empiricalBayesShrink,
   estimateHoldemBetWhenCheckedTo,
   estimateHoldemFlopCbetFold,
+  estimateHoldemFoldToRaisePrior,
   estimateHoldemRiverBluffShare,
   estimateHoldemRiverFoldToBet,
   estimateHoldemRiverFoldToRaise,
@@ -35,6 +40,7 @@ import {
   holdemRiverBluffShareCell,
   holdemSprBand,
   holdemVillainRaiseCallPrice,
+  priceHoldemRaiseEv,
   readHudOpponentStat,
 } from './holdemEmpiricalPriors.js';
 
@@ -368,5 +374,207 @@ describe('empiricalBayesShrink and OpponentHudStore integration', () => {
     );
     expect(hudCtx.source).toBe('hud_context');
     expect(hudCtx.mean).toBeLessThan(0.4);
+  });
+});
+
+describe('holdemEmpiricalPriors — Wave 5.4 street fold-to-raise priors', () => {
+  it('reproduces exact street anchors at reference geometry and exact river all-in anchor', () => {
+    for (const street of ['flop', 'turn', 'river'] as const) {
+      const base = estimateHoldemFoldToRaisePrior({ street });
+      const atRef = estimateHoldemFoldToRaisePrior({
+        street,
+        raiseToBetRatio: HOLDEM_RAISE_PRIOR_MODEL_PARAMS.referenceRaiseToBet,
+        raiseToPotRatio: HOLDEM_RAISE_PRIOR_MODEL_PARAMS.referenceRaiseToPot,
+        spr: HOLDEM_RAISE_PRIOR_MODEL_PARAMS.referenceSpr,
+        commitmentFactor: 0,
+        opponentsInPot: 1,
+      });
+      expect(base.source).toBe('pool_prior');
+      expect(base.weight).toBe(0);
+      expect(base.effectiveN).toBe(0);
+      expect(base.mean).toBeCloseTo(HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE[street].baseFoldRate, 12);
+      expect(atRef.mean).toBeCloseTo(base.mean, 12);
+      expect(base.multiwayRetention).toBe(1);
+    }
+
+    // River non-all-in and all-in anchors match HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE exactly.
+    expect(estimateHoldemFoldToRaisePrior({ street: 'river' }).mean).toBeCloseTo(
+      HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.non_allin_raise.foldRate,
+      12
+    );
+    expect(
+      estimateHoldemFoldToRaisePrior({ street: 'river', isAllInRaise: true }).mean
+    ).toBeCloseTo(HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise.foldRate, 12);
+
+    // River at low committed SPR = 0.5 lands near measured all-in jam fold rate (~0.30).
+    const committedRiver = estimateHoldemFoldToRaisePrior({ street: 'river', spr: 0.5 });
+    expect(committedRiver.mean).toBeGreaterThan(0.25);
+    expect(committedRiver.mean).toBeLessThan(0.35);
+  });
+
+  it('shrinks smoothly with opponentSample, HUD f/t/r.fRaise, and attenuated HUD f/t/r.fBet fallback', () => {
+    const base = estimateHoldemFoldToRaisePrior({
+      street: 'turn',
+      raiseToBetRatio: 3,
+      spr: 5,
+    });
+
+    // Direct Beta-Binomial shrinkage with explicit k override: (folds + k * prior) / (n + k).
+    const shrunk = estimateHoldemFoldToRaisePrior({
+      street: 'turn',
+      raiseToBetRatio: 3,
+      spr: 5,
+      opponentSample: { folds: 2, opportunities: 20 },
+      priorStrength: 10,
+    });
+    expect(shrunk.source).toBe('opponent_sample');
+    expect(shrunk.priorStrength).toBe(10);
+    expect(shrunk.weight).toBeCloseTo(20 / 30, 12);
+    expect(shrunk.mean).toBeCloseTo((2 + 10 * base.prior) / 30, 12);
+
+    // HUD exact street fRaise key beats fBet fallback.
+    const hudRaise = estimateHoldemFoldToRaisePrior({
+      street: 'flop',
+      hudOpp: { eff: { 'f.fRaise': [28, 4], 'f.fBet': [50, 45] } },
+    });
+    expect(hudRaise.source).toBe('hud_context');
+    expect(hudRaise.priorStrength).toBe(HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE.flop.priorStrength);
+    expect(hudRaise.mean).toBeCloseTo(
+      (4 + 14 * HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE.flop.baseFoldRate) / (28 + 14),
+      12
+    );
+
+    // HUD first-bet fallback doubles k (attenuated toward raise prior).
+    const hudBetFallback = estimateHoldemFoldToRaisePrior({
+      street: 'flop',
+      hudOpp: { eff: { 'f.fBet': [28, 4] } },
+    });
+    expect(hudBetFallback.source).toBe('hud_street');
+    expect(hudBetFallback.priorStrength).toBe(
+      HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE.flop.priorStrength * 2
+    );
+    expect(hudBetFallback.mean).toBeGreaterThan(hudRaise.mean);
+
+    // Multiway shrinkage applies retention cleanly after shrinking the bettor's own fold rate.
+    const mwShrunk = estimateHoldemFoldToRaisePrior({
+      street: 'turn',
+      opponentsInPot: 3,
+      opponentSample: { folds: 15, opportunities: 20 },
+      priorStrength: 10,
+    });
+    expect(mwShrunk.multiwayRetention).toBeCloseTo(
+      Math.pow(HOLDEM_RAISE_PRIOR_MODEL_PARAMS.extraOpponentFoldRetention, 2),
+      12
+    );
+    expect(mwShrunk.mean).toBeCloseTo(mwShrunk.bettorMean * mwShrunk.multiwayRetention, 12);
+    expect(mwShrunk.prior).toBeCloseTo(mwShrunk.bettorPrior * mwShrunk.multiwayRetention, 12);
+  });
+
+  it('handles NaN, negative, and zero-opportunity edge inputs safely', () => {
+    const safe = estimateHoldemFoldToRaisePrior({
+      street: 'flop',
+      raiseToBetRatio: Number.NaN,
+      raiseToPotRatio: -5,
+      spr: Number.NaN,
+      commitmentFactor: Number.NaN,
+      opponentsInPot: 0,
+      opponentSample: { folds: 5, opportunities: 0 },
+      priorStrength: -3,
+    });
+    expect(Number.isFinite(safe.mean)).toBe(true);
+    expect(safe.mean).toBeGreaterThan(0);
+    expect(safe.mean).toBeLessThan(1);
+    expect(safe.source).toBe('pool_prior');
+    expect(safe.multiwayRetention).toBe(1);
+    expect(safe.priorStrength).toBe(HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE.flop.priorStrength);
+  });
+});
+
+describe('holdemEmpiricalPriors — Wave 5.4 raise-continuing range equity conditioning', () => {
+  it('matches exact analytical formulas in smooth and sharp modes across streets', () => {
+    // Default smooth canonical Bayes kernel: e^(1 / (1 - f)).
+    expect(conditionEquityAgainstRaiseCallRange(0.5, 0.5)).toBeCloseTo(0.25, 12);
+    expect(conditionEquityAgainstRaiseCallRange(0.35, 0.4)).toBeCloseTo(
+      Math.pow(0.35, 1 / 0.6),
+      12
+    );
+
+    // Street-specific sharpness: flop (0.65) > turn (0.85) > river (1.0) retained equity.
+    const eqFlop = conditionEquityAgainstRaiseCallRange(0.4, 0.45, { street: 'flop' });
+    const eqTurn = conditionEquityAgainstRaiseCallRange(0.4, 0.45, { street: 'turn' });
+    const eqRiver = conditionEquityAgainstRaiseCallRange(0.4, 0.45, { street: 'river' });
+    expect(eqFlop).toBeCloseTo(
+      Math.pow(0.4, 1 + HOLDEM_RAISE_RANGE_TRUNCATION_SHARPNESS.flop * (0.45 / 0.55)),
+      12
+    );
+    expect(eqFlop).toBeGreaterThan(eqTurn);
+    expect(eqTurn).toBeGreaterThan(eqRiver);
+
+    // Sharp mode: exact max(0, (e - f) / (1 - f)).
+    expect(conditionEquityAgainstRaiseCallRange(0.7, 0.4, { mode: 'sharp' })).toBeCloseTo(0.5, 12);
+    expect(conditionEquityAgainstRaiseCallRange(0.3, 0.4, { mode: 'sharp' })).toBe(0);
+  });
+});
+
+describe('holdemEmpiricalPriors — Wave 5.4 reusable raise EV pricer', () => {
+  it('integrates fold prior estimation, conditioned equity, short-stack return, and 3-bet response', () => {
+    const res = priceHoldemRaiseEv({
+      pot: 100,
+      toCall: 30,
+      heroAdded: 90,
+      rawEquity: 0.42,
+      priorParams: {
+        street: 'turn',
+        raiseToBetRatio: 3,
+        raiseToPotRatio: 0.9,
+        spr: 4,
+        opponentsInPot: 1,
+      },
+    });
+    expect(res.foldPriorEstimate).not.toBeNull();
+    expect(res.foldToRaiseProb).toBeCloseTo(res.foldPriorEstimate!.mean, 12);
+    expect(res.villainCall).toBe(60);
+    expect(res.effectiveHeroAdded).toBe(90);
+    expect(res.finalPot).toBe(250);
+    expect(res.eqWhenCalled).toBeLessThan(0.42);
+    expect(res.evCall).toBeCloseTo(0.42 * 130 - 30, 12);
+    expect(res.evRaise).toBeCloseTo(
+      res.foldToRaiseProb * 100 + (1 - res.foldToRaiseProb) * (res.eqWhenCalled * 250 - 90),
+      12
+    );
+
+    // Villain short-stack caps villainCall and returns uncalled chips to hero.
+    const shortVillain = priceHoldemRaiseEv({
+      pot: 100,
+      toCall: 30,
+      heroAdded: 120,
+      villainCall: 40,
+      rawEquity: 0.5,
+      foldToRaiseProb: 0.25,
+    });
+    expect(shortVillain.villainCall).toBe(40);
+    expect(shortVillain.effectiveHeroAdded).toBe(70);
+    expect(shortVillain.finalPot).toBe(210);
+
+    // Villain 3-bet / jam response reduces EV for medium-equity hands vs pure call response.
+    const without3Bet = priceHoldemRaiseEv({
+      pot: 100,
+      toCall: 30,
+      heroAdded: 90,
+      rawEquity: 0.55,
+      foldToRaiseProb: 0.35,
+    });
+    const with3Bet = priceHoldemRaiseEv({
+      pot: 100,
+      toCall: 30,
+      heroAdded: 90,
+      rawEquity: 0.55,
+      foldToRaiseProb: 0.35,
+      reraiseResponse: { reraiseProb: 0.12, reraiseToCall: 150 },
+    });
+    expect(with3Bet.foldToRaiseProb + with3Bet.callProb + with3Bet.reraiseProb).toBeCloseTo(1, 12);
+    expect(with3Bet.eqVsReraise).not.toBeNull();
+    expect(with3Bet.eqVsReraise!).toBeLessThan(with3Bet.eqWhenCalled);
+    expect(with3Bet.evRaise).toBeLessThan(without3Bet.evRaise);
   });
 });

@@ -23,6 +23,7 @@ import {
   type CoreReceipt,
   type CoreState,
   OMAHA_MATH_CORE_CBET_RAISE_READ,
+  OMAHA_MATH_CORE_VERSION,
   omahaMathCoreOpponentRecords,
 } from './OmahaMathCore.js';
 import {
@@ -654,6 +655,157 @@ export function omahaMathCoreRule(
       gs,
       opts.omahaMathCoreNetsTheWholeDeduction === true
     );
+    // B3 fast-path (lane core-repair, 2026-11-22): on PLO4/PLO5 cash turn/river when a live
+    // opponent-lifetime HUD packet is installed (Stage 1), ONLY fold -> plain call proven by
+    // priceTurnRiverLifetimeCall (plus CURRENT_NUTS_CALL_FLOOR) is permitted. Skip the wasted
+    // decideOmahaMathCore() Monte Carlo/value-search pass whose choice would be discarded,
+    // saving 10-57 ms per decision with bit-identical action outputs.
+    const trStage = String(gs.stage);
+    const trVariantRaw = String(gs.gameVariant).toLowerCase();
+    const trVariant: 'plo4' | 'plo5' | null =
+      trVariantRaw === 'plo4' || trVariantRaw === 'plo5' ? trVariantRaw : null;
+    const trProv = omahaMathCoreTurnRiverProvider();
+    if (
+      incumbent === 'today' &&
+      trVariant !== null &&
+      (trStage === 'turn' || trStage === 'river') &&
+      trProv?.active?.(trVariant) === true
+    ) {
+      const trT0 = now();
+      const keepInc: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+        keepInc.amount = incoming.amount;
+      let trLegal: HorseDecision = keepInc;
+      const liveOpps = coreState.opponents.filter((o) => !o.folded);
+      let trSamples = 0;
+      let trEv: number | null = incoming.action === 'fold' ? 0 : null;
+      if (
+        incoming.action === 'fold' &&
+        coreState.aggressorSeat !== null &&
+        coreState.line !== null &&
+        coreState.line !== 'raise' &&
+        coreState.line !== 'check_raise' &&
+        liveOpps.length === 1 &&
+        liveOpps[0].seat === coreState.aggressorSeat
+      ) {
+        const hudLine: 'stab' | 'lead' = coreState.checkedBeforeWager === true ? 'stab' : 'lead';
+        const lineFw = trProv.firstWager(
+          gs,
+          coreState.aggressorSeat,
+          trVariant,
+          trStage,
+          'hu',
+          hudLine
+        );
+        const pooledFw = trProv.firstWager(gs, coreState.aggressorSeat, trVariant, trStage, 'hu');
+        const fw = lineFw && lineFw.opps > 0 ? lineFw : pooledFw;
+        if (fw && fw.opps > 0) {
+          const brl =
+            trProv.barrel?.(gs, coreState.aggressorSeat, trVariant, trStage, 'hu') ?? null;
+          const rvFw =
+            trStage === 'turn'
+              ? (trProv.riverRate?.(gs, coreState.aggressorSeat, trVariant, 'hu') ?? null)
+              : null;
+          const trRes = priceTurnRiverLifetimeCall({
+            state: coreState,
+            counts: fw,
+            pooledCounts: pooledFw,
+            barrel: brl,
+            riverCounts: rvFw,
+            net: (p) => rakeNet(coreState, p),
+            k: OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5,
+          });
+          trSamples = trRes.pool ?? 0;
+          if (trRes.call && trRes.callChips !== undefined) {
+            const proposed: HorseDecision = {
+              action: 'call',
+              amount: trRes.callChips,
+              thinkTime: decision.thinkTime,
+            };
+            try {
+              const l = legalize(proposed);
+              if (l.action === 'call' && Math.abs((l.amount ?? 0) - trRes.callChips) <= 0.011) {
+                trLegal = l;
+                if (typeof trRes.evCall === 'number' && Number.isFinite(trRes.evCall))
+                  trEv = Math.round(trRes.evCall * 100) / 100;
+              }
+            } catch {
+              trLegal = keepInc;
+            }
+          }
+        }
+      }
+      let nutFloor: string | undefined;
+      if (
+        CURRENT_NUTS_CALL_FLOOR &&
+        trLegal.action === 'fold' &&
+        coreState.board.length >= 3 &&
+        coreState.toCall > 0.005 &&
+        holdsCurrentNuts(coreState.hole, coreState.board)
+      ) {
+        const stack = Math.max(0, player.stack ?? 0);
+        const tries: HorseDecision[] =
+          coreState.toCall < stack - 0.005
+            ? [{ action: 'call', amount: coreState.toCall, thinkTime: decision.thinkTime }]
+            : [];
+        tries.push({ action: 'all_in', thinkTime: decision.thinkTime });
+        for (const t of tries) {
+          let l: HorseDecision;
+          try {
+            l = legalize(t);
+          } catch {
+            continue;
+          }
+          if (l.action === 'fold') continue;
+          if (l.action === 'all_in' && Math.max(0, stack) > coreState.toCall + 0.005) continue;
+          nutFloor = `current nuts facing a wager (${trStage}): fold replaced by ${l.action}`;
+          trLegal = l;
+          trEv = null;
+          break;
+        }
+      }
+      const trReceipt: CoreReceipt = {
+        version: OMAHA_MATH_CORE_VERSION,
+        switch: 'omahaMathCore',
+        tables: 'b3-turn-river-hud',
+        street: trStage,
+        realization: { value: 1, source: 'b3-turn-river-hud' },
+        price:
+          coreState.toCall > 0
+            ? Math.round(
+                (coreState.toCall / Math.max(0.01, coreState.pot + coreState.toCall)) * 10000
+              ) / 10000
+            : 0,
+        pot: Math.round(coreState.pot * 100) / 100,
+        toCall: Math.round(coreState.toCall * 100) / 100,
+        opponents: liveOpps.map((o) => ({ seat: o.seat, range: 'hud-lifetime' })),
+        evs: [],
+        choice: {
+          action: trLegal.action as CoreReceipt['choice']['action'],
+          amount: trLegal.amount ?? null,
+          ev: trEv,
+        },
+        ...(nutFloor ? { nutFloor } : {}),
+        samples: trSamples,
+        ms: Math.round((now() - trT0) * 10) / 10,
+      };
+      const trOut: HorseDecision = {
+        ...decision,
+        action: trLegal.action,
+        amount: trLegal.amount,
+        omahaMathCore: {
+          switch: 'omahaMathCore',
+          applied: true,
+          action: trLegal.action,
+          amount: trLegal.amount ?? null,
+          incoming,
+          error: null,
+          core: trReceipt,
+        },
+      };
+      if (trLegal.amount === undefined) delete trOut.amount;
+      return trOut;
+    }
     const { receipt } = decideOmahaMathCore(coreState, { now });
     // The executed action is a priced candidate exactly as the legalizer leaves it: the best EV
     // whose legal form is itself (cent rounding and the all-in amount aside). A candidate the
@@ -773,92 +925,10 @@ export function omahaMathCoreRule(
         }
       }
     }
-    // B3 (lane core-repair, CORE-LEAD4-B3-TURN-RIVER-SPEC.md): on PLO4/PLO5 cash turn/river when a live
-    // opponent-lifetime HUD packet is installed (Stage 1), ONLY fold -> plain call proven by
-    // priceTurnRiverLifetimeCall is permitted (station/nit guard by construction, K_allin = 25 on river
-    // commits; never bets, raises, or folds a baseline call — zero fallback to population turn/river tables).
-    let trHudGoverned = false;
-    const trStage = String(gs.stage);
-    const trVariantRaw = String(gs.gameVariant).toLowerCase();
-    const trVariant: 'plo4' | 'plo5' | null =
-      trVariantRaw === 'plo4' || trVariantRaw === 'plo5' ? trVariantRaw : null;
-    const trProv = omahaMathCoreTurnRiverProvider();
-    if (
-      incumbent === 'today' &&
-      trVariant !== null &&
-      (trStage === 'turn' || trStage === 'river') &&
-      trProv?.active?.(trVariant) === true
-    ) {
-      trHudGoverned = true;
-      const keepInc: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
-      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
-        keepInc.amount = incoming.amount;
-      let trDec: HorseDecision = keepInc;
-      const liveOpps = coreState.opponents.filter((o) => !o.folded);
-      if (
-        incoming.action === 'fold' &&
-        coreState.aggressorSeat !== null &&
-        coreState.line !== null &&
-        coreState.line !== 'raise' &&
-        coreState.line !== 'check_raise' &&
-        liveOpps.length === 1 &&
-        liveOpps[0].seat === coreState.aggressorSeat
-      ) {
-        const hudLine: 'stab' | 'lead' = coreState.checkedBeforeWager === true ? 'stab' : 'lead';
-        const lineFw = trProv.firstWager(
-          gs,
-          coreState.aggressorSeat,
-          trVariant,
-          trStage,
-          'hu',
-          hudLine
-        );
-        const pooledFw = trProv.firstWager(gs, coreState.aggressorSeat, trVariant, trStage, 'hu');
-        const fw = lineFw && lineFw.opps > 0 ? lineFw : pooledFw;
-        if (fw && fw.opps > 0) {
-          const brl =
-            trProv.barrel?.(gs, coreState.aggressorSeat, trVariant, trStage, 'hu') ?? null;
-          const rvFw =
-            trStage === 'turn'
-              ? (trProv.riverRate?.(gs, coreState.aggressorSeat, trVariant, 'hu') ?? null)
-              : null;
-          const trRes = priceTurnRiverLifetimeCall({
-            state: coreState,
-            counts: fw,
-            pooledCounts: pooledFw,
-            barrel: brl,
-            riverCounts: rvFw,
-            net: (p) => rakeNet(coreState, p),
-            k: OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5,
-          });
-          if (trRes.call && trRes.callChips !== undefined) {
-            const proposed: HorseDecision = {
-              action: 'call',
-              amount: trRes.callChips,
-              thinkTime: decision.thinkTime,
-            };
-            try {
-              const l = legalize(proposed);
-              if (l.action === 'call' && Math.abs((l.amount ?? 0) - trRes.callChips) <= 0.011) {
-                trDec = l;
-              }
-            } catch {
-              trDec = keepInc;
-            }
-          }
-        }
-      }
-      const chosen = receipt.evs.find((e) => e.action === trDec.action);
-      receipt.choice = {
-        action: trDec.action as CoreReceipt['choice']['action'],
-        amount: trDec.amount ?? null,
-        ev: chosen ? Math.round(chosen.ev * 100) / 100 : trDec.action === 'fold' ? 0 : null,
-      };
-      legal = trDec;
-    }
-    // RIVER-CORE criterion 3: on the PLO5 cash river (when not governed by a lifetime HUD record above)
-    // the core may only turn today's fold into a plain call
-    if (!trHudGoverned && String(gs.gameVariant).toLowerCase() === 'plo5' && trStage === 'river') {
+    // RIVER-CORE criterion 3: on the PLO5 cash river (when not governed by a lifetime HUD record above,
+    // which already returned on the B3 fast-path before decideOmahaMathCore) the core may only turn
+    // today's fold into a plain call.
+    if (trVariant === 'plo5' && trStage === 'river') {
       const keep: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
       if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
         keep.amount = incoming.amount;
