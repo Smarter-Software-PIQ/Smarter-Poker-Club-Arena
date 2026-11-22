@@ -2043,33 +2043,54 @@ export abstract class TournamentManagerBase {
    * The database's own rule (fn_get_satellite_qualifier_state) is that the
    * field qualifies only once the live field is at or under the full-ticket
    * count. So the boundary only needs holding when this hand's busts could
-   * bring it there. The watermark is the last authoritative 'continuing'
-   * answer (live field, tickets); every bust reported since is subtracted. A
-   * bust is subtracted even when the read already counted it, and a rebuy is
-   * never added back, so the estimate can only run LOW - which holds the
-   * boundary sooner, never later. The skip needs the estimate more than one
-   * player above the tickets (the same margin the continuation reuse already
-   * trusts), a watermark younger than five minutes, and nothing held. Inside
-   * that margin, or with no fresh read, every bust holds exactly as before,
-   * and the bubble keeps its hand-for-hand.
+   * bring it there. The watermark is either:
+   *  - the last authoritative 'continuing' or 'unresolved' answer whose live
+   *    field (qualifierIds, which already exclude 0-chip players in
+   *    fn_get_satellite_qualifier_state) was more than SATELLITE_BUBBLE_MARGIN
+   *    above fullTicketCount; every bust reported since before the read began is
+   *    subtracted and a rebuy is never added back, so the estimate can only run
+   *    LOW - holding the boundary sooner, never later; OR
+   *  - the last authoritative 'entry_open' answer while the prize pool is
+   *    still unfinalized on this manager, the blind level has not changed
+   *    since the read, and the watermark is younger than
+   *    SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS (no ticket can be decided
+   *    before prize_pool_finalized flips true).
+   * Inside that margin, on any level change or prize-pool finalization, on
+   * 'qualifying' or an unreadable read, or with no fresh read, every bust
+   * holds exactly as before, and the bubble keeps its hand-for-hand.
    */
   protected satelliteBustsReported = 0;
-  protected satelliteFieldWatermark: {
-    liveField: number;
-    tickets: number;
-    readAt: number;
-    bustsAtRead: number;
-  } | null = null;
+  protected satelliteFieldWatermark:
+    | {
+        kind: 'field';
+        liveField: number;
+        tickets: number;
+        readAt: number;
+        bustsAtRead: number;
+      }
+    | {
+        kind: 'entry_open';
+        readAt: number;
+        levelAtRead: number;
+      }
+    | null = null;
   static readonly SATELLITE_FIELD_WATERMARK_MAX_AGE_MS = 5 * 60_000;
+  static readonly SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS = 60_000;
 
-  /** The live field this manager can prove, less every bust reported since its read. */
+  /** Whether this manager can prove the next bust cannot reach the satellite tickets. */
   protected satelliteFieldIsFarFromItsTickets(now: number = Date.now()): boolean {
     const w = this.satelliteFieldWatermark;
     if (!w || this.satelliteQualifierBoundaryPending) return false;
+    if (w.kind === 'entry_open') {
+      if (this.prizePoolFinalized || this.tournamentCache?.prize_pool_finalized === true)
+        return false;
+      if (this.currentLevel !== w.levelAtRead) return false;
+      return now - w.readAt < TournamentManagerBase.SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS;
+    }
     if (!(now - w.readAt < TournamentManagerBase.SATELLITE_FIELD_WATERMARK_MAX_AGE_MS))
       return false;
     const estimate = w.liveField - (this.satelliteBustsReported - w.bustsAtRead);
-    return estimate > w.tickets + 1;
+    return estimate > w.tickets + TournamentManagerBase.SATELLITE_BUBBLE_MARGIN;
   }
   private readonly satelliteQualifierEngines = new Map<string, ServerTableEngine>();
 

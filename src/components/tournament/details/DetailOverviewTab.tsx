@@ -92,10 +92,8 @@ import SatelliteCard from './SatelliteCard';
 import { HandForHandBanner } from '../HandForHandBanner';
 import MultiDayStagePanel from './MultiDayStagePanel';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
-import {
-  isRecordedSatelliteQualifier,
-  satelliteStartsWhenFull,
-} from '../../../utils/satelliteQualification';
+import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
+import { tournamentStartsWhenFull } from '../../../utils/tournamentPresentation';
 import {
   activationStatusLine,
   formatCents,
@@ -230,7 +228,7 @@ export default function DetailOverviewTab({
      one-second heartbeat. */
   const isBagged = isBaggedStatus(status);
   const startsWhenFull =
-    satelliteStartsWhenFull(tournament) && !isRunning && !isCompleted && !isCancelled && !isBagged;
+    tournamentStartsWhenFull(tournament) && !isRunning && !isCompleted && !isCancelled && !isBagged;
   const { maintenanceBreak } = useMaintenanceBreak();
   const eventPaused = isRunning && tournament?.on_break === true;
   const [observedPause, setObservedPause] = useState<{

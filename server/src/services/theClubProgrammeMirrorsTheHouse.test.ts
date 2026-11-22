@@ -122,31 +122,28 @@ describe('3. a club spin board is the house board, and cannot be starved', () =>
     expect(boardBudgetShares(0)).toBe(12);
   });
   it('no board is permanently first in the queue for the shared budget', () => {
-    /* 2026-11-08: the per-board share is gone, because the board is now
-       ELEVEN Spins and SIX Heads-Up platform-wide (Dan's instruction) and a
-       share each would be eleven each. One budget again - but the reason the
-       shares existed is still real, so the boards are drawn in a fresh order
-       every tick instead. Nobody goes first twice by construction. */
+    /* 2026-11-22 (Dan): every catalogue option stays open empty (0/3 & 0/2)
+       under a shared per-tick creation BURST, while horse-seeding is capped
+       separately by `seedBudget` (11 Spins and 2 Heads-Up platform-wide).
+       Boards are drawn in a fresh order each tick so nobody goes first twice. */
     expect(RECURRING).not.toMatch(/const budget = \{ left: BURST \};/);
     expect(RECURRING).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
     expect(RECURRING).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
-    // And the budget itself can never exceed what the platform has room for.
     expect(RECURRING).toMatch(
-      /const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+      /const seedBudget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
     );
+    expect(RECURRING).toMatch(/const budget = \{ left: boardBudgetShares\(1\) \};/);
   });
   it('a failed open-board count opens nothing rather than guessing', () => {
     // CLAUDE.md 10.86: an unreadable answer is never coerced into good news.
-    // Defaulting to "plenty of room" would re-open the whole 64-config
-    // catalogue, which is the exact failure the target exists to prevent.
-    expect(RECURRING).toMatch(/if \(room === null \|\| room <= 0\) return;/);
+    expect(RECURRING).toMatch(/if \(room === null\) return;/);
   });
   it('an owner board is the house SPIN_CONFIGS filtered only by its own stake cap', () => {
     expect(RECURRING).toMatch(/SPIN_CONFIGS\.filter\(\(c\) => c\.buyIn <= board\.maxStake\)/);
   });
-  it('the open board is eleven Spins and six Heads-Up, platform-wide', () => {
+  it('the horse-seeded board is eleven Spins and two Heads-Up, platform-wide (Dan 2026-11-22)', () => {
     expect(SPIN_BOARD_OPEN_TARGET).toBe(11);
-    expect(SNG_BOARD_OPEN_TARGET).toBe(6);
+    expect(SNG_BOARD_OPEN_TARGET).toBe(2);
   });
   it('which price points are open is drawn fresh, so the ladder is not pinned', () => {
     // 64 Spin and 32 Heads-Up configs share 11 and 6 slots. Config order would

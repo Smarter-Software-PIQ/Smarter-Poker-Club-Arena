@@ -1193,6 +1193,12 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'defect guard (V69 (2), #8902: only a draw using a hole card exempts turn one-pair shade; a board-only four-flush/four-straight is not hero draw); decoupled from v69TurnCallGaps, not registered in SQL switch',
   v69V32DrawNoRoom:
     'sub-rule of off-only opt-in v32FacingDefense (V69 (3), #8902: V32 turn draw pass-through falls through with no room to be paid); decoupled from v69TurnCallGaps, not registered in SQL switch',
+  multiBoardFreerollIsPriced:
+    'dark zero-migration priced replacement for unowned V36 multi-board freeroll bet/raise coin flips (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
+  multiBoardNonFreerollIsPriced:
+    'dark zero-migration priced replacement for unowned V86 multi-board non-freeroll dead-half fold and strong-board open/raise branches (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
+  multiBoardBluffTrimIsPriced:
+    'dark zero-migration priced replacement for unowned V36 multi-board bluff-trim blanket multiplier (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

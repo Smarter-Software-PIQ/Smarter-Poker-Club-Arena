@@ -53,29 +53,28 @@ describe('the SNG board opens for activated club owners', () => {
     expect(sngPassSource()).toMatch(/SNG_CONFIGS\.filter\(\(c\) => c\.buyIn <= board\.maxStake\)/);
   });
 
-  it('every board takes its turn at one budget capped by the platform room', () => {
-    /* Each board had its own share of BURST from 2026-09-03. Dan set the open
-       heads-up board at SIX platform-wide on 2026-11-08, so a share each would
-       be six each and the target would mean nothing. One budget now, capped by
-       the room left under that target, and the boards are drawn in a fresh
-       order each tick so none of them is permanently first in the queue. */
+  it('every board takes its turn at the shared creation and horse-seeding budgets', () => {
+    /* Dan 2026-11-22: every missing Heads-Up option stays open empty (0/2)
+       under the per-tick BURST creation budget, while horse-seeding is capped
+       separately at SNG_BOARD_OPEN_TARGET = 2 ("only a couple of 1 of 2's"). */
     const src = sngPassSource();
     expect(src).toMatch(/const room = await this\.seatFirstBoardRoom\('sng'\);/);
-    expect(src).toMatch(/const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/);
+    expect(src).toMatch(
+      /const seedBudget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+    );
+    expect(src).toMatch(/const budget = \{ left: boardBudgetShares\(1\) \};/);
     expect(src).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
-    // The one call in that loop spends the shared budget.
+    // The one call in that loop spends the shared budgets.
     const sngCalls = src.split(/this\.ensureBoardOpen\(\s*'sng',/).slice(1);
     expect(sngCalls.length).toBeGreaterThanOrEqual(1);
     for (const call of sngCalls) {
       expect(call.slice(0, call.indexOf(');'))).toMatch(/budget/);
+      expect(call.slice(0, call.indexOf(');'))).toMatch(/seedBudget/);
     }
   });
 
-  it('a board stops the pass only when the platform budget is spent', () => {
-    // The 2026-09-03 rule was that nobody breaks out of the owner loop on a
-    // SHARED budget. With a platform target there is one budget again, so the
-    // break is correct - what must never come back is the unbounded BURST.
+  it('a board stops the pass only when both platform budgets are spent', () => {
     expect(sngPassSource()).not.toMatch(/const budget = \{ left: BURST \};/);
-    expect(sngPassSource()).toMatch(/if \(budget\.left <= 0\) break;/);
+    expect(sngPassSource()).toMatch(/if \(budget\.left <= 0 && seedBudget\.left <= 0\) break;/);
   });
 });
