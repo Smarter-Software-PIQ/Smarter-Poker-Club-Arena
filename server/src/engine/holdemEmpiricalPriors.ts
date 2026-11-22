@@ -30,8 +30,18 @@
  *      `ExploitCounters` where semantically valid, and degrades 100% cleanly to the
  *      measured NLH empirical pool prior when opponent HUD sample is 0 or unavailable.
  */
-import type { HudPacketOpponent } from './opponentHud/OpponentHud.js';
 import type { ExploitCounters } from './HorseOpponentExploit.js';
+
+/**
+ * Structural slice of `opponentHud/OpponentHud.ts#HudPacketOpponent` (`eff` / `lc` count maps).
+ * Defined structurally so empirical priors carry zero import dependency on `opponentHud/`
+ * (preserving `TheHudProviderChangesNoDecision.law.test.ts` while remaining 100% assignable
+ * from `HudPacketOpponent`).
+ */
+export interface HoldemHudPacketOpponent {
+  readonly eff?: Readonly<Record<string, readonly [number, number] | undefined>>;
+  readonly lc?: Readonly<Record<string, readonly [number, number] | undefined>>;
+}
 
 export type HoldemEmpiricalStreet = 'flop' | 'turn' | 'river';
 export type HoldemFlopTexture = 'unpaired_nonmono' | 'paired' | 'mono';
@@ -354,7 +364,7 @@ export function empiricalBayesShrink(
  * Returns null if the opponent has no packet or 0 opportunities for `stat`.
  */
 export function readHudOpponentStat(
-  hudOpp: Pick<HudPacketOpponent, 'eff' | 'lc'> | null | undefined,
+  hudOpp: HoldemHudPacketOpponent | null | undefined,
   stat: string
 ): { readonly opportunities: number; readonly hits: number } | null {
   if (!hudOpp) return null;
@@ -430,7 +440,7 @@ export function estimateHoldemFlopCbetFold(
     readonly spr?: number;
     readonly headsUp?: boolean;
   },
-  hudOpp?: Pick<HudPacketOpponent, 'eff' | 'lc'> | null,
+  hudOpp?: HoldemHudPacketOpponent | null,
   exploitCounters?: Pick<ExploitCounters, 'foldToBet' | 'foldToBetOpp'> | null
 ): EmpiricalShrinkEstimate {
   const prior = holdemEmpiricalFlopCbetFoldPrior(ctx);
@@ -478,7 +488,7 @@ export function estimateHoldemTurnBetFold(
     readonly potFraction: number;
     readonly headsUp?: boolean;
   },
-  hudOpp?: Pick<HudPacketOpponent, 'eff' | 'lc'> | null,
+  hudOpp?: HoldemHudPacketOpponent | null,
   exploitCounters?: Pick<ExploitCounters, 'foldToBet' | 'foldToBetOpp'> | null
 ): EmpiricalShrinkEstimate {
   const pos = ctx.bettorInPosition ? 'ip' : 'oop';
@@ -537,7 +547,7 @@ export function estimateHoldemRiverFoldToRaise(
     /** Optional villain pot-odds price `villainCall / (potAfterRaise + villainCall)` for gentle scaling. */
     readonly villainCallPrice?: number;
   },
-  hudOpp?: Pick<HudPacketOpponent, 'eff' | 'lc'> | null
+  hudOpp?: HoldemHudPacketOpponent | null
 ): EmpiricalShrinkEstimate {
   const cell = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE[ctx.raiseKind];
   let prior = cell.foldRate;
@@ -583,7 +593,7 @@ export function estimateHoldemRiverFoldToRaise(
  */
 export function estimateHoldemRiverBluffShare(
   potFraction: number,
-  hudOpp?: Pick<HudPacketOpponent, 'eff' | 'lc'> | null,
+  hudOpp?: HoldemHudPacketOpponent | null,
   styleSizeShown?: { readonly shown: number; readonly strong: number } | null
 ): EmpiricalShrinkEstimate {
   const cell = holdemRiverBluffShareCell(potFraction);
@@ -645,7 +655,7 @@ export function estimateHoldemRiverBluffShare(
  */
 export function estimateHoldemBetWhenCheckedTo(
   street: HoldemEmpiricalStreet,
-  hudOpp?: Pick<HudPacketOpponent, 'eff' | 'lc'> | null,
+  hudOpp?: HoldemHudPacketOpponent | null,
   exploitCounters?: Pick<ExploitCounters, 'betCheckedTo' | 'betCheckedToOpp'> | null
 ): EmpiricalShrinkEstimate {
   const prior = HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO[street].rate;
