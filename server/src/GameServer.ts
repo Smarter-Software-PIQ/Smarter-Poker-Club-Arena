@@ -1,5 +1,12 @@
 import { classifyHeldStall, type HeldTableStall } from './engine/heldTableStall.js';
-import { feederOpeningMs, feederWaitMs, nextRungMs } from './config/seatFirstLadder.js';
+import {
+  SPIN_MAX_TWO_OF_THREE,
+  clampSpinRungWaitMs,
+  feederOpeningMs,
+  feederWaitMs,
+  nextRungMs,
+  spinTwoOfThreeDeferMs,
+} from './config/seatFirstLadder.js';
 import { secureRandomInt } from './engine/CryptoRandom.js';
 import type { TournamentAbortClosureMode } from './tournament/TournamentAbortBoundary.js';
 import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
@@ -692,6 +699,8 @@ interface SeatFirstOccupancy {
   hasHuman: boolean;
   /** Earliest live human seat, ms; NaN when no human sits. */
   firstHumanAtMs: number;
+  /** Earliest live seat (horse or human), ms; NaN when unknown. */
+  oldestSeatAtMs?: number;
   /** Live seated human user ids, used to ignore stale HU wait holds after a creator leaves. */
   humanUserIds?: ReadonlySet<string>;
 }
@@ -9845,20 +9854,23 @@ export class GameServer {
           }
 
           if (needsPastStartTopUp) {
-            /* A SEAT-FIRST BOARD THAT HAS SOLD A SEAT CLIMBS ITS LADDER ONE
-               RUNG AT A TIME (2026-11-10, measured on 840429a3). This walk
-               fills to effective_max_players; the ladder's fast lane
-               (fillPartialSeatFirstGame) adds one horse per rung and writes
-               the next window. Both reached a Spin the moment its first rung
-               closed, so whichever came first decided it: 6 of the first 9
-               Spins took one horse and a 30-60 minute second rung, 3 went
-               from one horse to three and dealt at 73-76 minutes. A board
-               with a seat sold therefore belongs to the fast lane alone,
-               which also serves a seated person after the 3-7 minute hold.
-               A roster this pass could not read is left too: late is
-               survivable, early is not. A board with nothing sold keeps this
-               path (and its empty-event cancellation) unchanged. */
-            if (isSngOrSpin && rosterByTournament.get(tournament.id) !== 0) continue;
+            /* A REGULAR SEAT-FIRST BOARD NEVER BELONGS TO THE PAST-START FULL-FIELD
+               WALK (2026-11-10 & Dan 2026-11-22):
+                - Any seat-first board with a seat sold climbs its ladder one rung
+                  at a time in the fast lane (fillPartialSeatFirstGame), or fills
+                  within 3-7 minutes when a human sits.
+                - Empty 0/3 Spins (spin-v1) and 0/2 Heads-Up SNGs (sng-v1, 2-max)
+                  stay intentionally empty for humans to sit down and start (Dan
+                  2026-11-22); TournamentRecurringService seeds a bounded subset
+                  up to SPIN_BOARD_OPEN_TARGET / SNG_BOARD_OPEN_TARGET.
+               Only an empty legacy seat-first-satellite-v1 feeder keeps this
+               past-start path. */
+            if (
+              isSngOrSpin &&
+              (rosterByTournament.get(tournament.id) !== 0 ||
+                tournament.format_contract !== 'seat-first-satellite-v1')
+            )
+              continue;
             /**
              * Dan 2026-08-19: fill to a FULL FIELD, every format.
              *
@@ -12825,6 +12837,12 @@ export class GameServer {
           // fn_take_seat_and_buy_in: spin, or a 2-seat SNG (heads-up).
           const seatFirstRows = (registering || []).filter((t) => isPersistedSeatFirst(t));
           const paidSeats = await this.readSeatFirstPaidSeats(seatFirstRows);
+          let spinTwoOfThreeCount = 0;
+          for (const row of seatFirstRows) {
+            if (row.variant === 'spin' && (Number(row.max_players) || 0) >= 3) {
+              if ((paidSeats.get(String(row.id)) ?? 0) === 2) spinTwoOfThreeCount++;
+            }
+          }
           for (const t of seatFirstRows) {
             if (!this.directAdmissionIsCurrent(generation)) break;
             // THE FREEZE IS TOTAL (Dan 2026-09-03): a seat-first start seats its
@@ -12910,7 +12928,8 @@ export class GameServer {
                   paid,
                   windowClosed,
                   startMs,
-                  Date.parse(String((t as { created_at?: string | null }).created_at ?? ''))
+                  Date.parse(String((t as { created_at?: string | null }).created_at ?? '')),
+                  t.variant === 'spin' ? spinTwoOfThreeCount : 0
                 ),
                 'GameServer.human_seat_first_fill_error',
                 { tournamentId: id }
@@ -13903,6 +13922,8 @@ export class GameServer {
   private lastHumanWaitReportAt = new Map<string, number>();
   /** Horse-only boards already reported stuck (once each; cleared when filled). */
   private seatFirstStuckReported = new Set<string>();
+  /** In-flight horse-only Spin 1/3 -> 2/3 promotions so concurrent ticks respect SPIN_MAX_TWO_OF_THREE. */
+  private spinTwoOfThreePromotionsInFlight = new Set<string>();
 
   /**
    * ═══════════════════════════════════════════════════════════════════════
@@ -13931,7 +13952,8 @@ export class GameServer {
     paid: number,
     windowClosed: boolean,
     startMs: number = NaN,
-    createdAtMs: number = NaN
+    createdAtMs: number = NaN,
+    spinTwoOfThreeCount: number = 0
   ): Promise<void> {
     /* BACK OFF A BOARD THAT WILL NOT FILL (2026-09-02).
 
@@ -14013,7 +14035,29 @@ export class GameServer {
       settle = resolve;
     });
     this.tournamentTopUpsInFlight.set(tournamentId, claim);
+    let claimedSpinTwoOfThree = false;
     try {
+      /* CAP SIMULTANEOUS HORSE-ONLY 2/3 SPINS (Dan 2026-11-22). Keep a genuine
+         mix of 1/3 and 2/3 among horse-seeded Spins instead of letting all 11
+         sit at 2/3 together. A human sitting in a 1/3 Spin always overtakes
+         this cap; a deferred horse-only 1/3 Spin updates start_time cleanly
+         inside the SPIN_LADDER envelope so SpinUnfilledBacklog and
+         SpinFleetProducingNothing never trip. */
+      const effectiveTwoOfThree = spinTwoOfThreeCount + this.spinTwoOfThreePromotionsInFlight.size;
+      if (!hasHuman && seats >= 3 && paid === 1) {
+        const deferMs = spinTwoOfThreeDeferMs({
+          twoOfThreeCount: effectiveTwoOfThree,
+          oldestSeatAtMs: occupancy.oldestSeatAtMs ?? NaN,
+          nowMs: Date.now(),
+          rand: (span) => secureRandomInt(span + 1),
+        });
+        if (deferMs !== null) {
+          await this.deferSpinTwoOfThreeRung(tournamentId, deferMs, effectiveTwoOfThree);
+          return;
+        }
+        this.spinTwoOfThreePromotionsInFlight.add(tournamentId);
+        claimedSpinTwoOfThree = true;
+      }
       /* ONE RUNG AT A TIME (Dan 2026-11-08). A horse-only board no longer
          fills to a full field the instant its window closes - it seats ONE
          more horse and then waits out the next rung of its ladder (a Spin:
@@ -14027,9 +14071,13 @@ export class GameServer {
         paid,
         hasHuman ? 'a human is waiting' : 'ladder rung',
         hasHuman,
-        target
+        target,
+        occupancy.oldestSeatAtMs
       );
     } finally {
+      if (claimedSpinTwoOfThree) {
+        this.spinTwoOfThreePromotionsInFlight.delete(tournamentId);
+      }
       // Released before it settles, so a start waiting on it finds the door open.
       if (this.tournamentTopUpsInFlight.get(tournamentId) === claim) {
         this.tournamentTopUpsInFlight.delete(tournamentId);
@@ -14156,13 +14204,40 @@ export class GameServer {
     return null;
   }
 
+  private async deferSpinTwoOfThreeRung(
+    tournamentId: string,
+    deferMs: number,
+    twoOfThreeCount: number
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('tournaments')
+      .update({ start_time: new Date(Date.now() + deferMs).toISOString() })
+      .eq('id', tournamentId)
+      .eq('status', 'REGISTERING');
+    if (error) {
+      reportError(
+        new Error(`[GameServer] seat-first 2/3 cap defer failed: ${error.message}`),
+        'GameServer.seat_first_two_of_three_defer_failed',
+        { tournamentId }
+      );
+      return;
+    }
+    console.log(
+      `[GameServer] Seat-first 2/3 cap (${twoOfThreeCount}/${SPIN_MAX_TWO_OF_THREE}): ` +
+        `keeping ${tournamentId.slice(0, 8)} at 1/3 for another ${Math.round(deferMs / 60000)} min`
+    );
+  }
+
   private async advanceSeatFirstRung(
     tournamentId: string,
     seats: number,
-    paidNow: number
+    paidNow: number,
+    oldestSeatAtMs: number = NaN
   ): Promise<void> {
-    const waitMs = await this.seatFirstNextWaitMs(tournamentId, seats, paidNow);
-    if (waitMs === null) return;
+    const rawWaitMs = await this.seatFirstNextWaitMs(tournamentId, seats, paidNow);
+    if (rawWaitMs === null) return;
+    const waitMs =
+      seats >= 3 ? clampSpinRungWaitMs(rawWaitMs, oldestSeatAtMs, Date.now()) : rawWaitMs;
     const { error } = await supabase
       .from('tournaments')
       .update({ start_time: new Date(Date.now() + waitMs).toISOString() })
@@ -14185,10 +14260,7 @@ export class GameServer {
   }
 
   /** Last "is a human seated here" answer per seat-first game, keyed by its paid count. */
-  private seatFirstOccupancy = new Map<
-    string,
-    { paid: number; hasHuman: boolean; firstHumanAtMs: number }
-  >();
+  private seatFirstOccupancy = new Map<string, SeatFirstOccupancy>();
 
   /**
    * Is a live seat on this seat-first game held by a human? Read once per
@@ -14298,6 +14370,18 @@ export class GameServer {
         .filter((p) => !(p as { is_horse?: boolean }).is_horse)
         .map((p) => String((p as { id?: string }).id ?? ''))
     );
+    let oldestSeatAtMs = NaN;
+    for (const o of occupants || []) {
+      const joinedMs = (o as { joined_at?: string | null }).joined_at
+        ? Date.parse(String((o as { joined_at?: string | null }).joined_at))
+        : NaN;
+      if (
+        Number.isFinite(joinedMs) &&
+        (!Number.isFinite(oldestSeatAtMs) || joinedMs < oldestSeatAtMs)
+      ) {
+        oldestSeatAtMs = joinedMs;
+      }
+    }
     const answer: SeatFirstOccupancy = {
       paid,
       hasHuman: humans.size > 0,
@@ -14305,6 +14389,7 @@ export class GameServer {
         (occupants || []) as Array<{ user_id?: string | null; joined_at?: string | null }>,
         (id) => humans.has(id)
       ),
+      oldestSeatAtMs,
       humanUserIds: humans,
     };
     this.seatFirstOccupancy.set(tournamentId, answer);
@@ -14366,7 +14451,8 @@ export class GameServer {
        field; a horse-only board asks for one rung of the ladder and defers the
        rest (Dan 2026-11-08). Defaults to the full field so every other caller
        is unchanged. */
-    target: number = seats
+    target: number = seats,
+    oldestSeatAtMs: number = NaN
   ): Promise<void> {
     /* A HUMAN'S BOARD FILLS FIRST (2026-10-03). The seats a waiting human
        still needs are declared before the ask, so every horse-only claim on
@@ -14432,7 +14518,7 @@ export class GameServer {
            twelve seconds. A board that cannot be written simply keeps its old
            window and is asked again - the safe direction, never a board that
            deals early. */
-        await this.advanceSeatFirstRung(tournamentId, seats, paid + added);
+        await this.advanceSeatFirstRung(tournamentId, seats, paid + added, oldestSeatAtMs);
       }
     } else
       this.seatFirstFillMisses.set(

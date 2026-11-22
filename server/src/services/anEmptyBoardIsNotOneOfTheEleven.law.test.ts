@@ -30,12 +30,12 @@ function method(signature: string): string {
   return SRC.slice(start, next < 0 ? undefined : start + signature.length + next);
 }
 
-describe('1. the eleven and the six count opened boards only', () => {
+describe('1. the eleven and the two count opened boards only (Dan 2026-11-22)', () => {
   const room = method('private async seatFirstBoardRoom(');
 
   it('counts boards with a live seat, not every REGISTERING row', () => {
     expect(room).not.toContain("{ count: 'exact', head: true }");
-    expect(room).toContain('await this.openedSeatFirstBoards(');
+    expect(room).toContain('await this.seatFirstBoardsWithALiveSeat(');
     expect(room).toMatch(/boardOpenTarget\(variant\) - count/);
   });
 
@@ -53,21 +53,20 @@ describe('1. the eleven and the six count opened boards only', () => {
   });
 });
 
-describe('2. an empty board is reopened before another is created', () => {
+describe('2. existing empty boards are seeded first when seedBudget > 0, then missing catalogue options open empty (Dan 2026-11-22)', () => {
   const open = method('private async ensureBoardOpen<');
 
-  it('reopens before the create loop, and creates nothing while an empty board remains', () => {
+  it('seeds existing empty boards before creating missing configs, and creates missing configs empty (0/3 & 0/2)', () => {
     const reopen = open.indexOf('await this.reopenEmptySeatFirstBoard(');
     const create = open.indexOf('const result = await create(config, owner);');
     expect(reopen).toBeGreaterThan(0);
     expect(create).toBeGreaterThan(reopen);
-    // The reopen block ends the pass: even a refused reopen spends the budget.
-    const block = open.slice(open.indexOf('if (empty.length > 0) {'), create);
-    // A reopen that found no free horse spends nothing and ends this owner's turn.
+    const block = open.slice(open.indexOf('if (seedBudget.left > 0) {'), create);
+    // A reopen that found no free horse spends no seedBudget and breaks out of
+    // seeding for this owner while still letting missing 0/3 & 0/2 configs open.
     expect(block).toMatch(
-      /if \(!\(await this\.reopenEmptySeatFirstBoard\(board\)\)\) return;\s*budget\.left--;/
+      /if \(!\(await this\.reopenEmptySeatFirstBoard\(board\)\)\) break;\s*seedBudget\.left--;/
     );
-    expect(block).toMatch(/\}\s*return;\s*\}/);
   });
 
   it('takes exactly the rows the count takes: own type, never a satellite feeder, joinable', () => {
