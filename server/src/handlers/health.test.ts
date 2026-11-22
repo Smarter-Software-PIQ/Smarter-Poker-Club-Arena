@@ -12,6 +12,11 @@ import {
 } from '../services/HorsePlo5DepartureEvidence.js';
 import { horseWorkScheduleEvidence } from '../services/HorseWorkSchedule.js';
 import { overlayCoverEvidence } from '../services/horseOverlayCover.js';
+import {
+  horseDecisionLatencyHealth,
+  recordHorseDecisionLatencySample,
+  resetHorseDecisionLatencyForTest,
+} from '../observability/HorseDecisionLatencyHealth.js';
 
 describe('handleHealth', () => {
   // 2026-09-26: the default journal source reports every state, including
@@ -19,9 +24,11 @@ describe('handleHealth', () => {
   // the default carries the section. The routing verdict never reads it.
   beforeEach(() => {
     vi.stubEnv('HORSE_DECISION_JOURNAL_DIR', '');
+    resetHorseDecisionLatencyForTest();
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetHorseDecisionLatencyForTest();
   });
   const withDisabledJournal = (status: Record<string, unknown>) => ({
     ...status,
@@ -30,6 +37,7 @@ describe('handleHealth', () => {
     horsePlo5Departure: horsePlo5DepartureEvidence(),
     horseWorkSchedule: horseWorkScheduleEvidence(),
     overlayCover: overlayCoverEvidence(),
+    horseDecisionLatency: horseDecisionLatencyHealth(),
   });
   function statusCodeFor(status: Record<string, unknown>): number {
     const { res, captured } = mockRes();
@@ -141,6 +149,7 @@ describe('handleHealth', () => {
       horsePlo5Departure: horsePlo5DepartureEvidence(),
       horseWorkSchedule: horseWorkScheduleEvidence(),
       overlayCover: overlayCoverEvidence(),
+      horseDecisionLatency: horseDecisionLatencyHealth(),
     });
   });
 
@@ -158,6 +167,7 @@ describe('handleHealth', () => {
       horsePlo5Departure: horsePlo5DepartureEvidence(),
       horseWorkSchedule: horseWorkScheduleEvidence(),
       overlayCover: overlayCoverEvidence(),
+      horseDecisionLatency: horseDecisionLatencyHealth(),
     });
     expect(parseJson(captured)).not.toHaveProperty('horseJournal');
   });
@@ -205,6 +215,7 @@ describe('handleHealth', () => {
       horsePlo5Departure: horsePlo5DepartureEvidence(),
       horseWorkSchedule: horseWorkScheduleEvidence(),
       overlayCover: overlayCoverEvidence(),
+      horseDecisionLatency: horseDecisionLatencyHealth(),
     });
   });
 
@@ -247,9 +258,60 @@ describe('handleHealth', () => {
       horsePlo5Departure: after,
       horseWorkSchedule: horseWorkScheduleEvidence(),
       overlayCover: overlayCoverEvidence(),
+      horseDecisionLatency: horseDecisionLatencyHealth(),
     });
     expect(status).not.toHaveProperty('horsePlo5Departure');
     expect(status).not.toHaveProperty('horseWorkSchedule');
+  });
+
+  it('publishes horseDecisionLatency breakdown and starvationAlert without moving routing readiness', () => {
+    const now = Date.now();
+    for (let i = 0; i < 98; i++) {
+      recordHorseDecisionLatencySample({
+        workerIndex: 0,
+        variant: 'nlh',
+        computeMs: 12,
+        nowMs: now,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      recordHorseDecisionLatencySample({
+        workerIndex: 0,
+        variant: 'nlh',
+        computeMs: 145,
+        transitions: [
+          { node: 'reference', elapsedMs: 6 },
+          { node: 'tournament_utility', elapsedMs: 132 },
+        ],
+        nowMs: now,
+      });
+    }
+    const status = Object.freeze({
+      liveness: 'ok',
+      status: 'ok',
+      dealerPrerequisitesReady: true,
+      liveHorseDecision: { phase: 'ready' },
+    });
+    const { res, captured } = mockRes();
+    handleHealth(res, {
+      gameServer: { getStatus: () => status, getPrometheusMetrics: () => '' },
+      horseJournal: () => null,
+      horseDiamondSpins: () => null,
+    });
+    expect(captured.statusCode).toBe(200);
+    const body = parseJson(captured) as Record<string, unknown>;
+    expect(body.horseDecisionLatency).toEqual(
+      expect.objectContaining({
+        totalDecisions: 100,
+        over100msCount: 2,
+        over100msPct: 2,
+        maxMs: 145,
+        topHotNode: 'phase15_node_tournament_utility',
+        starvationAlert: true,
+        alertedVariants: ['nlh'],
+      })
+    );
+    expect(status).not.toHaveProperty('horseDecisionLatency');
   });
 
   it('requests the scoped table snapshot without weakening dealer routing readiness', () => {
