@@ -113,6 +113,13 @@ import { subscribeTournamentStandings } from '../../services/tournamentStandings
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
 import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
+import {
+  findNextOpenGame,
+  inviteLandingState,
+  nextOpenGamePath,
+  openGamesListPath,
+  type NextOpenGame,
+} from '../../lib/nextOpenGame';
 import { ShareLinkFallback } from '../../components/common/ShareLinkFallback';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
@@ -1623,6 +1630,41 @@ export default function TournamentDetails({
    * the club page and the felt use; the RPC stays the authority.
    */
   const myEntryStatus = entries.find((e) => e.user_id === user?.id)?.status;
+
+  /**
+   * A LINK TO A GAME THAT ALREADY STARTED LEADS TO THE ONE THAT IS OPEN
+   * (2026-11-22, src/lib/nextOpenGame.ts).
+   *
+   * A Spin, a Sit & Go, a Heads Up and a When Full satellite start when their
+   * seats fill and are replaced by a new game under a new id. An invite names
+   * the one it was made from, so a friend who opened it a few minutes later
+   * landed here on a game in progress: a Watch button onto a table with two
+   * other players seated, and nothing that led to the game they could play.
+   * This page is where every tournament invite lands, so it is the one place
+   * that says so and offers the open game of the same kind. Nothing is bought
+   * and nobody is seated by it: the next page still asks.
+   */
+  const landingState = snapshotReady
+    ? inviteLandingState(tournament, myEntryStatus !== undefined)
+    : 'open';
+  const [nextGame, setNextGame] = useState<{
+    forId: string;
+    game: NextOpenGame | null;
+  } | null>(null);
+  const goneTournamentId = landingState === 'gone' ? (tournament?.id ?? null) : null;
+  useEffect(() => {
+    if (!goneTournamentId || !tournament || tournament.id !== goneTournamentId) return;
+    let alive = true;
+    void findNextOpenGame(tournament).then((game) => {
+      if (alive) setNextGame({ forId: goneTournamentId, game });
+    });
+    return () => {
+      alive = false;
+    };
+    // Asked once per game that is found gone; the row's live ticks do not re-ask.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goneTournamentId]);
+  const nextGameAnswer = goneTournamentId && nextGame?.forId === goneTournamentId ? nextGame : null;
   const [reEntryOffer, setReEntryOffer] = useState<{ cost: number } | null>(null);
   const [isReEntering, setIsReEntering] = useState(false);
   /** One token per visible offer: a retry after an unknown reply replays it. */
@@ -2221,6 +2263,42 @@ export default function TournamentDetails({
         data-lobby-tab={inLobbyTab}
       >
         {recoveryNotice}
+        {goneTournamentId && (
+          <div
+            role="status"
+            className="tournament-recovery-notice tournament-recovery-notice--next-game"
+            data-testid="tournament-next-game"
+          >
+            <p>
+              {String(tournament.status).toUpperCase() === 'CANCELLED'
+                ? 'This Game Was Cancelled.'
+                : String(tournament.status).toUpperCase() === 'COMPLETED'
+                  ? 'This Game Has Finished.'
+                  : 'This Game Is Full And Already Started.'}{' '}
+              {nextGameAnswer?.game
+                ? 'A New One Is Open Now.'
+                : nextGameAnswer
+                  ? 'No New One Is Open Yet.'
+                  : 'Looking For An Open One.'}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="tournament-next-game-btn"
+              disabled={!nextGameAnswer}
+              onClick={() => {
+                if (!nextGameAnswer) return;
+                navigate(
+                  nextGameAnswer.game
+                    ? nextOpenGamePath(nextGameAnswer.game)
+                    : openGamesListPath(tournament)
+                );
+              }}
+            >
+              {nextGameAnswer?.game ? 'Play New Game' : 'Browse Open Games'}
+            </button>
+          </div>
+        )}
         {/* THE HEADER (Dan 2026-10-04: "remove all these large frames, and make
             it like a normal, industry standard tournament lobby"). One band:
             what state the event is in, which event it is, what it costs, and

@@ -53,9 +53,9 @@ export interface OnlineFriendInvitePickerProps {
   clubId?: string | null;
   /** Display name of the table or event. */
   tableName: string;
-  /** Optional invite code preserved in the deep link. */
+  /** Sender's club invite code, carried in the deep link as `?i=`. */
   inviteCode?: string | null;
-  /** Optional invite token preserved in the deep link (?i=). */
+  /** Heads Up seat-hold token, carried in the deep link as `?invite=`. */
   inviteToken?: string | null;
   /** Optional fallback callback to switch to external link sharing. */
   onShareLink?: () => void;
