@@ -11,6 +11,11 @@ import {
   holdemRiverLeadBoat,
 } from './HorseHoldemRiverFullHouseValue.js';
 import {
+  classifyHoldemFlopTexture,
+  priceMonsterSlowplay,
+  type SlowplayOpponentInput,
+} from './HorseSlowplayPriced.js';
+import {
   boardHasFourFlush,
   boardHasFourStraight,
   holdemCommittedNoPairDecision,
@@ -5765,6 +5770,14 @@ export interface HorseDecideOpts {
    * instead of a fixed 70%; heads-up only (more opponents: the check). Draws no random number. Off:
    * byte-identical. */
   holdemRiverFullHouseValueIsPriced?: boolean;
+  /** H4 MONSTER SLOWPLAY PRICED (2026-11-22, HORSE DECISIONS lane): dark, default OFF (`=== true`),
+   * OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster
+   * spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket
+   * `wetness < 0.5 && fastRandom() < params.slowplayFreq` coin flip with deterministic EV pricing
+   * (`HorseSlowplayPriced.priceMonsterSlowplay`) using `holdemEmpiricalPriors` fold / betWhenCheckedTo
+   * shrinkage, continuous board-wetness free-card erosion, and `heroBubbleFactor`. Draws no random
+   * number. OFF / Omaha / Fixed-Limit: byte-identical. */
+  horseSlowplayIsPriced?: boolean;
   /** NLH price lane 2026-11-19 (Auditor D, hvh48-audit-01TLQer7J): opt-in (`=== true`), default OFF,
    * unevaluated. No-limit hold'em cash (table and Lightning; not tournaments), heads-up, postflop: the
    * decision decidePostflop returns is priced against the bettor's line range
@@ -7880,6 +7893,101 @@ function holdemRiverBoatLeadPriced(
         price.lead ? 'holdem_river_full_house_lead_priced' : 'holdem_river_full_house_check_priced'
       );
     return price.lead;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * horseSlowplayIsPriced (2026-11-22, HORSE DECISIONS lane; default OFF, OPTION_SWITCH_REFUSED):
+ * deterministic EV replacement for the unowned H4 monster slowplay mix in non-Omaha / non-FLH
+ * flop and turn spots. Reads only public state, hero equity, heroBubbleFactor, and each live
+ * opponent's HorseMind ExploitCounters shrunk onto `holdemEmpiricalPriors`. Draws no random number.
+ */
+function horseSlowplayPricedDecision(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  street: 'flop' | 'turn',
+  pot: number,
+  equity: number,
+  wetness: number,
+  ip: boolean,
+  spr: number,
+  pairedBoard: boolean,
+  board: readonly Card[],
+  geomFrac: number,
+  sizeBase: number,
+  exploitValueSize: number,
+  weakMade40: boolean,
+  dominated21: boolean,
+  useMind: boolean,
+  tele: boolean
+): boolean {
+  try {
+    const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    let deepestOppStack = 0;
+    for (const opp of opponents) {
+      const os = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+      if (os > deepestOppStack) deepestOppStack = os;
+    }
+    const effectiveStack = Math.min(heroStack, deepestOppStack);
+    let candidateFrac = geomFrac > 0 ? Math.max(sizeBase + 0.2, geomFrac) + 0.05 : sizeBase + 0.4;
+    if (weakMade40 && street !== 'flop' && candidateFrac > 0.5) candidateFrac = 0.5;
+    if (dominated21) candidateFrac = Math.min(candidateFrac, 0.5);
+    const candidateBet = pot * candidateFrac * exploitValueSize;
+    const effectiveBet = Math.min(effectiveStack, Math.max(0, candidateBet));
+
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+    const oppInputs: SlowplayOpponentInput[] = opponents.slice(0, 2).map((opp) => {
+      if (!useMind || opts.mind === false) return {};
+      const direct = HorseMind.getExploitCounters(opp.user_id, scope);
+      if (direct) return { exploitCounters: direct };
+      const read = HorseMind.opponentRead(opp.user_id);
+      if (read && read.presumed !== true) {
+        const fb = read.stats.foldToBet;
+        const bc = read.stats.betCheckedTo;
+        if (fb.n > 0 || bc.n > 0) {
+          return {
+            exploitCounters: {
+              foldToBet: fb.mean * fb.n,
+              foldToBetOpp: fb.n,
+              betCheckedTo: bc.mean * bc.n,
+              betCheckedToOpp: bc.n,
+            },
+          };
+        }
+      }
+      return {};
+    });
+
+    const bf =
+      isTournamentMode(gs) && gs.bigBlind > 0
+        ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, effectiveBet)
+        : null;
+
+    const verdict = priceMonsterSlowplay({
+      equity,
+      pot,
+      candidateBet,
+      effectiveStack,
+      oppCount: opponents.length,
+      wetness,
+      street,
+      inPosition: ip,
+      spr,
+      flopTexture: street === 'flop' ? classifyHoldemFlopTexture(board, pairedBoard) : undefined,
+      heroBubbleFactor: bf,
+      opponents: oppInputs,
+    });
+
+    if (tele) {
+      if (verdict.action === 'check') noteFire('horse_slowplay_priced_checked');
+      else noteFire('horse_slowplay_priced_bet');
+    }
+    return verdict.action === 'check';
   } catch {
     return false;
   }
@@ -26342,7 +26450,40 @@ export class HorseLogic {
       // Monster: usually bet big, sometimes trap (never trap on wet or
       // freshly-dangered boards). V4: size to get stacks in by the river.
       if (equity >= multiwayValueBar(0.8, oppCount) + mw) {
-        if (
+        if (opts.horseSlowplayIsPriced === true && !vi.isOmaha && !vi.isFixedLimit) {
+          if (
+            !isRiver &&
+            (street === 'flop' || street === 'turn') &&
+            !scare.any &&
+            !vulnerable &&
+            !turnSetPound &&
+            oppCount >= 1 &&
+            oppCount <= 2 &&
+            horseSlowplayPricedDecision(
+              player,
+              gs,
+              opts,
+              opponents,
+              street,
+              pot,
+              equity,
+              wetness,
+              ip,
+              spr,
+              pairedBoard,
+              board,
+              geomFrac,
+              sizeBase,
+              exploitValueSize,
+              useV40 && made40 != null && made40.weak,
+              useV21 && dominated21,
+              useMind,
+              tele15
+            )
+          ) {
+            return { action: 'check', thinkTime: 0 };
+          }
+        } else if (
           !isRiver &&
           wetness < 0.5 &&
           !scare.any &&

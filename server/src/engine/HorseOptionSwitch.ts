@@ -1091,6 +1091,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  horseSlowplayIsPriced:
+    "dark zero-migration priced replacement for unowned H4 monster slowplay mix (Hold'em Strategy, 2026-11-22): default OFF, held out of SQL switch until activation evidence and switch-list registration",
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

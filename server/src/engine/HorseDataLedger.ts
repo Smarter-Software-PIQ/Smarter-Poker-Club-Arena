@@ -2563,6 +2563,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'horseSlowplayIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (H4 monster slowplay mix priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket wetness < 0.5 && fastRandom() < params.slowplayFreq coin flip with deterministic EV pricing (HorseSlowplayPriced.priceMonsterSlowplay) using holdemEmpiricalPriors fold / betWhenCheckedTo shrinkage, continuous board-wetness free-card equity erosion, and heroBubbleFactor. Draws no random number. OFF / Omaha / Fixed-Limit: byte-identical.',
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
@@ -9223,6 +9228,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
     "a qualifying no-limit hold'em river full house with more than one opponent, or no population cell for the table: nothing priced, the boat keeps the check",
     'V94'
+  ),
+  receipt(
+    'horse_slowplay_priced_checked',
+    'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
+    'H4 monster slowplay priced verdict chose check (EV(check) > EV(bet)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'horse_slowplay_priced_bet',
+    'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
+    'H4 monster slowplay priced verdict chose value bet (EV(bet) >= EV(check)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    "Hold'em Strategy"
   ),
   receipt(
     'holdem_priced_value_raise_deferred',
