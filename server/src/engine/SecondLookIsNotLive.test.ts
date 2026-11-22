@@ -504,7 +504,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       ],
     },
     outside: {
-      'const tele = telemetryOn(opts);': [46, 'the local name of the gate'],
+      'const tele = telemetryOn(opts);': [48, 'the local name of the gate'],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
         2,
@@ -596,6 +596,14 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       '? { ...r, decision: this.riverNoBlockerBetRule(r.decision, player, gs, vi, opts, tele) }': [
         1,
         'passes the gate to the river no-blocker-bet rule (horseRiverNoBlockerBet), which only counts with it; the decision is the same either way',
+      ],
+      'applyOmahaBigBetSizeRange(oppReads, opponents, player, gs, tele15);': [
+        1,
+        'passes the gate to omahaBigBetSizeIsPriced range helper, which only counts receipts with it; the range strength is the same either way',
+      ],
+      'const priced = omahaPricedLimpedPotSize(decision, player, gs, rake, tele);': [
+        1,
+        'passes the gate to omahaBigBetSizeIsPriced limped-pot sizing helper, which only counts receipts with it; the bet size is the same either way',
       ],
     },
   };

@@ -370,6 +370,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRaiseEvCountsLossesOnce',
   'omahaSampledRaiseIsPricedAtEverySize',
   'omahaBluffIsPricedAgainstTheTarget',
+  'omahaFacingBetValueShareIsMeasured',
   // 2026-11-20 EMERG lane RANGE-MODEL-2: the river current-nuts call floor (ships dark)
   'omahaRiverCurrentNutsCallFloor',
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED: the priced call of a fold facing a 4-bet (ships dark)
