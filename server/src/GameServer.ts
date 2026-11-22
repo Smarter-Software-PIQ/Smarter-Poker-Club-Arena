@@ -10465,7 +10465,13 @@ export class GameServer {
          * clock available; this is the same reasoning as the back-pay above,
          * whose comment says a repair gated on another job's clock runs at
          * boot and then effectively never. */
-        if (Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): unfilled-spin expiry cancels
+        // lobbies via atomic_cancel_tournament (writing table_seats.left_at and
+        // refunding chips). Because lastSpinExpireAt starts at 0 on boot, an
+        // unguarded pass fires immediately after adopting an active freeze.
+        // Skipping while frozen leaves lastSpinExpireAt untouched so the first
+        // pass after thaw runs immediately.
+        if (!isMaintenanceFrozen() && Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
           this.lastSpinExpireAt = Date.now();
           try {
             const { data: exp, error: expErr } = await supabase.rpc('fn_spin_expire_unfilled', {
@@ -10510,7 +10516,18 @@ export class GameServer {
          * (smarter_private.daily_window_lobby_watchdog) pages if any lobby is
          * still open at 4:00. The RPC only acts on open games, so a repeat or a
          * second engine costs nothing. */
-        if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): 3 AM lobby close cancels
+        // open used Spin/SNG lobbies via atomic_cancel_tournament (vacating
+        // table_seats and refunding chips). Without this gate, any break or
+        // cutover crossing 03:00 America/Chicago (09:00 UTC) mutates seats
+        // during the freeze (measured 2026-11-16 09:00:06Z and 2026-11-21
+        // 09:00:04Z in run 44887083680). Leaving lastLobbyCloseAt untouched
+        // ensures the first pass after thaw closes every open lobby at once.
+        if (
+          !isMaintenanceFrozen() &&
+          !spinSngBoardsOpen(new Date()) &&
+          Date.now() - this.lastLobbyCloseAt > 60 * 1000
+        ) {
           this.lastLobbyCloseAt = Date.now();
           try {
             const { data: lc, error: lcErr } = await supabase.rpc(
@@ -13252,9 +13269,11 @@ export class GameServer {
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
+    if (isMaintenanceFrozen()) return;
     if (this.tournamentEngines.size === 0) return;
 
     for (const [tournamentId, tm] of this.tournamentEngines) {
+      if (isMaintenanceFrozen()) return;
       if (!tm.isRunning()) continue;
       try {
         const moved = await tm.absorbOrphanedSeats();
