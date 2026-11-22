@@ -3358,6 +3358,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemValueAndCallsArePriced: true },
     b: {},
   },
+  {
+    name: 'nlh9_holdem_value_and_calls_are_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemValueAndCallsArePriced: true },
+    b: {},
+  },
   // 2026-11-20 Hold'em Strategy lane (holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced, default OFF,
   // unevaluated): the priced rebuilds of the Antigravity ace-high jam gate and board discipline. a prices, b is the
   // live line. Declared, not run; a Horse field is not the people the measured constants describe.
@@ -5699,6 +5709,33 @@ export const HUMAN_MTT6_HOLDEM_TOURNAMENT_ALL_IN_CALL_IS_PRICED_12BB = `${HUMAN_
     ...humanFieldTwin(mirror),
     hybridBaseline: mirror.hybridBaseline,
     moodClock: mirror.moodClock,
+  });
+}
+
+/**
+ * HUMAN-FIELD CASH CARDS FOR holdemValueAndCallsArePriced (2026-11-22).
+ * 6-max and 9-max NLH 100bb cash human-calibrated twins (one live cash Hybrid
+ * hero Horse with deal-seeded mood clock vs HUMAN_CALIBRATED_POPULATION_ID).
+ */
+export const HUMAN_NLH_HOLDEM_VALUE_AND_CALLS_ARE_PRICED = `${HUMAN_FIELD_NAME_PREFIX}nlh_holdem_value_and_calls_are_priced`;
+export const HUMAN_NLH9_HOLDEM_VALUE_AND_CALLS_ARE_PRICED = `${HUMAN_FIELD_NAME_PREFIX}nlh9_holdem_value_and_calls_are_priced`;
+for (const [mirrorName, twinName] of [
+  ['nlh_holdem_value_and_calls_are_priced', HUMAN_NLH_HOLDEM_VALUE_AND_CALLS_ARE_PRICED],
+  ['nlh9_holdem_value_and_calls_are_priced', HUMAN_NLH9_HOLDEM_VALUE_AND_CALLS_ARE_PRICED],
+] as const) {
+  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === mirrorName);
+  if (!mirror) throw new Error(`${mirrorName} left the card; its human twin has no mirror`);
+  LEAGUE_MATCHUPS.push({
+    name: twinName,
+    variant: 'nlh',
+    ...(mirror.seats !== undefined ? { seats: mirror.seats } : {}),
+    ...(mirror.stackBB !== undefined ? { stackBB: mirror.stackBB } : {}),
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { ...mirror.a },
+    b: { ...mirror.b },
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
   });
 }
 
