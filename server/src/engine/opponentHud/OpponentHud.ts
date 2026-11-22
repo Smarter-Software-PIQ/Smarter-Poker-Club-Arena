@@ -32,6 +32,7 @@ import {
   type HudTableSize,
   type HudSessionSums,
   hudStatIsRegistered,
+  isHudFamily,
   recallKeys,
   type HudBand,
   type HudCount,
@@ -197,7 +198,7 @@ export function validHudPacket(x: unknown): x is OpponentHudPacket {
   if (!x || typeof x !== 'object') return false;
   const p = x as OpponentHudPacket;
   if (p.v !== HUD_PACKET_VERSION || p.pv !== HUD_PROFILE_VERSION) return false;
-  if (p.family !== 'plo4' && p.family !== 'plo5') return false;
+  if (!isHudFamily(p.family)) return false;
   if (!p.pri || typeof p.pri !== 'object' || !p.opp || typeof p.opp !== 'object') return false;
   for (const o of Object.values(p.opp)) {
     if (!o || typeof o !== 'object' || !Number.isSafeInteger(o.hands)) return false;

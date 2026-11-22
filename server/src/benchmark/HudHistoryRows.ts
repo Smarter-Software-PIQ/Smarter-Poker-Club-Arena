@@ -32,7 +32,7 @@ export interface SimulatedHand {
   seed: string | number;
   handNo: number;
   startedAtMs: number;
-  variant: 'plo4' | 'plo5';
+  variant: 'plo4' | 'plo5' | 'nlh';
   bigBlind: number;
   buttonSeat: number;
   /** stacks at the start of the hand; `player` is the simulator's name or id for the seat's occupant */
@@ -48,7 +48,7 @@ export interface HandHistoryRow {
   id: string;
   created_at: string;
   ended_at: string;
-  game_variant: 'plo4' | 'plo5';
+  game_variant: 'plo4' | 'plo5' | 'nlh';
   tournament_id: null;
   big_blind: number;
   button_seat: number;
