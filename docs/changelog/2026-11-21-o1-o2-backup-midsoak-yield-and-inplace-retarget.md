@@ -51,4 +51,5 @@ merge holds observed during the 2026-11-22T02:29Z three-hourly cutover cycle:
 - `.github/workflows/backup-engine.yml`
 - `docs/ENGINE-RELEASE-RUNBOOK.md` (Section 3.6)
 - `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`
+- `tests/dr-posture.test.ts`
 - `docs/changelog/2026-11-21-o1-o2-backup-midsoak-yield-and-inplace-retarget.md`

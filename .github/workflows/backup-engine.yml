@@ -1153,24 +1153,24 @@ jobs:
             tail -n 40 certificate.out || true
             { echo "### Backup Engine"; echo ""; echo "- YIELDED_OBSOLETE \`$SHA\` mid-soak: $yield_reason; standby container stopped, host lease released, no failure or error certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             echo "yielded=1" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if wait "$ssh_pid"; then rc=0; else rc=1; fi
-          cat certificate.out
-          if [ "$rc" = 0 ]; then
-            scp -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json || rc=1
-          fi
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          tail -1 certificate.out > certificate.json || true
-          # THE CERTIFICATE NAMES THE SET THE COPY HOLDS (2026-11-08). The
-          # retained schema evidence must be the file the certified copy
-          # recorded and bound to its dump; its installed set (less this
-          # target's own break-window files) is named in the verdict, so the
-          # release host compares production with it at cutover. No bound
-          # set, no success (the verdict step below requires it).
-          if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
-              --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
-            echo "installed=$installed" >> "$GITHUB_OUTPUT"
+          else
+            if wait "$ssh_pid"; then rc=0; else rc=1; fi
+            cat certificate.out || rc=1
+            if [ "$rc" = 0 ]; then
+              scp -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json || rc=1
+            fi
+            echo "rc=$rc" >> "$GITHUB_OUTPUT"
+            tail -1 certificate.out > certificate.json || true
+            # THE CERTIFICATE NAMES THE SET THE COPY HOLDS (2026-11-08). The
+            # retained schema evidence must be the file the certified copy
+            # recorded and bound to its dump; its installed set (less this
+            # target's own break-window files) is named in the verdict, so the
+            # release host compares production with it at cutover. No bound
+            # set, no success (the verdict step below requires it).
+            if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
+                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
+              echo "installed=$installed" >> "$GITHUB_OUTPUT"
+            fi
           fi
           exit 0
       - name: Retain exact Backup schema, seed, policy and trial evidence
