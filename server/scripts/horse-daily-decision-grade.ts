@@ -16,6 +16,11 @@
  *     # count of hands left out, PLO8 and the rest), each the JSON rows returned
  *     npx tsx scripts/horse-daily-decision-grade.ts --from-json <dir> --since T --until T --out ...
  *
+ * --range-grade adds the public-information range grade as its own section (criteria:
+ * hd-01Gw7aDs/range-grade/CRITERIA.md): every decision priced against ranges built from
+ * the public action line, validated against real cards where the read-only route knows
+ * them. The real-card sections are unchanged. --range-draws N (default 1500).
+ *
  * --since / --until take an explicit offset (…Z) or a bare Chicago wall time
  * (2026-11-20T13:12). Default window: the last 24 hours. --slice-minutes
  * (default 15) bounds each hands statement. --out writes the markdown and, next
@@ -188,6 +193,8 @@ async function main(): Promise<void> {
     switchAudit,
     excluded,
     equity: insuranceEquity,
+    rangeGrade: has('--range-grade'),
+    rangeDraws: arg('--range-draws') ? Number(arg('--range-draws')) : undefined,
   });
   const previous = previousReport(out, arg('--previous'));
   const markdown = renderMarkdown(

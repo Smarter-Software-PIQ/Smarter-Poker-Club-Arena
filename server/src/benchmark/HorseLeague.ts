@@ -118,6 +118,7 @@ import {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   NLH_SCRIPTED_POPULATION_ID,
   NLH_SCRIPTED_FIELD_VARIANTS,
   NLH_SCRIPTED_PERSONAS,
@@ -205,6 +206,7 @@ export {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   FLO8_SCRIPTED_POPULATION_ID,
   FLO8_SCRIPTED_FIELD_VARIANTS,
   FLO8_SCRIPTED_PERSONAS,
@@ -2332,7 +2334,8 @@ export function humanFieldPersonaProfile(
     persona === FLH_PASSIVE_CALLER_PERSONA ||
     persona === FLH_OVER_FOLDING_BLINDS_PERSONA ||
     persona === FLH_VALUE_ONLY_BLINDS_PERSONA ||
-    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA
+    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA ||
+    persona === FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA
   ) {
     throw new Error(
       `${persona} is a scripted persona of the ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} field ` +
@@ -3099,6 +3102,106 @@ export const OMAHA_LIVE_OPTIONS_20261118: HorseDecideOpts = Object.freeze({
   omahaTurnRiverRaiseIsPriced: true,
 });
 
+/**
+ * HOLD'EM BLANKET-OFF CANDIDATE CARDS (2026-11-21, Horse Switch lane):
+ * The three clean Hold'em blanket-off candidates from
+ * REVIEW-HOLDEM-OFFLIST-20261121.md whose OFF path routes directly to V38
+ * priced logic without coupling a second rule or reinstating another fixed rule:
+ *   1. v80TopPairStrongKicker  (35/day; Burls/owner top-pair cell A, strong kicker)
+ *   2. v79TopPairWeakKicker    (82/day; Burls/owner top-pair cell A/B, weak kicker)
+ *   3. v68TurnAirDrawCalls     (706/day; turn high-card air shade + stack implied-odds veto)
+ *
+ * Each candidate gets a cash6 primary card (6 seats, 100bb NLH cash) and a hu
+ * guard card (2 seats, 100bb NLH cash). Arm A switches the single blanket rule
+ * OFF (`false`); arm B is `{}` (release default, rule ON). Note that v79 and v80
+ * exclude heads-up tables (`headsUpTable: true`) in v79InMeasuredCell /
+ * v80InMeasuredCell, so their hu cards are inert guards proving HU tables stay
+ * untouched, while v68 is active in both cash6 and hu.
+ *
+ * These are DEVELOPMENT_LEAGUE_CARDS, never LEAGUE_MATCHUPS: the nightly worker
+ * never deals them, they take no part in rotation, and they are run by exact
+ * name via `src/scripts/horseLeagueCard.ts --card=<name> --seed=<n>`.
+ */
+export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'cash6_v80_top_pair_strong_kicker_off',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v80TopPairStrongKicker: false },
+    b: {},
+  },
+  {
+    name: 'hu_v80_top_pair_strong_kicker_off',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v80TopPairStrongKicker: false },
+    b: {},
+  },
+  {
+    name: 'cash6_v79_top_pair_weak_kicker_off',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v79TopPairWeakKicker: false },
+    b: {},
+  },
+  {
+    name: 'hu_v79_top_pair_weak_kicker_off',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v79TopPairWeakKicker: false },
+    b: {},
+  },
+  {
+    name: 'cash6_v68_turn_air_draw_calls_off',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v68TurnAirDrawCalls: false },
+    b: {},
+  },
+  {
+    name: 'hu_v68_turn_air_draw_calls_off',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v68TurnAirDrawCalls: false },
+    b: {},
+  },
+]);
+
+/**
+ * DEVELOPMENT CARDS: declared like a nightly card and dealt by the same
+ * runMatchup, but by name only, for a declared grade run
+ * (src/scripts/horseLeagueCard.ts --card=<name>). They are NOT in LEAGUE_MATCHUPS:
+ * the nightly worker never deals them, they take no part in the rotation, and no
+ * row of horse_league_results comes from one.
+ */
+export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+]);
+
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
   { name: 'v10_strategy', a: {}, b: { v10: false } },
@@ -3298,6 +3401,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     name: 'nlh_holdem_value_and_calls_are_priced',
     variant: 'nlh',
     pairs: 6000,
+    a: { holdemValueAndCallsArePriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh9_holdem_value_and_calls_are_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
     a: { holdemValueAndCallsArePriced: true },
     b: {},
   },
@@ -5646,6 +5759,33 @@ export const HUMAN_MTT6_HOLDEM_TOURNAMENT_ALL_IN_CALL_IS_PRICED_12BB = `${HUMAN_
 }
 
 /**
+ * HUMAN-FIELD CASH CARDS FOR holdemValueAndCallsArePriced (2026-11-22).
+ * 6-max and 9-max NLH 100bb cash human-calibrated twins (one live cash Hybrid
+ * hero Horse with deal-seeded mood clock vs HUMAN_CALIBRATED_POPULATION_ID).
+ */
+export const HUMAN_NLH_HOLDEM_VALUE_AND_CALLS_ARE_PRICED = `${HUMAN_FIELD_NAME_PREFIX}nlh_holdem_value_and_calls_are_priced`;
+export const HUMAN_NLH9_HOLDEM_VALUE_AND_CALLS_ARE_PRICED = `${HUMAN_FIELD_NAME_PREFIX}nlh9_holdem_value_and_calls_are_priced`;
+for (const [mirrorName, twinName] of [
+  ['nlh_holdem_value_and_calls_are_priced', HUMAN_NLH_HOLDEM_VALUE_AND_CALLS_ARE_PRICED],
+  ['nlh9_holdem_value_and_calls_are_priced', HUMAN_NLH9_HOLDEM_VALUE_AND_CALLS_ARE_PRICED],
+] as const) {
+  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === mirrorName);
+  if (!mirror) throw new Error(`${mirrorName} left the card; its human twin has no mirror`);
+  LEAGUE_MATCHUPS.push({
+    name: twinName,
+    variant: 'nlh',
+    ...(mirror.seats !== undefined ? { seats: mirror.seats } : {}),
+    ...(mirror.stackBB !== undefined ? { stackBB: mirror.stackBB } : {}),
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { ...mirror.a },
+    b: { ...mirror.b },
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+  });
+}
+
+/**
  * THE HEADS-UP EXPLOITER CARDS (2026-11-12, HU-NLH-001). The live brain at
  * 40bb (the band V85 leaves on the V11 bars) against each exploiter persona.
  * They are not twins of a mirror card: no Horse plays these lines. Against an
@@ -6085,6 +6225,15 @@ export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object
     6,
     3000,
     FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+    { fixedLimitStealVsTightBlinds: true }
+  ),
+  // 2026-11-21: the steal's harm control with blinds that defend preflop AND continue postflop
+  // with top pair or better (value-betting/raising two pair+, calling one wager with top pair/overpair).
+  fixedLimitScriptedCard(
+    'flh_steal_vs_tight_blinds_vs_defending_postflop_blinds',
+    6,
+    3000,
+    FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
     { fixedLimitStealVsTightBlinds: true }
   ),
   // 2026-11-21 STYLE SHIFT RELEASE IS NOISE-AWARE (styleShiftReleaseIsNoiseAware, default OFF, a process switch:
