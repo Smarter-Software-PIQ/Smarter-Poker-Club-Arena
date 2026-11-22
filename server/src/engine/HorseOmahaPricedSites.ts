@@ -55,7 +55,6 @@ import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire, telemetryOn } from './BrainTelemetry.js';
 import { omahaPricedInScope, omahaPricedReadOfUser } from './HorseOmahaPricedWiring.js';
 import { HUD_DEFAULT_K, hudStat } from './opponentHud/OpponentHud.js';
-import type { HudFamily } from './opponentHud/OpponentHudProfile.js';
 import {
   OMAHA_FLOP_EV_REALIZATION_FULL_BEHIND,
   omahaFlopEvCounts,
@@ -504,7 +503,7 @@ export function omahaPricedSitesFlopBet(
  */
 export const OMAHA_FLOP_RESPONSE_PRIORS: Readonly<
   Record<
-    HudFamily,
+    'plo4' | 'plo5',
     Readonly<{
       fbSmHu: number;
       fbBgHu: number;
@@ -768,7 +767,7 @@ export function omahaPricedSitesFlopBetOnHisResponse(
     if (!fin(pot) || !(pot > 0) || !fin(amount) || !(amount > 0) || !(effective > 0))
       return unpriced();
 
-    const family: HudFamily = (player.cards ?? []).length === 5 ? 'plo5' : 'plo4';
+    const family: 'plo4' | 'plo5' = (player.cards ?? []).length === 5 ? 'plo5' : 'plo4';
     const pri = OMAHA_FLOP_RESPONSE_PRIORS[family];
     const hu = live.length === 1;
     const pl = hu ? 'hu' : 'mw';
@@ -854,7 +853,7 @@ export function omahaPricedSitesFlopBetOnHisResponse(
  */
 export function omahaFlopFacingHudRangeFactor(
   bettorId: string | null | undefined,
-  family: HudFamily,
+  family: 'plo4' | 'plo5',
   hu: boolean,
   line: 'raise' | 'stab',
   telemetry: boolean
