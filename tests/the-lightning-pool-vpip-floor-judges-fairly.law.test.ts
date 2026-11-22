@@ -16,6 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceMethod } from './helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -74,9 +75,7 @@ describe('LAW: the Lightning pool VPIP floor judges humans and Horses fairly', (
   });
 
   it('evicts ONLY cleanly between hands through atomicCashout on leaveMode vpip_evicted', () => {
-    const methodStart = SEATING.indexOf('public async evictForLightningVpip(');
-    expect(methodStart).toBeGreaterThan(-1);
-    const body = SEATING.slice(methodStart, methodStart + 4000);
+    const body = sliceMethod(SEATING, 'public async evictForLightningVpip(');
     expect(body).toContain('isMaintenanceFrozen()');
     expect(body).toContain('await this.inLiveLightningHand(userId)');
     expect(body).toContain("leaveMode: 'vpip_evicted' as const");
