@@ -1692,6 +1692,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             rest_ms: Math.round(restMs),
             rebuy_pause_ms: rebuyPauseMs,
             ...(ritRevealMs !== undefined ? { rit_reveal_ms: ritRevealMs } : {}),
+            // The same fact the hold above was sized from, so the grader
+            // never has to guess it from action names (20261122105551).
+            all_in_showdown: this.currentHandAllInShowdown,
           };
 
           // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──

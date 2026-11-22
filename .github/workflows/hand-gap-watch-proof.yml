@@ -23,6 +23,8 @@ on:
       - supabase/migrations/20261119211558_a_hand_for_hand_wait_is_an_owed_wait.sql
       - supabase/migrations/20261120034809_a_hand_delay_pages_through_the_owner_page_route.sql
       - supabase/migrations/20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql
+      - supabase/migrations/20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql
+      - supabase/migrations/20261122105551_an_all_in_showdown_is_graded_with_its_all_in_tail.sql
       - scripts/ci/fixtures/owner-page-route-preimage-20261120.sql
       - scripts/sql/hand-gap-unintended-delay.sql
       - scripts/ci/test-hand-gap-watch.py

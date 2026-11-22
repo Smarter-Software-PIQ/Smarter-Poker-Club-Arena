@@ -21,4 +21,13 @@ export interface HandCadenceRecord {
   rest_ms: number;
   rebuy_pause_ms: number;
   rit_reveal_ms?: number;
+  /**
+   * Whether the hand's completion hold carried ALL_IN_SHOWDOWN_EXTRA_MS
+   * (isAllInShowdown: a shown player was all-in). Recorded because the hand
+   * record cannot always say: a call, bet, raise, blind or ante that empties
+   * a stack is recorded under its own action name, and an all-in winner keeps
+   * a stack. Without it the grader under-counted owed by 500 ms
+   * (EngineCutoverMissed 2026-11-22, migration 20261122105551).
+   */
+  all_in_showdown?: boolean;
 }

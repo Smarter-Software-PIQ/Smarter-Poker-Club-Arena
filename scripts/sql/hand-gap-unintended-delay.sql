@@ -23,9 +23,12 @@
 --     recorded hand_history.cadence (rebuy_pause_ms, clamped to
 --     rebuy_pause_max_ms = 5000 ms); legacy rows without cadence remain ungraded.
 --   * Bad Beat Jackpot hits (9 s celebration): not marked on the row; rare.
---   * All-in showdown is read from an 'all_in' action by a shown player; a call
---     that happened to put a player all-in may be recorded as 'call', which
---     under-counts owed by 500 ms on that hand (shows as -500 unintended).
+--   * All-in showdown (20261122105551): the engine's own recorded fact
+--     (next hand's cadence.all_in_showdown) when present; otherwise an 'all_in'
+--     action by a shown player OR a shown player left at stack 0. A call, bet,
+--     raise, blind or ante that empties a stack is recorded under its own name,
+--     so reading only 'all_in' actions under-counted owed by 500 ms and showed
+--     a +500 ms "delay" that never happened (EngineCutoverMissed 2026-11-22).
 --
 -- Where the delay comes from (20261121000757): the after_* columns split the
 -- graded hands by whether the previous hand left a player at stack 0
@@ -56,8 +59,13 @@ s AS (
          EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a
                  WHERE a->>'stage' = 'river' AND coalesce((a->>'amount')::numeric, 0) > 0
                    AND a->>'action' <> 'return') AS river_chips,
-         EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a, jsonb_array_elements(h.shown) sd
-                 WHERE a->>'action' = 'all_in' AND a->>'userId' = sd->>'user_id') AS all_in_shown,
+         CASE WHEN jsonb_typeof(h.next_cadence->'all_in_showdown') = 'boolean'
+              THEN (h.next_cadence->>'all_in_showdown')::boolean
+              ELSE EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a, jsonb_array_elements(h.shown) sd
+                            WHERE a->>'action' = 'all_in' AND a->>'userId' = sd->>'user_id')
+                OR EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) ap, jsonb_array_elements(h.shown) sd
+                            WHERE ap->>'userId' = sd->>'user_id' AND coalesce((ap->>'stack')::numeric, 1) = 0)
+         END AS all_in_shown,
          GREATEST(1, (SELECT count(*) FROM jsonb_array_elements(coalesce(h.pots, '[]'::jsonb)) p,
                              jsonb_array_elements(coalesce(p->'awards', '[]'::jsonb)) aw
                       WHERE coalesce((aw->>'amount')::numeric, 0) > 0)) AS award_groups,

@@ -1,0 +1,1267 @@
+{
+  "checks": [
+    {
+      "name": "base migration 20261119052955 installs and its live proof holds",
+      "passed": true,
+      "detail": "(SELECT to_regprocedure('public.fn_ca_hand_gap_watch(timestamp with time zone)') IS NOT NULL AND to_regprocedure('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)') IS NOT NULL AND to_regclass('public.ca_hand_gap_watch_history') IS NOT NULL AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'hand-gap-unintended-delay-watch-5m' AND active AND schedule = '1-59/5 * * * *' AND command = 'select public.fn_ca_hand_gap_watch()'))"
+    },
+    {
+      "name": "migration 20261119180500 installs as written and its live proof holds",
+      "passed": true,
+      "detail": "(SELECT EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = 'public.hand_history'::regclass AND a.attname = 'cadence' AND NOT a.attisdropped AND NOT a.attnotnull) AND position('rebuy_pause_max_ms' in pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure)) > 0 AND position('rit_reveal_max_ms' in pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure)) > 0 AND position('v_prev2' in pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure)) > 0 AND position('Hand Delay Cleared' in pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure)) > 0)"
+    },
+    {
+      "name": "migration 20261119211558 (hand-for-hand is owed) edits the grader as on production",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "the grade is STABLE and the watch is not",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "grade: a fold hand on its owed beats is 0 ms unintended",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 22,
+        "shape": "fold",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 3350,
+        "over_budget": 0,
+        "owed_p50_ms": 3350,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0
+      }
+    },
+    {
+      "name": "grade: a showdown_river_chips hand on its owed beats is 0 ms unintended",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "showdown_river_chips",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 6250,
+        "over_budget": 0,
+        "owed_p50_ms": 6250,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0
+      }
+    },
+    {
+      "name": "grade: a showdown_checked_river hand on its owed beats is 0 ms unintended",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "showdown_checked_river",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 5750,
+        "over_budget": 0,
+        "owed_p50_ms": 5750,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0
+      }
+    },
+    {
+      "name": "grade: a all_in_showdown hand on its owed beats is 0 ms unintended",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "all_in_showdown",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 6250,
+        "over_budget": 0,
+        "owed_p50_ms": 6250,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0
+      }
+    },
+    {
+      "name": "grade: a legacy cash bust without cadence is ungraded and never over budget",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 17,
+        "shape": "cash_bust",
+        "graded": false,
+        "budget_ms": 250,
+        "gap_p50_ms": 7350,
+        "over_budget": null,
+        "owed_p50_ms": 3350,
+        "unintended_p50_ms": 4000,
+        "unintended_p95_ms": 4000,
+        "unintended_p99_ms": 4000
+      }
+    },
+    {
+      "name": "grade: a legacy run-it-twice hand without cadence is ungraded",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 17,
+        "shape": "rit",
+        "graded": false,
+        "budget_ms": 250,
+        "gap_p50_ms": 7350,
+        "over_budget": null,
+        "owed_p50_ms": 5750,
+        "unintended_p50_ms": 1600,
+        "unintended_p95_ms": 1600,
+        "unintended_p99_ms": 1600
+      }
+    },
+    {
+      "name": "grade: Lightning hands and gaps of 60 s or more are not graded (only the on-time fold table counts)",
+      "passed": true,
+      "detail": {
+        "fold_hands": 22,
+        "all": 113
+      }
+    },
+    {
+      "name": "watch: window 1 is recorded, one row per kind x shape, and nothing alerts or notifies",
+      "passed": true,
+      "detail": {
+        "opened": 0,
+        "recorded": 6,
+        "resolved": 0,
+        "breaching": 0,
+        "checked_at": "2026-11-22T10:57:51.042792+00:00",
+        "window_end": "2026-11-19T12:05:00+00:00",
+        "notified_open": 0,
+        "notified_clear": 0
+      }
+    },
+    {
+      "name": "watch: a re-run of the same window records nothing new",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "grade: gaps inside the tournament break are not graded",
+      "passed": true,
+      "detail": [
+        [
+          "cash",
+          "cash_bust"
+        ],
+        [
+          "cash",
+          "fold"
+        ],
+        [
+          "tournament",
+          "fold"
+        ]
+      ]
+    },
+    {
+      "name": "watch: 1st breached window (5 min) opens nothing and sends no notification",
+      "passed": true,
+      "detail": {
+        "opened": 0,
+        "recorded": 3,
+        "resolved": 0,
+        "breaching": 0,
+        "checked_at": "2026-11-22T10:57:51.168484+00:00",
+        "window_end": "2026-11-19T12:10:00+00:00",
+        "notified_open": 0,
+        "notified_clear": 0
+      }
+    },
+    {
+      "name": "watch: 2nd consecutive breached window (10 min) STILL opens nothing and sends no notification",
+      "passed": true,
+      "detail": {
+        "opened": 0,
+        "recorded": 3,
+        "resolved": 0,
+        "breaching": 0,
+        "checked_at": "2026-11-22T10:57:51.196616+00:00",
+        "window_end": "2026-11-19T12:15:00+00:00",
+        "notified_open": 0,
+        "notified_clear": 0
+      }
+    },
+    {
+      "name": "watch: 3rd consecutive breached window (15 min) opens ONE critical alert and notifies owner ONCE",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 1,
+          "recorded": 3,
+          "resolved": 0,
+          "breaching": 1,
+          "checked_at": "2026-11-22T10:57:51.223693+00:00",
+          "window_end": "2026-11-19T12:20:00+00:00",
+          "notified_open": 1,
+          "notified_clear": 0
+        },
+        [
+          [
+            "tournament",
+            "fold",
+            "critical",
+            false
+          ]
+        ],
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "opened",
+            "tournament",
+            "fold"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "watch: the alert names the shape, all 3 consecutive windows (15 min), and the budget",
+      "passed": true,
+      "detail": {
+        "kind": "tournament",
+        "grade": "scripts/sql/hand-gap-unintended-delay.sql",
+        "hands": 21,
+        "shape": "fold",
+        "history": "ca_hand_gap_watch_history",
+        "budget_ms": 250,
+        "gap_p50_ms": 3950,
+        "window_end": "2026-11-19T12:20:00+00:00",
+        "over_budget": 21,
+        "owed_p50_ms": 3350,
+        "window_minutes": 5,
+        "sustained_minutes": 15,
+        "unintended_p50_ms": 600,
+        "unintended_p95_ms": 600,
+        "unintended_p99_ms": 600,
+        "consecutive_windows": 3,
+        "previous_window_hands": 22,
+        "two_windows_ago_hands": 21,
+        "previous_window_p95_ms": 600,
+        "two_windows_ago_p95_ms": 600
+      }
+    },
+    {
+      "name": "watch: a re-run and a 4th breached window add no second alert or open notification (deduplicated)",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 0,
+          "recorded": 0,
+          "resolved": 0,
+          "breaching": 1,
+          "checked_at": "2026-11-22T10:57:51.272591+00:00",
+          "window_end": "2026-11-19T12:20:00+00:00",
+          "notified_open": 0,
+          "notified_clear": 0
+        },
+        {
+          "opened": 0,
+          "recorded": 3,
+          "resolved": 0,
+          "breaching": 1,
+          "checked_at": "2026-11-22T10:57:51.286478+00:00",
+          "window_end": "2026-11-19T12:25:00+00:00",
+          "notified_open": 0,
+          "notified_clear": 0
+        },
+        [
+          [
+            "tournament",
+            "fold",
+            "critical",
+            false
+          ]
+        ],
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "opened",
+            "tournament",
+            "fold"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "watch: legacy cash bust without cadence is recorded and never alerts",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "watch: when the delay clears, the alert resolves and notifies owner ONCE",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 0,
+          "recorded": 3,
+          "resolved": 1,
+          "breaching": 0,
+          "checked_at": "2026-11-22T10:57:51.333908+00:00",
+          "window_end": "2026-11-19T12:30:00+00:00",
+          "notified_open": 0,
+          "notified_clear": 1
+        },
+        [
+          [
+            "tournament",
+            "fold",
+            "critical",
+            true
+          ]
+        ],
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "opened",
+            "tournament",
+            "fold"
+          ],
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Hand Delay Cleared",
+            "cleared",
+            "tournament",
+            "fold"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "watch: a re-run and subsequent healthy window send no duplicate clear notification",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 0,
+          "recorded": 0,
+          "resolved": 0,
+          "breaching": 0,
+          "checked_at": "2026-11-22T10:57:51.37753+00:00",
+          "window_end": "2026-11-19T12:30:00+00:00",
+          "notified_open": 0,
+          "notified_clear": 0
+        },
+        {
+          "opened": 0,
+          "recorded": 3,
+          "resolved": 0,
+          "breaching": 0,
+          "checked_at": "2026-11-22T10:57:51.391293+00:00",
+          "window_end": "2026-11-19T12:35:00+00:00",
+          "notified_open": 0,
+          "notified_clear": 0
+        },
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "opened",
+            "tournament",
+            "fold"
+          ],
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Hand Delay Cleared",
+            "cleared",
+            "tournament",
+            "fold"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "grade: gaps inside a recorded maintenance break are not graded",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "grade: cash_bust with recorded cadence is graded and 0 ms unintended when on time",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "cash_bust",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 5850,
+        "over_budget": 0,
+        "owed_p50_ms": 5850,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0
+      }
+    },
+    {
+      "name": "grade: rit with recorded cadence is graded and 0 ms unintended when on time",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 10,
+        "shape": "rit",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 20450,
+        "over_budget": 0,
+        "owed_p50_ms": 20450,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0
+      }
+    },
+    {
+      "name": "grade: cash_bust rebuy_pause_ms is clamped to 5000 ms so a hang is caught as unintended delay",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 15,
+        "shape": "cash_bust",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 9850,
+        "over_budget": 15,
+        "owed_p50_ms": 6850,
+        "unintended_p50_ms": 3000,
+        "unintended_p95_ms": 3000,
+        "unintended_p99_ms": 3000
+      }
+    },
+    {
+      "name": "grade: rit rit_reveal_ms is clamped to 30000 ms so a hang is caught as unintended delay",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 7,
+        "shape": "rit",
+        "graded": true,
+        "budget_ms": 250,
+        "gap_p50_ms": 35350,
+        "over_budget": 7,
+        "owed_p50_ms": 33350,
+        "unintended_p50_ms": 2000,
+        "unintended_p95_ms": 2000,
+        "unintended_p99_ms": 2000
+      }
+    },
+    {
+      "name": "scripts/sql/hand-gap-unintended-delay.sql executes cleanly on PostgreSQL",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "watch: the alert message is constant, so one cause is one incident",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "route fixture is byte-equal to the production pre-image (md5 of pg_get_functiondef)",
+      "passed": true,
+      "detail": "0b2e47d5b999a429faa4ad1346c90f52,587e68783be087a0a059d674377a7cc9"
+    },
+    {
+      "name": "migration 20261120034809 installs on the pre-image and its live proof holds",
+      "passed": true,
+      "detail": "(SELECT strpos(pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure), 'fn_raise_notification') = 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure), 'paged_via') > 0 AND public.fn_ca_owner_page_kind('financial-alerts-backfill', 'fn_ca_hand_gap_watch', 'critical') = 'hand_delay' AND public.fn_ca_owner_page_kind('cutover-readiness-watch', 'CutoverReadinessAtRisk', 'critical') = 'cutover_readiness' AND EXISTS (SELECT 1 FROM public.ca_owner_page_state WHERE kind = 'hand_delay') AND strpos(pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure), 'WHEN ''hand_delay'' THEN ''Unintended Delay Between Hands''') > 0)"
+    },
+    {
+      "name": "route: the 15-minute breach opens ONE alert and the watch itself notifies nobody",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 0,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 0,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:52.626027+00:00",
+          "window_end": "2026-11-19T13:45:00+00:00"
+        },
+        {
+          "opened": 0,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 0,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:52.641336+00:00",
+          "window_end": "2026-11-19T13:50:00+00:00"
+        },
+        {
+          "opened": 1,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 1,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:52.655216+00:00",
+          "window_end": "2026-11-19T13:55:00+00:00"
+        },
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "opened",
+            "tournament",
+            "fold"
+          ],
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Hand Delay Cleared",
+            "cleared",
+            "tournament",
+            "fold"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "route: the open reaches the store once as financial-alerts-backfill/fn_ca_hand_gap_watch/critical",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "route: the owner is paged ONCE, titled and summarised from the alert, by the page route",
+      "passed": true,
+      "detail": [
+        [
+          "47965354-0e56-43ef-931c-ddaab82af765",
+          "Unintended Delay Between Hands",
+          "tournament fold hands have been delayed for 15 minutes (p95 +600 ms over the 250 ms budget).",
+          "hand_delay",
+          "fn_ca_hand_gap_watch",
+          0
+        ]
+      ]
+    },
+    {
+      "name": "route: the clear resolves the alert and pages nobody (no recovery push)",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 0,
+          "recorded": 1,
+          "resolved": 1,
+          "breaching": 0,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:52.69813+00:00",
+          "window_end": "2026-11-19T14:00:00+00:00"
+        },
+        {
+          "opened": 0,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 0,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:52.714285+00:00",
+          "window_end": "2026-11-19T14:05:00+00:00"
+        },
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "tournament fold hands have been delayed for 15 minutes (p95 +600 ms over the 250 ms budget).",
+            "hand_delay",
+            "fn_ca_hand_gap_watch",
+            0
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "route: the flap re-opens the alert, which is held and counted, not paged again",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 1,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 1,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:52.79439+00:00",
+          "window_end": "2026-11-19T14:20:00+00:00"
+        },
+        [
+          [
+            "47965354-0e56-43ef-931c-ddaab82af765",
+            "Unintended Delay Between Hands",
+            "tournament fold hands have been delayed for 15 minutes (p95 +600 ms over the 250 ms budget).",
+            "hand_delay",
+            "fn_ca_hand_gap_watch",
+            0
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "route: a hand delay never touches the dealing clock a stopped table needs",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "split: the window recorded before the upgrade opens nothing",
+      "passed": true,
+      "detail": {
+        "opened": 0,
+        "recorded": 1,
+        "resolved": 0,
+        "breaching": 0,
+        "paged_via": "operational_alert_events",
+        "checked_at": "2026-11-22T10:57:52.896771+00:00",
+        "window_end": "2026-11-19T14:30:00+00:00"
+      }
+    },
+    {
+      "name": "split: the grader, watch and page route here are byte-equal to production before 20261121000757 (md5 of pg_get_functiondef, read 2026-11-21)",
+      "passed": true,
+      "detail": "af9240f68db8e5ee82e56785c5044f58,c4055ac1f91c17038a340ba938121fb1,cd785681c14f0ba6ae38fe944069e6ab"
+    },
+    {
+      "name": "migration 20261121000757 installs on the production text and its live proof holds",
+      "passed": true,
+      "detail": "(SELECT (SELECT count(*) FROM pg_attribute a WHERE a.attrelid = 'public.ca_hand_gap_watch_history'::regclass AND NOT a.attisdropped AND a.attname IN ('after_bust', 'after_bust_over_budget', 'after_bust_unintended_p95_ms', 'after_seat_move', 'after_seat_move_over_budget', 'after_seat_move_unintended_p95_ms', 'after_bust_and_seat_move_over_budget', 'neither_unintended_p95_ms')) = 8 AND strpos(pg_get_function_result('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'neither_unintended_p95_ms integer') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'FROM tournament_seat_move_receipts mv') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'ca_tournament_hand_for_hand') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_watch(timestamp with time zone)'::regprocedure), '''attribution'', v_attr') > 0 AND strpos(pg_get_functiondef('public.fn_ca_a_real_alert_reaches_the_owner()'::regprocedure), '''context''->>''attribution''') > 0)"
+    },
+    {
+      "name": "split: the re-created grader keeps the hand-for-hand, break and Lightning exclusions and stays STABLE",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "split: the grader is still service_role only after its re-creation",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "split: the grade splits graded hands by a bust and a seat move inside the gap",
+      "passed": true,
+      "detail": {
+        "kind": "tournament",
+        "hands": 53,
+        "shape": "all_in_showdown",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 35,
+        "gap_p50_ms": 7450,
+        "over_budget": 35,
+        "owed_p50_ms": 6250,
+        "after_seat_move": 17,
+        "unintended_p50_ms": 1200,
+        "unintended_p95_ms": 1500,
+        "unintended_p99_ms": 1500,
+        "after_bust_over_budget": 35,
+        "neither_unintended_p95_ms": 100,
+        "after_seat_move_over_budget": 17,
+        "after_bust_unintended_p95_ms": 1500,
+        "after_seat_move_unintended_p95_ms": 1500,
+        "after_bust_and_seat_move_over_budget": 17
+      }
+    },
+    {
+      "name": "split: a table with no bust and no move reports zero split counts, never NULL",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 22,
+        "shape": "fold",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 0,
+        "gap_p50_ms": 3350,
+        "over_budget": 0,
+        "owed_p50_ms": 3350,
+        "after_seat_move": 0,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0,
+        "after_bust_over_budget": 0,
+        "neither_unintended_p95_ms": 0,
+        "after_seat_move_over_budget": 0,
+        "after_bust_unintended_p95_ms": null,
+        "after_seat_move_unintended_p95_ms": null,
+        "after_bust_and_seat_move_over_budget": 0
+      }
+    },
+    {
+      "name": "split: the 15-minute breach still opens ONE alert per kind x shape (identity unchanged)",
+      "passed": true,
+      "detail": [
+        {
+          "opened": 0,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 0,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:53.030644+00:00",
+          "window_end": "2026-11-19T14:35:00+00:00"
+        },
+        {
+          "opened": 1,
+          "recorded": 1,
+          "resolved": 0,
+          "breaching": 1,
+          "paged_via": "operational_alert_events",
+          "checked_at": "2026-11-22T10:57:53.050878+00:00",
+          "window_end": "2026-11-19T14:40:00+00:00"
+        }
+      ]
+    },
+    {
+      "name": "split: the history keeps the split for windows after the upgrade and NULL before it",
+      "passed": true,
+      "detail": [
+        {
+          "kind": "tournament",
+          "hands": 53,
+          "shape": "all_in_showdown",
+          "graded": true,
+          "budget_ms": 250,
+          "after_bust": null,
+          "gap_p50_ms": 7450,
+          "window_end": "2026-11-19T14:30:00+00:00",
+          "over_budget": 34,
+          "owed_p50_ms": 6250,
+          "recorded_at": "2026-11-22T10:57:52.896771+00:00",
+          "window_minutes": 5,
+          "after_seat_move": null,
+          "unintended_p50_ms": 1200,
+          "unintended_p95_ms": 1500,
+          "unintended_p99_ms": 1500,
+          "after_bust_over_budget": null,
+          "neither_unintended_p95_ms": null,
+          "after_seat_move_over_budget": null,
+          "after_bust_unintended_p95_ms": null,
+          "after_seat_move_unintended_p95_ms": null,
+          "after_bust_and_seat_move_over_budget": null
+        },
+        {
+          "kind": "tournament",
+          "hands": 53,
+          "shape": "all_in_showdown",
+          "graded": true,
+          "budget_ms": 250,
+          "after_bust": 35,
+          "gap_p50_ms": 7450,
+          "window_end": "2026-11-19T14:35:00+00:00",
+          "over_budget": 35,
+          "owed_p50_ms": 6250,
+          "recorded_at": "2026-11-22T10:57:53.030644+00:00",
+          "window_minutes": 5,
+          "after_seat_move": 17,
+          "unintended_p50_ms": 1200,
+          "unintended_p95_ms": 1500,
+          "unintended_p99_ms": 1500,
+          "after_bust_over_budget": 35,
+          "neither_unintended_p95_ms": 100,
+          "after_seat_move_over_budget": 17,
+          "after_bust_unintended_p95_ms": 1500,
+          "after_seat_move_unintended_p95_ms": 1500,
+          "after_bust_and_seat_move_over_budget": 17
+        },
+        {
+          "kind": "tournament",
+          "hands": 52,
+          "shape": "all_in_showdown",
+          "graded": true,
+          "budget_ms": 250,
+          "after_bust": 34,
+          "gap_p50_ms": 7450,
+          "window_end": "2026-11-19T14:40:00+00:00",
+          "over_budget": 34,
+          "owed_p50_ms": 6250,
+          "recorded_at": "2026-11-22T10:57:53.050878+00:00",
+          "window_minutes": 5,
+          "after_seat_move": 17,
+          "unintended_p50_ms": 1200,
+          "unintended_p95_ms": 1500,
+          "unintended_p99_ms": 1500,
+          "after_bust_over_budget": 34,
+          "neither_unintended_p95_ms": 100,
+          "after_seat_move_over_budget": 17,
+          "after_bust_unintended_p95_ms": 1500,
+          "after_seat_move_unintended_p95_ms": 1500,
+          "after_bust_and_seat_move_over_budget": 17
+        }
+      ]
+    },
+    {
+      "name": "split: the alert names where the delay comes from, leaving out the window recorded before the upgrade",
+      "passed": true,
+      "detail": [
+        "Over budget in 10 min: 69 hands; 100% after a bust, 49% after a tournament seat move, 49% both. Latest 5 min p95 +1500 ms after a bust, +100 ms after neither.",
+        {
+          "kind": "tournament",
+          "grade": "scripts/sql/hand-gap-unintended-delay.sql",
+          "hands": 52,
+          "shape": "all_in_showdown",
+          "history": "ca_hand_gap_watch_history",
+          "budget_ms": 250,
+          "after_bust": 34,
+          "gap_p50_ms": 7450,
+          "window_end": "2026-11-19T14:40:00+00:00",
+          "attribution": "Over budget in 10 min: 69 hands; 100% after a bust, 49% after a tournament seat move, 49% both. Latest 5 min p95 +1500 ms after a bust, +100 ms after neither.",
+          "over_budget": 34,
+          "owed_p50_ms": 6250,
+          "window_minutes": 5,
+          "after_seat_move": 17,
+          "sustained_minutes": 15,
+          "unintended_p50_ms": 1200,
+          "unintended_p95_ms": 1500,
+          "unintended_p99_ms": 1500,
+          "attribution_minutes": 10,
+          "consecutive_windows": 3,
+          "previous_window_hands": 53,
+          "two_windows_ago_hands": 53,
+          "over_budget_after_bust": 69,
+          "over_budget_attributed": 69,
+          "previous_window_p95_ms": 1500,
+          "two_windows_ago_p95_ms": 1500,
+          "neither_unintended_p95_ms": 100,
+          "over_budget_after_seat_move": 34,
+          "after_bust_unintended_p95_ms": 1500,
+          "after_seat_move_unintended_p95_ms": 1500,
+          "over_budget_after_bust_and_seat_move": 34
+        }
+      ]
+    },
+    {
+      "name": "split: the owner page carries the attribution sentence after the delay sentence",
+      "passed": true,
+      "detail": [
+        [
+          "47965354-0e56-43ef-931c-ddaab82af765",
+          "Unintended Delay Between Hands",
+          "tournament all_in_showdown hands have been delayed for 15 minutes (p95 +1500 ms over the 250 ms budget). Over budget in 10 min: 69 hands; 100% after a bust, 49% after a tournament seat move, 49% both. Latest 5 min p95 +1500 ms after a bust, +100 ms after neither.",
+          "hand_delay",
+          "fn_ca_hand_gap_watch",
+          0
+        ]
+      ]
+    },
+    {
+      "name": "split: the alert message stays constant, so one cause is still one incident",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "scripts/sql/hand-gap-unintended-delay.sql executes cleanly with the split",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "migration 20261122054826 installs as written and its live proof holds",
+      "passed": true,
+      "detail": "(SELECT strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'FROM tournament_bounty_awards ba') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'ta.addon_period_ends_at') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'ca_tournament_hand_for_hand') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'FROM tournaments t') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)'::regprocedure), '''mystery_bounty''') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)'::regprocedure), '''addon_break''') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)'::regprocedure), 'interval ''15 minutes''') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)'::regprocedure), 't.is_rebuy') = 0 AND NOT has_function_privilege('anon', 'smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)', 'EXECUTE'))"
+    },
+    {
+      "name": "mystery bounty: chest-reveal gaps are excluded while non-chest gaps on the same tournament stay graded",
+      "passed": true,
+      "detail": {
+        "g40": {
+          "kind": "tournament",
+          "hands": 17,
+          "shape": "all_in_showdown",
+          "graded": true,
+          "budget_ms": 250,
+          "after_bust": 17,
+          "gap_p50_ms": 8050,
+          "over_budget": 17,
+          "owed_p50_ms": 6250,
+          "after_seat_move": 0,
+          "unintended_p50_ms": 1800,
+          "unintended_p95_ms": 1800,
+          "unintended_p99_ms": 1800,
+          "after_bust_over_budget": 17,
+          "neither_unintended_p95_ms": null,
+          "after_seat_move_over_budget": 0,
+          "after_bust_unintended_p95_ms": 1800,
+          "after_seat_move_unintended_p95_ms": null,
+          "after_bust_and_seat_move_over_budget": 0
+        },
+        "plain_pairs": 17
+      }
+    },
+    {
+      "name": "add-on break: only the final addon_break_minutes pause is excluded, not earlier addon_from_start play",
+      "passed": true,
+      "detail": {
+        "g42": {
+          "kind": "tournament",
+          "hands": 14,
+          "shape": "showdown_checked_river",
+          "graded": true,
+          "budget_ms": 250,
+          "after_bust": 0,
+          "gap_p50_ms": 8250,
+          "over_budget": 14,
+          "owed_p50_ms": 5750,
+          "after_seat_move": 0,
+          "unintended_p50_ms": 2500,
+          "unintended_p95_ms": 2500,
+          "unintended_p99_ms": 2500,
+          "after_bust_over_budget": 0,
+          "neither_unintended_p95_ms": 2500,
+          "after_seat_move_over_budget": 0,
+          "after_bust_unintended_p95_ms": null,
+          "after_seat_move_unintended_p95_ms": null,
+          "after_bust_and_seat_move_over_budget": 0
+        },
+        "total_addon_pairs": 17
+      }
+    },
+    {
+      "name": "runbook: tournament bust in a rebuy event is other (never intended rebuy) and alert stays open",
+      "passed": true,
+      "detail": {
+        "alerts": [
+          {
+            "kind": "tournament",
+            "shape": "all_in_showdown",
+            "worst": [
+              {
+                "class": "mystery_bounty",
+                "hand_id": "6eba1209-1105-43cd-a36f-c253c8868975",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "57c76e16-7ed1-43af-815b-e7cd27a98ffb",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "a9c7ab91-1b2d-48f8-b7d1-d84e92cacc2e",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "d5aa5a53-d272-4654-9543-bd9fa62c5074",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "29005e4e-13bf-4493-94d0-643603f27fbd",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "63c04db5-c83a-42e3-871c-7f1e67dcd635",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "81806efe-7115-434d-9bfb-685d72867fb8",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "047a92f6-8b51-4286-8916-e6f8e30418cd",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "c627053c-fd74-4a3a-a57f-262483d78225",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "dece1e5e-4137-42d1-b2d6-d9a19283bdc4",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              }
+            ],
+            "by_class": {
+              "other": 18,
+              "mystery_bounty": 10
+            },
+            "intended": 10,
+            "slow_hands": 28,
+            "window_end": "2026-11-19T15:20:00+00:00",
+            "all_intended": false,
+            "financial_alert_id": "85e0ea8e-a362-4073-b6f1-4503993d86f1"
+          }
+        ],
+        "outcome": "diagnosed",
+        "summary": "1 open hand-gap alert(s) classified; 0 resolved because every slow hand was an intended wait",
+        "hand_for_hand_table": true
+      }
+    },
+    {
+      "name": "runbook: 15-minute window sees mystery_bounty hands 10-15m prior and resolves when all waits are intended",
+      "passed": true,
+      "detail": {
+        "alerts": [
+          {
+            "kind": "tournament",
+            "shape": "all_in_showdown",
+            "worst": [
+              {
+                "class": "mystery_bounty",
+                "hand_id": "dece1e5e-4137-42d1-b2d6-d9a19283bdc4",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "6eba1209-1105-43cd-a36f-c253c8868975",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "57c76e16-7ed1-43af-815b-e7cd27a98ffb",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "a9c7ab91-1b2d-48f8-b7d1-d84e92cacc2e",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "d5aa5a53-d272-4654-9543-bd9fa62c5074",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "29005e4e-13bf-4493-94d0-643603f27fbd",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "63c04db5-c83a-42e3-871c-7f1e67dcd635",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "81806efe-7115-434d-9bfb-685d72867fb8",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "047a92f6-8b51-4286-8916-e6f8e30418cd",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              },
+              {
+                "class": "mystery_bounty",
+                "hand_id": "c627053c-fd74-4a3a-a57f-262483d78225",
+                "tournament_id": "acbb0493-3e2e-4e2c-80d8-15e53ed744d6",
+                "unintended_ms": 14000
+              }
+            ],
+            "by_class": {
+              "mystery_bounty": 10
+            },
+            "intended": 10,
+            "slow_hands": 10,
+            "window_end": "2026-11-19T15:30:00+00:00",
+            "all_intended": true,
+            "financial_alert_id": "906197a5-92ef-450f-9bc0-e6e7df6cf5df"
+          }
+        ],
+        "outcome": "resolved_producer",
+        "summary": "1 open hand-gap alert(s) classified; 1 resolved because every slow hand was an intended wait",
+        "hand_for_hand_table": true
+      }
+    },
+    {
+      "name": "before 20261122105551: an all-in bust without an all_in action grades +500 ms (the refused certificate)",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "cash_bust",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 19,
+        "gap_p50_ms": 6250,
+        "over_budget": 19,
+        "owed_p50_ms": 5750,
+        "after_seat_move": 0,
+        "unintended_p50_ms": 500,
+        "unintended_p95_ms": 500,
+        "unintended_p99_ms": 500,
+        "after_bust_over_budget": 19,
+        "neither_unintended_p95_ms": null,
+        "after_seat_move_over_budget": 0,
+        "after_bust_unintended_p95_ms": 500,
+        "after_seat_move_unintended_p95_ms": null,
+        "after_bust_and_seat_move_over_budget": 0
+      }
+    },
+    {
+      "name": "before 20261122105551: an all-in winner grades +500 ms as a checked river",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "showdown_checked_river",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 0,
+        "gap_p50_ms": 6250,
+        "over_budget": 19,
+        "owed_p50_ms": 5750,
+        "after_seat_move": 0,
+        "unintended_p50_ms": 500,
+        "unintended_p95_ms": 500,
+        "unintended_p99_ms": 500,
+        "after_bust_over_budget": 0,
+        "neither_unintended_p95_ms": 500,
+        "after_seat_move_over_budget": 0,
+        "after_bust_unintended_p95_ms": null,
+        "after_seat_move_unintended_p95_ms": null,
+        "after_bust_and_seat_move_over_budget": 0
+      }
+    },
+    {
+      "name": "migration 20261122105551 installs as written and its live proof holds",
+      "passed": true,
+      "detail": "(SELECT strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'pair.next_cadence->''all_in_showdown''') > 0 AND strpos(pg_get_functiondef('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure), 'jsonb_array_elements(pair.players) ap') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_runbook_hand_gap_classification(uuid,boolean,jsonb,timestamptz)'::regprocedure), 'jsonb_array_elements(pair.players) ap') > 0 AND NOT has_function_privilege('anon', 'public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)', 'EXECUTE'))"
+    },
+    {
+      "name": "all-in tail: a cash bust all-in without an all_in action grades 0 ms unintended",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "cash_bust",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 19,
+        "gap_p50_ms": 6250,
+        "over_budget": 0,
+        "owed_p50_ms": 6250,
+        "after_seat_move": 0,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0,
+        "after_bust_over_budget": 0,
+        "neither_unintended_p95_ms": null,
+        "after_seat_move_over_budget": 0,
+        "after_bust_unintended_p95_ms": 0,
+        "after_seat_move_unintended_p95_ms": null,
+        "after_bust_and_seat_move_over_budget": 0
+      }
+    },
+    {
+      "name": "all-in tail: an all-in winner named only by cadence.all_in_showdown grades as all_in_showdown, 0 ms",
+      "passed": true,
+      "detail": {
+        "cash/all_in_showdown": {
+          "kind": "cash",
+          "hands": 19,
+          "shape": "all_in_showdown",
+          "graded": true,
+          "budget_ms": 250,
+          "after_bust": 0,
+          "gap_p50_ms": 6250,
+          "over_budget": 0,
+          "owed_p50_ms": 6250,
+          "after_seat_move": 0,
+          "unintended_p50_ms": 0,
+          "unintended_p95_ms": 0,
+          "unintended_p99_ms": 0,
+          "after_bust_over_budget": 0,
+          "neither_unintended_p95_ms": 0,
+          "after_seat_move_over_budget": 0,
+          "after_bust_unintended_p95_ms": null,
+          "after_seat_move_unintended_p95_ms": null,
+          "after_bust_and_seat_move_over_budget": 0
+        }
+      }
+    },
+    {
+      "name": "all-in tail: cadence.all_in_showdown=false keeps a checked river on its own beats, 0 ms",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 19,
+        "shape": "showdown_checked_river",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 0,
+        "gap_p50_ms": 5750,
+        "over_budget": 0,
+        "owed_p50_ms": 5750,
+        "after_seat_move": 0,
+        "unintended_p50_ms": 0,
+        "unintended_p95_ms": 0,
+        "unintended_p99_ms": 0,
+        "after_bust_over_budget": 0,
+        "neither_unintended_p95_ms": 0,
+        "after_seat_move_over_budget": 0,
+        "after_bust_unintended_p95_ms": null,
+        "after_seat_move_unintended_p95_ms": null,
+        "after_bust_and_seat_move_over_budget": 0
+      }
+    },
+    {
+      "name": "all-in tail: a real 800 ms delay after an all-in bust is still graded over budget",
+      "passed": true,
+      "detail": {
+        "kind": "cash",
+        "hands": 18,
+        "shape": "cash_bust",
+        "graded": true,
+        "budget_ms": 250,
+        "after_bust": 18,
+        "gap_p50_ms": 7050,
+        "over_budget": 18,
+        "owed_p50_ms": 6250,
+        "after_seat_move": 0,
+        "unintended_p50_ms": 800,
+        "unintended_p95_ms": 800,
+        "unintended_p99_ms": 800,
+        "after_bust_over_budget": 18,
+        "neither_unintended_p95_ms": null,
+        "after_seat_move_over_budget": 0,
+        "after_bust_unintended_p95_ms": 800,
+        "after_seat_move_unintended_p95_ms": null,
+        "after_bust_and_seat_move_over_budget": 0
+      }
+    },
+    {
+      "name": "scripts/sql/hand-gap-unintended-delay.sql executes cleanly with the all-in tail rule",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "production_mutations": false,
+  "server_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+  "split_preimage_md5": "af9240f68db8e5ee82e56785c5044f58,c4055ac1f91c17038a340ba938121fb1,cd785681c14f0ba6ae38fe944069e6ab",
+  "phase5_tables": [
+    "7e3cb0d2-33b5-42f1-9af0-9344f411c064",
+    "e1fef24f-92fc-4820-a495-c374e7a893c6",
+    "9aab2bf8-04e7-4c66-8d44-2e816dee885b",
+    "628d9bfa-d116-45ef-8154-a3ac1c2581f1"
+  ],
+  "history_rows": 35,
+  "passed": true
+}

@@ -86,7 +86,16 @@ describe('an unintended delay between hands pages after 15 minutes and grades ca
     const owed = (s: string) =>
       flat(between(s, 'CASE WHEN s.rit_boards IS NOT NULL AND s.has_cadence THEN', 'AS owed_ms'));
     expect(owed(grade)).toBe(owed(script).replace(/NOT s\.tournament/g, 's.tournament_id IS NULL'));
-    const facts = (s: string) => flat(between(s, 'AS shown_n,', 'AS has_cadence'));
+    // The all_in_shown fact was re-ruled by 20261122105551 (an all-in
+    // showdown is graded with its all-in tail however the chips went in):
+    // tests/an-all-in-showdown-is-graded-with-its-all-in-tail.law.test.ts pins
+    // that clause on the script and on the migration's anchored edit. Every
+    // other fact still matches this grader exactly.
+    const facts = (s: string) =>
+      flat(between(s, 'AS shown_n,', 'AS has_cadence')).replace(
+        /AS river_chips, .*? AS all_in_shown,/,
+        'AS river_chips, <all_in_shown> AS all_in_shown,'
+      );
     expect(facts(grade)).toBe(facts(script).replace(/\bh\./g, 'pair.'));
   });
 

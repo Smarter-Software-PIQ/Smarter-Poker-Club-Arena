@@ -61,6 +61,8 @@ SPLIT_FILE = '20261121000757_the_hand_delay_alert_names_where_the_delay_comes_fr
 SPLIT_MIGRATION = ROOT / 'supabase' / 'migrations' / SPLIT_FILE
 OWED_WAITS_FILE = '20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql'
 OWED_WAITS_MIGRATION = ROOT / 'supabase' / 'migrations' / OWED_WAITS_FILE
+ALL_IN_FILE = '20261122105551_an_all_in_showdown_is_graded_with_its_all_in_tail.sql'
+ALL_IN_MIGRATION = ROOT / 'supabase' / 'migrations' / ALL_IN_FILE
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -613,6 +615,57 @@ try:
           and al_mb['all_intended']
           and run(f"SELECT resolved FROM financial_alerts WHERE id = '{fa_mb_only}'") == 't',
           rb_mb)
+
+    # Phase 5 (20261122105551): an all-in showdown is graded with its all-in
+    # tail however the chips went in. The engine adds ALL_IN_SHOWDOWN_EXTRA_MS
+    # whenever a shown player is all-in; a call, bet, raise, blind or ante that
+    # empties a stack is recorded under its own name. EngineCutoverMissed
+    # 2026-11-22: the Backup refused freeze baseline 0a3a6a52 on exactly this
+    # (cash_bust p95 +499 ms, p99 +501 ms, 2 of 12 over budget).
+    ENGINE_ALL_IN_HOLD = 1400 + 2000 + 1100 + 250
+    bust_cadence = {'hold_ms': ENGINE_ALL_IN_HOLD, 'rest_ms': 1500, 'rebuy_pause_ms': 0}
+    # 5a. Cash bust at showdown, all-in by a 'raise'/'call' (no 'all_in' action),
+    #     dealt exactly on the engine's owed beats.
+    t_bust = table('showdown_checked_river', lambda k: 0, [50], base_owed_ms=ENGINE_ALL_IN_HOLD + 1500,
+                   cadence=bust_cadence, bust=True)
+    # 5b. All-in WINNER: nobody at stack 0 and no 'all_in' action; only the
+    #     engine's recorded cadence.all_in_showdown can say so.
+    t_win = table('showdown_checked_river', lambda k: 0, [52], base_owed_ms=ENGINE_ALL_IN_HOLD + 1500,
+                  cadence=dict(bust_cadence, all_in_showdown=True))
+    # 5c. Controls: a recorded all_in_showdown=false checked river on its beats,
+    #     and a real 800 ms delay after an all-in bust, which must still grade.
+    t_false = table('showdown_checked_river', lambda k: 0, [54],
+                    cadence={'hold_ms': 1400 + 1500 + 1100 + 250, 'rest_ms': 1500, 'rebuy_pause_ms': 0,
+                             'all_in_showdown': False})
+    t_slow = table('showdown_checked_river', lambda k: 800, [56], base_owed_ms=ENGINE_ALL_IN_HOLD + 1500,
+                   cadence=bust_cadence, bust=True)
+    pre50 = grade(50).get(('cash', 'cash_bust'))
+    pre52 = grade(52).get(('cash', 'showdown_checked_river'))
+    check('before 20261122105551: an all-in bust without an all_in action grades +500 ms (the refused certificate)',
+          pre50 and pre50['unintended_p50_ms'] == 500 and pre50['over_budget'] == pre50['hands'] > 0, pre50)
+    check('before 20261122105551: an all-in winner grades +500 ms as a checked river',
+          pre52 and pre52['unintended_p50_ms'] == 500, pre52)
+    run(ALL_IN_MIGRATION.read_text())
+    all_in_proof = ALL_IN_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261122105551 installs as written and its live proof holds',
+          run('SELECT ' + all_in_proof) == 't', all_in_proof)
+    g50 = grade(50).get(('cash', 'cash_bust'))
+    check('all-in tail: a cash bust all-in without an all_in action grades 0 ms unintended',
+          g50 and g50['graded'] and g50['unintended_p95_ms'] == 0 and g50['over_budget'] == 0, g50)
+    g52 = grade(52)
+    check('all-in tail: an all-in winner named only by cadence.all_in_showdown grades as all_in_showdown, 0 ms',
+          ('cash', 'showdown_checked_river') not in g52
+          and g52.get(('cash', 'all_in_showdown'), {}).get('unintended_p95_ms') == 0,
+          {'/'.join(k): v for k, v in g52.items()})
+    g54 = grade(54).get(('cash', 'showdown_checked_river'))
+    check('all-in tail: cadence.all_in_showdown=false keeps a checked river on its own beats, 0 ms',
+          g54 and g54['unintended_p95_ms'] == 0 and g54['over_budget'] == 0, g54)
+    g56 = grade(56).get(('cash', 'cash_bust'))
+    check('all-in tail: a real 800 ms delay after an all-in bust is still graded over budget',
+          g56 and g56['unintended_p50_ms'] == 800 and g56['over_budget'] == g56['hands'] > 0, g56)
+    run(SCRIPT_SQL.read_text())
+    check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly with the all-in tail rule', True)
+    results['phase5_tables'] = [t_bust, t_win, t_false, t_slow]
 
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True

@@ -59,8 +59,11 @@ describe('mystery bounty chest reveals and add-on breaks are owed waits', () => 
   it('the newest hand_gap_classification runbook scans 15 minutes, classifies mystery_bounty and addon_break, and never treats tournament busts as intended rebuys', () => {
     const newestRunbookFile = migrations
       .filter((m) =>
+        // The newest file that writes the BODY. A later anchored edit of this
+        // text (20261122105551, the all-in tail) keeps every clause pinned
+        // below and is pinned by its own law.
         readFileSync(join(dir, m), 'utf8').includes(
-          'FUNCTION smarter_private.reliability_runbook_hand_gap_classification('
+          'CREATE OR REPLACE FUNCTION smarter_private.reliability_runbook_hand_gap_classification('
         )
       )
       .pop();
