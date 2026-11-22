@@ -40,6 +40,7 @@ import { OMAHA_OPTION_CLASSES } from './HorseOmahaRuleSites.js';
 import {
   OPTION_SWITCH_NAMES,
   OPTION_SWITCH_NOT_A_SWITCH,
+  OPTION_SWITCH_REFUSED,
   OPTION_SWITCH_RELEASE_DEFAULT_OFF,
 } from './HorseOptionSwitch.js';
 import {
@@ -148,6 +149,7 @@ describe('omahaBlanketRowsOffInPlo45Cash: the registry holds blanket rows only',
       'ploSuitedAcesFourBet',
       'v86PloOverhaul',
       'v46Charts',
+      'omahaPairedBoardFoldRespectsPrice',
     ]);
     for (const n of OMAHA_BLANKET_ROWS_OFF_EXTRA) {
       expect(OMAHA_NO_CATEGORICAL_RULES_OFF, n).not.toContain(n);
@@ -163,6 +165,19 @@ describe('omahaBlanketRowsOffInPlo45Cash: the registry holds blanket rows only',
           `${n}: ${r}`
         ).toBe(true);
     }
+  });
+  it('AUDIT-B items 5 and 14: omahaPairedBoardFoldRespectsPrice and V81/V84 are listable; owner-held V87 stays excluded', () => {
+    expect(OMAHA_OPTION_CLASSES.omahaPairedBoardFoldRespectsPrice?.cls).toBe('open');
+    for (const n of [
+      'omahaPairedBoardFoldRespectsPrice',
+      'v81OmahaBigBetCalls',
+      'v84OmahaRiverReraiseCalls',
+    ]) {
+      expect(omahaBlanketRowListable(n), n).toBe(true);
+    }
+    // V87 is owner-held (OPTION_SWITCH_REFUSED) and MUST NOT be on the off-list registry.
+    expect(OPTION_SWITCH_REFUSED.v87DeepDiveDiscipline).toBeDefined();
+    expect(omahaBlanketRowListable('v87DeepDiveDiscipline')).toBe(false);
   });
   it('no priced rule can be listed, and a priced name in the list changes nothing', () => {
     const priced = Object.entries(OMAHA_OPTION_CLASSES)

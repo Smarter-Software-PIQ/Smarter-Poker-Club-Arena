@@ -430,29 +430,28 @@ export const HOLDEM_BLANKET_CATALOG = Object.freeze([
     hasDevGradeCards: false,
     receipts: Object.freeze(['v83_aggression_shown_as_value']),
   }),
+  // Note: v15RiverNoNearLock (HL:29635-29655), v88CommitmentHonored (HL:29018-29052),
+  // tokenCallPrice (HL:29261-29291 / HorseTokenCallPrice.ts), and v46Charts
+  // (HL:20855, 21871-21887 / HorseHandClasses.ts) are strictly Omaha/non-NLH-only
+  // (vi.isOmaha / short-deck; zero NLH reach) and owned by the PLO lane — excluded here.
   Object.freeze({
-    option: 'v88CommitmentHonored',
-    role: 'blanket_parent',
-    family: 'turn_defense',
-    scope: 'Postflop commitment floor blanket',
-    pricedChildren: Object.freeze([]),
-    replacesBlankets: Object.freeze([]),
-    nestedChild: false,
-    preflopOrOwnerHold: false,
-    hasDevGradeCards: false,
-    receipts: Object.freeze(['v88_commitment_honored']),
-  }),
-  Object.freeze({
-    option: 'v15RiverNoNearLock',
+    option: 'v21River',
     role: 'blanket_parent',
     family: 'river_defense',
-    scope: 'River near-lock cap and raise gate',
+    scope:
+      'NLH river nut status, dominated caps, scare-runout cap/commit, and river raise-war governor',
     pricedChildren: Object.freeze([]),
     replacesBlankets: Object.freeze([]),
     nestedChild: false,
     preflopOrOwnerHold: false,
     hasDevGradeCards: false,
-    receipts: Object.freeze(['v15_nut_status', 'v15_eq_capped', 'v15_raise_gate', 'v15_boat_gate']),
+    receipts: Object.freeze([
+      'v21_nut_status',
+      'v21_dominated_cap',
+      'v21_scare_cap',
+      'v21_scare_commit',
+      'v21_war_gate',
+    ]),
   }),
   Object.freeze({
     option: 'holdemPremiumAggression',
@@ -556,18 +555,6 @@ export const HOLDEM_BLANKET_CATALOG = Object.freeze([
     preflopOrOwnerHold: false,
     hasDevGradeCards: false,
     receipts: Object.freeze(['probe_aware_*']),
-  }),
-  Object.freeze({
-    option: 'tokenCallPrice',
-    role: 'blanket_parent',
-    family: 'river_defense',
-    scope: 'Token small-call price scaling rule',
-    pricedChildren: Object.freeze([]),
-    replacesBlankets: Object.freeze([]),
-    nestedChild: false,
-    preflopOrOwnerHold: false,
-    hasDevGradeCards: false,
-    receipts: Object.freeze(['token_call_price_scaled', 'token_call_price_river_covered']),
   }),
   Object.freeze({
     option: 'committedRaiseDiscipline',
@@ -1032,19 +1019,6 @@ export const HOLDEM_BLANKET_CATALOG = Object.freeze([
     hasDevGradeCards: false,
     receipts: Object.freeze(['limp_reraise_iso_read']),
   }),
-  Object.freeze({
-    option: 'v46Charts',
-    role: 'blanket_parent',
-    family: 'preflop_range',
-    scope: 'Preflop charts umbrella (also on PLO4/5 cash off-list)',
-    pricedChildren: Object.freeze([]),
-    replacesBlankets: Object.freeze([]),
-    nestedChild: false,
-    preflopOrOwnerHold: true,
-    holdNote: 'preflop chart umbrella; affects preflop ranges across variants',
-    hasDevGradeCards: false,
-    receipts: Object.freeze(['v46_*']),
-  }),
 
   // ── Off-Only Held Hold'em Options (Owner Preflop Hold / Measured Harm) ─────────────────────
   Object.freeze({
@@ -1278,14 +1252,12 @@ WITH
         OR feature LIKE 'river_%'
         OR feature LIKE 'flop_turn_%'
         OR feature LIKE 'probe_%'
-        OR feature LIKE 'token_call_%'
         OR feature LIKE 'committed_%'
         OR feature LIKE 'nash_%'
         OR feature LIKE 'limp_%'
         OR feature LIKE 'hu_%'
         OR feature LIKE 'v9_%'
-        OR feature LIKE 'v15_%'
-        OR feature LIKE 'v46_%'
+        OR feature LIKE 'v21_%'
         OR feature LIKE 'v5%'
         OR feature LIKE 'v6%'
         OR feature LIKE 'v7%'

@@ -46,6 +46,23 @@ PURE_TEST_FILE_SUFFIXES = (
     ".test.js",
     ".test.cjs",
 )
+NON_RELEASE_SERVER_SCRIPT_PREFIXES = (
+    "server/scripts/opponent-hud-",
+    "server/scripts/horse-",
+    "server/scripts/holdem-",
+    "server/scripts/audited-",
+    "server/scripts/hvh48-",
+    "server/scripts/benchmark-",
+    "server/scripts/gen-",
+    "server/scripts/generate-",
+    "server/scripts/measure-",
+    "server/scripts/nash-push-fold/",
+    "server/scripts/fixtures/",
+)
+NON_RELEASE_SERVER_SCRIPT_EXACT = (
+    "server/scripts/style-shadow-rerun.mjs",
+    "server/scripts/river-one-pair-fixture.ts",
+)
 
 
 class Unqualified(Exception):
@@ -86,14 +103,30 @@ def _is_pure_test_control_path(path):
     return False
 
 
+def _is_non_release_server_script_path(path):
+    """True only for verified offline research/HUD/horse/probe/benchmark/generator
+    scripts under server/scripts/ that are unreferenced by any release surface.
+
+    Any new or unknown script under server/scripts/ fails closed (remains hashed).
+    """
+    if not path.startswith("server/scripts/"):
+        return False
+    if path in NON_RELEASE_SERVER_SCRIPT_EXACT:
+        return True
+    return any(
+        path.startswith(prefix) and len(path) > len(prefix)
+        for prefix in NON_RELEASE_SERVER_SCRIPT_PREFIXES
+    )
+
+
 def _filter_projection_tree(tree_output):
-    """Drop pure unit/law test entries from `git ls-tree -r` by exact path field."""
+    """Drop pure unit/law tests and verified non-release server scripts by exact path field."""
     if not tree_output:
         return ""
     kept = []
     for line in tree_output.splitlines():
         _, sep, path = line.partition("\t")
-        if sep and _is_pure_test_control_path(path):
+        if sep and (_is_pure_test_control_path(path) or _is_non_release_server_script_path(path)):
             continue
         kept.append(line)
     return "\n".join(kept)

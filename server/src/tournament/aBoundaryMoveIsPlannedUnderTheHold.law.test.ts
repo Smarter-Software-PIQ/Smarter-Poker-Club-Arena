@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TournamentManager } from './TournamentManager.js';
 import type { BalancerTable } from '../engine/TableBalancer.js';
+import { supabase } from '../services/supabase.js';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const EVENT = id(1);
@@ -511,7 +512,7 @@ describe('a boundary move is planned under the hold', () => {
       expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
     });
 
-    it('loadBalancerTables issues tables, table_seats, and tournament_players reads concurrently', () => {
+    it('loadBalancerTables issues tables, table_seats, and tournament_players reads concurrently and fails closed on any partial read', async () => {
       const src = readFileSync(
         fileURLToPath(new URL('./TournamentManager.ts', import.meta.url)),
         'utf8'
@@ -519,6 +520,96 @@ describe('a boundary move is planned under the hold', () => {
       const start = src.indexOf('private async loadBalancerTables(');
       const body = src.slice(start, src.indexOf('const tableById = new Map(', start));
       expect(body).toContain('const [tableRead, seatRead, rosterRead] = await Promise.all([');
+
+      // Behavioral proof: all three queries are started concurrently BEFORE any
+      // resolves, and any single query error fails closed (returns null).
+      const a = table(0, 8);
+      const b = table(1, 3);
+      const m: any = new TournamentManager(
+        EVENT,
+        {} as any,
+        GENERATION,
+        performance.now() + 60_000
+      );
+      m.running = true;
+      m.lifecycleEpoch.begin();
+      m.eliminationMutationAllowed = () => true;
+
+      const started: string[] = [];
+      const resolvers = new Map<string, (v: { data: unknown; error: unknown }) => void>();
+      const makeChain = (tbl: string) => {
+        started.push(tbl);
+        const promise = new Promise<{ data: unknown; error: unknown }>((resolve) => {
+          resolvers.set(tbl, resolve);
+        });
+        const chain: any = {
+          select: () => chain,
+          in: () => chain,
+          is: () => chain,
+          eq: () => chain,
+          then: promise.then.bind(promise),
+        };
+        return chain;
+      };
+      vi.spyOn(supabase, 'from').mockImplementation((tbl: string) => makeChain(tbl));
+
+      const loadPromise = m.loadBalancerTables([a.tableId, b.tableId], 'balanceAtBoundary');
+      await settle();
+      // All three reads must already be in flight before the first resolves.
+      expect(started).toEqual(['tables', 'table_seats', 'tournament_players']);
+
+      resolvers.get('tables')!({
+        data: [
+          { id: a.tableId, max_players: 9 },
+          { id: b.tableId, max_players: 9 },
+        ],
+        error: null,
+      });
+      resolvers.get('table_seats')!({
+        data: [
+          { table_id: a.tableId, user_id: a.players[0].userId, stack: 10_000, seat_number: 1 },
+          { table_id: b.tableId, user_id: b.players[0].userId, stack: 10_000, seat_number: 1 },
+        ],
+        error: null,
+      });
+      resolvers.get('tournament_players')!({
+        data: [
+          { table_id: a.tableId, seat_number: 1 },
+          { table_id: b.tableId, seat_number: 1 },
+        ],
+        error: null,
+      });
+      const loaded = await loadPromise;
+      expect(loaded).not.toBeNull();
+      expect(loaded).toHaveLength(2);
+
+      // Now fail ONE of the three concurrent reads (tournament_players) -> fail closed (null).
+      started.length = 0;
+      resolvers.clear();
+      const failPromise = m.loadBalancerTables([a.tableId, b.tableId], 'balanceAtBoundary');
+      await settle();
+      expect(started).toEqual(['tables', 'table_seats', 'tournament_players']);
+      resolvers.get('tables')!({ data: [{ id: a.tableId, max_players: 9 }], error: null });
+      resolvers.get('table_seats')!({ data: [], error: null });
+      resolvers.get('tournament_players')!({ data: null, error: { message: 'boom' } });
+      expect(await failPromise).toBeNull();
+    });
+
+    it('checkTableBalance budget-expired yield prefers an already-parked source over an unparked first source', async () => {
+      const a = table(0, 9);
+      const b = table(1, 9);
+      const c = table(2, 5);
+      const { m, engines, park } = manager([a, b, c]);
+      // Mark `b` as already fenced and parked; `a` is still dealing and appears first.
+      m.gapBalanceFencedSources.add(b.tableId);
+      park(b.tableId);
+      m.balancePreparationOpen = true;
+      m.eliminationWorkBudgetExpired = () => true;
+
+      await m.checkTableBalance();
+
+      expect(engines.get(b.tableId)!.parkForTournamentMove).toHaveBeenCalledTimes(1);
+      expect(engines.get(a.tableId)!.parkForTournamentMove).not.toHaveBeenCalled();
     });
   });
 

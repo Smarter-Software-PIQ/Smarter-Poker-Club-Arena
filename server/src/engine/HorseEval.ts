@@ -1512,6 +1512,10 @@ export interface OppPostflopRead {
    * Only omahaAggressorTier reads this; `bigBet` itself is left as it was
    * for every other consumer. */
   tierByPotShare?: boolean;
+  /** omahaBigBetSizeIsPriced (default OFF, HorseOmahaBigBetSizeIsPriced):
+   * continuous priced aggressor value-share (`pStrong` in `[0.50, 0.94]`) from
+   * pot share and lifetime public HUD, replacing the 20 BB / 0.70 step cliff. */
+  pricedBetStrength?: number;
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
@@ -3684,7 +3688,11 @@ export function simulateEquity(
         }
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
-          const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
+          const baseReq = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
+          const req =
+            typeof read.pricedBetStrength === 'number' && Number.isFinite(read.pricedBetStrength)
+              ? { ...baseReq, pStrong: read.pricedBetStrength }
+              : baseReq;
           if (read.strictPressureRange === true && (!vi.isHiLo || read.highOnlyBoard === true)) {
             if (
               fastRandom() < req.pStrong &&
