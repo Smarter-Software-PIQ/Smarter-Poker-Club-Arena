@@ -248,6 +248,10 @@ jobs:
             if [ "$baseline_state" = claimed ]; then
               echo "FREEZE BASELINE: $baseline is already being certified by an active run; planning as before."
             fi
+            if [ "$baseline_state" = unselectable ]; then
+              echo "FREEZE BASELINE: $baseline is unselectable (CONTROL_INPUTS diverged from main); skipping wasted certification and planning as before."
+              { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\`: unselectable (\`CONTROL_INPUTS\` diverged from \`main\`); skipped wasted certification and planned as before."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            fi
             if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then
               gh api "repos/$GITHUB_REPOSITORY/statuses/$baseline" -f state=pending -f context="$STATUS_CONTEXT" \
                 -f description="Backup Engine claimed tonight's freeze baseline (run $RUN_ID)" \
@@ -460,7 +464,7 @@ jobs:
     # turn touched no copy and tested nothing (incident 076ff467, 2026-11-20).
     outputs:
       turn: ${{ steps.turn.outputs.acquired }}
-      deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
+      deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.due.outputs.deferred == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
       sha: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
       control_sha: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
     timeout-minutes: 180
@@ -831,6 +835,11 @@ jobs:
           MODE: ${{ needs.plan.outputs.refresh }}
           EVENT: ${{ github.event_name }}
           CONTROL: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
+          PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -844,7 +853,40 @@ jobs:
             --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
             --control "$CONTROL" --wait 240 2> due-reason.txt) || verdict='due=true'
           contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+          pending_migrations=$(printf '%s\n' "$verdict" | sed -n 's/^pending=//p')
           [ "$contents_due" = false ] || contents_due=true
+          # PRE-SOAK UNINSTALLED-MIGRATION GUARD (2026-11-22, O7).
+          # An ordinary push commit carrying recently-added ordinary migrations
+          # that are still absent from production after --wait (for example,
+          # held by RELEASE_SCHEMA_FREEZE_CHICAGO or O3 cycle deferral) can
+          # never pass select-daily-engine.py on a copy lacking them. Hand the
+          # exclusive Backup host lease back immediately without writing any
+          # status. Freeze-baseline, booking, forced, manual, nightly, and
+          # post-seal runs are exempt; unreadable production emits no pending=.
+          if [ -n "$pending_migrations" ] && [ "$EVENT" = push ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [ "$MODE" != force ]; then
+            sed -n 's/^reason=/contents: /p' due-reason.txt
+            ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+              "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY
+            echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written."
+            { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: uninstalled ordinary migration(s) \`$pending_migrations\` still absent from production after wait; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "due=false" >> "$GITHUB_OUTPUT"
+            echo "deferred=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
           due=false
           [ "$MODE" = force ] && due=true
@@ -856,7 +898,7 @@ jobs:
           echo "diagnostic only: copy restoredAt=$stamp newest migration commit=$newest"
           echo "due=$due" >> "$GITHUB_OUTPUT"
       - name: Build the batched read-only export client
-        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.due == 'true'
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.deferred != '1' && steps.due.outputs.due == 'true'
         run: |
           set -euo pipefail
           # The one shared install (signed sources, checkout key, bounded retries).
@@ -868,7 +910,7 @@ jobs:
           echo "PG_DUMP=$PG_DUMP" >> "$GITHUB_ENV"
           echo "PG_LIB=$(dirname "$(dirname "$(dirname "$PG_DUMP")")")/interfaces/libpq" >> "$GITHUB_ENV"
       - name: Export the production structure and the horse-only seed (read-only, short reads)
-        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.due == 'true'
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.deferred != '1' && steps.due.outputs.due == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -886,7 +928,7 @@ jobs:
           python3 -B server/standby/schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"
           tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/bundle.tgz" schema.dump schema-evidence.json seed
       - name: Ship to the standby host and restore
-        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.due == 'true'
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.deferred != '1' && steps.due.outputs.due == 'true'
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
         run: |
@@ -915,7 +957,7 @@ jobs:
       # with no certificate (runs 44878744044 and 44884252356).
       - name: Yield the host to an owner window booked while this run waited
         id: late_priority
-        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && needs.plan.outputs.freeze_baseline != '1'
+        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.deferred != '1' && needs.plan.outputs.freeze_baseline != '1'
         env:
           GH_TOKEN: ${{ github.token }}
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}

@@ -555,7 +555,7 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
       const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
       expect(ids.indexOf('late_priority')).toBe(ids.length - 1);
       expect(backup.jobs.refresh.outputs.deferred).toBe(
-        "${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}"
+        "${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.due.outputs.deferred == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}"
       );
       expect(backup.jobs.certify.if).toContain("needs.refresh.outputs.deferred != '1'");
     });
@@ -2497,6 +2497,159 @@ gh() {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });
         }
+      });
+    });
+
+    // 2026-11-22 (O7): pre-soak uninstalled-migration guard. An ordinary push
+    // commit carrying recently-added ordinary migrations still absent from
+    // production after refresh-due's --wait can never pass select-daily-engine.py
+    // on a copy lacking them. Defer immediately, release the exclusive Backup
+    // host lease atomically, skip Build/Export/Ship/late_priority/certify, and
+    // write zero status. Freeze-baseline, booking, force, manual, nightly, and
+    // post-seal runs are exempt; unreadable production fails open.
+    describe('O7: pre-soak uninstalled-migration guard defers unselectable push runs and hands back the host', () => {
+      const due = backup.jobs.refresh.steps.find((s: any) => s.id === 'due');
+      const build = backup.jobs.refresh.steps.find((s: any) =>
+        /^Build the batched read-only export client/.test(s.name)
+      );
+      const exp = backup.jobs.refresh.steps.find((s: any) =>
+        /^Export the production structure/.test(s.name)
+      );
+      const ship = backup.jobs.refresh.steps.find((s: any) =>
+        /^Ship to the standby host/.test(s.name)
+      );
+      const latePriority = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_priority');
+      const sha = 'd'.repeat(40);
+
+      function runDue(verdictOut: string, overrides: Partial<Record<string, string>> = {}) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-due-o7-'));
+        const calls = resolve(dir, 'calls');
+        const summary = resolve(dir, 'summary.md');
+        const harness = `sha256sum() { echo "0000000000000000000000000000000000000000000000000000000000000000  $1"; }
+ssh() {
+  echo "ssh $*" >> "$CALLS"
+  case "$*" in
+    *"python3 - '"*)
+      cat > /dev/null
+      echo "LEASE_RELEASED $*" >> "$CALLS"
+      ;;
+    *"database.json"*)
+      echo "2026-11-22T07:00:00Z"
+      ;;
+    *"schema-evidence.json"*)
+      echo "{}"
+      ;;
+  esac
+}
+python3() {
+  if [ "$1" = -B ] && [ "$2" = server/scripts/engine-release-installed-migrations.py ]; then
+    printf '%s\\n' ${verdictOut
+      .split('\n')
+      .map((line) => JSON.stringify(line))
+      .join(' ')}
+    echo "reason=mock contents" >&2
+    return 0
+  fi
+  command python3 "$@"
+}
+date() { echo "2026-11-22"; }
+git() { echo "2026-11-22T07:00:00Z"; }
+`;
+        try {
+          const result = planShell(
+            harness + due.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              GITHUB_STEP_SUMMARY: summary,
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+              DATABASE_URL: 'postgres://fixture',
+              MODE: 'auto',
+              EVENT: 'push',
+              CONTROL: sha,
+              RUN_ID: '888',
+              RUN_ATTEMPT: '1',
+              SHA: sha,
+              FREEZE_BASELINE: '',
+              PLAN_PRIORITY: 'none',
+              ...overrides,
+            },
+            dir
+          );
+          return {
+            ...result,
+            calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '',
+            summary: existsSync(summary) ? readFileSync(summary, 'utf8') : '',
+          };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('wires env, Build/Export/Ship/late_priority guards, and refresh.outputs.deferred into certify', () => {
+        expect(due.env.RUN_ID).toBe('${{ github.run_id }}');
+        expect(due.env.RUN_ATTEMPT).toBe('${{ github.run_attempt }}');
+        expect(due.env.SHA).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+        );
+        expect(due.env.FREEZE_BASELINE).toBe('${{ needs.plan.outputs.freeze_baseline }}');
+        expect(due.env.PLAN_PRIORITY).toBe('${{ needs.plan.outputs.priority }}');
+        for (const step of [build, exp, ship, latePriority]) {
+          expect(step.if).toContain("steps.due.outputs.deferred != '1'");
+        }
+        expect(backup.jobs.refresh.outputs.deferred).toContain("steps.due.outputs.deferred == '1'");
+        expect(backup.jobs.certify.if).toContain("needs.refresh.outputs.deferred != '1'");
+      });
+
+      it('defers an ordinary push run carrying uninstalled ordinary migrations, releases lease atomically, and skips certify', () => {
+        const r = runDue(
+          'due=false\nproduction=' + 'a'.repeat(64) + '\npending=20261122025656,20261122025900'
+        );
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain(
+          `DEFERRED: ${sha} carries uninstalled ordinary migration(s) (20261122025656,20261122025900)`
+        );
+        expect(r.stdout).toContain('due=false');
+        expect(r.stdout).toContain('deferred=1');
+        expect(r.summary).toContain('20261122025656,20261122025900');
+        expect(r.calls).toContain('LEASE_RELEASED');
+        expect(r.calls).toMatch(
+          /ssh -i .* -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 .*python3 - '888' '1'/
+        );
+      });
+
+      it.each([
+        ['freeze_baseline', { FREEZE_BASELINE: '1' }],
+        ['booking priority', { PLAN_PRIORITY: 'booking' }],
+        ['forced refresh', { MODE: 'force' }],
+        ['workflow_dispatch', { EVENT: 'workflow_dispatch' }],
+        ['schedule', { EVENT: 'schedule' }],
+        ['repository_dispatch', { EVENT: 'repository_dispatch' }],
+      ])('exempts %s runs even when pending migrations exist', (_label, overrides) => {
+        const r = runDue(
+          'due=true\nproduction=' + 'a'.repeat(64) + '\npending=20261122025656',
+          overrides
+        );
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('DEFERRED:');
+        expect(r.stdout).not.toContain('deferred=1');
+        expect(r.calls).not.toContain('LEASE_RELEASED');
+      });
+
+      it.each([
+        [
+          'all installed (empty pending=)',
+          'due=false\nproduction=' + 'a'.repeat(64) + '\npending=',
+        ],
+        ['unreadable production (no pending=)', 'due=true'],
+      ])('does not defer when %s', (_label, verdictOut) => {
+        const r = runDue(verdictOut);
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('DEFERRED:');
+        expect(r.stdout).not.toContain('deferred=1');
+        expect(r.calls).not.toContain('LEASE_RELEASED');
       });
     });
   });

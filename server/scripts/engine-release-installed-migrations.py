@@ -642,6 +642,7 @@ def main(argv):
             why += f'; still not installed after {args.wait}s: {", ".join(pending[:5])}'
         print(f'due={"true" if due else "false"}')
         print(f'production={digest(production["migrations"])}')
+        print(f'pending={",".join(pending)}')
         print(f'reason={why}', file=sys.stderr)
         return 0
     return 2

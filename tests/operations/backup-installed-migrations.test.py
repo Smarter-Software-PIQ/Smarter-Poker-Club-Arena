@@ -154,6 +154,60 @@ class RefreshDue(unittest.TestCase):
                                         clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s))
         self.assertEqual(pending, [FEEDER])
 
+    def test_refresh_due_emits_pending_versions_and_omits_when_unreadable(self):
+        with tempfile.TemporaryDirectory(prefix='refresh-due-pending-') as tmp:
+            repo = Path(tmp, 'repo')
+            repo.mkdir()
+            run_git = lambda *a: subprocess.check_output(['git', '-C', str(repo), *a], text=True).strip()
+            run_git('init', '-q')
+            run_git('config', 'user.email', 'fixture@example.invalid')
+            run_git('config', 'user.name', 'Migration fixture')
+            mig_dir = repo / 'supabase' / 'migrations'
+            mig_dir.mkdir(parents=True)
+            (mig_dir / '20261122025656_share_previews.sql').write_text('SELECT 1;\n')
+            (mig_dir / '20261122025900_hu_wait_mode.sql').write_text('SELECT 1;\n')
+            (mig_dir / '20261122030000_window_only.sql').write_text(
+                '-- @install-window: daily-maintenance\nSELECT 1;\n')
+            run_git('add', '.')
+            run_git('commit', '-qm', 'add frozen migrations')
+            control = run_git('rev-parse', 'HEAD')
+            copy, prod = Path(tmp, 'copy.json'), Path(tmp, 'production.json')
+            same = {s: hashlib.sha256(s.encode()).hexdigest() for s in se.SIGNATURES}
+            copy.write_bytes(evidence(AFTER, same))
+            prod.write_text(json.dumps({'migrations': sorted([v, n] for v, n in AFTER.items()),
+                                        'functions': {s: s for s in se.SIGNATURES}}))
+            sha = hashlib.sha256(copy.read_bytes()).hexdigest()
+            # Two ordinary recently-added migrations absent from production; window migration excluded.
+            res = subprocess.run(
+                ['python3', '-B', HELPER, 'refresh-due', '--repo', str(repo),
+                 '--copy-evidence', str(copy), '--copy-evidence-sha', sha,
+                 '--production', str(prod), '--control', control, '--wait', '1'],
+                capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn('due=false\n', res.stdout)
+            self.assertIn('pending=20261122025656,20261122025900\n', res.stdout)
+            self.assertNotIn('20261122030000', res.stdout)
+            # Once both ordinary migrations are installed, pending= is empty.
+            installed = {**AFTER, '20261122025656': 'share_previews', '20261122025900': 'hu_wait_mode'}
+            prod.write_text(json.dumps({'migrations': sorted([v, n] for v, n in installed.items()),
+                                        'functions': {s: s for s in se.SIGNATURES}}))
+            res_ok = subprocess.run(
+                ['python3', '-B', HELPER, 'refresh-due', '--repo', str(repo),
+                 '--copy-evidence', str(copy), '--copy-evidence-sha', sha,
+                 '--production', str(prod), '--control', control, '--wait', '1'],
+                capture_output=True, text=True)
+            self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
+            self.assertIn('pending=\n', res_ok.stdout)
+            # Unreadable production omits pending= (fail-open, never falsely defers).
+            res_err = subprocess.run(
+                ['python3', '-B', HELPER, 'refresh-due', '--repo', str(repo),
+                 '--copy-evidence', str(copy), '--copy-evidence-sha', sha,
+                 '--production', str(Path(tmp, 'missing.json')), '--control', control, '--wait', '1'],
+                capture_output=True, text=True)
+            self.assertEqual(res_err.returncode, 0, res_err.stderr)
+            self.assertIn('due=true\n', res_err.stdout)
+            self.assertNotIn('pending=', res_err.stdout)
+
 
 class InstalledDuringExport(unittest.TestCase):
     """Run 42521781581: 20261108210509 installed inside the export."""
