@@ -59,7 +59,9 @@ Any of the four lanes (PLO Strategy, Horse On/Off Switches, Antigravity Coordina
 python3 -B scripts/release/three-hourly-readiness.py
 ```
 
-Options: `--json` (machine-readable payload), `--limit N` (default `10` first-parent commits on `refs/remotes/origin/main` since the serving SHA), `--repo owner/name` (default `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`).
+Options: `--json` (machine-readable payload), `--limit N` (default `10` first-parent commits on `refs/remotes/origin/main` since the serving SHA), `--repo owner/name` (default `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`), `--repo-dir <path>` (optional path to a local git checkout when invoking the CLI from outside the repository; falls back to the script's repository root if `.git` exists, else current working directory, else fails closed to `UNKNOWN` with exit `3`).
+
+The `selection` job in `.github/workflows/stage-engine-release.yml` also appends a strictly read-only, non-blocking Markdown summary to `$GITHUB_STEP_SUMMARY` with the `daily-selection.json` outcome, serving/target SHAs, deferred candidate reasons/details, and the `three-hourly-readiness.py` one-line verdict so all four lanes see selection readiness directly in the GitHub Actions UI.
 
 What it reports without mutating git, dispatching workflows, or touching credentials:
 
