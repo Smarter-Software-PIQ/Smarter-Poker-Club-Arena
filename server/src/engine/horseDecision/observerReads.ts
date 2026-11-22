@@ -110,6 +110,8 @@ export class HorseObserverReads {
     FastHorseDecisionRequest,
     {
       state: HorseMindSandbox;
+      /** Exact sandbox executed by run() (equals temporary clone when historyPhase === 'pending'). */
+      shadowState: HorseMindSandbox;
       boundary: { observedAt: number };
       receipt: HorseObserverReadReceipt;
       historyAckDigest: string | null;
@@ -831,8 +833,18 @@ export class HorseObserverReads {
         }
       }
     }
+    const runState =
+      historyEntry?.historyPhase === 'pending'
+        ? (() => {
+            const temporary = structuredClone(executionState);
+            for (const hand of historyEntry.pendingCompletions ?? [])
+              this.learnPublic(historyEntry, temporary, hand);
+            return temporary;
+          })()
+        : executionState;
     this.requests.set(request, {
       state: executionState,
+      shadowState: runState,
       boundary: entry,
       receipt: Object.freeze({
         version: pooled ? 3 : history ? 2 : 1,
@@ -888,13 +900,7 @@ export class HorseObserverReads {
       else hand.entries.add(entry as Entry);
     }
     try {
-      if (historyEntry?.historyPhase === 'pending') {
-        const temporary = structuredClone(executionState);
-        for (const hand of historyEntry.pendingCompletions ?? [])
-          this.learnPublic(historyEntry, temporary, hand);
-        return HorseMind.runInSandbox(temporary, fn);
-      }
-      return HorseMind.runInSandbox(executionState, fn);
+      return HorseMind.runInSandbox(runState, fn);
     } finally {
       entry.observedAt = Math.max(entry.observedAt, request.decisionTimeMs);
     }
@@ -904,6 +910,16 @@ export class HorseObserverReads {
   }
   historyAcknowledgement(request: FastHorseDecisionRequest): string | null {
     return this.requests.get(request)?.historyAckDigest ?? null;
+  }
+  /**
+   * Read-only re-entry into the exact observer sandbox used by run(request, ...) for deferred
+   * staged option shadow re-decisions. Never mutates boundary.observedAt; falls back to fn()
+   * when run() did not execute for this request (e.g. a unit test overriding runDecisionReadView).
+   */
+  runReadOnly<T>(request: FastHorseDecisionRequest, fn: () => T): T {
+    const entry = this.requests.get(request);
+    if (!entry) return fn();
+    return HorseMind.runInSandbox(entry.shadowState, fn);
   }
   runIssued<T>(request: FastHorseDecisionRequest | null, fn: () => T): T {
     const entry = request ? this.requests.get(request) : undefined;

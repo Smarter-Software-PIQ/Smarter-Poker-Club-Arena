@@ -1,5 +1,6 @@
 import { verifiedSavedPresence } from './savedProfilePresence.js';
 import { installDecisionHud } from '../opponentHud/OpponentHud.js';
+import { installOmahaTurn4bHudProviders } from '../opponentHud/OmahaTurn4bHudProviders.js';
 import { warmOmahaMathCore } from '../omahaMathCore/OmahaMathCoreWarmUp.js';
 import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
@@ -579,6 +580,7 @@ export async function startOwnedServices(shard?: {
 
   try {
     armWorkerWatchcounterRelay(true);
+    installOmahaTurn4bHudProviders();
     // A decision worker whose Monte Carlo can be cut by its own loop delay
     // is not the brain the packs qualified with (client.ts,
     // horseDecisionWorkerEnv). Refuse readiness rather than decide with it.
@@ -1293,6 +1295,7 @@ export class HorseDecisionWorkerRuntime {
     ) => new HorseQualifiedAuthorityHolder(epoch, version)
   ) {
     armWorkerWatchcounterRelay(true);
+    installOmahaTurn4bHudProviders();
     this.featureAuthority = authorityHolder(
       'features',
       null,
@@ -3197,6 +3200,7 @@ export class HorseDecisionWorkerRuntime {
     // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): this decision's lifetime opponent profiles, from its own request
     // (journaled with it); absent installs nothing, so every read answers as before.
     installDecisionHud(request.opponentHud);
+    installOmahaTurn4bHudProviders();
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;
@@ -4093,31 +4097,37 @@ export class HorseDecisionWorkerRuntime {
       skipped('rate');
     else {
       if (admitted === 'person_over') this.deps.noteFeature('option_shadow_rate_person_over_seen');
-      const redecideMs = this.optionShadowReceipt(
-        task.request,
-        task.player,
-        task.gameState,
-        task.base,
-        task.option,
-        task.state,
-        task.actual as HorseDecision,
-        task.rngBefore,
-        task.governorScale,
-        task.table,
-        (receipt) => {
-          this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
-          if (!(this.deps.journalEnabled?.() ?? true)) return;
-          if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
-            this.stagedOptionShadowReceipts.shift();
-            this.deps.noteFeature('option_shadow_stage_receipt_dropped_seen');
+      // Re-enter the exact observer read view and HUD packet used by the acted decision so
+      // deferred staged re-decisions never drift against ambient HorseMind state.
+      installDecisionHud(task.request.opponentHud);
+      installOmahaTurn4bHudProviders();
+      const redecideMs = this.observerReads.runReadOnly(task.request, () =>
+        this.optionShadowReceipt(
+          task.request,
+          task.player,
+          task.gameState,
+          task.base,
+          task.option,
+          task.state,
+          task.actual as HorseDecision,
+          task.rngBefore,
+          task.governorScale,
+          task.table,
+          (receipt) => {
+            this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
+            if (!(this.deps.journalEnabled?.() ?? true)) return;
+            if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
+              this.stagedOptionShadowReceipts.shift();
+              this.deps.noteFeature('option_shadow_stage_receipt_dropped_seen');
+            }
+            this.stagedOptionShadowReceipts.push({
+              decisionKey: task.request.decisionKey,
+              requestId: task.request.requestId,
+              decisionTimeMs: task.request.decisionTimeMs,
+              receipt,
+            });
           }
-          this.stagedOptionShadowReceipts.push({
-            decisionKey: task.request.decisionKey,
-            requestId: task.request.requestId,
-            decisionTimeMs: task.request.decisionTimeMs,
-            receipt,
-          });
-        }
+        )
       );
       if (redecideMs !== null) {
         this.deps.noteDecision('option_shadow_stage_redecide', redecideMs);
@@ -4208,6 +4218,7 @@ export class HorseDecisionWorkerRuntime {
 
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
     installDecisionHud((request as { opponentHud?: unknown }).opponentHud);
+    installOmahaTurn4bHudProviders();
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;
