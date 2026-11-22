@@ -169,6 +169,9 @@ import {
   SEAT_FIRST_START_STALL_MS,
   seatFirstHumanPartnerHoldUntilMs,
   seatFirstHumanPartnerHoldJitterMs,
+  resolveHeadsUpWaitHoldOverride,
+  type HeadsUpWaitHoldRow,
+  type SeatFirstPartnerHoldOverride,
   firstHumanSeatedAtMs,
   HUMAN_SEAT_DEMAND_TTL_MS,
   SATELLITE_HU_TARGET_LEAD_MS,
@@ -689,6 +692,8 @@ interface SeatFirstOccupancy {
   hasHuman: boolean;
   /** Earliest live human seat, ms; NaN when no human sits. */
   firstHumanAtMs: number;
+  /** Live seated human user ids, used to ignore stale HU wait holds after a creator leaves. */
+  humanUserIds?: ReadonlySet<string>;
 }
 
 export class GameServer {
@@ -13967,11 +13972,16 @@ export class GameServer {
        last HUMAN_SEAT_DEMAND_TTL_MS the seats are declared, so the horses
        this human will need are still free the moment the hold ends. */
     if (hasHuman) {
+      const waitOverride =
+        seats === 2
+          ? await this.readHeadsUpWaitHoldOverride(tournamentId, occupancy.humanUserIds)
+          : undefined;
       const holdUntil = seatFirstHumanPartnerHoldUntilMs(
         startMs,
         occupancy.firstHumanAtMs,
         seatFirstHumanPartnerHoldJitterMs(tournamentId),
-        createdAtMs
+        createdAtMs,
+        waitOverride
       );
       const now = Date.now();
       if (holdUntil > now) {
@@ -14189,6 +14199,36 @@ export class GameServer {
    * is_horse is used to IDENTIFY the occupant only (CLAUDE.md 10.5).
    */
   private seatFirstOccupancyReads = new Map<string, Promise<SeatFirstOccupancy | null>>();
+  private headsUpWaitHoldCache = new Map<
+    string,
+    { at: number; override: SeatFirstPartnerHoldOverride | undefined }
+  >();
+
+  private async readHeadsUpWaitHoldOverride(
+    tournamentId: string,
+    humanUserIds?: ReadonlySet<string>
+  ): Promise<SeatFirstPartnerHoldOverride | undefined> {
+    const now = Date.now();
+    const cached = this.headsUpWaitHoldCache.get(tournamentId);
+    if (cached && now - cached.at < 2_000) {
+      return cached.override;
+    }
+    const { data, error } = await supabase
+      .from('heads_up_wait_holds')
+      .select('tournament_id, creator_user_id, wait_mode, hold_expires_at')
+      .eq('tournament_id', tournamentId)
+      .maybeSingle();
+    if (error) {
+      return cached?.override;
+    }
+    const override = resolveHeadsUpWaitHoldOverride(
+      data as HeadsUpWaitHoldRow | null,
+      humanUserIds
+    );
+    if (this.headsUpWaitHoldCache.size > 500) this.headsUpWaitHoldCache.clear();
+    this.headsUpWaitHoldCache.set(tournamentId, { at: now, override });
+    return override;
+  }
 
   private seatFirstHasHuman(
     tournamentId: string,
@@ -14265,6 +14305,7 @@ export class GameServer {
         (occupants || []) as Array<{ user_id?: string | null; joined_at?: string | null }>,
         (id) => humans.has(id)
       ),
+      humanUserIds: humans,
     };
     this.seatFirstOccupancy.set(tournamentId, answer);
     return answer;
@@ -14351,6 +14392,7 @@ export class GameServer {
       this.tournamentRecurring.seatFirstPartnerHoldUntil(tournamentId) > Date.now()
     ) {
       this.seatFirstOccupancy.delete(tournamentId);
+      this.headsUpWaitHoldCache.delete(tournamentId);
       this.seatFirstFillMisses.delete(tournamentId);
       // Declared from a stale answer: the next pass re-declares it in the
       // hold's last stretch if the board still needs it.
@@ -14378,6 +14420,7 @@ export class GameServer {
       this.seatFirstFillMisses.delete(tournamentId);
       this.seatFirstStuckReported.delete(tournamentId);
       this.seatFirstOccupancy.delete(tournamentId);
+      this.headsUpWaitHoldCache.delete(tournamentId);
       this.tournamentRecurring.clearHumanSeatDemand(tournamentId);
       if (fillsTheBoard) {
         // The board is full now: start it now, not on the next poll.

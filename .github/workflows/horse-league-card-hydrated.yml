@@ -1,0 +1,116 @@
+name: Horse League Card Hydrated
+run-name: Horse league card ${{ inputs.card }} (${{ inputs.source_sha }})
+
+# ------------------------------------------------------------------------------
+# SINGLE LEAGUE CARD WITH HYDRATED SOLVER STORES
+#
+# Runs one named LEAGUE_MATCHUPS card on a hosted Linux runner with read-only
+# solver store hydration (--hydrate-solver-stores), matching the nightly
+# compute worker (GTO charts, postflop compact and V31) with EQUITY_GOVERNOR
+# off and zero database writes.
+#
+# Manual workflow_dispatch only, for one exact 40-hex source SHA. Never runs on
+# push, pull_request or schedule, and shares the horse-strength-hosted-capacity
+# concurrency group so hosted capacity stays available for required CI and
+# client publishing.
+# ------------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-hex commit on main to evaluate
+        required: true
+        type: string
+      card:
+        description: Exact card name in LEAGUE_MATCHUPS (e.g. human_hu_opener_defends_vs_wide_40bb, nlh_hu_postflop_balance, plo4_omaha_ev_fold)
+        required: true
+        type: string
+      seeds:
+        description: Comma-separated whole-number run seeds
+        required: false
+        default: '20261120,20261121,20261122'
+        type: string
+      pairs:
+        description: Duplicate pairs per seed
+        required: false
+        default: '6000'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: horse-strength-hosted-capacity
+  cancel-in-progress: false
+
+jobs:
+  card:
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    name: Hydrated card ${{ inputs.card }}
+    runs-on: ubuntu-24.04
+    environment: ci-main
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Validate inputs
+        working-directory: .
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CARD: ${{ inputs.card }}
+          SEEDS: ${{ inputs.seeds }}
+          PAIRS: ${{ inputs.pairs }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "source_sha must be 40 hex"; exit 1; }
+          [[ "$CARD" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "card must be an exact matchup identifier"; exit 1; }
+          [[ "$SEEDS" =~ ^[0-9]+(,[0-9]+)*$ ]] || { echo "seeds must be comma-separated whole numbers"; exit 1; }
+          [[ "$PAIRS" =~ ^[0-9]+$ ]] && (( PAIRS >= 2 && PAIRS <= 65536 )) || { echo "pairs must be an integer between 2 and 65536"; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run hydrated league card
+        env:
+          CARD: ${{ inputs.card }}
+          SEEDS: ${{ inputs.seeds }}
+          PAIRS: ${{ inputs.pairs }}
+          EQUITY_GOVERNOR: 'off'
+          GIT_COMMIT_SHA: ${{ inputs.source_sha }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/league-card"
+          mkdir -p "$OUT"
+          npx tsx src/scripts/horseLeagueCard.ts \
+            --card="$CARD" \
+            --seed="$SEEDS" \
+            --pairs="$PAIRS" \
+            --hydrate-solver-stores \
+            2>&1 | tee "$OUT/$CARD.log"
+          grep '^RESULT_JSON ' "$OUT/$CARD.log" | sed 's/^RESULT_JSON //' > "$OUT/$CARD-results.jsonl"
+
+      - name: Upload league card output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: league-card-${{ inputs.card }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/league-card/
+          retention-days: 30
+          if-no-files-found: error

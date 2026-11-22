@@ -1166,7 +1166,7 @@ const SWITCH_BASE = {
   styleRaiseRespect: true,
   styleFoldBluff: true,
   omahaFacingBetEv: true,
-  omahaSmallBetIsPriced: true,
+  omahaTurnRiverRaiseIsPriced: true,
   v8: true,
 };
 function switchConfigFor(
@@ -1746,111 +1746,115 @@ function loadSwitchCard(): { config: LightningEvalConfig; candidate: LightningEv
 describe.runIf(requested !== undefined && (requested in STAGED || requested === 'switch'))(
   'the paired Lightning evaluation runner',
   () => {
-    it('runs the declared configuration and writes its report', async () => {
-      const switchCard = requested === 'switch' ? loadSwitchCard() : null;
-      const config = switchCard ? switchCard.config : STAGED[requested!]!;
-      const outDir = process.env.LIGHTNING_EVAL_OUT;
-      if (!outDir) throw new Error('LIGHTNING_EVAL_OUT (a directory) is required');
-      const range = process.env.LIGHTNING_EVAL_CELLS?.split(':').map(Number);
-      const candidateOpts =
-        !switchCard && process.env.LIGHTNING_EVAL_CANDIDATE
-          ? (JSON.parse(process.env.LIGHTNING_EVAL_CANDIDATE) as Record<string, unknown>)
-          : null;
-      const candidate: LightningEvalArmSpec = switchCard
-        ? switchCard.candidate
-        : candidateOpts
-          ? {
-              name: Object.keys(candidateOpts).sort().join('+') || 'empty',
-              decideOpts: candidateOpts,
-            }
-          : NULL_CANDIDATE;
-      // LIGHTNING_EVAL_DEADLINE=apply: answer a decision past the production
-      // deadline as production does (machine dependent; default measure).
-      const deadlineEnv = process.env.LIGHTNING_EVAL_DEADLINE ?? 'measure';
-      if (deadlineEnv !== 'measure' && deadlineEnv !== 'apply')
-        throw new Error(`LIGHTNING_EVAL_DEADLINE must be measure or apply, not ${deadlineEnv}`);
-      const deadlineMode: 'measure' | 'apply' = deadlineEnv;
-      const stem = `${outDir}/lightning-paired-eval-${config.name}-${candidate.name}${
-        range ? `-cells-${range.join('-')}` : ''
-      }${deadlineMode === 'apply' ? '-deadline-apply' : ''}`;
-      const cellRange: [number, number] =
-        range && range.length === 2 && range.every(Number.isInteger)
-          ? [range[0]!, Math.min(range[1]!, config.cells.length)]
-          : [0, config.cells.length];
-      if (!(cellRange[0] >= 0 && cellRange[0] < cellRange[1]))
-        throw new Error(
-          `LIGHTNING_EVAL_CELLS ${cellRange.join(':')} holds no cell of the ${config.cells.length}`
-        );
-      // The side files carry .partial until the whole range is played and
-      // checked; a range another process left unfinished stops this one here.
-      const files = openLightningEvalRunFiles({
-        stem,
-        latencyHeader: {
-          schema: LIGHTNING_EVAL_LATENCY_SCHEMA,
-          config: config.name,
-          seedClass: config.seedClass,
-          candidate: candidate.name,
-          candidateDecideOpts: candidate.decideOpts ?? {},
-          cells: range ?? null,
+    it(
+      'runs the declared configuration and writes its report',
+      async () => {
+        const switchCard = requested === 'switch' ? loadSwitchCard() : null;
+        const config = switchCard ? switchCard.config : STAGED[requested!]!;
+        const outDir = process.env.LIGHTNING_EVAL_OUT;
+        if (!outDir) throw new Error('LIGHTNING_EVAL_OUT (a directory) is required');
+        const range = process.env.LIGHTNING_EVAL_CELLS?.split(':').map(Number);
+        const candidateOpts =
+          !switchCard && process.env.LIGHTNING_EVAL_CANDIDATE
+            ? (JSON.parse(process.env.LIGHTNING_EVAL_CANDIDATE) as Record<string, unknown>)
+            : null;
+        const candidate: LightningEvalArmSpec = switchCard
+          ? switchCard.candidate
+          : candidateOpts
+            ? {
+                name: Object.keys(candidateOpts).sort().join('+') || 'empty',
+                decideOpts: candidateOpts,
+              }
+            : NULL_CANDIDATE;
+        // LIGHTNING_EVAL_DEADLINE=apply: answer a decision past the production
+        // deadline as production does (machine dependent; default measure).
+        const deadlineEnv = process.env.LIGHTNING_EVAL_DEADLINE ?? 'measure';
+        if (deadlineEnv !== 'measure' && deadlineEnv !== 'apply')
+          throw new Error(`LIGHTNING_EVAL_DEADLINE must be measure or apply, not ${deadlineEnv}`);
+        const deadlineMode: 'measure' | 'apply' = deadlineEnv;
+        const stem = `${outDir}/lightning-paired-eval-${config.name}-${candidate.name}${
+          range ? `-cells-${range.join('-')}` : ''
+        }${deadlineMode === 'apply' ? '-deadline-apply' : ''}`;
+        const cellRange: [number, number] =
+          range && range.length === 2 && range.every(Number.isInteger)
+            ? [range[0]!, Math.min(range[1]!, config.cells.length)]
+            : [0, config.cells.length];
+        if (!(cellRange[0] >= 0 && cellRange[0] < cellRange[1]))
+          throw new Error(
+            `LIGHTNING_EVAL_CELLS ${cellRange.join(':')} holds no cell of the ${config.cells.length}`
+          );
+        // The side files carry .partial until the whole range is played and
+        // checked; a range another process left unfinished stops this one here.
+        const files = openLightningEvalRunFiles({
+          stem,
+          latencyHeader: {
+            schema: LIGHTNING_EVAL_LATENCY_SCHEMA,
+            config: config.name,
+            seedClass: config.seedClass,
+            candidate: candidate.name,
+            candidateDecideOpts: candidate.decideOpts ?? {},
+            cells: range ?? null,
+            deadlineMode,
+          },
+          pairsHeader: {
+            schema: LIGHTNING_EVAL_PAIRS_SCHEMA,
+            config: config.name,
+            seedClass: config.seedClass,
+            candidate: candidate.name,
+            candidateDecideOpts: candidate.decideOpts ?? {},
+            cells: range ?? null,
+          },
+        });
+        const report = await runLightningPairedEval({
+          config,
+          candidate,
+          playArm,
+          cellRange,
+          onPairs: (rows, c, i) => files.appendPairs(c.seed, i, rows),
+          onLatency: (row) => files.appendLatency(row),
           deadlineMode,
-        },
-        pairsHeader: {
-          schema: LIGHTNING_EVAL_PAIRS_SCHEMA,
+          onCell: (c, i) =>
+            console.log(
+              `[lightning-eval] cell ${i} seed ${c.seed} ${c.cell.variant} ${c.cell.players}p ${lightningEvalStackLabel(c.cell)} ${c.cell.field}: diff ${c.paired.diffBB100} bb/100 (se ${c.paired.seBB100}), divergent decisions ${c.paired.divergentDecisions}; process ${lightningEvalProcessMemory()}`
+            ),
+        });
+        writeFileSync(`${stem}.json`, JSON.stringify(report, null, 1));
+        writeFileSync(`${stem}.md`, lightningEvalMarkdown(report));
+        console.log(
+          `[lightning-eval] wrote ${stem}.json and .md (the side files keep .partial until the checks below pass), digest ${report.digest}; illegal actions ${report.totals.illegalActions}, illegal amounts ${report.totals.illegalAmounts}, chip-conservation violations ${report.totals.conservationViolations}, unsettled hands ${report.totals.unsettledHands}`
+        );
+        console.log(
+          `[lightning-eval] deadline and G4\n${lightningEvalLatencyMarkdown(report.latency)}`
+        );
+        expect(report.totals.illegalActions).toBe(0);
+        expect(report.totals.illegalAmounts).toBe(0);
+        // N2: a hand whose chips do not add up fails the run.
+        expect(report.totals.conservationViolations).toBe(0);
+        // A mixed cell's stacks reached the engine, seat for seat.
+        for (const c of report.cells)
+          if (c.cell.stackMix === 'mixed') expect(c.stacks?.engineStackMismatches).toBe(0);
+        if (candidate === NULL_CANDIDATE && deadlineMode === 'measure')
+          expect(report.totals.divergentDecisions).toBe(0);
+        // Played and checked: only now do the side files get the names the
+        // merge reads, with the marker that says what they must hold.
+        const completion = files.complete({
           config: config.name,
           seedClass: config.seedClass,
           candidate: candidate.name,
           candidateDecideOpts: candidate.decideOpts ?? {},
-          cells: range ?? null,
-        },
-      });
-      const report = await runLightningPairedEval({
-        config,
-        candidate,
-        playArm,
-        cellRange,
-        onPairs: (rows, c, i) => files.appendPairs(c.seed, i, rows),
-        onLatency: (row) => files.appendLatency(row),
-        deadlineMode,
-        onCell: (c, i) =>
-          console.log(
-            `[lightning-eval] cell ${i} seed ${c.seed} ${c.cell.variant} ${c.cell.players}p ${lightningEvalStackLabel(c.cell)} ${c.cell.field}: diff ${c.paired.diffBB100} bb/100 (se ${c.paired.seBB100}), divergent decisions ${c.paired.divergentDecisions}; process ${lightningEvalProcessMemory()}`
-          ),
-      });
-      writeFileSync(`${stem}.json`, JSON.stringify(report, null, 1));
-      writeFileSync(`${stem}.md`, lightningEvalMarkdown(report));
-      console.log(
-        `[lightning-eval] wrote ${stem}.json and .md (the side files keep .partial until the checks below pass), digest ${report.digest}; illegal actions ${report.totals.illegalActions}, illegal amounts ${report.totals.illegalAmounts}, chip-conservation violations ${report.totals.conservationViolations}, unsettled hands ${report.totals.unsettledHands}`
-      );
-      console.log(
-        `[lightning-eval] deadline and G4\n${lightningEvalLatencyMarkdown(report.latency)}`
-      );
-      expect(report.totals.illegalActions).toBe(0);
-      expect(report.totals.illegalAmounts).toBe(0);
-      // N2: a hand whose chips do not add up fails the run.
-      expect(report.totals.conservationViolations).toBe(0);
-      // A mixed cell's stacks reached the engine, seat for seat.
-      for (const c of report.cells)
-        if (c.cell.stackMix === 'mixed') expect(c.stacks?.engineStackMismatches).toBe(0);
-      if (candidate === NULL_CANDIDATE && deadlineMode === 'measure')
-        expect(report.totals.divergentDecisions).toBe(0);
-      // Played and checked: only now do the side files get the names the
-      // merge reads, with the marker that says what they must hold.
-      const completion = files.complete({
-        config: config.name,
-        seedClass: config.seedClass,
-        candidate: candidate.name,
-        candidateDecideOpts: candidate.decideOpts ?? {},
-        deadlineMode,
-        seeds: [...config.seeds],
-        handsPerCell: config.handsPerCell,
-        configCells: config.cells.length,
-        cellRange,
-        reportDigest: report.digest,
-      });
-      console.log(
-        `[lightning-eval] COMPLETE cells ${cellRange.join(':')} of ${config.cells.length}, ${completion.units.length} (seed, cell) units, ${completion.files.pairs.lines - 1} paired rows: ${stem}.pairs.jsonl, .latency.jsonl and .complete.json`
-      );
-    }, lightningEvalRunnerTimeoutMs(process.env.LIGHTNING_EVAL_TIMEOUT_MS));
+          deadlineMode,
+          seeds: [...config.seeds],
+          handsPerCell: config.handsPerCell,
+          configCells: config.cells.length,
+          cellRange,
+          reportDigest: report.digest,
+        });
+        console.log(
+          `[lightning-eval] COMPLETE cells ${cellRange.join(':')} of ${config.cells.length}, ${completion.units.length} (seed, cell) units, ${completion.files.pairs.lines - 1} paired rows: ${stem}.pairs.jsonl, .latency.jsonl and .complete.json`
+        );
+      },
+      lightningEvalRunnerTimeoutMs(process.env.LIGHTNING_EVAL_TIMEOUT_MS)
+    );
   }
 );
 

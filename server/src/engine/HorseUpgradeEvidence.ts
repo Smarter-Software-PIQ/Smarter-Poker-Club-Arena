@@ -71,6 +71,52 @@ export const PER_HORSE_OPPORTUNITY_ONLY_NEEDLES: ReadonlySet<string> = new Set([
   "'upgrade10_fast_window_ready_seen'",
 ]);
 
+/**
+ * GUARDS (2026-11-21). An upgrade here is a safety guard: it acts only when a
+ * host-side condition arises, and a brain decision is never one of its
+ * opportunities. Its cell counts only its own opportunities (decisions) and the
+ * ones in which it acted (invoked), both from noteHorseUpgradeEvent; the worker
+ * fold credits it nothing, so its denominator is not every brain decision.
+ *
+ *   upgrade_09_preaction_purge  opportunity: a server-owned Horse reaches its
+ *       turn with a pre-action armed (only a person who piloted the Horse
+ *       account through the client, armed one and dropped off can leave one);
+ *       acted: the pre-action is gone after the clear. 0 of 9.6 million brain
+ *       decisions before this; 0 opportunities is the expected ordinary day.
+ *
+ * Reading a guard: judgeHorseUpgradeEvidence. Rows written before the release
+ * carrying this still hold upgrade 09 with every brain decision as decisions.
+ */
+export const PER_HORSE_GUARD_UPGRADES: ReadonlySet<string> = new Set([
+  'upgrade_09_preaction_purge',
+]);
+
+export type HorseUpgradeEvidenceVerdict =
+  /** A guard with no opportunity: nothing to guard, healthy. */
+  | 'guard_idle'
+  /** A guard that acted on every opportunity: healthy. */
+  | 'guard_held'
+  /** A guard with an opportunity it did not act on: flagged. */
+  | 'guard_missed'
+  /** Not a guard: read as decisions and invoked, as before; no verdict. */
+  | 'per_decision';
+
+/**
+ * The verdict for one upgrade's totals over any set of cells (a day, a Horse,
+ * the fleet). Only a guard is judged; scripts/ops/per-horse-upgrade-evidence-daily.sql
+ * reports the same verdict (a law holds the two equal).
+ */
+export function judgeHorseUpgradeEvidence(
+  upgradeId: string,
+  decisions: number,
+  invoked: number
+): { verdict: HorseUpgradeEvidenceVerdict; flagged: boolean } {
+  if (!PER_HORSE_GUARD_UPGRADES.has(upgradeId)) return { verdict: 'per_decision', flagged: false };
+  if (!(decisions > 0)) return { verdict: 'guard_idle', flagged: false };
+  if (invoked >= decisions) return { verdict: 'guard_held', flagged: false };
+  return { verdict: 'guard_missed', flagged: true };
+}
+
 export type HorseUpgradeEvidenceLane = 'cash' | 'tournament';
 
 export interface HorseUpgradeEvidenceRow {
@@ -107,6 +153,8 @@ function needles(): NeedleTable {
   const prefixes: Array<{ prefix: string; index: number }> = [];
   for (const [id, list] of Object.entries(HORSE_UPGRADE_LIVE_EVIDENCE)) {
     const at = index.get(id)!;
+    // A guard is recorded by its host events only, never by a brain decision's fires.
+    if (PER_HORSE_GUARD_UPGRADES.has(id)) continue;
     for (const needle of list) {
       if (PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(needle)) continue;
       if (needle.startsWith('`')) prefixes.push({ prefix: needle.slice(1), index: at });
@@ -167,7 +215,8 @@ export function enableHorseUpgradeEvidence(): void {
   const byScope = new Map<string, number[]>();
   for (const entry of computeHorseUpgradeActivationManifest().upgrades) {
     const index = needles().index.get(entry.id);
-    if (!entry.enabled || index === undefined) continue;
+    // A guard's opportunities are host-side only (PER_HORSE_GUARD_UPGRADES).
+    if (!entry.enabled || index === undefined || PER_HORSE_GUARD_UPGRADES.has(entry.id)) continue;
     for (const variant of entry.variants)
       for (const mode of entry.modes) {
         const scope = `${variant}|${mode}`;
@@ -293,7 +342,10 @@ export function noteHorseUpgradeDecision(
  * pre-action. It is its own opportunity, so it counts one decision and one
  * invocation in that upgrade's cell.
  *
- * WHAT THE TWO COUNTERS MEAN FOR AN UPGRADE WITH BOTH SOURCES (08, 09). The
+ * A GUARD (PER_HORSE_GUARD_UPGRADES, 09) has this source only: decisions are
+ * its opportunities and invoked the ones it acted on (`acted`).
+ *
+ * WHAT THE TWO COUNTERS MEAN FOR AN UPGRADE WITH BOTH SOURCES (08). The
  * workers and the main process write to the same cell and the writer adds
  * them, so the rule is that no opportunity is reported by both:
  *   decisions = the Horse's FAST brain decisions in that variant and lane
@@ -311,7 +363,9 @@ export function noteHorseUpgradeEvent(
   userId: string,
   variant: string | undefined,
   mode: string | undefined,
-  upgradeId: string
+  upgradeId: string,
+  /** A guard's opportunity on which it did not act passes false: one decision, no invocation. */
+  acted = true
 ): void {
   if (!armed) return;
   const index = needles().index.get(upgradeId);
@@ -324,7 +378,16 @@ export function noteHorseUpgradeEvent(
   const day = utcDay();
   const gameVariant = normalizeWatchcounterVariant(variant);
   const lane = normalizeWatchcounterMode(mode);
-  add(groupKey(day, horse, gameVariant, lane), day, horse, gameVariant, lane, index, 1, 1);
+  add(
+    groupKey(day, horse, gameVariant, lane),
+    day,
+    horse,
+    gameVariant,
+    lane,
+    index,
+    1,
+    acted ? 1 : 0
+  );
 }
 
 /** Take every cell and empty the aggregate (the flush service and tests). */

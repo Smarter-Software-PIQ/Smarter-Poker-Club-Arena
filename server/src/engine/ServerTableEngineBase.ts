@@ -8994,6 +8994,19 @@ export abstract class ServerTableEngineBase {
     return this.claimedTournamentMovePauseOwners.size > 0 || this.tournamentMoveOperations.size > 0;
   }
 
+  /** True while this exact owner holds a tournament-move pause on this engine. */
+  hasTournamentMovePauseOwner(ownerId: string): boolean {
+    return this.tournamentMovePauseOwners.has(ownerId);
+  }
+
+  /**
+   * True while the post-hand completion display is still playing on the felt
+   * before the dealing loop reaches `awaitPauseGate()`. Overridden in Seating.
+   */
+  isInCompletionPresentationHold(): boolean {
+    return false;
+  }
+
   /** Read-only identity check for a physically completed owner handoff. */
   hasOnlyDrainedTournamentMoveOwner(ownerId: string): boolean {
     return (

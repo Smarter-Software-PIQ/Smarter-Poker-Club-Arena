@@ -2,7 +2,7 @@
 
 2026-11-21: owner window `2026-11-21-owner-no-notice-engine-1135z` (11:35 to 17:35 UTC November 21; 5:35 AM to 11:35 AM Chicago) is the next engine cutover of the owner's three-hour cadence, serving `bb21dc82673` (sealed under 0300z), no advance notice.
 
-2026-11-21: **a dedicated engine cutover every three hours** (owner order 02:22 Chicago, session `session_01Gw7aDsC1z7GdpSYmDAM2kv`, "I WANT A ENGINE CUT OVER EVERY 3 HOURS"). The scheduled route now runs at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago through `.github/workflows/stage-engine-release.yml` (one preparation per cycle at cycle minus 30 minutes), the single receiver `.github/workflows/auto-deploy-hetzner.yml` and `server/scripts/engine-release-transaction.sh`, selected by `server/src/maintenance/maintenanceSchedulePolicy.json`. Wherever this runbook says 03:30 or 04:00 for the routine route, read the cycle's preparation and start; window migrations and the nightly schema freeze stay at 04:00. Contract and lane rules: `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md`; changelog `docs/changelog/2026-11-21-a-dedicated-engine-cutover-every-three-hours.md`; law `tests/the-engine-cuts-over-every-three-hours.law.test.ts`.
+2026-11-21: **a dedicated engine cutover every three hours** (owner order 02:22 Chicago, session `session_01Gw7aDsC1z7GdpSYmDAM2kv`, "I WANT A ENGINE CUT OVER EVERY 3 HOURS"). The scheduled route now runs at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago through `.github/workflows/stage-engine-release.yml` (one preparation per cycle at cycle minus 30 minutes), the single receiver `.github/workflows/auto-deploy-hetzner.yml` and `server/scripts/engine-release-transaction.sh`, selected by `server/src/maintenance/maintenanceSchedulePolicy.json`. Wherever this runbook says 03:30 or 04:00 for the routine route, read the cycle's preparation and start; window migrations and the nightly schema freeze stay at 04:00, and `.github/scripts/dispatch-merged-migrations.sh` + `scripts/ci/merged-migration-dispatch.mjs` automatically defer ordinary merged migrations inside `[cycle - 90m, cycle + 10m)` until `cycle + 10m` Chicago while the serving engine reports `three-hourly` on `/health`. Contract and lane rules: `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md`; changelog `docs/changelog/2026-11-21-a-dedicated-engine-cutover-every-three-hours.md`; laws `tests/the-engine-cuts-over-every-three-hours.law.test.ts` and `tests/an-ordinary-migration-waits-for-the-three-hourly-engine-cutover.law.test.ts`.
 
 2026-11-21: owner window `2026-11-21-owner-no-notice-engine-0825z` (08:25 to 09:20 UTC November 21; 2:25 AM to 3:20 AM Chicago) is the next engine cutover of the owner's three-hour cadence, serving `bb21dc82673` (sealed under 0300z), no advance notice.
 
@@ -480,25 +480,59 @@ hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
 a second time), and a later control change on main (another lane's booking) makes
 that later commit the `booking`. A failed refresh is always a refusal: the verdict step reads `needs.refresh.result`
 and writes `failure` even when a provider answer stopped the job before certify
-(review of #10805). Nothing cancels a certification that is
-already running: a run that started before the booking merged still holds the
-host until it ends (about 50 minutes on November 14).
+(review of #10805). Owner-window priority itself does not cancel a running
+certification: a booking commit, freeze baseline, manual, nightly, or post-seal
+soak always runs to completion.
 
 The standby host turn wait (`turn` step of `backup-engine.yml` `refresh` job)
 allows up to 120 minutes (`7200` s; `refresh` `timeout-minutes: 180`, host
 lease TTL `9000` s) so a queued candidate behind an active refresh plus 55-min
 certification does not time out right before its turn (2026-11-21, E3). While
-waiting for the lease in `turn`, and again in `late_priority` before `certify`,
-an ordinary `push` run that observes a newer push run (larger run id, different
-head SHA) yields cleanly as `SUPERSEDED`, releasing any held host lease and
-writing no `error` or `failure` status; `booking`, `freeze_baseline`, manual,
-nightly and post-seal runs are never superseded, and an unreadable GitHub
-answer proceeds (CLAUDE.md 10.86). Immediately after acquiring the host turn,
-`late_inherit` re-checks whether the target SHA is already certified or whether
-a first-parent ancestor with identical `scripts/ci/engine-source-identity.sh`
-and `backup_projection` (`scripts/ci/read-engine-prequalification.py`) gained
+still waiting for the lease in `turn`, an ordinary `push` run yields cleanly as
+`SUPERSEDED` (writing no `error` or `failure` status) only when a strictly newer
+active (non-completed) push run exists on `main` with a different head SHA AND a
+different `scripts/ci/engine-source-identity.sh` (or a diff to
+`.github/workflows/backup-engine.yml`); completed newer runs and identical-source
+pushes never disrupt a waiting run (2026-11-21, O2). `booking`,
+`freeze_baseline`, manual, nightly and post-seal runs are never superseded, and
+any unreadable GitHub or git answer keeps waiting (CLAUDE.md 10.86).
+
+Immediately after acquiring the Backup host turn (and never dropping an
+already-acquired lease for a newer ordinary push), `late_retarget` checks
+`main`'s newest server commit (`head`) for non-`booking`, non-`freeze_baseline`
+push runs: if `head` descends from `SHA` and `GITHUB_SHA`, does not modify
+`.github/workflows/backup-engine.yml`, and does not already carry
+`backup-engine/certified = success`, the run retargets in-place (`sha="$head"`,
+`control_sha="$head"`, checking out `$head` and forwarding the updated target
+to `refresh` and `certify` outputs) (2026-11-21, O2). Right after
+`late_retarget`, `late_inherit` re-checks whether the target SHA is already
+certified or whether a first-parent ancestor with identical
+`scripts/ci/engine-source-identity.sh` and `backup_projection`
+(`scripts/ci/read-engine-prequalification.py`) gained
 `backup-engine/certified = success` while it waited; if so, it inherits the
 certificate, releases the host lease at once, and skips refresh and `certify`.
+Before `certify`, `late_priority` still yields the host lease for an owner
+window booked while the run waited (`predates` or `booking_pending`), but never
+throws away an already-acquired lease for a newer ordinary push.
+
+During `certify`, `cmd_certify` on the offline standby host remains strictly
+network-free (`server/standby/standby-engine.sh` is unchanged). For ordinary
+`push` runs only (never `booking`, `freeze_baseline`, `workflow_dispatch`,
+`schedule`, or `repository_dispatch`), the GitHub Actions runner executes the
+SSH `standby-engine certify` command in the background while a bounded
+runner-side loop checks every 60 s (2026-11-21, O1). If and only if ALL FOUR
+conditions hold - (a) a newer active push run of `backup-engine.yml` is queued
+or in progress on `main`, (b) `projection(SHA)` from
+`scripts/ci/read-engine-prequalification.py` or `supabase/migrations` on
+`origin/main` already differs from `SHA` (proving `SHA` can never be selected
+against current `main`), (c) fewer than 75 minutes (`4500` s) remain until the
+next scheduled three-hourly or daily cutoff (`THREE_HOURLY_START_HOURS`), and
+(d) every read succeeded (any unreadable check keeps soaking per CLAUDE.md
+10.86) - the runner terminates the SSH certify command, stops the standby
+container cleanly via `/usr/local/sbin/standby-engine`'s `stop_for_restore`
+helper over SSH, releases the standby host lease, records `YIELDED_OBSOLETE` in
+the step summary, writes NO `failure` or `error` commit status, and exits `0` so
+the waiting selectable commit can immediately acquire `ca-backup`.
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only

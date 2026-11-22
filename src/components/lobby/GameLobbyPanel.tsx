@@ -92,6 +92,8 @@ export interface GameLobbyPanelProps {
   /** True inside the MultiTablePage embed: links must not navigate the host
       page, so the footer back-link becomes a plain close. */
   embedded?: boolean;
+  /** Sender's Share & Invite code for chip clubs (attached as ?i=<CODE> on invites). */
+  inviteCode?: string | null;
 }
 
 type TournTab = 'overview' | 'structure' | 'payouts';
@@ -195,6 +197,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     onDeleteTable,
     embedded,
     staff,
+    inviteCode,
   } = props;
 
   /**
@@ -808,7 +811,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   );
 
   const handleInviteToGame = useCallback(async () => {
-    const url = gameInviteUrl(lobbyEntryInviteTarget(entry));
+    const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     setInviteFallbackUrl('');
     const outcome = await shareLink({
       source: 'GameLobbyPanel.inviteToGame',
@@ -823,7 +826,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     } else if (outcome === 'failed') {
       setInviteFallbackUrl(url);
     }
-  }, [entry]);
+  }, [entry, inviteCode]);
 
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.

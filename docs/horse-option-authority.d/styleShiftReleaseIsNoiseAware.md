@@ -1,6 +1,6 @@
 # styleShiftReleaseIsNoiseAware: authority for the live switch
 
-Status: built, OFF, Evidence NOT MET: the option is registered default OFF (read `=== true`, release default off, no switch row) and stays off. It is the root fix of a defect in the 2026-11-06 style-shift release, built 2026-11-21 by the Antigravity coordinator lane (session `01Gw7aDtgw51ks82iZdeEMVr`). Two league cards are significant and positive, the bare-switch PLO4 negative seed was diagnosed as a missing-production-switch artifact and cleared on a 3-seed check over the live 66-row production switch set (`+5.03 +/- 6.23 bb/100`, `z = +0.81`), and audited single-hand journal replay is structurally inert for a learning-side option; promotion still needs a formally declared production-switch card and owner/SWITCH approval; see Verdict.
+Status: merged (`PR #11643`, `01919ce6e496`), default OFF, Evidence NOT MET: the option is registered default OFF (read `=== true`, release default off, no switch row; migrations `20261121171027` and `20261122011559` installed in production with `fn_ca_horse_option_switch_states` = `["off","on"]`) and stays off. It is the root fix of a defect in the 2026-11-06 style-shift release, built 2026-11-21 by the Antigravity coordinator lane (session `01Gw7aDtgw51ks82iZdeEMVr`). Post-merge 3-seed live-67-row production-switch evaluation (`168,000` hands across NLH, PLO4, and FLH, `0/0/0/0` safety) clears harm across all three variants (`+3.33 +/- 4.05` NLH, `+2.03 +/- 6.15` PLO4, `+0.37 +/- 0.12 z=+3.10` FLH), while audited single-hand journal replay is structurally inert for a learning-side option; promotion still needs a formally declared production-switch card (or multi-hand stateful opponent-memory replay) and owner/SWITCH approval; see Verdict.
 
 ## The defect it fixes
 
@@ -97,13 +97,29 @@ Receipts with the option on (time shifter / tight image): released 2,120 / 1,807
 
 Combined across all 3 seeds: `+5.03 +/- 6.23 bb/100` (`z = +0.81`), zero harm and zero significant negative seed (`min z = -0.64`).
 
+### Post-merge 3-seed live 67-row production-switch evaluation (2026-11-22)
+
+Measured on `9ece781796fd` (Turn 3 `PR #11643`, merged on `origin/main` as `01919ce6e496` with migrations `20261121171027` and `20261122011559` installed and `fn_ca_horse_option_switch_states` = `["off","on"]`) against the exact live `67`-row `public.ca_horse_style_switch` snapshot (`2026-11-22T03:36Z`, `51 on / 16 off`: `7` style `on`, `44` plain `on` including `styleTightPlayerExploit` and `omahaBlanketRowsOffInPlo45Cash`, `16` plain `off`; seeds `20261121, 20261122, 20261123`, `hybridBaseline: true`, `moodClock: 'deal_seed'`, `EQUITY_GOVERNOR=off`, `168,000` hands total; `0` illegal, `0` truncated, `0` corrected, `0` brain exception fallbacks across all 9 runs):
+
+| Card (live 67-row prod switch)                                                         | Pairs/seed | Seed 20261121                              | Seed 20261122                             | Seed 20261123                              | Pooled (3 seeds)                            | Diverged | Safety  |
+| -------------------------------------------------------------------------------------- | ---------- | ------------------------------------------ | ----------------------------------------- | ------------------------------------------ | ------------------------------------------- | -------- | ------- |
+| NLH 6-max calibrated human (`HUMAN_CALIBRATED_POPULATION_ID`)                          | 12,000     | `+15.77 +/- 5.63` (`z = +2.80`, `417` div) | `+0.90 +/- 6.79` (`z = +0.13`, `413` div) | `-6.69 +/- 8.35` (`z = -0.80`, `430` div)  | `+3.33 +/- 4.05` (`z = +0.82`)              | 1,260    | 0/0/0/0 |
+| PLO4 6-max Omaha dev (`HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID`)                      | 6,000      | `+1.23 +/- 9.45` (`z = +0.13`, `80` div)   | `-5.92 +/- 9.24` (`z = -0.64`, `48` div)  | `+10.78 +/- 12.87` (`z = +0.84`, `66` div) | `+2.03 +/- 6.15` (`z = +0.33`)              | 194      | 0/0/0/0 |
+| FLH 6-max steal (`flh_value_only_blinds_v1`, `fixedLimitStealVsTightBlinds` both arms) | 10,000     | `+0.17 +/- 0.18` (`z = +0.93`, `29` div)   | `+0.32 +/- 0.14` (`z = +2.31`, `35` div)  | `+0.62 +/- 0.27` (`z = +2.25`, `53` div)   | `+0.37 +/- 0.12` (`z = +3.10`, SIGNIFICANT) | 117      | 0/0/0/0 |
+
+Every pooled mean on the live 67-row production switch set is positive (`+3.33` NLH, `+2.03` PLO4, `+0.37` FLH) with worst single-seed `z = -0.80` and `0/0/0/0` safety across `168,000` hands.
+
 ## Evidence rows
 
-- Mechanism, scope, receipts, tests, byte-identical off (TypeScript and SQL): MET.
-- Value against people: NOT MET. Two cards are significant and positive (fixed-limit steal over mixed-frequency over-folders, z 2.96; calibrated NLH field, z 3.25), but each is one significant run of the three a default-on promotion needs, on scripted or calibrated fields, not people.
-- Harm: DIAGNOSED / CLEARED ON LIVE PRODUCTION SWITCHES (not yet formally card-declared). The bare `b = {}` Omaha development field read `-13.92 +/- 7.51` (`z -1.85`, seed 20261121 `-27.79 +/- 12.04`, `z -2.31`), traced via `LeagueChangedNodeTable` to missing production Omaha preflop/style switches (`omahaPressureNeedsPostflopAggression`, `omahaNeutralUnknown`). On the exact live 66-row production switch set (`2026-11-21T20:00Z`, 3 seeds x 6,000 pairs), PLO4 reads `+5.03 +/- 6.23 bb/100` (`z = +0.81`, `min z = -0.64`, 0 illegal, 0 truncated). The gear-changer controls show no harm.
+- Mechanism, scope, receipts, tests, byte-identical off (TypeScript and SQL): MET (`PR #11643` merged `01919ce6e496`; migrations `20261121171027` and `20261122011559` installed).
+- Value against people: NOT MET. On the live 67-row production switch set (`2026-11-22T03:36Z`, 3 seeds), FLH scripted steal is significant (`+0.37 +/- 0.12`, `z = +3.10`, `0` live FLH human hands), while NLH 6-max calibrated human (`+3.33 +/- 4.05`, `z = +0.82`, `72,000` hands) and PLO4 6-max Omaha dev (`+2.03 +/- 6.15`, `z = +0.33`, `36,000` hands) are positive but below the three-significant-run default-on promotion bar.
+- Harm: CLEARED ON LIVE PRODUCTION SWITCHES. The bare `b = {}` Omaha development field read `-13.92 +/- 7.51` (`z -1.85`, seed 20261121 `-27.79 +/- 12.04`, `z -2.31`), traced via `LeagueChangedNodeTable` to missing production Omaha preflop/style switches (`omahaPressureNeedsPostflopAggression`, `omahaNeutralUnknown`). On the live 66-row (`2026-11-21T20:00Z`) and live 67-row (`2026-11-22T03:36Z`) production switch sets, PLO4 reads `+5.03 +/- 6.23` (`z = +0.81`) and `+2.03 +/- 6.15` (`z = +0.33`, `min z = -0.64`), NLH reads `+3.33 +/- 4.05` (`z = +0.82`, `min z = -0.80`), FLH reads `+0.37 +/- 0.12` (`z = +3.10`), all with `0/0/0/0` safety, and the gear-changer controls show no harm.
 - Real-hand replay: not run (structurally inert under single-hand `mind: false` journal replay; see above).
 
-## Verdict (2026-11-21)
+## Verdict (2026-11-22)
 
-Status: built, OFF, Evidence NOT MET; the option stays OFF and no switch row is written. Missing for promotion: (1) a formally declared production-switch card (three significant positive runs per variant for a default-on promotion); (2) multi-hand stateful opponent-memory replay or live shadow/on-shadow observation in place of single-hand `mind: false` journal replay; and (3) owner/SWITCH approval.
+Status: merged (`PR #11643`, `01919ce6e496`, migrations `20261121171027` and `20261122011559` installed, `fn_ca_horse_option_switch_states` = `["off","on"]`), default OFF, Evidence NOT MET; the option stays OFF and no switch row is written. Missing for promotion: (1) significant positive production-switch runs on live-trafficked human variants (NLH/PLO4) under a formally declared card; (2) multi-hand stateful opponent-memory replay (process switches refuse `shadow`); and (3) owner/SWITCH approval.
+
+## Rollback
+
+If enabled, set `styleShiftReleaseIsNoiseAware` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('styleShiftReleaseIsNoiseAware', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

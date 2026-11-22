@@ -1512,6 +1512,10 @@ export interface OppPostflopRead {
    * Only omahaAggressorTier reads this; `bigBet` itself is left as it was
    * for every other consumer. */
   tierByPotShare?: boolean;
+  /** omahaBigBetSizeIsPriced (default OFF, HorseOmahaBigBetSizeIsPriced):
+   * continuous priced aggressor value-share (`pStrong` in `[0.50, 0.94]`) from
+   * pot share and lifetime public HUD, replacing the 20 BB / 0.70 step cliff. */
+  pricedBetStrength?: number;
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
@@ -2419,6 +2423,22 @@ type OmahaReservoir = {
 const omahaReservoirs = new Map<string, OmahaReservoir>();
 const OMAHA_RESERVOIR_SIZE = 16384;
 
+/**
+ * UPGRADE 04 USE, PER DECISION (2026-11-21, evidence only). buildOmahaReservoir's
+ * counter fires once per process and shape, so it counts worker starts, not the
+ * decisions that rank Omaha hands against the reservoir. Every read of a reservoir
+ * (omahaPreflopPercentile, placeOmahaBandCombo, placeOmahaPressureCombo) adds one
+ * here: a plain integer, monotonic and never reset, read by nothing in a decision.
+ * The decision's owner (workerRuntime executeFastWithUpgradeEvidence) takes it
+ * before and after one FAST decision and, when it moved, fires
+ * upgrade04_reservoir_used_seen once for that decision. No counter call sits in the
+ * equity loops: a read costs one increment.
+ */
+let omahaReservoirReads = 0;
+export function omahaReservoirReadsTotal(): number {
+  return omahaReservoirReads;
+}
+
 function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir {
   // Evidence, once per process and reservoir: which reservoirs this process
   // built and therefore ranks Omaha hands against.
@@ -2974,6 +2994,7 @@ export function omahaPreflopPercentile(cards: Card[], isHiLo: boolean): number {
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
+  omahaReservoirReads++;
   const s = rv.scores;
   const n = s.length;
   if (n === 0) return raw;
@@ -3012,6 +3033,7 @@ export function placeOmahaBandCombo(
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
+  omahaReservoirReads++;
   const size = rv.scores.length;
   // Percentile (CDF-index) mapping, clamped to a legal slice.
   const lo = Math.max(0, Math.min(size - 1, Math.floor(clamp01(band[0]) * size)));
@@ -3086,6 +3108,7 @@ export function placeOmahaPressureCombo(
     reservoir = buildOmahaReservoir(holeCount, false);
     omahaReservoirs.set(key, reservoir);
   }
+  omahaReservoirReads++;
   const size = reservoir.scores.length;
   const range = band ?? [0, 1];
   if (!range.every(Number.isFinite) || range[1] <= range[0] || range[0] >= 1 || range[1] <= 0)
@@ -3665,7 +3688,11 @@ export function simulateEquity(
         }
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
-          const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
+          const baseReq = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
+          const req =
+            typeof read.pricedBetStrength === 'number' && Number.isFinite(read.pricedBetStrength)
+              ? { ...baseReq, pStrong: read.pricedBetStrength }
+              : baseReq;
           if (read.strictPressureRange === true && (!vi.isHiLo || read.highOnlyBoard === true)) {
             if (
               fastRandom() < req.pStrong &&

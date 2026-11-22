@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaPreflopHudPriced.law.test.ts
+
+With omahaPreflopReadIsPricedFromLifetime on (and omahaOpponentLifetimeHud on), 3–6 seat PLO4/PLO5 cash preflop retires plo_opponent_presumed_aggressive completely (zero presumption fires), prices widened maniac-pressure spots strictly on six-max (sh) HUD cells (pf.\*, exact pf.lr, exact pf.bvo) with continuous n/(n+k) shrinkage, SRP vs 3-bet realization, strict silence when pf.lr/pf.bvo is absent, zero double-pricing on raises>=2, zero person-vs-Horse key, latency p50 < 25 ms, and leaves OFF, HU, PLO6, hi-lo, bomb pots, multi-board, and tournaments byte-identical.

@@ -95,6 +95,9 @@ import {
   omahaMadeClass,
   omahaNutStatus,
   omahaPreflopPercentile,
+  scoreHoldem,
+  scoreOmahaHi,
+  scoreOmahaHiPartial,
   variantInfo,
 } from '../engine/HorseEval.js';
 /**
@@ -900,6 +903,8 @@ export interface Report {
   sections: Section[];
   games: GameRow[];
   options: OptionSet | null;
+  /** the public-information range grade (only when asked for; absent = not run) */
+  range?: RangeSection | null;
 }
 
 function section(name: Section['name'], decisions: GradedDecision[]): Section {
@@ -948,6 +953,9 @@ export function buildReport(input: {
   /** rows of renderExcludedSql: { g, n } */
   excluded?: ReadonlyArray<{ g: string; n: number }> | null;
   equity: EquityFn;
+  /** also run the range grade (a separate section; the real-card sections are unchanged) */
+  rangeGrade?: boolean;
+  rangeDraws?: number;
 }): Report {
   const seen = new Set<string>();
   const hands = input.hands.filter((h) => {
@@ -961,13 +969,16 @@ export function buildReport(input: {
   const builds: Record<string, number> = {};
   let bombs = 0;
   let missing = 0;
+  const ranged: RangeGradedDecision[] = [];
   for (const h of hands) {
     const b = (h.build ?? 'not recorded').slice(0, 12);
     builds[b] = (builds[b] ?? 0) + 1;
     if (h.bomb) bombs += 1;
     const kept = new Set((h.horse_cards ?? []).map((c) => c.uid));
     if ((h.facts ?? []).some((f) => f.horse && !kept.has(f.uid))) missing += 1;
-    (h.tournament ? tournament : cash).push(...gradeHand(h, input.equity));
+    const graded = gradeHand(h, input.equity);
+    (h.tournament ? tournament : cash).push(...graded);
+    if (input.rangeGrade) ranged.push(...rangeGradeHand(h, graded, input.rangeDraws));
   }
   return {
     schema: REPORT_SCHEMA,
@@ -991,6 +1002,7 @@ export function buildReport(input: {
     options: input.switchRows
       ? optionSetAt(input.switchRows, input.switchAudit ?? [], input.startMs, input.endMs)
       : null,
+    ...(input.rangeGrade ? { range: rangeSection(ranged) } : {}),
   };
 }
 
@@ -1235,5 +1247,702 @@ export function renderMarkdown(
     '- Decisions of one hand share its result; the SE is clustered by hand but classes are not independent of each other.'
   );
   L.push('- Horse-against-Horse hands are not in this report, and it proves nothing about them.');
+  if (r.range) L.push('', ...renderRangeSection(r.range));
   return L.join('\n') + '\n';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RANGE GRADE (2026-11-21): every decision priced on PUBLIC information only
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Criteria declared before any number was computed:
+// /Volumes/SmarterWork/agent-work/shared-capacity/hd-01Gw7aDs/range-grade/CRITERIA.md
+// (sha256 d51698ab23168dbe87b3d8ffa7342afa7434d0c9a72ae0a21b2ae45db1d8db5c, 2026-11-21 08:55:21 CST).
+//
+// The real-card grade above can price a decision only where the person's cards
+// were shown, and its "realised" basis measures the Horse's hand, not its
+// decision. This section grades EVERY decision the same way: each live
+// opponent (person or Horse) holds a RANGE built from the public action line
+// and the board at the time; nobody's real cards are read, even when they were
+// shown later. The decision is priced as EV against its passive alternative at
+// realisation 1 (no betting after it). The SAME function run with the ranges
+// replaced by the real cards (where the existing read-only route knows them)
+// is the validation the range grade must pass before it is trusted.
+// No equity calculator is imported: showdowns on a completed board are scored
+// with the engine's pure hand scores (worker boundary kept).
+
+export const RANGE_GRADE = {
+  criteriaSha256: 'd51698ab23168dbe87b3d8ffa7342afa7434d0c9a72ae0a21b2ae45db1d8db5c',
+  draws: 1500,
+  referenceHoldings: 300,
+  essMin: 30,
+  /** a live opponent facing the Horse's bet or raise continues with prob 1 at pct >= threshold, else floor */
+  continueThreshold: 0.4,
+  continueFloor: 0.3,
+  /** [threshold, floor] per earlier voluntary action of that opponent; a check does not narrow */
+  weights: {
+    preflop_call: [0.4, 0.1],
+    preflop_open: [0.65, 0.05],
+    preflop_reraise: [0.85, 0.03],
+    bet: [0.6, 0.25],
+    raise: [0.8, 0.15],
+    call: [0.4, 0.3],
+  },
+  validation: { minN: 60, signAgreement: 0.7, signMinAbsBb: 1, seMultiple: 2, relTolerance: 0.25 },
+} as const;
+
+export type RangeActionKind = keyof typeof RANGE_GRADE.weights;
+export type RangeFamily = 'postflop' | 'preflop_closing' | 'preflop_r1';
+export type RangeUngraded = 'no_horse_cards' | 'no_board' | 'range_ess_low';
+
+export interface RangeGradedDecision {
+  /** the daily grade's decision, one to one (same order as gradeHand) */
+  base: GradedDecision;
+  family: RangeFamily;
+  /** bb, + = the Horse lost; EV of the decision against public-information ranges */
+  rangeLossBb: number | null;
+  ungraded: RangeUngraded | null;
+  ess: number | null;
+  /** the same measure with every live opponent's REAL cards (validation only); null when any is unknown */
+  realLossBb: number | null;
+}
+
+/** w for one earlier voluntary action of an opponent whose holding has strength percentile pct. */
+export function rangeActionWeight(kind: RangeActionKind | 'check', pct: number): number {
+  if (kind === 'check') return 1;
+  const [threshold, floor] = RANGE_GRADE.weights[kind];
+  return pct >= threshold ? 1 : floor;
+}
+
+/** Deterministic PRNG (mulberry32) seeded from text. */
+export function seededRng(text: string): () => number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  let a = h >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const DECK_RANKS: CardRank[] = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+const DECK_SUITS: CardSuit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
+const DECK: Card[] = DECK_RANKS.flatMap((rank) => DECK_SUITS.map((suit) => ({ rank, suit })));
+const cardIndex = (c: Card): number => DECK_RANKS.indexOf(c.rank) * 4 + DECK_SUITS.indexOf(c.suit);
+const holeCount = (g: string): number =>
+  g === 'plo4' ? 4 : g === 'plo5' ? 5 : g === 'plo6' ? 6 : 2;
+
+/** Strength used for the range filter: preflop the engine's preflop score, postflop its made-hand score. */
+function strengthOf(g: string, hole: Card[], board: Card[]): number {
+  if (board.length < 3)
+    return isOmaha(g)
+      ? omahaPreflopPercentile(hole, false)
+      : holdemPreflopScore(hole[0], hole[1], false);
+  if (isOmaha(g)) return scoreOmahaHiPartial(hole, board);
+  const all = hole.concat(board);
+  return scoreHoldem(all, all.length, false);
+}
+
+/** Showdown score on a completed five-card board. */
+function showdownScore(g: string, hole: Card[], board5: Card[]): number {
+  if (isOmaha(g)) return scoreOmahaHi(hole, board5);
+  const all = hole.concat(board5);
+  return scoreHoldem(all, all.length, false);
+}
+
+/** Draw `k` distinct cards not marked in `used` (marks them). */
+function drawCards(rng: () => number, used: Uint8Array, k: number): Card[] {
+  const out: Card[] = [];
+  let guard = 0;
+  while (out.length < k) {
+    const i = Math.floor(rng() * 52);
+    if (++guard > 100_000) throw new Error('deck exhausted');
+    if (used[i]) continue;
+    used[i] = 1;
+    out.push(DECK[i]);
+  }
+  return out;
+}
+
+/** Percentile of a holding's strength against the fixed reference sample for this board (ties half). */
+export class StrengthPercentile {
+  private cache = new Map<string, Float64Array>();
+  constructor(private readonly g: string) {}
+  private reference(board: Card[]): Float64Array {
+    const key = board.map((c) => c.rank + c.suit[0]).join('');
+    let ref = this.cache.get(key);
+    if (!ref) {
+      const rng = seededRng(`range-reference|${this.g}|${key}`);
+      const base = new Uint8Array(52);
+      for (const c of board) base[cardIndex(c)] = 1;
+      const xs: number[] = [];
+      for (let i = 0; i < RANGE_GRADE.referenceHoldings; i++) {
+        const used = base.slice();
+        xs.push(strengthOf(this.g, drawCards(rng, used, holeCount(this.g)), board));
+      }
+      ref = Float64Array.from(xs.sort((a, b) => a - b));
+      this.cache.set(key, ref);
+    }
+    return ref;
+  }
+  pct(hole: Card[], board: Card[]): number {
+    const ref = this.reference(board);
+    const s = strengthOf(this.g, hole, board);
+    let below = 0;
+    let ties = 0;
+    for (const r of ref) {
+      if (r < s) below += 1;
+      else if (r === s) ties += 1;
+    }
+    return (below + 0.5 * ties) / ref.length;
+  }
+}
+
+export interface RangeOpp {
+  streetWager: number;
+  behind: number;
+  allIn: boolean;
+  history: Array<{ kind: RangeActionKind | 'check'; board: Card[] }>;
+  real: Card[] | null;
+}
+
+export interface RangeSpot {
+  g: string;
+  bb: number;
+  action: GradedDecision['action'];
+  hero: Card[];
+  board: Card[];
+  pot: number;
+  pay: number;
+  potFor: number;
+  added: number;
+  heroStreetWager: number;
+  opps: RangeOpp[];
+}
+
+/**
+ * EV-of-decision loss (bb, + = the Horse lost) by importance-weighted sampling.
+ * mode 'range': each opponent's holding drawn uniformly and weighted by its public actions.
+ * mode 'real': every opponent holds its real cards (weight 1); only the run-out is sampled.
+ */
+export function priceSpot(
+  spot: RangeSpot,
+  mode: 'range' | 'real',
+  seed: string,
+  draws: number = RANGE_GRADE.draws
+): { lossBb: number; ess: number } {
+  const rng = seededRng(`${seed}|${mode}`);
+  const pctOf = new StrengthPercentile(spot.g);
+  const base = new Uint8Array(52);
+  for (const c of spot.hero) base[cardIndex(c)] = 1;
+  for (const c of spot.board) base[cardIndex(c)] = 1;
+  const aggressive = spot.action === 'bet' || spot.action === 'raise';
+  const newWager = spot.heroStreetWager + spot.added;
+  const extra = spot.opps.map((o) =>
+    o.allIn ? 0 : Math.min(Math.max(0, newWager - o.streetWager), Math.max(0, o.behind))
+  );
+  let W = 0;
+  let W2 = 0;
+  let sCall = 0;
+  let sAgg = 0;
+  let sCheck = 0;
+  for (let d = 0; d < draws; d++) {
+    const used = base.slice();
+    let w = 1;
+    const holds: Card[][] = [];
+    for (const o of spot.opps) {
+      if (mode === 'real') {
+        for (const c of o.real!) used[cardIndex(c)] = 1;
+        holds.push(o.real!);
+      } else {
+        const hole = drawCards(rng, used, holeCount(spot.g));
+        for (const h of o.history) w *= rangeActionWeight(h.kind, pctOf.pct(hole, h.board));
+        holds.push(hole);
+      }
+    }
+    const board5 = spot.board.concat(drawCards(rng, used, 5 - spot.board.length));
+    const heroScore = showdownScore(spot.g, spot.hero, board5);
+    const oppScores = holds.map((h) => showdownScore(spot.g, h, board5));
+    const shareOf = (members: number[]): number => {
+      let ties = 1;
+      for (const i of members) {
+        if (oppScores[i] > heroScore) return 0;
+        if (oppScores[i] === heroScore) ties += 1;
+      }
+      return 1 / ties;
+    };
+    const all = holds.map((_, i) => i);
+    const shareAll = shareOf(all);
+    const evCall = shareAll * (spot.potFor + spot.pay) - spot.pay;
+    let evAgg = 0;
+    if (aggressive) {
+      const forced = all.filter((i) => spot.opps[i].allIn || extra[i] <= EPS);
+      const free = all.filter((i) => !forced.includes(i));
+      const pCont = free.map((i) =>
+        pctOf.pct(holds[i], spot.board) >= RANGE_GRADE.continueThreshold
+          ? 1
+          : RANGE_GRADE.continueFloor
+      );
+      for (let mask = 0; mask < 1 << free.length; mask++) {
+        let p = 1;
+        const members = [...forced];
+        free.forEach((i, j) => {
+          if (mask & (1 << j)) {
+            p *= pCont[j];
+            members.push(i);
+          } else p *= 1 - pCont[j];
+        });
+        if (p <= 0) continue;
+        if (members.length === 0) {
+          evAgg += p * spot.pot;
+          continue;
+        }
+        const matched = Math.max(...members.map((i) => spot.opps[i].streetWager + extra[i]));
+        const heroPut = Math.max(0, Math.min(spot.added, matched - spot.heroStreetWager));
+        const oppPut = members.reduce((t, i) => t + extra[i], 0);
+        evAgg += p * (shareOf(members) * (spot.pot + heroPut + oppPut) - heroPut);
+      }
+    }
+    W += w;
+    W2 += w * w;
+    sCall += w * evCall;
+    sAgg += w * evAgg;
+    sCheck += w * shareAll * spot.pot;
+  }
+  const eCall = sCall / W;
+  const eAgg = sAgg / W;
+  const eCheck = sCheck / W;
+  const loss =
+    spot.action === 'fold'
+      ? eCall
+      : spot.action === 'call'
+        ? -eCall
+        : spot.action === 'bet'
+          ? eCheck - eAgg
+          : Math.max(0, eCall) - eAgg;
+  return { lossBb: loss / spot.bb, ess: W2 > 0 ? (W * W) / W2 : 0 };
+}
+
+/**
+ * The range grade of every decision gradeHand finds in this hand, in the same order.
+ * `base` is gradeHand's output for the hand (the caller passes it, so the two stay one to one).
+ */
+export function rangeGradeHand(
+  h: RawHand,
+  base: readonly GradedDecision[],
+  draws: number = RANGE_GRADE.draws
+): RangeGradedDecision[] {
+  const out: RangeGradedDecision[] = [];
+  const facts = h.facts ?? [];
+  const acts = h.acts ?? [];
+  const bb = num(h.bb);
+  if (h.bomb || !(VARIANTS as readonly string[]).includes(h.g) || !(bb > 0)) return out;
+  if (acts.some((a) => a.action === 'bomb_ante')) return out;
+  const bySeat = new Map<number, RawFact>(facts.map((f) => [f.seat, f]));
+  if (!facts.some((f) => !f.horse) || !facts.some((f) => f.horse)) return out;
+
+  // Real cards, used ONLY for the validation column (the existing read-only route's own rules).
+  const horseCards = new Map<string, Card[]>();
+  for (const c of h.horse_cards ?? []) {
+    const parsed = parseCards(c.cards);
+    if (parsed) horseCards.set(c.uid, parsed);
+  }
+  const shownCards = new Map<string, Card[]>();
+  for (const [uid, shown] of Object.entries(h.shown ?? {})) {
+    if (horseCards.has(uid)) continue;
+    const parsed = parseCards(shown);
+    if (parsed) shownCards.set(uid, parsed);
+  }
+  const allInCards = new Map<string, Card[]>();
+  for (const [uid, value] of Object.entries(h.allin_cards ?? {})) {
+    const f = facts.find((x) => x.uid === uid);
+    if (!f || f.horse || !(num(f.invested) > 0)) continue;
+    const parsed = parseCards(value);
+    if (parsed) allInCards.set(uid, parsed);
+  }
+
+  let street = '';
+  let lastAgg: { seat: number } | null = null;
+  let aggs = 0;
+  const history = new Map<number, RangeOpp['history']>();
+  let k = 0;
+  for (const a of acts) {
+    if (!a.seats || a.origin === 'forced' || a.pot == null) continue;
+    if (a.stage !== street) {
+      street = a.stage;
+      lastAgg = null;
+      aggs = 0;
+    }
+    const seats = new Map<number, SeatTuple>(a.seats.map((s) => [s[0], s]));
+    const me = seats.get(a.seat);
+    const fact = bySeat.get(a.seat);
+    if (!me || !fact) continue;
+    const toCall = num(a.toCall);
+    const pot = num(a.pot);
+    const amount = num(a.amount);
+    const stack = num(me[1]);
+    const added =
+      a.action === 'call' || a.action === 'bet'
+        ? amount
+        : a.action === 'raise' || a.action === 'all_in'
+          ? Math.max(0, amount - num(me[2]))
+          : 0;
+    const aggressive =
+      a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && added > toCall + EPS);
+    const live = [...seats.values()].filter(
+      (s) => s[0] !== a.seat && (num(s[6]) & (FOLDED | SITTING_OUT)) === 0 && bySeat.has(s[0])
+    );
+    const livePersons = live.filter((s) => !bySeat.get(s[0])!.horse);
+    const allInSeat = (s: SeatTuple) => (num(s[6]) & ALL_IN) !== 0 || num(s[1]) <= EPS;
+    const facingPerson =
+      toCall > EPS && lastAgg !== null && bySeat.get(lastAgg.seat)?.horse === false;
+    const unopenedBet = toCall <= EPS && aggressive && livePersons.length > 0;
+    const board = parseCards(a.board ?? '') ?? [];
+    if (
+      fact.horse &&
+      live.length > 0 &&
+      (facingPerson || unopenedBet) &&
+      ['fold', 'call', 'raise', 'bet', 'all_in'].includes(a.action)
+    ) {
+      const b = base[k];
+      if (!b) throw new Error('range grade out of step with gradeHand');
+      k += 1;
+      const action = b.action;
+      const pay = Math.min(toCall, stack);
+      const closes = toCall >= stack - EPS || live.every(allInSeat);
+      const family: RangeFamily =
+        street !== 'preflop'
+          ? 'postflop'
+          : ((action === 'fold' || action === 'call') && closes) ||
+              ((action === 'raise' || action === 'bet') && added >= stack - EPS)
+            ? 'preflop_closing'
+            : 'preflop_r1';
+      const d: RangeGradedDecision = {
+        base: b,
+        family,
+        rangeLossBb: null,
+        ungraded: null,
+        ess: null,
+        realLossBb: null,
+      };
+      const hero = horseCards.get(fact.uid) ?? null;
+      if (!hero) d.ungraded = 'no_horse_cards';
+      else if (street !== 'preflop' && board.length < 3) d.ungraded = 'no_board';
+      else {
+        const bettor = facingPerson ? (seats.get(lastAgg!.seat) ?? null) : null;
+        const vsAllInHeadsUp =
+          bettor !== null && live.length === 1 && live[0][0] === bettor[0] && allInSeat(bettor);
+        const opps: RangeOpp[] = live.map((s) => {
+          const f = bySeat.get(s[0])!;
+          const real = f.horse
+            ? (horseCards.get(f.uid) ?? null)
+            : (shownCards.get(f.uid) ??
+              (vsAllInHeadsUp && (action === 'fold' || action === 'call') && s[0] === bettor![0]
+                ? (allInCards.get(f.uid) ?? null)
+                : null));
+          return {
+            streetWager: num(s[2]),
+            behind: num(s[1]),
+            allIn: allInSeat(s),
+            history: [...(history.get(s[0]) ?? [])],
+            real,
+          };
+        });
+        const spot: RangeSpot = {
+          g: h.g,
+          bb,
+          action,
+          hero,
+          board,
+          pot,
+          pay,
+          potFor: pot - (toCall - pay),
+          added,
+          heroStreetWager: num(me[2]),
+          opps,
+        };
+        const seed = `${h.id}|${k}`;
+        const ranged = priceSpot(spot, 'range', seed, draws);
+        d.ess = ranged.ess;
+        if (ranged.ess < RANGE_GRADE.essMin) d.ungraded = 'range_ess_low';
+        else d.rangeLossBb = ranged.lossBb;
+        if (opps.every((o) => o.real !== null) && d.rangeLossBb !== null)
+          d.realLossBb = priceSpot(spot, 'real', seed, draws).lossBb;
+      }
+      out.push(d);
+    }
+    // The public action line of every seat, for the ranges of later decisions.
+    const kind: RangeActionKind | 'check' | null =
+      a.action === 'check'
+        ? 'check'
+        : aggressive
+          ? street === 'preflop'
+            ? aggs === 0
+              ? 'preflop_open'
+              : 'preflop_reraise'
+            : aggs === 0
+              ? 'bet'
+              : 'raise'
+          : a.action === 'call' || a.action === 'all_in'
+            ? street === 'preflop'
+              ? 'preflop_call'
+              : 'call'
+            : null;
+    if (kind && kind !== 'check')
+      (history.get(a.seat) ?? history.set(a.seat, []).get(a.seat)!).push({ kind, board });
+    if (aggressive) {
+      aggs += 1;
+      lastAgg = { seat: a.seat };
+    }
+  }
+  if (k !== base.length) throw new Error('range grade out of step with gradeHand');
+  return out;
+}
+
+export interface RangeValidationCheck {
+  n: number;
+  nSign: number;
+  signAgreement: number | null;
+  meanRange: number;
+  meanReal: number;
+  diff: number;
+  seDiff: number | null;
+  meanAbsReal: number;
+  v1: boolean;
+  v2: boolean;
+}
+export interface RangeValidation {
+  group: 'G1 postflop + preflop_closing' | 'G2 preflop_r1';
+  all: RangeValidationCheck;
+  topPerson: string | null;
+  excludingTopPerson: RangeValidationCheck | null;
+  verdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+}
+
+function validationCheck(ds: readonly RangeGradedDecision[]): RangeValidationCheck {
+  const V = RANGE_GRADE.validation;
+  const n = ds.length;
+  const signRows = ds.filter((d) => Math.abs(d.realLossBb!) >= V.signMinAbsBb);
+  const agree = signRows.filter((d) => Math.sign(d.rangeLossBb!) === Math.sign(d.realLossBb!));
+  const meanRange = n ? ds.reduce((t, d) => t + d.rangeLossBb!, 0) / n : 0;
+  const meanReal = n ? ds.reduce((t, d) => t + d.realLossBb!, 0) / n : 0;
+  const meanAbsReal = n ? ds.reduce((t, d) => t + Math.abs(d.realLossBb!), 0) / n : 0;
+  const diffStat = clusteredStat(
+    ds.map((d) => ({ cluster: d.base.hand, x: d.rangeLossBb! - d.realLossBb! }))
+  );
+  const diff = meanRange - meanReal;
+  const signAgreement = signRows.length ? agree.length / signRows.length : null;
+  return {
+    n,
+    nSign: signRows.length,
+    signAgreement,
+    meanRange,
+    meanReal,
+    diff,
+    seDiff: diffStat.se,
+    meanAbsReal,
+    v1: signAgreement !== null && signAgreement >= V.signAgreement,
+    v2:
+      diffStat.se !== null &&
+      Math.abs(diff) <= V.seMultiple * diffStat.se &&
+      Math.abs(diff) <= V.relTolerance * meanAbsReal,
+  };
+}
+
+/** The declared validation bar, per group, on decisions where every live opponent's real cards are known. */
+export function validateRangeGrade(decisions: readonly RangeGradedDecision[]): RangeValidation[] {
+  const groups: Array<[RangeValidation['group'], (d: RangeGradedDecision) => boolean]> = [
+    ['G1 postflop + preflop_closing', (d) => d.family !== 'preflop_r1'],
+    ['G2 preflop_r1', (d) => d.family === 'preflop_r1'],
+  ];
+  return groups.map(([group, inGroup]) => {
+    const ds = decisions.filter(
+      (d) => inGroup(d) && d.rangeLossBb !== null && d.realLossBb !== null
+    );
+    const all = validationCheck(ds);
+    const top = mostFrequentPerson(ds.map((d) => ({ ...d.base, lossBb: 0 })));
+    const excl = top
+      ? validationCheck(ds.filter((d) => !d.base.persons.includes(top.alias)))
+      : null;
+    const verdict: RangeValidation['verdict'] =
+      all.n < RANGE_GRADE.validation.minN
+        ? 'INCONCLUSIVE'
+        : all.v1 && all.v2 && (excl === null || (excl.v1 && excl.v2))
+          ? 'PASS'
+          : 'FAIL';
+    return { group, all, topPerson: top?.alias ?? null, excludingTopPerson: excl, verdict };
+  });
+}
+
+export const rangeRollupKey = (d: GradedDecision): string =>
+  `${d.game} ${d.pool} | ${d.street} | ${d.action === 'bet' ? 'bet vs check' : d.action}`;
+
+export interface RangeSection {
+  criteriaSha256: string;
+  decisions: number;
+  graded: number;
+  byFamily: Record<string, number>;
+  ungraded: Record<string, number>;
+  /** the daily grade's person_cards_not_shown and realised rows, and how many the range grade now prices */
+  coverage: {
+    unshown: { rows: number; graded: number; byFamily: Record<string, number> };
+    realised: { rows: number; graded: number; byFamily: Record<string, number> };
+  };
+  validation: RangeValidation[];
+  topPerson: { alias: string; n: number; share: number } | null;
+  /** roll-up rows (game pool | street | action) on the range grade, per group, with and without the top person */
+  rollupG1: ClassRow[];
+  rollupG1ExcludingTopPerson: ClassRow[];
+  rollupG2: ClassRow[];
+  rollupG2ExcludingTopPerson: ClassRow[];
+  /** every range-graded decision of the group in one row, with and without the top person */
+  overall: ClassRow[];
+}
+
+export function rangeSection(decisions: readonly RangeGradedDecision[]): RangeSection {
+  const count = (
+    xs: readonly RangeGradedDecision[],
+    key: (d: RangeGradedDecision) => string | null
+  ) => {
+    const m: Record<string, number> = {};
+    for (const d of xs) {
+      const k = key(d);
+      if (k) m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  };
+  const graded = decisions.filter((d) => d.rangeLossBb !== null);
+  const cover = (pick: (d: RangeGradedDecision) => boolean) => {
+    const rows = decisions.filter(pick);
+    const g = rows.filter((d) => d.rangeLossBb !== null);
+    return { rows: rows.length, graded: g.length, byFamily: count(g, (d) => d.family) };
+  };
+  const asGraded = (xs: readonly RangeGradedDecision[]): GradedDecision[] =>
+    xs.map((d) => ({ ...d.base, lossBb: d.rangeLossBb, basis: null }));
+  const all = asGraded(graded);
+  const top = mostFrequentPerson(all);
+  const g1 = asGraded(graded.filter((d) => d.family !== 'preflop_r1'));
+  const g2 = asGraded(graded.filter((d) => d.family === 'preflop_r1'));
+  const drop = (xs: GradedDecision[]) =>
+    top ? xs.filter((d) => !d.persons.includes(top.alias)) : xs;
+  return {
+    criteriaSha256: RANGE_GRADE.criteriaSha256,
+    decisions: decisions.length,
+    graded: graded.length,
+    byFamily: count(graded, (d) => d.family),
+    ungraded: count(decisions, (d) => d.ungraded),
+    coverage: {
+      unshown: cover((d) => d.base.ungraded === 'person_cards_not_shown'),
+      realised: cover((d) => d.base.basis === 'realised'),
+    },
+    validation: validateRangeGrade(decisions),
+    topPerson: top,
+    rollupG1: classTable(g1, rangeRollupKey),
+    rollupG1ExcludingTopPerson: classTable(drop(g1), rangeRollupKey),
+    rollupG2: classTable(g2, rangeRollupKey),
+    rollupG2ExcludingTopPerson: classTable(drop(g2), rangeRollupKey),
+    overall: [
+      ...classTable(g1, () => 'ALL G1 (postflop + preflop_closing)'),
+      ...classTable(drop(g1), () => 'ALL G1, most frequent person excluded'),
+      ...classTable(g2, () => 'ALL G2 (preflop_r1)'),
+      ...classTable(drop(g2), () => 'ALL G2, most frequent person excluded'),
+    ],
+  };
+}
+
+const mark2 = (r: ClassRow): string =>
+  r.se === null || r.n < FLAG_MIN_N
+    ? ''
+    : r.mean - 2 * r.se > 0
+      ? 'FLAGGED >2 SE'
+      : r.mean - r.se > 0
+        ? 'FLAGGED >1 SE'
+        : '';
+
+/** The range-grade section, rendered after the real-card report (which it does not change). */
+export function renderRangeSection(s: RangeSection): string[] {
+  const L: string[] = [];
+  const f = (x: number) => (x >= 0 ? '+' : '') + x.toFixed(2);
+  L.push(
+    '## Range grade: every decision on public information (separate from the real-card grade above)',
+    ''
+  );
+  L.push(
+    `Criteria declared before the run (sha256 ${s.criteriaSha256.slice(0, 16)}…). Each live opponent holds a range built from the public action line and the board (no real card read); EV of the decision against its passive alternative at realisation 1. Sign: + = the Horse lost.`,
+    ''
+  );
+  L.push(
+    `Decisions: ${s.decisions}; range-graded ${s.graded} (${
+      Object.entries(s.byFamily)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(', ') || 'none'
+    }); ungraded ${
+      Object.entries(s.ungraded)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(', ') || 'none'
+    }.`
+  );
+  const c = s.coverage;
+  L.push(
+    `Coverage: person cards never shown ${c.unshown.graded} of ${c.unshown.rows} now graded (${
+      Object.entries(c.unshown.byFamily)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(', ') || 'none'
+    }); "result against a fold" rows ${c.realised.graded} of ${c.realised.rows} now priced as EV of the decision (${
+      Object.entries(c.realised.byFamily)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(', ') || 'none'
+    }).`,
+    ''
+  );
+  L.push('### Validation against real cards (declared bar)', '');
+  L.push(
+    '| group | n | sign n (abs real >= 1 bb) | sign agreement | mean range | mean real | diff | SE diff | mean abs real | V1 | V2 | excl. top: n, sign, diff, V1, V2 | verdict |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|'
+  );
+  for (const v of s.validation) {
+    const a = v.all;
+    const e = v.excludingTopPerson;
+    L.push(
+      `| ${v.group} | ${a.n} | ${a.nSign} | ${a.signAgreement === null ? 'n/a' : pct(a.signAgreement)} | ${f(a.meanRange)} | ${f(a.meanReal)} | ${f(a.diff)} | ${se(a.seDiff)} | ${a.meanAbsReal.toFixed(2)} | ${a.v1 ? 'pass' : 'fail'} | ${a.v2 ? 'pass' : 'fail'} | ${e ? `${e.n}, ${e.signAgreement === null ? 'n/a' : pct(e.signAgreement)}, ${f(e.diff)}, ${e.v1 ? 'pass' : 'fail'}, ${e.v2 ? 'pass' : 'fail'}` : '-'} | **${v.verdict}** |`
+    );
+  }
+  L.push('');
+  const table = (title: string, rows: readonly ClassRow[]) => {
+    L.push(`### ${title}`, '');
+    L.push('| row | n | hands | mean bb | SE | mark |', '|---|---|---|---|---|---|');
+    const shown = rows.filter((r) => r.n >= FLAG_MIN_N || r.mean > 0);
+    if (!shown.length) L.push('| none | - | - | - | - | - |');
+    for (const r of [...shown].sort((x, y) => y.mean - x.mean))
+      L.push(
+        `| ${r.key.replaceAll(' | ', ' / ')} | ${r.n} | ${r.clusters} | ${f(r.mean)} | ${se(r.se)} | ${mark2(r)} |`
+      );
+    L.push('');
+  };
+  const top = s.topPerson ? `${s.topPerson.alias} (${s.topPerson.n} of ${s.graded})` : 'none';
+  L.push(
+    '### Overall',
+    '',
+    '| row | n | hands | mean bb | SE | mark |',
+    '|---|---|---|---|---|---|'
+  );
+  for (const r of s.overall)
+    L.push(`| ${r.key} | ${r.n} | ${r.clusters} | ${f(r.mean)} | ${se(r.se)} | ${mark2(r)} |`);
+  L.push('');
+  const trusted = (g: string) =>
+    s.validation.find((v) => v.group.startsWith(g))?.verdict === 'PASS';
+  table(
+    `G1 roll-up (rows with n >= 10 or a positive mean)${trusted('G1') ? '' : ' - NOT TRUSTED: validation did not pass'}`,
+    s.rollupG1
+  );
+  table(`G1 roll-up, most frequent person excluded: ${top}`, s.rollupG1ExcludingTopPerson);
+  table(
+    `G2 preflop realisation-1 roll-up${trusted('G2') ? '' : ' - NOT TRUSTED: validation did not pass'}`,
+    s.rollupG2
+  );
+  table(`G2 roll-up, most frequent person excluded: ${top}`, s.rollupG2ExcludingTopPerson);
+  return L;
 }

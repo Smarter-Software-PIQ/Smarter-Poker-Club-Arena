@@ -1233,6 +1233,7 @@ export interface BusPayloadMap {
       | 'CHANGE_AVATAR'
       | 'TOGGLE_ALIAS'
       | 'INVITE_TO_GAME'
+      | 'INVITE_ONLINE_FRIEND'
       /** Dan 2026-08-19: close a table's tab after the player leaves it. */
       | 'CLOSE_TABLE_TAB';
   };

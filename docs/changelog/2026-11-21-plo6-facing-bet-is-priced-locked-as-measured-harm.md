@@ -9,7 +9,7 @@ Antigravity Coordinator ruling of 2026-11-21 on the declared human-calibrated PL
 - `server/src/engine/horseDecision/everyUpgradeHasALiveSwitch.law.test.ts`: pinned `plo6FacingBetIsPriced` as `harm`, with its declaration source prefix and `z = -5.84` in the reason.
 - `server/src/benchmark/AuditedDecisionReplay.test.ts`: switched the synthetic `--plo6` replay CLI test option from hardcoded `'plo6FacingBetIsPriced'` to `OPTION_SWITCH_ON_OFF_NAMES[0]` (matching the test file's existing `ON_A` pattern) because `plo6FacingBetIsPriced` is now off-only.
 - `docs/horse-option-authority.d/plo6FacingBetIsPriced.md`: status line updated to record `off-only (measured harm)` (still `Evidence NOT MET`; no switch row proposed; all three `- Replay:` rows untouched).
-- `supabase/migrations/20261122040729_horse_option_switch_turn4_antigravity_train.sql`: generated with `gen-horse-option-switch-sql.ts --follow-up`; `-- registry:follows: 20261122011559_horse_option_switch_style_shift_release_noise_aware` (3-item Antigravity Turn 4 switch-list train over Turn 3 `#11643`, carrying the `plo6FacingBetIsPriced` off-only harm lock, `cashDefenceTrimColdCalls` default-OFF switch registration, and `plo6FacingBetIsPricedV2` default-OFF switch registration; `horseRunItTwiceIsPriced` excluded per Rule 11). Semantic diff for `plo6FacingBetIsPriced`: leaves `on-shadow-options` and joins `off-only-options`. `scripts/ci/test-horse-option-switch-evidence-postgres.sh` lists regenerated with it.
+- `supabase/migrations/20261122181616_horse_option_switch_turn5_antigravity_train.sql`: generated with `gen-horse-option-switch-sql.ts --follow-up`; `-- registry:follows: 20261122131322_horse_option_switch_turn4b_plo_replacements_and_locks` (3-item Antigravity Turn 5 switch-list train over Turn 4B `#11747`, carrying the `plo6FacingBetIsPriced` off-only harm lock, `cashDefenceTrimColdCalls` default-OFF switch registration, and `plo6FacingBetIsPricedV2` default-OFF switch registration; `horseRunItTwiceIsPriced` excluded per Rule 11). Semantic diff for `plo6FacingBetIsPriced`: leaves `on-shadow-options` and joins `off-only-options`. `scripts/ci/test-horse-option-switch-evidence-postgres.sh` lists regenerated with it.
 
 ## What did not change
 
@@ -17,4 +17,4 @@ No switch row was written (only the SWITCH lane writes rows; `plo6FacingBetIsPri
 
 ## Timing
 
-Pre-staged locally for Turn 4 while migration merges are held until 4:00 PM CST SEALED + Turn 1 `#11667` + Turn 2 `#11659` + Turn 3 `#11643`. Not pushed or merged.
+Rebased onto `origin/main` (`1ad80fe1a32b`, carrying Turn 4B `#11747` `20261122131322_horse_option_switch_turn4b_plo_replacements_and_locks.sql`) for Turn 5.

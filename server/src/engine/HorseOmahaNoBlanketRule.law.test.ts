@@ -260,7 +260,11 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
         'omahaCurrentNutsRaise',
         'omahaNoRiverBluffIntoValueLeader',
         'omahaOnePairDiscipline',
+        // reclassed 2026-11-21 (EMERG RULES-FIX-1, AUDIT-B item 5): fixed price and stack thresholds decide
+        'omahaPairedBoardFoldRespectsPrice',
         'omahaReraisedPotFlopContinueNeedsEquityShape',
+        // reclassed 2026-11-21 (EMERG BLANKET-AUDIT-3): a stack share and a fixed share of river cards decide
+        'omahaTurnBetNeedsRiverPlan',
         'ploPairedBoardFold',
       ].sort()
     );

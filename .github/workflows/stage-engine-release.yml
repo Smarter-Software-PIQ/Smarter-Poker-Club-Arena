@@ -689,6 +689,7 @@ jobs:
           fetch-depth: 0
           sparse-checkout: |
             scripts/ci
+            scripts/release
             server/scripts
             server/standby
       - name: Freeze the exact daily candidate and report inclusion
@@ -739,6 +740,60 @@ jobs:
           name: ${{ needs.detect.outputs.owner_window_id != '' && format('owner-engine-selection-{0}', needs.detect.outputs.owner_window_id) || format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
           path: daily-selection.json
           if-no-files-found: error
+      - name: Append read-only cutover readiness summary
+        id: readiness_summary
+        if: always() && steps.freeze.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          OWNER_WINDOW_ID: ${{ needs.detect.outputs.owner_window_id }}
+          CUTOFF_CONTROL: ${{ needs.detect.outputs.protected_sha }}
+        run: |
+          set -euo pipefail
+          [ -n "${GITHUB_STEP_SUMMARY:-}" ] || exit 0
+          {
+            echo "### Engine Release Selection & Readiness Summary"
+            echo ""
+            if [ -n "${OWNER_WINDOW_ID:-}" ]; then
+              echo "- **Window:** \`$OWNER_WINDOW_ID\`"
+            elif [ -n "${RELEASE_DATE:-}" ]; then
+              echo "- **Cycle:** \`$RELEASE_DATE\`"
+            fi
+            if [ -f daily-selection.json ]; then
+              outcome=$(jq -r '.outcome // "unknown"' daily-selection.json)
+              serving=$(jq -r '.servingSha // "unknown"' daily-selection.json)
+              target=$(jq -r '.targetSha // "none"' daily-selection.json)
+              reason=$(jq -r '(.reason // "") | gsub("[\\r\\n]+"; " ")' daily-selection.json)
+              if [ -n "$reason" ]; then
+                echo "- **Outcome:** \`$outcome\` ($reason)"
+              else
+                echo "- **Outcome:** \`$outcome\`"
+              fi
+              echo "- **Serving SHA:** \`$serving\`"
+              echo "- **Target SHA:** \`$target\`"
+              deferred_count=$(jq -r '(.deferredCandidates // []) | length' daily-selection.json)
+              if [ "$deferred_count" -gt 0 ]; then
+                echo "- **Deferred candidates ($deferred_count):**"
+                jq -r '.deferredCandidates[] | "  - `\((.sha // "unknown")[0:12])`: \(.reason // "deferred")" + (if (.detail // "") != "" then " (" + ((.detail | tostring) | gsub("[\\r\\n]+"; " ")) + ")" else "" end)' daily-selection.json
+              else
+                echo "- **Deferred candidates:** none"
+              fi
+            else
+              echo "- **Selection artifact:** \`daily-selection.json\` not produced"
+            fi
+            if [ -f scripts/release/three-hourly-readiness.py ]; then
+              control_ref="${CUTOFF_CONTROL:-HEAD}"
+              readiness_json=$(python3 -B scripts/release/three-hourly-readiness.py --repo "$GITHUB_REPOSITORY" --repo-dir . --control-ref "$control_ref" --limit 5 --json 2>/dev/null || true)
+              if [ -n "$readiness_json" ] && printf '%s' "$readiness_json" | jq -e '.verdict' >/dev/null 2>&1; then
+                verdict=$(printf '%s' "$readiness_json" | jq -r '.verdict // "UNKNOWN"')
+                summary=$(printf '%s' "$readiness_json" | jq -r '(.summary // "") | gsub("[\\r\\n]+"; " ")')
+                echo "- **Readiness CLI:** \`$verdict\` - $summary"
+              else
+                echo "- **Readiness CLI:** \`UNKNOWN\` (non-blocking summary read unavailable)"
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   signal:
     name: Dispatch The Exact Main SHA

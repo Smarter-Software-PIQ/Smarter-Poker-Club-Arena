@@ -1,6 +1,6 @@
 # plo6NoMultiwayBetWithWeakMadeHand: authority for the live switch (OFF-ONLY)
 
-Status: built, OFF, unevaluated; switching ON needs recorded authority. Evidence NOT MET (development evidence only); no owner order to switch this option on is recorded in this file.
+Status: OFF-ONLY (`OPTION_SWITCH_OFF_ONLY`, status `hold` since 2026-11-18 under the owner's 2026-11-17 11:49 America/Chicago no-blanket-rules order). Evidence NOT MET (development evidence only); no owner order to switch this option on is recorded in this file, and the database refuses any `on` row.
 
 ## What it does
 
@@ -12,7 +12,7 @@ The overpair class is not PLO Strategy's `omahaBareOverpairOopFlopCheck` (`Horse
 
 Where it runs: first in `omahaOwnBetRules` (`HorseLogic.ts`, both decision paths), with the owner-ruled own-bet checks, so the pricing rules never see the bet; `omahaOwnerRuledFinal` keeps the check when a later rule proposes a bet in the spot (receipt `omaha_owner_ruled_check_kept`). The decision receiver admits the bet-to-check transition only in PLO6 and, when the request is known, only where the spot re-run on it holds (`responseValidation.ts`).
 
-Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261116074500_horse_option_switch_plo6_strategy`), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256 (`authority: plo6NoMultiwayBetWithWeakMadeHand docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). Initially registered in migration `20261116074500_horse_option_switch_plo6_strategy`, then locked in `OPTION_SWITCH_OFF_ONLY` (status `hold`) by migration `20261119144317_horse_option_switch_off_only_reraise_flop_fl_plo6` under the owner's 2026-11-17 11:49 no-blanket-rules order (see `## Off-only` below). Both the engine registry and the database refuse any `on` row; any replacement must be a priced comparison (such as dark `plo6MultiwayBetIsPriced` work) that passes its own declared evaluation.
 
 ## The owner's orders it rests on (cited by file, not quoted)
 

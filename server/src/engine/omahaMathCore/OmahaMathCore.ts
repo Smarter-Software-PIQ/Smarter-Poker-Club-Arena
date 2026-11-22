@@ -100,6 +100,56 @@ export interface CoreOpponent {
   position: PreflopPosition | null;
   /** the highest preflop raise level he made ('call' = limped/called only, 'none' = no voluntary action yet) */
   preflopLevel: PreflopLevel | 'call' | 'none';
+  /** his lifetime public answers to a flop continuation bet (raw counts; all-ins count as raises), when the
+   *  opponent-record provider has a record of him; absent = none (the pooled response prices him) */
+  cbetAnswers?: { opps: number; raises: number } | null;
+}
+
+/**
+ * THE ONE OPPONENT-RECORD PROVIDER the core reads (lane CORE-EXTEND-5; lead prescription (ii) of 11:01:21Z).
+ * The core names an opponent only by his SEAT at the table of the decision (`table` = the decision's game state,
+ * opaque to the core); the provider, outside the core, finds whose lifetime PUBLIC record that is (production and
+ * benches: the opponent HUD provider's installed packet). The core never reads, keys or stores an identity.
+ * No provider or no record = the pooled response, exactly as before.
+ */
+export interface OmahaMathCoreOpponentRecords {
+  cbetAnswers(
+    table: unknown,
+    seat: number,
+    game: 'plo4' | 'plo5',
+    players: 'hu' | 'mw'
+  ): { opps: number; raises: number } | null;
+}
+let OPP_RECORDS: OmahaMathCoreOpponentRecords | null = null;
+export function setOmahaMathCoreOpponentRecords(p: OmahaMathCoreOpponentRecords | null): void {
+  OPP_RECORDS = p ?? null;
+}
+export function omahaMathCoreOpponentRecords(): OmahaMathCoreOpponentRecords | null {
+  return OPP_RECORDS;
+}
+/**
+ * Where a responder's own raise share of a continuation bet replaces the pooled one: PLO4 flop only (lane
+ * CORE-EXTEND-5). Shrunk n/(n+k) toward the pooled raise share of the spot, no cliff; k = the opponent HUD's
+ * default pseudo-opportunities (HUD_DEFAULT_K = 20; not separately measured for this count).
+ */
+export const OMAHA_MATH_CORE_CBET_RAISE_READ = Object.freeze({
+  streets: { plo4: ['flop'] } as Record<string, readonly string[]>,
+  k: 20,
+});
+/** his raise share of the hero's continuation bet: (raises + k x pooled) / (opps + k), within [0, 1 - fold] */
+export function cbetRaiseShare(
+  pooledRaise: number,
+  pooledFold: number,
+  rec: { opps: number; raises: number } | null | undefined
+): { r: number; read: string } | null {
+  if (!rec || !(rec.opps > 0)) return null;
+  const k = OMAHA_MATH_CORE_CBET_RAISE_READ.k;
+  const raises = Math.max(0, Math.min(rec.opps, rec.raises));
+  const r = (raises + k * pooledRaise) / (rec.opps + k);
+  return {
+    r: Math.max(0, Math.min(1 - pooledFold, r)),
+    read: `own cbet raises ${raises}/${rec.opps} shrunk k ${k} to ${round2(r)}`,
+  };
 }
 
 export interface CoreState {
@@ -130,6 +180,8 @@ export interface CoreState {
   band: Band | null;
   /** the last wager's share of the pot (bet: added/pot before; raise: (added - to call)/(pot + to call)) */
   wagerFrac: number;
+  /** true when at least one player checked on this street before its first wager (HUD 'stab' vs 'lead') */
+  checkedBeforeWager?: boolean;
   /** the line a hero wager would be (cbet/barrel/stab/probe/donk/raise/check_raise) */
   heroWagerLine: Line;
   /** preflop raises so far (0 unopened, 1 open, 2 three-bet, ...) */
@@ -371,7 +423,7 @@ export function platformDeduction(
  * the core prices reaches a flop, and with `rake.whole` it is netted of the capped rake and the
  * jackpot drop like a postflop pot (EMERG lane RAKE 2026-11-20). Without `rake.whole`: as before.
  */
-function rakeNet(state: CoreState, final: number, foldOut = false): number {
+export function rakeNet(state: CoreState, final: number, foldOut = false): number {
   const rake = state.rake;
   if (rake?.platform)
     return final - platformDeduction(rake.platform, final, state.street === 'preflop' && foldOut);
@@ -500,23 +552,32 @@ function uncontestedReceipt(state: CoreState, ms: number): CoreReceipt {
  * calibrated-only call -> fold on the PLO5 flop graded -1,986 +- 648 bb all-in, -483 +- 297 realised, Nov 19).
  */
 export const OMAHA_MATH_CORE_REALIZATION_CALIBRATION = {
-  version: 'core-pooled5-realization-v3-full-window',
-  // the applied cells (streets below: PLO5 flop only) are population_all_cards_capped: an anonymous population
-  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 0.96% of a fit cell
+  version: 'core-pooled5-realization-v3-full-window+core-extend-plo4',
+  // the applied cells (streets below: PLO4 flop and PLO5 flop) are population_all_cards_capped: an anonymous population
+  // parameter fitted offline on every player's recorded cards, never keyed by player, top player 0.96% of a fit cell (PLO4: 1.9%)
   // (cap 20% never binds), never read live. The PLO4 and turn cells are kept for the record (own_cards_history).
   provenance: 'population_all_cards_capped' as const,
   source:
-    'PLO5 flop: hand_history population realization, full window (lane CORE-POOLED-4 amendment sha d7fbd6c8, confirmation sha 0eb833be; raised-own call: lane CORE-POOLED-7 sha ae1fcd66); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
+    'PLO5 flop: hand_history population realization, full window (lane CORE-POOLED-4 amendment sha d7fbd6c8, confirmation sha 0eb833be; raised-own call: lane CORE-POOLED-7 sha ae1fcd66); PLO4 flop: the same on PLO4 rows (lane CORE-EXTEND, criteria sha e8793e34); other cells: core3 c3c exact replay receipts vs own realised chips, Nov 18 1 PM - Nov 19, n >= 20 per cell',
   minN: 20,
   // CORE-4 criterion 2 (CRITERIA-CORE4-2.md sha b95d08ec..., exact-replay cross-validation by day vs c3c, delta M1 all-in
   // / M2 realised): PLO5 flop PASS (Nov 19 +644 +- 255 realised, -77 +- 364 all-in; Nov 18 +288 +- 196, -163 +- 183);
   // PLO5 turn FAIL (Nov 19 -564 +- 451 realised); PLO4 flop FAIL (Nov 19 -113 +- 60). Only PASS streets are listed.
-  streets: { plo4: [], plo5: ['flop'] } as Record<string, readonly string[]>,
+  // PLO4 flop (lane CORE-EXTEND, Nov 21, criteria sha e8793e34): the same hand_history population realization as
+  // PLO5 flop, PLO4 rows: fit R1 0.7984 +- 0.0187 (13,773 rows, 6,822 hands), check set 0.8449 +- 0.0254 (z -1.48);
+  // no pair of actions qualified (check-call z -3.09 fit / -1.40 check; raise n 88 in the check set), so ONE factor
+  // for every action. The old c3c PLO4 flop cells (0.896; bet 0.696, call 1.133, check 1.285) are replaced.
+  streets: { plo4: ['flop'], plo5: ['flop'] } as Record<string, readonly string[]>,
   cells: {
-    'plo4|flop': { r: 0.896, n: 369 },
-    'plo4|flop|bet': { r: 0.696, n: 103 },
-    'plo4|flop|call': { r: 1.133, n: 38 },
-    'plo4|flop|check': { r: 1.285, n: 155 },
+    'plo4|flop': { r: 0.7984, n: 13773 },
+    'plo4|flop|bet': { r: 0.7984, n: 3119 },
+    'plo4|flop|call': { r: 0.7984, n: 2809 },
+    'plo4|flop|check': { r: 0.7984, n: 7535 },
+    'plo4|flop|raise': { r: 0.7984, n: 310 },
+    // PLO4 flop call facing a raise of the hero's own wager (lane CORE-EXTEND-4 criteria sha ad98efdc, ADOPT): fit XR
+    // 0.6221 +- 0.2683 (n 226, 170 players, top 1.77%), check XR 0.8567 +- 0.3375 (z +0.54); shrunk to the PLO4 cell:
+    // (226 x 0.6221 + 100 x 0.7984) / 326 = 0.6762.
+    'plo4|flop|call|raised_own': { r: 0.6762, n: 226 },
     'plo4|turn': { r: 0.85, n: 203 },
     'plo4|turn|bet': { r: 0.952, n: 63 },
     'plo4|turn|check': { r: 0.894, n: 77 },
@@ -967,6 +1028,14 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         r: Math.max(0, Math.min(1, c.raise)),
         source: `${c.source}; no fold credit (raise line, exact n ${c.exactN} < ${RAISE_FOLD_CREDIT_MIN_N})`,
       };
+    if (
+      c &&
+      state.heroWagerLine === 'cbet' &&
+      OMAHA_MATH_CORE_CBET_RAISE_READ.streets[game]?.includes(street)
+    ) {
+      const own = cbetRaiseShare(c.raise, c.fold, o.cbetAnswers);
+      if (own) return { p: c.fold, r: own.r, source: `${c.source}; ${own.read}` };
+    }
     return c
       ? { p: c.fold, r: Math.max(0, Math.min(1 - c.fold, c.raise)), source: c.source }
       : { p: 0, r: 0, source: 'no measured cell: no fold credit' };

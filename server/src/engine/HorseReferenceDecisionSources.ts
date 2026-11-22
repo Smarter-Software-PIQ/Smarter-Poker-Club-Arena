@@ -121,10 +121,24 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha strong-hand value decisions (owner 2026-11-15 12:16, omahaStrongHandValue; the earlier playbook's PLO4/PLO5 cash entries): on the river with a full house or better or a nut-class hand, a check priced against every value bet against each opponent left, and a call facing one bettor priced against every value raise on the exact count of the holdings that continue; the last rule of the wager_rules node",
     'src/engine/HorseOmahaFacingBetEv.ts':
       "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
+    'src/engine/HorseOmahaStabDefence.ts':
+      "the default-off stab defence (EMERG lane STAB-DEFENCE 2026-11-20, omahaStabDefenceIsPriced): in PLO4/PLO5 cash on the turn and the river, facing the first wager of the street, the bettor's non-value share is priced from his own lifetime public first-wager frequency against the population's, shrunk by its evidence; no record is the population prior exactly",
+    'src/engine/HorseOmahaStrongHandCheck.ts':
+      "the default-off strong-hand check (EMERG lane STAB-DEFENCE 2026-11-20, omahaStrongHandCheckIsPriced; held, not graded): in PLO4/PLO5 cash on the turn and the river heads-up, the Horse first to act, a final value bet is priced beside the check on the opponent's public stab and fold records and becomes a check with the probability the comparison gives; it changes only a bet into a check",
+    'src/engine/HorseOmahaRiverBetFoldRecord.ts':
+      "the default-off river fold record (EMERG lane STAB-DEFENCE-5 2026-11-21, omahaRiverBetFoldIsHisRecord): in PLO4/PLO5 cash on the river heads-up, the answer curve the two river bet rules price a bet with is the population's with its fold share moved by the opponent's own lifetime public river fold record, shrunk by its evidence; no record is the population curve exactly",
+    'src/engine/HorseOmahaCbetRaisePriced.ts':
+      "the default-off priced c-bet raise (EMERG lane CBET-DEFENCE 2026-11-21, omahaCbetRaiseIsPriced): in PLO4/PLO5 cash on the flop, the raise of the Horse's own continuation bet is ranged on the raiser's measured raise share (lifetime public record shrunk to the population's), and heads-up bluff c-bets carry that raise branch; a decision source the reference replay must be able to reach",
     'src/engine/HorseOmahaRiverCheckedToBet.ts':
       'the default-off river checked-to bet (EMERG lane OFFENCE-BUILD 2026-11-20, omahaRiverCheckedToBetIsMeasured): in PLO4/PLO5 cash on the river heads-up after the opponent checked, a final check becomes the bet of highest expected value on the measured response curve when it beats the calibrated showdown value by more than its standard error; no opponent kind; pure',
     'src/engine/HorseOmahaRiverFirstToActBet.ts':
       'the default-off river first-to-act bet (EMERG lane OFFENCE-BUILD 2026-11-20, omahaRiverFirstToActBetIsPriced): in PLO4/PLO5 cash on the river heads-up with nothing to call and the opponent still to act, a final check becomes the bet of highest expected value on the measured response curve when it beats the check by more than its standard error; pure',
+    'src/engine/opponentHud/OpponentHudExploit.ts':
+      "the default-off lifetime opponent read (PLO-OWNER lane OPPONENT-HUD 2026-11-20, omahaOpponentLifetimeHud): in PLO4/PLO5 cash HorseMind.opponentRead takes each opponent's exploit counters from his lifetime public profile carried by the decision request; pure over the installed packet",
+    'src/engine/HorseOmahaHudPreflopPriced.ts':
+      'the default-off priced preflop comparison at the maniac-pressure site (lane OPPONENT-HUD 2026-11-21, omahaOpponentLifetimeHud): the raise against the call and the fold on the read-adjusted response of the players left, measured realization reduced by their turn/river stab excess; pure',
+    'src/engine/HorseOmahaPreflopHudPriced.ts':
+      'the default-off priced six-max preflop read on lifetime HUD cells (PLO-OWNER lead-4 B4 2026-11-21, omahaPreflopReadIsPricedFromLifetime): retires presumedAggressorRead on 3-6 seat PLO4/PLO5 cash preflop and prices widened spots on sh + pf.lr + pf.bvo HUD cells with n/(n+k) shrinkage; pure over the installed packet',
     'src/engine/opponentHud/OpponentHud.ts':
       'the one opponent-profile accessor (hudStat, hudRecall) and the decision packet the worker installs from the request; shrinkage toward the population prior; pure, no database, no clock',
     'src/engine/opponentHud/OpponentHudProfile.ts':
@@ -149,6 +163,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha flop defence (WooWoo audit FLOP-DEFENCE 2026-11-18, omahaFlopDefenceIsPriced): heads-up facing the first flop bet with chips behind, the call of the flop verdict priced as a two-street tree on the verdict sampled runouts (his measured turn and river bet rates and range composition by street, the Horse priced turn and river answers), and the pot raise measured beside it; pure, null when it cannot read the runouts',
     'src/engine/HorseOmahaBluffPricedAgainstTheTarget.ts':
       'the default-off Omaha bluff priced against the target (HORSE DECISIONS lane 2026-11-19, omahaBluffIsPricedAgainstTheTarget): PLO4/PLO5 cash at a table and in Lightning, the outermost answer of wager_rules: a heads-up wager facing no bet kept only when priced above the check with his measured fold at its price (his street or pooled fold-to-bet record shrunk toward his kind) and the Horse sampled showdown share against the strongest part of his holdings (a seed taken from the cards, never the brain random stream); the flop call and the flop / turn raise facing a bet priced on the sampled raise at every legal size with the same measured fold; receipts omaha_bluff_priced_against_target_*',
+    'src/engine/HorseOmahaBigDrawBetPriced.ts':
+      'the default-off R4 Omaha checked-to flop/turn big-draw bet pricing on lifetime HUD response (PLO-OWNER lane REPLACEMENTS-5 2026-11-21, omahaBigDrawBetIsPricedOnHisResponse): PLO4/PLO5 cash checked-to big-draw bets priced on lifetime HUD fold, raise-back and stab cells with a prove-it-to-bet uncertainty bar and no categorical OOP bar; off returns null',
     'src/engine/HorseHoldemValueAndCallsArePriced.ts':
       "the default-off hold'em value and calls priced (HORSE DECISIONS lane 2026-11-19, holdemValueAndCallsArePriced): NLH cash heads-up postflop, the value raise, the made-hand bet or check, the facing-bet call and the river bet priced against the bettor's line range and measured response; off returns the decision unchanged",
     'src/engine/HorseHoldemCommittedPricing.ts':
@@ -253,6 +269,12 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the math core public tables (provenance public_actions / showdown_only), every player pooled (lane CORE-POOLED): response frequencies to wagers, wager frequencies, shown non-value shares, preflop action frequencies, fold facing a raise; no person/Horse field, no per-user rows',
     'src/engine/omahaMathCore/OmahaMathCoreAcceptance.ts':
       'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
+    'src/engine/opponentHud/OmahaMathCoreHudRecords.ts':
+      'lane CORE-EXTEND-5 seat-only opponent-record adapter over the decision HUD packet (hudCbetRaiseRecord for PLO4 flop continuation bets); read only while a default-off math core street flag is on',
+    'src/engine/omahaMathCore/OmahaMathCoreTurnRiver.ts':
+      'lane core-repair B3 opponent-lifetime-backed PLO5 turn/river facing-bet pricing (cumulative fw1 tail mass, barrel sharpening, station/nit guard, capped turn continuation, river K_allin=25); default OFF behind omahaMathCorePlo5Turn / omahaMathCorePlo5River',
+    'src/engine/opponentHud/OmahaMathCoreTurnRiverHud.ts':
+      'lane core-repair B3 seat-only HUD adapter over OpponentHudPacket (hudFirstWagerSizeCounts + hudBarrelRecord) for PLO5 turn/river math core; read only while a default-off math core turn/river flag is on',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
     'src/engine/HorseOmahaBetRead.ts':
@@ -305,6 +327,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "what a flop bet showed and what calling it returned (2026-11-19): the class of a shown hand on a flop, the cells of the opponent's durable flop-shown record, its validation and wire row, and the readers HorseMind.omahaFlopShownOf serves; carried into Omaha decisions and read by none",
     'src/engine/HorsePlo45High.ts':
       'the PLO4/PLO5 high-only scope test (2026-11-19) the shared-code fixes of the emergency batch read: the band fallback unit in simulateEquity, the V15 cap priced once, the V21 effective depth and the raise-needs-nuts failure call',
+    'src/engine/HorseOmahaBigBetSizeIsPriced.ts':
+      'continuous pot-share and lifetime public HUD aggressor strength plus EV-priced limped-pot bet sizing replacing #18 omahaBigBetIsPotShare (default OFF; PLO-OWNER lead-4 2026-11-21)',
     'src/engine/HorseOmahaStreetReadPrice.ts':
       'the price behind a fold-to-raise cell (2026-11-19): per street, the sum of the prices of the raises an opponent faced after betting or raising and how many had one, its validation and wire row, and the mean HorseMind.omahaFoldToRaisePriceOf answers; carried into Omaha decisions and read only as the price of the street fold-to-raise cell with the default-off omahaReadIsByStreetAndTexture and omahaSampledRaiseIsPricedAtEverySize both on',
     'src/engine/HorseOmahaStreetRead.ts':
@@ -315,6 +339,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off heads-up hold’em postflop balance (holdemHeadsUpPostflopBalance, HV31 FLOP-5): the in-position flop continuation-bet mix, bounded flop check-raise defence and checked-to turn bet mix; river decisions remain unchanged',
     'src/engine/HorseHoldemPersonaPostflop.ts':
       "the default-off persona postflop scales (holdemPersonaPostflop, 2026-11-15): the persona's check-trap threshold and the archetype's turn-takeaway and range continuation-bet multipliers in no-limit hold'em",
+    'src/engine/holdemEmpiricalPriors.ts':
+      "measured NLH empirical pool priors and smooth Empirical-Bayes shrinkage helpers (Horse Switch lane 2026-11-21): fold-to-river-raise priors by raise kind, true villain incremental raise call price, measured all-callers river bluff share, and flop/turn fold priors; reached only by default-off priced Hold'em options (off is never entered)",
     'src/engine/HorseHoldemPersonaPreflop.ts':
       "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
     'src/engine/HorseHoldemRiverFullHouseValue.ts':

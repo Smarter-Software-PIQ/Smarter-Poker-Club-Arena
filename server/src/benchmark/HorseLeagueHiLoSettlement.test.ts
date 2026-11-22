@@ -115,6 +115,26 @@ describe('settleLeagueShowdown pays a plo8 pot exactly as the engine does', () =
     expect(paid[2]).toBe(0);
   });
 
+  it('a folded blind merges into the main pot before splitting an odd-cent tie (flo8 parity with calculatePots)', () => {
+    // Folded SB contributed 1; three live seats contributed 3 each (total pot 10).
+    // Without merging identical eligible sets, layers of 4 and 6 would round a
+    // 3-way tie separately and diverge from HandController's calculatePots by 1 cent.
+    const lowTieA = [c('A', 'spades'), c('4', 'diamonds'), c('Q', 'clubs'), c('J', 'clubs')];
+    const lowTieB = [c('A', 'hearts'), c('4', 'clubs'), c('T', 'clubs'), c('T', 'hearts')];
+    const lowTieC = [c('A', 'diamonds'), c('4', 'hearts'), c('9', 'clubs'), c('9', 'spades')];
+    for (const dealer of [1, 2, 3, 4]) {
+      const seats = [
+        seat(1, highHand, 1, true),
+        seat(2, lowTieA, 3),
+        seat(3, lowTieB, 3),
+        seat(4, lowTieC, 3),
+      ];
+      const paid = settleLeagueShowdown(seats, lowBoard, 'flo8', dealer, pot(seats));
+      expect(cents(paid)).toEqual(cents(engineAward(seats, lowBoard, 'flo8', dealer)));
+      expect(Math.round(paid.reduce((t, x) => t + x, 0) * 100)).toBe(Math.round(pot(seats) * 100));
+    }
+  });
+
   it('a high-only variant keeps the league settlement unchanged', () => {
     const seats = [seat(1, highHand, 50), seat(2, lowHand, 50)];
     expect(settleLeagueShowdown(seats, lowBoard, 'plo4', 1, pot(seats))).toEqual([100, 0]);

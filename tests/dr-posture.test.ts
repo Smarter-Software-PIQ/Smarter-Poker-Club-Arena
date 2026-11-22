@@ -216,23 +216,23 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     expect(sql).not.toMatch(/GRANT\s/i);
   });
 
-  it.each(['success', 'ssh-failure', 'tee-failure', 'scp-failure'])(
+  it.each(['success', 'ssh-failure', 'output-failure', 'scp-failure'])(
     'retains a certificate verdict under bash errexit (%s)',
     (mode) => {
       const workflow = readFileSync(root('.github/workflows/backup-engine.yml'), 'utf8');
-      const start = workflow.indexOf(
-        '          if ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30'
-      );
+      const start = workflow.indexOf('          : > certificate.out');
       const end = workflow.indexOf('          exit 0', start);
+      expect(start).toBeGreaterThan(0);
+      expect(end).toBeGreaterThan(start);
       const body = workflow.slice(start, end);
       const result = standbyShell(`
       cd "$STATE_DIR"
       STANDBY_HOST=fixture SHA=fixture GITHUB_SHA=protected-fixture CONTROL_SHA=protected-fixture GITHUB_OUTPUT="$STATE_DIR/output"
       ssh() { printf '%s\\n' '{"reasons":["fixture_refusal"]}'; [ '${mode}' != ssh-failure ]; }
       scp() { [ '${mode}' != scp-failure ]; }
-      tee() { command tee "$@"; [ '${mode}' != tee-failure ]; }
+      cat() { if [ "$1" = certificate.out ] && [ '${mode}' = output-failure ]; then return 1; fi; command cat "$@"; }
       ${body}
-      cat "$GITHUB_OUTPUT" certificate.json
+      command cat "$GITHUB_OUTPUT" certificate.json
     `);
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(mode === 'success' ? 'rc=0' : 'rc=1');

@@ -66,13 +66,16 @@ async function codeFor(clubId: string | null): Promise<string | null> {
   }
 }
 
-/** Resolve the sender's invite code for a hand on this table (null when there is none). */
+/** Resolve the sender's invite code for a hand or live table (null when there is none). */
 export async function resolveSenderInviteCode(
   tableId: string | null | undefined,
-  userId: string | null | undefined
+  userId: string | null | undefined,
+  clubIdOverride?: string | null
 ): Promise<string | null> {
   if (!userId) return null;
   try {
+    const directCode = clubIdOverride ? await codeFor(clubIdOverride) : null;
+    if (directCode) return directCode;
     const hostCode = tableId ? await codeFor(await clubForTable(tableId)) : null;
     return hostCode ?? (await codeFor(await ownActiveClub(userId)));
   } catch {
@@ -83,7 +86,8 @@ export async function resolveSenderInviteCode(
 export function useSenderInviteCode(
   tableId: string | null | undefined,
   userId: string | null | undefined,
-  enabled = true
+  enabled = true,
+  clubIdOverride?: string | null
 ): string | null {
   const [code, setCode] = useState<string | null>(null);
   useEffect(() => {
@@ -92,12 +96,21 @@ export function useSenderInviteCode(
       return;
     }
     let cancelled = false;
-    void resolveSenderInviteCode(tableId, userId).then((c) => {
+    void resolveSenderInviteCode(tableId, userId, clubIdOverride).then((c) => {
       if (!cancelled) setCode(c);
     });
     return () => {
       cancelled = true;
     };
-  }, [tableId, userId, enabled]);
+  }, [tableId, userId, enabled, clubIdOverride]);
   return code;
+}
+
+/** Resolve the sender's invite code directly for a known chip club (lobby surfaces). */
+export function useClubSenderInviteCode(
+  clubId: string | null | undefined,
+  userId: string | null | undefined,
+  enabled = true
+): string | null {
+  return useSenderInviteCode(null, userId, Boolean(enabled && clubId), clubId);
 }
