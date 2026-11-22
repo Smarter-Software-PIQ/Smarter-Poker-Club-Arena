@@ -12,7 +12,11 @@ import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { OpponentHudAsOf } from '../src/engine/opponentHud/OpponentHudAsOf.js';
 import { parseHudPopulation, priorsForStake } from '../src/engine/opponentHud/OpponentHud.js';
-import type { HudFamily, HudStreet } from '../src/engine/opponentHud/OpponentHudProfile.js';
+import {
+  familyForVariant,
+  type HudFamily,
+  type HudStreet,
+} from '../src/engine/opponentHud/OpponentHudProfile.js';
 
 const args = process.argv.slice(2);
 const opt = (n: string) => {
@@ -25,7 +29,7 @@ async function main(): Promise<void> {
   const hand = opt('--hand');
   const out = opt('--out');
   if (!file || !hand || !out) throw new Error('--from-jsonl, --hand and --out are required');
-  const family = (opt('--family') === 'plo4' ? 'plo4' : 'plo5') as HudFamily;
+  const family: HudFamily = familyForVariant(opt('--family')) ?? 'plo5';
   const users = opt('--users')?.split(',').filter(Boolean);
   const rows: unknown[] = [];
   const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
