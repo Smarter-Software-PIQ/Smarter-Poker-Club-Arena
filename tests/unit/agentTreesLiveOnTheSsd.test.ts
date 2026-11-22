@@ -21,7 +21,9 @@ describe('agent worktrees live on the external SSD', () => {
     expect(workspace).toContain('SSD_TREES="/Volumes/SmarterWork/agent-work"');
     // The boot disk is offered only after the SSD candidates have been tried,
     // and only when no SSD is attached (agentWorktreeRootIsProvedWritable).
-    const ssdAt = workspace.indexOf('for cand in "$ssd/$repo" "$ssd/shared-capacity/$repo"');
+    const ssdAt = workspace.indexOf(
+      'for cand in "$ssd/extreme-capacity/$repo" "$ssd/$repo" "$ssd/shared-capacity/$repo"'
+    );
     const fallbackAt = workspace.indexOf('if agent_root_writable "$boot"');
     expect(ssdAt).toBeGreaterThan(0);
     expect(fallbackAt).toBeGreaterThan(ssdAt);

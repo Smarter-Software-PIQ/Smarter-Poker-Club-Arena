@@ -1,0 +1,3 @@
+# server/src/engine/opponentHud/OpponentHudContextReads.law.test.ts
+
+The MATHCORE-2 opponent layer (fold to the street's first wager by size, <= 0.7 pot or bigger / all-in, and by heads-up or multiway) and STAB-DEFENCE (the bettor's stab frequency when checked to, and the shown value share of his wagers by line and size) read per-opponent counts through the one opponent-HUD accessor (hudStat / hudStatIn), from public history only (no hole card enters a record), shrunk to the population prior by n / (n + k) with no sample cliff; an unknown context reads as the prior; the offline as-of builder (OpponentHudAsOf.countsBefore) returns the same lifetime counts strictly before a hand (lane OPPONENT-HUD, Nov 21 2026).

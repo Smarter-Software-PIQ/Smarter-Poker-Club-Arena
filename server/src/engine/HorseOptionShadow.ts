@@ -18,6 +18,16 @@
  * decision key), never with work queued behind the decision, never once the decision has spent the 15 ms shadow
  * budget, only at the committed governor scale, and at most OPTION_SHADOW_PER_MINUTE_DEFAULT re-decisions per
  * worker per clock minute (HORSE_OPTION_SHADOW_PER_MINUTE, 0 stops them). Every skip is counted.
+ *
+ * PEOPLE FIRST (2026-11-21, Horse SWITCH lane). What the owner asks of a rule is how it plays against people, and
+ * fewer than 1 decision in 100 has a person dealt in (v16Ratio, Nov 20-21: 163 of 22,374 re-decisions). So the
+ * per-minute budget never refuses a decision with a person dealt in (OptionShadowBudget.admit): it takes a slot of
+ * the minute like any other, and the Horse-only decisions after it in that minute are the ones dropped. The latency
+ * guards are not changed and hold for everyone: no re-decision with work queued behind the decision, none once the
+ * decision has spent its acted-time budget, none at a moved governor scale; and 0 still stops every re-decision.
+ * Every skip is counted, and its person-present subset too: option_shadow_skipped_<reason>_person_seen
+ * (reason backlog | budget | scale | stage_disabled | rate; rate fires only at 0). A person decision re-decided after
+ * the minute's slots were spent is counted option_shadow_rate_person_over_seen.
  */
 
 /** What one shadow re-decision recorded (journal field HorseDecision.optionShadowReceipt). */
@@ -53,21 +63,34 @@ export function optionShadowPerMinute(raw: string | undefined | null): number {
   return n <= OPTION_SHADOW_PER_MINUTE_MAX ? n : OPTION_SHADOW_PER_MINUTE_DEFAULT;
 }
 
-/** A fixed one-minute window: take() answers true at most `perMinute` times per window of the given clock. */
+/**
+ * A fixed one-minute window shared by every option in shadow of this worker. take() answers true at most `perMinute`
+ * times per window of the given clock for a Horse-only decision. PEOPLE FIRST: a decision with a person dealt in is
+ * always admitted (unless perMinute is 0, the stop) and takes a slot, so it is the Horse-only decisions that are
+ * dropped when the minute is full. admit() says whether a person decision came within the minute's slots or over them.
+ */
 export class OptionShadowBudget {
   private window = Number.NaN;
   private used = 0;
   constructor(private readonly perMinute: number) {}
-  take(nowMs: number): boolean {
-    if (!(this.perMinute > 0) || !Number.isFinite(nowMs)) return false;
+  take(nowMs: number, personDealt = false): boolean {
+    return this.admit(nowMs, personDealt) !== null;
+  }
+  /** null: refused (a Horse-only decision over the minute's slots, or the budget is 0 or the clock unreadable). */
+  admit(nowMs: number, personDealt = false): 'within' | 'person_over' | null {
+    if (!(this.perMinute > 0) || !Number.isFinite(nowMs)) return null;
     const w = Math.floor(nowMs / 60_000);
     if (w !== this.window) {
       this.window = w;
       this.used = 0;
     }
-    if (this.used >= this.perMinute) return false;
+    if (this.used >= this.perMinute) {
+      if (!personDealt) return null;
+      this.used++;
+      return 'person_over';
+    }
     this.used++;
-    return true;
+    return 'within';
   }
 }
 

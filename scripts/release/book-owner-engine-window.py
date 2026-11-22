@@ -50,6 +50,8 @@ FLOOR_LAW = 'tests/an-engine-activation-floor-precedes-runtime-writes.law.test.t
 DAILY_LAW = 'tests/daily-engine-maintenance.law.test.ts'
 NOTICE_LAW = 'tests/a-booked-window-gives-players-notice.law.test.ts'
 LAWS = (FLOOR_LAW, DAILY_LAW, NOTICE_LAW)
+# Required by .github/workflows/ownership-map.yml (ops/ownership.json) for locked release-control paths.
+OWNERSHIP_LANE = 'release-custody'
 
 CHICAGO = ZoneInfo('America/Chicago')
 ISO_Z = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z')
@@ -652,6 +654,39 @@ class Booking:
         self.plan_floor_suite()
         self.plan_laws()
 
+    def pr_body(self):
+        a = self.args
+        return '\n'.join([
+            f'Lane: {OWNERSHIP_LANE}',
+            '',
+            f'Books single-use owner engine window `{a.window_id}`.',
+            '',
+            f'- Predecessor: `{a.predecessor}`',
+            f'- Contains: `{a.contains}`',
+            f'- Window: `{a.not_before}` -> `{a.not_after}`',
+            f'- Changelog: `{self.created}`',
+            '',
+            self.summary,
+            '',
+        ])
+
+    def pr_create_instructions(self):
+        a = self.args
+        title = f'chore(release): book owner engine window {a.window_id}'
+        pr_body_out = getattr(a, 'pr_body_out', None)
+        if pr_body_out:
+            return '\n'.join([
+                f'next step (PR creation, satisfies Ownership map with Lane: {OWNERSHIP_LANE}):',
+                f'  gh pr create --base main --title {json.dumps(title)} --body-file {json.dumps(pr_body_out)}',
+            ])
+        return '\n'.join([
+            f'next step (PR creation, satisfies Ownership map with Lane: {OWNERSHIP_LANE}):',
+            f'  gh pr create --base main --title {json.dumps(title)} --body "$(cat <<\'EOF\'',
+            self.pr_body().rstrip('\n'),
+            'EOF',
+            ')"',
+        ])
+
     def describe(self):
         a = self.args
         chicago = lambda m: m.astimezone(CHICAGO).strftime('%Y-%m-%d %H:%M %Z')
@@ -677,6 +712,7 @@ class Booking:
             'files:']
         for path in self.files:
             lines.append(('  create  ' if path == self.created else '  modify  ') + path)
+        lines.append(self.pr_create_instructions())
         for warning in self.warnings:
             lines.append('WARNING: ' + warning)
         return '\n'.join(lines)
@@ -766,6 +802,7 @@ def main(argv=None):
     parser.add_argument('--summary-file', required=True, help='dated paragraph for PUBLISHING.md and the runbook')
     parser.add_argument('--changelog-file', required=True, help='body of the new changelog file')
     parser.add_argument('--dry-run', action='store_true', help='print the plan and change nothing')
+    parser.add_argument('--pr-body-out', help='optional file path to write the PR body starting with Lane: release-custody')
     parser.add_argument('--laws', action='store_true', help='after writing, also run the three TypeScript laws with npx vitest')
     parser.add_argument('--repo', default=str(Path(__file__).resolve().parents[2]))
     args = parser.parse_args(argv)
@@ -791,6 +828,11 @@ def main(argv=None):
     except PartialWrite as partial:
         print(f'FAILED, the tree is PARTLY WRITTEN: {partial}', file=sys.stderr)
         return 1
+    if args.pr_body_out:
+        out_path = Path(args.pr_body_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(booking.pr_body(), encoding='utf-8')
+        print(f'wrote PR body ({OWNERSHIP_LANE}): {out_path}')
     print(f'written. Running {FLOOR_SUITE} ...', flush=True)
     passed, output = run_floor_suite(booking.repo)
     print('\n'.join(output.rstrip('\n').split('\n')[-12 if passed else -200:]))

@@ -5101,8 +5101,9 @@ export class TournamentManager extends TournamentManagerEliminations {
    * stranded" and never "everybody is".
    */
   public async absorbOrphanedSeats(): Promise<number> {
+    if (isMaintenanceFrozen()) return 0;
     const lifecycle = this.captureLifecycleToken();
-    const current = () => this.lifecycleIsCurrent(lifecycle);
+    const current = () => this.lifecycleIsCurrent(lifecycle) && !isMaintenanceFrozen();
     if (!(await this.redrivePendingTournamentSeatMoveOutcomes()) || !current()) return 0;
     const { rows: tableRows, complete: tablesComplete } = await fetchAllRows(
       (cursor, limit) => {

@@ -198,6 +198,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'styleCarryOverWeight',
         'horsePlayStyleForce',
         'omahaOptionGameScope',
+        'omahaBlanketRowsOffList',
       ] satisfies ReadonlyArray<keyof HorseDecideOpts>
     ).map((name) => [name, PARAMETER])
   ),
@@ -375,6 +376,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river checked-to heads-up bet on the measured response, no kind (ships dark)
   'omahaRiverCheckedToBetIsMeasured',
+  // 2026-11-21 EMERG lane BLANKET-AUDIT: the declared blanket rows off in PLO4/PLO5 cash only (ships dark)
+  'omahaBlanketRowsOffInPlo45Cash',
+  // 2026-11-20 PLO-OWNER lane OPPONENT-HUD: the lifetime opponent profile read from hand one (ships dark)
+  'omahaOpponentLifetimeHud',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
@@ -479,6 +484,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'horsePlayStyles',
   // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
   'omahaReraisedPotFlopContinueNeedsEquityShape',
+  // 2026-11-21 (lane CORE-POOLED-6): was 'code'. Every read of the math core's PLO5 flop flag is `=== true`
+  // (OmahaMathCoreRule.ts omahaMathCoreStreetAdmitted, HorseLogic.ts recover door, OmahaMathCoreSwitchState.ts,
+  // responseValidation.ts admission), so unset is off at every read site. Listed so the registry takes the
+  // `shadow` state for it (OPTION_SHADOW_STAGE entry, companion omahaMathCore); alone it changes no decision.
+  'omahaMathCorePlo5Flop',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -850,6 +860,8 @@ export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Ob
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
   holdemProfileCompletenessCap:
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+  omahaOpponentLifetimeHud:
+    'its lifetime record is loaded and attached only while the switch is on (OpponentHudStore arms on the switch; off = zero work), so a shadow re-decision would read no record and journal "same" falsely (lane SHADOW, 2026-11-21)',
 });
 
 /** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */

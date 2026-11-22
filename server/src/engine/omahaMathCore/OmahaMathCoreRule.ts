@@ -15,6 +15,7 @@ import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
 import { CURRENT_NUTS_CALL_FLOOR, holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
 import { publicHistoryOf, selectionScore } from './OmahaMathCoreWire.js';
+import { noteFire } from '../BrainTelemetry.js';
 import {
   decideOmahaMathCore,
   type CoreOpponent,
@@ -229,7 +230,22 @@ export interface OmahaMathCoreDecisionReceipt {
   /** a street the core does not own (preflop: omahaMathCorePreflop off; postflop: its street flag off): computed
    * and receipted only; today's action stands */
   readonly shadow?: boolean;
+  /**
+   * lane CORE-FIX-1 (AUDIT-A item 9): false when today's action was KEPT because the core could not price it (receipt
+   * core.kept.unpriced). That decision is the rules', not the core's: omahaMathCoreChoice / omahaMathCoreOwns read
+   * it as no core choice, so no door treats it as core-protected, and its receipt choice carries no EV (null).
+   */
+  readonly owned?: false;
 }
+
+/**
+ * lane CORE-FIX-1 (AUDIT-A item 7): whether today's action is a real incumbent. 'today': a decision someone made
+ * reached the core, and "prove it to change it" (the change margin) protects it. 'none': the core runs standalone
+ * (omahaMathCoreRecover after a brain exception or a worker failure) with a synthetic fold / check that nobody
+ * chose; nothing is proven against a decision that was never made, so the core's EV choice stands. With 'none' a
+ * synthetic fold no longer wins every spot whose continue cannot clear K standard errors.
+ */
+export type OmahaMathCoreIncumbent = 'today' | 'none';
 
 /** In scope: PLO4/PLO5 cash, high only, one board, no bomb pot, pot limit, uncapped, a live decision. */
 export function omahaMathCoreInScope(player: SeatPlayer, gs: HorseGameStateV2): boolean {
@@ -581,7 +597,8 @@ export function omahaMathCoreRule(
   gs: HorseGameStateV2,
   opts: OmahaMathCoreOpts,
   legalize: (d: HorseDecision) => HorseDecision,
-  now: () => number = () => performance.now()
+  now: () => number = () => performance.now(),
+  incumbent: OmahaMathCoreIncumbent = 'today'
 ): HorseDecision {
   if (opts.omahaMathCore !== true) return decision;
   // Lane CORE-POOLED-2 latency (lead order 04:3xZ Nov 21; VERIFIER V60, SHADOW: with only the PLO5 flop flag on,
@@ -620,7 +637,7 @@ export function omahaMathCoreRule(
     const same = (a: HorseDecision, b: HorseDecision) =>
       a.action === b.action &&
       (a.action === 'all_in' || Math.abs((a.amount ?? 0) - (b.amount ?? 0)) <= 0.011);
-    // the core's own ranking: lower confidence bound (EV - SE), ties to fewer chips
+    // the core's own ranking (selectionScore: EV; lane CORE-FIX-1), ties to fewer chips
     const ranked = [...receipt.evs].sort(
       (x, y) => selectionScore(y) - selectionScore(x) || x.adds - y.adds
     );
@@ -656,7 +673,9 @@ export function omahaMathCoreRule(
         `omahaMathCore: no priced candidate is legal as proposed${legalizeError ? ` (legalizer: ${legalizeError})` : ''}`
       );
     // prove it to change it: today's action stands unless the core's best beats it by more than the margin
-    {
+    // (only against a real incumbent: a standalone recovery run has none, lane CORE-FIX-1)
+    let unpricedKept = false;
+    if (incumbent === 'today') {
       const best = receipt.evs.find(
         (e) =>
           e.action === legal!.action &&
@@ -684,11 +703,13 @@ export function omahaMathCoreRule(
           k: K,
           unpriced: true,
         };
+        // lane CORE-FIX-1 (AUDIT-A item 9): not the core's choice (owned: false below) and no EV the core never priced
         receipt.choice = {
           action: incoming.action as CoreReceipt['choice']['action'],
           amount: incoming.amount,
-          ev: 0,
+          ev: null,
         };
+        unpricedKept = true;
         legal = kept;
       } else if (K !== null && best && inc && inc !== best && !sameAction(incoming, legal)) {
         const se = Math.sqrt(
@@ -753,7 +774,7 @@ export function omahaMathCoreRule(
       receipt.choice = {
         action: narrowed.action as CoreReceipt['choice']['action'],
         amount: narrowed.amount ?? null,
-        ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
+        ev: chosen ? Math.round(chosen.ev * 100) / 100 : null,
       };
       legal = narrowed;
     }
@@ -789,7 +810,7 @@ export function omahaMathCoreRule(
         receipt.choice = {
           action: l.action as CoreReceipt['choice']['action'],
           amount: l.amount ?? null,
-          ev: Math.round((chosen?.ev ?? 0) * 100) / 100,
+          ev: chosen ? Math.round(chosen.ev * 100) / 100 : null,
         };
         legal = l;
         break;
@@ -808,11 +829,19 @@ export function omahaMathCoreRule(
         incoming,
         error: null,
         core: receipt,
+        // a kept-unpriced action that no later step replaced is the rules' decision, not the core's
+        ...(unpricedKept &&
+        legal.action === incoming.action &&
+        legal.amount === (incoming.amount ?? undefined)
+          ? { owned: false as const }
+          : {}),
       },
     };
     if (legal.amount === undefined) delete out.amount;
     return out;
   } catch (err) {
+    // lane CORE-FIX-1 (AUDIT-A item 14): the rules' decision executes; counted on the live ledger
+    noteFire('omaha_math_core_fallback_core_error');
     return {
       ...decision,
       omahaMathCore: {
