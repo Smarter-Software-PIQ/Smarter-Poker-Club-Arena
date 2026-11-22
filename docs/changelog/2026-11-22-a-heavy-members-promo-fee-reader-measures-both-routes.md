@@ -51,3 +51,11 @@ The read still grows with a member's own postings since enforcement began
 (2026-11-17), about 300 a day for this member. That is one member's rows instead
 of the platform's, but it is not constant. A stored running fee total per
 account is the change that makes it constant.
+
+## The pre-image collision check read one spelling of `@live-proof`
+
+`scripts/ci/check-migration-preimage-collisions.mjs` did not read the
+catalog-row spelling (`md5(pg_get_functiondef(oid))='...' ... WHERE
+oid='sig'::regprocedure`) that `20261118024233` uses, so it held that function
+at the image from `20261118002028` and refused this migration's correct pin. It
+now reads both spellings; the law test carries the case.
