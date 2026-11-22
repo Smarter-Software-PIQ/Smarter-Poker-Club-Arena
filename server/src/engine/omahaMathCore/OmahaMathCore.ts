@@ -421,7 +421,7 @@ export function platformDeduction(
  * the core prices reaches a flop, and with `rake.whole` it is netted of the capped rake and the
  * jackpot drop like a postflop pot (EMERG lane RAKE 2026-11-20). Without `rake.whole`: as before.
  */
-function rakeNet(state: CoreState, final: number, foldOut = false): number {
+export function rakeNet(state: CoreState, final: number, foldOut = false): number {
   const rake = state.rake;
   if (rake?.platform)
     return final - platformDeduction(rake.platform, final, state.street === 'preflop' && foldOut);
