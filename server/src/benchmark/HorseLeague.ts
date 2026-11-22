@@ -4360,6 +4360,70 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-20 EMERG lane STAB-DEFENCE (default OFF, PLO4/PLO5 cash): omahaStabDefenceIsPriced; a on, b today. The
+  // option reads a lifetime record: without a provider fed by the harness both arms decide alike.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_stab_defence_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStabDefenceIsPriced: true },
+    b: {},
+  })),
+  // 2026-11-20 EMERG lane STAB-DEFENCE (default OFF, held): omahaStrongHandCheckIsPriced; a on, b today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_strong_hand_check_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStrongHandCheckIsPriced: true },
+    b: {},
+  })),
+  // 2026-11-21 EMERG lane STAB-DEFENCE-5 (default OFF, PLO4/PLO5 cash): omahaRiverBetFoldIsHisRecord over the two
+  // river bet rules; a on, b the two rules without it. The option reads a lifetime record: without a provider fed
+  // by the harness both arms decide alike.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_fold_his_record`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+    },
+    b: { omahaRiverFirstToActBetIsPriced: true, omahaRiverCheckedToBetIsMeasured: true },
+  })),
+  // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES (default OFF, PLO4/PLO5 cash): #18 omahaBigBetSizeIsPriced
+  // (replaces #18 omahaBigBetIsPotShare with continuous pot-share/HUD aggressor range + priced limped-pot bet sizing).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_bet_size_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigBetIsPotShare: false, omahaBigBetSizeIsPriced: true },
+    b: { omahaBigBetIsPotShare: true },
+  })),
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5 (default OFF, PLO4/PLO5 cash): R2 omahaFlopBetIsPricedOnHisResponse
+  // (replaces #13 omahaBareOverpairOopFlopCheck + HUD flop raiser/stabber range); a on, b today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_priced_on_his_response`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBareOverpairOopFlopCheck: false, omahaFlopBetIsPricedOnHisResponse: true },
+    b: { omahaBareOverpairOopFlopCheck: true },
+  })),
+  // 2026-11-21 EMERG lane CBET-DEFENCE (default OFF, PLO4/PLO5 cash): omahaCbetRaiseIsPriced; a on, b today. Without a
+  // lifetime provider fed by the harness the raise share is the population's.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_cbet_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCbetRaiseIsPriced: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverCheckedToBetIsMeasured; a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_river_checked_to_bet_measured`,
@@ -4585,6 +4649,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaBigDrawAggression: true },
+    b: {},
+  })),
+  // 2026-11-21 R4 (omahaBigDrawBetIsPricedOnHisResponse, default OFF): replaces the
+  // checked-to bet half of omahaBigDrawAggression on flop/turn in PLO4/PLO5 cash using
+  // ONE lifetime HUD source (fb.bg, rBet, stab) with prove-it-to-bet bar; a switches it on.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_draw_bet_is_priced_on_his_response`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigDrawBetIsPricedOnHisResponse: true },
     b: {},
   })),
   // 2026-11-15 12:30 owner ruling (no draw raise out of position, no bare

@@ -1384,6 +1384,113 @@ export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;
  */
 export const FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false;
 
+/** Lifetime public per-street counts for one opponent (see HorseMind.setOmahaLifetimeStreetRecordProvider). */
+export interface OmahaLifetimeStreetRecordProvider {
+  /** his actions on the street with no wager yet made on it (opps) and those in which he made the first wager */
+  unopenedWagerRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { bets: number; opps: number } | null;
+  /**
+   * his first answers to a street's FIRST wager (opps) and the folds among them, by the wager's size: 'small' = at most
+   * 0.7 pot, 'big' = above it or all-in (OPPONENT-HUD's x.foldToBet cells). Optional: absent = no record.
+   */
+  firstWagerFoldRecord?(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw',
+    size: 'small' | 'big'
+  ): { folds: number; opps: number } | null;
+  /**
+   * his first wagers after an opponent checked to him on the street (stabs) and the sum of their sizes as a share of
+   * the pot before the wager, each capped at 2 pots. Optional: absent = no record.
+   */
+  stabSizeRecord?(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { stabs: number; sizeSum: number } | null;
+}
+/** The in-memory provider (tests and benches; production gets OPPONENT-HUD's). Counts only. */
+export class OmahaLifetimeStreetRecordMemory implements OmahaLifetimeStreetRecordProvider {
+  private readonly cells = new Map<string, { bets: number; opps: number }>();
+  note(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    madeFirstWager: boolean
+  ): void {
+    const key = `${opponentId}|${game}|${street}|${players}`;
+    const c = this.cells.get(key) ?? { bets: 0, opps: 0 };
+    c.opps += 1;
+    if (madeFirstWager) c.bets += 1;
+    this.cells.set(key, c);
+  }
+  unopenedWagerRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { bets: number; opps: number } | null {
+    const c = this.cells.get(`${opponentId}|${game}|${street}|${players}`);
+    return c ? { bets: c.bets, opps: c.opps } : null;
+  }
+  private readonly folds = new Map<string, { folds: number; opps: number }>();
+  private readonly sizes = new Map<string, { stabs: number; sizeSum: number }>();
+  noteFirstWagerAnswer(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    size: 'small' | 'big',
+    folded: boolean
+  ): void {
+    const key = `${opponentId}|${game}|${street}|${players}|${size}`;
+    const c = this.folds.get(key) ?? { folds: 0, opps: 0 };
+    c.opps += 1;
+    if (folded) c.folds += 1;
+    this.folds.set(key, c);
+  }
+  noteStab(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    potShare: number
+  ): void {
+    if (!Number.isFinite(potShare) || potShare < 0) return;
+    const key = `${opponentId}|${game}|${street}|${players}`;
+    const c = this.sizes.get(key) ?? { stabs: 0, sizeSum: 0 };
+    c.stabs += 1;
+    c.sizeSum += Math.min(2, potShare);
+    this.sizes.set(key, c);
+  }
+  firstWagerFoldRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw',
+    size: 'small' | 'big'
+  ): { folds: number; opps: number } | null {
+    const c = this.folds.get(`${opponentId}|${game}|${street}|${players}|${size}`);
+    return c ? { folds: c.folds, opps: c.opps } : null;
+  }
+  stabSizeRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { stabs: number; sizeSum: number } | null {
+    const c = this.sizes.get(`${opponentId}|${game}|${street}|${players}`);
+    return c ? { stabs: c.stabs, sizeSum: c.sizeSum } : null;
+  }
+}
+
 export class HorseMind {
   private static stats = new Map<string, OpponentStats>();
   /** V45: the scoped overlay, keyed `${scope}|${userId}`. */
@@ -3306,6 +3413,96 @@ export class HorseMind {
     );
   }
 
+  /**
+   * LIFETIME STREET RECORD PROVIDER (2026-11-20, lanes STAB-DEFENCE / OPPONENT-HUD; read by omahaStabDefenceIsPriced
+   * and omahaStrongHandCheckIsPriced, both default off). One provider for every opponent alike: undecayed lifetime
+   * counts of PUBLIC actions per game, street and table (heads-up / multiway), as of the hands completed before the
+   * decision's hand. Null provider or null record = no record: the consumer prices the population exactly.
+   */
+  private static omahaLifetimeStreetRecords: OmahaLifetimeStreetRecordProvider | null = null;
+  static setOmahaLifetimeStreetRecordProvider(
+    provider: OmahaLifetimeStreetRecordProvider | null
+  ): void {
+    this.omahaLifetimeStreetRecords = provider ?? null;
+  }
+  static omahaLifetimeStreetRecordProviderIsSet(): boolean {
+    return this.omahaLifetimeStreetRecords !== null;
+  }
+  /**
+   * STAB DEFENCE RECORD: one opponent's lifetime public count of first wagers on unopened action of this street and
+   * of his opportunities, from the provider above. Counts, not a label: the consumer shrinks them by n / (n + k).
+   * Null with no provider, no record, outside PLO4 / PLO5 turn and river, or on any provider error. Pure: no fires,
+   * no writes, no random draws. One function for every opponent.
+   */
+  static omahaStabDefenceRecordOf(
+    userId: string,
+    variant: string,
+    street: string,
+    opponents: number
+  ): { bets: number; opps: number } | null {
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return null;
+    const game = String(variant ?? '').toLowerCase();
+    if ((game !== 'plo4' && game !== 'plo5') || (street !== 'turn' && street !== 'river'))
+      return null;
+    try {
+      const r = provider.unopenedWagerRecord(userId, game, street, opponents <= 1 ? 'hu' : 'mw');
+      if (!r) return null;
+      const bets = Number(r.bets);
+      const opps = Number(r.opps);
+      if (!Number.isFinite(bets) || !Number.isFinite(opps) || !(opps > 0) || bets < 0) return null;
+      return { bets: Math.min(bets, opps), opps };
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * STRONG-HAND CHECK RECORDS (omahaStrongHandCheckIsPriced): one opponent's lifetime public answers to a street's
+   * first wager, by size cell, and his stab sizes, from the same provider. Counts only; the consumer shrinks them.
+   * Null fields with no provider, no record, outside PLO4 / PLO5 turn and river, or on any provider error. Pure.
+   */
+  static omahaStrongHandCheckRecordsOf(
+    userId: string,
+    variant: string,
+    street: string,
+    opponents: number
+  ): {
+    foldSmall: { folds: number; opps: number } | null;
+    foldBig: { folds: number; opps: number } | null;
+    stabSize: { stabs: number; sizeSum: number } | null;
+  } {
+    const none = { foldSmall: null, foldBig: null, stabSize: null };
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return none;
+    const game = String(variant ?? '').toLowerCase();
+    if ((game !== 'plo4' && game !== 'plo5') || (street !== 'turn' && street !== 'river'))
+      return none;
+    const players = opponents <= 1 ? 'hu' : 'mw';
+    const fold = (size: 'small' | 'big') => {
+      try {
+        const r = provider.firstWagerFoldRecord?.(userId, game, street, players, size);
+        if (!r) return null;
+        const folds = Number(r.folds);
+        const opps = Number(r.opps);
+        if (!Number.isFinite(folds) || !Number.isFinite(opps) || !(opps > 0) || folds < 0)
+          return null;
+        return { folds: Math.min(folds, opps), opps };
+      } catch {
+        return null;
+      }
+    };
+    let stabSize: { stabs: number; sizeSum: number } | null = null;
+    try {
+      const r = provider.stabSizeRecord?.(userId, game, street, players);
+      const stabs = Number(r?.stabs);
+      const sizeSum = Number(r?.sizeSum);
+      if (r && Number.isFinite(stabs) && Number.isFinite(sizeSum) && stabs > 0 && sizeSum >= 0)
+        stabSize = { stabs, sizeSum: Math.min(sizeSum, 2 * stabs) };
+    } catch {
+      stabSize = null;
+    }
+    return { foldSmall: fold('small'), foldBig: fold('big'), stabSize };
+  }
   /** His bet rate on the decision's street (omahaReadIsByStreetAndTexture on), or `pooledRate` itself. */
   private static omahaReadByStreetBetRate(userId: string, pooledRate: number): number {
     const byStreet = omahaReadByStreetNow();
