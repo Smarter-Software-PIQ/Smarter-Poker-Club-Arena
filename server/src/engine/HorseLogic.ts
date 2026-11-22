@@ -4909,8 +4909,10 @@ export interface HorseDecideOpts {
    *  in / out of position equity multiplier, then depth) read on a reference
    *  continue order of pairs, suited hands and AKo/AQo, instead of a fixed
    *  top-of-the-deck bar. Value 4-bets, the 4-bet bluff, the 5-bet branch
-   *  and the dominated-offsuit fold are unchanged. Default on; explicit
-   *  false keeps today's. */
+   *  and the dominated-offsuit fold are unchanged. Decoupled from
+   *  v75SqueezeDefence: explicit false disables only the pure 3-bet node and
+   *  leaves squeezed-opener defence intact. Default on; explicit false keeps
+   *  today's. */
   v73Vs3BetDefence?: boolean;
   /** V75 (2026-11-01): the V73 opener-facing-a-3-bet width also answers the
    *  SQUEEZE (hero's open was called, then one player re-raised, nobody has
@@ -4919,9 +4921,10 @@ export interface HorseDecideOpts {
    *  behind hero narrows it by the V75 realisation factor
    *  (HorseGtoVs3BetRanges.V75_LIVE_CALLER_FACTOR). Same scope bounds as
    *  V73 otherwise; value 4-bets, the 5-bet branch, the dominated-offsuit
-   *  fold and the V18 squeeze exploit read are unchanged. Default on;
-   *  explicit false keeps the squeeze node on today's fixed bar (V73's pure
-   *  3-bet node is untouched by this flag). */
+   *  fold and the V18 squeeze exploit read are unchanged. Independently gated
+   *  from v73Vs3BetDefence so turning v73Vs3BetDefence OFF never disables
+   *  squeeze defence. Default on; explicit false keeps the squeeze node on
+   *  today's fixed bar (V73's pure 3-bet node is untouched by this flag). */
   v75SqueezeDefence?: boolean;
   /** V74 (2026-11-01, Dan 2026-10-31 "MIN RAISE TO 2.5-4X OPENING RANGES"):
    *  no-limit hold'em raise-first-in opens draw from a band chosen by seat,
@@ -5136,15 +5139,28 @@ export interface HorseDecideOpts {
   /** V68 league-only scale on the (b) air shade (1 shipped; 0.5 is the
    *  half-strength fallback). Production never sets it. */
   v68AirShadeScaleOverride?: number;
-  /** V69 (2026-10-31): three hold'em single-board TURN call gaps left by
-   *  V65/V68. (1) One-pair calls lose the implied-odds bonus under V68's
-   *  no-room-to-be-paid rule. (2) V65's draw exemption counts only a draw a
-   *  hole card is part of, so a board-only four-flush or four-rank window no
-   *  longer withholds the shade. (3) The V32 defend layer's draw
-   *  pass-through on the turn falls through to the normal line when there is
-   *  no room to be paid. Default on; explicit false keeps today's behaviour
-   *  for all three. */
+  /** V69 (1) (2026-10-31): hold'em single-board TURN one-pair calls lose the
+   *  0.04 implied-odds bonus under V68's no-room-to-be-paid rule (bet >= 0.7
+   *  pot with under 1.5x pot behind after the call). Decoupled from V69 (2)
+   *  (`v69HoleDrawExemption`) and V69 (3) (`v69V32DrawNoRoom`) so disabling
+   *  one-pair implied-odds suppression never alters V65/Pillar 2 draw
+   *  exemption or V32 draw pass-through. Default on; explicit false disables
+   *  only V69 (1). */
   v69TurnCallGaps?: boolean;
+  /** V69 (2) (2026-10-31, #8902): hold'em turn one-pair shade draw exemption
+   *  (V65 and Pillar 2 deep-dive turn shade) counts only a draw a hole card is
+   *  part of (`holdemHoleDrawPresent`), so a board-only four-flush or
+   *  four-rank window no longer withholds the shade. Decoupled from
+   *  `v69TurnCallGaps` so turning `v69TurnCallGaps` OFF never re-enables the
+   *  board-only draw exemption defect for V65 or Pillar 2. Default on;
+   *  explicit false disables only V69 (2). */
+  v69HoleDrawExemption?: boolean;
+  /** V69 (3) (2026-10-31, #8902): the opt-in V32 defend layer's turn draw
+   *  pass-through falls through to the normal line when there is no room to be
+   *  paid (`v68NoRoomToBePaid`), instead of guaranteeing a turn call.
+   *  Decoupled from `v69TurnCallGaps` and `v69HoleDrawExemption`. Default on;
+   *  explicit false disables only V69 (3). */
+  v69V32DrawNoRoom?: boolean;
   /** V62 (2026-10-30) Hold'em river bettor polarity: a river wager's sampled
    *  hand is drawn from a bluff / two pair+ / top pair / weaker pair stratum
    *  by bet size (HorseEval V62_BLUFF_SHARE / V62_VALUE_MIX), placed exactly
@@ -20633,7 +20649,6 @@ export class HorseLogic {
     // width on the seat's continue order (HorseGtoVs3BetRanges). Both seats
     // are indexed from the dealt census, never from who anybody is.
     const gtoVs3Bet73 = (() => {
-      if (opts.v73Vs3BetDefence === false) return undefined;
       if (raises !== 2 || !heroWasInitialRaiser || lastRaiserSeat < 0) return undefined;
       if (callers !== 0 || limpers !== 0) return undefined;
       // ═══ V75 THE SQUEEZED OPENER (2026-11-01) ═══ hero's open was called
@@ -20644,7 +20659,14 @@ export class HorseLogic {
       // arithmetic) and its live cards cost realisation
       // (HorseGtoVs3BetRanges.V75_LIVE_CALLER_FACTOR).
       const squeeze75 = callersOfPreviousRaise >= 1;
-      if (squeeze75 && opts.v75SqueezeDefence === false) return undefined;
+      // Decoupled (REVIEW-HOLDEM-OFFLIST #19): pure 3-bet nodes gate on
+      // v73Vs3BetDefence alone; squeeze nodes gate on v75SqueezeDefence alone,
+      // so turning v73Vs3BetDefence OFF never silently disables V75 squeeze defence.
+      if (squeeze75) {
+        if (opts.v75SqueezeDefence === false) return undefined;
+      } else {
+        if (opts.v73Vs3BetDefence === false) return undefined;
+      }
       if (callersOfPreviousRaise !== 0 && !squeeze75) return undefined;
       if (player.cards.length !== 2) return undefined;
       if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
@@ -24523,7 +24545,16 @@ export class HorseLogic {
     /** V34: the solver said CALL with a drawing hand; the semi-bluff raise
      *  gates below get first refusal, and the call is guaranteed after them. */
     let solverCall32 = false;
-    const v69Gaps = (opts.v69TurnCallGaps ?? true) !== false;
+    // Decoupled (REVIEW-HOLDEM-OFFLIST #12): split V69's three distinct
+    // turn-call effects onto independent default-ON flags so turning off any
+    // single effect never cross-disables the others or alters V65 / Pillar 2
+    // draw exemption:
+    //   (1) v69OnePairImplied (opts.v69TurnCallGaps) — one-pair implied-odds no-room check
+    //   (2) v69HoleDraw (opts.v69HoleDrawExemption) — hole-card-only draw exemption
+    //   (3) v69V32Draw (opts.v69V32DrawNoRoom) — V32 turn draw pass-through no-room check
+    const v69OnePairImplied = (opts.v69TurnCallGaps ?? true) !== false;
+    const v69HoleDraw = opts.v69HoleDrawExemption !== false;
+    const v69V32Draw = opts.v69V32DrawNoRoom !== false;
     // ═══ V32 FACING A BET — the solver's own betting range (2026-08-30) ═══
     // Phase 2 of 7. V29/V30/V31 answer only with the LEAD; this is the other
     // half. The bettor's open-node cell gives P(bet at this size | holding)
@@ -24659,9 +24690,9 @@ export class HorseLogic {
             // V69 (3): on the turn, a draw call the stacks behind cannot pay
             // off (V68's no-room-to-be-paid rule) is not guaranteed here; it
             // falls through to the normal line, which prices it without the
-            // implied-odds allowance.
+            // implied-odds allowance. Independently gated on v69V32DrawNoRoom.
             if (
-              v69Gaps &&
+              v69V32Draw &&
               street === 'turn' &&
               v68NoRoomToBePaid(
                 toCall / Math.max(pot - toCall, 1e-9),
@@ -28626,10 +28657,7 @@ export class HorseLogic {
         (cat <= 2 || (cat === 3 && pairedBoard)) &&
         toCall > 0 &&
         pot > 0 &&
-        !((opts.v69TurnCallGaps ?? true) !== false ? holdemHoleDrawPresent : holdemDrawPresent)(
-          player.cards,
-          board
-        )
+        !(v69HoleDraw ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board)
           ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
           : 0;
       if (opts.v87DeepDiveDiscipline !== false)
@@ -29984,7 +30012,9 @@ export class HorseLogic {
       pot > 0 &&
       // V69 (2): only a draw a hole card is part of exempts the hand; a
       // board-only four-flush or four-rank window is everyone's draw.
-      !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board);
+      // Independently gated on v69HoleDrawExemption so V69 (1) OFF never
+      // re-enables board-only draw exemptions for V65 or Pillar 2.
+      !(v69HoleDraw ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board);
     let shade65 = 0;
     if ((opts.v65TurnOnePairShade ?? true) !== false && turnOnePairShadeEligible65) {
       shade65 = v65TurnOnePairShade(
@@ -29994,7 +30024,7 @@ export class HorseLogic {
       );
       if (shade65 > 0 && tele15) {
         noteFire('v65_turn_one_pair_shade');
-        if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
+        if (v69HoleDraw && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
       }
     }
     // Decoupled from v65TurnOnePairShade so V65 OFF never silently removes
@@ -30059,9 +30089,9 @@ export class HorseLogic {
     // no-room-to-be-paid rule, applied to one pair (cat 2) under the same
     // gates: the 0.04 implied-odds allowance assumes a river bet gets paid,
     // and against a 0.7-pot-plus turn wager with under 1.5x the pot behind
-    // there is no such bet to win.
+    // there is no such bet to win. Independently gated on v69TurnCallGaps.
     if (
-      v69Gaps &&
+      v69OnePairImplied &&
       useIQ &&
       street === 'turn' &&
       !vi.isOmaha &&

@@ -1091,6 +1091,10 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  v69HoleDrawExemption:
+    'defect guard (V69 (2), #8902: only a draw using a hole card exempts turn one-pair shade; a board-only four-flush/four-straight is not hero draw); decoupled from v69TurnCallGaps, not registered in SQL switch',
+  v69V32DrawNoRoom:
+    'sub-rule of off-only opt-in v32FacingDefense (V69 (3), #8902: V32 turn draw pass-through falls through with no room to be paid); decoupled from v69TurnCallGaps, not registered in SQL switch',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

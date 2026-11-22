@@ -1755,7 +1755,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v69TurnCallGaps',
-    '2026-10-31 Hold em single-board TURN call gaps left by V65/V68: one-pair calls lose the implied-odds bonus facing 0.7 pot or more with under 1.5x the pot behind after the call, the V65 draw exemption counts only a draw a hole card is part of, and the opt-in V32 draw pass-through falls through to the normal line when there is no room to be paid; explicit off arm retained',
+    '2026-10-31 Hold em single-board TURN one-pair implied-odds no-room rule (V69 (1)): one-pair calls lose the 0.04 implied-odds bonus facing 0.7 pot or more with under 1.5x the pot behind after the call; decoupled from V69 (2) hole-card draw exemption (v69HoleDrawExemption) and V69 (3) V32 turn draw pass-through no-room check (v69V32DrawNoRoom); explicit off arm retained',
+    'V69'
+  ),
+  flag(
+    'v69HoleDrawExemption',
+    '2026-10-31 (#8902) Hold em turn one-pair shade draw exemption (V69 (2)): V65 and Pillar 2 turn one-pair shades count only a draw a hole card is part of (holdemHoleDrawPresent), so a board-only four-flush or four-rank window no longer exempts the hand; decoupled from v69TurnCallGaps so disabling one-pair implied-odds suppression never re-enables the board-only draw exemption defect; default on',
+    'V69'
+  ),
+  flag(
+    'v69V32DrawNoRoom',
+    '2026-10-31 (#8902) Hold em V32 turn draw pass-through no-room check (V69 (3)): when opt-in v32FacingDefense is on, a turn draw pass-through with no room to be paid (v68NoRoomToBePaid) falls through to the normal line instead of guaranteeing a turn call; decoupled from v69TurnCallGaps and v69HoleDrawExemption; default on',
     'V69'
   ),
   flag(
