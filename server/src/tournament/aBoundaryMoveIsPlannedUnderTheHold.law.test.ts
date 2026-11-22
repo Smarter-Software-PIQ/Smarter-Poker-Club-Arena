@@ -552,4 +552,86 @@ describe('a boundary move is planned under the hold', () => {
     expect(admitted).toBeGreaterThan(-1);
     expect(statements[admitted + 1]).toBe('this.balanceBoardEpoch++;');
   });
+
+  describe('a missed boundary probe or completion hold never orphans a gap-balance fence (2026-11-22, incident 1e532243)', () => {
+    // Production 2026-11-22 on b31db252 (fb3edde2 20.55s, a515cc5d 20.47s,
+    // 9646acc0 8.13s): waitForHandComplete returned true during the 1.85-7s
+    // post-hand completion presentation hold, so checkTableBalance passed the
+    // source into executePlayerMoves -> claimTournamentMoveBoundary ->
+    // parkForTournamentMove(owner, 1000). The probe armed the pause owner,
+    // timed out, returned false leaving the owner armed, and checkTableBalance
+    // unconditionally deleted the source from gapBalanceFencedSources. When
+    // the source parked seconds later, claimGapBalanceAtBoundary returned false
+    // and releaseGapFencesNotIn ignored it, freezing the table for the full
+    // 15,000 ms TOURNAMENT_MOVE_UNCLAIMED_PARK_MS expiry.
+
+    it('waitForHandComplete returns false during the completion hold so checkTableBalance fences non-blocking', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines } = manager([big, short]);
+      const bigEngine: any = engines.get(big.tableId)!;
+      bigEngine.isBetweenHands = () => true;
+      bigEngine.hasSettlementInFlight = () => false;
+      bigEngine.isInCompletionPresentationHold = () => true;
+      // Use the real waitForHandComplete implementation.
+      m.waitForHandComplete = (TournamentManager.prototype as any).waitForHandComplete.bind(m);
+
+      await m.checkTableBalance();
+
+      expect(m.executePlayerMoves).not.toHaveBeenCalled();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+      expect(bigEngine.parkForTournamentMove).toHaveBeenCalledWith(
+        m.tournamentMoveBoundaryOwner,
+        0
+      );
+    });
+
+    it('a missed probe in claimTournamentMoveBoundary stays tracked so a balanced sweep lifts it and a park edge claims it', async () => {
+      const big = table(0, 8);
+      const short = table(1, 6);
+      const { m, engines, park } = manager([big, short]);
+      const bigEngine: any = engines.get(big.tableId)!;
+      const pauseOwners = new Set<string>();
+      bigEngine.dealing = false; // passes waitForHandComplete, simulating a race into a new hand or hold
+      bigEngine.isBetweenHands = () => true;
+      bigEngine.parkForTournamentMove = vi.fn(async (ownerId: string) => {
+        pauseOwners.add(ownerId);
+        return false; // probe times out leaving owner armed
+      });
+      bigEngine.releaseTournamentMovePause = vi.fn((ownerId: string) => {
+        pauseOwners.delete(ownerId);
+      });
+      bigEngine.hasTournamentMovePauseOwner = vi.fn((ownerId: string) => pauseOwners.has(ownerId));
+      m.gameServer.getTableEngine = (tableId: string) => engines.get(tableId) ?? null;
+      m.redrivePendingTournamentSeatMoveOutcomesOwned = vi.fn(async () => true);
+      m.runWithTournamentSeatMoveAuthority = async (fn: () => Promise<number>) => fn();
+      m.executePlayerMoves = (TournamentManager.prototype as any).executePlayerMoves.bind(m);
+
+      await m.checkTableBalance();
+
+      // The pause owner was left armed by the missed probe and MUST remain tracked.
+      expect(pauseOwners.has(m.tournamentMoveBoundaryOwner)).toBe(true);
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+
+      // Scenario A: the field balances before the table parks -> sweep lifts it
+      // immediately instead of letting it sit for 15s TOURNAMENT_MOVE_UNCLAIMED_PARK_MS.
+      big.players = big.players.slice(0, 6);
+      big.playerCount = 6;
+      await m.checkTableBalance();
+      expect(bigEngine.releaseTournamentMovePause).toHaveBeenCalledWith(
+        m.tournamentMoveBoundaryOwner
+      );
+      expect(pauseOwners.has(m.tournamentMoveBoundaryOwner)).toBe(false);
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
+
+      // Scenario B: repeat with unbalanced field -> when the table finally parks,
+      // claimGapBalanceAtBoundary claims it immediately at its own park edge.
+      big.players = table(0, 8).players;
+      big.playerCount = 8;
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+      park(big.tableId);
+      expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(true);
+    });
+  });
 });
