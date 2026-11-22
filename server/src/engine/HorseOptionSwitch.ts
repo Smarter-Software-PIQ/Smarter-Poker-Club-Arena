@@ -512,11 +512,17 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'horsePlayStyles',
   // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
   'omahaReraisedPotFlopContinueNeedsEquityShape',
-  // 2026-11-21 (lane CORE-POOLED-6): was 'code'. Every read of the math core's PLO5 flop flag is `=== true`
-  // (OmahaMathCoreRule.ts omahaMathCoreStreetAdmitted, HorseLogic.ts recover door, OmahaMathCoreSwitchState.ts,
-  // responseValidation.ts admission), so unset is off at every read site. Listed so the registry takes the
-  // `shadow` state for it (OPTION_SHADOW_STAGE entry, companion omahaMathCore); alone it changes no decision.
+  // 2026-11-21 (lane CORE-POOLED-6) & 2026-11-22 (PLO-OWNER lead-4, lane core-repair): were 'code'. Every read of
+  // each math core street flag is `=== true` (OmahaMathCoreRule.ts omahaMathCoreStreetAdmitted, HorseLogic.ts recover
+  // door, OmahaMathCoreSwitchState.ts, responseValidation.ts admission), so unset is off at every read site. Listed
+  // so the registry takes the `shadow` state for each street flag (OPTION_SHADOW_STAGE entries, companion
+  // omahaMathCore); alone each street flag changes no decision.
   'omahaMathCorePlo5Flop',
+  'omahaMathCorePlo4Flop',
+  'omahaMathCorePlo5Turn',
+  'omahaMathCorePlo5River',
+  'omahaMathCorePlo4Turn',
+  'omahaMathCorePlo4River',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
