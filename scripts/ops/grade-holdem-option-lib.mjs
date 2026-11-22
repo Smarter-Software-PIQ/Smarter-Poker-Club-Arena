@@ -5,6 +5,7 @@
 // reproducible and unit-testable.
 
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 
 export const HARNESS_SCHEMA_VERSION = 'holdem-grade-harness/v1';
 
@@ -20,8 +21,46 @@ export const ZFAM_METHODS = Object.freeze(['sidak', 'bonferroni']);
 export const PRIMARY_POOLING_METHODS = Object.freeze(['inverse_variance', 'equal_weight']);
 
 export const DEFAULT_MAX_LOAD_1M = 35;
-export const DEFAULT_LOCK_DIR =
-  '/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4';
+export const LOCK_DIR_CANDIDATES = Object.freeze([
+  '/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+  '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+]);
+
+/**
+ * Resolves the shared lock directory portably:
+ * 1. Explicit `HS_LOCK_DIR` env override (trimmed, trailing slashes stripped)
+ * 2. First existing candidate among canonical and suffixed SSD1 mountpoints
+ * 3. First candidate fallback when running on a host without those mounts
+ */
+export function resolveLockDir({
+  env = process.env,
+  pathExists = existsSync,
+  candidates = LOCK_DIR_CANDIDATES,
+} = {}) {
+  const fromEnv = typeof env?.HS_LOCK_DIR === 'string' ? env.HS_LOCK_DIR.trim() : '';
+  if (fromEnv) {
+    return fromEnv.replace(/\/+$/, '') || fromEnv;
+  }
+  if (typeof pathExists === 'function') {
+    for (const candidate of candidates) {
+      if (pathExists(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return candidates[0];
+}
+
+export function resolveDefaultLockPaths(options = {}) {
+  const lockDir = resolveLockDir(options);
+  return {
+    lockDir,
+    shepherdLock: `${lockDir}/shepherd.lock`,
+    coreGateScript: `${lockDir}/core-gate-running.py`,
+  };
+}
+
+export const DEFAULT_LOCK_DIR = resolveLockDir();
 export const DEFAULT_SHEPHERD_LOCK = `${DEFAULT_LOCK_DIR}/shepherd.lock`;
 export const DEFAULT_CORE_GATE_SCRIPT = `${DEFAULT_LOCK_DIR}/core-gate-running.py`;
 
@@ -1909,7 +1948,7 @@ export function compareVerdictsForRecompute(expected, recomputed, tolerance = 1e
 
 // --- CLI Argument Parser -----------------------------------------------------------------------
 
-export function parseGradeCliArgs(argv) {
+export function parseGradeCliArgs(argv, lockResolutionOptions = {}) {
   if (!Array.isArray(argv) || argv.length === 0) {
     return { command: 'help', flags: {} };
   }
@@ -1917,6 +1956,7 @@ export function parseGradeCliArgs(argv) {
   if (command === '-h' || command === '--help' || command === 'help') {
     return { command: 'help', flags: {} };
   }
+  const defaultLockPaths = resolveDefaultLockPaths(lockResolutionOptions);
   const flags = {
     manifest: null,
     criteriaSha: null,
@@ -1925,8 +1965,8 @@ export function parseGradeCliArgs(argv) {
     results: null,
     compare: null,
     workdir: null,
-    shepherdLock: DEFAULT_SHEPHERD_LOCK,
-    coreGateScript: DEFAULT_CORE_GATE_SCRIPT,
+    shepherdLock: defaultLockPaths.shepherdLock,
+    coreGateScript: defaultLockPaths.coreGateScript,
     laneLock: null,
     laneOwner: null,
     maxLoad1m: null,

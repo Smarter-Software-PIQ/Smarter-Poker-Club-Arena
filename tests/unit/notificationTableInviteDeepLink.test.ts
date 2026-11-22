@@ -69,7 +69,7 @@ describe('buildTableInviteDeepLink and NotificationService table_invite hardenin
         cluster_id: 'cl-8',
         invite_code: 'VIP99',
       })
-    ).toBe('/table/tbl-1?i=tok%2B1&cluster=cl-8&invite=VIP99');
+    ).toBe('/table/tbl-1?i=VIP99&cluster=cl-8&invite=tok%2B1');
 
     expect(
       buildTableInviteDeepLink({
@@ -79,7 +79,7 @@ describe('buildTableInviteDeepLink and NotificationService table_invite hardenin
         clusterId: 'cl-2',
         inviteCode: 'CODE2',
       })
-    ).toBe('/table/tbl-2?i=abc&cluster=cl-2&invite=CODE2');
+    ).toBe('/table/tbl-2?i=CODE2&cluster=cl-2&invite=abc');
   });
 
   it('resolves lightning cluster invites and preserves optional invite token', () => {
@@ -97,7 +97,7 @@ describe('buildTableInviteDeepLink and NotificationService table_invite hardenin
         inviteToken: 't-lightning',
         inviteCode: 'FAST',
       })
-    ).toBe('/lightning/cluster-88?i=t-lightning&invite=FAST');
+    ).toBe('/lightning/cluster-88?i=FAST&invite=t-lightning');
   });
 
   it('resolves tournament invites to /tournaments/:id or direct /table/:id for seat-first tables', () => {
@@ -114,7 +114,7 @@ describe('buildTableInviteDeepLink and NotificationService table_invite hardenin
         tournamentId: 'mtt-34',
         inviteToken: 't-mtt',
       })
-    ).toBe('/tournaments/mtt-34?i=t-mtt');
+    ).toBe('/tournaments/mtt-34?invite=t-mtt');
 
     // Seat-first Heads-Up / Spin table carries both tournament_id and table_id
     expect(
@@ -124,7 +124,7 @@ describe('buildTableInviteDeepLink and NotificationService table_invite hardenin
         table_id: 'seat-first-tbl-5',
         invite_token: 'hu-tok',
       })
-    ).toBe('/table/seat-first-tbl-5?i=hu-tok');
+    ).toBe('/table/seat-first-tbl-5?invite=hu-tok');
   });
 
   it('falls back safely to "/" when target IDs are missing or blank', () => {
@@ -166,7 +166,7 @@ describe('buildTableInviteDeepLink and NotificationService table_invite hardenin
 
     const rows = await notificationService.getNotifications('u-1');
     expect(rows).toHaveLength(2);
-    expect(rows[0].actionUrl).toBe('/lightning/cl-404?i=tk1');
+    expect(rows[0].actionUrl).toBe('/lightning/cl-404?invite=tk1');
     expect(rows[0].metadata).toMatchObject({ kind: 'lightning', cluster_id: 'cl-404' });
     expect(rows[1].actionUrl).toBe('/table/tbl-999?i=explicit');
   });

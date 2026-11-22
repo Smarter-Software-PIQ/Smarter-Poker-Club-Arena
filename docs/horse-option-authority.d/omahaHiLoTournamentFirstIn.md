@@ -231,3 +231,7 @@ How the row is produced (run from `server/`; `W` is the work directory holding t
 2. Place the nodes: `python3 scripts/hvh48-audit-nodes.py --set E --csv $W/set/decisions.csv --work $W/set --out $W/nodes`.
 3. Re-decide off against on: `npx tsx scripts/audited-node-option-replay.ts --job $W/nodes/E.job.json --switch $W/prod-switch.json --arms on=omahaHiLoTournamentFirstIn --out $W/runs/PLO8HU-FI.replay.jsonl`.
 4. Score and copy the printed row unedited: `npx tsx scripts/audited-decision-replay.ts --placed $W/nodes/E.nodes.jsonl --replay $W/runs/PLO8HU-FI.replay.jsonl --line on --row on --set "PLO8HU-FI PLO8 2-player tournaments 20bb"`.
+
+## Rollback
+
+If enabled, run `horse-option-switch.mjs set omahaHiLoTournamentFirstIn off --rollback` (`fn_ca_horse_option_switch_set('omahaHiLoTournamentFirstIn', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.
