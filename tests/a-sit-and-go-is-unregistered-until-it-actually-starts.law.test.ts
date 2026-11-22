@@ -16,6 +16,12 @@
  * anchored edits of migration 20261122192807 are applied here to the newest
  * recorded body of each function they rewrite, exactly as the migration
  * applies them to the live one, and the rule is asserted on the result.
+ *
+ * Repaired in place on 2026-11-22: another lane's 20261122185915 installed the
+ * same rule first, under the authority name 'sng_actual_start', replacing all
+ * three functions wholesale. 20261122192807 now adds only what that file does
+ * not: a Sit and Go is closed once its launch BEGINS (any launch receipt), not
+ * only once it completes, and the launch's own release keeps its authority.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -28,6 +34,7 @@ const DIR = resolve(ROOT, 'supabase/migrations');
 const read = (name: string) => readFileSync(resolve(DIR, name), 'utf8');
 
 const MIGRATION = '20261122192807_a_sit_and_go_is_unregistered_until_it_actually_starts.sql';
+const INSTALLED_FIRST = '20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql';
 const sql = read(MIGRATION);
 
 function between(source: string, open: string, close = open, from = 0): string {
@@ -65,37 +72,19 @@ function applyOnce(body: string, list: ReturnType<typeof edits>, name: string): 
   return out;
 }
 
-const coreBefore = recordedBody(
+/* The body that shipped the defect, before either fix of 2026-11-22. */
+const coreOriginal = recordedBody(
   '20261102154336_midway_promo_funded_bounty_only_free_buys.sql',
   'fn_ca_unregister_tournament_player_exact'
 );
+
+/* 20261122185915 installed first; this migration edits its bodies. */
+const coreBefore = recordedBody(INSTALLED_FIRST, 'fn_ca_unregister_tournament_player_exact');
 const core = applyOnce(coreBefore, edits('sit_and_go_core'), 'core');
 
-const diamondBefore = recordedBody(
-  '20260930235000_a_retry_gets_its_first_receipt.sql',
-  'fn_poker_diamond_tournament_unregister'
-);
+const diamondBefore = recordedBody(INSTALLED_FIRST, 'fn_poker_diamond_tournament_unregister');
 const diamond = applyOnce(diamondBefore, edits('sit_and_go_diamond'), 'diamond');
-
-/* The receipt reader is its 20260909183657 body with the two anchored edits
-   of 20260909235709 (launch_release) already applied. */
-function receiptBeforeThisMigration(): string {
-  let body = between(
-    read('20260909183657_seat_first_unregistration_uses_actual_start_truth.sql'),
-    '$actual_start_unregistration_receipt$'
-  );
-  const patch = read(
-    '20260909235709_a_registrant_the_launch_cannot_seat_is_released_with_an_exac.sql'
-  );
-  for (const n of ['1', '2']) {
-    const oldText = between(patch, `v_old${n} text := $t$`, '$t$;');
-    const newText = between(patch, `v_new${n} text := $t$`, '$t$;');
-    expect(body.split(oldText).length - 1, `launch_release anchor ${n}`).toBe(1);
-    body = body.replace(oldText, () => newText);
-  }
-  return body;
-}
-const receipt = applyOnce(receiptBeforeThisMigration(), edits('sit_and_go_receipt'), 'receipt');
+const receipt = recordedBody(INSTALLED_FIRST, 'fn_ca_tournament_unregistration_receipt');
 
 describe('the cause: a fill window was read as a start', () => {
   it('the fixed Sit and Go satellite is created with a start_time two minutes ahead', () => {
@@ -105,12 +94,12 @@ describe('the cause: a fill window was read as a start', () => {
     expect(creator).toContain('p_seats NOT IN (6,9)');
   });
 
-  it('before this migration only a two seat Sit and Go escaped the clock', () => {
-    expect(coreBefore).toMatch(
+  it('before the fixes of 2026-11-22 only a two seat Sit and Go escaped the clock', () => {
+    expect(coreOriginal).toMatch(
       /ELSIF v_t\.format_contract='sng-v1'\s+AND COALESCE\(v_t\.max_players,0\)=2 THEN\s+v_start_authority:='heads_up_sng_actual_start';\s+END IF;/
     );
-    expect(coreBefore).not.toContain('sit_and_go_actual_start');
-    expect(coreBefore).toMatch(
+    expect(coreOriginal).not.toContain("v_start_authority:='sng_actual_start'");
+    expect(coreOriginal).toMatch(
       /IF v_start_authority='scheduled_clock' THEN[\s\S]{0,260}?IF clock_timestamp\(\)>=v_t\.start_time THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/
     );
   });
@@ -119,10 +108,10 @@ describe('the cause: a fill window was read as a start', () => {
 describe('a Sit and Go of any size is judged by what actually happened', () => {
   it('every sng-v1 event leaves the scheduled clock', () => {
     expect(core).toMatch(
-      /v_start_authority:='heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1' THEN[\s\S]{0,520}?v_start_authority:='sit_and_go_actual_start';\s+END IF;/
+      /v_start_authority:='heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1'[\s\S]{0,240}?THEN\s+v_start_authority:='sng_actual_start';\s+END IF;/
     );
     expect(diamond).toMatch(
-      /v_authority := 'heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1' THEN[\s\S]{0,200}?v_authority := 'sit_and_go_actual_start';\s+END IF;/
+      /v_authority := 'heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1'[\s\S]{0,240}?THEN\s+v_authority := 'sng_actual_start';\s+END IF;/
     );
   });
 
@@ -141,16 +130,17 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
     expect(core).toContain('v_t.started_at IS NOT NULL OR v_launch_completed_at IS NOT NULL');
     expect(core).toContain('v_persisted_hand_exists');
     const anyReceipt =
-      /IF v_start_authority='sit_and_go_actual_start' AND EXISTS \(\s+SELECT 1 FROM public\.tournament_launch_receipts r\s+WHERE r\.tournament_id=p_tournament_id\) THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/;
+      /IF v_start_authority='sng_actual_start' AND EXISTS \(\s+SELECT 1 FROM public\.tournament_launch_receipts r\s+WHERE r\.tournament_id=p_tournament_id\) THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/;
     expect(core).toMatch(anyReceipt);
     expect(diamond).toMatch(
-      /IF v_authority='sit_and_go_actual_start' AND EXISTS \(\s+SELECT 1 FROM public\.tournament_launch_receipts r\s+WHERE r\.tournament_id=p_tournament_id\) THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/
+      /IF v_authority='sng_actual_start' AND EXISTS \(\s+SELECT 1 FROM public\.tournament_launch_receipts r\s+WHERE r\.tournament_id=p_tournament_id\) THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/
     );
     // Refused before any money or roster work is attempted.
     expect(core.search(anyReceipt)).toBeLessThan(
       core.indexOf('FROM public.tournament_refund_entitlements e')
     );
-    expect(diamond.indexOf("v_authority='sit_and_go_actual_start' AND EXISTS")).toBeLessThan(
+    expect(diamond.indexOf("v_authority='sng_actual_start' AND EXISTS")).toBeGreaterThan(-1);
+    expect(diamond.indexOf("v_authority='sng_actual_start' AND EXISTS")).toBeLessThan(
       diamond.indexOf('fn_poker_diamond_tournament_refund(')
     );
   });
@@ -186,10 +176,10 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
 
   it("the launch's own release of a registrant it cannot seat keeps its authority", () => {
     expect(core).toMatch(
-      /IF v_start_authority IN \('scheduled_clock','sit_and_go_actual_start'\) AND EXISTS \([\s\S]{0,360}?app\.ca_launch_release_launch_id[\s\S]{0,60}?v_start_authority:='launch_release';/
+      /IF v_start_authority IN \('scheduled_clock','sng_actual_start'\) AND EXISTS \([\s\S]{0,360}?app\.ca_launch_release_launch_id[\s\S]{0,60}?v_start_authority:='launch_release';/
     );
     expect(diamond).toMatch(
-      /IF v_authority IN \('scheduled_clock','sit_and_go_actual_start'\) AND EXISTS \(/
+      /IF v_authority IN \('scheduled_clock','sng_actual_start'\) AND EXISTS \(/
     );
   });
 
@@ -208,11 +198,7 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
 
   it('the refund is the one the function already owned, once, and never asks who is a horse', () => {
     const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
-    for (const e of [
-      ...edits('sit_and_go_core'),
-      ...edits('sit_and_go_diamond'),
-      ...edits('sit_and_go_receipt'),
-    ]) {
+    for (const e of [...edits('sit_and_go_core'), ...edits('sit_and_go_diamond')]) {
       const added = strip(e.newText);
       expect(added).not.toMatch(
         /is_horse|wallet_transactions|chip_ledger|chip_balance|fn_add_chips|INSERT|UPDATE|DELETE/
@@ -226,27 +212,28 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
   });
 });
 
-describe('the immutable receipt can name and prove the new authority', () => {
-  it('the check constraint is widened by exactly one value, from its live definition', () => {
-    const block = between(sql, '$widen_receipt_authority$');
-    expect(block).toContain('pg_get_constraintdef(c.oid)');
-    expect(block).toContain('tournament_unregistration_actual_start_check');
-    expect(block).toContain("$n$, 'sit_and_go_actual_start'::text$n$");
+describe('the immutable receipt can name and prove the authority', () => {
+  it('20261122185915 widened the check and taught the reader sng_actual_start, so this file leaves both alone', () => {
+    const installed = read(INSTALLED_FIRST);
+    expect(installed).toContain('tournament_unregistration_actual_start_check');
+    expect(installed).toMatch(/'sng_actual_start'/);
     expect(core).toMatch(
       /v_seat_number,v_seats_taken,v_t\.start_time,v_start_authority,v_unregistered_at\);/
     );
+    expect(receipt).toMatch(
+      /'spin_actual_start','heads_up_sng_actual_start','sng_actual_start','launch_release'\)[\s\S]{0,260}?launch\.completed_at<=v_r\.settled_at/
+    );
+    expect(receipt).toMatch(
+      /OR \(v_r\.start_authority='sng_actual_start'\s+AND NOT EXISTS \(\s+SELECT 1 FROM public\.tournaments t\s+WHERE t\.id=v_r\.tournament_id\s+AND t\.format_contract='sng-v1'/
+    );
+    expect(sql).not.toMatch(/fn_ca_tournament_unregistration_receipt\(uuid/);
+    expect(sql).not.toMatch(/ALTER TABLE/);
   });
 
-  it('the reader accepts it only for a Sit and Go that is not Heads-Up and had no completed launch', () => {
-    expect(receipt).toMatch(
-      /'spin_actual_start','heads_up_sng_actual_start','launch_release',\s+'sit_and_go_actual_start'\)\s+AND EXISTS \([\s\S]{0,260}?launch\.completed_at<=v_r\.settled_at/
-    );
-    expect(receipt).toMatch(
-      /OR \(v_r\.start_authority='sit_and_go_actual_start'\s+AND NOT EXISTS \(\s+SELECT 1 FROM public\.tournaments t\s+WHERE t\.id=v_r\.tournament_id\s+AND t\.format_contract='sng-v1'\s+AND COALESCE\(t\.max_players,0\)<>2\)\)/
-    );
-    expect(receipt).toMatch(
-      /v_r\.start_authority NOT IN \(\s+'scheduled_clock','spin_actual_start','heads_up_sng_actual_start',\s+'launch_release','sit_and_go_actual_start'\)/
-    );
+  it('builds on the installed bodies and refuses to run without them', () => {
+    expect(sql).toContain('REPAIRED IN PLACE');
+    expect(sql).toContain('20261122185915 must be installed first');
+    expect(sql).not.toContain('sit_and_go_actual_start');
   });
 });
 
@@ -255,8 +242,8 @@ describe('the migration is safe to install and cannot be silently undone', () =>
     expect(sql.match(/^BEGIN;$/gm)).toHaveLength(1);
     expect(sql.match(/^COMMIT;$/gm)).toHaveLength(1);
     expect(sql).toContain("SET LOCAL lock_timeout = '3s';");
-    expect(sql.match(/was expected exactly once/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(sql).toContain('sit and go actual-start unregistration did not install exactly');
+    expect(sql.match(/was expected exactly once/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(sql).toContain('sit and go launch-begun unregistration refusal did not install exactly');
     expect(sql).not.toMatch(/@install-window/);
     expect(sql).not.toMatch(/\bcron\.schedule\b/);
   });
@@ -272,7 +259,6 @@ describe('the migration is safe to install and cannot be silently undone', () =>
         .map((f: { qualified: string }) => f.qualified)
         .sort()
     ).toEqual([
-      'public.fn_ca_tournament_unregistration_receipt',
       'public.fn_ca_unregister_tournament_player_exact',
       'public.fn_poker_diamond_tournament_unregister',
     ]);
@@ -283,17 +269,19 @@ describe('the migration is safe to install and cannot be silently undone', () =>
     const later = readdirSync(DIR).filter((f) => /^\d{14}_.*\.sql$/.test(f) && f > MIGRATION);
     for (const file of later) {
       const source = read(file);
-      for (const fn of [
-        'fn_ca_unregister_tournament_player_exact',
-        'fn_ca_tournament_unregistration_receipt',
-        'fn_poker_diamond_tournament_unregister',
+      for (const [fn, rule] of [
+        [
+          'fn_ca_unregister_tournament_player_exact',
+          'sit and go launch began before unregistration could commit',
+        ],
+        ['fn_poker_diamond_tournament_unregister', "v_authority='sng_actual_start' AND EXISTS ("],
       ]) {
         if (
           new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+public\\.${fn}\\s*\\(`, 'i').test(
             source
           )
         ) {
-          expect(source, `${file} replaces ${fn}`).toContain('sit_and_go_actual_start');
+          expect(source, `${file} replaces ${fn}`).toContain(rule);
         }
       }
     }
