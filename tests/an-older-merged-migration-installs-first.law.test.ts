@@ -26,7 +26,9 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import {
+  installNewerAfter,
   installOlderFirst,
+  pendingNewerFiles,
   pendingOlderFiles,
   MAX_OLDER,
   ORDER_FLOOR,
@@ -171,12 +173,17 @@ describe('the target is sent only after every older file installed', () => {
  * order; each installs its older pending files through the same rule, then
  * its own file, and a file production already holds answers ALREADY-APPLIED.
  */
-function simulate(dispatchOrder: string[], files: Record<string, string>) {
+function simulate(
+  dispatchOrder: string[],
+  files: Record<string, string>,
+  { refused = new Set<string>(), newerAfter = true }: { refused?: Set<string>; newerAfter?: boolean } = {}
+) {
   const installed: { version: string; name: string }[] = [];
   const order: string[] = [];
   const has = (f: string) => installed.some((r) => r.version === f.slice(0, 14));
   const install = (f: string) => {
     if (has(f)) return 0; // ALREADY-APPLIED
+    if (refused.has(f)) return 1; // REFUSED, nothing written
     installed.push({ version: f.slice(0, 14), name: f.slice(15, -4) });
     order.push(f);
     return 0;
@@ -184,7 +191,15 @@ function simulate(dispatchOrder: string[], files: Record<string, string>) {
   for (const target of dispatchOrder) {
     const plan = planFor(target, files, installed);
     const code = installOlderFirst({ target, plan, send: install, log: () => {} });
-    if (code === 0) install(target);
+    if (code !== 0 || install(target) !== 0) continue;
+    if (!newerAfter) continue;
+    const newer = pendingNewerFiles({
+      target,
+      files: Object.keys(files),
+      readSql: (f: string) => files[f],
+      installed,
+    });
+    installNewerAfter({ target, plan: newer, send: install, log: () => {} });
   }
   return order;
 }
@@ -220,7 +235,7 @@ describe('every dispatch order installs in version order', () => {
     let pending: string | null = D;
     pending = A; // A replaces D
     const ran = [running, pending];
-    const order = simulate(ran, files);
+    const order = simulate(ran, files, { newerAfter: false });
     expect(order).not.toContain(D);
   });
 });
@@ -268,5 +283,108 @@ describe('the workflows carry the guarantee', () => {
     expect(src).toContain('declaresMaintenanceWindow(sql)');
     expect(src).not.toContain('--maintenance-window');
     expect(src).not.toContain('--owner-window');
+  });
+});
+
+describe('a newer file held behind a refused older one installs after it (alerts 447640/447641)', () => {
+  // 2026-11-22: 192807 refused on its anchors; the runs for 201323, 203048 and
+  // 205903 each stopped behind it. #11785 made 192807 verify-only and its run
+  // installed 192807 ALONE. 203048 and 201323 needed a hand re-send, 205903 a
+  // second one.
+  const R = '20261122192807_refused_on_its_anchors.sql';
+  const N1 = '20261122201323_held_one.sql';
+  const N2 = '20261122203048_held_two.sql';
+  const N3 = '20261122205903_held_three.sql';
+  const files = { [R]: ORDINARY, [N1]: ORDINARY, [N2]: ORDINARY, [N3]: ORDINARY };
+
+  it('the fix run for the refused file installs every file held behind it, in version order', () => {
+    // First the refused run and the three held runs, then the fix run for R.
+    const refusedOnce = new Set([R]);
+    const installed: { version: string; name: string }[] = [];
+    const order: string[] = [];
+    const send = (f: string) => {
+      if (installed.some((r) => r.version === f.slice(0, 14))) return 0;
+      if (refusedOnce.has(f)) return 1;
+      installed.push({ version: f.slice(0, 14), name: f.slice(15, -4) });
+      order.push(f);
+      return 0;
+    };
+    const run = (target: string) => {
+      const older = installOlderFirst({ target, plan: planFor(target, files, installed), send, log: () => {} });
+      if (older !== 0 || send(target) !== 0) return older || 1;
+      return installNewerAfter({
+        target,
+        plan: pendingNewerFiles({ target, files: Object.keys(files), readSql: (f) => files[f], installed }),
+        send,
+        log: () => {},
+      });
+    };
+    for (const t of [R, N1, N2, N3]) expect(run(t)).toBe(1);
+    expect(order).toEqual([]);
+    refusedOnce.clear(); // #11785 fixes R in place
+    expect(run(R)).toBe(0);
+    expect(order).toEqual([R, N1, N2, N3]);
+  });
+
+  it('without the newer-after step the held files are never installed (the incident)', () => {
+    const order = simulate([R, N1, N2, N3], files, { refused: new Set([R]) });
+    expect(order).toEqual([]);
+    const fixed = simulate([R], files, { newerAfter: false });
+    expect(fixed).toEqual([R]);
+  });
+
+  it('newer files exclude the target, older files, window files, SUPERSEDED files and installed ones', () => {
+    const plan = pendingNewerFiles({
+      target: R,
+      files: [A, R, N1, N2, N3, '20261122210000_window.sql', '20261122220000_old.sql'],
+      readSql: (f: string) =>
+        f.includes('window') ? WINDOW : f.includes('_old') ? `-- SUPERSEDED BY 20261122205903\n${ORDINARY}` : ORDINARY,
+      installed: [{ version: '20261122203048', name: 'held_two' }],
+    });
+    expect(plan.install).toEqual([N1, N3]);
+    expect(plan.windowQueued).toEqual(['20261122210000_window.sql']);
+    expect(plan.superseded).toEqual(['20261122220000_old.sql']);
+  });
+
+  it('a refused newer file stops the step, names the rest, and the run is REFUSED', () => {
+    const sent: string[] = [];
+    const lines: string[] = [];
+    const code = installNewerAfter({
+      target: R,
+      plan: { install: [N1, N2, N3], windowQueued: [], superseded: [] },
+      send: (f: string) => (sent.push(f), f === N2 ? 1 : 0),
+      log: (m: string) => lines.push(m),
+    });
+    expect(code).toBe(1);
+    expect(sent).toEqual([N1, N2]);
+    expect(lines.join('\n')).toContain(`not sent after it: ${N3}`);
+    expect(installNewerAfter({ target: R, plan: { install: [N1], windowQueued: [], superseded: [] }, send: () => 3, log: () => {} })).toBe(3);
+  });
+
+  it('at most MAX_OLDER newer files per run; a longer tail is REFUSED and names the next', () => {
+    const many = Array.from({ length: MAX_OLDER + 2 }, (_, i) => `2026112220000${i}_n${i}.sql`);
+    const sent: string[] = [];
+    const lines: string[] = [];
+    const code = installNewerAfter({
+      target: R,
+      plan: { install: many, windowQueued: [], superseded: [] },
+      send: (f: string) => (sent.push(f), 0),
+      log: (m: string) => lines.push(m),
+    });
+    expect(code).toBe(1);
+    expect(sent).toEqual(many.slice(0, MAX_OLDER));
+    expect(lines.join('\n')).toContain(`Dispatch apply-merged-migration for ${many[MAX_OLDER]}`);
+  });
+
+  it('the workflow runs the newer-after step only after the target installed, never on a check-only run', () => {
+    const target = APPLY_RUN.indexOf('node scripts/ci/apply-recorded-migration.mjs');
+    const newer = APPLY_RUN.lastIndexOf('--newer-after');
+    expect(target).toBeGreaterThan(0);
+    expect(newer).toBeGreaterThan(target);
+    const between = APPLY_RUN.slice(target, newer);
+    expect(between).toContain('if [[ "$code" == "0" && -z "$check_only" ]]; then');
+    const after = APPLY_RUN.slice(newer);
+    expect(after).not.toContain('--dry-run');
+    expect(after).toMatch(/code=\$\{PIPESTATUS\[0\]\}\n\s*fi\n\s*set -e\n\s*echo "code=\$code" >> "\$GITHUB_OUTPUT"\n\s*exit "\$code"/);
   });
 });
