@@ -30,8 +30,20 @@
  */
 
 export const HUD_PROFILE_VERSION = 1 as const;
-export const HUD_FAMILIES = ['plo4', 'plo5'] as const;
+export const HUD_FAMILIES = ['plo4', 'plo5', 'nlh'] as const;
 export type HudFamily = (typeof HUD_FAMILIES)[number];
+
+/** True iff `x` is a canonical HUD family ('plo4', 'plo5', or 'nlh'). */
+export function isHudFamily(x: unknown): x is HudFamily {
+  return x === 'plo4' || x === 'plo5' || x === 'nlh';
+}
+
+/** Map a game variant string to its canonical HUD family, or null when out of scope. */
+export function familyForVariant(variant: unknown): HudFamily | null {
+  if (typeof variant !== 'string') return null;
+  const v = variant.toLowerCase();
+  return v === 'plo4' || v === 'plo5' || v === 'nlh' ? v : null;
+}
 export const HUD_RECENCY_HALF_LIFE_MS = 7 * 24 * 3600 * 1000;
 export const HUD_LIFETIME_FLOOR = 0.25;
 export const HUD_RECENT_IDS = 128;
@@ -185,19 +197,20 @@ export type HudRowRefusal =
 
 /**
  * A hand_history row (plain JSON as PostgREST returns it) to the public record, or the refusal. Copies ONLY the
- * public fields: from each player exactly seat, userId and stack; never `cards`. PLO4/PLO5, cash AND tournaments
+ * public fields: from each player exactly seat, userId and stack; never `cards`. PLO4/PLO5/NLH, cash AND tournaments
  * (lead ruling 2026-11-21 18:38Z, owner ruling Nov 14). Run-it-twice hands are counted: every action precedes the
  * split, the first board is the board the hand was played on, and showdown/winners are the public outcome of every
  * board (no unshown card is read). A single-board bomb pot is counted: its antes are dead money and nobody had a
  * preflop decision, so it gives postflop evidence only. Only a bomb pot dealt on two or more boards is refused
- * ('multi_board': its streets were played against several boards at once). The same function serves the backfill,
- * the incremental update and the reconciliation.
+ * ('multi_board': its streets were played against several boards at once). Variants outside HUD_FAMILIES ('plo4',
+ * 'plo5', 'nlh') return the legacy refusal code 'not_plo45'. The same function serves the backfill, the incremental
+ * update and the reconciliation.
  */
 export function handRecordFromRow(row: unknown): HudHandRecord | HudRowRefusal {
   const r = obj(row);
   if (!r) return 'bad_row';
-  const family = r.game_variant;
-  if (family !== 'plo4' && family !== 'plo5') return 'not_plo45';
+  const family = familyForVariant(r.game_variant);
+  if (!family) return 'not_plo45';
   const tournament = r.tournament_id != null;
   const bomb = obj(r.bomb_pot);
   if (
@@ -622,7 +635,7 @@ export function validHudProfile(x: unknown): x is OpponentHudProfile {
   if (!p) return false;
   if (p.v !== HUD_PROFILE_VERSION) return false;
   if (typeof p.user !== 'string' || !p.user) return false;
-  if (p.family !== 'plo4' && p.family !== 'plo5') return false;
+  if (!isHudFamily(p.family)) return false;
   if (!Number.isSafeInteger(p.hands) || (p.hands as number) < 0) return false;
   if (typeof p.wm !== 'number' || typeof p.recAt !== 'number') return false;
   if (!Array.isArray(p.ids) || p.ids.some((i) => typeof i !== 'string')) return false;

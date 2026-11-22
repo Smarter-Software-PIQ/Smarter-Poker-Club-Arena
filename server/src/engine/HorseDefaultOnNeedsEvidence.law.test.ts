@@ -15,6 +15,17 @@
  *   opts.x !== false          opts.x ?? true          opts.x === false
  *   (opts.x ?? opts.parent) !== false   (both names; `=== false` likewise)
  *
+ * A SECTION IS NOT A VERDICT (2026-11-15, owner 2026-11-14 23:10 Chicago:
+ * "Evidence gates must validate the required approval/status semantics, not
+ * section presence alone"). Each of the eight rows states its status on a line
+ * of its own:
+ *   Status: MET | NOT MET | NOT APPLICABLE
+ * and a row that is NOT MET in a file for an option that is on by default
+ * also carries, in that row, the owner's authority for shipping it on anyway:
+ *   Owner authority: <retained file> sha256 <8 to 64 hex>
+ * A file with no status line, or an unmet row with no authority line, fails.
+ * The law does not judge whether MET is true; that stays the reviewer's.
+ *
  * An option read only as `=== true` is an opt-in arm and needs nothing here.
  * A grandfathered option that stops being on by default leaves the list in
  * the same pull request, so turning it back on later needs the evidence.
@@ -213,8 +224,12 @@ export function defaultOnProcessSwitches(source: string): string[] {
   return [...names].sort();
 }
 
+const STATUS_LINE = /^(?:[-*]\s*)?\**\s*Status\s*:\**\s*(NOT MET|NOT APPLICABLE|MET)\b/i;
+const AUTHORITY_LINE =
+  /^(?:[-*]\s*)?\**\s*Owner authority\s*:\**\s*\S.*\bsha256\s+[0-9a-f]{8,64}\b/i;
+
 /** Returns what an evidence file is missing; empty means complete. */
-export function evidenceGaps(text: string): string[] {
+export function evidenceGaps(text: string, statusRule = true): string[] {
   const gaps: string[] = [];
   if (!/#[1-9]\d{3,}|\/pull\/[1-9]\d*/.test(text)) gaps.push('a pull request reference');
   const lines = text.split('\n');
@@ -233,6 +248,16 @@ export function evidenceGaps(text: string): string[] {
       if (!next) body.push(line.trim());
     }
     if (body.join('').length < 20) gaps.push(`content under "## ${row}"`);
+    if (!statusRule) continue;
+    const status = body.map((line) => STATUS_LINE.exec(line)).find((m) => m !== null);
+    if (!status) {
+      gaps.push(`a "Status: MET | NOT MET | NOT APPLICABLE" line under "## ${row}"`);
+      continue;
+    }
+    if (status[1].toUpperCase() === 'NOT MET' && !body.some((line) => AUTHORITY_LINE.test(line)))
+      gaps.push(
+        `an "Owner authority: <retained file> sha256 <hex>" line under "## ${row}" (its status is NOT MET)`
+      );
   }
   return gaps;
 }
@@ -335,7 +360,8 @@ describe('a Horse decision option is on by default only with its evidence', () =
       const complete =
         'Pull request #12345\n' +
         EVIDENCE_ROWS.map(
-          (row, i) => `## ${i + 1}. ${row}\nA real answer of useful length for this row.\n`
+          (row, i) =>
+            `## ${i + 1}. ${row}\nStatus: MET\nA real answer of useful length for this row.\n`
         ).join('\n');
       expect(evidenceGaps(complete)).toEqual([]);
       expect(evidenceGaps(complete.replace('#12345', 'none'))).toEqual([
@@ -354,7 +380,44 @@ describe('a Horse decision option is on by default only with its evidence', () =
         evidenceGaps(
           'Pull request #12345\n' + EVIDENCE_ROWS.map((row) => `## ${row}\nTBD\n`).join('\n')
         )
-      ).toHaveLength(8);
+      ).toHaveLength(16);
+    });
+
+    it('a section without its status is a gap, and an unmet row needs the owner authority', () => {
+      const row = (name: string, lines: string) =>
+        `## ${name}\n${lines}\nA real answer of useful length for this row.\n`;
+      const file = (value: string) =>
+        'Pull request #12345\n' +
+        EVIDENCE_ROWS.map((name) => row(name, name === 'Value' ? value : 'Status: MET')).join('\n');
+      // sections present, no status anywhere: the old rule passes it, the status rule does not
+      const bare =
+        'Pull request #12345\n' +
+        EVIDENCE_ROWS.map((name) => row(name, 'Measured and written up.')).join('\n');
+      expect(evidenceGaps(bare, false)).toEqual([]);
+      expect(evidenceGaps(bare)).toHaveLength(8);
+      expect(evidenceGaps(file('Status: MET'))).toEqual([]);
+      expect(evidenceGaps(file('**Status:** NOT APPLICABLE'))).toEqual([]);
+      expect(evidenceGaps(file('Status: unknown'))).toEqual([
+        'a "Status: MET | NOT MET | NOT APPLICABLE" line under "## Value"',
+      ]);
+      // NOT MET is never read as MET, and needs the authority in the same row
+      expect(evidenceGaps(file('Status: NOT MET'))).toEqual([
+        'an "Owner authority: <retained file> sha256 <hex>" line under "## Value" (its status is NOT MET)',
+      ]);
+      expect(
+        evidenceGaps(file('Status: NOT MET\nOwner authority: the owner said so'))
+      ).toHaveLength(1);
+      expect(
+        evidenceGaps(
+          file('Status: NOT MET\nOwner authority: OWNER-MESSAGE-20261114.md sha256 2080c202')
+        )
+      ).toEqual([]);
+      // an authority line in another row does not cover this one
+      const elsewhere = file('Status: NOT MET').replace(
+        '## Limits\nStatus: MET',
+        '## Limits\nStatus: MET\nOwner authority: OWNER-MESSAGE-20261114.md sha256 2080c202'
+      );
+      expect(evidenceGaps(elsewhere)).toHaveLength(1);
     });
   });
 });

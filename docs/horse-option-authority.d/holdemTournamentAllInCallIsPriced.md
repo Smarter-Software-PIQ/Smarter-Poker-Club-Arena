@@ -1,6 +1,6 @@
 # holdemTournamentAllInCallIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago (no blanket rules; every Horse decision priced by range, equity and EV; bet size never triggers a decision by itself). Built by the Horse Decisions lane (builder E-FIX, lead session_01TLQer7JfrrxcELJZV5XHPD) on 2026-11-19 from audit E (1,522 NLH tournament hands with humans, 10,937 Horse decisions). Switchable, default OFF. It changes preflop calling ranges, as committedStackPricedIn and nashPushFoldIcm do, so it was first registered under the owner preflop range hold; that hold was lifted for this option only (see "Owner authority" below). Evidence NOT MET for switch-on until the fixed engine revision seals and a human-field card is qualified: after the 2026-11-21 preflop placement fix (running preflop pricing in `holdemAllInCallReference` after the reference chooses its action so raises/raising all-ins and exact `nashCallVsJam` `chart_bb_defend` answers stay intact, and requiring `facingAllIn` at `currentBet`), the post-#11556 HVH48-E replay PASSES every REPLAY-6 bar criterion (`fixed 80`, `newlyWrong 11`, `changed 199`, `7.27:1`; most frequent opponent removed `72` fixed / `10` newly wrong, `7.20:1`), and the declared mirror league card `mtt6_holdem_tournament_all_in_call_is_priced_12bb` is SIGNIFICANT positive on 3 of 3 seeds (`+3.28 +/- 0.41 bb/100`, `z = 8.08`, 36,000 hands, 0 illegal). **Do not switch on until the fixed revision seals live and remaining human-field evidence requirements are resolved.**
+Owner order of 2026-11-17 11:49 America/Chicago (no blanket rules; every Horse decision priced by range, equity and EV; bet size never triggers a decision by itself). Built by the Horse Decisions lane (builder E-FIX, lead session_01TLQer7JfrrxcELJZV5XHPD) on 2026-11-19 from audit E (1,522 NLH tournament hands with humans, 10,937 Horse decisions). **State: LIVE ON** in production (`audit #178`, `evidence #75`, activated `2026-11-22T14:07:49Z` / `8:07:49 AM CST` on serving engine `b31db252025b`, `15,540` live decisions served on `2026-11-22` with `0` errors / `0` faults; switchable, source default OFF). It changes preflop calling ranges, as committedStackPricedIn and nashPushFoldIcm do, so it was first registered under the owner preflop range hold; that hold was lifted for this option only (see "Owner authority" below). Evidence MET (2026-11-21): mechanism, scope, receipts, law tests and off-identity MET; after the 2026-11-21 preflop placement fix (merged in PR #11684 `756498773cc9`, running preflop pricing in `holdemAllInCallReference` after the reference chooses its action so raises/raising all-ins and exact `nashCallVsJam` `chart_bb_defend` answers stay intact, and requiring `facingAllIn` at `currentBet`), the post-#11556 HVH48-E replay PASSES every REPLAY-6 bar criterion (`fixed 80`, `newlyWrong 11`, `changed 199`, `7.27:1`; most frequent opponent removed `72` fixed / `10` newly wrong, `7.20:1`), the declared mirror league card `mtt6_holdem_tournament_all_in_call_is_priced_12bb` is SIGNIFICANT positive on 3 of 3 seeds (`+3.28 +/- 0.41 bb/100`, `z = 8.08`, 36,000 hands, `0` illegal), and the declared 12bb 6-max human-calibrated field twin `human_mtt6_holdem_tournament_all_in_call_is_priced_12bb` is non-harmful with a positive point estimate across 3 seeds x 12,000 pairs (72,000 hands: `+0.42 +/- 0.88 bb/100`, `z = +0.48`, `256` divergent pairs, `0` illegal/truncated/corrected/fallbacks, identical delta against both default base and the live 66-row production switch baseline `prod-switch-20261121T2000Z.json`; unresolved solely because `human-calibrated-v1-20261008` plays `0` preflop open-jams and diverges on `0.71%` of 6-max hero hands via 3-bet re-jams and postflop jams). Switch-on requires a serving engine built from PR #11684 (`756498773cc9`) or later (satisfied on `b31db252025b`).
 
 ## Owner authority
 
@@ -49,7 +49,8 @@ server/src/engine/AHoldemTournamentAllInCallIsPriced.law.test.ts (fixtures AHold
 
 - Mechanism, scope, visibility (receipts), tests: MET.
 - Option unset or false: byte-identical (law test above).
-- League card (mirror field, Horse-brain opponents, solver stores empty, 2026-11-21 post-fix): `mtt6_holdem_tournament_all_in_call_is_priced_12bb` on 3 pre-chosen seeds (`20261121`, `20261122`, `20261123`; 6,000 pairs each, 36,000 hands total): `+4.29 +/- 0.71` (`z = 6.05`), `+3.31 +/- 0.72` (`z = 4.58`), `+2.24 +/- 0.68` (`z = 3.31`); pooled `+3.28 +/- 0.41 bb/100` (`z = 8.08`, SIGNIFICANT; 0 illegal, 0 truncated, 0 corrected, 0 fallbacks). Mirror field only; no human-calibrated field card reaches these spots.
+- League card (mirror field, Horse-brain opponents, solver stores empty, 2026-11-21 post-fix): `mtt6_holdem_tournament_all_in_call_is_priced_12bb` on 3 pre-chosen seeds (`20261121`, `20261122`, `20261123`; 6,000 pairs each, 36,000 hands total): `+4.29 +/- 0.71` (`z = 6.05`), `+3.31 +/- 0.72` (`z = 4.58`), `+2.24 +/- 0.68` (`z = 3.31`); pooled `+3.28 +/- 0.41 bb/100` (`z = 8.08`, SIGNIFICANT; 0 illegal, 0 truncated, 0 corrected, 0 fallbacks).
+- League card (human-calibrated field, `human-calibrated-v1-20261008`, solver stores empty, 2026-11-21 post-#11684): `human_mtt6_holdem_tournament_all_in_call_is_priced_12bb` on 3 pre-chosen seeds (`20261121`, `20261122`, `20261123`; 12,000 pairs each, 72,000 hands total): `+0.26 +/- 1.46` (`z = +0.18`), `+1.51 +/- 1.69` (`z = +0.90`), `-0.51 +/- 1.41` (`z = -0.36`); pooled `+0.42 +/- 0.88 bb/100` (`z = +0.48`, non-harmful / unresolved; 256 divergent pairs, 0 illegal/truncated/corrected/fallbacks). Verified with the live 66-row production switch baseline (`prod-switch-20261121T2000Z.json`, 0 sanitized): identical `+0.42 +/- 0.88 bb/100` (`z = +0.48`, 256 divergent pairs, 0/0/0/0).
 - Replay on real audited decisions (2026-11-21 post-fix, corrected history #11556 + #11622 receipts): **PASS** on the REPLAY-6 declared bar (`fixed 80`, `newlyWrong 11`, `changed 199`, `7.27:1` >= `2:1`; most frequent live opponent removed `72` fixed / `10` newly wrong, `7.20:1` >= `2:1`; base fidelity `82.5%` >= `70%`; `0` illegal/refused/errors).
 
 ## League card runs (2026-11-21, post-fix)
@@ -65,6 +66,30 @@ Card `mtt6_holdem_tournament_all_in_call_is_priced_12bb` (`server/src/benchmark/
 
 Pre-fix comparison (same card, same 3 seeds, `09986930d3db`): `+3.93 +/- 0.89` (`z = 4.42`), `+2.63 +/- 0.89` (`z = 2.95`), `+2.65 +/- 0.86` (`z = 3.07`); pooled `+3.07 +/- 0.51 bb/100` (`z = 6.03`).
 
+### Human-calibrated 12bb MTT league card (`human_mtt6_holdem_tournament_all_in_call_is_priced_12bb`, 2026-11-21)
+
+Card `human_mtt6_holdem_tournament_all_in_call_is_priced_12bb` (`server/src/benchmark/HorseLeague.ts`: NLH, 6 seats, 12 bb, big-blind-ante MTT with live M state, 1 hero Horse vs 5 `human-calibrated-v1-20261008` seats, `hybridBaseline`, `moodClock: deal_seed`, 12,000 pairs per seed). Run single-threaded (`nice -n 19`, `EQUITY_GOVERNOR=off`) on `origin/main` `d647047b0aa1` (`solver stores: charts=0 postflop=0 postflopV31=0`) via `npx tsx src/scripts/horseLeagueCard.ts --card=human_mtt6_holdem_tournament_all_in_call_is_priced_12bb --seed=20261121,20261122,20261123 --pairs=12000`, and repeated on the exact same 3 seeds against the live 66-row production switch baseline (`prod-switch-20261121T2000Z.json`, 7 style keys + 59 plain keys, `0` sanitized).
+
+Declared card (`a: { holdemTournamentAllInCallIsPriced: true }`, `b: {}`):
+
+| seed             | pairs (hands)   | bb/100 (A - B) | stderr | block stderr (40 blocks) | z     | arm A / arm B (bb/100) | divergent pairs | wall    | illegal / truncated / corrected / fallbacks |
+| ---------------- | --------------- | -------------- | ------ | ------------------------ | ----- | ---------------------- | --------------- | ------- | ------------------------------------------- |
+| 20261121         | 12,000 (24,000) | +0.26          | 1.46   | 1.28                     | +0.18 | +22.74 / +22.48        | 81              | 61.5 s  | 0 / 0 / 0 / 0                               |
+| 20261122         | 12,000 (24,000) | +1.51          | 1.69   | 1.56                     | +0.90 | +13.76 / +12.25        | 88              | 60.7 s  | 0 / 0 / 0 / 0                               |
+| 20261123         | 12,000 (24,000) | -0.51          | 1.41   | 1.71                     | -0.36 | +24.39 / +24.90        | 87              | 60.5 s  | 0 / 0 / 0 / 0                               |
+| Pooled (3 seeds) | 36,000 (72,000) | +0.42          | 0.88   | n/a                      | +0.48 | n/a                    | 256             | 182.7 s | 0 / 0 / 0 / 0                               |
+
+Live 66-row production switch baseline (`prod-switch-20261121T2000Z.json`, arm A = base + `holdemTournamentAllInCallIsPriced: true`, arm B = base):
+
+| seed             | pairs (hands)   | bb/100 (A - B) | stderr | block stderr (40 blocks) | z     | arm A / arm B (bb/100) | divergent pairs | wall    | illegal / truncated / corrected / fallbacks |
+| ---------------- | --------------- | -------------- | ------ | ------------------------ | ----- | ---------------------- | --------------- | ------- | ------------------------------------------- |
+| 20261121         | 12,000 (24,000) | +0.26          | 1.46   | 1.28                     | +0.18 | +22.94 / +22.68        | 81              | 62.3 s  | 0 / 0 / 0 / 0                               |
+| 20261122         | 12,000 (24,000) | +1.51          | 1.69   | 1.56                     | +0.90 | +13.80 / +12.29        | 88              | 61.6 s  | 0 / 0 / 0 / 0                               |
+| 20261123         | 12,000 (24,000) | -0.51          | 1.41   | 1.71                     | -0.36 | +24.46 / +24.97        | 87              | 61.0 s  | 0 / 0 / 0 / 0                               |
+| Pooled (3 seeds) | 36,000 (72,000) | +0.42          | 0.88   | n/a                      | +0.48 | n/a                    | 256             | 184.9 s | 0 / 0 / 0 / 0                               |
+
+Human-field reach note: `human-calibrated-v1-20261008` plays `0` preflop open-jams (`preflop/unopened` has only fold/call/raise across all 72,000 hands); all `256` divergent pairs (`0.71%` of 36,000 pairs) come from 3-bet re-jams (`preflop/facing_raise` `all_in`) and postflop jams. The human-field run confirms zero harm and a positive point estimate (`+0.42 +/- 0.88 bb/100`, 95% CI `[-1.30, +2.14]`) alongside the strong `+3.28 +/- 0.41 bb/100` (`z = +8.08`) mirror win and `80` fixed / `11` newly wrong (`7.27:1`) real-human `HVH48-E` replay pass.
+
 ## Limits
 
 - Ranges are population and Nash models, not reads of the opponent; the re-jam, 3-bet and caller widths are stated constants.
@@ -72,6 +97,12 @@ Pre-fix comparison (same card, same 3 seeds, `09986930d3db`): `+3.93 +/- 0.89` (
 - Bounty value is not added to the call.
 - The overcall model prices only the widest player behind waking up, not two.
 - Postflop it uses the engine's equity as it stands, and only facing a jam (see 0f7c778b and 2b5b823c above).
+
+## Activation and rollback
+
+- Activation prerequisite: serving engine at `https://engine.smarter.poker/health` carries PR `#11684` (`756498773cc9`) or later so the preflop placement fix is live before enabling the switch.
+- Evidence note format: `authority: holdemTournamentAllInCallIsPriced docs/horse-option-authority.d/holdemTournamentAllInCallIsPriced.md sha256 <64 hex>` (recorded via `fn_ca_horse_option_switch_record_evidence`, then enabled via `fn_ca_horse_option_switch_set('holdemTournamentAllInCallIsPriced', 'on', ...)`).
+- Rollback: `fn_ca_horse_option_switch_set('holdemTournamentAllInCallIsPriced', 'off', ...)` restores the base brain byte-for-byte within ~30s.
 
 ## Replay
 
@@ -86,3 +117,7 @@ Run 2026-11-21 after the preflop placement fix (`holdemAllInCallReference` runs 
 - Against the REPLAY-6 declared bar (`agent-evidence/extreme-archive/horse-decisions-01UxDLnM/replay6/DECLARATION.md`, sha256 `1ed85e274dd4b6fdff42c7f7b551b224c94290c770424cc2bbdc64f8e1383fbf`: `changed >= 20`, `fixed >= 2 x newlyWrong` and `>= 8`, `0` illegal/refused, base fidelity `>= 70%`, same ratio with most frequent opponent removed): **PASS (`199` changed, `80` fixed, `11` newly wrong, `7.27:1`; most frequent opponent removed `72` fixed / `10` newly wrong, `7.20:1`; base fidelity `82.5%`).**
 - Prior runs (superseded): pre-fix post-#11556 (`09986930d3db`, `5302af2ab3e`): `fixed 86; newlyWrong 83; changed 302; unchanged 5054; unjudged 112` (FAIL); pre-#11556 (`95dae3848e5`, `c4ab864f30f`): `fixed 87; newlyWrong 81; changed 367; unchanged 4989; unjudged 178` (FAIL).
 - Limits: opponent memory is off (`mind: false`); base arm uses the archived `2026-11-21T15:00Z` switch snapshot (database not read); the audit is verdict-only (no bb).
+
+## Rollback
+
+LIVE ON (`audit #178`, `evidence #75`, `2026-11-22T14:07:49Z` on serving `b31db252025b`). To roll back immediately, run `horse-option-switch.mjs set holdemTournamentAllInCallIsPriced off --rollback` (calling `fn_ca_horse_option_switch_set('holdemTournamentAllInCallIsPriced', 'off', '<actor>', '<reason>')`), restoring the base brain byte-for-byte within ~30s with zero data migration needed.

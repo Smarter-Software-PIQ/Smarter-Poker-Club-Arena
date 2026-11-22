@@ -59,6 +59,10 @@ H4H_FILE = '20261119211558_a_hand_for_hand_wait_is_an_owed_wait.sql'
 H4H_MIGRATION = ROOT / 'supabase' / 'migrations' / H4H_FILE
 SPLIT_FILE = '20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql'
 SPLIT_MIGRATION = ROOT / 'supabase' / 'migrations' / SPLIT_FILE
+OWED_WAITS_FILE = '20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql'
+OWED_WAITS_MIGRATION = ROOT / 'supabase' / 'migrations' / OWED_WAITS_FILE
+PARITY_FILE = '20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql'
+PARITY_MIGRATION = ROOT / 'supabase' / 'migrations' / PARITY_FILE
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -111,7 +115,15 @@ CREATE TABLE lightning_hand(hand_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), 
 CREATE INDEX idx_lightning_hand_hand_history_id ON lightning_hand(hand_history_id);
 CREATE TABLE engine_maintenance_break_log(break_started_at timestamptz PRIMARY KEY, break_ended_at timestamptz);
 CREATE TABLE tournaments(id uuid PRIMARY KEY, break_started_at timestamptz, break_ends_at timestamptz,
+  addon_period_started_at timestamptz, addon_period_ends_at timestamptz,
+  addon_break_minutes integer NOT NULL DEFAULT 1,
+  is_rebuy boolean DEFAULT false, is_reentry boolean DEFAULT false,
   created_at timestamptz DEFAULT now());
+CREATE TABLE tournament_bounty_awards(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id uuid NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  table_id uuid, hand_id text, reserved_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX idx_bounty_awards_tournament ON tournament_bounty_awards(tournament_id, reserved_at);
+CREATE SCHEMA smarter_private;
 CREATE TABLE tournament_seat_move_receipts(request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid NOT NULL,
   user_id uuid, source_table_id uuid NOT NULL, destination_table_id uuid NOT NULL, moved_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX idx_tsmr_tournament_moved_at ON tournament_seat_move_receipts(tournament_id, moved_at DESC);
@@ -515,6 +527,209 @@ try:
           run("SELECT count(DISTINCT message) FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'") == '1')
     run(SCRIPT_SQL.read_text())
     check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly with the split', True)
+
+    # Phase 4 (20261122054826): Mystery Bounty chest reveals and add-on breaks
+    # are owed waits; the hand-gap classification runbook scans 15 minutes,
+    # classifies mystery_bounty and addon_break as intended, and never labels a
+    # tournament bust in a rebuy event as an intended rebuy wait.
+    run(OWED_WAITS_MIGRATION.read_text())
+    owed_proof = OWED_WAITS_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261122054826 installs as written and its live proof holds',
+          run('SELECT ' + owed_proof) == 't', owed_proof)
+
+    # 4a. Mystery Bounty chest reveals on table_mb are excluded; a sibling table
+    # in the same tournament without a chest award is still graded over budget.
+    w40_start = T0 + dt.timedelta(minutes=5 * 39)
+    w40_end_dt = T0 + dt.timedelta(minutes=5 * 40)
+    tour_mb = str(uuid.uuid4())
+    run(f"INSERT INTO tournaments(id, is_rebuy) VALUES ('{tour_mb}', true)")
+    t_mb_chest = table('all_in_showdown', lambda k: 14_000, [40], tournament=tour_mb, bust=True)
+    t_mb_plain = table('all_in_showdown', lambda k: 1_800, [40], tournament=tour_mb, bust=True)
+    run(f"""INSERT INTO tournament_bounty_awards(tournament_id, table_id, hand_id, reserved_at)
+            SELECT tournament_id, table_id, id::text, ended_at + interval '2 seconds'
+              FROM hand_history WHERE table_id = '{t_mb_chest}'""")
+    g40 = grade(40).get(('tournament', 'all_in_showdown'))
+    plain_pairs = int(run(
+        f"SELECT count(*) FROM hand_history WHERE table_id = '{t_mb_plain}' "
+        f"AND created_at >= '{w40_start.isoformat()}' AND created_at < '{w40_end_dt.isoformat()}'"))
+    check('mystery bounty: chest-reveal gaps are excluded while non-chest gaps on the same tournament stay graded',
+          g40 and g40['hands'] == plain_pairs and g40['unintended_p95_ms'] == 1800,
+          {'g40': g40, 'plain_pairs': plain_pairs})
+
+    # 4b. Add-on break: only the final addon_break_minutes of an addon_from_start
+    # window is excluded; slow hands during earlier open play remain graded.
+    w42_start = T0 + dt.timedelta(minutes=5 * 41)
+    w42_end = T0 + dt.timedelta(minutes=5 * 42)
+    tour_addon = str(uuid.uuid4())
+    run(f"""INSERT INTO tournaments(id, addon_period_started_at, addon_period_ends_at, addon_break_minutes)
+            VALUES ('{tour_addon}', '{(w42_start - dt.timedelta(minutes=30)).isoformat()}',
+                    '{w42_end.isoformat()}', 1)""")
+    t_addon = table('showdown_checked_river', lambda k: 2_500, [42], tournament=tour_addon)
+    g42 = grade(42).get(('tournament', 'showdown_checked_river'))
+    total_addon_pairs = int(run(
+        f"SELECT count(*) FROM hand_history WHERE table_id = '{t_addon}' "
+        f"AND created_at >= '{w42_start.isoformat()}' AND created_at < '{w42_end.isoformat()}'"))
+    check('add-on break: only the final addon_break_minutes pause is excluded, not earlier addon_from_start play',
+          g42 and 0 < g42['hands'] < total_addon_pairs and g42['unintended_p95_ms'] == 2500,
+          {'g42': g42, 'total_addon_pairs': total_addon_pairs})
+
+    # 4c. Hand-gap classification runbook: tournament bust in a rebuy tournament
+    # is classified as 'other' (never 'rebuy') and does NOT auto-resolve; an alert
+    # whose slow hands are all mystery_bounty / addon_break DOES auto-resolve; and
+    # a slow hand 12 minutes before window_end (inside 15m, outside 10m) is seen.
+    run("UPDATE financial_alerts SET resolved = true WHERE source = 'fn_ca_hand_gap_watch' AND NOT resolved")
+    w40_end = (T0 + dt.timedelta(minutes=5 * 40)).isoformat()
+    fa_rebuy = run(
+        "INSERT INTO financial_alerts(severity, source, message, context) VALUES "
+        "('critical', 'fn_ca_hand_gap_watch', 'gap', "
+        f"jsonb_build_object('kind', 'tournament', 'shape', 'all_in_showdown', 'window_end', '{w40_end}', 'budget_ms', 250)) "
+        "RETURNING id")
+    rb_res = json.loads(run(
+        f"SELECT smarter_private.reliability_runbook_hand_gap_classification('{uuid.uuid4()}', false, '{{}}'::jsonb, now())"))
+    al_rb = rb_res['alerts'][0]
+    plain_pairs_15m = int(run(f"SELECT count(*) - 1 FROM hand_history WHERE table_id = '{t_mb_plain}'"))
+    check('runbook: tournament bust in a rebuy event is other (never intended rebuy) and alert stays open',
+          rb_res['outcome'] == 'diagnosed'
+          and al_rb['by_class'].get('rebuy') is None
+          and al_rb['by_class'].get('mystery_bounty', 0) > 0
+          and al_rb['by_class'].get('other', 0) == plain_pairs_15m
+          and not al_rb['all_intended']
+          and run(f"SELECT resolved FROM financial_alerts WHERE id = '{fa_rebuy}'") == 'f',
+          rb_res)
+
+    # Now alert covering ONLY mystery_bounty slow hands (remove plain table rows)
+    # plus a slow mystery_bounty hand 12 minutes before window_end (proving 15m window).
+    run(f"DELETE FROM hand_history WHERE table_id = '{t_mb_plain}'")
+    fa_mb_only = run(
+        "INSERT INTO financial_alerts(severity, source, message, context) VALUES "
+        "('critical', 'fn_ca_hand_gap_watch', 'gap', "
+        f"jsonb_build_object('kind', 'tournament', 'shape', 'all_in_showdown', 'window_end', '{(T0 + dt.timedelta(minutes=5 * 42)).isoformat()}', 'budget_ms', 250)) "
+        "RETURNING id")
+    run(f"UPDATE financial_alerts SET resolved = true WHERE id = '{fa_rebuy}'")
+    rb_mb = json.loads(run(
+        f"SELECT smarter_private.reliability_runbook_hand_gap_classification('{uuid.uuid4()}', false, '{{}}'::jsonb, now())"))
+    al_mb = rb_mb['alerts'][0]
+    check('runbook: 15-minute window sees mystery_bounty hands 10-15m prior and resolves when all waits are intended',
+          rb_mb['outcome'] == 'resolved_producer'
+          and al_mb['by_class'].get('mystery_bounty', 0) > 0
+          and al_mb['all_intended']
+          and run(f"SELECT resolved FROM financial_alerts WHERE id = '{fa_mb_only}'") == 't',
+          rb_mb)
+
+    # Phase 5 (20261122095254): all-in call/blind showdowns, conservative
+    # bets_sweep_owed holds, and chopped-pot DISTINCT award_groups stay in exact
+    # parity between handCompletionHoldMs, fn_ca_hand_gap_unintended_delay,
+    # scripts/sql/hand-gap-unintended-delay.sql, and the classification runbook.
+    run(PARITY_MIGRATION.read_text())
+    parity_proof = PARITY_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261122095254 installs as written and its live proof holds',
+          run('SELECT ' + parity_proof) == 't', parity_proof)
+    # Idempotency: running 20261122095254 a second time is a safe no-op.
+    run(PARITY_MIGRATION.read_text())
+    check('migration 20261122095254 is idempotent',
+          run('SELECT ' + parity_proof) == 't', parity_proof)
+
+    def insert_custom_pairs(window_idx, count, *, tournament_id=None, actions_json='[]',
+                            players_json=None, pots_json='[]', gap_ms=6250, cadence_json=None):
+        tid = str(uuid.uuid4())
+        w_start = T0 + dt.timedelta(minutes=5 * (window_idx - 1))
+        if players_json is None:
+            players_json = json.dumps([{'userId': 'u1', 'stack': 100}, {'userId': 'u2', 'stack': 100}])
+        shown_json = json.dumps([{'user_id': 'u1', 'seat': 1}, {'user_id': 'u2', 'seat': 2}])
+        tour_sql = f"'{tournament_id}'" if tournament_id else 'NULL'
+        cad_sql = f"'{cadence_json}'::jsonb" if cadence_json else 'NULL'
+        cur_t = w_start + dt.timedelta(seconds=5)
+        for i in range(count + 1):
+            st = cur_t
+            en = st + dt.timedelta(seconds=10)
+            cr = en
+            # Stamp cadence on the NEXT hand (i > 0) for the prior pair (i - 1 -> i).
+            row_cad = cad_sql if i > 0 else 'NULL'
+            run(f"""INSERT INTO hand_history(id, table_id, tournament_id, started_at, ended_at, created_at,
+                                             actions, players, pots, showdown, cadence)
+                    VALUES ('{uuid.uuid4()}', '{tid}', {tour_sql}, '{st.isoformat()}', '{en.isoformat()}', '{cr.isoformat()}',
+                            '{actions_json}'::jsonb, '{players_json}'::jsonb, '{pots_json}'::jsonb,
+                            '{shown_json}'::jsonb, {row_cad})""")
+            cur_t = en + dt.timedelta(milliseconds=gap_ms)
+        return tid
+
+    # 5a. Cash all-in CALL where caller WINS (stack > 0, no 'all_in' action,
+    # cadence.all_in_showdown = true, gap = 6250 ms = 1400+2000+0+1100+250+1500).
+    # Exact reproduction of Backup Engine 44997134858 refusal (unintended_p95=499):
+    # must grade as all_in_showdown with 0 ms unintended and 0 over_budget.
+    call_action = json.dumps([{'stage': 'turn', 'action': 'call', 'amount': 50, 'userId': 'u1'}])
+    allin_cadence = json.dumps({'hold_ms': 4750, 'rest_ms': 1500, 'rebuy_pause_ms': 0,
+                                'all_in_showdown': True, 'bets_sweep_owed': False})
+    insert_custom_pairs(44, 6, actions_json=call_action, gap_ms=6250, cadence_json=allin_cadence)
+    g44_ai = grade(44).get(('cash', 'all_in_showdown'))
+    g44_chk = grade(44).get(('cash', 'showdown_checked_river'))
+    check('parity: cash all-in call winner with cadence.all_in_showdown grades all_in_showdown at 0 ms unintended',
+          g44_ai and g44_ai['hands'] == 6 and g44_ai['unintended_p95_ms'] == 0
+          and g44_ai['over_budget'] == 0 and g44_chk is None,
+          {'g44_ai': g44_ai, 'g44_chk': g44_chk})
+
+    # 5b. Legacy tournament all-in CALL where caller BUSTS (stack = 0, NO cadence,
+    # no 'all_in' action, gap = 6250 ms). Exact reproduction of prod 06:55Z hand
+    # 6e9da799 on serving c2d6e45e3bcc: must grade all_in_showdown at 0 ms unintended.
+    tour_p5 = str(uuid.uuid4())
+    run(f"INSERT INTO tournaments(id) VALUES ('{tour_p5}')")
+    busted_players = json.dumps([{'userId': 'u1', 'stack': 0}, {'userId': 'u2', 'stack': 200}])
+    insert_custom_pairs(45, 6, tournament_id=tour_p5, actions_json=call_action,
+                        players_json=busted_players, gap_ms=6250, cadence_json=None)
+    g45_ai = grade(45).get(('tournament', 'all_in_showdown'))
+    g45_chk = grade(45).get(('tournament', 'showdown_checked_river'))
+    check('parity: legacy tournament all-in call bust (zero-stack shown player, no cadence) grades all_in_showdown at 0 ms',
+          g45_ai and g45_ai['hands'] == 6 and g45_ai['unintended_p95_ms'] == 0
+          and g45_ai['over_budget'] == 0 and g45_chk is None,
+          {'g45_ai': g45_ai, 'g45_chk': g45_chk})
+
+    # 5c. Conservative bets_sweep_owed = true with no river chip action (gap = 6250 ms
+    # = 1400+1500+500+1100+250+1500): must grade showdown_river_chips at 0 ms unintended.
+    sweep_cadence = json.dumps({'hold_ms': 4750, 'rest_ms': 1500, 'rebuy_pause_ms': 0,
+                                'all_in_showdown': False, 'bets_sweep_owed': True})
+    insert_custom_pairs(46, 6, actions_json=call_action, gap_ms=6250, cadence_json=sweep_cadence)
+    g46_rc = grade(46).get(('cash', 'showdown_river_chips'))
+    check('parity: conservative cadence.bets_sweep_owed grades showdown_river_chips at 0 ms unintended',
+          g46_rc and g46_rc['hands'] == 6 and g46_rc['unintended_p95_ms'] == 0
+          and g46_rc['over_budget'] == 0,
+          {'g46_rc': g46_rc})
+
+    # 5d. Chopped main pot (2 winners sharing board=1, potIndex=0, low=false):
+    # countAwardGroups is 1 (owed = 5750 ms), NOT 2 (6650 ms). A real +900 ms
+    # unintended delay (gap = 6650 ms) MUST be caught, never hidden by count(*).
+    chopped_pots = json.dumps([{
+        'index': 0,
+        'awards': [
+            {'userId': 'u1', 'amount': 50, 'potIndex': 0, 'low': False, 'board': 1},
+            {'userId': 'u2', 'amount': 50, 'potIndex': 0, 'low': False, 'board': 1},
+        ],
+    }])
+    plain_cadence = json.dumps({'hold_ms': 4250, 'rest_ms': 1500, 'rebuy_pause_ms': 0,
+                                'all_in_showdown': False, 'bets_sweep_owed': False})
+    insert_custom_pairs(47, 6, actions_json=call_action, pots_json=chopped_pots,
+                        gap_ms=6650, cadence_json=plain_cadence)
+    g47_chk = grade(47).get(('cash', 'showdown_checked_river'))
+    check('parity: chopped pot counts as 1 award group (matching countAwardGroups), catching a +900 ms real delay',
+          g47_chk and g47_chk['hands'] == 6 and g47_chk['owed_p50_ms'] == 5750
+          and g47_chk['unintended_p95_ms'] == 900 and g47_chk['over_budget'] == 6,
+          {'g47_chk': g47_chk})
+
+    # 5e. Tamper-resistance: an inflated cadence.hold_ms = 25000 with
+    # all_in_showdown = false and bets_sweep_owed = false cannot hide a real
+    # +2000 ms delay (gap = 7750 ms vs owed = 5750 ms).
+    bogus_cadence = json.dumps({'hold_ms': 25000, 'rest_ms': 1500, 'rebuy_pause_ms': 0,
+                                'all_in_showdown': False, 'bets_sweep_owed': False})
+    insert_custom_pairs(48, 6, actions_json=call_action, gap_ms=7750, cadence_json=bogus_cadence)
+    g48_chk = grade(48).get(('cash', 'showdown_checked_river'))
+    check('parity: bogus cadence.hold_ms cannot mask a real +2000 ms unintended delay',
+          g48_chk and g48_chk['hands'] == 6 and g48_chk['owed_p50_ms'] == 5750
+          and g48_chk['unintended_p95_ms'] == 2000 and g48_chk['over_budget'] == 6,
+          {'g48_chk': g48_chk})
+
+    # Re-run diagnostic script against the final upgraded schema.
+    run(SCRIPT_SQL.read_text())
+    check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly after 20261122095254', True)
+
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True
 finally:

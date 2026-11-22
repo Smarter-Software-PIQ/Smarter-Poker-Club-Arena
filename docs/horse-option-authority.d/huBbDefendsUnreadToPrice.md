@@ -1,6 +1,6 @@
 # huBbDefendsUnreadToPrice: authority for the live switch
 
-Heads Up lane option HU-NLH-001d (2026-11-15, PR #11032 `39af896fff33cfc9861e20351f47f0aca22f94ed`), default OFF, read once as `opts.huBbDefendsUnreadToPrice === true`. It widens a big-blind preflop calling range, so it was registered off-only under the owner preflop range hold; that hold was lifted for this option alone on 2026-11-20 in PR #11538 (`5c58d3c12a927989ba9384319f445fac303e3e4b`; see "Owner authority" below). Evidence MET (2026-11-20): mechanism, scope, receipt and 29-case law test MET; declared evaluation `HU-NLH-001d` (`RESULTS-HU-NLH-001d.md`, sha256 `3cbf1bae94c83496a77b3f0505698eaba5347f8c9e09af5647316e11694811b7`) and three paired league runs on `human_hu_bb_defends_unread_vs_minraise_40bb` (`+15.28 +/- 3.38`, `+16.48 +/- 3.71`, `+17.95 +/- 3.76` bb/100, 0 illegal actions) MET; real-hand audited decision replays on `HU30D` (2,576 two-player NLH tournament Horse decisions: `changed 14`, `fixed 0`, `newlyWrong 0`, 14/14 priced `best = call` by Auditor E saving `+1.36 bb`) and `HU14D` (998 decisions: `changed 2`, `fixed 0`, `newlyWrong 0`) MET. Switch-on requires a serving engine built from `5c58d3c12a927989ba9384319f445fac303e3e4b` or later and installed migration `20261120210905_horse_option_switch_heads_up_big_blind_hold_lift.sql`.
+**State: LIVE ON (2026-11-21T04:42:12Z, audit `#168`, evidence `#71`, HEADS UP lane Antigravity `29a711f2`, switch-on authority sha256 `e3eb6a05da8bc6053ace7d0c69dc29c65343d5ff703a652f028d761bc520813c`; default OFF in source, read once as `opts.huBbDefendsUnreadToPrice === true`).** Live read PASS (`2026-11-22T03:30Z`, serving `c2d6e45e3bcc`): `8/8` workers reporting `option_switch_huBbDefendsUnreadToPrice_on_seen`, `hu_bb_defends_unread_to_price` fired `45` times on `2026-11-21` UTC and `15` times on `2026-11-22` UTC (`60` total live fires), with `0` `option_switch_config_*`, `0` illegal actions, `0` brain fallbacks, and `0` `horse_error_log` rows. Heads Up lane option HU-NLH-001d (2026-11-15, PR #11032 `39af896fff33cfc9861e20351f47f0aca22f94ed`): it widens a big-blind preflop calling range, so it was registered off-only under the owner preflop range hold; that hold was lifted for this option alone on 2026-11-20 in PR #11538 (`5c58d3c12a927989ba9384319f445fac303e3e4b`; see "Owner authority" below). Evidence MET (2026-11-20): mechanism, scope, receipt and 29-case law test MET; declared evaluation `HU-NLH-001d` (`RESULTS-HU-NLH-001d.md`, sha256 `3cbf1bae94c83496a77b3f0505698eaba5347f8c9e09af5647316e11694811b7`) and three paired league runs on `human_hu_bb_defends_unread_vs_minraise_40bb` (`+15.28 +/- 3.38`, `+16.48 +/- 3.71`, `+17.95 +/- 3.76` bb/100, 0 illegal actions) MET; real-hand audited decision replays on `HU30D` (2,576 two-player NLH tournament Horse decisions: `changed 14`, `fixed 0`, `newlyWrong 0`, 14/14 priced `best = call` by Auditor E saving `+1.36 bb`) and `HU14D` (998 decisions: `changed 2`, `fixed 0`, `newlyWrong 0`) MET.
 
 ## Owner authority
 
@@ -43,7 +43,7 @@ Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md.
 
   | run / seed         | pairs  | hands  | A minus B, bb/100 | standard error (per pair) | block standard error (40 blocks) | divergent pairs | illegal, truncated, corrected, fallbacks |
   | ------------------ | ------ | ------ | ----------------- | ------------------------- | -------------------------------- | --------------- | ---------------------------------------- |
-  | 2026-11-17 (#9233) | 12,000 | 24,000 | +15.28            | 3.38                      | 3.78                             | —               | 0, 0, 0, 0                               |
+  | 2026-11-17 (#9233) | 12,000 | 24,000 | +15.28            | 3.38                      | 3.78                             | -               | 0, 0, 0, 0                               |
   | 20261120           | 12,000 | 24,000 | +16.48            | 3.71                      | 3.11                             | 2,610           | 0, 0, 0, 0                               |
   | 20261121           | 12,000 | 24,000 | +17.95            | 3.76                      | 3.76                             | 2,592           | 0, 0, 0, 0                               |
 
@@ -58,11 +58,11 @@ Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md.
 
 League card (server/src/benchmark/HorseLeague.ts): human_hu_bb_defends_unread_vs_minraise_40bb. Heads-up 40bb against the hu_minraise_every_button_v1 persona of the calibrated field, the live cash Hybrid persona, the deal-seeded mood clock, memoryLearning 'off' (every read stays at its empty prior), 12,000 pairs a night, arm A the option on and arm B the live default. Command-line runner: `npx tsx src/scripts/horseLeagueCard.ts --card=human_hu_bb_defends_unread_vs_minraise_40bb --seed=20261120`.
 
-## Activation prerequisites
+## Activation and live verification
 
-1. Production database has migration `20261120210905_horse_option_switch_heads_up_big_blind_hold_lift.sql` installed (`fn_ca_horse_option_switch_states('huBbDefendsUnreadToPrice')` includes `'on'`).
-2. `https://engine.smarter.poker/health` serves an engine `releaseSha` descending from `5c58d3c12a927989ba9384319f445fac303e3e4b` (`0300z` cutover `bb21dc82673117a937f67c9498dec46b8c27522e`).
-3. Evidence row recorded via `fn_ca_horse_option_switch_record_evidence` and option switched via `fn_ca_horse_option_switch_set` citing this file and its sha256 (`authority: huBbDefendsUnreadToPrice docs/horse-option-authority.d/huBbDefendsUnreadToPrice.md sha256 <64 hex>`).
+1. Migration `20261120210905_horse_option_switch_heads_up_big_blind_hold_lift.sql` installed in production (`fn_ca_horse_option_switch_states('huBbDefendsUnreadToPrice')` returns `['off', 'shadow', 'on_shadow', 'on']`).
+2. Switched ON at `2026-11-21T04:42:12Z` (`public.ca_horse_style_switch_audit` id `#168`, `public.ca_horse_option_switch_evidence` id `#71`, `HEADS UP lane Antigravity 29a711f2`, citing `docs/horse-option-authority.d/huBbDefendsUnreadToPrice.md` sha256 `e3eb6a05da8bc6053ace7d0c69dc29c65343d5ff703a652f028d761bc520813c`).
+3. Live verification (`2026-11-22T03:30Z`, serving `c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa`): `option_switch_huBbDefendsUnreadToPrice_on_seen = 8` (`8/8` workers), `hu_bb_defends_unread_to_price = 45` on `2026-11-21` UTC and `15` on `2026-11-22` UTC (`60` total live fires), `0` `option_switch_config_*`, `0` illegal actions, `0` brain fallbacks, `0` `horse_error_log` rows.
 
 ## Limits
 
@@ -85,3 +85,7 @@ How the rows are produced (run from `server/` on the operations Mac; `ARCHIVE` i
 2. Score with the committed scorer (`--placed`, `--line on`, `--row on`) and copy the printed `- Replay:` rows unedited:
    - `npx tsx scripts/audited-decision-replay.ts --placed $ARCHIVE/nodes_30d/E.nodes.jsonl --replay $ARCHIVE/runs-f90f60b7/HU30D.replay.jsonl --line on --row on --set "HU30D Hold'em 2-player tournaments 30d"`
    - `npx tsx scripts/audited-decision-replay.ts --placed $ARCHIVE/nodes/E.nodes.jsonl --replay $ARCHIVE/runs-f90f60b7/HU14D.replay.jsonl --line on --row on --set "HU14D Hold'em 2-player tournaments 14d"`
+
+## Rollback
+
+Set `huBbDefendsUnreadToPrice` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('huBbDefendsUnreadToPrice', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

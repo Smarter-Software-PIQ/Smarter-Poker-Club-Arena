@@ -22,6 +22,7 @@ import {
   normalizeInviteCode,
   readPendingInviteCode,
 } from '../services/ClubInviteService';
+import { safeInviteNextPath } from '../lib/inviteCode';
 
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 const inviteStepAnimationStyle = {
@@ -76,6 +77,7 @@ export default function InvitePage() {
      wins) before the join, so fn_redeem_club_invite_code places them in THAT
      sender's downline whatever `ref` a later link carries. */
   const shortInviteCode = normalizeInviteCode(searchParams.get('i'));
+  const nextPath = safeInviteNextPath(searchParams.get('next'));
   const { user } = useAuthUser();
   // The referral the join redeems: the link's own ?ref=, or the inviter the
   // claimed invite names when the player arrived without one.
@@ -107,9 +109,13 @@ export default function InvitePage() {
   const enterClub = useCallback(
     (slugOrId: string) => {
       setLoading(true);
+      if (nextPath) {
+        navigate(nextPath, { replace: true });
+        return;
+      }
       navigate(`/clubs/${slugOrId}`, { replace: true });
     },
-    [navigate]
+    [navigate, nextPath]
   );
 
   const loadClubInfo = useCallback(

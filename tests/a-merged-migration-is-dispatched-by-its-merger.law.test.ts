@@ -399,6 +399,13 @@ esac
 `
       );
       chmodSync(join(box, 'gh'), 0o755);
+      // Offline /health stub so the Oct 25 2026 fixture does not call the live
+      // engine (which now runs three-hourly, where 02:10Z = 21:10 CDT defers).
+      writeFileSync(
+        join(box, 'curl'),
+        `#!/usr/bin/env bash\necho '{"maintenance":{"schedule":{"frequency":"daily"}}}'\n`
+      );
+      chmodSync(join(box, 'curl'), 0o755);
       const summary = join(box, 'summary');
       // The real pull_request_target shape: GITHUB_SHA is the base tip, and the
       // intent binds the merged pull request's own head.
@@ -485,9 +492,9 @@ esac
     );
   });
 
-  it('the test clock is never set by the workflow', () => {
-    expect(read('.github/workflows/dispatch-merged-migrations.yml')).not.toContain(
-      'DISPATCH_NOW_MS'
-    );
+  it('the test clock and health URL override are never set by the workflow', () => {
+    const wf = read('.github/workflows/dispatch-merged-migrations.yml');
+    expect(wf).not.toContain('DISPATCH_NOW_MS');
+    expect(wf).not.toContain('DISPATCH_ENGINE_HEALTH_URL');
   });
 });

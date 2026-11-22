@@ -94,6 +94,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaRiverCurrentNutsCallFloor',
   // EMERG lane PREFLOP-UNCONTESTED 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaFourBetFoldPricedCall',
+  // EMERG lane CBET-DEFENCE 2026-11-21: PLO4/PLO5 cash, default OFF
+  'omahaCbetRaiseIsPriced',
   // EMERG lane OFFENCE-BUILD 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaRiverFirstToActBetIsPriced',
   'omahaRiverCheckedToBetIsMeasured',
@@ -101,6 +103,19 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaBlanketRowsOffInPlo45Cash',
   // PLO-OWNER lane OPPONENT-HUD 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaOpponentLifetimeHud',
+  // PLO-OWNER lane OPPONENT-HUD-9 2026-11-21: the lifetime-HUD consumer, PLO4/PLO5 cash, default OFF
+  'omahaOpponentLifetimeHudDecides',
+  // PLO-OWNER lead-4 B4 2026-11-21: priced six-max preflop read on lifetime HUD cells, PLO4/PLO5 cash, default OFF
+  'omahaPreflopReadIsPricedFromLifetime',
+  // PLO-OWNER lane REPLACEMENTS-5 2026-11-21: R2 PLO4/PLO5 cash, default OFF
+  'omahaFlopBetIsPricedOnHisResponse',
+  // EMERG lane STAB-DEFENCE 2026-11-20: PLO4/PLO5 cash, default OFF
+  'omahaStabDefenceIsPriced',
+  'omahaStrongHandCheckIsPriced',
+  // EMERG lane STAB-DEFENCE-5 2026-11-21: PLO4/PLO5 cash, default OFF
+  'omahaRiverBetFoldIsHisRecord',
+  // PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-21: PLO4/PLO5 cash, default OFF (replaces #18 omahaBigBetIsPotShare)
+  'omahaBigBetSizeIsPriced',
   'omahaFlopFacingBetEv',
   'omahaFlopVerdictReadsTheBettor',
   'omahaReadIsByStreetAndTexture',
@@ -177,6 +192,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaTightOpponent',
   'omahaTightOpponentSteal',
   'omahaCommitZoneThreeBetPriceRelief',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to big-draw bets priced on lifetime HUD
+  'omahaBigDrawBetIsPricedOnHisResponse',
 ]);
 
 const SCOPABLE: ReadonlySet<string> = new Set(OMAHA_OPTION_GAME_SCOPE_OPTIONS);

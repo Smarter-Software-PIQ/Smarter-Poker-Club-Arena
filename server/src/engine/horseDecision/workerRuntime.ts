@@ -143,7 +143,12 @@ import {
 } from '../HorseDecisionEffects.js';
 import { prepareTournamentFutureHandFacts } from '../HorseTournamentFutureHand.js';
 import type { CapturedHorseMindDecision, HorseMindDecisionEffect } from '../HorseMind.js';
-import { restoreFastRandom, saveFastRandom, fastRandom } from '../HorseEval.js';
+import {
+  restoreFastRandom,
+  saveFastRandom,
+  fastRandom,
+  omahaReservoirReadsTotal,
+} from '../HorseEval.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
 import { bettingStructureFor } from '../BettingStructure.js';
 import { calculateContestablePot } from '../PokerEngine.js';
@@ -3120,9 +3125,22 @@ export class HorseDecisionWorkerRuntime {
    * fires never reach the scope), DEEP second looks (executeDeep is outside
    * the scope; its fires are collected and counted under second_look_) and
    * discards.
+   *
+   * UPGRADE 04 USE RECEIPT (2026-11-21): upgrade04_reservoir_used_seen, once for a
+   * FAST execution that read an Omaha reservoir (HorseEval
+   * omahaReservoirReadsTotal moved across it; the style-shadow re-decision
+   * inside it included). Fired inside the scope so the fold sees it, after
+   * executeFast has returned, so nothing the decision computed can see it. The
+   * reservoir build counter stays a separate build receipt.
    */
   private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
-    const scoped = withDecisionFireScope(() => this.executeFast(request));
+    const reservoirReadsBefore = omahaReservoirReadsTotal();
+    const scoped = withDecisionFireScope(() => {
+      const outcome = this.executeFast(request);
+      if (omahaReservoirReadsTotal() !== reservoirReadsBefore)
+        noteFire('upgrade04_reservoir_used_seen');
+      return outcome;
+    });
     // The decision has been answered (FAST_RESULT is sent inside executeFast). A fold that threw
     // here would reach execute()'s catch, mark the lifecycle `exception` and send an ERROR for an
     // answered request, so it is contained: counted, reported once per process, never rethrown.

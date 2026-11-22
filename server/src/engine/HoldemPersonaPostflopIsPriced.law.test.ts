@@ -46,6 +46,7 @@ import {
   HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO,
   HOLDEM_EMPIRICAL_FLOP_FOLD_TO_CBET,
   HOLDEM_EMPIRICAL_TURN_FOLD_TO_BET,
+  estimateHoldemFoldToRaisePrior,
   holdemEmpiricalFlopCbetFoldPrior,
 } from './holdemEmpiricalPriors.js';
 import { HorseLogic } from './HorseLogic.js';
@@ -575,9 +576,8 @@ describe('6. V2 measured live NLH empirical priors (EMPIRICAL-PRIORS-AUDIT.md Pa
     );
   });
 
-  it('check_raise recovers villain true incremental fold rate instead of hero-add/pot overestimate', () => {
-    // Pot 15 (includes villain's 5 bet: villainIn=5, heroIn=0). Hero check-raises to 23 (add=23, villainCall=18).
-    // Villain faces 18 into 15+23=38 (0.474 pot -> medium OOP flop fold = 35.0%).
+  it('check_raise consumes estimateHoldemFoldToRaisePrior (#11759) on flop raises instead of hero-add/pot overestimate', () => {
+    // Pot 15 (includes villain's 5 bet: villainIn=5, heroIn=0). Hero check-raises to 23 (matched=23, villainCall=18).
     const xrSpot = baseSpot({
       pot: 15,
       currentBet: 5,
@@ -596,9 +596,51 @@ describe('6. V2 measured live NLH empirical priors (EMPIRICAL-PRIORS-AUDIT.md Pa
       null,
       null
     );
+    const expected = estimateHoldemFoldToRaisePrior({
+      street: 'flop',
+      raiseToBetRatio: 23 / 5,
+      raiseToPotRatio: 23 / 15,
+      opponentsInPot: 1,
+      spr: 100 / 15,
+      isAllInRaise: false,
+      hudOpp: null,
+    });
     const f = holdemPricedFold(adj.foldAtReference, 23, 15);
-    expect(f).toBeCloseTo(HOLDEM_EMPIRICAL_FLOP_FOLD_TO_CBET.oop.medium.rate, 6);
-    expect(f).toBeLessThan(0.4); // eliminates the ~0.78 raise-price overestimate
+    expect(f).toBeCloseTo(expected.mean, 6);
+    expect(f).toBeLessThan(0.5); // eliminates the ~0.78 raise-price overestimate
+
+    // Low-SPR / all-in check-raise reduces villain fold-to-raise prior monotonically:
+    const jamSpot = baseSpot({
+      pot: 15,
+      currentBet: 5,
+      heroIn: 0,
+      villainIn: 5,
+      heroStack: 23,
+      villainStack: 23,
+      inPosition: false,
+      heroMade: true,
+    });
+    const adjJam = holdemPersonaPricedAdjustSpot(
+      'check_raise',
+      jamSpot,
+      cards('Kd7h2c'),
+      23,
+      null,
+      null
+    );
+    expect(holdemPricedFold(adjJam.foldAtReference, 23, 15)).toBeLessThan(f);
+
+    // OpponentHud f.fRaise ([opportunities, hits]) shrinks the check-raise fold rate smoothly toward the opponent's rate:
+    const stickyHud = { eff: { 'f.fRaise': [20, 2] as const } };
+    const adjSticky = holdemPersonaPricedAdjustSpot(
+      'check_raise',
+      xrSpot,
+      cards('Kd7h2c'),
+      23,
+      stickyHud,
+      null
+    );
+    expect(holdemPricedFold(adjSticky.foldAtReference, 23, 15)).toBeLessThan(f);
   });
 
   it('end-to-end: low SPR (< 3) lowers fold equity relative to deep SPR on an IP dry flop c-bet', () => {

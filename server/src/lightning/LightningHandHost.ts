@@ -206,6 +206,12 @@ import {
   lightningHorseVpipLedger,
   type LightningHorseVpipLedger,
 } from './LightningHorseVpipLedger.js';
+import {
+  classifyLightningPreflopParticipation,
+  lightningPoolVpipJudge,
+  resolveLightningPoolVpipPolicy,
+  type LightningPoolVpipJudge,
+} from './LightningPoolVpipJudge.js';
 import type { HorseReviewInput } from '../services/HorseHandReview.js';
 import type { LiveHorseDecideOpts } from '../engine/horseDecision/protocol.js';
 import {
@@ -510,6 +516,8 @@ export interface LightningHandHostDeps {
   recordHorseResults?: (input: HorseReviewInput) => Promise<void>;
   /** The Horses' own VPIP count per pool sitting (the process-wide ledger otherwise). */
   horseVpipLedger?: LightningHorseVpipLedger;
+  /** The pool VPIP floor judge (the process-wide judge otherwise; null disables for this host). */
+  vpipJudge?: LightningPoolVpipJudge | null;
   /** Builds the hand's private stats facts (LightningHandFacts). Injected for tests. */
   statsFacts?: LightningFactsBuilder;
   /** The jackpot payout doors (injected for tests; the physical ones otherwise). */
@@ -1880,14 +1888,20 @@ export class LightningHandHost {
         this.preActions.clearPreAction(this.timerKey, userId);
         if (stale) {
           this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
-          noteFire('upgrade09_preaction_purge_lightning_seen');
+          // Evidence only: upgrade 09 is a GUARD (HorseUpgradeEvidence
+          // PER_HORSE_GUARD_UPGRADES). An armed pre-action here is its
+          // opportunity; it fired when the pre-action is gone after the clear.
+          noteFire('upgrade09_preaction_purge_opportunity_lightning_seen');
+          const purged = !this.preActions.hasPreAction(this.timerKey, userId);
+          if (purged) noteFire('upgrade09_preaction_purge_lightning_seen');
           // Per-Horse evidence only (serverOwnedHorse: never a person's client). Lightning is cash.
           if (horseUpgradeEvidenceArmed())
             noteHorseUpgradeEvent(
               userId,
               String(this.rules?.game_variant || 'nlh'),
               'cash',
-              'upgrade_09_preaction_purge'
+              'upgrade_09_preaction_purge',
+              purged
             );
         }
       } else {
@@ -3852,6 +3866,10 @@ export class LightningHandHost {
         // answered before its players can be matched again (the database
         // refuses a rebuy IN_HAND, and one attempt is all a boundary gets).
         await this.reportSettledBoundary(results);
+        // LIGHTNING POOL VPIP FLOOR JUDGE: committed hands only, humans and
+        // Horses alike, warn before boot, between-hands eviction before
+        // releasing players back to the matcher.
+        const vpipEvicted = await this.evaluatePoolVpipFloor();
         // SETTLED IS FREE (2026-10-26). The commit released this hand's pool
         // reservations, so the players it frees are freed HERE - their banks
         // handed back first, so a hand they are dealt next reads what this one
@@ -3860,7 +3878,7 @@ export class LightningHandHost {
         // the host table's pending add-ons and records the hand's BBJ
         // contributions; neither is a condition of matching (a Lightning top-up
         // is its own intent, applied by the settlement's own trigger).
-        this.releaseAtHandEnd();
+        this.releaseAtHandEnd(vpipEvicted);
         try {
           this.deps.onSettled?.(this);
         } catch (err) {
@@ -4184,17 +4202,107 @@ export class LightningHandHost {
   }
 
   /**
+   * LIGHTNING POOL VPIP FLOOR JUDGE: evaluate every committed hand participant
+   * (humans and Horses identically) against the rolling VPIP floor at the
+   * settled hand boundary, before players are handed back to the matcher.
+   * Never throws and never disturbs a committed settlement.
+   */
+  private async evaluatePoolVpipFloor(): Promise<Set<string>> {
+    const evicted = new Set<string>();
+    if (this.deps.vpipJudge === null) return evicted;
+    try {
+      const policy = resolveLightningPoolVpipPolicy(this.rules);
+      if (!policy) return evicted;
+      const judge = this.deps.vpipJudge ?? lightningPoolVpipJudge;
+      const actions = this.actions as ReadonlyArray<Record<string, unknown>>;
+      const evictTasks: Promise<void>[] = [];
+      for (const participant of this.participants.values()) {
+        const { hadOpportunity, entered } = classifyLightningPreflopParticipation(
+          participant.playerId,
+          actions
+        );
+        const evaluation = judge.recordHand({
+          clusterId: this.clusterId,
+          poolSessionId: participant.poolSessionId,
+          playerId: participant.playerId,
+          handNumber: this.handNumber,
+          hadOpportunity,
+          entered,
+          policy,
+        });
+        if (evaluation.verdict === 'warn') {
+          this.deps.hub.emitEvent(participant.poolSessionId, {
+            type: 'lightning_vpip_warning',
+            table_id: participant.poolSessionId,
+            cluster_id: this.clusterId,
+            pool_session_id: participant.poolSessionId,
+            player_id: participant.playerId,
+            hand_number: this.handNumber,
+            vpip: evaluation.vpipPct,
+            required: evaluation.requiredPct,
+            hands: evaluation.hands,
+            window_hands: evaluation.windowHands,
+            grace_hands: evaluation.graceHands,
+            grace_remaining: evaluation.graceRemaining,
+            warning_opened: evaluation.warningOpened,
+            timestamp: this.now(),
+          });
+        } else if (evaluation.verdict === 'recovered') {
+          this.deps.hub.emitEvent(participant.poolSessionId, {
+            type: 'lightning_vpip_recovered',
+            table_id: participant.poolSessionId,
+            cluster_id: this.clusterId,
+            pool_session_id: participant.poolSessionId,
+            player_id: participant.playerId,
+            hand_number: this.handNumber,
+            vpip: evaluation.vpipPct,
+            required: evaluation.requiredPct,
+            hands: evaluation.hands,
+            window_hands: evaluation.windowHands,
+            timestamp: this.now(),
+          });
+        } else if (evaluation.verdict === 'evict') {
+          evictTasks.push(
+            judge
+              .requestEviction({
+                clusterId: this.clusterId,
+                hostTableId: this.hostTableId,
+                poolSessionId: participant.poolSessionId,
+                playerId: participant.playerId,
+                vpip: evaluation.vpipPct ?? 0,
+                required: evaluation.requiredPct,
+                hands: evaluation.hands,
+                windowHands: evaluation.windowHands,
+                graceHands: evaluation.graceHands,
+              })
+              .then((outcome) => {
+                if (outcome === 'evicted' || outcome === 'not_seated') {
+                  evicted.add(participant.playerId);
+                }
+              })
+          );
+        }
+      }
+      if (evictTasks.length > 0) await Promise.allSettled(evictTasks);
+    } catch (err) {
+      reportError(err, 'LightningHandHost.vpip_floor_judge');
+    }
+    return evicted;
+  }
+
+  /**
    * The players this hand still holds are free (once per hand): their banks
    * go back to the ledger, then each is released to the matcher, exactly as
    * the instance's end has always released them. A player a fold already
    * freed is not released twice. Called at the committed settlement and again
    * (a no-op by then) from finish().
    */
-  private releaseAtHandEnd(): void {
+  private releaseAtHandEnd(skipUsers?: ReadonlySet<string>): void {
     if (this.handEndReleased) return;
     this.handEndReleased = true;
     for (const p of this.participants.values()) this.recordBank(p.playerId);
     for (const p of this.participants.values()) {
+      if (skipUsers?.has(p.playerId)) continue;
       const type = this.foldTypes.get(p.playerId);
       if (type === 'fast' || type === 'normal') continue;
       this.metrics.noteIdle(

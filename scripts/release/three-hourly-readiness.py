@@ -19,9 +19,10 @@ import os
 import re
 import subprocess
 import sys
+import types
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -39,11 +40,21 @@ PREPARATION_LEAD_SECONDS = 30 * 60
 RECOMMENDED_HOLD_LEAD_SECONDS = 75 * 60
 DRAIN_LEAD_SECONDS = 2 * 60
 BREAK_DURATION_SECONDS = 5 * 60
+O3_PRE_CUTOFF_DEFER_SECONDS = 90 * 60
+O3_POST_SEAL_CLEAR_SECONDS = 10 * 60
+NIGHTLY_FREEZE_START_CHICAGO = (23, 45)
+NIGHTLY_FREEZE_END_CHICAGO = (4, 15)
+CLOSED_STAGE_LOOKBACK_SECONDS = 5 * 60
+
+GATE_NIGHTLY_FREEZE = "NIGHTLY_FREEZE"
+GATE_O3_DEFERRAL = "O3_DEFERRAL"
+GATE_OPEN = "OPEN"
 
 STAGE_WORKFLOW = "stage-engine-release.yml"
 BACKUP_WORKFLOW = "backup-engine.yml"
 PREQUAL_WORKFLOW = "engine-release-prequalification.yml"
 PREQUAL_PATH = ".github/workflows/" + PREQUAL_WORKFLOW
+PREQUAL_HELPER_PATH = "scripts/ci/read-engine-prequalification.py"
 BACKUP_STATUS_CONTEXT = "backup-engine/certified"
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -62,19 +73,104 @@ EXIT_CODES = {
 }
 
 ROOT = Path(__file__).resolve().parents[2]
-_PREQUAL_MODULE = None
+_PREQUAL_MODULES = {}
 
 
 class ReadError(Exception):
     """Raised when any required live health, git or GitHub read fails."""
 
 
-def load_prequalification_module(repo_root=ROOT):
-    """Import scripts/ci/read-engine-prequalification.py cleanly."""
-    global _PREQUAL_MODULE
-    if _PREQUAL_MODULE is not None and repo_root == ROOT:
-        return _PREQUAL_MODULE
-    helper_path = Path(repo_root) / "scripts/ci/read-engine-prequalification.py"
+def _git_toplevel(path):
+    """Return the resolved git repository root for path via read-only git rev-parse, or None."""
+    target = Path(path).expanduser()
+    if not target.is_dir():
+        return None
+    try:
+        out = git_read(target, "rev-parse", "--show-toplevel")
+    except ReadError:
+        return None
+    return Path(out).resolve() if out else None
+
+
+def resolve_repo_root(repo_dir=None, script_root=None, cwd=None):
+    """Resolve the local git repository root deterministically.
+
+    Order:
+      1. Explicit --repo-dir when provided (must exist and be a git repo; never falls back).
+      2. Script's repository root (Path(__file__).resolve().parents[2]) if .git exists.
+      3. Current working directory if inside a git repository.
+    Fails closed with ReadError (-> verdict UNKNOWN, exit 3) if none resolves.
+    """
+    if repo_dir is not None:
+        candidate = Path(repo_dir).expanduser()
+        if not candidate.is_dir():
+            raise ReadError(f"--repo-dir is not an existing directory: {repo_dir}")
+        resolved = candidate.resolve()
+        toplevel = _git_toplevel(resolved)
+        if toplevel is None:
+            raise ReadError(f"--repo-dir is not a git repository: {resolved}")
+        return toplevel
+
+    default_root = Path(script_root) if script_root is not None else ROOT
+    if default_root.is_dir() and (default_root / ".git").exists():
+        return default_root.resolve()
+
+    current = Path(cwd) if cwd is not None else Path.cwd()
+    toplevel = _git_toplevel(current)
+    if toplevel is not None:
+        return toplevel
+
+    raise ReadError(
+        "could not locate a git repository from script path or working directory; "
+        "pass --repo-dir <path>"
+    )
+
+
+def load_prequalification_module(repo_root=ROOT, control_sha=None):
+    """Import scripts/ci/read-engine-prequalification.py from control_sha blob or repo_root.
+
+    When control_sha (valid 40-hex commit SHA) is provided, reads the exact git
+    blob via `git show <control_sha>:scripts/ci/read-engine-prequalification.py`
+    into an in-memory module cached by (resolved_root, control_sha) so a stale
+    working tree on disk can never skew CONTROL_INPUTS comparisons. When
+    control_sha is None, falls back to the local working-tree file for legacy
+    callers and tests.
+    """
+    resolved_root = Path(repo_root).resolve()
+    if control_sha is not None:
+        if not isinstance(control_sha, str) or not SHA_RE.fullmatch(control_sha):
+            raise ReadError(f"invalid control_sha for prequalification reader: {control_sha!r}")
+        cache_key = (resolved_root, control_sha)
+        cached = _PREQUAL_MODULES.get(cache_key)
+        if cached is not None:
+            return cached
+        source = git_read(resolved_root, "show", f"{control_sha}:{PREQUAL_HELPER_PATH}")
+        if not source:
+            raise ReadError(
+                f"empty prequalification reader blob at {control_sha[:12]}:{PREQUAL_HELPER_PATH}"
+            )
+        module = types.ModuleType("read_engine_prequalification")
+        blob_label = f"{resolved_root}:{control_sha}:{PREQUAL_HELPER_PATH}"
+        module.__file__ = blob_label
+        try:
+            code = compile(source, blob_label, "exec")
+            exec(code, module.__dict__)
+        except Exception as exc:
+            raise ReadError(
+                f"failed to load prequalification reader from {control_sha[:12]}:{PREQUAL_HELPER_PATH}: {exc}"
+            ) from exc
+        if not callable(getattr(module, "projection", None)):
+            raise ReadError(
+                f"prequalification reader at {control_sha[:12]}:{PREQUAL_HELPER_PATH} missing projection()"
+            )
+        _PREQUAL_MODULES[cache_key] = module
+        return module
+
+    cache_key = (resolved_root, None)
+    cached = _PREQUAL_MODULES.get(cache_key)
+    if cached is not None:
+        return cached
+    helper_path = resolved_root / PREQUAL_HELPER_PATH
     if not helper_path.is_file():
         raise ReadError(f"missing prequalification reader: {helper_path}")
     spec = importlib.util.spec_from_file_location("read_engine_prequalification", helper_path)
@@ -82,8 +178,7 @@ def load_prequalification_module(repo_root=ROOT):
         raise ReadError(f"could not load prequalification reader: {helper_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    if repo_root == ROOT:
-        _PREQUAL_MODULE = module
+    _PREQUAL_MODULES[cache_key] = module
     return module
 
 
@@ -101,11 +196,11 @@ def _in_directory(path):
         os.chdir(previous)
 
 
-def control_projection(sha, repo_root=ROOT):
+def control_projection(sha, repo_root=ROOT, control_sha=None):
     """Compute CONTROL_INPUTS projection via read-engine-prequalification.py."""
     if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
         raise ReadError(f"invalid SHA for CONTROL_INPUTS projection: {sha!r}")
-    module = load_prequalification_module(repo_root)
+    module = load_prequalification_module(repo_root, control_sha=control_sha)
     try:
         with _in_directory(repo_root):
             return module.projection(sha)
@@ -244,21 +339,7 @@ def parse_health_payload(payload, url=DEFAULT_HEALTH_URL):
     }
 
 
-def compute_next_cycle(now_utc, frequency, start_hours=None):
-    """Compute the next scheduled America/Chicago cycle, cutoff and hold start.
-
-    Enumerates real epoch hours matching server/src/maintenance/maintenanceSchedule.ts:
-    - three-hourly: 1, 4, 7, 10, 13, 16, 19, 22 America/Chicago
-    - daily: 4 America/Chicago
-    - spring forward: nonexistent 02:00 is never invented; 01:00 CST and 04:00 CDT
-      are two real hours apart
-    - fall back: repeated 01:00 produces ONE cycle, the first (CDT), never 01:00 CST
-    """
-    if now_utc.utcoffset() is None:
-        raise ReadError("now_utc must be timezone-aware")
-    now_utc = now_utc.astimezone(timezone.utc)
-    now_epoch = int(now_utc.timestamp())
-
+def _resolve_schedule_slots(frequency, start_hours=None):
     if frequency == "three-hourly":
         slots = tuple(start_hours) if start_hours else THREE_HOURLY_START_HOURS
     elif frequency == "daily":
@@ -266,17 +347,16 @@ def compute_next_cycle(now_utc, frequency, start_hours=None):
     else:
         raise ReadError(f"unsupported schedule frequency for cycle calculation: {frequency!r}")
 
-    if not slots or not all(isinstance(h, int) and 0 <= h <= 23 for h in slots):
+    if not slots or not all(isinstance(h, int) and not isinstance(h, bool) and 0 <= h <= 23 for h in slots):
         raise ReadError(f"invalid schedule startHours: {slots!r}")
+    return slots
 
+
+def _iter_scheduled_cycles(now_epoch, slots, max_hours=76):
+    """Yield (cycle_epoch, cycle_local) for real scheduled America/Chicago hours."""
     base_hour_epoch = (now_epoch // 3600) * 3600
-    selected_epoch = None
-    selected_local = None
-
-    for offset in range(0, 52):
+    for offset in range(0, max_hours):
         candidate_epoch = base_hour_epoch + offset * 3600
-        if candidate_epoch <= now_epoch:
-            continue
         local = datetime.fromtimestamp(candidate_epoch, CHICAGO)
         if local.hour not in slots:
             continue
@@ -284,13 +364,58 @@ def compute_next_cycle(now_utc, frequency, start_hours=None):
         if prev_local.hour == local.hour:
             # Second occurrence of repeated fall-back hour (e.g., 01:00 CST): skip.
             continue
-        selected_epoch = candidate_epoch
-        selected_local = local
-        break
+        yield candidate_epoch, local
 
-    if selected_epoch is None or selected_local is None:
-        raise ReadError(f"could not resolve next scheduled cycle for frequency={frequency!r}")
 
+def _in_nightly_freeze_chicago(dt_utc):
+    """True when dt_utc falls inside RELEASE_SCHEMA_FREEZE_CHICAGO (23:45-04:15 Chicago)."""
+    local = dt_utc.astimezone(CHICAGO)
+    minute_of_day = local.hour * 60 + local.minute
+    from_min = NIGHTLY_FREEZE_START_CHICAGO[0] * 60 + NIGHTLY_FREEZE_START_CHICAGO[1]
+    until_min = NIGHTLY_FREEZE_END_CHICAGO[0] * 60 + NIGHTLY_FREEZE_END_CHICAGO[1]
+    return minute_of_day >= from_min or minute_of_day < until_min
+
+
+def _nightly_freeze_clear_utc(dt_utc):
+    """Return the 04:15 America/Chicago clear instant (UTC) for an instant in nightly freeze."""
+    local = dt_utc.astimezone(CHICAGO)
+    minute_of_day = local.hour * 60 + local.minute
+    from_min = NIGHTLY_FREEZE_START_CHICAGO[0] * 60 + NIGHTLY_FREEZE_START_CHICAGO[1]
+    anchor_date = local.date() + timedelta(days=1) if minute_of_day >= from_min else local.date()
+    clear_local = datetime(
+        anchor_date.year,
+        anchor_date.month,
+        anchor_date.day,
+        NIGHTLY_FREEZE_END_CHICAGO[0],
+        NIGHTLY_FREEZE_END_CHICAGO[1],
+        tzinfo=CHICAGO,
+    )
+    return anchor_date, clear_local.astimezone(timezone.utc)
+
+
+def _nightly_freeze_bounds_for_anchor(anchor_local):
+    """Return (start_utc, clear_utc) for the 04:00 anchor's 23:45-04:15 Chicago freeze."""
+    prev_date = anchor_local.date() - timedelta(days=1)
+    start_local = datetime(
+        prev_date.year,
+        prev_date.month,
+        prev_date.day,
+        NIGHTLY_FREEZE_START_CHICAGO[0],
+        NIGHTLY_FREEZE_START_CHICAGO[1],
+        tzinfo=CHICAGO,
+    )
+    end_local = datetime(
+        anchor_local.year,
+        anchor_local.month,
+        anchor_local.day,
+        NIGHTLY_FREEZE_END_CHICAGO[0],
+        NIGHTLY_FREEZE_END_CHICAGO[1],
+        tzinfo=CHICAGO,
+    )
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _build_cycle_record(now_epoch, selected_epoch, selected_local, frequency, slots):
     cycle_start_utc = datetime.fromtimestamp(selected_epoch, timezone.utc)
     drain_start_utc = datetime.fromtimestamp(selected_epoch - DRAIN_LEAD_SECONDS, timezone.utc)
     break_end_utc = datetime.fromtimestamp(selected_epoch + BREAK_DURATION_SECONDS, timezone.utc)
@@ -298,6 +423,24 @@ def compute_next_cycle(now_utc, frequency, start_hours=None):
     cutoff_utc = datetime.fromtimestamp(cutoff_epoch, timezone.utc)
     hold_epoch = cutoff_epoch - RECOMMENDED_HOLD_LEAD_SECONDS
     hold_utc = datetime.fromtimestamp(hold_epoch, timezone.utc)
+
+    if selected_local.hour == 4:
+        o3_defer_kind = "nightly-freeze"
+        defer_start_utc, clear_utc = _nightly_freeze_bounds_for_anchor(selected_local)
+        defer_start_epoch = int(defer_start_utc.timestamp())
+        clear_epoch = int(clear_utc.timestamp())
+    elif frequency == "three-hourly":
+        o3_defer_kind = "o3-deferral"
+        defer_start_epoch = selected_epoch - O3_PRE_CUTOFF_DEFER_SECONDS
+        defer_start_utc = datetime.fromtimestamp(defer_start_epoch, timezone.utc)
+        clear_epoch = selected_epoch + O3_POST_SEAL_CLEAR_SECONDS
+        clear_utc = datetime.fromtimestamp(clear_epoch, timezone.utc)
+    else:
+        o3_defer_kind = None
+        defer_start_epoch = None
+        defer_start_utc = None
+        clear_epoch = None
+        clear_utc = None
 
     cycle_id = (
         selected_local.date().isoformat()
@@ -323,11 +466,216 @@ def compute_next_cycle(now_utc, frequency, start_hours=None):
         "recommendedHoldStartUtc": format_utc(hold_utc),
         "recommendedHoldStartChicago": format_chicago_iso(hold_utc),
         "recommendedHoldStartChicagoLabel": format_chicago(hold_utc),
+        "o3DeferKind": o3_defer_kind,
+        "o3DeferStartEpoch": defer_start_epoch,
+        "o3DeferStartUtc": format_utc(defer_start_utc) if defer_start_utc else None,
+        "o3DeferStartChicago": format_chicago_iso(defer_start_utc) if defer_start_utc else None,
+        "o3DeferStartChicagoLabel": format_chicago(defer_start_utc) if defer_start_utc else None,
+        "o3ClearEpoch": clear_epoch,
+        "o3ClearUtc": format_utc(clear_utc) if clear_utc else None,
+        "o3ClearChicago": format_chicago_iso(clear_utc) if clear_utc else None,
+        "o3ClearChicagoLabel": format_chicago(clear_utc) if clear_utc else None,
+        "minutesToO3Defer": (
+            round((defer_start_epoch - now_epoch) / 60.0, 1)
+            if defer_start_epoch is not None
+            else None
+        ),
+        "inO3DeferWindow": (
+            defer_start_epoch <= now_epoch < clear_epoch
+            if defer_start_epoch is not None and clear_epoch is not None
+            else False
+        ),
         "minutesToHold": round((hold_epoch - now_epoch) / 60.0, 1),
         "minutesToCutoff": round((cutoff_epoch - now_epoch) / 60.0, 1),
         "minutesToCycle": round((selected_epoch - now_epoch) / 60.0, 1),
         "inHoldWindow": now_epoch >= hold_epoch,
         "cutoffPassed": now_epoch >= cutoff_epoch,
+    }
+
+
+def compute_next_cycle(now_utc, frequency, start_hours=None):
+    """Compute the next scheduled America/Chicago cycle, cutoff, O3 deferral and hold start.
+
+    Enumerates real epoch hours matching server/src/maintenance/maintenanceSchedule.ts:
+    - three-hourly: 1, 4, 7, 10, 13, 16, 19, 22 America/Chicago
+    - daily: 4 America/Chicago
+    - spring forward: nonexistent 02:00 is never invented; 01:00 CST and 04:00 CDT
+      are two real hours apart
+    - fall back: repeated 01:00 produces ONE cycle, the first (CDT), never 01:00 CST
+    """
+    if now_utc.utcoffset() is None:
+        raise ReadError("now_utc must be timezone-aware")
+    now_utc = now_utc.astimezone(timezone.utc)
+    now_epoch = int(now_utc.timestamp())
+    slots = _resolve_schedule_slots(frequency, start_hours)
+
+    for candidate_epoch, local in _iter_scheduled_cycles(now_epoch, slots, max_hours=52):
+        if candidate_epoch <= now_epoch:
+            continue
+        return _build_cycle_record(now_epoch, candidate_epoch, local, frequency, slots)
+
+    raise ReadError(f"could not resolve next scheduled cycle for frequency={frequency!r}")
+
+
+def compute_next_open_cycle(now_utc, frequency, start_hours=None):
+    """Return the first scheduled cycle whose preparationCutoffEpoch > now_epoch.
+
+    When nextCycle.cutoffPassed is False this equals compute_next_cycle(); once
+    the current cycle's :30 cutoff has passed it advances to the following cycle.
+    """
+    if now_utc.utcoffset() is None:
+        raise ReadError("now_utc must be timezone-aware")
+    now_utc = now_utc.astimezone(timezone.utc)
+    now_epoch = int(now_utc.timestamp())
+    slots = _resolve_schedule_slots(frequency, start_hours)
+
+    for candidate_epoch, local in _iter_scheduled_cycles(now_epoch, slots, max_hours=76):
+        if candidate_epoch <= now_epoch:
+            continue
+        if candidate_epoch - PREPARATION_LEAD_SECONDS <= now_epoch:
+            continue
+        return _build_cycle_record(now_epoch, candidate_epoch, local, frequency, slots)
+
+    raise ReadError(f"could not resolve next open cycle for frequency={frequency!r}")
+
+
+def compute_migration_gate(now_utc, frequency, start_hours=None):
+    """Compute ordinary merged-migration deferral gate matching merged-migration-dispatch.mjs.
+
+    Matches RELEASE_SCHEMA_FREEZE_CHICAGO (23:45-04:15 America/Chicago) and
+    Optimization O3 ([cycleStart - 90m, cycleStart + 10m) on three-hourly cadence),
+    DST-aware across spring-forward and fall-back transitions.
+    """
+    if now_utc.utcoffset() is None:
+        raise ReadError("now_utc must be timezone-aware")
+    now_utc = now_utc.astimezone(timezone.utc)
+    now_epoch = int(now_utc.timestamp())
+    slots = _resolve_schedule_slots(frequency, start_hours)
+
+    if _in_nightly_freeze_chicago(now_utc):
+        anchor_date, clear_utc = _nightly_freeze_clear_utc(now_utc)
+        clear_epoch = int(clear_utc.timestamp())
+        return {
+            "status": GATE_NIGHTLY_FREEZE,
+            "reason": "RELEASE_SCHEMA_FREEZE_CHICAGO (23:45-04:15 America/Chicago) holds ordinary merged migrations",
+            "cycleId": anchor_date.isoformat(),
+            "clearAtEpoch": clear_epoch,
+            "clearAtUtc": format_utc(clear_utc),
+            "clearAtChicago": format_chicago_iso(clear_utc),
+            "clearAtChicagoLabel": format_chicago(clear_utc),
+            "minutesToClear": round((clear_epoch - now_epoch) / 60.0, 1),
+            "nextDeferKind": None,
+            "nextDeferStartEpoch": None,
+            "nextDeferStartUtc": None,
+            "nextDeferStartChicago": None,
+            "nextDeferStartChicagoLabel": None,
+            "minutesToNextDefer": None,
+        }
+
+    if frequency == "three-hourly":
+        for cycle_epoch, local in _iter_scheduled_cycles(now_epoch, slots, max_hours=3):
+            if local.hour == 4:
+                continue
+            defer_start = cycle_epoch - O3_PRE_CUTOFF_DEFER_SECONDS
+            clear_epoch = cycle_epoch + O3_POST_SEAL_CLEAR_SECONDS
+            if defer_start <= now_epoch < clear_epoch:
+                cycle_id = local.strftime("%Y-%m-%dT%H")
+                raw_clear_utc = datetime.fromtimestamp(clear_epoch, timezone.utc)
+                if _in_nightly_freeze_chicago(raw_clear_utc):
+                    _, effective_clear_utc = _nightly_freeze_clear_utc(raw_clear_utc)
+                    effective_clear_epoch = int(effective_clear_utc.timestamp())
+                    reason = (
+                        f"O3 pre-cutoff deferral active for {cycle_id} "
+                        f"({local.hour:02d}:00 America/Chicago cycle), continuing into "
+                        "RELEASE_SCHEMA_FREEZE_CHICAGO until 04:15 America/Chicago"
+                    )
+                else:
+                    effective_clear_utc = raw_clear_utc
+                    effective_clear_epoch = clear_epoch
+                    defer_local = datetime.fromtimestamp(defer_start, CHICAGO)
+                    clear_local = effective_clear_utc.astimezone(CHICAGO)
+                    reason = (
+                        f"O3 pre-cutoff deferral active for {cycle_id} "
+                        f"({defer_local.strftime('%H:%M')}-{clear_local.strftime('%H:%M')} America/Chicago)"
+                    )
+                return {
+                    "status": GATE_O3_DEFERRAL,
+                    "reason": reason,
+                    "cycleId": cycle_id,
+                    "clearAtEpoch": effective_clear_epoch,
+                    "clearAtUtc": format_utc(effective_clear_utc),
+                    "clearAtChicago": format_chicago_iso(effective_clear_utc),
+                    "clearAtChicagoLabel": format_chicago(effective_clear_utc),
+                    "minutesToClear": round((effective_clear_epoch - now_epoch) / 60.0, 1),
+                    "nextDeferKind": None,
+                    "nextDeferStartEpoch": None,
+                    "nextDeferStartUtc": None,
+                    "nextDeferStartChicago": None,
+                    "nextDeferStartChicagoLabel": None,
+                    "minutesToNextDefer": None,
+                }
+
+    local_now = now_utc.astimezone(CHICAGO)
+    freeze_start_local = datetime(
+        local_now.year,
+        local_now.month,
+        local_now.day,
+        NIGHTLY_FREEZE_START_CHICAGO[0],
+        NIGHTLY_FREEZE_START_CHICAGO[1],
+        tzinfo=CHICAGO,
+    )
+    freeze_start_utc = freeze_start_local.astimezone(timezone.utc)
+    if int(freeze_start_utc.timestamp()) <= now_epoch:
+        next_day = local_now.date() + timedelta(days=1)
+        freeze_start_utc = datetime(
+            next_day.year,
+            next_day.month,
+            next_day.day,
+            NIGHTLY_FREEZE_START_CHICAGO[0],
+            NIGHTLY_FREEZE_START_CHICAGO[1],
+            tzinfo=CHICAGO,
+        ).astimezone(timezone.utc)
+
+    best_epoch = int(freeze_start_utc.timestamp())
+    best_kind = GATE_NIGHTLY_FREEZE
+    best_utc = freeze_start_utc
+
+    if frequency == "three-hourly":
+        for cycle_epoch, local in _iter_scheduled_cycles(now_epoch, slots, max_hours=52):
+            if local.hour == 4:
+                continue
+            defer_epoch = cycle_epoch - O3_PRE_CUTOFF_DEFER_SECONDS
+            if defer_epoch > now_epoch:
+                if defer_epoch < best_epoch:
+                    best_epoch = defer_epoch
+                    best_kind = GATE_O3_DEFERRAL
+                    best_utc = datetime.fromtimestamp(defer_epoch, timezone.utc)
+                break
+
+    return {
+        "status": GATE_OPEN,
+        "reason": "ordinary merged migrations dispatch normally (outside nightly freeze and O3 deferral; :50-:03 UTC DDL guard applies)",
+        "cycleId": None,
+        "clearAtEpoch": None,
+        "clearAtUtc": None,
+        "clearAtChicago": None,
+        "clearAtChicagoLabel": None,
+        "minutesToClear": None,
+        "nextDeferKind": best_kind,
+        "nextDeferStartEpoch": best_epoch,
+        "nextDeferStartUtc": format_utc(best_utc),
+        "nextDeferStartChicago": format_chicago_iso(best_utc),
+        "nextDeferStartChicagoLabel": format_chicago(best_utc),
+        "minutesToNextDefer": round((best_epoch - now_epoch) / 60.0, 1),
+    }
+
+
+def compute_cycle_schedule(now_utc, frequency, start_hours=None):
+    """Return next scheduled cycle, next open cycle (cutoff > now), and migration gate."""
+    return {
+        "nextCycle": compute_next_cycle(now_utc, frequency, start_hours=start_hours),
+        "nextOpenCycle": compute_next_open_cycle(now_utc, frequency, start_hours=start_hours),
+        "migrationGate": compute_migration_gate(now_utc, frequency, start_hours=start_hours),
     }
 
 
@@ -396,17 +744,65 @@ def _summarize_workflow_run(run):
     }
 
 
-def list_active_workflow_runs(repo, workflow, gh_get=gh_api_get):
-    """Return active (non-completed) runs on branch main for a workflow."""
+def list_recent_workflow_runs(repo, workflow, gh_get=gh_api_get):
+    """Return recent summarized runs on branch main for a workflow."""
     data = gh_get(f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&per_page=15")
     if not isinstance(data, dict) or not isinstance(data.get("workflow_runs"), list):
         raise ReadError(f"unexpected workflow_runs response for {workflow}")
-    active = [
+    return [
         _summarize_workflow_run(r)
         for r in data["workflow_runs"]
-        if isinstance(r, dict) and r.get("status") != "completed"
+        if isinstance(r, dict)
     ]
-    return active
+
+
+def list_active_workflow_runs(repo, workflow, gh_get=gh_api_get):
+    """Return active (non-completed) runs on branch main for a workflow."""
+    return [
+        r
+        for r in list_recent_workflow_runs(repo, workflow, gh_get=gh_get)
+        if r.get("status") != "completed"
+    ]
+
+
+def find_closed_cycle_stage_run(recent_stage_runs, schedule, now_utc, active_stage_runs=()):
+    """Find the latest completed stage-engine-release.yml run for an already-closed cycle.
+
+    Reuses the already-fetched recent Stage runs list (zero extra API calls).
+    Returns None when the cutoff has not passed, when a Stage run is currently
+    active, or when no completed run was updated within [cutoff - 5m, now].
+    """
+    if not schedule or not schedule.get("cutoffPassed") or active_stage_runs:
+        return None
+    window_start = schedule["preparationCutoffEpoch"] - CLOSED_STAGE_LOOKBACK_SECONDS
+    window_end = int(now_utc.astimezone(timezone.utc).timestamp())
+    matches = []
+    for run in recent_stage_runs or ():
+        if not isinstance(run, dict) or run.get("status") != "completed":
+            continue
+        ts_raw = run.get("updatedAt") or run.get("createdAt")
+        if not ts_raw:
+            continue
+        try:
+            updated_epoch = int(parse_iso_utc(ts_raw).timestamp())
+        except ReadError:
+            continue
+        if window_start <= updated_epoch <= window_end:
+            matches.append((updated_epoch, run.get("id") or 0, run))
+    if not matches:
+        return None
+    _, _, latest = max(matches, key=lambda item: (item[0], item[1]))
+    return {
+        "id": latest.get("id"),
+        "status": latest.get("status"),
+        "conclusion": latest.get("conclusion"),
+        "displayTitle": latest.get("displayTitle") or "",
+        "event": latest.get("event") or "",
+        "headSha": latest.get("headSha") or "",
+        "createdAt": latest.get("createdAt"),
+        "updatedAt": latest.get("updatedAt"),
+        "htmlUrl": latest.get("htmlUrl") or "",
+    }
 
 
 def fetch_remote_main_sha(repo, gh_get=gh_api_get):
@@ -697,7 +1093,8 @@ def collect_readiness(
     limit=DEFAULT_LIMIT,
     health_url=DEFAULT_HEALTH_URL,
     control_ref=DEFAULT_CONTROL_REF,
-    repo_root=ROOT,
+    repo_root=None,
+    repo_dir=None,
     now_utc=None,
     health_fn=None,
     gh_get_fn=None,
@@ -712,7 +1109,6 @@ def collect_readiness(
     health_reader = health_fn or (lambda: fetch_health(health_url))
     gh_reader = gh_get_fn or gh_api_get
     git_reader = git_fn or git_read
-    proj_reader = projection_fn or (lambda sha: control_projection(sha, repo_root=repo_root))
 
     report = {
         "schema": SCHEMA_VERSION,
@@ -724,6 +1120,9 @@ def collect_readiness(
         "repo": repo,
         "health": None,
         "schedule": None,
+        "nextOpenCycle": None,
+        "migrationGate": None,
+        "closedCycleStageRun": None,
         "git": None,
         "activeRuns": {"stage": [], "backup": []},
         "selectableSha": None,
@@ -732,27 +1131,47 @@ def collect_readiness(
     }
 
     try:
-        health = health_reader()
-        report["health"] = health
-        schedule = compute_next_cycle(checked_at, health["frequency"], health["startHours"])
-        report["schedule"] = schedule
+        if repo_dir is not None:
+            resolved_root = resolve_repo_root(repo_dir=repo_dir)
+        elif repo_root is not None:
+            resolved_root = Path(repo_root)
+        else:
+            resolved_root = resolve_repo_root()
     except ReadError as exc:
         report["errors"].append(str(exc))
         report["summary"] = str(exc)
         return report
 
     try:
-        active_stage = list_active_workflow_runs(repo, STAGE_WORKFLOW, gh_get=gh_reader)
+        health = health_reader()
+        report["health"] = health
+        cycle_bundle = compute_cycle_schedule(checked_at, health["frequency"], health["startHours"])
+        schedule = cycle_bundle["nextCycle"]
+        report["schedule"] = schedule
+        report["nextOpenCycle"] = cycle_bundle["nextOpenCycle"]
+        report["migrationGate"] = cycle_bundle["migrationGate"]
+    except ReadError as exc:
+        report["errors"].append(str(exc))
+        report["summary"] = str(exc)
+        return report
+
+    try:
+        recent_stage = list_recent_workflow_runs(repo, STAGE_WORKFLOW, gh_get=gh_reader)
+        active_stage = [r for r in recent_stage if r.get("status") != "completed"]
         active_backup = list_active_workflow_runs(repo, BACKUP_WORKFLOW, gh_get=gh_reader)
         report["activeRuns"] = {"stage": active_stage, "backup": active_backup}
+        report["closedCycleStageRun"] = find_closed_cycle_stage_run(
+            recent_stage, schedule, checked_at, active_stage_runs=active_stage
+        )
 
         remote_main_sha = fetch_remote_main_sha(repo, gh_get=gh_reader)
         git_walk = walk_candidates_git(
-            repo_root, control_ref, health["releaseSha"], limit, git_fn=git_reader
+            resolved_root, control_ref, health["releaseSha"], limit, git_fn=git_reader
         )
         control_sha = git_walk["controlSha"]
         local_ref_stale = remote_main_sha != control_sha
         report["git"] = {
+            "repoDir": str(resolved_root),
             "controlRef": control_ref,
             "controlSha": control_sha,
             "remoteMainSha": remote_main_sha,
@@ -762,6 +1181,9 @@ def collect_readiness(
             "limit": limit,
         }
 
+        proj_reader = projection_fn or (
+            lambda sha: control_projection(sha, repo_root=resolved_root, control_sha=control_sha)
+        )
         control_proj = proj_reader(control_sha)
         prequal_index = fetch_prequal_index(repo, gh_get=gh_reader)
 
@@ -835,6 +1257,27 @@ def _format_backup_cell(backup):
     return state
 
 
+def _format_o3_defer_note(cycle):
+    kind = cycle.get("o3DeferKind")
+    clear_label = cycle.get("o3ClearChicagoLabel")
+    minutes = cycle.get("minutesToO3Defer")
+    in_window = bool(cycle.get("inO3DeferWindow"))
+    if kind == "nightly-freeze":
+        if in_window:
+            return f"ACTIVE - nightly freeze until {clear_label}"
+        return f"starts {_format_minutes(minutes)}; nightly freeze until {clear_label}"
+    if in_window:
+        return f"ACTIVE - clears {clear_label}"
+    return f"starts {_format_minutes(minutes)}; clears {clear_label}"
+
+
+def _format_closed_stage_run(run):
+    conclusion = run.get("conclusion") or "unknown"
+    sha = (run.get("headSha") or "")[:12]
+    updated = run.get("updatedAt") or ""
+    return f"run {run.get('id')} [completed/{conclusion}] {sha} at {updated}"
+
+
 def render_table(report):
     """Render a concise ASCII readiness report for terminal and chat use."""
     lines = [
@@ -859,6 +1302,7 @@ def render_table(report):
         )
 
     schedule = report.get("schedule")
+    closed_stage = report.get("closedCycleStageRun")
     if schedule:
         hold_note = (
             "ACTIVE - hold migrations + release controls"
@@ -876,9 +1320,65 @@ def render_table(report):
                 f"NEXT SCHEDULED CYCLE ({schedule['cycleId']})",
                 f"  cycleStart:    {schedule['cycleStartUtc']} | {schedule['cycleStartChicagoLabel']} ({_format_minutes(schedule['minutesToCycle'])})",
                 f"  prepCutoff:    {schedule['preparationCutoffUtc']} | {schedule['preparationCutoffChicagoLabel']} ({cutoff_note})",
-                f"  holdStart:     {schedule['recommendedHoldStartUtc']} | {schedule['recommendedHoldStartChicagoLabel']} ({hold_note})",
             ]
         )
+        if schedule.get("o3DeferStartUtc"):
+            lines.append(
+                f"  o3DeferStart:  {schedule['o3DeferStartUtc']} | {schedule['o3DeferStartChicagoLabel']} ({_format_o3_defer_note(schedule)})"
+            )
+        lines.append(
+            f"  holdStart:     {schedule['recommendedHoldStartUtc']} | {schedule['recommendedHoldStartChicagoLabel']} ({hold_note})"
+        )
+        if closed_stage:
+            lines.append(f"  closedStage:   {_format_closed_stage_run(closed_stage)}")
+
+    next_open = report.get("nextOpenCycle")
+    if next_open:
+        lines.append("")
+        if schedule and next_open.get("cycleId") == schedule.get("cycleId") and not schedule.get("cutoffPassed"):
+            lines.append(f"NEXT OPEN CYCLE ({next_open['cycleId']})")
+            lines.append(
+                f"  same as next scheduled cycle (prepCutoff {_format_minutes(next_open['minutesToCutoff'])})"
+            )
+        else:
+            open_hold_note = (
+                "ACTIVE - hold migrations + release controls"
+                if next_open["inHoldWindow"]
+                else f"starts {_format_minutes(next_open['minutesToHold'])}"
+            )
+            lines.extend(
+                [
+                    f"NEXT OPEN CYCLE ({next_open['cycleId']})",
+                    f"  cycleStart:    {next_open['cycleStartUtc']} | {next_open['cycleStartChicagoLabel']} ({_format_minutes(next_open['minutesToCycle'])})",
+                    f"  prepCutoff:    {next_open['preparationCutoffUtc']} | {next_open['preparationCutoffChicagoLabel']} ({_format_minutes(next_open['minutesToCutoff'])})",
+                ]
+            )
+            if next_open.get("o3DeferStartUtc"):
+                lines.append(
+                    f"  o3DeferStart:  {next_open['o3DeferStartUtc']} | {next_open['o3DeferStartChicagoLabel']} ({_format_o3_defer_note(next_open)})"
+                )
+            lines.append(
+                f"  holdStart:     {next_open['recommendedHoldStartUtc']} | {next_open['recommendedHoldStartChicagoLabel']} ({open_hold_note})"
+            )
+
+    gate = report.get("migrationGate")
+    if gate:
+        lines.extend(
+            [
+                "",
+                "MIGRATION GATE",
+                f"  status:        {gate['status']}",
+                f"  reason:        {gate['reason']}",
+            ]
+        )
+        if gate.get("clearAtUtc"):
+            lines.append(
+                f"  clearsAt:      {gate['clearAtUtc']} | {gate['clearAtChicagoLabel']} ({_format_minutes(gate['minutesToClear'])})"
+            )
+        elif gate.get("nextDeferStartUtc"):
+            lines.append(
+                f"  nextDefer:     {gate['nextDeferStartUtc']} | {gate['nextDeferStartChicagoLabel']} ({_format_minutes(gate['minutesToNextDefer'])}; {gate['nextDeferKind']})"
+            )
 
     active = report.get("activeRuns") or {}
     stage_runs = active.get("stage") or []
@@ -891,6 +1391,10 @@ def render_table(report):
             for r in stage_runs
         ]
         lines.append(f"  {STAGE_WORKFLOW}: {len(stage_runs)} active -> " + "; ".join(parts))
+    elif closed_stage:
+        lines.append(
+            f"  {STAGE_WORKFLOW}: none active (closed cycle {_format_closed_stage_run(closed_stage)})"
+        )
     else:
         lines.append(f"  {STAGE_WORKFLOW}: none active")
 
@@ -983,6 +1487,11 @@ def build_parser():
         help=f"Local protected main ref to walk (default: {DEFAULT_CONTROL_REF})",
     )
     parser.add_argument(
+        "--repo-dir",
+        default=None,
+        help="Optional path to a local git checkout (defaults to script repo root if .git exists, else cwd)",
+    )
+    parser.add_argument(
         "--now",
         help="Optional ISO-8601 UTC timestamp for deterministic schedule evaluation",
     )
@@ -1008,6 +1517,7 @@ def main(argv=None):
             limit=args.limit,
             health_url=args.health_url,
             control_ref=args.control_ref,
+            repo_dir=args.repo_dir,
             now_utc=now_utc,
         )
     except Exception as exc:  # fail closed to UNKNOWN (CLAUDE.md 10.86)
@@ -1022,6 +1532,9 @@ def main(argv=None):
             "repo": args.repo,
             "health": None,
             "schedule": None,
+            "nextOpenCycle": None,
+            "migrationGate": None,
+            "closedCycleStageRun": None,
             "git": None,
             "activeRuns": {"stage": [], "backup": []},
             "selectableSha": None,

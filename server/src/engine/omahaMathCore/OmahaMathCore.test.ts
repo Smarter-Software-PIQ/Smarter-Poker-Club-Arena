@@ -29,6 +29,8 @@ import {
   OMAHA_MATH_CORE_REALIZATION_CALIBRATION,
   OMAHA_MATH_CORE_WORK_BUDGET,
   realizationCalibrationCell,
+  cbetRaiseShare,
+  OMAHA_MATH_CORE_CBET_RAISE_READ,
   type CoreState,
 } from './OmahaMathCore.js';
 import { omahaMathCoreRule, omahaMathCoreState } from './OmahaMathCoreRule.js';
@@ -752,11 +754,28 @@ describe('omahaMathCore realization calibration (CORE-4: the core prices only wh
       for (const st of ['flop', 'turn'])
         expect(realizationCalibrationCell('plo6', st, a)).toBeNull();
     expect(realizationCalibrationCell('plo5', 'flop', 'fold')).toBeNull();
-    // criterion 2: PLO5 turn and PLO4 failed the cross-validated grade and are not calibrated
+    // criterion 2: the turn failed the cross-validated grade and is not calibrated (PLO4 and PLO5)
     for (const a of ['check', 'call', 'bet', 'raise']) {
       expect(realizationCalibrationCell('plo5', 'turn', a)).toBeNull();
-      expect(realizationCalibrationCell('plo4', 'flop', a)).toBeNull();
+      expect(realizationCalibrationCell('plo4', 'turn', a)).toBeNull();
+      // lane CORE-EXTEND (criteria sha e8793e34): PLO4 flop takes ONE population factor for every action
+      expect(realizationCalibrationCell('plo4', 'flop', a)?.r).toBe(0.7984);
     }
+    expect(realizationCalibrationCell('plo4', 'flop', 'fold')).toBeNull();
+  });
+  it('a responder own cbet raise share is shrunk n/(n+20) to the pooled share, within [0, 1 - fold]; no record -> pooled (CORE-EXTEND-5)', () => {
+    expect(cbetRaiseShare(0.1, 0.5, null)).toBeNull();
+    expect(cbetRaiseShare(0.1, 0.5, { opps: 0, raises: 0 })).toBeNull();
+    expect(cbetRaiseShare(0.1, 0.5, { opps: 20, raises: 10 })!.r).toBeCloseTo(
+      (10 + 20 * 0.1) / 40,
+      12
+    );
+    expect(cbetRaiseShare(0.1, 0.5, { opps: 1000, raises: 1000 })!.r).toBe(0.5);
+    expect(cbetRaiseShare(0.1, 0.5, { opps: 1000, raises: 0 })!.r).toBeCloseTo(
+      (20 * 0.1) / 1020,
+      12
+    );
+    expect(OMAHA_MATH_CORE_CBET_RAISE_READ.streets).toEqual({ plo4: ['flop'] });
   });
   it('ev = raw - (1 - r) x showdown term (CORE-POOLED-4 placement), se unchanged, the raw price on the receipt; a candidate without a showdown term is left alone', () => {
     const evs = [

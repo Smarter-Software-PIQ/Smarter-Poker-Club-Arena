@@ -80,6 +80,7 @@ import {
   feederOpeningMs,
   feederWaitMs,
   boardOpenTarget,
+  seatFirstSeedsAllowedThisTick,
 } from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
 import {
@@ -1237,12 +1238,78 @@ export function seatFirstHumanPartnerHoldJitterMs(tournamentId: string): number 
  */
 export const HUMAN_SEATED_AT_UNKNOWN = -Infinity;
 
+export type HeadsUpWaitModeDb = 'play_anyone' | 'specific_player';
+
+/**
+ * Maximum duration (5 minutes) an explicit Heads-Up `specific_player` invite
+ * hold may reserve seat 2 before falling open cleanly (anti-lockout bound).
+ */
+export const HEADS_UP_SPECIFIC_HOLD_MAX_MS = 5 * 60_000;
+
+export interface SeatFirstPartnerHoldOverride {
+  waitMode?: HeadsUpWaitModeDb | null;
+  holdExpiresAtMs?: number | null;
+  nowMs?: number;
+}
+
+export interface HeadsUpWaitHoldRow {
+  tournament_id?: string | null;
+  creator_user_id?: string | null;
+  wait_mode?: string | null;
+  hold_expires_at?: string | null;
+}
+
+/**
+ * Translate a `public.heads_up_wait_holds` row into a hold override for
+ * `seatFirstHumanPartnerHoldUntilMs`. Ignores stale holds whose creator is no
+ * longer among the table's live occupants so a vacated seat never strands a
+ * later player.
+ */
+export function resolveHeadsUpWaitHoldOverride(
+  row: HeadsUpWaitHoldRow | null | undefined,
+  liveSeatUserIds?: ReadonlySet<string> | null
+): SeatFirstPartnerHoldOverride | undefined {
+  if (!row || (row.wait_mode !== 'play_anyone' && row.wait_mode !== 'specific_player')) {
+    return undefined;
+  }
+  const creatorId = String(row.creator_user_id ?? '');
+  if (liveSeatUserIds && liveSeatUserIds.size > 0 && creatorId && !liveSeatUserIds.has(creatorId)) {
+    return undefined;
+  }
+  const parsedExpires = row.hold_expires_at ? Date.parse(String(row.hold_expires_at)) : NaN;
+  return {
+    waitMode: row.wait_mode,
+    holdExpiresAtMs: Number.isFinite(parsedExpires) ? parsedExpires : null,
+  };
+}
+
 export function seatFirstHumanPartnerHoldUntilMs(
   startTimeMs: number,
   firstHumanSeatedAtMs: number,
   jitterMs: number = 0,
-  createdAtMs: number = NaN
+  createdAtMs: number = NaN,
+  override?: SeatFirstPartnerHoldOverride
 ): number {
+  const humanPresent =
+    firstHumanSeatedAtMs === HUMAN_SEATED_AT_UNKNOWN || Number.isFinite(firstHumanSeatedAtMs);
+  if (!humanPresent) return -Infinity;
+
+  // Explicit Heads-Up wait-mode choice persisted in `public.heads_up_wait_holds`.
+  if (override?.waitMode === 'play_anyone') {
+    return -Infinity;
+  }
+  if (override?.waitMode === 'specific_player') {
+    const now =
+      typeof override.nowMs === 'number' && Number.isFinite(override.nowMs)
+        ? override.nowMs
+        : Date.now();
+    if (typeof override.holdExpiresAtMs === 'number' && Number.isFinite(override.holdExpiresAtMs)) {
+      const boundedUntil = Math.min(override.holdExpiresAtMs, now + HEADS_UP_SPECIFIC_HOLD_MAX_MS);
+      return boundedUntil > now ? boundedUntil : -Infinity;
+    }
+    return -Infinity;
+  }
+
   const windowEnd = Number.isFinite(startTimeMs) ? startTimeMs : -Infinity;
   /* A seated human whose seat time is unknown is held to the board's own
      window only - a FIXED instant. Never the current clock: a time derived
@@ -1258,7 +1325,6 @@ export function seatFirstHumanPartnerHoldUntilMs(
         )
       : windowEnd;
   }
-  if (!Number.isFinite(firstHumanSeatedAtMs)) return -Infinity;
   /* A PERSON OVERTAKES THE LADDER (2026-11-08). This used to hold until the
      LATER of the board's own window and the partner floor. That was right when
      the board window was 350 seconds; it is wrong now that a horse-opened
@@ -3941,12 +4007,13 @@ export class TournamentRecurringService {
       .is('satellite_target_id', null)
       .is('satellite_target', null)
       .eq('status', 'REGISTERING');
-    const count = error
+    const opened = error
       ? null
-      : await this.openedSeatFirstBoards(
+      : await this.seatFirstBoardsWithALiveSeat(
           (boardRows ?? []).map((r) => String((r as { id: string }).id))
         );
-    if (error || typeof count !== 'number') {
+    const count = opened?.size ?? null;
+    if (error || typeof count !== 'number' || opened === null) {
       reportError(
         new Error(
           `[TournamentRecurring] ${variant} open-board count failed: ${error?.message ?? 'no count'}`
@@ -3955,7 +4022,21 @@ export class TournamentRecurringService {
       );
       return null;
     }
-    return Math.max(0, boardOpenTarget(variant) - count);
+    const rawRoom = Math.max(0, boardOpenTarget(variant) - count);
+    if (rawRoom <= 0) return 0;
+    let mostRecentSeatAtMs: number | null = null;
+    for (const ts of opened.values()) {
+      if (Number.isFinite(ts) && (mostRecentSeatAtMs === null || ts > mostRecentSeatAtMs)) {
+        mostRecentSeatAtMs = ts;
+      }
+    }
+    return seatFirstSeedsAllowedThisTick(
+      variant,
+      count,
+      mostRecentSeatAtMs,
+      Date.now(),
+      boardBudgetShares(1)
+    );
   }
 
   /**
@@ -3967,9 +4048,13 @@ export class TournamentRecurringService {
     return (await this.seatFirstBoardsWithALiveSeat(ids))?.size ?? null;
   }
 
-  /** The ids, of those given, holding at least one live seat; null when unreadable. */
-  private async seatFirstBoardsWithALiveSeat(ids: string[]): Promise<Set<string> | null> {
-    const opened = new Set<string>();
+  /**
+   * The ids, of those given, holding at least one live seat, mapped to each
+   * board's earliest live seat timestamp (its opening time, unaffected by
+   * later rung-2 seats); null when unreadable.
+   */
+  private async seatFirstBoardsWithALiveSeat(ids: string[]): Promise<Map<string, number> | null> {
+    const opened = new Map<string, number>();
     if (ids.length === 0) return opened;
     const { data: tableRows, error: tableErr } = await supabase
       .from('tables')
@@ -3993,7 +4078,7 @@ export class TournamentRecurringService {
     if (boardOfTable.size === 0) return opened;
     const { data: seatRows, error: seatErr } = await supabase
       .from('table_seats')
-      .select('table_id')
+      .select('table_id, joined_at')
       .in('table_id', [...boardOfTable.keys()])
       .is('left_at', null);
     if (seatErr) {
@@ -4004,8 +4089,16 @@ export class TournamentRecurringService {
       return null;
     }
     for (const s of seatRows ?? []) {
-      const board = boardOfTable.get(String((s as { table_id: string }).table_id));
-      if (board) opened.add(board);
+      const row = s as { table_id: string; joined_at?: string | null };
+      const board = boardOfTable.get(String(row.table_id));
+      if (!board) continue;
+      const ts = row.joined_at ? Date.parse(String(row.joined_at)) : NaN;
+      const prev = opened.get(board);
+      if (prev === undefined) {
+        opened.set(board, ts);
+      } else if (Number.isFinite(ts) && (!Number.isFinite(prev) || ts < prev)) {
+        opened.set(board, ts);
+      }
     }
     return opened;
   }
@@ -4034,18 +4127,19 @@ export class TournamentRecurringService {
        * the Spin rule: never list a price point the owner did not sign
        * up for. */
       const owners = await this.activatedSpinOwners();
-      /* ONE BUDGET FOR THE WHOLE PLATFORM (Dan 2026-11-08). Each board used to
-         get its own share of BURST, because the board was every price point on
-         every owner and the only question was how fast it filled. The board is
-         now SIX Heads-Up in total, so a per-owner share would be six each. The
-         single budget is capped by what the platform has room for, and the
-         owners are drawn in a fresh order each tick so no board is permanently
-         first in the queue for it. */
+      /* TWO SEPARATE BUDGETS (Dan 2026-11-22):
+         - `seedBudget`: capped by `room` (platform-wide horse-seeded Heads-Up
+           target SNG_BOARD_OPEN_TARGET = 2, "only a couple of 1 of 2's").
+         - `budget`: per-tick creation burst (BURST = 12) so every missing
+           catalogue option stays open as an empty 0/2 board for humans to sit
+           down and play even when `room === 0`.
+         Fail closed ONLY on `room === null` (unreadable occupancy). */
       const room = await this.seatFirstBoardRoom('sng');
-      if (room === null || room <= 0) return;
-      const budget = { left: Math.min(room, boardBudgetShares(1)) };
+      if (room === null) return;
+      const seedBudget = { left: Math.min(room, boardBudgetShares(1)) };
+      const budget = { left: boardBudgetShares(1) };
       for (const board of this.boardOpenOrder(owners)) {
-        if (budget.left <= 0) break;
+        if (budget.left <= 0 && seedBudget.left <= 0) break;
         const configs =
           board === this.houseOwner
             ? SNG_CONFIGS
@@ -4054,9 +4148,10 @@ export class TournamentRecurringService {
         await this.ensureBoardOpen(
           'sng',
           configs,
-          (c, o) => this.createSNG(c as any, o),
+          (c, o) => this.createSNG(c as any, o, { seedOpeningHorse: false }),
           board,
-          budget
+          budget,
+          seedBudget
         );
       }
 
@@ -4600,17 +4695,19 @@ export class TournamentRecurringService {
       // thirty-odd games short every tick, it starved every owner board
       // instead. See boardBudgetShares for the measurement.
       const owners = await this.activatedSpinOwners();
-      /* ELEVEN SPINS, PLATFORM-WIDE (Dan 2026-11-08). See the Heads-Up pass
-         above for why this is one budget rather than a share per board. An
-         owner's board still only ever offers the price points its seed can
-         cover: the required seed is two top-tier jackpots at its largest
-         stake, so a bigger buy-in would advertise a multiplier the wallet
-         cannot pay. */
+      /* FULL CATALOGUE AT 0/3 + BOUNDED STAGGERED HORSE-SEEDING (Dan 2026-11-22).
+         - `seedBudget`: capped by `room` (platform-wide SPIN_BOARD_OPEN_TARGET
+           = 11, staggered so Spins never open in a single lockstep 2/3 wave).
+         - `budget`: per-tick creation burst (BURST = 12) so every Spin option
+           in SPIN_CONFIGS (and an owner's maxStake slice) stays open as 0/3
+           even when all 11 horse-seeded slots are already full (`room === 0`).
+         Fail closed ONLY on `room === null` (unreadable occupancy). */
       const room = await this.seatFirstBoardRoom('spin');
-      if (room === null || room <= 0) return;
-      const budget = { left: Math.min(room, boardBudgetShares(1)) };
+      if (room === null) return;
+      const seedBudget = { left: Math.min(room, boardBudgetShares(1)) };
+      const budget = { left: boardBudgetShares(1) };
       for (const board of this.boardOpenOrder(owners)) {
-        if (budget.left <= 0) break;
+        if (budget.left <= 0 && seedBudget.left <= 0) break;
         const configs =
           board === this.houseOwner
             ? SPIN_CONFIGS
@@ -4619,9 +4716,10 @@ export class TournamentRecurringService {
         await this.ensureBoardOpen(
           'spin',
           configs,
-          (c, o) => this.createSpin(c as any, o),
+          (c, o) => this.createSpin(c as any, o, { seedOpeningHorse: false }),
           board,
-          budget
+          budget,
+          seedBudget
         );
       }
     });
@@ -4658,9 +4756,10 @@ export class TournamentRecurringService {
     configs: T[],
     create: (config: T, owner: BoardOwner) => Promise<{ tournamentId: string | null }>,
     owner: BoardOwner,
-    budget: { left: number }
+    budget: { left: number },
+    seedBudget: { left: number } = { left: 0 }
   ): Promise<void> {
-    if (budget.left <= 0) return;
+    if (budget.left <= 0 && seedBudget.left <= 0) return;
     try {
       /**
        * SCOPED TO THIS OWNER. Without the scope, one owner's board would be
@@ -4762,50 +4861,45 @@ export class TournamentRecurringService {
         );
       }
 
-      /* AN EMPTY BOARD IS REOPENED BEFORE ANOTHER IS CREATED (2026-11-09).
-         See seatFirstBoardRoom: an empty board is not one of the eleven or the
-         six, and nothing else will ever seat a horse in it. So the budget goes
-         to this owner's empty boards first - the same rows the room count
-         takes (its own type, never a satellite feeder), joinable, with no
-         live seat - and is only spent creating while none is left. That is
-         what keeps the empty board from stacking: a held-empty board created
-         on one tick is reopened on the next, and while any empty board
-         exists, nothing new is created even if its reopen was refused. */
-      const ownType = variant === 'spin' ? 'SPIN' : 'SNG';
-      const emptyCandidates = rows.filter(
-        (r) =>
-          isPersistedSeatFirst(r) &&
-          r.tournament_type === ownType &&
-          r.satellite_target_id == null &&
-          r.satellite_target == null &&
-          withJoinableTable.has(r.id)
-      );
-      const withSeat = await this.seatFirstBoardsWithALiveSeat(emptyCandidates.map((r) => r.id));
-      if (withSeat === null) return;
-      const empty = emptyCandidates.filter((r) => !withSeat.has(r.id));
-      if (empty.length > 0) {
-        for (let i = empty.length - 1; i > 0; i--) {
-          const j = secureRandomInt(i + 1);
-          [empty[i], empty[j]] = [empty[j], empty[i]];
+      /* SEED EXISTING EMPTY BOARDS FIRST WHEN HORSE-SEED ROOM > 0, THEN KEEP
+         THE FULL CATALOGUE OPEN AS EMPTY 0/3 AND 0/2 BOARDS (Dan 2026-11-22).
+         An empty board is intentionally open for humans to sit down and start
+         and does NOT consume the horse-seeded quota (`seatFirstBoardRoom`).
+         When `seedBudget.left > 0`, we seed up to `seedBudget.left` shuffled
+         empty boards with one opening horse (spending no seedBudget if this
+         owner has no free horses, 2026-11-10). Unlike the retired 2026-11-09
+         branch, we do NOT return after seeding: we continue into the missing
+         catalogue check below so every missing Spin / Heads-Up config is
+         created empty (`seedOpeningHorse: false`) and stays joinable at 0/3
+         or 0/2. */
+      if (seedBudget.left > 0) {
+        const ownType = variant === 'spin' ? 'SPIN' : 'SNG';
+        const emptyCandidates = rows.filter(
+          (r) =>
+            isPersistedSeatFirst(r) &&
+            r.tournament_type === ownType &&
+            r.satellite_target_id == null &&
+            r.satellite_target == null &&
+            withJoinableTable.has(r.id)
+        );
+        const withSeat = await this.seatFirstBoardsWithALiveSeat(emptyCandidates.map((r) => r.id));
+        if (withSeat === null) return;
+        const empty = emptyCandidates.filter((r) => !withSeat.has(r.id));
+        if (empty.length > 0) {
+          for (let i = empty.length - 1; i > 0; i--) {
+            const j = secureRandomInt(i + 1);
+            [empty[i], empty[j]] = [empty[j], empty[i]];
+          }
+          for (const board of empty) {
+            if (seedBudget.left <= 0 || isMaintenanceFrozen()) break;
+            const outcome = await this.reopenEmptySeatFirstBoard(board);
+            if (outcome === 'no_horses') break;
+            if (outcome === 'seeded') seedBudget.left--;
+          }
         }
-        /* A BOARD NOBODY CAN OPEN SPENDS NO BUDGET (2026-11-10, measured on
-           840429a3). All 48 empty boards belonged to four certification
-           fixture clubs with zero horse members; a club board seats only its
-           own members, so every reopen failed. Spending the budget on each
-           attempt meant a fixture club drawn ahead of the house took the whole
-           tick, and the house opened Spins only when drawn first: 5 of 11 two
-           and a half hours after the 6 AM reopen. Each failed attempt also
-           rewrote that board's window for nothing. So the owner's pool is
-           asked first: with no free horse, nothing is written, nothing is
-           spent, and the turn passes to the next owner. This owner still
-           creates nothing while it has an empty board. */
-        for (const board of empty) {
-          if (budget.left <= 0 || isMaintenanceFrozen()) return;
-          if (!(await this.reopenEmptySeatFirstBoard(board))) return;
-          budget.left--;
-        }
-        return;
       }
+
+      if (budget.left <= 0) return;
 
       const open = new Set(
         rows
@@ -4815,27 +4909,22 @@ export class TournamentRecurringService {
       const missing = configs.filter((c) => !open.has(c.name));
       if (missing.length === 0) return;
 
-      /* WHICH PRICE POINTS ARE OPEN IS DRAWN FRESH (Dan 2026-11-08). The board
-         is now eleven Spins and six Heads-Up platform-wide, out of a catalogue
-         of 64 and 32. Taking them in config order would pin the same cheapest
-         eleven open for ever and make the other fifty-three unreachable, which
-         is not a narrower board - it is a smaller product. Shuffled per tick,
-         so the open board walks the whole ladder over a day and a player who
-         looks twice sees different stakes. */
+      /* Shuffle missing configs so cold starts open stakes across the whole
+         catalogue evenly rather than filling cheapest-first. */
       for (let i = missing.length - 1; i > 0; i--) {
         const j = secureRandomInt(i + 1);
         [missing[i], missing[j]] = [missing[j], missing[i]];
       }
 
-      /* Cap the per-tick burst. A cold start has every config missing, and
-         creating them all in one tick means one insert plus one
-         horse-registration batch each against the same connection - enough to
-         stall the engine loop that also has live hands to deal. The budget
-         handed in is this board's SHARE of BURST for the pass (see
-         boardBudgetShares), so the ceiling holds however many owners have
-         activated and no board can spend another board's share. Boards fill
-         over a few ticks instead. */
+      /* Cap the per-tick burst. Missing configs are created EMPTY (0/3 or 0/2,
+         `seedOpeningHorse: false` bound by the caller) so every option stays
+         open for humans without overshooting the horse-seeded target; if this
+         pass still has `seedBudget.left > 0` (e.g. cold start when no empty
+         boards existed yet), seed the newly created board via
+         reopenEmptySeatFirstBoard. */
       let launched = 0;
+      let ownerHasHorses = true;
+      const defaultSeats = variant === 'spin' ? SPIN_SEATS : HEADS_UP_SEATS;
       for (const config of missing.slice(0, budget.left)) {
         // The tick may have started before :53; every creation is an entry
         // door that the announcement closes, so stop at the freeze.
@@ -4845,6 +4934,15 @@ export class TournamentRecurringService {
         if (result.tournamentId) {
           launched++;
           budget.left--;
+          if (ownerHasHorses && seedBudget.left > 0 && !isMaintenanceFrozen()) {
+            const outcome = await this.reopenEmptySeatFirstBoard({
+              id: result.tournamentId,
+              name: config.name,
+              max_players: defaultSeats,
+            });
+            if (outcome === 'seeded') seedBudget.left--;
+            else if (outcome === 'no_horses') ownerHasHorses = false;
+          }
         }
         if (budget.left <= 0) break;
       }
@@ -5380,7 +5478,8 @@ export class TournamentRecurringService {
 
   private async createSNG(
     config: SNGConfig,
-    owner: BoardOwner = this.houseOwner
+    owner: BoardOwner = this.houseOwner,
+    opts?: { seedOpeningHorse?: boolean }
   ): Promise<{ tournamentId: string | null; registered: number }> {
     try {
       // A heads-up game is seat-first: one horse opens it and the second seat
@@ -5496,7 +5595,9 @@ export class TournamentRecurringService {
           );
           return { tournamentId: null, registered: 0 };
         }
-        await this.seedOpenSeatTable(sng, config.maxPlayers, seatFirstTableId);
+        if (opts?.seedOpeningHorse !== false) {
+          await this.seedOpenSeatTable(sng, config.maxPlayers, seatFirstTableId);
+        }
       } else {
         // TOURNEY-AUDIT 2026-07-24 (sweep 6): hold one seat for a human (full
         // fill only on periodic verification games).
@@ -5560,17 +5661,22 @@ export class TournamentRecurringService {
     id: string;
     name: string;
     max_players: number;
-  }): Promise<boolean> {
+  }): Promise<'seeded' | 'no_horses' | 'skipped'> {
     const seats = Number(board.max_players) || 0;
     // The same pool seedOpenSeatTable draws from, scoped to this board's owner.
     // No free horse: no window write and no budget (see ensureBoardOpen).
-    if ((await this.pickFreeHorses(1, false, board.id)).length === 0) return false;
+    if ((await this.pickFreeHorses(1, false, board.id)).length === 0) return 'no_horses';
     const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(seats)).toISOString();
+    // Guard on current_players = 0 as well as status = REGISTERING (2026-11-22):
+    // if a human raced in and bought seat 1 on an empty 0/3 or 0/2 board during
+    // the read-to-write gap, never overwrite their board's start_time or bypass
+    // their 3-7 minute partner hold by seating a horse immediately.
     const { data: moved, error } = await supabase
       .from('tournaments')
       .update({ start_time: startTime })
       .eq('id', board.id)
       .eq('status', 'REGISTERING')
+      .eq('current_players', 0)
       .select('id, club_id, name');
     if (error || !moved || moved.length !== 1) {
       if (error)
@@ -5580,13 +5686,13 @@ export class TournamentRecurringService {
           ),
           'TournamentRecurring.reopen_window_write_failed'
         );
-      return true;
+      return 'skipped';
     }
     const row = moved[0] as { id: string; club_id?: string | null; name: string };
     // seedOpenSeatTable seats through the RPC by tournament id; the table id it
     // hands back is unused here.
     await this.seedOpenSeatTable(row, seats, '', true);
-    return true;
+    return 'seeded';
   }
 
   private async seedOpenSeatTable(
@@ -6057,7 +6163,6 @@ export class TournamentRecurringService {
    * read starves every event on the platform.
    */
 
-
   private async clubMemberIdsForTournament(
     tournamentId: string,
     pass?: HorseTopUpPass
@@ -6449,7 +6554,8 @@ export class TournamentRecurringService {
 
   private async createSpin(
     config: SpinConfig,
-    owner: BoardOwner = this.houseOwner
+    owner: BoardOwner = this.houseOwner,
+    opts?: { seedOpeningHorse?: boolean }
   ): Promise<{ tournamentId: string | null; registered: number }> {
     try {
       // A Spin is three-handed by definition. The seat count is forced below
@@ -6589,7 +6695,9 @@ export class TournamentRecurringService {
       // bought. If nobody takes the seats before the open-table window
       // expires, GameServer's past-start top-up fills the field with horses so
       // the board still churns — open first, churn second.
-      await this.seedOpenSeatTable(spin, SPIN_SEATS, created.tableId);
+      if (opts?.seedOpeningHorse !== false) {
+        await this.seedOpenSeatTable(spin, SPIN_SEATS, created.tableId);
+      }
       const registered = 0;
       // prize_pool stays 0 until start. It used to be set to
       // buyIn x multiplier here, which was the arithmetic spoiler described
@@ -6694,7 +6802,8 @@ export class TournamentRecurringService {
     tournamentId: string,
     seats: ReadonlyArray<{ user_id?: string | null; joined_at?: string | null }>,
     startTimeMs: number,
-    createdAtMs: number = NaN
+    createdAtMs: number = NaN,
+    maxPlayers: number = 0
   ): Promise<number> {
     const now = Date.now();
     let latestJoin = -Infinity;
@@ -6704,9 +6813,17 @@ export class TournamentRecurringService {
       if (Number.isFinite(at)) latestJoin = Math.max(latestJoin, at);
     }
     const windowEnd = Number.isFinite(startTimeMs) ? startTimeMs : -Infinity;
+    const maxDefaultHoldMs =
+      SEAT_FIRST_HUMAN_PARTNER_HOLD_MS + SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS;
     const latestPossible = Math.max(
       windowEnd,
-      latestJoin + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS + SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS
+      latestJoin + maxDefaultHoldMs,
+      maxPlayers === 2
+        ? Math.max(
+            this.partnerHolds.get(tournamentId) ?? -Infinity,
+            latestJoin + maxDefaultHoldMs + HEADS_UP_SPECIFIC_HOLD_MAX_MS
+          )
+        : -Infinity
     );
     if (latestPossible <= now) {
       this.partnerHolds.delete(tournamentId);
@@ -6740,11 +6857,24 @@ export class TournamentRecurringService {
     const known = new Set((profiles ?? []).map((p) => String((p as { id?: string }).id ?? '')));
     // A seat with no profile row is not proven human; it holds nothing.
     const first = firstHumanSeatedAtMs(seats, (id) => known.has(id) && !horses.has(id));
+    let holdOverride: SeatFirstPartnerHoldOverride | undefined;
+    if (maxPlayers === 2 && (first === HUMAN_SEATED_AT_UNKNOWN || Number.isFinite(first))) {
+      const { data: holdRow } = await supabase
+        .from('heads_up_wait_holds')
+        .select('tournament_id, creator_user_id, wait_mode, hold_expires_at')
+        .eq('tournament_id', tournamentId)
+        .maybeSingle();
+      holdOverride = resolveHeadsUpWaitHoldOverride(
+        holdRow as HeadsUpWaitHoldRow | null,
+        new Set(ids)
+      );
+    }
     const holdUntil = seatFirstHumanPartnerHoldUntilMs(
       startTimeMs,
       first,
       seatFirstHumanPartnerHoldJitterMs(tournamentId),
-      createdAtMs
+      createdAtMs,
+      holdOverride
     );
     if (!(holdUntil > now)) {
       this.partnerHolds.delete(tournamentId);
@@ -7051,7 +7181,8 @@ export class TournamentRecurringService {
             tournamentId,
             liveSeatRows,
             heldStartMs,
-            Date.parse(String((tRow as { created_at?: string | null }).created_at ?? ''))
+            Date.parse(String((tRow as { created_at?: string | null }).created_at ?? '')),
+            Number((tRow as { max_players?: number } | null)?.max_players ?? 0)
           );
           if (holdUntil > Date.now()) return 0;
         }

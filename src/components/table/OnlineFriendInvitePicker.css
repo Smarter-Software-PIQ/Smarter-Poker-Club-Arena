@@ -1,0 +1,361 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONLINE FRIEND INVITE PICKER - Modal & Inline Styles
+   No hover rules (tests/no-hover-effects.law.test.ts).
+   #SmarterCasinoRealism palette: obsidian glass, broadcast blue, felt green.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.friend-invite-dialog {
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  max-width: min(460px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  width: 100%;
+  overflow-y: auto;
+}
+
+.friend-invite-dialog[open] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.friend-invite-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.friend-invite-dialog::backdrop {
+  background: rgb(2 5 10 / 74%);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.friend-invite-dialog__shell {
+  width: 100%;
+}
+
+.friend-invite-dialog__caption {
+  margin: 0 0 10px;
+  color: #b7c6da;
+  font:
+    500 0.84rem/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}
+
+.friend-invite-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.friend-invite-picker--inline {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgb(7 13 24 / 86%);
+  border: 1px solid rgb(69 173 255 / 24%);
+}
+
+.friend-invite-picker__inline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.friend-invite-picker__inline-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.friend-invite-picker__inline-title {
+  margin: 0;
+  color: #edf3fb;
+  font:
+    700 0.88rem/1.2 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.friend-invite-picker__online-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgb(46 160 67 / 20%);
+  border: 1px solid rgb(63 185 80 / 38%);
+  color: #4dc660;
+  font:
+    600 0.72rem/1 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.friend-invite-picker__share-btn {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(69 173 255 / 42%);
+  background: rgb(30 127 208 / 16%);
+  color: #d8efff;
+  font:
+    600 0.76rem/1 Inter,
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+}
+
+.friend-invite-picker__share-btn:active {
+  filter: brightness(1.2);
+}
+
+.friend-invite-picker__share-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.friend-invite-picker__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.friend-invite-picker__search-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.friend-invite-picker__search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #7d92ad;
+  pointer-events: none;
+}
+
+.friend-invite-picker__search {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px 0 34px;
+  border-radius: 8px;
+  border: 1px solid rgb(148 163 184 / 26%);
+  background: rgb(6 12 22 / 92%);
+  color: #edf3fb;
+  font:
+    500 0.84rem/1.2 Inter,
+    system-ui,
+    sans-serif;
+  box-sizing: border-box;
+}
+
+.friend-invite-picker__search::placeholder {
+  color: #7d92ad;
+}
+
+.friend-invite-picker__search:focus-visible {
+  outline: 2px solid #3898ff;
+  outline-offset: 1px;
+}
+
+.friend-invite-picker__toggle {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(148 163 184 / 28%);
+  background: rgb(15 23 42 / 80%);
+  color: #b7c6da;
+  font:
+    600 0.76rem/1 Inter,
+    system-ui,
+    sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.friend-invite-picker__toggle--active {
+  border-color: rgb(63 185 80 / 58%);
+  background: rgb(46 160 67 / 26%);
+  color: #4dc660;
+}
+
+.friend-invite-picker__toggle:active {
+  filter: brightness(1.18);
+}
+
+.friend-invite-picker__toggle:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.friend-invite-picker__error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgb(198 48 63 / 52%);
+  background: rgb(198 48 63 / 16%);
+  color: #fecdd3;
+  font:
+    500 0.78rem/1.35 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.friend-invite-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.friend-invite-picker--inline .friend-invite-picker__list {
+  max-height: 220px;
+}
+
+.friend-invite-picker__state {
+  padding: 18px 12px;
+  text-align: center;
+  color: #93a4bc;
+  font:
+    500 0.82rem/1.4 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.friend-invite-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(11 19 34 / 88%);
+  border: 1px solid rgb(148 163 184 / 16%);
+}
+
+.friend-invite-picker__avatar-wrap {
+  flex: 0 0 auto;
+}
+
+.friend-invite-picker__meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.friend-invite-picker__name {
+  color: #edf3fb;
+  font:
+    600 0.86rem/1.25 Inter,
+    system-ui,
+    sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-invite-picker__sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8ea1bb;
+  font:
+    500 0.72rem/1.2 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.friend-invite-picker__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.friend-invite-picker__dot--online {
+  background: #3fb950;
+  box-shadow: 0 0 6px rgb(63 185 80 / 65%);
+}
+
+.friend-invite-picker__dot--offline {
+  background: #526277;
+}
+
+.friend-invite-picker__sep {
+  color: #526277;
+}
+
+.friend-invite-picker__invite-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 78px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid rgb(56 152 255 / 55%);
+  background: linear-gradient(180deg, #2185dc 0%, #1562ad 100%);
+  color: #ffffff;
+  font:
+    700 0.78rem/1 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.friend-invite-picker__invite-btn:active:not(:disabled) {
+  filter: brightness(1.18);
+}
+
+.friend-invite-picker__invite-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.friend-invite-picker__invite-btn--invited {
+  border-color: rgb(63 185 80 / 45%);
+  background: rgb(46 160 67 / 22%);
+  color: #4dc660;
+  cursor: default;
+}
+
+.friend-invite-picker__invite-btn:disabled {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.friend-invite-picker__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgb(255 255 255 / 35%);
+  border-top-color: #ffffff;
+  animation: friend-invite-spin 0.7s linear infinite;
+}
+
+@keyframes friend-invite-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

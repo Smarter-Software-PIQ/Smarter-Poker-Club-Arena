@@ -196,22 +196,553 @@ const evSuitCount = new Int32Array(4);
 const evSuitMask = new Int32Array(4);
 const SUIT_INDEX: Record<string, number> = { hearts: 0, diamonds: 1, clubs: 2, spades: 3 };
 
+// Precomputed 15-bit rank-mask lookup tables (bits 2..14; total ~288 KB, built once at startup).
+// Every entry matches scoreHoldemReference / straightTop / connectsBoard bit-for-bit.
+const STRAIGHT_TOP_NORMAL = new Uint8Array(32768);
+const STRAIGHT_TOP_SHORT = new Uint8Array(32768);
+const TOP5_TB = new Int32Array(32768);
+const TOP3_TB = new Int32Array(32768);
+const TOP2_TB = new Int32Array(32768);
+const TOP3_SHIFT = new Uint8Array(32768);
+const TOP2_SHIFT = new Uint8Array(32768);
+/** Bit r (2..14) is set iff `mask` has >= 4 ranks in some 5-rank window [top-4..top] containing r (top in 5..14). */
+const OPEN_STRAIGHT_DRAW_WIN_MASK = new Uint16Array(32768);
+{
+  const NORM_WHEEL = (1 << 14) | (1 << 5) | (1 << 4) | (1 << 3) | (1 << 2);
+  const SHORT_WHEEL = (1 << 14) | (1 << 9) | (1 << 8) | (1 << 7) | (1 << 6);
+  for (let m = 0; m < 32768; m++) {
+    const runs = m & (m >> 1) & (m >> 2) & (m >> 3) & (m >> 4) & 0x7fc;
+    if (runs !== 0) {
+      const top = 35 - Math.clz32(runs);
+      STRAIGHT_TOP_NORMAL[m] = top;
+      STRAIGHT_TOP_SHORT[m] = top;
+    } else {
+      if ((m & NORM_WHEEL) === NORM_WHEEL) STRAIGHT_TOP_NORMAL[m] = 5;
+      if ((m & SHORT_WHEEL) === SHORT_WHEEL) STRAIGHT_TOP_SHORT[m] = 9;
+    }
+
+    let tb5 = 0;
+    let tb3 = 0;
+    let tb2 = 0;
+    let found = 0;
+    for (let r = 14; r >= 2 && found < 5; r--) {
+      if (m & (1 << r)) {
+        tb5 = tb5 * 16 + r;
+        if (found < 3) tb3 = tb3 * 16 + r;
+        if (found < 2) tb2 = tb2 * 16 + r;
+        found++;
+      }
+    }
+    TOP5_TB[m] = tb5;
+    TOP3_TB[m] = tb3;
+    TOP2_TB[m] = tb2;
+    TOP3_SHIFT[m] = (found < 3 ? found : 3) * 4;
+    TOP2_SHIFT[m] = (found < 2 ? found : 2) * 4;
+
+    let drawWin = 0;
+    for (let top = 14; top >= 5; top--) {
+      let inWin = 0;
+      let winBits = 0;
+      for (let r = top; r > top - 5 && r >= 2; r--) {
+        const bit = 1 << r;
+        winBits |= bit;
+        if (m & bit) inWin++;
+      }
+      if (inWin >= 4) drawWin |= winBits;
+    }
+    OPEN_STRAIGHT_DRAW_WIN_MASK[m] = drawWin;
+  }
+}
+
 /** Find the top rank of a straight within a rank bitmask, or 0 if none. */
 export function straightTop(mask: number, shortDeck: boolean): number {
-  for (let top = 14; top >= 6; top--) {
-    const run = 0b11111 << (top - 4);
-    if ((mask & run) === run) return top;
+  if ((mask & ~0x7fff) === 0) {
+    return (shortDeck ? STRAIGHT_TOP_SHORT : STRAIGHT_TOP_NORMAL)[mask];
   }
+  const runs = mask & (mask >> 1) & (mask >> 2) & (mask >> 3) & (mask >> 4) & 0x7fc;
+  if (runs !== 0) return 35 - Math.clz32(runs);
   if (shortDeck) {
-    // A-6-7-8-9 wheel
     const need = (1 << 14) | (1 << 9) | (1 << 8) | (1 << 7) | (1 << 6);
     if ((mask & need) === need) return 9;
   } else {
-    // A-2-3-4-5 wheel
     const need = (1 << 14) | (1 << 5) | (1 << 4) | (1 << 3) | (1 << 2);
     if ((mask & need) === need) return 5;
   }
   return 0;
+}
+
+/**
+ * Bitmask-based best-5-of-N Hold'em / Short Deck scorer. Zero allocations,
+ * zero scratch-array clears, zero 13-rank loops; 100% bit-identical to
+ * `scoreHoldemReference` for all legal 0-8 card deals (no rank count > 4).
+ */
+function scoreHoldemBitmasks(
+  once: number,
+  twice: number,
+  thrice: number,
+  four: number,
+  sm0: number,
+  sm1: number,
+  sm2: number,
+  sm3: number,
+  sc0: number,
+  sc1: number,
+  sc2: number,
+  sc3: number,
+  shortDeck: boolean
+): number {
+  const straightTable = shortDeck ? STRAIGHT_TOP_SHORT : STRAIGHT_TOP_NORMAL;
+  const flushMask = sc0 >= 5 ? sm0 : sc1 >= 5 ? sm1 : sc2 >= 5 ? sm2 : sc3 >= 5 ? sm3 : 0;
+  if (flushMask !== 0) {
+    const sfTop = straightTable[flushMask];
+    if (sfTop > 0) return (sfTop === 14 ? 10 : 9) * 0x100000 + sfTop;
+  }
+
+  if (four !== 0) {
+    const quad = 31 - Math.clz32(four);
+    const kickerMask = once ^ (1 << quad);
+    const kicker = kickerMask !== 0 ? 31 - Math.clz32(kickerMask) : 0;
+    return 8 * 0x100000 + quad * 16 + kicker;
+  }
+
+  if (thrice !== 0) {
+    const trips = 31 - Math.clz32(thrice);
+    const fhPairMask = twice ^ (1 << trips);
+    if (fhPairMask !== 0) {
+      const catFullHouse = shortDeck ? 6 : 7;
+      return catFullHouse * 0x100000 + trips * 16 + (31 - Math.clz32(fhPairMask));
+    }
+    if (flushMask !== 0) {
+      const catFlush = shortDeck ? 7 : 6;
+      return catFlush * 0x100000 + TOP5_TB[flushMask];
+    }
+    const st = straightTable[once];
+    if (st > 0) return 5 * 0x100000 + st;
+    const rem = once ^ (1 << trips);
+    return 4 * 0x100000 + (trips << TOP2_SHIFT[rem]) + TOP2_TB[rem];
+  }
+
+  if (flushMask !== 0) {
+    const catFlush = shortDeck ? 7 : 6;
+    return catFlush * 0x100000 + TOP5_TB[flushMask];
+  }
+
+  const st = straightTable[once];
+  if (st > 0) return 5 * 0x100000 + st;
+
+  if (twice !== 0) {
+    const pairHi = 31 - Math.clz32(twice);
+    const otherPairs = twice ^ (1 << pairHi);
+    if (otherPairs !== 0) {
+      const pairLo = 31 - Math.clz32(otherPairs);
+      // Note: must unmask ONLY pairHi and pairLo (not all of `twice`) so a
+      // 7-card third pair can provide the highest kicker, matching scoreHoldemReference.
+      const kickerMask = once ^ (1 << pairHi) ^ (1 << pairLo);
+      const kicker = kickerMask !== 0 ? 31 - Math.clz32(kickerMask) : 0;
+      return 3 * 0x100000 + pairHi * 256 + pairLo * 16 + kicker;
+    }
+    const rem = once ^ (1 << pairHi);
+    return 2 * 0x100000 + (pairHi << TOP3_SHIFT[rem]) + TOP3_TB[rem];
+  }
+
+  return 0x100000 + TOP5_TB[once];
+}
+
+/** Packed bitmask representation of a 0-5 card Hold'em board for zero-allocation incremental scoring. */
+export interface HoldemBoardBits {
+  once: number;
+  twice: number;
+  thrice: number;
+  four: number;
+  sm0: number;
+  sm1: number;
+  sm2: number;
+  sm3: number;
+  sc0: number;
+  sc1: number;
+  sc2: number;
+  sc3: number;
+  count: number;
+}
+
+/** Convert a Card to its compact 0..51 Hold'em card ID (`((rank-2)<<2)|suit`), or -1 if invalid. */
+export function holdemCardId(c: Card): number {
+  const r = RANK_VALUES[c.rank];
+  const s = SUIT_INDEX[c.suit];
+  if (r === undefined || s === undefined) return -1;
+  return ((r - 2) << 2) | s;
+}
+
+/** Pack `count` integer card IDs (0..51) into a reusable HoldemBoardBits state. */
+export function packHoldemBoardBits(
+  ids: ArrayLike<number>,
+  count: number,
+  out?: HoldemBoardBits
+): HoldemBoardBits {
+  let once = 0;
+  let twice = 0;
+  let thrice = 0;
+  let four = 0;
+  let sm0 = 0;
+  let sm1 = 0;
+  let sm2 = 0;
+  let sm3 = 0;
+  let sc0 = 0;
+  let sc1 = 0;
+  let sc2 = 0;
+  let sc3 = 0;
+  for (let i = 0; i < count; i++) {
+    const id = ids[i];
+    const bit = 1 << ((id >> 2) + 2);
+    four |= thrice & bit;
+    thrice |= twice & bit;
+    twice |= once & bit;
+    once |= bit;
+    const s = id & 3;
+    if (s === 0) {
+      sm0 |= bit;
+      sc0++;
+    } else if (s === 1) {
+      sm1 |= bit;
+      sc1++;
+    } else if (s === 2) {
+      sm2 |= bit;
+      sc2++;
+    } else {
+      sm3 |= bit;
+      sc3++;
+    }
+  }
+  if (out) {
+    out.once = once;
+    out.twice = twice;
+    out.thrice = thrice;
+    out.four = four;
+    out.sm0 = sm0;
+    out.sm1 = sm1;
+    out.sm2 = sm2;
+    out.sm3 = sm3;
+    out.sc0 = sc0;
+    out.sc1 = sc1;
+    out.sc2 = sc2;
+    out.sc3 = sc3;
+    out.count = count;
+    return out;
+  }
+  return { once, twice, thrice, four, sm0, sm1, sm2, sm3, sc0, sc1, sc2, sc3, count };
+}
+
+/** Score a pre-packed board bitmask state (0..5 cards). Bit-identical to scoreHoldemReference. */
+export function scoreHoldemFromBoardBits(b: HoldemBoardBits, shortDeck: boolean): number {
+  return scoreHoldemBitmasks(
+    b.once,
+    b.twice,
+    b.thrice,
+    b.four,
+    b.sm0,
+    b.sm1,
+    b.sm2,
+    b.sm3,
+    b.sc0,
+    b.sc1,
+    b.sc2,
+    b.sc3,
+    shortDeck
+  );
+}
+
+/** Score a pre-packed board state plus 2 distinct integer card IDs (0..51). Zero allocations. */
+export function scoreHoldemPlus2Ids(
+  b: HoldemBoardBits,
+  id0: number,
+  id1: number,
+  shortDeck: boolean
+): number {
+  let once = b.once;
+  let twice = b.twice;
+  let thrice = b.thrice;
+  let four = b.four;
+  let sm0 = b.sm0;
+  let sm1 = b.sm1;
+  let sm2 = b.sm2;
+  let sm3 = b.sm3;
+  let sc0 = b.sc0;
+  let sc1 = b.sc1;
+  let sc2 = b.sc2;
+  let sc3 = b.sc3;
+
+  const b0 = 1 << ((id0 >> 2) + 2);
+  four |= thrice & b0;
+  thrice |= twice & b0;
+  twice |= once & b0;
+  once |= b0;
+  const s0 = id0 & 3;
+  if (s0 === 0) {
+    sm0 |= b0;
+    sc0++;
+  } else if (s0 === 1) {
+    sm1 |= b0;
+    sc1++;
+  } else if (s0 === 2) {
+    sm2 |= b0;
+    sc2++;
+  } else {
+    sm3 |= b0;
+    sc3++;
+  }
+
+  const b1 = 1 << ((id1 >> 2) + 2);
+  four |= thrice & b1;
+  thrice |= twice & b1;
+  twice |= once & b1;
+  once |= b1;
+  const s1 = id1 & 3;
+  if (s1 === 0) {
+    sm0 |= b1;
+    sc0++;
+  } else if (s1 === 1) {
+    sm1 |= b1;
+    sc1++;
+  } else if (s1 === 2) {
+    sm2 |= b1;
+    sc2++;
+  } else {
+    sm3 |= b1;
+    sc3++;
+  }
+
+  return scoreHoldemBitmasks(
+    once,
+    twice,
+    thrice,
+    four,
+    sm0,
+    sm1,
+    sm2,
+    sm3,
+    sc0,
+    sc1,
+    sc2,
+    sc3,
+    shortDeck
+  );
+}
+
+/** Score a pre-packed 4-card turn board plus 1 river ID and 2 hole IDs (0..51). Zero allocations. */
+export function scoreHoldemPlus3Ids(
+  b: HoldemBoardBits,
+  id0: number,
+  id1: number,
+  id2: number,
+  shortDeck: boolean
+): number {
+  let once = b.once;
+  let twice = b.twice;
+  let thrice = b.thrice;
+  let four = b.four;
+  let sm0 = b.sm0;
+  let sm1 = b.sm1;
+  let sm2 = b.sm2;
+  let sm3 = b.sm3;
+  let sc0 = b.sc0;
+  let sc1 = b.sc1;
+  let sc2 = b.sc2;
+  let sc3 = b.sc3;
+
+  const b0 = 1 << ((id0 >> 2) + 2);
+  four |= thrice & b0;
+  thrice |= twice & b0;
+  twice |= once & b0;
+  once |= b0;
+  const s0 = id0 & 3;
+  if (s0 === 0) {
+    sm0 |= b0;
+    sc0++;
+  } else if (s0 === 1) {
+    sm1 |= b0;
+    sc1++;
+  } else if (s0 === 2) {
+    sm2 |= b0;
+    sc2++;
+  } else {
+    sm3 |= b0;
+    sc3++;
+  }
+
+  const b1 = 1 << ((id1 >> 2) + 2);
+  four |= thrice & b1;
+  thrice |= twice & b1;
+  twice |= once & b1;
+  once |= b1;
+  const s1 = id1 & 3;
+  if (s1 === 0) {
+    sm0 |= b1;
+    sc0++;
+  } else if (s1 === 1) {
+    sm1 |= b1;
+    sc1++;
+  } else if (s1 === 2) {
+    sm2 |= b1;
+    sc2++;
+  } else {
+    sm3 |= b1;
+    sc3++;
+  }
+
+  const b2 = 1 << ((id2 >> 2) + 2);
+  four |= thrice & b2;
+  thrice |= twice & b2;
+  twice |= once & b2;
+  once |= b2;
+  const s2 = id2 & 3;
+  if (s2 === 0) {
+    sm0 |= b2;
+    sc0++;
+  } else if (s2 === 1) {
+    sm1 |= b2;
+    sc1++;
+  } else if (s2 === 2) {
+    sm2 |= b2;
+    sc2++;
+  } else {
+    sm3 |= b2;
+    sc3++;
+  }
+
+  return scoreHoldemBitmasks(
+    once,
+    twice,
+    thrice,
+    four,
+    sm0,
+    sm1,
+    sm2,
+    sm3,
+    sc0,
+    sc1,
+    sc2,
+    sc3,
+    shortDeck
+  );
+}
+
+/** Score a pre-packed 3-card flop board plus 2 runout IDs and 2 hole IDs (0..51). Zero allocations. */
+export function scoreHoldemPlus4Ids(
+  b: HoldemBoardBits,
+  id0: number,
+  id1: number,
+  id2: number,
+  id3: number,
+  shortDeck: boolean
+): number {
+  let once = b.once;
+  let twice = b.twice;
+  let thrice = b.thrice;
+  let four = b.four;
+  let sm0 = b.sm0;
+  let sm1 = b.sm1;
+  let sm2 = b.sm2;
+  let sm3 = b.sm3;
+  let sc0 = b.sc0;
+  let sc1 = b.sc1;
+  let sc2 = b.sc2;
+  let sc3 = b.sc3;
+
+  const b0 = 1 << ((id0 >> 2) + 2);
+  four |= thrice & b0;
+  thrice |= twice & b0;
+  twice |= once & b0;
+  once |= b0;
+  const s0 = id0 & 3;
+  if (s0 === 0) {
+    sm0 |= b0;
+    sc0++;
+  } else if (s0 === 1) {
+    sm1 |= b0;
+    sc1++;
+  } else if (s0 === 2) {
+    sm2 |= b0;
+    sc2++;
+  } else {
+    sm3 |= b0;
+    sc3++;
+  }
+
+  const b1 = 1 << ((id1 >> 2) + 2);
+  four |= thrice & b1;
+  thrice |= twice & b1;
+  twice |= once & b1;
+  once |= b1;
+  const s1 = id1 & 3;
+  if (s1 === 0) {
+    sm0 |= b1;
+    sc0++;
+  } else if (s1 === 1) {
+    sm1 |= b1;
+    sc1++;
+  } else if (s1 === 2) {
+    sm2 |= b1;
+    sc2++;
+  } else {
+    sm3 |= b1;
+    sc3++;
+  }
+
+  const b2 = 1 << ((id2 >> 2) + 2);
+  four |= thrice & b2;
+  thrice |= twice & b2;
+  twice |= once & b2;
+  once |= b2;
+  const s2 = id2 & 3;
+  if (s2 === 0) {
+    sm0 |= b2;
+    sc0++;
+  } else if (s2 === 1) {
+    sm1 |= b2;
+    sc1++;
+  } else if (s2 === 2) {
+    sm2 |= b2;
+    sc2++;
+  } else {
+    sm3 |= b2;
+    sc3++;
+  }
+
+  const b3 = 1 << ((id3 >> 2) + 2);
+  four |= thrice & b3;
+  thrice |= twice & b3;
+  twice |= once & b3;
+  once |= b3;
+  const s3 = id3 & 3;
+  if (s3 === 0) {
+    sm0 |= b3;
+    sc0++;
+  } else if (s3 === 1) {
+    sm1 |= b3;
+    sc1++;
+  } else if (s3 === 2) {
+    sm2 |= b3;
+    sc2++;
+  } else {
+    sm3 |= b3;
+    sc3++;
+  }
+
+  return scoreHoldemBitmasks(
+    once,
+    twice,
+    thrice,
+    four,
+    sm0,
+    sm1,
+    sm2,
+    sm3,
+    sc0,
+    sc1,
+    sc2,
+    sc3,
+    shortDeck
+  );
 }
 
 /**
@@ -440,22 +971,79 @@ function fiveCardRankKey(cards: Card[]): number {
  * Encoding: category * 2^20 + 20-bit tiebreak.
  */
 export function scoreHoldem(cards: Card[], count: number, shortDeck: boolean): number {
-  if (count !== 5 || cards.length < 5) return scoreHoldemReference(cards, count, shortDeck);
+  if (count === 5 && cards.length >= 5) {
+    const key = fiveCardRankKey(cards);
+    const flush =
+      cards[0].suit === cards[1].suit &&
+      cards[0].suit === cards[2].suit &&
+      cards[0].suit === cards[3].suit &&
+      cards[0].suit === cards[4].suit;
+    const score = flush
+      ? (shortDeck ? fiveCardFlushShort : fiveCardFlushNormal).get(key)
+      : (shortDeck ? fiveCardShort : fiveCardNormal).get(key);
+    // Defensive only: legal five-card poker deals are all in the generated
+    // tables. Preserve the old behavior for malformed/custom test cards rather
+    // than manufacturing a score.
+    if (score !== undefined) return score;
+    return scoreHoldemReference(cards, count, shortDeck);
+  }
 
-  const key = fiveCardRankKey(cards);
-  const flush =
-    cards[0].suit === cards[1].suit &&
-    cards[0].suit === cards[2].suit &&
-    cards[0].suit === cards[3].suit &&
-    cards[0].suit === cards[4].suit;
-  const score = flush
-    ? (shortDeck ? fiveCardFlushShort : fiveCardFlushNormal).get(key)
-    : (shortDeck ? fiveCardShort : fiveCardNormal).get(key);
+  if (count > 9 || count > cards.length) return scoreHoldemReference(cards, count, shortDeck);
 
-  // Defensive only: legal five-card poker deals are all in the generated
-  // tables. Preserve the old behavior for malformed/custom test cards rather
-  // than manufacturing a score.
-  return score ?? scoreHoldemReference(cards, count, shortDeck);
+  let once = 0;
+  let twice = 0;
+  let thrice = 0;
+  let four = 0;
+  let five = 0;
+  let sm0 = 0;
+  let sm1 = 0;
+  let sm2 = 0;
+  let sm3 = 0;
+  let sc0 = 0;
+  let sc1 = 0;
+  let sc2 = 0;
+  let sc3 = 0;
+  for (let i = 0; i < count; i++) {
+    const c = cards[i];
+    const r = RANK_VALUES[c.rank];
+    const s = SUIT_INDEX[c.suit];
+    if (r === undefined || s === undefined) return scoreHoldemReference(cards, count, shortDeck);
+    const bit = 1 << r;
+    five |= four & bit;
+    four |= thrice & bit;
+    thrice |= twice & bit;
+    twice |= once & bit;
+    once |= bit;
+    if (s === 0) {
+      sm0 |= bit;
+      sc0++;
+    } else if (s === 1) {
+      sm1 |= bit;
+      sc1++;
+    } else if (s === 2) {
+      sm2 |= bit;
+      sc2++;
+    } else {
+      sm3 |= bit;
+      sc3++;
+    }
+  }
+  if (five !== 0) return scoreHoldemReference(cards, count, shortDeck);
+  return scoreHoldemBitmasks(
+    once,
+    twice,
+    thrice,
+    four,
+    sm0,
+    sm1,
+    sm2,
+    sm3,
+    sc0,
+    sc1,
+    sc2,
+    sc3,
+    shortDeck
+  );
 }
 
 // Precomputed index combinations for Omaha evaluation.
@@ -1512,6 +2100,10 @@ export interface OppPostflopRead {
    * Only omahaAggressorTier reads this; `bigBet` itself is left as it was
    * for every other consumer. */
   tierByPotShare?: boolean;
+  /** omahaBigBetSizeIsPriced (default OFF, HorseOmahaBigBetSizeIsPriced):
+   * continuous priced aggressor value-share (`pStrong` in `[0.50, 0.94]`) from
+   * pot share and lifetime public HUD, replacing the 20 BB / 0.70 step cliff. */
+  pricedBetStrength?: number;
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
@@ -1753,6 +2345,8 @@ export function v62TargetClass(sizeClass: 0 | 1 | 2, r1: number, r2: number): 0 
  * still yields two pair when the target asks for it). */
 export type V62StratumIndex = [number[], number[], number[], number[]];
 
+const v62BoardRankCounts = new Uint8Array(15);
+
 export function buildV62StratumIndex(
   band: [number, number] | null,
   board: Card[],
@@ -1764,13 +2358,94 @@ export function buildV62StratumIndex(
   const lo = band ? lowerBound(tbl.scores, band[0]) : 0;
   const hi = band ? lowerBound(tbl.scores, band[1] + 1e-12) : tbl.scores.length;
   const dead = new Uint8Array(64);
-  for (const c of excluded) dead[cardId(c)] = 1;
-  for (const c of board) dead[cardId(c)] = 1;
+  for (const c of excluded) {
+    const id = holdemCardId(c);
+    if (id >= 0) dead[id] = 1;
+  }
+  const boardIds = new Uint8Array(board.length);
+  let boardValid = true;
+  let boardTopRank = 0;
+  v62BoardRankCounts.fill(0);
+  let boardPaired = false;
+  for (let i = 0; i < board.length; i++) {
+    const id = holdemCardId(board[i]);
+    if (id < 0) {
+      boardValid = false;
+      break;
+    }
+    dead[id] = 1;
+    boardIds[i] = id;
+    const r = (id >> 2) + 2;
+    if (r > boardTopRank) boardTopRank = r;
+    const rc = ++v62BoardRankCounts[r];
+    if (rc >= 2) boardPaired = true;
+  }
   const out: V62StratumIndex = [[], [], [], []];
+  const isValueCls = classify === v62ValueClass;
+  const isRiverBettorCls = classify === v62RiverBettorClass;
+  if (boardValid && (isValueCls || isRiverBettorCls)) {
+    const bBits = packHoldemBoardBits(boardIds, board.length);
+    const bScore = board.length > 0 ? scoreHoldemFromBoardBits(bBits, shortDeck) : 0;
+    const bCat = Math.floor(bScore / 0x100000);
+    const id1 = tbl.id1;
+    const id2 = tbl.id2;
+    for (let idx = lo; idx < hi; idx++) {
+      const a = id1[idx];
+      const b = id2[idx];
+      if (dead[a] || dead[b]) continue;
+      const madeScore = scoreHoldemPlus2Ids(bBits, a, b, shortDeck);
+      const conn = connectsBoard2IdsScored(
+        a,
+        b,
+        bBits,
+        madeScore,
+        bScore,
+        bCat,
+        board.length,
+        shortDeck
+      );
+      let cls: 0 | 1 | 2 | 3;
+      const ra = (a >> 2) + 2;
+      const rb = (b >> 2) + 2;
+      const pocket = ra === rb;
+      if (conn >= 3) {
+        cls = 3;
+      } else if (conn !== 2) {
+        cls = 0;
+      } else {
+        cls = ra === boardTopRank || rb === boardTopRank || (pocket && ra > boardTopRank) ? 2 : 1;
+      }
+      if (isRiverBettorCls && cls === 3 && boardPaired) {
+        const rawCat = Math.floor(madeScore / 0x100000);
+        if (rawCat === 3) {
+          let privateRank = 0;
+          if (pocket) {
+            privateRank = ra;
+            cls = privateRank >= boardTopRank ? 2 : 1;
+          } else {
+            let pairing = 0;
+            if (v62BoardRankCounts[ra] === 1) {
+              pairing++;
+              privateRank = ra;
+            }
+            if (v62BoardRankCounts[rb] === 1) {
+              pairing++;
+              if (rb > privateRank) privateRank = rb;
+            }
+            if (pairing === 1) {
+              cls = privateRank >= boardTopRank ? 2 : 1;
+            }
+          }
+        }
+      }
+      out[cls].push(idx);
+    }
+    return out;
+  }
   for (let idx = lo; idx < hi; idx++) {
     const a = tbl.c1[idx];
     const b = tbl.c2[idx];
-    if (dead[cardId(a)] || dead[cardId(b)]) continue;
+    if (dead[tbl.id1[idx]] || dead[tbl.id2[idx]]) continue;
     out[classify([a, b], board, shortDeck)].push(idx);
   }
   return out;
@@ -1795,6 +2470,8 @@ function placeV62Combo(
   shortDeck: boolean
 ): boolean {
   const tbl = comboTable(shortDeck);
+  const id1 = tbl.id1;
+  const id2 = tbl.id2;
   cardAvail.fill(0);
   for (let i = windowStart; i < n; i++) cardAvail[cardId(deck[i])] = 1;
   for (const cls of V62_FALLBACK[target]) {
@@ -1802,9 +2479,9 @@ function placeV62Combo(
     if (list.length === 0) continue;
     for (let attempt = 0; attempt < 12; attempt++) {
       const idx = list[Math.floor(fastRandom() * list.length)];
+      if (!cardAvail[id1[idx]] || !cardAvail[id2[idx]]) continue;
       const a = tbl.c1[idx];
       const b = tbl.c2[idx];
-      if (!cardAvail[cardId(a)] || !cardAvail[cardId(b)]) continue;
       for (let k = 0; k < 2; k++) {
         const want = k === 0 ? a : b;
         const slot = windowStart + k;
@@ -1817,6 +2494,50 @@ function placeV62Combo(
             break;
           }
         }
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+/** O(1) deckIds/deckPos placement for V62/V66/V67 stratum draws. Bit-identical permutation & RNG. */
+function placeV62ComboFast(
+  deckIds: Uint8Array,
+  deckPos: Int8Array,
+  windowStart: number,
+  tbl: ComboTable,
+  index: V62StratumIndex,
+  target: 0 | 1 | 2 | 3
+): boolean {
+  const id1 = tbl.id1;
+  const id2 = tbl.id2;
+  const fallback = V62_FALLBACK[target];
+  for (let f = 0; f < fallback.length; f++) {
+    const list = index[fallback[f]];
+    const len = list.length;
+    if (len === 0) continue;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const idx = list[Math.floor(fastRandom() * len)];
+      const a = id1[idx];
+      const b = id2[idx];
+      if (deckPos[a] < windowStart || deckPos[b] < windowStart) continue;
+      const posA = deckPos[a];
+      if (posA !== windowStart) {
+        const prev0 = deckIds[windowStart];
+        deckIds[windowStart] = a;
+        deckIds[posA] = prev0;
+        deckPos[a] = windowStart;
+        deckPos[prev0] = posA;
+      }
+      const slot1 = windowStart + 1;
+      const posB = deckPos[b];
+      if (posB !== slot1) {
+        const prev1 = deckIds[slot1];
+        deckIds[slot1] = b;
+        deckIds[posB] = prev1;
+        deckPos[b] = slot1;
+        deckPos[prev1] = posB;
       }
       return true;
     }
@@ -2208,65 +2929,150 @@ export function omahaStrongDrawShape(hole: Card[], board: Card[]): boolean {
   return near >= 3;
 }
 
+/**
+ * Allocation-free board-contact classifier given 2 integer card IDs and a
+ * pre-packed board state + pre-computed madeScore and boardScore.
+ * 100% bit-identical to `connectsBoard`.
+ */
+function connectsBoard2IdsScored(
+  id0: number,
+  id1: number,
+  b: HoldemBoardBits,
+  madeScore: number,
+  boardScore: number,
+  boardCat: number,
+  boardLen: number,
+  _shortDeck: boolean
+): number {
+  const cat = Math.floor(madeScore / 0x100000);
+  if (isBoardOnlyRiverHand(boardLen, madeScore, boardScore)) return 1;
+  const r0 = (id0 >> 2) + 2;
+  const r1 = (id1 >> 2) + 2;
+  const isPocketPair = r0 === r1;
+  if (cat >= 2 && (cat > boardCat || isPocketPair)) return cat;
+  const noContact = cat <= boardCat && !isPocketPair ? 1 : cat;
+  if (boardLen >= 5) return noContact;
+
+  // Flush draw: 4 to a flush with at least one hole card of the suit.
+  const s0 = id0 & 3;
+  const s1 = id1 & 3;
+  const sameSuit = s0 === s1 ? 1 : 0;
+  const cnt0 = (s0 === 0 ? b.sc0 : s0 === 1 ? b.sc1 : s0 === 2 ? b.sc2 : b.sc3) + 1 + sameSuit;
+  if (cnt0 >= 4) return 2;
+  if (!sameSuit) {
+    const cnt1 = (s1 === 0 ? b.sc0 : s1 === 1 ? b.sc1 : s1 === 2 ? b.sc2 : b.sc3) + 1;
+    if (cnt1 >= 4) return 2;
+  }
+
+  // Open-ended-ish: 4 distinct ranks inside a 5-window [top-4..top] (top in 5..14) using a hole card.
+  const holeMask = (1 << r0) | (1 << r1);
+  const fullMask = b.once | holeMask;
+  if ((OPEN_STRAIGHT_DRAW_WIN_MASK[fullMask] & holeMask) !== 0) return 2;
+  return noContact;
+}
+
+function connectsBoard2Ids(
+  id0: number,
+  id1: number,
+  b: HoldemBoardBits,
+  boardScore: number,
+  boardCat: number,
+  boardLen: number,
+  shortDeck: boolean
+): number {
+  const madeScore = scoreHoldemPlus2Ids(b, id0, id1, shortDeck);
+  return connectsBoard2IdsScored(id0, id1, b, madeScore, boardScore, boardCat, boardLen, shortDeck);
+}
+
+const connBoardIdsScratch = new Uint8Array(8);
+const connBoardBitsScratch: HoldemBoardBits = {
+  once: 0,
+  twice: 0,
+  thrice: 0,
+  four: 0,
+  sm0: 0,
+  sm1: 0,
+  sm2: 0,
+  sm3: 0,
+  sc0: 0,
+  sc1: 0,
+  sc2: 0,
+  sc3: 0,
+  count: 0,
+};
+
 /** Does this NLH-family hand connect with the CURRENT board — a pair or
  *  better using it, a flush draw, or an open straight draw? */
 export function connectsBoard(hole: Card[], board: Card[], shortDeck: boolean): number {
-  // Returns the made CATEGORY (1..10) using hole+board; draws return 2
-  // ("pair-equivalent connection") so the acceptance logic treats a real
-  // draw like real contact.
-  const all = hole.concat(board);
-  const madeScore = scoreHoldem(all, all.length, shortDeck);
-  const cat = Math.floor(madeScore / 0x100000);
-  // V13: the hole cards must IMPROVE on what the board already makes. This
-  // scored the board's own hand as opponent contact, so on any paired board
-  // (~17% of flops) every holding "connected" — 32o on K K 7 returned a pair
-  // of kings — and the whole V12 board-contact conditioning became a no-op
-  // exactly where reads matter most. A pocket pair stays contact by intent.
-  const boardScore = board.length > 0 ? scoreHoldem(board, board.length, shortDeck) : 0;
-  const boardCat = Math.floor(boardScore / 0x100000);
-  // A pocket pair is contact only while it contributes. On a complete board,
-  // an unused underpair cannot turn shared two pair, a straight or a full
-  // house into the private value the aggressor sampler is looking for.
-  // Compare the whole score: a pair improving only the kicker still counts.
-  if (isBoardOnlyRiverHand(board.length, madeScore, boardScore)) return 1;
-  const isPocketPair = hole.length === 2 && hole[0].rank === hole[1].rank;
-  if (cat >= 2 && (cat > boardCat || isPocketPair)) {
-    // A pocket pair UNDER every board card is a hidden non-connector — but it
-    // still bets sometimes; treat pocket pairs as contact.
-    return cat;
-  }
-  // V28 AUDIT FIX (2026-08-29): the two fall-throughs below returned `cat` —
-  // the very board-derived value the V13 guard above just REJECTED. 32o on
-  // K-K-7 still "connected" with the board's kings via the terminal return,
-  // so the V12/V16 aggressor conditioning was a no-op on every paired board
-  // (~17% of flops, and every board once it pairs) — the exact pre-V13
-  // behaviour the guard's own comment says it fixed. When the hole cards add
-  // nothing to what the board already makes, the honest contact value is the
-  // high-card floor, not the board's category.
-  const noContact = cat <= boardCat && !isPocketPair ? 1 : cat;
-  if (board.length >= 5) return noContact; // river: no draws left
-  // Flush draw: 4 to a flush with at least one hole card of the suit.
-  const suitCount = new Map<string, number>();
-  for (const c of all) suitCount.set(c.suit, (suitCount.get(c.suit) || 0) + 1);
-  for (const [suit, n] of suitCount) {
-    if (n >= 4 && hole.some((h) => h.suit === suit)) return 2;
-  }
-  // Open-ended-ish: 4 distinct ranks inside a 5-window using a hole card.
-  let mask = 0;
-  for (const c of all) mask |= 1 << RANK_VALUES[c.rank];
-  for (let top = 14; top >= 5; top--) {
-    let inWin = 0;
-    for (let r = top; r > top - 5 && r >= 2; r--) if (mask & (1 << r)) inWin++;
-    if (inWin >= 4) {
-      // must use a hole card inside the window
-      for (const h of hole) {
-        const hr = RANK_VALUES[h.rank];
-        if (hr <= top && hr > top - 5) return 2;
+  // Fast zero-allocation path for standard 2-card NLH/Short Deck hands on 0..5 card boards.
+  if (hole.length === 2 && board.length <= 5) {
+    const id0 = holdemCardId(hole[0]);
+    const id1 = holdemCardId(hole[1]);
+    if (id0 >= 0 && id1 >= 0) {
+      let ok = true;
+      for (let i = 0; i < board.length; i++) {
+        const bid = holdemCardId(board[i]);
+        if (bid < 0) {
+          ok = false;
+          break;
+        }
+        connBoardIdsScratch[i] = bid;
+      }
+      if (ok) {
+        packHoldemBoardBits(connBoardIdsScratch, board.length, connBoardBitsScratch);
+        const boardScore =
+          board.length > 0 ? scoreHoldemFromBoardBits(connBoardBitsScratch, shortDeck) : 0;
+        const boardCat = Math.floor(boardScore / 0x100000);
+        return connectsBoard2Ids(
+          id0,
+          id1,
+          connBoardBitsScratch,
+          boardScore,
+          boardCat,
+          board.length,
+          shortDeck
+        );
       }
     }
   }
-  // V28: same fall-through as the river shortcut above — no made improvement,
-  // no draw found. Report no-contact rather than echoing the board's hand.
+
+  // Generic fallback (3-card Pineapple or malformed test cards).
+  const all = hole.concat(board);
+  const madeScore = scoreHoldem(all, all.length, shortDeck);
+  const cat = Math.floor(madeScore / 0x100000);
+  const boardScore = board.length > 0 ? scoreHoldem(board, board.length, shortDeck) : 0;
+  const boardCat = Math.floor(boardScore / 0x100000);
+  if (isBoardOnlyRiverHand(board.length, madeScore, boardScore)) return 1;
+  const isPocketPair = hole.length === 2 && hole[0].rank === hole[1].rank;
+  if (cat >= 2 && (cat > boardCat || isPocketPair)) {
+    return cat;
+  }
+  const noContact = cat <= boardCat && !isPocketPair ? 1 : cat;
+  if (board.length >= 5) return noContact; // river: no draws left
+  // Flush draw: 4 to a flush with at least one hole card of the suit.
+  let sc0 = 0;
+  let sc1 = 0;
+  let sc2 = 0;
+  let sc3 = 0;
+  let mask = 0;
+  for (let i = 0; i < all.length; i++) {
+    const c = all[i];
+    const s = SUIT_INDEX[c.suit];
+    if (s === 0) sc0++;
+    else if (s === 1) sc1++;
+    else if (s === 2) sc2++;
+    else if (s === 3) sc3++;
+    mask |= 1 << RANK_VALUES[c.rank];
+  }
+  for (let i = 0; i < hole.length; i++) {
+    const s = SUIT_INDEX[hole[i].suit];
+    const n = s === 0 ? sc0 : s === 1 ? sc1 : s === 2 ? sc2 : s === 3 ? sc3 : 0;
+    if (n >= 4) return 2;
+  }
+  // Open-ended-ish: 4 distinct ranks inside a 5-window using a hole card.
+  let holeMask = 0;
+  for (let i = 0; i < hole.length; i++) holeMask |= 1 << RANK_VALUES[hole[i].rank];
+  if ((mask & ~0x7fff) === 0 && (OPEN_STRAIGHT_DRAW_WIN_MASK[mask] & holeMask) !== 0) return 2;
   return noContact;
 }
 
@@ -2298,7 +3104,13 @@ export function connectsBoard(hole: Card[], board: Card[], shortDeck: boolean): 
 // against the cards already dealt. Exact, and cheaper than the loop it replaces.
 // Omaha keeps the old path — its combo space is far too large to enumerate.
 
-type ComboTable = { scores: Float64Array; c1: Card[]; c2: Card[] };
+type ComboTable = {
+  scores: Float64Array;
+  c1: Card[];
+  c2: Card[];
+  id1: Uint8Array;
+  id2: Uint8Array;
+};
 
 function buildComboTable(shortDeck: boolean): ComboTable {
   const src = shortDeck ? SHORT_DECK_CARDS : FULL_DECK;
@@ -2312,12 +3124,16 @@ function buildComboTable(shortDeck: boolean): ComboTable {
   const scores = new Float64Array(rows.length);
   const c1: Card[] = new Array(rows.length);
   const c2: Card[] = new Array(rows.length);
+  const id1 = new Uint8Array(rows.length);
+  const id2 = new Uint8Array(rows.length);
   for (let i = 0; i < rows.length; i++) {
     scores[i] = rows[i].s;
     c1[i] = rows[i].a;
     c2[i] = rows[i].b;
+    id1[i] = cardId(rows[i].a);
+    id2[i] = cardId(rows[i].b);
   }
-  return { scores, c1, c2 };
+  return { scores, c1, c2, id1, id2 };
 }
 
 let comboFull: ComboTable | null = null;
@@ -2326,6 +3142,36 @@ const comboTable = (shortDeck: boolean): ComboTable => {
   if (shortDeck) return (comboShort ??= buildComboTable(true));
   return (comboFull ??= buildComboTable(false));
 };
+
+// Lazy 52x52 preflop-score lookup tables (21 KB each) for zero-overhead NLH ID scoring.
+let holdemPreflopTableNormal: Float64Array | null = null;
+let holdemPreflopTableShort: Float64Array | null = null;
+function getHoldemPreflopTable(shortDeck: boolean): Float64Array {
+  if (shortDeck) {
+    if (!holdemPreflopTableShort) {
+      const t = new Float64Array(52 * 52);
+      for (let a = 0; a < 52; a++) {
+        const ca = CARD_BY_ID[a];
+        for (let b = 0; b < 52; b++) {
+          t[a * 52 + b] = holdemPreflopScore(ca, CARD_BY_ID[b], true);
+        }
+      }
+      holdemPreflopTableShort = t;
+    }
+    return holdemPreflopTableShort;
+  }
+  if (!holdemPreflopTableNormal) {
+    const t = new Float64Array(52 * 52);
+    for (let a = 0; a < 52; a++) {
+      const ca = CARD_BY_ID[a];
+      for (let b = 0; b < 52; b++) {
+        t[a * 52 + b] = holdemPreflopScore(ca, CARD_BY_ID[b], false);
+      }
+    }
+    holdemPreflopTableNormal = t;
+  }
+  return holdemPreflopTableNormal;
+}
 
 /** First index whose score is >= v. */
 function lowerBound(a: Float64Array, v: number): number {
@@ -2364,14 +3210,16 @@ function placeBandCombo(
   const span = hi - lo;
   if (span <= 0) return false;
 
+  const id1 = tbl.id1;
+  const id2 = tbl.id2;
   cardAvail.fill(0);
   for (let i = windowStart; i < n; i++) cardAvail[cardId(deck[i])] = 1;
 
   for (let attempt = 0; attempt < 24; attempt++) {
     const idx = lo + Math.floor(fastRandom() * span);
+    if (!cardAvail[id1[idx]] || !cardAvail[id2[idx]]) continue;
     const a = tbl.c1[idx];
     const b = tbl.c2[idx];
-    if (!cardAvail[cardId(a)] || !cardAvail[cardId(b)]) continue;
     // Swap both into the window.
     for (let k = 0; k < 2; k++) {
       const want = k === 0 ? a : b;
@@ -2385,6 +3233,46 @@ function placeBandCombo(
           break;
         }
       }
+    }
+    return true;
+  }
+  return false;
+}
+
+/** O(1) deckIds/deckPos band placement. Bit-identical deck permutation & RNG order to placeBandCombo. */
+function placeBandComboFast(
+  deckIds: Uint8Array,
+  deckPos: Int8Array,
+  windowStart: number,
+  tbl: ComboTable,
+  lo: number,
+  hi: number
+): boolean {
+  const span = hi - lo;
+  if (span <= 0) return false;
+  const id1 = tbl.id1;
+  const id2 = tbl.id2;
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const idx = lo + Math.floor(fastRandom() * span);
+    const a = id1[idx];
+    const b = id2[idx];
+    if (deckPos[a] < windowStart || deckPos[b] < windowStart) continue;
+    const posA = deckPos[a];
+    if (posA !== windowStart) {
+      const prev0 = deckIds[windowStart];
+      deckIds[windowStart] = a;
+      deckIds[posA] = prev0;
+      deckPos[a] = windowStart;
+      deckPos[prev0] = posA;
+    }
+    const slot1 = windowStart + 1;
+    const posB = deckPos[b];
+    if (posB !== slot1) {
+      const prev1 = deckIds[slot1];
+      deckIds[slot1] = b;
+      deckIds[posB] = prev1;
+      deckPos[b] = slot1;
+      deckPos[prev1] = posB;
     }
     return true;
   }
@@ -2418,6 +3306,22 @@ type OmahaReservoir = {
 };
 const omahaReservoirs = new Map<string, OmahaReservoir>();
 const OMAHA_RESERVOIR_SIZE = 16384;
+
+/**
+ * UPGRADE 04 USE, PER DECISION (2026-11-21, evidence only). buildOmahaReservoir's
+ * counter fires once per process and shape, so it counts worker starts, not the
+ * decisions that rank Omaha hands against the reservoir. Every read of a reservoir
+ * (omahaPreflopPercentile, placeOmahaBandCombo, placeOmahaPressureCombo) adds one
+ * here: a plain integer, monotonic and never reset, read by nothing in a decision.
+ * The decision's owner (workerRuntime executeFastWithUpgradeEvidence) takes it
+ * before and after one FAST decision and, when it moved, fires
+ * upgrade04_reservoir_used_seen once for that decision. No counter call sits in the
+ * equity loops: a read costs one increment.
+ */
+let omahaReservoirReads = 0;
+export function omahaReservoirReadsTotal(): number {
+  return omahaReservoirReads;
+}
 
 function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir {
   // Evidence, once per process and reservoir: which reservoirs this process
@@ -2974,6 +3878,7 @@ export function omahaPreflopPercentile(cards: Card[], isHiLo: boolean): number {
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
+  omahaReservoirReads++;
   const s = rv.scores;
   const n = s.length;
   if (n === 0) return raw;
@@ -3012,6 +3917,7 @@ export function placeOmahaBandCombo(
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
+  omahaReservoirReads++;
   const size = rv.scores.length;
   // Percentile (CDF-index) mapping, clamped to a legal slice.
   const lo = Math.max(0, Math.min(size - 1, Math.floor(clamp01(band[0]) * size)));
@@ -3086,6 +3992,7 @@ export function placeOmahaPressureCombo(
     reservoir = buildOmahaReservoir(holeCount, false);
     omahaReservoirs.set(key, reservoir);
   }
+  omahaReservoirReads++;
   const size = reservoir.scores.length;
   const range = band ?? [0, 1];
   if (!range.every(Number.isFinite) || range[1] <= range[0] || range[0] >= 1 || range[1] <= 0)
@@ -3283,6 +4190,580 @@ export function omahaBandFallbackScore(cards: Card[], vi: VariantInfo): number {
     : omahaPreflopScore(cards, vi.isHiLo);
 }
 
+// Reusable scratch typed arrays for zero-allocation NLH/Short-Deck 2-card simulateEquity.
+const simKnownFlags = new Uint8Array(64);
+const simDeckIds = new Uint8Array(52);
+const simDeckPos = new Int8Array(64);
+const simBoardIds = new Uint8Array(5);
+const simBandLo = new Int32Array(16);
+const simBandHi = new Int32Array(16);
+const simInitBoardBits: HoldemBoardBits = {
+  once: 0,
+  twice: 0,
+  thrice: 0,
+  four: 0,
+  sm0: 0,
+  sm1: 0,
+  sm2: 0,
+  sm3: 0,
+  sc0: 0,
+  sc1: 0,
+  sc2: 0,
+  sc3: 0,
+  count: 0,
+};
+const simTrialBoardBits: HoldemBoardBits = {
+  once: 0,
+  twice: 0,
+  thrice: 0,
+  four: 0,
+  sm0: 0,
+  sm1: 0,
+  sm2: 0,
+  sm3: 0,
+  sc0: 0,
+  sc1: 0,
+  sc2: 0,
+  sc3: 0,
+  count: 0,
+};
+const simTurnBoardBits: HoldemBoardBits = {
+  once: 0,
+  twice: 0,
+  thrice: 0,
+  four: 0,
+  sm0: 0,
+  sm1: 0,
+  sm2: 0,
+  sm3: 0,
+  sc0: 0,
+  sc1: 0,
+  sc2: 0,
+  sc3: 0,
+  count: 0,
+};
+const FULL_DECK_IDS = new Uint8Array(FULL_DECK.length);
+for (let i = 0; i < FULL_DECK.length; i++) FULL_DECK_IDS[i] = cardId(FULL_DECK[i]);
+const SHORT_DECK_IDS = new Uint8Array(SHORT_DECK_CARDS.length);
+for (let i = 0; i < SHORT_DECK_CARDS.length; i++) SHORT_DECK_IDS[i] = cardId(SHORT_DECK_CARDS[i]);
+const V7_THRESHOLDS = [0.18, 0.3, 0.42, 0.52, 0.62, 0.8] as const;
+
+/**
+ * Monomorphic, zero-allocation NLH / Short-Deck 2-card Monte Carlo kernel.
+ * 100% bit-identical to the generic simulateEquity loop (same deck order, same
+ * fastRandom() draw sequence, same board-contact / V62 / V66 / V67 placement,
+ * same adaptive checkpoints, same outcomeOut & rangeUse receipts).
+ * Returns null if any input card is malformed so the generic path handles it.
+ */
+function simulateEquityHoldemFast(
+  holeCards: Card[],
+  boardCards: Card[],
+  numOpponents: number,
+  shortDeck: boolean,
+  iterations: number,
+  oppBands: Array<[number, number] | null> | undefined,
+  adaptive: boolean | undefined,
+  splitOut: HiLoSplit | undefined,
+  oppReads: Array<OppPostflopRead | null> | undefined,
+  outcomeOut: HorseEquityOutcomeCollector | undefined,
+  knownDeadCards: readonly Card[],
+  rangeUse: HorseRangeSampleUse | undefined
+): number | null {
+  const heroId0 = holdemCardId(holeCards[0]);
+  const heroId1 = holdemCardId(holeCards[1]);
+  if (heroId0 < 0 || heroId1 < 0) return null;
+  const boardLen = boardCards.length;
+  if (boardLen > 5) return null;
+
+  simKnownFlags.fill(0);
+  simKnownFlags[heroId0] = 1;
+  simKnownFlags[heroId1] = 1;
+  for (let i = 0; i < boardLen; i++) {
+    const bid = holdemCardId(boardCards[i]);
+    if (bid < 0) return null;
+    simKnownFlags[bid] = 1;
+    simBoardIds[i] = bid;
+  }
+  for (let i = 0; i < knownDeadCards.length; i++) {
+    const did = holdemCardId(knownDeadCards[i]);
+    if (did < 0) return null;
+    simKnownFlags[did] = 1;
+  }
+
+  const baseIds = shortDeck ? SHORT_DECK_IDS : FULL_DECK_IDS;
+  let n = 0;
+  simDeckPos.fill(-1);
+  for (let i = 0; i < baseIds.length; i++) {
+    const id = baseIds[i];
+    if (simKnownFlags[id] === 0) {
+      simDeckIds[n] = id;
+      simDeckPos[id] = n;
+      n++;
+    }
+  }
+
+  const boardNeeded = 5 - boardLen;
+  const cardsNeeded = boardNeeded + numOpponents * 2;
+  if (n < cardsNeeded) {
+    if (rangeUse) rangeUse.invalidDeck = true;
+    return 0.5;
+  }
+
+  // V62 / V66 / V67 stratum indexes (built once per call).
+  let v62Indexes: Array<V62StratumIndex | null> | null = null;
+  const raisePolar66Board = boardLen >= 3 && boardLen <= 4;
+  if (oppReads && boardLen >= 3) {
+    for (let o = 0; o < numOpponents; o++) {
+      const read = oppReads[o];
+      if (!read) continue;
+      if (
+        !(read.riverPolar === true && boardLen === 5) &&
+        !(read.raisePolar66 === true && raisePolar66Board) &&
+        !(read.raisePolar67 === true && boardLen === 5)
+      )
+        continue;
+      if (!v62Indexes) v62Indexes = new Array<V62StratumIndex | null>(numOpponents).fill(null);
+      v62Indexes[o] = buildV62StratumIndex(
+        oppBands ? (oppBands[o] ?? null) : null,
+        boardCards,
+        [...holeCards, ...knownDeadCards],
+        shortDeck,
+        read.riverPolar === true && boardLen === 5 ? v62RiverBettorClass : v62ValueClass
+      );
+    }
+  }
+
+  // Precompute band [lo, hi) bounds once per opponent instead of binary-searching every iteration.
+  let tbl: ComboTable | null = null;
+  const bandLo = numOpponents <= 16 ? simBandLo : new Int32Array(numOpponents);
+  const bandHi = numOpponents <= 16 ? simBandHi : new Int32Array(numOpponents);
+  if (oppBands || v62Indexes) {
+    tbl = comboTable(shortDeck);
+  }
+  if (oppBands && tbl) {
+    for (let o = 0; o < numOpponents; o++) {
+      const b = oppBands[o];
+      if (b) {
+        bandLo[o] = lowerBound(tbl.scores, b[0]);
+        bandHi[o] = lowerBound(tbl.scores, b[1] + 1e-12);
+      } else {
+        bandLo[o] = -1;
+        bandHi[o] = -1;
+      }
+    }
+  }
+
+  // Precompute current-board bitmask state + score once for connectsBoard2Ids.
+  packHoldemBoardBits(simBoardIds, boardLen, simInitBoardBits);
+  const initBoardScore = boardLen > 0 ? scoreHoldemFromBoardBits(simInitBoardBits, shortDeck) : 0;
+  const initBoardCat = Math.floor(initBoardScore / 0x100000);
+
+  const preflopTbl = outcomeOut ? getHoldemPreflopTable(shortDeck) : null;
+  const maxOutcomeSamples = outcomeOut ? Math.max(0, Math.floor(outcomeOut.maxSamples)) : 0;
+  const maxContSamples =
+    outcomeOut?.captureContinuation && !shortDeck && boardLen >= 3
+      ? Math.min(outcomeOut.maxSamples, CONTINUATION_POLICY.maxOutcomeSamples)
+      : 0;
+  const heroPreflopCont =
+    maxContSamples > 0 ? getHoldemPreflopTable(false)[heroId0 * 52 + heroId1] : 0;
+
+  let cp0 = -1;
+  let cp1 = -1;
+  let cp2 = -1;
+  if (adaptive) {
+    let a = Math.max(30, Math.floor(iterations * 0.4));
+    let b = Math.floor(iterations * 0.65);
+    let c = Math.floor(iterations * 0.85);
+    if (a > b) {
+      const t = a;
+      a = b;
+      b = t;
+    }
+    if (b > c) {
+      const t = b;
+      b = c;
+      c = t;
+    }
+    if (a > b) {
+      const t = a;
+      a = b;
+      b = t;
+    }
+    cp0 = a;
+    cp1 = b;
+    cp2 = c;
+  }
+
+  let score = 0;
+  let done = 0;
+
+  for (let iter = 0; iter < iterations; iter++) {
+    // Partial Fisher-Yates maintaining O(1) simDeckPos inverse index.
+    for (let i = 0; i < cardsNeeded; i++) {
+      const j = i + Math.floor(fastRandom() * (n - i));
+      const di = simDeckIds[i];
+      const dj = simDeckIds[j];
+      simDeckIds[i] = dj;
+      simDeckIds[j] = di;
+      simDeckPos[dj] = i;
+      simDeckPos[di] = j;
+    }
+
+    let dealIdx = 0;
+    for (let i = boardLen; i < 5; i++) simBoardIds[i] = simDeckIds[dealIdx++];
+
+    // Pack the 5-card trial board ONCE for hero + all opponents.
+    packHoldemBoardBits(simBoardIds, 5, simTrialBoardBits);
+    const heroHi = scoreHoldemPlus2Ids(simTrialBoardBits, heroId0, heroId1, shortDeck);
+
+    let heroBestHi = true;
+    let hiTies = 1;
+    const captureOutcome =
+      outcomeOut !== undefined && outcomeOut.samples.length < maxOutcomeSamples;
+    const captureCont = maxContSamples > 0 && outcomeOut!.samples.length < maxContSamples;
+
+    let opponentHigh: number[] | null = null;
+    let opponentDecisionStrength: number[] | null = null;
+    let opponentLow: Array<number | null> | null = null;
+    let continuationStreets: TournamentContinuationStreet[] | null = null;
+    let turnBoardScore = 0;
+    let turnBoardCat = 0;
+    let riverBoardScore = 0;
+    let riverBoardCat = 0;
+
+    if (captureOutcome) {
+      opponentHigh = [];
+      opponentDecisionStrength = [];
+      opponentLow = [];
+    }
+    if (captureCont) {
+      continuationStreets = [];
+      // Flop (if boardLen === 3): reuse simInitBoardBits/initBoardScore/initBoardCat.
+      if (boardLen === 3) {
+        const c3 = connectsBoard2Ids(
+          heroId0,
+          heroId1,
+          simInitBoardBits,
+          initBoardScore,
+          initBoardCat,
+          3,
+          false
+        );
+        continuationStreets.push({
+          street: 'flop',
+          heroStrength: continuationStrength(c3, heroPreflopCont),
+          opponentStrength: [],
+        });
+        packHoldemBoardBits(simBoardIds, 4, simTurnBoardBits);
+        turnBoardScore = scoreHoldemFromBoardBits(simTurnBoardBits, false);
+        turnBoardCat = Math.floor(turnBoardScore / 0x100000);
+        const c4 = connectsBoard2Ids(
+          heroId0,
+          heroId1,
+          simTurnBoardBits,
+          turnBoardScore,
+          turnBoardCat,
+          4,
+          false
+        );
+        continuationStreets.push({
+          street: 'turn',
+          heroStrength: continuationStrength(c4, heroPreflopCont),
+          opponentStrength: [],
+        });
+      } else if (boardLen === 4) {
+        const c4 = connectsBoard2Ids(
+          heroId0,
+          heroId1,
+          simInitBoardBits,
+          initBoardScore,
+          initBoardCat,
+          4,
+          false
+        );
+        continuationStreets.push({
+          street: 'turn',
+          heroStrength: continuationStrength(c4, heroPreflopCont),
+          opponentStrength: [],
+        });
+      }
+      if (boardLen === 5) {
+        riverBoardScore = initBoardScore;
+        riverBoardCat = initBoardCat;
+      } else {
+        riverBoardScore = scoreHoldemFromBoardBits(simTrialBoardBits, false);
+        riverBoardCat = Math.floor(riverBoardScore / 0x100000);
+      }
+      const c5 = connectsBoard2IdsScored(
+        heroId0,
+        heroId1,
+        simTrialBoardBits,
+        heroHi,
+        riverBoardScore,
+        riverBoardCat,
+        5,
+        false
+      );
+      continuationStreets.push({
+        street: 'river',
+        heroStrength: continuationStrength(c5, heroPreflopCont),
+        opponentStrength: [],
+      });
+    }
+
+    for (let o = 0; o < numOpponents; o++) {
+      if (rangeUse) rangeUse.reachedMask |= 1 << o;
+      const windowStart = dealIdx;
+      let oppId0 = simDeckIds[windowStart];
+      let oppId1 = simDeckIds[windowStart + 1];
+      dealIdx += 2;
+
+      const band = oppBands ? oppBands[o] : null;
+      if (band) {
+        if (rangeUse) rangeUse.bandMask |= 1 << o;
+        if (placeBandComboFast(simDeckIds, simDeckPos, windowStart, tbl!, bandLo[o], bandHi[o])) {
+          oppId0 = simDeckIds[windowStart];
+          oppId1 = simDeckIds[windowStart + 1];
+        }
+      }
+
+      const read = oppReads ? oppReads[o] : null;
+      if (read && boardLen >= 3) {
+        if (read.aggrW > 0) {
+          if (rangeUse) {
+            rangeUse.conditionedMask |= 1 << o;
+            rangeUse.bigBetMask |= 1 << o;
+          }
+          const full = read.fullBet === true;
+          const wantCat = read.bigBet || (full && read.raised === true) ? 3 : 2;
+          const pConnect = full
+            ? 0.9
+            : Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
+          const tries = read.bigBet || full ? 4 : 3;
+          for (let t = 0; t < tries; t++) {
+            if (
+              connectsBoard2Ids(
+                oppId0,
+                oppId1,
+                simInitBoardBits,
+                initBoardScore,
+                initBoardCat,
+                boardLen,
+                shortDeck
+              ) >= wantCat
+            )
+              break;
+            if (fastRandom() >= pConnect) break;
+            if (
+              !(
+                band &&
+                placeBandComboFast(simDeckIds, simDeckPos, windowStart, tbl!, bandLo[o], bandHi[o])
+              )
+            ) {
+              for (let k = 0; k < 2; k++) {
+                const slot = windowStart + k;
+                const j = slot + Math.floor(fastRandom() * (n - slot));
+                const ds = simDeckIds[slot];
+                const dj = simDeckIds[j];
+                simDeckIds[slot] = dj;
+                simDeckIds[j] = ds;
+                simDeckPos[dj] = slot;
+                simDeckPos[ds] = j;
+              }
+            }
+            oppId0 = simDeckIds[windowStart];
+            oppId1 = simDeckIds[windowStart + 1];
+          }
+        } else if (read.checked >= 1) {
+          if (rangeUse) rangeUse.conditionedMask |= 1 << o;
+          const cat = connectsBoard2Ids(
+            oppId0,
+            oppId1,
+            simInitBoardBits,
+            initBoardScore,
+            initBoardCat,
+            boardLen,
+            shortDeck
+          );
+          if (cat >= 4 && fastRandom() < 0.55 + Math.min(0.25, read.checked * 0.12)) {
+            if (
+              !(
+                band &&
+                placeBandComboFast(simDeckIds, simDeckPos, windowStart, tbl!, bandLo[o], bandHi[o])
+              )
+            ) {
+              for (let k = 0; k < 2; k++) {
+                const slot = windowStart + k;
+                const j = slot + Math.floor(fastRandom() * (n - slot));
+                const ds = simDeckIds[slot];
+                const dj = simDeckIds[j];
+                simDeckIds[slot] = dj;
+                simDeckIds[j] = ds;
+                simDeckPos[dj] = slot;
+                simDeckPos[ds] = j;
+              }
+            }
+            oppId0 = simDeckIds[windowStart];
+            oppId1 = simDeckIds[windowStart + 1];
+          }
+        }
+
+        if (read.riverPolar === true && boardLen === 5) {
+          const index62 = v62Indexes ? v62Indexes[o] : null;
+          if (index62) {
+            const target62 = v62TargetClass(v62SizeClass(read), fastRandom(), fastRandom());
+            if (placeV62ComboFast(simDeckIds, simDeckPos, windowStart, tbl!, index62, target62)) {
+              oppId0 = simDeckIds[windowStart];
+              oppId1 = simDeckIds[windowStart + 1];
+            }
+          }
+        }
+        if (read.raisePolar66 === true && raisePolar66Board) {
+          const index66 = v62Indexes ? v62Indexes[o] : null;
+          if (index66) {
+            const street66 = boardLen === 4 ? 1 : 0;
+            const target66 =
+              read.raiseValueHeavy === true && street66 === 1
+                ? styleValueRaiseTargetClass(0, fastRandom(), fastRandom())
+                : v66RaiseTargetClass(street66, fastRandom(), fastRandom());
+            if (placeV62ComboFast(simDeckIds, simDeckPos, windowStart, tbl!, index66, target66)) {
+              oppId0 = simDeckIds[windowStart];
+              oppId1 = simDeckIds[windowStart + 1];
+            }
+          }
+        }
+        if (read.raisePolar67 === true && boardLen === 5) {
+          const index67 = v62Indexes ? v62Indexes[o] : null;
+          if (index67) {
+            const target67 =
+              read.raiseValueHeavy === true
+                ? styleValueRaiseTargetClass(1, fastRandom(), fastRandom())
+                : v67RiverRaiseTargetClass(fastRandom(), fastRandom());
+            if (placeV62ComboFast(simDeckIds, simDeckPos, windowStart, tbl!, index67, target67)) {
+              oppId0 = simDeckIds[windowStart];
+              oppId1 = simDeckIds[windowStart + 1];
+            }
+          }
+        }
+      }
+
+      const oppHi = scoreHoldemPlus2Ids(simTrialBoardBits, oppId0, oppId1, shortDeck);
+      if (oppHi > heroHi) heroBestHi = false;
+      else if (oppHi === heroHi) hiTies++;
+
+      if (captureOutcome) {
+        opponentHigh!.push(oppHi);
+        const oppPreflop = preflopTbl![oppId0 * 52 + oppId1];
+        if (boardLen < 3) {
+          opponentDecisionStrength!.push(oppPreflop);
+        } else {
+          const made =
+            connectsBoard2Ids(
+              oppId0,
+              oppId1,
+              simInitBoardBits,
+              initBoardScore,
+              initBoardCat,
+              boardLen,
+              shortDeck
+            ) / 10;
+          opponentDecisionStrength!.push(clamp01(oppPreflop * 0.2 + made * 0.8));
+        }
+        if (continuationStreets !== null) {
+          let csIdx = 0;
+          if (boardLen === 3) {
+            const c3 = connectsBoard2Ids(
+              oppId0,
+              oppId1,
+              simInitBoardBits,
+              initBoardScore,
+              initBoardCat,
+              3,
+              false
+            );
+            continuationStreets[csIdx++].opponentStrength.push(
+              continuationStrength(c3, oppPreflop)
+            );
+            const c4 = connectsBoard2Ids(
+              oppId0,
+              oppId1,
+              simTurnBoardBits,
+              turnBoardScore,
+              turnBoardCat,
+              4,
+              false
+            );
+            continuationStreets[csIdx++].opponentStrength.push(
+              continuationStrength(c4, oppPreflop)
+            );
+          } else if (boardLen === 4) {
+            const c4 = connectsBoard2Ids(
+              oppId0,
+              oppId1,
+              simInitBoardBits,
+              initBoardScore,
+              initBoardCat,
+              4,
+              false
+            );
+            continuationStreets[csIdx++].opponentStrength.push(
+              continuationStrength(c4, oppPreflop)
+            );
+          }
+          const c5 = connectsBoard2IdsScored(
+            oppId0,
+            oppId1,
+            simTrialBoardBits,
+            oppHi,
+            riverBoardScore,
+            riverBoardCat,
+            5,
+            false
+          );
+          continuationStreets[csIdx].opponentStrength.push(continuationStrength(c5, oppPreflop));
+        }
+        opponentLow!.push(null);
+      } else if (!heroBestHi && !outcomeOut) {
+        break;
+      }
+    }
+
+    if (captureOutcome) {
+      outcomeOut!.samples.push({
+        heroHigh: heroHi,
+        opponentHigh: opponentHigh!,
+        opponentDecisionStrength: opponentDecisionStrength!,
+        heroLow: null,
+        opponentLow: opponentLow!,
+        ...(continuationStreets !== null && continuationStreets.length > 0
+          ? { continuationStreets }
+          : {}),
+      });
+    }
+
+    const hiShare = heroBestHi ? 1 / hiTies : 0;
+    score += hiShare;
+    if (splitOut) {
+      splitOut.hi += hiShare;
+      if (hiShare >= 0.999) splitOut.scoop++;
+    }
+    done = iter + 1;
+
+    if (adaptive && (done === cp0 || done === cp1 || done === cp2)) {
+      const eq = score / done;
+      const se = Math.sqrt(Math.max(1e-6, eq * (1 - eq)) / done);
+      let minDist = Infinity;
+      for (let t = 0; t < V7_THRESHOLDS.length; t++) {
+        const d = Math.abs(eq - V7_THRESHOLDS[t]);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > 3.5 * se) return finalizeSplit(splitOut, done, eq, rangeUse);
+    }
+  }
+
+  return finalizeSplit(splitOut, done, score / done, rangeUse);
+}
+
 export function simulateEquity(
   holeCards: Card[],
   boardCards: Card[],
@@ -3357,6 +4838,25 @@ export function simulateEquity(
   lastEquitySampleSize = iterations;
   equityCallsTotal++;
   equitySamplesTotal += iterations;
+
+  if (!vi.isOmaha && !vi.isHiLo && holeCards.length === 2 && boardCards.length <= 5) {
+    const fast = simulateEquityHoldemFast(
+      holeCards,
+      boardCards,
+      numOpponents,
+      vi.isShortDeck,
+      iterations,
+      oppBands,
+      adaptive,
+      splitOut,
+      oppReads,
+      outcomeOut,
+      knownDeadCards,
+      rangeUse
+    );
+    if (fast !== null) return fast;
+  }
+
   const known = new Set<string>();
   for (const c of holeCards) known.add(cardKey(c));
   for (const c of boardCards) known.add(cardKey(c));
@@ -3665,7 +5165,11 @@ export function simulateEquity(
         }
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
-          const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
+          const baseReq = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
+          const req =
+            typeof read.pricedBetStrength === 'number' && Number.isFinite(read.pricedBetStrength)
+              ? { ...baseReq, pStrong: read.pricedBetStrength }
+              : baseReq;
           if (read.strictPressureRange === true && (!vi.isHiLo || read.highOnlyBoard === true)) {
             if (
               fastRandom() < req.pStrong &&

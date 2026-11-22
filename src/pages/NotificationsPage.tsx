@@ -64,6 +64,7 @@ import AccountSurfaceHeader from '../components/account/AccountSurfaceHeader';
 import './NotificationsPage.css';
 import { leaveForHub, openInBrowser } from '../lib/openExternal';
 import { isChatMessageNotificationType } from '../lib/notificationFilters';
+import { buildTableInviteDeepLink } from '../services/NotificationService';
 
 /** The WEB path Club Arena lives under. A notification's destination is
     written by the server as a web URL, so this is the prefix to strip before
@@ -262,9 +263,21 @@ function writeCache(userId: string | null, rows: FeedNotification[]): void {
 
 const isUnread = (n: FeedNotification) => !(n.read || n.is_read);
 
+/** In-app Club Arena destinations written without the /hub/club-arena web prefix. */
+const isInAppClubArenaRoute = (path: string): boolean =>
+  /^\/(table|lightning|tournaments?)\//.test(path);
+
 /** The destination the server resolved, or null when there genuinely is none. */
-const destinationOf = (n: FeedNotification): string | null =>
-  n.link || n.action_url || (typeof n.data?.action_url === 'string' ? n.data.action_url : null);
+const destinationOf = (n: FeedNotification): string | null => {
+  const explicit =
+    n.link || n.action_url || (typeof n.data?.action_url === 'string' ? n.data.action_url : null);
+  if (explicit) return explicit;
+  if (n.type === 'table_invite' && n.data) {
+    const resolved = buildTableInviteDeepLink(n.data);
+    return resolved !== '/' ? resolved : null;
+  }
+  return null;
+};
 
 /** Day bucket for the rail headings. Local time, because that is the clock the player reads. */
 function dayBucket(
@@ -662,6 +675,10 @@ function NotificationFeed({ userId }: { userId: string | null }) {
       if (path.startsWith(CA_BASE)) {
         // Strip the basename — react-router re-applies it.
         navigate(path.slice(CA_BASE.length) || '/');
+        return;
+      }
+      if (isInAppClubArenaRoute(path)) {
+        navigate(path);
         return;
       }
       leaveForHub(path);

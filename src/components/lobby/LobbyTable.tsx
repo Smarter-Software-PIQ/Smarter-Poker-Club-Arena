@@ -3,6 +3,7 @@ import { FIXED_LIMIT_GAME_NAMES } from '../../lib/fixedLimitNames';
 import { AtlasSprite } from '../../throwables/AtlasSprite';
 import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
+import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import { useSatelliteDestination } from './game-cards/useTournamentCardText';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import { useSharedSecondTick } from './useSharedSecondTick';
@@ -731,7 +732,7 @@ function StartsCell({ entry }: { entry: LobbyEntry }) {
      printing it announced a clock time that means nothing — the same column
      that produced "Starting Soon" on a sold-out Spin before tournamentStatus
      was taught about seat-first games. */
-  if (entry.kind === 'spin' || entry.kind === 'sng')
+  if (entry.kind === 'spin' || entry.kind === 'sng' || tournamentStartsWhenFull(entry.raw))
     return <span className="lt-dim">When Full</span>;
   if (!entry.startTime) return <span className="lt-dim">When Full</span>;
   const d = new Date(entry.startTime);
@@ -935,11 +936,41 @@ function DateHeadingRow({ label, colSpan }: { label: string | null; colSpan: num
   ) : null;
 }
 
+/**
+ * Owner ruling (2026-11-22): SNG cards (including Satellites and Heads-Up
+ * SNGs) replace `${entry.capacity} Seats` in the top-right metallic plaque
+ * with the clickable Invite copy/share button and keep their bottom-right
+ * status bay free of a duplicate Invite button.
+ */
+function sngInviteInHeading(entry: LobbyEntry): boolean {
+  return (
+    entry.kind === 'sng' &&
+    entry.guaranteeValue <= 0 &&
+    entry.status !== 'completed' &&
+    entry.status !== 'closed'
+  );
+}
+
+/**
+ * Owner ruling (2026-11-22): Spins are always 3 seats (already shown as
+ * 0/3..2/3 under PLAYERS), so open/registering Spins use the bottom-right
+ * glass bay exclusively as the Share / Invite Link area without redundant
+ * "Seats Available" or "STATUS" copy.
+ */
+function spinInviteOnlyStatus(entry: LobbyEntry): boolean {
+  return (
+    entry.kind === 'spin' &&
+    (entry.status === 'registering' || entry.status === 'open' || entry.status === 'starting_soon')
+  );
+}
+
 function TournamentHeadingRow({
   entry,
   colSpan,
   compact = false,
   playerState = null,
+  inviteCode,
+  onInviteFailed,
   onSelect,
   onActivate,
 }: {
@@ -950,9 +981,12 @@ function TournamentHeadingRow({
      UNDER THE COUNT DOWN CLOCK. PUT THAT UNDER THE TITLE CENTERED." The
      tournament heading owns the pill; the body row below prints none. */
   playerState?: PlayerState;
+  inviteCode?: string | null;
+  onInviteFailed?: (url: string, label: string) => void;
   onSelect: (entry: LobbyEntry) => void;
   onActivate: (entry: LobbyEntry) => void;
 }) {
+  const inviteInHeading = sngInviteInHeading(entry);
   const heading =
     entry.kind === 'cash'
       ? cashTitleLines(entry).headline
@@ -1055,12 +1089,16 @@ function TournamentHeadingRow({
             {freeBuyKind && <span className="lt-tournament-heading__format">{freeBuyKind}</span>}
             {playerState && <PlayerStateChip state={playerState} heading />}
           </span>
-          <strong className="lt-tournament-heading__guarantee">
+          <strong
+            className={`lt-tournament-heading__guarantee${inviteInHeading ? ' lt-tournament-heading__guarantee--invite' : ''}`}
+          >
             {entry.kind === 'spin' ? (
               <span className="lt-payout">
                 <span className="lt-payout__x">{spinPayoutLabel(entry)}</span>
                 <span className="lt-payout__cash">{spinPrizeLabel(entry)}</span>
               </span>
+            ) : inviteInHeading ? (
+              <InviteRowButton entry={entry} inviteCode={inviteCode} onFailed={onInviteFailed} />
             ) : (
               plate
             )}
@@ -1336,9 +1374,11 @@ const STATUS_RANK: Record<LobbyStatusKey, number> = {
 };
 function InviteRowButton({
   entry,
+  inviteCode,
   onFailed,
 }: {
   entry: LobbyEntry;
+  inviteCode?: string | null;
   onFailed?: (url: string, label: string) => void;
 }) {
   const [feedback, setFeedback] = useState<'idle' | 'copied' | 'shared'>('idle');
@@ -1357,7 +1397,7 @@ function InviteRowButton({
 
   const handleInvite = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = gameInviteUrl(lobbyEntryInviteTarget(entry));
+    const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     void shareLink({
       source: 'LobbyTable.inviteToGame',
       title: entry.name || 'Club Arena Game',
@@ -1397,19 +1437,25 @@ const COL_STATUS: ColumnDef = {
   sortable: true,
   sortValue: (e) => STATUS_RANK[e.status] ?? 9,
   /* The "you are in this game" chip used to live here and is now rendered in
-     the title cell — the phone layout hides this whole cell on tournament
-     cards, which is precisely where the chip mattered. See PlayerStateChip. */
-  render: (e, ctx) => (
-    <span className="lt-statuscell">
-      {/* No countdown here any more, on any kind. An MTT carries a live
-          seconds clock in its own two-line title; a Spin and a Heads-Up start
-          on their last bought seat rather than at a time, so "Starts In 29
-          Min..." beside a badge reading Filling was two different answers to
-          the same question; and a cash game is running now. */}
-      <LobbyStatusBadge status={e.status} label={e.statusLabel} />
-      <InviteRowButton entry={e} onFailed={ctx.onInviteFailed} />
-    </span>
-  ),
+     the title cell — the phone layout hides the status badge on MTT cards,
+     which is precisely where the chip mattered. See PlayerStateChip. */
+  render: (e, ctx) => {
+    const inviteOnly = spinInviteOnlyStatus(e);
+    const inviteInHeading = sngInviteInHeading(e);
+    return (
+      <span className={`lt-statuscell${inviteOnly ? ' lt-statuscell--invite-only' : ''}`}>
+        {/* No countdown here any more, on any kind. An MTT carries a live
+            seconds clock in its own two-line title; a Spin and a Heads-Up start
+            on their last bought seat rather than at a time, so "Starts In 29
+            Min..." beside a badge reading Filling was two different answers to
+            the same question; and a cash game is running now. */}
+        {!inviteOnly && <LobbyStatusBadge status={e.status} label={e.statusLabel} />}
+        {!inviteInHeading && (
+          <InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />
+        )}
+      </span>
+    );
+  },
 };
 /* One source for the word, so the sort and the cell can never disagree.
    Sorting on the raw `kind` key ordered cash, mtt, sng, spin and PRINTED
@@ -1912,6 +1958,8 @@ const LobbyRow = memo(function LobbyRow({
         entry={entry}
         colSpan={visibleColumnCount}
         playerState={mine}
+        inviteCode={ctx.inviteCode}
+        onInviteFailed={ctx.onInviteFailed}
         onSelect={onSelect}
         onActivate={onActivate}
       />
@@ -2694,6 +2742,8 @@ export default function LobbyTable({
                   colSpan={4}
                   compact
                   playerState={playerStateOf(entry, rowCtx)}
+                  inviteCode={rowCtx.inviteCode}
+                  onInviteFailed={rowCtx.onInviteFailed}
                   onSelect={onSelect}
                   onActivate={onActivate}
                 />

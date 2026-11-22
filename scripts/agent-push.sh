@@ -553,6 +553,15 @@ heavy_local_stage() {
   base=$(git merge-base HEAD "refs/remotes/$REMOTE/main" 2>/dev/null) || return 0
   [ -n "$base" ] || return 0
   changed=$(git diff --name-only "$base" HEAD 2>/dev/null) || return 0
+  # Strictly isolated non-engine/non-runtime diffs (non-SQL scripts/ops, non-PG
+  # tests/unit, non-policy docs, benchmark-only server/src/benchmark +
+  # server/src/scripts/horseLeagueCard.ts) run the fast exact-candidate local
+  # pre-push path and never need the heavy-job queue or 15-minute load wait.
+  # Any other path, or any selector error, fails closed to CA_HEAVY_PATHS below.
+  if [ -n "$changed" ] && [ -f "$SCRIPT_DIR/ci/prepush-fast-selector.mjs" ] && \
+    printf '%s\n' "$changed" | node "$SCRIPT_DIR/ci/prepush-fast-selector.mjs" --is-fast --stdin >/dev/null 2>&1; then
+    return 1
+  fi
   printf '%s\n' "$changed" | grep -qE "$CA_HEAVY_PATHS"
 }
 if [ "$(uname -s)" = Darwin ] && ! heavy_local_stage; then

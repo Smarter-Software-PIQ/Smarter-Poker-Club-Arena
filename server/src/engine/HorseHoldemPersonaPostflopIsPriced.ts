@@ -31,9 +31,11 @@
  *   trap         flop-specific betWhenCheckedTo (33.50% live NLH prior vs pooled 29.5%-31.2%) and OOP flop
  *                fold-to-bet prior (35.0% medium vs pooled 43.5%) so check vs OOP lead is unbiased; check when
  *                EV(check) >= EV of every priced bet size (a tie keeps the passive option);
- *   check_raise  OOP flop fold prior evaluated at villain's true incremental call pot fraction (fixing
- *                wagerValue's hero-add/pot overestimate); raise when EV(raise) beats fold and call as a value
- *                raise (equity > 0.5 against the continuing range).
+ *   check_raise  dedicated NLH flop fold-to-raise prior (estimateHoldemFoldToRaisePrior, #11759)
+ *                conditioned on raiseToBetRatio, raiseToPotRatio, effective SPR, all-in commitment,
+ *                and OpponentHud f.fRaise/f.fBet shrinkage, mapped onto matched stack price so
+ *                wagerValue recovers the exact empirical raise-fold prior; raise when EV(raise) beats
+ *                fold and call as a value raise (equity > 0.5 against the continuing range).
  *
  * When a spot is taken the site's own action follows exactly as today (sizes on the site's own hash units, the
  * downstream c-bet blocks, the V78 commit check of the check-raise). When it is declined the decision falls through
@@ -57,6 +59,7 @@ import type { ExploitCounters } from './HorseOpponentExploit.js';
 import {
   estimateHoldemBetWhenCheckedTo,
   estimateHoldemFlopCbetFold,
+  estimateHoldemFoldToRaisePrior,
   estimateHoldemTurnBetFold,
   type HoldemFlopTexture,
   type HoldemHudPacketOpponent,
@@ -167,30 +170,30 @@ export function holdemPersonaPricedAdjustSpot(
     return { ...spot, betWhenCheckedTo, foldAtReference };
   }
 
-  // check_raise: villain faces hero's raise to `target`. Express the measured OOP flop fold rate
-  // at villain's true incremental pot fraction (`villainCall / (pot + heroAdd)`) as equivalent
-  // foldAtReference at wagerValue's `add / (add + pot)` so holdemPricedFold recovers `est.mean`
-  // instead of overestimating villain's call price on raises.
+  // check_raise: villain faces hero's flop check-raise to `target`. Consume #11759's dedicated
+  // NLH street fold-to-raise prior (`estimateHoldemFoldToRaisePrior`, conditioned on raise-to-bet
+  // ratio, matched raise-to-pot ratio, effective SPR, all-in commitment, and OpponentHud
+  // f.fRaise / fallback f.fBet shrinkage) and express `est.mean` as equivalent `foldAtReference`
+  // at wagerValue's matched price (`matched / (matched + pot)`) so `holdemPricedFold` recovers
+  // `est.mean` exactly (up to HOLDEM_PRICED_FOLD_CAP).
   if (target !== null && Number.isFinite(target) && target > spot.currentBet) {
     const add = Math.max(0, Math.min(target - spot.heroIn, spot.heroStack));
-    const addPrice = add > 0 && spot.pot > 0 ? add / (add + spot.pot) : 0;
     const villainCall = Math.max(0, Math.min(target - spot.villainIn, spot.villainStack));
-    const potAfterRaise = spot.pot + add;
-    if (addPrice > 0 && villainCall > 0 && potAfterRaise > 0) {
-      const est = estimateHoldemFlopCbetFold(
-        {
-          bettorInPosition: spot.inPosition,
-          potFraction: villainCall / potAfterRaise,
-          texture,
-          spr: effSpr,
-          headsUp: true,
-        },
+    const matched = Math.max(0, Math.min(add, spot.villainIn + villainCall - spot.heroIn));
+    const matchedPrice = matched > 0 && spot.pot > 0 ? matched / (matched + spot.pot) : 0;
+    if (matchedPrice > 0 && villainCall > 0 && spot.pot > 0) {
+      const est = estimateHoldemFoldToRaisePrior({
+        street: 'flop',
+        raiseToBetRatio: spot.currentBet > 0 ? target / spot.currentBet : undefined,
+        raiseToPotRatio: matched / spot.pot,
+        opponentsInPot: 1,
+        spr: effSpr,
+        isAllInRaise: matched >= Math.min(spot.heroStack, spot.villainStack) - EPS,
         hudOpp,
-        counters
-      );
+      });
       const foldAtReference = Math.min(
         HOLDEM_PRICED_FOLD_CAP,
-        (est.mean * HOLDEM_PRICED_REFERENCE_PRICE) / addPrice
+        (est.mean * HOLDEM_PRICED_REFERENCE_PRICE) / matchedPrice
       );
       return { ...spot, foldAtReference };
     }

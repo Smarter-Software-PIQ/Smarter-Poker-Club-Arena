@@ -208,8 +208,11 @@ describe('omahaFourBetFoldPricedCall', () => {
     expect(src).toContain(
       'registerFourBetFoldPricing((player, gs, raiser, toCall, stack, heroBet) =>'
     );
-    const rule = src.indexOf('omahaFourBetFoldPricedCallRule(\n        nutsFloored');
-    expect(rule).toBeGreaterThan(
+    // The strong-hand check (omahaStrongHandCheckIsPriced) answers between the nuts floor and this rule;
+    // this rule still reads the last answer and is the outermost one.
+    const rule = src.indexOf('omahaFourBetFoldPricedCallRule(\n        strongCheck.decision');
+    expect(rule).toBeGreaterThan(src.indexOf('const strongCheck = omahaStrongHandCheckRule('));
+    expect(src.indexOf('const strongCheck = omahaStrongHandCheckRule(')).toBeGreaterThan(
       src.indexOf('const nutsFloored = omahaRiverCurrentNutsCallFloorRule(')
     );
     expect(src.indexOf('return { decision: fourBetPriced };')).toBeGreaterThan(rule);

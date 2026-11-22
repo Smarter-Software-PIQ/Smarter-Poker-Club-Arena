@@ -55,6 +55,7 @@ import {
   resetWinnerReads,
   type HorseWinnerReadState,
 } from './HorseWinnerRead.js';
+import { hudExploitCounters } from './opponentHud/OpponentHudExploit.js';
 import { noteFire, withBrainTelemetrySuspended } from './BrainTelemetry.js';
 import { bettingStructureFor, type BettingStructure } from './BettingStructure.js';
 import {
@@ -470,6 +471,14 @@ export interface DecisionReadOptions {
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
   omahaNeutralUnknown?: boolean;
+  /** OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, HorseDecideOpts.omahaOpponentLifetimeHud): in PLO4/PLO5 cash the
+   *  exploit read takes each opponent's counters from his lifetime public profile carried by the decision
+   *  (OpponentHudExploit.ts). Present only when true. */
+  opponentLifetimeHud?: boolean;
+  /** B4 SIX-MAX PREFLOP HUD (2026-11-21, PLO-OWNER lead-4, HorseDecideOpts.omahaPreflopReadIsPricedFromLifetime):
+   *  in 3–6 seat PLO4/PLO5 cash preflop, retires presumedAggressorRead via the lifetime HUD packet and prices
+   *  widened maniac-pressure spots on sh + pf.lr + pf.bvo cells (HorseOmahaPreflopHudPriced.ts). Default OFF. */
+  opponentLifetimeHudPreflopSixMax?: boolean;
   /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane,
    *  HorseDecideOpts.fixedLimitOmahaNoPresumption): on a fixed-limit Omaha
    *  decision (flo8) the shared aggressive raise presumption is not applied;
@@ -741,6 +750,26 @@ export const OMAHA_EV_FOLD_MODEL: Readonly<
   plo4: Object.freeze({ foldOverMdf: 1.289, population: 0.49 }),
   plo5: Object.freeze({ foldOverMdf: 1.458, population: 0.536 }),
   plo6: Object.freeze({ foldOverMdf: 1.409, population: 0.497 }),
+});
+/**
+ * OPPONENT HUD, MEASURED 2026-11-21 (lane OPPONENT-HUD-2, CRITERIA-OPPONENT-HUD-2-MEASURED sha 3cba1dd5): actual fold
+ * share to a Horse's first bet of a street over the pooled model's prediction from the responder's as-of LIFETIME
+ * fold-to-first-bet counts, PLO4 + PLO5 person-seated cash hands before Nov 17 (22,244 responses), each cell adopted
+ * only where it lowered the held-out log-loss on Nov 18-20 (4,108 responses):
+ *   flop  small n 7,733 actual .4005 model .3836 (factor 1.044: NOT adopted, held-out .6160 vs .6159) -> 1
+ *   flop  big   n 2,785 actual .6118 model .6219 -> 0.984 (held-out .6672 vs .6702)
+ *   turn  small n 5,261 actual .3870 model .4019 -> 0.963 (held-out .61781 vs .61783)
+ *   turn  big   n 2,885 actual .6135 model .6181 -> 0.993 (held-out .6388 vs .6395)
+ *   river small n 1,442 actual .6033 model .4185 -> 1.442 (held-out .6361 vs .7092)
+ *   river big   n 2,138 actual .7399 model .6152 -> 1.203 (held-out .5442 vs .5857)
+ * small = a bet up to 0.7 pot, big = above 0.7 pot or all-in. Population parameters from public actions only.
+ */
+export const HUD_EV_FOLD_CALIBRATION: Readonly<
+  Record<string, Readonly<{ sm: number; bg: number }>>
+> = Object.freeze({
+  flop: Object.freeze({ sm: 1, bg: 0.984 }),
+  turn: Object.freeze({ sm: 0.963, bg: 0.993 }),
+  river: Object.freeze({ sm: 1.442, bg: 1.203 }),
 });
 /** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
 export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
@@ -1354,6 +1383,113 @@ export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;
  * showdown tally counts only river bets of at least 20 big blinds, as before.
  */
 export const FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false;
+
+/** Lifetime public per-street counts for one opponent (see HorseMind.setOmahaLifetimeStreetRecordProvider). */
+export interface OmahaLifetimeStreetRecordProvider {
+  /** his actions on the street with no wager yet made on it (opps) and those in which he made the first wager */
+  unopenedWagerRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { bets: number; opps: number } | null;
+  /**
+   * his first answers to a street's FIRST wager (opps) and the folds among them, by the wager's size: 'small' = at most
+   * 0.7 pot, 'big' = above it or all-in (OPPONENT-HUD's x.foldToBet cells). Optional: absent = no record.
+   */
+  firstWagerFoldRecord?(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw',
+    size: 'small' | 'big'
+  ): { folds: number; opps: number } | null;
+  /**
+   * his first wagers after an opponent checked to him on the street (stabs) and the sum of their sizes as a share of
+   * the pot before the wager, each capped at 2 pots. Optional: absent = no record.
+   */
+  stabSizeRecord?(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { stabs: number; sizeSum: number } | null;
+}
+/** The in-memory provider (tests and benches; production gets OPPONENT-HUD's). Counts only. */
+export class OmahaLifetimeStreetRecordMemory implements OmahaLifetimeStreetRecordProvider {
+  private readonly cells = new Map<string, { bets: number; opps: number }>();
+  note(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    madeFirstWager: boolean
+  ): void {
+    const key = `${opponentId}|${game}|${street}|${players}`;
+    const c = this.cells.get(key) ?? { bets: 0, opps: 0 };
+    c.opps += 1;
+    if (madeFirstWager) c.bets += 1;
+    this.cells.set(key, c);
+  }
+  unopenedWagerRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { bets: number; opps: number } | null {
+    const c = this.cells.get(`${opponentId}|${game}|${street}|${players}`);
+    return c ? { bets: c.bets, opps: c.opps } : null;
+  }
+  private readonly folds = new Map<string, { folds: number; opps: number }>();
+  private readonly sizes = new Map<string, { stabs: number; sizeSum: number }>();
+  noteFirstWagerAnswer(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    size: 'small' | 'big',
+    folded: boolean
+  ): void {
+    const key = `${opponentId}|${game}|${street}|${players}|${size}`;
+    const c = this.folds.get(key) ?? { folds: 0, opps: 0 };
+    c.opps += 1;
+    if (folded) c.folds += 1;
+    this.folds.set(key, c);
+  }
+  noteStab(
+    opponentId: string,
+    game: string,
+    street: string,
+    players: 'hu' | 'mw',
+    potShare: number
+  ): void {
+    if (!Number.isFinite(potShare) || potShare < 0) return;
+    const key = `${opponentId}|${game}|${street}|${players}`;
+    const c = this.sizes.get(key) ?? { stabs: 0, sizeSum: 0 };
+    c.stabs += 1;
+    c.sizeSum += Math.min(2, potShare);
+    this.sizes.set(key, c);
+  }
+  firstWagerFoldRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw',
+    size: 'small' | 'big'
+  ): { folds: number; opps: number } | null {
+    const c = this.folds.get(`${opponentId}|${game}|${street}|${players}|${size}`);
+    return c ? { folds: c.folds, opps: c.opps } : null;
+  }
+  stabSizeRecord(
+    opponentId: string,
+    game: 'plo4' | 'plo5',
+    street: 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { stabs: number; sizeSum: number } | null {
+    const c = this.sizes.get(`${opponentId}|${game}|${street}|${players}`);
+    return c ? { stabs: c.stabs, sizeSum: c.sizeSum } : null;
+  }
+}
 
 export class HorseMind {
   private static stats = new Map<string, OpponentStats>();
@@ -2791,6 +2927,56 @@ export class HorseMind {
     return adjusted;
   }
 
+  /**
+   * OPPONENT HUD NO-LOWERING (2026-11-21, lead order after the symmetric re-score): whether this decision reads PLO4 /
+   * PLO5 opponents from the lifetime HUD (postflop consumer or B4 six-max preflop). Off: false.
+   */
+  static hudReadActive(): boolean {
+    const scope = this.decisionScope;
+    if (
+      !scope ||
+      (this.decisionReadOptions.opponentLifetimeHud !== true &&
+        this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true)
+    )
+      return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /** B4 six-max preflop HUD active (option omahaPreflopReadIsPricedFromLifetime + omahaOpponentLifetimeHud). */
+  static hudPreflopSixMaxActive(): boolean {
+    const scope = this.decisionScope;
+    if (!scope || this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /**
+   * The read this opponent would get WITHOUT the lifetime HUD (the decayed window and the PLO presumption), receipts
+   * muted. Used only where a lifetime read would LOWER a raise or a bet by itself: the caller prices that lowering,
+   * and where it cannot price it the lifetime read is not consumed there (the site answers as with the option off).
+   */
+  static opponentReadWithoutHud(userId: string): OpponentExploitRead | null {
+    return this.withoutHud(() => this.opponentRead(userId));
+  }
+  /** Run a read as without the lifetime HUD (receipts muted); with the option off, the read itself. */
+  static withoutHud<T>(fn: () => T): T {
+    if (
+      this.decisionReadOptions.opponentLifetimeHud !== true &&
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true
+    )
+      return fn();
+    const saved = this.decisionReadOptions;
+    this.decisionReadOptions = {
+      ...saved,
+      opponentLifetimeHud: false,
+      opponentLifetimeHudPreflopSixMax: false,
+    };
+    try {
+      return withBrainTelemetrySuspended(fn);
+    } finally {
+      this.decisionReadOptions = saved;
+    }
+  }
+
   static opponentRead(userId: string): OpponentExploitRead | null {
     const scope = this.decisionScope;
     if (!scope) return null;
@@ -2807,6 +2993,23 @@ export class HorseMind {
     // game's sibling table size, read against ITS own envelope, may
     // corroborate a statistic this size already places past every horse.
     const family = scope.split(':')[0];
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; option omahaOpponentLifetimeHud, default off, PLO4/PLO5 cash): his
+    // counters come from his LIFETIME public profile in this decision's packet (OpponentHudExploit.ts) instead of the
+    // 30-hand decayed window, so every read below sees his whole history from his first hand. Absent (option off, no
+    // packet, no profile of him): undefined, and every line below is what it was.
+    const hudOn =
+      this.decisionReadOptions.opponentLifetimeHud === true ||
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax === true;
+    const hudCounters =
+      hudOn && family === 'omaha' && (variant === 'plo4' || variant === 'plo5')
+        ? hudExploitCounters(
+            userId,
+            variant,
+            durable ?? this.exploitCounters.get(`${scope}|${userId}`)
+          )
+        : undefined;
+    if (hudCounters) noteFire('opponent_hud_exploit_counters');
+    const durableOrLifetime = hudCounters ?? durable;
     const siblings =
       durable && variant
         ? opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
@@ -2819,7 +3022,7 @@ export class HorseMind {
         : [];
     const readCounters = this.probeAdjusted(
       userId,
-      durable ??
+      durableOrLifetime ??
         (this.durableOpponentMemory && variant
           ? undefined
           : this.exploitCounters.get(`${scope}|${userId}`))
@@ -2856,6 +3059,18 @@ export class HorseMind {
         : gated;
     if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; lead 23:1xZ: replace the blanket presumption): with the lifetime
+    // read on, no Omaha opponent is presumed a maniac. An opponent with a lifetime profile is read from it (above);
+    // one with no history is read as the population for his stake and game (no exploit engaged; the accessor's
+    // priors carry the stake). The presumption below is unreachable on this path (AnOpponentIsReadFromHisLifetime law).
+    if (family === 'omaha' && hudOn && (variant === 'plo4' || variant === 'plo5')) {
+      noteFire(
+        hudCounters
+          ? 'opponent_hud_presumption_replaced_lifetime'
+          : 'opponent_hud_presumption_replaced_prior'
+      );
+      return read;
+    }
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.
@@ -2865,7 +3080,10 @@ export class HorseMind {
       // measured statistics with nothing engaged (see neutralUnknownRead).
       const neutral = neutralUnknownRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -2887,7 +3105,10 @@ export class HorseMind {
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -3192,6 +3413,96 @@ export class HorseMind {
     );
   }
 
+  /**
+   * LIFETIME STREET RECORD PROVIDER (2026-11-20, lanes STAB-DEFENCE / OPPONENT-HUD; read by omahaStabDefenceIsPriced
+   * and omahaStrongHandCheckIsPriced, both default off). One provider for every opponent alike: undecayed lifetime
+   * counts of PUBLIC actions per game, street and table (heads-up / multiway), as of the hands completed before the
+   * decision's hand. Null provider or null record = no record: the consumer prices the population exactly.
+   */
+  private static omahaLifetimeStreetRecords: OmahaLifetimeStreetRecordProvider | null = null;
+  static setOmahaLifetimeStreetRecordProvider(
+    provider: OmahaLifetimeStreetRecordProvider | null
+  ): void {
+    this.omahaLifetimeStreetRecords = provider ?? null;
+  }
+  static omahaLifetimeStreetRecordProviderIsSet(): boolean {
+    return this.omahaLifetimeStreetRecords !== null;
+  }
+  /**
+   * STAB DEFENCE RECORD: one opponent's lifetime public count of first wagers on unopened action of this street and
+   * of his opportunities, from the provider above. Counts, not a label: the consumer shrinks them by n / (n + k).
+   * Null with no provider, no record, outside PLO4 / PLO5 turn and river, or on any provider error. Pure: no fires,
+   * no writes, no random draws. One function for every opponent.
+   */
+  static omahaStabDefenceRecordOf(
+    userId: string,
+    variant: string,
+    street: string,
+    opponents: number
+  ): { bets: number; opps: number } | null {
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return null;
+    const game = String(variant ?? '').toLowerCase();
+    if ((game !== 'plo4' && game !== 'plo5') || (street !== 'turn' && street !== 'river'))
+      return null;
+    try {
+      const r = provider.unopenedWagerRecord(userId, game, street, opponents <= 1 ? 'hu' : 'mw');
+      if (!r) return null;
+      const bets = Number(r.bets);
+      const opps = Number(r.opps);
+      if (!Number.isFinite(bets) || !Number.isFinite(opps) || !(opps > 0) || bets < 0) return null;
+      return { bets: Math.min(bets, opps), opps };
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * STRONG-HAND CHECK RECORDS (omahaStrongHandCheckIsPriced): one opponent's lifetime public answers to a street's
+   * first wager, by size cell, and his stab sizes, from the same provider. Counts only; the consumer shrinks them.
+   * Null fields with no provider, no record, outside PLO4 / PLO5 turn and river, or on any provider error. Pure.
+   */
+  static omahaStrongHandCheckRecordsOf(
+    userId: string,
+    variant: string,
+    street: string,
+    opponents: number
+  ): {
+    foldSmall: { folds: number; opps: number } | null;
+    foldBig: { folds: number; opps: number } | null;
+    stabSize: { stabs: number; sizeSum: number } | null;
+  } {
+    const none = { foldSmall: null, foldBig: null, stabSize: null };
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return none;
+    const game = String(variant ?? '').toLowerCase();
+    if ((game !== 'plo4' && game !== 'plo5') || (street !== 'turn' && street !== 'river'))
+      return none;
+    const players = opponents <= 1 ? 'hu' : 'mw';
+    const fold = (size: 'small' | 'big') => {
+      try {
+        const r = provider.firstWagerFoldRecord?.(userId, game, street, players, size);
+        if (!r) return null;
+        const folds = Number(r.folds);
+        const opps = Number(r.opps);
+        if (!Number.isFinite(folds) || !Number.isFinite(opps) || !(opps > 0) || folds < 0)
+          return null;
+        return { folds: Math.min(folds, opps), opps };
+      } catch {
+        return null;
+      }
+    };
+    let stabSize: { stabs: number; sizeSum: number } | null = null;
+    try {
+      const r = provider.stabSizeRecord?.(userId, game, street, players);
+      const stabs = Number(r?.stabs);
+      const sizeSum = Number(r?.sizeSum);
+      if (r && Number.isFinite(stabs) && Number.isFinite(sizeSum) && stabs > 0 && sizeSum >= 0)
+        stabSize = { stabs, sizeSum: Math.min(sizeSum, 2 * stabs) };
+    } catch {
+      stabSize = null;
+    }
+    return { foldSmall: fold('small'), foldBig: fold('big'), stabSize };
+  }
   /** His bet rate on the decision's street (omahaReadIsByStreetAndTexture on), or `pooledRate` itself. */
   private static omahaReadByStreetBetRate(userId: string, pooledRate: number): number {
     const byStreet = omahaReadByStreetNow();
@@ -5506,6 +5817,23 @@ export class HorseMind {
     const model = this.omahaEvFoldMulOf(userId, headsUpStreet);
     if (model !== null) return model;
     return this.exploit(userId, recencyBlend).bluffMod;
+  }
+
+  /**
+   * OPPONENT HUD: the measured calibration of the EV fold model when its input is the lifetime record
+   * (HUD_EV_FOLD_CALIBRATION), for hero's first bet of `street`; null unless omahaOpponentLifetimeHud reads this
+   * decision AND the pooled Omaha EV fold model is the one pricing PLO4 / PLO5 cash (the model the factors were
+   * measured against). Pure.
+   */
+  static evFoldCalibrationOf(street: string): { sm: number; bg: number } | null {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true || !this.decisionScope) return null;
+    if (this.decisionReadOptions.omahaEvFoldModel !== true || this.decisionMode !== 'cash')
+      return null;
+    if (this.decisionReadOptions.omahaEvFoldModelHeadsUp === true) return null;
+    if (this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true) return null;
+    const v = (this.decisionVariant ?? '').toLowerCase();
+    if (v !== 'plo4' && v !== 'plo5') return null;
+    return HUD_EV_FOLD_CALIBRATION[street] ?? null;
   }
 
   /**

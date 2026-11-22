@@ -256,13 +256,14 @@ function unregisterReasonText(reason: string | undefined): string {
  * chip `insufficient` so a Diamond player is not told they lack chips.
  */
 export function seatFirstBuyInReasonIsKnown(reason: string | undefined): boolean {
-  return /seat_taken|insufficient|already_started|game_already_started|tournament_full|not_a_seat_first_game|table_limit_reached|FOUR TABLE LIMIT|diamond_tournaments_not_open|diamond_debt_requires_settlement|daily_maintenance_window|spin_sng_closed_until_reopen/.test(
+  return /seat_taken|insufficient|already_started|game_already_started|tournament_full|not_a_seat_first_game|table_limit_reached|FOUR TABLE LIMIT|diamond_tournaments_not_open|diamond_debt_requires_settlement|daily_maintenance_window|spin_sng_closed_until_reopen|heads_up_invite_required/.test(
     reason ?? ''
   );
 }
 
 export function seatFirstBuyInRefusalText(reason: string | undefined): string {
   const r = reason ?? '';
+  if (/heads_up_invite_required/.test(r)) return 'This Seat Is Reserved For An Invited Player';
   if (/seat_taken/.test(r)) return 'That Seat Was Just Taken';
   if (/daily_maintenance_window/.test(r)) return DAILY_WINDOW_CLOSED_MESSAGE;
   if (/spin_sng_closed_until_reopen/.test(r)) return SPIN_SNG_CLOSED_MESSAGE;

@@ -3318,40 +3318,6 @@ export class TournamentManager extends TournamentManagerEliminations {
       }
     }
     tableIds = tableIds.filter((id) => !excluded.has(id));
-    const tableRead = await selectInChunks<{
-      id: string;
-      max_players: number | null;
-    }>(
-      tableIds,
-      (batch) => supabase.from('tables').select('id, max_players').in('id', batch),
-      `Tournament.${label}.tables(${this.tournamentId.slice(0, 8)})`
-    );
-    if (!this.eliminationMutationAllowed()) return null;
-    if (!tableRead.complete) {
-      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-      return null;
-    }
-    const seatRead = await selectInChunks<{
-      table_id: string;
-      user_id: string;
-      stack: number | null;
-      seat_number: number | null;
-    }>(
-      tableIds,
-      (batch) =>
-        supabase
-          .from('table_seats')
-          .select('table_id, user_id, stack, seat_number')
-          .in('table_id', batch)
-          .is('left_at', null),
-      `Tournament.${label}.seats(${this.tournamentId.slice(0, 8)})`
-    );
-    if (!this.eliminationMutationAllowed()) return null;
-    if (!seatRead.complete) {
-      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-      return null;
-    }
-
     // ════════════════════════════════════════════════════════════════════════
     //  THE PLANNER MUST SEE THE CHAIRS THE ROSTER STILL HOLDS (2026-09-12)
     // ════════════════════════════════════════════════════════════════════════
@@ -3365,24 +3331,51 @@ export class TournamentManager extends TournamentManagerEliminations {
     // `tournament move destination roster is occupied` and only 42 of 378
     // were genuinely free.
     //
-    // One more chunked read per pass, on the same ID-list bound as the two
-    // above — never one query per table.
-    const rosterRead = await selectInChunks<{
-      table_id: string | null;
-      seat_number: number | null;
-    }>(
-      tableIds,
-      (batch) =>
-        supabase
-          .from('tournament_players')
-          .select('table_id, seat_number')
-          .eq('tournament_id', this.tournamentId)
-          .in('status', ['registered', 'playing'])
-          .in('table_id', batch),
-      `Tournament.${label}.roster(${this.tournamentId.slice(0, 8)})`
-    );
+    // The three chunked reads take the same `tableIds` and are independent, so
+    // run them in parallel (2026-11-21, incident 1e532243): running them
+    // serially multiplied parked boundary-balance latency ~3x on 50+ table
+    // MTTs under EventDbBulkhead load.
+    const [tableRead, seatRead, rosterRead] = await Promise.all([
+      selectInChunks<{
+        id: string;
+        max_players: number | null;
+      }>(
+        tableIds,
+        (batch) => supabase.from('tables').select('id, max_players').in('id', batch),
+        `Tournament.${label}.tables(${this.tournamentId.slice(0, 8)})`
+      ),
+      selectInChunks<{
+        table_id: string;
+        user_id: string;
+        stack: number | null;
+        seat_number: number | null;
+      }>(
+        tableIds,
+        (batch) =>
+          supabase
+            .from('table_seats')
+            .select('table_id, user_id, stack, seat_number')
+            .in('table_id', batch)
+            .is('left_at', null),
+        `Tournament.${label}.seats(${this.tournamentId.slice(0, 8)})`
+      ),
+      selectInChunks<{
+        table_id: string | null;
+        seat_number: number | null;
+      }>(
+        tableIds,
+        (batch) =>
+          supabase
+            .from('tournament_players')
+            .select('table_id, seat_number')
+            .eq('tournament_id', this.tournamentId)
+            .in('status', ['registered', 'playing'])
+            .in('table_id', batch),
+        `Tournament.${label}.roster(${this.tournamentId.slice(0, 8)})`
+      ),
+    ]);
     if (!this.eliminationMutationAllowed()) return null;
-    if (!rosterRead.complete) {
+    if (!tableRead.complete || !seatRead.complete || !rosterRead.complete) {
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return null;
     }
@@ -3596,8 +3589,18 @@ export class TournamentManager extends TournamentManagerEliminations {
       return null;
     }
     if (!parked) {
-      // The pause owner remains armed. A long current hand lands normally;
-      // the next causal sweep claims the physical gate without polling it.
+      // The pause owner remains armed on `managerEngine`. Track any non-break
+      // live source in `gapBalanceFencedSources` so its park edge claims it
+      // (`claimGapBalanceAtBoundary`) and `releaseGapFencesNotIn` lifts it if
+      // the field balances before it parks — never orphaning the table for the
+      // 15 s TOURNAMENT_MOVE_UNCLAIMED_PARK_MS expiry.
+      if (
+        !this.retainsTournamentBreakSource(move.fromTableId, managerEngine) &&
+        this.tableEngines.get(move.fromTableId) === managerEngine &&
+        this.gameServer.ownsTournamentTableEngine(move.fromTableId, managerEngine)
+      ) {
+        this.gapBalanceFencedSources.add(move.fromTableId);
+      }
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return null;
     }
@@ -4438,9 +4441,12 @@ export class TournamentManager extends TournamentManagerEliminations {
           const sourceTables = [...new Set(moves.map((m) => m.fromTableId))] as string[];
           // A slow fresh board must not be discarded before it can act.
           // The existing source-boundary owner rereads the board and moves it;
-          // fence only its first source, then yield the spent admission.
+          // fence only one source (preferring one already parked at the gate),
+          // then yield the spent admission.
           if (this.balancePreparationOpen && this.eliminationWorkBudgetExpired()) {
-            this.fenceGapBalanceSource(sourceTables[0]);
+            const preferred =
+              sourceTables.find((t) => this.isParkedGapBalanceSource(t)) ?? sourceTables[0];
+            this.fenceGapBalanceSource(preferred);
             this.balancePreparationOpen = false;
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
             return;
@@ -4467,6 +4473,18 @@ export class TournamentManager extends TournamentManagerEliminations {
           if (safeMoves.length > 0) {
             const movedCount = await this.executePlayerMoves(safeMoves);
             for (const m of safeMoves) {
+              const sourceEngine = this.tableEngines.get(m.fromTableId);
+              // Keep the source tracked whenever a missed probe left our pause
+              // owner armed on a non-break live source so its park edge claims
+              // or releases it instead of sitting 15 s for unclaimed expiry.
+              if (
+                sourceEngine?.hasTournamentMovePauseOwner?.(this.tournamentMoveBoundaryOwner) &&
+                !this.retainsTournamentBreakSource(m.fromTableId, sourceEngine)
+              ) {
+                this.gapBalanceFencedSources.add(m.fromTableId);
+                this.gapBalanceClaimedSources.delete(m.fromTableId);
+                continue;
+              }
               this.gapBalanceFencedSources.delete(m.fromTableId);
               this.gapBalanceClaimedSources.delete(m.fromTableId);
             }
@@ -4584,9 +4602,53 @@ export class TournamentManager extends TournamentManagerEliminations {
     return true;
   }
 
+  private isParkedGapBalanceSource(tableId: string): boolean {
+    if (!this.gapBalanceFencedSources.has(tableId)) return false;
+    const engine = this.tableEngines.get(tableId);
+    if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) return false;
+    return (
+      engine.awaitsTournamentMoveClaim() || this.gapBalanceClaimedSources.get(tableId) === engine
+    );
+  }
+
+  private hasParkedGapBalanceSource(): boolean {
+    for (const tableId of this.gapBalanceFencedSources) {
+      if (this.isParkedGapBalanceSource(tableId)) return true;
+    }
+    return false;
+  }
+
+  private collectParkedGapSources(
+    target: Map<string, ServerTableEngine> = new Map(),
+    allowedTableIds?: ReadonlySet<string>
+  ): Map<string, ServerTableEngine> {
+    for (const tableId of [...this.gapBalanceFencedSources]) {
+      const engine = this.tableEngines.get(tableId);
+      if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) {
+        this.gapBalanceFencedSources.delete(tableId);
+        this.gapBalanceClaimedSources.delete(tableId);
+        continue;
+      }
+      if (this.gapBalanceClaimedSources.get(tableId) !== engine)
+        this.gapBalanceClaimedSources.delete(tableId);
+      if (allowedTableIds && !allowedTableIds.has(tableId)) continue;
+      if (
+        engine.awaitsTournamentMoveClaim() ||
+        this.gapBalanceClaimedSources.get(tableId) === engine
+      ) {
+        target.set(tableId, engine);
+        this.boundaryPlanAwaitingPark.delete(tableId);
+      }
+    }
+    return target;
+  }
+
   protected override onEliminationSweepSettled(): void {
     this.boundaryBalanceAwaitingSweep = false;
-    if (this.boundaryBalanceRequested) this.drainBoundaryBalance();
+    if (this.boundaryBalanceRequested || this.hasParkedGapBalanceSource()) {
+      this.boundaryBalanceRequested = true;
+      this.drainBoundaryBalance();
+    }
     // A sweep that held the manager while a fenced source played its hold
     // made any plan read before it stale: read again, still under the hold.
     else if (this.boundaryPlanAwaitingPark.size > 0) this.prepareBoundaryBalancePlan();
@@ -4897,22 +4959,7 @@ export class TournamentManager extends TournamentManagerEliminations {
   }
 
   private async balanceParkedGapSources(): Promise<void> {
-    const parked = new Map<string, ServerTableEngine>();
-    for (const tableId of [...this.gapBalanceFencedSources]) {
-      const engine = this.tableEngines.get(tableId);
-      if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) {
-        this.gapBalanceFencedSources.delete(tableId);
-        this.gapBalanceClaimedSources.delete(tableId);
-        continue;
-      }
-      if (this.gapBalanceClaimedSources.get(tableId) !== engine)
-        this.gapBalanceClaimedSources.delete(tableId);
-      if (
-        engine.awaitsTournamentMoveClaim() ||
-        this.gapBalanceClaimedSources.get(tableId) === engine
-      )
-        parked.set(tableId, engine);
-    }
+    const parked = this.collectParkedGapSources();
     if (parked.size === 0) return;
 
     // Give a parked source back to the dealer unless a break owns it.
@@ -4955,7 +5002,6 @@ export class TournamentManager extends TournamentManagerEliminations {
       defer();
       return;
     }
-    for (const tableId of parked.keys()) this.boundaryPlanAwaitingPark.delete(tableId);
     // The board read while the hold played, when nothing has changed it since.
     const prepared = await this.takePreparedBoundaryBoard(parked);
     if (!balanceAllowed()) {
@@ -4987,13 +5033,28 @@ export class TournamentManager extends TournamentManagerEliminations {
       }
     }
     if (!tables || !this.tableBalancer.shouldRebalance(tables)) {
+      if (tables || liveTableIds.length <= 1) {
+        // Every fenced source parked during the read is also unneeded on this
+        // balanced (or single-table) board, and still-dealing fences can lift
+        // immediately so they never park.
+        this.collectParkedGapSources(parked);
+        this.releaseGapFencesNotIn(new Set());
+      }
       releaseAll();
       if (!tables && liveTableIds.length > 1)
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return;
     }
 
+    // Fenced sources that finished their hand and parked while the board was
+    // being read are ready NOW (2026-11-21, incident 1e532243: cb2d8fa8 sat
+    // parked 26.4s and cbe6cd62 parked 63ms into a 2.3s read and sat 28.7s
+    // because `parked` was snapshotted before the DB reads).
+    const liveTableSet = new Set(liveTableIds);
+    this.collectParkedGapSources(parked, liveTableSet);
+
     const moves = this.tableBalancer.calculateMoves(tables);
+    this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
     const ready: MoveInstruction[] = [];
     // Sources the plan still needs that cannot move at this instant.
     const waiting = new Set<string>();
@@ -5058,8 +5119,11 @@ export class TournamentManager extends TournamentManagerEliminations {
         const unknown = [...this.pendingTournamentSeatMoveOutcomes.values()].some(
           (pending) => pending.input.sourceTableId === tableId
         );
-        if (!unknown && !this.retainsTournamentBreakSource(tableId, engine))
+        if (!unknown && !this.retainsTournamentBreakSource(tableId, engine)) {
+          this.gapBalanceFencedSources.delete(tableId);
+          this.gapBalanceClaimedSources.delete(tableId);
           engine.releaseTournamentMovePause(this.tournamentMoveBoundaryOwner);
+        }
       }
     }
     const score = this.tableBalancer.evaluateBalance(tables);
@@ -5311,7 +5375,8 @@ export class TournamentManager extends TournamentManagerEliminations {
       engine &&
       this.gameServer.ownsTournamentTableEngine(tableId, engine) &&
       engine.isBetweenHands() &&
-      !engine.hasSettlementInFlight()
+      !engine.hasSettlementInFlight() &&
+      !engine.isInCompletionPresentationHold?.()
     );
   }
 

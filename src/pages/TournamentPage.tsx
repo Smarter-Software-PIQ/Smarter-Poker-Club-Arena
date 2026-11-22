@@ -3,7 +3,6 @@ import { payoutSharePercent } from '../utils/tournamentPrizeFunding';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { FollowTournamentPlayer } from '../utils/followTournamentPlayer';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 /**
  * ♠ CLUB ARENA — Tournament Lobby Page
  * Register and view upcoming tournaments
@@ -25,6 +24,7 @@ import {
   getTournamentEntryCapacity,
   getTournamentFormatKind,
   isTournamentEntryUnavailable,
+  tournamentStartsWhenFull,
 } from '../utils/tournamentPresentation';
 import { formatPrizeAtUnit, moneySuffixAtUnit, moneyWordAtUnit } from '../utils/format';
 import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../server/src/tournament/tournamentUnit';
@@ -663,7 +663,7 @@ export default function TournamentPage() {
         is_pko: !!(selectedTournament as any).is_pko,
         is_mystery_bounty: !!(selectedTournament as any).is_mystery_bounty,
         start_time: (selectedTournament as any).start_time ?? null,
-        startsWhenFull: satelliteStartsWhenFull(selectedTournament),
+        startsWhenFull: tournamentStartsWhenFull(selectedTournament),
         club_id: (selectedTournament as any).club_id ?? null,
         status: selectedTournament.status,
       },
@@ -1188,7 +1188,7 @@ export default function TournamentPage() {
       const times: Record<string, string> = {};
       const levels: Record<string, string> = {};
       tournaments.forEach((t) => {
-        if (t.status === 'REGISTERING' && t.start_time) {
+        if (t.status === 'REGISTERING' && t.start_time && !tournamentStartsWhenFull(t)) {
           const diff = new Date(t.start_time).getTime() - now;
           if (diff > 0) {
             const h = Math.floor(diff / 3600000);
@@ -1637,15 +1637,22 @@ export default function TournamentPage() {
                   <span className="sc-label sc-ink--blue">Prize Pool</span>
                   <span className="tourn-value sc-ink--gold">{compactChips(tourn.prize_pool)}</span>
                 </div>
-                {countdownStr[tourn.id] && (
+                {tourn.status === 'REGISTERING' && tournamentStartsWhenFull(tourn) ? (
                   <div className="tourn-row">
-                    <span className="sc-label sc-ink--blue">Starts In</span>
-                    <span
-                      className={`tourn-value ${countdownStr[tourn.id] === 'Starting...' ? 'sc-ink--red' : 'sc-ink--silver'}`}
-                    >
-                      {countdownStr[tourn.id]}
-                    </span>
+                    <span className="sc-label sc-ink--blue">Starts</span>
+                    <span className="tourn-value sc-ink--silver">When Full</span>
                   </div>
+                ) : (
+                  countdownStr[tourn.id] && (
+                    <div className="tourn-row">
+                      <span className="sc-label sc-ink--blue">Starts In</span>
+                      <span
+                        className={`tourn-value ${countdownStr[tourn.id] === 'Starting...' ? 'sc-ink--red' : 'sc-ink--silver'}`}
+                      >
+                        {countdownStr[tourn.id]}
+                      </span>
+                    </div>
+                  )
                 )}
                 {/* SWEEP #6: live blind level + countdown for RUNNING tournaments */}
                 {tourn.status === 'RUNNING' && levelChip[tourn.id] && (

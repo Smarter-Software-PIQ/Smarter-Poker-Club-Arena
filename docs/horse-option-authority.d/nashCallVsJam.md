@@ -26,6 +26,24 @@ Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md. League rows below are copied fro
 - Human-field value: NOT MET. No card reaches a lone open-jam against the human-calibrated field.
 - Replay on real audited decisions (2026-11-21, corrected history without forced posts #11556 and ledger-attributed receipts #11622): `HVH48-E` (`fixed 1`, `newlyWrong 1`, `changed 194`, `unjudged 192`; `nash_call_vs_jam` `194 changed / 1 fixed / 1 newly wrong`) and `HU30D` (`fixed 0`, `newlyWrong 0`, `changed 1`, `unjudged 1`; `nash_call_vs_jam` `1 changed / 0 fixed / 0 newly wrong`) pass the build bar (`newlyWrong <= fixed`). `HVH48-D` cash had `0` changed decisions of `2734` replayed (inert: no <=20bb lone open-jams in the cash set).
 
+## Scripted open-jammer field (2026-11-21)
+
+Because the human-calibrated population sizes every raise and never open-jams (0 divergent pairs), two scripted <=20bb NLH open-jammer personas were added to `server/src/benchmark/NlhScriptedField.ts` (`nlh_scripted_field_v1`) and registered in `HorseLeague.ts` (`NLH_SCRIPTED_OPEN_JAMMER_CARDS`; see `docs/changelog/2026-11-21-nash-call-vs-jam-scripted-field.md`):
+
+- `nlh_nash_open_jammer_v1`: deterministic chip-EV Nash open-jammer and lone-jam caller (`HorseNashPushFoldV2` thresholds at <=20bb across UTG/HJ/CO/BTN/SB, cash and BBA MTT; non-jam and postflop rules labelled DESIGN VALUE).
+- `nlh_tight_jammer_v1` (harm control): open-jams and continues only with the top ~9% of hands (`humanCalibratedPreflopPercentile >= 0.91`, DESIGN VALUE) at <=20bb.
+
+Declared 3-seed evaluation (`server/src/scripts/horseLeagueCard.ts`, `EQUITY_GOVERNOR=off`, `6,000` pairs per seed x 3 seeds = `18,000` pairs / `36,000` hands per card, seeds `20261120`, `20261121`, `20261122`, engine `3cf91d8a41712e5b56137ab7194ee2f65b49ea92`, solver stores empty: `charts=0 postflop=0 postflopV31=0`). Arm A = default on (`{}`), arm B = `{ nashCallVsJam: false }`, 6-max, live Hybrid baseline, deal-seeded mood clock. Every one of the 12 runs recorded `illegal=0`, `truncated=0`, `corrected=0`, `brainFallbacks=0`.
+
+| card                                                               | seed 20261120                         | seed 20261121                          | seed 20261122                         | pooled (18,000 pairs)                          | total divergent |
+| ------------------------------------------------------------------ | ------------------------------------- | -------------------------------------- | ------------------------------------- | ---------------------------------------------- | --------------- |
+| `nlh_scripted_nash_open_jammer_cash_12bb` (cash 12bb, no ante)     | `+0.45 +/- 1.83` (`z +0.25`, 77 div)  | `+0.53 +/- 2.18` (`z +0.24`, 111 div)  | `+3.81 +/- 2.26` (`z +1.69`, 117 div) | `+1.60 +/- 1.21` (`z +1.32`), not resolved     | 305             |
+| `nlh_scripted_nash_open_jammer_12bb` (MTT 12bb, 1bb BBA)           | `+4.86 +/- 3.87` (`z +1.25`, 344 div) | `+7.91 +/- 3.91` (`z +2.02`, 333 div)  | `+6.52 +/- 3.93` (`z +1.66`, 341 div) | `+6.43 +/- 2.25` (`z +2.85`), SIGNIFICANT      | 1,018           |
+| `nlh_scripted_nash_open_jammer_15bb` (MTT 15bb, 1bb BBA)           | `+4.36 +/- 4.16` (`z +1.05`, 258 div) | `+10.28 +/- 4.22` (`z +2.44`, 257 div) | `+2.25 +/- 4.05` (`z +0.56`, 251 div) | `+5.63 +/- 2.39` (`z +2.35`), SIGNIFICANT      | 766             |
+| `nlh_scripted_tight_jammer_15bb` (MTT 15bb, 1bb BBA, harm control) | `-7.38 +/- 2.51` (`z -2.94`, 101 div) | `-5.67 +/- 2.61` (`z -2.18`, 108 div)  | `-6.23 +/- 2.70` (`z -2.31`, 118 div) | `-6.43 +/- 1.50` (`z -4.27`), SIGNIFICANT harm | 327             |
+
+Interpretation: against a realistic non-mirror short-stack open-jammer field, `nashCallVsJam` is significantly positive in MTT 12bb (`+6.43 +/- 2.25 bb/100`, `z +2.85`) and MTT 15bb (`+5.63 +/- 2.39 bb/100`, `z +2.35`), and positive across all 3 seeds in cash 12bb (`+1.60 +/- 1.21 bb/100`, `z +1.32`). Against the tight/nut-only harm control (five seats shoving only the top ~9% from every position at 15bb BBA), both arms still win strongly overall (arm A mean `+19.82 bb/100`, arm B mean `+26.25 bb/100`), but `nashCallVsJam` gives back `-6.43 +/- 1.50 bb/100` (`z -4.27`) relative to the old ~6% strength bar because it calls at unadjusted chip-EV Nash widths without tightening against a read tight jammer.
+
 ## Replay
 
 Machine-read (README.md, "The Replay row"); each run row is written by the scorer (`--row on`) and copied unedited.
@@ -52,3 +70,7 @@ How the rows were produced (2026-11-21, on the operations Mac, checkout `dce4d6d
 4. `npx tsx scripts/audited-decision-replay.ts --placed <set>.nodes.jsonl --replay <set>.nash.replay.jsonl --line on --row on --set "<set name>"`, the `- Replay:` rows above copied unedited.
 
 Limits: the database was not read for the switch baseline (uses the archived `2026-11-20T21:15Z` + 3 rows snapshot); opponent memory is off in replay (`mind: false`); the audits are verdict-only (no bb); `5581` `HVH48-E` preflop folds have unknown Horse cards and are not replayed.
+
+## Rollback
+
+Set `nashCallVsJam` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('nashCallVsJam', 'off', '<actor>', '<reason>')`) to override the release default within ~30s; zero data migration needed.

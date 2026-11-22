@@ -21,11 +21,11 @@
 import { readFileSync, writeFileSync, createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import {
+  HUD_FAMILIES,
   HUD_STATS,
   applyHudHandToProfiles,
   emptyHudProfile,
   handRecordFromRow,
-  type HudFamily,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import {
@@ -34,7 +34,12 @@ import {
   type HudPopulation,
 } from '../src/engine/opponentHud/OpponentHud.js';
 import { extractHandDeltas } from '../src/engine/opponentHud/OpponentHudProfile.js';
-import { planOpponentHudBackfill } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
+import {
+  HUD_BACKFILL_PAGE_LIMIT,
+  pageAllOpponentHudHands,
+  planOpponentHudBackfill,
+  withTransientBackfillRetry,
+} from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
@@ -115,43 +120,60 @@ async function paced<T>(call: () => PromiseLike<T>): Promise<T> {
   return out;
 }
 
-/** created_at of the first PLO4/PLO5 hand (cash or tournament) hand_history holds, or null when none. */
+/** created_at of the first PLO4/PLO5/NLH hand (cash or tournament) hand_history holds, or null when none. */
 async function firstRetainedHandMs(): Promise<number | null> {
   const client = await db();
-  const { data, error } = await client.rpc('fn_opponent_hud_hands_page', {
-    p_after_at: '1970-01-01T00:00:00Z',
-    p_after_id: '00000000-0000-0000-0000-000000000000',
-    p_until: new Date().toISOString(),
-    p_limit: 1,
-  });
-  if (error) throw new Error(`first hand read failed: ${error.message}`);
-  const first = ((data ?? []) as { created_at: string }[])[0];
+  const data = await withTransientBackfillRetry(
+    async () => {
+      const { data: rows, error } = await client.rpc('fn_opponent_hud_hands_page', {
+        p_after_at: '1970-01-01T00:00:00Z',
+        p_after_id: '00000000-0000-0000-0000-000000000000',
+        p_until: new Date().toISOString(),
+        p_limit: 1,
+      });
+      if (error) throw new Error(`first hand read failed: ${error.message}`);
+      return (rows ?? []) as { created_at: string }[];
+    },
+    {
+      onRetry: ({ attempt, delayMs, message }) =>
+        process.stderr.write(`first hand read retry #${attempt} (${delayMs}ms): ${message}\n`),
+    }
+  );
+  const first = data[0];
   return first ? Date.parse(first.created_at) : null;
 }
 
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
-  let afterAt = since;
-  let afterId = '00000000-0000-0000-0000-000000000000';
-  for (;;) {
-    const { data, error } = await paced(() =>
-      client.rpc('fn_opponent_hud_hands_page', {
-        p_after_at: afterAt,
-        p_after_id: afterId,
-        p_until: until,
-        p_limit: 1500,
-      })
-    );
-    if (error) throw new Error(`hands page failed: ${error.message}`);
-    const rows = (data ?? []) as { id: string; created_at: string }[];
-    for (const r of rows) take(r);
-    if (rows.length) {
-      afterAt = rows[rows.length - 1].created_at;
-      afterId = rows[rows.length - 1].id;
-    }
-    process.stderr.write(`hands ${hands} through ${afterAt}\n`);
-    if (rows.length < 1500) break;
-  }
+  const res = await pageAllOpponentHudHands({
+    since,
+    until,
+    limit: HUD_BACKFILL_PAGE_LIMIT,
+    fetchPage: async ({ afterAt, afterId, until: u, limit }) => {
+      const { data, error } = await paced(() =>
+        client.rpc('fn_opponent_hud_hands_page', {
+          p_after_at: afterAt,
+          p_after_id: afterId,
+          p_until: u,
+          p_limit: limit,
+        })
+      );
+      if (error) throw new Error(`hands page failed: ${error.message}`);
+      return (data ?? []) as { id: string; created_at: string }[];
+    },
+    onRow: (r) => take(r),
+    onPage: ({ afterAt }) => {
+      process.stderr.write(`hands ${hands} through ${afterAt}\n`);
+    },
+    onRetry: ({ attempt, prevLimit, nextLimit, delayMs, afterAt, message }) => {
+      process.stderr.write(
+        `hands page retry #${attempt} at ${afterAt} (limit ${prevLimit} -> ${nextLimit}, wait ${delayMs}ms): ${message}\n`
+      );
+    },
+  });
+  process.stderr.write(
+    `fromDb complete: pages=${res.pages} rows=${res.rows} retries=${res.retries} last=${res.afterAt}\n`
+  );
 }
 
 function summary() {
@@ -160,7 +182,7 @@ function summary() {
   const byFamily: Record<string, number> = {};
   for (const p of profiles.values()) byFamily[p.family] = (byFamily[p.family] ?? 0) + 1;
   const priors: Record<string, HudPopulation> = {};
-  for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+  for (const fam of HUD_FAMILIES) {
     const stakes: HudPopulation['stakes'] = {};
     for (const [band, pool] of Object.entries(stakePools[fam] ?? {})) {
       stakes[band] = {};
@@ -228,16 +250,26 @@ async function main(): Promise<void> {
     // A stored profile with MORE hands than this rebuild holds hands the rebuild did not read: it is KEPT, always
     // (OpponentHudBackfillPlan, decided on the actual retained rows; no override). Every other row is rebuilt.
     const storedHands = new Map<string, number>();
-    for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+    for (const fam of HUD_FAMILIES) {
       const users = [...profiles.values()].filter((p) => p.family === fam).map((p) => p.user);
       for (let i = 0; i < users.length; i += 50) {
-        const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
-          p_user_ids: users.slice(i, i + 50),
-          p_family: fam,
-        });
-        if (error) throw new Error(`read failed: ${error.message}`);
-        for (const r of (data ?? []) as { user_id: string; hands: number }[])
-          storedHands.set(`${fam}|${r.user_id}`, Number(r.hands));
+        const rowsRead = await withTransientBackfillRetry(
+          async () => {
+            const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
+              p_user_ids: users.slice(i, i + 50),
+              p_family: fam,
+            });
+            if (error) throw new Error(`read failed: ${error.message}`);
+            return (data ?? []) as { user_id: string; hands: number }[];
+          },
+          {
+            onRetry: ({ attempt, delayMs, message }) =>
+              process.stderr.write(
+                `stored read retry #${attempt} (${fam} @${i}, wait ${delayMs}ms): ${message}\n`
+              ),
+          }
+        );
+        for (const r of rowsRead) storedHands.set(`${fam}|${r.user_id}`, Number(r.hands));
       }
     }
     const plan = planOpponentHudBackfill({
@@ -262,7 +294,7 @@ async function main(): Promise<void> {
       });
     }
     console.log(`KEPT ${kept} stored profiles that hold more hands than this rebuild read`);
-    for (const fam of ['plo4', 'plo5'] as HudFamily[])
+    for (const fam of HUD_FAMILIES)
       rows.push({
         user_id: '*',
         family: fam,
@@ -286,11 +318,21 @@ async function main(): Promise<void> {
         batch.push(rows[i++]);
         bytes += size;
       }
-      const { data, error } = await paced(() =>
-        client.rpc('fn_opponent_hud_profiles_upsert', { p_rows: batch })
+      const refused = await withTransientBackfillRetry(
+        async () => {
+          const { data, error } = await paced(() =>
+            client.rpc('fn_opponent_hud_profiles_upsert', { p_rows: batch })
+          );
+          if (error) throw new Error(`upsert failed at ${i}: ${error.message}`);
+          return (data ?? []) as string[];
+        },
+        {
+          onRetry: ({ attempt, delayMs, message }) =>
+            process.stderr.write(
+              `upsert retry #${attempt} (@${i}, wait ${delayMs}ms): ${message}\n`
+            ),
+        }
       );
-      if (error) throw new Error(`upsert failed at ${i}: ${error.message}`);
-      const refused = (data ?? []) as string[];
       refusedKeys.push(...refused);
       written += batch.length - refused.length;
       calls += 1;
@@ -301,8 +343,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  process.exit(1);
-});
+main().then(
+  () => {
+    process.stdout.write('', () => {
+      process.stderr.write('', () => process.exit(0));
+    });
+  },
+  (e) => {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.stderr.write('', () => process.exit(1));
+  }
+);
 void readFileSync;

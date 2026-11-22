@@ -124,7 +124,11 @@ describe('P13.3 Phase 13 policy digest', () => {
     // fold-to-raise cell (HorseOmahaStreetReadPrice).
     // 74 since 2026-11-19: both Omaha pack gates read their depth from omaha/OmahaPackDepth.
     // 75 since 2026-11-19: HorseEval reads the PLO4/PLO5 high-only scope from HorsePlo45High.
-    expect(closure).toHaveLength(75);
+    // 78 since 2026-11-20: HorseMind reads the lifetime opponent profile (opponentHud/OpponentHudExploit, OpponentHud,
+    // OpponentHudProfile; option omahaOpponentLifetimeHud).
+    // 101 since 2026-11-22: OpponentHud wires the math-core HUD adapters (OmahaMathCoreHudRecords,
+    // OmahaMathCoreTurnRiverHud; #11720/#11725), bringing the already-hashed OmahaMathCore files into closure.
+    expect(closure).toHaveLength(101);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');

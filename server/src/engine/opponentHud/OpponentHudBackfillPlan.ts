@@ -59,3 +59,172 @@ export function planOpponentHudBackfill<P extends BackfillProfileLike>(input: {
   }
   return { ok: true, write, kept };
 }
+
+/**
+ * Default page size requested from fn_opponent_hud_hands_page over PostgREST.
+ * Supabase PostgREST enforces a server-side max_rows cap of 1,000 AND an 8-second
+ * statement_timeout (dry-run 45026021393 drained 2.20M hands at 1,000/page before
+ * one heavy page crossed the 8s timeout). 500 keeps page DB time around 1-2s,
+ * and transient timeouts adaptively halve down to HUD_BACKFILL_MIN_PAGE_LIMIT.
+ */
+export const HUD_BACKFILL_PAGE_LIMIT = 500;
+export const HUD_BACKFILL_MIN_PAGE_LIMIT = 25;
+
+export interface BackfillPageRow {
+  id: string;
+  created_at: string;
+}
+
+const TRANSIENT_BACKFILL_ERR_RE =
+  /statement timeout|canceling statement|502|503|504|bad gateway|service unavailable|gateway timeout|fetch failed|econnreset|etimedout|socket hang up|temporarily unavailable|connection terminated/i;
+
+export function isTransientBackfillError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return TRANSIENT_BACKFILL_ERR_RE.test(msg);
+}
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Runs a single idempotent backfill RPC with bounded exponential backoff on
+ * transient PostgREST / network / statement-timeout errors. Non-transient
+ * errors fail closed immediately on attempt 1.
+ */
+export async function withTransientBackfillRetry<T>(
+  fn: () => Promise<T>,
+  opts?: {
+    maxRetries?: number;
+    retryBaseMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    onRetry?: (info: { attempt: number; delayMs: number; message: string }) => void;
+  }
+): Promise<T> {
+  const maxRetries = Math.max(0, opts?.maxRetries ?? 4);
+  const retryBaseMs = Math.max(0, opts?.retryBaseMs ?? 1000);
+  const sleep = opts?.sleep ?? defaultSleep;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= maxRetries || !isTransientBackfillError(err)) throw err;
+      const delayMs = retryBaseMs * Math.pow(2, attempt);
+      const message = err instanceof Error ? err.message : String(err);
+      opts?.onRetry?.({ attempt: attempt + 1, delayMs, message });
+      if (delayMs > 0) await sleep(delayMs);
+    }
+  }
+}
+
+/**
+ * Drains every keyset-paginated hand_history page in (since, until] until true EOF
+ * (`rows.length === 0`), regardless of any server-side PostgREST max_rows cap.
+ * On transient statement-timeout or 5xx/network errors, performs bounded retries
+ * with exponential backoff while halving the page limit (down to
+ * HUD_BACKFILL_MIN_PAGE_LIMIT) and recovering after 5 consecutive clean pages.
+ * Fails closed immediately on non-transient errors, exhausted retries, or a
+ * non-advancing (created_at, id) cursor.
+ */
+export async function pageAllOpponentHudHands<R extends BackfillPageRow>(input: {
+  since: string;
+  until: string;
+  limit?: number;
+  maxRetries?: number;
+  retryBaseMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  fetchPage: (cursor: {
+    afterAt: string;
+    afterId: string;
+    until: string;
+    limit: number;
+  }) => Promise<readonly R[]>;
+  onRow: (row: R) => void;
+  onPage?: (info: {
+    page: number;
+    rows: number;
+    limit: number;
+    afterAt: string;
+    afterId: string;
+  }) => void;
+  onRetry?: (info: {
+    attempt: number;
+    prevLimit: number;
+    nextLimit: number;
+    delayMs: number;
+    afterAt: string;
+    message: string;
+  }) => void;
+}): Promise<{ pages: number; rows: number; retries: number; afterAt: string; afterId: string }> {
+  const baseLimit = Math.min(
+    HUD_BACKFILL_PAGE_LIMIT,
+    Math.max(1, input.limit ?? HUD_BACKFILL_PAGE_LIMIT)
+  );
+  const maxRetries = Math.max(0, input.maxRetries ?? 4);
+  const retryBaseMs = Math.max(0, input.retryBaseMs ?? 1000);
+  const sleep = input.sleep ?? defaultSleep;
+  let pageLimit = baseLimit;
+  let cleanStreak = 0;
+  let afterAt = input.since;
+  let afterId = '00000000-0000-0000-0000-000000000000';
+  let pages = 0;
+  let totalRows = 0;
+  let retries = 0;
+  for (;;) {
+    let rows: readonly R[];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        rows = await input.fetchPage({ afterAt, afterId, until: input.until, limit: pageLimit });
+        break;
+      } catch (err) {
+        if (attempt >= maxRetries || !isTransientBackfillError(err)) throw err;
+        const prevLimit = pageLimit;
+        const nextLimit = Math.max(
+          Math.min(HUD_BACKFILL_MIN_PAGE_LIMIT, baseLimit),
+          Math.floor(pageLimit / 2)
+        );
+        const delayMs = retryBaseMs * Math.pow(2, attempt);
+        const message = err instanceof Error ? err.message : String(err);
+        retries += 1;
+        cleanStreak = 0;
+        pageLimit = nextLimit;
+        input.onRetry?.({
+          attempt: attempt + 1,
+          prevLimit,
+          nextLimit,
+          delayMs,
+          afterAt,
+          message,
+        });
+        if (delayMs > 0) await sleep(delayMs);
+      }
+    }
+    if (rows.length === 0) break;
+    const last = rows[rows.length - 1];
+    const prevMs = Date.parse(afterAt);
+    const lastMs = Date.parse(last.created_at);
+    const movedBackwards = Number.isFinite(prevMs) && Number.isFinite(lastMs) && lastMs < prevMs;
+    const stalled =
+      (last.created_at === afterAt && last.id <= afterId) ||
+      (pages > 0 && lastMs === prevMs && last.created_at === afterAt && last.id === afterId);
+    if (movedBackwards || stalled) {
+      throw new Error(
+        `backfill cursor did not advance: prev=(${afterAt}, ${afterId}) last=(${last.created_at}, ${last.id})`
+      );
+    }
+    for (const r of rows) input.onRow(r);
+    afterAt = last.created_at;
+    afterId = last.id;
+    pages += 1;
+    totalRows += rows.length;
+    const usedLimit = pageLimit;
+    if (pageLimit < baseLimit) {
+      cleanStreak += 1;
+      if (cleanStreak >= 5) {
+        pageLimit = Math.min(baseLimit, pageLimit * 2);
+        cleanStreak = 0;
+      }
+    }
+    input.onPage?.({ page: pages, rows: rows.length, limit: usedLimit, afterAt, afterId });
+  }
+  return { pages, rows: totalRows, retries, afterAt, afterId };
+}

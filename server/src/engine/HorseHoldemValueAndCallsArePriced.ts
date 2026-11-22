@@ -47,7 +47,18 @@
  */
 import type { Card, CardRank, CardSuit } from '../types.js';
 import type { ActionLinePosterior } from './HorseActionLinePosterior.js';
-import { holdemPreflopScore, scoreHoldem, straightTop } from './HorseEval.js';
+import {
+  holdemCardId,
+  holdemPreflopScore,
+  packHoldemBoardBits,
+  scoreHoldem,
+  scoreHoldemFromBoardBits,
+  scoreHoldemPlus2Ids,
+  scoreHoldemPlus3Ids,
+  scoreHoldemPlus4Ids,
+  straightTop,
+  type HoldemBoardBits,
+} from './HorseEval.js';
 import { RANK_VALUES } from './PokerEngine.js';
 
 /** Mean price (wager / (pot + wager)) of the Horses' postflop bets in Auditor D's slice: 334 bets, 0.337. */
@@ -91,9 +102,92 @@ const RANKS: readonly CardRank[] = [
   'A',
 ];
 const DECK: readonly Card[] = RANKS.flatMap((rank) => SUITS.map((suit) => ({ rank, suit })));
-const idOf = (c: Card): number =>
-  (RANK_VALUES[c.rank] - 2) * 4 + Math.max(0, SUITS.indexOf(c.suit));
+const DECK_IDS = new Uint8Array(DECK.length);
+for (let i = 0; i < DECK.length; i++) DECK_IDS[i] = holdemCardId(DECK[i]);
+const idOf = (c: Card): number => {
+  const id = holdemCardId(c);
+  return id >= 0 ? id : (RANK_VALUES[c.rank] - 2) * 4;
+};
 const cat = (score: number): number => Math.floor(score / 0x100000);
+
+interface LineBoardContext {
+  bits: HoldemBoardBits;
+  len: number;
+  bc: number;
+  top: number;
+  boardMask: number;
+  /** Bit r (2..14) is set iff adding rank r to board alone does NOT make a straight. */
+  boardNoStraightRanks: number;
+}
+
+function buildLineBoardContext(board: readonly Card[]): LineBoardContext | null {
+  const len = board.length;
+  const ids = new Uint8Array(len);
+  let top = 0;
+  let boardMask = 0;
+  for (let i = 0; i < len; i++) {
+    const id = holdemCardId(board[i]);
+    if (id < 0) return null;
+    ids[i] = id;
+    const r = (id >> 2) + 2;
+    if (r > top) top = r;
+    boardMask |= 1 << r;
+  }
+  const bits = packHoldemBoardBits(ids, len);
+  const bc = cat(scoreHoldemFromBoardBits(bits, false));
+  let boardNoStraightRanks = 0;
+  if (len < 5) {
+    for (let r = 2; r <= 14; r++) {
+      if (straightTop(boardMask | (1 << r), false) === 0) boardNoStraightRanks |= 1 << r;
+    }
+  }
+  return { bits, len, bc, top, boardMask, boardNoStraightRanks };
+}
+
+function lineBucketFromIdsAndScore(
+  id0: number,
+  id1: number,
+  made: number,
+  ctx: LineBoardContext
+): HoldemLineBucket {
+  const mc = cat(made);
+  const bc = ctx.bc;
+  const r1 = (id0 >> 2) + 2;
+  const r2 = (id1 >> 2) + 2;
+  if (mc > bc) {
+    if (mc >= 4) return HoldemLineBucket.Nutted;
+    if (mc === 3 && bc === 1) return HoldemLineBucket.Nutted;
+    const pocket = r1 === r2;
+    const top = ctx.top;
+    if ((pocket && r1 > top) || r1 === top || r2 === top) return HoldemLineBucket.TopPair;
+    return HoldemLineBucket.WeakPairOrDraw;
+  }
+  if (ctx.len >= 5) return HoldemLineBucket.Air;
+  const b = ctx.bits;
+  const s0 = id0 & 3;
+  const s1 = id1 & 3;
+  const sameSuit = s0 === s1 ? 1 : 0;
+  const c0 = (s0 === 0 ? b.sc0 : s0 === 1 ? b.sc1 : s0 === 2 ? b.sc2 : b.sc3) + 1 + sameSuit;
+  if (c0 === 4) return HoldemLineBucket.StrongDraw;
+  if (!sameSuit) {
+    const c1 = (s1 === 0 ? b.sc0 : s1 === 1 ? b.sc1 : s1 === 2 ? b.sc2 : b.sc3) + 1;
+    if (c1 === 4) return HoldemLineBucket.StrongDraw;
+  }
+  const mask = ctx.boardMask | (1 << r1) | (1 << r2);
+  if (straightTop(mask, false) === 0) {
+    let outs = 0;
+    const cand = ctx.boardNoStraightRanks;
+    for (let r = 2; r <= 14; r++) {
+      const bit = 1 << r;
+      if ((cand & bit) !== 0 && straightTop(mask | bit, false) > 0) {
+        outs++;
+        if (outs >= 2) return HoldemLineBucket.StrongDraw;
+      }
+    }
+    if (outs === 1) return HoldemLineBucket.WeakPairOrDraw;
+  }
+  return HoldemLineBucket.Air;
+}
 
 /** A private, seeded generator (mulberry32). It never touches fastRandom. */
 function generator(seed: number): () => number {
@@ -236,82 +330,190 @@ export function holdemLineRange(
   band: readonly [number, number] | null,
   line: readonly HoldemLineStreet[]
 ): HoldemPricedRange {
-  const dead = new Set([...hero, ...board].map(idOf));
-  const live = DECK.filter((c) => !dead.has(idOf(c)));
-  const pairs: Card[][] = [];
-  for (let i = 0; i < live.length; i++)
-    for (let j = i + 1; j < live.length; j++) pairs.push([live[i], live[j]]);
-  let inBand = pairs.map((p) => {
-    if (!band) return 1;
-    const s = holdemPreflopScore(p[0], p[1], false);
-    return s >= band[0] - 1e-12 && s <= band[1] + 1e-12 ? 1 : 0;
-  });
-  if (!inBand.some((w) => w > 0)) inBand = pairs.map(() => 1);
-  const bucket = pairs.map((p) => holdemLineBucket(p, board));
+  const deadFlags = new Uint8Array(64);
+  for (let i = 0; i < hero.length; i++) deadFlags[idOf(hero[i])] = 1;
+  for (let i = 0; i < board.length; i++) deadFlags[idOf(board[i])] = 1;
+
+  const live: Card[] = [];
+  const liveIds = new Uint8Array(52);
+  let liveLen = 0;
+  for (let i = 0; i < DECK.length; i++) {
+    const id = DECK_IDS[i];
+    if (deadFlags[id] === 0) {
+      live.push(DECK[i]);
+      liveIds[liveLen++] = id;
+    }
+  }
+  const numPairs = (liveLen * (liveLen - 1)) >> 1;
+  const pairs: Card[][] = new Array(numPairs);
+  const pairId0 = new Uint8Array(numPairs);
+  const pairId1 = new Uint8Array(numPairs);
+  const inBand: number[] = new Array(numPairs);
+  let anyInBand = false;
+  let pIdx = 0;
+  for (let i = 0; i < liveLen; i++) {
+    const ci = live[i];
+    const idI = liveIds[i];
+    for (let j = i + 1; j < liveLen; j++) {
+      const cj = live[j];
+      pairs[pIdx] = [ci, cj];
+      pairId0[pIdx] = idI;
+      pairId1[pIdx] = liveIds[j];
+      if (!band) {
+        inBand[pIdx] = 1;
+        anyInBand = true;
+      } else {
+        const s = holdemPreflopScore(ci, cj, false);
+        const keep = s >= band[0] - 1e-12 && s <= band[1] + 1e-12 ? 1 : 0;
+        inBand[pIdx] = keep;
+        if (keep) anyInBand = true;
+      }
+      pIdx++;
+    }
+  }
+  if (!anyInBand) inBand.fill(1);
+
   const n = board.length;
+  const mainCtx = buildLineBoardContext(board);
+  const bucket: HoldemLineBucket[] = new Array(numPairs);
+  const finalScores = new Int32Array(numPairs);
+  if (mainCtx) {
+    const mainBits = mainCtx.bits;
+    for (let i = 0; i < numPairs; i++) {
+      const id0 = pairId0[i];
+      const id1 = pairId1[i];
+      const sc = scoreHoldemPlus2Ids(mainBits, id0, id1, false);
+      finalScores[i] = sc;
+      bucket[i] = lineBucketFromIdsAndScore(id0, id1, sc, mainCtx);
+    }
+  } else {
+    for (let i = 0; i < numPairs; i++) {
+      bucket[i] = holdemLineBucket(pairs[i], board);
+      finalScores[i] = scoreHoldem([...pairs[i], ...board], n + 2, false);
+    }
+  }
+
   const weight: number[] = inBand.slice();
+  const strScratch = new Float64Array(numPairs);
+  const streetBucketScratch = new Uint8Array(numPairs);
   for (const st of line) {
     const sb = st.board;
-    const bOf = (i: number) =>
-      sb.length === board.length ? bucket[i] : holdemLineBucket(pairs[i], sb);
+    const sameBoard = sb.length === n;
+    const sbCtx = sameBoard ? mainCtx : buildLineBoardContext(sb);
     if ('likelihood' in st) {
-      for (let i = 0; i < pairs.length; i++)
-        if (weight[i] > 0) weight[i] *= Math.max(0, st.likelihood[bOf(i)] ?? 1);
+      const lik = st.likelihood;
+      if (sameBoard) {
+        for (let i = 0; i < numPairs; i++) {
+          if (weight[i] > 0) weight[i] *= Math.max(0, lik[bucket[i]] ?? 1);
+        }
+      } else if (sbCtx) {
+        const sbBits = sbCtx.bits;
+        for (let i = 0; i < numPairs; i++) {
+          if (weight[i] > 0) {
+            const id0 = pairId0[i];
+            const id1 = pairId1[i];
+            const sc = scoreHoldemPlus2Ids(sbBits, id0, id1, false);
+            const b = lineBucketFromIdsAndScore(id0, id1, sc, sbCtx);
+            weight[i] *= Math.max(0, lik[b] ?? 1);
+          }
+        }
+      } else {
+        for (let i = 0; i < numPairs; i++) {
+          if (weight[i] > 0) weight[i] *= Math.max(0, lik[holdemLineBucket(pairs[i], sb)] ?? 1);
+        }
+      }
       continue;
     }
-    const live = pairs.map((_, i) => i).filter((i) => weight[i] > 0);
-    const str = new Map<number, number>();
-    for (const i of live)
-      str.set(i, bOf(i) * 0x10000000 + scoreHoldem([...pairs[i], ...sb], sb.length + 2, false));
-    live.sort((x, y) => (str.get(y) as number) - (str.get(x) as number) || x - y);
-    const tot = live.reduce((t, i) => t + weight[i], 0);
-    const kept = new Array<number>(pairs.length).fill(0);
-    const take = (order: number[], share: number) => {
-      let want = Math.max(0, Math.min(1, share)) * tot;
-      for (const i of order) {
-        if (want <= 1e-12) break;
-        const room = weight[i] - kept[i];
-        const t = Math.min(room, want);
-        kept[i] += t;
-        want -= t;
+
+    const liveIdx: number[] = [];
+    for (let i = 0; i < numPairs; i++) if (weight[i] > 0) liveIdx.push(i);
+
+    if (sameBoard) {
+      for (let k = 0; k < liveIdx.length; k++) {
+        const i = liveIdx[k];
+        const b = bucket[i];
+        streetBucketScratch[i] = b;
+        strScratch[i] = b * 0x10000000 + finalScores[i];
       }
-    };
-    take(live, st.keep.top);
+    } else if (sbCtx) {
+      const sbBits = sbCtx.bits;
+      for (let k = 0; k < liveIdx.length; k++) {
+        const i = liveIdx[k];
+        const id0 = pairId0[i];
+        const id1 = pairId1[i];
+        const sc = scoreHoldemPlus2Ids(sbBits, id0, id1, false);
+        const b = lineBucketFromIdsAndScore(id0, id1, sc, sbCtx);
+        streetBucketScratch[i] = b;
+        strScratch[i] = b * 0x10000000 + sc;
+      }
+    } else {
+      for (let k = 0; k < liveIdx.length; k++) {
+        const i = liveIdx[k];
+        const b = holdemLineBucket(pairs[i], sb);
+        streetBucketScratch[i] = b;
+        strScratch[i] = b * 0x10000000 + scoreHoldem([...pairs[i], ...sb], sb.length + 2, false);
+      }
+    }
+
+    liveIdx.sort((x, y) => strScratch[y] - strScratch[x] || x - y);
+    let tot = 0;
+    for (let k = 0; k < liveIdx.length; k++) tot += weight[liveIdx[k]];
+    const kept = new Float64Array(numPairs);
+    let wantTop = Math.max(0, Math.min(1, st.keep.top)) * tot;
+    for (let k = 0; k < liveIdx.length; k++) {
+      if (wantTop <= 1e-12) break;
+      const i = liveIdx[k];
+      const room = weight[i] - kept[i];
+      const t = Math.min(room, wantTop);
+      kept[i] += t;
+      wantTop -= t;
+    }
     // Draw bluffs proportionally within each bucket from weakest up (Air first, then WeakPairOrDraw)
     // rather than worst-kicker-first, so unmade high-card Air does not beat 100% of villain's bluffs.
     let wantBottom = Math.max(0, Math.min(1, st.keep.bottom)) * tot;
     for (let b = HoldemLineBucket.Air; b <= HoldemLineBucket.Nutted && wantBottom > 1e-12; b++) {
       let avail = 0;
-      for (const i of live) if (bOf(i) === b) avail += weight[i] - kept[i];
+      for (let k = 0; k < liveIdx.length; k++) {
+        const i = liveIdx[k];
+        if (streetBucketScratch[i] === b) avail += weight[i] - kept[i];
+      }
       if (avail <= 1e-12) continue;
       const frac = Math.min(1, wantBottom / avail);
-      for (const i of live) {
-        if (bOf(i) !== b) continue;
+      for (let k = 0; k < liveIdx.length; k++) {
+        const i = liveIdx[k];
+        if (streetBucketScratch[i] !== b) continue;
         const t = (weight[i] - kept[i]) * frac;
         kept[i] += t;
         wantBottom -= t;
       }
     }
-    for (const i of live) weight[i] = kept[i];
+    for (let k = 0; k < liveIdx.length; k++) {
+      const i = liveIdx[k];
+      weight[i] = kept[i];
+    }
   }
-  const strength = pairs.map(
-    (p, i) => bucket[i] * 0x10000000 + scoreHoldem([...p, ...board], n + 2, false)
-  );
-  const order = pairs
-    .map((_, i) => i)
-    .filter((i) => weight[i] > 0)
-    .sort((x, y) => strength[y] - strength[x] || x - y);
-  const total = order.reduce((s, i) => s + weight[i], 0);
-  const weak = order.reduce(
-    (s, i) => s + (bucket[i] <= HoldemLineBucket.WeakPairOrDraw ? weight[i] : 0),
-    0
-  );
+
+  const strength: number[] = new Array(numPairs);
+  const order: number[] = [];
+  for (let i = 0; i < numPairs; i++) {
+    strength[i] = bucket[i] * 0x10000000 + finalScores[i];
+    if (weight[i] > 0) order.push(i);
+  }
+  order.sort((x, y) => strength[y] - strength[x] || x - y);
+  let total = 0;
+  let weak = 0;
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k];
+    const w = weight[i];
+    total += w;
+    if (bucket[i] <= HoldemLineBucket.WeakPairOrDraw) weak += w;
+  }
   return {
     combos: pairs,
     weight,
     bucket,
     strength,
-    equity: pairs.map(() => 0),
+    equity: new Array<number>(numPairs).fill(0),
     order,
     total,
     weakShare: total > 0 ? weak / total : 0,
@@ -329,7 +531,119 @@ export function holdemFillEquities(
   seed: number
 ): void {
   const n = board.length;
+  const need = 5 - n;
   const rnd = generator(seed);
+  const samples = n === 3 ? HOLDEM_PRICED_FLOP_RUNOUTS : HOLDEM_PRICED_TURN_RUNOUTS;
+
+  const h0 = hero.length === 2 ? holdemCardId(hero[0]) : -1;
+  const h1 = hero.length === 2 ? holdemCardId(hero[1]) : -1;
+  const boardIds = new Uint8Array(n);
+  let fastOk = h0 >= 0 && h1 >= 0 && need >= 0 && need <= 2;
+  if (fastOk) {
+    for (let i = 0; i < n; i++) {
+      const bid = holdemCardId(board[i]);
+      if (bid < 0) {
+        fastOk = false;
+        break;
+      }
+      boardIds[i] = bid;
+    }
+  }
+
+  if (fastOk) {
+    const boardBits = packHoldemBoardBits(boardIds, n);
+    if (need === 0) {
+      const h = scoreHoldemPlus2Ids(boardBits, h0, h1, false);
+      const order = range.order;
+      const combos = range.combos;
+      const eq = range.equity;
+      for (let idx = 0; idx < order.length; idx++) {
+        const i = order[idx];
+        const v = combos[i];
+        const o = scoreHoldemPlus2Ids(boardBits, holdemCardId(v[0]), holdemCardId(v[1]), false);
+        eq[i] = h > o ? 1 : h === o ? 0.5 : 0;
+      }
+      return;
+    }
+
+    const deadFlags = new Uint8Array(64);
+    deadFlags[h0] = 1;
+    deadFlags[h1] = 1;
+    for (let i = 0; i < n; i++) deadFlags[boardIds[i]] = 1;
+    const deckIds = new Uint8Array(52);
+    let deckLen = 0;
+    for (let i = 0; i < DECK.length; i++) {
+      const id = DECK_IDS[i];
+      if (deadFlags[id] === 0) deckIds[deckLen++] = id;
+    }
+    const restIds = new Uint8Array(52);
+    const heroCache = new Int32Array(need === 1 ? 52 : 52 * 52);
+    const order = range.order;
+    const combos = range.combos;
+    const eq = range.equity;
+
+    if (need === 1) {
+      for (let idx = 0; idx < order.length; idx++) {
+        const i = order[idx];
+        const v = combos[i];
+        const a = holdemCardId(v[0]);
+        const b = holdemCardId(v[1]);
+        let restLen = 0;
+        for (let d = 0; d < deckLen; d++) {
+          const id = deckIds[d];
+          if (id !== a && id !== b) restIds[restLen++] = id;
+        }
+        let won = 0;
+        for (let k = 0; k < samples; k++) {
+          const r0 = restIds[Math.floor(rnd() * restLen)];
+          let h = heroCache[r0];
+          if (h === 0) {
+            h = scoreHoldemPlus3Ids(boardBits, r0, h0, h1, false);
+            heroCache[r0] = h;
+          }
+          const o = scoreHoldemPlus3Ids(boardBits, r0, a, b, false);
+          won += h > o ? 1 : h === o ? 0.5 : 0;
+        }
+        eq[i] = won / samples;
+      }
+      return;
+    }
+
+    // need === 2 (flop)
+    for (let idx = 0; idx < order.length; idx++) {
+      const i = order[idx];
+      const v = combos[i];
+      const a = holdemCardId(v[0]);
+      const b = holdemCardId(v[1]);
+      let restLen = 0;
+      for (let d = 0; d < deckLen; d++) {
+        const id = deckIds[d];
+        if (id !== a && id !== b) restIds[restLen++] = id;
+      }
+      let won = 0;
+      for (let k = 0; k < samples; k++) {
+        const x = Math.floor(rnd() * restLen);
+        let y = Math.floor(rnd() * (restLen - 1));
+        if (y >= x) y++;
+        const rx = restIds[x];
+        const ry = restIds[y];
+        const r0 = rx < ry ? rx : ry;
+        const r1 = rx < ry ? ry : rx;
+        const cacheKey = r0 * 52 + r1;
+        let h = heroCache[cacheKey];
+        if (h === 0) {
+          h = scoreHoldemPlus4Ids(boardBits, r0, r1, h0, h1, false);
+          heroCache[cacheKey] = h;
+        }
+        const o = scoreHoldemPlus4Ids(boardBits, r0, r1, a, b, false);
+        won += h > o ? 1 : h === o ? 0.5 : 0;
+      }
+      eq[i] = won / samples;
+    }
+    return;
+  }
+
+  // Generic fallback for non-standard inputs.
   const heroCache = new Map<number, number>();
   const heroScore = (runout: Card[]): number => {
     const key = runout.reduce((k, c) => k * 64 + idOf(c) + 1, 0);
@@ -342,8 +656,6 @@ export function holdemFillEquities(
   };
   const deadHero = new Set([...hero, ...board].map(idOf));
   const deck = DECK.filter((c) => !deadHero.has(idOf(c)));
-  const need = 5 - n;
-  const samples = n === 3 ? HOLDEM_PRICED_FLOP_RUNOUTS : HOLDEM_PRICED_TURN_RUNOUTS;
   for (const i of range.order) {
     const v = range.combos[i];
     if (need === 0) {
@@ -474,8 +786,9 @@ function wagerValue(
   const add = Math.max(0, Math.min(to - heroIn, heroStack));
   const his = Math.max(0, Math.min(to - villainIn, villainStack));
   const matched = Math.max(0, Math.min(add, villainIn + his - heroIn));
-  // he folds at the price, never more than the weak part of the range facing the wager
-  const f = Math.min(holdemPricedFold(foldAtReference, add, pot), range.weakShare);
+  // he folds at the effective matched price (unmatched surplus above his stack cannot lay a higher price),
+  // never more than the weak part of the range facing the wager
+  const f = Math.min(holdemPricedFold(foldAtReference, matched, pot), range.weakShare);
   const cont = holdemEquityOfShare(range, (1 - f) * rangeShare, 'top', rangeSkip);
   const ev = f * pot + (1 - f) * (r * cont.equity * (pot + matched + his) - matched);
   return { kind: 'raise', to, ev, fold: f, equityWhenCalled: cont.equity };
@@ -592,18 +905,32 @@ export function holdemPricedVerdict(
   return { options, best, equity: all };
 }
 
-/** The wager street totals to price: the bet or raise fractions and, within 1.5 pots, all in. */
+/** The wager street totals to price: the bet or raise fractions and, within 1.5 pots, effective all in. */
 export function holdemPricedWagerTargets(spot: HoldemPricedSpot): number[] {
   const facing = spot.currentBet > spot.heroIn + 1e-9;
-  const allIn = spot.heroIn + spot.heroStack;
+  const effAllIn = Math.min(spot.heroIn + spot.heroStack, spot.villainIn + spot.villainStack);
+  const effStack = Math.max(0, effAllIn - spot.heroIn);
   const out: number[] = [];
+  const pushUnique = (x: number) => {
+    if (!out.some((y) => Math.abs(y - x) <= 1e-9)) out.push(x);
+  };
   if (facing) {
     const base = spot.pot + (spot.currentBet - spot.heroIn);
-    for (const f of HOLDEM_PRICED_RAISE_FRACTIONS) out.push(spot.currentBet + f * base);
-    if (allIn - spot.currentBet <= HOLDEM_PRICED_ALL_IN_POTS * base) out.push(allIn);
+    for (const f of HOLDEM_PRICED_RAISE_FRACTIONS) {
+      const t = Math.min(spot.currentBet + f * base, effAllIn);
+      if (t > spot.currentBet) pushUnique(t);
+    }
+    if (
+      effAllIn > spot.currentBet &&
+      effAllIn - spot.currentBet <= HOLDEM_PRICED_ALL_IN_POTS * base
+    )
+      pushUnique(effAllIn);
   } else {
-    for (const f of HOLDEM_PRICED_BET_FRACTIONS) out.push(spot.heroIn + f * spot.pot);
-    if (spot.heroStack <= HOLDEM_PRICED_ALL_IN_POTS * spot.pot) out.push(allIn);
+    for (const f of HOLDEM_PRICED_BET_FRACTIONS) {
+      const t = Math.min(spot.heroIn + f * spot.pot, effAllIn);
+      if (t > spot.heroIn) pushUnique(t);
+    }
+    if (effStack > 0 && effStack <= HOLDEM_PRICED_ALL_IN_POTS * spot.pot) pushUnique(effAllIn);
   }
   return out;
 }

@@ -55,6 +55,7 @@ import type { PayoutPlace } from '../tournament/details/types';
 import { staffTickLine, tickIsStale } from './cashGameTick';
 import { lobbyDayStart } from './lobbyDay';
 import { titleCase } from '../../utils/titleCase';
+import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import './GameLobbyPanel.css';
 import './PremiumGameLobbyPanel.css';
 import { formatPrizeAtUnit, formatTableChips } from '../../utils/format';
@@ -92,6 +93,8 @@ export interface GameLobbyPanelProps {
   /** True inside the MultiTablePage embed: links must not navigate the host
       page, so the footer back-link becomes a plain close. */
   embedded?: boolean;
+  /** Sender's Share & Invite code for chip clubs (attached as ?i=<CODE> on invites). */
+  inviteCode?: string | null;
 }
 
 type TournTab = 'overview' | 'structure' | 'payouts';
@@ -195,6 +198,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     onDeleteTable,
     embedded,
     staff,
+    inviteCode,
   } = props;
 
   /**
@@ -808,7 +812,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   );
 
   const handleInviteToGame = useCallback(async () => {
-    const url = gameInviteUrl(lobbyEntryInviteTarget(entry));
+    const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     setInviteFallbackUrl('');
     const outcome = await shareLink({
       source: 'GameLobbyPanel.inviteToGame',
@@ -823,7 +827,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     } else if (outcome === 'failed') {
       setInviteFallbackUrl(url);
     }
-  }, [entry]);
+  }, [entry, inviteCode]);
 
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.
@@ -1189,14 +1193,19 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                     <div>
                       <dt>Starts</dt>
                       <dd>
-                        {entry.startTime && Number.isFinite(new Date(entry.startTime).getTime())
-                          ? new Date(entry.startTime).toLocaleString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })
-                          : 'When Full'}
+                        {entry.kind === 'spin' ||
+                        entry.kind === 'sng' ||
+                        tournamentStartsWhenFull(entry.raw) ||
+                        (tournament && tournamentStartsWhenFull(tournament))
+                          ? 'When Full'
+                          : entry.startTime && Number.isFinite(new Date(entry.startTime).getTime())
+                            ? new Date(entry.startTime).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })
+                            : 'When Full'}
                       </dd>
                     </div>
                     {/* The lobby row already carries starting_chips, and the

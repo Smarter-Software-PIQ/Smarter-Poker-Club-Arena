@@ -1,5 +1,6 @@
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { copyText } from '../lib/share';
+import { useClubSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
@@ -20,7 +21,6 @@ import { LOBBY_PREFERENCE_ADOPT, flushLobby } from '../components/lobby/lobbyPre
 import { onResume, readPending } from '../lib/preferenceSync';
 import { PreferenceSaveStatus } from '../components/common/PreferenceSaveStatus';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { DiamondJackpotReadout } from '../components/bbj/DiamondJackpotReadout';
 import { capture } from '../lib/analytics';
 import { subscribeDiamondJackpot, type DiamondJackpotSnapshot } from '../lib/diamondJackpotFeed';
@@ -32,6 +32,7 @@ import {
   isTournamentEntryUnavailable,
   getTournamentFormatKind,
   readTournamentFormat,
+  tournamentStartsWhenFull,
 } from '../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -4707,7 +4708,7 @@ function ClubHomePageContent({
           is_pko: !!(t as any).is_pko,
           is_mystery_bounty: !!(t as any).is_mystery_bounty,
           start_time: (t as any).start_time ?? null,
-          startsWhenFull: satelliteStartsWhenFull(t),
+          startsWhenFull: tournamentStartsWhenFull(t),
           club_id: (t as any).club_id ?? resolvedClubIdRef.current ?? null,
           status: (t as any).status ?? null,
         },
@@ -5102,12 +5103,19 @@ function ClubHomePageContent({
     filteredTournamentsRef.current = filteredTournaments;
   }, [filteredTournaments]);
 
+  const clubInviteCode = useClubSenderInviteCode(
+    resolvedClubId || club?.id,
+    currentUserId,
+    !isAutomaticArena
+  );
+
   const lobbyCtx = useMemo<LobbyRowContext>(
     () => ({
       waitlistedIds: waitlistedTableIds,
       seatedIds: seatedTableIds,
       registeredIds: registeredTournamentIds,
       favoriteIds: favoriteGameIds,
+      inviteCode: clubInviteCode,
       onToggleFavorite: currentUserId ? handleToggleFavorite : undefined,
       /* The card's buttons run the SAME flows the game-lobby panel
                runs — registerMtt for a tournament, the table navigation for
@@ -5198,6 +5206,7 @@ function ClubHomePageContent({
       seatedTableIds,
       registeredTournamentIds,
       favoriteGameIds,
+      clubInviteCode,
       currentUserId,
       handleToggleFavorite,
       handleRegister,
@@ -6500,6 +6509,7 @@ function ClubHomePageContent({
           embedded={Boolean(clubIdOverride)}
           entry={selectedEntry}
           clubId={clubId}
+          inviteCode={clubInviteCode}
           currentUserId={currentUserId}
           waitlisted={waitlistedTableIds.has(selectedEntry.id)}
           seated={seatedTableIds.has(selectedEntry.id)}

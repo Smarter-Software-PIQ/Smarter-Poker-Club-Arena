@@ -479,7 +479,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'omahaBetReadIsPerOpponent receipt (lane CR2): the pure bluff-share arithmetic of the read already taken (no random draw, no telemetry, no memory), only to write the receipt amount',
       ],
       noteDecisionRuleReceipt: [
-        18,
+        19,
         'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision',
       ],
     },
@@ -504,7 +504,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       ],
     },
     outside: {
-      'const tele = telemetryOn(opts);': [46, 'the local name of the gate'],
+      'const tele = telemetryOn(opts);': [
+        50,
+        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper)',
+      ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
         2,
@@ -596,6 +599,14 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       '? { ...r, decision: this.riverNoBlockerBetRule(r.decision, player, gs, vi, opts, tele) }': [
         1,
         'passes the gate to the river no-blocker-bet rule (horseRiverNoBlockerBet), which only counts with it; the decision is the same either way',
+      ],
+      'applyOmahaBigBetSizeRange(oppReads, opponents, player, gs, tele15);': [
+        1,
+        'passes the gate to omahaBigBetSizeIsPriced range helper, which only counts receipts with it; the range strength is the same either way',
+      ],
+      'const priced = omahaPricedLimpedPotSize(decision, player, gs, rake, tele);': [
+        1,
+        'passes the gate to omahaBigBetSizeIsPriced limped-pot sizing helper, which only counts receipts with it; the bet size is the same either way',
       ],
     },
   };

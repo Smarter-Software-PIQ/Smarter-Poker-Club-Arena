@@ -51,6 +51,11 @@ import {
   achievementService,
   type Achievement as AchievementDef,
 } from '../services/AchievementService';
+import {
+  fetchInviteeDisplayName,
+  fetchUserActiveTableTarget,
+  sendInAppTableInvite,
+} from '../services/TableInviteService';
 import { streakMultiplier } from '../utils/streakMultiplier';
 import {
   ordinal,
@@ -843,6 +848,47 @@ export default function ProfilePage() {
   // channel does (its onSubscriptionError feeds the degraded-connection
   // banner), which is why that one is deliberately left in place.
 
+  const handleInviteFriendToTable = useCallback(
+    async (friendId: string) => {
+      const senderId = user?.id;
+      if (!senderId) return;
+
+      const [activeTable, recipientName] = await Promise.all([
+        fetchUserActiveTableTarget(senderId),
+        fetchInviteeDisplayName(friendId),
+      ]);
+
+      if (!isMountedRef.current || activeProfileUserIdRef.current !== senderId) return;
+
+      if (!activeTable) {
+        toast.info('Sit At A Table First To Invite Friends');
+        return;
+      }
+
+      const result = await sendInAppTableInvite({
+        recipientUserId: friendId,
+        senderUserId: senderId,
+        senderName: user.displayName || user.username || 'A Friend',
+        kind: activeTable.kind,
+        tableId: activeTable.tableId,
+        tournamentId: activeTable.tournamentId,
+        clusterId: activeTable.clusterId,
+        tableName: activeTable.tableName,
+      });
+
+      if (!isMountedRef.current || activeProfileUserIdRef.current !== senderId) return;
+
+      if (result.ok) {
+        toast.success(`Invite Sent To ${recipientName}`);
+      } else if (result.reason === 'cooldown') {
+        toast.info(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    },
+    [isMountedRef, toast, user]
+  );
+
   /* Zustand replaces the active identity synchronously, before effects clean up
      old requests. Mask every account-owned value during that render; a profile
      row is displayable only when both its recorded owner and row id match the
@@ -1583,7 +1629,7 @@ export default function ProfilePage() {
 
         {activeTab === 'social' && (
           <div className={styles.socialContainer}>
-            <FriendListPanel />
+            <FriendListPanel onInviteClick={handleInviteFriendToTable} />
             {user.id && <PlayerActivityFeed userId={user.id} />}
             {user.id && <ReferralDashboard userId={user.id} />}
           </div>
