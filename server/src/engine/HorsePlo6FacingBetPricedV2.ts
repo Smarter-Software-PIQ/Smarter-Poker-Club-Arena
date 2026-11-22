@@ -31,8 +31,8 @@
  *      the call clears positive EV AND genuine value-range equity (bluff priors
  *      alone can never override `pairedBoardFold`).
  *    - Returns both `callPriced` (`evCall > margin`) and `foldPriced`
- *      (`evCall < -margin`) so flop/turn/river can operate two-way (`fold -> call`
- *      and `call -> fold`) instead of strictly loosening flop/turn.
+ *      (`evCall < -margin`) so flop/turn upgrades `fold -> call` when priced
+ *      while river operates two-way (`fold <-> call` and value `raise`).
  *
  * Pure: no telemetry, no opponent memory, no brain RNG.
  */

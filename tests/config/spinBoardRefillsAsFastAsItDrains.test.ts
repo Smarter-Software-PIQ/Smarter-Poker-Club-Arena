@@ -80,7 +80,10 @@ describe('the seat-first boards are refilled faster than they drain', () => {
     // boardBudgetShares). Since 2026-11-08 it is ONE budget for the pass,
     // capped by the room the platform has left under the 11-Spin and
     // 6-heads-up target, so a cold start creates even less than it used to.
-    expect(code).toMatch(/const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/);
+    expect(code).toMatch(
+      /const seedBudget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+    );
+    expect(code).toMatch(/const budget = \{ left: boardBudgetShares\(1\) \};/);
     expect(code).toMatch(/missing\.slice\(0,\s*budget\.left\)/);
   });
 

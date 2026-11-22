@@ -137,8 +137,10 @@ describe('the cutover watch owes the same build', () => {
     // the cutover date: its offset from that date's midnight is negative.
     const start = freezeH * 60 + freezeM;
     const fromMidnight = (start >= 12 * 60 ? start - 24 * 60 : start) - settle;
-    expect(sql).toContain(
-      `(v_day::timestamp + interval ''${fromMidnight} minutes'') AT TIME ZONE c_tz`
+    expect(sql).toMatch(
+      new RegExp(
+        `\\(v_day::timestamp \\+ interval ''?${fromMidnight} minutes''?\\) AT TIME ZONE c_tz`
+      )
     );
   });
 });

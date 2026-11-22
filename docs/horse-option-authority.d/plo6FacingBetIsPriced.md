@@ -68,7 +68,7 @@ Card `plo6_facing_bet_is_priced` (`server/src/benchmark/HorseLeague.ts` via `npx
 | 20261120  | 6,000  | 12,000 | -0.21             | 4.19                      | 3.79                             | 871             | 0, 0, 0, 0                               |
 | 20261121  | 6,000  | 12,000 | +1.29             | 4.22                      | 4.29                             | 955             | 0, 0, 0, 0                               |
 | 20261122  | 6,000  | 12,000 | +3.66             | 3.84                      | 3.77                             | 855             | 0, 0, 0, 0                               |
-| **All 3** | 18,000 | 36,000 | **+1.58**         | **2.36** (`z = +0.67`)    | —                                | 2,681           | **0, 0, 0, 0**                           |
+| **All 3** | 18,000 | 36,000 | **+1.58**         | **2.36** (`z = +0.67`)    | -                                | 2,681           | **0, 0, 0, 0**                           |
 
 Because `plo6FacingBetIsPriced` repairs facing-bet folds against human bettors (HVH48 Auditor C), the Horse-only mirror card tests self-play exploitability and harness safety (`+1.58 +/- 2.36 bb/100`, `z = +0.67`, zero illegal/truncated/corrected/fallback actions across `36,000` hands), which is not statistically significant (`|bb/100| <= 2 x stderr`). Per Coordinator ruling (`2026-11-21T05:16:00Z`), this mirror result did not establish `Evidence MET`, and the PLO6 lane declared a follow-up human-field plus mirror evaluation (`eval-40aba893fbc9`, launched `2026-11-21T05:36:26Z`).
 
@@ -90,7 +90,12 @@ Declaration: `extreme-archive/plo6-audit-01TLQer9Hdf/eval-40aba893fbc9/DECLARATI
 
 ## What the activation row must contain
 
-None while `FAIL` stands: `plo6FacingBetIsPriced` must NOT be activated (`on` or `shadow`) and is queued to move to `OPTION_SWITCH_OFF_ONLY` (`state = 'off'` only) in Turn 4. Lifting the lock requires fixing the three root causes above, re-declaring and passing both human-field and mirror evaluations alongside audited replay, and updating this authority file.
+None while `FAIL` stands: `plo6FacingBetIsPriced` must NOT be activated (`on` or `shadow`) and is locked in `OPTION_SWITCH_OFF_ONLY` (`state = 'off'` only) in Turn 5. Lifting the lock requires fixing the three root causes above, re-declaring and passing both human-field and mirror evaluations alongside audited replay, and updating this authority file.
+
+## Rollback
+
+- Locked `off-only` (`OPTION_SWITCH_OFF_ONLY`, status `harm`) in both the engine registry and the Turn 5 database switch-list migration (`20261122181616_horse_option_switch_turn5_antigravity_train.sql`): `on`, `shadow`, and `on_shadow` are refused at the parser, registry, and database CHECK constraint levels.
+- If any legacy row ever existed, `fn_ca_horse_option_switch_set('plo6FacingBetIsPriced', 'off', ...)` (or the `horse-option-switch` CLI) enforces `off` across all live workers within ~30s with zero data migration.
 
 ## Replay
 
