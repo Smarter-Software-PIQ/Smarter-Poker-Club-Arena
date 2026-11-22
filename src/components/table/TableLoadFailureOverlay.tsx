@@ -28,9 +28,9 @@ export function TableLoadFailureOverlay({
         <SpadeConsole
           as="div"
           eyebrow="The Table"
-          title={missing ? 'Table Closed' : 'Cannot Reach It'}
+          title={missing ? 'Table Unavailable' : 'Cannot Reach It'}
           titleId="table-load-failure-title"
-          pill={missing ? 'Gone' : 'Offline'}
+          pill={missing ? 'Unavailable' : 'Offline'}
           pillInk={missing ? 'muted' : 'red'}
           /* TWO ACTIONS OR NONE. The foot paints BOTH plates, so handing it
              one action leaves an empty painted button beside it - which reads
@@ -56,7 +56,7 @@ export function TableLoadFailureOverlay({
         >
           <p className="sc-copy sc-copy--center table-load-failure__body">
             {missing
-              ? 'That Game Has Finished And The Table Was Taken Down. Nothing Was Charged And No Seat Was Taken.'
+              ? 'This Table Is Closed, Finished, Or Belongs To A Club You Have Not Joined Yet. Nothing Was Charged And No Seat Was Taken.'
               : 'We Could Not Load This Table After Five Tries. Your Connection May Be Down.'}
           </p>
           {missing && (

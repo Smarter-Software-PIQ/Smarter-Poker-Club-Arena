@@ -312,17 +312,50 @@ export function tableShareUrl(tableId: string, origin?: string): string {
 }
 
 /**
- * Canonical invite URL for any Club Arena game: cash tables and seated
- * seat-first tables point directly at the table; MTTs, multi-seat SNGs, Spins
- * and Satellites shared from the lobby point at the tournament preview link.
+ * Direct link to a Lightning Cash cluster's join door.
+ * A Lightning pool session id belongs solely to one player — sharing that id
+ * sends everyone else to a missing-table screen. Sharing the cluster's
+ * `/lightning/:clusterId` route takes any club member straight into the pool.
  */
-export function gameInviteUrl(
-  target: { kind: 'table'; id: string } | { kind: 'tournament'; id: string },
-  origin?: string
-): string {
-  return target.kind === 'tournament'
-    ? tournamentShareUrl(target.id, origin)
-    : tableShareUrl(target.id, origin);
+export function lightningShareUrl(clusterId: string, origin?: string): string {
+  return `${origin ?? publicOrigin()}/hub/club-arena/lightning/${encodeURIComponent(clusterId)}`;
+}
+
+export type GameInviteTarget =
+  | { kind: 'table'; id: string }
+  | { kind: 'tournament'; id: string }
+  | { kind: 'lightning'; id: string };
+
+/**
+ * Canonical invite target for any lobby row: Lightning cash games route to
+ * their cluster entry door, classic cash games route to the live table, and
+ * tournaments (MTT, Spin, Heads-Up SNG, Satellite) route to the tournament
+ * preview link.
+ */
+export function lobbyEntryInviteTarget(entry: {
+  id: string;
+  kind: string;
+  game?: { id?: string | null; lightning?: unknown } | null;
+}): GameInviteTarget {
+  if (entry.kind === 'cash') {
+    if (entry.game?.lightning && entry.game.id) {
+      return { kind: 'lightning', id: entry.game.id };
+    }
+    return { kind: 'table', id: entry.id };
+  }
+  return { kind: 'tournament', id: entry.id };
+}
+
+/**
+ * Canonical invite URL for any Club Arena game: Lightning clusters point at
+ * their Lightning join route; classic cash tables and seated seat-first tables
+ * point directly at the table; MTTs, multi-seat SNGs, Spins and Satellites
+ * shared from the lobby point at the tournament preview link.
+ */
+export function gameInviteUrl(target: GameInviteTarget, origin?: string): string {
+  if (target.kind === 'tournament') return tournamentShareUrl(target.id, origin);
+  if (target.kind === 'lightning') return lightningShareUrl(target.id, origin);
+  return tableShareUrl(target.id, origin);
 }
 
 /** Consistent invite sentence paired with a game invite link. */
