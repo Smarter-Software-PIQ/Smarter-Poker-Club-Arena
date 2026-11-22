@@ -1,0 +1,15 @@
+# 2026-11-21: E5 Container-Safe Image Retention and E6 Three-Hourly Break Reporting
+
+## Summary
+
+- **E5 (`server/scripts/retain-engine-images.sh`):** Before retiring any abandoned candidate tag, obsolete exact-SHA engine tag, or unprotected dangling engine image, inspect all Docker containers (`docker ps -a --no-trunc --format '{{.Image}}\t{{.ID}}\t{{.Status}}'`) and resolve each container's image ID via `docker container inspect -f '{{.Image}}'`. Any tag or image ID referenced by an existing container (such as an exited container holding an old tag) is skipped with a clear stdout notice naming the ref, container ID, and status, and retention continues removing all other unreferenced obsolete tags. Never force-removes (`-f`/`--force`) a referenced image and never deletes containers.
+- **E6 (`supabase/migrations/20261122002835_three_hourly_break_scorecard_and_weekly_report.sql`):**
+  - `public.fn_ca_record_break_scorecard(timestamptz)` preserves grading of every break recorded in `engine_maintenance_break_log`, and updates the `break_never_started` fallback to detect three-hourly cadence from recent 24h `engine_maintenance_break_log` rows (scheduled non-04 Chicago slots in `{1, 7, 10, 13, 16, 19, 22}`). When three-hourly is active, it synthesizes expected `:05` ends for all eight Chicago hours `{1, 4, 7, 10, 13, 16, 19, 22}` within the last hour (excluding the repeated 01:00 CST hour on fall-back day); otherwise it preserves the daily `04:05` America/Chicago anchor.
+  - `public.fn_maintenance_week_report(integer)` reports `observed_cadence` (`three-hourly` vs `daily`) and `expected_breaks_per_day` (`8` vs `1`) from actual break/thaw rows, aligns `dealing_by_minute` with the scheduled Chicago `:00-:04` break shape (`before_53_57`, `last_hand_58_59`, `break_00_04`, `after_05_09`), and replaces the stale `24*window_days` hourly wording in `breaks_without_thaw_note`.
+  - Updated `scripts/dev/maintenance-week-report.sh` header comments and `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md` to match.
+
+## Verification
+
+- `tests/operations/retain-engine-images.test.py` and `tests/engine-release-seal.law.test.ts` prove container-referenced exact-SHA tags, candidate tags, and dangling images are skipped with clear notices without force removal or container deletion, while unreferenced obsolete images are removed and sealed/running/leased/5-rollback protections remain intact.
+- `scripts/ci/test-daily-maintenance-observation.py` executes both the historical daily migration and `20261122002835_three_hourly_break_scorecard_and_weekly_report.sql` on isolated PostgreSQL 17, proving preimage verification, replay refusal, `@live-proof` flip, daily/three-hourly/DST/emergency fallback selection, weekly report cadence switching, and `service_role`-only ACLs.
+- All applicable law and migration guards verified: `tests/a-banned-character-must-not-reach-the-database.law.test.ts`, `tests/a-migration-proves-its-functions-before-commit.law.test.ts`, `scripts/ci/check-migration-hot-row-locks.mjs`, `scripts/ci/verify-source-bindings.py`, `tests/the-break-clocks-agree.law.test.ts`, and `tests/the-runbook-names-what-it-cites.law.test.ts`.
