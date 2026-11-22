@@ -1113,7 +1113,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCoreNetsTheWholeDeduction',
-    'EMERG lane RAKE 2026-11-20 (lead order: every PLO4/PLO5 cash Horse decision rake-aware on the math). Default OFF (read === true); nothing without omahaMathCore. The math core nets every pot it prices of the whole deduction: the rake cap of the dealt-player tier (not the table cap), the fixed jackpot drop when it is collected, and both on a preflop line that reaches a flop; a preflop pot won because everyone folded still pays nothing (no flop, no drop). Off, the core nets the percentage and the table cap after the flop only and prices every preflop line rake-free. Public table rules only. PLO6 is outside the core.',
+    'INERT (lane CORE-FIX-1, AUDIT-A item 11, Nov 21): changes no decision. Since lane CORE-POOLED-4 the core nets the whole platform deduction by default and reads this option nowhere (law: OmahaMathCoreCoreFix1.law.test.ts, CORE-FIX-1: the option changes no decision); it stays registered only because the switch lists name it (retiring it needs a switch-list migration). Before: EMERG lane RAKE 2026-11-20 (lead order: every PLO4/PLO5 cash Horse decision rake-aware on the math). Default OFF (read === true); nothing without omahaMathCore. The math core nets every pot it prices of the whole deduction: the rake cap of the dealt-player tier (not the table cap), the fixed jackpot drop when it is collected, and both on a preflop line that reaches a flop; a preflop pot won because everyone folded still pays nothing (no flop, no drop). Off, the core nets the percentage and the table cap after the flop only and prices every preflop line rake-free. Public table rules only. PLO6 is outside the core.',
     'V94'
   ),
   flag(
@@ -2119,7 +2119,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'option_shadow_*',
     'horseDecision workerRuntime (OPTION SHADOW, HorseOptionShadow)',
-    'option_shadow_<option>_changed_seen / option_shadow_<option>_same_seen: a registered non-style option in shadow (passes nothing to the brain, so the acted decision is the release default) or in on_shadow (passes true, exactly as on; re-decided with false) was re-decided once with its value flipped from the same RNG position, never acted on, and the counterfactual action or amount differed / did not differ; option_shadow_<option>_changed_person_seen / _same_person_seen: the same, only when a person (a seat that is not a Horse) was dealt into the hand (Horse-only = all minus person); the journal field HorseDecision.optionShadowReceipt carries the counterfactual action and amount, street, variant, format and person presence; option_shadow_rotated_out_seen: another option in shadow of the same decision was not re-decided (one per decision, rotated by decision key); option_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen / _skipped_rate_seen: no re-decision because work was queued, the decision had spent the 15 ms budget, the governor scale moved, or the per-minute budget (HORSE_OPTION_SHADOW_PER_MINUTE) was used; option_shadow_scale_mismatch_seen / _redecide_failed_seen / _unencodable_seen: the re-decision ran at another scale, threw, or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
+    'option_shadow_<option>_changed_seen / option_shadow_<option>_same_seen: a registered non-style option in shadow (passes nothing to the brain, so the acted decision is the release default) or in on_shadow (passes true, exactly as on; re-decided with false) was re-decided once with its value flipped from the same RNG position, never acted on, and the counterfactual action or amount differed / did not differ; option_shadow_<option>_changed_person_seen / _same_person_seen: the same, only when a person (a seat that is not a Horse) was dealt into the hand (Horse-only = all minus person); the journal field HorseDecision.optionShadowReceipt carries the counterfactual action and amount, street, variant, format and person presence; option_shadow_rotated_out_seen: another option in shadow of the same decision was not re-decided (one per decision, rotated by decision key); option_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen / _skipped_rate_seen: no re-decision because work was queued, the decision had spent the 15 ms budget, the governor scale moved, or the per-minute budget (HORSE_OPTION_SHADOW_PER_MINUTE) was used (PEOPLE FIRST, 2026-11-21: that budget never refuses a decision with a person dealt in, only Horse-only ones, so _skipped_rate_ fires for a person only when the budget is 0); option_shadow_skipped_<backlog|budget|scale|stage_disabled|rate>_person_seen: the person-present subset of that skip (Horse-only = all minus person); option_shadow_rate_person_over_seen: a decision with a person dealt in was re-decided after the per-minute budget was already used; option_shadow_scale_mismatch_seen / _redecide_failed_seen / _unencodable_seen: the re-decision ran at another scale, threw, or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
     '2026-11-18'
   ),
   receipt(
@@ -8384,6 +8384,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_math_core_refused_choice_priced_call',
     'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD)',
     'a refused or failed worker answer on an omahaMathCore decision was replaced by the priced call or check, never a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_core_error',
+    'OmahaMathCoreRule.omahaMathCoreRule (catch)',
+    'lane CORE-FIX-1: the core threw on an admitted in-scope decision; the rules decision executed (applied false)',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_value_search_error',
+    'OmahaMathCore.decideOmahaMathCore (wired value search catch)',
+    'lane CORE-FIX-1: the wired value search threw; the core priced the decision with its one-step loop',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_equity_collision',
+    'OmahaMathCore.decideOmahaMathCore (equity eq)',
+    'lane CORE-FIX-1: narrow ranges collided on every draw; that equity call was priced against the unconditioned pool',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_tracker_failure',
+    'OmahaMathCoreRangeTrack.trackRanges (catch)',
+    'lane CORE-FIX-1: the range tracker failed; the decision was priced with the untracked public ranges',
     'V94'
   ),
   receipt(

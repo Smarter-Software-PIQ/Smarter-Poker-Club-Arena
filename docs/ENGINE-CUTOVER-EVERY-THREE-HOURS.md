@@ -50,6 +50,24 @@ For the PLO Strategy, Horse On/Off Switches, Antigravity Coordinator and Horse D
 4. **What shipped** is posted after every cycle, sealed or refused, as one comment on issue #11599 "Engine cutover log" (cycle time, sealed SHA, PRs included since the previous seal, or the refusal reason). It is written by the receiver with the job token and is reporting only.
 5. No lane edits release controls (`server/release/**`, `server/scripts/engine-release-*`, `server/src/maintenance/**`, the release workflows) while a booked owner window is open.
 
+## Checking Readiness Before Any Cycle
+
+Any of the four lanes (PLO Strategy, Horse On/Off Switches, Antigravity Coordinator, Horse Decisions) or the Dedicated Engine Cutover owner can inspect the next scheduled cycle with one read-only command:
+
+```bash
+python3 -B scripts/release/three-hourly-readiness.py
+```
+
+Options: `--json` (machine-readable payload), `--limit N` (default `10` first-parent commits on `refs/remotes/origin/main` since the serving SHA), `--repo owner/name` (default `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`).
+
+What it reports without mutating git, dispatching workflows, or touching credentials:
+
+- Live `https://engine.smarter.poker/health` serving `releaseSha`, `frequency`, `startHours`, `phase`, and `stalledTables`.
+- Next DST-aware `America/Chicago` cycle start, preparation cutoff (`start - 30m`, UTC and Chicago), and recommended combined migration + release-control hold start (`cutoff - 75m`).
+- Active `stage-engine-release.yml` reservation run and active `backup-engine.yml` runs on `main`.
+- Recent first-parent commits on `refs/remotes/origin/main` since the serving SHA with `backup-engine/certified` state, latest `engine-release-prequalification.yml` status and run ID, `CONTROL_INPUTS` projection equality vs `origin/main` (via `scripts/ci/read-engine-prequalification.py`), and per-candidate `SELECTABLE`, `PENDING`, or `DISQUALIFIED` classification with an exact single-line reason.
+- Top-level verdict: `READY`, `IN_FLIGHT`, `NO_CANDIDATE` (exit `0`), or `UNKNOWN` (exit `3`) whenever any live health, git, or GitHub API read is unavailable (CLAUDE.md 10.86).
+
 ## Rolling Back The Cadence
 
 Set `frequency` to `"daily"` in `server/src/maintenance/maintenanceSchedulePolicy.json`, merge, and let the next 04:00 release seal; the engine then breaks only at 04:00 again, and every cycle-aware surface follows the serving schedule.
