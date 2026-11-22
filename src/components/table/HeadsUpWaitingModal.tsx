@@ -19,9 +19,18 @@ import {
 } from '../../lib/share';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { OnlineFriendInvitePicker } from './OnlineFriendInvitePicker';
 import './HeadsUpWaitingModal.css';
 
 export type HeadsUpWaitMode = 'specific' | 'anyone';
+
+export interface HeadsUpFriendInviteTarget {
+  tableId: string;
+  tournamentId?: string | null;
+  clubId?: string | null;
+  inviteCode?: string | null;
+  inviteToken?: string | null;
+}
 
 export interface HeadsUpWaitingModalProps {
   isOpen: boolean;
@@ -29,8 +38,14 @@ export interface HeadsUpWaitingModalProps {
   initialStep?: 'choice' | 'invite';
   tableName: string;
   inviteUrl: string;
-  onChooseSpecific: () => void;
-  onChooseAnyone: () => void;
+  /** Optional target context enabling inline one-tap online friend invites. */
+  friendInviteTarget?: HeadsUpFriendInviteTarget | null;
+  /** True while persisting the player's wait-mode choice to the server. */
+  busy?: boolean;
+  /** Honest inline error when persisting wait mode failed. */
+  errorMessage?: string | null;
+  onChooseSpecific: () => void | boolean | Promise<boolean | void>;
+  onChooseAnyone: () => void | boolean | Promise<boolean | void>;
   onClose: () => void;
   onNotify?: (kind: 'success' | 'info', message: string) => void;
 }
@@ -40,6 +55,9 @@ export function HeadsUpWaitingModal({
   initialStep = 'choice',
   tableName,
   inviteUrl,
+  friendInviteTarget,
+  busy = false,
+  errorMessage = null,
   onChooseSpecific,
   onChooseAnyone,
   onClose,
@@ -52,6 +70,7 @@ export function HeadsUpWaitingModal({
   const [step, setStep] = useState<'choice' | 'invite'>(initialStep);
   const [copied, setCopied] = useState(false);
   const [fallbackUrl, setFallbackUrl] = useState('');
+  const [showFriendPicker, setShowFriendPicker] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initialize the step only when transitioning from closed -> open so changing
@@ -62,6 +81,7 @@ export function HeadsUpWaitingModal({
       setStep(initialStep);
       setCopied(false);
       setFallbackUrl('');
+      setShowFriendPicker(false);
     }
     wasOpenRef.current = isOpen;
   }, [isOpen, initialStep]);
@@ -173,14 +193,28 @@ export function HeadsUpWaitingModal({
   }, [inviteUrl, markCopied, onNotify, tableName]);
 
   const handlePickSpecific = useCallback(() => {
-    onChooseSpecific();
-    setStep('invite');
-  }, [onChooseSpecific]);
+    if (busy) return;
+    const result = onChooseSpecific();
+    if (result && typeof (result as Promise<boolean | void>).then === 'function') {
+      void (result as Promise<boolean | void>).then((ok) => {
+        if (ok !== false) setStep('invite');
+      });
+      return;
+    }
+    if (result !== false) setStep('invite');
+  }, [busy, onChooseSpecific]);
 
   const handlePickAnyone = useCallback(() => {
-    onChooseAnyone();
-    onClose();
-  }, [onChooseAnyone, onClose]);
+    if (busy) return;
+    const result = onChooseAnyone();
+    if (result && typeof (result as Promise<boolean | void>).then === 'function') {
+      void (result as Promise<boolean | void>).then((ok) => {
+        if (ok !== false) onClose();
+      });
+      return;
+    }
+    if (result !== false) onClose();
+  }, [busy, onChooseAnyone, onClose]);
 
   const showShareSheet = hasShareSheet();
 
@@ -205,11 +239,13 @@ export function HeadsUpWaitingModal({
               plates={{
                 secondary: {
                   label: 'Play Anyone',
+                  disabled: busy,
                   onClick: handlePickAnyone,
                 },
                 primary: {
                   ink: 'white',
                   label: 'Specific Player',
+                  disabled: busy,
                   onClick: handlePickSpecific,
                 },
               }}
@@ -221,6 +257,11 @@ export function HeadsUpWaitingModal({
               <p className="hu-waiting-dialog__hint">
                 Choose Specific Player To Get An Invite Link You Can Send Directly To Your Opponent.
               </p>
+              {errorMessage && (
+                <p className="hu-waiting-dialog__error" role="alert">
+                  {errorMessage}
+                </p>
+              )}
             </SpadeConsole>
           ) : (
             <SpadeConsole
@@ -261,6 +302,33 @@ export function HeadsUpWaitingModal({
               {fallbackUrl && (
                 <div className="hu-waiting-dialog__fallback">
                   <ShareLinkFallback url={fallbackUrl} label="Game Invite Link" />
+                </div>
+              )}
+              {friendInviteTarget?.tableId && (
+                <div className="hu-waiting-dialog__friends-section">
+                  <button
+                    type="button"
+                    className="hu-waiting-dialog__friends-toggle"
+                    aria-expanded={showFriendPicker}
+                    onClick={() => setShowFriendPicker((prev) => !prev)}
+                  >
+                    {showFriendPicker ? 'Hide Online Friends' : 'Invite Online Friend'}
+                  </button>
+                  {showFriendPicker && (
+                    <OnlineFriendInvitePicker
+                      mode="inline"
+                      kind="tournament"
+                      tableId={friendInviteTarget.tableId}
+                      tournamentId={friendInviteTarget.tournamentId}
+                      clubId={friendInviteTarget.clubId}
+                      tableName={tableName || 'Heads Up Sit N Go'}
+                      inviteCode={friendInviteTarget.inviteCode}
+                      inviteToken={friendInviteTarget.inviteToken}
+                      onInviteSent={(contact) =>
+                        onNotify?.('success', `Invite Sent To ${contact.displayName}`)
+                      }
+                    />
+                  )}
                 </div>
               )}
             </SpadeConsole>

@@ -39,6 +39,17 @@ export interface ParsedAppUrl {
   searchParams: URLSearchParams;
 }
 
+function mapShareShortPath(pathname: string): string | null {
+  const clean = pathname.replace(/\/+$/, '');
+  const gMatch = /^\/g\/([^/?#]+)$/.exec(clean);
+  if (gMatch) return `/table/${gMatch[1]}`;
+  const lMatch = /^\/l\/([^/?#]+)$/.exec(clean);
+  if (lMatch) return `/lightning/${lMatch[1]}`;
+  const tMatch = /^\/t\/([^/?#]+)$/.exec(clean);
+  if (tMatch) return `/tournaments/${tMatch[1]}`;
+  return null;
+}
+
 /** Pure: turn either URL shape into an in-app path. null = not ours. */
 export function parseAppUrl(raw: string): ParsedAppUrl | null {
   let url: URL;
@@ -53,7 +64,8 @@ export function parseAppUrl(raw: string): ParsedAppUrl | null {
   if (url.protocol === `${SCHEME}:`) {
     // clubarena://clubs/abc -> host 'clubs', pathname '/abc'
     const joined = `/${url.host}${url.pathname}`.replace(/\/+$/, '') || '/';
-    return { path: `${joined === '' ? '/' : joined}${url.search}`, hashParams, searchParams };
+    const mapped = mapShareShortPath(joined) ?? joined;
+    return { path: `${mapped === '' ? '/' : mapped}${url.search}`, hashParams, searchParams };
   }
   if (url.protocol === 'https:' || url.protocol === 'http:') {
     const p = url.pathname;
@@ -65,6 +77,14 @@ export function parseAppUrl(raw: string): ParsedAppUrl | null {
     // the in-app /i/:code route, which resolves it to the club's join page.
     if (ours && /^\/i\/[A-Za-z0-9]{7}\/?$/.test(p)) {
       return { path: `${p.replace(/\/$/, '')}${url.search}`, hashParams, searchParams };
+    }
+    // Shared table (/g/:id), Lightning (/l/:id), and tournament (/t/:id)
+    // preview links resolve straight to their in-app destinations on native.
+    if (ours) {
+      const mapped = mapShareShortPath(p);
+      if (mapped) {
+        return { path: `${mapped}${url.search}`, hashParams, searchParams };
+      }
     }
     // capacitor://localhost and https://localhost are the webview itself.
     if (url.hostname === 'localhost') {

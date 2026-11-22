@@ -33,6 +33,19 @@ CONTROL_INPUTS = [
     "server/scripts",
     "server/src/maintenance",
 ]
+CONTROL_INPUT_TEST_EXCLUDED_DIRS = (
+    "server/scripts/",
+    "server/src/maintenance/",
+)
+PURE_TEST_FILE_SUFFIXES = (
+    ".law.test.ts",
+    ".test.ts",
+    ".spec.ts",
+    ".test.py",
+    ".test.mjs",
+    ".test.js",
+    ".test.cjs",
+)
 
 
 class Unqualified(Exception):
@@ -57,6 +70,35 @@ def protected(sha):
     git("merge-base", "--is-ancestor", sha, "refs/remotes/origin/main")
 
 
+def _is_pure_test_control_path(path):
+    """True only for pure unit/law test files inside directory CONTROL_INPUTS.
+
+    Explicit CONTROL_INPUTS files (workflows, recorded-migrations.manifest.json,
+    etc.) and all production/release scripts remain hashed.
+    """
+    if not path.startswith(CONTROL_INPUT_TEST_EXCLUDED_DIRS):
+        return False
+    name = path.rsplit("/", 1)[-1]
+    if any(name.endswith(suffix) and len(name) > len(suffix) for suffix in PURE_TEST_FILE_SUFFIXES):
+        return True
+    if name.startswith("test_") and name.endswith(".py") and len(name) > len("test_.py"):
+        return True
+    return False
+
+
+def _filter_projection_tree(tree_output):
+    """Drop pure unit/law test entries from `git ls-tree -r` by exact path field."""
+    if not tree_output:
+        return ""
+    kept = []
+    for line in tree_output.splitlines():
+        _, sep, path = line.partition("\t")
+        if sep and _is_pure_test_control_path(path):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def projection(sha, *, release_authority=False):
     paths = list(CONTROL_INPUTS)
     if release_authority:
@@ -64,7 +106,7 @@ def projection(sha, *, release_authority=False):
         # must wait for a new selection. The candidate's older expired orders
         # are assessed separately by the daily-compatibility policy.
         paths.extend(("server/release/activation-floor.json", "server/release/owner-maintenance-windows.json"))
-    return git("ls-tree", "-r", sha, "--", *paths)
+    return _filter_projection_tree(git("ls-tree", "-r", sha, "--", *paths))
 
 
 def backup_projection(sha):

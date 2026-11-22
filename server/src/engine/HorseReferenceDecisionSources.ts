@@ -259,6 +259,12 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the math core public tables (provenance public_actions / showdown_only), every player pooled (lane CORE-POOLED): response frequencies to wagers, wager frequencies, shown non-value shares, preflop action frequencies, fold facing a raise; no person/Horse field, no per-user rows',
     'src/engine/omahaMathCore/OmahaMathCoreAcceptance.ts':
       'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
+    'src/engine/opponentHud/OmahaMathCoreHudRecords.ts':
+      'lane CORE-EXTEND-5 seat-only opponent-record adapter over the decision HUD packet (hudCbetRaiseRecord for PLO4 flop continuation bets); read only while a default-off math core street flag is on',
+    'src/engine/omahaMathCore/OmahaMathCoreTurnRiver.ts':
+      'lane core-repair B3 opponent-lifetime-backed PLO5 turn/river facing-bet pricing (cumulative fw1 tail mass, barrel sharpening, station/nit guard, capped turn continuation, river K_allin=25); default OFF behind omahaMathCorePlo5Turn / omahaMathCorePlo5River',
+    'src/engine/opponentHud/OmahaMathCoreTurnRiverHud.ts':
+      'lane core-repair B3 seat-only HUD adapter over OpponentHudPacket (hudFirstWagerSizeCounts + hudBarrelRecord) for PLO5 turn/river math core; read only while a default-off math core turn/river flag is on',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
     'src/engine/HorseOmahaBetRead.ts':
@@ -323,6 +329,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off heads-up hold’em postflop balance (holdemHeadsUpPostflopBalance, HV31 FLOP-5): the in-position flop continuation-bet mix, bounded flop check-raise defence and checked-to turn bet mix; river decisions remain unchanged',
     'src/engine/HorseHoldemPersonaPostflop.ts':
       "the default-off persona postflop scales (holdemPersonaPostflop, 2026-11-15): the persona's check-trap threshold and the archetype's turn-takeaway and range continuation-bet multipliers in no-limit hold'em",
+    'src/engine/holdemEmpiricalPriors.ts':
+      "measured NLH empirical pool priors and smooth Empirical-Bayes shrinkage helpers (Horse Switch lane 2026-11-21): fold-to-river-raise priors by raise kind, true villain incremental raise call price, measured all-callers river bluff share, and flop/turn fold priors; reached only by default-off priced Hold'em options (off is never entered)",
     'src/engine/HorseHoldemPersonaPreflop.ts':
       "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
     'src/engine/HorseHoldemRiverFullHouseValue.ts':
