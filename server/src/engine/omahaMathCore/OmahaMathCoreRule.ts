@@ -568,6 +568,7 @@ export function omahaMathCoreState(
     line,
     band,
     wagerFrac,
+    checkedBeforeWager: checkedFirst.size > 0,
     heroWagerLine,
     preflopRaises: preRaises,
     rake,
@@ -800,7 +801,19 @@ export function omahaMathCoreRule(
         liveOpps.length === 1 &&
         liveOpps[0].seat === coreState.aggressorSeat
       ) {
-        const fw = trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
+        const hudLine: 'stab' | 'lead' = coreState.checkedBeforeWager === true ? 'stab' : 'lead';
+        const lineFw = trProv.firstWager(
+          gs,
+          coreState.aggressorSeat,
+          'plo5',
+          trStage,
+          'hu',
+          hudLine
+        );
+        const fw =
+          lineFw && lineFw.opps > 0
+            ? lineFw
+            : trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
         if (fw && fw.opps > 0) {
           const brl = trProv.barrel?.(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu') ?? null;
           const rvFw =

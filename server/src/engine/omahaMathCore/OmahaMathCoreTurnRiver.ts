@@ -44,8 +44,8 @@ export const OMAHA_MATH_CORE_TR_BASELINE_RATE: Readonly<Record<string, number>> 
   'river|mw': 0.22,
 });
 
-/** Frequency lower-bound sigma multiplier for f_lo (EV check additionally applies K_ev = 5 / K_allin = 25). */
-export const OMAHA_MATH_CORE_TR_FREQ_K = 3;
+/** Frequency lower-bound sigma multiplier for f_lo (plain call then applies K_ev = 5 on pool SE; river commit applies K_allin = 25 on full quadrature SE). */
+export const OMAHA_MATH_CORE_TR_FREQ_K = 2;
 
 /** River all-in stack-commit EV margin in SE (RIVER-CORE law). */
 export const OMAHA_MATH_CORE_TR_RIVER_ALLIN_K = 25;
@@ -81,7 +81,8 @@ export interface OmahaMathCoreTurnRiverProvider {
     seat: number,
     game: 'plo4' | 'plo5',
     street: 'turn' | 'river',
-    players: 'hu' | 'mw'
+    players: 'hu' | 'mw',
+    line?: 'stab' | 'lead'
   ): TurnRiverFirstWagerRecord | null;
   barrel?(
     table: unknown,
@@ -455,13 +456,17 @@ export function priceTurnRiverLifetimeCall(input: {
   const sMinus1 = shareAt(Math.max(0, freq.f - freq.fSe));
   const mLo = Math.max(1, mOf(freq.fLo));
   const sePool = Math.sqrt(Math.max(0, sAtFLo * (1 - sAtFLo)) / mLo);
-  const seShare = Math.hypot(Math.max(0, sAtF - sMinus1), sePool);
+  const seFull = Math.hypot(Math.max(0, sAtF - sMinus1), sePool);
 
-  // River stack-committing calls require K_allin = 25 (RIVER-CORE law); plain calls require K
-  const kApplied = street === 'river' && commitsStack ? OMAHA_MATH_CORE_TR_RIVER_ALLIN_K : K;
-  const shareLo = Math.max(0, Math.min(sAtFLo, sAtF - kApplied * seShare));
+  // River stack-committing calls require K_allin = 25 on full quadrature SE (RIVER-CORE law);
+  // plain calls evaluate worst-case equity at fLo (already kFreq SE below f) minus K * sePool (no double-penalty of fSe).
+  const isRiverCommit = street === 'river' && commitsStack;
+  const kApplied = isRiverCommit ? OMAHA_MATH_CORE_TR_RIVER_ALLIN_K : K;
+  const shareLo = isRiverCommit
+    ? Math.max(0, Math.min(sAtFLo, sAtF - kApplied * seFull))
+    : Math.max(0, sAtFLo - kApplied * sePool);
   const evCall = sAtFLo * netPot - callChips;
-  const evCallSe = seShare * netPot;
+  const evCallSe = (isRiverCommit ? seFull : sePool) * netPot;
   const evCallLo = shareLo * netPot - callChips;
   const proven = shareLo > 0 && evCallLo > 0;
   resetOmahaBestMemo();

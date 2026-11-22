@@ -30,16 +30,21 @@ export const omahaMathCoreTurnRiverHud: OmahaMathCoreTurnRiverProvider = {
   active(game) {
     return decisionHudFamily() === game;
   },
-  firstWager(table, seat, game, street, players) {
+  firstWager(table, seat, game, street, players, line) {
     try {
       const id = seatUserId(table, seat);
       if (!id) return null;
       const family = decisionHudFamily();
       if (family !== game) return null;
-      const sz = hudFirstWagerSizeCounts(id, family, { street, players });
+      const sz = hudFirstWagerSizeCounts(id, family, {
+        street,
+        players,
+        ...(line ? { line } : {}),
+      });
       if (!sz) return null;
       const sk = street === 'turn' ? 't' : 'r';
-      const priorRead = hudStat(id, family, `${sk}.stab.${players}`, undefined, false);
+      const priorStat = line ? `${sk}.${line}.${players}` : `${sk}.stab.${players}`;
+      const priorRead = hudStat(id, family, priorStat, undefined, false);
       return {
         opps: sz.opps,
         bets: sz.bets,

@@ -495,4 +495,71 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     );
     expect(turnCheckRes.action).toBe('check');
   });
+
+  it('11. line-specific stab vs lead read: low lead rate never dilutes a 100% checked-to pot-stabber', () => {
+    const U_STAB = '00000000-0000-4000-8000-000000000002';
+    const U_HERO = '00000000-0000-4000-8000-000000000001';
+    const pMix = emptyHudProfile(U_STAB, 'plo5');
+    pMix.hands = 300;
+    // Checked-to stabs: 40/40 (100% pot-stabber); First-to-act leads: 4/40 (10%)
+    pMix.life['r.stab.hu'] = [40, 40];
+    pMix.life['r.lead.hu'] = [40, 4];
+    pMix.xc = { 'r.fw.stab.hu.b11': 40, 'r.fw.lead.hu.b11': 4 };
+
+    const gs = {
+      players: [
+        { seat: 1, user_id: U_HERO },
+        { seat: 2, user_id: U_STAB },
+      ],
+    };
+    installDecisionHud(
+      buildHudPacket(
+        'plo5',
+        [pMix],
+        { 'r.stab.hu': [0.28, 33], 'r.lead.hu': [0.25, 33] },
+        1_800_000_000_000,
+        'river'
+      )
+    );
+    const stabRec = omahaMathCoreTurnRiverHud.firstWager(gs, 2, 'plo5', 'river', 'hu', 'stab');
+    const leadRec = omahaMathCoreTurnRiverHud.firstWager(gs, 2, 'plo5', 'river', 'hu', 'lead');
+    expect(stabRec?.opps).toBe(40);
+    expect(stabRec?.bets).toBe(40);
+    expect(leadRec?.opps).toBe(40);
+    expect(leadRec?.bets).toBe(4);
+  });
+
+  it('12. barrel_air regime (45 river barrel opps at 80%, 0.75x pot) proves +EV plain call without double-fSe penalty while keeping normal/station at 0 flips', () => {
+    const state = makeState({
+      pot: 175,
+      toCall: 75,
+      currentBet: 75,
+      wagerFrac: 0.75,
+      heroStack: 500,
+    });
+    const bins75 = makeBins(9, 40); // b09: (0.656, 0.761]
+    const res = priceTurnRiverLifetimeCall({
+      state,
+      counts: { opps: 80, bets: 40, bins: bins75, priorRate: 0.28 },
+      barrel: { opps: 45, bets: 36 }, // 80% barrel rate
+      riverCounts: null,
+      net: (p) => rakeNet(state, p),
+      k: 5,
+    });
+    expect(res.usedBarrel).toBe(true);
+    expect(res.fLo).toBeGreaterThan(0.42);
+    expect(res.call).toBe(true);
+
+    // Normal 25% bettor at identical sample size stays 0 excess / 0 flips
+    const normal = priceTurnRiverLifetimeCall({
+      state,
+      counts: { opps: 80, bets: 20, bins: makeBins(9, 20), priorRate: 0.28 },
+      barrel: { opps: 45, bets: 11 },
+      riverCounts: null,
+      net: (p) => rakeNet(state, p),
+      k: 5,
+    });
+    expect(normal.excessMass).toBe(0);
+    expect(normal.call).toBe(false);
+  });
 });

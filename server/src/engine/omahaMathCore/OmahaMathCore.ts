@@ -180,6 +180,8 @@ export interface CoreState {
   band: Band | null;
   /** the last wager's share of the pot (bet: added/pot before; raise: (added - to call)/(pot + to call)) */
   wagerFrac: number;
+  /** true when at least one player checked on this street before its first wager (HUD 'stab' vs 'lead') */
+  checkedBeforeWager?: boolean;
   /** the line a hero wager would be (cbet/barrel/stab/probe/donk/raise/check_raise) */
   heroWagerLine: Line;
   /** preflop raises so far (0 unopened, 1 open, 2 three-bet, ...) */
