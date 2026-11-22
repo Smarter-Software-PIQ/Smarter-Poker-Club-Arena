@@ -57,3 +57,7 @@ The passive-caller rows were measured on 2026-11-21 with a card `flh_river_stron
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-21 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it; no audited fixed-limit-versus-people decision set is named in the repository)
+
+## Rollback
+
+If enabled, run `horse-option-switch.mjs set fixedLimitRiverStrongHandLeads off --rollback` (`fn_ca_horse_option_switch_set('fixedLimitRiverStrongHandLeads', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

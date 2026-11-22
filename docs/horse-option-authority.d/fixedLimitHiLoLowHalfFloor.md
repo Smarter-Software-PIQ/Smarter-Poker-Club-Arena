@@ -51,3 +51,7 @@ Sizing probe (`seed 20261115`, `500` pairs): `vs_high_barreler` `0/500`, `vs_tig
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-21 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it; no audited fixed-limit Omaha hi-lo decision set is named in the repository)
+
+## Rollback
+
+If enabled, run `horse-option-switch.mjs set fixedLimitHiLoLowHalfFloor off --rollback` (`fn_ca_horse_option_switch_set('fixedLimitHiLoLowHalfFloor', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

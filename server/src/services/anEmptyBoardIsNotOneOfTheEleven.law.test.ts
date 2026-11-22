@@ -30,12 +30,12 @@ function method(signature: string): string {
   return SRC.slice(start, next < 0 ? undefined : start + signature.length + next);
 }
 
-describe('1. the eleven and the six count opened boards only', () => {
+describe('1. the eleven and the two count opened boards only (Dan 2026-11-22)', () => {
   const room = method('private async seatFirstBoardRoom(');
 
   it('counts boards with a live seat, not every REGISTERING row', () => {
     expect(room).not.toContain("{ count: 'exact', head: true }");
-    expect(room).toContain('await this.openedSeatFirstBoards(');
+    expect(room).toContain('await this.seatFirstBoardsWithALiveSeat(');
     expect(room).toMatch(/boardOpenTarget\(variant\) - count/);
   });
 
@@ -53,21 +53,21 @@ describe('1. the eleven and the six count opened boards only', () => {
   });
 });
 
-describe('2. an empty board is reopened before another is created', () => {
+describe('2. existing empty boards are seeded first when seedBudget > 0, then missing catalogue options open empty (Dan 2026-11-22)', () => {
   const open = method('private async ensureBoardOpen<');
 
-  it('reopens before the create loop, and creates nothing while an empty board remains', () => {
+  it('seeds existing empty boards before creating missing configs, and creates missing configs empty (0/3 & 0/2)', () => {
     const reopen = open.indexOf('await this.reopenEmptySeatFirstBoard(');
     const create = open.indexOf('const result = await create(config, owner);');
     expect(reopen).toBeGreaterThan(0);
     expect(create).toBeGreaterThan(reopen);
-    // The reopen block ends the pass: even a refused reopen spends the budget.
-    const block = open.slice(open.indexOf('if (empty.length > 0) {'), create);
-    // A reopen that found no free horse spends nothing and ends this owner's turn.
+    const block = open.slice(open.indexOf('if (seedBudget.left > 0) {'), create);
+    // A reopen that found no free horse spends no seedBudget and breaks out of
+    // seeding for this owner; a 'skipped' board (e.g. human raced in) spends
+    // no seedBudget and continues to the next empty board.
     expect(block).toMatch(
-      /if \(!\(await this\.reopenEmptySeatFirstBoard\(board\)\)\) return;\s*budget\.left--;/
+      /const outcome = await this\.reopenEmptySeatFirstBoard\(board\);\s*if \(outcome === 'no_horses'\) break;\s*if \(outcome === 'seeded'\) seedBudget\.left--;/
     );
-    expect(block).toMatch(/\}\s*return;\s*\}/);
   });
 
   it('takes exactly the rows the count takes: own type, never a satellite feeder, joinable', () => {
@@ -87,7 +87,7 @@ describe('2b. a board nobody can open spends no budget (2026-11-10)', () => {
   it('asks the owner pool before writing the window', () => {
     const reopen = method('private async reopenEmptySeatFirstBoard(');
     const pool = reopen.indexOf(
-      '(await this.pickFreeHorses(1, false, board.id)).length === 0) return false;'
+      "(await this.pickFreeHorses(1, false, board.id)).length === 0) return 'no_horses';"
     );
     expect(pool).toBeGreaterThan(0);
     expect(reopen.indexOf('.update({ start_time: startTime })')).toBeGreaterThan(pool);
@@ -97,13 +97,14 @@ describe('2b. a board nobody can open spends no budget (2026-11-10)', () => {
 describe('3. a reopened board gets its opening rung before its horse', () => {
   const reopen = method('private async reopenEmptySeatFirstBoard(');
 
-  it('writes start_time first, only on a still-REGISTERING row, and seats nobody if that fails', () => {
+  it('writes start_time first, only on a still-REGISTERING empty row (current_players = 0), and seats nobody if that fails', () => {
     const write = reopen.indexOf('.update({ start_time: startTime })');
     const seat = reopen.indexOf('await this.seedOpenSeatTable(');
     expect(write).toBeGreaterThan(0);
     expect(seat).toBeGreaterThan(write);
     expect(reopen).toContain(".eq('status', 'REGISTERING')");
-    expect(reopen).toMatch(/moved\.length !== 1\)[\s\S]*?return true;/);
+    expect(reopen).toContain(".eq('current_players', 0)");
+    expect(reopen).toMatch(/moved\.length !== 1\)[\s\S]*?return 'skipped';/);
     expect(reopen).toContain('seatFirstOpeningWindowMs(seats)');
   });
 

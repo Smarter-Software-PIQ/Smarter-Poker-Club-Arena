@@ -146,7 +146,7 @@ describe('a newer function body is never overwritten by an older version', () =>
   it('extracts and normalizes watched guard bodies', () => {
     const latestWatch = extractLatestFunctionBody(DIR, 'public.fn_ca_cron_failure_watch');
     expect(latestWatch?.file).toBe(
-      '20261120222900_harden_drill_trigger_body_and_watch_pass_proof.sql'
+      '20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql'
     );
     expect(normalizeSqlBody('/* c */ SELECT 1 -- x\n  + 2')).toBe('SELECT 1 + 2');
     expect(sqlBodyMd5('/* c */ SELECT 1 -- x\n  + 2')).toHaveLength(32);
