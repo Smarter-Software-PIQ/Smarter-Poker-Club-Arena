@@ -17,14 +17,23 @@
  * Swap point: when lane EQUITY publishes equityVsRanges, `equityVsPools`
  * is the one function to route to it.
  */
-import type { Card } from '../../types.js';
-import { equityVsRanges, type OmahaOpponentRange } from '../omaha/OmahaRangeEquity.js';
+import { equityVsIntPools } from '../omaha/OmahaRangeEquity.js';
 import {
-  omahaBest,
+  RANK_KEY,
+  buildPoolFastData,
   categoryOf,
+  createBoardTable,
+  createFiveBoardTriples,
+  getPoolPairKeys,
+  loadBoardTable,
+  loadFiveBoardTriples,
+  scorePairKeysOnFiveBoard,
+  scorePoolHoldingWithBoard,
+  sortIndicesDescStable,
   CAT_TWO_PAIR,
   CAT_TRIPS,
   CAT_STRAIGHT,
+  type PoolFastData,
 } from './OmahaMathCoreEval.js';
 
 export type Rng = () => number;
@@ -65,6 +74,22 @@ export interface Pool {
   order: Int32Array;
 }
 
+const POOL_FAST_CACHE = new WeakMap<Pool, PoolFastData>();
+
+/** Lazily builds and caches precomputed pair/mask geometry for a Pool (auto-GC'd with Pool). */
+export function getPoolFastData(pool: Pool): PoolFastData {
+  let f = POOL_FAST_CACHE.get(pool);
+  if (!f) {
+    f = buildPoolFastData(pool.cards, pool.size, pool.holeCount);
+    POOL_FAST_CACHE.set(pool, f);
+  }
+  return f;
+}
+
+export function setPoolFastData(pool: Pool, fast: PoolFastData): void {
+  POOL_FAST_CACHE.set(pool, fast);
+}
+
 function unseenDeck(known: readonly number[]): number[] {
   const used = new Uint8Array(52);
   for (const c of known) used[c] = 1;
@@ -88,80 +113,93 @@ export function buildPool(
   rng: Rng
 ): Pool {
   const deck = unseenDeck([...hero, ...board]);
+  const deckLen = deck.length;
   const cards = new Int8Array(size * holeCount);
-  const tmp = deck.slice();
+  const tmp = Int8Array.from(deck);
   for (let i = 0; i < size; i++) {
     // partial Fisher-Yates per holding
+    const base = i * holeCount;
     for (let k = 0; k < holeCount; k++) {
-      const j = k + Math.floor(rng() * (tmp.length - k));
+      const j = k + Math.floor(rng() * (deckLen - k));
       const t = tmp[k];
       tmp[k] = tmp[j];
       tmp[j] = t;
-      cards[i * holeCount + k] = tmp[k];
+      cards[base + k] = tmp[k];
     }
   }
+  const fast = buildPoolFastData(cards, size, holeCount);
+  const maskLo = fast.maskLo;
+  const maskHi = fast.maskHi;
   const strength = new Float64Array(size);
   const category = new Int8Array(size).fill(-1);
-  const holding = new Int8Array(holeCount);
   const full = new Int8Array(5);
-  const scores = new Float64Array(size);
-  const missing = 5 - board.length;
-  if (board.length >= 3) {
+  const tbl = createBoardTable();
+  const bLen = board.length;
+  const missing = 5 - bLen;
+  if (bLen >= 3) {
+    loadBoardTable(tbl, board, bLen);
     for (let i = 0; i < size; i++) {
-      for (let k = 0; k < holeCount; k++) holding[k] = cards[i * holeCount + k];
-      category[i] = categoryOf(omahaBest(holding, holeCount, Int8Array.from(board), board.length));
+      category[i] = categoryOf(scorePoolHoldingWithBoard(fast, cards, i, tbl));
     }
   }
   const nRuns = missing === 0 ? 1 : runouts;
-  const valid = new Uint8Array(size);
   const counted = new Float64Array(size);
+  const stride = size <= 4096 ? 4096 : 65536;
+  const invStride = 1 / stride;
+  const packed = new Float64Array(size);
+  for (let k = 0; k < bLen; k++) full[k] = board[k];
   for (let r = 0; r < nRuns; r++) {
-    for (let k = 0; k < board.length; k++) full[k] = board[k];
-    // random completion from the unseen deck
-    const used = new Set<number>();
-    for (let k = board.length; k < 5; k++) {
+    let runLo = 0;
+    let runHi = 0;
+    for (let k = bLen; k < 5; k++) {
       let c: number;
-      do c = deck[Math.floor(rng() * deck.length)];
-      while (used.has(c));
-      used.add(c);
+      for (;;) {
+        c = deck[Math.floor(rng() * deckLen)];
+        if (c < 32) {
+          const bit = 1 << c;
+          if ((runLo & bit) === 0) {
+            runLo |= bit;
+            break;
+          }
+        } else {
+          const bit = 1 << (c - 32);
+          if ((runHi & bit) === 0) {
+            runHi |= bit;
+            break;
+          }
+        }
+      }
       full[k] = c;
     }
+    loadBoardTable(tbl, full, 5);
     let m = 0;
     for (let i = 0; i < size; i++) {
-      let clash = false;
-      for (let k = 0; k < holeCount; k++) {
-        const c = cards[i * holeCount + k];
-        holding[k] = c;
-        if (used.has(c)) clash = true;
-      }
-      valid[i] = clash ? 0 : 1;
-      if (!clash) {
-        scores[i] = omahaBest(holding, holeCount, full, 5);
-        m++;
-      }
+      if ((maskLo[i] & runLo) | (maskHi[i] & runHi)) continue;
+      packed[m++] = scorePoolHoldingWithBoard(fast, cards, i, tbl) * stride + i;
     }
     if (m < 2) continue;
-    // percentile rank among the valid holdings
-    const idx: number[] = [];
-    for (let i = 0; i < size; i++) if (valid[i]) idx.push(i);
-    idx.sort((x, y) => scores[x] - scores[y]);
+    packed.subarray(0, m).sort();
     let p = 0;
-    while (p < idx.length) {
+    const denom = m - 1;
+    while (p < m) {
       let q = p;
-      while (q + 1 < idx.length && scores[idx[q + 1]] === scores[idx[p]]) q++;
-      const pct = (p + q) / 2 / (idx.length - 1);
+      const sp = Math.floor(packed[p] * invStride);
+      while (q + 1 < m && Math.floor(packed[q + 1] * invStride) === sp) q++;
+      const pct = (p + q) / 2 / denom;
       for (let t = p; t <= q; t++) {
-        strength[idx[t]] += pct;
-        counted[idx[t]] += 1;
+        const v = packed[t];
+        const ii = v - Math.floor(v * invStride) * stride;
+        strength[ii] += pct;
+        counted[ii] += 1;
       }
       p = q + 1;
     }
   }
   for (let i = 0; i < size; i++) strength[i] = counted[i] > 0 ? strength[i] / counted[i] : 0;
-  const order = Int32Array.from(
-    Array.from({ length: size }, (_, i) => i).sort((x, y) => strength[y] - strength[x])
-  );
-  return { holeCount, cards, size, strength, category, order };
+  const order = sortIndicesDescStable(strength, size);
+  const pool: Pool = { holeCount, cards, size, strength, category, order };
+  setPoolFastData(pool, fast);
+  return pool;
 }
 
 /** One part of a range: holdings of the pool (indices) with a weight. */
@@ -254,16 +292,37 @@ export interface EquityResult {
   ms: number;
 }
 
-function pickHolding(range: RangeSpec, rng: Rng): number {
+interface PreparedPoolRange {
+  readonly parts: readonly RangePart[];
+  readonly cdf: Float64Array;
+  readonly total: number;
+  readonly last: number;
+}
+
+function preparePoolRange(range: RangeSpec): PreparedPoolRange {
+  const parts = range.parts;
+  const len = parts.length;
+  const cdf = new Float64Array(len);
   let total = 0;
-  for (const p of range.parts) total += p.weight;
-  let u = rng() * total;
-  for (const p of range.parts) {
-    if (u < p.weight || p === range.parts[range.parts.length - 1])
-      return p.idx[Math.floor(rng() * p.idx.length)];
-    u -= p.weight;
+  for (let i = 0; i < len; i++) {
+    total += parts[i].weight;
+    cdf[i] = total;
   }
-  return range.parts[0].idx[0];
+  return { parts, cdf, total, last: len - 1 };
+}
+
+function pickHoldingFast(pr: PreparedPoolRange, rng: Rng): number {
+  const u = rng() * pr.total;
+  let lo = 0;
+  let hi = pr.last;
+  const cdf = pr.cdf;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (u < cdf[mid]) hi = mid;
+    else lo = mid + 1;
+  }
+  const idx = pr.parts[lo].idx;
+  return idx[Math.floor(rng() * idx.length)];
 }
 
 /**
@@ -285,16 +344,45 @@ export function equityVsPools(
   }
 ): EquityResult {
   const t0 = opts.now();
+  if (ranges.length === 0) return { equity: 1, se: 0, samples: 0, ms: 0 };
   const hc = hero.length;
   const heroArr = Int8Array.from(hero);
+  const nPairs = (hc * (hc - 1)) >> 1;
+  const heroPairKeys = new Int32Array(nPairs);
+  let hSeen = 0;
+  let heroSuitMask = 0;
+  for (let k = 0; k < hc; k++) {
+    const sb = 1 << (heroArr[k] & 3);
+    heroSuitMask |= hSeen & sb;
+    hSeen |= sb;
+  }
+  {
+    let p = 0;
+    for (let a = 0; a < hc - 1; a++) {
+      const ka = RANK_KEY[heroArr[a] >> 2];
+      for (let b = a + 1; b < hc; b++) heroPairKeys[p++] = ka + RANK_KEY[heroArr[b] >> 2];
+    }
+  }
+  const fast = getPoolFastData(pool);
+  const pMaskLo = fast.maskLo;
+  const pMaskHi = fast.maskHi;
+  const pPairKeys = getPoolPairKeys(fast, pool.cards);
+  const pSuitMask = fast.suitMask;
+  const pPairs = fast.nPairs;
+  const pHc = pool.holeCount;
+  const pCards = pool.cards;
+  const prep = ranges.map(preparePoolRange);
+  const nRanges = prep.length;
+  const picks = new Int32Array(nRanges);
+  const bLen = board.length;
   const full = new Int8Array(5);
-  const used = new Uint8Array(52);
+  for (let k = 0; k < bLen; k++) full[k] = board[k];
   const deck = unseenDeck([...hero, ...board]);
-  const oppCards = new Int8Array(pool.holeCount);
+  const deckLen = deck.length;
+  const bt = createFiveBoardTriples();
   let sum = 0,
     sumSq = 0,
     n = 0;
-  if (ranges.length === 0) return { equity: 1, se: 0, samples: 0, ms: 0 };
   // Termination never reads the clock: the number of draws is bounded, so the result is
   // deterministic for a given seed whatever the machine load.
   const maxDraws = Math.max(opts.maxSamples, opts.minSamples) * 4;
@@ -312,46 +400,76 @@ export function equityVsPools(
     }
     for (let batch = 0; batch < 64; batch++) {
       draws++;
-      used.fill(0);
-      const picks: number[] = [];
+      let usedLo = 0;
+      let usedHi = 0;
       let ok = true;
-      for (const range of ranges) {
+      for (let r = 0; r < nRanges; r++) {
+        const pr = prep[r];
         let got = -1;
         for (let tries = 0; tries < 40 && got < 0; tries++) {
-          const i = pickHolding(range, rng);
-          let clash = false;
-          for (let k = 0; k < pool.holeCount; k++)
-            if (used[pool.cards[i * pool.holeCount + k]]) clash = true;
-          if (!clash) got = i;
+          const i = pickHoldingFast(pr, rng);
+          if (((usedLo & pMaskLo[i]) | (usedHi & pMaskHi[i])) === 0) got = i;
         }
         if (got < 0) {
           ok = false;
           break;
         }
-        for (let k = 0; k < pool.holeCount; k++) used[pool.cards[got * pool.holeCount + k]] = 1;
-        picks.push(got);
+        usedLo |= pMaskLo[got];
+        usedHi |= pMaskHi[got];
+        picks[r] = got;
       }
       if (!ok) continue;
-      for (let k = 0; k < board.length; k++) full[k] = board[k];
-      for (let k = board.length; k < 5; k++) {
+      for (let k = bLen; k < 5; k++) {
         let c: number;
-        do c = deck[Math.floor(rng() * deck.length)];
-        while (used[c]);
-        used[c] = 1;
+        for (;;) {
+          c = deck[Math.floor(rng() * deckLen)];
+          if (c < 32) {
+            const bit = 1 << c;
+            if ((usedLo & bit) === 0) {
+              usedLo |= bit;
+              break;
+            }
+          } else {
+            const bit = 1 << (c - 32);
+            if ((usedHi & bit) === 0) {
+              usedHi |= bit;
+              break;
+            }
+          }
+        }
         full[k] = c;
       }
-      const hs = omahaBest(heroArr, hc, full, 5);
-      let best = hs,
-        ties = 1,
-        heroBest = true;
-      for (const i of picks) {
-        for (let k = 0; k < pool.holeCount; k++) oppCards[k] = pool.cards[i * pool.holeCount + k];
-        const s = omahaBest(oppCards, pool.holeCount, full, 5);
-        if (s > best) {
-          best = s;
+      loadFiveBoardTriples(bt, full[0], full[1], full[2], full[3], full[4]);
+      const hs = scorePairKeysOnFiveBoard(
+        heroPairKeys,
+        0,
+        nPairs,
+        heroArr,
+        0,
+        hc,
+        heroSuitMask,
+        bt,
+        -1
+      );
+      let ties = 1;
+      let heroBest = true;
+      for (let r = 0; r < nRanges; r++) {
+        const i = picks[r];
+        const s = scorePairKeysOnFiveBoard(
+          pPairKeys,
+          i * pPairs,
+          pPairs,
+          pCards,
+          i * pHc,
+          pHc,
+          pSuitMask[i],
+          bt,
+          hs
+        );
+        if (s > hs) {
           heroBest = false;
-          ties = 1;
-        } else if (s === best && heroBest) ties++;
+          break;
+        } else if (s === hs) ties++;
       }
       const share = heroBest ? 1 / ties : 0;
       sum += share;
@@ -370,12 +488,7 @@ export function equityVsPools(
 
 // ── lane EQUITY's equityVsRanges (OmahaRangeEquity.ts, exact joint draws, verified evaluator) ──
 
-const DECK: Card[] = Array.from({ length: 52 }, (_, i) => ({
-  rank: '23456789TJQKA'[i >> 2] as Card['rank'],
-  suit: (['clubs', 'diamonds', 'hearts', 'spades'] as const)[i & 3],
-}));
-
-/** The pool ranges as lane EQUITY's weighted combos, priced by equityVsRanges. */
+/** The pool ranges as lane EQUITY's weighted combos, priced by equityVsIntPools (bit-identical to equityVsRanges). */
 export function equityVsPoolsEquityLane(
   hero: readonly number[],
   board: readonly number[],
@@ -386,26 +499,18 @@ export function equityVsPoolsEquityLane(
 ): EquityResult {
   const t0 = opts.now();
   if (ranges.length === 0) return { equity: 1, se: 0, samples: 0, ms: 0 };
-  const opp: OmahaOpponentRange[] = ranges.map((r) => {
-    const combos: { cards: Card[]; weight: number }[] = [];
-    for (const part of r.parts) {
-      if (!part.idx.length || !(part.weight > 0)) continue;
-      const w = part.weight / part.idx.length;
-      for (const i of part.idx) {
-        const cards: Card[] = [];
-        for (let k = 0; k < pool.holeCount; k++)
-          cards.push(DECK[pool.cards[i * pool.holeCount + k]]);
-        combos.push({ cards, weight: w });
-      }
-    }
-    return { kind: 'combos', combos };
-  });
-  const res = equityVsRanges(
-    hero.map((c) => DECK[c]),
-    board.map((c) => DECK[c]),
-    opp,
+  const res = equityVsIntPools(
+    hero,
+    board,
+    pool.cards,
+    getPoolFastData(pool),
+    ranges,
     opts.maxSamples,
-    { targetSE: opts.targetSe, minSamples: opts.minSamples, seed }
+    {
+      targetSE: opts.targetSe,
+      minSamples: opts.minSamples,
+      seed,
+    }
   );
   if (!res) return { equity: NaN, se: NaN, samples: 0, ms: opts.now() - t0 };
   return { equity: res.equity, se: res.se, samples: res.samples, ms: opts.now() - t0 };
