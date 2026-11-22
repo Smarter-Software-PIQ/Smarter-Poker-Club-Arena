@@ -233,6 +233,7 @@ import {
   withOmahaOptionGameScope,
   type OmahaOptionGameScope,
 } from './HorseOmahaOptionGameScope.js';
+import { withBlanketRowsOffInPlo45Cash } from './HorseOmahaBlanketRowsOffInPlo45Cash.js';
 import {
   omahaStrongHandRaiseVerdict,
   omahaStrongHandValueDecision,
@@ -2886,6 +2887,12 @@ export interface GtoV31DecisionReceipt {
 
 /** V3/V4/V5 decision options (benchmark/test hooks — production uses defaults). */
 export interface HorseDecideOpts {
+  /** OPPONENT HUD PROVIDER (2026-11-21, lane OPPONENT-HUD; branch hud-provider): while on, the engine attaches each
+   * PLO4/PLO5 cash opponent's lifetime public profile to the decision request (opponentHud) and the worker installs it
+   * for the accessor (hudStat / hudStatIn / hudLifetimeCount / hudFirstWagerRecord). On this branch NO decision rule
+   * reads it: option on changes no decision (law TheHudProviderChangesNoDecision). Default OFF (read === true);
+   * scopable by horse.omahaGameScope.omahaOpponentLifetimeHud. */
+  omahaOpponentLifetimeHud?: boolean;
   /**
    * Epoch captured when the turn decision was requested. Live decisions can
    * wait in the isolated worker's FIFO; pinning time here prevents queue
@@ -4318,6 +4325,15 @@ export interface HorseDecideOpts {
    * every listed option scoped to the other game is passed false (its off path) before anything reads it. Absent:
    * byte-identical. PLO6, PLO8, hold'em and tournaments are never in scope. */
   omahaOptionGameScope?: OmahaOptionGameScope;
+  /** omahaBlanketRowsOffInPlo45Cash (EMERG lane BLANKET-AUDIT 2026-11-21; HorseOmahaBlanketRowsOffInPlo45Cash.ts):
+   * opt-in (`=== true`), default OFF. With it on, in a PLO4 or PLO5 cash decision every blanket row named in
+   * omahaBlanketRowsOffList (and in OMAHA_BLANKET_ROWS_OFF_REGISTRY) is passed false (its off path) before anything
+   * reads it. Off, no list, PLO6, PLO8, hold'em or a tournament: byte-identical. */
+  omahaBlanketRowsOffInPlo45Cash?: boolean;
+  /** The declared list of omahaBlanketRowsOffInPlo45Cash: a parameter, not an on/off option, set from the engine
+   * runtime settings `horse.blanketRowOffInPlo45Cash.<option>` (absent at the compiled defaults). Only registry
+   * members are read; any other name is ignored. */
+  omahaBlanketRowsOffList?: readonly string[];
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
@@ -15546,6 +15562,7 @@ export interface HoldemAllInCallVerdict {
   readonly street: 'preflop' | 'postflop';
 }
 let holdemAllInCallVerdictPending: HoldemAllInCallVerdict | null = null;
+let holdemAllInCallPhase6RefPending: Phase6ReferenceObservation | null = null;
 /** The priced call of the last decision (holdemTournamentAllInCallIsPriced), for receipts and tests; read only. */
 export function holdemAllInCallVerdictOfLastDecision(): HoldemAllInCallVerdict | null {
   return holdemAllInCallVerdictPending;
@@ -15648,7 +15665,9 @@ function priceHoldemTournamentPreflopAllInCall(
   const live = gs.players.filter(
     (p) => p.seat !== player.seat && !p.is_folded && (p.is_sitting_out !== true || p.is_all_in)
   );
-  const facingAllIn = live.some((p) => p.is_all_in === true && p.bet > 0);
+  const facingAllIn = live.some(
+    (p) => p.is_all_in === true && p.bet > 0 && p.bet >= gs.currentBet - 1e-9
+  );
   if (!facingAllIn && !heroAllInByCall) return null;
   const legal = gs.legalActions;
   if (
@@ -15879,9 +15898,11 @@ export function holdemAllInCallReversal(
 }
 
 /**
- * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, the priced answer the glue gave is the
- * reference's answer, whatever a later layer of the reference made of it. Postflop the price is taken here
- * (the engine's equity is known now) and a call or fold beyond the lock is turned to the priced answer.
+ * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, runs after the reference chooses its
+ * action so a raise or raising all-in is never removed and exact Nash V2 / PioSolver chart_bb_defend answers
+ * on lone open-jams stay intact; every other in-scope fold or call is answered by its price (clearing any
+ * variant_price route when the priced answer takes ownership). Postflop the price is taken here (the engine's
+ * equity is known now) and a call or fold beyond the lock is turned to the priced answer.
  */
 function holdemAllInCallReference(
   decision: HorseDecision,
@@ -15891,20 +15912,51 @@ function holdemAllInCallReference(
   opts: HorseDecideOpts,
   tele: boolean
 ): HorseDecision {
+  const phase6Ref = holdemAllInCallPhase6RefPending;
+  holdemAllInCallPhase6RefPending = null;
   if (opts.holdemTournamentAllInCallIsPriced !== true) return decision;
-  if (gs.stage !== 'preflop')
-    holdemAllInCallVerdictPending = priceHoldemTournamentPostflopCall(player, gs, vi);
+  if (gs.stage === 'preflop') {
+    const shape = holdemCallShape(decision, player, gs);
+    // A raise (or raising all-in) is never removed here: only the call and the fold.
+    if (shape === 'other') return decision;
+    // Exact Nash V2 / PioSolver bb-vs-sb chart answers already own lone open-jams at chip EV.
+    if (phase6Ref?.route === 'chart_bb_defend') return decision;
+    const pricedCall = priceHoldemTournamentPreflopAllInCall(player, gs, vi, opts);
+    if (pricedCall === 'unpriced') {
+      if (tele) noteFire('holdem_tournament_all_in_call_unpriced_seen');
+      return decision;
+    }
+    if (pricedCall === null) return decision;
+    holdemAllInCallVerdictPending = pricedCall;
+    if (
+      phase6Ref &&
+      (phase6Ref.route === 'chart_open_jam' || phase6Ref.route === 'variant_price')
+    ) {
+      phase6Ref.route = 'legacy_preflop';
+      phase6Ref.lookup = null;
+    }
+    if (tele) {
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      if (pricedCall.price.verdict === 'call')
+        noteFire('holdem_tournament_all_in_call_priced_call_seen');
+      else noteFire('holdem_tournament_all_in_call_priced_fold_seen');
+    }
+    if (shape === pricedCall.price.verdict) return decision;
+    if (tele) noteFire('holdem_tournament_all_in_call_reference_kept_seen');
+    return pricedCall.price.verdict === 'call'
+      ? holdemPricedCall(player, gs, decision.thinkTime)
+      : { action: 'fold', thinkTime: decision.thinkTime };
+  }
+  holdemAllInCallVerdictPending = priceHoldemTournamentPostflopCall(player, gs, vi);
   const v = holdemAllInCallVerdictPending;
   if (!v) return decision;
   const shape = holdemCallShape(decision, player, gs);
   if (shape === 'other' || shape === v.price.verdict) return decision;
-  const lock = v.street === 'preflop' ? 0 : holdemAllInCallLock(v);
+  const lock = holdemAllInCallLock(v);
   if (!(Math.abs(v.price.margin) > lock)) return decision;
   if (tele) {
     // Literal keys: the ledger contract finds each receipt by its noteFire call.
-    if (v.street === 'preflop') noteFire('holdem_tournament_all_in_call_reference_kept_seen');
-    else if (v.price.verdict === 'fold')
-      noteFire('holdem_tournament_postflop_call_priced_fold_seen');
+    if (v.price.verdict === 'fold') noteFire('holdem_tournament_postflop_call_priced_fold_seen');
     else if (v.price.margin <= HOLDEM_TOURNAMENT_ALL_IN_LOCK_MARGIN)
       noteFire('holdem_tournament_committed_stack_call_seen');
     else noteFire('holdem_tournament_postflop_all_in_call_priced_seen');
@@ -15925,6 +15977,10 @@ export class HorseLogic {
     // The game scope of the omaha* options (HorseOmahaOptionGameScope; absent: the same object). The identity when
     // decide already applied it.
     if (opts.omahaOptionGameScope) opts = withOmahaOptionGameScope(opts, player, gameState);
+    // omahaBlanketRowsOffInPlo45Cash (HorseOmahaBlanketRowsOffInPlo45Cash; off or no list: the same object). The
+    // identity when decide already applied it.
+    if (opts.omahaBlanketRowsOffInPlo45Cash === true && opts.omahaBlanketRowsOffList)
+      opts = withBlanketRowsOffInPlo45Cash(opts, player, gameState);
     // V45 SCOPED READS: every read in this decision sees the bucket for
     // this card family and table size (HorseMind.readStats). Cleared on
     // every exit, including a throw.
@@ -15949,6 +16005,10 @@ export class HorseLogic {
     // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
     HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
+    // OPPONENT HUD PROVIDER (2026-11-21, branch hud-provider): the option is read here for its receipt only; no
+    // decision rule reads it (law TheHudProviderChangesNoDecision).
+    if (opts.omahaOpponentLifetimeHud === true && telemetryOn(opts))
+      noteFire('opponent_hud_provider_armed_seen');
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
       shrinkResponseReads: opts.readShrinkResponse === true,
@@ -16052,6 +16112,18 @@ export class HorseLogic {
       });
       for (const [option, game] of scopedOff)
         if (telemetryOn(opts)) noteFire(`omaha_option_game_scope_${option}_off_in_plo${game}_seen`);
+    }
+    // omahaBlanketRowsOffInPlo45Cash (EMERG lane BLANKET-AUDIT 2026-11-21, default OFF;
+    // HorseOmahaBlanketRowsOffInPlo45Cash.ts): with the switch on, in a PLO4/PLO5 cash decision every blanket row on
+    // the declared list is off for this decision, before any rule reads it. Off, no list, PLO6 or any other game:
+    // the same opts object runs.
+    if (opts.omahaBlanketRowsOffInPlo45Cash === true && opts.omahaBlanketRowsOffList) {
+      let blanketRowsOff = 0;
+      opts = withBlanketRowsOffInPlo45Cash(opts, player, gameState, () => {
+        blanketRowsOff++;
+      });
+      if (blanketRowsOff > 0 && telemetryOn(opts))
+        noteFire('omaha_blanket_rows_off_in_plo45_cash_applied');
     }
     // omahaNoCategoricalRules (default OFF, lane UNBLOCK 2026-11-19): in a PLO4/PLO5 cash decision every
     // categorical rule's option is off for this decision; off or out of scope the same opts object runs.
@@ -16701,6 +16773,7 @@ export class HorseLogic {
       }
     }
     let phase6Reference: Phase6ReferenceObservation = { route: 'legacy_preflop', lookup: null };
+    holdemAllInCallPhase6RefPending = phase6Reference;
     v87HollywoodEligible = false;
     v87RiverBlockTrapPending = false;
     v86NutBlockerBluffPending = false;
@@ -16715,6 +16788,7 @@ export class HorseLogic {
           (opts.v7Preflop ?? v7)
             ? this.decidePreflopV7Glue(player, gs, vi, params, opts, (observed) => {
                 phase6Reference = observed;
+                holdemAllInCallPhase6RefPending = observed;
               })
             : this.decidePreflop(player, gs, vi, params);
         if (
@@ -19026,9 +19100,18 @@ export class HorseLogic {
           }
         }
         if (raises === 0) {
-          const heroBehindM = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+          const behindOf = (seat: number): number | null =>
+            gs.straddleActive === true
+              ? preflopStraddleOpenBehind(seat, gs, opts.v13 !== false)
+              : preflopPlayersBehind(seat, gs, opts.v13 !== false);
+          const heroBehindM = behindOf(player.seat);
           for (const p of gs.players) {
             if (p.seat === player.seat || p.is_folded || p.is_all_in || p.is_sitting_out) continue;
+            // On a Lightning early look at the deal, seats acting before Hero have not folded
+            // or acted yet; only seats still to act BEHIND Hero belong to maniacBehindWidth,
+            // observedExtremeManiac (behind) and lagBullyIpBehind.
+            const pBehindM = behindOf(p.seat);
+            if (heroBehindM !== null && pBehindM !== null && pBehindM >= heroBehindM) continue;
             const actedM = history.some((a) => a.seat === p.seat && MANIAC_VOLUNTARY.has(a.action));
             if (actedM) continue;
             const pRead = HorseMind.opponentRead(p.user_id);
@@ -19042,12 +19125,7 @@ export class HorseLogic {
               const confirmedLagOrManiac = observedBehind || HorseMind.isLagBully(p.user_id);
               if (confirmedLagOrManiac) {
                 const pPos = classifyGamePosition(p.seat, gs, opts.v13 !== false);
-                const pBehindM = preflopPlayersBehind(p.seat, gs, opts.v13 !== false);
-                if (
-                  pPos !== 'sb' &&
-                  pPos !== 'bb' &&
-                  (heroBehindM === null || pBehindM === null || pBehindM < heroBehindM)
-                ) {
+                if (pPos !== 'sb' && pPos !== 'bb') {
                   lagBullyIpBehind = true;
                 }
               }
@@ -19062,30 +19140,6 @@ export class HorseLogic {
         if (telemetryOn(opts) && observedManiacRaiser) noteFire('observed_maniac_raiser_seen');
       } catch {
         /* reads are best-effort */
-      }
-    }
-
-    // ═══ A HOLD'EM TOURNAMENT ALL-IN CALL IS PRICED (2026-11-19) ═══════════
-    // holdemTournamentAllInCallIsPriced (default OFF, read === true;
-    // HorseHoldemTournamentAllInCall.ts). Every all-in call decision of a
-    // two-card no-limit hold'em tournament hand at 25 big blinds or less (or
-    // a committed stack) is answered by its price: the Horse's equity against
-    // the ranges in the pot, players behind priced as overcallers, against the
-    // exact price with dead money and the bubble factor. It answers before the
-    // Nash caller table and the All-In-Or-Fold strength bar, so neither reads
-    // these spots with the option on. Off, nothing here runs.
-    if (opts.holdemTournamentAllInCallIsPriced === true) {
-      const pricedCall = priceHoldemTournamentPreflopAllInCall(player, gs, vi, opts);
-      if (pricedCall === 'unpriced') {
-        if (telemetryOn(opts)) noteFire('holdem_tournament_all_in_call_unpriced_seen');
-      } else if (pricedCall !== null) {
-        holdemAllInCallVerdictPending = pricedCall;
-        if (pricedCall.price.verdict === 'call') {
-          if (telemetryOn(opts)) noteFire('holdem_tournament_all_in_call_priced_call_seen');
-          return holdemPricedCall(player, gs, 0);
-        }
-        if (telemetryOn(opts)) noteFire('holdem_tournament_all_in_call_priced_fold_seen');
-        return { action: 'fold', thinkTime: 0 };
       }
     }
 
@@ -30586,14 +30640,55 @@ export class HorseLogic {
       const streets = ['flop', 'turn', 'river'] as const;
       const isOpp = (x: (typeof history)[number]) =>
         x.userId === opp.user_id || (x.userId === undefined && x.seat === opp.seat);
+      // Initial dead money (blinds, antes, straddles) absent from voluntary-only actionHistory (#11556):
+      // gs.pot already equals initialPot + sum(voluntary added), so subtracting voluntary added recovers
+      // the exact starting pot in both voluntary-only and forced-post histories.
+      let totalHistoryAdded = 0;
+      {
+        let stScan = 'preflop';
+        let commScan = new Map<string, number>();
+        for (const x of history) {
+          const st = x.stage ?? 'preflop';
+          if (st !== stScan) {
+            stScan = st;
+            commScan = new Map();
+          }
+          const key = x.userId ?? `s${x.seat}`;
+          const prev = commScan.get(key) ?? 0;
+          const amt = Math.max(0, Number(x.amount ?? 0));
+          const total =
+            x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+          totalHistoryAdded += Math.max(0, total - prev);
+          commScan.set(key, total);
+        }
+      }
       const line: HoldemLineStreet[] = [];
-      let runningPot = 0;
+      const appliedCheckStreets = new Set<string>();
+      const pushCheckStreetIfOnlyChecks = (stName: string) => {
+        const k = streets.indexOf(stName as never);
+        if (k < 0 || k + 3 > board.length || appliedCheckStreets.has(stName)) return;
+        appliedCheckStreets.add(stName);
+        const mine = history.filter((y) => y.stage === stName && isOpp(y));
+        if (mine.length === 0 || mine.some((y) => y.action !== 'check')) return;
+        const upTo = (end: number) =>
+          history.filter((y) => y.stage === 'preflop' || streets.indexOf(y.stage as never) < end);
+        line.push({
+          board: board.slice(0, k + 3),
+          likelihood: holdemLineLikelihood(
+            posteriorOf(upTo(k + 1), stName as 'flop' | 'turn' | 'river'),
+            posteriorOf(upTo(k), stName as 'flop' | 'turn' | 'river')
+          ),
+        });
+      };
+      let runningPot = Math.max(0, Number(gs.pot ?? 0) - totalHistoryAdded);
       let streetOf = 'preflop';
       let committed = new Map<string, number>();
       let facingTo = 0;
+      let oppNarrowedPostflop = false;
       for (const x of history) {
         const st = x.stage ?? 'preflop';
         if (st !== streetOf) {
+          pushCheckStreetIfOnlyChecks(streetOf);
           streetOf = st;
           committed = new Map();
           facingTo = 0;
@@ -30612,40 +30707,38 @@ export class HorseLogic {
             const sub = holdemLineRange(player.cards, board, band, line);
             const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
             line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
+            oppNarrowedPostflop = true;
           } else if (wager && total > facingTo + 1e-9) {
-            // beta: on the river the share that leaves a call of his wager indifferent, s / (pot + 2s) (his
-            // size feeds his range, nothing else); on the flop and turn the posterior's bluff share for his
-            // line through that wager (semi-bluffs and air).
+            // beta: on the river the share that leaves a call of his wager indifferent, call / (potAfter + call)
+            // (equals s / (pot + 2s) for a first-in bet, and (total - facingTo) / (pot + added + total - facingTo)
+            // for a raise); on the flop and turn the posterior's bluff share for his line through that wager.
+            // Once villain already narrowed his range on a prior postflop street, use his continuation share
+            // (1 - foldAtReference) rather than compounding betWhenCheckedTo^k across barrels.
             const upTo = history.slice(0, history.indexOf(x) + 1);
+            const callToFace = Math.max(0, total - facingTo);
             const beta =
               st === 'river'
-                ? added / Math.max(1e-9, runningPot + 2 * added)
+                ? callToFace / Math.max(1e-9, runningPot + added + callToFace)
                 : posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
+            const betShare = oppNarrowedPostflop
+              ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+              : betWhenCheckedTo;
             const half = facingTo > 0 ? 0.5 : 1;
             line.push({
               board: sb,
               keep: {
-                top: betWhenCheckedTo * (1 - beta) * half,
-                bottom: betWhenCheckedTo * beta * half,
+                top: betShare * (1 - beta) * half,
+                bottom: betShare * beta * half,
               },
             });
+            oppNarrowedPostflop = true;
           }
         }
         if (total > facingTo) facingTo = total;
         committed.set(key, total);
         runningPot += added;
       }
-      for (let k = 0; k < streets.length && k + 3 <= board.length; k++) {
-        const st = streets[k];
-        const mine = history.filter((x) => x.stage === st && isOpp(x));
-        if (mine.length === 0 || mine.some((x) => x.action !== 'check')) continue;
-        const upTo = (end: number) =>
-          history.filter((x) => x.stage === 'preflop' || streets.indexOf(x.stage as never) < end);
-        line.push({
-          board: board.slice(0, k + 3),
-          likelihood: holdemLineLikelihood(posteriorOf(upTo(k + 1), st), posteriorOf(upTo(k), st)),
-        });
-      }
+      pushCheckStreetIfOnlyChecks(streetOf);
       const range = holdemLineRange(player.cards, board, band, line);
       if (range.total <= 0) {
         if (tele) noteFire('holdem_priced_unpriced');

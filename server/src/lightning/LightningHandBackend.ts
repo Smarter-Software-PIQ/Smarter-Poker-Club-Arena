@@ -43,6 +43,7 @@ import { processHandPostCommitObligations } from '../services/supabase/handProje
 import { lightningAnchorTimeBanks } from '../services/supabase/lightningAnchor.js';
 import { isUuid } from './LightningRpc.js';
 import { countStoredHandMemoryDomain } from '../services/supabase/handMemoryDomainSignal.js';
+import { opponentHudOnAcceptedHand } from '../services/OpponentHudStore.js';
 
 /** One formed seat, as the formation barrier wrote it. */
 export interface LightningParticipant {
@@ -456,6 +457,11 @@ export function createSupabaseLightningHandBackend(): LightningHandBackend {
       // here, once: the host stops at its first ok answer, and an attempt
       // whose outcome was unknown or refused returned above.
       countStoredHandMemoryDomain(a.handRow, 'lightning');
+      // OPPONENT HUD (2026-11-21, lane OPPONENT-HUD-5): a Lightning hand never passes through logHandHistory, where
+      // the classic tables feed the Horses' lifetime memory of everyone dealt in, so it is fed here, once, with the
+      // row as stored and the id the settlement answered (public fields only; the store never reads a card; a hand
+      // delivered twice is refused by its id). Fire and forget; never throws; nothing at all while the option is off.
+      opponentHudOnAcceptedHand({ ...a.handRow, id });
       return {
         ok: true,
         value: {

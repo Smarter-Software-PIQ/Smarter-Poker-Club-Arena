@@ -96,6 +96,7 @@ const GREEN = [
   'turn-77-boat-calls',
   'flop-jj-topset-calls',
   'river-js3-trips-calls',
+  'turn-qq-overpair-calls',
   'turn-77-boat-checks',
   'flop-jj-set-checks',
   'turn-js3-trips-checks-back',
@@ -103,6 +104,9 @@ const GREEN = [
   'river-a9-two-pair-checks',
   'turn-q9-straight-checks',
   'river-jq-folds',
+  'turn-at-folds-top-pair',
+  'river-tt-hero-call',
+  'river-a7-dead-call',
   'river-tt-thin-bet',
   'river-ak-thin-bet',
   'river-q9-blocker-bet',
@@ -113,13 +117,9 @@ const AGREE_NOT_REPRODUCED = ['river-a4-thin-bet', 'river-q9-two-pair-underbet']
 const DISAGREE: Record<string, ActionKind> = {
   'river-a7-two-pair-calls': 'call',
   'turn-kq-top-pair-calls': 'call',
-  'turn-qq-overpair-calls': 'call',
   'river-66-boat-calls': 'call',
   'river-kq-checks-back': 'check',
-  'turn-at-folds-top-pair': 'fold',
-  'river-tt-hero-call': 'call',
   'turn-a8-dead-call': 'call',
-  'river-a7-dead-call': 'call',
   'turn-66-dead-call': 'call',
 };
 const MULTIWAY = ['river-q8-multiway-fold', 'river-q9-threeway-call'];
@@ -383,5 +383,83 @@ describe('holdemValueAndCallsArePriced: the values', () => {
     expect(r.total).toBe((46 * 45) / 2);
     holdemFillEquities(r, cards('7s7d'), cards('2h4s4d7h'), 1);
     expect(holdemEquityOfShare(r, 1).equity).toBeGreaterThan(0.95);
+  });
+});
+
+describe('holdemValueAndCallsArePriced: line-range construction invariants (2026-11-21)', () => {
+  it('draws bluffs proportionally across Air rather than worst-kicker-first, so high-card Air does not beat 100% of bluffs', () => {
+    const board = cards('Ks9d7c4h2s');
+    const heroAir = cards('QhJc');
+    const heroPair = cards('6h6c');
+    const step = [{ board, keep: { top: 0.2, bottom: 0.1 } }];
+
+    const rAir = holdemLineRange(heroAir, board, [0.3, 1], step);
+    holdemFillEquities(rAir, heroAir, board, 1);
+    let airBluffW = 0;
+    let airBluffEq = 0;
+    for (const i of rAir.order) {
+      if (rAir.bucket[i] === 0) {
+        airBluffW += rAir.weight[i];
+        airBluffEq += rAir.weight[i] * rAir.equity[i];
+      }
+    }
+    // Against proportional Air bluffs (containing Ax/Qx/Jx missed combos), QJ high card is well below 90% vs Air.
+    expect(airBluffW).toBeGreaterThan(0);
+    expect(airBluffEq / airBluffW).toBeLessThan(0.8);
+
+    // Meanwhile a real made pair (66) still beats 100% of villain's Air bluffs.
+    const rPair = holdemLineRange(heroPair, board, [0.3, 1], step);
+    holdemFillEquities(rPair, heroPair, board, 1);
+    let pairBluffW = 0;
+    let pairBluffEq = 0;
+    for (const i of rPair.order) {
+      if (rPair.bucket[i] === 0) {
+        pairBluffW += rPair.weight[i];
+        pairBluffEq += rPair.weight[i] * rPair.equity[i];
+      }
+    }
+    expect(pairBluffW).toBeGreaterThan(0);
+    expect(pairBluffEq / pairBluffW).toBeCloseTo(1, 9);
+  });
+
+  it('recovers initial dead money from voluntary-only history (#11556) identically to forced-post history', () => {
+    const f = bySlug('river-a7-dead-call');
+    const st = state(f);
+    // Strip any forced blind posts (already absent post-#11556) and compare with a synthetic blind post added:
+    // both carry the same gs.pot, so initialPot = gs.pot - totalHistoryAdded yields the exact same decision.
+    const base = replayAt(st, PROFILE, SEEDS, ON);
+    expect(base.kinds).toEqual({ fold: SEEDS.length });
+    const withBlind = {
+      ...st,
+      gs: {
+        ...st.gs,
+        actionHistory: [
+          {
+            seat: st.gs.players[0].seat,
+            userId: st.gs.players[0].user_id,
+            action: 'blind',
+            amount: st.gs.bigBlind,
+            stage: 'preflop',
+            timestamp: 1,
+          },
+          ...(st.gs.actionHistory ?? []),
+        ],
+      },
+    };
+    const res = replayAt(withBlind as typeof st, PROFILE, SEEDS, ON);
+    expect(res.kinds).toEqual(base.kinds);
+  });
+
+  it('does not turn a < 50% equity river made hand into an auto-profit bluff when foldAtReference > reference price', () => {
+    // 10% overall equity (0% when called against top half), weakShare = 0.5, foldAtReference = 0.43 > 0.337:
+    // without the river value-bet guard, f = 0.43 * (price / 0.337) > price makes every bet size auto-profit.
+    const r = synthetic([0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [4, 4, 3, 3, 3, 1, 1, 0, 0, 0]);
+    const v = holdemPricedVerdict(
+      spotOf({ street: 'river', pot: 100, foldAtReference: 0.43, villainToAct: false }),
+      r,
+      [33, 50, 75, 100]
+    );
+    expect(v.options.map((o) => o.kind)).toEqual(['check']);
+    expect(v.best.kind).toBe('check');
   });
 });

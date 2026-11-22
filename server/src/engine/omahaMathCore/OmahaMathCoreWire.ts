@@ -24,6 +24,8 @@
  * PLO4 / PLO5 only: every adapter answers null for any other variant or hole count.
  */
 import type { HorseGameStateV2 } from '../HorseLogic.js';
+import { omahaTrapRate } from './OmahaMathCoreTrapRate.js';
+import { omahaCheckRaiseCell } from './OmahaMathCoreCheckRaise.js';
 import { omahaBest } from './OmahaMathCoreEval.js';
 import { seededRng, type Pool, type RangeSpec } from './OmahaMathCoreEquity.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
@@ -53,12 +55,19 @@ import type { CoreActionEv, CoreOpponent, CoreState } from './OmahaMathCore.js';
 export const OMAHA_MATH_CORE_WIRE_VERSION = 'omaha-math-core-wire-v1';
 
 /**
- * Selection by the lower confidence bound (PROVE-2 root cause 1, winner's curse): candidates are ranked by
- * EV minus one standard error of their EV (equity sampling and the measured cells' binomial error, as each
- * candidate reports it), so a candidate whose edge is inside its own noise does not win the argmax.
+ * The core's ranking score: the candidate's EV (lane CORE-FIX-1, AUDIT-A item 7; owner order Nov 21).
+ *
+ * It used to be the lower confidence bound EV - SE (PROVE-2 root cause 1, winner's curse). Fold is exact (EV 0,
+ * SE 0), so that score treated fold differently from every other action: any continue with 0 < EV < SE ranked
+ * BELOW fold. With a real incumbent the change margin kept today's action anyway, but the standalone recovery run
+ * (omahaMathCoreRecover, a synthetic incoming fold) folded those +EV spots systematically, more often the noisier
+ * the price (PR-2's multiway draw cost). The standard error now enters ONE place, the same for every action: the
+ * change margin (OmahaMathCoreRule.ts: best - today's > K x SE of the difference), which is where the winner's-curse
+ * guard belongs - a candidate whose edge over today's action is inside its noise still does not replace it.
+ * `se` stays in the signature so every caller reads one function.
  */
 export function selectionScore(a: { ev: number; se: number | null }): number {
-  return a.ev - (a.se !== null && Number.isFinite(a.se) ? Math.max(0, a.se) : 0);
+  return a.ev;
 }
 
 /**
@@ -368,6 +377,13 @@ export function wiredTrack(
     },
     history: state.history,
     freq,
+    // lane CORE-POOLED-8 (lead rulings 9:52 and 11:24 AM Nov 21): a check keeps the measured trap share of strong
+    // holdings, one table keyed by variant (PLO4, PLO5); any other game has no cell and keeps the old update
+    trap: (street, first, players) => omahaTrapRate(game, street, first, players),
+    // lane CORE-POOLED-9 (lead decision Nov 21): a check-raise of the hero's own flop wager is priced with its
+    // measured cell (PLO4, PLO5), shrunk n/(n+30) to the generic facing cell; every other spot keeps the generic cell
+    checkRaise: (street, players, frac, allIn) =>
+      omahaCheckRaiseCell(game, street, players, frac, allIn),
     // hand-street key: the same cards and board give the same pool and preflop strengths
     seed: `${state.hole.join('.')}|${state.board.join('.')}`,
     // latency (lane COREWIRE, measured): pool 360 and 80 refine runs keep the first, uncached call of a
@@ -889,10 +905,14 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
       )
         continue;
       const adds = Math.min(stack, to - s.heroBet);
+      // lane CORE-FIX-1 (AUDIT-A item 5): a VALUE size the table cannot take as priced (clamped onto the chip unit
+      // past one unit, to the min-raise / pot-limit cap, or past the stack to all-in) is not a candidate: its EV is
+      // the EV of a different wager, and the rule (OmahaMathCoreRule.ts) never executes a size the core did not
+      // price. The legal sizes VALUE did price (its all-in among them) stand for it.
+      if (Math.abs(adds - cd.adds) > Math.max(0.011, s.chipUnit)) continue;
       const key = `${action}|${r2(to)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const restated = Math.abs(adds - cd.adds) > Math.max(0.011, s.chipUnit);
       evs.push({
         action,
         amount: action === 'bet' ? r2(adds) : r2(to),
@@ -903,7 +923,7 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         se: cd.se,
         foldProb: cd.fold,
         foldSource:
-          `value ${cd.allIn ? 'all-in' : r3(cd.frac ?? 0)} pot: fold ${r3(cd.fold)} raise ${r3(cd.raise)} call ${r3(cd.call)}; ${cd.plan}${restated ? `; priced at ${r2(cd.adds)} chips, legal size ${r2(adds)}` : ''}; ${cd.source}`.slice(
+          `value ${cd.allIn ? 'all-in' : r3(cd.frac ?? 0)} pot: fold ${r3(cd.fold)} raise ${r3(cd.raise)} call ${r3(cd.call)}; ${cd.plan}; ${cd.source}`.slice(
             0,
             1500
           ),

@@ -181,7 +181,7 @@ Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-
 
 ### 1.4 Freezing main for an owner window says when it ends
 
-**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live, as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
+**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live (either via `MAIN_RELEASE_FREEZE` or directly from an active unsealed booking in `server/release/owner-maintenance-windows.json` and `server/release/activation-floor.json`), as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
 
 No tool applies a freeze of `refs/heads/main` any more (the hand-made `RELEASE FREEZE` repository ruleset, id 27627940, stays disabled). The engine window is published and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
 
@@ -346,9 +346,9 @@ migration commit identity must also match. Changed or unreadable qualification
 inputs stop the walk and run full certification; they are never skipped to find
 an older success.
 `bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
-exactly what `server/Dockerfile` copies into the image at that commit (plus
-the Dockerfile and the script itself), read from git blobs; `--manifest`
-lists the inputs. Walking the first-parent history (60 commits), the nearest
+exactly what `server/Dockerfile` copies into the image at that commit after
+applying `server/.dockerignore` (plus the Dockerfile, `.dockerignore` and the
+script itself), read from git objects; `--manifest` lists the inputs. Walking the first-parent history (60 commits), the nearest
 ancestor with the same identity decides: `success` there is written on the
 candidate as `Inherited from <sha>: identical engine source (<12hex>)` and
 the run plans nothing; `failure` or `error` there, a different identity, an
@@ -466,13 +466,14 @@ public `/health` only; the window, close and consumed rules are the ones in
 `scripts/ci/owner-window-ready.py`, the controls rule is `policy()` in
 `server/scripts/engine-release-activation-floor.py`):
 
-| Verdict     | Meaning                                                                                           | Push run does                                                                           |
-| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `booking`   | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
-| `candidate` | Carries main's two control files, after the booking commit                                        | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
-| `predates`  | Its control files differ from main's, so an owner selection refuses it while the window is open   | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
-| `none`      | No owner window on main, or it closed, or its release is serving                                  | Unchanged                                                                               |
-| `unknown`   | Anything unreadable or malformed                                                                  | Unchanged (CLAUDE.md 10.86)                                                             |
+| Verdict           | Meaning                                                                                                                                    | Push run does                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `booking`         | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's                                          | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
+| `booking_pending` | Carries main's two control files after the booking commit, while the booking commit does not yet carry `backup-engine/certified = success` | `DEFERRED`: nothing planned, no status written; yields the Backup host to the booking   |
+| `candidate`       | Carries main's two control files after the booking commit, and the booking commit already carries `backup-engine/certified = success`      | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
+| `predates`        | Its control files differ from main's, so an owner selection refuses it while the window is open                                            | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
+| `none`            | No owner window on main, or it closed, or its release is serving                                                                           | Unchanged                                                                               |
+| `unknown`         | Anything unreadable or malformed                                                                                                           | Unchanged (CLAUDE.md 10.86)                                                             |
 
 So the booking commit's own push run certifies it; do not also dispatch it by
 hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
@@ -482,6 +483,22 @@ and writes `failure` even when a provider answer stopped the job before certify
 (review of #10805). Nothing cancels a certification that is
 already running: a run that started before the booking merged still holds the
 host until it ends (about 50 minutes on November 14).
+
+The standby host turn wait (`turn` step of `backup-engine.yml` `refresh` job)
+allows up to 120 minutes (`7200` s; `refresh` `timeout-minutes: 180`, host
+lease TTL `9000` s) so a queued candidate behind an active refresh plus 55-min
+certification does not time out right before its turn (2026-11-21, E3). While
+waiting for the lease in `turn`, and again in `late_priority` before `certify`,
+an ordinary `push` run that observes a newer push run (larger run id, different
+head SHA) yields cleanly as `SUPERSEDED`, releasing any held host lease and
+writing no `error` or `failure` status; `booking`, `freeze_baseline`, manual,
+nightly and post-seal runs are never superseded, and an unreadable GitHub
+answer proceeds (CLAUDE.md 10.86). Immediately after acquiring the host turn,
+`late_inherit` re-checks whether the target SHA is already certified or whether
+a first-parent ancestor with identical `scripts/ci/engine-source-identity.sh`
+and `backup_projection` (`scripts/ci/read-engine-prequalification.py`) gained
+`backup-engine/certified = success` while it waited; if so, it inherits the
+certificate, releases the host lease at once, and skips refresh and `certify`.
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only

@@ -75,7 +75,7 @@ describe('a paused migration install resumes what merged during it', () => {
     f.put('20261101000001_modified_later.sql', 'select 4;\n');
     f.put(
       '20261115100000_needs_the_break.sql',
-      '-- @install-window: daily-maintenance\nselect 5;\n',
+      '-- @install-window: daily-maintenance\nselect 5;\n'
     );
     f.commit('merges during the pause');
 
@@ -90,7 +90,9 @@ describe('a paused migration install resumes what merged during it', () => {
       '20261115164443_merged_first.sql',
       '20261115170236_merged_second.sql',
     ]);
-    expect(r.stdout).toContain('QUEUED FOR THE DAILY WINDOW (not sent): 20261115100000_needs_the_break.sql');
+    expect(r.stdout).toContain(
+      'QUEUED FOR THE DAILY WINDOW (not sent): 20261115100000_needs_the_break.sql'
+    );
     expect(r.stdout).not.toContain('before_the_pause');
     expect(r.stdout).toContain('DRY RUN: nothing enabled, nothing sent.');
   });
@@ -130,6 +132,19 @@ describe('a paused migration install resumes what merged during it', () => {
   it('the playbook resumes with the script, not a bare re-enable', () => {
     const doc = readFileSync(PLAYBOOK, 'utf8');
     expect(doc).toContain('scripts/release/resume-migration-installs.sh <pause-start-sha>');
+    expect(doc).toContain(':05-:49 UTC');
     expect(doc).not.toMatch(/^- Re-enable the applier, post SEALED/m);
+  });
+
+  it('documents the :05-:49 UTC run window in header usage and invalid-usage stderr', () => {
+    const src = readFileSync(SCRIPT, 'utf8');
+    expect(src).toContain(
+      'Run at :05-:49 UTC (refuses at :48-:04 UTC for the database :50-:03 DDL refusal window)'
+    );
+    const r = run(ROOT);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(
+      'Run at :05-:49 UTC (refuses at :48-:04 UTC for the database :50-:03 DDL refusal window)'
+    );
   });
 });

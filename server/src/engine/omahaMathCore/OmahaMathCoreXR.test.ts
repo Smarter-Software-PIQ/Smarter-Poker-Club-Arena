@@ -207,15 +207,16 @@ describe('XR-BLUFF: check-raise and bluff spots priced by the one EV node', () =
             off === 0 ? cell(foldToRaise, 0.07, 'fold to raise vs donk') : cell(0.4, 0.05, 'later'),
         })
       )!;
-    it('prices the raise beside the call; after a called raise the later streets rest on no measured response, so the raise takes the worse of called-by-all and folded (COREWIRE-2) and the measured call line wins', () => {
-      // COREWIRE-2 (PROVE-2 c4): what a range that called a raise does on later streets is not measured; the raise's
-      // later streets are priced at the worse of the two hypotheses, while the call line keeps its measured float
+    it('prices the raise beside the call symmetrically: both later-street continuations carry capped: true (no unmeasured barrel fold credit), so the >50%-equity semi-bluff raise beats the call', () => {
+      // CORE-LEAD4 B1 (superseding COREWIRE-2 asymmetry): neither a called raise nor a called wager has a
+      // measured later-street barrel fold cell against the aggressor, so both carry capped: true on later streets;
+      // the call no longer steals phantom turn/river barrel fold credit over the semi-bluff raise.
       const r = ipSpot(0.3);
       expect(f.eqAll).toBeGreaterThan(0.5);
       const w = bestWager(r);
       expect(Number.isFinite(w.ev)).toBe(true);
-      expect(r.choice.kind).toBe('call');
-      expect(callBaseline(r, f.eqAll, pot, toCall)).toBeGreaterThan(w.ev);
+      expect(r.choice.kind).toBe('wager');
+      expect(w.ev).toBeGreaterThan(callBaseline(r, f.eqAll, pot, toCall));
     });
   });
 
