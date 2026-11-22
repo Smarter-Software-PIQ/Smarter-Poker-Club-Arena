@@ -1059,6 +1059,8 @@ import {
 } from './HorseOmahaStrategyGame.js';
 import { omahaBigDrawBetOnHisResponseRule } from './HorseOmahaBigDrawBetPriced.js';
 import {
+  omahaMadeAndPairedBetMemoClear,
+  omahaMadeAndPairedBetMemoHeld,
   omahaMadeAndPairedBetOnHisResponseRule,
   omahaMadeAndPairedBetsResponseInScope,
 } from './HorseOmahaMadeAndPairedBetsPriced.js';
@@ -14648,6 +14650,7 @@ function omahaClearDecisionMemos(): void {
   omahaStreetPlanFlopMemo = null;
   omahaStreetPlanThreeWayMemo = null;
   omahaTurnRiverTablesClear();
+  omahaMadeAndPairedBetMemoClear();
 }
 
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
@@ -14664,6 +14667,7 @@ export function omahaDecisionMemosHeld(): string[] {
   if (omahaStreetPlanFlopMemo !== null) held.push('omahaStreetPlanFlopMemo');
   if (omahaStreetPlanThreeWayMemo !== null) held.push('omahaStreetPlanThreeWayMemo');
   if (omahaTurnRiverTablesHeld()) held.push('omahaTurnRiverTables');
+  if (omahaMadeAndPairedBetMemoHeld()) held.push('omahaMadeAndPairedBetMemo');
   return held;
 }
 

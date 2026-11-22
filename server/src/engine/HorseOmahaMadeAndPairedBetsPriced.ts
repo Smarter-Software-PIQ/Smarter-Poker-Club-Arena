@@ -378,10 +378,28 @@ export function omahaMadeAndPairedBetsResponseInScope(
   return omahaPricedInScope(player, gs, opts);
 }
 
+let r5DecisionMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  byAmount: Map<number, OmahaMadePairedBetResponseVerdict | null>;
+  receiptFired: boolean;
+} | null = null;
+
+/** Clear R5 per-decision memo (invoked from HorseLogic omahaClearDecisionMemos). */
+export function omahaMadeAndPairedBetMemoClear(): void {
+  r5DecisionMemo = null;
+}
+
+/** True when R5 holds a per-decision memo reference (checked by omahaDecisionMemosHeld). */
+export function omahaMadeAndPairedBetMemoHeld(): boolean {
+  return r5DecisionMemo !== null;
+}
+
 /**
  * R5 rule application on a proposed turn/river wager in one of the covered spots (#19, #9, #10, #11,
- * paired-board river check): returns the kept wager if `evBet - evCheck > proof`, else a check.
- * Null when option is off or out of scope (legacy path acts unchanged).
+ * paired-board river check): returns the kept wager if `evBet - evCheck >= -proof`, else a check.
+ * Memoizes per decision `(player, gs, amount)` so overlapping river sites never re-run Monte Carlo
+ * or emit duplicate receipts on the same decision. Null when option is off or out of scope.
  */
 export function omahaMadeAndPairedBetOnHisResponseRule(
   decision: HorseDecision,
@@ -394,18 +412,32 @@ export function omahaMadeAndPairedBetOnHisResponseRule(
   const tele = telemetryOn(opts);
   try {
     const amount = amountOf(decision, player);
-    const v = fin(amount)
-      ? omahaMadeAndPairedBetOnHisResponseVerdict(player, gs, opts, amount)
-      : null;
+    if (r5DecisionMemo === null || r5DecisionMemo.player !== player || r5DecisionMemo.gs !== gs) {
+      r5DecisionMemo = { player, gs, byAmount: new Map(), receiptFired: false };
+    }
+    const key = fin(amount) ? round2(amount) : NaN;
+    let v: OmahaMadePairedBetResponseVerdict | null;
+    if (fin(key) && r5DecisionMemo.byAmount.has(key)) {
+      v = r5DecisionMemo.byAmount.get(key) ?? null;
+    } else {
+      v = fin(amount) ? omahaMadeAndPairedBetOnHisResponseVerdict(player, gs, opts, amount) : null;
+      if (fin(key)) r5DecisionMemo.byAmount.set(key, v);
+    }
+    const fireOnce = (feature: string): void => {
+      if (tele && r5DecisionMemo && !r5DecisionMemo.receiptFired) {
+        r5DecisionMemo.receiptFired = true;
+        noteFire(feature);
+      }
+    };
     if (v === null) {
-      if (tele) noteFire('omaha_made_paired_bet_on_his_response_unpriced_kept');
+      fireOnce('omaha_made_paired_bet_on_his_response_unpriced_kept');
       return decision;
     }
     if (v.betStands) {
-      if (tele) noteFire('omaha_made_paired_bet_on_his_response_kept');
+      fireOnce('omaha_made_paired_bet_on_his_response_kept');
       return decision;
     }
-    if (tele) noteFire('omaha_made_paired_bet_on_his_response_checked');
+    fireOnce('omaha_made_paired_bet_on_his_response_checked');
     return checkedOf(decision);
   } catch {
     if (tele) noteFire('omaha_strategy_rule_failed');

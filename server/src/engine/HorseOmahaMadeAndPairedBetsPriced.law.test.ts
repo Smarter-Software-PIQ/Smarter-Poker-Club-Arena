@@ -16,6 +16,8 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
 import {
   OMAHA_TURN_RIVER_RESPONSE_PRIORS,
+  omahaMadeAndPairedBetMemoClear,
+  omahaMadeAndPairedBetMemoHeld,
   omahaMadeAndPairedBetOnHisResponseRule,
   omahaMadeAndPairedBetOnHisResponseVerdict,
 } from './HorseOmahaMadeAndPairedBetsPriced.js';
@@ -27,7 +29,7 @@ import {
 } from './opponentHud/OpponentHud.js';
 import { HUD_PROFILE_VERSION } from './opponentHud/OpponentHudProfile.js';
 import { seedFastRandom } from './HorseEval.js';
-import { drainFires, disarmBrainTelemetryForTest } from './BrainTelemetry.js';
+import { drainFires, disarmBrainTelemetryForTest, enableBrainTelemetry } from './BrainTelemetry.js';
 
 const SUIT_MAP: Record<string, Card['suit']> = {
   s: 'spades',
@@ -439,5 +441,37 @@ describe('omahaMadeAndPairedBetsArePricedOnHisResponse (R5)', () => {
     expect(vDead).not.toBeNull();
     expect(vDead.gap).toBeLessThan(-vDead.proof);
     expect(vDead.betStands).toBe(false);
+  });
+
+  it('memoizes per decision (player, gs, amount) and fires its receipt at most once across overlapping river sites', () => {
+    omahaMadeAndPairedBetMemoClear();
+    expect(omahaMadeAndPairedBetMemoHeld()).toBe(false);
+    enableBrainTelemetry();
+    drainFires();
+    const { hero, gs } = makeSpot({
+      stage: 'river',
+      hole: 'AsAhKsQs2c',
+      board: 'Ad9s9d4c2h',
+      heroCloses: true,
+      opponents: 2,
+    });
+    const bet: HorseDecision = { action: 'bet', amount: 80, thinkTime: 0 };
+    const on: HorseDecideOpts = {
+      omahaMadeAndPairedBetsArePricedOnHisResponse: true,
+      telemetry: true,
+    };
+    const r1 = omahaMadeAndPairedBetOnHisResponseRule(bet, hero, gs, on);
+    const r2 = omahaMadeAndPairedBetOnHisResponseRule(bet, hero, gs, on);
+    const r3 = omahaMadeAndPairedBetOnHisResponseRule(bet, hero, gs, on);
+    expect(r1).toEqual(bet);
+    expect(r2).toEqual(r1);
+    expect(r3).toEqual(r1);
+    expect(omahaMadeAndPairedBetMemoHeld()).toBe(true);
+    const r5Fires = drainFires()
+      .map((f) => f.feature)
+      .filter((f) => f.startsWith('omaha_made_paired_bet_on_his_response_'));
+    expect(r5Fires).toEqual(['omaha_made_paired_bet_on_his_response_kept']);
+    omahaMadeAndPairedBetMemoClear();
+    expect(omahaMadeAndPairedBetMemoHeld()).toBe(false);
   });
 });

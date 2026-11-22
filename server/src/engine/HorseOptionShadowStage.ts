@@ -100,6 +100,11 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
+  omahaTurnRiverRaiseIsPricedInLightning: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+    companions: Object.freeze(['omahaTurnRiverRaiseIsPriced']),
+  }),
   omahaMathCorePlo5Flop: Object.freeze({
     games: Object.freeze([5] as const),
     streets: Object.freeze(['flop']),
