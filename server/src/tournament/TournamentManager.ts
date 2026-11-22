@@ -3589,8 +3589,18 @@ export class TournamentManager extends TournamentManagerEliminations {
       return null;
     }
     if (!parked) {
-      // The pause owner remains armed. A long current hand lands normally;
-      // the next causal sweep claims the physical gate without polling it.
+      // The pause owner remains armed on `managerEngine`. Track any non-break
+      // live source in `gapBalanceFencedSources` so its park edge claims it
+      // (`claimGapBalanceAtBoundary`) and `releaseGapFencesNotIn` lifts it if
+      // the field balances before it parks — never orphaning the table for the
+      // 15 s TOURNAMENT_MOVE_UNCLAIMED_PARK_MS expiry.
+      if (
+        !this.retainsTournamentBreakSource(move.fromTableId, managerEngine) &&
+        this.tableEngines.get(move.fromTableId) === managerEngine &&
+        this.gameServer.ownsTournamentTableEngine(move.fromTableId, managerEngine)
+      ) {
+        this.gapBalanceFencedSources.add(move.fromTableId);
+      }
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return null;
     }
@@ -4463,6 +4473,18 @@ export class TournamentManager extends TournamentManagerEliminations {
           if (safeMoves.length > 0) {
             const movedCount = await this.executePlayerMoves(safeMoves);
             for (const m of safeMoves) {
+              const sourceEngine = this.tableEngines.get(m.fromTableId);
+              // Keep the source tracked whenever a missed probe left our pause
+              // owner armed on a non-break live source so its park edge claims
+              // or releases it instead of sitting 15 s for unclaimed expiry.
+              if (
+                sourceEngine?.hasTournamentMovePauseOwner?.(this.tournamentMoveBoundaryOwner) &&
+                !this.retainsTournamentBreakSource(m.fromTableId, sourceEngine)
+              ) {
+                this.gapBalanceFencedSources.add(m.fromTableId);
+                this.gapBalanceClaimedSources.delete(m.fromTableId);
+                continue;
+              }
               this.gapBalanceFencedSources.delete(m.fromTableId);
               this.gapBalanceClaimedSources.delete(m.fromTableId);
             }
@@ -5097,8 +5119,11 @@ export class TournamentManager extends TournamentManagerEliminations {
         const unknown = [...this.pendingTournamentSeatMoveOutcomes.values()].some(
           (pending) => pending.input.sourceTableId === tableId
         );
-        if (!unknown && !this.retainsTournamentBreakSource(tableId, engine))
+        if (!unknown && !this.retainsTournamentBreakSource(tableId, engine)) {
+          this.gapBalanceFencedSources.delete(tableId);
+          this.gapBalanceClaimedSources.delete(tableId);
           engine.releaseTournamentMovePause(this.tournamentMoveBoundaryOwner);
+        }
       }
     }
     const score = this.tableBalancer.evaluateBalance(tables);
@@ -5350,7 +5375,8 @@ export class TournamentManager extends TournamentManagerEliminations {
       engine &&
       this.gameServer.ownsTournamentTableEngine(tableId, engine) &&
       engine.isBetweenHands() &&
-      !engine.hasSettlementInFlight()
+      !engine.hasSettlementInFlight() &&
+      !engine.isInCompletionPresentationHold?.()
     );
   }
 

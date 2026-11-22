@@ -1880,14 +1880,20 @@ export class LightningHandHost {
         this.preActions.clearPreAction(this.timerKey, userId);
         if (stale) {
           this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
-          noteFire('upgrade09_preaction_purge_lightning_seen');
+          // Evidence only: upgrade 09 is a GUARD (HorseUpgradeEvidence
+          // PER_HORSE_GUARD_UPGRADES). An armed pre-action here is its
+          // opportunity; it fired when the pre-action is gone after the clear.
+          noteFire('upgrade09_preaction_purge_opportunity_lightning_seen');
+          const purged = !this.preActions.hasPreAction(this.timerKey, userId);
+          if (purged) noteFire('upgrade09_preaction_purge_lightning_seen');
           // Per-Horse evidence only (serverOwnedHorse: never a person's client). Lightning is cash.
           if (horseUpgradeEvidenceArmed())
             noteHorseUpgradeEvent(
               userId,
               String(this.rules?.game_variant || 'nlh'),
               'cash',
-              'upgrade_09_preaction_purge'
+              'upgrade_09_preaction_purge',
+              purged
             );
         }
       } else {
