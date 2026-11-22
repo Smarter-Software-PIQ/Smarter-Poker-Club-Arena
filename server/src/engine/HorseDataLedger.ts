@@ -2668,6 +2668,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V78'
   ),
   flag(
+    'v78NoCommittingBluffRaiseIsPriced',
+    "Hold'em Strategy / HORSE DECISIONS 2026-11-22 (dark, default OFF, read === true, OPTION_SWITCH_REFUSED, zero SQL migrations; criteria CRITERIA-V78-COMMITTING-BLUFF-RAISE-PRICED.md sha256 fd504c6f3cac198dda396fbe8e9dba4e3db08087011302c1e9797af324c6b8f0): replaces the blanket 40%-of-stack bluff-raise veto (v78NoCommittingBluffRaise) in single-board 2-card NLH (non-Omaha, non-Short Deck, non-Fixed Limit, non-Pot Limit, non-bomb-pot, single board) with deterministic public-info EV pricing (HorseV78CommittingBluffRaisePriced.priceCommittingBluffRaise) over measured NLH empirical fold priors (holdemEmpiricalPriors.ts: river all-in vs non-all-in fold-to-raise, flop texture/SPR/size and turn size fold curves with HUD/ExploitCounters shrinkage) and tournament heroBubbleFactor: EV(bluffRaise) = F * pot + (1 - F) * u(e * (pot + add + callAdd) - add) vs baseline = max(0, u(e * (pot + toCall) - toCall)), allowing the raise iff EV(bluffRaise) > baseline and failing closed to veto on unpriceable inputs. Zero fastRandom() draws, zero opponent hole cards. Off / unset / false (and all Omaha, Short Deck, multi-board, and bomb-pot hands): byte-identical to origin/main.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'v70FacingOpenZone',
     "2026-11-05 two- and three-handed no-limit hold'em facing action (an open, a limp-raise, any wager) plays jam-or-fold only inside the short-handed V70 zone (<= 15bb, 12bb without the M layer) instead of the table-size-scaled M zone (red M <= 22bb), which had left every 20bb spin and heads-up stack jam-or-fold facing a raise (3-handed 20bb league, mind on, 100,000 hands: big blind vs a button min-raise off folded 18,490, jammed 2,847, called 112; on folded 5,122, called 12,764, jammed 3,032, 3-bet 1,093), so almost no button-vs-big-blind single-raised pot reached a flop; measured on minus off +6.34 +/- 0.59 bb/100 spin 20bb, +6.35 +/- 0.56 spin 18bb, +5.02 +/- 0.80 heads-up 20bb, inert at spin 25bb (+0.08 +/- 0.11); the open (V70), the <= 15bb zone, four or more dealt, short deck, fixed limit and Omaha unchanged; league measurement in docs/changelog/2026-11-05-v31-spin-facing-open-and-satellite-scenario.md; explicit off arm keeps the jam-or-fold answer",
     'V82'
@@ -7148,6 +7153,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V78)',
     "Hold'em semi-bluff / check-raise bluff withheld: legalized it committed 40%+ of the stack without being all-in",
     'V78',
+    'decide_nlh'
+  ),
+  receipt(
+    'v78_committing_bluff_raise_priced_allowed',
+    'HorseLogic.v78CommitsWithoutJam (v78NoCommittingBluffRaiseIsPriced)',
+    'single-board 2-card NLH committing bluff-raise allowed by EV pricing (EV(bluffRaise) > baseline) over holdemEmpiricalPriors and heroBubbleFactor',
+    "Hold'em Strategy",
+    'decide_nlh'
+  ),
+  receipt(
+    'v78_committing_bluff_raise_priced_vetoed',
+    'HorseLogic.v78CommitsWithoutJam (v78NoCommittingBluffRaiseIsPriced)',
+    'single-board 2-card NLH committing bluff-raise vetoed by EV pricing (EV(bluffRaise) <= baseline or unpriceable) over holdemEmpiricalPriors and heroBubbleFactor',
+    "Hold'em Strategy",
     'decide_nlh'
   ),
   receipt(

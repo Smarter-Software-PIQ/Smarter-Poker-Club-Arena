@@ -22,6 +22,10 @@ import {
   holdemDangerBoardBettorEquity,
 } from './HorseHoldemCommittedPricing.js';
 import {
+  priceCommittingBluffRaise,
+  type CommittingBluffRaiseOpponent,
+} from './HorseV78CommittingBluffRaisePriced.js';
+import {
   holdemFillEquities,
   holdemHandIsMade,
   holdemLineLikelihood,
@@ -5479,6 +5483,16 @@ export interface HorseDecideOpts {
    *  a smaller raise and every value raise are untouched; the random roll
    *  is consumed exactly as before. Default on; explicit false keeps today. */
   v78NoCommittingBluffRaise?: boolean;
+  /** V78 PRICED REPLACEMENT (2026-11-22, Hold'em Strategy / HORSE DECISIONS;
+   *  default OFF, read `=== true`, OPTION_SWITCH_REFUSED, zero migrations):
+   *  in single-board 2-card NLH (non-Omaha, non-Short Deck, non-Fixed Limit,
+   *  non-Pot Limit, non-bomb-pot, single board), replaces the flat 40%-of-stack
+   *  bluff-raise veto with deterministic public-info EV pricing over measured
+   *  NLH fold priors (`holdemEmpiricalPriors.ts`) and tournament `heroBubbleFactor`
+   *  (`HorseV78CommittingBluffRaisePriced.priceCommittingBluffRaise`). Allows
+   *  the raise iff `EV(bluffRaise) > baseline`; vetoes otherwise. Off / unset /
+   *  false (and all non-NLH / multi-board / bomb-pot games): byte-identical. */
+  v78NoCommittingBluffRaiseIsPriced?: boolean;
   /** V79 (2026-11-02, Burls via Dan: horses "stack off with top pair, no
    *  weak kickers"): hold'em top pair with a weak kicker (9 or lower, not
    *  pairing the board) is capped at 0.25 ONLY in the cells where its
@@ -30566,6 +30580,32 @@ export class HorseLogic {
       return raised86;
     }
 
+    const v78PricedScope =
+      opts.v78NoCommittingBluffRaiseIsPriced === true &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      !vi.isPotLimit &&
+      vi.holeCount === 2 &&
+      !gs.bombPot &&
+      !multiBoard36 &&
+      (street === 'flop' || street === 'turn' || street === 'river');
+    const v78PricedCtx = v78PricedScope
+      ? {
+          street: street as 'flop' | 'turn' | 'river',
+          pot,
+          toCall,
+          equity,
+          inPosition: ip,
+          spr,
+          board,
+          opponents,
+          multiBoard: multiBoard36,
+          useMind,
+          tele: tele15,
+        }
+      : undefined;
+
     // ═══ V87 CHECK-RAISE VS A FLOP STABBER ═══
     // Deterministic mixes (v87SpotUnit), zero fastRandom(). A raise that would
     // commit 40%+ of the stack without jamming (V78) jams only with the
@@ -30590,7 +30630,14 @@ export class HorseLogic {
       const raiseTo87 = currentBet + (pot + toCall) * (0.8 + unit87('pumpsize') * 0.2);
       const commits87 =
         spr <= 3.5 ||
-        this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
+        this.v78CommitsWithoutJam(
+          raiseTo87 * params.sizingMultiplier,
+          player,
+          gs,
+          vi,
+          opts,
+          v78PricedCtx
+        );
       if (!commits87) {
         if (tele15) noteFire('v87_flop_stab_check_raise');
         if (tele15 && personaPost87) noteFire('holdem_persona_postflop_check_raise_seen');
@@ -30719,9 +30766,16 @@ export class HorseLogic {
           const raiseToFr = currentBet + (pot + toCall) * (0.75 + fastRandom() * 0.25);
           if (
             !multiBoard36 &&
-            this.v78CommitsWithoutJam(raiseToFr * params.sizingMultiplier, player, gs, vi, opts)
+            this.v78CommitsWithoutJam(
+              raiseToFr * params.sizingMultiplier,
+              player,
+              gs,
+              vi,
+              opts,
+              v78PricedCtx
+            )
           ) {
-            if (tele15) noteFire('v78_no_committing_bluff_raise');
+            if (tele15 && !v78PricedScope) noteFire('v78_no_committing_bluff_raise');
           } else {
             planBarrel(equity);
             if (tele15) noteFire(`ft_semibluff_raise_${eligFr.selection}`);
@@ -30777,7 +30831,14 @@ export class HorseLogic {
       const raiseTo87 = currentBet + (pot + toCall) * (0.8 + unit87('pumpsize') * 0.2);
       const commits87 =
         spr <= 3.5 ||
-        this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
+        this.v78CommitsWithoutJam(
+          raiseTo87 * params.sizingMultiplier,
+          player,
+          gs,
+          vi,
+          opts,
+          v78PricedCtx
+        );
       if (!commits87) {
         if (tele15) noteFire('v87_combo_draw_raise');
         planBarrel(equity);
@@ -30858,10 +30919,17 @@ export class HorseLogic {
       // order; the barrel plan just written is withdrawn (no raise, no story).
       if (
         !multiBoard36 &&
-        this.v78CommitsWithoutJam(raiseToAmt * params.sizingMultiplier, player, gs, vi, opts)
+        this.v78CommitsWithoutJam(
+          raiseToAmt * params.sizingMultiplier,
+          player,
+          gs,
+          vi,
+          opts,
+          v78PricedCtx
+        )
       ) {
         HorseMind.notePlan(handKey, player.user_id, false);
-        if (tele15) noteFire('v78_no_committing_bluff_raise');
+        if (tele15 && !v78PricedScope) noteFire('v78_no_committing_bluff_raise');
       } else {
         return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
       }
@@ -30895,10 +30963,19 @@ export class HorseLogic {
         // V13: same as above — a check-raise bluff is the start of a story.
         planBarrel(equity);
         const raiseToAmt = currentBet + (pot + toCall) * (0.85 + fastRandom() * 0.25);
-        if (this.v78CommitsWithoutJam(raiseToAmt * params.sizingMultiplier, player, gs, vi, opts)) {
+        if (
+          this.v78CommitsWithoutJam(
+            raiseToAmt * params.sizingMultiplier,
+            player,
+            gs,
+            vi,
+            opts,
+            v78PricedCtx
+          )
+        ) {
           // V78: a check-raise bluff that cannot fold to the re-shove.
           HorseMind.notePlan(handKey, player.user_id, false);
-          if (tele15) noteFire('v78_no_committing_bluff_raise');
+          if (tele15 && !v78PricedScope) noteFire('v78_no_committing_bluff_raise');
         } else {
           return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
         }
@@ -30938,8 +31015,17 @@ export class HorseLogic {
         // V78: the river blocker bluff-raise is air; one that commits 40%+
         // of the stack without jamming cannot fold to the re-shove it
         // invites (the committed branch then folds air: raise-then-fold).
-        if (this.v78CommitsWithoutJam(raiseToAmt * params.sizingMultiplier, player, gs, vi, opts)) {
-          if (tele15) noteFire('v78_no_committing_bluff_raise');
+        if (
+          this.v78CommitsWithoutJam(
+            raiseToAmt * params.sizingMultiplier,
+            player,
+            gs,
+            vi,
+            opts,
+            v78PricedCtx
+          )
+        ) {
+          if (tele15 && !v78PricedScope) noteFire('v78_no_committing_bluff_raise');
         } else {
           return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
         }
@@ -30983,7 +31069,16 @@ export class HorseLogic {
         unit87('v64blockerraise') < 0.08 + (persona87?.riverBluffGear ?? 0.3) * 0.07
       ) {
         const raiseTo87 = currentBet + (pot + toCall) * 0.75;
-        if (!this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts)) {
+        if (
+          !this.v78CommitsWithoutJam(
+            raiseTo87 * params.sizingMultiplier,
+            player,
+            gs,
+            vi,
+            opts,
+            v78PricedCtx
+          )
+        ) {
           if (tele15) noteFire('v87_river_blocker_bluff_raise');
           riverBluffDeclaredPending = true;
           return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
@@ -31780,7 +31875,14 @@ export class HorseLogic {
           const raiseTo86 =
             currentBet + (pot + toCall) * (0.85 + v86Hash01(v86SeedKey, 8633) * 0.15);
           if (
-            !this.v78CommitsWithoutJam(raiseTo86 * params.sizingMultiplier, player, gs, vi, opts)
+            !this.v78CommitsWithoutJam(
+              raiseTo86 * params.sizingMultiplier,
+              player,
+              gs,
+              vi,
+              opts,
+              v78PricedCtx
+            )
           ) {
             planBarrel(equity);
             if (tele15)
@@ -32302,8 +32404,85 @@ export class HorseLogic {
     player: SeatPlayer,
     gs: HorseGameStateV2,
     vi: VariantInfo,
-    opts: HorseDecideOpts
+    opts: HorseDecideOpts,
+    pricedCtx?: {
+      readonly street: 'flop' | 'turn' | 'river';
+      readonly pot: number;
+      readonly toCall: number;
+      readonly equity: number;
+      readonly inPosition: boolean;
+      readonly spr: number;
+      readonly board: readonly Card[];
+      readonly opponents: readonly SeatPlayer[];
+      readonly multiBoard: boolean;
+      readonly useMind: boolean;
+      readonly tele: boolean;
+    }
   ): boolean {
+    if (
+      opts.v78NoCommittingBluffRaiseIsPriced === true &&
+      pricedCtx !== undefined &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      !vi.isPotLimit &&
+      vi.holeCount === 2 &&
+      !gs.bombPot &&
+      !pricedCtx.multiBoard
+    ) {
+      const legal = this.legalize(
+        { action: 'raise', amount: raiseTo, thinkTime: 0 },
+        player,
+        gs,
+        vi
+      );
+      const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet) : 0;
+      const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+      const estAdd =
+        legal.action === 'all_in'
+          ? heroStack
+          : typeof legal.amount === 'number' && Number.isFinite(legal.amount)
+            ? Math.max(0, legal.amount - heroBet)
+            : 0;
+      const bf =
+        isTournamentMode(gs) && gs.bigBlind > 0
+          ? (heroBubbleFactor(
+              gs,
+              heroStack / gs.bigBlind,
+              player.user_id,
+              estAdd > 0 ? estAdd : undefined
+            ) ?? 1)
+          : 1;
+      const pricedOpponents: CommittingBluffRaiseOpponent[] = pricedCtx.opponents.map((o) => ({
+        stack: Number.isFinite(o.stack) ? Math.max(0, o.stack) : 0,
+        bet: Number.isFinite(o.bet) ? Math.max(0, o.bet) : 0,
+        isAllIn: o.is_all_in === true,
+      }));
+      const priced = priceCommittingBluffRaise({
+        street: pricedCtx.street,
+        legalAction: legal.action,
+        legalAmount: legal.amount,
+        heroBet,
+        heroStack,
+        currentBet: Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0,
+        pot: pricedCtx.pot,
+        toCall: pricedCtx.toCall,
+        equity: pricedCtx.equity,
+        inPosition: pricedCtx.inPosition,
+        spr: pricedCtx.spr,
+        board: pricedCtx.board,
+        opponents: pricedOpponents,
+        heroBubbleFactor: bf,
+      });
+      if (pricedCtx.tele) {
+        noteFire(
+          priced.allow
+            ? 'v78_committing_bluff_raise_priced_allowed'
+            : 'v78_committing_bluff_raise_priced_vetoed'
+        );
+      }
+      return priced.veto;
+    }
     if (opts.v78NoCommittingBluffRaise === false) return false;
     if (vi.isOmaha || vi.isShortDeck || vi.holeCount !== 2 || gs.bombPot) return false;
     const legal = this.legalize({ action: 'raise', amount: raiseTo, thinkTime: 0 }, player, gs, vi);

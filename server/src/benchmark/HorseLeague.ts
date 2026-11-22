@@ -3567,6 +3567,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { horseSlowplayIsPriced: true },
     b: {},
   },
+  // 2026-11-22 HORSE DECISIONS lane (v78NoCommittingBluffRaiseIsPriced, default OFF, Evidence NOT MET on HVH48 D+E):
+  // replaces the v78 40%-stack committing bluff-raise veto with deterministic EV pricing against empirical fold-to-raise
+  // priors and heroBubbleFactor. Declared dark card; OPTION_SWITCH_REFUSED (0 migrations).
+  {
+    name: 'nlh_v78_committing_bluff_raise_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { v78NoCommittingBluffRaiseIsPriced: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely

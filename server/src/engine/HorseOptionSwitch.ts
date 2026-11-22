@@ -1189,6 +1189,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  v78NoCommittingBluffRaiseIsPriced:
+    "dark priced replacement for blanket v78NoCommittingBluffRaise (Hold'em Strategy / HORSE DECISIONS 2026-11-22, zero SQL migrations; held unregistered until promotion evidence meets bar)",
   multiBoardFreerollIsPriced:
     'dark zero-migration priced replacement for unowned V36 multi-board freeroll bet/raise coin flips (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   multiBoardNonFreerollIsPriced:
