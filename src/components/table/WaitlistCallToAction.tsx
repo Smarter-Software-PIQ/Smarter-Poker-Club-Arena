@@ -33,6 +33,13 @@ export interface WaitlistCallToActionProps {
   onList?: boolean;
   /** An unread queue must never be printed as zero people waiting. */
   queueState?: 'loading' | 'unavailable';
+  /**
+   * Open chairs at the game's OTHER live tables (Dan 2026-11-22: a game is
+   * never "full with no waiting list"). A full Main whose feeder has a chair
+   * is not a full game: with nobody waiting, the plate says where the seat is
+   * instead of printing "0 Waiting" under a game a player can sit in now.
+   */
+  openElsewhere?: number;
 }
 
 export function WaitlistCallToAction({
@@ -42,8 +49,13 @@ export function WaitlistCallToAction({
   lightning = false,
   onList: membership,
   queueState,
+  openElsewhere = 0,
 }: WaitlistCallToActionProps) {
   const onList = !lightning && !queueState && (membership ?? position != null);
+  /* A seat is open in this game, at another of its tables, and nobody is in
+     line for it: the truthful line is the seat, never an empty waiting list. */
+  const seatElsewhere =
+    !lightning && !queueState && !onList && waitingCount === 0 && openElsewhere > 0;
   const socket =
     lightning || queueState
       ? ''
@@ -51,7 +63,9 @@ export function WaitlistCallToAction({
         ? position != null
           ? `#${position}`
           : ''
-        : String(waitingCount);
+        : seatElsewhere
+          ? String(openElsewhere)
+          : String(waitingCount);
   const eyebrow = lightning
     ? 'Lightning Games'
     : queueState === 'loading'
@@ -60,14 +74,18 @@ export function WaitlistCallToAction({
         ? 'Waiting List Unavailable'
         : onList
           ? 'You Are On The Waiting List'
-          : `Table Full · ${waitingCount} Waiting`;
+          : seatElsewhere
+            ? `Table Full · ${openElsewhere} ${openElsewhere === 1 ? 'Seat' : 'Seats'} Open In This Game`
+            : `Table Full · ${waitingCount} Waiting`;
   const title = lightning
     ? 'Join Lightning'
     : queueState || (onList && position == null)
       ? 'Open Game Lobby'
       : onList
         ? `Position ${position} Of ${waitingCount}`
-        : 'Join The Waiting List';
+        : seatElsewhere
+          ? 'Join The Game'
+          : 'Join The Waiting List';
 
   const socketRef = useFitText<HTMLSpanElement>(socket, 1, 0.5);
   const eyebrowRef = useFitText<HTMLSpanElement>(eyebrow, 1, 0.5);
