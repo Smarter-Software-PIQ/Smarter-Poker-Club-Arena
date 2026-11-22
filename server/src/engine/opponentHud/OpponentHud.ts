@@ -32,6 +32,7 @@ import {
   type HudTableSize,
   type HudSessionSums,
   hudStatIsRegistered,
+  isHudFamily,
   recallKeys,
   type HudBand,
   type HudCount,
@@ -46,6 +47,8 @@ import {
 import { noteFire } from '../BrainTelemetry.js';
 // the math core reads its opponent records through this packet (lane CORE-EXTEND-5; a function-only cycle)
 import './OmahaMathCoreHudRecords.js';
+// B3 math core turn/river seat-only HUD adapter (function-only cycle; default OFF behind turn/river flags)
+import './OmahaMathCoreTurnRiverHud.js';
 
 export const OPPONENT_HUD_OPTION = 'omahaOpponentLifetimeHud' as const;
 export const HUD_PACKET_VERSION = 1 as const;
@@ -195,7 +198,7 @@ export function validHudPacket(x: unknown): x is OpponentHudPacket {
   if (!x || typeof x !== 'object') return false;
   const p = x as OpponentHudPacket;
   if (p.v !== HUD_PACKET_VERSION || p.pv !== HUD_PROFILE_VERSION) return false;
-  if (p.family !== 'plo4' && p.family !== 'plo5') return false;
+  if (!isHudFamily(p.family)) return false;
   if (!p.pri || typeof p.pri !== 'object' || !p.opp || typeof p.opp !== 'object') return false;
   for (const o of Object.values(p.opp)) {
     if (!o || typeof o !== 'object' || !Number.isSafeInteger(o.hands)) return false;
