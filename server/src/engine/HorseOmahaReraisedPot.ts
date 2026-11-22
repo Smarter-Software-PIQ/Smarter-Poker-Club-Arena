@@ -232,7 +232,15 @@ export function omahaReraisedEquityAgainst(
   hole: readonly Card[],
   dead: readonly Card[],
   ranges: readonly ((h: readonly Card[]) => boolean)[],
-  samples: number = RERAISED_EQUITY_SAMPLES
+  samples: number = RERAISED_EQUITY_SAMPLES,
+  /**
+   * 2026-11-19 (the priced call-or-raise with other players in the hand): told
+   * each accepted sample's showdown scores, hero's first and then one per range
+   * in order, so a caller can price on the SAME samples who wins which part of
+   * the pot when only some of them continue. Absent: nothing changes; the
+   * samples and the answer are the same with it or without it.
+   */
+  onSample?: (heroScore: number, oppScores: readonly number[]) => void
 ): number | null {
   const size = hole.length;
   const deck = unseenDeck([...hole, ...dead]);
@@ -275,8 +283,10 @@ export function omahaReraisedEquityAgainst(
     const mine = scoreOmahaHi([...hole], run);
     let best = mine;
     let tied = 1;
+    const scores: number[] | null = onSample ? [] : null;
     for (const o of opps) {
       const s = scoreOmahaHi(o, run);
+      if (scores) scores.push(s);
       if (s > best) {
         best = s;
         tied = 1;
@@ -284,6 +294,7 @@ export function omahaReraisedEquityAgainst(
     }
     if (mine === best) won += 1 / tied;
     got++;
+    if (onSample && scores) onSample(mine, scores);
   }
   return got >= samples / 2 ? won / got : null;
 }

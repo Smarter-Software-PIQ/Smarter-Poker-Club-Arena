@@ -1,0 +1,3 @@
+# Owner engine cutover after the 2130z seal (three-hour cadence)
+
+The owner ordered engine cutovers every three hours until every correction is finished (November 20, 2026, 15:16 Chicago). Window `2026-11-20-owner-no-notice-engine-2330z` (5:30 PM to 11:30 PM Chicago) is the next one: it serves `95dae3848e51` (sealed under 2130z) and carries everything merged to main before this booking. No advance player notice (standing order of November 17). Booked with `scripts/release/book-owner-engine-window.py --no-advance-notice`; installers pause from the booking merge until SEALED and resume with `scripts/release/resume-migration-installs.sh`.

@@ -415,9 +415,15 @@ describe('an opponent is read by street and by flop texture', () => {
     // of 2026-11-18, by the default-off flop defence tree (omahaFlopDefenceIsPriced), which reads the bettor's
     // counters only inside its own `ctx.flopDefenceTree === true` branch;
     // and, since 2026-11-19 (omahaFlopVerdictReadsTheBettor, default off) also by the flop facing-bet rule, behind
-    // ctx.readsTheBettor === true, for the bettor alone
+    // ctx.readsTheBettor === true, for the bettor alone;
+    // and, since 2026-11-19 (omahaFacingBetValueShareIsMeasured, default off) by that option's one wiring
+    // function, which HorseLogic's facing-bet count calls behind that option and the mind, for the bettor alone;
+    // and, since 2026-11-19 (omahaBluffIsPricedAgainstTheTarget, default off) by that option's module, which reads
+    // the target's foldToBet street cell only when the option is on and its wager is priced
     expect(naming(/omahaStreetReadOf\(/)).toEqual([
       'engine/HorseMind.ts',
+      'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
+      'engine/HorseOmahaFacingBetValueShareMeasuredRule.ts',
       'engine/HorseOmahaFlopFacingBetEvRule.ts',
       'engine/HorseOmahaReadByStreetRule.ts',
     ]);
@@ -432,13 +438,39 @@ describe('an opponent is read by street and by flop texture', () => {
     expect(bettorGuard).toBeLessThan(flopReads[0]);
     expect(flopReads[0]).toBeLessThan(treeGuard);
     expect(treeGuard).toBeLessThan(flopReads[1]);
+    const logic = readFileSync(join(root, 'engine/HorseLogic.ts'), 'utf8');
+    const logicReads = [...logic.matchAll(/omahaMeasuredBettorRecord\(/g)].map(
+      (m) => m.index ?? -1
+    );
+    expect(logicReads).toHaveLength(1);
+    const measuredGuard = logic.indexOf('opts.omahaFacingBetValueShareIsMeasured === true &&');
+    expect(measuredGuard).toBeGreaterThan(-1);
+    expect(measuredGuard).toBeLessThan(logicReads[0]);
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
-    expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(3);
-    expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(2);
+    // since 2026-11-19 (lane HU-OMAHA, omahaEvFoldModelHeadsUp, default off) HorseMind reads it once more, inside
+    // omahaEvFoldHeadsUpMulOf, whose only call sits behind `omahaEvFoldModelHeadsUp === true`
+    expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(4);
+    expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(3);
+    const huDef = mind.indexOf('private static omahaEvFoldHeadsUpMulOf(');
+    const huCalls = [...mind.matchAll(/this\.omahaEvFoldHeadsUpMulOf\(/g)].map(
+      (m) => m.index ?? -1
+    );
+    expect(huDef).toBeGreaterThan(-1);
+    expect(huCalls).toHaveLength(1);
+    const huGuard = mind.lastIndexOf('omahaEvFoldModelHeadsUp === true', huCalls[0]);
+    expect(huGuard).toBeGreaterThan(-1);
+    expect(huCalls[0] - huGuard).toBeLessThan(200);
+    const mindReads = [...mind.matchAll(/this\.omahaStreetReadOf\(/g)].map((m) => m.index ?? -1);
+    expect(mindReads.filter((i) => i > huDef && i < mind.indexOf('\n  }\n', huDef))).toHaveLength(
+      1
+    );
     // the decision's carried state is touched only by its owner, the observer reads that fill it and the frame
     expect(naming(/pooledStreetRead/)).toEqual([
       // the league's stand-in for the accepted-hand learner (2026-11-18), filling a league sandbox only
       'benchmark/HorseLeagueStreetRead.ts',
+      // the opponent-memory replay (2026-11-21, HORSE DECISIONS): the same stand-in keyed by the hand's mode,
+      // filling one replay sandbox only; no engine path imports it
+      'benchmark/ReplayOpponentMemory.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
       'engine/HorseOmahaStreetRead.ts',
@@ -458,8 +490,14 @@ describe('an opponent is read by street and by flop texture', () => {
     // the module is imported only by those files (and the memory copy)
     expect(naming(/from '\.\.?\/(?:engine\/)?HorseOmahaStreetRead\.js'/)).toEqual([
       'benchmark/HorseLeagueStreetRead.ts',
+      // the opponent-memory replay (2026-11-21, HORSE DECISIONS) imports the reducer for its replay sandbox only
+      'benchmark/ReplayOpponentMemory.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
+      // omahaFacingBetValueShareIsMeasured's pure read (2026-11-19): the record's validation and the flop texture
+      'engine/HorseOmahaFacingBetValueShareMeasured.ts',
+      // and its one wiring function: the counters' TYPE only
+      'engine/HorseOmahaFacingBetValueShareMeasuredRule.ts',
       // omahaFlopVerdictReadsTheBettor's pure read (2026-11-19)
       'engine/HorseOmahaFlopBettorRead.ts',
       // the default-off flop defence tree (omahaFlopDefenceIsPriced, dark batch 2026-11-18): the counters' TYPE only

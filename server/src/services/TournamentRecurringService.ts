@@ -413,7 +413,10 @@ import {
 } from '../config/headsUpSpec.js';
 import { secureRandomInt } from '../engine/CryptoRandom.js';
 import { HorseEntryRefusalBackoff, databaseDidNotAnswer } from './horseEntryRefusalBackoff.js';
-import { HorseReservationBudget, HORSE_RESERVATION_BUDGET_REASON } from './horseReservationBudget.js';
+import {
+  HorseReservationBudget,
+  HORSE_RESERVATION_BUDGET_REASON,
+} from './horseReservationBudget.js';
 import { horseEntryCapRefusalContext } from './horseEntryCapRefusalContext.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
 import { isRestDayFor, tagBook } from './StableHandTags.js';
@@ -1234,12 +1237,78 @@ export function seatFirstHumanPartnerHoldJitterMs(tournamentId: string): number 
  */
 export const HUMAN_SEATED_AT_UNKNOWN = -Infinity;
 
+export type HeadsUpWaitModeDb = 'play_anyone' | 'specific_player';
+
+/**
+ * Maximum duration (5 minutes) an explicit Heads-Up `specific_player` invite
+ * hold may reserve seat 2 before falling open cleanly (anti-lockout bound).
+ */
+export const HEADS_UP_SPECIFIC_HOLD_MAX_MS = 5 * 60_000;
+
+export interface SeatFirstPartnerHoldOverride {
+  waitMode?: HeadsUpWaitModeDb | null;
+  holdExpiresAtMs?: number | null;
+  nowMs?: number;
+}
+
+export interface HeadsUpWaitHoldRow {
+  tournament_id?: string | null;
+  creator_user_id?: string | null;
+  wait_mode?: string | null;
+  hold_expires_at?: string | null;
+}
+
+/**
+ * Translate a `public.heads_up_wait_holds` row into a hold override for
+ * `seatFirstHumanPartnerHoldUntilMs`. Ignores stale holds whose creator is no
+ * longer among the table's live occupants so a vacated seat never strands a
+ * later player.
+ */
+export function resolveHeadsUpWaitHoldOverride(
+  row: HeadsUpWaitHoldRow | null | undefined,
+  liveSeatUserIds?: ReadonlySet<string> | null
+): SeatFirstPartnerHoldOverride | undefined {
+  if (!row || (row.wait_mode !== 'play_anyone' && row.wait_mode !== 'specific_player')) {
+    return undefined;
+  }
+  const creatorId = String(row.creator_user_id ?? '');
+  if (liveSeatUserIds && liveSeatUserIds.size > 0 && creatorId && !liveSeatUserIds.has(creatorId)) {
+    return undefined;
+  }
+  const parsedExpires = row.hold_expires_at ? Date.parse(String(row.hold_expires_at)) : NaN;
+  return {
+    waitMode: row.wait_mode,
+    holdExpiresAtMs: Number.isFinite(parsedExpires) ? parsedExpires : null,
+  };
+}
+
 export function seatFirstHumanPartnerHoldUntilMs(
   startTimeMs: number,
   firstHumanSeatedAtMs: number,
   jitterMs: number = 0,
-  createdAtMs: number = NaN
+  createdAtMs: number = NaN,
+  override?: SeatFirstPartnerHoldOverride
 ): number {
+  const humanPresent =
+    firstHumanSeatedAtMs === HUMAN_SEATED_AT_UNKNOWN || Number.isFinite(firstHumanSeatedAtMs);
+  if (!humanPresent) return -Infinity;
+
+  // Explicit Heads-Up wait-mode choice persisted in `public.heads_up_wait_holds`.
+  if (override?.waitMode === 'play_anyone') {
+    return -Infinity;
+  }
+  if (override?.waitMode === 'specific_player') {
+    const now =
+      typeof override.nowMs === 'number' && Number.isFinite(override.nowMs)
+        ? override.nowMs
+        : Date.now();
+    if (typeof override.holdExpiresAtMs === 'number' && Number.isFinite(override.holdExpiresAtMs)) {
+      const boundedUntil = Math.min(override.holdExpiresAtMs, now + HEADS_UP_SPECIFIC_HOLD_MAX_MS);
+      return boundedUntil > now ? boundedUntil : -Infinity;
+    }
+    return -Infinity;
+  }
+
   const windowEnd = Number.isFinite(startTimeMs) ? startTimeMs : -Infinity;
   /* A seated human whose seat time is unknown is held to the board's own
      window only - a FIXED instant. Never the current clock: a time derived
@@ -1255,7 +1324,6 @@ export function seatFirstHumanPartnerHoldUntilMs(
         )
       : windowEnd;
   }
-  if (!Number.isFinite(firstHumanSeatedAtMs)) return -Infinity;
   /* A PERSON OVERTAKES THE LADDER (2026-11-08). This used to hold until the
      LATER of the board's own window and the partner floor. That was right when
      the board window was 350 seconds; it is wrong now that a horse-opened
@@ -6053,6 +6121,7 @@ export class TournamentRecurringService {
    * partial read is not an empty club, and refusing to register on a failed
    * read starves every event on the platform.
    */
+
   private async clubMemberIdsForTournament(
     tournamentId: string,
     pass?: HorseTopUpPass
@@ -6624,6 +6693,30 @@ export class TournamentRecurringService {
   }
 
   /**
+   * Whether the pool this event's top-up draws from (clubMemberIdsForTournament)
+   * holds any horse: true / false from a complete read, null when unknowable.
+   * Read-only. Used only so an empty event's cancel does not wait on a top-up
+   * that can never add anyone (tournament/emptyPastStartEvent.ts, 2026-11-20).
+   * Identification, not exclusion: it changes no horse's treatment.
+   */
+  async hostPoolHasHorse(tournamentId: string): Promise<boolean | null> {
+    const members = await this.clubMemberIdsForTournament(tournamentId);
+    if (members === null) return null;
+    if (members.size === 0) return false;
+    const ids = [...members];
+    for (let offset = 0; offset < ids.length; offset += IN_LIST_CHUNK) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('is_horse', true)
+        .in('id', ids.slice(offset, offset + IN_LIST_CHUNK))
+        .limit(1);
+      if (error || !Array.isArray(data)) return null;
+      if (data.length > 0) return true;
+    }
+    return false;
+  }
+  /**
    * Dan 2026-08-19: TOURNAMENTS RUN. THEY DO NOT CANCEL.
    *
    * Horses are seeded once at creation, deliberately leaving a seat or two for
@@ -6665,7 +6758,8 @@ export class TournamentRecurringService {
     tournamentId: string,
     seats: ReadonlyArray<{ user_id?: string | null; joined_at?: string | null }>,
     startTimeMs: number,
-    createdAtMs: number = NaN
+    createdAtMs: number = NaN,
+    maxPlayers: number = 0
   ): Promise<number> {
     const now = Date.now();
     let latestJoin = -Infinity;
@@ -6675,9 +6769,17 @@ export class TournamentRecurringService {
       if (Number.isFinite(at)) latestJoin = Math.max(latestJoin, at);
     }
     const windowEnd = Number.isFinite(startTimeMs) ? startTimeMs : -Infinity;
+    const maxDefaultHoldMs =
+      SEAT_FIRST_HUMAN_PARTNER_HOLD_MS + SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS;
     const latestPossible = Math.max(
       windowEnd,
-      latestJoin + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS + SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS
+      latestJoin + maxDefaultHoldMs,
+      maxPlayers === 2
+        ? Math.max(
+            this.partnerHolds.get(tournamentId) ?? -Infinity,
+            latestJoin + maxDefaultHoldMs + HEADS_UP_SPECIFIC_HOLD_MAX_MS
+          )
+        : -Infinity
     );
     if (latestPossible <= now) {
       this.partnerHolds.delete(tournamentId);
@@ -6711,11 +6813,24 @@ export class TournamentRecurringService {
     const known = new Set((profiles ?? []).map((p) => String((p as { id?: string }).id ?? '')));
     // A seat with no profile row is not proven human; it holds nothing.
     const first = firstHumanSeatedAtMs(seats, (id) => known.has(id) && !horses.has(id));
+    let holdOverride: SeatFirstPartnerHoldOverride | undefined;
+    if (maxPlayers === 2 && (first === HUMAN_SEATED_AT_UNKNOWN || Number.isFinite(first))) {
+      const { data: holdRow } = await supabase
+        .from('heads_up_wait_holds')
+        .select('tournament_id, creator_user_id, wait_mode, hold_expires_at')
+        .eq('tournament_id', tournamentId)
+        .maybeSingle();
+      holdOverride = resolveHeadsUpWaitHoldOverride(
+        holdRow as HeadsUpWaitHoldRow | null,
+        new Set(ids)
+      );
+    }
     const holdUntil = seatFirstHumanPartnerHoldUntilMs(
       startTimeMs,
       first,
       seatFirstHumanPartnerHoldJitterMs(tournamentId),
-      createdAtMs
+      createdAtMs,
+      holdOverride
     );
     if (!(holdUntil > now)) {
       this.partnerHolds.delete(tournamentId);
@@ -7022,7 +7137,8 @@ export class TournamentRecurringService {
             tournamentId,
             liveSeatRows,
             heldStartMs,
-            Date.parse(String((tRow as { created_at?: string | null }).created_at ?? ''))
+            Date.parse(String((tRow as { created_at?: string | null }).created_at ?? '')),
+            Number((tRow as { max_players?: number } | null)?.max_players ?? 0)
           );
           if (holdUntil > Date.now()) return 0;
         }
@@ -7289,7 +7405,8 @@ export class TournamentRecurringService {
             const why = String(outcome?.reason ?? 'no_reason');
             // The read was a pass old: remember the door's answer so this
             // horse is not offered again before the next read knows it.
-            if (why === HORSE_RESERVATION_BUDGET_REASON) this.horseReservationBudget.noteRefused(horse);
+            if (why === HORSE_RESERVATION_BUDGET_REASON)
+              this.horseReservationBudget.noteRefused(horse);
             otherReasons.set(why, (otherReasons.get(why) ?? 0) + 1);
           }
 

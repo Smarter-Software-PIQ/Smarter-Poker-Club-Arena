@@ -210,14 +210,25 @@ export function withDecisionFireScope<T>(fn: () => T): {
 export function withSecondLookFireCapture<T>(fn: () => T): {
   value: T;
   fired: ReadonlySet<string>;
+  ruleReceipts: readonly DecisionRuleReceipt[];
 } {
   const outer = secondLookCapture;
+  const outerReceipts = decisionRuleReceipts;
   const fired = new Set<string>();
+  const ruleReceipts: DecisionRuleReceipt[] = [];
   secondLookCapture = fired;
+  decisionRuleReceipts = ruleReceipts;
   try {
-    return { value: fn(), fired };
+    return { value: fn(), fired, ruleReceipts };
   } finally {
     secondLookCapture = outer;
+    decisionRuleReceipts = outerReceipts;
+    if (outer) {
+      for (const feature of fired) outer.add(feature);
+      if (outerReceipts)
+        for (const receipt of ruleReceipts)
+          if (outerReceipts.length < DECISION_RULE_RECEIPTS_MAX) outerReceipts.push(receipt);
+    }
   }
 }
 
@@ -229,11 +240,14 @@ export function withSecondLookFireCapture<T>(fn: () => T): {
  */
 export function outsideSecondLookCapture<T>(fn: () => T): T {
   const held = secondLookCapture;
+  const heldReceipts = decisionRuleReceipts;
   secondLookCapture = null;
+  decisionRuleReceipts = null;
   try {
     return fn();
   } finally {
     secondLookCapture = held;
+    decisionRuleReceipts = heldReceipts;
   }
 }
 
@@ -305,13 +319,13 @@ const ruleAction = (d: { action: string; amount?: number | null }): DecisionRule
  * the build and the seated humans also names each rule that changed it, in
  * the order the rules acted.
  *
- * - Measurement only: nothing reads the list before the decision is made, and
+ * - Measurement only: nothing reads the list to change a decision, and
  *   recording copies the action and amount; it never touches the decision.
- * - Recorded only inside an open scope and while telemetry is enabled: a
- *   league, benchmark or test decision, a suspended shadow re-decision and a
- *   DEEP second look (all outside the scope or paused) record nothing, exactly
- *   as they count no fire. A DEEP second look now runs with telemetry on inside
- *   withSecondLookFireCapture (2026-11-16); it is refused by name below.
+ * - Recorded only inside an open scope (`withDecisionFireScope` for FAST or
+ *   `withSecondLookFireCapture` for DEEP, which keeps its own isolated list
+ *   without touching the FAST scope) and while telemetry is enabled: a league,
+ *   benchmark or test decision and a suspended shadow re-decision record
+ *   nothing, exactly as they count no fire.
  * - Bounded at DECISION_RULE_RECEIPTS_MAX per decision.
  */
 export function noteDecisionRuleReceipt(
@@ -319,9 +333,7 @@ export function noteDecisionRuleReceipt(
   before: { action: string; amount?: number | null } | null,
   after: { action: string; amount?: number | null }
 ): void {
-  // A DEEP second look (withSecondLookFireCapture) re-decides a turn the FAST look already answered: it
-  // records nothing here, exactly as its fires are collected and never counted under their own names.
-  if (!enabled || !decisionRuleReceipts || secondLookCapture) return;
+  if (!enabled || !decisionRuleReceipts) return;
   if (decisionRuleReceipts.length >= DECISION_RULE_RECEIPTS_MAX) return;
   decisionRuleReceipts.push({
     receipt,

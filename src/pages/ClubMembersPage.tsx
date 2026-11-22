@@ -2027,7 +2027,11 @@ export default function ClubMembersPage() {
       )}
 
       {liveSeats.seats.length > 0 && !notFound && !accessDenied && (
-        <LiveNowStrip seats={liveSeats.seats} onWatch={watchTable} />
+        <LiveNowStrip
+          seats={liveSeats.seats}
+          onWatch={watchTable}
+          scope={summary.viewer_role === 'owner' ? 'club' : 'downline'}
+        />
       )}
       <div
         className="members-list"

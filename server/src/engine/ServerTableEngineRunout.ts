@@ -12,6 +12,8 @@ import { HandController, scaleWinnerCentsForRake } from './HandController.js';
 import { noteFire } from './BrainTelemetry.js';
 import { horseUpgradeEvidenceArmed, noteHorseUpgradeEvent } from './HorseUpgradeEvidence.js';
 import { horseRunItTwiceRuns } from './HorseRunItTwice.js';
+import { horseRunItTwiceAnswer, horseRunItTwicePricedReceipt } from './HorseRunItTwicePriced.js';
+import { horseRunItTwiceIsPricedOn } from './HorseRunItTwiceSwitch.js';
 
 import { legacyAllInPercent } from './AllInEquityPresentation.js';
 import { InsuranceEngine } from './InsuranceEngine.js';
@@ -1972,9 +1974,27 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
   }
 
   /** The board count this Horse answers with, from the equity read at this hand's offer. */
-  protected horseRitRuns(playerId: string): 1 | 2 | 3 {
+  protected horseRitRuns(playerId: string, role: 'chooser' | 'responder' = 'chooser'): 1 | 2 | 3 {
     const record = this.horseRitOfferEquity.get(this.handCount);
     const equity = record?.equity?.[playerId];
+    // horseRunItTwiceIsPriced (default OFF; HorseRunItTwicePriced.ts). Off: horseRunItTwiceRuns
+    // exactly as before (role and players all in are not read).
+    if (horseRunItTwiceIsPricedOn()) {
+      const answer = horseRunItTwiceAnswer(
+        {
+          horseId: playerId,
+          handNumber: this.handCount,
+          potBB: record?.potBB ?? 0,
+          equity: typeof equity === 'number' ? equity : null,
+          maxRuns: record?.maxRuns ?? 2,
+          role,
+          playersAllIn: record?.equity ? Object.keys(record.equity).length : 2,
+        },
+        true
+      );
+      if (answer.priced) noteFire(horseRunItTwicePricedReceipt(answer.priced));
+      return answer.runs;
+    }
     return horseRunItTwiceRuns({
       horseId: playerId,
       handNumber: this.handCount,
@@ -2053,7 +2073,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    */
   protected horseRitVerdict(playerId: string): 'once' | 'multi' {
     // Unknown equity is 'once': a Horse never agrees blind.
-    return this.horseRitRuns(playerId) === 1 ? 'once' : 'multi';
+    return this.horseRitRuns(playerId, 'responder') === 1 ? 'once' : 'multi';
   }
 
   protected waitForRITResponse(onComplete: () => void): void {

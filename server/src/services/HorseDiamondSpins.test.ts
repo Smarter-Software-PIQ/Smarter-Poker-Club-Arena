@@ -259,6 +259,7 @@ describe('refusals', () => {
     expect(backoffForRefusal('One Moment Between Spins')).toBe(5_000);
     expect(backoffForRefusal('The Host Must Fund Every Prize Before A Spin')).toBe(30 * 60_000);
     expect(backoffForRefusal('The Platform Is In Its Maintenance Break')).toBe(6 * 60_000);
+    expect(backoffForRefusal('The Round Limit Could Not Be Read')).toBeNull();
     expect(backoffForRefusal('Something Nobody Planned')).toBeNull();
   });
 });

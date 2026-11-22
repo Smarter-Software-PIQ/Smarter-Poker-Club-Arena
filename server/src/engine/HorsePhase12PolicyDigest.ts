@@ -56,6 +56,8 @@ export const HORSE_PHASE12_POLICY_SOURCE_REASONS: Readonly<Record<string, string
   'src/engine/plo4/Plo4LivePolicy.ts':
     'the shared seat/role kernel: canonical positions, blind seats, plo4Role and the selection vocabulary',
   'src/engine/plo4/Plo4PolicyPack.ts': 'the position and role constants the kernel reads',
+  'src/engine/omaha/OmahaPackDepth.ts':
+    'the depth the PLO4 pack gate in Plo4LivePolicy reads (2026-11-19: omahaPackEffectiveDepth, omahaPackClampDeepDepth); imported at runtime by the shared kernel file, so it is bound with it',
   'src/engine/HorseLogic.ts':
     'the owner: builds the reference, invokes the policy, legalizes its proposal, applies the illegal_candidate guard and the Phase 7 tournament owner',
   'src/engine/HorsePolicyRegistry.ts': 'routes each Phase 12 variant to the Phase 12 owner',

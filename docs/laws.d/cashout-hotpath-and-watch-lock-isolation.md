@@ -1,0 +1,3 @@
+# tests/cashout-hotpath-and-watch-lock-isolation.law.test.ts
+
+Enforces three database hot-path and lock-isolation invariants: (1) `public.atomic_credit_wallet_and_log` checks active `table_seats` (`left_at IS NULL`) first so cashouts use the partial active-seat index while retaining the vacated-seat fallback for post-exit callers (`resolve_pending_addon`), (2) `public.fn_ca_operator_floor_entry_guard` short-circuits `RETURN NEW` on seat exits before taking `pg_advisory_xact_lock_shared(530093)`, and (3) every `public.fn_ca_*_watch` function defined from `20261121154220` onward declares a bounded `SET lock_timeout` so background watches yield immediately to live dealing.

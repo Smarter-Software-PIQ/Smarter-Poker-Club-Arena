@@ -190,3 +190,22 @@ export const AddOnIcon = () => (
     />
   </svg>
 );
+
+/** Invite To Game — link chain icon */
+export const InviteLinkIcon = () => (
+  <svg style={iconStyle} viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M7.5 10.5L10.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path
+      d="M8.5 12.2L6.8 13.9C5.7 15 3.9 15 2.8 13.9C1.7 12.8 1.7 11 2.8 9.9L4.5 8.2"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M9.5 5.8L11.2 4.1C12.3 3 14.1 3 15.2 4.1C16.3 5.2 16.3 7 15.2 8.1L13.5 9.8"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);

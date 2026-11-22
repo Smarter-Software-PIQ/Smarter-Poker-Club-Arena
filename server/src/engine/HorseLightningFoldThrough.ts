@@ -138,3 +138,39 @@ export function lightningFoldThroughFrame(
     ],
   } as unknown as HorseGameStateV2;
 }
+
+/** The strength-gated Lightning entries (HorseLightningCheapEntry): their own default-off option, with
+ *  their own price bar; a frame answer they carry is a priced continuation, not the blind-vs-blind mix. */
+const PRICED_ENTRY_BRANCHES = new Set([
+  'lightning_cheap_entry_sb_complete',
+  'lightning_cheap_entry_over_limp',
+]);
+
+/**
+ * NO RELEASE FOR AN UNRAISED LIMP (2026-11-21). True when the frame's answer is a preflop call into a
+ * street with no voluntary aggression (a first-in limp or a small-blind complete), unless the answer
+ * carries a strength-gated Lightning entry branch on its preflop authority trail.
+ *
+ * Why (authority file, "Why those limps and weaker entries occur in NLH", item 1): the frame folds the
+ * seats before an unopened small blind, so the small blind reads blind-vs-blind (`bvb`, oppsLeft 1) and
+ * HorsePreflop's 75% complete mix runs down to `sbLimpFloor` (0.22 base). On the declared NLH half
+ * (2026-11-21) that release raised VPIP by 0.97 points with only 45.1% of it the intended kind and the
+ * bottom-quartile share of entries from 10.18% to 11.26%. The early look exists so a Horse does not
+ * press a fold its real turn would not make for strength reasons ("HORSES SHOULD FOLD RIGHT AWAY IF THEY
+ * WERE ALREADY FOLDING", 2026-10-24); a mixed complete at the bottom of the range is the entry the
+ * standing Lightning rule forbids as a way to meet the VPIP floor, so it does not undo the early fold.
+ *
+ * Chosen over rewriting the frame's blind-vs-blind state: the real table CAN fold to the small blind, so
+ * the frame's bvb is a reachable spot, not an invented one; what is wrong is releasing for the mix.
+ * Raises, calls facing a raise, all-in calls and every postflop answer are unchanged.
+ */
+export function lightningFoldThroughFrameIsUnraisedLimp(
+  gs: HorseGameStateV2,
+  through: { action: unknown; preflopAuthority?: { events?: readonly { branch: string }[] } }
+): boolean {
+  const g = gs as unknown as { stage: string; actionHistory?: PublicAction[] };
+  if (g.stage !== 'preflop' || String(through.action) !== 'call') return false;
+  if ((g.actionHistory ?? []).some((a) => a.stage === 'preflop' && isAggression(a))) return false;
+  const events = through.preflopAuthority?.events ?? [];
+  return !events.some((e) => PRICED_ENTRY_BRANCHES.has(e.branch));
+}

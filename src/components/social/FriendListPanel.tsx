@@ -20,6 +20,7 @@ import styles from './FriendListPanel.module.css';
 import { reportError } from '../../utils/errorReporter';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
 import { resolveVipStatus, type VipColumns } from '../../utils/vipStatus';
+import { InviteLinkIcon } from '../table/TableMenuIcons';
 
 /**
  * The avatar's status ring, from the only VIP truth there is.
@@ -471,6 +472,7 @@ function FriendListPanelInner({
                 )}
                 {friend.isOnline && onInviteClick && (
                   <button
+                    type="button"
                     className={styles.iconBtn}
                     onClick={() => {
                       haptic.light();
@@ -478,7 +480,9 @@ function FriendListPanelInner({
                     }}
                     title="Invite To Table"
                     aria-label="Invite To Table"
-                  ></button>
+                  >
+                    <InviteLinkIcon />
+                  </button>
                 )}
               </div>
             </div>

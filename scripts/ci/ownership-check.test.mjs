@@ -14,6 +14,7 @@ import {
   renderComment,
   pathPatternToRegExp,
   COMMENT_MARKER,
+  currentDescription,
 } from './ownership-check.mjs';
 
 const map = loadOwnershipMap();
@@ -152,4 +153,26 @@ test('the workflow runs the check on every pull request event that can change it
   assert.match(wf, /node scripts\/ci\/ownership-check\.mjs/);
   assert.match(wf, /pull-requests: write/);
   assert.ok(!/\bschedule:/.test(wf), 'no timer');
+});
+
+test('a re-run reads the description as it is now, not the replayed event payload (booking #11640, 2026-11-21)', async () => {
+  const stale = 'Books ONE no-notice owner engine window.';
+  const live = 'Lane: release-custody\n\nBooks ONE no-notice owner engine window.';
+  const body = await currentDescription({ payload: stale, read: async () => ({ body: live }) });
+  assert.equal(body, live);
+  assert.equal(declaredLane(body), 'release-custody');
+  // An explicit --body (local use) still wins; an empty live description is empty, not the stale one.
+  assert.equal(await currentDescription({ explicit: 'x', payload: stale, read: async () => ({ body: live }) }), 'x');
+  assert.equal(await currentDescription({ payload: stale, read: async () => ({ body: null }) }), '');
+  // A failed read falls back to the payload and says so.
+  const said = [];
+  const fallback = await currentDescription({
+    payload: stale,
+    read: async () => {
+      throw new Error('503');
+    },
+    log: (l) => said.push(l),
+  });
+  assert.equal(fallback, stale);
+  assert.match(said.join('\n'), /could not read the live description/);
 });

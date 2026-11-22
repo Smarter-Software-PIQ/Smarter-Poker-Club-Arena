@@ -122,6 +122,10 @@ describe('the law registry (docs/laws.d/, one file per law)', () => {
     ).toEqual([]);
   });
 
+  // Reads every docs/laws.d file (about 1,800): well under a second on a quiet
+  // SSD, 58-64 s in two shared-host pre-push gates at load 30-50 (Nov 20 2026),
+  // where the suite's 30 s default timed out a law that found nothing wrong.
+  // The budget only stops a hang; what the law checks is unchanged.
   it('every registry file names exactly one law, on its first line', () => {
     for (const f of readdirSync(LAWS_DIR)) {
       if (!f.endsWith('.md')) continue;
@@ -130,7 +134,7 @@ describe('the law registry (docs/laws.d/, one file per law)', () => {
         /^#\s*(tests|server\/src)\/\S+\.law\.test\.\w+\s*$/
       );
     }
-  });
+  }, 300_000);
 
   it('the hamburger ruling stays settled: the counter-law must not return', () => {
     // Dan's ruling, recorded 2026-09-01: "em bars" means em dashes, not menu

@@ -1,0 +1,155 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   HEADS UP WAITING MODAL — native <dialog> hosting SpadeConsole
+   No hover rules (tests/no-hover-effects.law.test.ts).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.hu-waiting-dialog {
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  max-width: min(460px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  width: 100%;
+  overflow-y: auto;
+}
+
+.hu-waiting-dialog[open] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mandatory scroll containment so modal gestures never chain to the felt. */
+.hu-waiting-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.hu-waiting-dialog::backdrop {
+  background: rgb(2 5 10 / 74%);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.hu-waiting-dialog__shell {
+  width: 100%;
+}
+
+.hu-waiting-dialog__prompt {
+  margin: 0;
+  color: #e4eaf3;
+  font:
+    500 0.92rem/1.45 Inter,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}
+
+.hu-waiting-dialog__hint {
+  margin: 10px 0 0;
+  color: #93a4bc;
+  font:
+    500 0.78rem/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}
+
+.hu-waiting-dialog__linkbox {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgb(6 12 22 / 90%);
+  border: 1px solid rgb(69 173 255 / 32%);
+}
+
+.hu-waiting-dialog__url {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #8fd4ff;
+  font:
+    600 0.76rem/1.35 ui-monospace,
+    'SF Mono',
+    Menlo,
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.hu-waiting-dialog__copy-inline {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(69 173 255 / 45%);
+  background: rgb(22 139 255 / 16%);
+  color: #d8efff;
+  font:
+    700 0.75rem/1 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.hu-waiting-dialog__copy-inline:active {
+  filter: brightness(1.25);
+}
+
+.hu-waiting-dialog__copy-inline:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.hu-waiting-dialog__fallback {
+  margin-top: 10px;
+}
+.hu-waiting-dialog__friends-section {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hu-waiting-dialog__friends-toggle {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgb(69 173 255 / 36%);
+  background: rgb(14 26 42 / 78%);
+  color: #cfe8ff;
+  font:
+    700 0.78rem/1.2 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.hu-waiting-dialog__friends-toggle:active {
+  filter: brightness(1.2);
+}
+
+.hu-waiting-dialog__friends-toggle:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.hu-waiting-dialog__error {
+  margin: 10px 0 0;
+  color: #ff8e8e;
+  font:
+    600 0.8rem/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}

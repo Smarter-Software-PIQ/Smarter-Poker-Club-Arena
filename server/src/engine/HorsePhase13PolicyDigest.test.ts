@@ -83,6 +83,10 @@ const HORSE_P13_BASE_REFERENCE_OVERLAP = [
   'src/engine/BettingStructure.ts',
   'src/engine/VariantRules.ts',
   'src/engine/HorseTournamentUtility.ts',
+  // 2026-11-19: the math core's equity reaches these through lane EQUITY's scoring (already base files)
+  'src/engine/multiway/DealtSeatCensus.ts',
+  'src/config/tableSeating.ts',
+  'src/engine/plo4/Plo4PolicyPack.ts',
 ];
 /** Every non-test owner of the joint policy. */
 const MULTIWAY_OWNERS = readdirSync(path.join(serverRoot, 'src/engine/multiway'))
@@ -118,7 +122,13 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 71 since 2026-11-18: HorseMind carries how a re-raiser answers being re-raised (HorseOmahaReraiseResponse).
     // 73 since 2026-11-19: HorseMind carries what a flop bet showed (HorseOmahaFlopShown) and the price behind a
     // fold-to-raise cell (HorseOmahaStreetReadPrice).
-    expect(closure).toHaveLength(73);
+    // 74 since 2026-11-19: both Omaha pack gates read their depth from omaha/OmahaPackDepth.
+    // 75 since 2026-11-19: HorseEval reads the PLO4/PLO5 high-only scope from HorsePlo45High.
+    // 78 since 2026-11-20: HorseMind reads the lifetime opponent profile (opponentHud/OpponentHudExploit, OpponentHud,
+    // OpponentHudProfile; option omahaOpponentLifetimeHud).
+    // 101 since 2026-11-22: OpponentHud wires the math-core HUD adapters (OmahaMathCoreHudRecords,
+    // OmahaMathCoreTurnRiverHud; #11720/#11725), bringing the already-hashed OmahaMathCore files into closure.
+    expect(closure).toHaveLength(101);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');
@@ -152,8 +162,9 @@ describe('P13.3 Phase 13 policy digest', () => {
         ...HORSE_REFERENCE_DECISION_SOURCE_FILES.filter((f) => !closure.includes(f)),
       ].sort()
     );
+    // 37 since 2026-11-19: omaha/OmahaPackDepth (the depth both Omaha pack gates read) is hashed.
     expect(hashed.size).toBe(
-      36 +
+      37 +
         HORSE_REFERENCE_DECISION_SOURCE_FILES.filter(
           (f) => !HORSE_P13_BASE_REFERENCE_OVERLAP.includes(f)
         ).length

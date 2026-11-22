@@ -70,8 +70,10 @@ describe('Lightning is held for the engine cutover', () => {
     // Only a break this release may use: the serving original still announces
     // an hourly :55 break the countdown refuses; a hold on it would park
     // Lightning for hours. Same three admissions as the countdown.
+    // Since 2026-11-21 every scheduled cycle start hour of the target's
+    // policy (ROUTINE_START_HOURS; 4 alone when daily).
     expect(fn).toContain(
-      'daily = (local.hour == 3 and local.minute >= 58) or (local.hour == 4 and local.minute < 5)'
+      'daily = (following in hours and following != local.hour and local.minute >= 58) or (local.hour in hours and previous != local.hour and local.minute < 5)'
     );
     expect(fn).toContain('emergency = m.get("reason") == "Deployment Recovery"');
     // ...narrowed to what THIS run can consume: an owner-window release only

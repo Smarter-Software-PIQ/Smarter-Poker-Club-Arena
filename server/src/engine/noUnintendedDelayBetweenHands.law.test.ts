@@ -213,6 +213,27 @@ describe('every wait between the hold and the deal is named', () => {
       'this.awaitPauseGate', // only when an owner paused the next hand
     ]);
   });
+  it('a tournament bust after the hold performs zero awaits or database reads', () => {
+    const start = DEALING.indexOf('} else if (this.tableInfo?.tournament_id) {');
+    const end = DEALING.indexOf('if (needsRebuyPause) {', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const branch = code(DEALING.slice(start, end));
+    expect(awaitsIn(branch)).toEqual([]);
+    expect(branch).not.toContain(".from('tournaments')");
+  });
+
+  it('awaitPauseGate marks parked_for_pause itself so breaks never pollute refresh_blinds', () => {
+    const BASE = readFileSync(
+      fileURLToPath(new URL('./ServerTableEngineBase.ts', import.meta.url)),
+      'utf8'
+    );
+    const start = BASE.indexOf('protected async awaitPauseGate(): Promise<void> {');
+    const wait = BASE.indexOf('await new Promise<void>(', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(wait).toBeGreaterThan(start);
+    expect(code(BASE.slice(start, wait))).toContain("this.setLoopPhase('parked_for_pause')");
+  });
 });
 
 describe('the production grade reads the same numbers', () => {

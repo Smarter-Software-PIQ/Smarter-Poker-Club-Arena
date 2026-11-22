@@ -315,12 +315,41 @@ function arg(name) {
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
+/**
+ * THE DECLARED LANE IS READ FROM THE DESCRIPTION AS IT IS NOW (2026-11-21).
+ *
+ * Booking #11640 was opened without its `Lane: release-custody` line and the
+ * line was added a minute later. The `edited` run was cancelled, and a re-run
+ * replays the ORIGINAL event payload, so every re-run read the old description
+ * and failed: the owner window's booking sat unmergeable for 40 minutes. The
+ * description is read live from the pull request; the event payload is only
+ * the fallback when that read fails, and the fallback is said out loud.
+ */
+export async function currentDescription({ explicit, payload, read, log = () => {} }) {
+  if (explicit !== undefined) return explicit;
+  if (read) {
+    try {
+      const pr = await read();
+      if (pr && typeof pr.body === 'string') return pr.body;
+      if (pr && pr.body === null) return '';
+    } catch (e) {
+      log(`::warning title=Ownership map::could not read the live description (${String(e.message).slice(0, 200)}); using the event payload.`);
+    }
+  }
+  return payload ?? '';
+}
+
 async function main() {
   const map = loadOwnershipMap();
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_REPOSITORY;
   const number = Number(process.env.PR_NUMBER || 0);
-  const body = arg('--body') ?? process.env.PR_BODY ?? '';
+  const body = await currentDescription({
+    explicit: arg('--body'),
+    payload: process.env.PR_BODY,
+    read: token && repo && number ? () => gh(token, `/repos/${repo}/pulls/${number}`) : null,
+    log: (line) => console.log(line),
+  });
   const headSha = process.env.PR_HEAD_SHA || '';
   let files;
   if (arg('--files') !== undefined) files = arg('--files').split(',').filter(Boolean).map((path) => ({ path, status: 'modified' }));

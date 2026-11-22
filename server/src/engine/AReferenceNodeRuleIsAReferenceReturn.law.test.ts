@@ -90,9 +90,27 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
   },
   { owner: 'vpipFloorCallDown', kind: 'post_route', proof: 'callDown' },
   { owner: 'decidePostflop', kind: 'postflop', proof: 'no preflop receipt exists postflop' },
+  {
+    owner: 'classCapFloorKeepsTheCall',
+    kind: 'postflop',
+    proof:
+      'postflop only (omahaClassCapsRespectEquity): a raise the lifted cap produced stays the call',
+  },
+  {
+    owner: 'holdemPricedReference',
+    kind: 'postflop',
+    proof:
+      'holdemValueAndCallsArePriced (default OFF): postflop only, heads-up NLH cash; returns the decision it was given unless the option is on and the spot is priced',
+  },
   { owner: 'maniacCallDown', kind: 'post_route', proof: 'maniacCallDown' },
   { owner: 'maniacShortStackJam', kind: 'post_route', proof: 'acts on a raise only' },
   { owner: 'fixedLimitRiverStrongHandLead', kind: 'postflop', proof: 'river only' },
+  {
+    owner: 'holdemAllInCallReference',
+    kind: 'post_route',
+    proof:
+      'holdemTournamentAllInCallIsPriced (default OFF): preflop it leaves raises/raising all-ins and exact chart_bb_defend answers untouched, and resets any variant_price route to legacy_preflop before returning its priced call or fold; postflop no preflop receipt exists (AHoldemTournamentAllInCallIsPriced.law.test.ts)',
+  },
 ];
 
 describe('the ledger is the source', () => {
@@ -412,29 +430,55 @@ describe('every floor rule of the reference node is admitted on every route it c
     });
   }
 
-  it('with the table limp-only option off its limp is not admitted (the admission is the option)', () => {
-    // The pool floor's limp is admitted whenever the pool floor COULD limp,
-    // whatever the request's opts say: the switch delivers
-    // lightningVpipFloorLimpOnly inside the worker after the request is built
-    // (#11491, lightningPoolFloorLimpShape), so the pool half is pinned below.
+  it('the table floor limp is admitted with the request opts silent (the switch delivers the option)', () => {
+    // vpipFloorLimpOnly reaches the worker through the switch after the request
+    // is built, like the pool option (#11491): request opts that are silent
+    // must not turn the table floor's limp into a reference_shape refusal
+    // (which the engine answers with the liveness fold).
+    let admitted = 0;
+    const rule = RULES.tableLimp;
+    for (const snap of grid(rule.variant, rule.floors)) {
+      const out = rule.apply(snap.player, snap.gameState, rule.opts);
+      if (out.action === 'fold') continue;
+      const off = { ...snap, opts: {} };
+      if (!necessaryReferenceRouteGates('chart_open_jam', off)) continue;
+      const receipt = {
+        route: 'chart_open_jam',
+        referenceProposal: { action: out.action, amount: out.amount ?? null },
+      } as never;
+      expect(referenceReturnShape(receipt, off)).toBe(true);
+      admitted++;
+    }
+    expect(admitted).toBeGreaterThan(50);
+  });
+
+  it('a call that is not the table floor limp stays refused (no floor, or another amount)', () => {
     let refused = 0;
-    for (const name of ['tableLimp'] as const) {
-      const rule = RULES[name];
-      for (const snap of grid(rule.variant, rule.floors)) {
-        const out = rule.apply(snap.player, snap.gameState, rule.opts);
-        if (out.action === 'fold') continue;
-        const off = { ...snap, opts: {} };
-        if (!necessaryReferenceRouteGates('chart_open_jam', off)) continue;
-        // the older call-down may admit the same call at a floored table; a pool has none
-        const callDown = vpipFloorCallDown(FOLD, snap.player, snap.gameState, () => 0);
-        if (callDown.action === 'call') continue;
-        const receipt = {
-          route: 'chart_open_jam',
-          referenceProposal: { action: out.action, amount: out.amount ?? null },
-        } as never;
-        expect(referenceReturnShape(receipt, off)).toBe(false);
-        refused++;
-      }
+    const rule = RULES.tableLimp;
+    for (const snap of grid(rule.variant, rule.floors)) {
+      const out = rule.apply(snap.player, snap.gameState, rule.opts);
+      if (out.action === 'fold' || typeof out.amount !== 'number') continue;
+      const off = { ...snap, opts: {} };
+      if (!necessaryReferenceRouteGates('chart_open_jam', off)) continue;
+      const callDown = vpipFloorCallDown(FOLD, snap.player, snap.gameState, () => 0);
+      if (callDown.action === 'call') continue;
+      // the same public state without a table floor: nothing could limp
+      const noFloor = {
+        ...off,
+        gameState: { ...snap.gameState, vpipFloor: 0 } as typeof snap.gameState,
+      };
+      const receipt = {
+        route: 'chart_open_jam',
+        referenceProposal: { action: out.action, amount: out.amount },
+      } as never;
+      expect(referenceReturnShape(receipt, noFloor)).toBe(false);
+      // and a call of another amount is not the limp
+      const other = {
+        route: 'chart_open_jam',
+        referenceProposal: { action: 'call', amount: out.amount + snap.gameState.bigBlind },
+      } as never;
+      expect(referenceReturnShape(other, off)).toBe(false);
+      refused++;
     }
     expect(refused).toBeGreaterThan(50);
   });

@@ -1,0 +1,3 @@
+# tests/promo-move-custody-skips-fee-history-when-no-open-custody.law.test.ts
+
+Live production cash-table cashouts took 2.2-7.7 s (`Cash Showdown_Checked_River +1594 ms`) because `fn_ca_promo_move_custody()` called `fn_ca_promo_play_through_state()` unconditionally on every `table_cashout`, triggering an uncached full-history fee scan for any player/horse with a closed historical promo grant. Enforced by `tests/promo-move-custody-skips-fee-history-when-no-open-custody.law.test.ts`: the latest `fn_ca_promo_move_custody()` definition must short-circuit (`RETURN 0`) whenever no open `ca_promo_play_through_grants` (`closed_at IS NULL`) holds positive `ca_promo_principal_custody` at `(p_from, p_from_id)` before calling `fn_ca_promo_play_through_state()`.

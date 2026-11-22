@@ -94,8 +94,10 @@ class FakeWheel implements HorseSpinDoors {
       case 'cards_pick':
         this.work.cards = [];
         return { ok: true };
+      case 'bonus_state':
+        return { ok: true, game_state: { max_steps: 10 } };
       case 'choice_state':
-        return { ok: true, max_steps: 10 };
+        return { ok: true, max_steps: 0 };
       case 'bonus_start': {
         const a = this.work.awards.shift()!;
         if (a.game === 'plinko') this.member.chips += a.baseDiamonds / 100;

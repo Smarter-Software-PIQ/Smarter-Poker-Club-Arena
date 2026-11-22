@@ -355,3 +355,21 @@ describe.each(['tight', 'current', 'pressure'] as const)(
     });
   }
 );
+
+describe('a failure inside scope never folds a hand the brain raised (AUDIT-FILES-B 2026-11-19)', () => {
+  it('59534208 class, a pot bet (price exactly 1/3): an exception after the scope calls, never folds', () => {
+    const st = spot(EXACT);
+    expect(omahaRaiseNeedsNutsScope(st.hero, st.gs)?.street).toBe('turn');
+    expect(omahaNutClassNow(st.hero, st.gs)).toBe(false);
+    // The rule's telemetry read throws once it is inside scope: the failure path decides.
+    const failing = { omahaTurnRiverRaiseNeedsNuts: true } as HorseDecideOpts;
+    Object.defineProperty(failing, 'telemetry', {
+      get() {
+        throw new Error('forced failure inside scope');
+      },
+    });
+    const d = omahaTurnRiverRaiseNeedsNutsRule(raiseOf(st), st.hero, st.gs, failing);
+    expect(d.action).toBe('call');
+    legal(st, d);
+  });
+});

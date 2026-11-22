@@ -34,6 +34,7 @@ import {
 } from './workerRuntime.js';
 import {
   OPTION_SWITCH_SHADOW_NAMES,
+  optionSwitchShadowFlip,
   OptionSwitchHolder,
   optionSwitchSourceFromStates,
   type OptionSwitchStates,
@@ -191,6 +192,41 @@ afterEach(() => {
 // streetIQ is on by default (the flip passes false); omahaTurnRiverRaiseIsPriced is off by default (the flip passes true).
 const ON_BY_DEFAULT = 'streetIQ';
 const OFF_BY_DEFAULT = 'omahaTurnRiverRaiseIsPriced';
+
+/** Classified release default ON on 2026-11-19 from their reads (they had been 'code', refused shadow). */
+const DEFAULT_ON_20261119 = [
+  'v9',
+  'v10',
+  'v86PloOverhaul',
+  'omahaEvFoldModel',
+  'facingClosedAllIn',
+] as const;
+
+describe('2026-11-19: a default-on option in shadow re-decides with false and acts with the source default', () => {
+  it('the five options classified ON from their reads take shadow and flip to false', () => {
+    for (const option of DEFAULT_ON_20261119) {
+      expect(OPTION_SWITCH_SHADOW_NAMES, option).toContain(option);
+      expect(optionSwitchShadowFlip(option, {}), option).toBe(false);
+      // an explicit value carried by the decision options is what is flipped
+      expect(optionSwitchShadowFlip(option, { [option]: false }), option).toBe(true);
+    }
+  });
+  for (const option of DEFAULT_ON_20261119)
+    it(`${option}: the acted decision carries no value for it, the one re-decision carries false`, async () => {
+      const r = await run([fastRequest(riverSnapshot())], scripted(option, false, FOLD, CALL), {
+        [option]: 'shadow',
+      } as OptionSwitchStates);
+      expect(r.fasts[0]!.decision.action).toBe('fold');
+      expect(r.calls).toHaveLength(2);
+      expect(Object.hasOwn(r.calls[0]!, option)).toBe(false);
+      expect(r.calls[1]).toMatchObject({ [option]: false, telemetry: false, observeMind: false });
+      expect(r.fasts[0]!.decision.optionShadowReceipt).toMatchObject({
+        option,
+        flippedTo: false,
+        changed: true,
+      });
+    });
+});
 
 describe('the registry offers shadow to the options it can re-decide', () => {
   it('the two options of these tests take shadow', () => {
@@ -362,7 +398,14 @@ describe('the production brain over every recorded FAST decision: shadow never c
   });
   const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
 
-  for (const option of [ON_BY_DEFAULT, OFF_BY_DEFAULT, 'handReading', 'v12River'])
+  for (const option of [
+    ON_BY_DEFAULT,
+    OFF_BY_DEFAULT,
+    'handReading',
+    'v12River',
+    // 2026-11-19: classified release default ON from their reads (DEFAULT-ON-AUDIT), so they take shadow
+    ...DEFAULT_ON_20261119,
+  ])
     it(`${option} in shadow: every acted decision, RNG position and effect is that of no row`, async () => {
       const requests = fixtures.map((f, i) => fastRequest(f.snapshot, i + 1));
       const plain = await run(requests, decide, null);
@@ -420,5 +463,205 @@ describe('the production brain over every recorded FAST decision: shadow never c
     expect(costs.length).toBeGreaterThan(0);
     // inside the 2,000 ms minimum decision deadline by far; the per-minute budget bounds how often it is paid
     expect(max).toBeLessThan(2_000);
+  });
+});
+
+/**
+ * PEOPLE FIRST (2026-11-21, Horse SWITCH lane). The per-minute budget never refuses a decision with a person dealt in;
+ * the Horse-only decisions of that minute are dropped instead. The latency guards (work queued, the 15 ms acted
+ * budget) still hold for a person decision. Every skip counts its person-present subset.
+ */
+describe('people first: the per-minute budget never drops a decision with a person dealt in', () => {
+  const withPeople = (snapshot: FastHorseDecisionRequest): FastHorseDecisionRequest => {
+    const hero = snapshot.player.user_id;
+    return {
+      ...snapshot,
+      gameState: {
+        ...snapshot.gameState,
+        players: snapshot.gameState.players.map((p) =>
+          p.user_id === hero ? p : { ...p, is_horse: false, is_sitting_out: false }
+        ),
+      },
+    } as FastHorseDecisionRequest;
+  };
+  const horsesOnly = (snapshot: FastHorseDecisionRequest): FastHorseDecisionRequest =>
+    ({
+      ...snapshot,
+      gameState: {
+        ...snapshot.gameState,
+        players: snapshot.gameState.players.map((p) => ({ ...p, is_horse: true })),
+      },
+    }) as FastHorseDecisionRequest;
+  const decide = scripted(ON_BY_DEFAULT, false, FOLD, CALL);
+  const states = { [ON_BY_DEFAULT]: 'shadow' } as const;
+  const count = (fs: string[], k: string) => fs.filter((x) => x === k).length;
+
+  it('a saturated budget: every person decision is re-decided, the Horse-only ones over it are dropped', async () => {
+    const kinds = ['h', 'p', 'h', 'p', 'p', 'h'] as const;
+    const requests = kinds.map((k, i) =>
+      fastRequest(k === 'p' ? withPeople(riverSnapshot()) : horsesOnly(riverSnapshot()), i + 1)
+    );
+    const r = await run(requests, decide, states, { optionShadowPerMinute: 1, now: () => 5_000 });
+    // the first Horse-only decision took the minute's one slot; every person decision still got its re-decision
+    expect(r.fasts.map((f) => f.decision.optionShadowReceipt !== undefined)).toEqual([
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+    ]);
+    expect(r.fasts.map((f) => f.decision.optionShadowReceipt?.personDealt ?? null)).toEqual([
+      false,
+      true,
+      null,
+      true,
+      true,
+      null,
+    ]);
+    expect(r.calls).toHaveLength(kinds.length + 4);
+    expect(count(r.features, 'option_shadow_skipped_rate_seen')).toBe(2);
+    expect(count(r.features, 'option_shadow_skipped_rate_person_seen')).toBe(0);
+    expect(count(r.features, 'option_shadow_rate_person_over_seen')).toBe(3);
+    // the outcome counters split by person, changed as well as same
+    expect(count(r.features, `option_shadow_${ON_BY_DEFAULT}_changed_seen`)).toBe(4);
+    expect(count(r.features, `option_shadow_${ON_BY_DEFAULT}_changed_person_seen`)).toBe(3);
+    // the acted decisions are those of no row
+    const plain = await run(requests, decide, null, { optionShadowPerMinute: 1, now: () => 5_000 });
+    expect(r.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+  });
+
+  it('person decisions first: they take the slots, and the Horse-only decisions of that minute are the ones dropped', async () => {
+    const requests = [
+      withPeople(riverSnapshot()),
+      withPeople(riverSnapshot()),
+      horsesOnly(riverSnapshot()),
+      horsesOnly(riverSnapshot()),
+    ].map((s, i) => fastRequest(s, i + 1));
+    const r = await run(requests, decide, states, { optionShadowPerMinute: 2, now: () => 5_000 });
+    expect(r.fasts.map((f) => f.decision.optionShadowReceipt !== undefined)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(count(r.features, 'option_shadow_skipped_rate_seen')).toBe(2);
+    expect(count(r.features, 'option_shadow_skipped_rate_person_seen')).toBe(0);
+    expect(count(r.features, 'option_shadow_rate_person_over_seen')).toBe(0);
+  });
+
+  it('a person-present, same-action re-decision counts same and same_person, never changed', async () => {
+    const r = await run(
+      [fastRequest(withPeople(riverSnapshot()))],
+      scripted(OFF_BY_DEFAULT, true, CALL, CALL),
+      { [OFF_BY_DEFAULT]: 'shadow' },
+      { optionShadowPerMinute: 1 }
+    );
+    expect(shadowKeys(r.features)).toEqual([
+      `option_shadow_${OFF_BY_DEFAULT}_same_seen`,
+      `option_shadow_${OFF_BY_DEFAULT}_same_person_seen`,
+    ]);
+  });
+
+  it('0 still stops every re-decision, a person decision too, and the skip is counted with its person subset', async () => {
+    const requests = [withPeople(riverSnapshot()), horsesOnly(riverSnapshot())].map((s, i) =>
+      fastRequest(s, i + 1)
+    );
+    const r = await run(requests, decide, states, { optionShadowPerMinute: 0 });
+    expect(r.calls).toHaveLength(2);
+    expect(r.fasts.every((f) => f.decision.optionShadowReceipt === undefined)).toBe(true);
+    expect(count(r.features, 'option_shadow_skipped_rate_seen')).toBe(2);
+    expect(count(r.features, 'option_shadow_skipped_rate_person_seen')).toBe(1);
+  });
+
+  it('the 15 ms acted budget still holds for a person decision, and the skip carries its person subset', async () => {
+    let t = 0;
+    const slow: Decide = (p, g, s, m, o) => {
+      t += 50;
+      return decide(p, g, s, m, o);
+    };
+    const person = await run([fastRequest(withPeople(riverSnapshot()))], slow, states, {
+      now: () => t,
+    });
+    expect(person.calls).toHaveLength(1);
+    expect(person.fasts[0]!.decision.optionShadowReceipt).toBeUndefined();
+    expect(shadowKeys(person.features)).toEqual([
+      'option_shadow_skipped_budget_seen',
+      'option_shadow_skipped_budget_person_seen',
+    ]);
+    const horses = await run([fastRequest(horsesOnly(riverSnapshot()))], slow, states, {
+      now: () => t,
+    });
+    expect(shadowKeys(horses.features)).toEqual(['option_shadow_skipped_budget_seen']);
+  });
+
+  it('work queued behind a person decision still skips its re-decision (backlog), counted with its person subset', async () => {
+    HorseMind.reset();
+    restoreFastRandom(SEED);
+    const features: string[] = [];
+    const calls: Opts[] = [];
+    const messages: HorseDecisionWorkerResponse[] = [];
+    const runtime = new HorseDecisionWorkerRuntime((m) => messages.push(m), {
+      ...qualifiedReplayAdmissions,
+      journalEnabled: () => false,
+      async startServices() {
+        prepareTournamentFutureHandFacts();
+        return readiness();
+      },
+      async stopServices() {},
+      decide: ((...args: Parameters<Decide>) => {
+        calls.push({ ...(args[4] ?? {}) });
+        return decide(...args);
+      }) as never,
+      decideDiscard: HorseLogic.decideDiscard.bind(HorseLogic),
+      captureDecisionEffects: (fn) => HorseMind.captureDecisionEffects(fn),
+      applyDecisionEffects: () => {},
+      saveRng: saveFastRandom,
+      restoreRng: restoreFastRandom,
+      governorScale: () => equityGovernor.current(),
+      atGovernorScale: (fn) => equityGovernor.withDecisionScale(fn),
+      workerReadiness: readiness,
+      phase8SafetyDisabledReason: () => liveHorsePhase8Safety.disabledReason,
+      observeCompletedHand: () => {},
+      noteDecision: () => {},
+      noteFeature: (k: string) => {
+        features.push(k);
+      },
+      now: () => 1_000,
+      optionSwitch: new OptionSwitchHolder(optionSwitchSourceFromStates(states), () => {}),
+      optionShadowPerMinute: 1000,
+    });
+    await runtime.start();
+    // two decisions received before either runs: the first has work queued behind it
+    runtime.receive(fastRequest(withPeople(riverSnapshot()), 1));
+    runtime.receive(fastRequest(withPeople(riverSnapshot()), 2));
+    await runtime.drain();
+    const fasts = messages.filter((m): m is FastHorseDecisionResult => m.type === 'FAST_RESULT');
+    expect(fasts).toHaveLength(2);
+    expect(fasts[0]!.decision.optionShadowReceipt).toBeUndefined();
+    expect(count(features, 'option_shadow_skipped_backlog_seen')).toBe(1);
+    expect(count(features, 'option_shadow_skipped_backlog_person_seen')).toBe(1);
+    expect(fasts[1]!.decision.optionShadowReceipt?.personDealt).toBe(true);
+    expect(calls).toHaveLength(3);
+  });
+
+  it('the production brain with a person dealt in and the budget spent: every acted decision is that of no row', async () => {
+    const decideProd = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
+    const requests = recordedFast().map((f, i) => fastRequest(withPeople(f.snapshot), i + 1));
+    const plain = await run(requests, decideProd, null, { optionShadowPerMinute: 1 });
+    const shadow = await run(requests, decideProd, states, { optionShadowPerMinute: 1 });
+    expect(shadow.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+    const receipts = shadow.fasts.map((f) => f.decision.optionShadowReceipt).filter(Boolean);
+    // one slot in the minute, yet every person decision that passed the latency guards was re-decided
+    const guarded = shadow.features.filter(
+      (k) =>
+        k === 'option_shadow_skipped_backlog_seen' ||
+        k === 'option_shadow_skipped_budget_seen' ||
+        k === 'option_shadow_skipped_scale_seen'
+    ).length;
+    expect(receipts.length).toBe(requests.length - guarded);
+    expect(receipts.length).toBeGreaterThan(1);
+    expect(receipts.every((x) => x!.personDealt)).toBe(true);
+    expect(count(shadow.features, 'option_shadow_skipped_rate_seen')).toBe(0);
   });
 });

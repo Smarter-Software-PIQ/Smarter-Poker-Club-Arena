@@ -4,7 +4,7 @@
  * h1..h3, no real hole cards); only the column layouts are the audits' real formats.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,9 @@ import {
   parseReplayBarRows,
   parseReplayFile,
   parseReplayJsonl,
+  placedDecisions,
+  plo6Decisions,
+  plo6VerdictClass,
   replayBarLine,
   replayBarRows,
   replayRefusals,
@@ -658,4 +661,633 @@ describe('audited decision replay: validity of the arms and the authority Replay
       rmSync(dir, { recursive: true, force: true });
     }
   }, 300_000);
+});
+
+// ── 2026-11-20: the PLO6 audit set (HVH48 auditor C): synthetic rows in its real three-file layout ──
+describe('audited decision replay: the PLO6 audit set', () => {
+  const H1 = 'aaaaaaaa-0000-4000-8000-000000000001';
+  const H2 = 'aaaaaaaa-0000-4000-8000-000000000002';
+  const H3 = 'aaaaaaaa-0000-4000-8000-000000000003';
+  const H5 = 'aaaaaaaa-0000-4000-8000-000000000005';
+  // Card values that must never leave the adapter (synthetic, in every card-bearing field of the three files).
+  const HOLE = 'Ah Kd Qc Js Td 9h';
+  const BOARD = '2c 3d 4h';
+  const PERSON = 'person-zz';
+  const cards = HOLE.split(' ');
+  const act = (
+    seat: number,
+    stage: string,
+    origin: string,
+    action: string,
+    timestamp: number,
+    amount = 0
+  ) => ({
+    action,
+    amount,
+    dead: false,
+    origin,
+    seat,
+    stage,
+    timestamp,
+    userId: `u${seat}`,
+  });
+  const players = (seats: number[]) =>
+    seats.map((seat) => ({ cards, seat, stack: 100, userId: `u${seat}`, username: `name${seat}` }));
+  const hand = (id: string, n: number, variant: string, seats: number[], actions: object[]) => ({
+    id,
+    hand_number: n,
+    game_variant: variant,
+    players: players(seats),
+    hole_cards: { u2: cards },
+    community_cards: BOARD.split(' '),
+    actions,
+  });
+  // H1: seat 2 and seat 4 are Horses, seat 1 a person. Index: 0 bb, 1 seat 2 calls, 2 seat 1 checks,
+  // 3 seat 2 checks the flop (k 0), 4 seat 1 bets, 5 seat 4 calls (k 0), 6 seat 2 folds (k 1),
+  // 7 seat 1 bets the turn, 8 seat 4 folds (k 0).
+  const HAND_1 = hand(
+    H1,
+    910001,
+    'plo6',
+    [1, 2, 4],
+    [
+      act(1, 'preflop', 'forced', 'bb', 100, 1),
+      act(2, 'preflop', 'horse_policy', 'call', 101, 1),
+      act(1, 'preflop', 'player', 'check', 102),
+      act(2, 'flop', 'horse_policy', 'check', 103),
+      act(1, 'flop', 'player', 'bet', 104, 3),
+      act(4, 'flop', 'horse_policy', 'call', 105, 3),
+      act(2, 'flop', 'horse_policy', 'fold', 106),
+      act(1, 'turn', 'player', 'bet', 107, 9),
+      act(4, 'turn', 'horse_policy', 'fold', 108),
+    ]
+  );
+  // H2: seat 3 raises a river bet (k 0), then calls the re-raise (k 1).
+  const HAND_2 = hand(
+    H2,
+    910002,
+    'plo6',
+    [1, 3],
+    [
+      act(1, 'river', 'player', 'bet', 200, 10),
+      act(3, 'river', 'horse_policy', 'raise', 201, 30),
+      act(1, 'river', 'player', 'raise', 202, 90),
+      act(3, 'river', 'horse_policy', 'call', 203, 60),
+    ]
+  );
+  // H3: two identical actions at one timestamp (no unique match); H5: a PLO5 hand.
+  const HAND_3 = hand(
+    H3,
+    910003,
+    'plo6',
+    [1, 3],
+    [act(3, 'turn', 'horse_policy', 'call', 300, 5), act(3, 'turn', 'horse_policy', 'call', 300, 5)]
+  );
+  const HAND_5 = hand(H5, 910005, 'plo5', [1, 3], [act(3, 'turn', 'horse_policy', 'call', 500, 5)]);
+  const HANDS = [HAND_1, HAND_2, HAND_3, HAND_5].map((h) => JSON.stringify(h)).join('\n');
+
+  const HEADER =
+    'id,hand,hn,created,table,vpip_window,horse,street,action,amount,pot,to_call,stack,eff,bb,nlive,humans_live,humans,board,hole,status,reason,equity,req,hero_tier,hero_made,relaxed,allin,ev_taken_bb,ev_best_passive_bb,ev_best_aggr_bb,mistake,severity,loss_bb,better,note,replay_reproduced_of_3,replay_kinds,causal_rule,replay_rules';
+  const csvRow = (o: Record<string, string | number>) =>
+    HEADER.split(',')
+      .map((h) => {
+        const v = String(
+          o[h] ?? (h === 'hole' ? HOLE : h === 'board' ? BOARD : h === 'humans' ? PERSON : '')
+        );
+        return /[,"\s]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+      })
+      .join(',');
+  const metaRow = (
+    n: number,
+    o: { hand: string; street: string; act: string; seat: number; t: number }
+  ) =>
+    JSON.stringify({
+      P: 0,
+      amount: 0,
+      bb: 1,
+      board: BOARD,
+      button: 1,
+      c: 0,
+      created: '2026-11-18T00:00:00Z',
+      eff: 100,
+      hn: 0,
+      hole: HOLE,
+      horse: 'profile-name',
+      hsb: 0,
+      hum_live: 1,
+      humans: [PERSON],
+      legal: ['fold', 'call'],
+      n,
+      nlive: 2,
+      nplayers: 3,
+      opts: {},
+      pfcls: '',
+      stack: 100,
+      taken: o.act,
+      uid: `u${o.seat}`,
+      ...o,
+    });
+  type Spec = {
+    n: number;
+    hand: string;
+    street: string;
+    action: string;
+    seat: number;
+    t: number;
+    status: string;
+    severity?: string;
+    mistake?: string;
+  };
+  const files = (specs: Spec[], metaOverride: Record<number, Partial<Spec> | null> = {}) => ({
+    csv: [
+      HEADER,
+      ...specs.map((x) =>
+        csvRow({
+          id: `d${x.n}`,
+          hand: x.hand,
+          street: x.street,
+          action: x.action,
+          status: x.status,
+          severity: x.severity ?? '',
+          mistake: x.mistake ?? '',
+          horse: 'profile-name',
+        })
+      ),
+    ].join('\n'),
+    meta: specs
+      .filter((x) => metaOverride[x.n] !== null)
+      .map((x) => {
+        const m = { ...x, ...metaOverride[x.n] };
+        return metaRow(x.n, {
+          hand: m.hand,
+          street: m.street,
+          act: m.action,
+          seat: m.seat,
+          t: m.t,
+        });
+      })
+      .join('\n'),
+  });
+  const GOOD: Spec[] = [
+    {
+      n: 1,
+      hand: H1,
+      street: 'flop',
+      action: 'fold',
+      seat: 2,
+      t: 106,
+      status: 'priced',
+      severity: 'CLEAR',
+      mistake: 'POTODDS-FOLD',
+    },
+    {
+      n: 2,
+      hand: H1,
+      street: 'turn',
+      action: 'fold',
+      seat: 4,
+      t: 108,
+      status: 'priced',
+      severity: 'LIKELY',
+      mistake: 'ALLIN-FOLD-PRICED',
+    },
+    { n: 3, hand: H1, street: 'flop', action: 'call', seat: 4, t: 105, status: 'priced' },
+    { n: 4, hand: H1, street: 'flop', action: 'check', seat: 2, t: 103, status: 'unpriced' },
+    { n: 5, hand: H2, street: 'river', action: 'call', seat: 3, t: 203, status: 'priced' },
+    {
+      n: 6,
+      hand: H2,
+      street: 'river',
+      action: 'raise',
+      seat: 3,
+      t: 201,
+      status: 'priced',
+      severity: 'DEBATABLE',
+      mistake: 'SIZING',
+    },
+  ];
+  const noCard = (text: string) => {
+    for (const c of [
+      ...cards,
+      ...BOARD.split(' '),
+      PERSON,
+      'profile-name',
+      'hole',
+      'board',
+      'humans',
+    ])
+      expect(text).not.toContain(c);
+  };
+
+  it('maps status and severity by the coordinator ruling, and refuses a combination it does not name', () => {
+    expect(plo6VerdictClass('priced', 'CLEAR', 'POTODDS-FOLD')).toEqual({ cls: 'bad' });
+    expect(plo6VerdictClass('priced', 'LIKELY', 'PF-FOLD-PRICED')).toEqual({ cls: 'bad' });
+    expect(plo6VerdictClass('priced', '', '')).toEqual({ cls: 'ok' });
+    expect(plo6VerdictClass('priced', 'DEBATABLE', 'SIZING')).toEqual({ cls: 'unjudged' });
+    expect(plo6VerdictClass('unpriced', '', '')).toEqual({ cls: 'unjudged' });
+    expect(plo6VerdictClass('priced', '', 'SIZING')).toHaveProperty('refusal');
+    expect(plo6VerdictClass('priced', 'SEVERE', '')).toHaveProperty('refusal');
+    expect(plo6VerdictClass('', '', '')).toHaveProperty('refusal');
+  });
+
+  it('places each row at its one matching action: meta seat and timestamp, k as audit2 counts it, and no card is kept', () => {
+    const f = files(GOOD);
+    const r = plo6Decisions(f.csv, f.meta, HANDS);
+    expect(r.unplaced).toEqual([]);
+    expect(
+      r.decisions.map((d) => [
+        d.at?.id,
+        d.at?.actionIndex,
+        nodeKey(d.node),
+        d.recorded.action,
+        d.cls,
+        d.finding,
+      ])
+    ).toEqual([
+      ['d1', 6, `${H1}:2:flop:1`, 'fold', 'bad', 'POTODDS-FOLD'],
+      ['d2', 8, `${H1}:4:turn:0`, 'fold', 'bad', 'ALLIN-FOLD-PRICED'],
+      ['d3', 5, `${H1}:4:flop:0`, 'call', 'ok', undefined],
+      ['d4', 3, `${H1}:2:flop:0`, 'check', 'unjudged', undefined],
+      ['d5', 3, `${H2}:3:river:1`, 'call', 'ok', undefined],
+      ['d6', 1, `${H2}:3:river:0`, 'raise', 'unjudged', 'SIZING'],
+    ]);
+    expect(r.decisions.every((d) => d.source === 'plo6' && d.judge === undefined)).toBe(true);
+    expect(r.decisions[4].recorded.amount).toBe(60);
+    // The firewall: hole, board, humans and players[].cards are in all three files; none leaves the adapter.
+    noCard(JSON.stringify(r));
+  });
+
+  it('scores verdict-only: a flagged fold that becomes a call is fixed, a change away from an ok action is newly wrong', () => {
+    const f = files(GOOD);
+    const r = plo6Decisions(f.csv, f.meta, HANDS);
+    const row = (h: string, seat: number, street: string, k: number, off: object, on: object) =>
+      JSON.stringify({ hand: h, seat, street, k, arms: { off, on } });
+    const replay = parseReplayJsonl(
+      [
+        row(
+          H1,
+          2,
+          'flop',
+          1,
+          { action: 'fold' },
+          { action: 'call', amount: 3, receipts: ['plo6_facing_bet_priced_called'] }
+        ),
+        row(
+          H1,
+          4,
+          'turn',
+          0,
+          { action: 'fold' },
+          { action: 'call', amount: 9, receipts: ['plo6_facing_bet_priced_called'] }
+        ),
+        row(
+          H2,
+          3,
+          'river',
+          1,
+          { action: 'call', amount: 60 },
+          { action: 'fold', receipts: ['plo6_facing_bet_priced_folded'] }
+        ),
+        row(H1, 4, 'flop', 0, { action: 'call', amount: 3 }, { action: 'call', amount: 3 }),
+        row(H1, 2, 'flop', 0, { action: 'check' }, { action: 'bet', amount: 2 }),
+        // A node no audit row names: counted, never scored.
+        row(H1, 2, 'preflop', 0, { action: 'call' }, { action: 'fold' }),
+      ].join('\n')
+    );
+    const report = scoreReplay([{ source: 'plo6', decisions: r.decisions }], replay);
+    const s = report.sources[0];
+    expect([s.source, s.method]).toEqual(['plo6', 'verdict-only']);
+    expect([s.audited, s.auditedBad, s.replayed, s.notReplayed, s.baseReproducesRecorded]).toEqual([
+      6, 2, 5, 1, 5,
+    ]);
+    expect([report.replayRowsWithoutAudit, report.changedWithoutAudit.on]).toEqual([1, 1]);
+    const on = s.arms[0];
+    expect([
+      on.changed,
+      on.fixed,
+      on.newlyWrong,
+      on.changedUnjudged,
+      on.unchanged,
+      on.evPriced,
+    ]).toEqual([4, 2, 1, 1, 1, 0]);
+    expect(on.fixedNodes).toEqual([`${H1}:2:flop:1`, `${H1}:4:turn:0`]);
+    expect(on.newlyWrongNodes).toEqual([`${H2}:3:river:1`]);
+    expect(on.perReceipt['plo6_facing_bet_priced_called']).toMatchObject({ changed: 2, fixed: 2 });
+    expect(on.perReceipt['plo6_facing_bet_priced_folded']).toMatchObject({
+      changed: 1,
+      newlyWrong: 1,
+    });
+    expect(replayBarLine(report, 'on')).toContain('no bb (the audit declares no EV model)');
+    const rows = replayBarRows(report, 'on', { set: 'synthetic plo6', scorer: 'abcdef01234' });
+    expect(rows).toEqual([
+      '- Replay: fixed 2; newlyWrong 1; changed 4; unchanged 1; unjudged 1; set synthetic plo6; scorer abcdef01234; source plo6 verdict-only; arm on vs off; replayed 5 of 6',
+    ]);
+    expect(parseReplayBarRows(rows[0]).rows[0]).toMatchObject({
+      state: 'RUN',
+      fixed: 2,
+      newlyWrong: 1,
+    });
+  });
+
+  it('a flagged fold the base arm does not reproduce is unjudged, never counted as fixed', () => {
+    const f = files(GOOD);
+    const r = plo6Decisions(f.csv, f.meta, HANDS);
+    const replay = parseReplayJsonl(
+      JSON.stringify({
+        hand: H1,
+        seat: 2,
+        street: 'flop',
+        k: 1,
+        arms: { off: { action: 'call', amount: 3 }, on: { action: 'raise', amount: 12 } },
+      })
+    );
+    const s = scoreReplay([{ source: 'plo6', decisions: r.decisions }], replay).sources[0];
+    expect(s.baseDiffers).toEqual([`${H1}:2:flop:1`]);
+    expect([s.arms[0].fixed, s.arms[0].newlyWrong, s.arms[0].changedUnjudged]).toEqual([0, 0, 1]);
+  });
+
+  it('refuses a malformed row with its reason and never places it at a neighbour', () => {
+    const base = {
+      hand: H1,
+      street: 'flop',
+      action: 'fold',
+      seat: 2,
+      t: 106,
+      status: 'priced',
+      severity: 'CLEAR',
+    };
+    const specs: Spec[] = [
+      { n: 10, ...base, severity: '', mistake: 'SIZING' }, // priced, a class word and no severity
+      { n: 11, ...base, status: 'estimated' }, // an unknown status
+      { n: 12, ...base, severity: 'SEVERE' }, // an unknown severity
+      { n: 13, ...base }, // no meta row
+      { n: 14, ...base }, // meta names another hand
+      { n: 15, ...base }, // meta names another street
+      { n: 16, ...base }, // meta names another action
+      { n: 17, ...base, hand: 'aaaaaaaa-0000-4000-8000-000000000009' }, // hand absent
+      { n: 18, ...base, hand: H5, street: 'turn', action: 'call', seat: 3, t: 500 }, // not PLO6
+      { n: 19, ...base, t: 999 }, // no action at that timestamp
+      { n: 20, ...base, hand: H3, street: 'turn', action: 'call', seat: 3, t: 300 }, // two matching actions
+      { n: 21, ...base, seat: 1, t: 104, action: 'bet' }, // the person's bet: not horse_policy
+      { n: 22, ...base }, // placed
+      { n: 22, ...base }, // the same decision twice: the same node
+    ];
+    const f = files(specs, {
+      13: null,
+      14: { hand: H2 },
+      15: { street: 'turn' },
+      16: { action: 'call' },
+    });
+    const meta = f.meta
+      .split('\n')
+      .filter((l, i, all) => all.indexOf(l) === i) // d22 is listed twice; its meta row once
+      .join('\n');
+    const csv = f.csv;
+    const r = plo6Decisions(
+      csv +
+        '\n' +
+        csvRow({
+          id: 'x7',
+          hand: H1,
+          street: 'flop',
+          action: 'fold',
+          status: 'priced',
+          severity: 'CLEAR',
+        }),
+      meta,
+      HANDS
+    );
+    expect(r.decisions.map((d) => d.at?.id)).toEqual(['d22']);
+    expect(r.unplaced.map((u) => [u.row, u.name, u.reason])).toEqual([
+      [2, 'd10', 'priced with severity "" and mistake "SIZING" maps to no verdict'],
+      [3, 'd11', 'status "estimated" is not priced or unpriced'],
+      [4, 'd12', 'priced with severity "SEVERE" and mistake "" maps to no verdict'],
+      [5, 'd13', 'no meta row n = 13'],
+      [6, 'd14', `meta hand ${H2} is not the csv hand`],
+      [7, 'd15', 'meta street turn is not the csv street flop'],
+      [8, 'd16', 'meta action call is not the csv action fold'],
+      [9, 'd17', 'hand not in hands file'],
+      [10, 'd18', 'hand is not plo6 (game_variant plo5)'],
+      [11, 'd19', 'no horse_policy actions match seat 2, flop, fold at 999'],
+      [12, 'd20', '2 horse_policy actions match seat 3, turn, call at 300'],
+      [13, 'd21', 'no horse_policy actions match seat 1, flop, bet at 104'],
+      [15, 'd22', 'the node is already audited by row 14'],
+      [16, 'x7', 'id "x7" is not d<n>'],
+    ]);
+    noCard(JSON.stringify(r));
+    // Inputs that cannot be read at all throw.
+    expect(() => plo6Decisions('id,hand,street,action,status\n', '', HANDS)).toThrow(
+      /lacks severity, mistake/
+    );
+    expect(() => plo6Decisions(f.csv, '{"hand":"x"}', HANDS)).toThrow(/whole-number n/);
+    expect(() =>
+      plo6Decisions(
+        f.csv,
+        `${metaRow(1, { hand: H1, street: 'flop', act: 'fold', seat: 2, t: 106 })}\n${metaRow(1, { hand: H1, street: 'flop', act: 'fold', seat: 2, t: 106 })}`,
+        HANDS
+      )
+    ).toThrow(/n 1 is given twice/);
+    expect(() => plo6Decisions(f.csv, meta, '{"game_variant":"plo6"}')).toThrow(
+      /needs id and actions/
+    );
+    expect(() =>
+      plo6Decisions(f.csv, meta, `${JSON.stringify(HAND_1)}\n${JSON.stringify(HAND_1)}`)
+    ).toThrow(/given twice/);
+  });
+
+  it('the CLI reads --plo6, --plo6-meta and --plo6-hands, emits nodes with id and actionIndex, writes the Replay row, and exits 1 on a row it cannot place', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'audited-replay-plo6-'));
+    try {
+      const w = (name: string, text: string) => {
+        writeFileSync(join(dir, name), text);
+        return join(dir, name);
+      };
+      const f = files(GOOD);
+      const hands = w('hands.jsonl', HANDS);
+      const meta = w('meta.jsonl', f.meta);
+      const csv = w('decisions.csv', f.csv);
+      const run = (extra: string[]) =>
+        spawnSync(
+          process.execPath,
+          [
+            '--import',
+            'tsx',
+            'scripts/audited-decision-replay.ts',
+            '--plo6-meta',
+            meta,
+            '--plo6-hands',
+            hands,
+            ...extra,
+          ],
+          { cwd: SERVER_DIR, encoding: 'utf8', timeout: 240_000 }
+        );
+      const nodes = join(dir, 'nodes.jsonl');
+      const emitted = run(['--plo6', csv, '--emit-nodes', nodes]);
+      expect(emitted.status, emitted.stderr).toBe(0);
+      expect(emitted.stdout).toContain('plo6: 6 audited decisions placed at a node, 0 not placed');
+      const text = readFileSync(nodes, 'utf8');
+      expect(JSON.parse(text.split('\n')[0])).toEqual({
+        hand: H1,
+        seat: 2,
+        street: 'flop',
+        k: 1,
+        id: 'd1',
+        actionIndex: 6,
+        key: `${H1}:2:flop:1`,
+        source: 'plo6',
+        recorded: { action: 'fold', amount: 0 },
+        verdict: 'priced CLEAR',
+      });
+      noCard(text);
+
+      const OPTION = 'plo6FacingBetIsPriced';
+      expect(OPTION_SWITCH_ON_OFF_NAMES).toContain(OPTION);
+      const replay = w(
+        'replay.jsonl',
+        [
+          JSON.stringify({
+            meta: {
+              arms: { off: { options: { [OPTION]: 'off' } }, on: { options: { [OPTION]: 'on' } } },
+            },
+          }),
+          JSON.stringify({
+            hand: H1,
+            seat: 2,
+            street: 'flop',
+            k: 1,
+            arms: { off: { action: 'fold' }, on: { action: 'call', amount: 3 } },
+          }),
+          JSON.stringify({
+            hand: H2,
+            seat: 3,
+            street: 'river',
+            k: 1,
+            arms: { off: { action: 'call', amount: 60 }, on: { action: 'call', amount: 60 } },
+          }),
+        ].join('\n')
+      );
+      const scored = run([
+        '--plo6',
+        csv,
+        '--replay',
+        replay,
+        '--row',
+        'on',
+        '--set',
+        'synthetic plo6',
+        '--scorer-commit',
+        'abcdef01234',
+      ]);
+      expect(scored.status, scored.stderr).toBe(0);
+      expect(scored.stdout).toContain(`on vs base: ${OPTION}; differs from base on 1 of 2 rows`);
+      expect(scored.stdout).toContain(
+        '- Replay: fixed 1; newlyWrong 0; changed 1; unchanged 1; unjudged 0; set synthetic plo6; scorer abcdef01234; source plo6 verdict-only; arm on vs off; replayed 2 of 6'
+      );
+
+      const broken = run([
+        '--plo6',
+        w(
+          'broken.csv',
+          `${f.csv}\n${csvRow({ id: 'd99', hand: H1, street: 'flop', action: 'fold', status: 'priced', severity: 'CLEAR' })}\n`
+        ),
+        '--emit-nodes',
+        join(dir, 'nodes2.jsonl'),
+      ]);
+      expect(broken.status).toBe(1);
+      expect(broken.stdout).toContain(
+        `not placed: row 8 decision d99 hand ${H1} flop: no meta row n = 99`
+      );
+      const noMeta = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          'scripts/audited-decision-replay.ts',
+          '--plo6',
+          csv,
+          '--plo6-hands',
+          hands,
+          '--emit-nodes',
+          nodes,
+        ],
+        { cwd: SERVER_DIR, encoding: 'utf8', timeout: 240_000 }
+      );
+      expect(noMeta.status).not.toBe(0);
+      expect(noMeta.stderr).toContain('--plo6 needs --plo6-meta and --plo6-hands');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 300_000);
+
+  it('scores placed audited decisions verdict-only, and a fix is a change to the action the audit names', () => {
+    const node = (hand: string, cls: string, action: string, better?: string[]) =>
+      JSON.stringify({
+        hand,
+        seat: 1,
+        street: 'river',
+        k: 0,
+        recorded: { action, amount: 0 },
+        verdict: cls === 'bad' ? 'CLEAR' : 'OK',
+        cls,
+        ...(better ? { better } : {}),
+      });
+    const placed = placedDecisions(
+      [
+        node('900201', 'bad', 'fold', ['call']),
+        node('900202', 'bad', 'fold', ['call']),
+        node('900203', 'ok', 'call'),
+        node('900204', 'bad', 'check'),
+        node('900204', 'bad', 'check'),
+        JSON.stringify({
+          hand: '900205',
+          seat: 1,
+          street: 'river',
+          k: 0,
+          recorded: { action: 'fold' },
+          cls: 'fine',
+        }),
+        JSON.stringify({
+          hand: '900206',
+          seat: 1,
+          street: 'showdown',
+          k: 0,
+          recorded: { action: 'fold' },
+          cls: 'ok',
+        }),
+      ].join('\n')
+    );
+    expect(placed.decisions.map((d) => d.node.hand)).toEqual([
+      '900201',
+      '900202',
+      '900203',
+      '900204',
+    ]);
+    expect(placed.decisions.every((d) => d.source === 'placed')).toBe(true);
+    expect(placed.unplaced.map((u) => u.reason)).toEqual([
+      'the node is given twice',
+      'unknown class',
+      'not a street',
+    ]);
+    const row = (hand: string, off: string, on: string) =>
+      JSON.stringify({
+        hand,
+        seat: 1,
+        street: 'river',
+        k: 0,
+        arms: { off: { action: off }, on: { action: on } },
+      });
+    const replay = parseReplayJsonl(
+      [
+        row('900201', 'fold', 'call'),
+        row('900202', 'fold', 'raise'),
+        row('900203', 'call', 'fold'),
+        row('900204', 'check', 'bet'),
+      ].join('\n')
+    );
+    const s = scoreReplay([{ source: 'placed', decisions: placed.decisions }], replay).sources[0];
+    expect(s.method).toBe('verdict-only');
+    const on = s.arms.find((a) => a.arm === 'on')!;
+    expect([on.changed, on.fixed, on.stillWrong, on.newlyWrong]).toEqual([4, 2, 1, 1]);
+    expect(on.fixedNodes.sort()).toEqual(['900201:1:river:0', '900204:1:river:0']);
+  });
 });

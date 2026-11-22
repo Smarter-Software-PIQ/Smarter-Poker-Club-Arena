@@ -41,12 +41,21 @@ export function acceptedReceipt(stdout) {
 }
 // A serialized explicit-event handler, with at most one acknowledged batch in
 // flight. No timer, polling, repair or automatic retry after an unknown queue.
-export function createIntake({ load, save, pending, queue, wake, id = randomUUID }) {
+export function createIntake({
+  load,
+  save,
+  pending,
+  queue,
+  wake,
+  nativeTurnEnded,
+  id = randomUUID,
+}) {
   let active;
   let loaded = false;
   let running = null;
   let requested = false;
   let lastError = null;
+  let haltedReleases = 0;
   const wakeAccepted = async () => {
     if (active?.phase !== 'queued' || active.wake !== undefined) return;
     // Queue acceptance persists input only. Wake that exact existing queue,
@@ -80,8 +89,20 @@ export function createIntake({ load, save, pending, queue, wake, id = randomUUID
     )
       throw new Error('invalid opaque pending response');
     if (active && !result.active_acknowledged) {
-      await wakeAccepted();
-      return;
+      // A woken operation whose native turn has provably ended without a
+      // durable outcome for every ID is halted, not in flight. Release it; its
+      // unread IDs stay oldest-first in pending and are queued once as a new
+      // operation. Without that proof the accepted operation is retained.
+      const halted =
+        active.phase === 'queued' &&
+        active.wake === 'requested' &&
+        typeof nativeTurnEnded === 'function' &&
+        (await nativeTurnEnded(active)) === true;
+      if (!halted) {
+        await wakeAccepted();
+        return;
+      }
+      haltedReleases++;
     }
     if (active) {
       await save(null);
@@ -132,7 +153,7 @@ export function createIntake({ load, save, pending, queue, wake, id = randomUUID
       return running;
     },
     status() {
-      return { target: TARGET, active: active ?? null, lastError };
+      return { target: TARGET, active: active ?? null, lastError, haltedReleases };
     },
     async settled() {
       await running?.catch(() => {});

@@ -344,10 +344,27 @@ export class ChannelHub {
     this.fanOut(members, msg);
   }
 
+  private tournamentMirror: ((tournamentId: string, msg: OutboundMessage) => void) | null = null;
+
+  /** Rolling handoff successor only: mirror tournament broadcasts to the front-door engine. */
+  setTournamentMirror(mirror: ((tournamentId: string, msg: OutboundMessage) => void) | null): void {
+    this.tournamentMirror = mirror;
+  }
+
   /**
    * Send a message to all subscribers of a tournament.
    */
   broadcastToTournament(tournamentId: string, msg: OutboundMessage): void {
+    // Rolling handoff (2026-11-19): a successor engine mirrors its tournament
+    // events to the engine that is still the front door. Null unless set, and
+    // only ever set with ENGINE_ROLLING_HANDOFF=on (GameServer).
+    if (this.tournamentMirror) {
+      try {
+        this.tournamentMirror(tournamentId, msg);
+      } catch {
+        /* a mirror can never cost the local fan-out */
+      }
+    }
     const members = this.tournamentSubs.get(tournamentId);
     if (!members) return;
     this.fanOut(members, msg);

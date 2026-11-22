@@ -29,6 +29,13 @@ Both families are OFF in production, and their evaluations (EQUAL) were measured
 - Tests: the whole decision in which the brain prices and admits the pressure raise and it is made at the priced size; a second decision on the same public spot inherits nothing (fails on 51018cc8c3b).
 - Authority file: the dedicated validator admission against the generic clause; the direction of the bias of the two-class continuing range; the price of a player still to answer.
 
+## Review notes C1, N1, N6 (same day, REVIEW-DELTA-6ff63300048 and the first review)
+
+- N1, root: an admission by a priced size never leaves the raise at the brain's own unpriced size. The admission now carries the size it priced (`OmahaPricedPressureAdmission.sampledTo`, written only once the answer is the admission; HorseLogic's per-decision memo keeps it with the state object and seat). `omahaPricedPressureRaiseSized` prices the raise again and makes it at the size of highest value; where the spot cannot be priced again, no raise stands above the call any more, or the pricing throws, it makes the raise at the size the admission priced (before, it kept the brain's size). A draw the draw-raise rule owns is still priced and sized (or called) there. Pinned by the law `AnAdmittedPressureRaiseIsMadeAtItsPricedSize.law.test.ts`.
+- N6: the receipts of the draw-raise rule are true under `omahaPricedMix`. A raise the mix took that was NOT priced above the call and is kept at the size given fires `omaha_priced_draw_raise_mixed_kept` (not `_kept`, which says it was priced above the call); a raise priced above the call that the mix turned into the call fires `omaha_priced_draw_raise_mixed_called` (not `_called`, which says it was not). Decisions are unchanged; only the receipt names.
+- C1: a DRAW raise resized through the whole decision (HorseLogic.decide): fixtures in which the brain itself raises or shoves the nut flush draw with a wrap and the draw-raise rule makes it at the priced size; the test asserts that at least one whole decision moves (count above zero) before the per-item checks (the receipt, the rule's own answer, the legal range, the dedicated admission and the whole receipt validator). The first whole-decision test gets one such spot and now asserts its resized count above zero too.
+- C2 and S1 were closed in 1cbb01f8859 (the same state object decided twice, the second with the mind off, inherits no resize; "no decision state").
+
 ## Not in this change
 
 The option-switch list migration (the lane lead generates one list migration for the lane) and the CI switch-evidence script's option list that goes with it; any league or replay; any switch.

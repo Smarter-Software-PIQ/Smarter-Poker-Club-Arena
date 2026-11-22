@@ -382,3 +382,157 @@ describe("#11266's original 20261118071728 is refused before merge by production
     expect(r.summary).toContain('ok (decided by the exact half)');
   });
 });
+
+describe('seeded production-like control fixtures catch broken $probe$ blocks before merge (20261119175941 / 20261119181500)', () => {
+  const CONTROL_SCHEMA = `
+    CREATE TABLE IF NOT EXISTS public.ca_promo_play_through_settings (
+      id boolean PRIMARY KEY DEFAULT true CHECK (id),
+      multiplier numeric NOT NULL DEFAULT 4,
+      expiry_days integer NOT NULL DEFAULT 30,
+      enforced_from timestamptz,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS public.profiles (
+      id uuid PRIMARY KEY,
+      username text,
+      display_name text
+    );
+    CREATE TABLE IF NOT EXISTS public.chip_ledger (
+      id uuid PRIMARY KEY
+    );
+    CREATE FUNCTION public.fn_probe_promo_roll(p_ledger_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+    DECLARE v_id uuid;
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.ca_promo_play_through_settings
+         WHERE id AND enforced_from IS NOT NULL
+      ) THEN
+        RETURN;
+      END IF;
+      SELECT id INTO STRICT v_id FROM public.chip_ledger WHERE id = p_ledger_id;
+    END $fn$;
+    CREATE FUNCTION public.fn_probe_daily_mission_lock(p_user_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+    BEGIN
+      PERFORM 1 FROM public.profiles WHERE id = p_user_id FOR NO KEY UPDATE;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'Daily Missions profile not found for player %', p_user_id;
+      END IF;
+    END $fn$;
+  `;
+
+  function buildControlCopy(db: string) {
+    build(db, { production: false, bank: false });
+    ok(db, CONTROL_SCHEMA);
+  }
+
+  it('FAILS a promo migration whose $probe$ misses P0002 when enforced_from IS NOT NULL, and PASSES the fixed probe', () => {
+    const brokenSql = `BEGIN;
+SET LOCAL lock_timeout = '3s';
+CREATE OR REPLACE FUNCTION public.fn_probe_promo_roll(p_ledger_id uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+DECLARE v_id uuid;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.ca_promo_play_through_settings
+     WHERE id AND enforced_from IS NOT NULL
+  ) THEN
+    RETURN;
+  END IF;
+  SELECT id INTO STRICT v_id FROM public.chip_ledger WHERE id = p_ledger_id;
+END $fn$;
+-- @probe-for: public.fn_probe_promo_roll
+DO $probe$
+BEGIN
+  BEGIN
+    PERFORM public.fn_probe_promo_roll(gen_random_uuid());
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'invalid_promo_event_roll' THEN RAISE; END IF;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+COMMIT;
+`;
+    const fixedSql = brokenSql.replace(
+      'EXCEPTION WHEN raise_exception THEN',
+      'EXCEPTION WHEN no_data_found THEN NULL; WHEN raise_exception THEN'
+    );
+
+    buildControlCopy('probepromo1');
+    const bad = rehearse(
+      'probepromo1',
+      join(scratch, 'cap-rake'),
+      '20261120213501_broken_promo_probe.sql',
+      brokenSql
+    );
+    expect(bad.status, bad.summary).toBe(1);
+    expect(bad.summary).toContain('seeded production-like control fixtures');
+    expect(bad.summary).toContain('public.ca_promo_play_through_settings');
+    expect(bad.summary).toContain('**FAIL** (decided by the exact half)');
+    expect(bad.summary).toContain('probe-failed');
+    expect(bad.summary).toContain('public.fn_probe_promo_roll');
+
+    buildControlCopy('probepromo2');
+    const good = rehearse(
+      'probepromo2',
+      join(scratch, 'cap-rake'),
+      '20261120213502_fixed_promo_probe.sql',
+      fixedSql
+    );
+    expect(good.status, good.summary).toBe(0);
+    expect(good.summary).toContain('ok (decided by the exact half)');
+  });
+
+  it('FAILS a Daily Missions $probe$ passing a random UUID and PASSES a probe selecting from seeded public.profiles', () => {
+    const brokenSql = `BEGIN;
+SET LOCAL lock_timeout = '3s';
+CREATE OR REPLACE FUNCTION public.fn_probe_daily_mission_lock(p_user_id uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+BEGIN
+  PERFORM 1 FROM public.profiles WHERE id = p_user_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Daily Missions profile not found for player %', p_user_id;
+  END IF;
+END $fn$;
+-- @probe-for: public.fn_probe_daily_mission_lock
+DO $probe$
+BEGIN
+  PERFORM public.fn_probe_daily_mission_lock(gen_random_uuid());
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+COMMIT;
+`;
+    const fixedSql = brokenSql.replace(
+      'PERFORM public.fn_probe_daily_mission_lock(gen_random_uuid());',
+      'PERFORM public.fn_probe_daily_mission_lock((SELECT id FROM public.profiles ORDER BY id LIMIT 1));'
+    );
+
+    buildControlCopy('probemission1');
+    const bad = rehearse(
+      'probemission1',
+      join(scratch, 'cap-rake'),
+      '20261120213503_broken_mission_probe.sql',
+      brokenSql
+    );
+    expect(bad.status, bad.summary).toBe(1);
+    expect(bad.summary).toContain('**FAIL** (decided by the exact half)');
+    expect(bad.summary).toContain('probe-failed');
+    expect(bad.summary).toContain('Daily Missions profile not found');
+
+    buildControlCopy('probemission2');
+    const good = rehearse(
+      'probemission2',
+      join(scratch, 'cap-rake'),
+      '20261120213504_fixed_mission_probe.sql',
+      fixedSql
+    );
+    expect(good.status, good.summary).toBe(0);
+    expect(good.summary).toContain('ok (decided by the exact half)');
+    expect(good.summary).toContain('public.profiles');
+  });
+});

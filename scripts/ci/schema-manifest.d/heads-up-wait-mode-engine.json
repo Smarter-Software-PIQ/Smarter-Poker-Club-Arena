@@ -1,0 +1,17 @@
+{
+  "_owner": "feat/heads-up-wait-mode-engine",
+  "_comment": "Heads-Up Sit N Go wait-mode persistence table and invite-hold RPCs (play_anyone vs specific_player).",
+  "tables": ["heads_up_wait_holds"],
+  "functions": ["fn_set_heads_up_wait_mode", "fn_check_heads_up_seat_invite"],
+  "columns": {
+    "heads_up_wait_holds": [
+      "tournament_id",
+      "table_id",
+      "creator_user_id",
+      "wait_mode",
+      "invite_token",
+      "hold_expires_at",
+      "updated_at"
+    ]
+  }
+}

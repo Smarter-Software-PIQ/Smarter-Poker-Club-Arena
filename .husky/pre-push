@@ -932,10 +932,15 @@ FILES=$(printf '%s\n' "$ALL_FILES" | sort -u)
 # ─────────────────────────────────────────────────────────────────────────────
 # The copy guards parse TypeScript. Missing tooling refuses an applicable
 # source/configuration check before CI; prose-only changes use their own pins.
+# server/src/ is a trigger too (2026-11-20): check-title-case.mjs walks
+# server/src (receipt labels and every string the server says), and a push that
+# touched only server/src skipped it here, so three engine receipt labels
+# (OmahaMathCore.ts, OmahaMathCorePreflop.ts, OmahaMathCoreRangeTrack.ts) were
+# first refused by hosted CI on #11515, an hour after a green local gate.
 copy_case_guard() {
   guard="$1"
   [ -f "$guard" ] || return 0
-  if ! echo "$FILES" | grep -qE '^(src/|package(-lock)?\.json$|scripts/ci/check-(title-case|painted-text-case|nav-title-case)\.mjs$|\.husky/)'; then
+  if ! echo "$FILES" | grep -qE '^(src/|server/src/|package(-lock)?\.json$|scripts/ci/check-(title-case|painted-text-case|nav-title-case)\.mjs$|\.husky/)'; then
     return 0
   fi
   if ! node -e 'require("typescript")' >/dev/null 2>&1; then
@@ -1110,6 +1115,39 @@ if [ -n "$FILES" ] && ! printf '%s\n' $FILES | grep -qE "$CA_HEAVY_PATHS"; then
 fi
 echo "[club-arena pre-push] local test scope: $CA_LOCAL_SCOPE"
 
+# FAST EXACT-CANDIDATE NON-ENGINE SELECTOR (2026-11-21).
+# Strictly fail-closed: activates ONLY when EVERY changed path falls inside the
+# proven non-runtime allowlist in scripts/ci/prepush-fast-selector.mjs (non-SQL
+# scripts/ops/**, non-PG/E2E tests/unit/**, non-policy docs/**/*.md, strictly
+# benchmark-only server/src/benchmark/** and server/src/scripts/horseLeagueCard.ts).
+# Still runs all static guards, tsc, law-registry, and exact changed/companion/
+# direct-path tests locally; skips only the heavy-job queue and unrelated full
+# server/runtime/browser/Postgres suites. Any path outside the allowlist, or any
+# unreadable/empty diff or error, fails closed to the full unchanged suite.
+# GitHub CI is untouched and still runs 100% of required checks on every commit.
+CA_FAST_NONENGINE_PREPUSH=no
+CA_FAST_NONENGINE_CATEGORIES=""
+CA_FAST_EXACT_SRV_TESTS=""
+CA_FAST_NEEDS_LAW_REGISTRY=no
+CA_FAST_NEEDS_PHANTOM_TABLES=no
+if [ -n "$FILES" ] && [ -f "$CA_TREE_TOP/scripts/ci/prepush-fast-selector.mjs" ]; then
+  CA_FAST_VERDICT=$(printf '%s\n' $FILES | node "$CA_TREE_TOP/scripts/ci/prepush-fast-selector.mjs" --shell-vars --root "$CA_TREE_TOP" --stdin 2>/dev/null) || CA_FAST_VERDICT=""
+  if printf '%s\n' "$CA_FAST_VERDICT" | grep -qx 'FAST=yes'; then
+    CA_FAST_NONENGINE_PREPUSH=yes
+    CA_FAST_NONENGINE_CATEGORIES=$(printf '%s\n' "$CA_FAST_VERDICT" | sed -n 's/^CATEGORIES=//p')
+    CA_FAST_EXACT_SRV_TESTS=$(printf '%s\n' "$CA_FAST_VERDICT" | sed -n 's/^EXACT_SRV_TEST=//p' | tr '\n' ' ')
+    CA_FAST_NEEDS_LAW_REGISTRY=$(printf '%s\n' "$CA_FAST_VERDICT" | sed -n 's/^NEEDS_LAW_REGISTRY=//p')
+    CA_FAST_NEEDS_PHANTOM_TABLES=$(printf '%s\n' "$CA_FAST_VERDICT" | sed -n 's/^NEEDS_PHANTOM_TABLES=//p')
+    echo "[club-arena pre-push] fast non-engine exact-candidate mode (categories: ${CA_FAST_NONENGINE_CATEGORIES:-unknown}): running all static guards, tsc, law-registry, and exact changed/companion tests; skipping unrelated full server/runtime/browser/Postgres suites locally (GitHub CI still runs 100% of required checks)."
+    if [ "$CA_FAST_NEEDS_PHANTOM_TABLES" = yes ] && [ -f "$CA_TREE_TOP/scripts/ci/check-phantom-tables.mjs" ]; then
+      if ! node "$CA_TREE_TOP/scripts/ci/check-phantom-tables.mjs"; then
+        echo "[club-arena pre-push] BLOCKED: phantom table or RPC reference detected."
+        FAIL=1
+      fi
+    fi
+  fi
+fi
+
 # THE HOST-WIDE HEAVY-JOB QUEUE (Dan, 2026-11-19 17:26 Chicago). On a full
 # local selection the suites below are the heaviest thing an agent runs on
 # the shared Mac, and dozens of them at once drove the load to 60-90 and
@@ -1122,6 +1160,7 @@ echo "[club-arena pre-push] local test scope: $CA_LOCAL_SCOPE"
 # once. A related-scope push runs a handful of tests and does not queue.
 ca_heavy_slot() {
   [ "$CA_LOCAL_SCOPE" = full ] || return 0
+  [ "${CA_FAST_NONENGINE_PREPUSH:-no}" != yes ] || return 0
   [ "$(uname -s)" = Darwin ] || [ -n "${CA_HEAVY_QUEUE_DIR:-}" ] || return 0
   [ -z "${CA_HEAVY_SLOT_TAKEN:-}" ] || return 0
   CA_HEAVY_SLOT_TAKEN=1
@@ -1129,6 +1168,17 @@ ca_heavy_slot() {
     hq_acquire "pre-push $(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo detached)" || true
   else
     echo "[club-arena pre-push] WARNING: scripts/lib/heavy-queue.sh is missing or unreadable; running the suites without the heavy-job queue (no check is skipped)." >&2
+  fi
+  if [ -z "${VITEST_MAX_THREADS:-}" ] && [ "$(uname -s)" = Darwin ]; then
+    ca_cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
+    if [ "${ca_cores:-0}" -gt 0 ]; then
+      ca_slots=$(( ca_cores / 7 ))
+      [ "$ca_slots" -ge 1 ] || ca_slots=1
+      ca_per_slot=$(( ca_cores / ca_slots ))
+      [ "$ca_per_slot" -ge 2 ] || ca_per_slot=2
+      [ "$ca_per_slot" -le 6 ] || ca_per_slot=6
+      export VITEST_MAX_THREADS="$ca_per_slot"
+    fi
   fi
   return 0
 }
@@ -1152,7 +1202,7 @@ for f in $FILES; do
     esac
   fi
 done
-if [ "$CA_LOCAL_SCOPE" = related ]; then
+if [ "$CA_LOCAL_SCOPE" = related ] || [ "${CA_FAST_NONENGINE_PREPUSH:-no}" = yes ]; then
   # Directly related only: one pass over tests/ for every changed path (and,
   # for client source, the same path without its extension, which is how an
   # import names it). Deleted paths stay in the set. No import-graph tracing:
@@ -1168,7 +1218,19 @@ if [ "$CA_LOCAL_SCOPE" = related ]; then
       src/*.ts|src/*.tsx) CA_PATH_PATTERNS+=(-e "${f%.*}") ;;
     esac
   done
-  CA_READERS=$(grep -rHoF --include='*.test.ts' --include='*.test.tsx' --include='*.test.mjs' "${CA_PATH_PATTERNS[@]}" tests/ 2>/dev/null \
+  # Use multi-threaded git grep over indexed/untracked test files when inside a
+  # git worktree (avoids BSD grep walking tens of thousands of fixture files),
+  # falling back to BSD grep in non-git test sandboxes or on any git error.
+  ca_scan_test_readers() {
+    if [ -e "$CA_TREE_TOP/.git" ] && [ "$PWD" = "$CA_TREE_TOP" ]; then
+      ca_g=0
+      env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
+        git grep -HoF --untracked "${CA_PATH_PATTERNS[@]}" -- 'tests/*.test.ts' 'tests/*.test.tsx' 'tests/*.test.mjs' 2>/dev/null || ca_g=$?
+      if [ "$ca_g" -eq 0 ] || [ "$ca_g" -eq 1 ]; then return 0; fi
+    fi
+    grep -rHoF --include='*.test.ts' --include='*.test.tsx' --include='*.test.mjs' "${CA_PATH_PATTERNS[@]}" tests/ 2>/dev/null || true
+  }
+  CA_READERS=$(ca_scan_test_readers \
     | awk -v limit="$CA_LOCAL_CONTRACT_LIMIT" '
         { i = index($0, ":"); t = substr($0, 1, i - 1); k = substr($0, i + 1)
           if (k ~ /^src\//) sub(/\.tsx?$/, "", k)
@@ -1232,7 +1294,53 @@ if printf '%s\n' $FILES | grep -qE '^(tests/.*\.test\.(ts|tsx)|docs/laws\.d/.*\.
     fi
   done
 fi
+# CENSUSES OF .github/workflows (2026-11-21). These six fast (~3s) law tests
+# scan every YAML file in .github/workflows/ via readdirSync rather than naming
+# an individual workflow, so `related` (exact file path) and basename matching
+# miss them when a workflow is added or edited (PR #11632 failed first in CI).
+if printf '%s\n' $FILES | grep -qE '^\.github/workflows/.*\.ya?ml$'; then
+  for t in \
+    tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts \
+    tests/unit/workflowJobsReadOnlyMainOnlyEnvironments.law.test.ts \
+    tests/unit/workflowConcurrencyGuard.test.ts \
+    tests/a-workflow-step-fits-what-github-will-run.law.test.ts \
+    tests/no-workflow-gains-a-new-timer.law.test.ts \
+    tests/superseded-ci-stops-at-the-push.law.test.ts; do
+    if [ -f "$t" ]; then
+      case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
+    fi
+  done
+fi
+# CENSUSES OF supabase/migrations (2026-11-21). These law tests read every
+# migration through readdirSync, so neither the basename search above nor
+# `related` selects them when a migration is added. Each failed first in hosted
+# CI on 2026-11-21 (a missing @probe-for, an undeclared money trigger, a pinned
+# window rule), a fifteen-minute round trip apiece. All eleven are rules every
+# new migration must meet, and together they take about twelve seconds here.
+if printf '%s\n' $FILES | grep -qE '^supabase/migrations/[^/]+\.sql$'; then
+  for t in \
+    tests/unit/migrationVersionUniqueness.test.ts \
+    tests/unit/aMergedMigrationIsInstallable.test.ts \
+    tests/unit/aMigrationFitsTheInstallBudget.test.ts \
+    tests/unit/migrationCatalogLiterals.test.ts \
+    tests/unit/migrationSessionIdentity.test.ts \
+    tests/unit/migrationsInstallFromMain.test.ts \
+    tests/a-migration-proves-its-functions-before-commit.law.test.ts \
+    tests/a-money-trigger-declares-itself.law.test.ts \
+    tests/a-window-migration-waits-for-the-daily-break.law.test.ts \
+    tests/a-migration-never-holds-the-live-tables-hostage.law.test.ts \
+    tests/postgrest-is-never-reloaded-on-a-timer.law.test.ts; do
+    if [ -f "$t" ]; then
+      case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
+    fi
+  done
+fi
 # A changed test can also be found as a source contract; execute it once.
+if [ "${CA_FAST_NONENGINE_PREPUSH:-no}" = yes ] && [ -f tests/law-registry.law.test.ts ]; then
+  if [ "${CA_FAST_NEEDS_LAW_REGISTRY:-no}" = yes ] || [ "${CLIENT_DEPENDENCY_MODE:-}" = local ]; then
+    case " $CHANGED_TESTS " in *" tests/law-registry.law.test.ts "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS tests/law-registry.law.test.ts" ;; esac
+  fi
+fi
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)
 if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
@@ -1347,6 +1455,11 @@ if [ -f server/package.json ]; then
       SRV_TESTS="$SRV_TESTS ${t#server/}"
     done
   done
+  if [ "${CA_FAST_NONENGINE_PREPUSH:-no}" = yes ] && [ -n "${CA_FAST_EXACT_SRV_TESTS:-}" ]; then
+    for t in $CA_FAST_EXACT_SRV_TESTS; do
+      [ -f "$CA_TREE_TOP/server/$t" ] && SRV_TESTS="$SRV_TESTS $t"
+    done
+  fi
   SRV_TESTS=$(printf '%s\n' $SRV_TESTS | sort -u)
   if [ -n "$SRV_TESTS$SRV_SRC" ] && declare -F ca_heavy_slot >/dev/null; then ca_heavy_slot; fi
 
@@ -1454,21 +1567,23 @@ if [ -f server/package.json ]; then
   # import names the .js specifier, so this stays the tests that read the
   # file, not the whole suite. A harness (.mjs) that reads the changed file
   # is followed one step to the tests that name that harness.
-  CA_PIN_PATTERNS=()
-  ca_add_pin() {
-    CA_PIN_PATTERNS+=(-e "/$1" -e "'$1" -e "\"$1" -e "\`$1")
-  }
-  for rel in $SRV_SRC; do ca_add_pin "${rel##*/}"; done
-  if [ "${#CA_PIN_PATTERNS[@]}" -gt 0 ]; then
-    for h in $(grep -rlF --include='*.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null); do
-      case "$h" in
-        *.test.mjs) ;;
-        *) ca_add_pin "${h##*/}" ;;
-      esac
-    done
-    for t in $(grep -rlF --include='*.test.ts' --include='*.test.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null | sort); do
-      ca_add_contract "${t#server/}"
-    done
+  if [ "${CA_FAST_NONENGINE_PREPUSH:-no}" != yes ]; then
+    CA_PIN_PATTERNS=()
+    ca_add_pin() {
+      CA_PIN_PATTERNS+=(-e "/$1" -e "'$1" -e "\"$1" -e "\`$1")
+    }
+    for rel in $SRV_SRC; do ca_add_pin "${rel##*/}"; done
+    if [ "${#CA_PIN_PATTERNS[@]}" -gt 0 ]; then
+      for h in $(grep -rlF --include='*.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null); do
+        case "$h" in
+          *.test.mjs) ;;
+          *) ca_add_pin "${h##*/}" ;;
+        esac
+      done
+      for t in $(grep -rlF --include='*.test.ts' --include='*.test.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null | sort); do
+        ca_add_contract "${t#server/}"
+      done
+    fi
   fi
   if [ "$SERVER_DEPENDENCY_MODE" = local ] && [ -n "$SRV_CONTRACTS" ] && [ -x "$SERVER_VITEST" ]; then
     echo "[club-arena pre-push] running the source-contract laws your server changes touch..."
@@ -1479,7 +1594,11 @@ if [ -f server/package.json ]; then
     fi
   fi
 
-  if [ "$SERVER_DEPENDENCY_MODE" = local ] && [ -n "$SRV_SRC" ] && [ -x "$SERVER_VITEST" ]; then
+  if [ "${CA_FAST_NONENGINE_PREPUSH:-no}" = yes ]; then
+    if [ -n "$SRV_SRC" ]; then
+      echo "[club-arena pre-push] fast non-engine mode: skipping full server vitest related crawl for benchmark-only source ($SRV_SRC); exact changed/companion server tests and server tsc ran locally, and GitHub CI still runs 100% of required server checks."
+    fi
+  elif [ "$SERVER_DEPENDENCY_MODE" = local ] && [ -n "$SRV_SRC" ] && [ -x "$SERVER_VITEST" ]; then
     echo "[club-arena pre-push] running the server tests that cover your changes..."
     SERVER_RELATED_ARGS=()
     for tested_file in $SRV_TESTS $SRV_CONTRACTS; do

@@ -23,6 +23,8 @@ on:
       - scripts/ci/qualify-alert-review-outcomes.py
       - scripts/ci/qualify-reliability-incident-claims.py
       - supabase/migrations/*_an_incident_is_claimed_before_it_is_worked.sql
+      - supabase/migrations/*_a_shipped_or_stale_incident_claim_stops_blocking.sql
+      - supabase/migrations/*_release_incident_handoff_names_sanctioned_triage_workflow.sql
       - tests/fixtures/alert-review-outcomes/**
       - supabase/migrations/*_verified_alert_outcomes_follow_original_source_identity.sql
       - supabase/migrations/*_proved_owner_source_resolution_survives_stale_incident_class.sql

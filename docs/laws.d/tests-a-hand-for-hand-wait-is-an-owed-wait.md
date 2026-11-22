@@ -1,0 +1,3 @@
+# tests/a-hand-for-hand-wait-is-an-owed-wait.law.test.ts
+
+Hand-for-hand on a tournament money bubble is an owed wait, never an unintended delay. Incident 1e532243, 2026-11-19: fn_ca_hand_gap_watch paged for one satellite's bubble (p95 8,998 ms after 34,387 ms) because the hand-for-hand interval lived only in engine memory. The law pins that TournamentManagerBase records the start when it arms the bubble barrier and the end when it stops it (fn_ca_note_hand_for_hand, never awaited, failures named), that the newest fn_ca_hand_gap_unintended_delay leaves out a pair overlapping a recorded interval of its own tournament while keeping the break exclusions, and that ca_tournament_hand_for_hand and its writer are service_role only.

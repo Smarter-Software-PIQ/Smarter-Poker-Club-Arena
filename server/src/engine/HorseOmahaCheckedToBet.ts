@@ -107,17 +107,21 @@ import {
   omahaCardImpact,
   omahaCardImpactAmounts,
   omahaCardImpactLine,
+  omahaCardImpactResponseOf,
   OMAHA_CARD_IMPACT_PRIOR,
   type OmahaCardImpact,
   type OmahaCardImpactOption,
+  type OmahaCardImpactRead,
+  type OmahaCardImpactResponseCurve,
 } from './HorseOmahaCardImpact.js';
+import { OMAHA_SMALL_BET_RESPONSE } from './HorseOmahaSmallBetConstants.js';
 import { EXPLOIT_PRIOR_STRENGTH } from './HorseOpponentExploit.js';
 import {
   OMAHA_PRICED_NO_READ,
   omahaPricedCardImpactRead,
   type OmahaPricedRead,
 } from './HorseOmahaPricedRules.js';
-import { omahaPricedInScope } from './HorseOmahaPricedWiring.js';
+import { omahaPricedInScope, type OmahaPricedScopeOpts } from './HorseOmahaPricedWiring.js';
 import { omahaOpponentKindOf, type OmahaOpponentKind } from './HorseOmahaPricedMode.js';
 
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
@@ -132,6 +136,8 @@ export interface OmahaCheckedToRead {
   read: OmahaPricedRead;
   /** decayed river opportunities behind his river call rate; null when unknown */
   riverOpportunities: number | null;
+  /** omahaCheckedToBetResponseIsMeasured: the population means his own rates are read beside; absent or null: none */
+  population?: OmahaCheckedToPopulation | null;
 }
 
 export interface OmahaCheckedToScope {
@@ -143,10 +149,12 @@ export interface OmahaCheckedToScope {
 /** The option's spot: public information and the Horse's own cards. Null outside it. */
 export function omahaCheckedToBetScope(
   hero: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  /** the decision's options: a Lightning pool is in scope only with omahaPricedInLightning (AUDIT-02, 2026-11-19) */
+  opts?: OmahaPricedScopeOpts | null
 ): OmahaCheckedToScope | null {
   try {
-    if (!omahaPricedInScope(hero, gs)) return null;
+    if (!omahaPricedInScope(hero, gs, opts)) return null;
     const street = String(gs.stage ?? '');
     // v2 (REDESIGN-PLAN section 2): the river only. The turn is priced as a whole line by the
     // street plan, which this arithmetic lacks (no river betting after a called turn bet).
@@ -207,6 +215,10 @@ export interface OmahaCheckedToVerdict {
   rows: OmahaCheckedToRow[];
   /** where the continue rates came from: every opponent's source, the weakest named */
   source: 'street' | 'pooled' | 'prior';
+  /** omahaCheckedToBetResponseIsMeasured: the measured answer priced this comparison ('kind': the one pooled
+   *  curve, the same for every opponent; 'personal': his own level on that shape); absent when the model's keep
+   *  priced it */
+  measured?: 'kind' | 'personal';
 }
 
 /**
@@ -299,9 +311,140 @@ export function omahaCheckedToShowdownCalibrated(
   return calibrateWith(OMAHA_CHECKED_TO_SHOWDOWN_FIT[kind ?? 'pooled'], model, effective);
 }
 
+/**
+ * omahaCheckedToBetResponseIsMeasured (2026-11-20, EMERG lane OPEN-ITEMS-3; default OFF, read `=== true`, acts only
+ * inside omahaCheckedToBetIsPriced). THE ANSWER TO A RIVER BET IS THE MEASURED ONE AT EVERY SIZE.
+ *
+ * The comparison above takes the share of the checker's range that continues from the card-impact model's keep: the
+ * pot odds of the bet, scaled by his river call rate, or with no river evidence by his ALL-STREET continue rate (the
+ * pooled read counts every street in one counter: about half), taken as observed at 0.6 pot. Measured (public
+ * actions only, HorseOmahaSmallBetConstants OMAHA_SMALL_BET_RESPONSE, 5,379 PLO4/PLO5 cash hands 2026-11-13..17): a
+ * person answers a river bet of two thirds of the pot by continuing 20% of the time in PLO5 (n 92) and 33% in PLO4
+ * (n 69), a pot-sized bet 15% (n 142) and 27% (n 109); a Horse 27% and 28%, then 22% and 13%. Held out on
+ * 2026-11-17..19 (archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md section 2): a player who had
+ * CHECKED the river continued against a Horse bet of 0.8 pot or more 4 of 48 times on Nov 17-18 and 4 of 26 on Nov 19.
+ *
+ * With the option on, heads-up on the river only (one opponent, who has checked), his continue and raise shares at
+ * each bet size are the ONE measured curve of the variant (the person and Horse cells pooled by their counts; the
+ * same curve whoever he is), joined by straight lines,
+ * every hand continuing at a bet of nothing, MOVED BY HIS OWN EVIDENCE: the log-odds of continuing shift, at every
+ * size alike, by logit(his own rate) - logit(the population mean of the same statistic) (his river call rate beside
+ * the population's river call rate; with no river rate his continue rate beside the population's). A player with no
+ * evidence is exactly that curve; a measured station continues more at every size and a measured folder less;
+ * a player with evidence but no population figure to read it beside is priced by the model as before. The error of the rate is the binomial error of the measured cell joined
+ * with the error of his own rate carried through the shift.
+ * Everything else is the comparison above: his checking range, the fitted showdown share and continue equity, the
+ * raise branch, the rake, and the bet only when it is worth more than the check by more than the comparison's own
+ * standard error. No hand class, no position rule, nothing keyed to an account. Several opponents, the turn, PLO6
+ * (no measured curve) and every game outside omahaPricedInScope are untouched.
+ */
+export interface OmahaCheckedToPopulation {
+  /** population mean of continuing against a bet (1 - fold to bet); null: unknown */
+  continueRate: number | null;
+  /** population mean of the river call rate; null: unknown */
+  riverCall: number | null;
+}
+export interface OmahaCheckedToMeasuredResponse {
+  curve: OmahaCardImpactResponseCurve;
+  /** true: his own evidence moved the pooled curve; false: exactly the pooled curve */
+  personal: boolean;
+  /** his own rate that moved the curve (null: none) */
+  own: number | null;
+  /** the rate and the count of the measured cell at a pot share */
+  at: (share: number) => { cont: number; n: number };
+}
+const logitOf = (p: number): number => {
+  const q = clamp(p, 1e-4, 1 - 1e-4);
+  return Math.log(q / (1 - q));
+};
+/**
+ * ONE CURVE FOR EVERY OPPONENT (2026-11-20, binding rule: no rule may key on whether an opponent is a person or a
+ * Horse). The measured table holds a person cell and a Horse cell per bet size; the answer priced here is the two
+ * pooled by their own counts at each size (a size only one of them measured is that cell). Null: no measured river
+ * curve for the variant.
+ */
+export function omahaCheckedToPooledRiverPoints(
+  variant: string
+): Array<{ share: number; cont: number; raise: number; n: number }> | null {
+  const cells = [
+    OMAHA_SMALL_BET_RESPONSE[`${variant}|river|person`],
+    OMAHA_SMALL_BET_RESPONSE[`${variant}|river|horse`],
+  ].filter((c): c is NonNullable<typeof c> => Array.isArray(c) && c.length > 0);
+  if (cells.length === 0) return null;
+  const shares = [...new Set(cells.flatMap((c) => c.map((p) => p.share)))].sort((a, b) => a - b);
+  return shares.map((share) => {
+    const at = cells.flatMap((c) => c.filter((p) => p.share === share));
+    const n = at.reduce((sum, p) => sum + Math.max(0, p.n), 0);
+    const weight = (p: { n: number }): number => (n > 0 ? Math.max(0, p.n) / n : 1 / at.length);
+    return {
+      share,
+      cont: at.reduce((sum, p) => sum + weight(p) * p.cont, 0),
+      raise: at.reduce((sum, p) => sum + weight(p) * p.raise, 0),
+      n,
+    };
+  });
+}
+export function omahaCheckedToMeasuredResponse(
+  variant: string,
+  read: OmahaCardImpactRead,
+  population: OmahaCheckedToPopulation | null = null
+): OmahaCheckedToMeasuredResponse | null {
+  const points = omahaCheckedToPooledRiverPoints(variant);
+  if (!points || points.length === 0) return null;
+  // His own evidence beside the population's figure for the same statistic.
+  let own: number | null = null;
+  let shift = 0;
+  if (read.measured && (read.riverCallRate !== null || read.continueRate !== null)) {
+    const pairs: Array<[number | null, number | null]> = [
+      [read.riverCallRate, population?.riverCall ?? null],
+      [read.continueRate, population?.continueRate ?? null],
+    ];
+    for (const [mine, theirs] of pairs)
+      if (
+        mine !== null &&
+        theirs !== null &&
+        fin(mine) &&
+        fin(theirs) &&
+        theirs > 0 &&
+        theirs < 1
+      ) {
+        own = clamp(mine, 0, 1);
+        shift = logitOf(own) - logitOf(theirs);
+        break;
+      }
+    // He has evidence and there is no population figure to read it beside: the comparison is the model's, as before.
+    if (own === null) return null;
+  }
+  const moved = (cont: number): number =>
+    shift === 0 ? clamp(cont, 0, 1) : 1 / (1 + Math.exp(-(logitOf(cont) + shift)));
+  const curve: OmahaCardImpactResponseCurve = [
+    { share: 0, cont: 1, raise: clamp(points[0].raise, 0, 1) },
+    ...points
+      .filter((p) => p.share > 0)
+      .map((p) => {
+        const cont = moved(p.cont);
+        // of the hands that continue, the measured share at that size raises
+        return {
+          share: p.share,
+          cont,
+          raise: p.cont > 0 ? clamp((p.raise / p.cont) * cont, 0, 1) : 0,
+        };
+      }),
+  ];
+  const at = (share: number): { cont: number; n: number } => {
+    // the count behind the rate: the nearer measured point's own cell
+    let near = points[0];
+    for (const p of points) if (Math.abs(p.share - share) < Math.abs(near.share - share)) near = p;
+    return { cont: omahaCardImpactResponseOf(curve, share).cont, n: Math.max(0, near.n) };
+  };
+  return { curve, personal: shift !== 0, own, at };
+}
+
 interface Leg {
   opp: SeatPlayer;
   impact: OmahaCardImpact;
+  /** omahaCheckedToBetResponseIsMeasured: the measured answer used for this opponent's bet rows; null: the model's keep */
+  measured: OmahaCheckedToMeasuredResponse | null;
   /** decayed opportunities behind the continue rate used */
   n: number;
   /** his continue rate at the reference size; null: no read (the pot-odds share) */
@@ -321,7 +464,9 @@ export function omahaCheckedToBet(
   gs: HorseGameStateV2,
   scope: OmahaCheckedToScope,
   readOf: (seat: number) => OmahaCheckedToRead | null,
-  rake: number
+  rake: number,
+  /** omahaCheckedToBetResponseIsMeasured (default off): heads-up, his answer to a bet is the measured one at every size */
+  measuredResponse = false
 ): OmahaCheckedToVerdict | null {
   const pot = gs.pot;
   const river = scope.street === 'river';
@@ -336,6 +481,15 @@ export function omahaCheckedToBet(
     const read = given?.read ?? OMAHA_PRICED_NO_READ;
     if (read.source === 'prior' || (read.source === 'pooled' && source === 'street'))
       source = read.source;
+    const cardRead = omahaPricedCardImpactRead(read, scope.street);
+    const measured =
+      measuredResponse === true && river && scope.opponents.length === 1
+        ? omahaCheckedToMeasuredResponse(
+            String(gs.gameVariant ?? '').toLowerCase(),
+            cardRead,
+            given?.population ?? null
+          )
+        : null;
     const impact = omahaCardImpact({
       hole: hero.cards,
       board: gs.communityCards ?? [],
@@ -346,9 +500,10 @@ export function omahaCheckedToBet(
       // River: the check ends the hand. Turn: he may still bet the river.
       heroCloses: river,
       line: omahaCardImpactLine(hero, opp, gs),
-      read: omahaPricedCardImpactRead(read, scope.street),
+      read: cardRead,
       amounts,
       seedSalt: opp.seat * 16 + hero.seat,
+      ...(measured ? { responseAt: measured.curve } : {}),
     });
     if (!impact) return null;
     // The rate the model used, as it reads it (HorseOmahaCardImpact keepOf).
@@ -382,7 +537,7 @@ export function omahaCheckedToBet(
       kind,
       Math.max(1, kindImpact.opp.effective)
     );
-    legs.push({ opp, impact, n, rate, share: cal.share, shareVar: cal.variance });
+    legs.push({ opp, impact, measured, n, rate, share: cal.share, shareVar: cal.variance });
   }
   void river;
   const showdown = legs.reduce((a, l) => a * clamp(l.share, 0, 1), 1);
@@ -467,9 +622,18 @@ export function omahaCheckedToBet(
       const o = opts[j];
       const B = Math.min(a, l.opp.stack);
       const odds = pot / (pot + B);
-      const m = l.rate === null ? odds : clamp(l.rate, 0, 1);
-      const scale = l.rate === null ? 1 : odds / refOdds;
-      const sd = Math.sqrt((m * (1 - m)) / (l.n + EXPLOIT_PRIOR_STRENGTH + 1)) * scale;
+      // omahaCheckedToBetResponseIsMeasured: the rate is the measured cell's (moved by his own evidence), and its
+      // error is the cell's binomial error joined with the error of his own rate carried through the shift.
+      const cell = l.measured ? l.measured.at(B / pot) : null;
+      const m = cell ? clamp(cell.cont, 0, 1) : l.rate === null ? odds : clamp(l.rate, 0, 1);
+      const scale = cell || l.rate === null ? 1 : odds / refOdds;
+      let sd =
+        Math.sqrt((m * (1 - m)) / ((cell ? cell.n : l.n) + EXPLOIT_PRIOR_STRENGTH + 1)) * scale;
+      if (cell && l.measured!.personal && l.measured!.own !== null) {
+        const o = clamp(l.measured!.own, 0.02, 0.98);
+        const ownSd = Math.sqrt((o * (1 - o)) / (l.n + EXPLOIT_PRIOR_STRENGTH + 1));
+        sd = Math.hypot(sd, (ownSd * (m * (1 - m))) / (o * (1 - o)));
+      }
       const othersFold =
         folds[j] > 0 ? allFold / folds[j] : folds.reduce((x, y, k) => (k === j ? x : x * y), 1);
       variance += (sd * (pot + B) * othersFold) ** 2;
@@ -505,6 +669,9 @@ export function omahaCheckedToBet(
     best: chosen ?? nearest,
     rows,
     source,
+    ...(legs.length === 1 && legs[0].measured
+      ? { measured: legs[0].measured.personal ? ('personal' as const) : ('kind' as const) }
+      : {}),
   };
 }
 
@@ -524,13 +691,16 @@ export function omahaCheckedToBetDecision(
   hero: SeatPlayer,
   gs: HorseGameStateV2,
   readOf: (seat: number) => OmahaCheckedToRead | null,
-  rake: number
+  rake: number,
+  opts?: OmahaPricedScopeOpts | null,
+  /** omahaCheckedToBetResponseIsMeasured (default off) */
+  measuredResponse = false
 ): OmahaCheckedToResult {
   const same: OmahaCheckedToResult = { decision, priced: false, changed: null, bluff: false };
   if (decision.action !== 'check') return same;
-  const scope = omahaCheckedToBetScope(hero, gs);
+  const scope = omahaCheckedToBetScope(hero, gs, opts);
   if (!scope) return same;
-  const verdict = omahaCheckedToBet(hero, gs, scope, readOf, rake);
+  const verdict = omahaCheckedToBet(hero, gs, scope, readOf, rake, measuredResponse === true);
   if (!verdict) return same;
   if (verdict.action === 'check' || verdict.best === null)
     return { decision, priced: true, changed: null, bluff: false, verdict };

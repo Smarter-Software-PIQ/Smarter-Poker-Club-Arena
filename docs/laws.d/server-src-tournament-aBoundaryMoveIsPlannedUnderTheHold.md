@@ -1,0 +1,3 @@
+# server/src/tournament/aBoundaryMoveIsPlannedUnderTheHold.law.test.ts
+
+A fenced gap-balance source's board is read when it settles its hand, under the completion hold, so at its park only the committed seat moves execute and no balancer board load stands between the hand ending and the next deal; a plan made stale by an admitted sweep, a seat-move batch, a newly observed bust or age is never used (the park reads fresh, as before); a park that meets a hold-time read still in flight waits for that read, not a new one; a fence is never lifted beside a sweep, a seat-move batch or a claimed boundary; and a table that is neither a move source nor a destination is never parked, including a fenced source the hold-time plan no longer needs (incident 1e532243, 2026-11-20).

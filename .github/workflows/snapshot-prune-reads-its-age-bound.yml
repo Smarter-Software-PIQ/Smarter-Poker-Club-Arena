@@ -24,6 +24,8 @@ on:
       - scripts/ci/test-snapshot-retention-pages-by-covered-index.py
       - supabase/migrations/20261119185027_batch_daily_cash_retention_pruners.sql
       - scripts/ci/test-batch-daily-cash-retention-pruners.py
+      - supabase/migrations/20261120213600_engine_lifecycle_logs_bounded_retention.sql
+      - scripts/ci/test-engine-lifecycle-logs-bounded-retention.py
 
 permissions:
   contents: read
@@ -88,5 +90,17 @@ jobs:
         with:
           name: batch-daily-cash-retention-pruners-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/batch-daily-cash-retention-pruners/RESULTS.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Engine lifecycle logs bounded 30-day rolling retention
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-engine-lifecycle-logs-bounded-retention.py
+      - name: Retain engine lifecycle logs retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-lifecycle-logs-bounded-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/engine-lifecycle-logs-bounded-retention/RESULTS.json
           retention-days: 7
           if-no-files-found: error

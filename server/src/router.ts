@@ -102,6 +102,8 @@ type AnyGameServer = Parameters<typeof handleAction>[2]['gameServer'] &
     endOperatorMaintenance?: GameServer['endOperatorMaintenance'];
     /** Rolling handoff: null unless ENGINE_ROLLING_HANDOFF=on (then its routes exist). */
     getRollingHandoff?: GameServer['getRollingHandoff'];
+    /** Rolling handoff client relay: null unless the flag is on and a peer port is set. */
+    getHandoffRelay?: GameServer['getHandoffRelay'];
     /** Lightning Phase 6: a pool_session_id resolves to its seat proxy. */
     getActionEngine?: GameServer['getActionEngine'];
     getPreActionEngine?: GameServer['getPreActionEngine'];
@@ -377,6 +379,13 @@ export function createRouter(
   const { gameServer, tableStateHub, engineWs, channelHub } = deps;
 
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    /* ROLLING HANDOFF RELAY (2026-11-19, handoff/handoffRelay.ts). Null with
+       ENGINE_ROLLING_HANDOFF off or no ENGINE_HANDOFF_PEER_PORT, so every
+       request then takes exactly the path below as before. With it, a request
+       for a table this engine handed on is answered by the engine that owns
+       it; nothing about a moved table is ever served from here. */
+    const handoffRelay = gameServer.getHandoffRelay ? gameServer.getHandoffRelay() : null;
+    if (handoffRelay && (await handoffRelay.relayHttp(req, res))) return;
     const method = req.method || 'GET';
     // PATH ONLY (2026-09-03). Every route below is matched on the whole
     // request target, so `/health?cb=1788402501855` fell through to the 404

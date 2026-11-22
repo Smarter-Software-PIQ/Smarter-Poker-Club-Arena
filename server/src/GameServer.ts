@@ -9,6 +9,7 @@ import {
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
 import { tournamentStallExposure } from './observability/tournamentStallExposure.js';
+import { snapshotEventLoopDelay } from './observability/eventLoopMonitor.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -22,7 +23,10 @@ import {
   type CompletedF06Custody,
 } from './tournament/completedF06Custody.js';
 import { LightningObserverProjection } from './lightning/LightningObserverProjection.js';
-import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
+import {
+  nearbyMaintenanceWindows,
+  MAINTENANCE_FREQUENCY,
+} from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
@@ -49,9 +53,11 @@ import {
 } from './services/TournamentRetirementCustody.js';
 import {
   EMPTY_PAST_START_CANCEL_RETRY_MS,
+  emptyEventAwaitsOnlyItsTopUp,
   isCancellationLaneBusy,
   laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
+  type EmptyPastStartEvent,
 } from './tournament/emptyPastStartEvent.js';
 import { throughCancellationLane } from './tournament/cancellationLane.js';
 import { wakeCommitsASeat } from './tournament/committedSeatShow.js';
@@ -122,6 +128,7 @@ import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
 import { countHorseTablesByVariant } from './engine/HorsePolicyLedgerObserver.js';
+import { countHorseSeats } from './engine/HorseSeatCounter.js';
 import {
   settlementHealthSnapshot,
   settlementPrometheusLines,
@@ -162,6 +169,9 @@ import {
   SEAT_FIRST_START_STALL_MS,
   seatFirstHumanPartnerHoldUntilMs,
   seatFirstHumanPartnerHoldJitterMs,
+  resolveHeadsUpWaitHoldOverride,
+  type HeadsUpWaitHoldRow,
+  type SeatFirstPartnerHoldOverride,
   firstHumanSeatedAtMs,
   HUMAN_SEAT_DEMAND_TTL_MS,
   SATELLITE_HU_TARGET_LEAD_MS,
@@ -260,6 +270,7 @@ import {
   isLeader,
   leadershipDiagnostics,
   markBootedAsStandby,
+  claimLeadershipAsHandoffSuccessor,
 } from './services/leadership.js';
 import {
   claimTournamentLease,
@@ -394,6 +405,8 @@ import {
 // 2026-11-19: rolling engine handoff (docs/ENGINE-ROLLING-HANDOFF.md). Inert
 // unless ENGINE_ROLLING_HANDOFF=on: the coordinator is never constructed.
 import { rollingHandoffEnabled } from './handoff/rollingHandoffFlag.js';
+import { bootsAsHandoffSuccessor, handoffPeerPort } from './handoff/handoffSuccessorRole.js';
+import { HandoffRelay } from './handoff/handoffRelay.js';
 import {
   RollingHandoffCoordinator,
   type HandoffEnginePort,
@@ -444,6 +457,8 @@ const PAST_START_TOP_UP_CONCURRENCY = 4;
  * branch of discoverTournaments for the backoff that reaches it.
  */
 const PAST_START_TOP_UP_MAX_INTERVAL_MS = 10 * 60 * 1000;
+/** How long a host pool's horse read stands for an empty event (2026-11-20). */
+const EMPTY_EVENT_POOL_READ_TTL_MS = 5 * 60 * 1000;
 /**
  * One past-start event's top-up clock. cancelAskedAt is when an event nobody
  * entered was last offered to atomic_cancel_tournament (2026-10-15, see
@@ -677,6 +692,8 @@ interface SeatFirstOccupancy {
   hasHuman: boolean;
   /** Earliest live human seat, ms; NaN when no human sits. */
   firstHumanAtMs: number;
+  /** Live seated human user ids, used to ignore stale HU wait holds after a creator leaves. */
+  humanUserIds?: ReadonlySet<string>;
 }
 
 export class GameServer {
@@ -3482,7 +3499,7 @@ export class GameServer {
   ): Promise<void> {
     await this.awaitTournamentManagerLeaseRelease(tournamentId);
     if (!this.directAdmissionIsCurrent(generation)) return;
-    if (this.rollingHandoff?.refusesAdmission({ scope: 'tournament', key: tournamentId })) return;
+    if (this.refusesHandoffAdmission({ scope: 'tournament', key: tournamentId })) return;
     const admitted = this.tournamentEngines.get(tournamentId);
     if (admitted) {
       const continuation = this.mixedF06AdmissionContinuations?.get(tournamentId);
@@ -3905,6 +3922,32 @@ export class GameServer {
    * tournament/emptyPastStartEvent.ts (EMPTY_PAST_START_LANE_BUSY_RETRY_MS).
    */
   private readonly emptyEventCancelsInFlight = new Map<string, Promise<void>>();
+
+  /**
+   * Whether each empty past-start event's host pool holds a horse, read at most
+   * every EMPTY_EVENT_POOL_READ_TTL_MS (2026-11-20). Only for events whose
+   * cancel waits on nothing but the empty top-up, a small set by construction.
+   * An unreadable pool is not cached, so it is asked again next pass.
+   */
+  private readonly emptyEventHostPoolHorse = new Map<string, { hasHorse: boolean; at: number }>();
+
+  private async readEmptyEventHostPoolHorse(
+    tournamentId: string,
+    now: number
+  ): Promise<boolean | undefined> {
+    const cached = this.emptyEventHostPoolHorse.get(tournamentId);
+    if (cached && now - cached.at < EMPTY_EVENT_POOL_READ_TTL_MS) return cached.hasHorse;
+    try {
+      const hasHorse = await this.tournamentRecurring.hostPoolHasHorse(tournamentId);
+      if (hasHorse === null) return undefined;
+      if (this.emptyEventHostPoolHorse.size > 1000) this.emptyEventHostPoolHorse.clear();
+      this.emptyEventHostPoolHorse.set(tournamentId, { hasHorse, at: now });
+      return hasHorse;
+    } catch (error) {
+      reportError(error, 'GameServer.empty_event_host_pool_unreadable', { tournamentId });
+      return undefined;
+    }
+  }
 
   private launchEmptyEventCancel(
     tournamentId: string,
@@ -4911,6 +4954,7 @@ export class GameServer {
     this.running = true;
     this.leaderBootComplete = false;
     this.rollingHandoff?.startAdoptionLoop();
+    this.startHandoffSuccessorWatchdog();
     this.resetDealerPrerequisiteGate(generation);
     openTerminalFinishLanes();
     const operation = this.performStart(generation);
@@ -4940,6 +4984,17 @@ export class GameServer {
     // without the rest of the platform churning. Discovery loops stay off so
     // no other tables get picked up. Lifecycle / auto-rebuy stay off.
     const testTableId = process.env.TEST_TABLE_ID || '';
+    /* ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md). Both are
+       false unless ENGINE_ROLLING_HANDOFF=on. A handoff successor
+       (ENGINE_ROLE=handoff-successor) boots its dealer lanes here but claims
+       no leadership, cleans nothing and starts no leader job. A successor
+       takeover is this same boot run again in place once the engine it
+       succeeded has retired and released leadership: it skips only what the
+       successor already has and the stale-data cleanup, which would cash out
+       the seats it is dealing. */
+    const handoffSuccessorBoot = this.handoffSuccessorPhase === true;
+    const successorTakeover = this.handoffTakeoverInProgress === true;
+    this.handoffTakeoverInProgress = false;
 
     /* THE CORE IS MEASURED FROM BOOT (2026-09-06). The governor used to take
        a reading only when a horse computed equity, so a loop saturated by
@@ -4983,13 +5038,19 @@ export class GameServer {
      * Fail-open on error, and a standby retains standby -- see
      * services/leadership.ts for why that asymmetry matters.
      */
+    if (handoffSuccessorBoot && (maintenanceMode || testTableId)) {
+      console.log('[GameServer] HANDOFF SUCCESSOR in maintenance or test mode: staying inert.');
+      return;
+    }
     const endLeadershipPhase = this.bootTimeline.begin('leadership_claim');
-    let role = await renewLeadership();
+    // A successor neither claims nor renews here (claimLeadershipAsHandoffSuccessor
+    // decides that, strictly); a takeover was just granted the row.
+    let role = handoffSuccessorBoot || successorTakeover ? 'leader' : await renewLeadership();
     if (!this.directAdmissionIsCurrent(generation)) {
       endLeadershipPhase('cancelled');
       return;
     }
-    startLeadershipRenewal();
+    if (!handoffSuccessorBoot) startLeadershipRenewal();
     /**
      * THE BOOT CLAIM RETRIES THROUGH ONE STALENESS WINDOW (2026-08-30).
      *
@@ -5120,7 +5181,7 @@ export class GameServer {
     // Step 1: Clean up stale data from previous runs.
     // Test mode passes the protected id so cleanup spares it.
     const endCleanupPhase = this.bootTimeline.begin('stale_data_cleanup');
-    await this.cleanupStaleData(testTableId);
+    if (!handoffSuccessorBoot && !successorTakeover) await this.cleanupStaleData(testTableId);
     endCleanupPhase();
 
     /**
@@ -5166,6 +5227,11 @@ export class GameServer {
       throw error;
     }
     if (!this.directAdmissionIsCurrent(generation)) return;
+
+    if (handoffSuccessorBoot) {
+      await this.finishHandoffSuccessorBoot(generation);
+      return;
+    }
 
     if (!maintenanceMode && !testTableId) {
       /**
@@ -5247,10 +5313,12 @@ export class GameServer {
          It is launched through its SUPERVISOR, never bare - see
          superviseOwnershipLeaseRenewal, and 2026-09-12 for what a bare launch
          cost. */
-      this.launchServerLifecycleJob(
-        this.superviseOwnershipLeaseRenewal(generation),
-        'GameServer.ownership_lease_renewal_fatal_err'
-      );
+      // A successor taking over already runs its own renewal supervisor.
+      if (!successorTakeover)
+        this.launchServerLifecycleJob(
+          this.superviseOwnershipLeaseRenewal(generation),
+          'GameServer.ownership_lease_renewal_fatal_err'
+        );
 
       this.launchDiscoveryJob(
         this.discoverCashTables(),
@@ -5425,7 +5493,13 @@ export class GameServer {
       // the local commit wake and the worker's 5 s poll carry every hand.
       this.handOutboxListener.start();
 
-      if (!this.publishDealerPrerequisitesReady(generation)) return;
+      // A successor taking over opened its dealer gate when it booted.
+      if (
+        successorTakeover
+          ? !this.dealerAdmissionIsCurrent(generation)
+          : !this.publishDealerPrerequisitesReady(generation)
+      )
+        return;
       // Finite startup recovery uses the original dealer, not a repair interval.
       this.launchServerLifecycleJob(
         this.resumePendingOperatorCashCloses(generation),
@@ -5515,6 +5589,7 @@ export class GameServer {
     this.running = false;
     this.leaderBootComplete = false;
     this.rollingHandoff?.stopAdoptionLoop();
+    this.stopHandoffTimers();
     this.revokeDealerPrerequisites(stoppingGeneration);
     this.lifecycleGeneration += 1;
     // Before the first await: no finish still queued in a club's finish lane
@@ -6274,6 +6349,10 @@ export class GameServer {
       discoveryStaleMs,
       dbConfirmedDead: dealRate.dbConfirmedDead,
       tables: tableLiveness,
+      // A rolling handoff successor runs no discovery; absent otherwise.
+      ...(this.handoffSuccessorPhase
+        ? { handoffSuccessorDealerReady: this.dealerPrerequisitesReady }
+        : {}),
     });
     const { deadStalledCount, dealableTableCount, wholeFleetStalled, barrenLeaderDead } =
       livenessVerdict;
@@ -6564,6 +6643,7 @@ export class GameServer {
             .reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
         ),
       },
+      eventLoopDelay: snapshotEventLoopDelay(),
       ...(livenessQuery
         ? { tableLiveness: selectPublicTableLiveness(tableLiveness, livenessQuery) }
         : {}),
@@ -6588,6 +6668,17 @@ export class GameServer {
       // regenerated on every boot, so two answers carrying different ids prove
       // two processes, immediately and without host access.
       instanceId: INSTANCE_ID,
+      // Present only with ENGINE_ROLLING_HANDOFF=on, so the body is unchanged
+      // with the flag off.
+      ...(this.rollingHandoff
+        ? {
+            rollingHandoff: {
+              role: this.handoffSuccessorPhase ? 'handoff-successor' : 'serving',
+              mode: this.rollingHandoff.getMode(),
+              relay: this.handoffRelay?.stats() ?? null,
+            },
+          }
+        : {}),
       pid: process.pid,
       // Split-brain evidence: tables this instance was refused, and who holds
       // them. Empty is the healthy state.
@@ -6694,6 +6785,10 @@ export class GameServer {
       discoveryStaleMs: now - this.lastDiscoveryOkAt,
       dbConfirmedDead: this.dealRateVerifier.snapshot().dbConfirmedDead,
       tables: liveness,
+      // A rolling handoff successor runs no discovery; absent otherwise.
+      ...(this.handoffSuccessorPhase
+        ? { handoffSuccessorDealerReady: this.dealerPrerequisitesReady }
+        : {}),
     });
     const stalled = liveness.filter(
       (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000
@@ -6731,18 +6826,13 @@ export class GameServer {
     const neverStartedOldestSeconds = Math.round(
       neverStarted.reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
     );
-    /* One walk of the live engines for the two horse gauges below. Counted
-       here rather than from `liveness` because the seat rows carry the flag
-       and the liveness snapshot does not. */
-    const horseSeatCounts = { horses: 0, tables: 0 };
+    /* One walk of the live engines + Lightning pools for the two horse gauges
+       below. Counted here rather than from `liveness` because the seat rows
+       carry the flag and the liveness snapshot does not. Lightning pool horses
+       are included cleanly via `countHorseSeats` (read-only identification
+       only, deduplicated against anchor engines, never throws). */
+    const horseSeatCounts = countHorseSeats(this.tableEngines.values(), this.lightningRooms);
     const horseTablesByVariant = countHorseTablesByVariant(this.tableEngines.values());
-    for (const engine of this.tableEngines.values()) {
-      const n = engine.horsesSeated();
-      if (n > 0) {
-        horseSeatCounts.horses += n;
-        horseSeatCounts.tables += 1;
-      }
-    }
     /**
      * 2026-09-05: the gauge below used `stalled.length === 0` — the 120s
      * VISIBILITY list — while getStatus() killed on the 300s list. Two
@@ -6776,7 +6866,7 @@ export class GameServer {
 
          Identification only (CLAUDE.md 10.5): they count, they decide
          nothing, and the same line publishes the human count beside them. */
-      '# HELP poker_horses_seated Horses seated with chips across every live table',
+      '# HELP poker_horses_seated Horses seated with chips across every live table and Lightning pool',
       '# TYPE poker_horses_seated gauge',
       `poker_horses_seated ${horseSeatCounts.horses}`,
       '# HELP poker_tables_with_horses Live tables holding at least one horse with chips',
@@ -6913,6 +7003,19 @@ export class GameServer {
       '# TYPE poker_maintenance_breaks_since_restart_certified gauge',
       `poker_maintenance_breaks_since_restart_certified ${
         (this.maintenanceBreak.snapshot().breaksSinceRestartCertified as number) ?? 0
+      }`,
+      /* How many scheduled maintenance breaks this engine takes per day (1
+         daily, 8 three-hourly, 24 Phase1 hourly). EngineCannotBeReplaced reads
+         it so its threshold means the same TIME, about two days of uncertified
+         scheduled breaks, whatever the schedule (owner order 2026-11-21). */
+      '# HELP poker_maintenance_scheduled_breaks_per_day Scheduled maintenance breaks per day under the serving schedule',
+      '# TYPE poker_maintenance_scheduled_breaks_per_day gauge',
+      `poker_maintenance_scheduled_breaks_per_day ${
+        MAINTENANCE_FREQUENCY === 'three-hourly'
+          ? 8
+          : MAINTENANCE_FREQUENCY === 'phase1-hourly'
+            ? 24
+            : 1
       }`,
       '# HELP poker_db_clock_skew_ms Engine clock minus database clock, ms; 0 when unmeasured',
       '# TYPE poker_db_clock_skew_ms gauge',
@@ -7341,6 +7444,7 @@ export class GameServer {
     secsIdle: number;
     reason: HeldTableStall['reason'];
     heldBy: string[];
+    blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
   }> {
     const out: Array<{
       tableId: string;
@@ -7348,6 +7452,7 @@ export class GameServer {
       secsIdle: number;
       reason: HeldTableStall['reason'];
       heldBy: string[];
+      blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
     }> = [];
     for (const [tableId, engine] of this.tableEngines) {
       if (exclude.has(tableId)) continue;
@@ -7361,13 +7466,48 @@ export class GameServer {
           heldOriginal: engine.isPreparedOriginalHeldAtPauseGate?.() === true,
         });
         if (!stall) continue;
-        out.push({
+        const entry: {
+          tableId: string;
+          dealable: number;
+          secsIdle: number;
+          reason: HeldTableStall['reason'];
+          heldBy: string[];
+          blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
+        } = {
           tableId,
           dealable: engine.dealableCount(),
           secsIdle: Math.round(stall.msHeld / 1000),
           reason: stall.reason,
           heldBy: stall.heldBy,
-        });
+        };
+        // Overlong boundary hold diagnostic (>= 90 s): name the active peer
+        // tables in the same tournament so operators immediately see which
+        // table is holding up hand_for_hand or tournament_move synchronization.
+        const tournamentId = engine.getTournamentId?.();
+        if (
+          tournamentId &&
+          stall.msHeld >= 90_000 &&
+          (stall.heldBy.includes('hand_for_hand') || stall.heldBy.includes('tournament_move'))
+        ) {
+          const peers: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }> =
+            [];
+          for (const [peerId, peerEngine] of this.tableEngines) {
+            if (peerId === tableId) continue;
+            if (peerEngine.getTournamentId?.() !== tournamentId) continue;
+            if (peerEngine.isPausedByDesign()) continue;
+            peers.push({
+              tableId: peerId,
+              loopPhase: peerEngine.getLoopPhase?.() ?? 'unknown',
+              secsSinceProgress: Math.round(peerEngine.msSinceProgress() / 1000),
+            });
+          }
+          if (peers.length > 0) {
+            entry.blockingPeers = peers
+              .sort((a, b) => b.secsSinceProgress - a.secsSinceProgress)
+              .slice(0, 3);
+          }
+        }
+        out.push(entry);
       } catch {
         // An engine that cannot be read is not named here; the reapers own it.
       }
@@ -9741,22 +9881,32 @@ export class GameServer {
                paid; atomic_cancel_tournament writes the receipt. A club whose
                horses can fill the event is filled by the top-up below first. */
             const emptyClock = this.pastStartTopUpClock.get(tournament.id);
-            if (
-              shouldCancelEmptyPastStartEvent({
-                seatFirst: isSngOrSpin,
-                poolFinalized,
-                rosterCount: rosterByTournament.get(tournament.id),
-                currentPlayers: tournament.current_players,
-                startTimeMs: startTime,
-                nowMs: now,
-                /* This process's count, or the one the previous process wrote
-                   down (2026-10-26): a restart forgets the first, not the second. */
-                emptyTopUps: Math.max(
-                  emptyClock?.misses ?? 0,
-                  durableEmptyTopUps.get(tournament.id) ?? 0
-                ),
-              })
-            ) {
+            const emptyEvent: EmptyPastStartEvent = {
+              seatFirst: isSngOrSpin,
+              poolFinalized,
+              rosterCount: rosterByTournament.get(tournament.id),
+              currentPlayers: tournament.current_players,
+              startTimeMs: startTime,
+              nowMs: now,
+              /* This process's count, or the one the previous process wrote
+                 down (2026-10-26): a restart forgets the first, not the second. */
+              emptyTopUps: Math.max(
+                emptyClock?.misses ?? 0,
+                durableEmptyTopUps.get(tournament.id) ?? 0
+              ),
+            };
+            /* A CANCEL DOES NOT WAIT FOR A TOP-UP THAT CANNOT ADD ANYONE
+               (2026-11-20). Due on every count but the empty top-up: ask once
+               whether the host pool holds any horse. None means no top-up can
+               ever fill it, so the shared top-up queue (starved after every
+               restart) no longer decides when it is cancelled. */
+            if (emptyEventAwaitsOnlyItsTopUp(emptyEvent)) {
+              emptyEvent.hostPoolHasHorse = await this.readEmptyEventHostPoolHorse(
+                tournament.id,
+                now
+              );
+            }
+            if (shouldCancelEmptyPastStartEvent(emptyEvent)) {
               const fixedSatellite =
                 tournament.format_contract === 'sng-v1' && isFixedSngSatellite(tournament);
               const askedAt = emptyClock?.cancelAskedAt ?? 0;
@@ -10320,7 +10470,13 @@ export class GameServer {
          * clock available; this is the same reasoning as the back-pay above,
          * whose comment says a repair gated on another job's clock runs at
          * boot and then effectively never. */
-        if (Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): unfilled-spin expiry cancels
+        // lobbies via atomic_cancel_tournament (writing table_seats.left_at and
+        // refunding chips). Because lastSpinExpireAt starts at 0 on boot, an
+        // unguarded pass fires immediately after adopting an active freeze.
+        // Skipping while frozen leaves lastSpinExpireAt untouched so the first
+        // pass after thaw runs immediately.
+        if (!isMaintenanceFrozen() && Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
           this.lastSpinExpireAt = Date.now();
           try {
             const { data: exp, error: expErr } = await supabase.rpc('fn_spin_expire_unfilled', {
@@ -10365,7 +10521,18 @@ export class GameServer {
          * (smarter_private.daily_window_lobby_watchdog) pages if any lobby is
          * still open at 4:00. The RPC only acts on open games, so a repeat or a
          * second engine costs nothing. */
-        if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): 3 AM lobby close cancels
+        // open used Spin/SNG lobbies via atomic_cancel_tournament (vacating
+        // table_seats and refunding chips). Without this gate, any break or
+        // cutover crossing 03:00 America/Chicago (09:00 UTC) mutates seats
+        // during the freeze (measured 2026-11-16 09:00:06Z and 2026-11-21
+        // 09:00:04Z in run 44887083680). Leaving lastLobbyCloseAt untouched
+        // ensures the first pass after thaw closes every open lobby at once.
+        if (
+          !isMaintenanceFrozen() &&
+          !spinSngBoardsOpen(new Date()) &&
+          Date.now() - this.lastLobbyCloseAt > 60 * 1000
+        ) {
           this.lastLobbyCloseAt = Date.now();
           try {
             const { data: lc, error: lcErr } = await supabase.rpc(
@@ -13107,9 +13274,11 @@ export class GameServer {
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
+    if (isMaintenanceFrozen()) return;
     if (this.tournamentEngines.size === 0) return;
 
     for (const [tournamentId, tm] of this.tournamentEngines) {
+      if (isMaintenanceFrozen()) return;
       if (!tm.isRunning()) continue;
       try {
         const moved = await tm.absorbOrphanedSeats();
@@ -13803,11 +13972,16 @@ export class GameServer {
        last HUMAN_SEAT_DEMAND_TTL_MS the seats are declared, so the horses
        this human will need are still free the moment the hold ends. */
     if (hasHuman) {
+      const waitOverride =
+        seats === 2
+          ? await this.readHeadsUpWaitHoldOverride(tournamentId, occupancy.humanUserIds)
+          : undefined;
       const holdUntil = seatFirstHumanPartnerHoldUntilMs(
         startMs,
         occupancy.firstHumanAtMs,
         seatFirstHumanPartnerHoldJitterMs(tournamentId),
-        createdAtMs
+        createdAtMs,
+        waitOverride
       );
       const now = Date.now();
       if (holdUntil > now) {
@@ -14025,6 +14199,36 @@ export class GameServer {
    * is_horse is used to IDENTIFY the occupant only (CLAUDE.md 10.5).
    */
   private seatFirstOccupancyReads = new Map<string, Promise<SeatFirstOccupancy | null>>();
+  private headsUpWaitHoldCache = new Map<
+    string,
+    { at: number; override: SeatFirstPartnerHoldOverride | undefined }
+  >();
+
+  private async readHeadsUpWaitHoldOverride(
+    tournamentId: string,
+    humanUserIds?: ReadonlySet<string>
+  ): Promise<SeatFirstPartnerHoldOverride | undefined> {
+    const now = Date.now();
+    const cached = this.headsUpWaitHoldCache.get(tournamentId);
+    if (cached && now - cached.at < 2_000) {
+      return cached.override;
+    }
+    const { data, error } = await supabase
+      .from('heads_up_wait_holds')
+      .select('tournament_id, creator_user_id, wait_mode, hold_expires_at')
+      .eq('tournament_id', tournamentId)
+      .maybeSingle();
+    if (error) {
+      return cached?.override;
+    }
+    const override = resolveHeadsUpWaitHoldOverride(
+      data as HeadsUpWaitHoldRow | null,
+      humanUserIds
+    );
+    if (this.headsUpWaitHoldCache.size > 500) this.headsUpWaitHoldCache.clear();
+    this.headsUpWaitHoldCache.set(tournamentId, { at: now, override });
+    return override;
+  }
 
   private seatFirstHasHuman(
     tournamentId: string,
@@ -14101,6 +14305,7 @@ export class GameServer {
         (occupants || []) as Array<{ user_id?: string | null; joined_at?: string | null }>,
         (id) => humans.has(id)
       ),
+      humanUserIds: humans,
     };
     this.seatFirstOccupancy.set(tournamentId, answer);
     return answer;
@@ -14187,6 +14392,7 @@ export class GameServer {
       this.tournamentRecurring.seatFirstPartnerHoldUntil(tournamentId) > Date.now()
     ) {
       this.seatFirstOccupancy.delete(tournamentId);
+      this.headsUpWaitHoldCache.delete(tournamentId);
       this.seatFirstFillMisses.delete(tournamentId);
       // Declared from a stale answer: the next pass re-declares it in the
       // hold's last stretch if the board still needs it.
@@ -14214,6 +14420,7 @@ export class GameServer {
       this.seatFirstFillMisses.delete(tournamentId);
       this.seatFirstStuckReported.delete(tournamentId);
       this.seatFirstOccupancy.delete(tournamentId);
+      this.headsUpWaitHoldCache.delete(tournamentId);
       this.tournamentRecurring.clearHumanSeatDemand(tournamentId);
       if (fillsTheBoard) {
         // The board is full now: start it now, not on the next poll.
@@ -14815,8 +15022,7 @@ export class GameServer {
       }
     }
     if (!this.dealerAdmissionIsCurrent(generation)) return 'not_wakeable';
-    if (this.rollingHandoff?.refusesAdmission({ scope: 'table', key: tableId }))
-      return 'owned_elsewhere';
+    if (this.refusesHandoffAdmission({ scope: 'table', key: tableId })) return 'owned_elsewhere';
 
     const requestedLeaseGeneration =
       this.directTableAdmissionLeaseGenerations.get(tableId) ?? randomUUID();
@@ -14997,6 +15203,302 @@ export class GameServer {
     return this.rollingHandoff ?? null;
   }
 
+  // ── Handoff successor role and client relay (2026-11-19) ─────────────────
+  //
+  // Both exist only with ENGINE_ROLLING_HANDOFF=on (handoff/handoffSuccessorRole.ts).
+
+  /** Poll for leadership while a successor; the serving engine releases it on retirement. */
+  private static readonly HANDOFF_LEADERSHIP_POLL_MS = 2_000;
+  /** Probe the successor this often while yielding. */
+  private static readonly HANDOFF_WATCHDOG_MS = 2_000;
+  /** Consecutive failed probes (about 6 s) before the yield is aborted. */
+  private static readonly HANDOFF_PEER_FAILURES_TO_ABORT = 3;
+  /** One report per context per window, so a dead peer is loud once, not per request. */
+  private static readonly HANDOFF_REPORT_WINDOW_MS = 10_000;
+
+  /**
+   * True while this process runs as a handoff successor that has not taken
+   * leadership: it deals handed units only and runs no discovery or
+   * singleton job. Always false with the flag off.
+   */
+  private handoffSuccessorPhase: boolean = rollingHandoffEnabled() && bootsAsHandoffSuccessor();
+  /** Tables this engine handed on and does not serve; relayed to the peer. */
+  private readonly handoffYieldedTables = new Set<string>();
+  private handoffTransport: { closeTable(tableId: string): number; closeAll(): number } | null =
+    null;
+  private handoffLeaderTakeoverListener: (() => void) | null = null;
+  private handoffLeadershipTimer: ReturnType<typeof setTimeout> | null = null;
+  private handoffWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private handoffWatchdogProbe: Promise<void> | null = null;
+  private handoffPeerFailures = 0;
+  private handoffRetirement: Promise<void> | null = null;
+  /** Set only by takeOverLeadershipAsSuccessor for the one performStart it runs. */
+  private handoffTakeoverInProgress = false;
+  private readonly handoffReportedAt = new Map<string, number>();
+  private readonly handoffRelay: HandoffRelay | null = this.createHandoffRelay();
+
+  private reportHandoff(error: unknown, context: string, extra?: Record<string, unknown>): void {
+    const now = Date.now();
+    const last = this.handoffReportedAt.get(context) ?? 0;
+    if (now - last < GameServer.HANDOFF_REPORT_WINDOW_MS) return;
+    this.handoffReportedAt.set(context, now);
+    reportError(error, context, extra);
+  }
+
+  private createHandoffRelay(): HandoffRelay | null {
+    if (!this.rollingHandoff) return null;
+    const peerPort = handoffPeerPort();
+    if (peerPort === null) return null;
+    return new HandoffRelay({
+      peerPort,
+      relaysTable: (tableId) => this.handoffRelaysTable(tableId),
+      relaysEverything: () => this.rollingHandoff?.getMode() === 'retired',
+      active: () => {
+        const mode = this.rollingHandoff?.getMode();
+        return mode !== undefined && (mode !== 'serving' || this.handoffYieldedTables.size > 0);
+      },
+      report: (error, context, extra) => this.reportHandoff(error, context, extra),
+    });
+  }
+
+  /**
+   * The one admission question both dealer admissions ask (cash table and
+   * tournament manager). False whenever ENGINE_ROLLING_HANDOFF is off (no
+   * coordinator). Otherwise refused while this engine is yielding or retired
+   * (the coordinator's rule), and, while it is a handoff successor, refused
+   * for anything that was not handed to it.
+   */
+  private refusesHandoffAdmission(unit: HandoffUnit): boolean {
+    const coordinator = this.rollingHandoff;
+    if (!coordinator) return false;
+    if (coordinator.refusesAdmission(unit)) return true;
+    return this.handoffSuccessorPhase === true && !coordinator.admitsAsSuccessor(unit);
+  }
+
+  /** The relay, or null (flag off or no ENGINE_HANDOFF_PEER_PORT). */
+  getHandoffRelay(): HandoffRelay | null {
+    return this.handoffRelay ?? null;
+  }
+
+  /** The bootstrap's socket closers (index.ts). Only used with the flag on. */
+  setHandoffTransport(transport: {
+    closeTable(tableId: string): number;
+    closeAll(): number;
+  }): void {
+    this.handoffTransport = transport;
+  }
+
+  /** The bootstrap starts its own leader services when a successor takes leadership. */
+  onHandoffLeaderTakeover(listener: () => void): void {
+    this.handoffLeaderTakeoverListener = listener;
+  }
+
+  /**
+   * Does a request for this table belong to the other engine? Never for a
+   * table or Lightning room dealt here: local state is the only state this
+   * engine may serve. While yielding or retired, every table not dealt here
+   * goes to the peer (that covers tournament tables the moved manager opened
+   * there); after an aborted yield only the tables actually handed on do.
+   */
+  private handoffRelaysTable(tableId: string): boolean {
+    const mode = this.rollingHandoff?.getMode();
+    if (!mode) return false;
+    if (this.hasTableOrLightningRoom(tableId)) return false;
+    if (mode !== 'serving') return true;
+    return (
+      this.handoffYieldedTables.has(tableId) || this.handoffYieldedTables.has(tableId.toLowerCase())
+    );
+  }
+
+  /** Moved tables: relay them from now on, and send their sockets to the new owner. */
+  private noteHandoffTablesLeft(tableIds: string[]): void {
+    for (const tableId of tableIds) {
+      this.handoffYieldedTables.add(tableId);
+      try {
+        this.handoffTransport?.closeTable(tableId);
+      } catch (error) {
+        this.reportHandoff(error, 'RollingHandoff.close_moved_sockets_failed', { tableId });
+      }
+    }
+  }
+
+  /** Tables dealt here again: stop relaying them and bring relayed clients back. */
+  private noteHandoffTablesArrived(tableIds: string[]): void {
+    for (const tableId of tableIds) {
+      const wasYielded = this.handoffYieldedTables.delete(tableId);
+      if (wasYielded || this.rollingHandoff?.getMode() !== 'serving')
+        this.handoffRelay?.closeRelayedSockets(tableId);
+    }
+  }
+
+  /**
+   * The coordinator retired this engine: it deals nothing and every move is
+   * settled. Its own sockets reconnect through the relay (now relaying
+   * everything) to the engine that owns it all, and the ordinary certified
+   * stop runs: every leader job and index service stops, and only then is the
+   * leadership row released, which is what lets the successor take it. The
+   * HTTP listener and the relay stay up until the one Caddy change.
+   */
+  private retireAfterHandoff(): void {
+    if (this.handoffRetirement) return;
+    try {
+      this.handoffTransport?.closeAll();
+    } catch (error) {
+      reportError(error, 'RollingHandoff.close_sockets_at_retirement_failed');
+    }
+    this.handoffRetirement = this.stop().catch((error) => {
+      reportError(error, 'RollingHandoff.retired_engine_stop_failed');
+    });
+  }
+
+  /** Serving engine: while yielding, abort when the successor stops answering. */
+  private startHandoffSuccessorWatchdog(): void {
+    if (!this.handoffRelay || this.handoffWatchdogTimer) return;
+    this.handoffWatchdogTimer = setInterval(() => {
+      if (this.handoffWatchdogProbe) return;
+      this.handoffWatchdogProbe = this.handoffWatchdogTick()
+        .catch((error) => this.reportHandoff(error, 'RollingHandoff.watchdog_failed'))
+        .finally(() => {
+          this.handoffWatchdogProbe = null;
+        });
+    }, GameServer.HANDOFF_WATCHDOG_MS);
+    (this.handoffWatchdogTimer as { unref?: () => void }).unref?.();
+  }
+
+  /** One watchdog probe; exposed to the tests through the prototype. */
+  private async handoffWatchdogTick(): Promise<void> {
+    const coordinator = this.rollingHandoff;
+    const relay = this.handoffRelay;
+    if (!coordinator || !relay || coordinator.getMode() !== 'yielding') {
+      this.handoffPeerFailures = 0;
+      return;
+    }
+    const successor = coordinator.status().successor;
+    const probe = await relay.probePeer(successor, process.env.INTERNAL_API_KEY || '');
+    if (probe.alive || coordinator.getMode() !== 'yielding') {
+      this.handoffPeerFailures = 0;
+      return;
+    }
+    this.handoffPeerFailures += 1;
+    if (this.handoffPeerFailures < GameServer.HANDOFF_PEER_FAILURES_TO_ABORT) return;
+    this.handoffPeerFailures = 0;
+    // Units it already adopted stay its until their leases go stale (30 s);
+    // then this engine, serving again, re-admits them through discovery from
+    // the database. Units still here simply deal on. Nothing is forced.
+    reportError(
+      new Error(
+        `rolling handoff successor ${successor ?? 'unknown'} stopped answering (${probe.reason}); ` +
+          'the yield is aborted and this engine keeps serving'
+      ),
+      'RollingHandoff.successor_unreachable'
+    );
+    coordinator.abortYield();
+  }
+
+  private stopHandoffTimers(): void {
+    if (this.handoffWatchdogTimer) clearInterval(this.handoffWatchdogTimer);
+    this.handoffWatchdogTimer = null;
+    if (this.handoffLeadershipTimer) clearTimeout(this.handoffLeadershipTimer);
+    this.handoffLeadershipTimer = null;
+  }
+
+  /**
+   * HANDOFF SUCCESSOR BOOT, after performStart has made the horse and equity
+   * lanes ready (a dealer's prerequisites) and skipped the leadership claim
+   * and the stale-data cleanup. Ready to deal, owner of nothing: weekly payout
+   * custody for the engines it will adopt and lease renewal for them, then the
+   * dealer gate opens so the coordinator's adoption loop (already running) can
+   * take handed units, and the leadership watch begins. No break adoption, no
+   * discovery, no fleet, no sweep, no singleton job: the serving engine runs
+   * all of those until it retires.
+   */
+  private async finishHandoffSuccessorBoot(generation: number): Promise<void> {
+    console.log(
+      `[GameServer] HANDOFF SUCCESSOR ${INSTANCE_ID}: dealing only tables handed to it; ` +
+        'leadership waits for the serving engine to retire.'
+    );
+    await this.startWeeklyPayout();
+    if (!this.directAdmissionIsCurrent(generation)) return;
+    this.launchServerLifecycleJob(
+      this.superviseOwnershipLeaseRenewal(generation),
+      'GameServer.ownership_lease_renewal_fatal_err'
+    );
+    if (!this.publishDealerPrerequisitesReady(generation)) return;
+    this.startHandoffSuccessorChannelMirror();
+    this.watchForHandoffLeadership(generation);
+  }
+
+  /** Tournament channel events reach the clients still connected to the front door. */
+  private startHandoffSuccessorChannelMirror(): void {
+    const relay = this.handoffRelay;
+    const key = process.env.INTERNAL_API_KEY || '';
+    if (!relay || !key) return;
+    channelHub.setTournamentMirror((tournamentId, msg) => {
+      const event = (msg as { type?: unknown; event?: unknown }).event;
+      if ((msg as { type?: unknown }).type !== 'TOURNAMENT_EVENT' || event === undefined) return;
+      relay.mirrorTournamentEvent(tournamentId, event, key);
+    });
+  }
+
+  /** The successor's claim: granted only when the serving engine released (or lost) the row. */
+  protected claimHandoffLeadership(): Promise<boolean> {
+    return claimLeadershipAsHandoffSuccessor();
+  }
+
+  private watchForHandoffLeadership(generation: number): void {
+    const tick = (): void => {
+      this.handoffLeadershipTimer = setTimeout(() => {
+        this.handoffLeadershipTimer = null;
+        if (!this.handoffSuccessorPhase || !this.directAdmissionIsCurrent(generation)) return;
+        void this.claimHandoffLeadership()
+          .then(async (granted) => {
+            if (!this.handoffSuccessorPhase || !this.directAdmissionIsCurrent(generation)) return;
+            if (granted) await this.takeOverLeadershipAsSuccessor(generation);
+            else tick();
+          })
+          .catch((error) => {
+            this.reportHandoff(error, 'RollingHandoff.successor_leadership_claim_failed');
+            if (this.handoffSuccessorPhase && this.directAdmissionIsCurrent(generation)) tick();
+          });
+      }, GameServer.HANDOFF_LEADERSHIP_POLL_MS);
+      (this.handoffLeadershipTimer as { unref?: () => void }).unref?.();
+    };
+    tick();
+  }
+
+  /**
+   * The serving engine retired (its certified stop released the leadership
+   * row only after every one of its jobs had stopped) or died (the row went
+   * stale). This process now leads, in place: no restart, so every table it
+   * adopted keeps dealing. It takes the leader duties with the same code as a
+   * leader boot, minus the two things it already did (lease renewal, dealer
+   * gate), and minus the stale-data cleanup, which would cash out the live
+   * seats it is dealing.
+   */
+  private async takeOverLeadershipAsSuccessor(generation: number): Promise<void> {
+    this.handoffSuccessorPhase = false;
+    channelHub.setTournamentMirror(null);
+    console.log(
+      `[GameServer] HANDOFF SUCCESSOR ${INSTANCE_ID} took leadership; starting leader jobs.`
+    );
+    this.handoffTakeoverInProgress = true;
+    try {
+      await this.performStart(generation);
+    } catch (error) {
+      reportError(error, 'RollingHandoff.successor_takeover_failed');
+      requestLeadershipHandOff('handoff successor could not start its leader jobs');
+      return;
+    } finally {
+      this.handoffTakeoverInProgress = false;
+    }
+    if (!this.leaderBootComplete) return;
+    try {
+      this.handoffLeaderTakeoverListener?.();
+    } catch (error) {
+      reportError(error, 'RollingHandoff.successor_index_services_failed');
+    }
+  }
+
   /** Every park condition the maintenance restart census asks, for one engine. */
   private rollingHandoffTableBoundary(engine: ServerTableEngine): string | null {
     if (!engine.isRunning()) return 'not_running';
@@ -15132,9 +15634,11 @@ export class GameServer {
           if (!engine) return;
           engine.fenceForEngineLeaseLoss('engine_handoff_yielded', false);
           await this.recoverDirectTableEngine(unit.key, engine, 'engine_handoff_yielded');
+          this.noteHandoffTablesLeft([unit.key]);
         } else {
           const m = manager(unit);
           if (!m) return;
+          const movedTables = m.getTableIds();
           m.fenceForTournamentLeaseLoss();
           const stopped = await this.stopTournamentManagerIfOwned(
             unit.key,
@@ -15143,6 +15647,7 @@ export class GameServer {
             false
           );
           if (!stopped) throw new Error(`rolling handoff could not stop manager ${unit.key}`);
+          this.noteHandoffTablesLeft(movedTables);
         }
         this.rollingHandoff?.noteUnitLeft();
       },
@@ -15188,6 +15693,10 @@ export class GameServer {
 
       releaseArrivalHold: (unit) => {
         if (unit.scope === 'table') cashEngine(unit)?.setMaintenanceLock(false);
+        // A unit dealt here again (a return) is served here again: clients a
+        // relay had sent to the other engine reconnect to this one.
+        const tables = unit.scope === 'table' ? [unit.key] : (manager(unit)?.getTableIds() ?? []);
+        this.noteHandoffTablesArrived(tables);
       },
 
       holdsArrivalOf: (unit) => unit.scope === 'table',
@@ -15204,6 +15713,7 @@ export class GameServer {
           `[RollingHandoff] instance ${summary.instanceId} owns nothing and is retired; ` +
             `successor ${summary.successor ?? 'none'}`
         );
+        this.retireAfterHandoff();
       },
     };
   }

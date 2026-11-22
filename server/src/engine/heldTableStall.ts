@@ -29,6 +29,7 @@
  */
 
 export const HELD_STALL_MS = 60_000;
+export const BOUNDARY_HOLD_DIAG_MS = 90_000;
 export const HAND_FOR_HAND_STALL_MS = 600_000;
 
 export const SCHEDULED_PAUSE_OWNERS: ReadonlySet<string> = new Set([

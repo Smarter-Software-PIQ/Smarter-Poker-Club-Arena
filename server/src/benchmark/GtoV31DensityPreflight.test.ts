@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { withFrozenDecisionClock } from '../engine/testing/frozenDecisionClock.js';
 import type { Card, CardRank, CardSuit } from '../types.js';
 import { HorseLogic } from '../engine/HorseLogic.js';
 import { seedFastRandom } from '../engine/HorseEval.js';
@@ -124,20 +125,22 @@ function spot() {
 }
 
 function decide(opts: Record<string, unknown>) {
-  const { hero, gs } = spot();
-  seedFastRandom(0xabc);
-  return HorseLogic.decide(
-    hero as never,
-    gs as never,
-    'balanced',
-    {},
-    {
-      mind: false,
-      telemetry: false,
-      gtoV31DatasetChecksum: CHECKSUM,
-      ...opts,
-    }
-  );
+  return withFrozenDecisionClock(() => {
+    const { hero, gs } = spot();
+    seedFastRandom(0xabc);
+    return HorseLogic.decide(
+      hero as never,
+      gs as never,
+      'balanced',
+      {},
+      {
+        mind: false,
+        telemetry: false,
+        gtoV31DatasetChecksum: CHECKSUM,
+        ...opts,
+      }
+    );
+  });
 }
 
 beforeEach(() => _clearGtoPostflopV31());
@@ -510,7 +513,9 @@ describe('V31 plan registration block: the cells a round registers', () => {
     // fn_gto_v31_public215_digest over the canonically ordered array and by
     // public_hist215.digest(sorted(cells, key=canonical_bytes)).
     const block = gtoV31PlanRegistrationBlock(three);
-    expect(block.cellSetChecksum).toBe('70a3e422d2e912ebc5a64d34605dc1048e0b6869b187510507dc81a9987aac78');
+    expect(block.cellSetChecksum).toBe(
+      '70a3e422d2e912ebc5a64d34605dc1048e0b6869b187510507dc81a9987aac78'
+    );
     expect(block.composition).toEqual({ flop: 1, turn: 1, river: 1 });
     // canonical byte order: depth_bucket ties, then facing_kind "all_in" < "none"
     expect(block.cells[0].street).toBe('turn');

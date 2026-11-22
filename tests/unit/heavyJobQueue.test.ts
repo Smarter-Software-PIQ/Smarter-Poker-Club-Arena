@@ -30,6 +30,8 @@ const env = (extra: Record<string, string> = {}) => ({
   CA_HEAVY_QUEUE_POLL: '0.1',
   HQ_HELD_TICKET: '',
   CA_HEAVY_QUEUE: 'on',
+  // The load hold has its own tests (tests/operations/heavy-queue.test.mjs); here slots alone decide.
+  CA_HEAVY_QUEUE_LOAD_CEILING: '0',
   ...extra,
 });
 
@@ -205,7 +207,7 @@ describe('heavy-job queue', () => {
     expect(derived).toBe(Math.max(2, Math.floor(cores / 7)));
   });
 
-  it('outside a Club Arena clone it reads the Club Arena main clone .env, so every repository shares one line', () => {
+  it('outside a Club Arena clone the queue is the one fixed boot-disk folder, whatever the .env says, so every repository shares one line', () => {
     const home = join(dir, 'home');
     const ssd = join(dir, 'ssd-shared');
     mkdirSync(join(home, 'Documents', 'club-arena'), { recursive: true });
@@ -221,13 +223,13 @@ describe('heavy-job queue', () => {
       cwd: outside,
       env: { ...env(), HOME: home, CA_HEAVY_QUEUE_DIR: '', GIT_CEILING_DIRECTORIES: dir },
     });
-    expect(r.stdout.trim()).toBe(join(ssd, 'heavy-queue'));
+    expect(r.stdout.trim()).toBe(join(home, '.cache', 'club-arena-heavy-queue'));
   });
 
-  it('reads only the SSD variables it names from the main clone .env, and never sources it', () => {
+  it('reads only the SSD variables it names from the main clone .env (legacy queue folders), and never sources it', () => {
     const text = readFileSync(lib, 'utf8');
     expect(text).not.toMatch(/^\s*(\.|source)\s+[^\n]*\.env/m);
-    for (const name of ['AGENT_SSD_USE_AUTHORIZED', 'SSD1_WORK_SHARED_DIR', 'SSD2_WORK_DIR']) {
+    for (const name of ['SSD1_WORK_SHARED_DIR', 'SSD2_WORK_DIR']) {
       expect(text).toContain(`hq_env_value ${name}`);
     }
   });

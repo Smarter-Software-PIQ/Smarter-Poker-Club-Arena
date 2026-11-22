@@ -76,6 +76,25 @@ import { SpadeConsole } from '../components/console/SpadeConsole';
 import { ButtonImagePreloader } from '../components/table/ButtonImagePreloader';
 import { WaitlistCallToAction } from '../components/table/WaitlistCallToAction';
 import { TournamentLateRegCallToAction } from '../components/table/TournamentLateRegCallToAction';
+import { HeadsUpWaitingModal, type HeadsUpWaitMode } from '../components/table/HeadsUpWaitingModal';
+import { OnlineFriendInvitePicker } from '../components/table/OnlineFriendInvitePicker';
+import {
+  appendHeadsUpInviteToken,
+  fromHeadsUpWaitModeDb,
+  headsUpWaitModeErrorText,
+  normalizeHeadsUpInviteToken,
+  parseHeadsUpHoldExpiresAtMs,
+  parseHeadsUpInviteToken,
+  toHeadsUpWaitModeDb,
+} from '../utils/headsUpWaitMode';
+import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
+import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
+import {
+  evaluateMustMoveRoutingTrigger,
+  parseTableInviteParams,
+  resolveMustMoveRoutingOutcome,
+} from '../lib/mustMoveInviteRouting';
+import { gameInviteText, gameInviteUrl, shareLink, tableShareUrl } from '../lib/share';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -299,6 +318,7 @@ import {
   isLightningObserverSnapshot,
   mapEngineSnapshot,
 } from '../utils/mapEngineSnapshot';
+import { selectBoundaryHoldBanner } from '../utils/boundaryHoldBanner';
 import {
   foldRevealed,
   hasCommittedSeatFold,
@@ -683,7 +703,11 @@ import {
   type DeadTableRow,
   type DeadTableVerdict,
 } from '../lib/deadTableRecovery';
-import { resolveCashGameLiveTable } from '../services/cashGameLobby';
+import {
+  joinCashGame,
+  joinGameRefusalText,
+  resolveCashGameLiveTable,
+} from '../services/cashGameLobby';
 import RabbitHunt from '../components/table/RabbitHunt';
 import type { RabbitHuntRevealResult } from '../components/table/RabbitHunt';
 import {
@@ -978,6 +1002,7 @@ interface TableState {
    */
   spinPrizePool?: number;
   handForHand?: boolean;
+  pauseOwners?: string[];
   bubbleInfo?: { playersRemaining: number; paidPositions: number };
   /** Authoritative MTT milestone; activates the event-only broadcast skin. */
   isFinalTable?: boolean;
@@ -3548,6 +3573,7 @@ function LiveTablePage({
         waitingForBBUserIds: mapped.waitingForBBUserIds,
         postBBDeferredUserIds: mapped.postBBDeferredUserIds,
         postingBBUserIds: mapped.postingBBUserIds,
+        pauseOwners: mapped.pauseOwners ?? [],
       };
     });
     // tableState.maxPlayers is read through tableStateRef above, deliberately:
@@ -6358,8 +6384,24 @@ function LiveTablePage({
    * clock and handed back in device time, which every timer here runs on.
    */
   const dbClockOffsetMsRef = useRef(0);
+  const seatFirstSeatsRef = useRef<number>(0);
+  const seatFirstLabelRef = useRef<string>('');
+  const headsUpWaitModeRef = useRef<HeadsUpWaitMode | null>(null);
+  const headsUpInviteTokenRef = useRef<string | null>(null);
+  const headsUpHoldExpiresAtMsRef = useRef<number | null>(null);
   const partnerHoldEndsLocalMs = (startTimeMs: number | null | undefined): number => {
     const offset = dbClockOffsetMsRef.current;
+    if (seatFirstSeatsRef.current === 2 && seatFirstLabelRef.current === 'Heads Up') {
+      if (headsUpWaitModeRef.current === 'anyone') return -Infinity;
+      if (headsUpWaitModeRef.current === 'specific') {
+        const expiresServerMs = headsUpHoldExpiresAtMsRef.current;
+        if (expiresServerMs !== null && Number.isFinite(expiresServerMs)) {
+          const localExpires = expiresServerMs + offset;
+          return localExpires > Date.now() ? localExpires : -Infinity;
+        }
+        return -Infinity;
+      }
+    }
     const seatedServerMs =
       heroSeatJoinedAtRef.current ??
       (seatAcquiredAtRef.current !== null ? seatAcquiredAtRef.current - offset : null);
@@ -6382,6 +6424,8 @@ function LiveTablePage({
      SHOULD SAY THE TOURNAMENT NAME AND BUY IN, NOT JUST NLH POKER
      TOURNAMENT"). '' until the tournament row has been read. */
   const [tournamentEventName, setTournamentEventName] = useState('');
+  const tournamentEventNameRef = useRef('');
+  tournamentEventNameRef.current = tournamentEventName;
   /* Dan 2026-11-05: the line under the event name says what KIND of event it
      is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
   const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
@@ -6450,11 +6494,218 @@ function LiveTablePage({
      that exists precisely for the countless idempotent re-seat answer was
      therefore reading 0 and the player was told "Waiting For More Players"
      with no number. A ref is current by definition. */
-  const seatFirstSeatsRef = useRef<number>(0);
   /** When this page saw its pre-start seat-first game begin, ms, else null. */
   const seatFirstDealtAtRef = useRef<number | null>(null);
   seatFirstSeatsRef.current = seatFirstBuyIn?.seats ?? 0;
+  seatFirstLabelRef.current = seatFirstBuyIn?.label ?? '';
   const [seatFirstPending, setSeatFirstPending] = useState(false);
+  const [headsUpWaitMode, setHeadsUpWaitMode] = useState<HeadsUpWaitMode | null>(null);
+  const [headsUpInviteToken, setHeadsUpInviteToken] = useState<string | null>(null);
+  const [headsUpHoldExpiresAtMs, setHeadsUpHoldExpiresAtMs] = useState<number | null>(null);
+  const [headsUpModeSaving, setHeadsUpModeSaving] = useState(false);
+  const [headsUpModeError, setHeadsUpModeError] = useState<string | null>(null);
+  const [headsUpPromptOpen, setHeadsUpPromptOpen] = useState(false);
+  const [headsUpPromptStep, setHeadsUpPromptStep] = useState<'choice' | 'invite'>('choice');
+  const [tableInviteFallbackUrl, setTableInviteFallbackUrl] = useState('');
+  const [showFriendInvitePicker, setShowFriendInvitePicker] = useState(false);
+  headsUpWaitModeRef.current = headsUpWaitMode;
+  headsUpInviteTokenRef.current = headsUpInviteToken;
+  headsUpHoldExpiresAtMsRef.current = headsUpHoldExpiresAtMs;
+  const headsUpInviteParam = useMemo(
+    () => parseHeadsUpInviteToken(location.search),
+    [location.search]
+  );
+
+  useEffect(() => {
+    setTableInviteFallbackUrl('');
+    setShowFriendInvitePicker(false);
+    setHeadsUpInviteToken(null);
+    setHeadsUpHoldExpiresAtMs(null);
+    setHeadsUpModeError(null);
+  }, [tableId]);
+
+  const handleCloseHeadsUpPrompt = useCallback(() => {
+    setHeadsUpPromptOpen(false);
+    setHeadsUpModeError(null);
+  }, []);
+
+  const isChipClubTable = tableState.arenaAsset === 'chips';
+  const senderInviteCode = useSenderInviteCode(
+    lightningRoom ? null : tableId,
+    userId && userId !== 'guest' ? userId : null,
+    isChipClubTable,
+    lightningClubId
+  );
+  const senderInviteCodeRef = useRef(senderInviteCode);
+  senderInviteCodeRef.current = senderInviteCode;
+
+  const persistHeadsUpWaitMode = useCallback(
+    async (mode: HeadsUpWaitMode): Promise<boolean> => {
+      if (!tableId) return false;
+      setHeadsUpModeSaving(true);
+      setHeadsUpModeError(null);
+      try {
+        const { data, error } = await supabase.rpc('fn_set_heads_up_wait_mode', {
+          p_table_id: tableId,
+          p_mode: toHeadsUpWaitModeDb(mode),
+        });
+        const res = (data ?? {}) as {
+          ok?: boolean;
+          reason?: string;
+          mode?: string;
+          invite_token?: string | null;
+          hold_expires_at?: string | null;
+        };
+        if (error || !res.ok) {
+          const reason = error?.message || res.reason || '';
+          const message = headsUpWaitModeErrorText(reason);
+          reportError(
+            new Error(`fn_set_heads_up_wait_mode failed: ${reason || 'unknown'}`),
+            'TablePage.heads_up_wait_mode_failed',
+            { tableId, mode, reason }
+          );
+          setHeadsUpModeError(message);
+          toast?.error?.(message);
+          return false;
+        }
+        const persistedMode = fromHeadsUpWaitModeDb(res.mode) ?? mode;
+        const nextToken =
+          persistedMode === 'specific' ? normalizeHeadsUpInviteToken(res.invite_token) : null;
+        const nextExpiresMs =
+          persistedMode === 'specific' ? parseHeadsUpHoldExpiresAtMs(res.hold_expires_at) : null;
+        setHeadsUpWaitMode(persistedMode);
+        setHeadsUpInviteToken(nextToken);
+        setHeadsUpHoldExpiresAtMs(nextExpiresMs);
+        setHeadsUpModeError(null);
+        if (persistedMode === 'specific') {
+          setHeadsUpPromptStep('invite');
+        } else {
+          toast?.info?.('Table Open, Waiting For Any Available Player');
+        }
+        return true;
+      } catch (err) {
+        const message = headsUpWaitModeErrorText(undefined);
+        reportError(err as Error, 'TablePage.heads_up_wait_mode_exception', { tableId, mode });
+        setHeadsUpModeError(message);
+        toast?.error?.(message);
+        return false;
+      } finally {
+        setHeadsUpModeSaving(false);
+      }
+    },
+    [tableId, toast]
+  );
+
+  // Hydrate persisted Heads-Up wait mode + invite token on mount/reload so
+  // refreshing the browser preserves 'specific_player' mode and its exact link.
+  useEffect(() => {
+    const tournId = tableState.tournamentId;
+    const isPreStartHeadsUpHero =
+      Boolean(tableId) &&
+      Boolean(tournId) &&
+      Boolean(userId) &&
+      seatFirstBuyIn?.seats === 2 &&
+      seatFirstBuyIn.label === 'Heads Up' &&
+      tableState.heroSeat > 0 &&
+      !playHasBegun;
+    if (!isPreStartHeadsUpHero || !tournId || !userId) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from('heads_up_wait_holds')
+        .select('wait_mode, invite_token, hold_expires_at')
+        .eq('tournament_id', tournId)
+        .eq('creator_user_id', userId)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      const row = data as {
+        wait_mode?: string | null;
+        invite_token?: string | null;
+        hold_expires_at?: string | null;
+      };
+      const hydratedMode = fromHeadsUpWaitModeDb(row.wait_mode);
+      if (!hydratedMode) return;
+      setHeadsUpWaitMode(hydratedMode);
+      if (hydratedMode === 'specific') {
+        setHeadsUpInviteToken(normalizeHeadsUpInviteToken(row.invite_token));
+        setHeadsUpHoldExpiresAtMs(parseHeadsUpHoldExpiresAtMs(row.hold_expires_at));
+      } else {
+        setHeadsUpInviteToken(null);
+        setHeadsUpHoldExpiresAtMs(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tableId, tableState.tournamentId, tableState.heroSeat, userId, seatFirstBuyIn, playHasBegun]);
+
+  const handleInviteToGame = useCallback(async () => {
+    if (!tableId) return;
+    const current = tableStateRef.current;
+    const lightning = lightningRoomRef.current;
+    const isSeatFirstOpen = seatFirstOpenRef.current;
+    const inviteCode = senderInviteCodeRef.current;
+    const isTournamentShare =
+      !lightning?.clusterId &&
+      current.isTournament &&
+      Boolean(current.tournamentId) &&
+      !isSeatFirstOpen;
+    const baseUrl = lightning?.clusterId
+      ? gameInviteUrl({ kind: 'lightning', id: lightning.clusterId, inviteCode })
+      : isTournamentShare && current.tournamentId
+        ? gameInviteUrl({ kind: 'tournament', id: current.tournamentId })
+        : gameInviteUrl({
+            kind: 'table',
+            id: tableId,
+            inviteCode,
+            clusterId: !current.isTournament ? current.clusterId : null,
+          });
+    const url =
+      isSeatFirstOpen && headsUpWaitModeRef.current === 'specific'
+        ? appendHeadsUpInviteToken(baseUrl, headsUpInviteTokenRef.current)
+        : baseUrl;
+    const gameTitle =
+      (isTournamentShare ? tournamentEventNameRef.current : '') ||
+      lightning?.meta?.name ||
+      current.tableName ||
+      'Club Arena Game';
+    setTableInviteFallbackUrl('');
+    const outcome = await shareLink({
+      source: 'TablePage.inviteToGame',
+      title: gameTitle,
+      text: gameInviteText(gameTitle),
+      url,
+    });
+    if (outcome === 'copied') {
+      toast?.success?.('Game Invite Link Copied');
+    } else if (outcome === 'shared') {
+      toast?.success?.('Game Invite Link Shared');
+    } else if (outcome === 'failed') {
+      setTableInviteFallbackUrl(url);
+    }
+  }, [tableId, toast]);
+  const handleInviteToGameRef = useRef(handleInviteToGame);
+  handleInviteToGameRef.current = handleInviteToGame;
+
+  const seatFirstOccupiedCount = tableState.players.filter(Boolean).length;
+  useEffect(() => {
+    if (
+      !seatFirstBuyIn ||
+      playHasBegun ||
+      tableState.heroSeat <= 0 ||
+      seatFirstOccupiedCount >= seatFirstBuyIn.seats
+    ) {
+      setHeadsUpPromptOpen(false);
+      if (!seatFirstBuyIn || playHasBegun || tableState.heroSeat <= 0) {
+        setHeadsUpWaitMode(null);
+        setHeadsUpInviteToken(null);
+        setHeadsUpHoldExpiresAtMs(null);
+        setHeadsUpModeError(null);
+      }
+    }
+  }, [seatFirstBuyIn, playHasBegun, tableState.heroSeat, seatFirstOccupiedCount]);
   /**
    * ── THE WAIT IS NAMED, NEVER SILENT (2026-08-29, round 13) ───────────────
    *
@@ -6536,7 +6787,7 @@ function LiveTablePage({
       if (counting || ticks % 15 === 0) setSeatFillClock(Date.now());
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [seatFirstBuyIn, tableState.heroSeat, playHasBegun]);
+  }, [seatFirstBuyIn, tableState.heroSeat, playHasBegun, headsUpWaitMode, headsUpHoldExpiresAtMs]);
   /**
    * Which tournament the seat-first recovery has already settled, so it asks
    * once per game rather than on every render that leaves seat-first null. A
@@ -10379,8 +10630,7 @@ function LiveTablePage({
     const shownEquities = gateEquityDisplay(
       allInEquities.filter(
         (e) =>
-          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) &&
-          e.boardKey === liveKey
+          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) && e.boardKey === liveKey
       ),
       boardCardCounts(liveBoards),
       (e) => e.equity
@@ -15610,6 +15860,12 @@ function LiveTablePage({
         // Instead of hard-toggling, open the new Identity Settings Modal
         setShowIdentityModal(true);
         break;
+      case 'INVITE_TO_GAME':
+        void handleInviteToGameRef.current();
+        break;
+      case 'INVITE_ONLINE_FRIEND':
+        setShowFriendInvitePicker(true);
+        break;
     }
   });
 
@@ -15638,6 +15894,89 @@ function LiveTablePage({
      and never got an answer. They are different sentences to the player and
      only one of them is worth a retry button. null = loaded, or still trying. */
   const [tableLoadFailure, setTableLoadFailure] = useState<'missing' | 'unreachable' | null>(null);
+
+  const incomingTableInvite = useMemo(
+    () => parseTableInviteParams(tableId, location.search),
+    [tableId, location.search]
+  );
+  const mustMoveRoutedKeysRef = useRef<Set<string>>(new Set());
+  const [mustMoveRoutingPending, setMustMoveRoutingPending] = useState(false);
+  const occupiedSeatCount = tableState.players.filter(Boolean).length;
+  const heroSeatedOnTable =
+    tableState.heroSeat > 0 ||
+    tableState.players.some((p) => Boolean(p && userId && userId !== 'guest' && p.id === userId));
+
+  useEffect(() => {
+    setMustMoveRoutingPending(false);
+  }, [tableId, incomingTableInvite.clusterId]);
+
+  useEffect(() => {
+    const clusterId = incomingTableInvite.clusterId;
+    if (!tableId || !clusterId) return;
+    const trigger = evaluateMustMoveRoutingTrigger({
+      tableId,
+      clusterId,
+      userId,
+      isLightningRoom: Boolean(lightningRoom),
+      tableLoadFailure,
+      loadedTableId: tableState.tableId,
+      loadedClusterId: tableState.clusterId,
+      isTournament: tableState.isTournament,
+      maxPlayers: tableState.maxPlayers,
+      occupiedSeats: occupiedSeatCount,
+      heroSeated: heroSeatedOnTable,
+    });
+    if (!trigger) return;
+    const arrivalKey = `${tableId}:${clusterId}`;
+    if (mustMoveRoutedKeysRef.current.has(arrivalKey)) return;
+    mustMoveRoutedKeysRef.current.add(arrivalKey);
+
+    let cancelled = false;
+    setMustMoveRoutingPending(true);
+    void joinCashGame(clusterId)
+      .then((res) => {
+        if (cancelled) return;
+        const outcome = resolveMustMoveRoutingOutcome(res, tableId, clusterId);
+        if (outcome.kind === 'redirect') {
+          toast?.info?.(outcome.toastMessage);
+          navigate(outcome.to, { replace: true });
+          return;
+        }
+        if (outcome.kind === 'waitlisted') {
+          toast?.info?.(outcome.toastMessage);
+        }
+        setMustMoveRoutingPending(false);
+      })
+      .catch((err) => {
+        reportError(err, 'TablePage.mustMoveInviteRouting', {
+          tableId,
+          clusterId,
+          trigger,
+        });
+        if (cancelled) return;
+        if (trigger === 'full') {
+          toast?.info?.(joinGameRefusalText(err));
+        }
+        setMustMoveRoutingPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tableId,
+    incomingTableInvite.clusterId,
+    userId,
+    lightningRoom,
+    tableLoadFailure,
+    tableState.tableId,
+    tableState.clusterId,
+    tableState.isTournament,
+    tableState.maxPlayers,
+    occupiedSeatCount,
+    heroSeatedOnTable,
+    navigate,
+    toast,
+  ]);
 
   const subscribeRebalanceAuth = useCallback<TournamentRebalanceOptions['subscribeAuth']>(
     (listener) => masterBus.subscribe('AUTH_STATE_CHANGED', (event) => listener(event.payload)),
@@ -24642,6 +24981,40 @@ function LiveTablePage({
         /* audio is best-effort and must never block a buy-in */
       }
       try {
+        // Heads-Up specific-player invite hold: verify server-side before taking
+        // seat 2 so uninvited players cannot snipe a seat reserved via invite link.
+        if (seatFirstSeatsRef.current === 2 && seatFirstLabelRef.current === 'Heads Up') {
+          const { data: inviteData, error: inviteError } = await supabase.rpc(
+            'fn_check_heads_up_seat_invite',
+            {
+              p_table_id: tableId,
+              p_invite_token: headsUpInviteParam,
+            }
+          );
+          const inviteRes = (inviteData ?? {}) as {
+            ok?: boolean;
+            allowed?: boolean;
+            reason?: string;
+          };
+          if (inviteError) {
+            setSeatFirstConfirm(null);
+            reportError(
+              new Error(`heads_up_seat_invite check failed: ${inviteError.message}`),
+              'TablePage.heads_up_seat_invite_check_failed',
+              { tableId, seatNumber }
+            );
+            toast?.error?.('Could Not Verify Seat Reservation, Please Try Again');
+            return;
+          }
+          if (inviteRes.allowed === false) {
+            setSeatFirstConfirm(null);
+            toast?.error?.(
+              seatFirstBuyInRefusalText(inviteRes.reason || 'heads_up_invite_required')
+            );
+            return;
+          }
+        }
+
         const { data, error } = await supabase.rpc('fn_take_seat_and_buy_in', {
           p_table_id: tableId,
           p_seat_number: seatNumber,
@@ -24795,13 +25168,24 @@ function LiveTablePage({
             res.seats_taken ?? tableStateRef.current.players.filter(Boolean).length
           );
           const left = Math.max(0, needed - taken);
-          toast?.success?.(
-            left === 1
-              ? 'Seat Bought, Waiting For 1 More Player'
-              : left > 1
-                ? `Seat Bought, Waiting For ${left} More Players`
-                : 'Seat Bought, Waiting For More Players'
-          );
+          const isEmptyHeadsUpSng =
+            needed === 2 && taken <= 1 && seatFirstLabelRef.current === 'Heads Up';
+          if (isEmptyHeadsUpSng) {
+            setHeadsUpWaitMode(null);
+            setHeadsUpInviteToken(null);
+            setHeadsUpHoldExpiresAtMs(null);
+            setHeadsUpModeError(null);
+            setHeadsUpPromptStep('choice');
+            setHeadsUpPromptOpen(true);
+          } else {
+            toast?.success?.(
+              left === 1
+                ? 'Seat Bought, Waiting For 1 More Player'
+                : left > 1
+                  ? `Seat Bought, Waiting For ${left} More Players`
+                  : 'Seat Bought, Waiting For More Players'
+            );
+          }
         }
       } catch (err) {
         setSeatFirstConfirm(null);
@@ -24812,7 +25196,7 @@ function LiveTablePage({
         setSeatFirstPending(false);
       }
     },
-    [tableId, seatFirstPending, tableState.tournamentId, navigate, toast]
+    [tableId, seatFirstPending, tableState.tournamentId, headsUpInviteParam, navigate, toast]
   );
 
   /**
@@ -29044,10 +29428,16 @@ function LiveTablePage({
           top of a fixed-position page. The class names are kept so that
           stylesheet can take it over later without touching this file. */}
       {tableLoadFailure && !lightningRoom && (
-        <TableLoadFailureOverlay
-          tableLoadFailure={tableLoadFailure}
-          exitDestination={exitDestination}
-        />
+        <>
+          {!mustMoveRoutingPending && (
+            <TableLoadFailureOverlay
+              tableLoadFailure={tableLoadFailure}
+              exitDestination={exitDestination}
+              inviteCode={incomingTableInvite.inviteCode}
+              returnPath={incomingTableInvite.returnPath}
+            />
+          )}
+        </>
       )}
       {/* Phase 1.2 PR-F: hero disconnect banner. Only renders when the
           engine FSM reports MISSING or DISCONNECTED for this user. */}
@@ -31579,6 +31969,77 @@ function LiveTablePage({
           </div>
         </div>
       )}
+      {seatFirstBuyIn && tableId && (
+        <HeadsUpWaitingModal
+          isOpen={headsUpPromptOpen && isVisible}
+          initialStep={headsUpPromptStep}
+          tableName={tournamentEventName || tableState.tableName || 'Heads Up Sit N Go'}
+          inviteUrl={appendHeadsUpInviteToken(
+            tableShareUrl(tableId, { inviteCode: senderInviteCode }),
+            headsUpInviteToken
+          )}
+          friendInviteTarget={{
+            tableId,
+            tournamentId: tableState.tournamentId,
+            clubId: lobbyClubId ?? (actualClubIdRef.current || null),
+            inviteCode: senderInviteCode,
+            inviteToken: headsUpInviteToken,
+          }}
+          busy={headsUpModeSaving}
+          errorMessage={headsUpModeError}
+          onChooseSpecific={() => persistHeadsUpWaitMode('specific')}
+          onChooseAnyone={() => persistHeadsUpWaitMode('anyone')}
+          onClose={handleCloseHeadsUpPrompt}
+          onNotify={(kind, msg) => {
+            if (kind === 'success') toast?.success?.(msg);
+            else toast?.info?.(msg);
+          }}
+        />
+      )}
+      {tableId && (
+        <OnlineFriendInvitePicker
+          mode="modal"
+          isOpen={showFriendInvitePicker && isVisible}
+          onClose={() => setShowFriendInvitePicker(false)}
+          kind={
+            lightningRoom?.clusterId ? 'lightning' : tableState.isTournament ? 'tournament' : 'cash'
+          }
+          tableId={lightningRoom?.clusterId ? null : tableId}
+          tournamentId={tableState.isTournament ? tableState.tournamentId : null}
+          clusterId={
+            lightningRoom?.clusterId ?? (!tableState.isTournament ? tableState.clusterId : null)
+          }
+          clubId={lightningClubId ?? lobbyClubId ?? (actualClubIdRef.current || null)}
+          tableName={
+            (tableState.isTournament ? tournamentEventName : '') ||
+            lightningRoom?.meta?.name ||
+            tableState.tableName ||
+            'Club Arena Game'
+          }
+          inviteCode={senderInviteCode}
+          inviteToken={headsUpWaitMode === 'specific' ? headsUpInviteToken : null}
+          onShareLink={() => {
+            setShowFriendInvitePicker(false);
+            void handleInviteToGame();
+          }}
+          onInviteSent={(contact) => {
+            toast?.success?.(`Invite Sent To ${contact.displayName}`);
+          }}
+        />
+      )}
+      {tableInviteFallbackUrl && (
+        <div className="table-invite-fallback" role="region" aria-label="Game Invite Link">
+          <ShareLinkFallback url={tableInviteFallbackUrl} label="Game Invite Link" />
+          <button
+            type="button"
+            className="table-invite-fallback__close"
+            aria-label="Dismiss Game Invite Link"
+            onClick={() => setTableInviteFallbackUrl('')}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* ═══════════════════════════════════════════════════════════════════════
           BOTTOM CONTROLS + ACTION PANEL
           ═══════════════════════════════════════════════════════════════════════ */}
@@ -31845,6 +32306,14 @@ function LiveTablePage({
                   0,
                   seatFirstBuyIn.seats - tableState.players.filter(Boolean).length
                 );
+                /* 2026-10-04: the open seats are being kept for other
+                   people - say so, so a two-player table waiting for its
+                   second player never reads as a frozen one. Checked before
+                   the generic 30s stall copy so a player explicitly waiting on
+                   an invited friend keeps seeing that status. */
+                if (left > 0 && headsUpWaitMode === 'specific') {
+                  return 'Waiting For Your Invited Player';
+                }
                 /* Round 13: a wait past 30s says so, and says the seat is
                    safe - a stalled room must read differently from a normal
                    one, or leaving looks like the rational move (it did, at
@@ -31852,9 +32321,6 @@ function LiveTablePage({
                 if (left > 0 && seatFirstWaitLong) {
                   return seatCopy(tableState.arenaAsset).stillFillingSeatIsSafe;
                 }
-                /* 2026-10-04: the open seats are being kept for other
-                   people - say so, so a two-player table waiting for its
-                   second player never reads as a frozen one. */
                 if (
                   left > 0 &&
                   partnerHoldEndsLocalMs(seatFirstBuyIn.startTimeMs) > seatFillClock
@@ -31882,6 +32348,20 @@ function LiveTablePage({
                 );
               })()}
             </span>
+            <button
+              type="button"
+              className="spectator-footer-bar__cta spectator-footer-bar__cta--invite"
+              onClick={() => {
+                if (seatFirstBuyIn.label === 'Heads Up') {
+                  setHeadsUpPromptStep(headsUpWaitMode === null ? 'choice' : 'invite');
+                  setHeadsUpPromptOpen(true);
+                } else {
+                  void handleInviteToGame();
+                }
+              }}
+            >
+              Invite
+            </button>
             <button
               type="button"
               className="spectator-footer-bar__cta spectator-footer-bar__cta--leave"
@@ -32853,6 +33333,52 @@ function LiveTablePage({
           await handleLeaveTable();
         }}
       />
+      {(() => {
+        const holdBanner = selectBoundaryHoldBanner({
+          isTournament: Boolean(tableState.tournamentId),
+          isHandInProgress: tableState.isHandInProgress,
+          handForHand: tableState.handForHand,
+          pauseOwners: tableState.pauseOwners,
+        });
+        if (!holdBanner) return null;
+        return (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid={`boundary-hold-banner-${holdBanner.kind}`}
+            style={{
+              position: 'fixed',
+              left: '50%',
+              top: '18%',
+              transform: 'translateX(-50%)',
+              zIndex: 45,
+              pointerEvents: 'none',
+              background: 'rgba(12, 18, 28, 0.88)',
+              border: '1px solid rgba(250, 204, 21, 0.55)',
+              borderRadius: '999px',
+              padding: '8px 18px',
+              textAlign: 'center',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.45)',
+              color: '#f8fafc',
+              maxWidth: '90vw',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                color: '#facc15',
+                letterSpacing: '0.02em',
+              }}
+            >
+              {holdBanner.title}
+            </div>
+            <div style={{ fontSize: '11px', opacity: 0.9, marginTop: '2px' }}>
+              {holdBanner.detail}
+            </div>
+          </div>
+        );
+      })()}
       <TableModalsLayer
         cashStatsClusterId={lightningRoom?.clusterId}
         isActive={isActive}

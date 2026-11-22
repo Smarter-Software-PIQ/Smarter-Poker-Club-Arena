@@ -57,7 +57,15 @@ class OriginalBuildResourceEvidenceTests(unittest.TestCase):
         selected = {(root / name).resolve() for name in config.get('files', [])}
         imported = set()
         for source in (root / 'src').rglob('*.ts'):
-            if source.name.endswith(('.test.ts', '.spec.ts')) or '__tests__' in source.parts:
+            rel = source.relative_to(root / 'src').as_posix()
+            if (
+                source.name.endswith(('.test.ts', '.spec.ts'))
+                or '.test-support.' in source.name
+                or '__tests__' in source.parts
+                or rel.startswith(('testing/', 'engine/testing/', 'benchmark/fixtures/'))
+                or (rel.startswith('benchmark/Sparring') and rel.endswith('.ts'))
+                or rel == 'benchmark/sparringRun.ts'
+            ):
                 continue
             for name in re.findall(r'''\bfrom\s+['"]([^'"]+\.json)['"]''', source.read_text()):
                 if name.startswith('.'):

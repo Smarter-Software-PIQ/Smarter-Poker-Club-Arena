@@ -1,0 +1,3 @@
+# server/src/engine/Plo6FlopDefence.law.test.ts
+
+With plo6FacingBetIsPriced on (default OFF), PLO6 cash flop defence (E6, HorsePlo6FlopDefence) requires a heads-up first flop bet call with chips behind to clear both the fitted hand-class realization and the two-street barrel tree on the hand's sampled six-card runouts (omahaFlopDefenceTreeEv), concentrates multiway flop caller, all-in and behind shares by the six-card C(6,2)=15 pair factor (6/15) with nut-draw quality and bare-pair realization scaling, calls profitable flop fixtures (#60060560, #60093920, #60067736) at every seed, and passes horseDecisionReceiptRefusal.

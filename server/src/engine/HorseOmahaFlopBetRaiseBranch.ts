@@ -94,7 +94,7 @@ export function omahaFlopBetRaiseBranchOf(
     if (String(gs.stage ?? '') !== 'flop') return { kind: 'off' };
     const board = gs.communityCards ?? [];
     if (board.length !== 3) return { kind: 'off' };
-    if (!omahaPricedInScope(player, gs)) return { kind: 'off' };
+    if (!omahaPricedInScope(player, gs, opts)) return { kind: 'off' };
     const live = (gs.players ?? []).filter(
       (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
     );

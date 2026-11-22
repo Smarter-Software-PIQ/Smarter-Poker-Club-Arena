@@ -109,8 +109,10 @@ const decomment = (s: string) =>
 
 describe('no test bounds a source pin with a magic number', () => {
   // The candidate scan takes a few seconds; the full-scan fallback measured
-  // 5.3-6.2 s on a quiet SSD and 30-92 s under load. Keep every input and
-  // assertion and a finite budget with room for I/O contention.
+  // 5.3-6.2 s on a quiet SSD and 30-92 s under load (75-98 s measured again on
+  // the shared pre-push host at load 33-48, Nov 20 2026). Keep every input and
+  // assertion and a finite budget with room for I/O contention: the budget sits
+  // above the measured worst case, not inside it.
   it('every window is bounded by a structure, via tests/helpers/sourceWindow', () => {
     const offenders: string[] = [];
 
@@ -136,7 +138,7 @@ describe('no test bounds a source pin with a magic number', () => {
         'See tests/helpers/sourceWindow.ts for the extractor that fits.\n' +
         offenders.join('\n')
     ).toEqual([]);
-  }, 30_000);
+  }, 180_000);
 });
 
 /**

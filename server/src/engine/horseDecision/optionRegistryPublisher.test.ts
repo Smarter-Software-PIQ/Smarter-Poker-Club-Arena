@@ -15,12 +15,12 @@ describe('the serving engine publishes the option registry it parses with (reset
     expect(Object.keys(payload)).toEqual(OPTION_SWITCH_REGISTRY.map((e) => e.name));
     for (const e of OPTION_SWITCH_REGISTRY) expect(payload[e.name]).toEqual([...e.states]);
     // the published list IS the parser's: every non-style name at every published state parses alone,
-    // and a name the payload does not carry makes the whole configuration invalid (the trap itself)
+    // and a name the payload does not carry is skipped alone (2026-11-20: it no longer voids the set)
     for (const [name, states] of Object.entries(payload)) {
       if (states.includes('shadow')) continue;
       for (const s of states) expect(optionSwitchStatesFrom({ [name]: s })).not.toBeNull();
     }
-    expect(optionSwitchStatesFrom({ notPublishedByThisRelease: 'off' })).toBeNull();
+    expect(optionSwitchStatesFrom({ notPublishedByThisRelease: 'off' })).toEqual({});
   });
 
   it('the digest is canonical: key order does not change it, a state does', () => {

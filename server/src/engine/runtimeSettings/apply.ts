@@ -4,6 +4,8 @@
  */
 import type { LiveHorseDecideOpts } from '../horseDecision/protocol.js';
 import { COMPILED_RUNTIME_SETTINGS, type RuntimeSettingsSnapshot } from './snapshot.js';
+import { omahaOptionGameScopeFromSettings } from '../HorseOmahaOptionGameScope.js';
+import { omahaBlanketRowsOffListFromSettings } from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
 
 const HORSE_OPTION_OF: Readonly<Record<string, keyof LiveHorseDecideOpts>> = Object.freeze({
   'horse.v67RiverRaiseShade': 'v67RiverRaiseShadeOverride',
@@ -27,12 +29,20 @@ export function horseDecideOptsFromRuntimeSettings(
 ): LiveHorseDecideOpts | undefined {
   // an engine built without its constructor (tests) has no pinned snapshot: the compiled defaults, so nothing passes
   if (!snapshot?.values) return undefined;
-  let out: Record<string, number> | undefined;
+  let out: Record<string, unknown> | undefined;
   for (const [key, option] of Object.entries(HORSE_OPTION_OF)) {
     const value = snapshot.values[key];
     if (value === undefined || value === COMPILED_RUNTIME_SETTINGS.values[key]) continue;
     (out ??= {})[option] = value;
   }
+  // The game scope of the omaha* options (horse.omahaGameScope.<option>): only the options given a game, so at the
+  // compiled defaults (every one 0) the key is absent.
+  const gameScope = omahaOptionGameScopeFromSettings(snapshot.values);
+  if (gameScope) (out ??= {}).omahaOptionGameScope = gameScope;
+  // The declared list of omahaBlanketRowsOffInPlo45Cash (horse.blanketRowOffInPlo45Cash.<option>): only the members
+  // set to 1, so at the compiled defaults (every one 0) the key is absent.
+  const blanketRowsOff = omahaBlanketRowsOffListFromSettings(snapshot.values);
+  if (blanketRowsOff) (out ??= {}).omahaBlanketRowsOffList = blanketRowsOff;
   return out ? (Object.freeze(out) as LiveHorseDecideOpts) : undefined;
 }
 
@@ -57,4 +67,13 @@ export function lightningFastFoldTuningFrom(
     tempoMin: v['lightning.fastFoldTempoMin']!,
     tempoMax: v['lightning.fastFoldTempoMax']!,
   });
+}
+
+/**
+ * HorseCashStackCeiling: the ceiling in big blinds a hand's snapshot sets, 0 when off (the compiled default, an
+ * engine without a pinned snapshot, or a value that is not a positive number).
+ */
+export function horseCashStackCeilingBBFrom(snapshot: RuntimeSettingsSnapshot | undefined): number {
+  const value = (snapshot ?? COMPILED_RUNTIME_SETTINGS).values?.['horse.cashStackCeilingBB'];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }

@@ -116,7 +116,11 @@ describe('the merge dispatches the migrations it added', () => {
     expect(step.env.GH_TOKEN).toBe('${{ github.token }}');
     expect(step.env.MERGED_BY).toBe('${{ github.event.pull_request.merged_by.login }}');
     expect(step.run).toBe('bash .github/scripts/dispatch-merged-migrations.sh');
-    expect(workflow.permissions).toEqual({ contents: 'write', 'pull-requests': 'write' });
+    expect(workflow.permissions).toEqual({
+      actions: 'read',
+      contents: 'write',
+      'pull-requests': 'write',
+    });
     expect(job.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
     // Every merge dispatches its own migrations, whoever merged it (2026-11-07:
     // an agent's hand merge of #9876 left 20261107130652 uninstalled for hours).
@@ -176,7 +180,26 @@ describe('the merge dispatches the migrations it added', () => {
     );
     expect(scriptCode).toContain('-f "client_payload[intent_nonce]=$NONCE"');
     expect(scriptCode).toMatch(/DISPATCH REFUSED[^\n]*not retried/);
-    expect(scriptCode).not.toMatch(/--dry-run|dry_run\]=true|workflow run|actions\/workflows/);
+    // Never sends through the workflows API; it only READS the applier's state.
+    expect(scriptCode).not.toMatch(
+      /--dry-run|dry_run\]=true|workflow run|actions\/workflows\/[^\s"]*\/dispatches|--method POST "repos\/\$REPO\/actions/
+    );
+  });
+
+  it('holds instead of claiming a send while the applier is switched off (2026-11-21)', () => {
+    // A repository_dispatch to a disabled workflow answers 204 and creates no
+    // run; #11635's 20261121153607 was reported "dispatched" and never queued.
+    expect(scriptCode).toContain(
+      'gh api "repos/$REPO/actions/workflows/apply-merged-migration.yml" --jq .state'
+    );
+    const gate = scriptCode.indexOf('APPLIER_STATE=$(');
+    const send = scriptCode.indexOf('SENT=0\nfor f in');
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(send);
+    expect(scriptCode).toMatch(
+      /disabled_manually\|disabled_inactivity\|disabled_fork\)[\s\S]*?\*\*HELD\*\*[\s\S]*?resume-migration-installs\.sh[\s\S]*?exit 0 ;;/
+    );
+    expect(scriptCode).toMatch(/COULD NOT TELL whether Apply Merged Migration is switched on/);
   });
 
   it('reads only the files the PR added, in filename order, from the default branch', () => {
@@ -376,6 +399,13 @@ esac
 `
       );
       chmodSync(join(box, 'gh'), 0o755);
+      // Offline /health stub so the Oct 25 2026 fixture does not call the live
+      // engine (which now runs three-hourly, where 02:10Z = 21:10 CDT defers).
+      writeFileSync(
+        join(box, 'curl'),
+        `#!/usr/bin/env bash\necho '{"maintenance":{"schedule":{"frequency":"daily"}}}'\n`
+      );
+      chmodSync(join(box, 'curl'), 0o755);
       const summary = join(box, 'summary');
       // The real pull_request_target shape: GITHUB_SHA is the base tip, and the
       // intent binds the merged pull request's own head.
@@ -462,9 +492,9 @@ esac
     );
   });
 
-  it('the test clock is never set by the workflow', () => {
-    expect(read('.github/workflows/dispatch-merged-migrations.yml')).not.toContain(
-      'DISPATCH_NOW_MS'
-    );
+  it('the test clock and health URL override are never set by the workflow', () => {
+    const wf = read('.github/workflows/dispatch-merged-migrations.yml');
+    expect(wf).not.toContain('DISPATCH_NOW_MS');
+    expect(wf).not.toContain('DISPATCH_ENGINE_HEALTH_URL');
   });
 });

@@ -17,6 +17,7 @@ export {
   type RuntimeSettingsSnapshot,
 } from './snapshot.js';
 export {
+  horseCashStackCeilingBBFrom,
   horseDecideOptsFromRuntimeSettings,
   lightningFastFoldTuningFrom,
   type LightningFastFoldTuning,

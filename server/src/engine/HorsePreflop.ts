@@ -61,7 +61,10 @@ import {
   huOpenerRequiredEquity,
 } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
-import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
+import {
+  fixedLimitHasNoJamOrFold,
+  fixedLimitRaiserContinuesVsOneBet,
+} from './HorseFixedLimitStructure.js';
 import {
   fixedLimitPricedPreflopIntent,
   type FixedLimitPricedCtx,
@@ -472,6 +475,14 @@ export interface PreflopCtx {
    * unchanged.
    */
   fixedLimitStealOpenWiden?: number;
+  /** E3: true when hero voluntarily raised earlier on this preflop street. */
+  fixedLimitHeroRaisedPreflop?: boolean;
+  /** E4: exact postflop seat-order position in a multi-raised fixed-limit pot. */
+  fixedLimitReraisedInPosition?: boolean;
+  /** E4: earlier preflop raisers behind hero who have not yet answered the re-raise. */
+  fixedLimitReraisedPendingBehind?: number;
+  /** True when preflop wagers are capped so no further raise can reopen action. */
+  fixedLimitWagersCapped?: boolean;
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -621,6 +632,9 @@ export interface PreflopCtx {
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
+  /** EMERG AUDIT-05 2026-11-19: the V21 deep discipline reads the effective depth (PLO4/PLO5 high cash only; the
+   *  caller sets it). Absent or false: the Horse's own stack, as before. */
+  deepDisciplineEffectiveDepth?: boolean;
   /** PLO6-AUDIT-004 (2026-11-12): the VPIP floor multiplier already folded
    *  into `tightness` (HorseLogic.vpipFloorMul), a number in (0, 1) on a
    *  floored table where the seat is still steering up to its target. Given
@@ -1279,6 +1293,27 @@ export function v77JamSeatTighten(widthPct: number): number {
   return Math.min(0.1, Math.max(0, (0.4 - widthPct / 100) * 0.3));
 }
 
+/**
+ * The V11 guard's one-big-blind line: a call of 1 bb or less at 3.5 to 1 or
+ * better (call / (pot + call) <= 1 / 4.5 = 0.2222...). It was written 0.22,
+ * which put exactly 3.5 to 1 (one big blind into 3.5, 0.2222) on the wrong
+ * side by rounding: a big blind folded 1 bb into 3.5 bb heads-up at 79 bb
+ * deep (auditor F, hand 0d1f980b, 2026-11-19; plain bug fix, no option). The
+ * tolerance absorbs floating-point error in chip arithmetic only.
+ */
+export const PRICE_IN_ONE_BB_ODDS = 1 / 4.5 + 1e-9;
+
+/**
+ * The line the guard reads. Pot-limit Omaha (PLO4/PLO5/PLO6/PLO8, the HORSE
+ * DECISIONS lane's games, where the fold was measured) reads the exact 3.5 to
+ * 1; every other game keeps the 0.22 it has played, so its recorded decisions
+ * are unchanged (HorseHoldemPersonaReRaiseMix's main recording moves in
+ * hold'em, short deck and fixed limit with the exact line: their owners
+ * decide whether to take it).
+ */
+export function priceInOneBbOdds(ctx: Pick<PreflopCtx, 'isOmaha' | 'isFixedLimit'>): number {
+  return ctx.isOmaha === true && ctx.isFixedLimit !== true ? PRICE_IN_ONE_BB_ODDS : 0.22;
+}
 /** Own chips in, as a share of the hand's starting stack, that count as committed. */
 export const COMMITTED_STACK_SHARE = 0.5;
 /** Big blinds behind at or under which a stack is crumbs (the guard's own line). */
@@ -1378,6 +1413,60 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
       if (priced.intent.a !== 'fold') return priced.intent;
       out = priced.intent;
+    }
+  }
+  // ═══ FIXED-LIMIT E3: RAISER FACING ONE 1-SMALL-BET RE-RAISE ═══
+  // A fixed-limit opener facing a 3-bet (2 BB -> 3 BB) or 3-bettor facing a
+  // 4-bet cap (3 BB -> 4 BB) owes at most one small bet into 5 to 8.5 small
+  // bets. Rescue an unpriced fold whenever realized equity against the
+  // re-raiser's range covers the raw 1-bet price plus survival risk.
+  if (
+    out.a === 'fold' &&
+    ctx.isFixedLimit === true &&
+    ctx.raises >= 2 &&
+    ctx.straddleActive !== true
+  ) {
+    const flVariantE3 = ctx.isOmaha
+      ? ctx.omahaHiLo === true
+        ? ('flo8' as const)
+        : null
+      : ctx.isShortDeck === true
+        ? null
+        : ('flh' as const);
+    const heroRaisedE3 =
+      ctx.fixedLimitHeroRaisedPreflop === true ||
+      ctx.heroWasInitialRaiser === true ||
+      ctx.heroPriorAction === 'open_raise' ||
+      ctx.heroPriorAction === 'three_bet' ||
+      ctx.heroPriorAction === 'four_bet_plus';
+    const pricePotE3 = Number.isFinite(ctx.contestablePot)
+      ? Math.max(0, ctx.contestablePot as number)
+      : ctx.pot;
+    const inPosE3 =
+      ctx.fixedLimitReraisedInPosition !== undefined
+        ? ctx.fixedLimitReraisedInPosition
+        : ctx.position === 'late';
+    const verdictE3 = fixedLimitRaiserContinuesVsOneBet({
+      isFixedLimit: ctx.isFixedLimit,
+      variant: flVariantE3,
+      dealt: ctx.tableSize ?? ctx.oppsLeft + 1,
+      raises: ctx.raises,
+      heroRaisedPreflop: heroRaisedE3,
+      strength: ctx.strength,
+      toCall: ctx.toCall,
+      stack: ctx.stack,
+      bigBlind: ctx.bigBlind,
+      pricePot: pricePotE3,
+      riskAdd: ctx.riskAdd,
+      inPosition: inPosE3,
+      wagersCapped: ctx.fixedLimitWagersCapped === true || ctx.reopenAllowed === false,
+      pendingRaisersBehind: ctx.fixedLimitReraisedPendingBehind ?? 0,
+      wideReRaiser: ctx.exploitReRaiser !== undefined || ctx.evidencedWideRaiser === true,
+      tightReRaiserBump:
+        (ctx.styleTightReRaiser?.callBump ?? 0) + (ctx.omahaTightReRaiser?.callBump ?? 0),
+    });
+    if (verdictE3?.calls === true) {
+      return { a: 'call' };
     }
   }
   // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
@@ -1548,7 +1637,7 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const pricedIn =
     ctx.mode !== undefined &&
     (guardOdds <= 0.15 ||
-      (effCall <= bb && guardOdds <= 0.22) ||
+      (effCall <= bb && guardOdds <= priceInOneBbOdds(ctx)) ||
       (isTourney && stackBB <= 2 && guardOdds <= 0.34) ||
       committedAllInPrice);
   if (!pricedIn) return out;
@@ -1989,7 +2078,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     ctx.mode !== undefined && // V11 on — ablation (mode absent) keeps legacy
     toCall > 0 &&
     (guardOdds <= 0.15 || // ~5.7:1 or better — never fold any two cards
-      (effCall <= bb && guardOdds <= 0.22) || // under 1bb more at 3.5:1+
+      (effCall <= bb && guardOdds <= priceInOneBbOdds(ctx)) || // under 1bb more at 3.5:1+
       // Tournament crumbs: with <=2bb behind, the blinds will eat the stack
       // anyway — take the flip instead of blinding out.
       (isTourney && stackBB <= 2 && guardOdds <= 0.34));
@@ -3997,7 +4086,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
   // ── Facing a 3-bet or bigger ──
   {
-    const ip = position === 'late';
+    const ip =
+      ctx.isFixedLimit === true && ctx.fixedLimitReraisedInPosition !== undefined
+        ? ctx.fixedLimitReraisedInPosition
+        : position === 'late';
     // V12 ANTI-EXPLOIT: a hunter's 3-bets get 4-bet and called wider.
     const hunted3 = Math.max(0, Math.min(1, ctx.targeted ?? 0));
     // V18: a squeeze is bluff-heavier than a cold 3-bet - the squeezer is
@@ -4024,8 +4116,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // stack-offs of 150bb or more, -63,663bb. The M-zones still own short
     // play - deepT is zero at 120bb and below, so nothing under that depth
     // changes, spins and SNGs included.
+    // EFFECTIVE DEPTH (2026-11-19, EMERG AUDIT-05): the war is fought for the chips BOTH sides can lose, so the
+    // depth is the smaller of hero's stack and the deepest live opponent's (effectiveStackBB), never hero's own
+    // stack alone. Reading `stackBB` here tightened a 400bb Horse facing a 100bb person's 3-bet as if 400bb deep
+    // (Omaha always takes this branch: the V73 read is hold'em only). The V73 read already uses effective depth.
+    const deepDepthBB =
+      ctx.deepDisciplineEffectiveDepth === true
+        ? Math.min(stackBB, ctx.effectiveStackBB ?? stackBB)
+        : stackBB;
     const deepT =
-      ctx.deepDiscipline === true && stackBB > 120 ? Math.min(0.05, (stackBB - 120) / 2600) : 0;
+      ctx.deepDiscipline === true && deepDepthBB > 120
+        ? Math.min(0.05, (deepDepthBB - 120) / 2600)
+        : 0;
     let fourBetThresh = phase6CapBar(
       t53(0.93 - (fourBetAggression - 1) * 0.04, 'fourBet') -
         0.04 * hunted3 -

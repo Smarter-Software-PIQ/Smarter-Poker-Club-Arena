@@ -14,6 +14,7 @@ import {
   EMPTY_PAST_START_CANCEL_AFTER_MS,
   EMPTY_PAST_START_CANCEL_RETRY_MS,
   EMPTY_PAST_START_LANE_BUSY_RETRY_MS,
+  emptyEventAwaitsOnlyItsTopUp,
   isCancellationLaneBusy,
   laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
@@ -86,7 +87,10 @@ describe('the discovery loop wiring', () => {
 
   it('asks the predicate with the complete roster read and the top-up backoff', () => {
     expect(start).toBeGreaterThan(-1);
-    expect(branch).toContain('shouldCancelEmptyPastStartEvent({');
+    // 2026-11-20: the event is built once, the host-pool read may complete it,
+    // then the predicate decides it.
+    expect(branch).toContain('const emptyEvent: EmptyPastStartEvent = {');
+    expect(branch).toContain('shouldCancelEmptyPastStartEvent(emptyEvent)');
     expect(branch).toContain('rosterCount: rosterByTournament.get(tournament.id)');
     expect(branch).toMatch(/emptyTopUps: Math\.max\(\s*emptyClock\?\.misses \?\? 0,/);
   });
@@ -256,5 +260,58 @@ describe('the cancellation lane', () => {
     expect(busyArm).toContain('cancelAskedAt: laneBusyCancelAskedAt(now),');
     expect(busyArm).not.toContain('reportError(');
     expect(busyArm).toContain('return;');
+  });
+});
+
+/**
+ * A CANCEL DOES NOT WAIT FOR A TOP-UP THAT CANNOT ADD ANYONE (2026-11-20).
+ * The 19:05 UTC cutover forgot every top-up clock; three empty 19:00 boards in
+ * horse-less clubs waited for a starved top-up and cancelled at 19:46-19:47
+ * while TournamentNeverStarted paged (it counts empty events from start + 40m).
+ */
+describe('an empty past-start event whose pool has no horse', () => {
+  const unasked = { ...empty, emptyTopUps: 0, nowMs: START + EMPTY_PAST_START_CANCEL_AFTER_MS };
+
+  it('is cancelled at thirty minutes without waiting for a top-up', () => {
+    expect(shouldCancelEmptyPastStartEvent({ ...unasked, hostPoolHasHorse: false })).toBe(true);
+  });
+
+  it('still waits for the top-up when the pool holds a horse or could not be read', () => {
+    expect(shouldCancelEmptyPastStartEvent({ ...unasked, hostPoolHasHorse: true })).toBe(false);
+    expect(shouldCancelEmptyPastStartEvent({ ...unasked, hostPoolHasHorse: null })).toBe(false);
+    expect(shouldCancelEmptyPastStartEvent({ ...unasked })).toBe(false);
+  });
+
+  it('never overrides an entrant, an unread roster, a finalized pool or the thirty minutes', () => {
+    const base = { ...unasked, hostPoolHasHorse: false as const };
+    expect(shouldCancelEmptyPastStartEvent({ ...base, rosterCount: 1 })).toBe(false);
+    expect(shouldCancelEmptyPastStartEvent({ ...base, rosterCount: undefined })).toBe(false);
+    expect(shouldCancelEmptyPastStartEvent({ ...base, currentPlayers: 2 })).toBe(false);
+    expect(shouldCancelEmptyPastStartEvent({ ...base, poolFinalized: true })).toBe(false);
+    expect(shouldCancelEmptyPastStartEvent({ ...base, seatFirst: true })).toBe(false);
+    expect(
+      shouldCancelEmptyPastStartEvent({ ...base, nowMs: START + EMPTY_PAST_START_CANCEL_AFTER_MS - 1 })
+    ).toBe(false);
+  });
+
+  it('asks for the pool only when the empty top-up is the one thing missing', () => {
+    expect(emptyEventAwaitsOnlyItsTopUp(unasked)).toBe(true);
+    expect(emptyEventAwaitsOnlyItsTopUp({ ...unasked, emptyTopUps: 1 })).toBe(false);
+    expect(emptyEventAwaitsOnlyItsTopUp({ ...unasked, rosterCount: 1 })).toBe(false);
+    expect(emptyEventAwaitsOnlyItsTopUp({ ...unasked, nowMs: START + 60_000 })).toBe(false);
+    expect(emptyEventAwaitsOnlyItsTopUp({ ...unasked, hostPoolHasHorse: true })).toBe(false);
+  });
+
+  it('is decided in the discovery pass before the cancel, through the host-pool read', () => {
+    const src = readFileSync(join(process.cwd(), 'src/GameServer.ts'), 'utf8');
+    const ask = src.indexOf('emptyEventAwaitsOnlyItsTopUp(emptyEvent)');
+    const decide = src.indexOf('shouldCancelEmptyPastStartEvent(emptyEvent)');
+    expect(ask).toBeGreaterThan(0);
+    expect(decide).toBeGreaterThan(ask);
+    expect(src.slice(ask, decide)).toContain('readEmptyEventHostPoolHorse');
+  });
+
+  it('cancels well inside the gauge that pages (start + 30 + OVERDUE_START_MINUTES)', () => {
+    expect(EMPTY_PAST_START_CANCEL_AFTER_MS).toBeLessThan((30 + 10) * 60_000);
   });
 });

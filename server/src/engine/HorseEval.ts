@@ -41,6 +41,7 @@ import {
 } from './VariantRules.js';
 import { isPotLimitVariant, isFixedLimitVariant } from './BettingStructure.js';
 import { equityGovernor, governedIterations } from './EquityLoadGovernor.js';
+import { isPlo45High } from './HorsePlo45High.js';
 
 /**
  * V13's precision floor for banded multiway Omaha. It applies at FULL
@@ -2418,6 +2419,22 @@ type OmahaReservoir = {
 const omahaReservoirs = new Map<string, OmahaReservoir>();
 const OMAHA_RESERVOIR_SIZE = 16384;
 
+/**
+ * UPGRADE 04 USE, PER DECISION (2026-11-21, evidence only). buildOmahaReservoir's
+ * counter fires once per process and shape, so it counts worker starts, not the
+ * decisions that rank Omaha hands against the reservoir. Every read of a reservoir
+ * (omahaPreflopPercentile, placeOmahaBandCombo, placeOmahaPressureCombo) adds one
+ * here: a plain integer, monotonic and never reset, read by nothing in a decision.
+ * The decision's owner (workerRuntime executeFastWithUpgradeEvidence) takes it
+ * before and after one FAST decision and, when it moved, fires
+ * upgrade04_reservoir_used_seen once for that decision. No counter call sits in the
+ * equity loops: a read costs one increment.
+ */
+let omahaReservoirReads = 0;
+export function omahaReservoirReadsTotal(): number {
+  return omahaReservoirReads;
+}
+
 function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir {
   // Evidence, once per process and reservoir: which reservoirs this process
   // built and therefore ranks Omaha hands against.
@@ -2973,6 +2990,7 @@ export function omahaPreflopPercentile(cards: Card[], isHiLo: boolean): number {
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
+  omahaReservoirReads++;
   const s = rv.scores;
   const n = s.length;
   if (n === 0) return raw;
@@ -3011,6 +3029,7 @@ export function placeOmahaBandCombo(
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
+  omahaReservoirReads++;
   const size = rv.scores.length;
   // Percentile (CDF-index) mapping, clamped to a legal slice.
   const lo = Math.max(0, Math.min(size - 1, Math.floor(clamp01(band[0]) * size)));
@@ -3085,6 +3104,7 @@ export function placeOmahaPressureCombo(
     reservoir = buildOmahaReservoir(holeCount, false);
     omahaReservoirs.set(key, reservoir);
   }
+  omahaReservoirReads++;
   const size = reservoir.scores.length;
   const range = band ?? [0, 1];
   if (!range.every(Number.isFinite) || range[1] <= range[0] || range[0] >= 1 || range[1] <= 0)
@@ -3249,6 +3269,37 @@ export interface HorseEquityOutcomeCollector {
   captureContinuation?: boolean;
   maxSamples: number;
   samples: HorseEquityOutcomeSample[];
+}
+
+// isPlo45High (the PLO4/PLO5 high-only scope of the 2026-11-19 batch) lives in HorsePlo45High.ts; re-exported here.
+export { isPlo45High };
+
+/**
+ * omahaBandFallbackInBandUnit (default OFF; CORE-LAND 2026-11-20 after lane DEPTH-GRADE): whether the PLO4/PLO5
+ * high fallback below measures in the band's percentile unit. Set by HorseLogic.decide from the decision's options
+ * for the length of the decision and restored after it; every other caller sees the live default (off: the raw
+ * score, the baseline every live decision was made under). Exact replay: with it on, two very strong hands
+ * (60178985 turn, 60167078 flop) lose the value raise the reference brain chose live (v53 pressure value raise,
+ * priced raise kept) and 5 of 56 recorded PLO5 decisions move, with no real-card grade yet, so the unit change
+ * ships behind a switch instead of as a no-switch delta.
+ */
+let omahaBandFallbackInBandUnitOn = false;
+/** Sets the decision-scoped flag and returns the previous value (to restore). */
+export function setOmahaBandFallbackInBandUnit(on: boolean): boolean {
+  const prev = omahaBandFallbackInBandUnitOn;
+  omahaBandFallbackInBandUnitOn = on;
+  return prev;
+}
+
+/**
+ * The strength an Omaha band hand is measured in by simulateEquity's rejection fallback. AUDIT-FILES-B (2026-11-19):
+ * the band is percentile-intent, so PLO4/PLO5 high measure the percentile (with omahaBandFallbackInBandUnit on);
+ * every other Omaha game (PLO6, hi-lo), and PLO4/PLO5 with the option off, keep the raw score exactly as before.
+ */
+export function omahaBandFallbackScore(cards: Card[], vi: VariantInfo): number {
+  return omahaBandFallbackInBandUnitOn && isPlo45High(vi)
+    ? omahaPreflopPercentile(cards, vi.isHiLo)
+    : omahaPreflopScore(cards, vi.isHiLo);
 }
 
 export function simulateEquity(
@@ -3503,9 +3554,14 @@ export function simulateEquity(
       const band = oppBands ? oppBands[o] : null;
       if (band) {
         if (rangeUse) rangeUse.bandMask |= 1 << o;
+        // AUDIT-FILES-B (2026-11-19): the band is PERCENTILE-intent (placeOmahaBandCombo
+        // maps it through the reservoir CDF). The raw Omaha score is compressed (median
+        // 0.24, p99 0.59), so measuring a percentile band against it, as this fallback
+        // did, read a top-40% band [0.6, 1] as beyond p99 and kept the strongest of the
+        // tries: the opponent drawn stronger than the read meant. Compare in the same unit.
         const scoreOf = (cards: Card[]): number =>
           vi.isOmaha
-            ? omahaPreflopScore(cards, vi.isHiLo)
+            ? omahaBandFallbackScore(cards, vi)
             : cards.length === 3
               ? pineapplePreflopScore(cards, vi.isShortDeck)
               : holdemPreflopScore(cards[0], cards[1], vi.isShortDeck);

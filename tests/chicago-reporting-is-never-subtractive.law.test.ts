@@ -127,9 +127,7 @@ function collectLatestFunctionDefinitions(): Map<string, { file: string; body: s
 function hasSubtractiveEdgeMath(rawDecl: string): boolean {
   const sql = stripSqlComments(rawDecl);
   // Pattern 1: `(SELECT ... daily_facts ...) - (SELECT ... ca_hand_facts ...)`
-  if (
-    /member_record_daily_facts[\s\S]*?\)\s*-\s*\(\s*SELECT[\s\S]*?ca_hand_facts/i.test(sql)
-  ) {
+  if (/member_record_daily_facts[\s\S]*?\)\s*-\s*\(\s*SELECT[\s\S]*?ca_hand_facts/i.test(sql)) {
     return true;
   }
   // Pattern 2: `coalesce(d.net, 0) - coalesce(r.net, 0)` (removed edge CTE)
@@ -182,9 +180,10 @@ describe('Chicago reporting functions are purely additive (never subtractive)', 
       }
     }
 
-    expect(offenders, `Subtractive Chicago reporting functions found: ${offenders.join(', ')}`).toEqual(
-      []
-    );
+    expect(
+      offenders,
+      `Subtractive Chicago reporting functions found: ${offenders.join(', ')}`
+    ).toEqual([]);
   });
 
   it('preserves security, timeouts, private ACLs, and @live-proof checks in the additive cash migration', () => {

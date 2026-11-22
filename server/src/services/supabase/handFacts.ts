@@ -1018,13 +1018,128 @@ export interface HandFactsInput {
    * protocol-2 commits; legacy callers continue through the direct writer.
    */
   collectOnly?: boolean;
+  /**
+   * The installed hand-content retention basis accepts stats_facts.horse_hole_cards (review B1,
+   * 2026-11-19): only then is the key attached. The caller asks the database once per refresh
+   * (HorseStatsBasisContract.horseHoleCardsBasisContract); absent or false, the payload carries exactly the
+   * keys an older basis accepts, so an engine that reaches the VPS before migration 20261120025753 never
+   * stops hand_history retention the way the horse_rollups key did on 2026-10-25.
+   */
+  horseHoleCardsAccepted?: boolean;
 }
+
+/**
+ * The top-level stats_facts keys the engine sends (review B1). ALWAYS: every payload. GATED: each only
+ * behind a database capability the caller reads first: horse_rollups behind HorseDailyRollupContract (the
+ * projector's contract; the retention basis accepts it since 20261105174453), horse_hole_cards behind
+ * HorseStatsBasisContract (public.horse_stats_basis_accepted_keys(), 20261120025753). Pinned against the
+ * database side by tests/a-stats-key-ships-only-where-the-retention-basis-accepts-it.law.test.ts.
+ */
+export const STATS_FACTS_ALWAYS_KEYS = Object.freeze(['version', 'facts', 'transfers'] as const);
+export const HORSE_HOLE_CARDS_STATS_KEY = 'horse_hole_cards' as const;
+export const STATS_FACTS_GATED_KEYS = Object.freeze([
+  'horse_rollups',
+  HORSE_HOLE_CARDS_STATS_KEY,
+] as const);
+export type StatsFactsGatedKey = (typeof STATS_FACTS_GATED_KEYS)[number];
 
 export interface DurableStatsFactPayload {
   horse_rollups?: import('../HorseDailyRollupFacts.js').HorseDailyRollupFacts;
+  /**
+   * Every Horse's own dealt hole cards for this hand. See horseDealtHoleCards.
+   * Absent when no Horse was dealt in, so a hand without a Horse carries
+   * exactly the bytes it always did.
+   */
+  horse_hole_cards?: HorseDealtHoleCards[];
   version: 2;
   facts: Record<string, unknown>[];
   transfers: Record<string, unknown>[];
+}
+
+/**
+ * ── EVERY HORSE'S DEALT HOLE CARDS ARE KEPT FOR AUDIT (Dan 2026-11-19) ──
+ *
+ * Dan ordered every Horse decision on every street audited. The six 48-hour
+ * audits (hvh48-audit-01TLQer7J) could price only about a quarter of them
+ * with exact cards, because a Horse's cards survived only where something
+ * else happened to keep them: showdown (hand_history.hole_cards), a fact row
+ * that put chips in (`hole_cards: invested > 0 ? cards : null` below), a
+ * one-day table_hole_cards row, a sparse horse_hand_reviews row. A Horse
+ * that folded preflop for free, and every Lightning fast fold, left nothing.
+ *
+ * This list rides the accepted-hand stats payload, so it is stored by the
+ * same transaction that accepts the hand (hand_atomic_commits.post_commit_
+ * payload) and reaches the Lightning settler intact (fn_lightning_hand_stats_
+ * facts passes the stats object through whole). The post-commit projector
+ * (ca_project_hand_stats_facts) copies it into the service-only table
+ * smarter_private.horse_dealt_hole_cards, re-checking profiles.is_horse
+ * itself. Nothing on the decision path reads it.
+ *
+ * HORSES ONLY. A human's unshown cards never enter this list: only roster
+ * entries flagged isHorse === true are read, and the database drops any entry
+ * whose profile is not a Horse. Cards are written as two-character strings
+ * ('As', 'Td'); an entry with any card that does not read cleanly is left out
+ * rather than guessed.
+ */
+export interface HorseDealtHoleCards {
+  user_id: string;
+  seat: number;
+  cards: string[];
+}
+
+const DEALT_RANK: Record<string, string> = {
+  '2': '2',
+  '3': '3',
+  '4': '4',
+  '5': '5',
+  '6': '6',
+  '7': '7',
+  '8': '8',
+  '9': '9',
+  '10': 'T',
+  T: 'T',
+  J: 'J',
+  Q: 'Q',
+  K: 'K',
+  A: 'A',
+};
+const DEALT_SUIT: Record<string, string> = {
+  spades: 's',
+  hearts: 'h',
+  diamonds: 'd',
+  clubs: 'c',
+  s: 's',
+  h: 'h',
+  d: 'd',
+  c: 'c',
+};
+
+/** One card as 'As', or null when it does not read as a real card. Pure. */
+export function dealtCardCode(card: unknown): string | null {
+  if (!card || typeof card !== 'object') return null;
+  const c = card as { rank?: unknown; suit?: unknown };
+  if (typeof c.rank !== 'string' || typeof c.suit !== 'string') return null;
+  const rank = DEALT_RANK[c.rank.toUpperCase()];
+  const suit = DEALT_SUIT[c.suit.toLowerCase()];
+  return rank && suit ? rank + suit : null;
+}
+
+/** Every Horse's own dealt cards, by seat. Humans are never read. Pure. */
+export function horseDealtHoleCards(
+  holeCardsAll: ReadonlyMap<string, { seat: number; cards: unknown }>,
+  roster: ReadonlyArray<{ userId: string; isHorse: boolean }>
+): HorseDealtHoleCards[] {
+  const horses = new Set(roster.filter((p) => p.isHorse === true).map((p) => p.userId));
+  const out: HorseDealtHoleCards[] = [];
+  for (const [userId, dealt] of holeCardsAll) {
+    if (!horses.has(userId)) continue;
+    if (!Number.isInteger(dealt?.seat) || dealt.seat < 0 || dealt.seat > 10) continue;
+    if (!Array.isArray(dealt.cards) || dealt.cards.length < 2 || dealt.cards.length > 7) continue;
+    const cards = dealt.cards.map(dealtCardCode);
+    if (cards.some((c) => c === null) || new Set(cards).size !== cards.length) continue;
+    out.push({ user_id: userId, seat: dealt.seat, cards: cards as string[] });
+  }
+  return out.sort((a, b) => a.seat - b.seat);
 }
 
 /**
@@ -1416,6 +1531,11 @@ export async function writeHandFacts(
       facts: factRows,
       transfers,
     };
+    const horseHoleCards = horseDealtHoleCards(input.holeCardsAll, input.roster);
+    // Only where the installed retention basis accepts the key (review B1): an older basis refuses
+    // any unknown top-level key and would stop hand_history retention.
+    if (horseHoleCards.length > 0 && input.horseHoleCardsAccepted === true)
+      payload.horse_hole_cards = horseHoleCards;
     if (input.collectOnly) return payload;
 
     const { error: factErr } = await supabase

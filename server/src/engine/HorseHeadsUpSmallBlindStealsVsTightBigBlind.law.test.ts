@@ -36,8 +36,20 @@ import { horseVariantRulesFor } from './VariantRules.js';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import { HORSE_HYBRID_PROFILES } from './HorseHybridProfile.js';
 import { HorseMind } from './HorseMind.js';
-import { freshExploitCounters, opponentExploitRead } from './HorseOpponentExploit.js';
 import {
+  EXPLOIT_CREDIBILITY,
+  EXPLOIT_PRIOR_STRENGTH,
+  betaCdf,
+  exploitEnvelopeFor,
+  exploitHandIncrements,
+  freshExploitCounters,
+  observeExploitRow,
+  opponentExploitRead,
+  type ExploitCounters,
+  type ExploitHandAction,
+} from './HorseOpponentExploit.js';
+import {
+  HU_BIG_BLIND_HAND_SHARE_BOUND,
   HU_STEAL_CASH_OPEN_CEILING_BB,
   HU_STEAL_TOURNAMENT_OPEN_CEILING_BB,
   huTightBigBlindSteal,
@@ -177,11 +189,15 @@ function stateFor(spot: Spot, hole: Card[]) {
 
 type Pick = { action: string; amount: number | undefined };
 /** Every class through the real HorseLogic.decide, the big blind's row in the decision sandbox. */
-function sweep(spot: Spot, opts: Record<string, unknown>, row: Row | null): Record<string, Pick> {
+function sweep(
+  spot: Spot,
+  opts: Record<string, unknown>,
+  row: Row | ExploitCounters | null
+): Record<string, Pick> {
   const mode = spot.mode ?? 'cash';
   const hybrid = HORSE_HYBRID_PROFILES[mode === 'tournament' ? 'tournament' : 'cash'];
   const sb = HorseMind.createSandbox();
-  if (row) sb.exploit.set(`nlh:${mode}:hu|${BIG}`, counters(row));
+  if (row) sb.exploit.set(`nlh:${mode}:hu|${BIG}`, 'rfiOpp' in row ? { ...row } : counters(row));
   return HorseMind.runInSandbox(sb, () => {
     const out: Record<string, Pick> = {};
     for (const h of HAND_CLASSES) {
@@ -207,7 +223,11 @@ const spot = (over: Partial<Spot> = {}): Spot => ({ stackBB: 40, ...over });
 const twoLeft = (over: Partial<Spot> = {}): Spot =>
   spot({ mode: 'tournament', tournament: TWO_LEFT, ...over });
 
-function changes(s: Spot, row: Row | null = NIT, on: Record<string, unknown> = ON) {
+function changes(
+  s: Spot,
+  row: Row | ExploitCounters | null = NIT,
+  on: Record<string, unknown> = ON
+) {
   const withOn = sweep(s, on, row);
   const withOff = sweep(s, {}, row);
   const classes = Object.keys(withOn).filter((k) => withOn[k].action !== withOff[k].action);
@@ -376,5 +396,273 @@ describe('the league card and the two tight heads-up personas', () => {
       humanPersona: HU_NIT_BIG_BLIND_PERSONA,
     });
     expect(card?.memoryLearning).toBeUndefined();
+  });
+});
+
+/**
+ * Fold-share estimate assumptions required by the exact-head review
+ * (Hand Analysis, 0039d2bc, N5). These cases pin the real engine behavior so
+ * any future change to the posterior estimator, seat-share assumption, or
+ * walk/limped-pot accounting breaks this law visibly.
+ */
+describe('fold-share estimate assumptions (exact-head review 0039d2bc, N5)', () => {
+  const cashRisk = HU_STEAL_CASH_OPEN_CEILING_BB - 0.5;
+  const deadBB = 1.5;
+  const cashBreakEven = cashRisk / (cashRisk + deadBB);
+  const vpipCutoff = (1 - cashBreakEven) / HU_BIG_BLIND_HAND_SHARE_BOUND;
+
+  const forcedPosts = (sbId: string, bbId: string): ExploitHandAction[] => [
+    { userId: sbId, stage: 'preflop', action: 'post_sb', amount: 1, origin: 'forced' },
+    { userId: bbId, stage: 'preflop', action: 'post_bb', amount: 2, origin: 'forced' },
+  ];
+
+  const accumulateHands = (hands: ReadonlyArray<readonly ExploitHandAction[]>): ExploitCounters => {
+    const store = new Map<string, ExploitCounters>();
+    for (const actions of hands) {
+      for (const [userId, inc] of exploitHandIncrements(actions)) {
+        observeExploitRow(store, `holdem:hu|${userId}`, inc, 64, true);
+      }
+    }
+    const row = store.get(`holdem:hu|${BIG}`);
+    if (!row) throw new Error('expected accumulated exploit counters for BIG');
+    return row;
+  };
+
+  const readBig = (c: ExploitCounters) =>
+    huTightFolderRead(c, 'holdem:hu', 'nlh', opponentExploitRead(c, 'holdem:hu', 'nlh'));
+
+  it('assumption 1 (posterior mean VPIP): uses the Beta posterior mean, neither a 90% credible upper bound nor raw sample VPIP', () => {
+    const env = exploitEnvelopeFor('holdem:hu', 'nlh')!;
+    const k = EXPLOIT_PRIOR_STRENGTH;
+
+    // 1a. Not a credible upper bound: 2 VPIP in 30 decayed hands has posterior
+    // mean < 1/6 (so 1 - 2 * mean > 2/3 clears cash break-even), while P(VPIP <= 1/6)
+    // is still below EXPLOIT_CREDIBILITY (0.90), so the 90% upper bound exceeds 1/6.
+    const meanClearsUpperFails = freshExploitCounters();
+    meanClearsUpperFails.hands = 30;
+    meanClearsUpperFails.vpip = 2;
+    meanClearsUpperFails.pfr = 1;
+    meanClearsUpperFails.fHands = 20;
+    meanClearsUpperFails.fPfr = 1;
+
+    const alpha1 = env.vpip.mean * k + 2;
+    const beta1 = (1 - env.vpip.mean) * k + (30 - 2);
+    const expectedMean1 = alpha1 / (alpha1 + beta1);
+    expect(betaCdf(vpipCutoff, alpha1, beta1)).toBeLessThan(EXPLOIT_CREDIBILITY);
+
+    const r1 = readBig(meanClearsUpperFails);
+    expect(r1?.folder).toBe(true);
+    expect(r1?.vpip).toBeCloseTo(expectedMean1, 12);
+
+    const s1 = huTightBigBlindSteal(r1, cashRisk, deadBB);
+    expect(s1).not.toBeNull();
+    expect(s1!.pFoldLower).toBeCloseTo(1 - HU_BIG_BLIND_HAND_SHARE_BOUND * expectedMean1, 12);
+    expect(s1!.pFoldLower).toBeGreaterThan(cashBreakEven);
+
+    const d1 = changes(spot(), meanClearsUpperFails);
+    expect(Object.values(d1.on).every((p) => p.action === 'raise')).toBe(true);
+    expect(d1.classes.length).toBeGreaterThanOrEqual(15);
+
+    // 1b. Not raw sample VPIP: 6 VPIP in 45 decayed hands has raw VPIP 0.1333
+    // (1 - 2 * raw = 0.7333 > 2/3), and is still a proven tight folder, yet the
+    // prior-shrunk posterior mean exceeds 1/6 so 1 - 2 * mean < 2/3 refuses.
+    const rawClearsMeanFails = freshExploitCounters();
+    rawClearsMeanFails.hands = 45;
+    rawClearsMeanFails.vpip = 6;
+    rawClearsMeanFails.pfr = 2;
+    rawClearsMeanFails.fHands = 20;
+    rawClearsMeanFails.fPfr = 1;
+
+    const alpha2 = env.vpip.mean * k + 6;
+    const beta2 = (1 - env.vpip.mean) * k + (45 - 6);
+    const expectedMean2 = alpha2 / (alpha2 + beta2);
+    expect(1 - HU_BIG_BLIND_HAND_SHARE_BOUND * (6 / 45)).toBeGreaterThan(cashBreakEven);
+    expect(1 - HU_BIG_BLIND_HAND_SHARE_BOUND * expectedMean2).toBeLessThan(cashBreakEven);
+
+    const r2 = readBig(rawClearsMeanFails);
+    expect(r2?.folder).toBe(true);
+    expect(r2?.vpip).toBeCloseTo(expectedMean2, 12);
+    expect(huTightBigBlindSteal(r2, cashRisk, deadBB)).toBeNull();
+    expect(changes(spot(), rawClearsMeanFails).classes).toEqual([]);
+  });
+
+  it('assumption 2 (half of counted hands as big blinds): applies a fixed 2x VPIP factor with no seat split in counters', () => {
+    expect(HU_BIG_BLIND_HAND_SHARE_BOUND).toBe(2);
+    expect(Object.keys(freshExploitCounters()).filter((k) => /bb|sb|blind|seat/i.test(k))).toEqual(
+      []
+    );
+
+    // Direct 2x boundary check (a 1x factor would accept vpip 0.17; a 2.5x factor would reject 0.15).
+    expect(huTightBigBlindSteal({ hands: 40, folder: true, vpip: 0.16 }, cashRisk, deadBB)).toEqual(
+      {
+        pFoldLower: 1 - 2 * 0.16,
+        breakEven: cashBreakEven,
+      }
+    );
+    expect(
+      huTightBigBlindSteal({ hands: 40, folder: true, vpip: 0.17 }, cashRisk, deadBB)
+    ).toBeNull();
+    // Floors at 0 when 2 * vpip > 1 even against a tiny break-even bar.
+    expect(huTightBigBlindSteal({ hands: 40, folder: true, vpip: 0.51 }, 0.1, 10)).toBeNull();
+
+    // Seat-skewed history: 80% of BIG's counted hands are small-blind folds and
+    // only 20% are big blinds facing an open, where BIG defends 50% (true BB fold
+    // share 0.50 < cash break-even 0.667). Because the estimate assumes half of
+    // counted hands were big blinds (1 - 2 * VPIP), the steal fires anyway.
+    const hands: ExploitHandAction[][] = [];
+    for (let i = 0; i < 200; i++) {
+      const m = i % 10;
+      if (m < 8) {
+        hands.push([
+          ...forcedPosts(BIG, HERO),
+          { userId: BIG, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+        ]);
+      } else if (m === 8) {
+        hands.push([
+          ...forcedPosts(HERO, BIG),
+          { userId: HERO, stage: 'preflop', action: 'raise', amount: 5, origin: 'horse_policy' },
+          { userId: BIG, stage: 'preflop', action: 'call', amount: 3, origin: 'horse_policy' },
+        ]);
+      } else {
+        hands.push([
+          ...forcedPosts(HERO, BIG),
+          { userId: HERO, stage: 'preflop', action: 'raise', amount: 5, origin: 'horse_policy' },
+          { userId: BIG, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+        ]);
+      }
+    }
+    const c = accumulateHands(hands);
+    const r = readBig(c);
+    expect(r?.folder).toBe(true);
+    const s = huTightBigBlindSteal(r, cashRisk, deadBB);
+    expect(s).not.toBeNull();
+    expect(s!.pFoldLower).toBeCloseTo(1 - 2 * r!.vpip, 12);
+    expect(s!.pFoldLower).toBeGreaterThan(cashBreakEven);
+
+    const d = changes(spot(), c);
+    expect(Object.values(d.on).every((p) => p.action === 'raise')).toBe(true);
+    expect(d.classes.length).toBeGreaterThanOrEqual(15);
+  });
+
+  it('assumption 3a (walks not separated): heads-up walks omit the big blind from counted hands, skewing an even 50/50 match', () => {
+    const walkHand: ExploitHandAction[] = [
+      ...forcedPosts(HERO, BIG),
+      { userId: HERO, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+    ];
+    const walkInc = exploitHandIncrements(walkHand);
+    expect(walkInc.has(BIG)).toBe(false);
+    expect(walkInc.get(HERO)).toMatchObject({ hands: 1, vpip: 0, rfiOpp: 1 });
+
+    // Strictly alternating 50/50 match (240 dealt hands: 120 BIG SB, 120 BIG BB).
+    // On 90 of BIG's 120 big blinds HERO folds SB (walks: BIG never acts, 0 counted
+    // hands). On the 30 big blinds where HERO opens, BIG calls 15 and folds 15
+    // (true BB fold share vs open = 50% < 66.7%). On BIG's 120 small blinds BIG
+    // folds. Dropping walks leaves BIG with 120 SB / 30 BB counted hands (20% BB),
+    // so 1 - 2 * VPIP clears break-even and steals every hand.
+    const hands: ExploitHandAction[][] = [];
+    let countedBigHands = 0;
+    let bbFacedOpen = 0;
+    let bbFolded = 0;
+    for (let i = 0; i < 240; i++) {
+      let actions: ExploitHandAction[];
+      if (i % 2 === 0) {
+        actions = [
+          ...forcedPosts(BIG, HERO),
+          { userId: BIG, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+        ];
+      } else {
+        const bbIndex = (i - 1) / 2;
+        if (bbIndex % 4 !== 3) {
+          actions = walkHand;
+        } else {
+          bbFacedOpen++;
+          const fold = bbFacedOpen % 2 === 0;
+          if (fold) bbFolded++;
+          actions = [
+            ...forcedPosts(HERO, BIG),
+            { userId: HERO, stage: 'preflop', action: 'raise', amount: 5, origin: 'horse_policy' },
+            {
+              userId: BIG,
+              stage: 'preflop',
+              action: fold ? 'fold' : 'call',
+              amount: fold ? 0 : 3,
+              origin: 'horse_policy',
+            },
+          ];
+        }
+      }
+      if (exploitHandIncrements(actions).has(BIG)) countedBigHands++;
+      hands.push(actions);
+    }
+    expect(countedBigHands).toBe(150);
+    expect(bbFacedOpen).toBe(30);
+    expect(bbFolded / bbFacedOpen).toBe(0.5);
+
+    const c = accumulateHands(hands);
+    const r = readBig(c);
+    expect(r?.folder).toBe(true);
+    const s = huTightBigBlindSteal(r, cashRisk, deadBB);
+    expect(s).not.toBeNull();
+    expect(s!.pFoldLower).toBeCloseTo(1 - 2 * r!.vpip, 12);
+    expect(s!.pFoldLower).toBeGreaterThan(cashBreakEven);
+
+    const d = changes(spot(), c);
+    expect(Object.values(d.on).every((p) => p.action === 'raise')).toBe(true);
+    expect(d.classes.length).toBeGreaterThanOrEqual(15);
+  });
+
+  it('assumption 3b (limped pots not separated): a checked big blind in a limped pot counts hands +1 with vpip +0 like a fold', () => {
+    const limpedCheckHand: ExploitHandAction[] = [
+      ...forcedPosts(HERO, BIG),
+      { userId: HERO, stage: 'preflop', action: 'call', amount: 1, origin: 'horse_policy' },
+      { userId: BIG, stage: 'preflop', action: 'check', amount: 0, origin: 'horse_policy' },
+    ];
+    const foldedBbHand: ExploitHandAction[] = [
+      ...forcedPosts(HERO, BIG),
+      { userId: HERO, stage: 'preflop', action: 'raise', amount: 5, origin: 'horse_policy' },
+      { userId: BIG, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+    ];
+    const limpInc = exploitHandIncrements(limpedCheckHand).get(BIG)!;
+    const foldInc = exploitHandIncrements(foldedBbHand).get(BIG)!;
+    expect(limpInc).toMatchObject({ hands: 1, vpip: 0 });
+    expect(foldInc).toMatchObject({ hands: 1, vpip: 0 });
+
+    // Strictly alternating 50/50 match (200 dealt hands: 100 BIG SB, 100 BIG BB).
+    // On every single big blind HERO limps and BIG checks (0 big-blind folds in the
+    // entire match). On BIG's small blinds BIG raises 20% and folds 80%. Because
+    // checked limped pots add hands +1 and vpip +0 without separation, VPIP reads
+    // ~10%, 1 - 2 * VPIP clears break-even, and the steal opens every hand.
+    const hands: ExploitHandAction[][] = [];
+    for (let i = 0; i < 200; i++) {
+      if (i % 2 === 1) {
+        hands.push(limpedCheckHand);
+      } else {
+        const sbIndex = i / 2;
+        if (sbIndex % 5 === 0) {
+          hands.push([
+            ...forcedPosts(BIG, HERO),
+            { userId: BIG, stage: 'preflop', action: 'raise', amount: 5, origin: 'horse_policy' },
+            { userId: HERO, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+          ]);
+        } else {
+          hands.push([
+            ...forcedPosts(BIG, HERO),
+            { userId: BIG, stage: 'preflop', action: 'fold', amount: 0, origin: 'horse_policy' },
+          ]);
+        }
+      }
+    }
+
+    const c = accumulateHands(hands);
+    const r = readBig(c);
+    expect(r?.folder).toBe(true);
+    const s = huTightBigBlindSteal(r, cashRisk, deadBB);
+    expect(s).not.toBeNull();
+    expect(s!.pFoldLower).toBeCloseTo(1 - 2 * r!.vpip, 12);
+    expect(s!.pFoldLower).toBeGreaterThan(cashBreakEven);
+
+    const d = changes(spot(), c);
+    expect(Object.values(d.on).every((p) => p.action === 'raise')).toBe(true);
+    expect(d.classes.length).toBeGreaterThanOrEqual(15);
   });
 });

@@ -14,7 +14,7 @@ import { publicHandStatsFrame } from './presentation/publicHandStats.ts';
 import { PostHandStageTiming } from './PostHandStageTiming.ts';
 import { privateHorseTurnClocks } from './HorseTurnClockReceipt.ts';
 import { captureAcceptedTerminal } from '../services/horseDecisionJournal/acceptedTerminal.ts';
-import { resolveReleaseIdentity } from '../releaseIdentity.ts';
+import { handRowEngineBuild, resolveReleaseIdentity } from '../releaseIdentity.ts';
 import {
   publicMemoryDomainIsValid,
   publicMemoryDomainFromRules,
@@ -89,6 +89,7 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     // This VM models an older projector, so it keeps the legacy writer.
     process: { env: {} },
     horseDailyRollupContract: async () => false,
+    horseHoleCardsBasisContract: async () => false,
     Math,
     Number,
     Boolean,
@@ -109,10 +110,14 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     privateHorseTurnClocks,
     captureAcceptedTerminal,
     resolveReleaseIdentity,
+    handRowEngineBuild,
     publicMemoryDomainIsValid,
     publicMemoryDomainFromRules,
     // The extracted logHandHistory counts each accepted hand once (HVH2D-EXE-002).
     countLoggedHandMemoryDomain,
+    // The extracted logHandHistory feeds the accepted hand to the opponent HUD store (fire and forget,
+    // never throws); this VM models the commit boundary only, so the store is an inert receiver here.
+    opponentHudOnAcceptedHand: () => {},
     // postHandTasks counts each settled hand's memory domain once (evidence only).
     noteFire,
     handStackBefore,

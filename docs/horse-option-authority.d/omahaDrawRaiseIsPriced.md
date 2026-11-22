@@ -29,7 +29,7 @@ The opponent read comes through one interface (`omahaPricedReadOfUser`, HorseOma
 
 ## Receipts
 
-omaha_priced_draw_raise_kept, \_called, \_unpriced_kept, \_site_admitted, \_site_withheld (HorseDataLedger.ts).
+omaha_priced_draw_raise_kept, \_called, \_unpriced_kept, \_site_admitted, \_site_withheld (HorseDataLedger.ts); under omahaPricedMix, \_mixed_kept (a raise the mix took, not priced above the call, kept) and \_mixed_called (a raise priced above the call that the mix turned into the call), so the kept and called words are true.
 
 ## Tests
 

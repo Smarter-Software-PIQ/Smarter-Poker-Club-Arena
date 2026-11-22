@@ -74,6 +74,7 @@ type Case = {
   pages?: unknown[];
   health?: string;
   message?: string;
+  policy?: Record<string, unknown>;
 };
 
 const epoch = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
@@ -81,11 +82,21 @@ const epoch = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
 function admit(c: Case) {
   const dir = mkdtempSync(join(tmpdir(), 'daily-prep-'));
   try {
-    const policy = JSON.parse(
-      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
-    );
-    policy.phase1Status = 'off';
-    policy.completionEvidence = 'isolated daily-preparation fixture';
+    const policy = c.policy ?? {
+      // The retained v1 shape keeps this daily/Phase1 law on its own route;
+      // the protected v2 three-hourly policy (2026-11-21) is pinned by
+      // tests/the-engine-cuts-over-every-three-hours.law.test.ts.
+      schema: 'engine-maintenance-schedule/v1',
+      policyId: 'phase1-hourly-01a1944f',
+      timeZone: 'America/Chicago',
+      phase1Status: 'off',
+      ownerMessageId: '01a1944f-7131-7f11-8dcc-873d576e781c',
+      completionEvidence: null as string | null,
+    };
+    if (!c.policy) {
+      policy.phase1Status = 'off';
+      policy.completionEvidence = 'isolated daily-preparation fixture';
+    }
     mkdirSync(join(dir, 'server/scripts'), { recursive: true });
     writeFileSync(
       join(dir, 'server/scripts/engine-release-seal.py'),
@@ -433,10 +444,13 @@ describe('the workflow adds chances, not authority', () => {
     );
   });
 
-  it('retains only daily odd-minute DST chances', () => {
+  it('retains only odd-minute DST chances', () => {
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 3,8 * * *' },
-      { cron: '31,35,39,43 4,9 * * *' },
+      // Every three-hourly preparation hour and the reservation hour before
+      // it, in both offsets (owner order 2026-11-21); the daily policy admits
+      // only 03:30 from the same events.
+      { cron: '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *' },
+      { cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'detect',
@@ -450,7 +464,8 @@ describe('the workflow adds chances, not authority', () => {
     expect(admissionStep.env.PUSHED_AT).toBe("${{ github.event.repository.pushed_at || '' }}");
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(admission).not.toMatch(/dispatches|--method|-X POST|sleep|while true/);
-    expect(admission).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
+    expect(admission).toContain('WINDOW_MINUTES = 20');
+    expect(admission).toContain('LOOKBACK = timedelta(hours=5) if not three_hourly');
     expect(admission).toContain('ZoneInfo("America/Chicago")');
   });
 });
@@ -538,6 +553,104 @@ describe('the original reserved job waits once and expires without a release', (
       // so the window installer is launched once (2026-11-14).
       expect(result.output).not.toContain('sha=');
       expect(result.output).toBe(args[2] ? 'successor=unknown\n' : '');
+    }
+  });
+});
+
+describe('the real protected policy gets an early reservation before every cycle, winter and summer', () => {
+  // The protected v2 policy itself (three-hourly since 2026-11-21) and its
+  // daily setting: the same file with frequency "daily".
+  const real = JSON.parse(
+    readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+  );
+  const threeHourly = { ...real, frequency: 'three-hourly' };
+  const daily = { ...real, frequency: 'daily' };
+  const serving = JSON.stringify({
+    liveness: 'ok',
+    maintenance: {
+      schedule: { frequency: 'three-hourly', startHours: [1, 4, 7, 10, 13, 16, 19, 22] },
+    },
+  });
+  // Every UTC instant the workflow's own cron lines fire in a day.
+  function fires(cronLines: string[], dayIso: string): number[] {
+    const base = Date.parse(`${dayIso}T00:00:00Z`);
+    const out: number[] = [];
+    for (const line of cronLines) {
+      const [minutes, hours, ...rest] = line.split(' ');
+      expect(rest).toEqual(['*', '*', '*']);
+      for (const d of [-1, 0, 1])
+        for (const h of hours.split(','))
+          for (const m of minutes.split(','))
+            out.push(base + d * 86_400_000 + Number(h) * 3_600_000 + Number(m) * 60_000);
+    }
+    return out.sort((a, b) => a - b);
+  }
+  // Each cycle start on this Chicago date: its first early cron firing inside
+  // the reservation (cutoff - lookback .. cutoff) must reserve that cycle.
+  function covered(
+    cronLines: string[],
+    dayIso: string,
+    cycles: string[],
+    policy: Record<string, unknown>,
+    lookbackMinutes: number
+  ): string[] {
+    const missing: string[] = [];
+    const all = fires(cronLines, dayIso);
+    for (const startIso of cycles) {
+      const cutoff = Date.parse(startIso) - 1_800_000;
+      const early = all.find((t) => cutoff - lookbackMinutes * 60_000 <= t && t < cutoff);
+      if (early === undefined) {
+        missing.push(startIso);
+        continue;
+      }
+      const { outputs } = admit({
+        event: 'schedule',
+        createdAt: new Date(early).toISOString(),
+        policy,
+        health: serving,
+      });
+      expect(outputs.daily_preparation, startIso).toBe('true');
+      expect(Number(outputs.cutoff_epoch), startIso).toBe(cutoff / 1000);
+    }
+    return missing;
+  }
+  const crons = (stage.on.schedule as { cron: string }[]).map((s) => s.cron);
+  const oldCrons = [
+    '31,35,39,43 0,2,3,5,6,8,9,11 * * *',
+    '31,35,39,43 12,14,15,17,18,20,21,23 * * *',
+  ];
+  // Chicago 01,04,...,22 as UTC: CST (UTC-6) on 2026-12-15, CDT (UTC-5) on 2027-06-15.
+  const winter = [1, 4, 7, 10, 13, 16, 19, 22].map((h) =>
+    new Date(Date.parse('2026-12-15T06:00:00Z') + h * 3_600_000).toISOString()
+  );
+  const summer = [1, 4, 7, 10, 13, 16, 19, 22].map((h) =>
+    new Date(Date.parse('2027-06-15T05:00:00Z') + h * 3_600_000).toISOString()
+  );
+
+  it('three-hourly: every cycle, CST and CDT, has a reserving run before its :30', () => {
+    expect(covered(crons, '2026-12-15', winter, threeHourly, 100)).toEqual([]);
+    expect(covered(crons, '2027-06-15', summer, threeHourly, 100)).toEqual([]);
+  });
+
+  it('the previous cron lines left every CDT cycle without an early reservation', () => {
+    expect(covered(oldCrons, '2027-06-15', summer, threeHourly, 100)).toEqual(summer);
+  });
+
+  it('daily: the 04:00 anchor is reserved early in both offsets, and no other cycle', () => {
+    for (const [day, anchor] of [
+      ['2026-12-15', '2026-12-15T10:00:00Z'],
+      ['2027-06-15', '2027-06-15T09:00:00Z'],
+    ]) {
+      expect(covered(crons, day, [anchor], daily, 300)).toEqual([]);
+      // A three-hourly-only preparation (07:00 cycle, 06:31 Chicago) prepares nothing.
+      const seven = Date.parse(anchor) + 3 * 3_600_000 - 1_800_000 + 60_000;
+      const { outputs } = admit({
+        event: 'schedule',
+        createdAt: new Date(seven).toISOString(),
+        policy: daily,
+        health: serving,
+      });
+      expect(outputs.daily_preparation, day).toBe('false');
     }
   });
 });

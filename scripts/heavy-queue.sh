@@ -53,6 +53,12 @@ cmd_status() {
   echo "heavy-job queue: $q"
   [ -n "${HQ_DIR_NOTE:-}" ] && echo "  note: $HQ_DIR_NOTE"
   echo "  slots: $slots concurrent heavy jobs ($(hq_cores) cores); load averages: $(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{ $1 = $1; print }')"
+  echo "  load ceiling: $(hq_load_ceiling) (a free slot waits while the 1-minute load is above it and a heavy job runs; 0 = off)"
+  local typ
+  if typ=$(hq_typical_run "$q"); then
+    echo "  typical heavy job: $(( (typ + 59) / 60 )) min (median of the last $(wc -l < "$q/history" | tr -d ' ') runs)"
+  fi
+  echo "  still running in pre-2026-11-20 queue folders (they hold slots here): $(hq_legacy_running)"
   printf '  %-8s %-7s %-8s %-7s %-40s %s\n' TICKET STATE PID AGE LABEL WORKTREE
   for t in "$q"/tickets/*; do
     case "$t" in *.run | *'*') continue ;; esac

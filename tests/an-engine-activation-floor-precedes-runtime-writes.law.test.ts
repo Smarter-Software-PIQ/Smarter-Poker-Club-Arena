@@ -51,6 +51,13 @@ const groups = [
       'test_owner_window_2026_11_19_owner_no_notice_engine_1510z_binds_fresh_authority_to_its_serving_predecessor',
       'test_owner_window_2026_11_19_owner_no_notice_engine_2030z_binds_fresh_authority_to_its_serving_predecessor',
       'test_owner_window_2026_11_20_owner_no_notice_engine_0430z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_20_owner_no_notice_engine_1730z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_20_owner_no_notice_engine_2130z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_20_owner_no_notice_engine_2330z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_21_owner_no_notice_engine_0300z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_21_owner_no_notice_engine_0825z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_21_owner_no_notice_engine_1135z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_21_owner_no_notice_engine_1906z_binds_fresh_authority_to_its_serving_predecessor',
       'test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry',
       'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
       'test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority',
@@ -147,7 +154,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(82);
+  expect(selected).toHaveLength(89);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 420_000);

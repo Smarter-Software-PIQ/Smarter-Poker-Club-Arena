@@ -525,8 +525,10 @@ abbr.lt-variant[title] {
 /* Status badges — always text, never color alone */
 .lt-statuscell {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 4px;
 }
 .lt-status {
   display: inline-block;
@@ -602,6 +604,92 @@ abbr.lt-variant[title] {
 }
 .lt-fav.is-on {
   color: var(--warning-gold, #ffd700);
+}
+
+/* Direct lobby row Invite To Game button (Cash, MTT, Spin, SNG, Satellite) */
+.lt-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid rgb(69 173 255 / 45%);
+  border-radius: 999px;
+  background: rgb(22 139 255 / 16%);
+  color: #8fd4ff;
+  font:
+    700 0.64rem/1 'Roboto Condensed',
+    Inter,
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lt-invite-btn svg {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.lt-invite-btn.is-done {
+  border-color: rgb(53 217 90 / 55%);
+  background: rgb(53 217 90 / 16%);
+  color: #c8ffd2;
+}
+
+.lt-invite-btn:active {
+  filter: brightness(1.25);
+}
+
+.lt-invite-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.lt-invite-fallback {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 9500;
+  width: min(460px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgb(8 13 22 / 96%);
+  border: 1px solid rgb(69 173 255 / 42%);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 75%);
+}
+
+.lt-invite-fallback__close {
+  align-self: flex-end;
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  background: rgb(255 255 255 / 10%);
+  color: #e6ecf5;
+  font:
+    700 0.75rem/1 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.lt-invite-fallback__close:active {
+  filter: brightness(1.2);
+}
+
+.lt-invite-fallback__close:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
 }
 
 /* Skeleton rows */
@@ -1434,14 +1522,16 @@ abbr.lt-variant[title] {
 
   /* Dan: "you can remove the Late Reg pill in the right corner." On a
      tournament card the badge was saying what the headline already says in
-     more detail — "Late Reg 3:40 Left" — so it was a duplicate that also cost
-     the title 104px of its line. Cash cards keep theirs: Full / Running is
-     not written anywhere else on those. */
-  .lobby-table tr[data-kind='mtt'] td.lt-col-status {
+     more detail - "Late Reg 3:40 Left" - so hide only .lt-status while keeping
+     td.lt-col-status visible so .lt-invite-btn remains tappable on mobile MTT
+     cards. Reserve right padding on the title so text never collides with the
+     Invite button. Cash cards keep their status badge: Full / Running is not
+     written anywhere else on those. */
+  .lobby-table tr[data-kind='mtt'] td.lt-col-status .lt-status {
     display: none;
   }
   .lobby-table tr[data-kind='mtt'] td.lt-col-name {
-    padding-right: 0;
+    padding-right: 84px;
   }
   /* Heads-Up kept losing its badge to that rule. An MTT card can afford to
      drop the badge because its title's second line already says "Late Reg 3:40
@@ -1825,7 +1915,7 @@ abbr.lt-variant[title] {
   }
 
   .lobby-table tr[data-kind='mtt'] td.lt-col-name {
-    padding-right: 0;
+    padding-right: 84px;
   }
 
   .lt-name__line1,

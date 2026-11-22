@@ -1,0 +1,3 @@
+# tests/an-older-merged-migration-installs-first.law.test.ts
+
+Merged ordinary migrations install in version order by construction, not by timing: Apply Merged Migration runs stay serialized (per-file groups, never cancelled, run-id queue), and each run first installs every older ordinary file on main that production lacks (from 20261110000000), oldest first, once each through the same applier, sending its own file only if all of them installed; window files stay queued for the 04:00 route and superseded files never install (incident 90972d77, 20261121024624 installed before 20261121005533 on 2026-11-21).

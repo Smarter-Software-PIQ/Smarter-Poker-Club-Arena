@@ -114,6 +114,11 @@ import {
   remainingGameCapacity,
 } from './HorseGameLoad.js';
 import { classifyBuyInRefusal, formatRefusals, type BuyInRefusal } from './HorseBuyInRefusal.js';
+import { horseCashStackCeilingChips, rejoinFloorIsAboveCeiling } from './HorseCashStackCeiling.js';
+import {
+  engineRuntimeSettings,
+  horseCashStackCeilingBBFrom,
+} from '../engine/runtimeSettings/index.js';
 import {
   doorsFromRows,
   isStillSeatable,
@@ -5667,6 +5672,25 @@ export class HorseFleetManager {
     // that cannot carry that amount declines this seat rather than buying short.
     const buyIn = horseMaximumBuyIn(minB, maxB);
     if (!Number.isFinite(buyIn) || buyIn < minB || buyIn <= 0) return 0;
+    /* HORSE CASH STACK CEILING (HorseCashStackCeiling; runtime setting
+       horse.cashStackCeilingBB, 0 = off; PLO4/PLO5 cash only). No rathole
+       means this horse may only return to this game with the stack it left
+       with. While that floor is above the ceiling it is not a buyer here:
+       it neither comes back short nor comes back deep, and a fresh horse
+       takes the seat at the normal buy-in. Lifts when the floor lapses. */
+    if (
+      rejoinFloorIsAboveCeiling(
+        rejoinFloor,
+        horseCashStackCeilingChips({
+          ceilingBB: horseCashStackCeilingBBFrom(engineRuntimeSettings().current()),
+          variant: table.game_variant,
+          bigBlind: table.big_blind,
+          maxBuyIn: maxB,
+          isTournament: table.tournament_id != null || table.is_tournament === true,
+        })
+      )
+    )
+      return 0;
 
     if (bankrollsLoaded) {
       /* Keyed on the club that will actually PAY (resolveSeatClub), never on

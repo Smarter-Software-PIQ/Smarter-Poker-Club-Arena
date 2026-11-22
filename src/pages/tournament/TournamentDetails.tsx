@@ -112,7 +112,7 @@ import { useTournamentStageView } from '../../hooks/useTournamentStageView';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
-import { shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
+import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { ShareLinkFallback } from '../../components/common/ShareLinkFallback';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
@@ -1212,7 +1212,8 @@ export default function TournamentDetails({
           if (
             data.status === 'RUNNING' ||
             isLateStatus(data.status) ||
-            (data.status === 'REGISTERING' && isSeatFirstTournamentFormat(data))
+            ((data.status === 'REGISTERING' || data.status === 'ANNOUNCED') &&
+              isSeatFirstTournamentFormat(data))
           ) {
             owner.tablePatches = [];
             const { data: tablesData, error: tablesErr } = await runWithRequestDeadline((signal) =>
@@ -1737,6 +1738,9 @@ export default function TournamentDetails({
    * tournament page.
    */
   const [shareFallbackUrl, setShareFallbackUrl] = useState('');
+  useEffect(() => {
+    setShareFallbackUrl('');
+  }, [tournament?.id]);
   const shareTournament = useCallback(async () => {
     if (!tournament?.id) {
       toast?.error?.('Tournament Link Unavailable');
@@ -1747,9 +1751,11 @@ export default function TournamentDetails({
     const outcome = await shareLink({
       source: 'TournamentDetails.share',
       title: tournament.name || 'Tournament',
+      text: gameInviteText(tournament.name),
       url,
     });
     if (outcome === 'copied') toast?.success?.('Tournament Link Copied');
+    else if (outcome === 'shared') toast?.success?.('Tournament Link Shared');
     // The link goes on the page, not in the toast: an error toast is
     // sanitised and a URL in it never reached the player (2026-11-15,
     // components/common/ShareLinkFallback.tsx).
@@ -2130,6 +2136,49 @@ export default function TournamentDetails({
       return footer ? null : <span className="tournament-status-badge cancelled">Cancelled</span>;
     }
 
+    /* A SEAT-FIRST GAME (Heads-Up Sit N Go / Spin) IS SAT AT, NEVER REGISTERED
+       THROUGH fn_register_for_tournament (which refuses with seat_first_variant).
+       Opening an invite link (/t/:id -> /tournaments/:id) lands here before
+       start, so the primary CTA must take the player straight to the table
+       where they choose and buy their seat. */
+    if (isSeatFirstTournament) {
+      const seatTableId = myEntry?.table_id || featuredTableId;
+      if (isRegistered && seatTableId) {
+        if (footer) return null;
+        if (onClose && currentTableId && seatTableId === currentTableId) {
+          return (
+            <button className="btn btn-enter-table btn-take-seat" type="button" onClick={onClose}>
+              Back To Table
+            </button>
+          );
+        }
+        return (
+          <Link
+            to={`/table/${seatTableId}`}
+            className="btn btn-enter-table btn-take-seat"
+            onClick={onClose}
+          >
+            TAKE SEAT
+          </Link>
+        );
+      }
+      const entryUnavailable = isTournamentEntryUnavailable(tournament, tournament.current_players);
+      return (
+        <RegisterButton
+          className={registerClass}
+          type="button"
+          onClick={() => {
+            if (!seatTableId || entryUnavailable) return;
+            onClose?.();
+            navigate(`/table/${seatTableId}`);
+          }}
+          disabled={!seatTableId || entryUnavailable}
+        >
+          {entryUnavailable ? 'Entry Unavailable' : seatTableId ? 'Take Seat' : 'Loading Table...'}
+        </RegisterButton>
+      );
+    }
+
     if (isRegistered) {
       if (footer) return null;
       return (
@@ -2185,7 +2234,16 @@ export default function TournamentDetails({
               {lobbyStatus.label}
             </span>
             <span className="tournament-id">ID:{tournament.id.slice(0, 8)}</span>
-            <div className="details-header__actions">{tournamentAction('header')}</div>
+            <div className="details-header__actions">
+              <TournamentRegisterButton
+                className="btn-invite-game"
+                data-testid="tournament-invite-btn"
+                onClick={() => void shareTournament()}
+              >
+                Invite To Game
+              </TournamentRegisterButton>
+              {tournamentAction('header')}
+            </div>
             {closeButton}
           </div>
           <h1 className="tournament-name">{formatTournamentTitle(tournament.name)}</h1>
@@ -2281,7 +2339,12 @@ export default function TournamentDetails({
             wrong. */}
         {shareFallbackUrl && <ShareLinkFallback url={shareFallbackUrl} label="Tournament Link" />}
         <div className="details-footer">
-          <button className="btn btn-share" type="button" onClick={() => void shareTournament()}>
+          <button
+            className="btn btn-share"
+            type="button"
+            data-testid="tournament-footer-invite-btn"
+            onClick={() => void shareTournament()}
+          >
             {shareButtonLabel()}
           </button>
           {tournamentAction('footer')}

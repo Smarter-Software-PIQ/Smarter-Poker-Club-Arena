@@ -6,9 +6,9 @@ Owner orders (Dan, 2026-11-19, Chicago time):
 - 14:58: "FULLY BUILD, FIX AND ENHANCE ALL OF THESE AND MAKE SURE THEY ARE FULLY WIRED IN AND TESTED BEFORE CLAIMING SUCCESS."
 
 This document is the design of the rolling per-table handoff, the record of
-what Phase 2 built (engine side, behind a flag that defaults OFF), what is not
-built yet, and the exact step list for wiring the release pipeline to it in the
-next pull request.
+what Phase 2 (the protocol) and Phase 3 (the successor boot role and the client
+relay) built, engine side, behind a flag that defaults OFF, and the exact step
+list for wiring the release pipeline to it in the next pull request.
 
 ## The Problem
 
@@ -130,6 +130,11 @@ host is active, and `fn_engine_open_lease_handoffs_v1` says zero moves from or
 to it are still unsettled (until its moves are adopted, a failure may still
 come back to it). An unreadable count never retires it.
 
+On retirement (Phase 3) it closes its own sockets with 1012, keeps its HTTP
+listener and relay up (relaying everything), and runs its certified stop,
+which releases the leadership row last; the successor then takes leadership in
+place.
+
 ## Feature Flag
 
 `ENGINE_ROLLING_HANDOFF=on` (exactly `on`; any other value is OFF). With the
@@ -172,37 +177,158 @@ Database functions (all `SECURITY DEFINER`, `search_path public, pg_temp`,
 - `fn_engine_settle_lease_handoff_v1(handoff_id, instance, outcome, detail)`
 - table `engine_lease_handoffs` (no foreign key to any hot relation).
 
-## What Is Not Built Yet (Activation Blockers)
+## What Phase 3 Built: Successor Role And Client Relay
 
-The flag must stay OFF in production until all three are done. Each is safe to
-leave undone: with the flag on and any of them missing, nothing moves or every
-move comes back, but players would not be served correctly in the routing case.
+Owner orders (Dan, 2026-11-19, Chicago time): 14:58 "FULLY BUILD, FIX AND
+ENHANCE ALL OF THESE AND MAKE SURE THEY ARE FULLY WIRED IN AND TESTED BEFORE
+CLAIMING SUCCESS." 17:25 "STOP SLEEPING AND FINISH THIS!"
 
-1. **Successor boot role.** A second instance boots today as a leadership
-   STANDBY (`services/leadership.ts`): it claims nothing and never publishes its
-   dealer prerequisites, so every adoption it tries fails and is returned
-   (safe, but nothing moves). The successor needs a boot role "handoff
-   successor": publish dealer prerequisites and start the per-hand services a
-   dealer needs (hand projection worker, outbox listener, live horse compute)
-   without discovery and without leader-only jobs, then take leadership through
-   `requestLeadershipHandOff` when the old instance retires.
-2. **Client routing.** Clients reach `engine.smarter.poker` through Caddy to one
-   port. A table that moved is served by the other process, which today answers
-   404 or WebSocket close 4404 (`services/leadership.ts`, incident 2026-08-23),
-   and the old process's room for that table goes silent after
-   `tableStateHub.dropTable`. The routing layer: during the window the old
-   instance stays the front door and relays every request and WebSocket room
-   for a table it yielded to the successor over loopback (REST by table id,
-   `/ws/table/:id` by path, `/ws/multi` per subscribed room); when the old
-   instance retires, Caddy is reloaded to the successor's port, and the old
-   instance then closes its remaining sockets with a reconnect close code so
-   every client resubscribes to the successor, which owns everything. One
-   reconnect per client, after the last move, with a fresh SNAPSHOT.
-3. **Pipeline wiring** (below), including the Backup rehearsal.
+Both pieces exist only with `ENGINE_ROLLING_HANDOFF=on`. With the flag off
+neither setting below is read, GameServer builds no relay, the router and the
+WebSocket servers attach exactly as before, and `/health` carries no new
+field.
+
+### Configuration
+
+| Setting                           | Meaning                                                                                                                                                                                                         |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ENGINE_ROLE=handoff-successor`   | Boot as the successor of a serving engine (`server/src/handoff/handoffSuccessorRole.ts`). Any other value, or none, is the ordinary boot.                                                                       |
+| `ENGINE_HANDOFF_PEER_PORT=<port>` | Loopback port of the other engine of the pair. Old engine: the successor's port (relay target, watchdog). Successor: the old engine's port (tournament channel mirror, and the relay target if it yields back). |
+
+Unset, malformed, out of range or equal to the process's own `PORT`: no relay,
+no watchdog and no mirror (a move still works, but a moved table then answers
+404 from the front door, so production must set it on both engines).
+
+### 1. Handoff Successor Boot Role
+
+`GameServer.performStart` runs the successor boot (`handoffSuccessorBoot`):
+it skips the leadership claim and renewal and the stale-data cleanup, makes
+the same dealer lanes ready, and then hands over to
+`finishHandoffSuccessorBoot` instead of the leader block:
+
+- the horse decision lane and the equity pool (a dealer's prerequisites, the
+  same single call sites as a leader boot), weekly payout custody, and its own
+  lease renewal supervisor;
+- opens the dealer gate, so `/health` answers 200 with
+  `rollingHandoff.role = "handoff-successor"` (its liveness is the dealer
+  gate, not the leader discovery verdict, which would call an engine with no
+  discovery dead: `EngineLivenessVerdict.handoffSuccessorDealerReady`);
+- runs NO stale-data cleanup (it would cash out the serving engine's live
+  seats), no break adoption, no discovery, no horse fleet, no sweep, no
+  reaper, no scheduler, no projection worker and no index-owned leader
+  service;
+- admits a unit only while adopting it, or to restart a unit it adopted
+  (`GameServer.refusesHandoffAdmission`, asked by both the cash table and the
+  tournament manager admission before any lease claim;
+  `RollingHandoffCoordinator.admitsAsSuccessor`);
+- polls `claimLeadershipAsHandoffSuccessor` (`services/leadership.ts`) every
+  2 s. That claim becomes leader ONLY on an explicit grant: an error, an empty
+  answer or a named holder changes nothing, and the unknown-streak
+  self-promotion of an ordinary standby never applies.
+
+Leadership passes only after the old engine retired. On retirement the old
+engine closes its own sockets (1012) and runs its ordinary certified
+`GameServer.stop()`: every discovery loop, sweep, singleton job and
+index-owned leader service stops, and only then, as the last step, is the
+leadership row released. The successor's next claim is granted and
+`takeOverLeadershipAsSuccessor` runs the leader duties IN PLACE (no restart,
+so its adopted tables keep dealing) by running `performStart` again with
+`handoffTakeoverInProgress` set: the exact leader boot, skipping only what it
+already has (the leadership claim, its lease renewal supervisor, the dealer
+gate) and the stale-data cleanup (which would cash out the live seats it
+deals). Then the index-owned leader services start through
+`onHandoffLeaderTakeover` (`startLeaderOwnedServices(true)` in index.ts). If the old engine dies
+instead, its row goes stale after 30 s and the same claim is granted; its
+units' leases go stale too and the new leader's discovery admits them.
+
+Not moved during the window (they wait for leadership, which is at most the
+length of the window): wake rows and bounty recovery for tournaments are drained
+by the serving engine's subscriptions (an adopted manager drains its own rows
+when it resumes), and a brand-new table or event that appears while the old
+engine is yielding is admitted by the new leader's discovery after takeover.
+
+### 2. Client Relay
+
+`server/src/handoff/handoffRelay.ts`, built by GameServer, wired in
+`server/src/router.ts` (first thing in every request) and `server/src/index.ts`
+(it takes the HTTP server's `upgrade` events and re-emits the ones that stay
+local to the two WebSocket servers).
+
+- **Which requests.** A table is relayed when this engine does not deal it
+  (no table engine, no Lightning room) and either the engine is yielding or
+  retired, or it handed that table on (`handoffRelaysTable`). Table ids come
+  from `/state/:id`, `/actions/:id/...`, `/insurance-preview?tableId=`, the
+  JSON body of the 23 table POST routes (`TABLE_BODY_ROUTES`), and
+  `/ws/table/:id`. A body read to decide is handed to the local handler
+  unchanged (`http/body.ts prefetchRequestBody`).
+- **How.** HTTP is forwarded to `127.0.0.1:<peer>` and streamed back. A
+  WebSocket upgrade is spliced at the socket level (request line, headers,
+  then every frame both ways), so the owner authenticates and the client gets
+  the owner's own handshake, SNAPSHOT and DELTAs. Spectators use the same
+  route and follow the same way.
+- **Live feeds at the moment of a move.** When a unit moves, the old engine
+  closes every local socket of its tables with 1012 (`closeTableForHandoff`);
+  the client reconnects at once on its ordinary ladder
+  (`src/services/EngineStateClient.ts`), through the same port, and lands on
+  the owner with a fresh SNAPSHOT. When a unit comes back (a return), relayed
+  sockets for it are closed so they reconnect to the engine that deals it.
+- **After retirement** everything except `/internal/rolling-handoff/*` is
+  relayed (HTTP, every upgrade including `/ws/multi` and `/ws/channel`) and
+  the old engine's own remaining sockets are closed 1012 so they reconnect
+  through it. The old process is then a pure proxy until the Caddy change.
+- **Never from the wrong engine.** Local state is the only state an engine
+  serves. A peer that cannot be reached is answered `503` with `Retry-After: 1`
+  (HTTP) or a `503` handshake refusal (WebSocket), which every client retries;
+  never 404 or close 4404, which would put the client on its slow "table gone"
+  ladder. A request that already came through a relay
+  (`x-engine-handoff-relayed`) is never relayed again.
+- **Successor watchdog (old engine).** While yielding it probes the peer's
+  `/internal/rolling-handoff/status` every 2 s; three failures in a row (or a
+  different `instanceId` on the port, a restarted successor that adopted
+  nothing) abort the yield. Units still here deal on; units the dead successor
+  held go stale in 30 s and the old engine, serving again, re-admits them from
+  the database through discovery.
+- **Tournament channel mirror (successor).** While it is a successor its
+  tournament channel broadcasts are replayed on the front door through the
+  existing `POST /channels/tournament/:id/event` (internal key), so lobby and
+  standings clients still connected to the old engine see moved events.
+- **Mux sockets** (`/ws/multi`, off by default client-side behind
+  `ca_ws_mux`) are closed 1012 when one of their tables moves; while the old
+  engine is still yielding a reconnected mux socket is served by the old
+  engine and a moved table on it answers TABLE_NOT_FOUND (retried) until
+  retirement, after which mux is relayed whole.
+
+### The Caddy Change The Pipeline Makes After Retirement
+
+`server/Caddyfile`, inside the `engine.smarter.poker { ... }` block, exactly one
+line changes:
+
+```
+-    reverse_proxy localhost:8080
++    reverse_proxy localhost:8081
+```
+
+then `caddy reload --config /etc/caddy/Caddyfile` (graceful: open connections
+finish on the old upstream, which is the relay to 8081 anyway). Prove public
+`/health` names the successor's `instanceId`, then stop the retired container.
+Nothing else in the Caddyfile changes. The next rolling release swaps the two
+ports' roles (the serving engine on 8081 yields to a successor on 8080, and
+the line goes back), or the pipeline renames containers as in step 3 below;
+either way it is one upstream line.
+
+## Still Not Built
+
+**Pipeline wiring** (below), including the Backup rehearsal, is the only
+remaining activation blocker and belongs to the pipeline pull request. The
+flag stays OFF in production until it lands and a Backup certification with
+`rollingHandoff.verdict == "pass"` exists.
 
 Lightning host tables are kept by the old instance in this phase
 (`lightning_cluster_stays`); the old instance does not retire while a Lightning
-host is active.
+host is active. A rolling window must also end before the daily 04:00 break
+announcement: the successor does not run the break, so a break that begins
+mid-window parks only the old engine's tables (the coordinator already refuses
+to move anything during a break).
 
 ## Tests
 
@@ -237,6 +363,35 @@ migration 20260912111633 is granted only with the handed generation and the old 
 after a released row re-creates it for the old instance, a second return is
 refused, a stale tournament lease is refused, and `anon` has no access.
 
+`server/src/handoff/rollingHandoffSuccessorAndRelay.test.ts` (10 tests): two
+GameServer instances in this process, each behind its own real HTTP listener
+on its own loopback port, with the real router, real EngineWebSocketServer,
+a real TableStateHub each, the real coordinator and the real relay, over the
+same lease database fixture; clients are real `ws` sockets and HTTP requests
+aimed only at the old engine's port. Proven: a player and a spectator
+connected through the old engine are closed 1012 at the move, reconnect
+through the same port and keep receiving the table's SNAPSHOT and DELTAs from
+the new owner; the player acts through the front door and only the new
+engine applies it; a new connection and a fresh read land on the owner; a
+table that stayed is served locally with its POST body intact; the successor
+refuses an unhanded table (no lease written) and an unhanded tournament; the
+successor's leadership claim is refused while the old engine leads, no
+singleton job ever runs on both, and leadership passes only after the old
+engine retired and ran its stop; after retirement the old engine relays
+everything; with the flag off there is no relay, no successor phase and the
+router answers byte for byte as before. Failure paths: the successor dies
+mid-handoff (one table adopted, one handed but never claimed) and the relay
+target is unreachable from the start: moved tables answer 503 (never served
+from the old engine), the upgrade is refused and retried, the old engine's
+own tables keep dealing and accepting actions, the watchdog aborts the yield
+after three failed probes, and the old engine re-admits the moved tables
+with every seat and stack intact; nothing throws. A source check proves both
+dealer admissions ask `refusesHandoffAdmission` before claiming a lease.
+
+`server/src/services/leadershipHandoffSuccessorClaim.test.ts`: the successor
+claim becomes leader only on an explicit grant and never self-promotes on
+errors, empty answers or a named holder.
+
 ## Pipeline Wiring Steps (Next Pull Request, After The Engine Window)
 
 Do these only after the 8 PM Chicago release-input hold ends and with release
@@ -245,13 +400,15 @@ custody. Classic cutover stays the fallback for every step.
 1. **Bootstrap release (classic, one time).** The serving engine must itself
    contain this code before it can yield. Ship Phase 2 plus the successor boot
    role and routing relay through one ordinary 04:00 cutover with
-   `ENGINE_ROLLING_HANDOFF=on` in the engine env file. With the flag on and no
+   `ENGINE_ROLLING_HANDOFF=on` and `ENGINE_HANDOFF_PEER_PORT=8081` in the
+   engine env file. With the flag on and no
    yield requested, the only added work is one `fn_engine_handed_leases_v1` read
    per second.
 2. **`server/scripts/engine-up.sh`.** Add `--successor`: start the candidate as a
    second container (`club-arena-engine-next`) on loopback port 8081 with
-   `ENGINE_ROLLING_HANDOFF=on` and `ENGINE_BOOT_ROLE=handoff-successor`, without
-   stopping `club-arena-engine`. Same image validation, labels and env file.
+   `ENGINE_ROLLING_HANDOFF=on`, `ENGINE_ROLE=handoff-successor`, `PORT=8081`
+   and `ENGINE_HANDOFF_PEER_PORT=8080`, without stopping `club-arena-engine`.
+   Same image validation, labels and env file (the three overrides win).
 3. **`server/scripts/engine-release-transaction.sh`, rolling mode** (selected by
    a new `RELEASE_MODE=rolling` input; classic remains the default):
    - keep: `validate_actor`, engine lock, `require_backup_certificate` (now also
@@ -270,9 +427,12 @@ custody. Classic cutover stays the fallback for every step.
      `{"successorInstanceId": "<successor>"}`; poll
      `/internal/rolling-handoff/status` on both ports every 5 s; re-POST yield
      for `kept` units every 3 minutes; deadline 30 minutes;
-   - success: old status `mode == "retired"`; then reload Caddy to 8081
-     (`server/Caddyfile` upstream becomes the successor port, graceful reload),
-     prove public `/health` names the successor `instanceId`, rename containers
+   - success: old status `mode == "retired"`; the old engine has already
+     stopped its leader jobs and released leadership by itself, and the
+     successor's 8081 `/health` shows `leadership.role == "leader"` and
+     `rollingHandoff.role == "serving"` within about 5 s (wait up to 60 s,
+     refuse otherwise); then make the Caddy change above, prove public
+     `/health` names the successor `instanceId`, rename containers
      (`club-arena-engine` to `club-arena-engine-retired`, `club-arena-engine-next`
      to `club-arena-engine`), stop the retired container, seal;
    - rollback before the seal: `POST http://127.0.0.1:8081/internal/rolling-handoff/yield`

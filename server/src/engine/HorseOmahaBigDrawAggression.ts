@@ -560,6 +560,44 @@ export function omahaBigDrawEquities(
   return { all, bet, raise };
 }
 
+/**
+ * omahaBluffIsPricedAgainstTheTarget (default OFF): the river twin of omahaBigDrawEquities. On a
+ * complete board no run-out is dealt: one seeded sample of opponent hands from the unseen cards (the
+ * same stream, seeded from the Horse's cards and the board, never the brain's random stream), the
+ * Horse's showdown share (ties half) against each. The shares are returned ordered by the opponent
+ * hand's own strength on the board, strongest first, so a caller can take the share against the
+ * strongest part of the range. Null unless the board is five cards and the deck fills a sample.
+ */
+export function omahaBigDrawRiverShares(
+  hole: readonly Card[],
+  board: readonly Card[],
+  dead: readonly Card[] = [],
+  samples: number = OMAHA_BIG_DRAW_SAMPLES
+): { all: number; strongestFirst: number[] } | null {
+  if (board.length !== 5) return null;
+  const deck = unseenDeck([...hole, ...board, ...dead]);
+  const size = hole.length;
+  if (size < 2 || deck.length < size) return null;
+  const rnd = generator(seedOf([...hole, ...board]));
+  const mine = scoreOmahaHi([...hole], [...board]);
+  const rows: Array<{ o: number; share: number }> = [];
+  for (let k = 0; k < samples; k++) {
+    const d = deck.slice();
+    for (let i = 0; i < size; i++) {
+      const j = i + Math.floor(rnd() * (d.length - i));
+      const t = d[i]!;
+      d[i] = d[j]!;
+      d[j] = t;
+    }
+    const o = scoreOmahaHi(d.slice(0, size), [...board]);
+    rows.push({ o, share: mine > o ? 1 : mine === o ? 0.5 : 0 });
+  }
+  if (rows.length === 0) return null;
+  const all = rows.reduce((a, r) => a + r.share, 0) / rows.length;
+  rows.sort((a, b) => b.o - a.o);
+  return { all, strongestFirst: rows.map((r) => r.share) };
+}
+
 export interface OmahaBigDrawInput {
   variant: string;
   street: string;

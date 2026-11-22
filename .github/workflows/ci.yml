@@ -472,6 +472,9 @@ jobs:
       - name: Local dependency preflight refuses incomplete or stale installs
         run: node --test tests/operations/local-dependency-policy.test.mjs
 
+      - name: Heavy-job queue serializes, recovers stale slots, holds on load and stays in one place
+        run: node --test tests/operations/heavy-queue.test.mjs
+
       - name: Money-trigger CI caller preserves independent authority
         run: node --test tests/money-trigger-ci-caller.test.mjs
 
@@ -720,6 +723,9 @@ jobs:
           node scripts/ci/report-source-grep-tests.mjs --ratchet
           node scripts/ci/check-new-migration-version-collisions.mjs
           node scripts/ci/check-added-club-fk-indexes.mjs
+          node scripts/ci/check-migration-hot-row-locks.mjs
+          node scripts/ci/check-cron-deletes-are-bounded.mjs
+          node scripts/ci/check-migration-preimage-collisions.mjs
           GUARDS
 
           TOTAL=$(grep -c . "$OUT/list")
@@ -2132,6 +2138,12 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-horse-daily-counts.py
+
+      - name: Every Horse's dealt hole cards are kept, service role only
+        if: matrix.shard == 4
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-horse-dealt-hole-cards.py
 
       - name: Individual horse history restores only original public observations
         if: matrix.shard == 4

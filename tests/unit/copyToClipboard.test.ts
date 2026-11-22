@@ -37,7 +37,9 @@ describe('copyToClipboard', () => {
   });
 
   it('falls back to a selection copy when the Clipboard API is refused', async () => {
-    setClipboard(() => Promise.reject(new DOMException('Write permission denied', 'NotAllowedError')));
+    setClipboard(() =>
+      Promise.reject(new DOMException('Write permission denied', 'NotAllowedError'))
+    );
     setExec(true);
     await expect(copyToClipboard('link')).resolves.toBe(true);
     expect(document.execCommand).toHaveBeenCalledWith('copy');
@@ -48,6 +50,33 @@ describe('copyToClipboard', () => {
     setClipboard(undefined);
     setExec(true);
     await expect(copyToClipboard('link')).resolves.toBe(true);
+  });
+
+  it('mounts the selection textarea inside an open modal <dialog> so top-layer modals are not blocked by inert document.body', async () => {
+    setClipboard(() =>
+      Promise.reject(new DOMException('Write permission denied', 'NotAllowedError'))
+    );
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('open', '');
+    dialog.matches = ((sel: string) => sel === ':modal') as typeof dialog.matches;
+    document.body.appendChild(dialog);
+
+    let mountedInsideDialog = false;
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => {
+        const ta = dialog.querySelector('textarea');
+        mountedInsideDialog =
+          ta !== null && ta.value === 'https://smarter.poker/hub/club-arena/table/1';
+        return true;
+      }),
+    });
+
+    await expect(copyToClipboard('https://smarter.poker/hub/club-arena/table/1')).resolves.toBe(
+      true
+    );
+    expect(mountedInsideDialog).toBe(true);
+    expect(dialog.querySelector('textarea')).toBeNull();
   });
 
   it('answers false when nothing could copy, so nothing is counted as sent', async () => {

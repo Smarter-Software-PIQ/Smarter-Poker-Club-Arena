@@ -61,6 +61,9 @@ export interface LightningObservedHand {
   results?: ReadonlyArray<{ playerId: string; contributed: number; won: number }>;
   /** The hand_history row's has_human (a human was dealt in); the style read's Horse reference counts only these. */
   hasHuman?: boolean;
+  /** omahaBetReadIsPerOpponent's learner: the holdings revealed at showdown (not mucked) and the board */
+  betReadShown?: Record<string, ReadonlyArray<{ rank: string; suit: string }>>;
+  betReadBoard?: ReadonlyArray<{ rank: string; suit: string } | string>;
 }
 
 export interface LightningObservationDeps {
@@ -96,6 +99,9 @@ export function buildLightningObservation(
       ? { styleMemoryMode: 'cash' as const }
       : {}),
     ...(hand.hasHuman !== undefined ? { styleHasHuman: hand.hasHuman } : {}),
+    ...(hand.betReadShown && hand.betReadBoard?.length
+      ? { betReadShown: hand.betReadShown, betReadBoard: hand.betReadBoard }
+      : {}),
     ...(durableOpponentProfiles !== undefined ? { durableOpponentProfiles } : {}),
     generation: hand.handNumber,
     fence: [hand.hostTableId, hand.handNumber, hand.leaseGeneration ?? 'unleased', 'observe'].join(

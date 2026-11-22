@@ -65,12 +65,53 @@ running_sha="$(bounded docker container inspect -f '{{index .Config.Labels "sp.r
 [[ "$running_sha" =~ ^[0-9a-f]{40}$ ]] || die 'running engine has no exact release label during retention'
 protected["$running_sha"]=1
 
+declare -A container_ref_holder=()
+declare -A container_id_holder=()
+containers="$(bounded docker ps -a --no-trunc --format '{{.Image}}\t{{.ID}}\t{{.Status}}')" \
+  || die 'could not list containers inside the retention deadline'
+while IFS=$'\t' read -r c_image c_id c_status; do
+  [ -n "$c_id" ] || continue
+  c_holder="$c_id (${c_status:-unknown})"
+  if [ -n "$c_image" ] && [ -z "${container_ref_holder[$c_image]:-}" ]; then
+    container_ref_holder["$c_image"]="$c_holder"
+  fi
+  if [[ "$c_image" =~ ^sha256:[0-9a-f]{64}$ ]] && [ -z "${container_id_holder[$c_image]:-}" ]; then
+    container_id_holder["$c_image"]="$c_holder"
+  fi
+  c_img_id="$(bounded docker container inspect -f '{{.Image}}' "$c_id")" \
+    || die "could not inspect container $c_id during retention"
+  if [ -n "$c_img_id" ] && [ -z "${container_id_holder[$c_img_id]:-}" ]; then
+    container_id_holder["$c_img_id"]="$c_holder"
+  fi
+done <<< "$containers"
+
+container_holder_for() {
+  local ref="$1"
+  local img_id="${2:-}"
+  if [ -n "$ref" ] && [ -n "${container_ref_holder[$ref]:-}" ]; then
+    printf '%s\n' "${container_ref_holder[$ref]}"
+    return 0
+  fi
+  if [ -n "$img_id" ] && [ -n "${container_id_holder[$img_id]:-}" ]; then
+    printf '%s\n' "${container_id_holder[$img_id]}"
+    return 0
+  fi
+  return 1
+}
+
 kept_extra=0
 removed=0
-refs="$(bounded docker image ls "$IMAGE_REPO" --format '{{.Repository}}:{{.Tag}}')" \
+skipped=0
+refs="$(bounded docker image ls --no-trunc "$IMAGE_REPO" --format '{{.Repository}}:{{.Tag}}\t{{.ID}}')" \
   || die 'could not list engine image tags inside the retention deadline'
-while IFS= read -r ref; do
+while IFS=$'\t' read -r ref ref_id; do
+  [ -n "$ref" ] || continue
   if [[ "$ref" =~ ^${IMAGE_REPO}:[0-9a-f]{40}-candidate-[1-9][0-9]*$ ]]; then
+    if holder="$(container_holder_for "$ref" "$ref_id")"; then
+      echo "[retain-engine-images] skipping referenced candidate tag $ref (container $holder)"
+      skipped=$((skipped + 1))
+      continue
+    fi
     bounded docker image rm "$ref" >/dev/null \
       || die "could not retire abandoned candidate tag $ref"
     removed=$((removed + 1))
@@ -84,6 +125,11 @@ while IFS= read -r ref; do
   if [ "$kept_extra" -lt 5 ]; then
     protected["$ref_sha"]=1
     kept_extra=$((kept_extra + 1))
+    continue
+  fi
+  if holder="$(container_holder_for "$ref" "$ref_id")"; then
+    echo "[retain-engine-images] skipping referenced engine tag $ref (container $holder)"
+    skipped=$((skipped + 1))
     continue
   fi
   bounded docker image rm "$ref" >/dev/null || die "could not retire unleased engine tag $ref"
@@ -104,9 +150,18 @@ while IFS= read -r image_id; do
   [ "$contract" = clean-server-archive-v1 ] || continue
   [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die 'Club Arena-built dangling image has an invalid revision label'
   [ "${protected[$revision]:-0}" = 1 ] && continue
+  if holder="$(container_holder_for "$image_id" "$image_id")"; then
+    echo "[retain-engine-images] skipping referenced dangling engine image $image_id (container $holder)"
+    skipped=$((skipped + 1))
+    continue
+  fi
   bounded docker image rm "$image_id" >/dev/null \
     || die "could not retire unprotected dangling engine image $image_id"
   removed=$((removed + 1))
 done <<< "$dangling_ids"
 
-echo "retained sealed, running, leased, and $kept_extra rollback engine tag(s); removed $removed"
+if [ "$skipped" -gt 0 ]; then
+  echo "retained sealed, running, leased, and $kept_extra rollback engine tag(s); removed $removed; skipped $skipped container-referenced image(s)"
+else
+  echo "retained sealed, running, leased, and $kept_extra rollback engine tag(s); removed $removed"
+fi

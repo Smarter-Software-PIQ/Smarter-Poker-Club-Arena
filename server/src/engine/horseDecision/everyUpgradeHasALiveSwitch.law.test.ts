@@ -78,6 +78,7 @@ import {
   OPTION_SWITCH_RELEASE_DEFAULT_OFF,
   OPTION_SWITCH_RELEASE_DEFAULT_ON,
   OPTION_SWITCH_SHADOW_NAMES,
+  OPTION_SWITCH_ON_SHADOW_NAMES,
   OptionSwitchHolder,
   optionSwitchDecisionOpts,
   optionSwitchRefusal,
@@ -117,6 +118,8 @@ const strip = (text: string) =>
 const code = (path: string) => strip(read(path));
 const quoted = (text: string) => [...text.matchAll(/'([A-Za-z0-9]+)'/g)].map((m) => m[1]!);
 const sorted = (names: readonly string[]) => [...names].sort();
+/** The quoted states of an ARRAY[...] (on_shadow included, 2026-11-19). */
+const statesIn = (text: string) => [...text.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!);
 
 /** Every function the migration creates: name, arguments, the header before the body, the body. */
 const FUNCTIONS = [
@@ -317,16 +320,24 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     ).toEqual(sorted(OPTION_SWITCH_NAMES));
   });
 
-  it('canary only for the seven style options, shadow for them and the shadow options, and on never for an off-only option', () => {
+  it('canary only for the seven style options, shadow for them and the shadow options, on_shadow only for the on_shadow options, and on never for an off-only option', () => {
     const check = constraint('ca_horse_style_switch_state_fits_option');
     const parts =
-      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
+      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR \(state = 'on_shadow' AND option IN \(([^)]*)\)\)\s*OR \(state <> 'on_shadow' AND option IN \(([^)]*)\)\)\s*$/.exec(
         check
       );
     expect(parts, GENERATOR).not.toBeNull();
     expect(sorted(quoted(parts![1]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
     expect(sorted(quoted(parts![2]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_SHADOW_NAMES));
-    expect(sorted(quoted(parts![3]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    expect(sorted(quoted(parts![3]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_ON_SHADOW_NAMES));
+    expect(sorted(quoted(parts![4]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    // on_shadow never for an off-only name or a style option; every shadow option takes it
+    for (const name of OPTION_SWITCH_ON_SHADOW_NAMES) {
+      expect(OPTION_SWITCH_OFF_ONLY_NAMES, name).not.toContain(name);
+      expect(STYLE_SWITCH_OPTIONS as readonly string[], name).not.toContain(name);
+    }
+    for (const name of OPTION_SWITCH_SHADOW_NAMES)
+      expect(OPTION_SWITCH_ON_SHADOW_NAMES, name).toContain(name);
     // never for an off-only name, never for a style option (its shadow is its own arm)
     for (const name of OPTION_SWITCH_SHADOW_NAMES) {
       expect(OPTION_SWITCH_OFF_ONLY_NAMES, name).not.toContain(name);
@@ -337,13 +348,15 @@ describe('condition 8: the database whitelist is the engine registry', () => {
   it('fn_ca_horse_option_switch_states answers each registered option with its states and anything else with NULL', () => {
     const body = listFn('fn_ca_horse_option_switch_states').body;
     const arms = [...body.matchAll(/WHEN p_option IN \(([^)]*)\)\s*THEN ARRAY\[([^\]]*)\]/g)].map(
-      (m) => ({ names: sorted(quoted(m[1]!)), states: quoted(m[2]!) })
+      (m) => ({ names: sorted(quoted(m[1]!)), states: statesIn(m[2]!) })
     );
-    // the off-only arm comes before the plain arm, so an off-only option answers off alone
+    // the off-only arm comes before the plain arm, so an off-only option answers off alone; the shadow arm before the
+    // on_shadow arm, so a shadow option answers all four of its states
     expect(arms, GENERATOR).toEqual([
       { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
       { names: sorted(OPTION_SWITCH_OFF_ONLY_NAMES), states: ['off'] },
-      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on'] },
+      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on_shadow', 'on'] },
+      { names: sorted(OPTION_SWITCH_ON_SHADOW_NAMES), states: ['off', 'on_shadow', 'on'] },
       { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
     ]);
     const answer = (name: string) => arms.find((a) => a.names.includes(name))?.states;
@@ -384,6 +397,15 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     if (OPTION_SWITCH_SHADOW_NAMES.length > 0) {
       const guard = LIST_SQL.indexOf(
         'install *_the_horse_option_switch_tells_style_options_by_name.sql first'
+      );
+      expect(guard, GENERATOR).toBeGreaterThan(0);
+      expect(guard).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
+    }
+    // 2026-11-19: a follow-up naming on_shadow options refuses to install before the set function and the registry
+    // publish know on_shadow (*_the_horse_option_switch_on_shadow_keeps_every_rule_of_on.sql)
+    if (OPTION_SWITCH_ON_SHADOW_NAMES.length > 0) {
+      const guard = LIST_SQL.indexOf(
+        'install *_the_horse_option_switch_on_shadow_keeps_every_rule_of_on.sql first'
       );
       expect(guard, GENERATOR).toBeGreaterThan(0);
       expect(guard).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
@@ -507,8 +529,10 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
         optionSwitchOffOnly(entry.name)
           ? ['off']
           : OPTION_SWITCH_SHADOW_NAMES.includes(entry.name)
-            ? ['off', 'shadow', 'on']
-            : ['off', 'on']
+            ? ['off', 'shadow', 'on_shadow', 'on']
+            : OPTION_SWITCH_ON_SHADOW_NAMES.includes(entry.name)
+              ? ['off', 'on_shadow', 'on']
+              : ['off', 'on']
       );
       expect(entry.offOnly ?? null, entry.name).toEqual(optionSwitchOffOnly(entry.name));
       expect(entry.shadowArm, entry.name).toBe(false);
@@ -559,6 +583,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       'styleTightMethodLine',
       'horseActionTimeIsPublicOnly',
       'horsePlayStyles',
+      'omahaNutClassValueSize',
     ];
     const sources = [
       'server/src/engine/HorseLogic.ts',
@@ -585,6 +610,150 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       expect(reads.length, `${name} is read`).toBeGreaterThan(0);
       for (const m of reads) expect(m[1], `${name}${m[1]}`).toMatch(/^\s*[!=]==\s*true\b/);
     }
+  });
+
+  it('2026-11-19: an option listed release default ON is on when unset at every read site in the engine, so its shadow re-decision passes false', () => {
+    // DEFAULT-ON-AUDIT (Horse Switch lane): optionSwitchShadowFlip passes !releaseDefault, so an option listed ON
+    // whose unset value is really off would be re-decided with the value it acted with and always receipt "same".
+    // Every read of a listed ON option through the decision options (opts / o / carriedOpts / snapshot.opts), in every
+    // engine source file but the replay reconstruction (which copies a record's options verbatim), must be one of:
+    //   `!== false`, `=== false`, `?? true) !== false|=== false`, a fallback `?? <master>` to an ON master
+    //   (v7, v8, v9, v10, v12), or a `typeof ... === '<type>'` guard and the value read it guards (whose default is
+    //   pinned below). Values carried out of the options under another name are listed in CARRIERS with the line
+    //   that carries them, which must stand in the source.
+    const ENGINE = join(REPO, 'server/src/engine');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (p.endsWith(join('horseDecision', 'replay'))) continue;
+          walk(p);
+        } else if (
+          /\.ts$/.test(e.name) &&
+          !/\.test\.ts$|test-support|replayState\.ts$/.test(e.name)
+        )
+          files.push(p);
+      }
+    };
+    walk(ENGINE);
+    const text = files.map((f) => ({
+      f,
+      src: readFileSync(f, 'utf8')
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+        .join('\n'),
+    }));
+    const MASTERS: Readonly<Record<string, string>> = {
+      v7: 'v7',
+      useV7: 'v7',
+      useV8: 'v8',
+      v9: 'v9',
+      v10: 'v10',
+      v12: 'v12',
+    };
+    const onWhenUnset = (before: string, after: string, name: string, src: string): boolean => {
+      const a = after.replace(/\s+/g, ' ');
+      // `!== false` / `=== false`, also as the master of a child fallback: `(opts.<child> ?? opts.<master>) !== false`
+      if (/^ ?(\) ?)*(!==|===) false\b/.test(a)) return true;
+      if (/^ ?\?\? true ?\) ?(!==|===) false\b/.test(a)) return true;
+      const fb = a.match(/^ ?\?\? ?(?:[\w]+\??\.)*(\w+)/);
+      if (fb && MASTERS[fb[1]!] && OPTION_SWITCH_RELEASE_DEFAULT_ON.includes(MASTERS[fb[1]!]!))
+        return true;
+      if (/typeof\s*$/.test(before) && /^ ?=== '\w+'/.test(a)) return true;
+      // the value a typeof guard hands on: `typeof X.name === '...' ? X.name : <default>`
+      if (
+        /\?\s*$/.test(before) &&
+        new RegExp(`typeof\\s+\\w+\\??\\.${name}\\s*===\\s*'\\w+'`).test(src)
+      )
+        return true;
+      return false;
+    };
+    const bad: string[] = [];
+    let readsSeen = 0;
+    for (const name of OPTION_SWITCH_RELEASE_DEFAULT_ON) {
+      for (const { f, src } of text) {
+        const re = new RegExp(
+          `(?:\\bopts|\\bo|\\bcarriedOpts|snapshot\\.opts)\\??\\.${name}\\b`,
+          'g'
+        );
+        for (const m of src.matchAll(re)) {
+          readsSeen++;
+          const before = src.slice(Math.max(0, m.index! - 24), m.index!);
+          const after = src.slice(m.index! + m[0].length, m.index! + m[0].length + 48);
+          if (!onWhenUnset(before, after, name, src))
+            bad.push(
+              `${name} ${f.slice(ENGINE.length + 1)}: ...${before.slice(-12)}${m[0]}${after.slice(0, 24)}`
+            );
+        }
+      }
+    }
+    expect(readsSeen).toBeGreaterThan(100);
+    expect(
+      bad,
+      'a release-default ON option read as off-when-unset: classify it from its reads'
+    ).toEqual([]);
+    // the typeof-guarded ON option's own default is on
+    expect(read('server/src/engine/HorseMind.ts')).toContain(
+      'export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;'
+    );
+    // CARRIERS: an ON option's value read under another name; each is carried by an on-when-unset expression.
+    const CARRIERS: ReadonlyArray<{
+      name: string;
+      reader: string;
+      read: RegExp;
+      carrier: string;
+      carried: RegExp;
+    }> = [
+      {
+        name: 'omahaEvFoldModel',
+        reader: 'server/src/engine/HorseMind.ts',
+        read: /decisionReadOptions\.omahaEvFoldModel\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried: /omahaEvFoldModel: \(opts\.omahaEvFoldModel \?\? true\) !== false,/,
+      },
+      {
+        name: 'v86PloOverhaul',
+        reader: 'server/src/engine/HorsePreflop.ts',
+        read: /ctx\.v86PloOverhaul\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried:
+          /const v86 = opts\.v86PloOverhaul !== false;[\s\S]*?\.\.\.\(v86\s*\?\s*\{\s*v86PloOverhaul: true,/,
+      },
+      {
+        name: 'facingClosedAllIn',
+        reader: 'server/src/engine/HorsePreflop.ts',
+        read: /ctx\.facingClosedAllIn\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried:
+          /facingClosedAllIn:\s*opts\.facingClosedAllIn === false\s*\?\s*undefined\s*:\s*facingClosedAllInRaise\(/,
+      },
+      {
+        name: 'v86MultiStreetUnblocked',
+        reader: 'server/src/engine/HorseOmahaOopChecks.ts',
+        read: /env\.v86MultiStreetUnblocked\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried: /v86MultiStreetUnblocked: opts\.v86MultiStreetUnblocked !== false,/,
+      },
+    ];
+    for (const c of CARRIERS) {
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_ON, c.name).toContain(c.name);
+      expect([...read(c.reader).matchAll(c.read)].length, `${c.name} carried read`).toBeGreaterThan(
+        0
+      );
+      expect(read(c.carrier), `${c.name} carrier`).toMatch(c.carried);
+    }
+    // the omahaEvFoldModel carrier is the only engine caller of HorseMind.setDecisionReadOptions
+    const setters = text.filter(({ src }) => src.includes('HorseMind.setDecisionReadOptions('));
+    expect(setters.map(({ f }) => f.slice(ENGINE.length + 1))).toEqual(['HorseLogic.ts']);
+    // the 2026-11-19 additions, and omahaNutClassValueSize (read only `=== true`) is off, not on
+    for (const name of ['v9', 'v10', 'v86PloOverhaul', 'omahaEvFoldModel', 'facingClosedAllIn'])
+      expect(OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)?.releaseDefault, name).toBe(
+        'on'
+      );
+    expect(
+      OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === 'omahaNutClassValueSize')?.releaseDefault
+    ).toBe('off');
   });
 
   it('owner 23:10: an option under an owner hold, measured harmful or superseded is OFF-ONLY, enforced at the registry, the parser and the decision options', () => {
@@ -648,11 +817,30 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       'omahaReraisedPotStackOffRealistic',
       'fixedLimitHiLoNutLowRiverBet',
       'fixedLimitRiverOneBetValueRaise',
-      'fixedLimitCallIsNotACommitment',
       'fixedLimitHiLoLowHalfFloor',
       'fixedLimitOmahaNoPresumption',
     ])
       expect(optionSwitchOffOnly(name), name).toBeNull();
+    // 2026-11-20: measured harm in the scripted fixed-limit league field (PR #11565), off-only since
+    expectStatus(
+      'fixedLimitCallIsNotACommitment',
+      'harm',
+      /^league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 /
+    );
+    expect(OPTION_SWITCH_OFF_ONLY.fixedLimitCallIsNotACommitment!.reason).toMatch(/z -4\.53/);
+    // 2026-11-21: measured harm in the scripted no-limit league field (PR #11634), off-only since
+    expectStatus(
+      'holdemCommittedNoPairIsPriced',
+      'harm',
+      /^league card nlh_committed_no_pair_is_priced_vs_value_barreler and _vs_pot_barreler, PR #11634 /
+    );
+    expect(OPTION_SWITCH_OFF_ONLY.holdemCommittedNoPairIsPriced!.reason).toMatch(/z -3\.02/);
+    expectStatus(
+      'holdemDangerBoardEquityIsPriced',
+      'harm',
+      /^league card nlh_danger_board_equity_is_priced_vs_danger_bettor and _vs_danger_value, PR #11634 /
+    );
+    expect(OPTION_SWITCH_OFF_ONLY.holdemDangerBoardEquityIsPriced!.reason).toMatch(/z -9\.74/);
     expectStatus('v55OmahaRiverTripsFlat', 'superseded', /made-hand defense repair/);
     expect(OPTION_SWITCH_OFF_ONLY.commitUnderPot!.reason).toMatch(/RESULTS-HU-NLH-016, FAIL/);
     // future options are held by name pattern: a steal, All-In-Or-Fold widening
@@ -778,7 +966,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(() => optionSwitchOnNote('v16Ratio', 'two words.md', 'a'.repeat(64))).toThrow();
     const table = constraint('ca_horse_style_switch_on_cites_authority');
     expect(table).toMatch(
-      /^\s*state <> 'on'\s*OR option IN \(([^)]*)\)\s*OR \(note IS NOT NULL AND note LIKE 'authority: ' \|\| option \|\| ' %' AND note ~ 'sha256 \[0-9a-f\]\{64\}'\)\s*$/
+      /^\s*state NOT IN \('on', 'on_shadow'\)\s*OR option IN \(([^)]*)\)\s*OR \(note IS NOT NULL AND note LIKE 'authority: ' \|\| option \|\| ' %' AND note ~ 'sha256 \[0-9a-f\]\{64\}'\)\s*$/
     );
     expect(sorted(quoted(/OR option IN \(([^)]*)\)/.exec(table)![1]!))).toEqual(
       sorted(STYLE_SWITCH_OPTIONS)
@@ -830,6 +1018,9 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(sorted(list('offonly')), 'update the offonly list of the proof script').toEqual(
       sorted(OPTION_SWITCH_OFF_ONLY_NAMES)
     );
+    expect(sorted(list('onshadow')), 'update the onshadow list of the proof script').toEqual(
+      sorted(OPTION_SWITCH_ON_SHADOW_NAMES)
+    );
     expect(script).toContain(
       `authority_tail='${OPTION_SWITCH_ON_AUTHORITY_FILE} sha256 ${OPTION_SWITCH_ON_AUTHORITY_SHA256}'`
     );
@@ -857,6 +1048,13 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
         expect(optionSwitchStatesFrom({ [name]: 'shadow' }), name).toEqual({ [name]: 'shadow' });
         expect(optionSwitchDecisionOpts({ [name]: 'shadow' }), name).toEqual({});
       } else expect(optionSwitchStatesFrom({ [name]: 'shadow' }), name).toBeNull();
+      // on_shadow (2026-11-19): accepted exactly for the on_shadow options, and it passes true, exactly as on
+      if (OPTION_SWITCH_ON_SHADOW_NAMES.includes(name)) {
+        expect(optionSwitchStatesFrom({ [name]: 'on_shadow' }), name).toEqual({
+          [name]: 'on_shadow',
+        });
+        expect(optionSwitchDecisionOpts({ [name]: 'on_shadow' }), name).toEqual({ [name]: true });
+      } else expect(optionSwitchStatesFrom({ [name]: 'on_shadow' }), name).toBeNull();
     }
     const notes: string[] = [];
     let raw: unknown = v2({ v16Hu: 'off' });
@@ -1003,9 +1201,20 @@ describe('the refused options are refused on both sides', () => {
   });
 
   it('the worker ignores them: a delivery naming one switches nothing, and no key reaches the brain', () => {
-    for (const name of [...REFUSED_NAMES, 'notAnOption', '__proto__', 'constructor']) {
+    for (const name of REFUSED_NAMES) {
       expect(parseOptionSwitchConfig(v2({ [name]: 'on' })), name).toEqual({ ok: false });
       expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toBeNull();
+    }
+    // A name this build does not know at all is skipped alone since 2026-11-20
+    // (anUnknownOptionRowIsSkippedAlone.law.test.ts): it still switches nothing.
+    for (const name of ['notAnOption', '__proto__', 'constructor']) {
+      expect(parseOptionSwitchConfig(v2({ [name]: 'on' })), name).toEqual({ ok: true, states: {} });
+      expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toEqual({});
+      expect(optionSwitchStatesFrom({ [name]: 'on', v16Hu: 'off' }), name).toEqual({
+        v16Hu: 'off',
+      });
+    }
+    for (const name of [...REFUSED_NAMES, 'notAnOption', '__proto__', 'constructor']) {
       expect(optionSwitchDecisionOpts({ [name]: 'on' } as never), name).toEqual({});
       expect(optionSwitchDecisionOpts({ [name]: 'on', v16Hu: 'off' } as never), name).toEqual({
         v16Hu: false,

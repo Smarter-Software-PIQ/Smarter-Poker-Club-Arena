@@ -34,7 +34,9 @@
  *
  * Exit: 0 no criticals · 1 a job never succeeded · 2 script error
  */
+import { resolve } from 'node:path';
 import { supabaseServerHeaders } from './supabase-auth-headers.mjs';
+import { extractLatestFunctionBody, sqlBodyMd5 } from './verify-alarm-drill-and-cron-watch.mjs';
 
 const args = process.argv.slice(2);
 const AS_JSON = args.includes('--json');
@@ -74,15 +76,49 @@ function line(j) {
   return `  ${j.verdict.toUpperCase().padEnd(8)} ${String(j.jobname).padEnd(38)} ${String(j.failures).padStart(5)} failed / ${String(j.runs).padStart(5)} runs   ${j.schedule}`;
 }
 
+async function checkWatchedGuardDrift() {
+  const res = await fetch(`${URL_BASE.replace(/\/$/, '')}/rest/v1/rpc/fn_ca_watched_guard_hashes`, {
+    method: 'POST',
+    headers: {
+      ...supabaseServerHeaders(KEY),
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+  });
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`fn_ca_watched_guard_hashes HTTP ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const rows = await res.json();
+  const migrationsDir = resolve(process.cwd(), 'supabase/migrations');
+  const drifts = [];
+  for (const row of rows) {
+    const latest = extractLatestFunctionBody(migrationsDir, row.qualified_name);
+    if (!latest) continue;
+    const expected = sqlBodyMd5(latest.body);
+    if (row.normalized_md5 !== expected) {
+      drifts.push({
+        qualified_name: row.qualified_name,
+        live_md5: row.normalized_md5,
+        git_md5: expected,
+        git_file: latest.file,
+      });
+    }
+  }
+  return drifts;
+}
+
 async function main() {
   const jobs = await cronHealth();
+  const guardDrifts = await checkWatchedGuardDrift();
   const critical = jobs.filter((j) => j.verdict === 'critical');
   const warn = jobs.filter((j) => j.verdict === 'warn');
   const idle = jobs.filter((j) => j.verdict === 'idle');
   const ok = jobs.filter((j) => j.verdict === 'ok');
 
   if (AS_JSON) {
-    console.log(JSON.stringify({ window: WINDOW, jobs }, null, 1));
+    console.log(JSON.stringify({ window: WINDOW, jobs, guardDrifts }, null, 1));
   } else {
     console.log('');
     console.log(
@@ -90,6 +126,15 @@ async function main() {
         `${ok.length} ok · ${warn.length} warn · ${critical.length} critical · ${idle.length} idle`
     );
     console.log('');
+    if (guardDrifts.length) {
+      console.log('  WATCHED GUARD BODY DRIFT (production != newest migration in git):');
+      for (const d of guardDrifts) {
+        console.log(
+          `  DRIFT    ${d.qualified_name} live=${d.live_md5} git=${d.git_md5} (${d.git_file})`
+        );
+      }
+      console.log('');
+    }
     if (critical.length) {
       console.log('  RAN AND NEVER SUCCEEDED - these are broken, not flaky:');
       for (const j of critical) {
@@ -111,6 +156,7 @@ async function main() {
     }
   }
 
+  if (guardDrifts.length > 0) process.exit(1);
   if (critical.length > 0) process.exit(1);
   if (FAIL_ON_WARN && warn.length > 0) process.exit(1);
 }

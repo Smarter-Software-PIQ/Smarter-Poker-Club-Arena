@@ -19,7 +19,12 @@ import {
   resetClubLiveSeatsForTests,
   watchClubLiveSeats,
 } from '../../src/lib/clubLiveSeats';
-import { liveStateOf, orderByActivity, useLiveStates, type ClubLiveSeats } from '../../src/hooks/useRosterLiveOrder';
+import {
+  liveStateOf,
+  orderByActivity,
+  useLiveStates,
+  type ClubLiveSeats,
+} from '../../src/hooks/useRosterLiveOrder';
 import { PRESENCE_RECHECK_MS } from '../../src/lib/profilePresence';
 import LiveNowStrip from '../../src/components/club/LiveNowStrip';
 
@@ -58,7 +63,11 @@ describe('readClubLiveSeats', () => {
     seatRows.rows = [
       seat('u1', 't1', 'Table One', 'Moose'),
       seat('u1', 't1', 'Table One', 'Moose'),
-      seat('u2', 't2', 'Table Two', 'Burls', { stakes: '2/5', tournament_id: 'mtt-1', is_tournament: true }),
+      seat('u2', 't2', 'Table Two', 'Burls', {
+        stakes: '2/5',
+        tournament_id: 'mtt-1',
+        is_tournament: true,
+      }),
       seat('u3', 't3', '  ', '', { username: 'quiet' }),
     ];
     const seats = await readClubLiveSeats('club-a');
@@ -72,7 +81,9 @@ describe('readClubLiveSeats', () => {
   });
 
   it('surfaces a refused read instead of answering empty', async () => {
-    rpc.mockImplementation(() => Promise.resolve({ data: null, error: { message: 'permission denied' } }));
+    rpc.mockImplementation(() =>
+      Promise.resolve({ data: null, error: { message: 'permission denied' } })
+    );
     await expect(readClubLiveSeats('club-a')).rejects.toThrow('permission denied');
   });
 });
@@ -115,17 +126,38 @@ describe('orderByActivity', () => {
   });
 
   it('puts a player who just sat down first, then the online, then last active', () => {
-    const seat = { user_id: 'c', table_id: 't1', tournament_id: null, name: 'T', stakes: '', is_tournament: false, alias: 'C', username: 'c', avatar_url: null };
+    const seat = {
+      user_id: 'c',
+      table_id: 't1',
+      tournament_id: null,
+      name: 'T',
+      stakes: '',
+      is_tournament: false,
+      alias: 'C',
+      username: 'c',
+      avatar_url: null,
+    };
     const seats: ClubLiveSeats = { byUser: new Map([['c', [seat]]]), seats: [seat], known: true };
-    const presence = new Map<string, boolean>([['a', true], ['b', false]]);
-    expect(orderByActivity(rows, seats, presence).map((r) => r.user_id)).toEqual(['c', 'a', 'b', 'd']);
+    const presence = new Map<string, boolean>([
+      ['a', true],
+      ['b', false],
+    ]);
+    expect(orderByActivity(rows, seats, presence).map((r) => r.user_id)).toEqual([
+      'c',
+      'a',
+      'b',
+      'd',
+    ]);
     expect(liveStateOf(rows[1], seats, presence)).toMatchObject({ seated: true, online: true });
     expect(liveStateOf(rows[0], seats, presence)).toMatchObject({ seated: false, online: false });
   });
 
   it('trusts the loaded row until the seat answer and the door have spoken', () => {
     const seated = [{ ...rows[3], is_seated: true, is_online: true }];
-    expect(liveStateOf(seated[0], noSeats, new Map())).toMatchObject({ seated: true, online: true });
+    expect(liveStateOf(seated[0], noSeats, new Map())).toMatchObject({
+      seated: true,
+      online: true,
+    });
     const known: ClubLiveSeats = { byUser: new Map(), seats: [], known: true };
     expect(liveStateOf(seated[0], known, new Map())).toMatchObject({ seated: false, online: true });
   });
@@ -148,11 +180,21 @@ describe('useLiveStates', () => {
     expect(b1).toMatchObject({ online: true });
     // A fresh presence answer that says the same thing: both objects survive,
     // so memoized rows skip work.
-    rerender({ presence: new Map<string, boolean>([['a', false], ['b', true]]) });
+    rerender({
+      presence: new Map<string, boolean>([
+        ['a', false],
+        ['b', true],
+      ]),
+    });
     expect(result.current.get('a')).toBe(a1);
     expect(result.current.get('b')).toBe(b1);
     // b goes dark: only b gets a new object.
-    rerender({ presence: new Map<string, boolean>([['a', false], ['b', false]]) });
+    rerender({
+      presence: new Map<string, boolean>([
+        ['a', false],
+        ['b', false],
+      ]),
+    });
     expect(result.current.get('a')).toBe(a1);
     expect(result.current.get('b')).not.toBe(b1);
     expect(result.current.get('b')).toMatchObject({ online: false });
@@ -175,7 +217,11 @@ describe('LiveNowStrip', () => {
     });
     render(
       <LiveNowStrip
-        seats={[seat('u2', 'Zed', 'Table Two'), seat('u1', 'Amy', 'Table One'), seat('u1', 'Amy', 'Table Three')]}
+        seats={[
+          seat('u2', 'Zed', 'Table Two'),
+          seat('u1', 'Amy', 'Table One'),
+          seat('u1', 'Amy', 'Table Three'),
+        ]}
         onWatch={onWatch}
       />
     );
@@ -188,7 +234,32 @@ describe('LiveNowStrip', () => {
     act(() => {
       fireEvent.click(chips[1]);
     });
-    expect(onWatch).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u2' }), { userId: 'u2', name: 'Zed' });
+    expect(onWatch).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u2' }), {
+      userId: 'u2',
+      name: 'Zed',
+    });
+  });
+
+  it('labels the strip My Downline for an agent and stays plain for the club', () => {
+    const seat = {
+      user_id: 'u1',
+      table_id: 't1',
+      tournament_id: null,
+      name: 'Table One',
+      stakes: '1/2',
+      is_tournament: false,
+      alias: 'Amy',
+      username: 'amy',
+      avatar_url: null,
+    };
+    const { rerender } = render(
+      <LiveNowStrip seats={[seat]} onWatch={() => {}} scope="downline" />
+    );
+    expect(screen.getByRole('region', { name: 'Live Now, My Downline' })).toBeInTheDocument();
+    expect(screen.getByText('My Downline')).toBeInTheDocument();
+    rerender(<LiveNowStrip seats={[seat]} onWatch={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Live Now' })).toBeInTheDocument();
+    expect(screen.queryByText('My Downline')).toBeNull();
   });
 
   it('renders nothing with nobody seated', () => {

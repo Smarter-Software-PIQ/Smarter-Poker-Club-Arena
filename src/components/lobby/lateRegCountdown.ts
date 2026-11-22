@@ -50,8 +50,13 @@ export const ADD_ON_WINDOW_MS = 60_000;
 /** The hourly synchronized break: starts :55 UTC; stops the level clock ~10 min (measured). */
 const SYNC_BREAK_START_MINUTE = 55;
 export const SYNC_BREAK_PAUSE_MS = 10 * 60_000;
-/** The daily engine maintenance freeze: 04:00-04:05 America/Chicago. */
-const MAINTENANCE_HOUR_CHICAGO = 4;
+/**
+ * The engine maintenance freeze: five minutes from each scheduled start, now
+ * every three hours at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago
+ * (owner order 2026-11-21, docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md). The
+ * repeated fall-back 01:00 is one cycle, the first.
+ */
+const MAINTENANCE_HOURS_CHICAGO: readonly number[] = [1, 4, 7, 10, 13, 16, 19, 22];
 const MAINTENANCE_MS = 5 * 60_000;
 const HOUR_MS = 3_600_000;
 /** Never walk further than this looking for pauses (a two-day level window). */
@@ -75,7 +80,12 @@ function isChicagoMaintenanceHour(utcHourStartMs: number): boolean {
   const hour = Number(
     chicagoHour.formatToParts(utcHourStartMs).find((part) => part.type === 'hour')?.value
   );
-  return hour === MAINTENANCE_HOUR_CHICAGO;
+  if (!MAINTENANCE_HOURS_CHICAGO.includes(hour)) return false;
+  // Second occurrence of a repeated local hour (fall back) is not a cycle.
+  const previous = Number(
+    chicagoHour.formatToParts(utcHourStartMs - HOUR_MS).find((part) => part.type === 'hour')?.value
+  );
+  return previous !== hour;
 }
 
 function takesSynchronizedBreaks(t: CountdownRow): boolean {

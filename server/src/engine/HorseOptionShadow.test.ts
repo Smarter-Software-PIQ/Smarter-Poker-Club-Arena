@@ -44,6 +44,29 @@ describe('HorseOptionShadow', () => {
     expect(new OptionShadowBudget(5).take(Number.NaN)).toBe(false);
   });
 
+  it('people first: a person decision is never refused by the minute and takes a slot; Horse-only ones are dropped', () => {
+    const b = new OptionShadowBudget(2);
+    expect(b.admit(0, true)).toBe('within');
+    expect(b.admit(1, false)).toBe('within');
+    // the minute is full: a Horse-only decision is refused, a person decision is admitted over it
+    expect(b.admit(2, false)).toBeNull();
+    expect(b.admit(3, true)).toBe('person_over');
+    expect(b.take(4, true)).toBe(true);
+    expect(b.take(5)).toBe(false);
+    // persons first in a minute leave the Horse-only decisions nothing
+    const c = new OptionShadowBudget(2);
+    expect([c.admit(0, true), c.admit(1, true), c.admit(2, false)]).toEqual([
+      'within',
+      'within',
+      null,
+    ]);
+    // a new minute starts over
+    expect(c.admit(60_000, false)).toBe('within');
+    // 0 is the stop and refuses a person too; an unreadable clock refuses
+    expect(new OptionShadowBudget(0).admit(0, true)).toBeNull();
+    expect(new OptionShadowBudget(5).admit(Number.NaN, true)).toBeNull();
+  });
+
   it('the pick is the decision key hash, stable, and null for none', () => {
     expect(optionShadowPick([], 'k')).toBeNull();
     const opts = ['a', 'b', 'c'];

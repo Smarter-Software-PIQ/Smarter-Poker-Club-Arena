@@ -1,3 +1,19 @@
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-1906z` (19:06 to 22:06 UTC November 21; 1:06 PM to 4:06 PM Chicago) is the consolidated engine cutover of the owner's three-hour cadence booked by the Dedicated Engine Cutover chat after 1135z was abandoned; it carries the three-hourly scheduled cutover (#11609) and every lane's merged engine work, serving `bb21dc82673` (sealed under 0300z), no advance notice.
+
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-1135z` (11:35 to 17:35 UTC November 21; 5:35 AM to 11:35 AM Chicago) is the next engine cutover of the owner's three-hour cadence, serving `bb21dc82673` (sealed under 0300z), no advance notice.
+
+2026-11-21: **a dedicated engine cutover every three hours** (owner order 02:22 Chicago, session `session_01Gw7aDsC1z7GdpSYmDAM2kv`, "I WANT A ENGINE CUT OVER EVERY 3 HOURS"). The scheduled route now runs at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago through `.github/workflows/stage-engine-release.yml` (one preparation per cycle at cycle minus 30 minutes), the single receiver `.github/workflows/auto-deploy-hetzner.yml` and `server/scripts/engine-release-transaction.sh`, selected by `server/src/maintenance/maintenanceSchedulePolicy.json`. Wherever this runbook says 03:30 or 04:00 for the routine route, read the cycle's preparation and start; window migrations and the nightly schema freeze stay at 04:00, and `.github/scripts/dispatch-merged-migrations.sh` + `scripts/ci/merged-migration-dispatch.mjs` automatically defer ordinary merged migrations inside `[cycle - 90m, cycle + 10m)` until `cycle + 10m` Chicago while the serving engine reports `three-hourly` on `/health`. Contract and lane rules: `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md`; changelog `docs/changelog/2026-11-21-a-dedicated-engine-cutover-every-three-hours.md`; laws `tests/the-engine-cuts-over-every-three-hours.law.test.ts` and `tests/an-ordinary-migration-waits-for-the-three-hourly-engine-cutover.law.test.ts`.
+
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-0825z` (08:25 to 09:20 UTC November 21; 2:25 AM to 3:20 AM Chicago) is the next engine cutover of the owner's three-hour cadence, serving `bb21dc82673` (sealed under 0300z), no advance notice.
+
+2026-11-21: owner window `2026-11-21-owner-no-notice-engine-0300z` (03:00 to 09:00 UTC November 21; 9:00 PM November 20 to 3:00 AM November 21 Chicago) is the next engine cutover of the owner's three-hour cadence, serving `e2140d2d1581` (sealed under 2330z), no advance notice.
+
+2026-11-20: owner window `2026-11-20-owner-no-notice-engine-2330z` (23:30 UTC November 20 to 05:30 UTC November 21; 5:30 PM to 11:30 PM Chicago) is the next engine cutover of the owner's three-hour cadence (15:16 Chicago, "CUT OVERS EVER 3 HOURS ... UNTIL FURTHER NOTICE"), serving `95dae3848e51` after the 2130z seal, no advance notice.
+
+**2026-11-20 owner engine window 2026-11-20-owner-no-notice-engine-2130z.** Window 1730z was consumed at 19:08 UTC: receiver run 44797999314 sealed 26c2e74930dd and every table resumed. On the owner's 09:48 Chicago order "AUTHORIZED: TAKE OVER THE ENGINE RELEASE NOW" and his rule that nothing ready waits for 4 AM, this books one more no-notice activation of protected main 023f78891f1e (the river current-nuts call floor #11522 and the rake options #11523 to #11526): admission 21:30 UTC November 20 through fixed 03:30 UTC November 21, serving 26c2e74930dd. No player notice; the engine finishes and settles every hand before freezing.
+
+**2026-11-20 owner engine window 2026-11-20-owner-no-notice-engine-1730z.** Window 0430z was consumed at 08:10 UTC: receiver run 44699308820 sealed 5ed440ab8351 and every table resumed, and the daily 04:00 Chicago route did not replace it. On the owner's order to finish the cutover work, this books one more no-notice activation of protected main 728ef175fbaf: admission 17:30 UTC through fixed 23:20 UTC November 20, serving 5ed440ab8351. No player notice; the engine finishes and settles every hand before freezing.
+
 **2026-11-20 owner engine window 2026-11-20-owner-no-notice-engine-0430z.** Window 2030z was consumed at 21:14 UTC: receiver run 44615109401 sealed aec0d93b40cd and every table resumed. On the owner's 15:27 Chicago order to start the next cutover now, this books one more no-notice activation of protected main f8779d959d12: admission 04:30 UTC through fixed 09:20 UTC November 20, serving aec0d93b40cd. No player notice; the engine finishes and settles every hand before freezing.
 
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-2030z.** Window 1510z was consumed at 17:33 UTC: receiver run 44577448928 sealed dfaa9717f826 and every table resumed. On the owner's 11:50 Chicago order to cut over again as soon as possible so that everything merged after that seal is activated and tested, this books one more no-notice activation of protected main dee22dec9ecd: admission 20:30 UTC November 19 through fixed 02:00 UTC November 20, serving dfaa9717f826. No player notice; the engine finishes and settles every hand before freezing.
@@ -130,8 +146,8 @@ Everything in this document. Specifically, without asking anyone:
 | Never                                                                                   | Why, and where it is written                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Edit the live engine, its container, image tag or `.env` by hand, or the running Backup | Owner direction 2026-11-06 (top of `CLAUDE.md`); `.claude/skills/deploy-hetzner/SKILL.md` ("never replace the container, repoint its image tag, prune retained rollback images, reduce the proof reserve or extend a live freeze by hand")                                                                                                                                                                                           |
-| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1398 `daily_cutover_clock` (hour 4, minute under 5) and line 3913; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`                                                                                                                                                           |
-| Send a release for a SHA without `backup-engine/certified = success`                    | Receiver step `backup_certificate`; host `require_backup_certificate` (transaction line 1367); `tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts`                                                                                                                                                                                                                                                          |
+| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1412 `daily_cutover_clock` (a scheduled cycle hour, minute under 5) and line 3945; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`                                                                                                                                           |
+| Send a release for a SHA without `backup-engine/certified = success`                    | Receiver step `backup_certificate`; host `require_backup_certificate` (transaction line 1377); `tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts`                                                                                                                                                                                                                                                          |
 | Apply a migration from a branch, a local file or the Supabase MCP `apply_migration`     | `CLAUDE.md` section 2 rules 8 and 11; `PUBLISHING.md`; `tests/unit/migrationsInstallFromMain.test.ts`                                                                                                                                                                                                                                                                                                                                |
 | Apply a `-- @install-window: daily-maintenance` file by hand                            | `CLAUDE.md` section 2 rule 10; `tests/a-window-migration-waits-for-the-daily-break.law.test.ts`                                                                                                                                                                                                                                                                                                                                      |
 | Add a watcher, timer, cron, reconciler, retry agent or repair loop for a release        | `CLAUDE.md` 10.12, 10.85 and section 13; `AGENTS.md`                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -147,17 +163,17 @@ Everything in this document. Specifically, without asking anyone:
 Read each row with the commands in section 8. "Keep serving" means do nothing
 to production; the current engine keeps running by design.
 
-| Observed                                                                                      | Agent does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Law or file                                                                                                                                                                                            |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| No certified candidate: the `signal` job printed "No Backup Engine certified commit"          | Keep serving. Find why: `gh run list --workflow backup-engine.yml`; read the newest certify run's `certificate.json` line. Fix the cause in a PR, merge, let Backup certify. Tomorrow's window takes it.                                                                                                                                                                                                                                                                                    | `stage-engine-release.yml` step `certified`; owner direction ("a failed or missing certificate leaves the current engine running")                                                                     |
-| Certificate failed (`backup-engine/certified = failure`, reasons in the status description)   | Keep serving. Open the Backup run, read the reasons (`never_became_live`, `did_not_recover_from_crash`, `no_hands_dealt_during_soak`, `fatal_log_lines:N`, `tournament_freeze_qualification_failed`, `database_refresh_failed`). Reproduce locally where possible, fix at the root, merge. Never re-dispatch the same SHA hoping for a different answer; a `refresh=true` dispatch is for `database_refresh_failed` only.                                                                   | `server/standby/standby-engine.sh` `cmd_certify`; `.github/workflows/backup-engine.yml` job `certify`                                                                                                  |
-| A queued window migration was refused (run summary `REFUSED n of m ... skipped`)              | Nothing to undo: its transaction rolled back. Read the refusal (usually 55P03 lock timeout). Fix the file on main (a needless `DROP TRIGGER`, a wider lock than declared) in a PR; it stays queued and is sent again at the next 04:00. The files behind it were still sent (since 2026-11-07).                                                                                                                                                                                             | `scripts/ci/install-window-migrations.mjs`; `CLAUDE.md` section 2 rule 10; `docs/changelog/2026-11-07-a-refused-window-migration-no-longer-holds-the-queue-and-a-superseded-backup-run-steps-aside.md` |
-| Window install ended UNKNOWN (exit 3)                                                         | Read `schema_migrations` for that version through `execute_sql` before anything else. Recorded: it installed; nothing to do. Not recorded: still queued; the run stopped on purpose. Do not apply by hand.                                                                                                                                                                                                                                                                                  | `scripts/ci/install-window-migrations.mjs` header "OUTCOMES"; `CLAUDE.md` 10.86                                                                                                                        |
-| Cutover stalled on the host (observer log shows the transaction waiting or a container fault) | Do not touch the host. The systemd unit owns the transaction and `recover_on_exit` restores the sealed desired state inside the break; the receiver reattaches up to 40 times within its own budget. Read the receipt afterward. On 2026-11-07 the first host attempt faulted and the automatic retry sealed at 16:38:57Z.                                                                                                                                                                  | `engine-release-transaction.sh` line 806 `recover_on_exit`; `auto-deploy-hetzner.yml` step `release` (`reattach`)                                                                                      |
-| Receipt sealed but the GitHub run is red                                                      | Trust the receipt and `/health`, not the colour. Confirm the SHA and instance at `/health` match `/var/lib/club-arena/engine-release-results/<run>-<attempt>.json`. Reattach the observer to the original run (section 4.9). Check the Backup run ID recorded by the sealed receiver and its physical restore. If the provider lost the handoff, use the single Backup-only recovery (section 7.2). Do not re-run the cutover.                                                              | `backup-engine.yml` job `plan` (step `seal`); `PUBLISHING.md`; `docs/changelog/2026-11-07-observer-retired-completion-invocation.md`                                                                   |
-| Health never comes back after 04:05                                                           | Read the receipt. `ENGINE_RELEASE_RESULT` absent and the container down means the transaction's recovery ran or is running (`engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1`). Watch `/health` for the previously sealed SHA. If still down after `NON_BREAK_RECOVERY_MAX_SECONDS` (300 s, line 105), it is an incident: the supervisor and the container's own restart policy are the only levers; record every timestamp, and fix the boot cause in a PR. No hand restart. | `engine-release-transaction.sh` lines 105 and 806; `server/scripts/engine-up.sh` is the single start path                                                                                              |
-| Freeze never confirmed (`fn_platform_frozen` false through the break)                         | Nothing cut over: `maintenance_certificate` (line 1451) refuses without `readyForRestart` and the database row. The installer also refuses. Read `engine_maintenance_break` and the engine log for why the announcement failed (a lock timeout on the row write is the known cause). Fix at the root.                                                                                                                                                                                       | `server/src/maintenance/MaintenanceBreak.ts`; `CLAUDE.md` section 13 invariant 1                                                                                                                       |
-| Rollback happened (receipt `result` not `sealed`, `/health` shows the previous SHA)           | The previous engine is serving by design. Read the transaction log for the failed witness (candidate proof, database leader proof, window doors). Fix at the root; the next window retries with a new certificate. Never shorten a reserve.                                                                                                                                                                                                                                                 | `engine-release-transaction.sh` lines 52-53 and 2740 `prove_rollback_readiness`                                                                                                                        |
+| Observed                                                                                      | Agent does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Law or file                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No certified candidate: the `signal` job printed "No Backup Engine certified commit"          | Keep serving. Find why: `gh run list --workflow backup-engine.yml`; read the newest certify run's `certificate.json` line. Fix the cause in a PR, merge, let Backup certify. Tomorrow's window takes it.                                                                                                                                                                                                                                                                                                                                              | `stage-engine-release.yml` step `certified`; owner direction ("a failed or missing certificate leaves the current engine running")                                                                     |
+| Certificate failed (`backup-engine/certified = failure`, reasons in the status description)   | Keep serving. Open the Backup run, read the reasons (`never_became_live`, `did_not_recover_from_crash`, `no_hands_dealt_during_soak`, `fatal_log_lines:N`, `lifecycle_fatal_events:N`, `lifecycle_logs_unreadable`, `hand_gap_unintended_delay_exceeded`, `hand_gap_check_unreadable`, `tournament_freeze_qualification_failed`, `database_refresh_failed`). Reproduce locally where possible, fix at the root, merge. Never re-dispatch the same SHA hoping for a different answer; a `refresh=true` dispatch is for `database_refresh_failed` only. | `server/standby/standby-engine.sh` `cmd_certify`; `.github/workflows/backup-engine.yml` job `certify`                                                                                                  |
+| A queued window migration was refused (run summary `REFUSED n of m ... skipped`)              | Nothing to undo: its transaction rolled back. Read the refusal (usually 55P03 lock timeout). Fix the file on main (a needless `DROP TRIGGER`, a wider lock than declared) in a PR; it stays queued and is sent again at the next 04:00. The files behind it were still sent (since 2026-11-07).                                                                                                                                                                                                                                                       | `scripts/ci/install-window-migrations.mjs`; `CLAUDE.md` section 2 rule 10; `docs/changelog/2026-11-07-a-refused-window-migration-no-longer-holds-the-queue-and-a-superseded-backup-run-steps-aside.md` |
+| Window install ended UNKNOWN (exit 3)                                                         | Read `schema_migrations` for that version through `execute_sql` before anything else. Recorded: it installed; nothing to do. Not recorded: still queued; the run stopped on purpose. Do not apply by hand.                                                                                                                                                                                                                                                                                                                                            | `scripts/ci/install-window-migrations.mjs` header "OUTCOMES"; `CLAUDE.md` 10.86                                                                                                                        |
+| Cutover stalled on the host (observer log shows the transaction waiting or a container fault) | Do not touch the host. The systemd unit owns the transaction and `recover_on_exit` restores the sealed desired state inside the break; the receiver reattaches up to 40 times within its own budget. Read the receipt afterward. On 2026-11-07 the first host attempt faulted and the automatic retry sealed at 16:38:57Z.                                                                                                                                                                                                                            | `engine-release-transaction.sh` line 807 `recover_on_exit`; `auto-deploy-hetzner.yml` step `release` (`reattach`)                                                                                      |
+| Receipt sealed but the GitHub run is red                                                      | Trust the receipt and `/health`, not the colour. Confirm the SHA and instance at `/health` match `/var/lib/club-arena/engine-release-results/<run>-<attempt>.json`. Reattach the observer to the original run (section 4.9). Check the Backup run ID recorded by the sealed receiver and its physical restore. If the provider lost the handoff, use the single Backup-only recovery (section 7.2). Do not re-run the cutover.                                                                                                                        | `backup-engine.yml` job `plan` (step `seal`); `PUBLISHING.md`; `docs/changelog/2026-11-07-observer-retired-completion-invocation.md`                                                                   |
+| Health never comes back after 04:05                                                           | Read the receipt. `ENGINE_RELEASE_RESULT` absent and the container down means the transaction's recovery ran or is running (`engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1`). Watch `/health` for the previously sealed SHA. If still down after `NON_BREAK_RECOVERY_MAX_SECONDS` (300 s, line 105), it is an incident: the supervisor and the container's own restart policy are the only levers; record every timestamp, and fix the boot cause in a PR. No hand restart.                                                           | `engine-release-transaction.sh` lines 105 and 806; `server/scripts/engine-up.sh` is the single start path                                                                                              |
+| Freeze never confirmed (`fn_platform_frozen` false through the break)                         | Nothing cut over: `maintenance_certificate` (line 1482) refuses without `readyForRestart` and the database row. The installer also refuses. Read `engine_maintenance_break` and the engine log for why the announcement failed (a lock timeout on the row write is the known cause). Fix at the root.                                                                                                                                                                                                                                                 | `server/src/maintenance/MaintenanceBreak.ts`; `CLAUDE.md` section 13 invariant 1                                                                                                                       |
+| Rollback happened (receipt `result` not `sealed`, `/health` shows the previous SHA)           | The previous engine is serving by design. Read the transaction log for the failed witness (candidate proof, database leader proof, window doors). Fix at the root; the next window retries with a new certificate. Never shorten a reserve.                                                                                                                                                                                                                                                                                                           | `engine-release-transaction.sh` lines 52-53 and 2740 `prove_rollback_readiness`                                                                                                                        |
 
 ### Every ordinary candidate migration must be installed before dispatch
 
@@ -165,7 +181,7 @@ Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-
 
 ### 1.4 Freezing main for an owner window says when it ends
 
-**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live, as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
+**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live (either via `MAIN_RELEASE_FREEZE` or directly from an active unsealed booking in `server/release/owner-maintenance-windows.json` and `server/release/activation-floor.json`), as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
 
 No tool applies a freeze of `refs/heads/main` any more (the hand-made `RELEASE FREEZE` repository ruleset, id 27627940, stays disabled). The engine window is published and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
 
@@ -330,9 +346,9 @@ migration commit identity must also match. Changed or unreadable qualification
 inputs stop the walk and run full certification; they are never skipped to find
 an older success.
 `bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
-exactly what `server/Dockerfile` copies into the image at that commit (plus
-the Dockerfile and the script itself), read from git blobs; `--manifest`
-lists the inputs. Walking the first-parent history (60 commits), the nearest
+exactly what `server/Dockerfile` copies into the image at that commit after
+applying `server/.dockerignore` (plus the Dockerfile, `.dockerignore` and the
+script itself), read from git objects; `--manifest` lists the inputs. Walking the first-parent history (60 commits), the nearest
 ancestor with the same identity decides: `success` there is written on the
 candidate as `Inherited from <sha>: identical engine source (<12hex>)` and
 the run plans nothing; `failure` or `error` there, a different identity, an
@@ -370,13 +386,26 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
    Docker's restart policy to bring the same container back on the same SHA.
 6. Soak for `soak_s` (1800 from the workflow): running, liveness ok, no
    restart, no container change, hands dealt (`dealRate.handsInWindow` must
-   rise when seats exist), bounded memory.
+   rise when seats exist), bounded memory. Then `check_soak_hand_gap_delay`
+   runs `fn_ca_hand_gap_unintended_delay` over the steady-state soak window
+   (when installed on the copy) and fails closed if any graded shape with at
+   least 5 graded hands has `unintended_p95_ms > budget_ms` (250 ms)
+   (`hand_gap_unintended_delay_exceeded`) or if the check is unreadable
+   (`hand_gap_check_unreadable`).
 7. `qualify-tournament-freeze-fixes.py`, then a fatal-log scan
-   (`FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault`).
+   (`FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault`)
+   and `check_engine_lifecycle_logs`: queries `public.engine_lifecycle_logs`
+   on the Backup database (when the table exists) across the candidate's
+   boot and soak window, prints the exact error and stack of any
+   `fatal_error`, `shutdown_failed`, `shutdown_deadline`, unexpected
+   `leadership_shutdown`, or `level = 'fatal'` row, and fails closed
+   (`lifecycle_fatal_events:N`, or `lifecycle_logs_unreadable` when
+   unreadable; `tests/backup-cert-checks-lifecycle-logs.law.test.ts`).
 8. Writes `/var/lib/club-arena-standby/certificates/<sha>.json`
    (`club-arena-standby-certificate/v1`: verdict, reasons, boot and crash
-   recovery seconds, memory, `peakHandsInWindow`, the database stamp) and
-   prints it as the last line of the job log.
+   recovery seconds, memory, `peakHandsInWindow`, `lifecycleLogCheck`,
+   `handGapCheck`, the database stamp) and prints it as the last line of the
+   job log.
 
 ### 3.4 How the certificate is written and read
 
@@ -397,8 +426,8 @@ Readers accept only `success`, newest status first:
   from the owed SHA (60 commits) and offers the newest `success`;
 - `auto-deploy-hetzner.yml` step `backup_certificate` refuses any request
   whose SHA is not `success`;
-- the host transaction re-reads it at line 3289 (before the cycle), line 3856 (before preparation) and line
-  3912 (before the replacement).
+- the host transaction re-reads it at line 3321 (before the cycle), line 3888 (before preparation) and line
+  3944 (before the replacement).
 
 Read it yourself:
 
@@ -437,22 +466,73 @@ public `/health` only; the window, close and consumed rules are the ones in
 `scripts/ci/owner-window-ready.py`, the controls rule is `policy()` in
 `server/scripts/engine-release-activation-floor.py`):
 
-| Verdict     | Meaning                                                                                           | Push run does                                                                           |
-| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `booking`   | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
-| `candidate` | Carries main's two control files, after the booking commit                                        | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
-| `predates`  | Its control files differ from main's, so an owner selection refuses it while the window is open   | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
-| `none`      | No owner window on main, or it closed, or its release is serving                                  | Unchanged                                                                               |
-| `unknown`   | Anything unreadable or malformed                                                                  | Unchanged (CLAUDE.md 10.86)                                                             |
+| Verdict           | Meaning                                                                                                                                    | Push run does                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `booking`         | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's                                          | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
+| `booking_pending` | Carries main's two control files after the booking commit, while the booking commit does not yet carry `backup-engine/certified = success` | `DEFERRED`: nothing planned, no status written; yields the Backup host to the booking   |
+| `candidate`       | Carries main's two control files after the booking commit, and the booking commit already carries `backup-engine/certified = success`      | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
+| `predates`        | Its control files differ from main's, so an owner selection refuses it while the window is open                                            | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
+| `none`            | No owner window on main, or it closed, or its release is serving                                                                           | Unchanged                                                                               |
+| `unknown`         | Anything unreadable or malformed                                                                                                           | Unchanged (CLAUDE.md 10.86)                                                             |
 
 So the booking commit's own push run certifies it; do not also dispatch it by
 hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
 a second time), and a later control change on main (another lane's booking) makes
 that later commit the `booking`. A failed refresh is always a refusal: the verdict step reads `needs.refresh.result`
 and writes `failure` even when a provider answer stopped the job before certify
-(review of #10805). Nothing cancels a certification that is
-already running: a run that started before the booking merged still holds the
-host until it ends (about 50 minutes on November 14).
+(review of #10805). Owner-window priority itself does not cancel a running
+certification: a booking commit, freeze baseline, manual, nightly, or post-seal
+soak always runs to completion.
+
+The standby host turn wait (`turn` step of `backup-engine.yml` `refresh` job)
+allows up to 120 minutes (`7200` s; `refresh` `timeout-minutes: 180`, host
+lease TTL `9000` s) so a queued candidate behind an active refresh plus 55-min
+certification does not time out right before its turn (2026-11-21, E3). While
+still waiting for the lease in `turn`, an ordinary `push` run yields cleanly as
+`SUPERSEDED` (writing no `error` or `failure` status) only when a strictly newer
+active (non-completed) push run exists on `main` with a different head SHA AND a
+different `scripts/ci/engine-source-identity.sh` (or a diff to
+`.github/workflows/backup-engine.yml`); completed newer runs and identical-source
+pushes never disrupt a waiting run (2026-11-21, O2). `booking`,
+`freeze_baseline`, manual, nightly and post-seal runs are never superseded, and
+any unreadable GitHub or git answer keeps waiting (CLAUDE.md 10.86).
+
+Immediately after acquiring the Backup host turn (and never dropping an
+already-acquired lease for a newer ordinary push), `late_retarget` checks
+`main`'s newest server commit (`head`) for non-`booking`, non-`freeze_baseline`
+push runs: if `head` descends from `SHA` and `GITHUB_SHA`, does not modify
+`.github/workflows/backup-engine.yml`, and does not already carry
+`backup-engine/certified = success`, the run retargets in-place (`sha="$head"`,
+`control_sha="$head"`, checking out `$head` and forwarding the updated target
+to `refresh` and `certify` outputs) (2026-11-21, O2). Right after
+`late_retarget`, `late_inherit` re-checks whether the target SHA is already
+certified or whether a first-parent ancestor with identical
+`scripts/ci/engine-source-identity.sh` and `backup_projection`
+(`scripts/ci/read-engine-prequalification.py`) gained
+`backup-engine/certified = success` while it waited; if so, it inherits the
+certificate, releases the host lease at once, and skips refresh and `certify`.
+Before `certify`, `late_priority` still yields the host lease for an owner
+window booked while the run waited (`predates` or `booking_pending`), but never
+throws away an already-acquired lease for a newer ordinary push.
+
+During `certify`, `cmd_certify` on the offline standby host remains strictly
+network-free (`server/standby/standby-engine.sh` is unchanged). For ordinary
+`push` runs only (never `booking`, `freeze_baseline`, `workflow_dispatch`,
+`schedule`, or `repository_dispatch`), the GitHub Actions runner executes the
+SSH `standby-engine certify` command in the background while a bounded
+runner-side loop checks every 60 s (2026-11-21, O1). If and only if ALL FOUR
+conditions hold - (a) a newer active push run of `backup-engine.yml` is queued
+or in progress on `main`, (b) `projection(SHA)` from
+`scripts/ci/read-engine-prequalification.py` or `supabase/migrations` on
+`origin/main` already differs from `SHA` (proving `SHA` can never be selected
+against current `main`), (c) fewer than 75 minutes (`4500` s) remain until the
+next scheduled three-hourly or daily cutoff (`THREE_HOURLY_START_HOURS`), and
+(d) every read succeeded (any unreadable check keeps soaking per CLAUDE.md
+10.86) - the runner terminates the SSH certify command, stops the standby
+container cleanly via `/usr/local/sbin/standby-engine`'s `stop_for_restore`
+helper over SSH, releases the standby host lease, records `YIELDED_OBSOLETE` in
+the step summary, writes NO `failure` or `error` commit status, and exits `0` so
+the waiting selectable commit can immediately acquire `ca-backup`.
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only
@@ -495,7 +575,7 @@ break does not wait for a release.
 
 - **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup)
   created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
-  The preparation itself stays 03:30-03:50 (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`); later runs refuse by name; an unreadable run list
+  The preparation itself stays 03:30-03:50 for the 04:00 anchor, and opens 30 minutes before every other three-hourly cycle (`WINDOW_MINUTES = 20`); later runs refuse by name; an unreadable run list
   prepares nothing. Crons `31,35,39,43 3,8 * * *` and `31,35,39,43 4,9 * * *` UTC are only chances to be
   first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`). Operator deliveries may enter this same election only inside 03:30-03:50; they cannot reserve early or displace an earlier automatic owner.
 - **Cutoff** (step `cutoff`): the elected job waits once, at most five hours, until 03:30. It refreshes protected main and binds the newest cutoff commit. If release-control bytes changed since reservation, or the job misses 03:50, it keeps serving. The job has a 315-minute limit, below GitHub's six-hour maximum. On November 9 the early boundary is November 8 22:30 CST; DST boundaries use elapsed UTC time.
@@ -573,13 +653,13 @@ flight and no payout is mid-settlement.
 
 | Phase              | What                                                                                                                                                                                                                                                                                                                                                                                    | Budget                                                                                                   |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Cycle reservation  | the Backup certificate re-read at line 3289, image lease and candidate validation (`create_image_lease` line 2950, `validate_candidate_image` line 2997, `prewarm_candidate_image` line 3033)                                                                                                                                                                                           | Before the window                                                                                        |
+| Cycle reservation  | the Backup certificate re-read at line 3321, image lease and candidate validation (`create_image_lease` line 2981, `validate_candidate_image` line 3028, `prewarm_candidate_image` line 3064)                                                                                                                                                                                           | Before the window                                                                                        |
 | Window doors       | `window_doors_ready` (line 356) re-reads pg_proc and PostgREST's cache for every door a queued window migration creates (`docs/changelog/2026-11-07-release-window-resilience.md`)                                                                                                                                                                                                      | Inside the break, before the lock                                                                        |
-| Certificate        | `maintenance_certificate` (line 1451): `daily_cutover_clock` true, `readyForRestart` true, `unparkedTables == 0`, the durable break row, and enough break left: the strict `MIN_BREAK_REMAINING_MS` for a legacy checkpoint, otherwise `BREAK_ADMISSION_MIN_BREAK_MS` = 285000 minus a 25 s certificate lag = 260000 ms (lines 167 and 185), because the countdown is never read at t=0 | `MIN_BREAK_REMAINING_MS` = (150 + 135 + 0) s = 285000 ms of the 300000 ms break (lines 52, 53, 109, 115) |
-| Rollback readiness | `prove_rollback_readiness` (line 2740): the sealed engine is the exact live local and public process and the fresh database leader                                                                                                                                                                                                                                                      | Inside the 150 s proof                                                                                   |
+| Certificate        | `maintenance_certificate` (line 1482): `daily_cutover_clock` true, `readyForRestart` true, `unparkedTables == 0`, the durable break row, and enough break left: the strict `MIN_BREAK_REMAINING_MS` for a legacy checkpoint, otherwise `BREAK_ADMISSION_MIN_BREAK_MS` = 285000 minus a 25 s certificate lag = 260000 ms (lines 167 and 185), because the countdown is never read at t=0 | `MIN_BREAK_REMAINING_MS` = (150 + 135 + 0) s = 285000 ms of the 300000 ms break (lines 52, 53, 109, 115) |
+| Rollback readiness | `prove_rollback_readiness` (line 2771): the sealed engine is the exact live local and public process and the fresh database leader                                                                                                                                                                                                                                                      | Inside the 150 s proof                                                                                   |
 | Cutover            | `server/scripts/engine-up.sh` under the engine lock: stop the old container at a hand boundary (already parked), start the candidate, prove local `/health`, public `/health` and the database leader (`server/scripts/engine-release-database-proof.py`)                                                                                                                               | `BREAK_CUTOVER_PROOF_SECONDS` = 150                                                                      |
-| Rollback reserve   | If any witness fails before the seal, `recover_on_exit` (line 806) aborts the seal and runs `engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1` to restore the previously sealed desired state                                                                                                                                                                              | `BREAK_ROLLBACK_RESERVE_SECONDS` = 135, always held                                                      |
-| Seal               | `persist_result sealed` (line 4077 via `persist_result` line 2581): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
+| Rollback reserve   | If any witness fails before the seal, `recover_on_exit` (line 807) aborts the seal and runs `engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1` to restore the previously sealed desired state                                                                                                                                                                              | `BREAK_ROLLBACK_RESERVE_SECONDS` = 135, always held                                                      |
+| Seal               | `persist_result sealed` (line 4109 via `persist_result` line 2612): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
 | Thaw               | The new engine reads the break row, re-parks until `break_ends_at`, then `end()` thaws every deadline (`fn_thaw_platform`) and resumes in `RESUME_WAVES` waves; `/health.maintenance.resumeWaves` shows the rollout                                                                                                                                                                     | 04:05                                                                                                    |
 
 Receipt path on the host: `/var/lib/club-arena/engine-release-results/<run-id>-<attempt>.json`
@@ -771,7 +851,7 @@ shortens a safeguard.
 
 ### 7.3 The degraded-engine emergency, exactly
 
-`recovery_window_reason` (transaction line 1929) names `engine-degraded` only
+`recovery_window_reason` (transaction line 1960) names `engine-degraded` only
 when live `/health` shows `liveness == "dead"`, `wholeFleetStalled == true`, or
 `tournamentManagersQuarantined >= RECOVERY_QUARANTINED_MANAGERS`. That is the
 whole definition; a request deadline, a missed window, a red run or a slow
@@ -779,7 +859,7 @@ queue is not one (`CLAUDE.md` section 13). Since the owner direction of
 2026-11-06 that reason cannot admit a replacement outside 04:00-04:05: the
 receiver's `daily_release` step admits only the 03:30-03:50 preparation (or the
 recorded November 7 owner window), the host's `daily_cutover_clock` is checked
-again at line 3913, and `stage-engine-release.yml` offers nothing outside the
+again at line 3945, and `stage-engine-release.yml` offers nothing outside the
 daily preparation. A degraded engine during the day is therefore an incident
 to diagnose and fix at the root (section 10.11), with the container's own
 `unless-stopped` restart policy and the host supervisor as the only recovery
@@ -838,7 +918,7 @@ each needs its own PR, law and changelog.
    receiver's `prepare` step runs `server/scripts/build-engine-image.sh` on the
    production host before the window and `server/scripts/prewarm-engine-image.sh`
    loads it, and the transaction re-checks with `validate_candidate_image` and
-   `prewarm_candidate_image` (lines 2997, 3033). Not pre-warmed: the node
+   `prewarm_candidate_image` (lines 3028, 3033). Not pre-warmed: the node
    process itself (module load, snapshot rebuild of every table, the first
    Monte Carlo sample). A warm-standby process on the production host is the
    remaining idea. Deferred: two engines on one host contend for the single
@@ -936,3 +1016,17 @@ claim-back with the original or stable operation key, verifies its ledger and
 zero balance, then invokes the guarded retirement owner. It never creates a
 new purchase or repeats an unknown financial intent under a new key. Read `cleanup-only`
 separately from live gameplay acceptance; unknown money remains retained.
+
+### Read-only EngineReleaseFailed triage, inspection, and sanctioned claim
+
+When an `EngineReleaseFailed` incident handoff arrives, do not run ad-hoc local `psql` calls or touch `.env` credentials. Use the manual-only `.github/workflows/triage-engine-release-incident.yml` workflow on `main`:
+
+- **Triage live health vs. target SHA (read-only, no DB secret):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=triage -f target_sha=<40-char-sha>`
+- **Inspect incident row and recent observations/events (read-only, `ci-main` DB secret):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=inspect -f incident_id=<uuid>`
+- **Claim incident via `smarter_private.fn_claim_reliability_incident`:**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=claim -f incident_id=<uuid> -f agent_session=<session> -f branch=<branch> -f pull_request=<pr> -f ttl_hours=4`
+- **Resolve an engine-alerts incident by its original episode (the only sanctioned manual resolve):**
+  `gh workflow run triage-engine-release-incident.yml --ref main -f operation=resolve -f incident_id=<uuid> -f agent_session=<session> -f resolution_note='<why, with evidence>'`
+  It appends one resolved `engine_alerts` row per open firing member through `public.fn_record_engine_alerts`, copying the firing row's exact alertname, component, fingerprint, startsAt and `labels.engine_alert_episode_id`, then reads back the intake disposition and fails unless each member resolved (`scripts/ci/resolve-engine-alert-episode.mjs`). It refuses another source family, a closed incident, an incident with no open firing member, and a member with no producer episode (rows raised before 2026-11-21). Never `UPDATE` an `engine_alerts` or `operational_alert_events` row to close an incident, and never insert a resolve by hand: a row without the firing row's episode is recorded `resolved_not_of_this_episode` and resolves nothing (incident 484c4cee).

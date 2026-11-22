@@ -166,11 +166,8 @@ describe('workflow concurrency guards runner capacity without risking production
   it('never uses the unsupported concurrency.queue key in any workflow', () => {
     // GitHub Actions only supports `group` and `cancel-in-progress` under `concurrency:`.
     // Adding `queue:` causes GitHub to reject the workflow YAML at parse time.
-    // Note: backup-engine.yml is temporarily excluded while PR #11474 removes its `queue: max`.
-    const pendingRemoval = new Set(['backup-engine.yml']);
     const offenders: string[] = [];
     for (const file of files) {
-      if (pendingRemoval.has(file)) continue;
       const wf = load(file);
       if (wf.concurrency && typeof wf.concurrency === 'object' && 'queue' in wf.concurrency) {
         offenders.push(`${file}:concurrency.queue`);

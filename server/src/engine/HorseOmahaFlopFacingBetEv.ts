@@ -79,6 +79,7 @@
  * HorseOmahaFlopFacingBetEvRule.ts.
  */
 import type { Card, SeatPlayer } from '../types.js';
+import { plo6ValueShareAtSameStrength } from './HorsePlo6ValueShare.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
@@ -483,10 +484,16 @@ export function omahaFlopEvCounts(
   valueShare: number,
   field: OmahaFlopEvField = NO_FIELD,
   salt = 0,
-  riversPerTurn?: number
+  riversPerTurn?: number,
+  sixCards = false
 ): OmahaFlopEvCounts | null {
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
-  if ((hole.length !== 4 && hole.length !== 5) || board.length !== 3) return null;
+  // sixCards: plo6FacingBetIsPriced's own caller only (HorsePlo6FacingBetIsPriced.ts); every other caller four or five.
+  if (
+    (hole.length !== 4 && hole.length !== 5 && !(sixCards === true && hole.length === 6)) ||
+    board.length !== 3
+  )
+    return null;
   const deadCards = Array.isArray(dead) ? dead : [];
   const unseen = unseenCards(hole, board, deadCards);
   if (!unseen) return null;
@@ -967,11 +974,14 @@ export interface OmahaFlopFacingBetEvSpot {
  */
 export function omahaFlopFacingBetEvSpot(
   player: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  scope?: { plo6Priced?: boolean }
 ): OmahaFlopFacingBetEvSpot | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant)) return null;
+    // plo6FacingBetIsPriced's own caller (HorsePlo6FacingBetIsPriced.ts) opens the PLO6 cash flop.
+    const plo6Priced = scope?.plo6Priced === true && variant === 'plo6';
+    if (!plo6Priced && !OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant)) return null;
     if (omahaIsTournamentMode(gs)) return null;
     if (
       gs.stage !== 'flop' ||
@@ -1141,7 +1151,15 @@ export function omahaFlopFacingBetEvSpot(
       allIn,
       final,
       later,
-      valueShare: OMAHA_FLOP_EV_VALUE_SHARE[isRaise ? 'raise' : bucket] * line,
+      // plo6FacingBetIsPriced: the six-card region at the same hand strength (HorsePlo6ValueShare).
+      valueShare: plo6Priced
+        ? plo6ValueShareAtSameStrength(
+            hole,
+            board,
+            player.knownDeadCards ?? [],
+            OMAHA_FLOP_EV_VALUE_SHARE[isRaise ? 'raise' : bucket] * line
+          )
+        : OMAHA_FLOP_EV_VALUE_SHARE[isRaise ? 'raise' : bucket] * line,
       priorBluff: OMAHA_FLOP_EV_PRIOR_OTHER[isRaise ? 'raise' : bucket] * line,
     };
   } catch {
@@ -1223,6 +1241,8 @@ export interface OmahaFlopFacingBetEvContext {
   fit?: OmahaFlopRealizationFit;
   /** omahaFlopDefenceIsPriced: price the heads-up first-bet call as a two-street tree */
   tree?: OmahaFlopDefenceTreeContext | null;
+  /** plo6FacingBetIsPriced only: sample a six-card hand (omahaFlopEvCounts sixCards). Absent: four or five cards. */
+  sixCards?: boolean;
   /** omahaFlopVerdictReadsTheBettor only: this bettor's read. Absent: every number is the verdict's own. */
   bettor?: OmahaFlopBettorAdjustment;
 }
@@ -1288,7 +1308,9 @@ export function omahaFlopFacingBetEvVerdict(
       dead,
       valueShare,
       { always, behind: spot.behind, behindShare: callerShare },
-      ctx.salt ?? 0
+      ctx.salt ?? 0,
+      undefined,
+      ctx.sixCards === true
     );
     klass = omahaFlopHandClass(hole, board, dead);
   } catch {

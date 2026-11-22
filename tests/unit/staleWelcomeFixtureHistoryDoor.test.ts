@@ -58,6 +58,35 @@ describe('the stale welcome fixture history door', () => {
     }
   });
 
+  it('is asked for the schedule activity refusal of a stale fixture (2026-11-21)', () => {
+    // Cert Residue Sweep run 44846022061: Crest Cert 1794950026440-vqxq6 held
+    // three cancelled generations with exact-zero escrow receipts, which the
+    // deleting door's schedule preparation reads as activity, for ever.
+    const scheduleActivity = () =>
+      Object.assign(new Error('WELCOME_CERTIFICATION_SCHEDULE_FIXTURE_HAS_ACTIVITY'), {
+        code: '55000',
+      });
+    expect(retiresThroughHistoryDoor(scheduleActivity(), null, clubId)).toBe(true);
+    expect(
+      retiresThroughHistoryDoor(
+        Object.assign(new Error('Supabase service request ... (500)'), {
+          code: '55000',
+          body: { message: 'WELCOME_CERTIFICATION_SCHEDULE_FIXTURE_HAS_ACTIVITY' },
+        }),
+        null,
+        clubId
+      )
+    ).toBe(true);
+    // The run's own template never takes it.
+    expect(
+      retiresThroughHistoryDoor(
+        scheduleActivity(),
+        { templateFixtureRequest: { clubId, requestId: 'r-1' } },
+        clubId
+      )
+    ).toBe(false);
+  });
+
   it("leaves the run's own template on its terminal route", () => {
     const account = { templateFixtureRequest: { clubId, requestId: 'r-1' } };
     expect(retiresThroughHistoryDoor(boardLineage(), account, clubId)).toBe(false);

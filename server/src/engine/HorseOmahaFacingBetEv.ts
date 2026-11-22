@@ -48,6 +48,7 @@
  * a memo of exact counts for the last few hands (the same cards give the
  * same counts). The caller (HorseLogic) supplies the measured read.
  */
+import { omahaBetReadBluffShare, type OmahaBetRead } from './HorseOmahaBetRead.js';
 import {
   omahaShownFieldVerdict,
   type OmahaShownFieldVerdict,
@@ -67,6 +68,7 @@ import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
+import { plo6ValueShareAtSameStrength } from './HorsePlo6ValueShare.js';
 import {
   omahaOpponentKindOf,
   omahaPricedBluffFactor,
@@ -191,6 +193,10 @@ export interface OmahaFacingBetEvRead {
    *  that showed a strong hand and did not win (thin value: half a bluff). Null: the memory has no such read
    *  (today always: see HorseMind.omahaFacingBetEvReadOf) */
   sizeShown: { shown: number; best: number; second?: number } | null;
+  /** omahaBetReadIsPerOpponent (default off): his per-street, per-size bet read (HorseOmahaBetRead). When
+   *  present it alone moves the prior (omahaBetReadBluffShare: the population prior exactly below its minimum
+   *  sample); absent = the reads above, as before */
+  betRead?: OmahaBetRead | null;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -206,6 +212,10 @@ export function omahaEvBluffShare(
   read: OmahaFacingBetEvRead | null,
   street?: 'turn' | 'river'
 ): number {
+  // omahaBetReadIsPerOpponent (default off): ONE rule for every bettor, his measured composition of this street
+  // and size (HorseOmahaBetRead), the population prior exactly while his sample is below the minimum.
+  if (read?.betRead)
+    return Math.max(0.02, Math.min(0.65, omahaBetReadBluffShare(prior, read.betRead)));
   let q = prior;
   // omahaBluffShareFromBetRate (default off): his bet rate beside the population moves the prior
   // continuously; the value-leader and maniac labels do not act (HorseOmahaPricedMode).
@@ -1116,17 +1126,28 @@ export interface OmahaFacingBetEvSpot {
   priorBluff: number;
 }
 
+/** Who asks for the spot: absent for every PLO4/PLO5 caller. */
+export interface OmahaFacingBetEvSpotScope {
+  /** plo6FacingBetIsPriced's own caller: a PLO6 cash turn or river spot (HorsePlo6FacingBetIsPriced.ts). */
+  plo6Priced?: boolean;
+}
+
 /**
  * The spot the decision covers, with its public numbers, or null outside it.
  * It does not look at the Horse's hand or the legacy decision.
  */
 export function omahaFacingBetEvSpot(
   player: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  scope?: OmahaFacingBetEvSpotScope
 ): OmahaFacingBetEvSpot | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, gs)) return null;
+    // plo6FacingBetIsPriced (HorsePlo6FacingBetIsPriced.ts): the six-card spot is opened by that option's own
+    // caller only, on the turn and the river, without the PLO4/PLO5 strategy scope and without the
+    // continuous range (its verdict is the stated model, re-run by the receipt validator).
+    const plo6Priced = scope?.plo6Priced === true && variant === 'plo6';
+    if (!plo6Priced && !omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, gs)) return null;
     // Cash only, read as HorseLogic.isTournamentMode reads it;
     // omahaStrategyInTournaments (HorseOmahaTournamentScope) opens its public tournament scope.
     if (omahaCashOnlyExcludes(player, gs)) return null;
@@ -1150,7 +1171,7 @@ export function omahaFacingBetEvSpot(
     // turn stays with today's brain while PLO6_FACING_BET_EV_TURN is false.
     if (
       hole.length === 6 &&
-      ((street !== 'river' && !PLO6_FACING_BET_EV_TURN) || plo6PricingExcludes(gs))
+      ((street !== 'river' && !PLO6_FACING_BET_EV_TURN && !plo6Priced) || plo6PricingExcludes(gs))
     )
       return null;
     // The league and offline states carry no toCall: it is the current bet less the Horse's own.
@@ -1334,7 +1355,7 @@ export function omahaFacingBetEvSpot(
     }
     // omahaFacingBetRangeIsContinuous (default off): the same range knowledge with the size as a
     // continuous input, never a trigger (HorseOmahaPricedMode.omahaPricedFacingRange).
-    if (omahaPricedModeNow().rangeContinuous) {
+    if (!plo6Priced && omahaPricedModeNow().rangeContinuous) {
       const continuous = omahaPricedFacingRange({
         street,
         isRaise,
@@ -1365,6 +1386,15 @@ export function omahaFacingBetEvSpot(
       valueShare = continuous.valueShare;
       priorBluff = continuous.priorBluff;
     }
+    // plo6FacingBetIsPriced: the value share was set on four- and five-card holdings; for six cards the
+    // region is taken at the same hand strength on this board (HorsePlo6ValueShare).
+    if (plo6Priced)
+      valueShare = plo6ValueShareAtSameStrength(
+        hole,
+        board,
+        player.knownDeadCards ?? [],
+        valueShare
+      );
     return {
       street,
       bettorSeat: faced.bettorSeat,
@@ -1448,6 +1478,11 @@ export interface OmahaFacingBetEvContext {
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
   /**
+   * plo6FacingBetIsPriced only (HorsePlo6FacingBetIsPriced.ts): count a six-card TURN hand exactly
+   * (omahaEvHandCountsSixCardTurn) whatever PLO6_FACING_BET_EV_TURN says. Absent: as before.
+   */
+  sixCardTurn?: boolean;
+  /**
    * omahaTurnCallRealizationByRunout: present only with the option on. The
    * non-final turn call's factor is then read from the hand's per-river
    * counts (HorseOmahaRunoutRealization) instead of `realization`.
@@ -1508,7 +1543,10 @@ export function omahaFacingBetEvVerdict(
 ): OmahaFacingBetEvVerdict | null {
   let hand: OmahaEvHandCounts | null;
   try {
-    hand = omahaEvHandCounts(hole, board, dead, spot.valueShare);
+    hand =
+      ctx.sixCardTurn === true
+        ? omahaEvHandCountsSixCardTurn(hole, board, dead, spot.valueShare)
+        : omahaEvHandCounts(hole, board, dead, spot.valueShare);
   } catch {
     hand = null;
   }
@@ -1627,6 +1665,8 @@ export function omahaFacingBetEvVerdict(
   const price = spot.paid / (spot.winnable + spot.paid);
   const plo6FoldStands =
     hole.length === 6 &&
+    // plo6FacingBetIsPriced's own caller (sixCardTurn) asks for the price alone: no random-hand guard.
+    ctx.sixCardTurn !== true &&
     plo6EvFoldStands(1 - counted.all.win - counted.all.tie, board, price, {
       paired: ctx.plo6RiverNuts !== false,
       unpaired: ctx.plo6RiverUnpaired !== false,

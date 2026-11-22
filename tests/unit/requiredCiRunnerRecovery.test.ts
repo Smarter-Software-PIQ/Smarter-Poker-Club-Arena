@@ -1058,6 +1058,27 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(steps[index - 1].name).toBe('Native fixture gate rejects missing and skipped proof');
       steps.splice(index, 1);
     }
+    // The heavy-job queue proves itself on every pull request (2026-11-21):
+    // one exact added step, pinned here and by
+    // tests/operations/heavy-queue.test.mjs. It serializes heavy local jobs,
+    // recovers stale slots, holds new jobs while the machine is overloaded and
+    // keeps its tickets in one fixed folder. Adding the step without this pin
+    // moved the typecheck_compile fingerprint and failed client shard 8.
+    {
+      const heavyQueueStep = {
+        name: 'Heavy-job queue serializes, recovers stale slots, holds on load and stays in one place',
+        run: 'node --test tests/operations/heavy-queue.test.mjs',
+      };
+      const steps = normalized.jobs.typecheck_compile.steps;
+      const index = steps.findIndex((s: { name: string }) => s.name === heavyQueueStep.name);
+      expect(steps.filter((s: { name: string }) => s.name === heavyQueueStep.name)).toHaveLength(1);
+      expect(steps[index]).toStrictEqual(heavyQueueStep);
+      expect(steps[index - 1].name).toBe(
+        'Local dependency preflight refuses incomplete or stale installs'
+      );
+      expect(steps[index + 1].name).toBe('Money-trigger CI caller preserves independent authority');
+      steps.splice(index, 1);
+    }
     // Pin the entire reviewed producer and transfer pair before reconstructing
     // the former browser shape. The historical job hash still protects every
     // original build command, browser assertion, timeout and step ordering.
@@ -1264,13 +1285,15 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       stub_gate: '118f1b051bd24a3616cea41a6892985553c577d67f9cb39b2120f3d5a74391ca',
       fixture_native: '5ad4eff1fd198db8bd3f8a95e763496520ddff7c63c0b380afd7a49d4b6a82a6',
       typecheck: '9befab7487852fbbf2c6991d1e7e781c4c5a4391d070ef617dd4dfe193895e61',
-      typecheck_compile: '6039cd213a4591c076a1454d4d1ef598d3e8bc0833d63e5c3f1ee7c67d684aaa',
+      // November 20: retain the 3 added migration-safety parallel invariant guards (PR #11547).
+      typecheck_compile: '52e8faabc20e6205d50686bada90b77a6b4f54b2119b9e56c0d80507cb9492af',
       unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
       unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
       // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
-      accounting_postgres: 'f2cde001f3fe6542ceb807b51c0fce3d65f26610fdc43a8234a995f9bda29620',
+      // November 20: retain the exact added shard 4 Horse dealt hole cards PostgreSQL proof.
+      accounting_postgres: '46c7a5c5d4dfb388c7c9cc61c1445e233b99402ad54d821cdda7b88e26fc1e68',
       server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
       // Added 2026-11-19: builds native qualification image when its inputs change.
       native_qualification_image:
@@ -1637,7 +1660,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       name: 'Native alert intake survives actual process death without duplicate queue submission',
       if: '${{ !inputs.connected_ui_observations }}',
       env: { TMPDIR: '${{ runner.temp }}' },
-      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs',
+      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs tools/production-alerts-native-wakeup/native-turn.test.mjs',
     });
     // Qualify the exact additive transport gate, then retain every historical stage/hash.
     alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';

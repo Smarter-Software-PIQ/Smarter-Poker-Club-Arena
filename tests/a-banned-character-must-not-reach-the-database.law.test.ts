@@ -238,5 +238,8 @@ describe('a banned character must not reach the database', () => {
         'plain hyphen. A migration that DEFINES the checker is the one real exception and ' +
         'marks the line `-- dash-ok: <why>`.'
     ).toEqual({});
-  });
+    // Reads every migration since the cutoff in full: seconds warm, 37 s in a
+    // shared-host pre-push gate at load 24 (Nov 20 2026), past the suite's 30 s
+    // default. The budget only stops a hang; the scan and assertion are unchanged.
+  }, 300_000);
 });

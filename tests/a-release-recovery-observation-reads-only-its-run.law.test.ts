@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { loadAwareTestTimeout } from '../scripts/ci/load-aware-test-timeout.mjs';
 
 describe('existing release recovery evidence stays a fixed read', () => {
   it('pins the current diagnostic producers on every platform', () => {
@@ -27,7 +28,7 @@ describe('existing release recovery evidence stays a fixed read', () => {
       cwd: root,
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: loadAwareTestTimeout(25_000),
     });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toMatch(/Ran 196 tests/);

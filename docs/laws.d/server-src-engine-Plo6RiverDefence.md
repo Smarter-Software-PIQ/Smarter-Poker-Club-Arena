@@ -1,0 +1,3 @@
+# server/src/engine/Plo6RiverDefence.law.test.ts
+
+With plo6FacingBetIsPriced on (default OFF), PLO6 cash river defence (E7, HorsePlo6RiverDefence) prices multiway rivers on disjoint six-card holdings with measured multiway non-value scaling (plo6MultiwayRiverVerdict: folding dominated multiway river bluffs/underboats while calling profitable multiway flushes), enforces the six-card value-domination river guard (plo6RiverFoldGuardStands), enforces the six-card exact current-nuts river call floor (plo6RiverCurrentNutsCallSpot: never folds hasRiverNuts when worst-case chop >= call), preserves nut-end standing river raises (#59962430 quads Aces) and value-live standing river calls (#60091132), and passes horseDecisionReceiptRefusal.

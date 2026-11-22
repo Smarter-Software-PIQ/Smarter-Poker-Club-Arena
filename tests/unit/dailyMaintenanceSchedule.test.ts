@@ -4,6 +4,8 @@ import {
   isRoutineMaintenanceUpcoming,
   observedMaintenanceSchedule,
   PHASE1_MAINTENANCE_POLICY_ID,
+  THREE_HOURLY_MAINTENANCE_POLICY_ID,
+  THREE_HOURLY_SLOT_HOURS,
 } from '../../src/utils/maintenanceSchedule';
 
 describe('the lobby advertises only the daily Chicago maintenance window', () => {
@@ -88,8 +90,11 @@ it('cross-pins the client protocol identity to the maintained producer policy wi
   const policy = JSON.parse(
     readFileSync('server/src/maintenance/maintenanceSchedulePolicy.json', 'utf8')
   );
-  expect(policy.schema).toBe('engine-maintenance-schedule/v1');
-  expect(PHASE1_MAINTENANCE_POLICY_ID).toBe(policy.policyId);
+  // Owner order 2026-11-21: the v2 three-hourly policy is the maintained producer.
+  expect(policy.schema).toBe('engine-maintenance-schedule/v2');
+  expect(THREE_HOURLY_MAINTENANCE_POLICY_ID).toBe(policy.policyId);
+  expect([...THREE_HOURLY_SLOT_HOURS]).toEqual(policy.startHours);
+  expect(PHASE1_MAINTENANCE_POLICY_ID).toBe('phase1-hourly-01a1944f');
   expect(policy.timeZone).toBe('America/Chicago');
   // Desired complete/off cannot change the meaning of an already serving hourly tuple.
   for (const phase1Status of ['active', 'complete', 'off']) {

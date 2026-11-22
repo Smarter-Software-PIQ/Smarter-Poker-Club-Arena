@@ -12,6 +12,9 @@ export interface LobbyRowContext {
   onViewTable?: (entry: LobbyEntry) => void;
   onToggleFavorite?: (tableId: string, next: boolean, kind?: LobbyEntry['kind']) => void;
   onWaitlistToggle?: (tableId: string, joining: boolean) => void;
+  onInviteFailed?: (url: string, label: string) => void;
+  /** Sender's Share & Invite code for chip clubs (attached as ?i=<CODE> on row invites). */
+  inviteCode?: string | null;
   spinTopTierLive?: boolean;
   actionBusy?: boolean;
   /**

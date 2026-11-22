@@ -1,8 +1,12 @@
 {
-  "schema": "engine-maintenance-schedule/v1",
-  "policyId": "phase1-hourly-01a1944f",
+  "schema": "engine-maintenance-schedule/v2",
+  "policyId": "three-hourly-01Gw7aDs",
   "timeZone": "America/Chicago",
+  "frequency": "three-hourly",
+  "startHours": [1, 4, 7, 10, 13, 16, 19, 22],
   "phase1Status": "off",
-  "ownerMessageId": "01a1944f-7131-7f11-8dcc-873d576e781c",
-  "completionEvidence": "Owner instruction 2026-11-06, chat 01a1b095-8bd5-7d42-afcf-1a0843448274: Backup during the day; replacements ONLY at 04:00 America/Chicago. Hourly exception revoked; not a claim of Phase1 completion."
+  "ownerMessageId": "session_01Gw7aDsC1z7GdpSYmDAM2kv",
+  "ownerOrderAt": "2026-11-21T02:22:00-06:00",
+  "ownerOrder": "CREATE A DEDICATED ENGINE CUT OFF SWITCH TO WORK DIRECTLY WITH THE PLO STRATEGY CHAT, HORSE ON OFF SWITCHES CHAT, ANTIGRAVITY COORDINATION CHAT AND THE HORSE DECISIONS CHAT. YOU OWN THIS CODE BASE AND MAKE ANY AND ALL DECISIONS AND CHOICES ON HOW THIS IS DONE.  LAUNCH A SWARM TO HELP WITH THIS.  I WANT A ENGINE CUT OVER EVERY 3 HOURS.",
+  "completionEvidence": "Owner instruction 2026-11-06, chat 01a1b095-8bd5-7d42-afcf-1a0843448274: Backup during the day; replacements ONLY at 04:00 America/Chicago. Hourly exception revoked; not a claim of Phase1 completion. Superseded for timing only by the owner order of 2026-11-21 02:22 Chicago (session_01Gw7aDsC1z7GdpSYmDAM2kv): a dedicated certified cutover every three hours at 01, 04, 07, 10, 13, 16, 19 and 22 America/Chicago. Set frequency to daily to restore the 04:00-only route."
 }

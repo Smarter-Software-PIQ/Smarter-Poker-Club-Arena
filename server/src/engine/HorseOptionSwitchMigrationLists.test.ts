@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_ON_SHADOW_NAMES,
   OPTION_SWITCH_PLAIN_NAMES,
   OPTION_SWITCH_SHADOW_NAMES,
 } from './HorseOptionSwitch.js';
@@ -32,6 +33,8 @@ const NAME = '20261116000000_horse_option_switch_test';
 const FOLLOW_UP = `supabase/migrations/${NAME}.sql`;
 const quoted = (text: string) => [...text.matchAll(/'([A-Za-z0-9]+)'/g)].map((m) => m[1]!);
 const sorted = (names: readonly string[]) => [...names].sort();
+/** The quoted states of an ARRAY[...] (on_shadow included, 2026-11-19). */
+const statesIn = (text: string) => [...text.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!);
 const code = (sql: string) => sql.replace(/--[^\n]*/g, '');
 const constraint = (sql: string, name: string) =>
   new RegExp(`ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\);`).exec(code(sql))![1]!;
@@ -78,18 +81,23 @@ describe('a Horse option added after the switch is installed ships as a follow-u
     expect(sorted(quoted(constraint(sql, 'ca_horse_style_switch_option_is_registered')))).toEqual(
       sorted([...STYLE_SWITCH_OPTIONS, ...OPTION_SWITCH_PLAIN_NAMES])
     );
-    // on cites its own authority (style options apart), the same text as the base migration
+    // on cites its own authority (style options apart), the same text as the base migration but for on_shadow
+    // (2026-11-19), which acts as on and so cites its own authority too
     expect(constraint(sql, 'ca_horse_style_switch_on_cites_authority')).toBe(
-      constraint(read(OPTION_SWITCH_BASE_MIGRATION), 'ca_horse_style_switch_on_cites_authority')
+      constraint(
+        read(OPTION_SWITCH_BASE_MIGRATION),
+        'ca_horse_style_switch_on_cites_authority'
+      ).replace("state <> 'on'", "state NOT IN ('on', 'on_shadow')")
     );
-    // off-only, the shadow options (2026-11-18) and the style states
+    // off-only, the shadow options (2026-11-18), the on_shadow options (2026-11-19) and the style states
     const fits =
-      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
+      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR \(state = 'on_shadow' AND option IN \(([^)]*)\)\)\s*OR \(state <> 'on_shadow' AND option IN \(([^)]*)\)\)\s*$/.exec(
         constraint(sql, 'ca_horse_style_switch_state_fits_option')
       )!;
     expect(sorted(quoted(fits[1]!))).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
     expect(sorted(quoted(fits[2]!))).toEqual(sorted(OPTION_SWITCH_SHADOW_NAMES));
-    expect(sorted(quoted(fits[3]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    expect(sorted(quoted(fits[3]!))).toEqual(sorted(OPTION_SWITCH_ON_SHADOW_NAMES));
+    expect(sorted(quoted(fits[4]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
     // the states function: style, then off-only before plain
     const body =
       /CREATE OR REPLACE FUNCTION public\.fn_ca_horse_option_switch_states\(p_option text\)[\s\S]*?AS \$function\$([\s\S]*?)\$function\$;/.exec(
@@ -98,12 +106,13 @@ describe('a Horse option added after the switch is installed ships as a follow-u
     expect(
       [...body.matchAll(/WHEN p_option IN \(([^)]*)\)\s*THEN ARRAY\[([^\]]*)\]/g)].map((m) => ({
         names: sorted(quoted(m[1]!)),
-        states: quoted(m[2]!),
+        states: statesIn(m[2]!),
       }))
     ).toEqual([
       { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
       { names: sorted(OPTION_SWITCH_OFF_ONLY_NAMES), states: ['off'] },
-      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on'] },
+      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on_shadow', 'on'] },
+      { names: sorted(OPTION_SWITCH_ON_SHADOW_NAMES), states: ['off', 'on_shadow', 'on'] },
       { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
     ]);
     // idempotent: drop-if-exists then add, create or replace; no table, column, index, trigger or row
@@ -125,11 +134,25 @@ describe('a Horse option added after the switch is installed ships as a follow-u
       /RAISE EXCEPTION 'switch row % \(state %\) names an option the registry no longer has/
     );
     expect(block).toMatch(
-      /IF r\.state = 'on' AND r\.option IN \(([^)]*)\) THEN\s*RAISE EXCEPTION 'switch row % is on and the option is now off-only/
+      /IF r\.state IN \('on', 'on_shadow'\) AND r\.option IN \(([^)]*)\) THEN\s*RAISE EXCEPTION 'switch row % is % and the option is now off-only/
     );
     expect(
-      sorted(quoted(/IF r\.state = 'on' AND r\.option IN \(([^)]*)\)/.exec(block)![1]!))
+      sorted(
+        quoted(/IF r\.state IN \('on', 'on_shadow'\) AND r\.option IN \(([^)]*)\)/.exec(block)![1]!)
+      )
     ).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
+    // 2026-11-19: an on_shadow row for an option the new lists do not give on_shadow raises, and the file refuses to
+    // install before the set function and the registry publish know on_shadow
+    expect(
+      sorted(
+        quoted(
+          /IF r\.state = 'on_shadow' AND NOT \(r\.option IN \(([^)]*)\)\) THEN/.exec(block)![1]!
+        )
+      )
+    ).toEqual(sorted(OPTION_SWITCH_ON_SHADOW_NAMES));
+    expect(block).toMatch(
+      /RAISE EXCEPTION 'the switch functions do not know on_shadow: install \*_the_horse_option_switch_on_shadow_keeps_every_rule_of_on\.sql first'/
+    );
     expect(block).not.toMatch(/UPDATE|DELETE|INSERT/);
     // a shadow or canary row the new lists no longer allow raises too, and the file refuses to install while the
     // switch functions still tell the style options by shadow

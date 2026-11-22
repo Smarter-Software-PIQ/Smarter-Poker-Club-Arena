@@ -16,19 +16,27 @@ beside each declared observation in the evidence archive. `build_packet.py` impl
 
 ## Layout
 
-| Path                                                                   | Role                                                                                                                |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `run-capture-steps.sh`                                                 | census and Lightning outcomes per 2-hour segment, merge, human keys, selector, export batches                       |
-| `post_capture.py`                                                      | batches, keys_light, keys_batch, priors, origins, fires, cohort                                                     |
-| `run-originals-host.sh`                                                | journal reads (witness, export, roll-up batches) run detached on the engine host, then collected with sha256 checks |
-| `run-originals.sh`                                                     | the older ssh-bound journal reads (kept; prefer the host runner for long batches)                                   |
-| `operator-lock.sh`                                                     | one named operator per capture folder and one running step at a time                                                |
-| `reconcile.py`, `build_packet.py`, `rollup_aggregate.py`, `analyze.py` | post-read reconciliation, witness packet, roll-up, report numbers                                                   |
-| `witness-reader.mjs`, `rollup-reader.mjs`                              | journal readers, run inside the retained reader image of the serving release                                        |
-| `host/preserve-part.sh`, `host/preserve-window.sh`                     | bounded byte-copy preservation of the window's journal segment files on the engine host                             |
-| `verify-release.sh`, `release-inventory.tsv`                           | read-only check of the serving release against the Horse change inventory and the worker fleet                      |
-| `manifest/`                                                            | census, Lightning outcomes, selector and export tools of protocol v4/v5 with their tests                            |
-| `RUNBOOK.md`, `TESTS.md`                                               | operating order and test record carried over from the archive, with the repository section appended                 |
+| Path                                                                   | Role                                                                                                                                                                            |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read-window.sh`                                                       | end-to-end closed-window reader gated on `declaration_guard.py` (`DECLARATION.json` + `DECLARATION.sha256`)                                                                     |
+| `write_window_artifacts.py`                                            | non-overwrite generator for `PRESERVED.md`, `REPORT-OBSERVATION.md`, `PHASE1-GRADE-POST-WINDOW.md`, `EVIDENCE-INDEX.md`                                                         |
+| `declaration_guard.py`                                                 | pre-evaluation `DECLARATION.json` + SHA-256 initializer and hard gate (M3, M13)                                                                                                 |
+| `build_attribution.py`                                                 | `hand_history.engine_build` + `ca_engine_deploy_attempts` attribution, cutover window splitter, boundary table (M9)                                                             |
+| `score_decisions.py`                                                   | LOO measured-range classifier, actual-hand EV scorer, hand-clustered bootstrap CI, top-human share, card firewall                                                               |
+| `blind_review.py`                                                      | 1:1 action-matched blind-review batch builder (`0600` key in `0700` dir) and canonical Bar `e'` label scorer (M6)                                                               |
+| `gap_targets.py`                                                       | targeted missing-spot hand-key selector and offline action-sequence classifier across 6 under-observed spot classes                                                             |
+| `run-capture-steps.sh`                                                 | census and Lightning outcomes per 2-hour segment, merge, human keys, selector, export batches                                                                                   |
+| `post_capture.py`                                                      | batches, raw_batches, keys_light, keys_batch, priors, origins, fires, cohort, gap_targets, score_folds, blind_batches, score_blind_labels, build_boundaries                     |
+| `run-originals-host.sh`                                                | journal reads (witness, export, roll-up, raw gzip batches) run detached on the engine host (`nice -n 19 ionice -c3`, memory/maintenance precheck), collected with sha256 checks |
+| `preserve-host.sh`                                                     | Mac-side start/close/status/stop/ensure-reader/rollover of bounded host preservation and `hvh-reader:<sha10>` tags                                                              |
+| `run-originals.sh`                                                     | the older ssh-bound journal reads (kept; prefer the host runner for long batches)                                                                                               |
+| `operator-lock.sh`                                                     | one named operator per capture folder and one running step at a time                                                                                                            |
+| `reconcile.py`, `build_packet.py`, `rollup_aggregate.py`, `analyze.py` | post-read reconciliation, witness packet, roll-up, report numbers (with top-human share)                                                                                        |
+| `witness-reader.mjs`, `rollup-reader.mjs`, `raw-reader.mjs`            | journal readers, run inside the retained reader image of the serving release                                                                                                    |
+| `host/preserve-part.sh`, `host/preserve-window.sh`                     | bounded byte-copy preservation of the window's journal segment files on the engine host                                                                                         |
+| `verify-release.sh`, `release-inventory.tsv`                           | read-only check of the serving release against the Horse change inventory and the worker fleet                                                                                  |
+| `manifest/`                                                            | census, Lightning outcomes, selector and export tools of protocol v4/v5 with their tests                                                                                        |
+| `RUNBOOK.md`, `TESTS.md`                                               | operating order and test record carried over from the archive, with the repository section appended                                                                             |
 
 ## Configuration (environment; defaults are the owner's Mac layout)
 

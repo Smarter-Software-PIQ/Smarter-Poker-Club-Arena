@@ -1,0 +1,3 @@
+# tests/engine-lifecycle-logs-bounded-retention.law.test.ts
+
+Incident 075013fd (Wave 2 Hardening, Lane W3): `public.engine_lifecycle_logs` enforces bounded 30-day rolling retention via the owner-only `public.fn_ca_prune_engine_lifecycle_logs(p_keep interval DEFAULT interval '30 days', p_batch integer DEFAULT 5000)` function (`SECURITY DEFINER`, `SET search_path TO 'public'`, `SET statement_timeout TO '15s'`, `SET lock_timeout TO '2s'`, `LIMIT` + `FOR UPDATE SKIP LOCKED`, `REVOKE ALL` from `PUBLIC`, `anon`, `authenticated`, `service_role`), scheduled daily via `ca-engine-lifecycle-logs-prune-daily` and proved against native PostgreSQL 17 by `scripts/ci/test-engine-lifecycle-logs-bounded-retention.py` in `.github/workflows/snapshot-prune-reads-its-age-bound.yml`.

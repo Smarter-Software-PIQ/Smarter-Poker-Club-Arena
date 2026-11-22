@@ -539,13 +539,20 @@ export async function runStep(state: HorseSpinState, step: HorseSpinStep): Promi
       if (a.game === 'crash') args.auto_cashout_cents = crashCashoutCents(h, a.id);
       if (a.game === 'mines' || a.game === 'crossing') {
         args.mode = CHOICE_MODE[a.game];
-        const st = await doors.act(h, 'choice_state', {
+        // Bonus awards carry their own pre-funded cap_cents; query bonus_state
+        // (fn_wheel_bonus_state) rather than standalone cash choice_state so
+        // standalone host/bet limits cannot zero out max_steps.
+        const st = await doors.act(h, 'bonus_state', {
           club_id: a.clubId,
           game: a.game,
+          double: false,
           mode: CHOICE_MODE[a.game],
-          bet: a.baseDiamonds,
+          award_id: a.id,
         });
-        const max = Number((st as { max_steps?: unknown } | null)?.max_steps);
+        const max = Number(
+          (st as { game_state?: { max_steps?: unknown }; max_steps?: unknown } | null)?.game_state
+            ?.max_steps ?? (st as { max_steps?: unknown } | null)?.max_steps
+        );
         if (!(max >= 1)) {
           result = { ok: false, error: refusalOf(st) ?? 'The Round Limit Could Not Be Read' };
           break;

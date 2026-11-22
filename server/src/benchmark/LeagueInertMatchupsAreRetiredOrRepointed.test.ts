@@ -53,22 +53,30 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-19 (PLO lane): the same, for the slowplay mix's and the public bet size's Lightning scopes.
         'plo5_omaha_slowplay_mix_in_lightning',
         'plo5_omaha_public_bet_size_in_lightning',
+        // 2026-11-20 (EMERG OPEN-ITEMS-3): the same, for the checked-to river bet's own Lightning scope.
+        'plo5_omaha_checked_to_bet_in_lightning',
+        // 2026-11-19 TURN-STAB: the line needs a person bettor; the league seats none (0 of 300 pairs diverged).
+        'plo5_omaha_turn_stab_defence_is_priced',
+        // 2026-11-19 AUDIT48-TURN: a person bettor in a Lightning domain; the league has neither.
+        'plo5_omaha_turn_stab_lightning_row',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',
         'v16_ratio_rescale',
         'v18_exploit_size',
         'v31_gto_suit_aware',
-        // Fixed-Limit lane (2026-11-14): default-off fixed-limit options this
-        // league cannot deal (no fixed-limit betting); each reason states it.
-        'flh_river_full_bet_read',
-        'flo8_river_full_bet_read',
-        'flo8_nut_low_river_bet',
+        // Fixed-Limit lane (2026-11-14): default-off fixed-limit options. Since
+        // 2026-11-20 the league deals legal fixed-limit hold'em (flh_river_full_bet_read
+        // and flh_priced_preflop left for the card), and since 2026-11-21 it deals
+        // legal fixed-limit Omaha hi-lo (flo8_no_omaha_presumption, flo8_priced_preflop
+        // and flo8_river_full_bet_read left for FIXED_LIMIT_OMAHA_HILO_CARDS;
+        // flo8_hilo_low_half_floor and flo8_nut_low_river_bet left for
+        // FLO8_SCRIPTED_FIELD_CARDS). Every arm still here changes
+        // no decision (or one in hundreds of pairs) in a Horse mirror. Each reason
+        // states its own count on the legal game.
         'flh_river_one_bet_value_raise',
         'flo8_call_is_not_a_commitment',
         'flh_call_is_not_a_commitment',
-        'flo8_hilo_low_half_floor',
-        'flo8_no_omaha_presumption',
         // Fixed-Limit lane W8 (2026-11-15): the strong river lead.
         'flh_river_strong_hand_leads',
         'flo8_river_strong_hand_leads',
@@ -106,11 +114,23 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // PLO6 lane (2026-11-16): the gate alone switches no rule on, and the six-card port
         // it would open is unfinished (off-only).
         'plo6_omaha_strategy_in_plo6',
-        // Fixed-Limit lane W5 (2026-11-15): priced preflop and the steal.
-        'flh_priced_preflop',
-        'flo8_priced_preflop',
+        // Fixed-Limit lane W5 (2026-11-15): the steal (flo8_priced_preflop moved to the card 2026-11-21).
         'flh_steal_vs_tight_blinds',
         'flo8_steal_vs_tight_blinds',
+        // EMERG lane PACK (2026-11-19): the pack-depth gate is never reached by a league stack.
+        'plo4_omaha_pack_effective_depth',
+        'plo5_omaha_pack_effective_depth',
+        'plo4_omaha_pack_clamp_deep_depth',
+        'plo5_omaha_pack_clamp_deep_depth',
+        // 2026-11-21 (list train): league opponents have no lifetime history (omahaOpponentLifetimeHud).
+        'plo4_opponent_lifetime_hud',
+        'plo5_opponent_lifetime_hud',
+        // 2026-11-21 (OPPONENT-HUD-9): the consumer reads the same absent history (omahaOpponentLifetimeHudDecides).
+        'plo4_opponent_lifetime_hud_decides',
+        'plo5_opponent_lifetime_hud_decides',
+        // 2026-11-21 (B4): priced 6-max preflop HUD reads the same absent history (omahaPreflopReadIsPricedFromLifetime).
+        'plo4_omaha_preflop_read_is_priced_from_lifetime',
+        'plo5_omaha_preflop_read_is_priced_from_lifetime',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

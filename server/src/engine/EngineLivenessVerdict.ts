@@ -27,6 +27,15 @@ export interface EngineLivenessObservation {
   discoveryStaleMs: number;
   dbConfirmedDead: boolean;
   tables: readonly EngineLivenessTable[];
+  /**
+   * Rolling handoff successor (ENGINE_ROLE=handoff-successor, 2026-11-19):
+   * present only while the process is one, with whether its dealer gate is
+   * open. A successor runs no discovery by design, so the leader rules below
+   * (discovery stall, barren leader) do not apply: it is alive once it can
+   * deal, a standby until then. Absent for every other process, so their
+   * verdict is unchanged.
+   */
+  handoffSuccessorDealerReady?: boolean;
 }
 
 export interface EngineLivenessVerdict {
@@ -66,10 +75,21 @@ export function evaluateEngineLiveness(
     observation.tables.length === 0 &&
     observation.discoveryStaleMs > BARREN_DISCOVERY_STALE_MS;
 
+  const successor = observation.handoffSuccessorDealerReady;
   const leaderDead =
+    successor === undefined &&
     observation.isLeader &&
     (wholeFleetStalled || discoveryLoopDead || barrenLeaderDead || observation.dbConfirmedDead);
-  const status = !observation.isLeader ? 'standby' : leaderDead ? 'dead' : 'ok';
+  const status =
+    successor !== undefined
+      ? successor
+        ? 'ok'
+        : 'standby'
+      : !observation.isLeader
+        ? 'standby'
+        : leaderDead
+          ? 'dead'
+          : 'ok';
 
   return {
     status,

@@ -1,0 +1,37 @@
+name: A person beating the Horses reaches Production Alerts
+
+# fn_ca_horse_exposure_watch() (migration 20261121011654). Runs
+# scripts/ci/test-a-person-beating-the-horses-reaches-production-alerts.py against a
+# throwaway PostgreSQL 17 cluster, never production. No timer: pull_request only,
+# scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261121011654_a_person_beating_the_plo_horses_reaches_production_alerts.sql
+      - supabase/migrations/20261119234116_the_3_am_check_says_whether_the_4_am_cutover_will_ship.sql
+      - scripts/ci/test-a-person-beating-the-horses-reaches-production-alerts.py
+      - scripts/ci/test-a-missed-engine-cutover-is-paged.py
+      - scripts/ci/fixtures/engine-cutover-preimages.json
+      - .github/workflows/a-person-beating-the-horses-reaches-production-alerts.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-person-beating-the-horses-reaches-production-alerts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-person-beating-the-horses-reaches-production-alerts:
+    name: A person beating the Horses reaches Production Alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A person beating the Horses reaches Production Alerts
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-a-person-beating-the-horses-reaches-production-alerts.py

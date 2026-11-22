@@ -1,4 +1,5 @@
 import type { HorseVpipDecisionInputs } from './HorsePublicActionNode.js';
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import {
   raiseEngineAlert,
   resolveEngineAlert,
@@ -193,6 +194,7 @@ import {
   claimTournamentMovePresence,
   depositMovedPresence,
   hasMovedPresence,
+  hasTournamentMovePresence,
 } from './SeatMovePresence.js';
 import {
   readCashMoveArrivals,
@@ -2509,6 +2511,27 @@ export abstract class ServerTableEngineBase {
    */
   protected currentHandAllInShowdown = false;
   protected completedOriginalShowdownReadMs = 0;
+  /**
+   * HOLD JITTER DOES NOT STACK ONTO REST (incident 1e532243, 2026-11-21).
+   *
+   * `acceptedHandEndedAt` is stamped synchronously at HAND_COMPLETE (the same
+   * instant written to `hand_history.ended_at` and broadcast to clients). Two
+   * consecutive uncompensated `setTimeout` sleeps (`awaitHandCompletionDisplay`
+   * followed by `armNextHandRest`) stacked entry lag + hold timer overshoot +
+   * rest timer overshoot past `ENGINE_BETWEEN_HANDS_BUDGET_MS` (250 ms) under
+   * event-loop load.
+   *
+   * 1. `lastAcceptedHandEndedAtMs` anchors the completion hold to the actual
+   *    HAND_COMPLETE instant so real elapsed time before entering
+   *    `awaitHandCompletionDisplay` is absorbed without shortening the visible
+   *    client display below `targetHoldMs`.
+   * 2. `lastHoldDeadlineMs` records the hold's target end instant so
+   *    `armNextHandRest` can absorb hold overshoot up to
+   *    `MAX_HOLD_OVERSHOOT_ABSORB_MS` (never below the board-clear floor).
+   */
+  static readonly MAX_HOLD_OVERSHOOT_ABSORB_MS = 500;
+  protected lastAcceptedHandEndedAtMs: number | null = null;
+  protected lastHoldDeadlineMs: number | null = null;
 
   protected async awaitHandCompletionDisplay(totalMs: number): Promise<void> {
     // Multi-board and BBJ hold formulas do not contain this showdown-read
@@ -2518,7 +2541,17 @@ export abstract class ServerTableEngineBase {
         ? this.completedOriginalShowdownReadMs
         : 0;
     this.completedOriginalShowdownReadMs = 0;
-    await this.sleep(Math.max(0, totalMs - completedRead));
+    const targetHoldMs = Math.max(0, totalMs - completedRead);
+    const enteredAt = Date.now();
+    const handEndedAt = this.lastAcceptedHandEndedAtMs;
+    this.lastAcceptedHandEndedAtMs = null;
+    // Anchor only to a valid real-elapsed timestamp at or before entry; a
+    // backward clock step or absent stamp (direct unit-test call) anchors now.
+    const holdAnchorMs = handEndedAt !== null && handEndedAt <= enteredAt ? handEndedAt : enteredAt;
+    const holdDeadlineMs = holdAnchorMs + targetHoldMs;
+    this.lastHoldDeadlineMs = holdDeadlineMs;
+    const sleepMs = Math.max(0, holdDeadlineMs - enteredAt);
+    if (sleepMs > 0) await this.sleep(sleepMs);
   }
 
   /**
@@ -4682,10 +4715,14 @@ export abstract class ServerTableEngineBase {
       await this.seedHandCountFromHistory();
       if (!this.lifecycleCanMutate()) return;
 
+      // Every start step names itself, so a start_failed kill names the step
+      // that failed rather than the last read that set a phase (2026-11-21).
+      this.setLoopPhase('start_restore_button');
       // Dan 2026-08-25, BINDING: "IN THE EVENT OF AN ENGINE RESTART, WHILE PLAY
       // IS RUNNING, IT MUST ALWAYS RESTART IN THE SAME POSITION."
       await this.restoreButtonFromHistory();
       if (!this.lifecycleCanMutate()) return;
+      this.setLoopPhase('start_restore_kill');
       // KILL POTS (kill-v1): the pending kill comes back with the button.
       await this.restoreKillFromHistory();
       if (!this.lifecycleCanMutate()) return;
@@ -4699,6 +4736,7 @@ export abstract class ServerTableEngineBase {
         await this.f06MovementAdmission.revalidate();
         this.assertF06MovementOwner();
       }
+      this.setLoopPhase('start_crash_recovery');
       const recovered = this.f06MovementAdmission ? false : await this.checkCrashRecovery();
       if (!this.lifecycleCanMutate()) return;
       if (recovered) {
@@ -6487,6 +6525,25 @@ export abstract class ServerTableEngineBase {
     if (!this.lifecycleCanMutate()) return [];
     const previous = new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
     this.seatedPlayers = nextRoster;
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; owner 3:20 PM: "AS SOON AS A PLAYER JOINS A TABLE ... AS WELL AS
+    // WHEN THEY MOVE TABLES"): every seated player's lifetime profile is warmed now, ahead of his first hand. Fire and
+    // forget; PLO4/PLO5 cash and tournaments; never throws. A player arriving by a table move (a cash seat-move or a
+    // tournament balance move deposited for this table, read before this engine claims it) is the 'move' trigger
+    // (AUDIT-C item 5: opponent_hud_ready_move_ms_*); everyone else is 'sit'.
+    const tournamentTable = this.isTournamentTable();
+    const moved: string[] = [];
+    const seated: string[] = [];
+    for (const p of nextRoster)
+      (!previous.has(p.user_id) &&
+      (tournamentTable
+        ? hasTournamentMovePresence(p.user_id, this.tableId)
+        : hasMovedPresence(p.user_id, this.tableId))
+        ? moved
+        : seated
+      ).push(p.user_id);
+    const variant = this.activeHandVariant();
+    if (moved.length) warmOpponentHudSeats(moved, variant, tournamentTable, 'move');
+    warmOpponentHudSeats(seated, variant, tournamentTable, 'sit');
     // The roster now speaks for every committed arrival (SeatArrivalDisplay).
     this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one
@@ -8181,6 +8238,24 @@ export abstract class ServerTableEngineBase {
    */
   horsesSeated(): number {
     return this.seatedPlayers.filter((p) => p.is_horse === true && p.stack > 0).length;
+  }
+
+  /**
+   * Read-only identification of horse user IDs counted by `horsesSeated()` when
+   * this engine is a Lightning anchor table, so `poker_horses_seated` can count
+   * Lightning pool horses without double-counting seats already present here.
+   * Identification only (CLAUDE.md 10.5): decides nothing.
+   */
+  lightningAnchorHorseIds(): { clusterId: string; userIds: string[] } | null {
+    if (!this.isLightningAnchorNow()) return null;
+    const clusterId = this.tableInfo?.cluster_id;
+    if (!clusterId) return null;
+    return {
+      clusterId,
+      userIds: this.seatedPlayers
+        .filter((p) => p.is_horse === true && p.stack > 0)
+        .map((p) => p.user_id),
+    };
   }
 
   /**
@@ -10277,6 +10352,10 @@ export abstract class ServerTableEngineBase {
       !this.running
     )
       return;
+    // Mark the deliberate pause phase at the gate itself so no caller (such as
+    // a break arriving right after startRestBlindRead) can leave loopPhase on
+    // 'refresh_blinds' and pollute nextHandGap with a 5-minute break duration.
+    this.setLoopPhase('parked_for_pause');
     // Bible V8 §3.1: Table FSM — running → paused. GUARDED: the FSM has no
     // waiting → paused edge, and this gate is now reachable from the idle
     // branches where the table sits in 'waiting'. An unguarded transition
@@ -10630,6 +10709,16 @@ export abstract class ServerTableEngineBase {
   /** Ms spent in the current by-design pause; 0 when not paused. */
   msPaused(): number {
     return this.pausedSinceMs === 0 ? 0 : Date.now() - this.pausedSinceMs;
+  }
+
+  /** Tournament id for tournament tables, or null for cash tables. */
+  getTournamentId(): string | null {
+    return this.tableInfo?.tournament_id ?? null;
+  }
+
+  /** Current dealing loop phase (read-only diagnostic accessor). */
+  getLoopPhase(): string {
+    return this.loopPhase;
   }
 
   /**
@@ -11980,6 +12069,8 @@ export abstract class ServerTableEngineBase {
    * fix (10.11/10.12), so the whole templated rule set is read here now.
    * A rule the player was sold under the game's name follows the row.
    */
+  private rakeClubEmbedUnavailable = false;
+
   protected async refreshRakeConfig(force = false): Promise<void> {
     if (!this.tableInfo || this.isTournamentTable()) return;
     const now = Date.now();
@@ -11989,27 +12080,18 @@ export abstract class ServerTableEngineBase {
       // Sequenced BEFORE the request goes out: this read carries the halt
       // columns too, and a late answer must not overrule a newer one.
       const haltReadSeq = this.beginDealingHaltRead();
+      const baseColumns =
+        'union_id, rake_percent, rake_cap_bb, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_min_players, bomb_pot_ante_fixed, bomb_pot_variant, bomb_pot_button_policy, bomb_pot_announce_seconds, bomb_pot_manual_pending, dealing_halted_at, dealing_halted_reason, ante_enabled, ante, big_blind_ante_enabled, nit_game, maintain_percent_min, maintain_hands, career_percent_min, run_it_mode, run_it_twice, allow_run_it_twice, run_it_twice_enabled, insurance_enabled, seven_deuce_enabled, seven_deuce_amount, straddle_enabled, auto_utg_straddle, voluntary_straddle, min_buy_in, max_buy_in, action_time_seconds, game_variant, game_type, tournament_id, cluster_id, role, main_index, lifecycle, status, is_template, all_in_or_fold, pineapple_holdem, cap_enabled, bbj_percent, small_blind, big_blind';
+      // 2026-11-20: Embed club rake defaults through fk_tables_club_id so the
+      // throttled refresh pays ONE PostgREST round-trip instead of two serial
+      // trips on load_next_hand_inputs at 150+ concurrent tables. Falls back to
+      // the two-step read if PostgREST reports PGRST200 (schema-cache reload).
       const ruleRead = supabase
         .from('tables')
         .select(
-          // ROUND 3 (2026-08-20): bomb pot settings ride the same throttled
-          // re-read — an owner toggling bomb pots (or double board) no longer
-          // waits for an engine restart, same reason rake got this in
-          // 2026-08-18.
-          // BOMB POT STANDARDIZATION 2026-08-27: the five new canonical
-          // columns ride along — board count, trigger mode, timed interval,
-          // minimum players and fixed ante.
-          // THE WHOLE TEMPLATED RULE SET RIDES ALONG TOO (2026-09-09, lane E
-          // of the must-move audit). See the doc comment above for why: these
-          // are no longer host settings that change twice a year, they are
-          // rewritten by fn_cash_apply_ruleset on every cluster tick.
-          // THE BOUNDARY READS WHAT IT CHECKS (2026-10-09). assertDiamondTable
-          // below judges the variant, kind, status, blinds and jackpot share;
-          // none of them were read here, so every refresh of every Diamond
-          // cash table was refused as 'Diamond Plain Cash Table Required'
-          // (about 800 times in six hours) and a permitted straddle or run it
-          // twice change never landed without a restart.
-          'union_id, rake_percent, rake_cap_bb, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_min_players, bomb_pot_ante_fixed, bomb_pot_variant, bomb_pot_button_policy, bomb_pot_announce_seconds, bomb_pot_manual_pending, dealing_halted_at, dealing_halted_reason, ante_enabled, ante, big_blind_ante_enabled, nit_game, maintain_percent_min, maintain_hands, career_percent_min, run_it_mode, run_it_twice, allow_run_it_twice, run_it_twice_enabled, insurance_enabled, seven_deuce_enabled, seven_deuce_amount, straddle_enabled, auto_utg_straddle, voluntary_straddle, min_buy_in, max_buy_in, action_time_seconds, game_variant, game_type, tournament_id, cluster_id, role, main_index, lifecycle, status, is_template, all_in_or_fold, pineapple_holdem, cap_enabled, bbj_percent, small_blind, big_blind'
+          this.rakeClubEmbedUnavailable
+            ? baseColumns
+            : `${baseColumns}, club:clubs!fk_tables_club_id(default_rake_percent, rake_cap, union_id)`
         )
         .eq('id', this.tableId)
         .maybeSingle();
@@ -12019,7 +12101,25 @@ export abstract class ServerTableEngineBase {
       // are in flight together, so this adds no latency; the kill read never
       // rejects (see readKillSettingsForRefresh).
       const killRead = this.readKillSettingsForRefresh();
-      const { data: tableRow } = await ruleRead;
+      const ruleRes = await ruleRead;
+      let tableRow: Record<string, any> | null = (ruleRes.data ?? null) as Record<
+        string,
+        any
+      > | null;
+      let ruleErr = ruleRes.error;
+      if (ruleErr && !this.rakeClubEmbedUnavailable) {
+        const code = String((ruleErr as { code?: unknown }).code ?? '');
+        if (code.startsWith('PGRST20')) {
+          this.rakeClubEmbedUnavailable = true;
+          const fallback = await supabase
+            .from('tables')
+            .select(baseColumns)
+            .eq('id', this.tableId)
+            .maybeSingle();
+          tableRow = (fallback.data ?? null) as Record<string, any> | null;
+          ruleErr = fallback.error;
+        }
+      }
       /* Lightning 2.0 Phase 5. Applied HERE - before the Diamond refusal below
          and before the `tableRow && this.tableInfo` block - on purpose. A halt
          is not a rule a boundary can refuse: it is an operational stop, and a
@@ -12165,19 +12265,35 @@ export abstract class ServerTableEngineBase {
            assignment above is the whole of their fix. */
         this.applyRunItTwiceConfig();
       }
-      const clubId = this.tableInfo?.club_id;
-      if (clubId) {
-        const { data: clubRow } = await supabase
-          .from('clubs')
-          .select('default_rake_percent, rake_cap, union_id')
-          .eq('id', clubId)
-          .maybeSingle();
-        if (clubRow) {
-          this.clubRakeDefaults = {
-            rakePercent: clubRow.default_rake_percent ?? null,
-            rakeCapBB: clubRow.rake_cap ?? null,
-            unionId: clubRow.union_id,
-          };
+      const rawEmbeddedClub = (tableRow as { club?: unknown } | null | undefined)?.club;
+      const embeddedClub = (
+        Array.isArray(rawEmbeddedClub) ? rawEmbeddedClub[0] : rawEmbeddedClub
+      ) as {
+        default_rake_percent?: number | null;
+        rake_cap?: number | null;
+        union_id?: string | null;
+      } | null;
+      if (embeddedClub && typeof embeddedClub === 'object') {
+        this.clubRakeDefaults = {
+          rakePercent: embeddedClub.default_rake_percent ?? null,
+          rakeCapBB: embeddedClub.rake_cap ?? null,
+          unionId: embeddedClub.union_id ?? null,
+        };
+      } else {
+        const clubId = this.tableInfo?.club_id;
+        if (clubId) {
+          const { data: clubRow } = await supabase
+            .from('clubs')
+            .select('default_rake_percent, rake_cap, union_id')
+            .eq('id', clubId)
+            .maybeSingle();
+          if (clubRow) {
+            this.clubRakeDefaults = {
+              rakePercent: clubRow.default_rake_percent ?? null,
+              rakeCapBB: clubRow.rake_cap ?? null,
+              unionId: clubRow.union_id,
+            };
+          }
         }
       }
     } catch (err) {
@@ -13465,6 +13581,10 @@ export abstract class ServerTableEngineBase {
     // before legacy snapshot cleanup, under the current table generation.
     if (authority?.scope === 'cash' && authority.verified && authority.generation) {
       if (!this.hasCurrentEngineLeaseAuthority()) return false;
+      // Name this step: a refusal here used to be reported under the last
+      // retryStartRead phase (start_seed_hand_count), which sent the
+      // 2026-11-21 dbbc148e kill storm to the wrong read for six hours.
+      this.setLoopPhase('start_retained_hand_resume');
       const retained = await this.resumeRetainedHandAcrossTheFreeze(authority.generation);
       if (!this.lifecycleCanMutate() || !this.hasCurrentEngineLeaseAuthority()) return false;
       if (retained) {

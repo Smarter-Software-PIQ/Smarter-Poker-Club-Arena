@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { availableParallelism } from 'node:os';
 import { clientVitestWorkerBudget } from './scripts/ci/client-vitest-worker-budget.mjs';
+import { loadAwareTestTimeout } from './scripts/ci/load-aware-test-timeout.mjs';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
@@ -11,7 +12,11 @@ export default defineConfig({
     // Complete-corpus source scans take up to20.1s on the shared SSD.
     // The harness needs finite headroom; assertions, product deadlines and
     // the separate server suite's timeout remain unchanged.
-    testTimeout: 30_000,
+    // Load-aware since 2026-11-20 (scripts/ci/load-aware-test-timeout.mjs):
+    // 30 s exactly on hosted CI and on an idle machine; on the shared Mac it
+    // stretches with load (cap 4x), after three pre-push runs failed three
+    // different scan tests at 48-64 s while the load was 23-53.
+    testTimeout: loadAwareTestTimeout(30_000),
     // happy-dom, NOT jsdom. Changed 2026-08-23 for cost.
     //
     // vitest's own breakdown named the problem: `environment 290.94s` against

@@ -9,6 +9,62 @@ WORKDIR /opt/qualification
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
+# PostgreSQL comes from the exact Debian .deb files listed here, each checked
+# against its SHA-256 before any stage installs it. This list is the only place
+# the PostgreSQL package versions are written; the runtime and every builder
+# install these same files, so changing a version is one edit for all of them.
+# APT can install a pinned version only while Debian's index still lists it:
+# the 13.8 point release on 2026-11-21 replaced 17.11-0+deb13u1 and wal2json
+# 2.6-2+b1 with 17.12-0+deb13u1 and 2.6-2+deb13u1, and every native build
+# failed with "Version '17.11-0+deb13u1' for 'postgresql-17' was not found".
+# These files are fetched by path from deb.debian.org while its pool keeps
+# them, then from snapshot.debian.org's content-addressed archive (by SHA-1),
+# always checked against the same SHA-256. Only these few files ever use
+# snapshot (the 2026-11-05 failures were whole-system APT installs through it).
+FROM node AS postgres-debs
+RUN node --input-type=module -e ' \
+      import fs from "node:fs"; \
+      import {createHash} from "node:crypto"; \
+      const pinned=[ \
+        ["postgresql-17","17.11-0+deb13u1","pool/main/p/postgresql-17/postgresql-17_17.11-0+deb13u1_amd64.deb","64c21255846b0fcc1df39e3712140a5255cea134","d2ce1ddffafa783f9acda4c92c86fc21e8288bff3782d739294f14fa797d7886"], \
+        ["postgresql-client-17","17.11-0+deb13u1","pool/main/p/postgresql-17/postgresql-client-17_17.11-0+deb13u1_amd64.deb","f4c7150d18ab72ccc25e0c03571293bac0f5edec","9d8558f8dd57c8e92e218a20698383575d53742ca3f9e7c2b7fe5f246d5216ae"], \
+        ["libpq5","17.11-0+deb13u1","pool/main/p/postgresql-17/libpq5_17.11-0+deb13u1_amd64.deb","ae2d1ea4f4bc3b4f26e5c4af1625515a80940e44","20a4c9ef58b4baf90deda67cfb2cc062871c062830dddc234d28f5ac7931b86b"], \
+        ["libpq-dev","17.11-0+deb13u1","pool/main/p/postgresql-17/libpq-dev_17.11-0+deb13u1_amd64.deb","6ed1ab440e1fae66f260e691a14dfa7f7f97d3ec","54c0ee29d174e4fa0cfb8d6d37af5ad7b338ee3b29d392ae189425e122aee1f5"], \
+        ["postgresql-server-dev-17","17.11-0+deb13u1","pool/main/p/postgresql-17/postgresql-server-dev-17_17.11-0+deb13u1_amd64.deb","7928d2d733f5fc2d5a32924f89eca2e35a991c18","59cb25f0a1def045aa334a9c025befc4a72dfc72d4a370f97d7d3f7342803d7e"], \
+        ["postgresql-17-pgvector","0.8.0-1","pool/main/p/pgvector/postgresql-17-pgvector_0.8.0-1_amd64.deb","521ba41e1f6ecf82fc85d77dbab0e104f3781bae","6e8a457eb252617b66cf7b2908c736127eae43703fffec94492ac131ca921515"], \
+        ["postgresql-17-wal2json","2.6-2+b1","pool/main/w/wal2json/postgresql-17-wal2json_2.6-2+b1_amd64.deb","cdc92ff71f8941de2bd3ecb3cc20e3e4d22f47ac","70371bb2072d904ad381d29df2c50f5f2fe8c12583bc0207336b2d5772a0ac36"], \
+      ]; \
+      const dir="/opt/postgres-debs"; \
+      fs.mkdirSync(dir,{recursive:true}); \
+      for(const [name,version,pool,sha1,sha256] of pinned){ \
+        if(!pool.endsWith("/"+name+"_"+version+"_amd64.deb")) throw new Error("pool path does not name "+name+" "+version); \
+        const urls=["https://deb.debian.org/debian/"+pool,"https://deb.debian.org/debian-security/"+pool.replace("pool/main/","pool/updates/main/"),"https://snapshot.debian.org/file/"+sha1]; \
+        const misses=[];let bytes=null; \
+        for(const url of urls){ \
+          for(let attempt=1;attempt<=4&&!bytes;attempt++){ \
+            let status="network"; \
+            try{ \
+              const response=await fetch(url,{signal:AbortSignal.timeout(180000)}); \
+              status=String(response.status); \
+              if(response.ok){ \
+                const body=Buffer.from(await response.arrayBuffer()); \
+                const actual=createHash("sha256").update(body).digest("hex"); \
+                if(actual!==sha256){console.error("SHA-256 mismatch: "+name+" "+version+" from "+url+" is "+actual);process.exit(1);} \
+                bytes=body;break; \
+              } \
+            }catch(error){status=error.name;} \
+            misses.push(url+" "+status); \
+            if(status==="404")break; \
+            await new Promise((resolve)=>setTimeout(resolve,attempt*5000)); \
+          } \
+          if(bytes)break; \
+        } \
+        if(!bytes) throw new Error("no source served "+name+" "+version+": "+misses.join("; ")); \
+        fs.writeFileSync(dir+"/"+name+".deb",bytes); \
+        fs.appendFileSync(dir+"/versions",name+" "+version+"\n"); \
+        console.log("postgres-debs: "+name+" "+version+(misses.length?" after "+misses.join("; "):"")); \
+      }'
+
 # Keep the genuine Realtime Erlang release and its matching Debian libc together.
 FROM supabase/realtime:v2.144.0@sha256:5dd66b136b0aa93e42450946d88c793c24b1ea876db249295c1e5df80ef9f514 AS postgres-runtime
 USER root
@@ -33,11 +89,13 @@ COPY --from=dependencies /opt/qualification /opt/qualification
 # signed ca-certificates package. TLS and repository signature checks stay on.
 RUN node -e "const fs=require('node:fs'); const roots=require('node:tls').rootCertificates; if(roots.length<100) throw Error('Missing pinned TLS roots'); fs.mkdirSync('/etc/ssl/certs',{recursive:true}); fs.writeFileSync('/etc/ssl/certs/ca-certificates.crt',roots.join('\\n')+'\\n',{mode:0o644});"
 
-# Signed official Debian archives; PostgreSQL and its extensions stay pinned to
-# exact versions. snapshot.debian.org was dropped on 2026-11-05: it answered
+# Signed official Debian archives for every other package. PostgreSQL and its
+# extensions are the exact, SHA-256-checked files of the postgres-debs stage,
+# held so no later install in this image or a builder can move them.
+# snapshot.debian.org stopped being an APT source on 2026-11-05: it answered
 # hosted runners with 504s and ~10 s per package, failing every native build.
 # Retries are immediate: apt before 3.1.3 can loop forever on a delayed retry.
-RUN test "$(dpkg --print-architecture)" = amd64 \
+RUN --mount=type=bind,from=postgres-debs,source=/opt/postgres-debs,target=/opt/postgres-debs test "$(dpkg --print-architecture)" = amd64 \
     && rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* \
     && printf '%s\n' \
       'deb https://deb.debian.org/debian trixie main' \
@@ -55,10 +113,11 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
     && printf 'create_main_cluster = false\n' > /etc/postgresql-common/createcluster.conf \
     && apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 \
-      libpq5=17.11-0+deb13u1 postgresql-17-pgvector=0.8.0-1 \
-      postgresql-17-wal2json=2.6-2+b1 \
+      /opt/postgres-debs/postgresql-17.deb /opt/postgres-debs/postgresql-client-17.deb /opt/postgres-debs/libpq5.deb \
+      /opt/postgres-debs/postgresql-17-pgvector.deb /opt/postgres-debs/postgresql-17-wal2json.deb \
       ca-certificates openssl unzip zip libatomic1 \
+    && apt-mark hold postgresql-17 postgresql-client-17 libpq5 postgresql-17-pgvector postgresql-17-wal2json \
+    && node -e 'const fs=require("node:fs");const {execFileSync}=require("node:child_process");const pinned=new Map(fs.readFileSync("/opt/postgres-debs/versions","utf8").trim().split("\n").map((line)=>line.split(" ")));for(const name of process.argv.slice(1)){const have=execFileSync("dpkg-query",["-W","-f=${Version}",name],{encoding:"utf8"});if(!pinned.has(name)||have!==pinned.get(name))throw new Error(name+" is "+have+", pinned "+pinned.get(name));}' postgresql-17 postgresql-client-17 libpq5 postgresql-17-pgvector postgresql-17-wal2json \
     && node /opt/qualification/node_modules/playwright/cli.js install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/.pgdelta-cache \
@@ -98,8 +157,8 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "-g", "--"]
 CMD ["fixture-server", "capabilities"]
 
 # Build the official managed-Postgres hook against the same pinned PG17 ABI.
-# Every PostgreSQL package is named with its exact version in each builder
-# install: on 2026-11-13 trixie-security published 17.12, and the unpinned
+# Every builder install names the same postgres-debs files as the runtime:
+# on 2026-11-13 trixie-security published 17.12, and the unpinned
 # libpq-dev pulled by build dependencies upgraded postgresql-17, libpq5 and
 # postgresql-server-dev-17 to 17.12 inside the builders while the runtime stage
 # stayed on 17.11, so every native smoke failed with 58P01 from
@@ -108,9 +167,11 @@ CMD ["fixture-server", "capabilities"]
 FROM postgres-runtime AS supautils-builder
 USER root
 ADD --checksum=sha256:36c758bd7facda65e1c8ce4a59ebf714d36f3054a2d898a1e8d53cae37e71bec https://codeload.github.com/supabase/supautils/tar.gz/e35f8affc4467202ff0d98f8dd14cb955bc13c75 /tmp/supautils.tar.gz
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=bind,from=postgres-debs,source=/opt/postgres-debs,target=/opt/postgres-debs apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends build-essential patch libicu-dev libxml2-dev \
-      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 libpq5=17.11-0+deb13u1 libpq-dev=17.11-0+deb13u1 postgresql-server-dev-17=17.11-0+deb13u1 \
+      /opt/postgres-debs/postgresql-17.deb /opt/postgres-debs/postgresql-client-17.deb /opt/postgres-debs/libpq5.deb /opt/postgres-debs/libpq-dev.deb /opt/postgres-debs/postgresql-server-dev-17.deb \
+    && apt-mark hold libpq-dev postgresql-server-dev-17 \
+    && node -e 'const fs=require("node:fs");const {execFileSync}=require("node:child_process");const pinned=new Map(fs.readFileSync("/opt/postgres-debs/versions","utf8").trim().split("\n").map((line)=>line.split(" ")));for(const name of process.argv.slice(1)){const have=execFileSync("dpkg-query",["-W","-f=${Version}",name],{encoding:"utf8"});if(!pinned.has(name)||have!==pinned.get(name))throw new Error(name+" is "+have+", pinned "+pinned.get(name));}' postgresql-17 postgresql-client-17 libpq5 postgresql-17-pgvector postgresql-17-wal2json libpq-dev postgresql-server-dev-17 \
     && mkdir /tmp/supautils \
     && tar -xzf /tmp/supautils.tar.gz --strip-components=1 -C /tmp/supautils \
     && make -C /tmp/supautils PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config \
@@ -141,15 +202,16 @@ RUN mkdir /tmp/safeupdate \
     && test -s /tmp/safeupdate/safeupdate.so
 
 # Genuine single-version providers, no application SQL or service activation.
-# This stage inherits the same signed Debian sources and PostgreSQL17.11 ABI.
+# This stage inherits the same signed Debian sources and pinned PostgreSQL 17 ABI.
 FROM supautils-builder AS genuine-providers-builder
 USER root
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=bind,from=postgres-debs,source=/opt/postgres-debs,target=/opt/postgres-debs apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 libpq5=17.11-0+deb13u1 libpq-dev=17.11-0+deb13u1 postgresql-server-dev-17=17.11-0+deb13u1 \
+      /opt/postgres-debs/postgresql-17.deb /opt/postgres-debs/postgresql-client-17.deb /opt/postgres-debs/libpq5.deb /opt/postgres-debs/libpq-dev.deb /opt/postgres-debs/postgresql-server-dev-17.deb \
       libcurl4-openssl-dev libsodium-dev pkg-config perl file \
       libgeos-dev libproj-dev libgdal-dev libjson-c-dev libprotobuf-c-dev \
-      protobuf-c-compiler libpcre2-dev libsfcgal-dev
+      protobuf-c-compiler libpcre2-dev libsfcgal-dev \
+    && node -e 'const fs=require("node:fs");const {execFileSync}=require("node:child_process");const pinned=new Map(fs.readFileSync("/opt/postgres-debs/versions","utf8").trim().split("\n").map((line)=>line.split(" ")));for(const name of process.argv.slice(1)){const have=execFileSync("dpkg-query",["-W","-f=${Version}",name],{encoding:"utf8"});if(!pinned.has(name)||have!==pinned.get(name))throw new Error(name+" is "+have+", pinned "+pinned.get(name));}' postgresql-17 postgresql-client-17 libpq5 postgresql-17-pgvector postgresql-17-wal2json libpq-dev postgresql-server-dev-17
 
 ADD --checksum=sha256:b64ce29ac7e33790e9acef40a2fe3e9606b76743e468d9fae1c6125d5afb444f https://codeload.github.com/supabase/pg_net/tar.gz/a7792bfd913c7859e14025d606624982706c2a7f /tmp/pg-net.tar.gz
 ADD --checksum=sha256:8745dfcf985801b23ca378caa038589aa7c1d7273109f28e41dc7567535c6fd2 https://codeload.github.com/pramsey/pgsql-http/tar.gz/5e2bd270a9ce2b0e8e1fdf8e46b85396bd4125cd /tmp/pgsql-http.tar.gz

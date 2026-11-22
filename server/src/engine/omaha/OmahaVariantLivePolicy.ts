@@ -3,6 +3,13 @@ import {
   type OmahaVariantTerminalShowdowns,
 } from './OmahaVariantSampler.js';
 import {
+  omahaAggressorSeat,
+  omahaPackDepth,
+  omahaPackDepthBindingIsConsistent,
+  type OmahaPackDepthBasis,
+  type OmahaPackDepthOptions,
+} from './OmahaPackDepth.js';
+import {
   omahaVariantActionEconomics,
   omahaVariantActionEconomicsIsValid,
   type OmahaVariantActionEconomics,
@@ -152,7 +159,7 @@ export interface OmahaVariantInputBinding {
     effectiveBB: number;
     heroCoverBB: number;
     deepestOpponentCoverBB: number;
-    basis: 'stack_plus_street_bet_vs_deepest_contesting_opponent';
+    basis: OmahaPackDepthBasis;
   }>;
   readonly board: Readonly<{
     street: 'preflop' | 'flop' | 'turn' | 'river';
@@ -627,11 +634,13 @@ export function omahaVariantInputBindingIsValid(value: unknown): value is OmahaV
     ![depth.effectiveBB, depth.heroCoverBB, depth.deepestOpponentCoverBB].every(finite) ||
     !(depth.effectiveBB as number) ||
     (depth.effectiveBB as number) > OMAHA_VARIANT_DOMAIN.maxStackBB ||
-    Math.abs(
-      (depth.effectiveBB as number) -
-        Math.min(depth.heroCoverBB as number, depth.deepestOpponentCoverBB as number)
-    ) > 1e-6 ||
-    depth.basis !== 'stack_plus_street_bet_vs_deepest_contesting_opponent' ||
+    !omahaPackDepthBindingIsConsistent(
+      depth.effectiveBB as number,
+      depth.heroCoverBB as number,
+      depth.deepestOpponentCoverBB as number,
+      depth.basis,
+      OMAHA_VARIANT_DOMAIN.maxStackBB
+    ) ||
     !exact(board, ['street', 'cards', 'paired', 'flushBoard', 'lowPossible', 'features']) ||
     !['preflop', 'flop', 'turn', 'river'].includes(street as string) ||
     board.cards !== { preflop: 0, flop: 3, turn: 4, river: 5 }[street as 'flop'] ||
@@ -792,7 +801,10 @@ export function evaluateOmahaVariantPolicy(
   /** 2026-10-16: a live opponent's read is a credible station
    * (HorseOpponentExploit.isStation); the deviations stay out, the reference
    * (which carries the exploit read) is retained. */
-  opponentStation = false
+  opponentStation = false,
+  /** EMERG PACK 2026-11-19: omahaPackEffectiveDepth / omahaPackClampDeepDepth
+   * (both default off; OmahaPackDepth.ts). */
+  packDepth: OmahaPackDepthOptions = {}
 ) {
   const start = now();
   // A supplied sample's own cost, added to latencyMs as a measurement. A
@@ -961,8 +973,20 @@ export function evaluateOmahaVariantPolicy(
   const active = seats.filter(
     (p) => p.user_id !== hero.user_id && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
   );
-  const deepestOpponentCover = Math.max(...active.map((p) => p.stack + p.bet));
-  const depth = Math.min(hero.stack + hero.bet, deepestOpponentCover) / s.bigBlind;
+  // EMERG PACK 2026-11-19: the depth the pack gate reads (OmahaPackDepth.ts;
+  // omahaPackEffectiveDepth and omahaPackClampDeepDepth, both default off:
+  // with both off this is the legacy deepest-live-opponent number exactly).
+  const packDepthResult = omahaPackDepth(
+    hero,
+    active,
+    s.currentBet,
+    s.bigBlind,
+    omahaAggressorSeat(hero.user_id, s.stage, s.actionHistory),
+    OMAHA_VARIANT_DOMAIN.maxStackBB,
+    packDepth
+  );
+  const deepestOpponentCover = packDepthResult.opponentCover;
+  const depth = packDepthResult.depth;
   // Reachability 2026-10-08: with every live opponent away (sitting out, not
   // all-in) no seat can cover, the depth is -Infinity and the pack refuses it
   // below. The receipt records that as an unavailable depth: a non-finite
@@ -1142,7 +1166,7 @@ export function evaluateOmahaVariantPolicy(
         effectiveBB: depth,
         heroCoverBB: stackRaiseTo / s.bigBlind,
         deepestOpponentCoverBB: deepestOpponentCover / s.bigBlind,
-        basis: 'stack_plus_street_bet_vs_deepest_contesting_opponent',
+        basis: packDepthResult.basis,
       }),
       board: Object.freeze({
         street,

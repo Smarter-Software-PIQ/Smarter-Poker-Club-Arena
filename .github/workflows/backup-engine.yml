@@ -33,12 +33,16 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # when that descends from its own push, and plans nothing when that commit
 # already carries a success certificate, so no commit is certified twice.
 #
-# THE BOOKED CANDIDATE GOES FIRST (2026-11-14). While an owner engine window
-# booked on main is open or upcoming and its release is not yet serving, a
-# push run asks scripts/ci/backup-candidate-priority.py (read-only) where its
-# own commit stands. The BOOKING commit (the first main commit carrying
-# main's release controls) is certified exactly: it is neither superseded by
-# later ordinary pushes nor retargeted. A commit whose release controls
+# THE BOOKED CANDIDATE GOES FIRST (2026-11-14; hardened 2026-11-21). While an
+# owner engine window booked on main is open or upcoming and its release is not
+# yet serving, a push run asks scripts/ci/backup-candidate-priority.py
+# (read-only) where its own commit stands. The BOOKING commit (the first main
+# commit carrying main's release controls) is certified exactly: it is neither
+# superseded by later ordinary pushes nor retargeted. A post-booking push commit
+# whose booking commit does not yet carry backup-engine/certified = success gets
+# `booking_pending` and ends as DEFERRED (never racing onto the single Backup
+# host ahead of the booking commit); once the booking commit is certified,
+# post-booking pushes proceed as `candidate`. A commit whose release controls
 # differ from main's cannot be the owner window's selection while it is open; if it
 # was neither superseded nor retargeted it ends as DEFERRED with nothing
 # planned and no status written. Any unreadable answer is "unknown" and the
@@ -58,6 +62,32 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # or an unreadable read stops the walk and certifies in full, and missing or
 # pending keeps walking. A different identity is never asked about. Only
 # push runs inherit; dispatch, schedule and post-seal runs always build.
+#
+# NO LEASE STARVATION OR DUPLICATE SOAKS ON 3-HOURLY CADENCE (2026-11-21, E3;
+# hardened 2026-11-21, O1 & O2).
+# Waiting push runs previously timed out at 75 min behind an active refresh +
+# 55-min certification and published no-verdict errors, while superseded runs
+# kept competing for the lease and runs whose identical ancestor finished while
+# they waited re-ran a duplicate 55-min soak. The lease-wait ceiling is 120 min
+# (refresh timeout 180 min, host lease TTL 150 min). While STILL WAITING for
+# the lease, non-booking, non-freeze-baseline push runs yield cleanly as
+# SUPERSEDED only when a strictly newer ACTIVE (non-completed) push run exists
+# with a different engine-source-identity (or changed backup-engine.yml),
+# avoiding unnecessary disruption from completed or identical-source pushes
+# (O2). Immediately after acquiring the lease, eligible push runs never drop
+# the lease for a newer push: instead `late_retarget` retargets in-place to
+# main's newest uncertified server commit (when it descends from SHA/GITHUB_SHA
+# without changing backup-engine.yml), then `late_inherit` checks ALREADY
+# CERTIFIED and engine-source-identity + backup_projection on the retargeted
+# SHA so any certificate earned while waiting is inherited in seconds and the
+# host is freed at once (O2). During `certify`, the offline standby host stays
+# completely network-free while a bounded runner-side check (every 60 s) yields
+# cleanly as YIELDED_OBSOLETE (stopping the standby container, releasing the
+# lease, writing no failure/error status, exit 0) ONLY when a non-booking,
+# non-freeze-baseline push run has a newer active push run waiting, its
+# projection(SHA) or supabase/migrations already diverged from origin/main,
+# fewer than 75 min remain to the next scheduled cutoff, and every read
+# succeeded (O1; CLAUDE.md 10.86).
 on:
   repository_dispatch:
     # The second event lets the owner deliver a previously lost seal to Backup alone.
@@ -137,6 +167,9 @@ jobs:
       sha: ${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.sha || '' }}
       control_sha: ${{ steps.plan.outputs.control_sha || github.sha }}
       refresh: ${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.refresh || '' }}
+      freeze_baseline: ${{ steps.plan.outputs.freeze_baseline }}
+      priority: ${{ steps.plan.outputs.priority }}
+      inherit_eligible: ${{ steps.plan.outputs.inherit_eligible }}
     steps:
       - name: Prove the original sealed receiver and claim its first Backup run
         id: seal
@@ -206,11 +239,25 @@ jobs:
             fi
             rm -f "$tool"
             echo "freeze baseline: ${baseline_state:-unknown}${baseline:+ ($baseline)}"
+            # ONE CERTIFICATION PER BASELINE (incident 076ff467, 2026-11-20).
+            # `claimed`: an active run is certifying it now; plan as before.
+            # On `due` this run writes its claim (pending, naming this run)
+            # before anything else, so a push merged while it soaks reads
+            # `claimed` instead of queueing a duplicate that can publish a
+            # refusal over the certificate minutes before the 03:30 selection.
+            if [ "$baseline_state" = claimed ]; then
+              echo "FREEZE BASELINE: $baseline is already being certified by an active run; planning as before."
+            fi
             if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/statuses/$baseline" -f state=pending -f context="$STATUS_CONTEXT" \
+                -f description="Backup Engine claimed tonight's freeze baseline (run $RUN_ID)" \
+                -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" >/dev/null \
+                || echo "::warning::could not write the freeze-baseline claim; certifying anyway"
               echo "FREEZE BASELINE: $baseline is tonight's shippable 04:00 build; certifying it on a copy restored now, not superseded, not retargeted."
               { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\`: certified on tonight's frozen copy (refresh forced)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               echo "sha=$baseline" >> "$GITHUB_OUTPUT"
               echo "refresh=force" >> "$GITHUB_OUTPUT"
+              echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -229,11 +276,21 @@ jobs:
               verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$sha" 2>/dev/null) || verdict=''
               answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
               case "$answer" in
-                none|booking|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+                none|booking|booking_pending|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
               esac
             fi
             rm -f "$tool"
             echo "owner window priority: $priority${window:+ ($window)}"
+            if [ "$priority" = booking_pending ]; then
+              # A post-booking push must not race onto the single Backup host
+              # ahead of the booking commit while the booking commit is not yet
+              # certified (T7, 2026-11-21). Nothing planned, no status written.
+              echo "DEFERRED: owner engine window $window is booked and open on main, and its booking commit is not yet certified; post-booking push $sha yields the Backup host until the booking commit carries backup-engine/certified = success. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$sha\`: post-booking push yielded to uncertified booking commit of owner window \`$window\`; nothing built, no certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             if [ "$priority" = booking ]; then
               # The booking commit is the window's one deterministic candidate:
               # later ordinary pushes neither supersede nor replace it.
@@ -300,6 +357,7 @@ jobs:
               exit 0
             fi
             # Only a push run that is still the newest may inherit a certificate.
+            echo "priority=$priority" >> "$GITHUB_OUTPUT"
             echo "inherit_eligible=true" >> "$GITHUB_OUTPUT"
           fi
           # The refresh job decides from the standby's restore stamp whether a
@@ -398,7 +456,14 @@ jobs:
     if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
-    timeout-minutes: 120
+    # Whether this run ever held the Backup host. A run that never got its
+    # turn touched no copy and tested nothing (incident 076ff467, 2026-11-20).
+    outputs:
+      turn: ${{ steps.turn.outputs.acquired }}
+      deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
+      sha: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+      control_sha: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
+    timeout-minutes: 180
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
         if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
@@ -419,18 +484,47 @@ jobs:
           done
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.plan.outputs.control_sha }}
+          filter: blob:none
+          sparse-checkout: |
+            .github/pgdg
+            .github/actions/install-postgres-17
+            scripts/ci/engine-source-identity.sh
+            scripts/ci/read-engine-prequalification.py
+            scripts/ci/ubuntu-apt.sh
+            scripts/ci/ubuntu-apt-mirror.py
+            scripts/ci/ubuntu-apt-mirrors.txt
+            scripts/dr
+            scripts/verification-harness/leaderboard-native-function-batch.mjs
+            scripts/ci/test_native_supabase_export.py
+            server/scripts/engine-release-installed-migrations.py
+            server/standby
+            supabase/migrations
       - name: Acquire exclusive Backup host turn
+        id: turn
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
+          PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
-          deadline=$(($(date +%s) + 4500))
+          # 120-minute lease-wait ceiling (raised from 75 min on 2026-11-21, E3)
+          # so a queued candidate behind an active refresh + 55-min soak does not
+          # starve right before its turn; lease TTL is 150 min (> refresh + 75m certify).
+          deadline=$(($(date +%s) + 7200))
           reclaim=''
+          priority_tool=$(mktemp)
+          trap 'rm -f "$priority_tool"' EXIT
           while true; do
             verdict=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT' '$reclaim'" <<'PY'
@@ -454,7 +548,7 @@ jobs:
                   or (reclaim and str(cur.get('runId')) == reclaim)):
                   tmp = lease_path + '.tmp'
                   with open(tmp, 'w') as f:
-                      json.dump({'runId': run_id, 'attempt': attempt, 'acquiredAt': now, 'expiresAt': now + 7200}, f)
+                      json.dump({'runId': run_id, 'attempt': attempt, 'acquiredAt': now, 'expiresAt': now + 9000}, f)
                   os.replace(tmp, lease_path)
                   print('acquired')
               else:
@@ -464,7 +558,71 @@ jobs:
             reclaim=''
             if [ "$verdict" = acquired ]; then
               echo "Acquired exclusive Backup host turn for run $RUN_ID-$RUN_ATTEMPT."
+              echo "acquired=1" >> "$GITHUB_OUTPUT"
               break
+            fi
+            # LATE SUPERSESSION WHILE WAITING (2026-11-21, E3; hardened O2).
+            # A waiting push run yields cleanly ONLY when a strictly newer ACTIVE
+            # (non-completed) push run exists with a different head AND a
+            # different engine-source-identity (or changed backup-engine.yml),
+            # without holding the lease or writing an error status. Completed
+            # runs and identical-source pushes never disrupt a waiting run;
+            # booking and freeze-baseline runs never supersede; unreadable API
+            # or git answers keep waiting (CLAUDE.md 10.86).
+            if [ "${EVENT:-}" = push ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+              newer_shas=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
+                --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$SHA\" and .status != \"completed\") | .head_sha] | unique | .[]" 2>/dev/null) || newer_shas=unreadable
+              if [ "$newer_shas" != unreadable ] && [ -n "$newer_shas" ]; then
+                diff_newer=0
+                has_identity_tool=0
+                my_id=''
+                if [ -f scripts/ci/engine-source-identity.sh ]; then
+                  has_identity_tool=1
+                  my_id=$(bash scripts/ci/engine-source-identity.sh "$SHA" 2>/dev/null || echo '')
+                  git fetch -q origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null || true
+                fi
+                while IFS= read -r other_sha; do
+                  [ -n "$other_sha" ] || continue
+                  if [ "$has_identity_tool" = 1 ]; then
+                    if [[ ! "$my_id" =~ ^[0-9a-f]{64}$ ]] || [[ ! "$other_sha" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "Could not verify engine-source-identity for newer active push run ($other_sha); keeping wait (CLAUDE.md 10.86)."
+                      continue
+                    fi
+                    other_id=$(bash scripts/ci/engine-source-identity.sh "$other_sha" 2>/dev/null || echo '')
+                    if [[ ! "$other_id" =~ ^[0-9a-f]{64}$ ]]; then
+                      echo "Could not read engine-source-identity of newer active push run ($other_sha); keeping wait (CLAUDE.md 10.86)."
+                      continue
+                    fi
+                    if [ "$other_id" = "$my_id" ] \
+                       && git diff --quiet "$GITHUB_SHA" "$other_sha" -- .github/workflows/backup-engine.yml 2>/dev/null; then
+                      echo "Newer active push run ($other_sha) shares identical engine-source-identity (${my_id:0:12}) and workflow; keeping wait."
+                      continue
+                    fi
+                  fi
+                  diff_newer=$((diff_newer + 1))
+                done <<< "$newer_shas"
+                if [ "$diff_newer" -gt 0 ]; then
+                  priority=unknown; window=''
+                  if [ ! -s "$priority_tool" ]; then
+                    gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-candidate-priority.py?ref=$GITHUB_SHA" > "$priority_tool" 2>/dev/null || : > "$priority_tool"
+                  fi
+                  if [ -s "$priority_tool" ]; then
+                    pverdict=$(python3 -B "$priority_tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || pverdict=''
+                    panswer=$(printf '%s\n' "$pverdict" | sed -n 's/^priority=//p')
+                    case "$panswer" in
+                      none|booking|booking_pending|candidate|predates) priority="$panswer"; window=$(printf '%s\n' "$pverdict" | sed -n 's/^window=//p') ;;
+                    esac
+                  fi
+                  if [ "$priority" = booking ]; then
+                    echo "PRIORITY: $SHA is the booking commit of open owner engine window $window; keeping wait despite $diff_newer newer active push run(s)."
+                  else
+                    echo "SUPERSEDED: $diff_newer newer active push run(s) of this workflow arrived while waiting for the Backup host; $SHA yields cleanly without holding the lease or writing a status."
+                    { echo "### Backup Engine"; echo ""; echo "- SUPERSEDED \`$SHA\` while waiting for the Backup host: $diff_newer newer active push run(s) arrived; yielded cleanly, no certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                    echo "superseded=1" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                fi
+              fi
             fi
             holder="${verdict#held:}"
             if [[ "$holder" =~ ^[0-9]+$ ]]; then
@@ -479,23 +637,180 @@ jobs:
             echo "Backup host busy with active run $holder; waiting 20s without cancelling."
             sleep 20
           done
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.plan.outputs.control_sha }}
-          filter: blob:none
-          sparse-checkout: |
-            .github/pgdg
-            .github/actions/install-postgres-17
-            scripts/ci/ubuntu-apt.sh
-            scripts/ci/ubuntu-apt-mirror.py
-            scripts/ci/ubuntu-apt-mirrors.txt
-            scripts/dr
-            scripts/verification-harness/leaderboard-native-function-batch.mjs
-            scripts/ci/test_native_supabase_export.py
-            server/scripts/engine-release-installed-migrations.py
-            server/standby
-            supabase/migrations
+      # IN-PLACE RETARGET AFTER LEASE ACQUISITION (2026-11-21, O2).
+      # Once this push run holds the exclusive Backup host turn, never drop
+      # the lease merely because a newer push arrived on main while it waited.
+      # Instead, check main's newest server commit: when it descends from SHA
+      # and GITHUB_SHA, preserves .github/workflows/backup-engine.yml, and is
+      # not already certified, retarget in-place (updating SHA, CONTROL_SHA,
+      # and the sparse checkout) so late_inherit, due, late_priority, and
+      # certify operate on the newest server commit without forcing another
+      # runner to re-acquire. Booking, freeze-baseline, manual, nightly, and
+      # post-seal runs never retarget; unreadable answers keep SHA unchanged
+      # (CLAUDE.md 10.86).
+      - name: Retarget in-place to main's newest server commit after acquiring turn
+        id: late_retarget
+        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}
+          PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
+        run: |
+          set -euo pipefail
+          target_sha="$SHA"
+          target_control="$CONTROL_SHA"
+          retargeted=0
+          priority=unknown; window=''
+          tool=$(mktemp)
+          trap 'rm -f "$tool"' EXIT
+          if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-candidate-priority.py?ref=$GITHUB_SHA" > "$tool" 2>/dev/null; then
+            verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || verdict=''
+            answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
+            case "$answer" in
+              none|booking|booking_pending|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+            esac
+          fi
+          if [ "$priority" = booking ]; then
+            echo "PRIORITY: $SHA is the booking commit of open owner engine window $window; keeping exact SHA without retargeting."
+          else
+            head=$(gh api "repos/${GITHUB_REPOSITORY:-}/commits?sha=main&path=server&per_page=1" --jq '.[0].sha // ""' 2>/dev/null || echo unreadable)
+            if [[ "$head" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$SHA" ]; then
+              if git fetch -q origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null \
+                 && git merge-base --is-ancestor "$SHA" "$head" 2>/dev/null \
+                 && git merge-base --is-ancestor "$GITHUB_SHA" "$head" 2>/dev/null \
+                 && git merge-base --is-ancestor "$head" refs/remotes/origin/main 2>/dev/null; then
+                if ! git diff --quiet "$GITHUB_SHA" "$head" -- .github/workflows/backup-engine.yml 2>/dev/null; then
+                  echo "main's newest server commit $head changed .github/workflows/backup-engine.yml relative to $GITHUB_SHA; keeping $SHA to preserve producer provenance."
+                else
+                  head_state=$(gh api "repos/${GITHUB_REPOSITORY:-}/commits/$head/statuses?per_page=100" \
+                    --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || head_state=unreadable
+                  case "$head_state" in
+                    missing|pending|failure|error)
+                      if git checkout --force --quiet "$head" 2>/dev/null; then
+                        echo "RETARGETED IN-PLACE: $SHA -> $head (newest uncertified server commit on main; keeping acquired Backup host lease)."
+                        { echo "### Backup Engine"; echo ""; echo "- RETARGETED IN-PLACE \`$SHA\` -> \`$head\` after acquiring host turn (lease kept)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                        target_sha="$head"
+                        target_control="$head"
+                        retargeted=1
+                      else
+                        echo "could not check out $head in-place; keeping $SHA"
+                      fi
+                      ;;
+                    success)
+                      echo "main's newest server commit $head already carries $STATUS_CONTEXT = success; keeping $SHA."
+                      ;;
+                    *)
+                      echo "could not read $STATUS_CONTEXT on $head ($head_state); keeping $SHA (CLAUDE.md 10.86)."
+                      ;;
+                  esac
+                fi
+              else
+                echo "main's newest server commit $head is not a fetched protected descendant of $SHA/$GITHUB_SHA; keeping $SHA."
+              fi
+            elif [ "$head" = unreadable ]; then
+              echo "could not read main's newest server commit; keeping $SHA (CLAUDE.md 10.86)."
+            fi
+          fi
+          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "control_sha=$target_control" >> "$GITHUB_OUTPUT"
+          echo "retargeted=$retargeted" >> "$GITHUB_OUTPUT"
+      # LATE CERTIFICATE INHERITANCE AFTER LEASE ACQUISITION (2026-11-21, E3;
+      # retargeted target support O2).
+      # If an earlier run finished certifying this commit (or the in-place
+      # retargeted commit) or an ancestor with identical engine-source-identity
+      # and identical Backup qualification inputs while this push run waited
+      # for the host lease, inherit that certificate in seconds, release the
+      # host lease immediately, and skip refresh and certify. Any unreadable
+      # identity/inputs or non-success boundary certifies in full (CLAUDE.md 10.86).
+      - name: Inherit a certificate earned while this run waited
+        id: late_inherit
+        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.inherit_eligible == 'true'
+        env:
+          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEPTH: '60'
+        run: |
+          set -euo pipefail
+          release_turn() {
+            install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+            printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+            ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+              "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY
+          }
+          self_state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
+            --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || self_state=unreadable
+          if [ "$self_state" = success ]; then
+            release_turn
+            echo "ALREADY CERTIFIED: $SHA gained backup-engine/certified = success while waiting; host handed back, nothing built."
+            { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\` while waiting: host handed back, nothing built."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "inherited=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          identity=$(bash scripts/ci/engine-source-identity.sh "$SHA") || identity=''
+          if [[ ! "$identity" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "engine source identity of $SHA is unreadable; certifying in full"
+            echo "inherited=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          qualification_inputs() {
+            python3 -B -c 'import runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print(m["backup_projection"](sys.argv[1]))' "$1"
+          }
+          inputs=$(qualification_inputs "$SHA") || {
+            echo "Backup qualification inputs are unreadable; certifying in full"
+            echo "inherited=0" >> "$GITHUB_OUTPUT"; exit 0
+          }
+          echo "late inherit engine source identity of $SHA: $identity"
+          source=''; stopped=''
+          for ancestor in $(git rev-list --first-parent --skip=1 --max-count="$DEPTH" "$SHA"); do
+            ancestor_identity=$(bash scripts/ci/engine-source-identity.sh "$ancestor" 2>/dev/null) || continue
+            [ "$ancestor_identity" = "$identity" ] || continue
+            ancestor_inputs=$(qualification_inputs "$ancestor") || {
+              stopped="$ancestor qualification inputs are unreadable"; break
+            }
+            if [ "$ancestor_inputs" != "$inputs" ]; then
+              stopped="$ancestor qualification inputs differ"; break
+            fi
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$ancestor/statuses?per_page=100" \
+              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || state=unreadable
+            case "$state" in
+              success) source=$ancestor; break ;;
+              missing|pending) echo "identical ancestor $ancestor has no verdict ($state); looking further back" ;;
+              *) stopped="$ancestor is identical and its newest certificate is $state"; break ;;
+            esac
+          done
+          if [ -z "$source" ]; then
+            echo "no late inherited certificate: ${stopped:-no identical ancestor within $DEPTH first-parent commits holds a success certificate}; certifying in full"
+            echo "inherited=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          description="Inherited from $source: identical engine source (${identity:0:12})"
+          if gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=success -f context="$STATUS_CONTEXT" \
+               -f description="$description" \
+               -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; then
+            release_turn
+            echo "INHERITED: $description after waiting for the Backup host. Host handed back, nothing built."
+            { echo "### Backup Engine"; echo ""; echo "- INHERITED \`$SHA\` <- \`$source\` after lease wait: identical engine source \`$identity\`; host handed back, nothing built, success certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "inherited=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "could not write the late inherited certificate on $SHA; certifying in full"
+            echo "inherited=0" >> "$GITHUB_OUTPUT"
+          fi
       # THE COPY IS JUDGED BY WHAT IT HOLDS (2026-11-08). Backup 42519319251
       # restored at 20:38:05Z; migration 20261108193515 (merged 20:36:58Z)
       # installed at 20:38:11Z, and "newest migration commit <= restoredAt"
@@ -509,12 +824,13 @@ jobs:
       # Commit and restore times are printed as diagnostics only.
       - name: Decide whether the production copy is due
         id: due
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1'
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MODE: ${{ needs.plan.outputs.refresh }}
           EVENT: ${{ github.event_name }}
-          CONTROL: ${{ needs.plan.outputs.control_sha }}
+          CONTROL: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -540,7 +856,7 @@ jobs:
           echo "diagnostic only: copy restoredAt=$stamp newest migration commit=$newest"
           echo "due=$due" >> "$GITHUB_OUTPUT"
       - name: Build the batched read-only export client
-        if: steps.due.outputs.due == 'true'
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.due == 'true'
         run: |
           set -euo pipefail
           # The one shared install (signed sources, checkout key, bounded retries).
@@ -552,7 +868,7 @@ jobs:
           echo "PG_DUMP=$PG_DUMP" >> "$GITHUB_ENV"
           echo "PG_LIB=$(dirname "$(dirname "$(dirname "$PG_DUMP")")")/interfaces/libpq" >> "$GITHUB_ENV"
       - name: Export the production structure and the horse-only seed (read-only, short reads)
-        if: steps.due.outputs.due == 'true'
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.due == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -570,7 +886,7 @@ jobs:
           python3 -B server/standby/schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"
           tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/bundle.tgz" schema.dump schema-evidence.json seed
       - name: Ship to the standby host and restore
-        if: steps.due.outputs.due == 'true'
+        if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.due == 'true'
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
         run: |
@@ -580,16 +896,93 @@ jobs:
             git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py;
             standby-engine restore schema.dump; standby-engine seed seed'
 
+      # A BOOKING MADE WHILE THIS RUN WAITED STILL GOES FIRST (2026-11-21).
+      # The plan step asks backup-candidate-priority.py once, at plan time.
+      # Twice on 2026-11-20 an ordinary push run planned before an owner window
+      # was booked, took the host minutes before the booking merged and then
+      # certified for 55 minutes while the booked build waited (27118303 ahead
+      # of 2330z; f90f60b7 took the turn at 01:48:38Z, booking at 01:56:14Z,
+      # certify at 01:57:43Z). Ask again here, after the copy and before
+      # certify: a push run whose commit now PREDATES an open booked window or
+      # is `booking_pending` hands the host back and certifies nothing. Ordinary
+      # newer pushes NEVER throw away an already-acquired lease here (O2:
+      # `turn` supersedes only while waiting, and `late_retarget` retargets
+      # in-place after lease acquisition). Any unreadable answer changes nothing
+      # (CLAUDE.md 10.86).
+      # Tonight's FREEZE BASELINE never yields (2026-11-21): it is the 04:00
+      # build, and after the freeze every push run certifies it, so its commit
+      # always predates a booking made later; yielding it left the 04:00 route
+      # with no certificate (runs 44878744044 and 44884252356).
+      - name: Yield the host to an owner window booked while this run waited
+        id: late_priority
+        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && needs.plan.outputs.freeze_baseline != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
+        run: |
+          set -euo pipefail
+          priority=unknown; window=''
+          tool=$(mktemp)
+          if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-candidate-priority.py?ref=$GITHUB_SHA" > "$tool" 2>/dev/null; then
+            verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || verdict=''
+            answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
+            case "$answer" in
+              none|booking|booking_pending|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+            esac
+          fi
+          rm -f "$tool"
+          echo "owner window priority before certify: $priority${window:+ ($window)}"
+          yield_reason=''
+          if [ "$priority" = predates ] || [ "$priority" = booking_pending ]; then
+            yield_reason="$priority"
+          fi
+          if [ -z "$yield_reason" ]; then
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+          printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+            "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY
+          case "$yield_reason" in
+            booking_pending)
+              echo "DEFERRED: owner engine window $window is booked and open on main and its booking commit is not yet certified; post-booking push $SHA hands the Backup host back and certifies nothing."
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\` before certify: post-booking push yielded to uncertified booking commit of owner window \`$window\`; host handed back, nothing certified."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              ;;
+            predates)
+              echo "DEFERRED: owner engine window $window was booked while $SHA waited; it predates the window, so it hands the Backup host back and certifies nothing."
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\` before certify: predates owner window \`$window\` booked while it waited; host handed back, nothing certified."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              ;;
+          esac
+          echo "deferred=1" >> "$GITHUB_OUTPUT"
+
   certify:
     needs: [plan, refresh]
     # Publish a failure for this exact SHA if refresh failed, including when a
     # previous attempt left a success status. Never certify a partial copy.
-    if: always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75
     env:
-      CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}
+      CONTROL_SHA: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
         if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
@@ -612,22 +1005,27 @@ jobs:
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - name: Mark the certification pending
         id: pending
-        env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
+        # A run that never held the Backup host tests nothing; it must not
+        # replace another run's certificate with `pending` (076ff467).
+        if: needs.refresh.result == 'success' || needs.refresh.outputs.turn == '1'
+        env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}' }
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
             -f description='Backup Engine is building, booting and soaking this version' \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.plan.outputs.control_sha }}
+          ref: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
           fetch-depth: 0
           sparse-checkout: |
+            scripts/ci/read-engine-prequalification.py
             server/scripts
             server/standby/schema-evidence.py
+          sparse-checkout-cone-mode: false
       - name: Check the protected activation policy before spending a Backup soak
         id: policy
         env:
-          SHA: ${{ needs.plan.outputs.sha }}
+          SHA: ${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$GITHUB_SHA" "$CONTROL_SHA"
@@ -640,8 +1038,13 @@ jobs:
         id: certify
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
-          SHA: ${{ needs.plan.outputs.sha }}
+          SHA: ${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}
           REFRESH_RESULT: ${{ needs.refresh.result }}
+          EVENT: ${{ github.event_name }}
+          FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
+          PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           if [ "$REFRESH_RESULT" != success ]; then
@@ -651,30 +1054,130 @@ jobs:
           fi
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
-          if ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
+          # MID-SOAK YIELD FOR OBSOLETE UNSELECTABLE PUSH RUNS (2026-11-21, O1).
+          # Keep cmd_certify on the offline standby host completely network-free:
+          # run SSH certify in the background on this GitHub Actions runner while
+          # a bounded runner-side check runs every 60 s for non-booking,
+          # non-freeze-baseline push runs. Yield cleanly (stop standby container,
+          # exit 0, write NO failure/error status) ONLY when ALL FOUR hold:
+          #   (a) a newer active push run of backup-engine.yml is queued/in_progress on main,
+          #   (b) projection(SHA) or supabase/migrations on origin/main already differs from SHA,
+          #   (c) < 75 minutes (4500 s) remain until the next scheduled 3-hourly/daily cutoff,
+          #   (d) every read succeeded (unreadable -> keep soaking, CLAUDE.md 10.86).
+          : > certificate.out
+          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
             "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 1800" \
-            | tee certificate.out; then rc=0; else rc=1; fi
-          if [ "$rc" = 0 ]; then
-            scp -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json || rc=1
+            > certificate.out 2>&1 &
+          ssh_pid=$!
+          yielded=0
+          yield_reason=''
+          check_interval="${YIELD_CHECK_INTERVAL:-60}"
+          if [ "${EVENT:-}" = push ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            while kill -0 "$ssh_pid" 2>/dev/null; do
+              elapsed=0
+              while [ "$elapsed" -lt "$check_interval" ] && kill -0 "$ssh_pid" 2>/dev/null; do
+                sleep 1
+                elapsed=$((elapsed + 1))
+              done
+              kill -0 "$ssh_pid" 2>/dev/null || break
+              secs_to_cutoff=$(python3 -B -c '
+          import os, runpy, time
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          m = runpy.run_path("scripts/ci/read-engine-prequalification.py")
+          hours = m["THREE_HOURLY_START_HOURS"]
+          now = int(os.environ.get("O1_NOW_EPOCH") or time.time())
+          zone = ZoneInfo("America/Chicago")
+          base_hour = ((now // 3600) + 1) * 3600
+          for step in range(48):
+              start = base_hour + step * 3600
+              cutoff = start - 1800
+              if cutoff <= now:
+                  continue
+              chicago = datetime.fromtimestamp(start, zone)
+              if chicago.hour in hours and chicago.minute == 0 and datetime.fromtimestamp(start - 3600, zone).hour != chicago.hour:
+                  print(cutoff - now)
+                  raise SystemExit(0)
+          raise SystemExit(1)
+          ' 2>/dev/null) || secs_to_cutoff=unreadable
+              if ! [[ "$secs_to_cutoff" =~ ^[0-9]+$ ]] || [ "$secs_to_cutoff" -ge 4500 ]; then
+                continue
+              fi
+              newer_waiting=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
+                --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$SHA\" and (.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\" or .status == \"requested\"))] | length" 2>/dev/null) || newer_waiting=unreadable
+              if ! [[ "$newer_waiting" =~ ^[0-9]+$ ]] || [ "$newer_waiting" -le 0 ]; then
+                continue
+              fi
+              if ! git fetch -q origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null; then
+                echo "O1 mid-soak check: git fetch origin main unreadable; keeping soak (CLAUDE.md 10.86)."
+                continue
+              fi
+              main_sha=$(git rev-parse --verify refs/remotes/origin/main^{commit} 2>/dev/null || echo '')
+              if ! [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]] || [ "$main_sha" = "$SHA" ] || ! git merge-base --is-ancestor "$SHA" "$main_sha" 2>/dev/null; then
+                continue
+              fi
+              diverged=$(python3 -B -c '
+          import runpy, subprocess, sys
+          m = runpy.run_path("scripts/ci/read-engine-prequalification.py")
+          sha, main_sha = sys.argv[1], sys.argv[2]
+          proj_sha = m["projection"](sha)
+          proj_main = m["projection"](main_sha)
+          mig_sha = subprocess.check_output(["git", "--no-replace-objects", "ls-tree", "-r", sha, "--", "supabase/migrations"], text=True, timeout=30).strip()
+          mig_main = subprocess.check_output(["git", "--no-replace-objects", "ls-tree", "-r", main_sha, "--", "supabase/migrations"], text=True, timeout=30).strip()
+          reasons = []
+          if proj_sha != proj_main:
+              reasons.append("control_projection_diverged")
+          if mig_sha != mig_main:
+              reasons.append("migrations_tree_diverged")
+          print(",".join(reasons))
+          ' "$SHA" "$main_sha" 2>/dev/null) || diverged=unreadable
+              if [ "$diverged" = unreadable ] || [ -z "$diverged" ]; then
+                continue
+              fi
+              yielded=1
+              yield_reason="$diverged (main=$main_sha, ${secs_to_cutoff}s to next cutoff, $newer_waiting newer active push run(s))"
+              echo "YIELDED_OBSOLETE: $SHA became unselectable mid-soak: $yield_reason. Stopping standby certification cleanly so the waiting selectable commit can acquire the host."
+              kill -TERM "$ssh_pid" 2>/dev/null || true
+              for _ in 1 2 3 4 5; do
+                kill -0 "$ssh_pid" 2>/dev/null || break
+                sleep 1
+              done
+              kill -KILL "$ssh_pid" 2>/dev/null || true
+              wait "$ssh_pid" 2>/dev/null || true
+              ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+                "pids=\$(pgrep -f '[s]tandby-engine certify $SHA' || true); for p in \$pids; do pkill -TERM -P \"\$p\" 2>/dev/null || true; kill -TERM \"\$p\" 2>/dev/null || true; done; bash -c '. /usr/local/sbin/standby-engine && stop_for_restore' >/dev/null 2>&1 || true" || true
+              break
+            done
           fi
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          tail -1 certificate.out > certificate.json || true
-          # THE CERTIFICATE NAMES THE SET THE COPY HOLDS (2026-11-08). The
-          # retained schema evidence must be the file the certified copy
-          # recorded and bound to its dump; its installed set (less this
-          # target's own break-window files) is named in the verdict, so the
-          # release host compares production with it at cutover. No bound
-          # set, no success (the verdict step below requires it).
-          if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
-              --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
-            echo "installed=$installed" >> "$GITHUB_OUTPUT"
+          if [ "$yielded" = 1 ]; then
+            tail -n 40 certificate.out || true
+            { echo "### Backup Engine"; echo ""; echo "- YIELDED_OBSOLETE \`$SHA\` mid-soak: $yield_reason; standby container stopped, host lease released, no failure or error certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "yielded=1" >> "$GITHUB_OUTPUT"
+          else
+            if wait "$ssh_pid"; then rc=0; else rc=1; fi
+            cat certificate.out || rc=1
+            if [ "$rc" = 0 ]; then
+              scp -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json || rc=1
+            fi
+            echo "rc=$rc" >> "$GITHUB_OUTPUT"
+            tail -1 certificate.out > certificate.json || true
+            # THE CERTIFICATE NAMES THE SET THE COPY HOLDS (2026-11-08). The
+            # retained schema evidence must be the file the certified copy
+            # recorded and bound to its dump; its installed set (less this
+            # target's own break-window files) is named in the verdict, so the
+            # release host compares production with it at cutover. No bound
+            # set, no success (the verdict step below requires it).
+            if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
+                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
+              echo "installed=$installed" >> "$GITHUB_OUTPUT"
+            fi
           fi
           exit 0
       - name: Retain exact Backup schema, seed, policy and trial evidence
         if: steps.certify.outputs.rc == '0'
         uses: actions/upload-artifact@v4
         with:
-          name: backup-certificate-${{ needs.plan.outputs.sha }}-${{ github.run_attempt }}
+          name: backup-certificate-${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}-${{ github.run_attempt }}
           path: |
             certificate.json
             compatibility.json
@@ -685,29 +1188,45 @@ jobs:
         env:
           {
             GH_TOKEN: '${{ github.token }}',
-            SHA: '${{ needs.plan.outputs.sha }}',
+            SHA: '${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}',
             RC: '${{ steps.certify.outputs.rc }}',
+            YIELDED: '${{ steps.certify.outputs.yielded }}',
             JOB_STATUS: '${{ job.status }}',
             INSTALLED: '${{ steps.certify.outputs.installed }}',
             PENDING: '${{ steps.pending.outcome }}',
             POLICY: '${{ steps.policy.outcome }}',
             REFRESH: '${{ needs.refresh.result }}',
+            TURN: '${{ needs.refresh.outputs.turn }}',
           }
         run: |
           set -euo pipefail
-          write=1
+          if [ "${YIELDED:-}" = 1 ]; then
+            echo "YIELDED_OBSOLETE: $SHA yielded mid-soak because it became unselectable before the next scheduled cutoff; writing no failure or error status."
+            exit 0
+          fi
+          write=1; state=''; desc=''
           if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ] && [[ "$INSTALLED" =~ ^[0-9a-f]{64}$ ]]; then state=success; desc="Certified on the Backup Engine; installed migrations $INSTALLED"
           # A refresh that did not succeed is a refusal even when a later
           # provider answer stopped this job before the certify step turned it
           # into rc=1: its copy cannot back an earlier success (review of #10805).
+          # NO TURN, NO VERDICT (incident 076ff467, 2026-11-20). A refresh that
+          # failed because this run never held the Backup host (it timed out
+          # waiting behind another certification) touched no copy and judged
+          # no build. Publishing `failure` from it replaced a valid certificate
+          # 12 minutes before the 03:30 selection. It reports `error` below,
+          # which never replaces a success.
+          elif [ "$REFRESH" != success ] && [ "${TURN:-}" != 1 ] && [ "$POLICY" != failure ]; then state=noturn
           elif [ -n "$RC" ] || [ "$POLICY" = failure ] || [ "$REFRESH" != success ]; then state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"
-          else
+          fi
+          if [ "$state" = noturn ] || { [ "$state" != success ] && [ "$state" != failure ]; }; then
             # NO VERDICT IS NOT A REFUSAL (2026-11-14, run 43565758486). The job
             # failed before the Backup host judged anything (a provider 5xx, the
             # dispatch proof, a checkout), so there is no certificate to report.
             # That is `error`, never `failure`, and it never replaces a success
             # this run did not itself overwrite with `pending`.
+            reason=$state
             state=error; desc='Backup Engine reached no verdict: this run failed before certifying (provider, dispatch proof or checkout). See run.'
+            if [ "$reason" = noturn ]; then desc='Backup Engine reached no verdict: this run never held the Backup host turn, so it tested nothing. See run.'; fi
             if [ "$PENDING" != success ]; then
               current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
                 --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || current=unreadable

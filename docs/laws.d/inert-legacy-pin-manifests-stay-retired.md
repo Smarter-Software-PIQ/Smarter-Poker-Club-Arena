@@ -1,0 +1,3 @@
+# tests/inert-legacy-pin-manifests-stay-retired.law.test.ts
+
+Two completed historical pin-manifest functions — `smarter_private.original_hand_correction_sources_match()` (26 pins; historical hand-correction window closed, already returns `false` on production) and `public.fn_ca_guard_mtt_admission_contract()` (149 pins; read only on the completed `legacy-capacity-v1 -> unlimited-mtt-v2` transition) — stay retired and pin-free after `20261120213500_retire_inert_legacy_pin_manifests.sql`, while preserving `false` return and `MTT_ADMISSION_CONTRACT_IMMUTABLE` enforcement on `public.ca_mtt_admission_contract`. Native proof: `tests/unit/inertLegacyPinManifestsRetire.pg.test.ts`.

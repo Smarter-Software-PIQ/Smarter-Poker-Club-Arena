@@ -32,9 +32,7 @@ export function boardCardCountsFromKey(boardKey: string): number[] {
 
 /** Cards per board for card arrays; empty or missing boards dropped. */
 export function boardCardCounts(boards: ReadonlyArray<ReadonlyArray<unknown> | null | undefined>) {
-  return boards
-    .map((b) => (Array.isArray(b) ? b.length : 0))
-    .filter((n) => n > 0);
+  return boards.map((b) => (Array.isArray(b) ? b.length : 0)).filter((n) => n > 0);
 }
 
 /** River: at least one board dealt and every dealt board complete (5 cards). */

@@ -1,0 +1,7 @@
+# A Hold'em Tournament All-In Call Is Priced (2026-11-19, default OFF)
+
+Option holdemTournamentAllInCallIsPriced (off-only under the owner preflop range hold). Horse Decisions audit E found Horses folding to all-ins at prices their equity paid for in hold'em tournaments: a fixed strength bar at All-In-Or-Fold tables (lone jams at 8bb or less called 10 to 30% of the time against a Nash 56 to 68%), strength bars and the Phase 7 arbiter for a re-jam over the Horse's own open, a multiway all-in or a jam with callers, a committed stack folding crumbs, and postflop all-in folds with no price check.
+
+With the option on, every such call is decided by the Horse's equity against the ranges in the pot (Nash V2 jam ranges, stated re-jam, 3-bet and caller widths, players behind priced as overcallers) against the exact price (dead money, side pots capped at the Horse's stack, the bubble factor where a pay jump is live); the Phase 7 arbiter and Phase 8 may not reverse it beyond 5 equity points (any positive margin for a committed call); postflop, calls facing a jam are checked against the price with the engine's own equity (review N3: a river bet that is not all in is not priced, because that equity is against preflop bands, not the bettor's line range). Off, nothing changes.
+
+Code: server/src/engine/HorseHoldemTournamentAllInCall.ts, HorseLogic.ts. Law: AHoldemTournamentAllInCallIsPriced.law.test.ts. Authority: docs/horse-option-authority.d/holdemTournamentAllInCallIsPriced.md. League card: mtt6_holdem_tournament_all_in_call_is_priced_12bb (declared, not run).

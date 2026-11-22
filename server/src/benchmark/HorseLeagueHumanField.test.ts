@@ -80,6 +80,28 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_hu_bb_defends_to_price_40bb', 'hu_bb_defends_to_price_40bb'],
   // 2026-11-12 (HU-AUDIT-002): the default-off flag no card had dealt.
   ['human_hu_commit_under_pot', 'hu_commit_under_pot'],
+  // 2026-11-21 (Hold'em Strategy): 12bb 6-max big-blind-ante MTT human-field twin.
+  [
+    'human_mtt6_holdem_tournament_all_in_call_is_priced_12bb',
+    'mtt6_holdem_tournament_all_in_call_is_priced_12bb',
+  ],
+  // 2026-11-22 (Hold'em Strategy): 6-max and 9-max cash human-field twins for holdemValueAndCallsArePriced.
+  ['human_nlh_holdem_value_and_calls_are_priced', 'nlh_holdem_value_and_calls_are_priced'],
+  ['human_nlh9_holdem_value_and_calls_are_priced', 'nlh9_holdem_value_and_calls_are_priced'],
+  // 2026-11-22 (RIVER-BLOCK): human-field twin of nlh_horse_river_no_blocker_bet (live cash Hybrid hero).
+  ['human_nlh_horse_river_no_blocker_bet', 'nlh_horse_river_no_blocker_bet'],
+];
+
+/** Per-card divergence pair floor for EXPECTED_HUMAN_CARDS whose trigger is a rare river spot (~0.08% of pairs). */
+const EXPECTED_HUMAN_CARD_DIVERGENCE_PAIRS: Readonly<Record<string, number>> = {
+  human_nlh_horse_river_no_blocker_bet: 2000,
+};
+
+/** Human-field cards with no mirror twin and no persona: a PROCESS switch that a mirror card cannot split
+ *  (HorseLeague.refuseMirrorProcessSwitchSplit), so it has no mirror to twin. 2026-11-21:
+ *  styleShiftReleaseIsNoiseAware (docs/horse-option-authority.d/styleShiftReleaseIsNoiseAware.md). */
+const EXPECTED_PROCESS_SWITCH_CARDS: Array<[string, Record<string, boolean>]> = [
+  ['human_nlh_style_release_noise_aware', { styleShiftReleaseIsNoiseAware: true }],
 ];
 
 /** Human-field cards with no mirror twin: the heads-up exploiter cards
@@ -286,7 +308,17 @@ describe(
   () => {
     it('each human card is the human twin of a mirror card: same arms, NLH, named human_*', () => {
       const personaNames = new Set(EXPECTED_PERSONA_CARDS.map(([n]) => n));
-      const cards = humanCards().filter((m) => !personaNames.has(m.name));
+      const processSwitchNames = new Set(EXPECTED_PROCESS_SWITCH_CARDS.map(([n]) => n));
+      for (const [name, a] of EXPECTED_PROCESS_SWITCH_CARDS) {
+        const c = LEAGUE_MATCHUPS.find((m) => m.name === name);
+        expect(c, `${name} left the card`).toBeDefined();
+        expect(c!.a).toEqual(a);
+        expect(c!.b).toEqual({});
+        expect(c!.humanPersona).toBeUndefined();
+      }
+      const cards = humanCards().filter(
+        (m) => !personaNames.has(m.name) && !processSwitchNames.has(m.name)
+      );
       expect(cards.map((m) => m.name)).toEqual(EXPECTED_HUMAN_CARDS.map(([n]) => n));
       for (const [name, persona] of EXPECTED_PERSONA_CARDS) {
         const c = LEAGUE_MATCHUPS.find((m) => m.name === name);
@@ -352,8 +384,9 @@ describe(
       '%s: the two arms do not play identical poker against the field',
       async (name) => {
         const card = LEAGUE_MATCHUPS.find((m) => m.name === name)!;
-        const r = await runMatchup(card, 400, 4242);
-        expect(r.hands).toBe(800);
+        const pairs = EXPECTED_HUMAN_CARD_DIVERGENCE_PAIRS[name] ?? 400;
+        const r = await runMatchup(card, pairs, 4242);
+        expect(r.hands).toBe(pairs * 2);
         expect(r.divergentPairs).toBeGreaterThan(0);
         expect(r.inert).toBe(false);
         expect(r.stderr).toBeGreaterThan(0);

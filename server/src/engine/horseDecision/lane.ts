@@ -1,4 +1,8 @@
 import { horseRequestAllowance } from './requestRetentionBudget.js';
+import {
+  armOpponentHudFromSwitch,
+  startOpponentHudStore,
+} from '../../services/OpponentHudStore.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
 import {
@@ -6,6 +10,7 @@ import {
   readStyleSwitchFromDatabase,
   type StyleSwitchStateMessage,
 } from './styleSwitchDelivery.js';
+import { receiveHorseRunItTwiceSwitchMessage } from '../HorseRunItTwiceSwitch.js';
 import { publishOptionRegistryToDatabase } from './optionRegistryPublisher.js';
 import {
   startEngineRuntimeSettingsFromDatabase,
@@ -39,6 +44,7 @@ import type {
 import type { HorseDiscardExecutionObservation } from '../../services/horseDecisionJournal/discard.js';
 import { decisionWorkersCanYield } from './workerPriority.js';
 import { horseDecisionShard } from './shard.js';
+import { recordHorseDecisionLatencySample } from '../../observability/HorseDecisionLatencyHealth.js';
 import {
   horseJournalCapacityUnreadableReason,
   horseJournalShardCapacity,
@@ -576,6 +582,11 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
     this.lastStyleSwitch = message;
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the engine attaches opponent profiles exactly while the reading the
+    // workers get has omahaOpponentLifetimeHud on (an unreadable reading disarms; never throws).
+    armOpponentHudFromSwitch(message);
+    // horseRunItTwiceIsPriced is decided on the main thread (HorseRunItTwiceSwitch.ts): it reads the same message.
+    receiveHorseRunItTwiceSwitchMessage(message);
     for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {
@@ -744,18 +755,25 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       return Promise.reject(error);
     }
     const original = structuredClone(snapshot);
-    return this.shard(original.fence)
-      .decideFast(original, signal, options)
-      .then((result) => {
-        // Only the validated original FAST can register this observer. A rejected
-        // or never-delivered decision cannot enroll another horse in a hand.
-        try {
-          this.observerParticipants.capture(original);
-        } catch (error) {
-          throw markHorseDecisionRejection(error, 'post_result_failed');
-        }
-        return result;
+    const shardIndex = horseDecisionShard(original.fence, this.clients.length);
+    return this.clients[shardIndex]!.decideFast(original, signal, options).then((result) => {
+      // Only the validated original FAST can register this observer. A rejected
+      // or never-delivered decision cannot enroll another horse in a hand.
+      try {
+        this.observerParticipants.capture(original);
+      } catch (error) {
+        throw markHorseDecisionRejection(error, 'post_result_failed');
+      }
+      // Pure read-only rolling latency telemetry for /health (bounded O(1) memory,
+      // never mutates result, never throws).
+      recordHorseDecisionLatencySample({
+        workerIndex: shardIndex,
+        variant: original.gameState.gameVariant,
+        computeMs: result.computeMs,
+        transitions: result.decision.policyGraph?.transitions,
       });
+      return result;
+    });
   }
 
   decideDeep(
@@ -897,6 +915,8 @@ export async function startLiveHorseDecisionWorker(
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
       broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
+    // the production boot (no injected reader) starts the Horses' shared opponent memory
+    if (options.styleSwitchRead === undefined) startOpponentHudStore();
     styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
   }
   if (styleSwitchFirstDelivery) await styleSwitchFirstDelivery;

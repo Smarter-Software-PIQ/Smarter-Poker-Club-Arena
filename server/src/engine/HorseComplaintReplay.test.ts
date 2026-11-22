@@ -52,7 +52,16 @@ describe('complaint replay library', () => {
     expect(st.gs.pot).toBe(6.15);
     expect(st.gs.toCall).toBe(3.33);
     expect(st.gs.stage).toBe('preflop');
-    expect(st.gs.actionHistory!).toHaveLength(8);
+    // Live actionHistory never lists forced posts: the big blind's sb, bb and
+    // ante rows (ords 1-3) stay out, leaving the five voluntary actions.
+    expect(st.gs.actionHistory!).toHaveLength(5);
+    expect(st.gs.actionHistory!.map((a) => a.action)).toEqual([
+      'fold',
+      'raise',
+      'raise',
+      'fold',
+      'fold',
+    ]);
     expect(st.gs.actionHistory!.every((a) => (a as { stage: string }).stage === 'preflop')).toBe(
       true
     );

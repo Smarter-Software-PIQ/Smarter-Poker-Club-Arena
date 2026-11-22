@@ -27,6 +27,18 @@ import {
   horseRuntimeSettingOptions,
   lightningFastFoldTuningFrom,
 } from './apply.js';
+import { HORSE_CASH_STACK_CEILING_COMPILED_BB } from '../../services/HorseCashStackCeiling.js';
+import { horseCashStackCeilingBBFrom } from './apply.js';
+import {
+  OMAHA_OPTION_GAME_SCOPE_OPTIONS,
+  OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX,
+  omahaOptionGameScopeFromSettings,
+} from '../HorseOmahaOptionGameScope.js';
+import {
+  OMAHA_BLANKET_ROWS_OFF_REGISTRY,
+  OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
+  omahaBlanketRowsOffListFromSettings,
+} from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
 import { RUNTIME_SETTINGS_REGISTRY } from './registry.js';
 import { COMPILED_RUNTIME_SETTINGS, parseRuntimeSettings } from './snapshot.js';
 
@@ -34,6 +46,16 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const read = (p: string) => readFileSync(join(REPO, p), 'utf8');
 const MIGRATION =
   'supabase/migrations/20261119211354_engine_settings_change_at_the_next_hand_without_a_cutover.sql';
+
+/** The game scope keys of the omaha* options (HorseOmahaOptionGameScope.ts), one per listed option. */
+const GAME_SCOPE_KEYS: readonly string[] = OMAHA_OPTION_GAME_SCOPE_OPTIONS.map(
+  (option) => OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX + option
+);
+
+/** The declared-list keys of omahaBlanketRowsOffInPlo45Cash, one per registry member. */
+const BLANKET_ROW_OFF_KEYS: readonly string[] = OMAHA_BLANKET_ROWS_OFF_REGISTRY.map(
+  (option) => OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX + option
+);
 
 /** The constant the code reads for each key. */
 const CODE_VALUE: Readonly<Record<string, number>> = {
@@ -48,7 +70,23 @@ const CODE_VALUE: Readonly<Record<string, number>> = {
   'lightning.fastFoldMaxMs': LIGHTNING_HORSE_FAST_FOLD_MAX_MS,
   'lightning.fastFoldTempoMin': LIGHTNING_HORSE_FAST_FOLD_TEMPO_MIN,
   'lightning.fastFoldTempoMax': LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX,
+  'horse.cashStackCeilingBB': HORSE_CASH_STACK_CEILING_COMPILED_BB,
+  // HorseOmahaOptionGameScope: 0 is "no scope" (only 4 or 5 confines an option to a game)
+  ...Object.fromEntries(GAME_SCOPE_KEYS.map((key) => [key, 0])),
+  // HorseOmahaBlanketRowsOffInPlo45Cash: 0 is "not listed" (only 1 lists a blanket row)
+  ...Object.fromEntries(BLANKET_ROW_OFF_KEYS.map((key) => [key, 0])),
 };
+
+/**
+ * Keys registered AFTER the seed migration was installed. An installed migration is never edited, and a key a
+ * published version does not name keeps its compiled default (snapshot.ts), so version 1 still parses to the
+ * compiled snapshot with these absent. Each one must be absent from the seed.
+ */
+const ADDED_AFTER_THE_SEED: readonly string[] = [
+  'horse.cashStackCeilingBB',
+  ...GAME_SCOPE_KEYS,
+  ...BLANKET_ROW_OFF_KEYS,
+];
 
 function seed(): Record<string, unknown> {
   const sql = read(MIGRATION);
@@ -77,10 +115,14 @@ describe('every runtime-tunable setting has a published default equal to its com
   it('the published version 1 names every key with exactly its compiled default', () => {
     const published = seed();
     expect(Object.keys(published).sort()).toEqual(
-      RUNTIME_SETTINGS_REGISTRY.map((s) => s.key).sort()
+      RUNTIME_SETTINGS_REGISTRY.map((s) => s.key)
+        .filter((k) => !ADDED_AFTER_THE_SEED.includes(k))
+        .sort()
     );
+    for (const key of ADDED_AFTER_THE_SEED) expect(published[key], key).toBeUndefined();
     for (const spec of RUNTIME_SETTINGS_REGISTRY)
-      expect(published[spec.key], spec.key).toBe(spec.compiledDefault);
+      if (!ADDED_AFTER_THE_SEED.includes(spec.key))
+        expect(published[spec.key], spec.key).toBe(spec.compiledDefault);
     const parsed = parseRuntimeSettings({ version: 1, settings: published });
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -90,12 +132,25 @@ describe('every runtime-tunable setting has a published default equal to its com
     expect(lightningFastFoldTuningFrom(parsed.snapshot)).toEqual(
       LIGHTNING_HORSE_FAST_FOLD_COMPILED_TUNING
     );
+    expect(horseCashStackCeilingBBFrom(parsed.snapshot)).toBe(0);
   });
 
   it('every key has a reader', () => {
     const horse = horseRuntimeSettingOptions();
     for (const spec of RUNTIME_SETTINGS_REGISTRY) {
       if (spec.consumer === 'horse_decision') expect(horse[spec.key], spec.key).toBeDefined();
+      else if (spec.consumer === 'horse_stack_management')
+        expect(spec.key, spec.key).toBe('horse.cashStackCeilingBB'); // horseCashStackCeilingBBFrom
+      else if (spec.consumer === 'horse_blanket_rows_off')
+        // omahaBlanketRowsOffListFromSettings (read by horseDecideOptsFromRuntimeSettings)
+        expect(omahaBlanketRowsOffListFromSettings({ [spec.key]: 1 }), spec.key).toEqual([
+          spec.key.slice(OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX.length),
+        ]);
+      else if (spec.consumer === 'horse_option_game_scope')
+        // omahaOptionGameScopeFromSettings (read by horseDecideOptsFromRuntimeSettings)
+        expect(omahaOptionGameScopeFromSettings({ [spec.key]: 5 }), spec.key).toEqual({
+          [spec.key.slice(OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX.length)]: 5,
+        });
       else expect(spec.key.startsWith('lightning.fastFold'), spec.key).toBe(true);
     }
     expect(
@@ -125,6 +180,12 @@ describe('every runtime-tunable setting has a published default equal to its com
     );
     expect(host.match(/tuning: this\.fastFoldTuning/g)).toHaveLength(2);
     expect(host.match(/horseOpts: this\.runtimeHorseOpts/g)).toHaveLength(2);
+    // the stack ceiling is read from the hand's pinned snapshot at its settlement, and from the pool hand's
+    const settlement = read('server/src/engine/ServerTableEngineSettlement.ts');
+    // (read through the synchronous settlement snapshot, which pins this hand's settings: StaleContinuationSweep law)
+    expect(settlement).toContain('runtimeSettings: this.currentHandRuntimeSettings,');
+    expect(settlement).toContain('horseCashStackCeilingBBFrom(snap.runtimeSettings)');
+    expect(host).toContain('horseCashStackCeilingBBFrom(this.runtimeSettings)');
     const lane = read('server/src/engine/horseDecision/lane.ts');
     expect(lane).toContain('startEngineRuntimeSettingsFromDatabase()');
   });

@@ -34,6 +34,50 @@ import { HORSE_REFERENCE_DECISION_SOURCE_FILES } from './HorseReferenceDecisionS
 
 const serverRoot = fileURLToPath(new URL('../../', import.meta.url));
 const dockerfile = readFileSync(`${serverRoot}Dockerfile`, 'utf8');
+const dockerignore = existsSync(`${serverRoot}.dockerignore`)
+  ? readFileSync(`${serverRoot}.dockerignore`, 'utf8')
+  : '';
+
+function compileDockerignore(text: string): RegExp[] {
+  const out: RegExp[] = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (line.startsWith('#') || line.trim() === '') continue;
+    const rule = line
+      .trim()
+      .replace(/^(\.\/)+/, '')
+      .replace(/^\/+|\/+$/g, '')
+      .replace(/\/+/g, '/');
+    const segs = rule.split('/');
+    const parts: string[] = [];
+    for (let i = 0; i < segs.length; i++) {
+      const seg = segs[i]!;
+      if (seg === '**') {
+        if (i === segs.length - 1) parts.push(parts.length ? '(?:/.*)?' : '.*');
+        else parts.push(parts.length ? '/(?:.+/)?' : '(?:.+/)?');
+      } else {
+        if (parts.length && !parts[parts.length - 1]!.endsWith('/)?')) parts.push('/');
+        parts.push(
+          seg
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '[^/]*')
+            .replace(/\?/g, '[^/]')
+        );
+      }
+    }
+    out.push(new RegExp(`^${parts.join('')}$`));
+  }
+  return out;
+}
+
+function ignoredByDockerignore(path: string, patterns: readonly RegExp[]): boolean {
+  const parts = path.split('/');
+  for (let end = 1; end <= parts.length; end++) {
+    const prefix = parts.slice(0, end).join('/');
+    if (patterns.some((rx) => rx.test(prefix))) return true;
+  }
+  return false;
+}
 
 /** The runtime stage: everything after the last FROM. */
 function runtimeStage(text: string): string {
@@ -87,11 +131,19 @@ describe('a hashed Horse policy source ships in the engine image', () => {
     for (const p of HORSE_REFERENCE_DECISION_SOURCE_FILES) expect(manifest).toContain(p);
   });
 
-  it('every hashed path resolves to a runtime-stage COPY in server/Dockerfile', () => {
+  it('every hashed path resolves to a runtime-stage COPY in server/Dockerfile and is not excluded by server/.dockerignore', () => {
     const missing = horsePolicySourceManifest().filter((p) => !copiedIntoImage(p, copies));
     expect(
       missing,
       `add a runtime-stage COPY to server/Dockerfile for every hashed path:\n${missing.join('\n')}`
+    ).toEqual([]);
+    const ignoredPatterns = compileDockerignore(dockerignore);
+    const ignored = horsePolicySourceManifest().filter((p) =>
+      ignoredByDockerignore(p, ignoredPatterns)
+    );
+    expect(
+      ignored,
+      `server/.dockerignore must never exclude a hashed Horse policy source:\n${ignored.join('\n')}`
     ).toEqual([]);
   });
 

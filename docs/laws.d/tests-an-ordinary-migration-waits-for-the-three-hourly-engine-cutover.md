@@ -1,0 +1,3 @@
+# tests/an-ordinary-migration-waits-for-the-three-hourly-engine-cutover.law.test.ts
+
+When the serving engine runs the three-hourly cutover cadence, the merge dispatcher (`scripts/ci/merged-migration-dispatch.mjs` + `.github/scripts/dispatch-merged-migrations.sh`) automatically defers ordinary merged migrations inside `[cycleStart - 90m, cycleStart + 10m)` for non-04:00 cycles until `cycleStart + 10m` Chicago in the merge's own single bounded wait (keeping `23:45-04:15` nightly freeze, `daily-maintenance` window files, and `daily`/unreadable `/health` fallback intact).

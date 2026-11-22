@@ -135,10 +135,12 @@ describe('the socket clocks agree, and clear any proxy idle timeout', () => {
 describe('the break minute is the same minute everywhere', () => {
   const engineMinute = Number(ENGINE.match(/BREAK_START_MINUTE = (\d+)/)![1]);
 
-  it('temporary Phase1 maintenance and restored daily maintenance both park on the hour', () => {
+  it('Phase1, daily and the three-hourly cycles (owner order 2026-11-21) all park on the hour', () => {
     expect(engineMinute).toBe(0);
     const policy = JSON.parse(read('server/src/maintenance/maintenanceSchedulePolicy.json'));
-    expect(policy.policyId).toBe('phase1-hourly-01a1944f');
+    expect(policy.policyId).toBe('three-hourly-01Gw7aDs');
+    expect(policy.frequency).toBe('three-hourly');
+    expect(policy.startHours).toEqual([1, 4, 7, 10, 13, 16, 19, 22]);
     expect(policy.phase1Status).toBe('off');
     expect(read('.github/workflows/stage-engine-release.yml')).not.toContain("cron: '30 * * * *'");
     expect(RELEASE_TRANSACTION).toContain('PHASE1_CYCLE_START');
@@ -157,8 +159,14 @@ describe('the break minute is the same minute everywhere', () => {
     expect(RELEASE_TRANSACTION).toContain("ZoneInfo('America/Chicago')");
     // A break that is already open reads as zero away. The wrap-around this
     // replaced said "an hour" at :56, which is inside the break being used.
+    // Since 2026-11-21 the next break is the next scheduled cycle start the
+    // exact target's policy names (ROUTINE_START_HOURS; 4 alone when daily),
+    // over real epoch hours, the repeated fall-back hour counted once.
     expect(RELEASE_TRANSACTION).toContain(
-      'start = local.replace(hour=4, minute=0, second=0, microsecond=0)'
+      "hours = tuple(int(h) for h in os.environ.get('ROUTINE_START_HOURS', '4').split(','))"
+    );
+    expect(RELEASE_TRANSACTION).toContain(
+      'current = [e for e in starts if e <= now.timestamp() < e + 300]'
     );
   });
 

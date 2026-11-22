@@ -1,11 +1,23 @@
 import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { withoutValueSizeStamp } from '../engine/HorseOmahaValueSizeBand.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
+import { horseCashStackCeilingChips } from '../services/HorseCashStackCeiling.js';
+import { horseCashStackCeilingBBFrom } from '../engine/runtimeSettings/apply.js';
 import { priceLightningRunout } from './LightningRunoutEquity.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
 import { recheckHorseQualifiedBeforeAcceptance } from '../engine/HorseQualifiedAcceptance.js';
+import {
+  keepOmahaMathCoreDecision,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
+import {
+  lightningOmahaRecoverState,
+  type LightningOmahaRecoverInput,
+} from './LightningOmahaRecoverState.js';
 
 import { publicHandStatsFrame } from '../engine/presentation/publicHandStats.js';
 import {
@@ -15,6 +27,7 @@ import {
 import { bindLightningHorseObservationIdentity } from '../engine/HorseObservationIdentity.js';
 import { captureLightningHorseJournalCoordinate } from '../engine/HorseDecisionHandBinding.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
+import { handRowEngineBuild } from '../releaseIdentity.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  ONE LIGHTNING HAND, DEALT (Lightning Phase 6, 2026-09-27)
@@ -185,6 +198,7 @@ import {
 import { recordLightningHorseResults } from './LightningHorseResults.js';
 import { buildLightningStatsFacts, type LightningFactsBuilder } from './LightningHandFacts.js';
 import { horseDailyRollupContract } from '../services/HorseDailyRollupContract.js';
+import { horseHoleCardsBasisContract } from '../services/HorseStatsBasisContract.js';
 import { writeHandFacts } from '../services/supabase/handFacts.js';
 import { lightningVpipFloor } from './LightningHorseResults.js';
 import {
@@ -726,6 +740,21 @@ export class LightningHandHost {
     return [...this.participants.keys()];
   }
 
+  /**
+   * Read-only identification of horse participants holding chips in this hand
+   * (CLAUDE.md 10.5: counts, decides nothing, zero side effects). Used by
+   * `GameServer.getPrometheusMetrics()` for `poker_horses_seated`.
+   */
+  seatedHorseParticipants(): Array<{ playerId: string; poolSessionId: string }> {
+    const out: Array<{ playerId: string; poolSessionId: string }> = [];
+    for (const p of this.participants.values()) {
+      if (p.isHorse === true && p.stackBefore > 0) {
+        out.push({ playerId: p.playerId, poolSessionId: p.poolSessionId });
+      }
+    }
+    return out;
+  }
+
   // ─── LIFECYCLE ──────────────────────────────────────────────────────────
 
   /** Deal the hand. Never throws; any failure abandons the instance. */
@@ -821,6 +850,14 @@ export class LightningHandHost {
       }
       this.rules = await rulesP;
       timing.mark('rules');
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): a Lightning hand is a new table: every participant's lifetime
+      // profile is warmed for every Horse dealt here, before the deal (fire and forget; PLO4/PLO5 only).
+      warmOpponentHudSeats(
+        [...this.participants.keys()],
+        this.rules?.game_variant,
+        false,
+        'lightning'
+      );
       const variantRefusal = this.checkVariant(this.rules);
       if (variantRefusal) {
         outcome = variantRefusal;
@@ -1843,14 +1880,20 @@ export class LightningHandHost {
         this.preActions.clearPreAction(this.timerKey, userId);
         if (stale) {
           this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
-          noteFire('upgrade09_preaction_purge_lightning_seen');
+          // Evidence only: upgrade 09 is a GUARD (HorseUpgradeEvidence
+          // PER_HORSE_GUARD_UPGRADES). An armed pre-action here is its
+          // opportunity; it fired when the pre-action is gone after the clear.
+          noteFire('upgrade09_preaction_purge_opportunity_lightning_seen');
+          const purged = !this.preActions.hasPreAction(this.timerKey, userId);
+          if (purged) noteFire('upgrade09_preaction_purge_lightning_seen');
           // Per-Horse evidence only (serverOwnedHorse: never a person's client). Lightning is cash.
           if (horseUpgradeEvidenceArmed())
             noteHorseUpgradeEvent(
               userId,
               String(this.rules?.game_variant || 'nlh'),
               'cash',
-              'upgrade_09_preaction_purge'
+              'upgrade_09_preaction_purge',
+              purged
             );
         }
       } else {
@@ -2712,6 +2755,10 @@ export class LightningHandHost {
       retireHorseExecutionWitness(decision.fast.decision.executionWitness, 'turn_abandoned');
       return null;
     }
+    // COREGUARD (owner 2026-11-19 8:48 PM): the decision as the core issued it.
+    // The rechecks below record their verdicts; an applied omahaMathCore choice
+    // is never reverted to a pack baseline nor folded by a feature withdrawal.
+    const coreIssued = decision.fast.decision;
     const qualified = recheckHorseQualifiedBeforeAcceptance(decision.fast.decision, {
       player: hero,
       gameState: {
@@ -2730,8 +2777,11 @@ export class LightningHandHost {
       } as import('../engine/HorseLogic.js').HorseGameStateV2,
     });
     const beforeFeatureCheck = recheckHorsePhase14BeforeAcceptance(qualified);
-    const checked = recheckHorseFeaturesBeforeAcceptance(beforeFeatureCheck, auth.toCall);
-    const featureRefused = checked !== beforeFeatureCheck && !!checked.featureAuthority;
+    const featureChecked = recheckHorseFeaturesBeforeAcceptance(beforeFeatureCheck, auth.toCall);
+    const coreOwned = omahaMathCoreOwns(coreIssued);
+    const checked = keepOmahaMathCoreDecision(coreIssued, featureChecked, 'lightning_door');
+    const featureRefused =
+      !coreOwned && featureChecked !== beforeFeatureCheck && !!featureChecked.featureAuthority;
     decision.fast.decision = checked;
     return { checked, featureRefused };
   }
@@ -2842,14 +2892,68 @@ export class LightningHandHost {
       if (!r.success && this.hc) {
         intended = false;
         const auth = this.hc.getAuthoritativeActionState(userId);
-        applied = this.applyAction(
-          userId,
-          auth?.legalActions.includes('check') ? 'check' : 'fold',
-          undefined,
-          'horse_fallback',
-          undefined,
-          observe
-        ).success;
+        // COREGUARD: a refused core choice facing a bet is priced by the minimal
+        // exact computation on the fresh price (call when the equity beats it),
+        // never an automatic fold; then check, then fold, as before.
+        const coreChoice = fast?.decision ?? decision;
+        let coreCall: { action: ActionType; amount?: number } | null = null;
+        if (
+          omahaMathCoreOwns(coreChoice) &&
+          auth?.canAct &&
+          !auth.legalActions.includes('check') &&
+          (auth.toCall ?? 0) > 0
+        ) {
+          const st = this.hc.getState();
+          const me = st.players.find((p) => p.user_id === userId);
+          const priced = me
+            ? omahaMathCoreRecover({
+                player: me as unknown as import('../types.js').SeatPlayer,
+                // lane CORE-FIX-1 (AUDIT-A item 16): the whole fresh state, so the scope gate re-checks Diamond,
+                // the board count, all-in-or-fold and a capped street here and the price nets the table's rake
+                gs: lightningOmahaRecoverState({
+                  state: st as unknown as LightningOmahaRecoverInput['state'],
+                  heroUserId: userId,
+                  blinds: this.hc.getBlindSnapshot() as unknown as Record<string, unknown>,
+                  variant: String(this.hc.getGameVariant?.() || this.rules?.game_variant || 'nlh'),
+                  boardCount: this.hc.getActiveBoardCount(),
+                  asset: (this.rules?.arena?.asset as string | undefined) ?? null,
+                  allInOrFold,
+                  rakeConfig: this.hc.getRakeConfigSnapshot(),
+                  auth,
+                }),
+                on: true,
+                from: 'controller_refused',
+                error: 'controller_refused',
+                runCore: false,
+                budgetMs: 15,
+              })
+            : null;
+          if (priced && (priced.action === 'call' || priced.action === 'all_in'))
+            coreCall = {
+              action: priced.action,
+              ...(priced.action === 'call' ? { amount: auth.toCall } : {}),
+            };
+        }
+        if (coreCall) {
+          applied = this.applyAction(
+            userId,
+            coreCall.action,
+            coreCall.amount,
+            'horse_fallback',
+            undefined,
+            observe
+          ).success;
+          if (applied) noteFire('omaha_math_core_refused_choice_priced_call');
+        }
+        if (!applied)
+          applied = this.applyAction(
+            userId,
+            auth?.legalActions.includes('check') ? 'check' : 'fold',
+            undefined,
+            'horse_fallback',
+            undefined,
+            observe
+          ).success;
       }
       // After the commit decision, so an accepted batch is already committing
       // and only a non-exact one is retired by the finalizer.
@@ -3352,6 +3456,15 @@ export class LightningHandHost {
       >[0]['perPotAwards'],
     });
     return {
+      /* A LIGHTNING HAND NAMES ITS BUILD (2026-11-21). hand_history.engine_build
+         (20261118073245) was stamped only by logHandHistory, which a Lightning
+         row never passes through, so every Lightning hand stored NULL (25,725
+         of 25,725 in the 20 hours after the 2026-11-20 19:12 UTC cutover,
+         against 0 unstamped physical hands) and could not be split by the
+         build that played it. Same helper, same rule as a physical hand; it
+         rides fn_lightning_settle_hand's row into fn_ca_commit_hand_settlement
+         unchanged. Built once per hand, so every settle retry is identical. */
+      ...handRowEngineBuild(),
       horse_exploit_dealt_count: participants.length,
       public_memory_domain: publicMemoryDomainFromRules(
         'lightning',
@@ -3443,6 +3556,7 @@ export class LightningHandHost {
           process.env.HORSE_NET_ROLLUP_ENABLED !== 'false' &&
           process.env.HORSE_PLAY_ROLLUP_ENABLED !== 'false' &&
           (await horseDailyRollupContract()),
+        horseHoleCardsAccepted: await horseHoleCardsBasisContract(),
         board: this.boards[0] ?? [],
         holeCards: this.holeCards,
         players: state.players,
@@ -3466,6 +3580,13 @@ export class LightningHandHost {
       noteLightningHandForBankTheWin({
         clusterId: this.clusterId,
         maxBuyIn: Number.isFinite(max) && max > 0 ? max : bb * 200,
+        // HorseCashStackCeiling (horse.cashStackCeilingBB, 0 = off): PLO4/PLO5 cash pools only, else null.
+        stackCeiling: horseCashStackCeilingChips({
+          ceilingBB: horseCashStackCeilingBBFrom(this.runtimeSettings),
+          variant: this.rules?.game_variant,
+          bigBlind: bb,
+          maxBuyIn: max,
+        }),
         participants: [...this.participants.values()],
         stacksAfter: new Map(results.map((r) => [r.playerId, Number(r.stackAfter)])),
       });
@@ -3537,6 +3658,21 @@ export class LightningHandHost {
     );
   }
 
+  /** omahaBetReadIsPerOpponent's learner: the holdings revealed at showdown (not mucked; the same ones the hand row
+   *  stores as hole_cards) and the board, or nothing when none was revealed. */
+  private betReadReveal(): {
+    betReadShown?: Record<string, Array<{ rank: string; suit: string }>>;
+    betReadBoard?: string[];
+  } {
+    const shown: Record<string, Array<{ rank: string; suit: string }>> = {};
+    for (const sd of this.showdown)
+      if (!this.isMucked(sd.userId) && sd.holeCards?.length) shown[sd.userId] = sd.holeCards;
+    const board = this.boards[0] ?? [];
+    return Object.keys(shown).length > 0 && board.length > 0
+      ? { betReadShown: shown, betReadBoard: [...board] }
+      : {};
+  }
+
   /** LightningHorseObservation: teach the live horse lane this committed hand. */
   private observeForHorses(
     state: GameState,
@@ -3565,6 +3701,7 @@ export class LightningHandHost {
         hasHuman: this.hasHumanParticipant(),
         actions: acceptedActions,
         showdown: this.showdown,
+        ...this.betReadReveal(),
         ...(results ? { results } : {}),
       },
       {

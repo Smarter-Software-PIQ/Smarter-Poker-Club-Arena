@@ -130,6 +130,14 @@ LIGHTNING_EVAL_CONFIG=full LIGHTNING_EVAL_CELLS=0:10 \
   npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
 ```
 
+The runner test carries its own timeout, which beats vitest's `--testTimeout` (so `--testTimeout=0` does not lift it): two hours by default. `LIGHTNING_EVAL_TIMEOUT_MS` sets it in milliseconds, `0` meaning no timeout; anything but a whole number is refused before the run starts. A long range in one process (for example a declared 90-cell card) needs it:
+
+```
+LIGHTNING_EVAL_TIMEOUT_MS=0 LIGHTNING_EVAL_CONFIG=switch LIGHTNING_EVAL_SWITCH=/path/to/card.json \
+  LIGHTNING_EVAL_OUT=/path/to/your/runs \
+  npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
+```
+
 Staged runs (protocol section 7): `LIGHTNING_EVAL_CONFIG=selection` and `LIGHTNING_EVAL_CONFIG=final` deal the declared 270-cell matrix on their own seed class only (five seeds, 2,200 hands per cell and seed; the arithmetic is beside `LIGHTNING_EVAL_STAGE_HANDS_PER_CELL`). Slice with `LIGHTNING_EVAL_CELLS` and pool the slices with `LIGHTNING_EVAL_MERGE`. Selection seeds are dealt only by a frozen candidate; final seeds once.
 
 `LIGHTNING_EVAL_OUT` receives `lightning-paired-eval-<config>-<candidate>[-cells-a-b][-deadline-apply].json`, `.md`, `.pairs.jsonl`, `.latency.jsonl` and `.complete.json`. Without `LIGHTNING_EVAL_CANDIDATE` the runner plays the null candidate and requires zero divergent decisions. The runner fails on any illegal action or amount (any Horse seat) and on any chip-conservation violation.

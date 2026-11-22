@@ -596,12 +596,20 @@ describe('Phase 6 reference receipt includes the VPIP floor call-down', () => {
     }
   });
 
-  it.each(['no floor', 'target satisfied', 'wrong amount', 'too much stack', 'all in or fold'])(
+  // 'too much stack' left this list with OPEN-ITEMS 2ee6ec48a9a (2026-11-19): the table floor COULD limp
+  // this hand (the switch delivers vpipFloorLimpOnly inside the worker, not on the request), and the call is
+  // exactly that limp, so it is a reference return at any depth (case below).
+  it('admits the table floor limp at a deep stack (the option arrives through the switch, not the request)', () => {
+    const { s, decision } = floorCapture();
+    s.player.stack = 600;
+    expect(horsePhase6AttributionMismatch(decision, s)).toBeNull();
+  });
+
+  it.each(['no floor', 'target satisfied', 'wrong amount', 'all in or fold'])(
     'still refuses a call that the original chart cannot return: %s',
     (boundary) => {
       const { s, decision } = floorCapture();
       if (boundary === 'no floor') s.gameState.vpipFloor = 0;
-      if (boundary === 'too much stack') s.player.stack = 600;
       if (boundary === 'all in or fold') s.gameState.allInOrFold = true;
       if (boundary === 'target satisfied') s.gameState.ownVpip = { hands: 12, vpip: 100 };
       if (boundary === 'wrong amount') {

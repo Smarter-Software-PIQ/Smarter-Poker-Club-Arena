@@ -33,6 +33,19 @@ CONTROL_INPUTS = [
     "server/scripts",
     "server/src/maintenance",
 ]
+CONTROL_INPUT_TEST_EXCLUDED_DIRS = (
+    "server/scripts/",
+    "server/src/maintenance/",
+)
+PURE_TEST_FILE_SUFFIXES = (
+    ".law.test.ts",
+    ".test.ts",
+    ".spec.ts",
+    ".test.py",
+    ".test.mjs",
+    ".test.js",
+    ".test.cjs",
+)
 
 
 class Unqualified(Exception):
@@ -57,6 +70,35 @@ def protected(sha):
     git("merge-base", "--is-ancestor", sha, "refs/remotes/origin/main")
 
 
+def _is_pure_test_control_path(path):
+    """True only for pure unit/law test files inside directory CONTROL_INPUTS.
+
+    Explicit CONTROL_INPUTS files (workflows, recorded-migrations.manifest.json,
+    etc.) and all production/release scripts remain hashed.
+    """
+    if not path.startswith(CONTROL_INPUT_TEST_EXCLUDED_DIRS):
+        return False
+    name = path.rsplit("/", 1)[-1]
+    if any(name.endswith(suffix) and len(name) > len(suffix) for suffix in PURE_TEST_FILE_SUFFIXES):
+        return True
+    if name.startswith("test_") and name.endswith(".py") and len(name) > len("test_.py"):
+        return True
+    return False
+
+
+def _filter_projection_tree(tree_output):
+    """Drop pure unit/law test entries from `git ls-tree -r` by exact path field."""
+    if not tree_output:
+        return ""
+    kept = []
+    for line in tree_output.splitlines():
+        _, sep, path = line.partition("\t")
+        if sep and _is_pure_test_control_path(path):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def projection(sha, *, release_authority=False):
     paths = list(CONTROL_INPUTS)
     if release_authority:
@@ -64,7 +106,7 @@ def projection(sha, *, release_authority=False):
         # must wait for a new selection. The candidate's older expired orders
         # are assessed separately by the daily-compatibility policy.
         paths.extend(("server/release/activation-floor.json", "server/release/owner-maintenance-windows.json"))
-    return git("ls-tree", "-r", sha, "--", *paths)
+    return _filter_projection_tree(git("ls-tree", "-r", sha, "--", *paths))
 
 
 def backup_projection(sha):
@@ -104,6 +146,22 @@ def owner_selection_policy(target, control, owner_id, cutoff):
         subprocess.check_output([sys.executable, "-B", str(helper), "nov7-owner", "--repo", ".",
                                  "--target", target, "--control", control, "--deadline", str(end)], timeout=30)
     return floor
+
+
+THREE_HOURLY_START_HOURS = (1, 4, 7, 10, 13, 16, 19, 22)
+
+
+def cycle_identity(cutoff):
+    """The selection identity of the cycle 30 minutes after `cutoff`: its Chicago
+    date for the 04:00 anchor, `YYYY-MM-DDTHH` for another three-hourly cycle
+    (owner order 2026-11-21). The repeated fall-back hour is one cycle, the first."""
+    zone = ZoneInfo("America/Chicago")
+    start = cutoff + 1800
+    chicago = datetime.fromtimestamp(start, zone)
+    require(type(cutoff) is int and start % 3600 == 0 and chicago.minute == 0 and chicago.second == 0
+            and chicago.hour in THREE_HOURLY_START_HOURS
+            and datetime.fromtimestamp(start - 3600, zone).hour != chicago.hour, "invalid selection cutoff")
+    return chicago.date().isoformat() if chicago.hour == 4 else chicago.strftime("%Y-%m-%dT%H")
 
 
 def selection_cutoff(repo, rid):
@@ -164,9 +222,7 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
         require(started.utcoffset() is not None and completed.utcoffset() is not None
                 and cutoff <= started.timestamp() <= completed.timestamp() < cutoff + 1200,
                 "selection did not execute inside its reserved preparation window")
-        chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
-        require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
-        name = "daily-engine-selection-" + chicago.date().isoformat()
+        name = "daily-engine-selection-" + cycle_identity(cutoff)
     listing = api(f"repos/{repo}/actions/runs/{rid}/artifacts?name={name}&per_page=2")
     require(listing["total_count"] == len(listing["artifacts"]) == 1, "unique selection artifact absent")
     artifact = listing["artifacts"][0]
@@ -204,34 +260,43 @@ def read(args):
     rows = runs["workflow_runs"]
     require(rows, "no exact qualification")
     run = rows[0]
+    raw_rid = run.get("id")
+    run_state_note = ""
+    if type(raw_rid) is int and raw_rid > 0:
+        parts = [f"run {raw_rid}"]
+        if isinstance(run.get("status"), str) and run["status"]:
+            parts.append(f"status={run['status']}")
+        if isinstance(run.get("conclusion"), str) and run["conclusion"]:
+            parts.append(f"conclusion={run['conclusion']}")
+        run_state_note = " (" + ", ".join(parts) + ")"
     require(run["event"] in ("push", "workflow_dispatch") and run["head_branch"] == "main"
             and run["path"] == PATH and run["head_sha"] == target
             and run["repository"]["full_name"].lower() == repo.lower()
             and run["head_repository"]["full_name"].lower() == repo.lower()
             and run["status"] == "completed" and run["conclusion"] == "success",
-            "latest qualification is incomplete, unsuccessful or untrusted")
+            f"latest qualification is incomplete, unsuccessful or untrusted{run_state_note}")
     rid, attempt = run["id"], run["run_attempt"]
     require(type(rid) is int and rid > 0 and type(attempt) is int and attempt > 0, "invalid run coordinates")
     jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/{attempt}/jobs?per_page=100")
     expected = {f"Qualify exact engine ({n}/4)" for n in range(1, 5)} | {"Stage immutable candidate and rollback images"}
     rows = jobs["jobs"]
     require(jobs["total_count"] == len(rows) == 5 and {j["name"] for j in rows} == expected,
-            "incomplete qualification jobs")
+            f"incomplete qualification jobs (run {rid})")
     for job in rows:
         require(job["run_id"] == rid and job["run_attempt"] == attempt and job["head_sha"] == target and job["conclusion"] == "success"
-                and job["status"] == "completed", "invalid qualification job")
+                and job["status"] == "completed", f"invalid qualification job (run {rid})")
     completed = max(datetime.fromisoformat(j["completed_at"].replace("Z", "+00:00")) for j in rows)
     now = datetime.now(timezone.utc)
-    require(completed.timestamp() <= min(args.cutoff, now.timestamp()), "qualification missed cutoff")
+    require(completed.timestamp() <= min(args.cutoff, now.timestamp()), f"qualification missed cutoff (run {rid})")
     stage = next(j for j in rows if j["name"] == "Stage immutable candidate and rollback images")
     markers = [s["name"] for s in stage["steps"] if s["conclusion"] == "success" and s["name"].startswith("Prepared image ")]
-    require(len(markers) == 1, "missing immutable image receipt")
+    require(len(markers) == 1, f"missing immutable image receipt (run {rid})")
     match = re.fullmatch(fr"Prepared image ({IMAGE}) rollback ({IMAGE}) tree ({SHA})", markers[0])
-    require(match and match[3] == git("rev-parse", target + ":server"), "invalid immutable image receipt")
+    require(match and match[3] == git("rev-parse", target + ":server"), f"invalid immutable image receipt (run {rid})")
     newest = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch=main&head_sha={target}&per_page=1")["workflow_runs"]
     require(newest and newest[0]["id"] == rid and newest[0]["run_attempt"] == attempt
             and newest[0]["status"] == "completed" and newest[0]["conclusion"] == "success",
-            "qualification superseded during verification")
+            f"qualification superseded during verification (run {rid})")
     return dict(schema=1, targetSha=target, controlSha=control, qualificationRunId=rid,
                 attempt=attempt, completedAt=completed.isoformat(), imageId=match[1],
                 rollbackImageId=match[2], serverTree=match[3])

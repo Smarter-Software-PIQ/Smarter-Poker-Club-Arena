@@ -55,33 +55,39 @@ export const HORSE_PHASE11_POLICY_DIGEST_DEFINITION = 'horse-phase11-policy-dige
  * own sources (HorseReferenceDecisionSources.ts): the packs return the
  * reference wherever they do not deviate, and those files decide it.
  */
-export const HORSE_PHASE11_POLICY_SOURCE_FILES: readonly string[] = Object.freeze([
-  'src/engine/omaha/OmahaVariantPolicyPack.ts',
-  'src/engine/omaha/OmahaVariantLivePolicy.ts',
-  'src/engine/omaha/OmahaVariantSampler.ts',
-  'src/engine/omaha/OmahaVariantEquity.ts',
-  'src/engine/omaha/OmahaCardFacts.ts',
-  'src/engine/plo4/Plo4LivePolicy.ts',
-  'src/engine/plo4/Plo4PolicyPack.ts',
-  'src/engine/HorseLogic.ts',
-  'src/engine/HorsePolicyRegistry.ts',
-  'src/engine/HorseEval.ts',
-  'src/engine/PokerEngine.ts',
-  'src/engine/VariantRules.ts',
-  'src/engine/multiway/DealtSeatCensus.ts',
-  'src/engine/EquityLoadGovernor.ts',
-  'src/engine/HorseTournamentUtilityEvidence.ts',
-  'src/engine/HorseFiveCardScore.ts',
-  'src/config/rakeSpec.ts',
-  'src/config/tableSeating.ts',
-  'src/engine/BettingStructure.ts',
-  'src/engine/omaha/OmahaVariantActionEconomics.ts',
-  // v5 (2026-10-16): the reference decision's own sources (the digest hole),
-  // less the ones already listed above.
-  ...HORSE_REFERENCE_DECISION_SOURCE_FILES.filter(
-    (f) => !['src/engine/BettingStructure.ts', 'src/engine/VariantRules.ts'].includes(f)
-  ),
-]);
+export const HORSE_PHASE11_POLICY_SOURCE_FILES: readonly string[] = Object.freeze(
+  [
+    'src/engine/omaha/OmahaVariantPolicyPack.ts',
+    'src/engine/omaha/OmahaVariantLivePolicy.ts',
+    'src/engine/omaha/OmahaVariantSampler.ts',
+    'src/engine/omaha/OmahaVariantEquity.ts',
+    'src/engine/omaha/OmahaCardFacts.ts',
+    'src/engine/plo4/Plo4LivePolicy.ts',
+    'src/engine/plo4/Plo4PolicyPack.ts',
+    // 2026-11-19: the depth both pack gates read (omahaPackEffectiveDepth, omahaPackClampDeepDepth);
+    // it decides whether a pack is applied, so it is hashed.
+    'src/engine/omaha/OmahaPackDepth.ts',
+    'src/engine/HorseLogic.ts',
+    'src/engine/HorsePolicyRegistry.ts',
+    'src/engine/HorseEval.ts',
+    'src/engine/PokerEngine.ts',
+    'src/engine/VariantRules.ts',
+    'src/engine/multiway/DealtSeatCensus.ts',
+    'src/engine/EquityLoadGovernor.ts',
+    'src/engine/HorseTournamentUtilityEvidence.ts',
+    'src/engine/HorseFiveCardScore.ts',
+    'src/config/rakeSpec.ts',
+    'src/config/tableSeating.ts',
+    'src/engine/BettingStructure.ts',
+    'src/engine/omaha/OmahaVariantActionEconomics.ts',
+    // v5 (2026-10-16): the reference decision's own sources (the digest hole),
+    // less the ones already listed above.
+    ...HORSE_REFERENCE_DECISION_SOURCE_FILES.filter(
+      (f) => !['src/engine/BettingStructure.ts', 'src/engine/VariantRules.ts'].includes(f)
+    ),
+    // (2026-11-19: the math core's sources overlap files listed above; each is hashed once, first place)
+  ].filter((f, i, all) => all.indexOf(f) === i)
+);
 
 /**
  * Hashed files whose own imports the closure check does not follow: the P11-A

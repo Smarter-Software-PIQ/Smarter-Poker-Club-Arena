@@ -1,6 +1,6 @@
 # horseActionTimeIsPublicOnly: authority for the live switch
 
-Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET; a live read is owed after the release.
+Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET (no `--row` replay run; activated `owner_forced`). LIVE ON (`owner_forced`) 2026-11-16T02:55:24Z (evidence `#10`, serving `3529e866`), verified `32/32` sha match + `0` exceptions/illegal/refusals over `38,664` decisions (max `277 ms`), re-verified live on `8/8` workers and in `2026-11-21T20:00Z` prod switch snapshot.
 
 ## What it does
 
@@ -29,7 +29,7 @@ HorseActionTimePublicOnly.test.ts, aHorseActionTimeIsPublicInformationOnly.law.t
 
 - Mechanism, scope, visibility (receipts in HorseDataLedger.ts), tests: MET.
 - Option unset or false: decisions identical to the base (decision digest pin, plo4/plo5 x dev/horse, 150 pairs, seed 5560001: every option false at 55260db1f62 equals a5935a1a61e unset on all four cells).
-- Value, continuation, reach: NOT MET. No evaluation was run (evaluation NOT RUN); a live read is owed after the release.
+- Value, continuation, reach: NOT MET. No offline league evaluation was run (evaluation NOT RUN). LIVE ON (`owner_forced`) 2026-11-16T02:55:24Z (evidence `#10`, serving `3529e866`), verified `32/32` sha match + `0` exceptions/illegal/refusals over `38,664` decisions (max `277 ms`), re-verified live on `8/8` workers and in `2026-11-21T20:00Z` prod switch snapshot.
 
 ## Limits
 
@@ -40,3 +40,7 @@ Global: all games, not PLO only.
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+
+## Rollback
+
+If enabled, set `horseActionTimeIsPublicOnly` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('horseActionTimeIsPublicOnly', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

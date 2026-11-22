@@ -1,0 +1,3 @@
+# tests/the-journal-pull-is-started-by-hand-and-never-waits.law.test.ts
+
+The off-host copy of the Horse decision journal (`scripts/ops/journal-keep/pull.sh`) is started by hand and reads the engine host only while its guard holds: outside 03:05-04:45 Chicago, engine health ok and idle, migration installers active, no deploy receiver running, and no merged booking still unsealed, read from GitHub and /health and never from the wording of a coordination post. When the guard refuses it exits; it has no sleep, no polling loop and nothing restarts it. Records go only into private files, through one read-only container with no network.

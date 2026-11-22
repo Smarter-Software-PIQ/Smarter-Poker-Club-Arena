@@ -268,3 +268,105 @@ it('binds explicit finite owner selection to the existing receiver without autho
   expect(preparation.run).toContain('selection_args=(--owner-window "$OWNER_WINDOW_ID")');
   expect(preparation.run).toContain('--selection-run-id "$SELECTION_RUN"');
 });
+
+describe('Stage emits a visible error annotation when keep-serving defers candidates', () => {
+  const stage = parse(
+    readFileSync(resolve(__dirname, '..', '.github/workflows/stage-engine-release.yml'), 'utf8')
+  );
+  const freeze = stage.jobs.selection.steps.find((step: any) => step.id === 'freeze');
+  const serving = 'c'.repeat(40);
+  const control = 'b'.repeat(40);
+  const candidate = 'd'.repeat(40);
+
+  function runFreeze(report: Record<string, unknown>) {
+    const dir = mkdtempSync(join(tmpdir(), 'stage-freeze-h2-'));
+    const output = join(dir, 'github-output');
+    writeFileSync(output, '');
+    const stub = join(dir, 'fake-select.json');
+    writeFileSync(stub, JSON.stringify(report));
+    const harness = `
+curl() { printf '{"releaseSha":"${serving}"}'; }
+python3() { cp "${stub}" daily-selection.json; return 0; }
+`;
+    try {
+      const result = spawnSync('bash', ['-c', harness + freeze.run], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_RUN_ATTEMPT: '1',
+          GITHUB_OUTPUT: output,
+          GITHUB_REPOSITORY: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+          GITHUB_SHA: control,
+          GITHUB_RUN_ID: '12345',
+          RELEASE_DATE: '2026-11-21',
+          RELEASE_REQUIRED: 'true',
+          OFFER_REASON: 'behind',
+          OBSERVED_LIVE_SHA: serving,
+          CUTOFF_CONTROL: control,
+          OWNER_WINDOW_ID: '',
+        },
+      });
+      return {
+        status: result.status,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+        outputs: readFileSync(output, 'utf8'),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('emits ::error:: with reason, detail and failing run id while preserving exit 0 for artifact upload', () => {
+    const r = runFreeze({
+      schema: 1,
+      outcome: 'keep-serving',
+      targetSha: null,
+      controlSha: control,
+      servingSha: serving,
+      deferredCandidates: [
+        {
+          sha: candidate,
+          reason: 'prequalification unavailable',
+          detail:
+            'latest qualification is incomplete, unsuccessful or untrusted (run 44878744051, status=completed, conclusion=failure)',
+        },
+      ],
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.outputs).toContain('send=false');
+    expect(r.stdout).toContain(
+      '::error title=Engine selection deferred candidate(s) (keep-serving)::'
+    );
+    expect(r.stdout).toContain(candidate.slice(0, 12));
+    expect(r.stdout).toContain('prequalification unavailable');
+    expect(r.stdout).toContain('run 44878744051');
+  });
+
+  it('does not emit ::error:: when a candidate is selected or no candidates were deferred', () => {
+    const selected = runFreeze({
+      schema: 1,
+      outcome: 'selected',
+      targetSha: candidate,
+      controlSha: control,
+      servingSha: serving,
+      deferredCandidates: [],
+    });
+    expect(selected.status, selected.stderr).toBe(0);
+    expect(selected.outputs).toContain('send=true');
+    expect(selected.stdout).not.toContain('::error');
+
+    const quietKeepServing = runFreeze({
+      schema: 1,
+      outcome: 'keep-serving',
+      targetSha: null,
+      controlSha: control,
+      servingSha: serving,
+      deferredCandidates: [],
+    });
+    expect(quietKeepServing.status, quietKeepServing.stderr).toBe(0);
+    expect(quietKeepServing.outputs).toContain('send=false');
+    expect(quietKeepServing.stdout).not.toContain('::error');
+  });
+});

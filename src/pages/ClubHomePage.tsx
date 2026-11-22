@@ -1,5 +1,6 @@
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { copyText } from '../lib/share';
+import { useClubSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
@@ -5102,12 +5103,19 @@ function ClubHomePageContent({
     filteredTournamentsRef.current = filteredTournaments;
   }, [filteredTournaments]);
 
+  const clubInviteCode = useClubSenderInviteCode(
+    resolvedClubId || club?.id,
+    currentUserId,
+    !isAutomaticArena
+  );
+
   const lobbyCtx = useMemo<LobbyRowContext>(
     () => ({
       waitlistedIds: waitlistedTableIds,
       seatedIds: seatedTableIds,
       registeredIds: registeredTournamentIds,
       favoriteIds: favoriteGameIds,
+      inviteCode: clubInviteCode,
       onToggleFavorite: currentUserId ? handleToggleFavorite : undefined,
       /* The card's buttons run the SAME flows the game-lobby panel
                runs — registerMtt for a tournament, the table navigation for
@@ -5198,6 +5206,7 @@ function ClubHomePageContent({
       seatedTableIds,
       registeredTournamentIds,
       favoriteGameIds,
+      clubInviteCode,
       currentUserId,
       handleToggleFavorite,
       handleRegister,
@@ -6500,6 +6509,7 @@ function ClubHomePageContent({
           embedded={Boolean(clubIdOverride)}
           entry={selectedEntry}
           clubId={clubId}
+          inviteCode={clubInviteCode}
           currentUserId={currentUserId}
           waitlisted={waitlistedTableIds.has(selectedEntry.id)}
           seated={seatedTableIds.has(selectedEntry.id)}

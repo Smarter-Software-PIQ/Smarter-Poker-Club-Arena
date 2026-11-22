@@ -203,13 +203,16 @@ export function copyStreetPrice(r: StreetPriceCounters): StreetPriceCounters {
  * The TypeScript twin of public.fn_horse_street_price_add(base, delta): a cell that took a priced raise ages by
  * STREET_READ_DECAY (the street read's own half-life of 30 opportunities) and takes the hand's sum and count;
  * every other cell is unchanged. A hand with none returns the base itself (null stays null). A stored or supplied
- * value that is not a number counts as 0. Neither argument is mutated.
+ * value that is not a number, or is 1e12 or more in size, counts as 0. Neither argument is mutated.
  */
 export function addStreetPriceEvidence(
   base: StreetPriceCounters | null | undefined,
   inc: StreetPriceCounters | null | undefined
 ): StreetPriceCounters | null {
-  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  // A number is read only under 1e12 in size (the SQL twin casts to float8 only then, so a damaged stored
+  // value can never raise inside the accepted-hand transaction); anything else counts as 0.
+  const num = (v: unknown): number =>
+    typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e12 ? v : 0;
   const cellOf = (r: unknown, s: PostflopStreet): StreetPriceCell => {
     const g = plainObject(r) && plainObject(r.foldToRaise) ? r.foldToRaise[s] : null;
     return plainObject(g) ? { sum: num(g.sum), opp: num(g.opp) } : { sum: 0, opp: 0 };

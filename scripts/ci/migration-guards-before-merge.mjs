@@ -682,6 +682,133 @@ export const REFUSING_GUARDS = [
 export const COMMIT_TIME_GUARDS = ['fn_ca_function_calls_must_resolve'];
 
 /**
+ * Minimal, idempotent production-like control rows seeded on the restored
+ * schema copy before rehearsing changed migrations (2026-11-20, Wave 2
+ * hardening).
+ *
+ * Migrations 20261119175941 and 20261119181500 passed an empty schema copy yet
+ * failed their first live production install because production has active
+ * control rows (ca_promo_play_through_settings.enforced_from IS NOT NULL;
+ * profiles rows for Daily Missions lock checks in $probe$ blocks). Seeding
+ * these minimal control rows idempotently (only when the target table exists)
+ * forces $probe$ blocks to exercise real production enforcement branches
+ * before merge.
+ */
+export const PRODUCTION_CONTROL_FIXTURES = [
+  'public.ca_promo_play_through_settings',
+  'public.ca_mtt_admission_contract',
+  'public.profiles',
+];
+
+export const REHEARSAL_PROBE_USER_ID = '00000000-0000-4000-8000-000000000001';
+
+export function seedProductionFixturesSQL() {
+  return `
+SET session_replication_role = replica;
+DO $seed_rehearsal_controls$
+DECLARE
+  v_uid constant uuid := '${REHEARSAL_PROBE_USER_ID}'::uuid;
+  v_seeded text[] := ARRAY[]::text[];
+  v_has_profile boolean := false;
+BEGIN
+  IF to_regclass('public.ca_promo_play_through_settings') IS NOT NULL THEN
+    EXECUTE $s$
+      INSERT INTO public.ca_promo_play_through_settings (id, multiplier, expiry_days, enforced_from, updated_at)
+      VALUES (true, 4, 30, '2026-11-16 00:00:00+00'::timestamptz, '2026-11-16 00:00:00+00'::timestamptz)
+      ON CONFLICT (id) DO UPDATE
+        SET enforced_from = COALESCE(public.ca_promo_play_through_settings.enforced_from, EXCLUDED.enforced_from),
+            updated_at = COALESCE(public.ca_promo_play_through_settings.updated_at, EXCLUDED.updated_at)
+    $s$;
+    v_seeded := array_append(v_seeded, 'public.ca_promo_play_through_settings');
+  END IF;
+
+  IF to_regclass('public.ca_mtt_admission_contract') IS NOT NULL THEN
+    EXECUTE $s$
+      INSERT INTO public.ca_mtt_admission_contract (singleton, abi)
+      VALUES (true, 'unlimited-mtt-v2')
+      ON CONFLICT (singleton) DO NOTHING
+    $s$;
+    v_seeded := array_append(v_seeded, 'public.ca_mtt_admission_contract');
+  END IF;
+
+  IF to_regclass('public.profiles') IS NOT NULL THEN
+    EXECUTE 'SELECT EXISTS (SELECT 1 FROM public.profiles LIMIT 1)' INTO v_has_profile;
+    IF NOT v_has_profile THEN
+      IF to_regclass('auth.users') IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM pg_attribute
+            WHERE attrelid = to_regclass('auth.users') AND attname = 'id' AND NOT attisdropped
+         ) THEN
+        BEGIN
+          EXECUTE 'INSERT INTO auth.users (id) VALUES ($1) ON CONFLICT DO NOTHING' USING v_uid;
+        EXCEPTION WHEN others THEN
+          NULL;
+        END;
+      END IF;
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_attribute
+           WHERE attrelid = to_regclass('public.profiles') AND attname = 'username' AND NOT attisdropped
+        ) AND EXISTS (
+          SELECT 1 FROM pg_attribute
+           WHERE attrelid = to_regclass('public.profiles') AND attname = 'display_name' AND NOT attisdropped
+        ) THEN
+          EXECUTE 'INSERT INTO public.profiles (id, username, display_name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING'
+            USING v_uid, 'rehearsal_probe_user', 'Rehearsal Probe User';
+        ELSE
+          EXECUTE 'INSERT INTO public.profiles (id) VALUES ($1) ON CONFLICT (id) DO NOTHING'
+            USING v_uid;
+        END IF;
+        v_seeded := array_append(v_seeded, 'public.profiles');
+      EXCEPTION WHEN others THEN
+        RAISE NOTICE 'rehearsal fixture seed skipped public.profiles: %', SQLERRM;
+      END;
+    END IF;
+  END IF;
+
+  RAISE NOTICE 'CA_REHEARSAL_SEEDED=%', array_to_string(v_seeded, ',');
+END
+$seed_rehearsal_controls$;
+SET session_replication_role = origin;
+`.trim();
+}
+
+/**
+ * Bracket each `-- @probe-for: <target>` DO block with enter/exit NOTICE
+ * markers so classifyExact can tell a failing $probe$ block apart from an
+ * unrelated row-dependent preimage failure on an empty schema copy.
+ */
+export function instrumentProbesSQL(sql) {
+  const s = String(sql);
+  const re = /^[ \t]*--[ \t]*@probe-for:[ \t]*([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)[ \t]*$/gim;
+  let out = '';
+  let cursor = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    const target = m[1].toLowerCase();
+    const afterMarker = m.index + m[0].length;
+    const rest = s.slice(afterMarker);
+    const doMatch = /^\s*DO\s+(\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$)/i.exec(rest);
+    if (!doMatch) continue;
+    const tag = doMatch[1];
+    const bodyStart = afterMarker + doMatch[0].length;
+    const closeIdx = s.indexOf(tag, bodyStart);
+    if (closeIdx < 0) continue;
+    const afterClose = s.slice(closeIdx + tag.length);
+    const semiMatch = /^\s*;/.exec(afterClose);
+    if (!semiMatch) continue;
+    const blockEnd = closeIdx + tag.length + semiMatch[0].length;
+    out += s.slice(cursor, m.index);
+    out += `DO $ca_probe_mark$ BEGIN RAISE NOTICE 'CA_REHEARSAL_PROBE_ENTER:${target}'; END $ca_probe_mark$;\n`;
+    out += s.slice(m.index, blockEnd);
+    out += `\nDO $ca_probe_mark$ BEGIN RAISE NOTICE 'CA_REHEARSAL_PROBE_EXIT:${target}'; END $ca_probe_mark$;`;
+    cursor = blockEnd;
+    re.lastIndex = blockEnd;
+  }
+  return cursor === 0 ? s : out + s.slice(cursor);
+}
+
+/**
  * The SQL the exact half sends for one file: its CONCURRENTLY preamble (as the
  * applier sends it, statement by statement), then its transaction wrapped by
  * the applier's own stale-pin guard. A window file carries the installer's
@@ -703,7 +830,10 @@ export function pinRehearsalSQL(file, sql) {
  * only when it is the applier's stale-pin exception, or the error's own
  * CONTEXT (its first line: the function that raised) is a RAISE in a refusing
  * guard (REFUSING_GUARDS) that is armed on the copy or fed by an armed one.
- * Anything else, including an error inside a logging trigger, is
+ * A failure inside an instrumented `-- @probe-for:` block (entered without a
+ * matching exit) is reported as `probe-failed` so broken probes on seeded
+ * production-like control rows fail before merge instead of falling back to
+ * static. Anything else, including an error inside a logging trigger, is
  * not-installable: the static half decides, and the summary says why.
  */
 export function classifyExact(status, output, guardFunctions = []) {
@@ -720,6 +850,13 @@ export function classifyExact(status, output, guardFunctions = []) {
       guard: 'applier stale-pin guard (migration-stale-pins.mjs)',
       detail: m[1].trim(),
     };
+  const pm = /migration_preimage_mismatch:\s*([^\n]*)/.exec(output);
+  if (pm)
+    return {
+      outcome: 'guard-refused',
+      guard: 'applier preimage-md5 guard (migration-stale-pins.mjs)',
+      detail: pm[1].trim(),
+    };
   const armed = new Set([
     ...guardFunctions.map((f) => f.replace(/^.*\./, '').replace(/\(.*$/, '')),
     ...COMMIT_TIME_GUARDS,
@@ -730,6 +867,18 @@ export function classifyExact(status, output, guardFunctions = []) {
     );
   if (raised && armed.has(raised[1]) && REFUSING_GUARDS.includes(raised[1]))
     return { outcome: 'guard-refused', guard: raised[1], detail: err };
+  const probeMarks = [
+    ...String(output).matchAll(/CA_REHEARSAL_PROBE_(ENTER|EXIT):([a-z0-9_.]+)/g),
+  ];
+  if (probeMarks.length && probeMarks[probeMarks.length - 1][1] === 'ENTER') {
+    const target = probeMarks[probeMarks.length - 1][2];
+    return {
+      outcome: 'probe-failed',
+      guard: 'migration function probe ($probe$)',
+      probe: target,
+      detail: err,
+    };
+  }
   return { outcome: 'not-installable', detail: err };
 }
 
@@ -766,6 +915,12 @@ export function planGuardCheck(files, installed, changed, evidence = {}) {
 export function verdict(exact, pins, guards = { findings: [] }) {
   if (exact.outcome === 'guard-refused')
     return { fail: true, by: 'exact', reason: `${exact.guard}: ${exact.detail}` };
+  if (exact.outcome === 'probe-failed')
+    return {
+      fail: true,
+      by: 'exact',
+      reason: `${exact.guard}${exact.probe ? ` (${exact.probe})` : ''}: ${exact.detail}`,
+    };
   if (exact.outcome === 'installed') return { fail: false, by: 'exact' };
   const reasons = [
     ...pins.stale.map(describe),
@@ -948,6 +1103,23 @@ function rehearse() {
   );
   for (const s of arm.skipped) say(`  - not re-created \`${s.name}\` (${s.fn}): ${s.why}`);
 
+  // Seed minimal, idempotent production-like control rows (promo enforcement
+  // dial, terminal MTT admission contract, minimal profile row for Daily
+  // Missions lock probes) so $probe$ blocks exercise live enforcement branches
+  // before merge rather than short-circuiting on an empty schema copy.
+  const seeded = admin(seedProductionFixturesSQL());
+  if (seeded.status !== 0) {
+    say(
+      `- **UNKNOWN**: production-like control fixtures could not be seeded on the copy (${seeded.out.trim().split('\n').pop()}); this is not a pass.`
+    );
+    return 2;
+  }
+  const seededMatch = /CA_REHEARSAL_SEEDED=([^\n]*)/.exec(seeded.out);
+  const seededList = seededMatch?.[1]?.trim();
+  say(
+    `- seeded production-like control fixtures: ${seededList || 'none present on this schema'}.`
+  );
+
   for (const f of plan.prerequisites) {
     const r = psql(readFileSync(join(MIG_DIR, f), 'utf8'));
     writeFileSync(join(EVIDENCE, `${f}.prerequisite.log`), r.out);
@@ -962,7 +1134,7 @@ function rehearse() {
     const { sql, pins, guards, fns } = statics.get(name);
     let exact;
     try {
-      const r = psql(pinRehearsalSQL(name, sql));
+      const r = psql(instrumentProbesSQL(pinRehearsalSQL(name, sql)));
       writeFileSync(join(EVIDENCE, `${name}.log`), r.out);
       exact = classifyExact(r.status, r.out, guardFns);
     } catch (e) {

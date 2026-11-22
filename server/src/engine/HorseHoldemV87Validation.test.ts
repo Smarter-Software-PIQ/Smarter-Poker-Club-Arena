@@ -1097,8 +1097,26 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       const messages: HorseDecisionWorkerResponse[] = [];
       const runtime = new HorseDecisionWorkerRuntime((msg) => messages.push(msg), {
         ...defaultHorseDecisionWorkerDependencies,
+        // Keep worker boot isolated from mocked-throwing Supabase loaders so
+        // #11416 boot-retry backoff and background flush intervals cannot race
+        // fake timers in this commit-pipeline test.
+        startServices: async () => ({
+          solverStores: { charts: 0, postflop: 0, postflopV31: 0, postflopV31Dataset: null },
+          solverPolicyArtifact: solverPolicyArtifactStatus(),
+          governor: equityGovernor.snapshot(),
+        }),
         admitFeatureAuthority: () => qualifiedTestAdmission(),
       });
+      await runtime.start();
+
+      const advanceFakeTimersUntil = async (
+        ready: () => boolean,
+        { stepMs = 250, maxMs = 30_000 }: { stepMs?: number; maxMs?: number } = {}
+      ): Promise<void> => {
+        for (let elapsed = 0; !ready() && elapsed < maxMs; elapsed += stepMs) {
+          await vi.advanceTimersByTimeAsync(stepMs);
+        }
+      };
 
       let lastWitness: HorseExecutionWitness | undefined;
       workerBridge.decideFast.mockImplementation(
@@ -1229,9 +1247,11 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
       const spyFast = vi.spyOn(workerBridge, 'decideFast');
       engine.scheduleHorseAction(horseSeatRow, 4, utgEnginePlayer, st);
-      // #11416 added up to ~8.75 s of boot-retry backoff per failed store load
-      // under fake timers; advance past both boot retries and the horse think clock.
-      await vi.advanceTimersByTimeAsync(30_000);
+      await advanceFakeTimersUntil(
+        () =>
+          (lastWitness?.acceptedActions.length ?? 0) >= 1 && hc.getState().currentPlayerSeat === 5,
+        { maxMs: 30_000 }
+      );
 
       expect(spyFast).toHaveBeenCalledTimes(1);
       const passedSnap = spyFast.mock.calls[0][0] as LiveHorseDecisionSnapshot;
@@ -1263,6 +1283,9 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       engine.scheduleHorseAction(mpSeatRow, 5, mpEnginePlayer, st2);
       expect(hc.performAction(5, 'fold')).toBe(true);
       expect(hc.getState().currentPlayerSeat).toBe(6);
+      await advanceFakeTimersUntil(() => lastWitness?.retirementReason === 'turn_abandoned', {
+        maxMs: 15_000,
+      });
       await vi.advanceTimersByTimeAsync(15_000);
       expect(hc.getState().currentPlayerSeat).toBe(6);
       // The stale seat-5 request was answered, and its answer was refused at
@@ -1428,7 +1451,12 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       expect(engine.horseDecisionAbortController?.signal.aborted).toBe(false);
       expect(scriptedWitness?.acceptedActions).toHaveLength(0);
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await advanceFakeTimersUntil(
+        () =>
+          (scriptedWitness?.acceptedActions.length ?? 0) >= 1 &&
+          hcMtt.getState().currentPlayerSeat !== 6,
+        { maxMs: 20_000 }
+      );
       // Exactly one decision for seat 6 in this step, and it is the one that
       // tanked into the bank: no retry, re-schedule or stray reply acted.
       expect(seat6Requests).toHaveLength(1);

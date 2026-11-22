@@ -63,7 +63,7 @@ jobs:
     name: Stage immutable candidate and rollback images
     runs-on: ubuntu-24.04
     environment: ci-main
-    timeout-minutes: 45
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -99,12 +99,51 @@ jobs:
           docker image save -o "$dir/image.tar" "$transport"
           config="$(python3 -B server/scripts/engine-prestage-config-proof.py "$transport" "$image" < "$dir/image.tar")"
           [[ "$config" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # The target's protected policy decides which cycles close the host door.
+          hours="$(python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$GITHUB_SHA" \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); print("1,4,7,10,13,16,19,22" if p.get("frequency")=="three-hourly" else "4")')"
+          [[ "$hours" = 4 || "$hours" = 1,4,7,10,13,16,19,22 ]]
+          # Single-pass, strictly bounded pre-transfer wait when the host prestage
+          # door is closed ([start - 1800, start + 300)) or within the final 60s
+          # before cutoff where transfer would not finish ([start - 1860, start - 1800)).
+          # Sleeps at most once until start + 305 (<= 2165s); never loops or retries.
+          # The host guard in scripts/ci/prestage-engine-image.sh stays fail-closed.
+          wait_seconds="$(START_HOURS="$hours" python3 - <<'PRESTAGE_WAIT_PY'
+          import os, time
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          zone = ZoneInfo("America/Chicago")
+          raw_hours = os.environ["START_HOURS"]
+          if raw_hours == "1,4,7,10,13,16,19,22":
+              hours = (1, 4, 7, 10, 13, 16, 19, 22)
+          elif raw_hours == "4":
+              hours = (4,)
+          else:
+              raise SystemExit(f"unsupported START_HOURS: {raw_hours!r}")
+          now = int(time.time())
+          starts = [h for h in ((now // 3600 + k) * 3600 for k in range(-1, 25))
+                    if datetime.fromtimestamp(h, zone).hour in hours
+                    and datetime.fromtimestamp(h - 3600, zone).hour != datetime.fromtimestamp(h, zone).hour]
+          wait = 0
+          for start in starts:
+              if start - 1860 <= now < start + 300:
+                  wait = (start + 305) - now
+                  break
+          assert 0 <= wait <= 2165, f"unexpected prestage wait: {wait}"
+          print(wait)
+          PRESTAGE_WAIT_PY
+          )"
+          [[ "$wait_seconds" =~ ^(0|[1-9][0-9]*)$ ]] && (( wait_seconds <= 2165 ))
+          if (( wait_seconds > 0 )); then
+            echo "Host prestage door is closed or closing within 60s (START_HOURS=$hours); sleeping once for ${wait_seconds}s until cycle+305s before SSH transfer"
+            sleep "$wait_seconds"
+          fi
           code="$(base64 -w0 scripts/ci/prestage-engine-image.sh)"
           proof="$(base64 -w0 server/scripts/engine-prestage-config-proof.py)"
           gzip -1c "$dir/image.tar" | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
             -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
             -o UserKnownHostsFile="$dir/hosts" -o ConnectTimeout=15 "root@$HOST" \
-            "PROOF_B64='$proof' bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$config' '$tree' '$size' '$transport'" > "$dir/result"
+            "PROOF_B64='$proof' bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$config' '$tree' '$size' '$transport' '$hours'" > "$dir/result"
           python3 - "$dir/result" "$GITHUB_OUTPUT" "$tree" <<'PYTHON'
           import pathlib, re, sys
           data = pathlib.Path(sys.argv[1]).read_text()

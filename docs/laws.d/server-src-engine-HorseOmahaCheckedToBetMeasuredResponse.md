@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaCheckedToBetMeasuredResponse.law.test.ts
+
+With omahaCheckedToBetResponseIsMeasured On (Default Off, Inside omahaCheckedToBetIsPriced), Heads-Up On A PLO4/PLO5 Cash River The Opponent Has Checked, The Share Of His Range That Continues Against Each Bet Size Is The Measured Answer To A River Bet (His Kind's Curve With No Personal Read, His Own Level On The Measured Shape With One) In Place Of The Pot Odds; Without The Parent Option It Does Nothing, A Station Keeps The Check With A Hand That Cannot Win When Called, And Several Opponents, The Turn And PLO6 Are Byte-Identical With The Option On (EMERG Lane OPEN-ITEMS-3, 2026-11-20).

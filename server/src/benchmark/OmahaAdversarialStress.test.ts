@@ -11,6 +11,9 @@ import { PLO4_STRENGTH_CONTRACT } from './Plo4StrengthContract.js';
 import { HUMAN_CALIBRATED_PROFILES } from './HumanCalibratedPopulation.js';
 import { spawnSync } from 'node:child_process';
 
+/** The offline CLI child's budget: node + tsx start plus two hands (7.8 s idle), with room for a loaded gate. */
+const CLI_CHILD_TIMEOUT_MS = 90_000;
+
 const request = (): OmahaStressRequest => ({
   variant: 'plo4',
   opponent: 'caller',
@@ -121,35 +124,48 @@ describe('explicit synthetic Omaha stress', () => {
         expect(out.standardErrorBb100).toBeNull();
         expect(input).toEqual(before);
       });
-  it('runs the actual offline CLI and binds its source without a promotion verdict', () => {
-    const child = spawnSync(
-      process.execPath,
-      [
-        '--import',
-        'tsx',
-        'src/scripts/omahaAdversarialStress.ts',
-        '--variant=plo5',
-        '--opponent=caller',
-        '--seed=10001',
-        '--hands=2',
-        '--seats=2',
-        '--stack=25',
-      ],
-      { encoding: 'utf8', timeout: 10000 }
-    );
-    expect(child.status, child.stderr).toBe(0);
-    const result = JSON.parse(child.stdout);
-    expect(result.completedHands).toBe(2);
-    expect(result.sourceSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(result.qualifiesForPromotion).toBe(false);
-    expect(result.standardErrorBb100).not.toBeNull();
-    const invalid = spawnSync(
-      process.execPath,
-      ['--import', 'tsx', 'src/scripts/omahaAdversarialStress.ts', '--unknown=1'],
-      { encoding: 'utf8', timeout: 10000 }
-    );
-    expect(invalid.status).toBe(1);
-    expect(invalid.stdout).toBe('');
-    expect(invalid.stderr).toContain('Unknown or duplicate stress argument');
-  });
+  // THE CLI GETS A REAL CHILD-PROCESS BUDGET (2026-11-20). Starting node + tsx and playing two hands takes
+  // 7.8 s on an idle Mac Studio; the old 10 s cap killed the child (status null, no stderr) whenever the
+  // pre-push gate shared the machine (load 44-48), so an unrelated push failed on a timeout, not on the CLI.
+  // The child now has CLI_CHILD_TIMEOUT_MS and a timeout names itself instead of reading as a null status.
+  it(
+    'runs the actual offline CLI and binds its source without a promotion verdict',
+    () => {
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          'src/scripts/omahaAdversarialStress.ts',
+          '--variant=plo5',
+          '--opponent=caller',
+          '--seed=10001',
+          '--hands=2',
+          '--seats=2',
+          '--stack=25',
+        ],
+        { encoding: 'utf8', timeout: CLI_CHILD_TIMEOUT_MS }
+      );
+      expect(child.error, 'the offline CLI child was killed by its timeout').toBeUndefined();
+      expect(child.status, child.stderr).toBe(0);
+      const result = JSON.parse(child.stdout);
+      expect(result.completedHands).toBe(2);
+      expect(result.sourceSha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(result.qualifiesForPromotion).toBe(false);
+      expect(result.standardErrorBb100).not.toBeNull();
+      const invalid = spawnSync(
+        process.execPath,
+        ['--import', 'tsx', 'src/scripts/omahaAdversarialStress.ts', '--unknown=1'],
+        { encoding: 'utf8', timeout: CLI_CHILD_TIMEOUT_MS }
+      );
+      expect(
+        invalid.error,
+        'the invalid-argument offline CLI child was killed by its timeout'
+      ).toBeUndefined();
+      expect(invalid.status).toBe(1);
+      expect(invalid.stdout).toBe('');
+      expect(invalid.stderr).toContain('Unknown or duplicate stress argument');
+    },
+    2 * CLI_CHILD_TIMEOUT_MS + 10_000
+  );
 });

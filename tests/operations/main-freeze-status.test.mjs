@@ -252,3 +252,87 @@ test('a live release freeze admits client, docs, tests and engine source and hol
   assert.equal(decide({ freezeRaw: '', files: null, now }).admitted, true, 'no freeze admits everything');
   assert.equal(decide({ freezeRaw, files: ['server/release/x.json'], now: '2026-11-19T21:00:01Z' }).admitted, true, 'an ended window admits');
 });
+
+test('an active unsealed owner window holds release inputs even when MAIN_RELEASE_FREEZE is unset', () => {
+  const now = '2026-11-19T16:00:00Z';
+  const floor1510 = {
+    schema: 'engine-release-activation-floor/v2-owner-window',
+    ownerWindowId: W1510.id,
+    activationAt: W1510.notBefore,
+    expiresAt: W1510.notAfter,
+  };
+  for (const f of ['scripts/release/book-owner-engine-window.py', 'server/release/activation-floor.json', '.github/workflows/stage-engine-release.yml']) {
+    const r = decide({ freezeRaw: '', windows, floor: floor1510, files: ['docs/a.md', f], now });
+    assert.equal(r.admitted, false, f);
+    assert.equal(r.source, 'owner-windows');
+    assert.equal(r.windowId, W1510.id);
+    assert.deepEqual(r.guarded, [f]);
+  }
+  assert.equal(decide({ freezeRaw: '', windows, floor: floor1510, files: ['src/components/Table.tsx', 'docs/a.md'], now }).admitted, true, 'non-guarded paths still merge');
+  assert.equal(decide({ freezeRaw: '', windows, floor: floor1510, files: null, now }).admitted, false, 'unreadable diff fails closed');
+  // Even before notBefore (e.g. right after booking merge on main), activation-floor holds release controls until expiresAt.
+  assert.equal(decide({ freezeRaw: '', windows, floor: floor1510, files: ['scripts/release/book-owner-engine-window.py'], now: '2026-11-19T13:00:00Z' }).admitted, false);
+});
+
+test('a sealed, lifted, expired or replaced owner window admits release inputs', () => {
+  const now = '2026-11-19T16:00:00Z';
+  const floor1510 = {
+    schema: 'engine-release-activation-floor/v2-owner-window',
+    ownerWindowId: W1510.id,
+    activationAt: W1510.notBefore,
+    expiresAt: W1510.notAfter,
+  };
+  const guarded = ['scripts/release/resume-migration-installs.sh'];
+  assert.equal(decide({ freezeRaw: '', windows, floor: floor1510, sealedWindowIds: [W1510.id], files: guarded, now }).admitted, true, 'sealed window admits');
+  assert.equal(
+    decide({ freezeRaw: JSON.stringify({ state: 'lifted', windowId: W1510.id, at: now }), windows, floor: floor1510, files: guarded, now }).admitted,
+    true,
+    'explicitly lifted window admits',
+  );
+  assert.equal(
+    decide({ freezeRaw: JSON.stringify({ state: 'lifted', windowId: W1030.id, at: '2026-11-19T12:00:00Z' }), windows, floor: floor1510, files: guarded, now }).admitted,
+    false,
+    'lifting an earlier window does not clear a newer active window',
+  );
+  assert.equal(decide({ freezeRaw: '', windows, floor: floor1510, files: guarded, now: '2026-11-19T21:00:01Z' }).admitted, true, 'expired window admits');
+  assert.equal(
+    decide({ freezeRaw: '', windows, floor: { schema: 'engine-release-activation-floor/v1-daily' }, files: guarded, now }).admitted,
+    true,
+    'non-owner floor schema admits',
+  );
+  // Without floor, falls back to notBefore - 1h .. notAfter across windows.
+  assert.equal(decide({ freezeRaw: '', windows, files: guarded, now: '2026-11-20T02:30:00Z' }).admitted, false, 'within 1h lead of WNEXT holds');
+  assert.equal(decide({ freezeRaw: '', windows, files: guarded, now: '2026-11-20T01:30:00Z' }).admitted, true, 'more than 1h before WNEXT admits');
+});
+
+test('release-freeze-scope CLI detects an active booked window on disk when MAIN_RELEASE_FREEZE is unset', () => {
+  const scopeScript = path.join(root, 'scripts/ci/release-freeze-scope.mjs');
+  const floorFile = path.join(tmp, 'floor.json');
+  const guardedFile = path.join(tmp, 'guarded-files.txt');
+  const clientFile = path.join(tmp, 'client-files.txt');
+  fs.writeFileSync(
+    floorFile,
+    JSON.stringify({
+      schema: 'engine-release-activation-floor/v2-owner-window',
+      ownerWindowId: W1510.id,
+      activationAt: W1510.notBefore,
+      expiresAt: W1510.notAfter,
+    }),
+  );
+  fs.writeFileSync(guardedFile, 'scripts/release/book-owner-engine-window.py\n');
+  fs.writeFileSync(clientFile, 'src/components/Table.tsx\n');
+  const baseEnv = {
+    PATH: process.env.PATH,
+    MAIN_RELEASE_FREEZE: '',
+    FREEZE_SCOPE_WINDOWS: windowsFile,
+    FREEZE_SCOPE_FLOOR: floorFile,
+    FREEZE_SCOPE_NOW: '2026-11-19T16:00:00Z',
+    FREEZE_SCOPE_NO_NETWORK: '1',
+  };
+  const held = spawnSync(process.execPath, [scopeScript], { encoding: 'utf8', env: { ...baseEnv, FREEZE_SCOPE_FILES: guardedFile } });
+  assert.equal(held.status, 1, held.stdout + held.stderr);
+  assert.match(held.stdout, /HELD: active booked owner window 2026-11-19-owner-no-notice-engine-1510z/);
+  const ok = spawnSync(process.execPath, [scopeScript], { encoding: 'utf8', env: { ...baseEnv, FREEZE_SCOPE_FILES: clientFile } });
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.match(ok.stdout, /ADMITTED: active booked owner window 2026-11-19-owner-no-notice-engine-1510z/);
+});

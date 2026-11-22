@@ -8,6 +8,7 @@
  * declarations for the hooks each layer calls on the layer below.
  */
 
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import {
   accumulateBoard,
   antesPostedFrame,
@@ -155,6 +156,13 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // to the INSERT time (which is hand-end), making replay timestamps
         // and audit reconciliation impossible.
         this.currentHandStartedAt = Date.now();
+        // OPPONENT HUD: every dealt player warm for this hand's decisions (a no-op when already warm).
+        warmOpponentHudSeats(
+          players.map((p) => p.user_id),
+          this.activeHandVariant(),
+          this.isTournamentTable(),
+          'hand'
+        );
         // Bible V8 §1.16 (Real-Time Law): emit a discrete hand_started event
         // so the client can immediately reset visual state (clear last action
         // badges, clear community cards, trigger the deal animation) without

@@ -244,12 +244,27 @@ jobs:
           from datetime import datetime
           from zoneinfo import ZoneInfo
           import json, os, subprocess
+          import urllib.request
           policy = json.loads(subprocess.check_output(["git", "show", os.environ["TARGET_SHA"] + ":server/src/maintenance/maintenanceSchedulePolicy.json"], text=True))
           if policy.get("phase1Status") not in ("off", "complete"):
-              raise SystemExit("Engine replacement refused: the exact certified target must use daily maintenance.")
-          now = datetime.now(ZoneInfo("America/Chicago"))
-          if not (now.hour == 3 and 30 <= now.minute < 50):
+              raise SystemExit("Engine replacement refused: the exact certified target must use daily or three-hourly maintenance.")
+          # Owner order 2026-11-21: a preparation 30-50 minutes before every
+          # scheduled cycle (01/04/07/10/13/16/19/22 Chicago when the target's
+          # protected policy is three-hourly; 04:00 only when it is daily).
+          hours = (1, 4, 7, 10, 13, 16, 19, 22) if policy.get("frequency") == "three-hourly" else (4,)
+          zone = ZoneInfo("America/Chicago")
+          now = datetime.now(zone)
+          cycle = (int(now.timestamp()) + 1800) // 3600 * 3600
+          local = datetime.fromtimestamp(cycle, zone)
+          if not (30 <= now.minute < 50 and local.hour in hours
+                  and datetime.fromtimestamp(cycle - 3600, zone).hour != local.hour):
               raise SystemExit(3)
+          if local.hour != 4:
+              # A non-anchor cycle exists only once the SERVING engine breaks on it.
+              with urllib.request.urlopen(urllib.request.Request("https://engine.smarter.poker/health", headers={"Cache-Control": "no-cache"}), timeout=15) as response:
+                  schedule = (json.load(response).get("maintenance") or {}).get("schedule") or {}
+              if schedule.get("frequency") != "three-hourly" or schedule.get("startHours") != list(hours):
+                  raise SystemExit("Engine replacement refused: the serving engine does not break on this three-hourly cycle yet.")
           PYTHON
           case "$gate_status" in
             0) exit 0 ;;
@@ -279,7 +294,19 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           reader="$(mktemp "$RUNNER_TEMP/reader.XXXXXXXX")"
           git show "$GITHUB_SHA:scripts/ci/read-engine-prequalification.py" > "$reader"
-          cutoff="$(python3 -c 'from datetime import datetime; from zoneinfo import ZoneInfo; print(int(datetime.now(ZoneInfo("America/Chicago")).replace(hour=3, minute=30, second=0, microsecond=0).timestamp()))')"
+          # The cycle this preparation serves starts on the next whole hour; its
+          # selection cutoff is 30 minutes before it (03:30 for the 04:00 anchor).
+          cutoff="$(python3 -c '
+          import time
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          zone = ZoneInfo("America/Chicago")
+          c = (int(time.time()) - 1800) // 3600 * 3600 + 1800
+          # Latest preparation boundary whose cycle is a scheduled start hour (03:30 for 04:00).
+          while not (datetime.fromtimestamp(c + 1800, zone).hour in (1, 4, 7, 10, 13, 16, 19, 22)
+                     and datetime.fromtimestamp(c + 1800 - 3600, zone).hour != datetime.fromtimestamp(c + 1800, zone).hour):
+              c -= 3600
+          print(c)')"
           selection_args=(--cutoff "$cutoff")
           if [ -n "$OWNER_WINDOW_ID" ]; then
             selection_args=(--owner-window "$OWNER_WINDOW_ID")
@@ -311,19 +338,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install browser dependencies from the primary mirror
-        run: |
-          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium webkit
       # The announcement does not wait for this job. A predecessor inside its
       # announced last hand is still admitted; a freeze already begun, or the
       # candidate already serving, is NOT OBSERVED (late) and creates no fixture.
+      # Admission is pure Node (zero npm deps), so evaluate it BEFORE npm ci and
+      # Playwright browser installation to avoid burning minutes on late/duplicate runs.
       - name: Read predecessor before opening a spectator
         id: predecessor
         env:
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
           CUTOVER_SPECTATOR_TARGET: ${{ needs.preflight.outputs.target_sha }}
         run: node scripts/ci/cutover-spectator-admission.mjs
+      - if: steps.predecessor.outputs.admitted == 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install browser dependencies from the primary mirror
+        if: steps.predecessor.outputs.admitted == 'true'
+        run: |
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium webkit
       - name: Create the reserved spectator
         id: account
         if: steps.predecessor.outputs.admitted == 'true'
@@ -736,15 +767,41 @@ jobs:
             [ "$REMAINING" -le 3450 ] || REMAINING=3450
             timeout --signal=TERM --kill-after=5s "${REMAINING}s" \
               "$HSSH" "PREPARED_IMAGE='$PREPARED_IMAGE' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' REPO_DIR='$REPO_DIR' bash -se" \
-              <<'REMOTE' | tee "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log"
+              <<'REMOTE' 2>&1 | tee "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log"
           set -euo pipefail
           STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
           python3 "$STAGE/server/scripts/engine-release-activation-floor.py" prepare \
             --repo "$REPO_DIR" --target "$TARGET_SHA" --control "$CONTROL_SHA" --deadline "$NOT_AFTER_EPOCH"
+          DESIRED_SHA="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-sha)"
+          DESIRED_IMAGE="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-image-id)"
+          RUNNING_IMAGE="$(docker container inspect -f '{{if .State.Running}}{{.Image}}{{end}}' club-arena-engine)"
+          # Superseded redelivery: a strictly newer protected-main SHA already
+          # sealed on the host (and may have pruned this target's ROLLBACK_IMAGE).
+          # Stand down cleanly as superseded instead of crashing on the pruned image.
+          if [[ "$DESIRED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            && [ "$DESIRED_SHA" != "$TARGET_SHA" ] \
+            && GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" merge-base --is-ancestor "$TARGET_SHA" "$DESIRED_SHA"; then
+            echo "Exact target $TARGET_SHA is strictly behind sealed host release $DESIRED_SHA; standing down as superseded."
+            echo "ENGINE_PREPARE_SUPERSEDED=$DESIRED_SHA"
+            exit 0
+          fi
           [[ "$(docker image inspect -f '{{.Id}}' "club-arena-engine:$TARGET_SHA")" = "$PREPARED_IMAGE" ]]
+          # Exact-SHA redelivery after a prior run already sealed and pruned
+          # ROLLBACK_IMAGE: retain prepared-image evidence and let the durable
+          # intake prove already-released instead of failing on the pruned old image.
+          if [ "$PREPARED_IMAGE" != "$ROLLBACK_IMAGE" ] \
+            && [ "$DESIRED_SHA" = "$TARGET_SHA" ] \
+            && [ "$DESIRED_IMAGE" = "$PREPARED_IMAGE" ] \
+            && [ "$RUNNING_IMAGE" = "$PREPARED_IMAGE" ]; then
+            echo "Exact target $TARGET_SHA ($PREPARED_IMAGE) is already the sealed running engine; skipping stale rollback-image assertion and prewarm."
+            umask 077
+            printf '%s\n' "$TARGET_SHA" "$CONTROL_SHA" "$PREPARED_IMAGE" "$ROLLBACK_IMAGE" > "$STAGE/prepared-image"
+            sync -f "$STAGE/prepared-image"
+            exit 0
+          fi
           [[ "$(docker image inspect -f '{{.Id}}' "$ROLLBACK_IMAGE")" = "$ROLLBACK_IMAGE" ]]
-          [[ "$(docker container inspect -f '{{if .State.Running}}{{.Image}}{{end}}' club-arena-engine)" = "$ROLLBACK_IMAGE" ]]
-          [[ "$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-image-id)" = "$ROLLBACK_IMAGE" ]]
+          [[ "$RUNNING_IMAGE" = "$ROLLBACK_IMAGE" ]]
+          [[ "$DESIRED_IMAGE" = "$ROLLBACK_IMAGE" ]]
           # The durable transaction reloads this run's exact admission evidence.
           # Stage is private to root and retained while its transaction is active.
           umask 077
@@ -771,12 +828,22 @@ jobs:
             GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" show "$CONTROL_SHA:server/scripts/$asset" \
               | cmp -s - "$STAGE/server/scripts/$asset"
           done
+          PREPARE_LOCK="${ENGINE_BUILD_LOCK_FILE:-/var/lock/club-arena-engine-build.lock}"
+          if command -v flock >/dev/null 2>&1; then
+            exec 8>"$PREPARE_LOCK"
+            flock -w 30 8 || { echo "ENGINE_PREPARE_LOCK_BUSY=$PREPARE_LOCK" >&2; exit 1; }
+          fi
           "$STAGE/server/scripts/prewarm-engine-image.sh" "$IMAGE_ID" "$RUN_KEY" "$NOT_AFTER_EPOCH"
           REMOTE
+            PREPARE_SUPERSEDED="$(sed -n 's/^ENGINE_PREPARE_SUPERSEDED=//p' "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log" | tail -1)"
+            if [[ "$PREPARE_SUPERSEDED" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "superseded_by=$PREPARE_SUPERSEDED" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Wait for the immutable activation floor before creating any intake
         id: floor
+        if: steps.prepare.outputs.superseded_by == ''
         run: |
           set -euo pipefail
           python3 server/scripts/engine-release-activation-floor.py wait \
@@ -785,6 +852,8 @@ jobs:
 
       - name: Dispatch the staged SHA through the durable Hetzner intake
         id: release
+        env:
+          PREPARE_SUPERSEDED_BY: ${{ steps.prepare.outputs.superseded_by || '' }}
         run: |
           set -euo pipefail
           # Every observer and retry shares the absolute deadline established
@@ -816,6 +885,13 @@ jobs:
             fi
           }
           trap name_release_exit EXIT
+          if [[ "${PREPARE_SUPERSEDED_BY:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Exact target $SHA was already superseded by sealed host release $PREPARE_SUPERSEDED_BY; standing down before intake."
+            echo "result=superseded" >> "$GITHUB_OUTPUT"
+            echo "superseded_by=$PREPARE_SUPERSEDED_BY" >> "$GITHUB_OUTPUT"
+            RESULT_EMITTED=true
+            exit 0
+          fi
           [ $((RELEASE_JOB_DEADLINE_EPOCH - RELEASE_DISPATCH_DEADLINE_EPOCH)) -ge "$POST_RELEASE_RESERVE_SECONDS" ]
           DISPATCH_FINALIZE_RESERVE_SECONDS=15
           ACTOR_B64="$(printf '%s' "$RUN_ACTOR" | base64 -w 0)"
@@ -938,6 +1014,7 @@ jobs:
 
       - name: Independently prove the sealed local, public, and leader identity
         id: verify
+        if: steps.release.outputs.result != 'superseded'
         run: |
           set -euo pipefail
           PROOF_REMAINING=$((RELEASE_PROOF_DEADLINE_EPOCH - $(date +%s)))
@@ -1140,6 +1217,16 @@ jobs:
           if [ "$STAGE" = release ] && [ -n "$RELEASE_FAILED_STAGE" ]; then
             ERROR="release failed at $RELEASE_FAILED_STAGE"
           fi
+          if [ "$STAGE" = prepare ] && [ -r "$RUNNER_TEMP/engine-prepared-image-${RUN_KEY:-}.log" ]; then
+            PREPARE_ERR="$(grep -E 'Error response from daemon:|activation floor refused:|AssertionError|Traceback|fatal:|error:' \
+              "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log" | tail -1 | tr -d '\r\n' | cut -c1-320 || true)"
+            if [ -z "$PREPARE_ERR" ]; then
+              PREPARE_ERR="$(grep -v '^[[:space:]]*$' "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log" | tail -1 | tr -d '\r\n' | cut -c1-320 || true)"
+            fi
+            if [ -n "$PREPARE_ERR" ]; then
+              ERROR="step prepare ended $OUTCOME: $PREPARE_ERR"
+            fi
+          fi
           if [ "$STAGE" = complete ]; then
             case "$RELEASE_RESULT" in
               sealed | already-released)
@@ -1248,6 +1335,39 @@ jobs:
         run: |
           set -euo pipefail
           timeout --signal=TERM --kill-after=5s 60s node scripts/ci/record-engine-release-alert.mjs || true
+
+      # Auto-resolve open EngineReleaseFailed alerts once a subsequent release
+      # ships and passes independent production identity verification.
+      - name: Resolve prior release failure alerts after verified ship
+        if: always() && needs.deploy.outputs.shipped == 'true' && needs.deploy.outputs.verified == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}
+          SHIPPED: ${{ needs.deploy.outputs.shipped }}
+          VERIFIED: ${{ needs.deploy.outputs.verified }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 60s node scripts/ci/record-engine-release-alert.mjs || true
+
+      # Auto-resolve stale open EngineReleaseFailed alerts when a run stands down
+      # cleanly as superseded AND live production health proves the serving SHA is ok.
+      - name: Resolve prior release failure alerts after verified superseded stand-down
+        if: always() && needs.deploy.outputs.release_result == 'superseded'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}
+          SHIPPED: 'false'
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          RELEASE_RESULT: superseded
+        run: |
+          set -euo pipefail
+          LIVE_OK="$(curl -fsS --max-time 15 "https://engine.smarter.poker/health?cb=$(date +%s)" \
+            | python3 -c 'import json,sys; h=json.load(sys.stdin); print("true" if h.get("status")=="ok" and h.get("liveness")=="ok" and h.get("settlementStatus")=="ok" and h.get("wholeFleetStalled") is not True else "false")' 2>/dev/null || echo false)"
+          if [ "$LIVE_OK" = "true" ]; then
+            VERIFIED=true timeout --signal=TERM --kill-after=5s 60s node scripts/ci/record-engine-release-alert.mjs || true
+          fi
 
       - name: Publish release summary
         if: always()
@@ -1392,3 +1512,72 @@ jobs:
             [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] || { echo '::error::No Backup run accepted the original sealed release event'; exit 1; }
             echo "Backup run $backup_id accepted sealed receiver $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT for $ENGINE_SHA"
           fi
+
+  cutover-log:
+    # ENGINE CUTOVER LOG (owner order 2026-11-21, docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md).
+    # After each release this receiver settles (sealed, already released or
+    # refused), post ONE comment on issue #11599 "Engine cutover log" so the PLO
+    # Strategy, Horse On/Off Switches, Antigravity Coordinator and Horse
+    # Decisions chats can read what each cycle shipped. Reporting only: it
+    # reads job outputs and the compare API with the job token, and never
+    # dispatches, retries or advances a release. Its own failure changes nothing.
+    if: always() && github.event.action == 'deploy-club-arena-engine' && needs.preflight.result == 'success' && github.run_attempt == 1
+    name: Post The Cutover To The Engine Cutover Log
+    needs: [preflight, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Comment once on the Engine cutover log issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LOG_ISSUE: '11599'
+          ENGINE_SHA: ${{ needs.preflight.outputs.target_sha }}
+          OWNER_WINDOW_ID: ${{ github.event.client_payload.owner_window_id }}
+          RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
+          SHIPPED: ${{ needs.deploy.outputs.shipped }}
+          FAILED_STAGE: ${{ needs.deploy.outputs.release_failure }}
+          EXIT_STAGE: ${{ needs.deploy.outputs.exit_stage }}
+          EXIT_ERROR: ${{ needs.deploy.outputs.exit_error }}
+          SUPERSEDED_BY: ${{ needs.deploy.outputs.superseded_by }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$LOG_ISSUE" =~ ^[1-9][0-9]*$ ]]
+          created=$(gh api "repos/$REPO/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          cycle=$(CREATED="$created" python3 -c '
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          t = int(datetime.fromisoformat(os.environ["CREATED"].replace("Z", "+00:00")).timestamp())
+          start = (t + 1800) // 3600 * 3600
+          print(datetime.fromtimestamp(start, ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M %Z"))')
+          [ -z "$OWNER_WINDOW_ID" ] || cycle="owner window $OWNER_WINDOW_ID"
+          # The previous seal is the newest earlier log comment that names one.
+          previous=$(gh api --paginate "repos/$REPO/issues/$LOG_ISSUE/comments?per_page=100" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .body' \
+            | sed -n 's/^Sealed SHA: `\([0-9a-f]\{40\}\)`.*/\1/p' | tail -1) || previous=''
+          if [ "$RELEASE_RESULT" = sealed ] && [ "$SHIPPED" = true ]; then
+            prs='(previous seal unknown)'
+            if [[ "$previous" =~ ^[0-9a-f]{40}$ ]] && [ "$previous" != "$ENGINE_SHA" ]; then
+              prs=$(gh api "repos/$REPO/compare/$previous...$ENGINE_SHA" \
+                --jq '[.commits[].commit.message | split("\n")[0] | capture("\\(#(?<n>[0-9]+)\\)$")? | "#" + .n] | unique | join(", ")') || prs='(unreadable)'
+              [ -n "$prs" ] || prs='(none)'
+            fi
+            body=$(printf 'Cycle: %s\nResult: SEALED\nSealed SHA: `%s`\nPrevious seal: `%s`\nIncluded PRs since previous seal: %s\nReceiver: %s\n' \
+              "$cycle" "$ENGINE_SHA" "${previous:-unknown}" "$prs" "$RUN_URL")
+          else
+            reason="${RELEASE_RESULT:-not completed}; stage ${FAILED_STAGE:-${EXIT_STAGE:-unknown}}"
+            [ -z "$EXIT_ERROR" ] || reason="$reason; $EXIT_ERROR"
+            [ -z "$SUPERSEDED_BY" ] || reason="$reason; superseded by $SUPERSEDED_BY"
+            body=$(printf 'Cycle: %s\nResult: %s (the serving engine keeps running)\nCandidate SHA: `%s`\nReason: %s\nReceiver: %s (job result %s)\n' \
+              "$cycle" "$( [ "$RELEASE_RESULT" = already-released ] && echo ALREADY-RELEASED || echo REFUSED )" \
+              "$ENGINE_SHA" "$reason" "$RUN_URL" "$DEPLOY_RESULT")
+          fi
+          gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
+          echo "Posted the cutover to issue #$LOG_ISSUE."

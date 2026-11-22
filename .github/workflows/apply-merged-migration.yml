@@ -12,7 +12,9 @@
 # auto-deploy doors gate already uses. Nothing is transcribed.
 #
 # It is DISPATCH ONLY. It has no schedule, no push trigger, and it never
-# discovers work for itself: one run applies exactly the one file it is given.
+# discovers work for itself: one run applies the one file it is given, after
+# any OLDER ordinary file on main that production does not hold (version
+# order, incident 90972d77; scripts/ci/install-older-merged-first.mjs).
 #
 # Two doors, one job (2026-10-16). workflow_dispatch needs the Actions write
 # scope, which the cloud agents' GitHub App integration does not hold - its
@@ -106,6 +108,14 @@ on:
 # switch-off) silently never applied. A per-file group still collapses a
 # duplicate dispatch of the same file; different files no longer erase each
 # other, and the queue step below runs them in run-id order.
+#
+# Run-id order is DISPATCH order, not version order (incident 90972d77,
+# 2026-11-21). Version order is guaranteed by the apply step instead: each
+# run installs every older pending ordinary file first
+# (scripts/ci/install-older-merged-first.mjs). A single shared group would not
+# give that guarantee: when an OLDER version's run joins as pending it replaces
+# a NEWER pending one, and "install everything up to V" then never reaches the
+# newer file. tests/an-older-merged-migration-installs-first.law.test.ts.
 concurrency:
   group: apply-merged-migration-${{ inputs.migration || github.event.client_payload.migration }}
   cancel-in-progress: false
@@ -241,6 +251,21 @@ jobs:
             fi
             sleep 15
           done
+          # AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77). The
+          # queue above runs files in dispatch order, which is not version
+          # order. So before this file, install every older ordinary file on
+          # main that production does not hold, oldest first, once each,
+          # through the same applier; if one is refused or unknown, this file
+          # is not sent. scripts/ci/install-older-merged-first.mjs.
+          node scripts/ci/install-older-merged-first.mjs \
+            --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt \
+            --migration "$MIGRATION_FILE" \
+            ${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }} 2>&1 | tee /tmp/apply.log
+          code=${PIPESTATUS[0]}
+          if [[ "$code" != "0" ]]; then
+            echo "code=$code" >> "$GITHUB_OUTPUT"
+            exit "$code"
+          fi
           recovery_args=()
           if [[ "${SERIAL_JOURNAL_INDEX:-false}" == "true" ]]; then
             recovery_args+=(--serial-journal-index)
@@ -267,7 +292,7 @@ jobs:
             --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt \
             --migration "$MIGRATION_FILE" \
             "${recovery_args[@]}" \
-            ${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }} 2>&1 | tee /tmp/apply.log
+            ${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }} 2>&1 | tee -a /tmp/apply.log
           code=${PIPESTATUS[0]}
           set -e
           echo "code=$code" >> "$GITHUB_OUTPUT"

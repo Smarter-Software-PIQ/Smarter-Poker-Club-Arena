@@ -1061,6 +1061,10 @@ export interface HorseDecision {
   tournamentPreflopAttribution?: import('./engine/HorsePhase6Attribution.js').HorsePhase6Attribution;
   /** Finite private provenance for the brain's last-resort liveness action. */
   policyFallback?: 'brain_exception';
+  /** omahaMathCore (default off, lane MATHCORE 2026-11-19): the math-first PLO4/PLO5 cash core's receipt -
+   *  equity, ranges and their sources, price, EV of every legal action and the choice; or the error that made
+   *  the decision fall back. Journal-only; never cards. */
+  omahaMathCore?: import('./engine/omahaMathCore/OmahaMathCoreRule.js').OmahaMathCoreDecisionReceipt;
   /** omahaValueSizeIsUnreadable (default off, HorseOmahaValueSizeBand.ts): this bet or raise is a nut-class
    *  wager sized in the owner's 80-95% pot band; the table's commit guards keep it while it is still legal and
    *  in the band (omahaValueSizeBandHolds) instead of rounding it back up to the full pot. */
@@ -1096,6 +1100,9 @@ export interface HorseDecision {
   /** omahaReraisedCallVsRaisePriced (default OFF): every number of the priced call-or-raise facing a re-raise, on
    *  the decision it priced, whichever way the verdict went. Absent with the option off. */
   omahaReraisedRaise?: import('./engine/HorseOmahaReraisedRaisePriced.js').OmahaReraisedRaiseReceipt;
+  /** omahaPreflopJamFacingReraiseIsPriced (default OFF): fold, call and raise priced facing a 3-bet or more, on the
+   *  decision it priced, whichever way the verdict went. Absent with the option off. */
+  omahaPreflopThreeWay?: import('./engine/HorseOmahaReraisedRaisePriced.js').OmahaThreeWayReceipt;
   remainingVariantPolicy?: import('./engine/remainingVariants/RemainingVariantLivePolicy.js').RemainingVariantReceipt;
   jointPolicy?: import('./engine/multiway/JointLivePolicy.js').JointPolicyReceipt;
   tournamentPostflop?: import('./engine/HorseTournamentPostflop.js').HorseTournamentPostflopLedger;

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Post-capture helpers. Each subcommand writes one new file and refuses an existing one.
- batches  CAPTURE_DIR                      -> witness-batch-N.mjs (all human-facing hands), rollup-batch.mjs (human-facing + systematic Horse-only sample)
- priors   WITNESS_JSONL OUT_JSON           -> priors (+pfr) and forced share per (human, family, format), strictly before each human's first witness hand
- fires    START_UTC END_UTC OUT_JSON       -> rule fires from flush receipts by collected_at
- cohort   START_UTC END_UTC OUT_JSON       -> per-Horse hands dealt in the window by variant and format, for all unretired Horses
- origins  WITNESS_JSONL OUT_JSON           -> origin of each faced human wager from hand_history.actions (input to build_packet)
+ batches            CAPTURE_DIR                      -> witness-batch-N.mjs (all human-facing hands), rollup-batch.mjs (human-facing + systematic Horse-only sample)
+ raw_batches        KEYS_JSON CAPTURE_DIR [PER_BATCH]-> raw-batch-N.mjs (~100 hands/batch using raw-reader.mjs for full-record extraction)
+ priors             WITNESS_JSONL OUT_JSON           -> priors (+pfr) and forced share per (human, family, format), strictly before each human's first witness hand
+ fires              START_UTC END_UTC OUT_JSON       -> rule fires from flush receipts by collected_at
+ cohort             START_UTC END_UTC OUT_JSON       -> per-Horse hands dealt in the window by variant and format, for all unretired Horses
+ origins            WITNESS_JSONL OUT_JSON           -> origin of each faced human wager from hand_history.actions (input to build_packet)
+ gap_targets        START_UTC END_UTC OUT_JSON       -> targeted missing-spot hand keys with engine_build attribution (gap_targets.py)
+ score_folds        SPOTS_JSONL OUT_JSON [SEED]      -> LOO range-classified actual-hand EV scorer + top-human share (score_decisions.py)
+ blind_batches      CANDIDATES_JSONL OUT_DIR [SEED]  -> 1:1 action-matched blind-review batches of 10 + 0600 private key (blind_review.py)
+ score_blind_labels LABELS_JSON KEY_JSON OUT_JSON    -> canonical reviewer label normalization + Bar e' scorer (blind_review.py)
+ build_boundaries   START_UTC END_UTC OUT_JSON       -> engine build attribution + cutover sub-window splitter (build_attribution.py)
 HVH_SHA (serving source) is required in the environment."""
 import json, sys, hashlib, re, os
 from pathlib import Path
@@ -118,4 +124,33 @@ def keys_batch(keys_json, outp):
     if not hands or len(hands) > 2500: raise SystemExit('refused: %d hands' % len(hands))
     outp.write_text('const selection=' + json.dumps({'sourceSha': SHA, 'hands': hands, 'limitSec': 1100}) + ';\n' + (T / 'witness-reader.mjs').read_text()); outp.chmod(0o600)
     print(json.dumps({'file': str(outp), 'hands': len(hands)}))
-if __name__ == '__main__': {'batches': batches, 'priors': priors, 'fires': fires, 'cohort': cohort, 'origins': origins, 'keys_light': keys_light, 'keys_variant': keys_variant, 'keys_batch': keys_batch}[sys.argv[1]](*sys.argv[2:])
+def raw_batches(keys_json, cap, per_batch=100):
+    """Full-record raw-reader batches (~100 hands/batch) for targeted offline replay and blind-review extraction."""
+    cap = Path(cap); per = int(per_batch)
+    if per < 1 or per > 500: raise SystemExit('refused: per_batch %d must be 1..500' % per)
+    hk = json.loads(Path(keys_json).read_text())
+    hands = [{'k': h['k'], 'h': h['h'], 'handNumber': h.get('handNumber') or h.get('hand_number')} for h in hk['hands'] if h.get('k')]
+    if not hands: raise SystemExit('refused: 0 hands with journal key')
+    reader = (T / 'raw-reader.mjs').read_text(); pending = []
+    for i in range(0, len(hands), per):
+        chunk = hands[i:i + per]
+        pending.append((new(cap / ('raw-batch-%d.mjs' % (i // per + 1))), 'const selection=' + json.dumps({'sourceSha': SHA, 'hands': chunk, 'limitSec': 900}) + ';\n' + reader, len(chunk)))
+    for p, body, _ in pending: p.write_text(body); p.chmod(0o600)
+    print(json.dumps({'rawBatches': [{'file': p.name, 'hands': cnt} for p, _, cnt in pending], 'totalHands': len(hands), 'perBatch': per}))
+def gap_targets_cmd(start, end, outp):
+    rc = __import__('gap_targets').main(['gap_targets.py', 'query', start, end, outp])
+    if rc != 0: raise SystemExit(rc)
+def score_folds_cmd(spots_jsonl, outp, seed='20261118'):
+    rc = __import__('score_decisions').main(['score_decisions.py', spots_jsonl, outp, str(seed)])
+    if rc != 0: raise SystemExit(rc)
+def blind_batches_cmd(candidates_jsonl, out_dir, seed='20261118', batch_size='10'):
+    rc = __import__('blind_review').main(['blind_review.py', 'build', candidates_jsonl, out_dir, str(seed), str(batch_size)])
+    if rc != 0: raise SystemExit(rc)
+def score_blind_labels_cmd(labels_json, key_json, outp, seed='20261118'):
+    rc = __import__('blind_review').main(['blind_review.py', 'score', labels_json, key_json, outp, str(seed)])
+    if rc != 0: raise SystemExit(rc)
+def build_boundaries_cmd(start, end, outp):
+    rc = __import__('build_attribution').main(['build_attribution.py', 'check', start, end, outp])
+    if rc != 0: raise SystemExit(rc)
+if __name__ == '__main__':
+    {'batches': batches, 'raw_batches': raw_batches, 'priors': priors, 'fires': fires, 'cohort': cohort, 'origins': origins, 'keys_light': keys_light, 'keys_variant': keys_variant, 'keys_batch': keys_batch, 'gap_targets': gap_targets_cmd, 'score_folds': score_folds_cmd, 'blind_batches': blind_batches_cmd, 'score_blind_labels': score_blind_labels_cmd, 'build_boundaries': build_boundaries_cmd}[sys.argv[1]](*sys.argv[2:])

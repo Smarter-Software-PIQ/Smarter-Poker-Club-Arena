@@ -84,7 +84,15 @@ import {
 import { HorseSessionRotator } from './services/HorseSessionRotator.js';
 import { StableHandExecutor } from './services/StableHandExecutor.js';
 import { registerLeadershipShutdownHandler } from './services/leadership.js';
-import { persistEngineAlertsBeforeExit } from './services/engineAlerts.js';
+import {
+  persistEngineAlertsBeforeExit,
+  raiseEngineAlert,
+  resolveEngineAlert,
+} from './services/engineAlerts.js';
+import {
+  persistOpponentHudBeforeExit,
+  setOpponentHudAlertSink,
+} from './services/OpponentHudStore.js';
 import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -183,8 +191,23 @@ const channelWs = new ChannelWebSocketServer((tournamentId) =>
 const httpServer = createEngineHttpServer(
   createRouter({ gameServer, tableStateHub, engineWs, channelHub })
 );
-engineWs.attach(httpServer);
-channelWs.attach(httpServer);
+// ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): with
+// ENGINE_ROLLING_HANDOFF=on and ENGINE_HANDOFF_PEER_PORT set, the relay takes
+// the server's upgrades first and re-emits every upgrade that stays here, so a
+// socket for a table this engine handed on is spliced to the engine that owns
+// it. Without the relay (the flag off) both servers attach exactly as before.
+const handoffRelay = gameServer.getHandoffRelay();
+const upgradeHost = (
+  handoffRelay ? handoffRelay.attachUpgrades(httpServer) : httpServer
+) as typeof httpServer;
+engineWs.attach(upgradeHost);
+channelWs.attach(upgradeHost);
+if (gameServer.getRollingHandoff()) {
+  gameServer.setHandoffTransport({
+    closeTable: (tableId) => engineWs.closeTableForHandoff(tableId),
+    closeAll: () => engineWs.closeAllForHandoff() + channelWs.closeAllForHandoff(),
+  });
+}
 const unsubscribePlayerRevocations = subscribePlayerSessionRevocations(
   (userId) => {
     void Promise.all([
@@ -234,15 +257,30 @@ async function drainLeaderBootMutations(): Promise<void> {
 // load, before gameServer.start() starts those workers, so no worker event can arrive while no sink is set
 // (independent review of 27a56324, finding 2).
 setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
+// OPPONENT HUD (2026-11-20): opponent-profile failures, late profiles and reconciliation drift reach Production Alerts
+// (engine_alerts -> operational_alert_events; page false, never a phone) through this main-process sink.
+setOpponentHudAlertSink((name, firing, summary) =>
+  firing
+    ? void raiseEngineAlert({
+        alertname: name,
+        severity: 'warning',
+        component: 'opponent-hud',
+        summary,
+        page: false,
+      })
+    : void resolveEngineAlert(name, 'opponent-hud', summary)
+);
 
 /**
  * These services change shared horse, tournament, or table state and therefore
  * belong to the process that completed the distributed leader boot. A standby
  * never starts them merely because its HTTP socket happened to listen first.
  */
-async function startLeaderOwnedServices(): Promise<void> {
-  await gameServer.start();
-  if (shuttingDown || !gameServer.isLeaderBooted()) {
+async function startLeaderOwnedServices(handoffTakeover = false): Promise<void> {
+  // A rolling handoff successor that just took leadership in place ran
+  // gameServer.start() when it booted (see the onHandoffLeaderTakeover hook).
+  if (!handoffTakeover) await gameServer.start();
+  if (shuttingDown || !gameServer.isLeaderBooted() || leaderServicesActive) {
     console.log('[GameServer] Index-owned mutators remain stopped on this standby process.');
     return;
   }
@@ -418,6 +456,18 @@ function stopLeaderOwnedServices(): Promise<void> {
 // a parallel signal path that could finish early.
 gameServer.registerExternalShutdownOwnershipBarrier(stopLeaderOwnedServices);
 
+/**
+ * A rolling handoff successor (ENGINE_ROLE=handoff-successor, flag on) takes
+ * leadership in place once the engine it succeeded has retired; the
+ * index-owned leader services start then, exactly as after a leader boot.
+ * Never fires with the flag off.
+ */
+gameServer.onHandoffLeaderTakeover(() => {
+  void startLeaderOwnedServices(true).catch((err) =>
+    fatal(err, 'GameServer.handoff_takeover_index_services_failed')
+  );
+});
+
 httpServer.listen(PORT, () => {
   // Module load and construction end here; /health bootPhases measures from process start.
   gameServer.markBootPhase('http_listening');
@@ -563,6 +613,10 @@ async function performShutdown(): Promise<void> {
         `${localFailures.length} local shutdown step(s) failed after ownership release`
       );
     }
+    // OPPONENT HUD (AUDIT-C item 3): every dealer has drained, so the last hand this process settled is in the store;
+    // save the changed profiles before exit (bounded; never throws; nothing while the option is off). At a cutover
+    // the successor's sync point is already past these hands, so this save is what keeps them.
+    await persistOpponentHudBeforeExit();
     await persistEngineAlertsBeforeExit();
     await flushEngineLifecycleLogs(2_000);
     clearTimeout(hardDeadline);

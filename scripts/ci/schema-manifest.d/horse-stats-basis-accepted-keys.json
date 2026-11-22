@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/plo-auditfix-01TLQer7J/feat/audit-fixes-batch-1 (migration 20261120025753)",
+  "_comment": "Review B1: the retention basis drops the Horse hole-card key (the installed body becomes the core) and the engine asks which optional stats keys it accepts. Names are declarations, not production installation evidence.",
+  "functions": ["horse_stats_basis_accepted_keys", "smarter_private.horse_compact_stats_basis_core"]
+}

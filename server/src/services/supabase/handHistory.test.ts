@@ -2386,6 +2386,42 @@ describe('logHandHistory - a hand logged without its public memory domain is cou
     expect(missingDelta(missing)).toEqual({ 'tournament|false|absent': 1 });
   });
 
+  it('a tournament hand names the serving engine build too (aHandNamesTheEngineBuildThatDealtIt)', async () => {
+    const sha = 'fe09'.repeat(10);
+    const tournamentId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    try {
+      vi.stubEnv('GIT_COMMIT_SHA', sha);
+      rpcCalls.length = 0;
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            written: { u1: 118, u2: 80 },
+            tournament_id: tournamentId,
+            tournament_players_synced: true,
+            tournament_player_count: 2,
+            tournament_player_user_ids: ['u1', 'u2'],
+            tournament_player_chips: [
+              { user_id: 'u1', chips: 118 },
+              { user_id: 'u2', chips: 80 },
+            ],
+          },
+          error: null,
+        },
+      ];
+      await logHandHistory({ ...identityParams(), tournamentId, publicMemoryDomain: null });
+      const commit = rpcCalls.find((c) => c.fn === 'fn_ca_commit_hand_settlement');
+      expect(commit).toBeDefined();
+      const row = commit!.args.p_hand_row as Record<string, unknown>;
+      expect(row.tournament_id).toBe(tournamentId);
+      expect(row.engine_build).toBe(sha);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('a variant the exact-memory trigger never learns is exempt: unsupported_variant', async () => {
     const labels = { mode: 'cash', reached_showdown: 'true', learner_scope: 'unsupported_variant' };
     const logged = loggedNow(labels);

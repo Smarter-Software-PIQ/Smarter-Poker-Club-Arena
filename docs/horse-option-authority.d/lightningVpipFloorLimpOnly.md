@@ -37,7 +37,7 @@ They never meet. `vpipFloorLimpOnly` governs floored cash TABLES and excludes Li
 
 ## What does NOT exist, and what the option therefore cannot do
 
-No pool session is ended by the floor today, for a person or for a Horse. The rule that stands a player up (`fn_nit_enforce`, leave mode `vpip_evicted`, the two-hour bar) runs in a physical table's dealing loop; a Lightning anchor is parked and runs the sit-out clock alone (`ServerTableEngineDealing`, `sitOutOnly: true`; `ServerTableEngineBase.evictExpiredSitOuts`). Thirty days to 2026-11-18, every Lightning game: 0 pool sessions ended by the floor. This option makes the Horse follow the floor; it does not remove a Horse that still falls under it. Removal with the two-hour bar and fleet replacement must be built for every pool player alike (CLAUDE.md 10.5) and is a separate change with its own migration (design: audit archive `repairs/LIGHTNING/LIGHTNING-FLOOR-DESIGN.md`).
+No pool session is ended by the floor today, for a person or for a Horse. The rule that stands a player up (`fn_nit_enforce`, leave mode `vpip_evicted`, the two-hour bar) runs in a physical table's dealing loop; a Lightning anchor is parked and runs the sit-out clock alone (`ServerTableEngineDealing`, `sitOutOnly: true`; `ServerTableEngineBase.evictExpiredSitOuts`). Thirty days to 2026-11-18, every Lightning game: 0 pool sessions ended by the floor. Until 2026-11-21 the pool sitting was judged once, at the switch-off, when the anchor became an ordinary table and its first eviction pass read every pool hand of the sitting; since migration `20261121152102` that table's sample starts at the switch-off (`fn_nit_sitting_since`). This option makes the Horse follow the floor; it does not remove a Horse that still falls under it. Removal with the two-hour bar and fleet replacement must be built for every pool player alike (CLAUDE.md 10.5) and is a separate change with its own migration (design: audit archive `repairs/LIGHTNING/LIGHTNING-FLOOR-DESIGN.md`).
 
 ## Lightning mechanics that differ from a table
 
@@ -87,6 +87,12 @@ The lower hand rate is the floor itself, not a second fault. A fast-table pool d
 
 Proposed pass bar for the next activation (the lead decides): (a) 0 refused decisions and 0 `horse_fallback` folds attributable to the option; (b) Horse VPIP per pool 40-46%; (c) per pool, hands per 20 minutes at least 85% of baseline x (mean hand before / mean hand on), which catches any slowdown the longer hands do not explain; (d) for people, median `waited_ms` at most 5 s and no pool with a person seated under 50% of its baseline hand rate (trigger). The raw 15%/25% bar is retired as unattainable for PLO by the ruling's own arithmetic.
 
+## Subsequent live activations and rollbacks (2026-11-20)
+
+- `2026-11-20T09:06:01Z` (audit `#157`, `HORSE SWITCH lane session_01TLQer7hwLjF5AX5cJ4iVM7`): `off -> on`. Rolled back at `2026-11-20T14:09:51Z` (audit `#158`, `on -> off`: Lightning dealt `0` hands since 04:58 Chicago; `HorseFleet: no available horses`, candidates `0`; hourly hands `174` at 03, `105` at 04, `0` at 05-08 vs `375-542` the night before with the option off).
+- `2026-11-20T15:18:00Z` (audit `#159`, `HORSE SWITCH lane session_01TLQer7hwLjF5AX5cJ4iVM7`): `off -> on`. Rolled back at `2026-11-20T16:00:15Z` (audit `#160`, `on -> off`: `+40 day read: Lightning hands per player 13.0 (15:38-15:58Z) vs 16.0 the 20 min before (-19%) while yesterday same windows rose 15.5 -> 18.6 (+20%); vs yesterday same window 18.6 (-30%); hand length 23.7 s vs 18.1 s; trigger 25%`).
+- Current state (verified `2026-11-22T03:30Z`, serving `c2d6e45e3bcc`): `off` on `8/8` workers (`option_switch_lightningVpipFloorLimpOnly_off_seen = 8`).
+
 ## What the activation row must contain
 
 `option = 'lightningVpipFloorLimpOnly'`, `state = 'on'`, note `authority: lightningVpipFloorLimpOnly docs/horse-option-authority.d/lightningVpipFloorLimpOnly.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set`, only after the serving engine build knows the option name and the switch-list migration that adds it is installed.
@@ -96,3 +102,7 @@ Proposed pass bar for the next activation (the lead decides): (a) 0 refused deci
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+
+## Rollback
+
+Set `lightningVpipFloorLimpOnly` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('lightningVpipFloorLimpOnly', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

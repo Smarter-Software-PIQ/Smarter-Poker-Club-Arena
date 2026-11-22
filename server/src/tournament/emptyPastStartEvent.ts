@@ -95,13 +95,47 @@ export interface EmptyPastStartEvent {
   nowMs: number;
   /** Past-start top-ups that added nobody (the discovery loop's backoff counter). */
   emptyTopUps: number;
+  /**
+   * Whether the event's entrant pool (the host club's members, or the union's)
+   * holds any horse at all, read completely: false means no top-up can ever
+   * add anyone, null/undefined means unknown. See the 2026-11-20 note below.
+   */
+  hostPoolHasHorse?: boolean | null;
 }
 
+/**
+ * A CANCEL DOES NOT WAIT FOR A TOP-UP THAT CANNOT ADD ANYONE (2026-11-20).
+ *
+ * The empty-top-up precondition exists so a club whose horses CAN fill an
+ * event plays it. The top-up draws only from the host pool's members, so a
+ * pool with no horse in it can never fill. Waiting for that top-up anyway made
+ * the cancel hostage to the shared PAST_START_TOP_UP_CONCURRENCY queue: the
+ * engine was cut over at 19:05-19:08 UTC on 2026-11-20, five minutes after
+ * three empty 19:00 "Daily 25 Chip Freezeout" boards started, the restart
+ * forgot every top-up clock, every past-start board asked at once, and the
+ * three cancels (due 19:30) landed at 19:46:10, 19:47:34 and 19:47:52 while
+ * TournamentNeverStarted paged (fn_tournament_metrics counts an empty event
+ * from start + 40 minutes). A complete read that finds no horse in the pool is
+ * the same answer an empty top-up gives, decided without the queue.
+ */
 export function shouldCancelEmptyPastStartEvent(event: EmptyPastStartEvent): boolean {
   if (event.seatFirst || event.poolFinalized) return false;
   if (event.rosterCount !== 0) return false;
   if ((event.currentPlayers ?? 0) !== 0) return false;
   if (!Number.isFinite(event.startTimeMs) || !Number.isFinite(event.nowMs)) return false;
   if (event.nowMs - event.startTimeMs < EMPTY_PAST_START_CANCEL_AFTER_MS) return false;
+  if (event.hostPoolHasHorse === false) return true;
   return event.emptyTopUps >= 1;
+}
+
+/**
+ * True when the cancel is due on every count except the empty top-up, so the
+ * one pool read that can stand in for it is worth making. Pure, for the pass.
+ */
+export function emptyEventAwaitsOnlyItsTopUp(event: EmptyPastStartEvent): boolean {
+  return (
+    event.emptyTopUps < 1 &&
+    event.hostPoolHasHorse === undefined &&
+    shouldCancelEmptyPastStartEvent({ ...event, hostPoolHasHorse: false })
+  );
 }

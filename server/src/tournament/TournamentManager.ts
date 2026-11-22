@@ -3318,40 +3318,6 @@ export class TournamentManager extends TournamentManagerEliminations {
       }
     }
     tableIds = tableIds.filter((id) => !excluded.has(id));
-    const tableRead = await selectInChunks<{
-      id: string;
-      max_players: number | null;
-    }>(
-      tableIds,
-      (batch) => supabase.from('tables').select('id, max_players').in('id', batch),
-      `Tournament.${label}.tables(${this.tournamentId.slice(0, 8)})`
-    );
-    if (!this.eliminationMutationAllowed()) return null;
-    if (!tableRead.complete) {
-      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-      return null;
-    }
-    const seatRead = await selectInChunks<{
-      table_id: string;
-      user_id: string;
-      stack: number | null;
-      seat_number: number | null;
-    }>(
-      tableIds,
-      (batch) =>
-        supabase
-          .from('table_seats')
-          .select('table_id, user_id, stack, seat_number')
-          .in('table_id', batch)
-          .is('left_at', null),
-      `Tournament.${label}.seats(${this.tournamentId.slice(0, 8)})`
-    );
-    if (!this.eliminationMutationAllowed()) return null;
-    if (!seatRead.complete) {
-      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-      return null;
-    }
-
     // ════════════════════════════════════════════════════════════════════════
     //  THE PLANNER MUST SEE THE CHAIRS THE ROSTER STILL HOLDS (2026-09-12)
     // ════════════════════════════════════════════════════════════════════════
@@ -3365,24 +3331,51 @@ export class TournamentManager extends TournamentManagerEliminations {
     // `tournament move destination roster is occupied` and only 42 of 378
     // were genuinely free.
     //
-    // One more chunked read per pass, on the same ID-list bound as the two
-    // above — never one query per table.
-    const rosterRead = await selectInChunks<{
-      table_id: string | null;
-      seat_number: number | null;
-    }>(
-      tableIds,
-      (batch) =>
-        supabase
-          .from('tournament_players')
-          .select('table_id, seat_number')
-          .eq('tournament_id', this.tournamentId)
-          .in('status', ['registered', 'playing'])
-          .in('table_id', batch),
-      `Tournament.${label}.roster(${this.tournamentId.slice(0, 8)})`
-    );
+    // The three chunked reads take the same `tableIds` and are independent, so
+    // run them in parallel (2026-11-21, incident 1e532243): running them
+    // serially multiplied parked boundary-balance latency ~3x on 50+ table
+    // MTTs under EventDbBulkhead load.
+    const [tableRead, seatRead, rosterRead] = await Promise.all([
+      selectInChunks<{
+        id: string;
+        max_players: number | null;
+      }>(
+        tableIds,
+        (batch) => supabase.from('tables').select('id, max_players').in('id', batch),
+        `Tournament.${label}.tables(${this.tournamentId.slice(0, 8)})`
+      ),
+      selectInChunks<{
+        table_id: string;
+        user_id: string;
+        stack: number | null;
+        seat_number: number | null;
+      }>(
+        tableIds,
+        (batch) =>
+          supabase
+            .from('table_seats')
+            .select('table_id, user_id, stack, seat_number')
+            .in('table_id', batch)
+            .is('left_at', null),
+        `Tournament.${label}.seats(${this.tournamentId.slice(0, 8)})`
+      ),
+      selectInChunks<{
+        table_id: string | null;
+        seat_number: number | null;
+      }>(
+        tableIds,
+        (batch) =>
+          supabase
+            .from('tournament_players')
+            .select('table_id, seat_number')
+            .eq('tournament_id', this.tournamentId)
+            .in('status', ['registered', 'playing'])
+            .in('table_id', batch),
+        `Tournament.${label}.roster(${this.tournamentId.slice(0, 8)})`
+      ),
+    ]);
     if (!this.eliminationMutationAllowed()) return null;
-    if (!rosterRead.complete) {
+    if (!tableRead.complete || !seatRead.complete || !rosterRead.complete) {
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return null;
     }
@@ -4412,12 +4405,17 @@ export class TournamentManager extends TournamentManagerEliminations {
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return;
     }
+    // A fenced source this fresh plan does not need is handed back now, while
+    // its completion hold is still playing (see releaseGapFencesNotIn).
+    if (freshTableIds.length <= 1) this.releaseGapFencesNotIn(new Set());
     if (freshTableIds.length > 1) {
       const freshTables = await this.loadBalancerTables(freshTableIds, 'balanceFresh');
       if (!freshTables) return;
 
+      if (!this.tableBalancer.shouldRebalance(freshTables)) this.releaseGapFencesNotIn(new Set());
       if (this.tableBalancer.shouldRebalance(freshTables)) {
         const moves = this.tableBalancer.calculateMoves(freshTables);
+        this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
         if (moves.length === 0) {
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
         }
@@ -4433,9 +4431,12 @@ export class TournamentManager extends TournamentManagerEliminations {
           const sourceTables = [...new Set(moves.map((m) => m.fromTableId))] as string[];
           // A slow fresh board must not be discarded before it can act.
           // The existing source-boundary owner rereads the board and moves it;
-          // fence only its first source, then yield the spent admission.
+          // fence only one source (preferring one already parked at the gate),
+          // then yield the spent admission.
           if (this.balancePreparationOpen && this.eliminationWorkBudgetExpired()) {
-            this.fenceGapBalanceSource(sourceTables[0]);
+            const preferred =
+              sourceTables.find((t) => this.isParkedGapBalanceSource(t)) ?? sourceTables[0];
+            this.fenceGapBalanceSource(preferred);
             this.balancePreparationOpen = false;
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
             return;
@@ -4573,14 +4574,295 @@ export class TournamentManager extends TournamentManagerEliminations {
       this.gapBalanceClaimedSources.delete(tableId);
       return false;
     }
+    this.boundaryPlanAwaitingPark.delete(tableId);
     this.boundaryBalanceRequested = true;
     this.drainBoundaryBalance();
     return true;
   }
 
+  private isParkedGapBalanceSource(tableId: string): boolean {
+    if (!this.gapBalanceFencedSources.has(tableId)) return false;
+    const engine = this.tableEngines.get(tableId);
+    if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) return false;
+    return (
+      engine.awaitsTournamentMoveClaim() || this.gapBalanceClaimedSources.get(tableId) === engine
+    );
+  }
+
+  private hasParkedGapBalanceSource(): boolean {
+    for (const tableId of this.gapBalanceFencedSources) {
+      if (this.isParkedGapBalanceSource(tableId)) return true;
+    }
+    return false;
+  }
+
+  private collectParkedGapSources(
+    target: Map<string, ServerTableEngine> = new Map(),
+    allowedTableIds?: ReadonlySet<string>
+  ): Map<string, ServerTableEngine> {
+    for (const tableId of [...this.gapBalanceFencedSources]) {
+      const engine = this.tableEngines.get(tableId);
+      if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) {
+        this.gapBalanceFencedSources.delete(tableId);
+        this.gapBalanceClaimedSources.delete(tableId);
+        continue;
+      }
+      if (this.gapBalanceClaimedSources.get(tableId) !== engine)
+        this.gapBalanceClaimedSources.delete(tableId);
+      if (allowedTableIds && !allowedTableIds.has(tableId)) continue;
+      if (
+        engine.awaitsTournamentMoveClaim() ||
+        this.gapBalanceClaimedSources.get(tableId) === engine
+      ) {
+        target.set(tableId, engine);
+        this.boundaryPlanAwaitingPark.delete(tableId);
+      }
+    }
+    return target;
+  }
+
   protected override onEliminationSweepSettled(): void {
     this.boundaryBalanceAwaitingSweep = false;
-    if (this.boundaryBalanceRequested) this.drainBoundaryBalance();
+    if (this.boundaryBalanceRequested || this.hasParkedGapBalanceSource()) {
+      this.boundaryBalanceRequested = true;
+      this.drainBoundaryBalance();
+    }
+    // A sweep that held the manager while a fenced source played its hold
+    // made any plan read before it stale: read again, still under the hold.
+    else if (this.boundaryPlanAwaitingPark.size > 0) this.prepareBoundaryBalancePlan();
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  THE BOUNDARY PLAN IS MADE UNDER THE HOLD, NOT AFTER THE PARK
+   *  (2026-11-20, incident 1e532243: "unintended delay between hands")
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * A fenced gap-balance source parks only after its completion hold (the
+   * 4.75-7 s the felt spends showing the winner, pushing the pot and mucking).
+   * Its park edge then read the live table list (two paged reads), the
+   * balancer board (three chunked reads), planned, and only then made the
+   * move: five serial PostgREST round trips that started AFTER the hold, on a
+   * table that could not deal until they finished. Production 2026-11-20,
+   * tournament hands, last 6 hours: a source whose move committed within
+   * 1 s of its hold ending showed p50 130 ms of unintended delay; each
+   * further second before the move committed added a second (2-3 s: p50
+   * 1.83 s; 4-5 s: 3.98 s). Move-source hands ran p50 0.78 s, p95 4.33 s
+   * unintended, against p95 0.20 s for every other tournament hand, and that
+   * tail is what fn_ca_hand_gap_watch paged on (08:31 and 09:31 CST, the
+   * ~50-table MTTs).
+   *
+   * So the board is read when the source SETTLES its hand (the hand-complete
+   * edge, before the hold) and the plan waits for the park. At the park only
+   * the committed seat moves execute. The plan is trusted only while
+   * balanceBoardEpoch has not moved since its reads began (no sweep admitted,
+   * no seat-move batch, no newly observed bust) and it is younger than
+   * PREPARED_BOUNDARY_PLAN_MAX_AGE_MS; otherwise the park reads the board
+   * fresh exactly as before. Every check after the reads is unchanged: the
+   * maintenance freeze, the tournament break, recovery, the physical
+   * boundary probe, the atomic move door, receipts and quarantine.
+   *
+   * And a fenced source the prepared plan does not need is given back to its
+   * dealer before it ever reaches the gate, so it is never parked at all.
+   */
+  private static readonly PREPARED_BOUNDARY_PLAN_MAX_AGE_MS = 15_000;
+  private preparedBoundaryPlan: {
+    epoch: number;
+    preparedAtMs: number;
+    liveTableIds: string[];
+    tables: BalancerTable[] | null;
+  } | null = null;
+  private preparingBoundaryPlan: { epoch: number; promise: Promise<void> } | null = null;
+  /** Fenced sources that settled a hand and have not parked yet (they are in their hold). */
+  private readonly boundaryPlanAwaitingPark = new Set<string>();
+  /** The zero-stack set last seen per table, so one bust reported twice counts once. */
+  private readonly lastObservedBustKey = new Map<string, string>();
+  private seatMoveBatchesInFlight = 0;
+
+  protected override onManagedHandSettled(
+    tableId: string,
+    engine: ServerTableEngine,
+    finalStacks: { user_id: string; stack: number }[]
+  ): void {
+    const bustKey = finalStacks
+      .filter((player) => player.user_id && Number(player.stack) <= 0)
+      .map((player) => player.user_id)
+      .sort()
+      .join(',');
+    if (bustKey === '') this.lastObservedBustKey.delete(tableId);
+    else if (this.lastObservedBustKey.get(tableId) !== bustKey) {
+      this.lastObservedBustKey.set(tableId, bustKey);
+      this.balanceBoardEpoch++;
+    }
+    if (!this.gapBalanceFencedSources.has(tableId) || this.tableEngines.get(tableId) !== engine)
+      return;
+    this.boundaryPlanAwaitingPark.add(tableId);
+    this.prepareBoundaryBalancePlan();
+  }
+
+  private boundaryPlanLifecycleAllowed(): boolean {
+    return (
+      this.running &&
+      !isMaintenanceFrozen() &&
+      !this.isOnBreak() &&
+      !this.tournamentFinished &&
+      this.eliminationMutationAllowed()
+    );
+  }
+
+  /** Read-only: reads the board for the boundary while the hold plays. */
+  private prepareBoundaryBalancePlan(): void {
+    for (const tableId of [...this.boundaryPlanAwaitingPark])
+      if (!this.gapBalanceFencedSources.has(tableId)) this.boundaryPlanAwaitingPark.delete(tableId);
+    const epoch = this.balanceBoardEpoch;
+    if (this.preparingBoundaryPlan?.epoch === epoch) return;
+    // Anything that may move seats re-prepares when it settles.
+    if (
+      this.isProcessingEliminations ||
+      this.boundaryBalanceInFlight ||
+      this.seatMoveBatchesInFlight > 0 ||
+      !this.boundaryPlanLifecycleAllowed()
+    )
+      return;
+    const preparedAtMs = Date.now();
+    const promise = (async () => {
+      try {
+        const liveTableIds = await this.liveTournamentTableIdsWithPlayers();
+        if (liveTableIds === null || epoch !== this.balanceBoardEpoch) return;
+        const tables =
+          liveTableIds.length > 1
+            ? await this.loadBalancerTables(liveTableIds, 'balancePrepared')
+            : null;
+        if (epoch !== this.balanceBoardEpoch || (liveTableIds.length > 1 && !tables)) return;
+        this.preparedBoundaryPlan = { epoch, preparedAtMs, liveTableIds, tables };
+        this.releaseFencesThePreparedPlanDoesNotNeed(epoch, tables);
+      } catch (error) {
+        // The park reads the board itself; a failed preparation costs nothing else.
+        reportError(error, 'Tournament.boundary_plan_preparation_failed', {
+          tournamentId: this.tournamentId,
+        });
+      }
+    })();
+    const inFlight = { epoch, promise };
+    this.preparingBoundaryPlan = inFlight;
+    void promise.finally(() => {
+      if (this.preparingBoundaryPlan === inFlight) this.preparingBoundaryPlan = null;
+    });
+  }
+
+  /** A fenced source the plan does not need never parks: its fence is lifted in its hold. */
+  private releaseFencesThePreparedPlanDoesNotNeed(
+    epoch: number,
+    tables: BalancerTable[] | null
+  ): void {
+    if (
+      epoch !== this.balanceBoardEpoch ||
+      this.isProcessingEliminations ||
+      this.boundaryBalanceInFlight
+    )
+      return;
+    const needed = new Set<string>();
+    if (tables && this.tableBalancer.shouldRebalance(tables)) {
+      const board = tables.map((t) => ({
+        ...t,
+        players: t.players.map((p) => ({ ...p })),
+        reservedSeats: t.reservedSeats ? [...t.reservedSeats] : t.reservedSeats,
+      }));
+      for (const move of this.tableBalancer.calculateMoves(board)) needed.add(move.fromTableId);
+    }
+    this.releaseGapFencesNotIn(needed);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  THE SWEEP'S OWN PLAN LIFTS THE FENCES IT DOES NOT NEED
+   *  (2026-11-21, incident 1e532243: all_in_showdown delay after a bust)
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * A gap-balance source is fenced while it is the big table. When its hand
+   * busts a player it often stops being one, but nothing told it: the bust
+   * admits a sweep (balanceBoardEpoch moves, so the plan prepared under the
+   * hold is void), the sweep's balance stage planned from fresh rows and
+   * fenced the sources it needed, and the fences it did NOT need were left
+   * standing. The source then parked at the end of its hold and waited for
+   * the next boundary drain, which itself waits for whatever sweep holds the
+   * manager, to be told it was free.
+   *
+   * Production 2026-11-21 01:05-01:15 UTC: two-hand all-in showdowns that
+   * busted a player reached the next deal log p50 5.96 s / p90 6.99 s after
+   * settlement against 5.49 s / 5.61 s for the same showdown with no bust,
+   * and the slow ones parked ("Parked between hands") at the end of the hold
+   * and dealt only after an unrelated move landed (7973d396, d80a187c:
+   * settled 01:11:25.36, parked 01:11:30.27, dealt 01:11:32.35).
+   *
+   * So every plan made while the manager is held - the sweep's balance stage
+   * and the plan prepared under the hold - hands back each fenced source it
+   * does not name as a move source, at the moment it decides. A source the
+   * sweep reaches while its hold plays never parks at all. The guards are the
+   * ones the prepared plan always used: a source already at the gate awaiting
+   * its claim, one whose boundary a move has claimed, a durable break source,
+   * pending move outcomes, a pending break retirement, unfinished discovery,
+   * recovery, a freeze, the tournament break and a refused mutation all keep
+   * the fence exactly as before.
+   */
+  private releaseGapFencesNotIn(needed: ReadonlySet<string>): void {
+    if (
+      this.seatMoveBatchesInFlight > 0 ||
+      this.pendingTournamentSeatMoveOutcomes.size > 0 ||
+      !!this.pendingTableBreakRetirement ||
+      !this.tournamentBreakDiscoveryComplete ||
+      this.mixedRecovery !== null ||
+      !this.boundaryPlanLifecycleAllowed()
+    )
+      return;
+    for (const tableId of [...this.gapBalanceFencedSources]) {
+      if (needed.has(tableId)) continue;
+      const engine = this.tableEngines.get(tableId);
+      if (
+        !engine ||
+        !this.gameServer.ownsTournamentTableEngine(tableId, engine) ||
+        this.gapBalanceClaimedSources.has(tableId) ||
+        engine.awaitsTournamentMoveClaim() ||
+        engine.hasClaimedTournamentMoveBoundary() ||
+        this.retainsTournamentBreakSource(tableId, engine)
+      )
+        continue;
+      this.gapBalanceFencedSources.delete(tableId);
+      this.boundaryPlanAwaitingPark.delete(tableId);
+      engine.releaseTournamentMovePause(this.tournamentMoveBoundaryOwner);
+    }
+  }
+
+  /**
+   * The board prepared under the hold, when it is still the board. Consumed
+   * once. Null means read it fresh at the boundary (the former path).
+   */
+  private async takePreparedBoundaryBoard(
+    parked: Map<string, ServerTableEngine>
+  ): Promise<{ liveTableIds: string[]; tables: BalancerTable[] | null } | null> {
+    const inFlight = this.preparingBoundaryPlan;
+    // Already reading this board since the source settled: finish that read,
+    // it started seconds before a fresh one could.
+    if (inFlight && inFlight.epoch === this.balanceBoardEpoch) await inFlight.promise;
+    const plan = this.preparedBoundaryPlan;
+    this.preparedBoundaryPlan = null;
+    if (
+      !plan ||
+      plan.epoch !== this.balanceBoardEpoch ||
+      Date.now() - plan.preparedAtMs > TournamentManager.PREPARED_BOUNDARY_PLAN_MAX_AGE_MS
+    )
+      return null;
+    // Every parked source must be on the board the plan read.
+    for (const tableId of parked.keys()) if (!plan.liveTableIds.includes(tableId)) return null;
+    return {
+      liveTableIds: [...plan.liveTableIds],
+      tables:
+        plan.tables?.map((t) => ({
+          ...t,
+          players: t.players.map((p) => ({ ...p })),
+          reservedSeats: t.reservedSeats ? [...t.reservedSeats] : t.reservedSeats,
+        })) ?? null,
+    };
   }
 
   private drainBoundaryBalance(): void {
@@ -4655,26 +4937,12 @@ export class TournamentManager extends TournamentManagerEliminations {
   }
 
   private async balanceParkedGapSources(): Promise<void> {
-    const parked = new Map<string, ServerTableEngine>();
-    for (const tableId of [...this.gapBalanceFencedSources]) {
-      const engine = this.tableEngines.get(tableId);
-      if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) {
-        this.gapBalanceFencedSources.delete(tableId);
-        this.gapBalanceClaimedSources.delete(tableId);
-        continue;
-      }
-      if (this.gapBalanceClaimedSources.get(tableId) !== engine)
-        this.gapBalanceClaimedSources.delete(tableId);
-      if (
-        engine.awaitsTournamentMoveClaim() ||
-        this.gapBalanceClaimedSources.get(tableId) === engine
-      )
-        parked.set(tableId, engine);
-    }
+    const parked = this.collectParkedGapSources();
     if (parked.size === 0) return;
 
     // Give a parked source back to the dealer unless a break owns it.
     const release = (tableId: string): void => {
+      this.boundaryPlanAwaitingPark.delete(tableId);
       this.gapBalanceFencedSources.delete(tableId);
       this.gapBalanceClaimedSources.delete(tableId);
       const engine = parked.get(tableId);
@@ -4712,32 +4980,59 @@ export class TournamentManager extends TournamentManagerEliminations {
       defer();
       return;
     }
-    const liveTableIds = await this.liveTournamentTableIdsWithPlayers();
+    // The board read while the hold played, when nothing has changed it since.
+    const prepared = await this.takePreparedBoundaryBoard(parked);
     if (!balanceAllowed()) {
       defer();
       return;
     }
-    if (liveTableIds === null) {
-      releaseAll();
-      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-      return;
-    }
-    const tables =
-      liveTableIds.length > 1
-        ? await this.loadBalancerTables(liveTableIds, 'balanceAtBoundary')
-        : null;
-    if (!balanceAllowed()) {
-      defer();
-      return;
+    let liveTableIds: string[] | null;
+    let tables: BalancerTable[] | null;
+    if (prepared) {
+      ({ liveTableIds, tables } = prepared);
+    } else {
+      liveTableIds = await this.liveTournamentTableIdsWithPlayers();
+      if (!balanceAllowed()) {
+        defer();
+        return;
+      }
+      if (liveTableIds === null) {
+        releaseAll();
+        this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
+        return;
+      }
+      tables =
+        liveTableIds.length > 1
+          ? await this.loadBalancerTables(liveTableIds, 'balanceAtBoundary')
+          : null;
+      if (!balanceAllowed()) {
+        defer();
+        return;
+      }
     }
     if (!tables || !this.tableBalancer.shouldRebalance(tables)) {
+      if (tables || liveTableIds.length <= 1) {
+        // Every fenced source parked during the read is also unneeded on this
+        // balanced (or single-table) board, and still-dealing fences can lift
+        // immediately so they never park.
+        this.collectParkedGapSources(parked);
+        this.releaseGapFencesNotIn(new Set());
+      }
       releaseAll();
       if (!tables && liveTableIds.length > 1)
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return;
     }
 
+    // Fenced sources that finished their hand and parked while the board was
+    // being read are ready NOW (2026-11-21, incident 1e532243: cb2d8fa8 sat
+    // parked 26.4s and cbe6cd62 parked 63ms into a 2.3s read and sat 28.7s
+    // because `parked` was snapshotted before the DB reads).
+    const liveTableSet = new Set(liveTableIds);
+    this.collectParkedGapSources(parked, liveTableSet);
+
     const moves = this.tableBalancer.calculateMoves(tables);
+    this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
     const ready: MoveInstruction[] = [];
     // Sources the plan still needs that cannot move at this instant.
     const waiting = new Set<string>();
@@ -4845,8 +5140,9 @@ export class TournamentManager extends TournamentManagerEliminations {
    * stranded" and never "everybody is".
    */
   public async absorbOrphanedSeats(): Promise<number> {
+    if (isMaintenanceFrozen()) return 0;
     const lifecycle = this.captureLifecycleToken();
-    const current = () => this.lifecycleIsCurrent(lifecycle);
+    const current = () => this.lifecycleIsCurrent(lifecycle) && !isMaintenanceFrozen();
     if (!(await this.redrivePendingTournamentSeatMoveOutcomes()) || !current()) return 0;
     const { rows: tableRows, complete: tablesComplete } = await fetchAllRows(
       (cursor, limit) => {
@@ -4922,7 +5218,15 @@ export class TournamentManager extends TournamentManagerEliminations {
   }
 
   protected executePlayerMoves(moves: MoveInstruction[]): Promise<number> {
-    return this.runWithTournamentSeatMoveAuthority(() => this.executePlayerMovesOwned(moves));
+    // Seats change: no board read before this batch settles is a plan.
+    this.balanceBoardEpoch++;
+    this.seatMoveBatchesInFlight++;
+    return this.runWithTournamentSeatMoveAuthority(() =>
+      this.executePlayerMovesOwned(moves)
+    ).finally(() => {
+      this.seatMoveBatchesInFlight--;
+      this.balanceBoardEpoch++;
+    });
   }
 
   private async executePlayerMovesOwned(moves: MoveInstruction[]): Promise<number> {

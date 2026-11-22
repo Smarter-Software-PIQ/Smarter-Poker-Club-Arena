@@ -1,6 +1,7 @@
 import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { HorseDecisionJournalStore, horseJournalCapacityReason } from './store.js';
 import { horseJournalFailureKind } from './failure.js';
+import { startHorseJournalKeep } from './keep.js';
 import {
   journalPressureRetentionSegments,
   journalPressureTrimEnabled,
@@ -14,12 +15,21 @@ try {
   const store = new HorseDecisionJournalStore(workerData.directory, {
     archive: workerData.archive,
   });
+  // THE KEEP COPY (keep.ts): null while its setting is off, which is the
+  // default. It is only ever handed records this thread has already appended
+  // and acknowledged, and nothing it does can reach the code around it.
+  const keep = startHorseJournalKeep(workerData);
   const thresholds = memoryGovernorThresholds(process.env);
   // Only an enforcing governor (MEMORY_GOVERNOR_MODE=enforce) may bound the
   // ring; observe mode leaves the configured allocation alone.
   const pressureTrimEnabled = journalPressureTrimEnabled(process.env);
   port.on('message', (message: unknown) => {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'STOP') {
+      try {
+        keep?.stop();
+      } catch {
+        /* the keep copy can never change how the writer stops */
+      }
       store.close();
       port.postMessage({ type: 'STOPPED' });
       port.close();
@@ -91,6 +101,11 @@ try {
           status: statuses[i],
         })),
       });
+      try {
+        keep?.offer(records);
+      } catch {
+        /* the keep copy can never fail an append that is already acknowledged */
+      }
     } catch (error) {
       // No paths, cards, identities or SQL errors in runtime/public messages.
       port.postMessage({

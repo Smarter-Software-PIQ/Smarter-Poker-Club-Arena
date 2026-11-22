@@ -1,7 +1,15 @@
 /** Owner 2026-11-06: isolated Backup qualification, daily-only replacement. */
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -51,7 +59,11 @@ describe('Backup qualification and the daily release are separate authorities', 
     );
     expect(gate.if).toBeUndefined();
     expect(gate['continue-on-error']).toBeUndefined();
-    expect(gate.run).toContain('now.hour == 3 and 30 <= now.minute < 50');
+    // Since 2026-11-21 (owner order: a cutover every three hours) the gate
+    // admits the 30-50 minute preparation of every scheduled cycle the
+    // target's policy names: 04:00 alone for daily, the eight hours for
+    // three-hourly (tests/the-engine-cuts-over-every-three-hours.law.test.ts).
+    expect(gate.run).toContain('if not (30 <= now.minute < 50 and local.hour in hours');
     expect(gate.run).toContain('policy.get("phase1Status") not in ("off", "complete")');
     expect(gate.env.CONTROL_SHA).toBe('${{ github.sha }}');
     expect(gate.run).toContain(
@@ -72,9 +84,19 @@ describe('Backup qualification and the daily release are separate authorities', 
     ['2026-11-06T09:50:00+00:00', 'off', 3],
     ['2026-11-06T20:00:00+00:00', 'off', 3],
     ['2026-11-06T09:30:00+00:00', 'active', 1],
+    // Three-hourly target at the 04:00 anchor: admitted without reading /health.
+    ['2026-11-06T09:30:00+00:00', 'off/three-hourly', 0],
+    // A three-hourly target outside any preparation window keeps serving.
+    ['2026-11-06T11:00:00+00:00', 'off/three-hourly', 3],
   ])('executes receiver admission for %s / %s', (stamp, status, expected) => {
     const code = gate.run.split("<<'PYTHON' || gate_status=$?\n")[1].split('\nPYTHON')[0];
-    const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(JSON.stringify({ phase1Status: status }))}\n`;
+    const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(
+      JSON.stringify(
+        status === 'off/three-hourly'
+          ? { phase1Status: 'off', frequency: 'three-hourly' }
+          : { phase1Status: status }
+      )
+    )}\n`;
     const result = spawnSync('python3', ['-c', prefix + code], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(expected);
   });
@@ -251,7 +273,8 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
       expect(result.stdout).toContain('sha=' + candidate);
       expect(result.stdout).toContain('refresh=auto');
       for (const step of backup.jobs.certify.steps) {
-        if (step.env?.SHA) expect(step.env.SHA).toBe('${{ needs.plan.outputs.sha }}');
+        if (step.env?.SHA)
+          expect(step.env.SHA).toBe('${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}');
       }
     }
   );
@@ -282,7 +305,7 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
         "needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
       );
       expect(backup.jobs.certify.if).toBe(
-        "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+        "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
       );
     });
     it('skips when a newer push run exists: empty sha, no status, exit 0', () => {
@@ -476,6 +499,92 @@ git() { echo unexpected-main-read >&2; return 99; }
   // manual run because a later ordinary push would have superseded the
   // booking commit's own push run. A push run now asks one read-only verdict
   // (scripts/ci/backup-candidate-priority.py); "unknown" changes nothing.
+  // 2026-11-21: twice on 2026-11-20 a push run planned before an owner window
+  // was booked took the Backup host minutes before the booking merged and
+  // certified for 55 minutes while the booked build waited. The run now asks
+  // again after its copy and before certify, and hands the host back when its
+  // commit predates the newly booked window.
+  describe('a booking made while a run waited still goes first', () => {
+    const late = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_priority');
+    const sha = 'c'.repeat(40);
+    function runLate(verdict: string) {
+      const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-'));
+      const calls = resolve(dir, 'calls');
+      const harness = `gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      verdict === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${verdict}')" "print('window=w-late')"`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
+`;
+      try {
+        const result = planShell(harness + late.run, {
+          CALLS: calls,
+          HOME: dir,
+          SHA: sha,
+          RUN_ID: '700',
+          RUN_ATTEMPT: '1',
+          SSH_KEY: 'fixture-key-not-a-credential',
+          STANDBY_HOST: '192.0.2.1',
+          STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+          GITHUB_REPOSITORY: 'o/r',
+          GITHUB_SHA: sha,
+        });
+        return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    it('runs only for a push run that holds the host, after the copy and before certify', () => {
+      expect(late.if).toContain("github.event_name == 'push'");
+      expect(late.if).toContain("steps.turn.outputs.acquired == '1'");
+      expect(late.if).toContain("steps.late_inherit.outputs.inherited != '1'");
+      // Tonight's freeze baseline is the 04:00 build and never yields.
+      expect(late.if).toContain("needs.plan.outputs.freeze_baseline != '1'");
+      expect(backup.jobs.plan.outputs.freeze_baseline).toBe(
+        '${{ steps.plan.outputs.freeze_baseline }}'
+      );
+      const planRun = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+      expect(planRun).toContain('echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"');
+      const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
+      expect(ids.indexOf('late_priority')).toBe(ids.length - 1);
+      expect(backup.jobs.refresh.outputs.deferred).toBe(
+        "${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}"
+      );
+      expect(backup.jobs.certify.if).toContain("needs.refresh.outputs.deferred != '1'");
+    });
+    it('a run whose commit now predates a booked window hands the host back and certifies nothing', () => {
+      const r = runLate('predates');
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('DEFERRED');
+      expect(r.stdout).toContain('deferred=1');
+      expect(r.calls).toMatch(/ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/);
+    });
+    it('a post-booking push run yields the host before certify while the booking commit is uncertified', () => {
+      const r = runLate('booking_pending');
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('DEFERRED');
+      expect(r.stdout).toContain('deferred=1');
+      expect(r.calls).toMatch(/ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/);
+    });
+    it.each(['none', 'booking', 'candidate', 'FAIL'])(
+      'NEGATIVE: "%s" keeps the host and certifies',
+      (verdict) => {
+        const r = runLate(verdict);
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('DEFERRED');
+        expect(r.stdout).not.toContain('deferred=1');
+        expect(r.calls).not.toContain('ssh ');
+      }
+    );
+  });
+
   describe('the booked candidate goes first while an owner window is live', () => {
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
     const pushed = 'a'.repeat(40);
@@ -549,6 +658,19 @@ git() { echo unexpected-main-read >&2; return 99; }
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(`ALREADY CERTIFIED: ${pushed}`);
       expect(result.stdout).toMatch(/\nsha=\n/);
+    });
+    it('a post-booking push yields as DEFERRED while the booking commit is not yet certified', () => {
+      for (const rel of ['', 'ahead']) {
+        const result = run(fakeGh('booking_pending', '0', rel));
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('DEFERRED: owner engine window w-1');
+        expect(result.stdout).toMatch(/\nsha=\n/);
+        expect(result.stdout).not.toContain('sha=' + pushed);
+        expect(result.stdout).not.toContain('sha=' + newest);
+        expect(result.stdout).not.toContain('refresh=auto');
+        expect(result.stdout).not.toContain('inherit_eligible');
+        expect(result.calls).not.toContain('/statuses');
+      }
     });
     it('a commit that predates the booking and was not retargeted is deferred: nothing planned, no status', () => {
       for (const rel of ['', 'HTTP 502', 'diverged']) {
@@ -824,19 +946,49 @@ gh() {
           expect(result.calls).not.toContain('READ ');
       });
       it.each(['failure', 'cancelled', ''])(
-        'a refresh that ended %s is a refusal even when no certify step ran, over any earlier success',
+        'a refresh that held the Backup host and ended %s is a refusal even when no certify step ran, over any earlier success',
         (refresh) => {
           for (const pending of ['skipped', 'failure', 'success']) {
             const result = shell(fakeGh('success') + publish.run, {
               ...env,
               PENDING: pending,
               REFRESH: refresh,
+              TURN: '1',
             });
             expect(result.status).toBe(1);
             expect(result.calls).toContain('-f state=failure');
             expect(result.calls).not.toContain('READ ');
             expect(result.stdout).not.toContain('stands');
           }
+        }
+      );
+      // incident 076ff467 (2026-11-20): a run that timed out waiting for the
+      // Backup host touched no copy and judged no build; its `failure` replaced
+      // the freeze baseline's certificate 12 minutes before the 03:30 selection.
+      it.each(['failure', 'cancelled', ''])(
+        'a refresh that never held the Backup host and ended %s is no verdict, and an earlier success stands',
+        (refresh) => {
+          const kept = shell(
+            fakeGh('success') + publish.run,
+            {
+              ...env,
+              PENDING: 'skipped',
+              REFRESH: refresh,
+              RC: '1',
+            },
+            { 'certificate.json': '{"reasons":["database_refresh_failed"]}' }
+          );
+          expect(kept.status).toBe(1);
+          expect(kept.calls).not.toContain('-f state=failure');
+          expect(kept.calls).not.toContain('-f state=');
+          expect(kept.stdout).toContain('stands');
+          const none = shell(fakeGh('missing') + publish.run, {
+            ...env,
+            PENDING: 'skipped',
+            REFRESH: refresh,
+          });
+          expect(none.calls).toContain('-f state=error');
+          expect(none.calls).toContain('never held the Backup host turn');
         }
       );
       it('a certified run still writes success', () => {
@@ -864,6 +1016,7 @@ gh() {
     );
     const inherit = backup.jobs.plan.steps.find((s: any) => s.id === 'inherit');
     const identityScript = read('scripts/ci/engine-source-identity.sh');
+    const repoDockerignore = read('server/.dockerignore');
     const candidate = 'a'.repeat(40);
     const pushBase = {
       INPUT_SHA: '',
@@ -873,7 +1026,7 @@ gh() {
       GITHUB_REPOSITORY: 'o/r',
     };
     /** A repo whose engine identity is readable at every commit after C0. */
-    function fixture(options: { scriptFrom?: 'c1' } = {}) {
+    function fixture(options: { scriptFrom?: 'c1'; withDockerignore?: boolean } = {}) {
       const dir = mkdtempSync(resolve(tmpdir(), 'engine-identity-'));
       const cleanEnv = hookFreeEnv();
       const git = (...args: string[]) => {
@@ -907,6 +1060,7 @@ gh() {
         read('scripts/ci/read-engine-prequalification.py')
       );
       if (!options.scriptFrom) write('scripts/ci/engine-source-identity.sh', identityScript);
+      if (options.withDockerignore !== false) write('server/.dockerignore', repoDockerignore);
       write(
         'server/Dockerfile',
         [
@@ -925,7 +1079,17 @@ gh() {
       write('server/package-lock.json', '{"lockfileVersion":3}\n');
       write('server/native/kernel.cc', 'int main() {}\n');
       write('server/src/index.ts', 'export const v = 1;\n');
+      write('server/src/GameServer.ts', 'export const g = 1;\n');
+      write('server/src/benchmark/HorseLeague.ts', 'export const hl = 1;\n');
+      write('server/src/benchmark/SparringLeague.ts', 'export const sp = 1;\n');
+      write('server/src/benchmark/sparringRun.ts', 'export const sr = 1;\n');
+      write('server/src/benchmark/fixtures/snap.json', '{"v":1}\n');
+      write('server/src/engine/testing/frozenDecisionClock.ts', 'export const c = 1;\n');
+      write('server/src/testing/waitBudget.ts', 'export const w = 1;\n');
+      write('server/src/engine/__tests__/fixture.ts', 'export const f = 1;\n');
+      write('server/src/engine/helper.test-support.ts', 'export const h = 1;\n');
       write('server/src/index.test.ts', 'test 1\n');
+      write('server/src/engine/sample.law.test.ts', 'law 1\n');
       write('server/release-evidence/r.json', '{}\n');
       write('server/tests/engine.test.ts', 'test 1\n');
       write('server/standby/standby-engine.sh', 'echo standby 1\n');
@@ -1000,7 +1164,7 @@ gh() {
     describe('the identity script', () => {
       const f = fixture();
       afterAll(() => rmSync(f.dir, { recursive: true, force: true }));
-      it('is deterministic and names only the Dockerfile COPY sources, the Dockerfile and itself', () => {
+      it('is deterministic and names only the Dockerfile COPY sources, Dockerfile, .dockerignore and itself', () => {
         const a = f.identity(f.shas.c1, '--manifest');
         expect(a.status, a.stderr).toBe(0);
         const lines = a.stdout.trim().split('\n');
@@ -1008,44 +1172,98 @@ gh() {
         expect(identity).toMatch(/^[0-9a-f]{64}$/);
         expect(lines[0]).toMatch(/^identity-script [0-9a-f]{40}$/);
         expect(lines[1]).toMatch(/^dockerfile [0-9a-f]{40}$/);
-        expect(lines.slice(2).map((l) => l.split(' ')[1])).toEqual([
+        expect(lines[2]).toMatch(/^dockerignore [0-9a-f]{40}$/);
+        expect(lines.slice(3).map((l) => l.split(' ')[1])).toEqual([
           'native/kernel.cc',
           'package-lock.json',
           'package.json',
           'release-evidence',
           'src',
         ]);
+        expect(lines.find((l) => l.startsWith('copy src '))).toMatch(
+          /^copy src filtered-tree:[0-9a-f]{64}$/
+        );
         expect(lines.some((l) => l.includes('kernel.node'))).toBe(false);
         expect(f.identity(f.shas.c1).stdout.trim()).toBe(identity);
       });
-      it('changes when an enumerated input changes and not when anything outside it does', () => {
+      it('stays identical when only .dockerignore-excluded test, testing-helper or sparring files change', () => {
         const id = (s: string) => f.identity(s).stdout.trim();
         expect(id(f.shas.c0)).not.toBe(id(f.shas.c1));
         expect(id(f.shas.c2)).toBe(id(f.shas.c1));
         expect(id(f.shas.c3)).toBe(id(f.shas.c1));
-        f.write('server/src/index.test.ts', 'test 2\n');
-        const srcTest = f.commit('a test under src ships in the image');
-        expect(id(srcTest)).not.toBe(id(f.shas.c3));
-        f.write('server/package-lock.json', '{"lockfileVersion":3,"x":1}\n');
-        const lock = f.commit('lockfile');
-        expect(id(lock)).not.toBe(id(srcTest));
-        f.write('server/release-evidence/r.json', '{"a":1}\n');
-        const evidence = f.commit('evidence');
-        expect(id(evidence)).not.toBe(id(lock));
+        const baseline = id(f.shas.c3);
+        const excludedMutations: Array<[string, string]> = [
+          ['server/src/index.test.ts', 'test 2\n'],
+          ['server/src/engine/sample.law.test.ts', 'law 2\n'],
+          ['server/src/engine/testing/frozenDecisionClock.ts', 'export const c = 2;\n'],
+          ['server/src/testing/waitBudget.ts', 'export const w = 2;\n'],
+          ['server/src/engine/__tests__/fixture.ts', 'export const f = 2;\n'],
+          ['server/src/engine/helper.test-support.ts', 'export const h = 2;\n'],
+          ['server/src/benchmark/fixtures/snap.json', '{"v":2}\n'],
+          ['server/src/benchmark/SparringLeague.ts', 'export const sp = 2;\n'],
+          ['server/src/benchmark/sparringRun.ts', 'export const sr = 2;\n'],
+          ['server/src/benchmark/newBench.test.ts', 'added test\n'],
+        ];
+        for (const [path, content] of excludedMutations) {
+          f.write(path, content);
+          const next = f.commit(`mutate excluded ${path}`);
+          expect(id(next), `${path} must not change engine source identity`).toBe(baseline);
+        }
       });
-      it('changes when the Dockerfile COPY set or the script itself changes', () => {
+      it('changes when any runtime file, lockfile, release-evidence, Dockerfile, .dockerignore or script changes', () => {
         const id = (s: string) => f.identity(s).stdout.trim();
-        const before = f.git('rev-parse', 'HEAD');
+        let prev = f.git('rev-parse', 'HEAD');
+        const runtimeMutations: Array<[string, string]> = [
+          ['server/src/GameServer.ts', 'export const g = 2;\n'],
+          ['server/src/benchmark/HorseLeague.ts', 'export const hl = 2;\n'],
+          ['server/package-lock.json', '{"lockfileVersion":3,"x":1}\n'],
+          ['server/release-evidence/r.json', '{"a":1}\n'],
+        ];
+        for (const [path, content] of runtimeMutations) {
+          f.write(path, content);
+          const next = f.commit(`mutate runtime ${path}`);
+          expect(id(next), `${path} must change engine source identity`).not.toBe(id(prev));
+          prev = next;
+        }
+        f.write(
+          'server/.dockerignore',
+          readFileSync(resolve(f.dir, 'server/.dockerignore'), 'utf8') + '\n# comment\n'
+        );
+        const dockerignoreChanged = f.commit('dockerignore changed');
+        expect(id(dockerignoreChanged)).not.toBe(id(prev));
+        prev = dockerignoreChanged;
         f.write(
           'server/Dockerfile',
           readFileSync(resolve(f.dir, 'server/Dockerfile'), 'utf8') + 'COPY tests/ ./tests/\n'
         );
         const widened = f.commit('copy tests too');
-        expect(id(widened)).not.toBe(id(before));
+        expect(id(widened)).not.toBe(id(prev));
         expect(f.identity(widened, '--manifest').stdout).toContain('copy tests ');
         f.write('scripts/ci/engine-source-identity.sh', identityScript + '# revised\n');
         const revised = f.commit('identity script revised');
         expect(id(revised)).not.toBe(id(widened));
+      });
+      it('fails closed on unsupported .dockerignore syntax and preserves historical commits without .dockerignore', () => {
+        const legacy = fixture({ withDockerignore: false });
+        try {
+          const out = legacy.identity(legacy.shas.c1, '--manifest');
+          expect(out.status, out.stderr).toBe(0);
+          expect(out.stdout).toContain('dockerignore absent\n');
+          legacy.write('server/src/index.test.ts', 'legacy test edit\n');
+          const edited = legacy.commit('legacy commit without dockerignore includes test');
+          expect(legacy.identity(edited).stdout.trim()).not.toBe(
+            legacy.identity(legacy.shas.c1).stdout.trim()
+          );
+          for (const badRule of ['!src/keep.ts\n', 'src/[a-z].ts\n', 'src/foo**bar.ts\n']) {
+            legacy.write('server/.dockerignore', badRule);
+            const bad = legacy.commit(`bad rule ${badRule.trim()}`);
+            const res = legacy.identity(bad);
+            expect(res.status, `rule ${badRule.trim()} must fail closed`).not.toBe(0);
+            expect(res.stdout).toBe('');
+          }
+        } finally {
+          rmSync(legacy.dir, { recursive: true, force: true });
+        }
       });
       it('answers nothing for a commit that cannot be read, a non-sha, or one without the script or Dockerfile', () => {
         expect(f.identity('f'.repeat(40)).status).not.toBe(0);
@@ -1055,6 +1273,143 @@ gh() {
         const noDockerfile = f.commit('dockerfile gone');
         expect(f.identity(noDockerfile).status).not.toBe(0);
         expect(f.identity(noDockerfile).stdout).toBe('');
+      });
+      it('server/tsconfig.runtime.json excludes every TypeScript path ignored by server/.dockerignore and no runtime source imports an ignored path', () => {
+        const serverRoot = resolve(__dirname, '..', 'server');
+        const runtimeConfig = JSON.parse(read('server/tsconfig.runtime.json')) as {
+          exclude?: string[];
+        };
+        const tsconfigExcludes = new Set(runtimeConfig.exclude ?? []);
+        const rawRules = repoDockerignore
+          .split('\n')
+          .map((l) => l.replace(/\r$/, ''))
+          .filter((l) => !l.startsWith('#') && l.trim() !== '')
+          .map((l) => l.trim());
+        expect(rawRules.length).toBeGreaterThan(0);
+
+        const compilePattern = (rule: string): RegExp => {
+          expect(rule.startsWith('!'), `unsupported negation: ${rule}`).toBe(false);
+          expect(/[[\]\\]/.test(rule), `unsupported syntax: ${rule}`).toBe(false);
+          const norm = rule
+            .replace(/^(\.\/)+/, '')
+            .replace(/^\/+|\/+$/g, '')
+            .replace(/\/+/g, '/');
+          const segs = norm.split('/');
+          const parts: string[] = [];
+          for (let i = 0; i < segs.length; i++) {
+            const seg = segs[i]!;
+            if (seg === '**') {
+              if (i === segs.length - 1) parts.push(parts.length ? '(?:/.*)?' : '.*');
+              else parts.push(parts.length ? '/(?:.+/)?' : '(?:.+/)?');
+            } else {
+              if (parts.length && !parts[parts.length - 1]!.endsWith('/)?')) parts.push('/');
+              parts.push(
+                seg
+                  .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                  .replace(/\*/g, '[^/]*')
+                  .replace(/\?/g, '[^/]')
+              );
+            }
+          }
+          return new RegExp(`^${parts.join('')}$`);
+        };
+        const compiled = rawRules.map(compilePattern);
+        const isIgnored = (serverRel: string): boolean => {
+          const parts = serverRel.split('/');
+          for (let end = 1; end <= parts.length; end++) {
+            const prefix = parts.slice(0, end).join('/');
+            if (compiled.some((rx) => rx.test(prefix))) return true;
+          }
+          return false;
+        };
+
+        // Every TypeScript-relevant .dockerignore pattern must also be in tsconfig.runtime.json exclude.
+        for (const rule of rawRules) {
+          if (/\.(js|mjs|cjs)$/.test(rule)) continue;
+          const expectedTsExclude =
+            !rule.includes('*') && !/\.[a-z]+$/i.test(rule) ? `${rule}/**` : rule;
+          const dirFormCovered = rule.endsWith('/__tests__') && tsconfigExcludes.has(`${rule}/**`);
+          expect(
+            tsconfigExcludes.has(expectedTsExclude) || dirFormCovered,
+            `server/tsconfig.runtime.json "exclude" is missing ${expectedTsExclude} (from server/.dockerignore rule ${rule})`
+          ).toBe(true);
+        }
+
+        // Runtime modules must remain in the Docker context and identity.
+        for (const mustKeep of [
+          'src/index.ts',
+          'src/GameServer.ts',
+          'src/benchmark/HorseLeague.ts',
+          'src/benchmark/Plo4StrengthContract.ts',
+        ]) {
+          expect(isIgnored(mustKeep), `${mustKeep} must never be ignored`).toBe(false);
+        }
+
+        // Verified non-runtime files must be ignored.
+        for (const mustIgnore of [
+          'src/engine/testing/frozenDecisionClock.ts',
+          'src/engine/AHoldemTournamentAllInCallIsPriced.law.test.ts',
+          'src/testing/waitBudget.ts',
+          'src/engine/__tests__/public215Fixture.ts',
+          'src/benchmark/SparringLeague.ts',
+          'src/benchmark/sparringRun.ts',
+          'src/benchmark/fixtures/sparring-live-switches-20261120.json',
+        ]) {
+          expect(isIgnored(mustIgnore), `${mustIgnore} must be ignored`).toBe(true);
+        }
+
+        // Walk every non-ignored TypeScript runtime source and prove ZERO relative imports target an ignored path.
+        const walk = (dir: string, out: string[] = []): string[] => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) walk(full, out);
+            else if (/\.(ts|tsx|mts|cts)$/.test(entry.name)) out.push(full);
+          }
+          return out;
+        };
+        const importRe = /(?:from\s+|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g;
+        const violations: string[] = [];
+        for (const full of walk(join(serverRoot, 'src'))) {
+          const rel = relative(serverRoot, full).split(sep).join('/');
+          if (isIgnored(rel)) continue;
+          const text = readFileSync(full, 'utf8');
+          for (const m of text.matchAll(importRe)) {
+            const spec = m[1]!;
+            if (!spec.startsWith('.')) continue;
+            const resolvedBase = resolve(dirname(full), spec);
+            const candidates: string[] = [];
+            if (resolvedBase.endsWith('.js')) {
+              const stem = resolvedBase.slice(0, -3);
+              candidates.push(`${stem}.ts`, `${stem}.tsx`, `${stem}.js`);
+            } else if (resolvedBase.endsWith('.mjs')) {
+              const stem = resolvedBase.slice(0, -4);
+              candidates.push(`${stem}.mts`, `${stem}.mjs`);
+            } else if (resolvedBase.endsWith('.cjs')) {
+              const stem = resolvedBase.slice(0, -4);
+              candidates.push(`${stem}.cts`, `${stem}.cjs`);
+            } else {
+              candidates.push(
+                resolvedBase,
+                `${resolvedBase}.ts`,
+                `${resolvedBase}.tsx`,
+                join(resolvedBase, 'index.ts')
+              );
+            }
+            for (const cand of candidates) {
+              if (!existsSync(cand)) continue;
+              const targetRel = relative(serverRoot, cand).split(sep).join('/');
+              if (targetRel.startsWith('src/') && isIgnored(targetRel)) {
+                violations.push(`${rel} -> ${targetRel}`);
+              }
+              break;
+            }
+          }
+        }
+        expect(
+          violations,
+          `runtime source imports a server/.dockerignore-excluded file:\n${violations.join('\n')}`
+        ).toEqual([]);
       });
     });
     describe('the inherit step', () => {
@@ -1235,6 +1590,915 @@ ${Object.entries(states)
         }
       });
     });
+
+    // 2026-11-21 (E3 + O2): eliminate 75-minute lease-wait starvation,
+    // redundant 55-minute certifications, unnecessary disruption from
+    // completed/identical-source pushes, and post-lease drops on the 3-hourly
+    // cutover cadence.
+    describe('waiting push runs neither starve behind one soak nor drop acquired leases (E3 + O2)', () => {
+      const turn = backup.jobs.refresh.steps.find((s: any) => s.id === 'turn');
+      const lateRetarget = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_retarget');
+      const lateInherit = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_inherit');
+      const latePriority = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_priority');
+      const due = backup.jobs.refresh.steps.find((s: any) => s.id === 'due');
+      const refreshCheckout = backup.jobs.refresh.steps.find((s: any) =>
+        s.uses?.startsWith('actions/checkout')
+      );
+
+      function withOriginRemote(f: ReturnType<typeof fixture>) {
+        const remote = mkdtempSync(resolve(tmpdir(), 'backup-origin-'));
+        const cleanEnv = hookFreeEnv();
+        const r = spawnSync('git', ['init', '-q', '--bare', remote], {
+          encoding: 'utf8',
+          env: cleanEnv,
+        });
+        if (r.status !== 0) throw new Error(r.stderr);
+        f.git('remote', 'add', 'origin', remote);
+        f.git('push', '-q', 'origin', 'main');
+        return {
+          remote,
+          pushMain: () => f.git('push', '-q', 'origin', 'main'),
+          cleanup: () => rmSync(remote, { recursive: true, force: true }),
+        };
+      }
+
+      it('wires 120m wait / 180m timeout / 150m lease, checkout before turn, in-place late_retarget before late_inherit/due, and retargeted outputs into certify', () => {
+        expect(backup.jobs.refresh['timeout-minutes']).toBe(180);
+        expect(turn.run).toContain('deadline=$(($(date +%s) + 7200))');
+        expect(turn.run).toContain("'expiresAt': now + 9000");
+        // Refresh timeout strictly covers lease wait (120m) + refresh headroom;
+        // lease TTL (150m) strictly covers refresh headroom + certify timeout (75m).
+        expect(backup.jobs.refresh['timeout-minutes']).toBeGreaterThanOrEqual(120 + 45);
+        expect(9000 / 60).toBeGreaterThan(backup.jobs.certify['timeout-minutes'] + 60);
+        // Step ordering and gating: checkout precedes turn so turn can inspect
+        // engine-source-identity.sh; late_retarget runs right after turn, then
+        // late_inherit, then due, then late_priority.
+        const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.uses ?? s.name);
+        expect(ids.indexOf(refreshCheckout.uses)).toBeLessThan(ids.indexOf('turn'));
+        expect(ids.indexOf('late_retarget')).toBeGreaterThan(ids.indexOf('turn'));
+        expect(ids.indexOf('late_retarget')).toBeLessThan(ids.indexOf('late_inherit'));
+        expect(ids.indexOf('late_inherit')).toBeLessThan(ids.indexOf('due'));
+        expect(lateRetarget.if).toBe(
+          "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'"
+        );
+        expect(lateInherit.if).toBe(
+          "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.inherit_eligible == 'true'"
+        );
+        expect(lateInherit.env.SHA).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+        );
+        expect(due.if).toBe(
+          "steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1'"
+        );
+        expect(due.env.CONTROL).toBe(
+          '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
+        );
+        expect(latePriority.env.SHA).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+        );
+        expect(backup.jobs.refresh.outputs.sha).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+        );
+        expect(backup.jobs.refresh.outputs.control_sha).toBe(
+          '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
+        );
+        expect(backup.jobs.certify.env.CONTROL_SHA).toBe(
+          '${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}'
+        );
+        expect(backup.jobs.plan.outputs.priority).toBe('${{ steps.plan.outputs.priority }}');
+        expect(backup.jobs.plan.outputs.inherit_eligible).toBe(
+          '${{ steps.plan.outputs.inherit_eligible }}'
+        );
+        // turn jq filter excludes completed runs.
+        expect(turn.run).toContain('.status != \\"completed\\"');
+      });
+
+      function runTurn(opts: {
+        event?: string;
+        freezeBaseline?: string;
+        planPriority?: string;
+        newerShas: string[] | 'FAIL';
+        livePriority?: string;
+        cwd?: string;
+        sha?: string;
+        githubSha?: string;
+      }) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-turn-e3-'));
+        const calls = resolve(dir, 'calls');
+        const countFile = resolve(dir, 'ssh-count');
+        const sha = opts.sha ?? 'd'.repeat(40);
+        const githubSha = opts.githubSha ?? sha;
+        const newerBody =
+          opts.newerShas === 'FAIL'
+            ? 'echo "HTTP 502" >&2; return 1'
+            : opts.newerShas.length === 0
+              ? ':'
+              : `printf '%s\\n' ${opts.newerShas.map((s) => `'${s}'`).join(' ')}`;
+        const harness = `
+ssh() {
+  echo "ssh $*" >> "$CALLS"
+  cat > /dev/null
+  n=0
+  [ -f "${countFile}" ] && n=$(cat "${countFile}")
+  n=$((n + 1))
+  echo "$n" > "${countFile}"
+  if [ "$n" -eq 1 ]; then echo "held:999"; else echo "acquired"; fi
+}
+sleep() { echo "sleep $*" >> "$CALLS"; }
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *actions/workflows/backup-engine.yml/runs*) ${newerBody} ;;
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      opts.livePriority === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${opts.livePriority ?? 'none'}')" "print('window=w-e3')"`
+    } ;;
+    *actions/runs/999*) echo "in_progress" ;;
+    *) return 1 ;;
+  esac
+}
+`;
+        try {
+          const result = planShell(
+            harness + turn.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+              GITHUB_REPOSITORY: 'o/r',
+              GITHUB_SHA: githubSha,
+              SHA: sha,
+              RUN_ID: '700',
+              RUN_ATTEMPT: '1',
+              EVENT: opts.event ?? 'push',
+              FREEZE_BASELINE: opts.freezeBaseline ?? '',
+              PLAN_PRIORITY: opts.planPriority ?? 'none',
+            },
+            opts.cwd
+          );
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('a waiting push run superseded by a newer active push with a different engine-source-identity yields cleanly without holding the lease or writing a status', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // c0 has v=1, c1 has v=2 (different engine-source-identity).
+          const r = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c0,
+            newerShas: [f.shas.c1],
+            livePriority: 'none',
+          });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+          expect(r.stdout).toContain('superseded=1');
+          expect(r.stdout).not.toContain('acquired=1');
+          expect(r.calls).not.toContain('sleep ');
+          expect(r.calls).not.toContain('/statuses/');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O2: a waiting push run does NOT supersede when newer active push runs share identical engine-source-identity and unchanged workflow, or when only completed runs exist', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // c1 and c3 share identical engine-source-identity and same backup-engine.yml.
+          const sameId = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [f.shas.c2, f.shas.c3],
+            livePriority: 'none',
+          });
+          expect(sameId.status, sameId.stderr).toBe(0);
+          expect(sameId.stdout).toContain('shares identical engine-source-identity');
+          expect(sameId.stdout).toContain('acquired=1');
+          expect(sameId.stdout).not.toContain('SUPERSEDED');
+          expect(sameId.stdout).not.toContain('superseded=1');
+
+          // Completed runs are filtered out by jq (.status != "completed") -> empty list.
+          const completedOnly = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [],
+            livePriority: 'none',
+          });
+          expect(completedOnly.status, completedOnly.stderr).toBe(0);
+          expect(completedOnly.stdout).toContain('acquired=1');
+          expect(completedOnly.stdout).not.toContain('SUPERSEDED');
+
+          // Same engine-source-identity BUT changed .github/workflows/backup-engine.yml -> MUST supersede.
+          f.write('.github/workflows/backup-engine.yml', '# changed workflow\n');
+          const wfChanged = f.commit('c4: change backup-engine.yml');
+          origin.pushMain();
+          const wfRun = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [wfChanged],
+            livePriority: 'none',
+          });
+          expect(wfRun.status, wfRun.stderr).toBe(0);
+          expect(wfRun.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+          expect(wfRun.stdout).toContain('superseded=1');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('booking runs (via plan priority or live priority) are NEVER superseded while waiting', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          for (const cfg of [
+            { planPriority: 'booking', newerShas: [f.shas.c1], livePriority: 'none' },
+            { planPriority: 'unknown', newerShas: [f.shas.c1], livePriority: 'booking' },
+          ]) {
+            const r = runTurn({ cwd: f.dir, sha: f.shas.c0, ...cfg });
+            expect(r.status, r.stderr).toBe(0);
+            expect(r.stdout).toContain('acquired=1');
+            expect(r.stdout).not.toContain('SUPERSEDED');
+            expect(r.stdout).not.toContain('superseded=1');
+          }
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('freeze_baseline runs are NEVER superseded while waiting', () => {
+        const r = runTurn({ freezeBaseline: '1', newerShas: ['e'.repeat(40)] });
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain('acquired=1');
+        expect(r.stdout).not.toContain('SUPERSEDED');
+        expect(r.stdout).not.toContain('superseded=1');
+        expect(r.calls).not.toContain('actions/workflows/backup-engine.yml/runs');
+      });
+
+      it.each(['workflow_dispatch', 'schedule', 'repository_dispatch'])(
+        '%s runs are NEVER superseded while waiting',
+        (event) => {
+          const r = runTurn({ event, newerShas: ['e'.repeat(40)] });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('acquired=1');
+          expect(r.stdout).not.toContain('SUPERSEDED');
+          expect(r.stdout).not.toContain('superseded=1');
+          expect(r.calls).not.toContain('actions/workflows/backup-engine.yml/runs');
+        }
+      );
+
+      it('CLAUDE.md 10.86: unreadable newer-runs or unreadable identity keeps waiting instead of superseding', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          const apiFail = runTurn({ cwd: f.dir, sha: f.shas.c0, newerShas: 'FAIL' });
+          expect(apiFail.status, apiFail.stderr).toBe(0);
+          expect(apiFail.stdout).toContain('acquired=1');
+          expect(apiFail.stdout).not.toContain('SUPERSEDED');
+
+          const unknownCommit = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c0,
+            newerShas: ['f'.repeat(40)],
+          });
+          expect(unknownCommit.status, unknownCommit.stderr).toBe(0);
+          expect(unknownCommit.stdout).toContain('keeping wait (CLAUDE.md 10.86)');
+          expect(unknownCommit.stdout).toContain('acquired=1');
+          expect(unknownCommit.stdout).not.toContain('SUPERSEDED');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      function runLateRetarget(
+        repo: ReturnType<typeof fixture>,
+        opts: {
+          sha: string;
+          githubSha?: string;
+          controlSha?: string;
+          head: string;
+          headState?: string;
+          livePriority?: string;
+        }
+      ) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-retarget-'));
+        const calls = resolve(dir, 'calls');
+        const harness = `
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      opts.livePriority === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${opts.livePriority ?? 'none'}')" "print('window=w-o2')"`
+    } ;;
+    *'commits?sha=main&path=server'*) ${
+      opts.head === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${opts.head}'`
+    } ;;
+    *commits/*/statuses*) ${
+      opts.headState === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `echo '${opts.headState ?? 'missing'}'`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+`;
+        try {
+          const result = planShell(
+            harness + lateRetarget.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              SHA: opts.sha,
+              CONTROL_SHA: opts.controlSha ?? opts.sha,
+              GITHUB_SHA: opts.githubSha ?? opts.sha,
+              GITHUB_REPOSITORY: 'o/r',
+              STATUS_CONTEXT: 'backup-engine/certified',
+              PLAN_PRIORITY: 'none',
+            },
+            repo.dir
+          );
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('O2: late_retarget retargets in-place after lease acquisition to main newest uncertified server commit and checks out head, then late_inherit inherits on the retargeted SHA', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // Simulate runner originally checked out at c1 while c3 arrived on origin/main.
+          f.git('checkout', '-q', f.shas.c1);
+          const r = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'missing',
+          });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain(`RETARGETED IN-PLACE: ${f.shas.c1} -> ${f.shas.c3}`);
+          expect(r.stdout).toContain(`sha=${f.shas.c3}`);
+          expect(r.stdout).toContain(`control_sha=${f.shas.c3}`);
+          expect(r.stdout).toContain('retargeted=1');
+          expect(f.git('rev-parse', 'HEAD')).toBe(f.shas.c3);
+
+          // Immediately check late_inherit on the retargeted SHA (c3 shares identity with c1).
+          const inh = runLateInherit(f, f.shas.c3, { [f.shas.c1]: 'success' });
+          expect(inh.status, inh.stderr).toBe(0);
+          expect(inh.stdout).toContain(`INHERITED: Inherited from ${f.shas.c1}`);
+          expect(inh.stdout).toContain('inherited=1');
+          expect(inh.calls).toContain(`repos/o/r/statuses/${f.shas.c3}`);
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O2: late_retarget keeps SHA unchanged when head is already certified, changes backup-engine.yml, is booking, or API is unreadable', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          f.git('checkout', '-q', f.shas.c1);
+          const alreadyCert = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'success',
+          });
+          expect(alreadyCert.status, alreadyCert.stderr).toBe(0);
+          expect(alreadyCert.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(alreadyCert.stdout).toContain('retargeted=0');
+
+          const booking = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            livePriority: 'booking',
+          });
+          expect(booking.status, booking.stderr).toBe(0);
+          expect(booking.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(booking.stdout).toContain('retargeted=0');
+          expect(booking.calls).not.toContain('commits?sha=main&path=server');
+
+          const unreadableHead = runLateRetarget(f, { sha: f.shas.c1, head: 'FAIL' });
+          expect(unreadableHead.status, unreadableHead.stderr).toBe(0);
+          expect(unreadableHead.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(unreadableHead.stdout).toContain('retargeted=0');
+
+          const unreadableStatus = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'FAIL',
+          });
+          expect(unreadableStatus.status, unreadableStatus.stderr).toBe(0);
+          expect(unreadableStatus.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(unreadableStatus.stdout).toContain('retargeted=0');
+
+          // Workflow file changed between GITHUB_SHA and head -> must not retarget (preserves producer provenance).
+          f.git('checkout', '-q', 'main');
+          f.write('.github/workflows/backup-engine.yml', '# workflow modified\n');
+          const wfSha = f.commit('c4: modify backup-engine.yml');
+          origin.pushMain();
+          f.git('checkout', '-q', f.shas.c1);
+          const wfBlocked = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: wfSha,
+            headState: 'missing',
+          });
+          expect(wfBlocked.status, wfBlocked.stderr).toBe(0);
+          expect(wfBlocked.stdout).toContain('preserve producer provenance');
+          expect(wfBlocked.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(wfBlocked.stdout).toContain('retargeted=0');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O2: late_priority never drops an already-acquired lease for a newer ordinary push (only yields for owner-window booking priority)', () => {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-o2-'));
+        const calls = resolve(dir, 'calls');
+        const sha = 'e'.repeat(40);
+        const harness = `
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*)
+      printf '%s\\n' "print('priority=none')" "print('window=')" ;;
+    *) return 1 ;;
+  esac
+}
+ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
+`;
+        try {
+          const r = planShell(harness + latePriority.run, {
+            CALLS: calls,
+            HOME: dir,
+            SHA: sha,
+            RUN_ID: '700',
+            RUN_ATTEMPT: '1',
+            SSH_KEY: 'fixture-key-not-a-credential',
+            STANDBY_HOST: '192.0.2.1',
+            STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+            GITHUB_REPOSITORY: 'o/r',
+            GITHUB_SHA: sha,
+            PLAN_PRIORITY: 'none',
+          });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).not.toContain('SUPERSEDED');
+          expect(r.stdout).not.toContain('deferred=1');
+          const callLog = existsSync(calls) ? readFileSync(calls, 'utf8') : '';
+          expect(callLog).not.toContain('actions/workflows/backup-engine.yml/runs');
+          expect(callLog).not.toContain('ssh ');
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      });
+
+      function runLateInherit(
+        repo: ReturnType<typeof fixture>,
+        targetSha: string,
+        states: Record<string, string>,
+        writeExit = 0
+      ) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-inherit-'));
+        const calls = resolve(dir, 'calls');
+        const harness = `
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$2" in
+    repos/o/r/statuses/*)
+      return ${writeExit} ;;
+    repos/o/r/commits/*/statuses*)
+      sha=\${2#repos/o/r/commits/}; sha=\${sha%%/statuses*}
+      case "$sha" in
+${Object.entries(states)
+  .map(([k, v]) => `        ${k}) ${v === 'unreadable' ? 'return 1' : `echo '${v}'`} ;;`)
+  .join('\n')}
+        *) echo missing ;;
+      esac ;;
+    *) return 1 ;;
+  esac
+}
+ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
+`;
+        try {
+          const result = planShell(
+            harness + lateInherit.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              SHA: targetSha,
+              DEPTH: '60',
+              STATUS_CONTEXT: 'backup-engine/certified',
+              GITHUB_REPOSITORY: 'o/r',
+              GITHUB_SERVER_URL: 'https://github.com',
+              GITHUB_RUN_ID: '701',
+              RUN_ID: '701',
+              RUN_ATTEMPT: '1',
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+            },
+            repo.dir
+          );
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('late_inherit inherits a newly certified identical ancestor after lease acquisition and immediately releases the host lease', () => {
+        const f = fixture();
+        try {
+          const r = runLateInherit(f, f.shas.c3, { [f.shas.c1]: 'success' });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain(`INHERITED: Inherited from ${f.shas.c1}`);
+          expect(r.stdout).toContain('inherited=1');
+          expect(r.calls).toContain(`repos/o/r/statuses/${f.shas.c3}`);
+          expect(r.calls).toContain('-f state=success');
+          expect(r.calls).toMatch(
+            /ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/
+          );
+        } finally {
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('late_inherit releases the lease immediately if the target SHA itself became certified while waiting', () => {
+        const f = fixture();
+        try {
+          const r = runLateInherit(f, f.shas.c3, { [f.shas.c3]: 'success' });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain(`ALREADY CERTIFIED: ${f.shas.c3}`);
+          expect(r.stdout).toContain('inherited=1');
+          expect(r.calls).not.toContain(`repos/o/r/statuses/${f.shas.c3}`);
+          expect(r.calls).toMatch(
+            /ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/
+          );
+        } finally {
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('late_inherit keeps the lease and certifies in full on failure, unreadable status, qualification boundary, or failed write', () => {
+        const f = fixture();
+        try {
+          const failedAncestor = runLateInherit(f, f.shas.c3, {
+            [f.shas.c2]: 'failure',
+            [f.shas.c1]: 'success',
+          });
+          expect(failedAncestor.status, failedAncestor.stderr).toBe(0);
+          expect(failedAncestor.stdout).toContain('inherited=0');
+          expect(failedAncestor.calls).not.toContain('ssh ');
+          expect(failedAncestor.calls).not.toContain('repos/o/r/statuses/');
+
+          const unreadable = runLateInherit(f, f.shas.c3, {
+            [f.shas.c2]: 'unreadable',
+            [f.shas.c1]: 'success',
+          });
+          expect(unreadable.status, unreadable.stderr).toBe(0);
+          expect(unreadable.stdout).toContain('inherited=0');
+          expect(unreadable.calls).not.toContain('ssh ');
+
+          const writeFailed = runLateInherit(f, f.shas.c3, { [f.shas.c1]: 'success' }, 1);
+          expect(writeFailed.status, writeFailed.stderr).toBe(0);
+          expect(writeFailed.stdout).toContain('could not write the late inherited certificate');
+          expect(writeFailed.stdout).toContain('inherited=0');
+          expect(writeFailed.calls).not.toContain('ssh ');
+
+          f.write('supabase/migrations/20261121000000.sql', 'select 1;\n');
+          const migSha = f.commit('migration changes backup_projection');
+          const boundary = runLateInherit(f, migSha, { [f.shas.c3]: 'success' });
+          expect(boundary.status, boundary.stderr).toBe(0);
+          expect(boundary.stdout).toContain('qualification inputs differ');
+          expect(boundary.stdout).toContain('inherited=0');
+          expect(boundary.calls).not.toContain('ssh ');
+        } finally {
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+    });
+
+    // 2026-11-21 (O1): runner-side mid-soak yield when a soaking push commit
+    // becomes unselectable before the next scheduled cutoff while keeping the
+    // offline standby host 100% network-free.
+    describe('mid-soak yield for obsolete unselectable push runs (O1)', () => {
+      const certifyJob = backup.jobs.certify;
+      const certifyStep = certifyJob.steps.find((s: any) => s.id === 'certify');
+      const publishStep = certifyJob.steps.find(
+        (s: any) => s.name === 'Publish the verdict on the exact commit'
+      );
+      const certifyCheckout = certifyJob.steps.find((s: any) =>
+        s.uses?.startsWith('actions/checkout')
+      );
+
+      // 2026-11-22T02:30:00Z = 2026-11-21 20:30 CST -> 60m (3600s < 4500s) before 21:30 CST (03:30Z) cutoff.
+      const CLOSE_TO_CUTOFF_EPOCH = String(Math.floor(Date.parse('2026-11-22T02:30:00Z') / 1000));
+      // 2026-11-22T02:00:00Z = 2026-11-21 20:00 CST -> 90m (5400s >= 4500s) before 21:30 CST cutoff.
+      const FAR_FROM_CUTOFF_EPOCH = String(Math.floor(Date.parse('2026-11-22T02:00:00Z') / 1000));
+
+      function withOrigin(f: ReturnType<typeof fixture>) {
+        const remote = mkdtempSync(resolve(tmpdir(), 'backup-o1-origin-'));
+        const cleanEnv = hookFreeEnv();
+        const r = spawnSync('git', ['init', '-q', '--bare', remote], {
+          encoding: 'utf8',
+          env: cleanEnv,
+        });
+        if (r.status !== 0) throw new Error(r.stderr);
+        f.git('remote', 'add', 'origin', remote);
+        f.git('push', '-q', 'origin', 'main');
+        return {
+          remote,
+          pushMain: () => f.git('push', '-q', 'origin', 'main'),
+          cleanup: () => rmSync(remote, { recursive: true, force: true }),
+        };
+      }
+
+      function runCertifyStep(
+        repo: ReturnType<typeof fixture>,
+        opts: {
+          sha: string;
+          event?: string;
+          freezeBaseline?: string;
+          planPriority?: string;
+          newerWaiting?: string;
+          nowEpoch?: string;
+          soakSeconds?: number;
+          breakRemote?: boolean;
+        }
+      ) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-o1-certify-'));
+        const calls = resolve(dir, 'calls');
+        const summary = resolve(dir, 'summary.md');
+        const soakS = opts.soakSeconds ?? 4;
+        const harness = `
+ssh() {
+  echo "ssh $*" >> "$CALLS"
+  case "$*" in
+    *'standby-engine certify'*)
+      sleep ${soakS}
+      echo '{"verdict":"pass","sha":"${opts.sha}"}'
+      return 0 ;;
+    *'stop_for_restore'*)
+      echo "CLEANUP_CALLED" >> "$CALLS"
+      return 0 ;;
+    *) return 0 ;;
+  esac
+}
+scp() {
+  echo "scp $*" >> "$CALLS"
+  printf '%s\\n' '{"migrations":[]}' > schema-evidence.json
+  return 0
+}
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *actions/workflows/backup-engine.yml/runs*) ${
+      opts.newerWaiting === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `echo '${opts.newerWaiting ?? '1'}'`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+`;
+        if (opts.breakRemote) {
+          repo.git('remote', 'set-url', 'origin', resolve(dir, 'missing-origin.git'));
+        }
+        try {
+          const result = planShell(
+            harness + certifyStep.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              GITHUB_STEP_SUMMARY: summary,
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+              SHA: opts.sha,
+              CONTROL_SHA: opts.sha,
+              REFRESH_RESULT: 'success',
+              EVENT: opts.event ?? 'push',
+              FREEZE_BASELINE: opts.freezeBaseline ?? '',
+              PLAN_PRIORITY: opts.planPriority ?? 'none',
+              RUN_ID: '800',
+              GITHUB_REPOSITORY: 'o/r',
+              YIELD_CHECK_INTERVAL: '1',
+              O1_NOW_EPOCH: opts.nowEpoch ?? CLOSE_TO_CUTOFF_EPOCH,
+            },
+            repo.dir
+          );
+          return {
+            ...result,
+            calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '',
+            summary: existsSync(summary) ? readFileSync(summary, 'utf8') : '',
+          };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('keeps standby-engine.sh strictly offline and wires O1 runner-side inputs + verdict suppression', () => {
+        const standby = read('server/standby/standby-engine.sh');
+        const cmdCertify = standby.slice(standby.indexOf('cmd_certify() {'));
+        expect(cmdCertify).not.toContain('gh api');
+        expect(cmdCertify).not.toContain('git fetch');
+        expect(certifyCheckout.with['sparse-checkout']).toContain(
+          'scripts/ci/read-engine-prequalification.py'
+        );
+        expect(certifyCheckout.with['sparse-checkout-cone-mode']).toBe(false);
+        expect(certifyStep.env.EVENT).toBe('${{ github.event_name }}');
+        expect(certifyStep.env.FREEZE_BASELINE).toBe('${{ needs.plan.outputs.freeze_baseline }}');
+        expect(certifyStep.env.PLAN_PRIORITY).toBe('${{ needs.plan.outputs.priority }}');
+        expect(certifyStep.env.RUN_ID).toBe('${{ github.run_id }}');
+        expect(publishStep.env.YIELDED).toBe('${{ steps.certify.outputs.yielded }}');
+        expect(publishStep.if).toBe('always()');
+      });
+
+      it('yields cleanly mid-soak when CONTROL_INPUTS projection diverges on origin/main within 75m of cutoff with a waiting push run, and publishes NO failure/error status', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('server/scripts/engine-release-transaction.sh', '# updated control script\n');
+          f.commit('c4: control input changed on main');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 10 });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('YIELDED_OBSOLETE:');
+          expect(r.stdout).toContain('control_projection_diverged');
+          expect(r.stdout).toContain('yielded=1');
+          expect(r.stdout).not.toContain('rc=1');
+          expect(r.calls).toContain('CLEANUP_CALLED');
+          expect(r.calls).toContain('stop_for_restore');
+          expect(r.summary).toContain('YIELDED_OBSOLETE');
+
+          // Publish step exits 0 and writes ZERO failure/error status when YIELDED=1.
+          const pubCalls = mkdtempSync(resolve(tmpdir(), 'backup-o1-pub-'));
+          const pubLog = resolve(pubCalls, 'calls');
+          try {
+            const pub = planShell(`gh() { echo "WRITE $*" >> "$CALLS"; }\n` + publishStep.run, {
+              CALLS: pubLog,
+              SHA: soakingSha,
+              RC: '',
+              YIELDED: '1',
+              JOB_STATUS: 'success',
+              INSTALLED: '',
+              PENDING: 'success',
+              POLICY: 'success',
+              REFRESH: 'success',
+              TURN: '1',
+              GITHUB_REPOSITORY: 'o/r',
+              GITHUB_SERVER_URL: 'https://github.com',
+              GITHUB_RUN_ID: '800',
+              STATUS_CONTEXT: 'backup-engine/certified',
+            });
+            expect(pub.status, pub.stderr).toBe(0);
+            expect(pub.stdout).toContain('YIELDED_OBSOLETE');
+            expect(existsSync(pubLog) ? readFileSync(pubLog, 'utf8') : '').toBe('');
+          } finally {
+            rmSync(pubCalls, { recursive: true, force: true });
+          }
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('yields cleanly mid-soak when supabase/migrations diverges on origin/main within 75m of cutoff with a waiting push run', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('supabase/migrations/20261122023000_new.sql', 'select 1;\n');
+          f.commit('c4: migration merged on main');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 10 });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('YIELDED_OBSOLETE:');
+          expect(r.stdout).toContain('migrations_tree_diverged');
+          expect(r.stdout).toContain('yielded=1');
+          expect(r.calls).toContain('CLEANUP_CALLED');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('does NOT yield when SHA is still selectable (only ordinary server code changed), far from cutoff (>= 75m), or no newer waiting push exists', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          // Only server/src/index.ts changed on main: neither projection nor migrations diverged.
+          const soakingSha = f.shas.c1;
+          f.write('server/src/index.ts', 'export const v = 99;\n');
+          f.commit('c4: ordinary server change only');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const stillSelectable = runCertifyStep(f, { sha: soakingSha, soakSeconds: 2 });
+          expect(stillSelectable.status, stillSelectable.stderr).toBe(0);
+          expect(stillSelectable.stdout).toContain('rc=0');
+          expect(stillSelectable.stdout).not.toContain('yielded=1');
+          expect(stillSelectable.calls).not.toContain('CLEANUP_CALLED');
+
+          // Now diverge CONTROL_INPUTS on main, and test >= 75m from cutoff and 0 waiting runs.
+          f.git('checkout', '-q', 'main');
+          f.write('server/scripts/engine-release-transaction.sh', '# diverged\n');
+          f.commit('c5: control diverged');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const farFromCutoff = runCertifyStep(f, {
+            sha: soakingSha,
+            nowEpoch: FAR_FROM_CUTOFF_EPOCH,
+            soakSeconds: 2,
+          });
+          expect(farFromCutoff.status, farFromCutoff.stderr).toBe(0);
+          expect(farFromCutoff.stdout).toContain('rc=0');
+          expect(farFromCutoff.stdout).not.toContain('yielded=1');
+          expect(farFromCutoff.calls).not.toContain('gh ');
+
+          const noWaitingRun = runCertifyStep(f, {
+            sha: soakingSha,
+            newerWaiting: '0',
+            soakSeconds: 2,
+          });
+          expect(noWaitingRun.status, noWaitingRun.stderr).toBe(0);
+          expect(noWaitingRun.stdout).toContain('rc=0');
+          expect(noWaitingRun.stdout).not.toContain('yielded=1');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('NEVER yields booking, freeze_baseline, workflow_dispatch, schedule, or repository_dispatch runs, and keeps soaking on unreadable checks (CLAUDE.md 10.86)', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('supabase/migrations/20261122023100_new.sql', 'select 1;\n');
+          f.commit('c4: migration diverged');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          for (const cfg of [
+            { planPriority: 'booking' },
+            { freezeBaseline: '1' },
+            { event: 'workflow_dispatch' },
+            { event: 'schedule' },
+            { event: 'repository_dispatch' },
+          ]) {
+            const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 1, ...cfg });
+            expect(r.status, r.stderr).toBe(0);
+            expect(r.stdout).toContain('rc=0');
+            expect(r.stdout).not.toContain('yielded=1');
+            expect(r.calls).not.toContain('CLEANUP_CALLED');
+            expect(r.calls).not.toContain('gh ');
+          }
+
+          // CLAUDE.md 10.86: unreadable gh api -> keep soaking.
+          const ghFail = runCertifyStep(f, {
+            sha: soakingSha,
+            newerWaiting: 'FAIL',
+            soakSeconds: 2,
+          });
+          expect(ghFail.status, ghFail.stderr).toBe(0);
+          expect(ghFail.stdout).toContain('rc=0');
+          expect(ghFail.stdout).not.toContain('yielded=1');
+          expect(ghFail.calls).not.toContain('CLEANUP_CALLED');
+
+          // CLAUDE.md 10.86: unreadable git fetch -> keep soaking.
+          const fetchFail = runCertifyStep(f, {
+            sha: soakingSha,
+            breakRemote: true,
+            soakSeconds: 2,
+          });
+          expect(fetchFail.status, fetchFail.stderr).toBe(0);
+          expect(fetchFail.stdout).toContain('rc=0');
+          expect(fetchFail.stdout).not.toContain('yielded=1');
+          expect(fetchFail.calls).not.toContain('CLEANUP_CALLED');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+    });
   });
   it('serializes all Backup candidates via standby host lease without push-eviction cancellations and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({
@@ -1272,7 +2536,7 @@ ${Object.entries(states)
     expect(plan).toContain('sha="$SEALED_SHA"');
     expect(plan).toContain('refresh=force');
     expect(backup.jobs.certify.if).toBe(
-      "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+      "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     );
     const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
     expect(certify.env.REFRESH_RESULT).toBe('${{ needs.refresh.result }}');

@@ -11,7 +11,7 @@
  * - A key is registered with its kind, its inclusive range and its compiled default. A published value outside the
  *   range, of the wrong kind, or a key not listed here makes the whole published version invalid: the engine refuses it
  *   and the last good version keeps serving (snapshot.ts parseRuntimeSettings).
- * - compiledDefault is the value the code uses today. It is a literal on purpose (no import of the consuming module,
+ * - compiledDefault is the value the code uses today. It is a literal on purpose (no import of the consuming module; the one import, HorseOmahaOptionGameScope.ts, is a leaf,
  *   so this file can be read from anywhere without an import cycle); compiledDefaultsMatchTheCode.law.test.ts holds
  *   every literal equal to the constant the code reads, and the seed version of the migration equal to this list.
  * - Changing a compiledDefault is a behaviour change and needs a release like any other code change. Publishing a
@@ -22,8 +22,22 @@
  * worker); they keep their own table, authority rules and fail-safe, and this list carries only numeric parameters.
  */
 
+import {
+  OMAHA_OPTION_GAME_SCOPE_OPTIONS,
+  OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX,
+} from '../HorseOmahaOptionGameScope.js';
+import {
+  OMAHA_BLANKET_ROWS_OFF_REGISTRY,
+  OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
+} from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
+
 /** Where a setting is consumed. */
-export type RuntimeSettingConsumer = 'horse_decision' | 'lightning_fast_fold';
+export type RuntimeSettingConsumer =
+  | 'horse_decision'
+  | 'horse_option_game_scope'
+  | 'horse_blanket_rows_off'
+  | 'lightning_fast_fold'
+  | 'horse_stack_management';
 
 export interface RuntimeSettingSpec {
   /** Dotted key, `<area>.<name>`, as published in the settings JSON. */
@@ -147,6 +161,42 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       source: 'LightningHorse.ts LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX',
       description: "Lightning: The Most Deliberate Horse's Personal Tempo Factor",
     },
+    // ---- Horse stack management (HorseCashStackCeiling.ts): not a decision option, read at the hand boundary ----
+    {
+      key: 'horse.cashStackCeilingBB',
+      kind: 'integer',
+      min: 0,
+      max: 2_000,
+      compiledDefault: 0,
+      consumer: 'horse_stack_management',
+      source:
+        'HorseCashStackCeiling.ts HORSE_CASH_STACK_CEILING_COMPILED_BB (0 is off: no ceiling)',
+      description:
+        'PLO4/PLO5 Cash: The Stack, In Big Blinds, Above Which A Horse Books Its Win And Leaves (0 = Off)',
+    },
+    // ---- The game scope of the omaha* options (HorseOmahaOptionGameScope.ts): one key per listed option ----
+    ...OMAHA_OPTION_GAME_SCOPE_OPTIONS.map((option) => ({
+      key: OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX + option,
+      kind: 'integer',
+      min: 0,
+      max: 5,
+      compiledDefault: 0,
+      consumer: 'horse_option_game_scope',
+      source: `HorseOmahaOptionGameScope.ts (opts.omahaOptionGameScope['${option}']; 0 is no scope)`,
+      description: `PLO4/PLO5 Cash: The Game ${option} May Be On In (0 = Both, 4 = PLO4 Only, 5 = PLO5 Only)`,
+    })),
+    // ---- The declared list of omahaBlanketRowsOffInPlo45Cash (HorseOmahaBlanketRowsOffInPlo45Cash.ts): one key per
+    // registry member; read only while that switch is on and only in a PLO4/PLO5 cash decision ----
+    ...OMAHA_BLANKET_ROWS_OFF_REGISTRY.map((option) => ({
+      key: OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX + option,
+      kind: 'integer',
+      min: 0,
+      max: 1,
+      compiledDefault: 0,
+      consumer: 'horse_blanket_rows_off',
+      source: `HorseOmahaBlanketRowsOffInPlo45Cash.ts (opts.omahaBlanketRowsOffList includes '${option}'; 0 is not listed)`,
+      description: `PLO4/PLO5 Cash Only: Blanket Row ${option} Off While The Blanket Rows Off List Switch Is On (0 = No, 1 = Off)`,
+    })),
   ].map((spec) => Object.freeze(spec as RuntimeSettingSpec))
 );
 
@@ -179,4 +229,13 @@ export const RUNTIME_SETTINGS_CROSS_RULES: readonly ((v: RuntimeSettingValues) =
       v['lightning.fastFoldTempoMin']! <= v['lightning.fastFoldTempoMax']!
         ? null
         : 'lightning.fastFoldTempoMin must not exceed lightning.fastFoldTempoMax',
+    // an option's game scope is 0 (both), 4 (PLO4 only) or 5 (PLO5 only): nothing else is a game
+    (v) => {
+      for (const option of OMAHA_OPTION_GAME_SCOPE_OPTIONS) {
+        const key = OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX + option;
+        const value = v[key];
+        if (value !== 0 && value !== 4 && value !== 5) return `${key} must be 0, 4 or 5`;
+      }
+      return null;
+    },
   ]);

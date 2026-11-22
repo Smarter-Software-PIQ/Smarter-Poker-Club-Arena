@@ -53,6 +53,8 @@ const ALL_SOURCE: string = walk(SRC)
 
 const BRAIN_FILES = [
   'engine/HorseLogic.ts',
+  // omahaMathCore (2026-11-19, default off): the rule reads its option (HorseLogic hands it the wager_rules result).
+  'engine/omahaMathCore/OmahaMathCoreRule.ts',
   // The V31 certified consult and the solver miss helpers moved verbatim out
   // of HorseLogic.ts (2026-11-06) and fire the same receipts and read the
   // same controls there.
@@ -92,6 +94,12 @@ const BRAIN_FILES = [
   // fire their own receipts where they answer.
   'engine/HorseOmahaPricedWiring.ts',
   'engine/HorseOmahaPricedSites.ts',
+  // The Omaha current-nuts raise (2026-11-06) reads its own option where it answers; registered 2026-11-20
+  // (EMERG ledger L43).
+  'engine/HorseOmahaCurrentNuts.ts',
+  // Omaha bluff priced against the target (2026-11-19, default off): the outermost wager_rules
+  // answer reads its own option and fires its own receipts where it answers.
+  'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit
@@ -102,6 +110,9 @@ const RECEIPT_ONLY_FILES = [
   'engine/horseDecision/ownPublicHistory.ts',
   'services/HorseExactOpponentMemory.ts',
   'services/HorseExploitHydrator.ts',
+  // OPPONENT HUD (2026-11-20, default off): the accessor counts its reads; the store counts its loads and deadline.
+  'engine/opponentHud/OpponentHud.ts',
+  'services/OpponentHudStore.ts',
   'lightning/LightningHandHost.ts',
   'lightning/LightningHorse.ts',
   // Upgrade evidence (2026-11-12): side-game answers and fast-window reads
@@ -134,6 +145,10 @@ const RECEIPT_ONLY_FILES = [
   'engine/HorseOmahaReadByStreetRule.ts',
   // Live raise-ladder alarm (2026-11-18, measurement only): the 4th consecutive minimum raise of a street.
   'engine/RaiseLadderAlarm.ts',
+  // omahaMathCore fallback counters (lane CORE-FIX-1, 2026-11-21): value-search error and equity collision in
+  // the core, tracker failure in the range tracker (the core-error counter is in OmahaMathCoreRule.ts above).
+  'engine/omahaMathCore/OmahaMathCore.ts',
+  'engine/omahaMathCore/OmahaMathCoreRangeTrack.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

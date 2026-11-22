@@ -277,6 +277,21 @@ export class RollingHandoffCoordinator {
     return this.adoptions.get(unitId(unit))?.state === 'adopting';
   }
 
+  /**
+   * A handoff successor (ENGINE_ROLE=handoff-successor) admits a unit only
+   * while it is adopting it, or to restart a unit it already adopted here.
+   * Everything else stays with the serving engine.
+   */
+  admitsAsSuccessor(unit: HandoffUnit): boolean {
+    const state = this.adoptions.get(unitId(unit))?.state;
+    return state === 'adopting' || state === 'adopted';
+  }
+
+  /** The coordinator's mode, without building a status snapshot. */
+  getMode(): CoordinatorMode {
+    return this.mode;
+  }
+
   /** The lease of this unit is moving on purpose; its loss is not an incident. */
   isTransferring(unit: HandoffUnit): boolean {
     const id = unitId(unit);
@@ -327,6 +342,14 @@ export class RollingHandoffCoordinator {
     this.yieldRun++;
     this.mode = 'serving';
     this.successor = null;
+    // A unit already handed on is not this instance's any more (no engine,
+    // no lease here). Forget its yield so that, when its lease goes stale
+    // after a dead successor and discovery admits it here again, nothing
+    // treats it as still moving away.
+    for (const [id, record] of this.yields) {
+      if (record.state === 'yielded' || record.state === 'retired_unconfirmed')
+        this.yields.delete(id);
+    }
     return this.status();
   }
 

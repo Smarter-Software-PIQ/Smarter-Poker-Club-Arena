@@ -7,9 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import {
   lightningFoldThroughFrame,
+  lightningFoldThroughFrameIsUnraisedLimp,
   lightningFoldThroughSeats,
 } from './HorseLightningFoldThrough.js';
 import { drainFires, enableBrainTelemetry, noteFire } from './BrainTelemetry.js';
+import { fastRandom, restoreFastRandom, saveFastRandom, seedFastRandom } from './HorseEval.js';
 import {
   clearStyleOptionsApplied,
   clearStyleShadowEngaged,
@@ -351,6 +353,140 @@ describe('the frame ask is a side ask (independent review of L-019, notes 2 and 
       expect(reported).toEqual(['HorseLogic.lightning_fold_through_frame_threw']);
       expect(firedNow()).toEqual({});
       spy.mockRestore();
+    }
+  });
+});
+
+describe('the root fixes of 2026-11-21 (authority file, "Why those limps and weaker entries occur in NLH")', () => {
+  const on = { lightningEarlyFoldNeedsFoldThrough: true, telemetry: true };
+  const firedNow = () => Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+  const sb = { seat: 1, user_id: id(1), cards: [], stack: 200, bet: 1 } as any;
+  const btn = { seat: 6, user_id: id(6), cards: [], stack: 200, bet: 0 } as any;
+  /** The inner policy: fold on the table as it stands; on the frame, `answer`. */
+  function frameAnswers(answer: { action: string; preflopAuthority?: unknown }) {
+    return vi.spyOn(HorseLogic as any, 'decideCaptured').mockImplementation((_p: any, gs: any) => {
+      const isFrame = gs.players.some((p: any) => p.is_folded);
+      return (isFrame ? { ...answer, thinkTime: 1 } : { action: 'fold', thinkTime: 1 }) as any;
+    });
+  }
+
+  it('mechanism 1: an unopened small blind whose frame answer is only a complete keeps the early fold', () => {
+    frameAnswers({ action: 'call' });
+    enableBrainTelemetry();
+    drainFires();
+    const d = HorseLogic.decide(sb, state({ hero: 1 }), 'balanced', {}, on);
+    expect(d.action).toBe('fold');
+    expect(firedNow()).toEqual({ lightning_fold_through_limp_kept: 1 });
+  });
+
+  it('mechanism 1: a first-in limp from the button keeps the early fold too; a raise still releases it', () => {
+    const spy = frameAnswers({ action: 'call' });
+    enableBrainTelemetry();
+    drainFires();
+    expect(HorseLogic.decide(btn, state({ hero: 6 }), 'balanced', {}, on).action).toBe('fold');
+    expect(firedNow()).toEqual({ lightning_fold_through_limp_kept: 1 });
+    spy.mockRestore();
+    frameAnswers({ action: 'raise' });
+    expect(HorseLogic.decide(btn, state({ hero: 6 }), 'balanced', {}, on).action).toBe('raise');
+    expect(firedNow()).toEqual({ lightning_fold_through_released: 1 });
+  });
+
+  it('mechanism 1: a call facing a raise, and a strength-gated cheap entry complete, still release', () => {
+    const raised = state({
+      hero: 1,
+      history: [act(3, 'raise', 'preflop', { isFullRaise: true })],
+    });
+    let spy = frameAnswers({ action: 'call' });
+    enableBrainTelemetry();
+    drainFires();
+    expect(HorseLogic.decide(sb, raised, 'balanced', {}, on).action).toBe('call');
+    expect(firedNow()).toEqual({ lightning_fold_through_released: 1 });
+    spy.mockRestore();
+    spy = frameAnswers({
+      action: 'call',
+      preflopAuthority: { events: [{ branch: 'lightning_cheap_entry_sb_complete' }] },
+    });
+    expect(HorseLogic.decide(sb, state({ hero: 1 }), 'balanced', {}, on).action).toBe('call');
+    expect(firedNow()).toEqual({ lightning_fold_through_released: 1 });
+  });
+
+  it('the predicate: preflop unraised calls only; never postflop, a raise, or a forced blind', () => {
+    const limp = { action: 'call' };
+    expect(lightningFoldThroughFrameIsUnraisedLimp(state({ hero: 1 }), limp)).toBe(true);
+    expect(lightningFoldThroughFrameIsUnraisedLimp(state({ hero: 1 }), { action: 'raise' })).toBe(
+      false
+    );
+    expect(lightningFoldThroughFrameIsUnraisedLimp(state({ hero: 1 }), { action: 'all_in' })).toBe(
+      false
+    );
+    const flop = state({ hero: 2, stage: 'flop', history: [act(3, 'bet', 'flop')] });
+    expect(lightningFoldThroughFrameIsUnraisedLimp(flop, limp)).toBe(false);
+    // a limp before the Horse is not aggression: an over-limp is still an unraised limp
+    expect(
+      lightningFoldThroughFrameIsUnraisedLimp(state({ hero: 6, history: [act(3, 'call')] }), limp)
+    ).toBe(true);
+    expect(
+      lightningFoldThroughFrameIsUnraisedLimp(state({ hero: 6, history: [act(3, 'call')] }), {
+        action: 'call',
+        preflopAuthority: { events: [{ branch: 'lightning_cheap_entry_over_limp' }] },
+      })
+    ).toBe(false);
+  });
+
+  it('mechanism 2: the frame ask replays the first ask\'s draws (one roll), and the stream ends where the option-off ask leaves it', () => {
+    const draws: Array<{ frame: boolean; r: number }> = [];
+    vi.spyOn(HorseLogic as any, 'decideCaptured').mockImplementation((_p: any, gs: any) => {
+      const frame = gs.players.some((p: any) => p.is_folded);
+      // a border hand: one jitter draw, the same draw the preflop glue takes for strengthJitter
+      const r = fastRandom();
+      fastRandom();
+      draws.push({ frame, r });
+      return { action: frame ? 'raise' : 'fold', amount: frame ? 5 : undefined, thinkTime: 1 } as any;
+    });
+    const saved = saveFastRandom();
+    try {
+      for (const seed of [1, 2, 3, 20261121]) {
+        draws.length = 0;
+        seedFastRandom(seed);
+        HorseLogic.decide(btn, state({ hero: 6 }), 'balanced', {}, {});
+        const offEnd = saveFastRandom();
+        const offDraw = draws[0]!.r;
+        draws.length = 0;
+        seedFastRandom(seed);
+        const d = HorseLogic.decide(btn, state({ hero: 6 }), 'balanced', {}, on);
+        expect(d.action).toBe('raise');
+        expect(draws.map((x) => x.frame)).toEqual([false, true]);
+        expect(draws[0]!.r).toBe(offDraw);
+        expect(draws[1]!.r, `seed ${seed}: the frame rolls the first ask's jitter again`).toBe(
+          draws[0]!.r
+        );
+        expect(saveFastRandom(), `seed ${seed}: no extra draws consumed`).toBe(offEnd);
+      }
+    } finally {
+      restoreFastRandom(saved);
+    }
+  });
+
+  it('mechanism 2: a frame ask that throws still puts the stream back', () => {
+    vi.spyOn(HorseLogic as any, 'decideCaptured').mockImplementation((_p: any, gs: any) => {
+      fastRandom();
+      if (gs.players.some((p: any) => p.is_folded)) {
+        fastRandom();
+        throw new Error('frame ask failure');
+      }
+      return { action: 'fold', thinkTime: 1 } as any;
+    });
+    const saved = saveFastRandom();
+    try {
+      seedFastRandom(99);
+      HorseLogic.decide(btn, state({ hero: 6 }), 'balanced', {}, {});
+      const offEnd = saveFastRandom();
+      seedFastRandom(99);
+      expect(HorseLogic.decide(btn, state({ hero: 6 }), 'balanced', {}, on).action).toBe('fold');
+      expect(saveFastRandom()).toBe(offEnd);
+    } finally {
+      restoreFastRandom(saved);
+      reported.length = 0;
     }
   });
 });

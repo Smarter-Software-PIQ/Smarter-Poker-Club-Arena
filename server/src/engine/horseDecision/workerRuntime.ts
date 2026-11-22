@@ -1,4 +1,7 @@
 import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { installDecisionHud } from '../opponentHud/OpponentHud.js';
+import { warmOmahaMathCore } from '../omahaMathCore/OmahaMathCoreWarmUp.js';
+import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
@@ -140,7 +143,12 @@ import {
 } from '../HorseDecisionEffects.js';
 import { prepareTournamentFutureHandFacts } from '../HorseTournamentFutureHand.js';
 import type { CapturedHorseMindDecision, HorseMindDecisionEffect } from '../HorseMind.js';
-import { restoreFastRandom, saveFastRandom, fastRandom } from '../HorseEval.js';
+import {
+  restoreFastRandom,
+  saveFastRandom,
+  fastRandom,
+  omahaReservoirReadsTotal,
+} from '../HorseEval.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
 import { bettingStructureFor } from '../BettingStructure.js';
 import { calculateContestablePot } from '../PokerEngine.js';
@@ -287,6 +295,7 @@ import {
   optionSwitchDecisionOpts,
   optionSwitchShadowFlip,
   optionSwitchShadowOptions,
+  type OptionSwitchValue,
 } from '../HorseOptionSwitch.js';
 import {
   OptionShadowBudget,
@@ -295,7 +304,17 @@ import {
   optionShadowPersonPresence,
   optionShadowPick,
   optionShadowReceiptOf,
+  type OptionShadowReceipt,
 } from '../HorseOptionShadow.js';
+import {
+  OPTION_SHADOW_STAGE,
+  OPTION_SHADOW_STAGE_ACTED_BUDGET_MS,
+  optionShadowStageCompanions,
+  optionShadowStaged,
+  OptionShadowStageGuard,
+  optionShadowStageInScope,
+  type OptionShadowStageTable,
+} from '../HorseOptionShadowStage.js';
 import {
   clearStyleOptionsApplied,
   clearStyleShadowEngaged,
@@ -316,6 +335,7 @@ import {
   type StyleShadowEngagement,
 } from '../HorseStyleShadow.js';
 import {
+  type DecisionRuleReceipt,
   decisionRuleReceiptsSoFar,
   noteSecondLookFires,
   withBrainTelemetrySuspended,
@@ -359,6 +379,11 @@ export interface HorseDecisionWorkerDependencies {
    * Absent: HORSE_OPTION_SHADOW_PER_MINUTE, else OPTION_SHADOW_PER_MINUTE_DEFAULT. 0 stops them.
    */
   optionShadowPerMinute?: number;
+  /**
+   * 2026-11-20 SHADOW STAGE (HorseOptionShadowStage): the staged PLO4/PLO5 cash options. Absent: OPTION_SHADOW_STAGE.
+   * A test passes its own table to stage an option the registry already holds.
+   */
+  optionShadowStage?: OptionShadowStageTable;
   admitFeatureAuthority?(): HorseAuthorityAdmission;
   /** v53PloTourneyIcm activation: the shipped tournament-flag selection only. */
   admitTournamentFlagAuthority?(): HorseTournamentFlagAdmission;
@@ -373,9 +398,20 @@ export interface HorseDecisionWorkerDependencies {
   journalLifecycle?: typeof journalHorseRequestLifecycle;
   /** Phase 15.1: the durable accepted-effect receipt's private journal sink. */
   journalPlanReceipt?: typeof journalHorsePlanReceipt;
+  /** 2026-11-20 SHADOW STAGE: test seam, told each staged receipt when it is made (production: absent). */
+  onStagedOptionShadowReceipt?: (
+    request: FastHorseDecisionRequest,
+    receipt: OptionShadowReceipt
+  ) => void;
   /** Release SHA bound into each receipt; absent means unavailable (null). */
   sourceRelease?: () => string | null;
   startServices(): Promise<HorseDecisionWorkerReadiness>;
+  /**
+   * Worker-start warm-up (2026-11-21, lane CORE-POOLED-3): called once, after startServices and before READY is
+   * sent, so no request can be waiting for it. Production: one throwaway PLO math core computation
+   * (OmahaMathCoreWarmUp.ts). Absent: nothing runs.
+   */
+  warmUp?(): void;
   publicProfileBootstrap?(): HorsePooledPublicBootstrap | null;
   exploitFloorBootstrap?(): ExploitHydrationResult | null;
   stopServices(): Promise<void>;
@@ -706,6 +742,21 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.styleHasHuman === true,
     styleSpeedOf(request)
   );
+  // omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead): PLO4/PLO5 cash one-board hands only; memory only,
+  // idempotent per hand; it never throws and changes no decision while the option is off.
+  omahaBetReadLearn({
+    handKey: request.handKey,
+    variant: request.riverCallContext?.variant ?? '',
+    mode: styleMemoryModeOf(request) ?? 'tournament',
+    actions: (request.actions ?? []) as never,
+    board: request.betReadBoard ?? null,
+    shown: new Map(Object.entries(request.betReadShown ?? {})),
+    showdown: request.showdown ?? null,
+    boardCount: request.riverCallContext?.boardCount ?? 1,
+    // omahaBetReadIsModeSplit: the hand's public memory domain speed (table / Lightning) files it into that mode's
+    // rows too; absent, the pooled rows only
+    speed: styleSpeedOf(request) ?? null,
+  });
 }
 
 /**
@@ -762,6 +813,13 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   journalPlanReceipt: journalHorsePlanReceipt,
   sourceRelease: () => resolveReleaseIdentity().releaseSha,
   startServices: startOwnedServices,
+  warmUp: () => {
+    const warm = warmOmahaMathCore();
+    // boot log only (like the boot steps): no counter, no decision, no journal record
+    console.log(
+      `[HorseDecisionWorker] omaha math core warm-up ${warm.ok ? 'ok' : 'failed'} in ${Math.round(warm.ms)}ms`
+    );
+  },
   publicProfileBootstrap: () => {
     const saved = publicProfileBootstrap;
     publicProfileBootstrap = null;
@@ -817,6 +875,32 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   noteFeature: noteFire,
   now: () => performance.now(),
 };
+
+/** SHADOW STAGE (2026-11-20): staged receipts held for the next journaled decision record, at most this many. */
+const STAGED_RECEIPTS_HELD = 8;
+/** One staged receipt as it rides in a later decision record: it names the decision it re-decided. */
+interface StagedOptionShadowReceipt {
+  decisionKey: string;
+  requestId: number;
+  decisionTimeMs: number;
+  receipt: OptionShadowReceipt;
+}
+
+/** SHADOW STAGE (2026-11-20): one staged re-decision handed over after its decision was answered. */
+interface OptionShadowStageDeferred {
+  request: FastHorseDecisionRequest;
+  player: FastHorseDecisionRequest['player'];
+  gameState: FastHorseDecisionRequest['gameState'];
+  base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>;
+  option: string;
+  state: OptionSwitchValue | undefined;
+  actual: { action: string; amount?: number };
+  rngBefore: number;
+  governorScale: number;
+  actedMs: number;
+  table: OptionShadowStageTable;
+  lane: number;
+}
 
 /**
  * Resolve on a later event-loop turn (setImmediate's check phase), never inside
@@ -1071,16 +1155,30 @@ export class HorseDecisionWorkerRuntime {
     ));
   }
   private optionShadowBudgetHolder: OptionShadowBudget | undefined;
+  /** 2026-11-20 SHADOW STAGE: this worker's latency breakers and Horse-only cap (HorseOptionShadowStage). */
+  private readonly optionShadowStageGuard = new OptionShadowStageGuard();
+  /** The one staged re-decision waiting for its answered decision's job to end (scheduleOptionShadowStage). */
+  private optionShadowStageDeferred: OptionShadowStageDeferred | null = null;
+  /** Jobs this worker has started: a staged re-decision runs only if no job started since its decision's. */
+  private laneJobs = 0;
+  /**
+   * Staged receipts made since the last journaled decision (at most STAGED_RECEIPTS_HELD; older ones are dropped
+   * and counted). They ride in the NEXT decision record this worker journals, field stagedOptionShadowReceipts.
+   */
+  private stagedOptionShadowReceipts: StagedOptionShadowReceipt[] = [];
   /**
    * 2026-11-15 (owner rule 11:26, every option switchable live): the registered options that are PROCESS switches
-   * rather than decision options. One today: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
-   * counts, inside a decision or not. The read is the decision's own holder on the same clock (it re-reads only
+   * rather than decision options: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
+   * counts, inside a decision or not, and (2026-11-21) styleShiftReleaseIsNoiseAware, read by the exploit learner
+   * and the gear-shift gate. The read is the decision's own holder on the same clock (it re-reads only
    * when the poll window has passed), so an off row reaches the counts at the next job, and no row, an unreadable,
    * invalid or stale read put back the source default, never the last value.
    */
   private applyProcessSwitches(): void {
     const states = this.optionSwitch.refresh(performance.now());
-    HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionSwitchDecisionOpts(states));
+    const opts = optionSwitchDecisionOpts(states);
+    HorseMind.applyFixedLimitBetsAreNeverProbesOption(opts);
+    HorseMind.applyStyleShiftReleaseIsNoiseAwareOption(opts);
   }
   private featureAuthorityAdmitted = false;
   private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
@@ -1282,6 +1380,11 @@ export class HorseDecisionWorkerRuntime {
     // taken before that is silently dropped (no phaseN_authority_worker_*
     // counter had ever reached horse_brain_telemetry before this).
     this.readyPromise = this.deps.startServices().then((readiness) => {
+      try {
+        this.deps.warmUp?.();
+      } catch {
+        /* a warm-up never stops a worker */
+      }
       const saved = this.deps.publicProfileBootstrap?.();
       if (saved && !this.observerReads.bootstrapPublicProfiles(saved))
         this.deps.noteFeature('horse_pooled_public_bootstrap_refused');
@@ -1464,10 +1567,16 @@ export class HorseDecisionWorkerRuntime {
 
   /** Test seam and graceful-worker close join. */
   async drain(): Promise<void> {
-    await this.operation;
+    // the lane can grow while it is joined (a staged shadow re-decision is put on it when its job ends)
+    let joined: Promise<void>;
+    do {
+      joined = this.operation;
+      await joined;
+    } while (joined !== this.operation);
   }
 
   private async execute(request: HorseDecisionJobRequest): Promise<void> {
+    this.laneJobs++;
     let admitted: HorseLifecycleRequest | undefined;
     try {
       await this.readyPromise;
@@ -1569,6 +1678,8 @@ export class HorseDecisionWorkerRuntime {
     } finally {
       this.cancelled.delete(request.requestId);
       this.pendingRequestIds.delete(request.requestId);
+      // SHADOW STAGE (2026-11-20): this job has ended and been answered; only now may its staged pick be scheduled
+      this.scheduleOptionShadowStage();
     }
   }
 
@@ -3014,9 +3125,22 @@ export class HorseDecisionWorkerRuntime {
    * fires never reach the scope), DEEP second looks (executeDeep is outside
    * the scope; its fires are collected and counted under second_look_) and
    * discards.
+   *
+   * UPGRADE 04 USE RECEIPT (2026-11-21): upgrade04_reservoir_used_seen, once for a
+   * FAST execution that read an Omaha reservoir (HorseEval
+   * omahaReservoirReadsTotal moved across it; the style-shadow re-decision
+   * inside it included). Fired inside the scope so the fold sees it, after
+   * executeFast has returned, so nothing the decision computed can see it. The
+   * reservoir build counter stays a separate build receipt.
    */
   private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
-    const scoped = withDecisionFireScope(() => this.executeFast(request));
+    const reservoirReadsBefore = omahaReservoirReadsTotal();
+    const scoped = withDecisionFireScope(() => {
+      const outcome = this.executeFast(request);
+      if (omahaReservoirReadsTotal() !== reservoirReadsBefore)
+        noteFire('upgrade04_reservoir_used_seen');
+      return outcome;
+    });
     // The decision has been answered (FAST_RESULT is sent inside executeFast). A fold that threw
     // here would reach execute()'s catch, mark the lifecycle `exception` and send an ERROR for an
     // answered request, so it is contained: counted, reported once per process, never rethrown.
@@ -3070,6 +3194,9 @@ export class HorseDecisionWorkerRuntime {
   }
 
   private executeFast(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): this decision's lifetime opponent profiles, from its own request
+    // (journaled with it); absent installs nothing, so every read answers as before.
+    installDecisionHud(request.opponentHud);
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;
@@ -3155,6 +3282,7 @@ export class HorseDecisionWorkerRuntime {
     const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
     // the decision's own observation counts with the state this decision journals (process switch, see above)
     HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionBrainOpts);
+    HorseMind.applyStyleShiftReleaseIsNoiseAwareOption(optionBrainOpts);
     // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
     noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // P15-A step 4: the worker-owned state this decision reads besides its
@@ -3346,17 +3474,54 @@ export class HorseDecisionWorkerRuntime {
     // OPTION SHADOW (2026-11-18): an option in shadow passed nothing to the brain above, so the acted decision is the
     // release default's. ONE of the options in shadow is re-decided flipped, never acted on; the same skip rules as
     // the action receipt plus a per-minute budget. No option in shadow: nothing runs and nothing is counted.
-    const shadowOptions = optionSwitchShadowOptions(optionStates);
+    // ON_SHADOW (2026-11-19): an option in on_shadow passed true above (exactly as on) and takes its turn here with
+    // the shadow options; its re-decision passes false.
+    // SHADOW STAGE (2026-11-20, HorseOptionShadowStage): a staged PLO4/PLO5 cash option is left out of a decision
+    // outside its games and streets. When the pick is a staged option NOTHING of its re-decision runs here: it is
+    // handed over after the answer is sent (below) and runs on a later turn of an idle worker, so the time from
+    // request to response is that of no row. An option that is not staged takes exactly the path it had.
+    // PEOPLE FIRST (2026-11-21, HorseOptionShadow): the per-minute budget never refuses a decision with a person
+    // dealt in; the Horse-only decisions of that minute are dropped instead. Every skip also counts its
+    // person-present subset (option_shadow_skipped_<reason>_person_seen). The latency guards hold for everyone.
+    // A staged pick reads no seat here (its person split is taken after the answer, runOptionShadowStage).
+    const stageTable = this.deps.optionShadowStage ?? OPTION_SHADOW_STAGE;
+    const shadowOptions = optionShadowStageInScope(
+      optionSwitchShadowOptions(optionStates),
+      player,
+      gameState,
+      stageTable
+    );
+    const shadowPick =
+      shadowOptions.length > 0 ? optionShadowPick(shadowOptions, request.decisionKey) : null;
+    const stagedPick = optionShadowStaged(shadowPick, stageTable);
+    let shadowPerson: boolean | undefined;
+    const shadowPersonDealt = (): boolean => {
+      if (shadowPerson === undefined) {
+        try {
+          shadowPerson = optionShadowPersonPresence(
+            gameState as unknown as Parameters<typeof optionShadowPersonPresence>[0],
+            request.player.user_id
+          ).personDealt;
+        } catch {
+          shadowPerson = false;
+        }
+      }
+      return shadowPerson;
+    };
+    const shadowSkipped = (reason: string): void => {
+      this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
+      if (shadowPersonDealt()) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
+    };
     if (
+      stagedPick ||
       shadowOptions.length === 0 ||
       !fastOpts ||
       captured.value.policyFallback === 'brain_exception'
     ) {
-      /* nothing in shadow: no receipt */
-    } else if (this.pendingRequestIds.size > 1)
-      this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+      /* nothing in shadow, or a staged pick (after the answer): no receipt here */
+    } else if (this.pendingRequestIds.size > 1) shadowSkipped('backlog');
     else if (!(Math.max(0, this.deps.now() - startedAt) <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
-      this.deps.noteFeature('option_shadow_skipped_budget_seen');
+      shadowSkipped('budget');
     else {
       let shadowScaleMoved = true;
       try {
@@ -3364,11 +3529,15 @@ export class HorseDecisionWorkerRuntime {
       } catch {
         /* an unreadable scale is a moved scale: skip */
       }
-      if (shadowScaleMoved) this.deps.noteFeature('option_shadow_skipped_scale_seen');
-      else if (!this.optionShadowBudget.take(this.deps.now()))
-        this.deps.noteFeature('option_shadow_skipped_rate_seen');
+      const admitted = shadowScaleMoved
+        ? null
+        : this.optionShadowBudget.admit(this.deps.now(), shadowPersonDealt());
+      if (shadowScaleMoved) shadowSkipped('scale');
+      else if (admitted === null) shadowSkipped('rate');
       else {
-        const pick = optionShadowPick(shadowOptions, request.decisionKey)!;
+        if (admitted === 'person_over')
+          this.deps.noteFeature('option_shadow_rate_person_over_seen');
+        const pick = shadowPick!;
         for (let i = 1; i < shadowOptions.length; i++)
           this.deps.noteFeature('option_shadow_rotated_out_seen');
         this.optionShadowReceipt(
@@ -3377,6 +3546,7 @@ export class HorseDecisionWorkerRuntime {
           gameState,
           fastOpts,
           pick,
+          optionStates[pick],
           captured.value,
           rngBefore,
           governorScale
@@ -3500,6 +3670,12 @@ export class HorseDecisionWorkerRuntime {
           // names the table and hand, so every such firing can be opened at the hand. Absent when no receipted
           // rule changed the decision: every other record is byte for byte what it was.
           ...(ruleReceipts ? { ruleReceipts } : {}),
+          // SHADOW STAGE (2026-11-20): staged receipts of EARLIER decisions of this worker ride here (each names
+          // its own decision by decisionKey, requestId and decisionTimeMs). No new record kind: an engine of any
+          // release reads this record as the decision record it is. Absent when there is none.
+          ...(this.stagedOptionShadowReceipts.length > 0
+            ? { stagedOptionShadowReceipts: this.stagedOptionShadowReceipts.splice(0) }
+            : {}),
         });
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');
@@ -3556,6 +3732,23 @@ export class HorseDecisionWorkerRuntime {
       throw error;
     }
     this.deps.noteFeature(`phase15_plan_issue_${planIssueDisposition}`);
+    // SHADOW STAGE (2026-11-20): the answer is sent. A staged pick is handed over here, in constant time and without
+    // reading the table's seats; execute() schedules it once this job has ended (scheduleOptionShadowStage).
+    if (stagedPick && fastOpts && captured.value.policyFallback !== 'brain_exception')
+      this.optionShadowStageDeferred = {
+        request,
+        player,
+        gameState,
+        base: fastOpts,
+        option: shadowPick!,
+        state: optionStates[shadowPick!],
+        actual: { action: captured.value.action, amount: captured.value.amount },
+        rngBefore,
+        governorScale,
+        actedMs: computeMs,
+        table: stageTable,
+        lane: this.laneJobs,
+      };
     // LIVE ENGAGEMENT RECEIPTS (2026-11-15): an option that is ON and applied its adjustment in this decision is
     // counted by format, once per engaged option per decision. Telemetry only: nothing re-decides because of an ON
     // option (the live counterfactual is Hold'em Strategy's R1), and the shadow below is unchanged.
@@ -3737,19 +3930,36 @@ export class HorseDecisionWorkerRuntime {
     gameState: FastHorseDecisionRequest['gameState'],
     base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>,
     option: string,
+    state: OptionSwitchValue | undefined,
     committed: HorseDecision,
     rngBefore: number,
-    committedScale: number
-  ): void {
-    const flippedTo = optionSwitchShadowFlip(option, base as Readonly<Record<string, unknown>>);
-    if (flippedTo === null) return;
+    committedScale: number,
+    stage: OptionShadowStageTable | null = null,
+    sink: ((receipt: OptionShadowReceipt) => void) | null = null
+  ): number | null {
+    const flippedTo = optionSwitchShadowFlip(
+      option,
+      base as Readonly<Record<string, unknown>>,
+      state
+    );
+    if (flippedTo === null) return null;
     const saved = this.deps.saveRng();
     const t0 = performance.now();
+    let redecideMs = 0;
     let would: HorseDecision | null = null;
     try {
       this.deps.restoreRng(rngBefore);
       const opts = {
         ...base,
+        // SHADOW STAGE: a staged option flipped to true takes its companions true as well (none otherwise)
+        ...(stage
+          ? optionShadowStageCompanions(
+              option,
+              flippedTo,
+              base as Readonly<Record<string, unknown>>,
+              stage
+            )
+          : {}),
         [option]: flippedTo,
         styleShadow: [],
         telemetry: false,
@@ -3776,7 +3986,8 @@ export class HorseDecisionWorkerRuntime {
       clearStyleOptionsApplied();
       clearStyleShadowEngaged();
       takeStyleReadMs();
-      this.deps.noteDecision('option_shadow_redecide', performance.now() - t0);
+      redecideMs = performance.now() - t0;
+      this.deps.noteDecision('option_shadow_redecide', redecideMs);
     }
     try {
       const presence = optionShadowPersonPresence(
@@ -3793,10 +4004,126 @@ export class HorseDecisionWorkerRuntime {
         format: gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash',
         ...presence,
       });
-      committed.optionShadowReceipt = receipt;
+      // a staged re-decision runs after the answer: its receipt goes to its own journal record, not the decision's
+      if (sink) sink(receipt);
+      else committed.optionShadowReceipt = receipt;
       for (const key of optionShadowCounterKeys(receipt)) this.deps.noteFeature(key);
     } catch {
       this.deps.noteFeature('option_shadow_unencodable_seen');
+    }
+    return redecideMs;
+  }
+
+  /**
+   * SHADOW STAGE (2026-11-20): called when a job has ended. The staged pick its decision handed over is dropped at
+   * once if any work is waiting; otherwise it is put on the lane behind one event-loop turn, so a request that
+   * arrived meanwhile is seen first.
+   */
+  private scheduleOptionShadowStage(): void {
+    const task = this.optionShadowStageDeferred;
+    this.optionShadowStageDeferred = null;
+    if (!task) return;
+    if (this.stopped || !this.accepting || this.pendingRequestIds.size > 0) {
+      this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+      return;
+    }
+    this.operation = this.operation
+      .then(async () => {
+        try {
+          await this.turnEventLoop();
+        } catch {
+          /* a failed yield must never stall or reject the only lane */
+        }
+      })
+      .then(() => {
+        try {
+          this.runOptionShadowStage(task);
+        } catch {
+          this.deps.noteFeature('option_shadow_redecide_failed_seen');
+        }
+      });
+  }
+
+  /**
+   * SHADOW STAGE (2026-11-20): the staged re-decision, after its decision was answered. It starts only on an idle
+   * worker on which no job has started since that decision (so the Horse memory and registries are what the decision
+   * left), then takes the stage's gates in order: acted-time budget, governor scale, latency breaker, Horse-only
+   * cap, the shared per-minute budget. Every skip is counted. The receipt rides in the next journaled decision record.
+   */
+  private runOptionShadowStage(task: OptionShadowStageDeferred): void {
+    if (
+      this.stopped ||
+      !this.accepting ||
+      this.pendingRequestIds.size > 0 ||
+      this.laneJobs !== task.lane
+    ) {
+      this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+      return;
+    }
+    // PEOPLE FIRST (2026-11-21): after the answer, so reading the seats here costs the decision nothing
+    let personDealt = false;
+    try {
+      personDealt = optionShadowPersonPresence(
+        task.gameState as unknown as Parameters<typeof optionShadowPersonPresence>[0],
+        task.request.player.user_id
+      ).personDealt;
+    } catch {
+      /* unreadable seats: counted as Horse-only */
+    }
+    const skipped = (reason: string): void => {
+      this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
+      if (personDealt) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
+    };
+    if (!(task.actedMs <= OPTION_SHADOW_STAGE_ACTED_BUDGET_MS)) {
+      skipped('budget');
+      return;
+    }
+    let scaleMoved = true;
+    try {
+      scaleMoved = this.deps.governorScale() !== task.governorScale;
+    } catch {
+      /* an unreadable scale is a moved scale: skip */
+    }
+    let admitted: 'within' | 'person_over' | null = null;
+    if (scaleMoved) skipped('scale');
+    else if (this.optionShadowStageGuard.disabled(task.option)) skipped('stage_disabled');
+    else if (!personDealt && !this.optionShadowStageGuard.admitHorseOnly(this.deps.now()))
+      this.deps.noteFeature('option_shadow_skipped_stage_horse_only_seen');
+    else if ((admitted = this.optionShadowBudget.admit(this.deps.now(), personDealt)) === null)
+      skipped('rate');
+    else {
+      if (admitted === 'person_over') this.deps.noteFeature('option_shadow_rate_person_over_seen');
+      const redecideMs = this.optionShadowReceipt(
+        task.request,
+        task.player,
+        task.gameState,
+        task.base,
+        task.option,
+        task.state,
+        task.actual as HorseDecision,
+        task.rngBefore,
+        task.governorScale,
+        task.table,
+        (receipt) => {
+          this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
+          if (!(this.deps.journalEnabled?.() ?? true)) return;
+          if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
+            this.stagedOptionShadowReceipts.shift();
+            this.deps.noteFeature('option_shadow_stage_receipt_dropped_seen');
+          }
+          this.stagedOptionShadowReceipts.push({
+            decisionKey: task.request.decisionKey,
+            requestId: task.request.requestId,
+            decisionTimeMs: task.request.decisionTimeMs,
+            receipt,
+          });
+        }
+      );
+      if (redecideMs !== null) {
+        this.deps.noteDecision('option_shadow_stage_redecide', redecideMs);
+        if (this.optionShadowStageGuard.note(task.option, redecideMs))
+          this.deps.noteFeature('option_shadow_stage_self_disabled_seen');
+      }
     }
   }
 
@@ -3880,6 +4207,7 @@ export class HorseDecisionWorkerRuntime {
   }
 
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
+    installDecisionHud((request as { opponentHud?: unknown }).opponentHud);
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;
@@ -3981,7 +4309,10 @@ export class HorseDecisionWorkerRuntime {
     let decision;
     let rngAfter: number | null = null;
     let governorScale!: number;
-    const secondLook: { fired: ReadonlySet<string> | null } = { fired: null };
+    const secondLook: {
+      fired: ReadonlySet<string> | null;
+      ruleReceipts: readonly DecisionRuleReceipt[] | null;
+    } = { fired: null, ruleReceipts: null };
     try {
       const player = deepFreeze(request.player);
       const gameState = deepFreeze(request.gameState);
@@ -4035,6 +4366,7 @@ export class HorseDecisionWorkerRuntime {
             )
           );
           secondLook.fired = captured.fired;
+          secondLook.ruleReceipts = captured.ruleReceipts;
           return captured.value;
         })
       );
@@ -4103,6 +4435,15 @@ export class HorseDecisionWorkerRuntime {
           readiness: this.deps.workerReadiness(),
           runtimePins: 'incomplete',
           lifecycleVersion: 1,
+          ...(secondLook.ruleReceipts && secondLook.ruleReceipts.length > 0
+            ? {
+                ruleReceipts: secondLook.ruleReceipts.map((r) => ({
+                  receipt: r.receipt,
+                  before: r.before === null ? null : { ...r.before },
+                  after: { ...r.after },
+                })),
+              }
+            : {}),
         });
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');

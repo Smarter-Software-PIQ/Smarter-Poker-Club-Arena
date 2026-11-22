@@ -38,7 +38,9 @@ class HourlyCycle(unittest.TestCase):
         self.git('init','-q')
         self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','--allow-empty','-qm','previous release')
         path = self.repo/seal.SCHEDULE_POLICY_PATH; path.parent.mkdir(parents=True)
-        policy = json.loads((ROOT/seal.SCHEDULE_POLICY_PATH).read_text())
+        # The retained v1 Phase1 policy shape; the protected policy is the v2
+        # three-hourly one since 2026-11-21 and has no Phase1 'active' state.
+        policy = {'schema': 'engine-maintenance-schedule/v1', 'policyId': 'phase1-hourly-01a1944f', 'timeZone': 'America/Chicago', 'phase1Status': 'off', 'ownerMessageId': '01a1944f-7131-7f11-8dcc-873d576e781c', 'completionEvidence': None}
         # Exercise retained historical custody with an explicit hourly fixture.
         policy.update(phase1Status='active', completionEvidence=None)
         path.write_text(json.dumps(policy))

@@ -52,9 +52,10 @@ set -euo pipefail
 REPO="${REPO:?repository is required}"
 PR="${PR:?pull request number is required}"
 MERGED_BY="${MERGED_BY:-}"
-# Test clock only (epoch ms): the workflow never sets it, so the planner reads
-# the real clock.
+# Test clock and health URL overrides only: the workflow never sets them, so
+# production runs read the real clock and live https://engine.smarter.poker/health.
 NOW_MS="${DISPATCH_NOW_MS:-}"
+ENGINE_HEALTH_URL="${DISPATCH_ENGINE_HEALTH_URL:-https://engine.smarter.poker/health}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 PLANNER=scripts/ci/merged-migration-dispatch.mjs
 
@@ -101,7 +102,25 @@ if ! gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \
   exit 1
 fi
 
-PLAN=$(node "$PLANNER" plan "$ADDED" ${NOW_MS:+"$NOW_MS"})
+# Read the serving engine's live maintenance schedule frequency (read-only).
+# CLAUDE.md 10.86: an unreadable or unrecognised /health falls back cleanly to
+# daily + :50-:03 rules without ever blocking or dropping a migration.
+SCHEDULE_FREQUENCY="daily"
+if grep -qE "(^|$(printf '\t'))supabase/migrations/" "$ADDED"; then
+  HEALTH_FREQ=$(curl -fsS --max-time 10 "$ENGINE_HEALTH_URL" 2>/dev/null \
+    | jq -r '.maintenance.schedule.frequency // "unknown"' 2>/dev/null || echo unknown)
+  case "$HEALTH_FREQ" in
+    three-hourly|daily)
+      SCHEDULE_FREQUENCY="$HEALTH_FREQ"
+      ;;
+    *)
+      SCHEDULE_FREQUENCY="unknown"
+      say "- COULD NOT TELL serving engine maintenance schedule (\`${HEALTH_FREQ:-unknown}\`); falling back to daily + :50-:03 rules."
+      ;;
+  esac
+fi
+
+PLAN=$(node "$PLANNER" plan "$ADDED" ${NOW_MS:+"$NOW_MS"} --schedule "$SCHEDULE_FREQUENCY")
 mapfile -t DISPATCH < <(jq -r '.dispatch[]' <<<"$PLAN")
 mapfile -t WINDOW < <(jq -r '.windowQueued[]' <<<"$PLAN")
 mapfile -t MISSING < <(jq -r '.notOnMain[]' <<<"$PLAN")
@@ -166,17 +185,52 @@ if [ "$(jq -r '.heldForDailyRelease' <<<"$PLAN")" = true ]; then
   say "- **HELD FOR THE DAILY ENGINE RELEASE**: ${HELD}"
   [ "$PHASE" != send ] || gh pr comment "$PR" --repo "$REPO" --body "$HELD" || true
 fi
+if [ "$(jq -r '.heldForThreeHourlyCutover' <<<"$PLAN")" = true ]; then
+  # AUTOMATIC PER-CYCLE PRE-CUTOFF DEFERRAL (2026-11-21, Optimization O3):
+  # keep production schema equal to the Backup copy across [cycle-90m, cycle+10m).
+  CYCLE=$(jq -r '.threeHourlyCycle' <<<"$PLAN")
+  CLEAR_CHICAGO=$(jq -r '.threeHourlyClearChicago' <<<"$PLAN")
+  DEFER_AT=$(jq -r '.dispatchAt' <<<"$PLAN")
+  HELD_3H="Deferring ordinary migration install until ${CLEAR_CHICAGO} Chicago to protect the ${CYCLE} 3-hourly Backup certificate (${DEFER_AT}). Its ordinary migration(s) ${LIST}are held by this dispatcher run (once, no retry) so the Backup copy still matches production at the ${CYCLE} preparation cutoff. For a production outage that cannot wait, dispatch \`apply-merged-migration\` by hand now; that install makes this cycle's certificate stale and the ${CYCLE} cutover then keeps serving."
+  say "- **HELD FOR THE THREE-HOURLY ENGINE CUTOVER**: ${HELD_3H}"
+  [ "$PHASE" != send ] || gh pr comment "$PR" --repo "$REPO" --body "$HELD_3H" || true
+fi
 if [ "$WAIT" -gt 0 ]; then
   say "- waiting ${WAIT}s, once, until $(jq -r '.dispatchAt' <<<"$PLAN") before sending anything."
   sleep "$WAIT"
 fi
 # The clock moved while waiting; ask once more rather than trust the plan.
-if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE" ${NOW_MS:+"$NOW_MS"}; then
+if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE" ${NOW_MS:+"$NOW_MS"} --schedule "$SCHEDULE_FREQUENCY"; then
   say "- **NOT DISPATCHED**: the applier would still refuse after the wait. Dispatch each, in this order, after :03 UTC: ${LIST}"
   echo "::error::Merged migrations not dispatched: ${DISPATCH[*]}"
   gh pr comment "$PR" --repo "$REPO" --body "This PR merged but the migration break window outlasted its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
   exit 1
 fi
+
+# AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77) is guaranteed
+# by the applier, not by timing here: every apply-merged-migration run installs
+# the older pending ordinary files before its own
+# (scripts/ci/install-older-merged-first.mjs), so the order these sends reach
+# the queue in no longer matters.
+
+# A SWITCHED-OFF APPLIER DROPS A DISPATCH WITHOUT A WORD (2026-11-21). GitHub
+# answers 204 to a repository_dispatch for a disabled workflow and creates no
+# run, so during an owner-window installer pause (ENGINE-OWNER-WINDOW-CUTOVER-
+# PLAYBOOK step 2) this script used to print "dispatched" for files that were
+# never queued (#11635's 20261121153607 at 18:19 UTC). Read the applier's
+# state first: paused -> say HELD and send nothing (resume-migration-installs.sh
+# sends every file merged during the pause, oldest first); unreadable -> say
+# COULD NOT TELL and send as before.
+APPLIER_STATE=$(gh api "repos/$REPO/actions/workflows/apply-merged-migration.yml" --jq .state 2>/dev/null || echo unknown)
+case "$APPLIER_STATE" in
+  active) ;;
+  disabled_manually|disabled_inactivity|disabled_fork)
+    LIST=$(printf '`%s` ' "${DISPATCH[@]}")
+    say "- **HELD**: Apply Merged Migration is switched off (\`$APPLIER_STATE\`, an installer pause), so nothing was sent; a dispatch now would be dropped without a run. \`scripts/release/resume-migration-installs.sh <pause-start-sha>\` sends these when installs resume: ${LIST}"
+    gh pr comment "$PR" --repo "$REPO" --body "This PR merged while Apply Merged Migration was switched off (installer pause), so the dispatcher sent NOTHING. The resume step (\`scripts/release/resume-migration-installs.sh <pause-start-sha>\`) sends these, oldest first: ${LIST}" || true
+    exit 0 ;;
+  *) say "- COULD NOT TELL whether Apply Merged Migration is switched on (\`$APPLIER_STATE\`); sending as before." ;;
+esac
 
 SENT=0
 for f in "${DISPATCH[@]}"; do

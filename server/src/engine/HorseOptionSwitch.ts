@@ -39,6 +39,17 @@
  * The database accepts `shadow` for exactly these names (registry:shadow-options markers); the style options keep
  * their own four states.
  *
+ * ON_SHADOW FOR A NON-STYLE OPTION (2026-11-19, Horse Switch lane; OPTION_SWITCH_ON_SHADOW_NAMES). `shadow` passes
+ * nothing, so for an option that is OFF in source and ON in production only by an `on` row (DEFAULT-ON-AUDIT F1) a
+ * shadow row would switch the rule OFF on live tables. `on_shadow` measures such a rule without changing it: the
+ * ACTED decision receives `<option>: true` exactly like `on` (optionSwitchDecisionOpts), and the worker re-decides
+ * once with `<option>: false` (optionSwitchShadowFlip), counted option_shadow_<option>_<changed|same>_seen exactly like
+ * shadow. It keeps every rule of `on` at the database (own citation, recorded evidence, off-only refused, the serving
+ * registry guard). Both values are explicit, so the release default is not needed and a 'code' option takes it; an
+ * off-only option, a style option and an option whose read is not per decision (OPTION_SWITCH_SHADOW_REFUSED) do not
+ * (optionSwitchOnShadowRefusal). Every shadow option takes it too. The database accepts `on_shadow` for exactly
+ * these names (registry:on-shadow-options markers).
+ *
  * RELEASE DEFAULT is informational: 'on' or 'off' where the code's reads say so plainly, 'code' where the code
  * decides (a parent option, a variant, a mixed read; see the ledger note) and for any option not classified yet.
  *
@@ -71,6 +82,7 @@ import {
   STYLE_SWITCH_STALE_MS,
   STYLE_SWITCH_STATES,
   type StyleSwitchOption,
+  type StyleSwitchState,
 } from './HorseStyleSwitch.js';
 
 /** The lanes of the Horse programme that own decision options. 'Programme': no lane override is recorded. */
@@ -82,7 +94,7 @@ export type OptionSwitchOwner =
   | 'Lightning'
   | 'Fixed-Limit'
   | 'Programme';
-export type OptionSwitchAnyState = 'off' | 'shadow' | 'canary' | 'on';
+export type OptionSwitchAnyState = 'off' | 'shadow' | 'on_shadow' | 'canary' | 'on';
 /** 'code': decided by code (a parent option, a variant or a mixed read), see the ledger note. */
 export type OptionSwitchReleaseDefault = 'off' | 'on' | 'code';
 
@@ -101,6 +113,11 @@ export interface OptionSwitchEntry {
    * (OPTION_SWITCH_SHADOW_NAMES). Never with a shadow arm, never for an off-only option or a 'code' release default.
    */
   readonly shadowRedecide?: boolean;
+  /**
+   * True where a non-style option supports `on_shadow`: acted with true (as `on`), re-decided once with false
+   * (OPTION_SWITCH_ON_SHADOW_NAMES). Never with a shadow arm, never for an off-only option; set wherever shadowRedecide is.
+   */
+  readonly onShadowRedecide?: boolean;
   readonly description: string;
   /** Set when the option is off-only (OPTION_SWITCH_OFF_ONLY): its status, reason and source. Enforced. */
   readonly offOnly?: OptionSwitchOffOnly;
@@ -114,7 +131,8 @@ export interface OptionSwitchOffOnly {
 }
 
 const ON_OFF = Object.freeze(['off', 'on'] as const);
-const OFF_SHADOW_ON = Object.freeze(['off', 'shadow', 'on'] as const);
+const OFF_SHADOW_ON_SHADOW_ON = Object.freeze(['off', 'shadow', 'on_shadow', 'on'] as const);
+const OFF_ON_SHADOW_ON = Object.freeze(['off', 'on_shadow', 'on'] as const);
 const OFF_ONLY = Object.freeze(['off'] as const);
 const HOLDEM = "Hold'em Strategy" as const;
 
@@ -179,6 +197,8 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'styleShadow',
         'styleCarryOverWeight',
         'horsePlayStyleForce',
+        'omahaOptionGameScope',
+        'omahaBlanketRowsOffList',
       ] satisfies ReadonlyArray<keyof HorseDecideOpts>
     ).map((name) => [name, PARAMETER])
   ),
@@ -311,12 +331,31 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v86MultiStreetUnblocked',
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
+  'omahaCurrentNutsRaise',
   // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
   'fixedLimitBetsAreNeverProbes',
+  // 2026-11-19 (Horse Switch lane, DEFAULT-ON-AUDIT): were 'code'; every read site is on when unset, so a shadow
+  // re-decision passes false. v9 / v10: every read is `(opts.<child> ?? opts.<master>) !== false` (a registered child
+  // row masks the master at its own site); v86PloOverhaul: `!== false` / `=== false`, and HorsePreflop's
+  // ctx.v86PloOverhaul is set true exactly when `opts.v86PloOverhaul !== false` (HorseLogic decidePreflopV7Glue);
+  // omahaEvFoldModel: `(opts.omahaEvFoldModel ?? true) !== false`, carried to HorseMind.decisionReadOptions from that
+  // expression; facingClosedAllIn: `=== false` turns the computed closed-all-in read off, unset leaves it on. Held by
+  // the law "an option listed release default ON is on when unset at every read site".
+  'v9',
+  'v10',
+  'v86PloOverhaul',
+  'omahaEvFoldModel',
+  'facingClosedAllIn',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
+  'omahaNoCategoricalRules',
   'omahaTournamentsExcludeCategoricalRules',
   'holdemRiverFullHouseValueIsPriced',
+  'holdemValueAndCallsArePriced',
+  'holdemCommittedNoPairIsPriced',
+  'holdemDangerBoardEquityIsPriced',
+  // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
+  'styleShiftReleaseIsNoiseAware',
   'omahaTurnRiverRaiseIsPriced',
   'omahaDrawRaiseIsPriced',
   'omahaOopTurnBarrelIsPriced',
@@ -330,6 +369,25 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaPricedPriorsByOpponentKind',
   'omahaRaiseEvCountsLossesOnce',
   'omahaSampledRaiseIsPricedAtEverySize',
+  'omahaBluffIsPricedAgainstTheTarget',
+  // 2026-11-20 EMERG lane RANGE-MODEL-2: the river current-nuts call floor (ships dark)
+  'omahaRiverCurrentNutsCallFloor',
+  // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED: the priced call of a fold facing a 4-bet (ships dark)
+  'omahaFourBetFoldPricedCall',
+  // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
+  'omahaRiverFirstToActBetIsPriced',
+  // 2026-11-20 EMERG lane OFFENCE-BUILD: the river checked-to heads-up bet on the measured response, no kind (ships dark)
+  'omahaRiverCheckedToBetIsMeasured',
+  // 2026-11-21 EMERG lane BLANKET-AUDIT: the declared blanket rows off in PLO4/PLO5 cash only (ships dark)
+  'omahaBlanketRowsOffInPlo45Cash',
+  // 2026-11-20 PLO-OWNER lane OPPONENT-HUD: the lifetime opponent profile read from hand one (ships dark)
+  'omahaOpponentLifetimeHud',
+  // 2026-11-21 PLO-OWNER lane OPPONENT-HUD-9: the decision reads that profile only with this on too (ships dark)
+  'omahaOpponentLifetimeHudDecides',
+  // 2026-11-21 PLO-OWNER lead-4 B4: priced six-max preflop read on lifetime HUD cells (ships dark)
+  'omahaPreflopReadIsPricedFromLifetime',
+  // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
+  'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
   'omahaTurnSetSizeIsPriced',
   'omahaBlockerBluffIsPriced',
@@ -340,11 +398,16 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetEvShownField',
   'omahaRiverBluffCatchIsPriced',
   'omahaCheckedToBetIsPriced',
+  'omahaCheckedToBetResponseIsMeasured',
+  'omahaCheckedToBetInLightning',
   'omahaReraisedCallVsRaisePriced',
+  'omahaPreflopJamFacingReraiseIsPriced',
   'omahaFoldModelFittedOnPeople',
   'omahaPricedInLightning',
   'omahaSlowplayMixInLightning',
   'omahaPublicBetSizeInLightning',
+  'omahaTurnStabDefenceIsPriced',
+  'omahaTurnStabLightningRow',
   'omahaTightOpponentSteal',
   'lightningParticipationHoldem',
   'lightningParticipationOmaha',
@@ -365,12 +428,18 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'readShrinkResponse',
   'readBreakEvenBluff',
   'omahaNeutralUnknown',
+  'omahaEvFoldModelSkipsPlo45',
+  'omahaNoMadeClassCap',
   'omahaTightOpponent',
   'readScopedShrink',
   'huBbDefendsToPrice',
+  // 2026-11-20: read once, as `opts.huBbDefendsUnreadToPrice === true` (HorseLogic huBbUnreadPrice; pinned by
+  // HorseHeadsUpBigBlindDefendsUnreadToPrice.law.test.ts), so off in source. It had reported 'code' while off-only.
+  'huBbDefendsUnreadToPrice',
   'huOpenerDefendsToPrice',
   'huLimpDefendsToPrice',
   'committedStackPricedIn',
+  'holdemTournamentAllInCallIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -421,6 +490,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'horsePlayStyles',
   // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
   'omahaReraisedPotFlopContinueNeedsEquityShape',
+  // 2026-11-21 (lane CORE-POOLED-6): was 'code'. Every read of the math core's PLO5 flop flag is `=== true`
+  // (OmahaMathCoreRule.ts omahaMathCoreStreetAdmitted, HorseLogic.ts recover door, OmahaMathCoreSwitchState.ts,
+  // responseValidation.ts admission), so unset is off at every read site. Listed so the registry takes the
+  // `shadow` state for it (OPTION_SHADOW_STAGE entry, companion omahaMathCore); alone it changes no decision.
+  'omahaMathCorePlo5Flop',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -430,13 +504,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.free
   'v8Draws',
   'v8HiLo',
   'v8Nlh',
-  'v9',
-  'v10',
   'v15Boats',
   'v24PloDefense',
-  'v86PloOverhaul',
-  'omahaEvFoldModel',
-  'facingClosedAllIn',
 ]);
 const releaseDefaultOf = (name: string): OptionSwitchReleaseDefault =>
   OPTION_SWITCH_RELEASE_DEFAULT_ON.includes(name)
@@ -498,14 +567,26 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also not significant in its evaluation, stays off (manifest section 4)`
   ),
   committedStackPricedIn: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // holdemTournamentAllInCallIsPriced is NOT held. Dan's exact message of 2026-11-19 18:42 America/Chicago:
+  // "nope, you need to investigate every single hand played against humans in the past 48 hours and trace back and investigate every single horse decision on every single street before you claim everything is operating perfectly because i've seen a shit ton of mistakes that need correcting!"
+  // On that order the HORSE DECISIONS lead (session_01TLQer7JfrrxcELJZV5XHPD) lifted the owner preflop range hold
+  // for this option (audit E, done under that order, found the fixed All-In-Or-Fold strength bar it replaces a
+  // blanket rule). It is switchable, default OFF, and goes on only through its evidence (league card + replay).
   vs3BetShortStack: hold(
     PREFLOP_HOLD_SOURCE,
     `${PREFLOP_HOLD_REASON}; also one seed below -2 SE (manifest section 4)`
   ),
   huOpenerDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
-  // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
-  huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // huBbDefendsUnreadToPrice is NOT held (lifted BY NAME, 2026-11-20; OPTION_SWITCH_PREFLOP_HOLD_LIFTED below).
+  // Dan's exact message of 2026-11-20 15:01 America/Chicago to the Antigravity Coordinator chat, about the Heads Up,
+  // Hold'em, PLO6, Lightning, Limit, Human vs Horse and Hand Analysis lanes:
+  // "YOU OWN THIS CODE BASE AND ARE TO MAKE ANY AND ALL DECISIONS, CHANGES, UPGRADES, ENHANCEMENTS ETC. AND COORDIANTE WITH THE ENGINE CUT OVER, HORSE DECISIONS AND ON OFF SWITCH CHATS AS NEEDED."
+  // On that order the ANTIGRAVITY COORDINATOR (session_01UxDLnHu4P9fWx3X7Mp5FjM) lifted the owner preflop range hold
+  // for this option alone. It is switchable, default OFF, and goes on only through its evidence (league card +
+  // replay; docs/horse-option-authority.d/huBbDefendsUnreadToPrice.md, "Evidence NOT MET" on the day of the lift).
+  // huBbDefendsToPrice (not supported by its declared evaluation, HU-NLH-001c), huOpenerDefendsToPrice,
+  // huLimpDefendsToPrice and every other PREFLOP_HOLD_SOURCE entry stay off-only.
   lightningCheapEntryHoldem: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   lightningCheapEntryOmaha: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 PLO Strategy wave two: the preflop stack-to-pot plan turns a heads-up preflop call into a fold
@@ -635,6 +716,48 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
   ),
+  // 2026-11-20 Antigravity Coordinator: the 270-cell Lightning selection stage (2,970,000 paired hands, seeds
+  // 31470001-31470005) graded against its frozen protocol. It acts only at hold'em tables (the Omaha option owns the
+  // Omaha variants), so its NLH figures are its own. Guard G6 failed in NLH: any failed guard rejects the candidate.
+  lightningParticipationHoldem: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'failed its declared evaluation: guard G6 broke in NLH, nit field -0.75 bb/100 (SE 0.36, z -2.07) and tight_value field -1.01 bb/100 (SE 0.40, z -2.55); primary NLH -0.24 (SE 0.32, z -0.75), no variant +2 SE',
+    source:
+      'Lightning selection stage, 09-EVALUATION-PROTOCOL-v2.md section 6, graded 2026-11-20 (docs/changelog/2026-11-20-lightning-full-matrix-graded.md; LightningEvalSummary-20261118.json sha256 28fb1550)',
+  }),
+  // 2026-11-20 Antigravity Coordinator: the scripted fixed-limit field (PR #11565, docs/horse-league-fixed-limit.md),
+  // measured after the league memory fix (HorseMind.observe now gets the betting structure, as production does).
+  // Against the scripted maniac it loses on both seeds; against the tight-value control it is flat. No cell anywhere
+  // is positive, so the measured-harm off-only entry stands until a new evaluation says otherwise.
+  fixedLimitCallIsNotACommitment: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: scripted flh maniac field -24.68 bb/100 (SE 5.45, z -4.53; seeds 20261120 -28.02 +/- 7.30 and 20261121 -21.35 +/- 8.10, 12,000 pairs each); tight-value harm control 0.00 (SE 0.02); no positive cell',
+    source:
+      'league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 (docs/horse-league-fixed-limit.md; docs/changelog/2026-11-20-league-scripted-fixed-limit-field.md)',
+  }),
+  // 2026-11-21 Antigravity Coordinator: the scripted no-limit field (PR #11634, docs/changelog/2026-11-21-holdem-scripted-
+  // no-limit-field.md). Against its value-only harm control it loses on both seeds; against the pot barreler it is not
+  // resolved. No cell anywhere is significantly positive, so it is off-only as measured harm.
+  holdemCommittedNoPairIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: value-only harm control -0.21 bb/100 (SE 0.07, z -3.02; seeds -0.20 +/- 0.10, z -2.02 and -0.22 +/- 0.10, z -2.26, both significant); pot barreler not resolved (-0.21 +/- 0.70); no significant positive cell',
+    source:
+      'league card nlh_committed_no_pair_is_priced_vs_value_barreler and _vs_pot_barreler, PR #11634 (docs/horse-option-authority.d/holdemCommittedNoPairIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
+  }),
+  // 2026-11-21 Antigravity Coordinator: same field. Against a danger-board bettor that bets value and no-pair half-pot
+  // on four-flush/four-straight boards it loses heavily on both seeds; its gain against the value-only control is the
+  // field most favourable to it. Same shape as fixedLimitCallIsNotACommitment (harm in one field, nothing in the other).
+  // The known cause is its n = 50 call-biased showdown sample of the bettor's range.
+  holdemDangerBoardEquityIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm in the league: danger-board bettor (value and no-pair half-pot bets on four-flush/four-straight boards) -7.90 bb/100 (SE 0.81, z -9.74; seeds -7.31 +/- 1.11, z -6.61 and -8.49 +/- 1.19, z -7.16); its value-only control gain +2.33 (z +7.61) is the field most favourable to it; cause: n = 50 call-biased bettor-range showdown sample',
+    source:
+      'league card nlh_danger_board_equity_is_priced_vs_danger_bettor and _vs_danger_value, PR #11634 (docs/horse-option-authority.d/holdemDangerBoardEquityIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
+  }),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
     reason: 'off-only stops an explicit true; it changes nothing by default',
@@ -687,6 +810,12 @@ export interface OptionSwitchPreflopHoldLift {
  * checkpoint ("you own this code base ... turn activation on and off as you see fit"). The lift makes the switch
  * accept `on` and `off`; it turns nothing on. omahaPreflopReraiseDefencePriced itself and every other
  * PREFLOP_HOLD_SOURCE entry stay off-only.
+ * huBbDefendsUnreadToPrice (Heads Up HU-NLH-001d, default OFF): the heads-up big blind facing the only open from an
+ * unread opener calls to its price at 20-50bb (it widens a big-blind calling range). Lifted for this name alone by the
+ * Antigravity Coordinator (session_01UxDLnHu4P9fWx3X7Mp5FjM) under the owner's delegation of 2026-11-20 15:01
+ * America/Chicago, quoted in the entry. The lift makes the switch accept `on` and `off`; it turns nothing on.
+ * huBbDefendsToPrice, huOpenerDefendsToPrice, huLimpDefendsToPrice and every other PREFLOP_HOLD_SOURCE entry stay
+ * off-only.
  */
 export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
   Record<string, OptionSwitchPreflopHoldLift>
@@ -704,6 +833,13 @@ export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
     file: 'woowoo-48h-audit-01BNteGYgf/CHECKPOINT.md',
     sha256: '63f041c4ca82354bcc6bec5edd93d7e121a56d6f8518aa99507d1d9de53b1be6',
     readAt: '2026-11-19T01:14:21Z (135,509 bytes; append-only, the digest moves as the file grows)',
+  }),
+  huBbDefendsUnreadToPrice: Object.freeze({
+    source:
+      'owner 2026-11-20 15:01 Chicago, to the Antigravity Coordinator chat: "YOU OWN THIS CODE BASE AND ARE TO MAKE ANY AND ALL DECISIONS, CHANGES, UPGRADES, ENHANCEMENTS ETC. AND COORDIANTE WITH THE ENGINE CUT OVER, HORSE DECISIONS AND ON OFF SWITCH CHATS AS NEEDED." Lift for huBbDefendsUnreadToPrice by name, alone (coordinator decision under that delegation, session_01UxDLnHu4P9fWx3X7Mp5FjM)',
+    file: 'antigravity-coordinator-01UxDLnH/OWNER-TEXT-20261120-ANTIGRAVITY-COORDINATOR-VERBATIM.md',
+    sha256: '90351f60b2dbcd6f7ce541d137fe4139c988893abf074e49de6031e5e2d9013e',
+    readAt: '2026-11-20T21:15:22Z (1,595 bytes)',
   }),
 });
 /** The names whose off-only entry is the owner preflop range hold (used by the lift law test). */
@@ -745,12 +881,16 @@ export function optionSwitchOffOnly(name: string): OptionSwitchOffOnly | null {
 export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Object.freeze({
   fixedLimitBetsAreNeverProbes:
     'a process switch: HorseMind.applyFixedLimitBetsAreNeverProbesOption applies it before every job, not per decision',
+  styleShiftReleaseIsNoiseAware:
+    'a process switch: HorseMind.applyStyleShiftReleaseIsNoiseAwareOption applies it before every job, and the opponent memory it changes is learned outside a decision',
   gtoV31CellContractV3Serving:
     'the V31 loader follows the switched value process-wide (noteGtoV31CellContractV3ServingSwitch), not per decision',
   styleLongShownMemory:
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
   holdemProfileCompletenessCap:
     'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+  omahaOpponentLifetimeHud:
+    'its lifetime record is loaded and attached only while the switch is on (OpponentHudStore arms on the switch; off = zero work), so a shadow re-decision would read no record and journal "same" falsely (lane SHADOW, 2026-11-21)',
 });
 
 /** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */
@@ -760,6 +900,17 @@ export function optionSwitchShadowRefusal(name: string): string | null {
   if (off) return `off-only (${off.status}: ${off.source})`;
   if (releaseDefaultOf(name) === 'code')
     return "its release default is decided by code ('code'), so the flipped value is not known: classify it first";
+  return null;
+}
+
+/**
+ * Why `name` cannot take `on_shadow`, or null when it can. The rule of shadow without its release-default reason: the
+ * acted value (true) and the re-decided value (false) are both explicit, so a 'code' option takes it.
+ */
+export function optionSwitchOnShadowRefusal(name: string): string | null {
+  if (Object.hasOwn(OPTION_SWITCH_SHADOW_REFUSED, name)) return OPTION_SWITCH_SHADOW_REFUSED[name]!;
+  const off = optionSwitchOffOnly(name);
+  if (off) return `off-only (${off.status}: ${off.source})`;
   return null;
 }
 
@@ -778,6 +929,26 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
+  holdemTournamentAllInCallIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop calls facing a jam",
+    'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
+  ],
+  holdemValueAndCallsArePriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up postflop',
+    "heads-up postflop value raises, made-hand bets/checks and calls priced against the bettor's line range (audit D)",
+  ],
+  holdemCommittedNoPairIsPriced: [
+    HOLDEM,
+    'NLH cash, heads-up, committed branch, no pair and no hole draw facing a wager',
+    'committed no-pair no-draw hand facing a bet chooses fold, call or jam by EV and measured fold share',
+  ],
+  holdemDangerBoardEquityIsPriced: [
+    HOLDEM,
+    'NLH cash, heads-up, turn/river four-flush or four-straight board, one pair facing a wager',
+    'one pair facing a bet on a four-flush or four-straight turn/river prices equity against measured bettor showdowns',
+  ],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],
   v23ShortDeck: [HOLDEM, 'Short deck', 'the short-deck half of the V23 variant polish'],
   v32FacingDefense: [HOLDEM, 'NLH solver facing-bet defence', 'solver facing-bet defence'],
@@ -828,6 +999,16 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Omaha (all), unknown opponent read',
     'an unknown Omaha opponent gets a neutral read',
   ],
+  omahaNoMadeClassCap: [
+    'PLO Strategy',
+    'PLO4 / PLO5 cash, facing a wager with a weak made class (PLO6 untouched)',
+    'the V40 made-hand class cap on equity does not run',
+  ],
+  omahaEvFoldModelSkipsPlo45: [
+    'PLO Strategy',
+    'PLO4 / PLO5 cash, EV bet engine fold price (PLO6 untouched)',
+    'PLO4 / PLO5 price opponent folds with the exploit bluff multiplier, as before #10104',
+  ],
   omahaHiLoTournamentFirstIn: ['Heads Up', 'PLO8 tournament, heads-up, <= 20 bb'],
   huBbDefendsToPrice: ['Heads Up', 'NLH heads-up cash, big blind facing the only open'],
   huOpenerDefendsToPrice: ['Heads Up', 'NLH heads-up cash, opener facing one 3-bet'],
@@ -848,6 +1029,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed-Limit',
     'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
     'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
+  ],
+  styleShiftReleaseIsNoiseAware: [
+    HOLDEM,
+    'Every variant, opponent exploit learning (live memory and the durable profile) and the gear-shift gate, every Horse process',
+    'the style-shift release fires only beyond sampling noise and ages only the statistic that moved (process switch)',
   ],
 };
 
@@ -908,6 +1094,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   vpipFloorDeepStackOff: 'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   omahaPreflopCallWithActionBehind:
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
+  v58MadeHandCellSkip:
+    'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */
@@ -937,20 +1125,28 @@ const oneLine = (text: string): string => {
 
 /**
  * One registered non-style option, from its ledger row: off (and on unless it is off-only), no shadow arm; shadow
- * by re-decision where optionSwitchShadowRefusal allows it.
+ * by re-decision where optionSwitchShadowRefusal allows it, on_shadow where optionSwitchOnShadowRefusal allows it.
  */
 function plainEntry(name: string, note: string, tag: string): OptionSwitchEntry {
   const override = (OVERRIDES as Readonly<Record<string, Override | undefined>>)[name];
   const offOnly = optionSwitchOffOnly(name);
   const shadow = optionSwitchShadowRefusal(name) === null;
+  const onShadow = optionSwitchOnShadowRefusal(name) === null;
   return Object.freeze({
     name,
     owner: override?.[0] ?? ('Programme' as const),
     scope: override?.[1] ?? tag,
-    states: offOnly ? OFF_ONLY : shadow ? OFF_SHADOW_ON : ON_OFF,
+    states: offOnly
+      ? OFF_ONLY
+      : shadow
+        ? OFF_SHADOW_ON_SHADOW_ON
+        : onShadow
+          ? OFF_ON_SHADOW_ON
+          : ON_OFF,
     releaseDefault: releaseDefaultOf(name),
     shadowArm: false,
     ...(shadow ? { shadowRedecide: true } : {}),
+    ...(onShadow ? { onShadowRedecide: true } : {}),
     description: override?.[2] ?? oneLine(note),
     ...(offOnly ? { offOnly } : {}),
   });
@@ -1009,6 +1205,13 @@ export const OPTION_SWITCH_OFF_ONLY_NAMES: readonly string[] = Object.freeze(
 export const OPTION_SWITCH_SHADOW_NAMES: readonly string[] = Object.freeze(
   OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.shadowRedecide === true).map((e) => e.name)
 );
+/**
+ * The registered non-style options that take `on_shadow` (acted with true, re-decided once with false). Every shadow
+ * option is one of them.
+ */
+export const OPTION_SWITCH_ON_SHADOW_NAMES: readonly string[] = Object.freeze(
+  OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.onShadowRedecide === true).map((e) => e.name)
+);
 /** The registered non-style options that may be switched on (with their own citation). */
 export const OPTION_SWITCH_ON_OFF_NAMES: readonly string[] = Object.freeze(
   OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.offOnly === undefined).map((e) => e.name)
@@ -1053,6 +1256,30 @@ export function assertOptionSwitchRegistry(entries: readonly OptionSwitchEntry[]
     }
     if (style && e.shadowRedecide === true)
       throw new Error(`option switch: ${e.name} is a style option: its shadow is its own arm`);
+    // on_shadow (2026-11-19): exactly where it is re-decided, never for a style option, never without on, and the
+    // order is off, shadow, on_shadow, on (the states list the database answers)
+    if (style && (e.onShadowRedecide === true || e.states.includes('on_shadow')))
+      throw new Error(`option switch: ${e.name} is a style option: it has no on_shadow`);
+    if (!style && e.states.includes('on_shadow') !== (e.onShadowRedecide === true))
+      throw new Error(
+        `option switch: ${e.name} takes on_shadow exactly when it is re-decided in on_shadow`
+      );
+    if (!style && e.onShadowRedecide === true) {
+      const refusal = optionSwitchOnShadowRefusal(e.name);
+      if (refusal) throw new Error(`option switch: ${e.name} cannot take on_shadow (${refusal})`);
+      if (!e.states.includes('on'))
+        throw new Error(`option switch: ${e.name} takes on_shadow only with on`);
+    }
+    if (!style && e.shadowRedecide === true && e.onShadowRedecide !== true)
+      throw new Error(`option switch: ${e.name} takes shadow, so it takes on_shadow too`);
+    if (!style) {
+      const order = ['off', 'shadow', 'on_shadow', 'on'];
+      const at = e.states.map((x) => order.indexOf(x));
+      if (at.some((i, k) => i < 0 || (k > 0 && i <= at[k - 1]!)))
+        throw new Error(
+          `option switch: ${e.name} lists its states out of order (off, shadow, on_shadow, on)`
+        );
+    }
   }
 }
 assertOptionSwitchRegistry(OPTION_SWITCH_REGISTRY);
@@ -1066,7 +1293,7 @@ export function optionSwitchStatesOf(name: string): readonly OptionSwitchAnyStat
 // The switched values of the non-style options.
 // ---------------------------------------------------------------------------------------------------------------
 
-export type OptionSwitchValue = 'off' | 'on' | 'shadow';
+export type OptionSwitchValue = 'off' | 'on' | 'shadow' | 'on_shadow';
 /**
  * What is switched right now: only the options that have a row, in registry order. An option not named runs at its
  * release default. {} = nothing switched.
@@ -1081,15 +1308,40 @@ export function optionSwitchNothingSwitched(
 }
 
 /**
+ * A name this build does not know at all: not a registered option (style or not), not a parameter or plumbing
+ * name (OPTION_SWITCH_NOT_A_SWITCH) and not a name this switch refuses (an authority-gated option, an owner hold). It is the row of another build: an option a
+ * newer release registers, written while this release is serving, or one a later release removed.
+ */
+export function optionSwitchNameIsUnknown(name: string): boolean {
+  return (
+    !PLAIN_BY_NAME.has(name) &&
+    !(STYLE_SWITCH_OPTIONS as readonly string[]).includes(name) &&
+    !Object.hasOwn(OPTION_SWITCH_NOT_A_SWITCH, name) &&
+    optionSwitchRefusal(name) === null
+  );
+}
+
+/** The unknown names of a delivered non-style set, in the order delivered; [] when there is none or no set. */
+export function optionSwitchUnknownNames(value: unknown): readonly string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.keys(value as Record<string, unknown>).filter(optionSwitchNameIsUnknown);
+}
+
+/**
  * A valid switched set (registered non-style names, each in a state it supports), in registry order; null when it
- * is not one. A name that is refused, a parameter or unknown, or `on` for an off-only option, makes the whole set
- * invalid: every non-style option then runs
- * at its release default.
+ * is not one. A name that is refused or a parameter, a style name, or a state the option does not support (`on`
+ * for an off-only option) makes the whole set invalid: every non-style option then runs at its release default.
+ *
+ * AN UNKNOWN NAME IS SKIPPED ALONE (2026-11-20, lead order). A row for a name this build does not know at all
+ * (optionSwitchNameIsUnknown) used to void the whole set, so one row written for another build silently returned
+ * every switched option to its release default. That row is now left out and every other row stands; the holder
+ * still raises option_switch_config_invalid_seen while such a row is delivered.
  */
 export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   for (const [k, s] of Object.entries(v)) {
+    if (optionSwitchNameIsUnknown(k)) continue;
     const entry = PLAIN_BY_NAME.get(k);
     if (!entry || typeof s !== 'string' || !(entry.states as readonly string[]).includes(s))
       return null;
@@ -1102,9 +1354,10 @@ export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | nul
 
 /**
  * The configuration as fn_ca_horse_option_switch_effective answers:
- *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on' | 'shadow', ... } }
+ *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on' | 'shadow' | 'on_shadow', ... } }
  * `style` belongs to StyleSwitchHolder and is not judged here. `options` may name registered non-style options
- * only, each in a state it supports; anything else is invalid.
+ * only, each in a state it supports; anything else is invalid, except a name this build does not know at all,
+ * whose row alone is skipped (optionSwitchStatesFrom; optionSwitchConfigUnknownNames lists them).
  *
  * The version 1 answer of fn_ca_horse_style_switch_effective ({ version: 1, options }) is also accepted: it is what
  * the engine reads from a database that does not have the wider function yet, it carries no non-style option, and
@@ -1125,6 +1378,100 @@ export function parseOptionSwitchConfig(
   return states ? { ok: true, states } : { ok: false };
 }
 
+/** One declared entry a replay arm cannot apply on this build, and why. */
+export interface OptionSwitchArmDrop {
+  option: string;
+  state: string;
+  reason: string;
+}
+
+/** A declared arm split option by option: what the brain will actually run with on this build. */
+export interface OptionSwitchArm {
+  /** The plain (non-style) options: a set optionSwitchStatesFrom accepts, in registry order. */
+  states: OptionSwitchStates;
+  /** The style options, for the style switch (HorseStyleSwitch); never part of `states`. */
+  style: Readonly<Partial<Record<StyleSwitchOption, StyleSwitchState>>>;
+  /** Every declared entry left out, in the order declared, with the reason. Empty when the arm is exactly as declared. */
+  dropped: readonly OptionSwitchArmDrop[];
+}
+
+/**
+ * REPLAY ARMS ARE SPLIT OPTION BY OPTION (2026-11-20). A declared or journaled option set mixes the style options
+ * (their own switch), the plain options, and possibly entries this build cannot apply (an option made off-only
+ * since the journal was written, a name this build does not register). Handed whole to the option switch, any one
+ * of those voids the set and the arm silently runs at the release defaults. This keeps every entry that applies,
+ * routes style names to `style`, and lists each entry it leaves out with the reason, so a driver can report it and
+ * refuse to score an arm whose declared difference was dropped (optionSwitchArmStrict).
+ */
+export function optionSwitchArmFrom(
+  declared: Readonly<Record<string, unknown>> | null | undefined
+): OptionSwitchArm {
+  const plain: Record<string, string> = {};
+  const style: Partial<Record<StyleSwitchOption, StyleSwitchState>> = {};
+  const dropped: OptionSwitchArmDrop[] = [];
+  for (const [option, raw] of Object.entries(declared ?? {})) {
+    const state = typeof raw === 'string' ? raw : String(JSON.stringify(raw));
+    if ((STYLE_SWITCH_OPTIONS as readonly string[]).includes(option)) {
+      if (typeof raw === 'string' && (STYLE_SWITCH_STATES as readonly string[]).includes(raw))
+        style[option as StyleSwitchOption] = raw as StyleSwitchState;
+      else
+        dropped.push({
+          option,
+          state,
+          reason: `a style option supports ${STYLE_SWITCH_STATES.join(' / ')}`,
+        });
+      continue;
+    }
+    const entry = PLAIN_BY_NAME.get(option);
+    if (!entry) {
+      dropped.push({
+        option,
+        state,
+        reason: optionSwitchRefusal(option) ?? 'not a registered option of this build',
+      });
+      continue;
+    }
+    if (typeof raw === 'string' && (entry.states as readonly string[]).includes(raw)) {
+      plain[option] = raw;
+      continue;
+    }
+    const offOnly = optionSwitchOffOnly(option);
+    dropped.push({
+      option,
+      state,
+      reason:
+        raw === 'on' && offOnly
+          ? `off-only: ${offOnly.status}`
+          : `unsupported state: the option supports ${entry.states.join(' / ')}`,
+    });
+  }
+  const states = optionSwitchStatesFrom(plain);
+  if (states === null)
+    throw new Error(
+      'optionSwitchArmFrom: a filtered set was refused (registry and filter disagree)'
+    );
+  return { states, style: Object.freeze(style), dropped: Object.freeze(dropped) };
+}
+
+/** optionSwitchArmFrom, but an arm that cannot be applied exactly as declared throws (an inert arm is never scored). */
+export function optionSwitchArmStrict(
+  declared: Readonly<Record<string, unknown>> | null | undefined
+): OptionSwitchArm {
+  const arm = optionSwitchArmFrom(declared);
+  if (arm.dropped.length > 0)
+    throw new Error(
+      `replay arm not applied as declared: ${arm.dropped.map((d) => `${d.option}=${d.state} (${d.reason})`).join('; ')}`
+    );
+  return arm;
+}
+
+/** The unknown non-style names a version 2 answer delivers (their rows are skipped alone); [] otherwise. */
+export function optionSwitchConfigUnknownNames(raw: unknown): readonly string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  const r = raw as Record<string, unknown>;
+  return r.version === 2 ? optionSwitchUnknownNames(r.options) : [];
+}
+
 /** The style half of a delivered configuration: a version 2 answer carries it under `style`. */
 export function styleConfigOf(raw: unknown): unknown {
   return raw &&
@@ -1141,11 +1488,29 @@ export type OptionSwitchReading =
 export type OptionSwitchSource = (nowMs: number) => OptionSwitchReading;
 export const ABSENT_OPTION_SWITCH_SOURCE: OptionSwitchSource = () => ({ kind: 'absent' });
 
-/** Replay: serves the recorded switched set as received now (it never ages inside a replay). */
+/**
+ * Replay: serves the recorded switched set as received now (it never ages inside a replay).
+ *
+ * A REFUSED SET IS AN ERROR HERE, NEVER SILENT DEFAULTS (2026-11-20). The live holder treats a set that
+ * optionSwitchStatesFrom refuses whole (a style name among the plain options, or a state an option does not support,
+ * e.g. `on` for an off-only option) as invalid, raises its alarm and runs every non-style option at its release
+ * default. Inside a replay nothing watches that alarm: on 2026-11-19 an arm built from a journal's full option set
+ * was refused whole, every option fell to its default and the on and off arms came out identical (coordination
+ * inbox 2026-11-19T21:38:29Z). A set this build refuses whole therefore throws, naming every entry it cannot apply;
+ * build arm sets with optionSwitchArmFrom, which splits a declared set option by option.
+ */
 export function optionSwitchSourceFromStates(
   states: OptionSwitchStates | null | undefined
 ): OptionSwitchSource {
   if (optionSwitchNothingSwitched(states)) return ABSENT_OPTION_SWITCH_SOURCE;
+  if (optionSwitchStatesFrom(states) === null) {
+    const why = optionSwitchArmFrom(states as Record<string, unknown>)
+      .dropped.map((d) => `${d.option}=${d.state} (${d.reason})`)
+      .join('; ');
+    throw new Error(
+      `replay option source: this build refuses the whole set, so every option would run at its release default: ${why || 'invalid set'}. Build the arm with optionSwitchArmFrom.`
+    );
+  }
   const options = { ...states };
   return (nowMs) => ({
     kind: 'present',
@@ -1162,7 +1527,7 @@ const RECEIPT = 'option_switch';
  * the next refresh). THE DIFFERENCE: every failure (unreadable, invalid, stale) leaves NOTHING SWITCHED, which is
  * every option at its release default, not every option off. Never throws.
  *
- * Receipts: option_switch_<option>_<on|off|shadow|default>_seen when an option's switched value changes (`default`: its
+ * Receipts: option_switch_<option>_<on|off|shadow|on_shadow|default>_seen when an option's switched value changes (`default`: its
  * row went away or the configuration failed), and option_switch_config_unreadable_seen / _invalid_seen /
  * _stale_seen.
  */
@@ -1200,6 +1565,10 @@ export class OptionSwitchHolder {
           if (parsed.ok) {
             next = parsed.states;
             receivedAt = reading.receivedAtMs;
+            // A row for a name this build does not know is skipped alone; the alarm still fires at
+            // every read that delivers one, so the row is seen and removed.
+            if (optionSwitchConfigUnknownNames(reading.raw).length > 0)
+              this.note('option_switch_config_invalid_seen');
           } else this.note('option_switch_config_invalid_seen');
         } else this.note('option_switch_config_invalid_seen');
       } catch {
@@ -1232,7 +1601,8 @@ export class OptionSwitchHolder {
 /**
  * The decision options a switched set gives EVERY Horse alike (no Horse id is read: only a style canary splits
  * Horses): `<option>: true` for on (never for an off-only option), `<option>: false` for off, nothing for an option without a row or
- * for a name that is not registered. Nothing switched gives {}.
+ * for a name that is not registered. Nothing switched gives {}. `on_shadow` gives true exactly like on (2026-11-19);
+ * shadow gives nothing.
  */
 export function optionSwitchDecisionOpts(
   states: OptionSwitchStates | null | undefined
@@ -1242,16 +1612,32 @@ export function optionSwitchDecisionOpts(
     for (const name of OPTION_SWITCH_PLAIN_NAMES)
       if (states[name] === 'on' && PLAIN_BY_NAME.get(name)?.offOnly === undefined) out[name] = true;
       else if (states[name] === 'off') out[name] = false;
+      else if (
+        states[name] === 'on_shadow' &&
+        PLAIN_BY_NAME.get(name)?.offOnly === undefined &&
+        PLAIN_BY_NAME.get(name)?.onShadowRedecide === true
+      )
+        out[name] = true;
   return out;
 }
 
-/** The options in shadow, in registry order (only options that take shadow; anything else is ignored). */
+/**
+ * The options in shadow or on_shadow, in registry order (only options that take that state; anything else is
+ * ignored). Both are re-decided the same way; only the acted value and the flip differ (optionSwitchShadowFlip).
+ */
 export function optionSwitchShadowOptions(
   states: OptionSwitchStates | null | undefined
 ): readonly string[] {
   if (!states) return [];
   const out: string[] = [];
-  for (const name of OPTION_SWITCH_SHADOW_NAMES) if (states[name] === 'shadow') out.push(name);
+  for (const name of OPTION_SWITCH_ON_SHADOW_NAMES) {
+    const entry = PLAIN_BY_NAME.get(name)!;
+    if (
+      (states[name] === 'shadow' && entry.shadowRedecide === true) ||
+      (states[name] === 'on_shadow' && entry.onShadowRedecide === true)
+    )
+      out.push(name);
+  }
   return out;
 }
 
@@ -1259,12 +1645,17 @@ export function optionSwitchShadowOptions(
  * The value the shadow re-decision passes for `option`: the opposite of what the acted decision ran with. The acted
  * value is the boolean the decision options carried (a feature flag or the caller), else the release default.
  * Null for an option that does not take shadow.
+ *
+ * `on_shadow` (2026-11-19, pass the option's switched state): the acted decision ran with true (as `on`), so the
+ * re-decision passes false. Null for an option that does not take on_shadow.
  */
 export function optionSwitchShadowFlip(
   option: string,
-  acted: Readonly<Record<string, unknown>>
+  acted: Readonly<Record<string, unknown>>,
+  state?: OptionSwitchValue
 ): boolean | null {
   const entry = PLAIN_BY_NAME.get(option);
+  if (state === 'on_shadow') return entry?.onShadowRedecide === true ? false : null;
   if (entry?.shadowRedecide !== true) return null;
   const v = acted[option];
   const live = typeof v === 'boolean' ? v : entry.releaseDefault === 'on';

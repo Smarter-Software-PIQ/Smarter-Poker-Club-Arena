@@ -30,6 +30,7 @@ on:
     types: [closed]
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
@@ -48,9 +49,11 @@ jobs:
       && github.event.pull_request.base.ref == github.event.repository.default_branch
       && github.event.pull_request.head.repo.full_name == github.repository) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
-    # Bounded: the one wait is at most 22 minutes, or 285 minutes for a merge
-    # held by the nightly release schema freeze (23:45 to 04:15 Chicago,
-    # scripts/ci/merged-migration-dispatch.mjs RELEASE_SCHEMA_FREEZE_CHICAGO).
+    # Bounded: the one wait is at most 22 minutes outside cutover holds, up to
+    # 115 minutes for a daytime three-hourly cutover deferral ([cycle-90m,
+    # cycle+10m) in scripts/ci/merged-migration-dispatch.mjs), or up to 285
+    # minutes for a merge held by the nightly release schema freeze (23:45 to
+    # 04:15 Chicago, RELEASE_SCHEMA_FREEZE_CHICAGO).
     timeout-minutes: 300
     steps:
       - name: Checkout reviewed default-branch automation

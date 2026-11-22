@@ -10,16 +10,21 @@ because a later ordinary push would have SUPERSEDED its own push run.
 This reader only READS (GitHub GETs and the public engine /health) and prints
 one verdict for the `plan` job of .github/workflows/backup-engine.yml:
 
-  priority=none       no owner engine window is booked on main, or it has
-                      closed, or its release is already serving (consumed)
-  priority=booking    the window is live and this commit is the first main
-                      commit carrying main's release controls (the booking)
-  priority=candidate  the window is live and this commit carries main's release
-                      controls after the booking commit
-  priority=predates   the window is live and this commit's release controls
-                      differ from main's, so Stage can never select it while
-                      the window is open ("control owner authorization differs")
-  priority=unknown    could not tell; the plan job behaves exactly as before
+  priority=none             no owner engine window is booked on main, or it has
+                            closed, or its release is already serving (consumed)
+  priority=booking          the window is live and this commit is the first main
+                            commit carrying main's release controls (the booking)
+  priority=booking_pending  the window is live, this commit carries main's release
+                            controls after the booking commit, and the booking
+                            commit does not yet carry backup-engine/certified =
+                            success; yield the Backup host until it does
+  priority=candidate        the window is live, this commit carries main's release
+                            controls after the booking commit, and the booking
+                            commit already carries backup-engine/certified = success
+  priority=predates         the window is live and this commit's release controls
+                            differ from main's, so Stage can never select it while
+                            the window is open ("control owner authorization differs")
+  priority=unknown          could not tell; the plan job behaves exactly as before
 
 The rules are the ones the release route already applies, not new ones:
   open/closed  scripts/ci/owner-window-ready.py decide(): the floor's
@@ -46,6 +51,9 @@ import time
 OWNER_SCHEMA = 'engine-release-activation-floor/v2-owner-window'
 RELEASE_DIR = 'server/release'
 CONTROLS = ('activation-floor.json', 'owner-maintenance-windows.json')
+STATUS_CONTEXT = 'backup-engine/certified'
+VALID_STATUS_STATES = ('success', 'pending', 'failure', 'error')
+MAX_BOOKING_WALK = 50
 ENGINE_HEALTH = 'https://engine.smarter.poker/health'
 SHA = re.compile(r'[0-9a-f]{40}')
 STAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z')
@@ -94,6 +102,47 @@ def controls(repo, sha, api):
     return pair
 
 
+def first_parent(repo, sha, api):
+    """Exact first parent SHA of `sha`, or Unknown."""
+    commit = api(f'repos/{repo}/commits/{sha}')
+    parents = commit.get('parents') if isinstance(commit, dict) else None
+    if not isinstance(parents, list) or not parents or not isinstance(parents[0], dict):
+        raise Unknown('the commit has no readable first parent')
+    parent = parents[0].get('sha')
+    if not isinstance(parent, str) or not SHA.fullmatch(parent):
+        raise Unknown('the commit has no readable first parent')
+    return parent
+
+
+def find_booking_commit(repo, start_sha, wanted, api):
+    """Walk first-parent history from `start_sha` (known to carry `wanted`) to
+    the booking commit (first commit carrying `wanted` whose first parent does
+    not). Unreadable history or exceeding the bounded walk raises Unknown."""
+    cur = start_sha
+    for _ in range(MAX_BOOKING_WALK):
+        parent = first_parent(repo, cur, api)
+        if controls(repo, parent, api) != wanted:
+            return cur
+        cur = parent
+    raise Unknown('booking commit was not found within bounded first-parent walk')
+
+
+def certified_state(repo, sha, api):
+    """Newest backup-engine/certified commit status on `sha`, or 'missing'.
+    Any unreadable or malformed status response raises Unknown (CLAUDE.md 10.86)."""
+    rows = api(f'repos/{repo}/commits/{sha}/statuses?per_page=100')
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise Unknown('booking commit statuses are unreadable')
+    for row in rows:
+        if row.get('context') != STATUS_CONTEXT:
+            continue
+        state = row.get('state')
+        if state not in VALID_STATUS_STATES:
+            raise Unknown('booking commit certification state is malformed')
+        return state
+    return 'missing'
+
+
 def decide(repo, sha, now, api=gh, serving=health):
     """Return (priority, window id or '', reason). Raises nothing."""
     try:
@@ -140,13 +189,14 @@ def decide(repo, sha, now, api=gh, serving=health):
         wanted = controls(repo, main, api)
         if controls(repo, sha, api) != wanted:
             return 'predates', owner, 'release controls differ from main'
-        commit = api(f'repos/{repo}/commits/{sha}')
-        parents = commit.get('parents') if isinstance(commit, dict) else None
-        if not isinstance(parents, list) or not parents or not isinstance(parents[0], dict):
-            raise Unknown('the commit has no readable first parent')
-        if controls(repo, parents[0].get('sha') or '', api) != wanted:
+        parent = first_parent(repo, sha, api)
+        if controls(repo, parent, api) != wanted:
             return 'booking', owner, 'first main commit carrying the booked release controls'
-        return 'candidate', owner, 'carries the booked release controls after the booking commit'
+        booking_sha = find_booking_commit(repo, parent, wanted, api)
+        booking_state = certified_state(repo, booking_sha, api)
+        if booking_state != 'success':
+            return 'booking_pending', owner, f'booking commit {booking_sha[:12]} is not yet certified ({booking_state})'
+        return 'candidate', owner, 'carries the booked release controls after the certified booking commit'
     except Unknown as error:
         return 'unknown', '', str(error)
     except (KeyError, TypeError, ValueError, AttributeError) as error:

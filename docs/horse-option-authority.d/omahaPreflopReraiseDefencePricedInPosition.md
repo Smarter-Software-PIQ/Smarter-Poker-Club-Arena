@@ -17,7 +17,7 @@ one board, no bomb pot, no All-In-Or-Fold, not a tournament, preflop. ONLY when 
 - the Horse made the first preflop raise (it opened);
 - exactly one player re-raised it (two preflop raises in all, no 4-bet; a raise over limpers who then folded counts as
   the first raise);
-- that player is a person (gs.humanUserIds, else his seat's is_horse; unknown is not the spot);
+- any player (identity-free since 2026-11-20: the spot reads nobody's kind; see "Identity-free" below);
 - every other player has folded (heads-up; a player still in, all in included, ends the spot);
 - the Horse acts after that player on every later street (seat order from the dealer).
 
@@ -27,15 +27,15 @@ omahaPreflopReraiseDefencePriced is a call (review of 01ddd45b4df, F1). It never
 R x equity x (pot after the call - rake) - call, the proposed re-raise priced the same way; equity of the exact hand
 against the 3-bettor's measured re-raise width (his posterior mean through the one read interface, the population mean
 with no evidence); R measured on recorded calls. One owner per cell: where the re-raised-pot call cell judges the call,
-the fold stands. Everywhere else, every out-of-position decision and a Horse's 3-bet included, the decision is
+the fold stands. Everywhere else, every out-of-position decision included, the decision is
 byte-identical to the option off.
 
 POSITION, ONE DEFINITION. Heads-up, "acts after the 3-bettor" is the only reading. The fast-table pricing keeps an older
 reading of position for multiway pots (HorseLogic.omahaReraisedLaneUntouched); with nobody else in the pot it gives the
 same answer, and the spot reads none of those helpers. Pinned on table cash and fast-table cash by test.
 
-The 3-bettor's kind (person or Horse) scopes the option to the cell that was measured and evaluated (a person's 3-bet);
-it is the engine's roster, not a player's account. The price reads the 3-bettor's own measured rate.
+Until 2026-11-20 the 3-bettor's kind (person or Horse) scoped the option to a person's 3-bet; since then the spot reads
+nobody's kind (section "Identity-free"). The price reads the 3-bettor's own measured rate.
 
 ## The owner's orders it rests on (verbatim)
 
@@ -123,3 +123,12 @@ the option name and the switch-list migration that adds it is installed.
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)
+
+## Identity-free (2026-11-20, lane THREEBET-POT, PLO-OWNER lead-2)
+
+Owner order (Nov 20 9:52 AM Chicago): no rule keyed on person vs Horse. The spot no longer asks
+omahaOpponentKindOf; it is the same against every 3-bettor. The price reads only that player's public re-raise rate
+(omahaPreflopReraiserReadOf: his pooled read, the population envelope mean with no evidence). On this path the rule is
+handed a fold, so no re-raise is a candidate and the kind-keyed fold-to-re-raise prior is never read. Paragraphs above
+that scope the option to a person's 3-bet describe the build before this change. Criteria declared before the grade:
+audit archive `repairs/EMERG/CRITERIA-THREEBET-POT-DEKEY.md`; results `repairs/EMERG/THREEBET-POT.md`.

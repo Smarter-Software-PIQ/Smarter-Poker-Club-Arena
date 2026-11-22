@@ -62,3 +62,23 @@ export function horseCallDeductionFraction(
     return null;
   }
 }
+
+/**
+ * The whole projected deduction of the pot after the hero calls what he faces (capped rake plus the
+ * jackpot drop, by the controller's own rules), as a share of the pot BEFORE the call: the number a
+ * verdict of the form `win = pot x (1 - rake)` needs so that `win` is what the call really wins.
+ * Null when there is nothing to call or the deduction cannot be projected. Public rules only.
+ */
+export function horseWholeDeductionOfTheCall(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): number | null {
+  if (gs.asset === 'diamonds') return null;
+  const pot = Number.isFinite(gs.pot) ? gs.pot : 0;
+  const toCall = Math.max(0, (Number(gs.currentBet) || 0) - (Number(hero.bet) || 0));
+  const call = Math.min(toCall, Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0);
+  if (!(pot > 0) || !(call > 0)) return null;
+  const fraction = horseCallDeductionFraction(hero, gs, call);
+  if (fraction === null) return null;
+  return Math.max(0, Math.min(0.5, (fraction * (pot + call)) / pot));
+}

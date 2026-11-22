@@ -61,6 +61,10 @@ import {
 } from '../HorseOmahaOopChecks.js';
 import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
 import {
+  omahaBluffPricedAdmitsCheck,
+  omahaBluffPricedAdmitsRaiseToCall,
+} from '../HorseOmahaBluffPricedAgainstTheTarget.js';
+import {
   omahaPricedAdmitsRaiseToCall,
   omahaPricedSampledAdmitsResize,
 } from '../HorseOmahaPricedWiring.js';
@@ -69,9 +73,17 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import {
+  OMAHA_RUNDOWN_RERAISE_VARIANTS,
+  omahaRundownMeasuredAdmitsCall,
+} from '../HorseOmahaRundownReraiseMeasured.js';
 import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
+import {
+  OMAHA_MATH_CORE_VARIANTS,
+  omahaMathCoreInScope,
+} from '../omahaMathCore/OmahaMathCoreRule.js';
 import {
   OMAHA_FACING_BET_EV_VARIANTS,
   omahaFacingBetEvSpot,
@@ -81,6 +93,12 @@ import {
   OMAHA_FLOP_FACING_BET_EV_VARIANTS,
   omahaFlopFacingBetEvAdmitsCall,
 } from '../HorseOmahaFlopFacingBetEv.js';
+import {
+  OMAHA_FACING_EQUITY_VARIANTS,
+  omahaFacingEquityAdmitsCall,
+} from '../HorseOmahaFacingBetEquity.js';
+import { omahaRiverCurrentNutsCallFloorAdmitsCall } from '../HorseOmahaRiverCurrentNutsCallFloor.js';
+import { omahaFourBetFoldPricedCallAdmitsCall } from '../HorseOmahaFourBetFoldPricedCall.js';
 import {
   OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
   omahaMultiwayWeakHandSpot,
@@ -97,6 +115,11 @@ import {
 } from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
+import { plo6FacingBetPricedAdmitsCall } from '../HorsePlo6FacingBetIsPriced.js';
+import {
+  OMAHA_MW_TOURNEY_VARIANTS,
+  omahaMwTourneyAdmits,
+} from '../HorseOmahaMultiwayPricedInTournaments.js';
 import {
   OMAHA_TOURNAMENT_SCOPE_ADMISSION,
   withOmahaTournamentScope,
@@ -1024,11 +1047,26 @@ export interface HorseDecisionReceiptContext {
    */
   omahaPricedRaise?: boolean;
   /**
+   * omahaMathCore (lane MATHCORE 2026-11-19): true when the worker may have run
+   * this decision with omahaMathCore on (the request's option, or the switch
+   * row last delivered, or the one before it while it still counts). Absent
+   * or false, the validator is exactly as before.
+   */
+  omahaMathCore?: boolean;
+  /**
    * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
    * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
    * option). Absent or false, the validator is exactly as before.
    */
   omahaPricedInLightning?: boolean;
+  /**
+   * HORSE DECISIONS lane 2026-11-19: the decision's own omahaBluffIsPricedAgainstTheTarget, read `=== true`.
+   * Only then are its two conversions admitted (a heads-up wager facing no bet -> the check; a flop or turn
+   * raise facing a bet -> the call, for the exact chips), in its own spot re-derived from the request. Absent
+   * or false (every caller that does not know the decision's options, and every decision while the option is
+   * off), the validator is exactly as before.
+   */
+  omahaBluffPricedAgainstTheTarget?: boolean;
   /**
    * PLO Strategy lane 2026-11-19: the decision's own omahaSlowplayMixInLightning, read `=== true`. Only then are
    * the two conversions of omahaStrongHandSlowplayMix (raise -> call, flop bet -> check) admitted in a Lightning
@@ -1036,6 +1074,20 @@ export interface HorseDecisionReceiptContext {
    * or false, the validator is exactly as before.
    */
   omahaSlowplayMixInLightning?: boolean;
+  /**
+   * HORSE DECISIONS lane 2026-11-19 (review N4): the decision's own plo6FacingBetIsPriced, read `=== true`.
+   * Only then is its PLO6 fold -> call admitted (re-run on the request, for the exact chips of the call).
+   * Absent or false, the validator is exactly as before that option existed.
+   */
+  plo6FacingBetIsPriced?: boolean;
+  /**
+   * HORSE DECISIONS lane 2026-11-19 (review N1): the decision's own omahaMultiwayIsPricedInTournaments, read
+   * `=== true`. Only then are its two conversions admitted in Omaha pot-limit tournaments (PLO4/5/6/8): a
+   * preflop call -> the fold and a postflop bet, raise or all-in facing no bet -> the check, each in the rule's
+   * own spot re-derived from the request (omahaMwTourneyAdmits). Absent or false, the validator is exactly
+   * as before.
+   */
+  omahaMultiwayPricedInTournaments?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -1229,6 +1281,20 @@ function policyGraphIsValidInScope(
       return false;
     const changed = previous !== null && !same(previous, transition.after);
     if (transition.changed !== changed || (transition.node === 'timing' && changed)) return false;
+    // omahaMathCore (lane MATHCORE 2026-11-19, default OFF): the math-first
+    // core is the outermost owner of wager_rules; its EV choice may be any
+    // legal action. Admitted only under the option the worker may have run
+    // (context.omahaMathCore), in the core's scope on the request, with the
+    // decision's own applied core receipt naming exactly this action, and only
+    // when the action is legal on the request.
+    if (
+      transition.node === 'wager_rules' &&
+      changed &&
+      omahaMathCoreAdmits(value, transition.after, expectedVariant, context)
+    ) {
+      previous = transition.after;
+      continue;
+    }
     // Wager rules add aggression or apply a named owner discipline. Two rules of
     // 2026-10-25 turn a call, raise or jam into a fold. The PLO4/5/6
     // paired-board fold (HorsePloPairedBoardFold) and the no-limit hold'em
@@ -1593,6 +1659,83 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane FACING 2026-11-19 (HorseOmahaFacingBetEquity, option
+    // omahaFacingBetIsPricedByEquity): in PLO4/PLO5 cash postflop (table and
+    // Lightning) the node's final fold facing a person's wager becomes the
+    // call when the calibrated equity times the measured realization beats
+    // the price. The verdict is a pure function of the request (cards, board,
+    // pot, chips to call, live opponents, street; card-seeded sampling), so
+    // it is re-run here: fold -> call is admitted only with the request, only
+    // where the verdict re-run on it calls, and only for the exact chips the
+    // call puts in. Its whole-stack form is an all-in, a wager action.
+    const omahaFacingEquityCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_FACING_EQUITY_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFacingEquityAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane RANGE-MODEL-2 2026-11-20 (HorseOmahaRiverCurrentNutsCallFloor, option
+    // omahaRiverCurrentNutsCallFloor): in PLO4/PLO5 cash on the river facing a wager, the node's
+    // final fold becomes the call when hero holds the exact current nuts and a full chop with every
+    // live opponent still returns the call. The floor is a pure function of the request (cards,
+    // board, dead cards, pot, chips owed, live opponents), so it is re-run here: fold -> call is
+    // admitted only where it holds, for the exact chips the call puts in. Its whole-stack form is an
+    // all-in, a wager action.
+    const omahaRiverNutsFloorCalled =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRiverCurrentNutsCallFloorAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
+    // EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (HorseOmahaFourBetFoldPricedCall, option
+    // omahaFourBetFoldPricedCall): in PLO4/PLO5 cash preflop, after hero's own raise, facing a 4-bet or
+    // more heads-up, the node's final fold becomes the call where the engine's priced call of a re-raise
+    // is positive. The spot and the price are re-run here from the request (and the same registered
+    // pricing inputs): fold -> call is admitted only where it holds, for the exact chips the call puts in.
+    const omahaFourBetFoldCalled =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      (transition.after.action === 'call' || transition.after.action === 'all_in') &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFourBetFoldPricedCallAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
+    // HORSE DECISIONS lane 2026-11-19 (HorsePlo6FacingBetIsPriced, option
+    // plo6FacingBetIsPriced, default off): in PLO6 cash facing a bet on the
+    // flop, the turn or the river, a fold (or a raise the paired-board fold
+    // folded) becomes the call where the call is priced on the exact six cards
+    // against the bettor's line range. The verdict reads no option and no
+    // opponent memory, so it is re-run on the request (no rake, either
+    // position: a superset of what the rule can call) and admitted only for
+    // the exact chips the call puts in. Its whole-stack form is an all-in, a
+    // wager action. The river raise -> call is plo6RiverRaiseToCall above.
+    // Review N4: admitted only under the decision's own option (context.plo6FacingBetIsPriced, its gate
+    // candidates), so a PLO6 fold -> call from any other cause is not admitted by this verdict's superset.
+    const plo6FacingBetPricedCalled =
+      context?.plo6FacingBetIsPriced === true &&
+      transition.node === 'wager_rules' &&
+      variant === 'plo6' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      plo6FacingBetPricedAdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
     // river a raise facing a wager with a hand that is not nut class becomes
@@ -1659,6 +1802,34 @@ function policyGraphIsValidInScope(
         transition.after.amount,
         context.omahaPricedInLightning === true
       );
+    // HORSE DECISIONS lane 2026-11-19 (HorseOmahaBluffPricedAgainstTheTarget, option
+    // omahaBluffIsPricedAgainstTheTarget): in PLO4/PLO5 cash (table and Lightning) a heads-up wager
+    // facing no bet that is not priced above the check becomes the check. The price reads the
+    // opponent memory, which the request does not carry, so both are admitted only under the
+    // decision's own option (context.omahaBluffPricedAgainstTheTarget, its gate candidates): the
+    // check in the bet-or-check spot re-derived from the request. A flop or turn
+    // raise facing a bet with no raise priced above the call becomes the call: only with the
+    // request, only in the sampled spot, only for the exact chips of the call. (Its call -> raise is
+    // a wager action, admitted below; its raise -> fold is the PLO fold admission above.)
+    const omahaBluffPricedBetToCheck =
+      context?.omahaBluffPricedAgainstTheTarget === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBluffPricedAdmitsCheck(context.player, context.gameState);
+    const omahaBluffPricedRaiseCalled =
+      context?.omahaBluffPricedAgainstTheTarget === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBluffPricedAdmitsRaiseToCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
     // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
     // with a nut-class hand becomes a call at a mixed frequency. The draw and
@@ -1759,6 +1930,22 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured, option
+    // omahaRundownReraiseRangeIsMeasured): in PLO4/PLO5 cash preflop a re-raise
+    // in a measured cell where the call earned more real chips (the squeeze
+    // from a blind with a high rundown above 250 bb) becomes the call. The
+    // cell is a pure function of the request (own cards, public actions,
+    // chips, seats), so it is re-run here: raise -> call is admitted only with
+    // the request, only in that cell and only for the exact chips of the call.
+    const omahaRundownMeasuredCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RUNDOWN_RERAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRundownMeasuredAdmitsCall(context.player, context.gameState, transition.after.amount);
     // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
     // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
     // more preflop, a fold or a re-raise becomes a call when the expected
@@ -1808,9 +1995,24 @@ function policyGraphIsValidInScope(
         (String(context.gameState.gameVariant).toLowerCase() === variant &&
           (omahaRiverBluffIntoValueLeaderSpot(context.player, context.gameState) !== null ||
             omahaMultiwayWeakHandSpot(context.player, context.gameState) !== null)));
+    // HORSE DECISIONS lane 2026-11-19 (HorseOmahaMultiwayPricedInTournaments, option
+    // omahaMultiwayIsPricedInTournaments, review N1): in Omaha pot-limit tournaments (PLO4/5/6/8) a preflop
+    // multiway call-off priced below zero becomes the fold, and a postflop multiway own bet priced below the
+    // check becomes the check. Neither puts a chip in; both are admitted only under the decision's own option
+    // (context.omahaMultiwayPricedInTournaments, its gate candidates) and only in the rule's own spot
+    // re-derived from the request (PLO8's fold is outside the paired-board fold admission above).
+    const omahaMwTourneyPriced =
+      context?.omahaMultiwayPricedInTournaments === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_MW_TOURNEY_VARIANTS.has(variant) &&
+      (transition.after.action === 'fold' || transition.after.action === 'check') &&
+      previous !== null &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaMwTourneyAdmits(context.player, context.gameState, previous, transition.after.action);
     if (
       transition.node === 'wager_rules' &&
       changed &&
+      !omahaMwTourneyPriced &&
       !omahaDisciplineBetToCheck &&
       !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
@@ -1820,9 +2022,15 @@ function policyGraphIsValidInScope(
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
       !omahaFlopFacingBetEvCalled &&
+      !omahaFacingEquityCalled &&
+      !omahaRiverNutsFloorCalled &&
+      !omahaFourBetFoldCalled &&
+      !plo6FacingBetPricedCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
       !omahaSampledRaiseResized &&
+      !omahaBluffPricedBetToCheck &&
+      !omahaBluffPricedRaiseCalled &&
       !omahaSlowplayCalled &&
       !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&
@@ -1840,6 +2048,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !omahaRundownMeasuredCalled &&
       !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&
@@ -1863,6 +2072,55 @@ function policyGraphIsValidInScope(
       amount: (value.amount as number | undefined) ?? null,
     })
   );
+}
+
+/**
+ * omahaMathCore admission: the wager_rules result is the core's applied
+ * choice. The core reads only the request and its measured tables, so the
+ * choice is checked against the request: scope, the receipt naming exactly
+ * this action, and legality (a listed legal action; a call of exactly the
+ * chips owed; a bet or raise inside the request's bounds).
+ */
+export function omahaMathCoreAdmits(
+  value: RecordValue,
+  after: HorsePolicyAction,
+  expectedVariant: string | undefined,
+  context: HorseDecisionReceiptContext | undefined
+): boolean {
+  try {
+    if (context === undefined || context.omahaMathCore !== true) return false;
+    const variant = String(expectedVariant ?? '').toLowerCase();
+    if (!OMAHA_MATH_CORE_VARIANTS.has(variant)) return false;
+    const gs = context.gameState;
+    if (String(gs.gameVariant).toLowerCase() !== variant) return false;
+    if (!omahaMathCoreInScope(context.player, gs)) return false;
+    const receipt = value.omahaMathCore;
+    if (!record(receipt) || receipt.applied !== true || receipt.switch !== 'omahaMathCore')
+      return false;
+    if (receipt.action !== after.action || (receipt.amount ?? null) !== (after.amount ?? null))
+      return false;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes(after.action)) return false;
+    const player = context.player;
+    const toCall = Number.isFinite(gs.toCall)
+      ? (gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+    const eps = 0.005;
+    if (after.action === 'call')
+      return (
+        after.amount !== null && Math.abs(after.amount - Math.min(toCall, player.stack)) <= eps
+      );
+    if (after.action === 'check') return toCall <= eps;
+    if (after.action === 'fold') return toCall > eps;
+    if (after.action === 'bet' || after.action === 'raise') {
+      if (after.amount === null || !Number.isFinite(after.amount)) return false;
+      const lo = Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : 0;
+      const hi = Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : Infinity;
+      return after.amount >= lo - eps && after.amount <= hi + eps;
+    }
+    return after.action === 'all_in';
+  } catch {
+    return false;
+  }
 }
 
 /** Finite refusal names only: no player identity, cards or raw receipt data. */
@@ -1982,6 +2240,24 @@ export function horseDecisionReceiptRefusalForPlo6Gates(
 }
 
 /** The two options whose raise -> call the validator admits (context.omahaPricedRaise). */
+/**
+ * THE GAME SCOPE OF AN OMAHA OPTION (lane PLO4-FIX 2026-11-20, HorseOmahaOptionGameScope.ts): when the request's own
+ * omahaOptionGameScope confines one of `names` to a game, the worker ran a decision of the other game with that
+ * option off, whatever the switch row says. So `false` is one of the values the worker may have run with. With no
+ * scope in the request (the compiled defaults) this is false and the candidates are exactly what they were.
+ */
+function omahaOptionGameScoped(
+  requestOpts: { omahaOptionGameScope?: unknown } | null | undefined,
+  names: readonly string[]
+): boolean {
+  const scope = requestOpts?.omahaOptionGameScope;
+  if (!scope || typeof scope !== 'object') return false;
+  return names.some((name) => {
+    const only = (scope as Readonly<Record<string, unknown>>)[name];
+    return only === 4 || only === 5;
+  });
+}
+
 export const OMAHA_PRICED_RAISE_GATE_OPTIONS = Object.freeze([
   'omahaTurnRiverRaiseIsPriced',
   'omahaBigBetCallsArePriced',
@@ -2026,6 +2302,7 @@ export function omahaPricedRaiseGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, OMAHA_PRICED_RAISE_GATE_OPTIONS)) add(false);
   return out;
 }
 
@@ -2037,7 +2314,10 @@ export function omahaPricedRaiseGateCandidates(
  * still counts.
  */
 export function omahaPricedInLightningGateCandidates(
-  requestOpts: { omahaPricedInLightning?: unknown } | null | undefined,
+  requestOpts:
+    | { omahaPricedInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean[] {
@@ -2057,6 +2337,7 @@ export function omahaPricedInLightningGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, ['omahaPricedInLightning'])) add(false);
   return out;
 }
 
@@ -2068,7 +2349,10 @@ export function omahaPricedInLightningGateCandidates(
  * while it still counts.
  */
 export function omahaSlowplayMixInLightningGateCandidates(
-  requestOpts: { omahaSlowplayMixInLightning?: unknown } | null | undefined,
+  requestOpts:
+    | { omahaSlowplayMixInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean[] {
@@ -2090,13 +2374,168 @@ export function omahaSlowplayMixInLightningGateCandidates(
   add(switchedOf(switchConfig));
   add(own);
   if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  if (omahaOptionGameScoped(requestOpts, ['omahaSlowplayMixInLightning'])) add(false);
   return out;
+}
+
+/**
+ * omahaMathCore (lane MATHCORE 2026-11-19): whether the worker may have run
+ * this decision with omahaMathCore on: the request's own option, the switch
+ * row this client last delivered, or the configuration before the last change
+ * while it still counts. Any of them on admits the core's choice (the choice
+ * is still checked against its own receipt and the request).
+ */
+export function omahaMathCoreGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean {
+  if (requestOpts?.omahaMathCore === true) return true;
+  const on = (config: unknown): boolean => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaMathCore === true;
+    } catch {
+      return false;
+    }
+  };
+  return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
+}
+
+/**
+ * The math core's admission flags the worker may have run this decision with (lane CORE-AUDIT, Nov 21): each of
+ * omahaMathCorePreflop and the six street flags is on when the request's own option is on or the delivered switch
+ * row (or the one before it while it still counts) turns it on, exactly as omahaMathCoreGate reads omahaMathCore.
+ * The worker-failure doors use it so the core's recovery acts only on a street the core owns.
+ */
+export const OMAHA_MATH_CORE_ADMISSION_FLAGS = [
+  'omahaMathCorePreflop',
+  'omahaMathCorePlo4Flop',
+  'omahaMathCorePlo4Turn',
+  'omahaMathCorePlo4River',
+  'omahaMathCorePlo5Flop',
+  'omahaMathCorePlo5Turn',
+  'omahaMathCorePlo5River',
+] as const;
+export function omahaMathCoreAdmissionGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): Record<(typeof OMAHA_MATH_CORE_ADMISSION_FLAGS)[number], boolean> {
+  const fromConfig = (config: unknown): Readonly<Record<string, boolean>> => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states) : {};
+    } catch {
+      return {};
+    }
+  };
+  const current = fromConfig(switchConfig);
+  const previous = previousSwitchConfig !== undefined ? fromConfig(previousSwitchConfig) : {};
+  const out = {} as Record<(typeof OMAHA_MATH_CORE_ADMISSION_FLAGS)[number], boolean>;
+  for (const flag of OMAHA_MATH_CORE_ADMISSION_FLAGS)
+    out[flag] = requestOpts?.[flag] === true || current[flag] === true || previous[flag] === true;
+  return out;
+}
+
+/**
+ * The omahaBluffIsPricedAgainstTheTarget values the worker may have run this decision with, built
+ * exactly as omahaPricedInLightningGateCandidates: the live switch row this client last delivered,
+ * then the request's own option when it differs, then the configuration delivered before the last
+ * change while it still counts.
+ */
+export function omahaBluffPricedAgainstTheTargetGateCandidates(
+  requestOpts: { omahaBluffIsPricedAgainstTheTarget?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.omahaBluffIsPricedAgainstTheTarget === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok
+        ? optionSwitchDecisionOpts(parsed.states).omahaBluffIsPricedAgainstTheTarget
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
+ * The values one decision option may have had in the worker for this decision, built exactly as
+ * omahaPricedInLightningGateCandidates: the live switch row this client last delivered, then the request's
+ * own option when it differs, then the configuration delivered before the last change while it still counts.
+ */
+function decisionOptionGateCandidates(
+  option: string,
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.[option] === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      if (!parsed.ok) return undefined;
+      const v = (optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>)[option];
+      return v === undefined ? undefined : v === true;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/** The plo6FacingBetIsPriced values the worker may have run this decision with (review N4). */
+export function plo6FacingBetIsPricedGateCandidates(
+  requestOpts: { plo6FacingBetIsPriced?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  return decisionOptionGateCandidates(
+    'plo6FacingBetIsPriced',
+    requestOpts as Readonly<Record<string, unknown>> | null | undefined,
+    switchConfig,
+    previousSwitchConfig
+  );
+}
+
+/** The omahaMultiwayIsPricedInTournaments values the worker may have run this decision with (review N1). */
+export function omahaMultiwayIsPricedInTournamentsGateCandidates(
+  requestOpts: { omahaMultiwayIsPricedInTournaments?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  return decisionOptionGateCandidates(
+    'omahaMultiwayIsPricedInTournaments',
+    requestOpts as Readonly<Record<string, unknown>> | null | undefined,
+    switchConfig,
+    previousSwitchConfig
+  );
 }
 
 /**
  * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
  * gate (and, when given, each candidate omahaPricedInLightning gate and each
- * candidate omahaSlowplayMixInLightning gate) as well: null as soon as one
+ * candidate omahaSlowplayMixInLightning gate, and each candidate
+ * omahaBluffIsPricedAgainstTheTarget gate, each candidate plo6FacingBetIsPriced gate and each candidate
+ * omahaMultiwayIsPricedInTournaments gate) as well: null as soon as one
  * set of gates admits the decision, else the refusal under the first (the
  * effective one). Without `pricedInLightningGates` / `slowplayMixInLightningGates`
  * only the false gate of each is tried: exactly as before.
@@ -2110,40 +2549,54 @@ export function horseDecisionReceiptRefusalForGates(
     | 'omahaPricedRaise'
     | 'omahaPricedInLightning'
     | 'omahaSlowplayMixInLightning'
+    | 'omahaBluffPricedAgainstTheTarget'
+    | 'plo6FacingBetIsPriced'
+    | 'omahaMultiwayPricedInTournaments'
   >,
   plo6Gates: readonly boolean[],
   pricedRaiseGates: readonly boolean[],
   pricedInLightningGates: readonly boolean[] = [false],
-  slowplayMixInLightningGates: readonly boolean[] = [false]
+  slowplayMixInLightningGates: readonly boolean[] = [false],
+  bluffPricedGates: readonly boolean[] = [false],
+  plo6FacingBetPricedGates: readonly boolean[] = [false],
+  multiwayTourneyGates: readonly boolean[] = [false]
 ): string | null {
   let first: string | null = null;
   let seen = false;
-  for (const slowplayGate of slowplayMixInLightningGates.length > 0
-    ? slowplayMixInLightningGates
-    : [false]) {
-    for (const lightningGate of pricedInLightningGates.length > 0
-      ? pricedInLightningGates
-      : [false]) {
-      for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
-        const refusal = horseDecisionReceiptRefusalForPlo6Gates(
-          value,
-          expectedVariant,
-          {
-            ...context,
-            ...(gate ? { omahaPricedRaise: true } : {}),
-            ...(lightningGate ? { omahaPricedInLightning: true } : {}),
-            ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
-          },
-          plo6Gates
-        );
-        if (refusal === null) return null;
-        if (!seen) {
-          first = refusal;
-          seen = true;
+  for (const mwGate of multiwayTourneyGates.length > 0 ? multiwayTourneyGates : [false])
+    for (const plo6PricedGate of plo6FacingBetPricedGates.length > 0
+      ? plo6FacingBetPricedGates
+      : [false])
+      for (const bluffGate of bluffPricedGates.length > 0 ? bluffPricedGates : [false])
+        for (const slowplayGate of slowplayMixInLightningGates.length > 0
+          ? slowplayMixInLightningGates
+          : [false]) {
+          for (const lightningGate of pricedInLightningGates.length > 0
+            ? pricedInLightningGates
+            : [false]) {
+            for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+              const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+                value,
+                expectedVariant,
+                {
+                  ...context,
+                  ...(gate ? { omahaPricedRaise: true } : {}),
+                  ...(lightningGate ? { omahaPricedInLightning: true } : {}),
+                  ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
+                  ...(bluffGate ? { omahaBluffPricedAgainstTheTarget: true } : {}),
+                  ...(plo6PricedGate ? { plo6FacingBetIsPriced: true } : {}),
+                  ...(mwGate ? { omahaMultiwayPricedInTournaments: true } : {}),
+                },
+                plo6Gates
+              );
+              if (refusal === null) return null;
+              if (!seen) {
+                first = refusal;
+                seen = true;
+              }
+            }
+          }
         }
-      }
-    }
-  }
   return first;
 }
 

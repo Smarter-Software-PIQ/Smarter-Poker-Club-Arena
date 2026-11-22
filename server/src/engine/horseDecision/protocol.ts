@@ -67,6 +67,10 @@ export interface LiveHorseDecisionSnapshot extends HorseDecisionFence {
   style?: HorseStyle;
   mods?: HorseProfileMods;
   opts?: LiveHorseDecideOpts;
+  /** OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, option omahaOpponentLifetimeHud, default off): the lifetime public
+   *  profile of every live opponent, attached by the engine only while the option is armed for a PLO4/PLO5 cash
+   *  decision (services/OpponentHudStore.packetFor). Absent: the request and its key are exactly as before. */
+  opponentHud?: import('../opponentHud/OpponentHud.js').OpponentHudPacket;
 }
 
 type HorseDecisionKeyInput = Pick<
@@ -80,6 +84,7 @@ type HorseDecisionKeyInput = Pick<
   | 'opts'
   | 'handJournalContext'
   | 'handJournalCoordinate'
+  | 'opponentHud'
 >;
 
 /** JSON-compatible canonicalizer with sorted object keys and finite numbers. */
@@ -130,6 +135,8 @@ export function buildHorseDecisionKey(input: HorseDecisionKeyInput): string {
     ...(input.handJournalContext !== undefined
       ? { handJournalContext: input.handJournalContext }
       : {}),
+    // OPPONENT HUD: bound only when attached (absent leaves every key byte-identical)
+    ...(input.opponentHud !== undefined ? { opponentHud: input.opponentHud } : {}),
   });
   const digest = createHash('sha256').update(JSON.stringify(material)).digest('hex');
   return `phase5-v1:${digest}`;
@@ -184,7 +191,8 @@ export function validatedHorsePolicySamplingKey(
     opts === input.opts &&
     gameState === input.gameState &&
     input.handJournalContext === undefined &&
-    input.handJournalCoordinate === undefined
+    input.handJournalCoordinate === undefined &&
+    input.opponentHud === undefined
     ? input.decisionKey
     : buildHorseDecisionKey({
         ...input,
@@ -193,6 +201,8 @@ export function validatedHorsePolicySamplingKey(
         opts,
         handJournalContext: undefined,
         handJournalCoordinate: undefined,
+        // the opponent profiles are read through the accessor, never a source of the strategy draw
+        opponentHud: undefined,
       });
 }
 
@@ -265,6 +275,11 @@ export interface CompletedHandObservation extends HorseDecisionFence {
     | undefined;
   bigBlind: number;
   showdown?: Array<{ user_id: string; mucked: boolean; hand_name?: string }> | null;
+  /** omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead), one-board non-bomb hands only: the holdings
+   *  revealed at showdown by user id (the same public reveal hand_history.hole_cards stores; never a mucked or
+   *  folded hand) and the final board. */
+  betReadShown?: Record<string, ReadonlyArray<{ rank: string; suit: string }>>;
+  betReadBoard?: ReadonlyArray<{ rank: string; suit: string } | string>;
   riverCallContext?: import('../HorseRiverCallEvidence.js').RiverCallContext;
   retainedRiverCalls?: import('../HorseRiverCallEvidence.js').RiverCallSample[];
   /** Every dealt player's net (chips out less chips in), for the winner read

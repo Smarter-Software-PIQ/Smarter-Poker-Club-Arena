@@ -1,0 +1,35 @@
+name: A switch row the candidate rejects is refused
+
+# server/scripts/engine-release-switch-rows.py: the release's fleet-reset-trap check
+# (every live Horse switch row is accepted by the candidate's whitelist). Runs
+# scripts/ci/test-engine-release-switch-rows.py on fixtures in a throwaway git
+# repository, never production. No timer (CLAUDE.md 10.85): pull_request only,
+# scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - server/scripts/engine-release-switch-rows.py
+      - scripts/ci/test-engine-release-switch-rows.py
+      - 'supabase/migrations/*_horse_option_switch_*.sql'
+      - 'supabase/migrations/*_horse_option_register*.sql'
+      - .github/workflows/a-switch-row-the-candidate-rejects-is-refused.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-switch-row-the-candidate-rejects-is-refused-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-switch-row-the-candidate-rejects-is-refused:
+    name: A live switch row the candidate rejects fails the release check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: A live switch row the candidate rejects fails the release check
+        run: python3 -B scripts/ci/test-engine-release-switch-rows.py

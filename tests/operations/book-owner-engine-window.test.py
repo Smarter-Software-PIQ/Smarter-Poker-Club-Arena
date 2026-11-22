@@ -550,6 +550,43 @@ class BookOwnerEngineWindow(unittest.TestCase):
         # The overlap list is sorted and may also name earlier windows still shipped.
         self.assertRegex(result.stdout, r'WARNING: the new notice interval overlaps a shipped notice \([^)]*' + re.escape(current['id']))
 
+    def test_emits_release_custody_lane_for_pr_creation_and_optional_body_file(self):
+        import importlib.util
+        from unittest import mock
+        before = self.snapshot()
+        plan = self.book(W, dry_run=True)
+        self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
+        self.assertIn('gh pr create --base main', plan.stdout)
+        self.assertRegex(plan.stdout, r'(?m)^Lane: release-custody$')
+        self.assertEqual(self.snapshot(), before)
+
+        body_path = self.inputs / 'booking-pr-body.md'
+        dry_out = self.book(W, dry_run=True, extra=['--pr-body-out', str(body_path)])
+        self.assertEqual(dry_out.returncode, 0, dry_out.stdout + dry_out.stderr)
+        self.assertIn('Lane: release-custody', dry_out.stdout)
+        self.assertIn('--body-file', dry_out.stdout)
+        self.assertFalse(body_path.exists(), 'dry-run must not write --pr-body-out')
+
+        tag = W['window_id']
+        spec = importlib.util.spec_from_file_location('book_window_pr_body', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        argv = ['--repo', str(self.repo), '--window-id', tag, '--predecessor', W['predecessor'],
+                '--contains', W['contains'], '--no-advance-notice', '--not-before', W['not_before'],
+                '--not-after', W['not_after'], '--slug', W['slug'],
+                '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
+                '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
+                '--changelog-file', str(self.inputs / f'{tag}-changelog.txt'),
+                '--pr-body-out', str(body_path)]
+        with mock.patch.object(module, 'run_floor_suite', return_value=(True, 'Ran 1 test\nOK\n')):
+            self.assertEqual(module.main(argv), 0)
+        self.assertTrue(body_path.is_file())
+        body = body_path.read_text(encoding='utf-8')
+        self.assertTrue(body.startswith('Lane: release-custody\n'), body)
+        self.assertIn(tag, body)
+        self.assertIn(W['predecessor'], body)
+        self.assertIn(W['contains'], body)
+
 
 if __name__ == '__main__':
     unittest.main()

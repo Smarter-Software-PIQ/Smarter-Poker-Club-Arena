@@ -4143,6 +4143,55 @@ button.post-bb-overlay-button {
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.9);
 }
+
+.spectator-footer-bar__cta--invite {
+  background: linear-gradient(180deg, #1b8cff 0%, #0d62c9 100%);
+  border: 1px solid rgba(143, 212, 255, 0.45);
+  color: #ffffff;
+}
+
+.table-invite-fallback {
+  position: fixed;
+  left: 50%;
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 9700;
+  width: min(460px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgb(8 13 22 / 96%);
+  border: 1px solid rgb(69 173 255 / 42%);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 75%);
+}
+
+.table-invite-fallback__close {
+  align-self: flex-end;
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  background: rgb(255 255 255 / 10%);
+  color: #e6ecf5;
+  font:
+    700 0.75rem/1 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.table-invite-fallback__close:active {
+  filter: brightness(1.2);
+}
+
+.table-invite-fallback__close:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
 .spectator-footer-bar__cta--leave:disabled {
   opacity: 0.5;
   cursor: default;

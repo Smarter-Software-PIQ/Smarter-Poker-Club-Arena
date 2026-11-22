@@ -46,6 +46,8 @@ export interface LightningFactsHand {
   bbj?: number;
   /** Installed paired-count projector capability, checked by the host. */
   dailyRollups?: boolean;
+  /** The installed retention basis accepts the Horse hole-card key, checked by the host (review B1). */
+  horseHoleCardsAccepted?: boolean;
   board: readonly unknown[];
   /** Every participant dealt in: their seat and hole cards. */
   holeCards: ReadonlyMap<string, { seat: number; cards: unknown }>;
@@ -91,6 +93,7 @@ export function lightningHandFactsInput(hand: LightningFactsHand): HandFactsInpu
     nitGame: hand.rules.nit_game === true,
     isBombPot: false,
     collectOnly: true,
+    horseHoleCardsAccepted: hand.horseHoleCardsAccepted === true,
   };
 }
 

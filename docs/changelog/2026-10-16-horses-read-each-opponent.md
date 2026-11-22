@@ -289,3 +289,5 @@ definer and audit laws touched by the migration: 19 files, 1,259 tests passed.
 Migration 20261016182539 keeps its reserved version (unique against main,
 all 823 remote branches and every local worktree when it was reserved); its
 three functions were created and exercised on a scratch Postgres 17.
+
+**Note (2026-11-21):** every PLO8 figure above from the evaluation league (`server/src/benchmark/HorseLeague.ts`, `playHand`) came from the high-only league, which paid every hi-lo pot to the high hand with no low half; it needs re-measurement on the league with hi-lo settlement (`settleLeagueShowdown`, `docs/changelog/2026-11-21-league-pays-the-low-half.md`).

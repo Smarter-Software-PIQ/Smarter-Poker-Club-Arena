@@ -7,6 +7,7 @@ import {
   retireCertificationClubWithRetry,
 } from './production-e2e-account.mjs';
 import { retryTransient } from './transient-retry.mjs';
+import { cleanupOnce, retireOnSignal } from './certification-run-cleanup.mjs';
 import { awaitPlatformThaw, describeThaw, freezeBudgetMs } from './platform-freeze-window.mjs';
 
 const url = process.env.SUPABASE_URL;
@@ -532,6 +533,171 @@ async function cleanupResidualDirectCertificates() {
 
 await cleanupResidualDirectCertificates();
 
+// The cleanup runs exactly once, on success, on a thrown failure, AND when
+// the runner cancels or times the job out (SIGINT/SIGTERM), which skips a
+// plain finally (scripts/ci/certification-run-cleanup.mjs, 2026-11-20).
+const retireThisRunsFixtures = cleanupOnce(async () => {
+  const cleanupFailures = [];
+  if (userId) {
+    const { data: ownedClubs, error: ownedClubsError } = await admin
+      .from('clubs')
+      .select('id,name,is_union,union_id')
+      .eq('owner_id', userId);
+    if (ownedClubsError) {
+      cleanupFailures.push(
+        new Error(`Certification Could Not Inventory Its Owned Clubs: ${ownedClubsError.message}`)
+      );
+    } else {
+      const unexpected = (ownedClubs || []).filter(
+        (club) =>
+          !/^(?:Preset )?Crest Cert /.test(String(club.name || '')) ||
+          club.is_union === true ||
+          club.union_id != null
+      );
+      if (unexpected.length) {
+        cleanupFailures.push(
+          new Error(
+            `Certification Owner Has Unexpected Club State: ${unexpected.map((club) => club.id).join(', ')}`
+          )
+        );
+      } else {
+        for (const club of ownedClubs || []) {
+          if (!clubIds.includes(club.id)) clubIds.push(club.id);
+        }
+      }
+    }
+  }
+  // Append-only financial records intentionally prevent a plain hard delete:
+  // clubs -> chip_transactions is ON DELETE SET NULL, which is an UPDATE on an
+  // append-only journal (and chip_transactions.club_id is NOT NULL, so it could
+  // never have worked), and removing the last member emits an append-only
+  // management event. Every run between 2026-08-31 and 2026-09-03 therefore
+  // warned "Fixture Hard Delete Skipped" and left a club behind holding its
+  // 100,000-chip opening grant: 15 clubs, 1,300,000 chips.
+  //
+  // The welcome coordinator proves and removes only unused package-owned games,
+  // then invokes fn_ca_retire_certification_club in the same transaction. The
+  // long-standing retirement door still proves the club, retires its chips to
+  // the Mint with a declared journal row, and archives every journal row it
+  // touches. A failure here is loud: a leaked fixture is a real defect.
+  if (clubIds.length) {
+    const { error: retireError } = await admin
+      .from('clubs')
+      .update({ is_public: false, status: 'inactive' })
+      .in('id', clubIds);
+    if (retireError) console.error(`Fixture Retirement Failed: ${retireError.message}`);
+
+    for (const clubId of clubIds) {
+      // The door is one idempotent transaction (a repeat answers already_gone),
+      // so a statement timeout during a database load spike is retried with
+      // backoff instead of leaking the club: 2026-09-28 one such timeout left a
+      // fixture owned by the reserved identity and wedged every post-deploy
+      // certificate for ten hours. A `success: false` refusal is definitive and
+      // is never retried.
+      let data;
+      try {
+        data = await retireCertificationClubWithRetry({
+          configuration: certificationConfiguration,
+          clubId,
+          reason: 'cert-cleanup',
+          environment: process.env,
+        });
+      } catch (error) {
+        cleanupFailures.push(new Error(`Fixture Cleanup Failed For ${clubId}: ${error.message}`));
+        continue;
+      }
+      if (data?.already_gone || Number(data?.chips_retired) !== 100000) {
+        cleanupFailures.push(
+          new Error(
+            `Fixture ${clubId} Retired ${data?.chips_retired ?? 'Unknown'} Chips Instead Of 100000.`
+          )
+        );
+      } else {
+        console.log(
+          `Fixture ${clubId} retired: ${data?.chips_retired ?? 0} chips returned to the Mint.`
+        );
+      }
+    }
+
+    const { data: leaked, error: leakedError } = await retryTransient(
+      () => admin.from('clubs').select('id').in('id', clubIds),
+      { failureOf: (result) => result?.error, label: 'fixture club verification read' }
+    );
+    if (leakedError) {
+      // An unreadable answer is not an empty one.
+      cleanupFailures.push(
+        new Error(
+          `Certification could not verify its fixture clubs are gone: ${leakedError.message}`
+        )
+      );
+    } else if (leaked?.length) {
+      cleanupFailures.push(
+        new Error(
+          `Certification leaked ${leaked.length} fixture club(s) into Club Arena: ${leaked
+            .map((c) => c.id)
+            .join(', ')}`
+        )
+      );
+    }
+  }
+  if (logoPath) {
+    const { error: storageError } = await admin.storage.from('club-assets').remove([logoPath]);
+    if (storageError) {
+      cleanupFailures.push(new Error(`Fixture Asset Cleanup Failed: ${storageError.message}`));
+    }
+    const folder = logoPath.slice(0, logoPath.lastIndexOf('/'));
+    const fileName = logoPath.slice(logoPath.lastIndexOf('/') + 1);
+    const { data: remainingAssets, error: remainingAssetError } = await admin.storage
+      .from('club-assets')
+      .list(folder, { limit: 100, search: fileName });
+    if (remainingAssetError) {
+      cleanupFailures.push(
+        new Error(`Fixture Asset Verification Failed: ${remainingAssetError.message}`)
+      );
+    } else if (remainingAssets?.some((asset) => asset.name === fileName)) {
+      cleanupFailures.push(new Error(`Fixture Asset ${logoPath} Still Exists After Cleanup.`));
+    }
+  }
+  if (userId) {
+    try {
+      await cleanupProductionE2EAccount({
+        record: { id: userId, email },
+        environment: process.env,
+      });
+    } catch (error) {
+      cleanupFailures.push(error);
+    }
+  }
+  /*
+   * A FIXTURE ANOTHER RUN LEFT BEHIND IS RETIRED BY THE NEXT RUN (2026-10-08).
+   *
+   * The UI lane's reserved accounts (ca-customization-cert-postdeploy-<n>-...)
+   * own the Create Club fixtures its Playwright step makes, and when that run's
+   * own `retire-create-clubs` step fails the fixture stays: nothing else ever
+   * looked for one. cleanupResidualDirectCertificates above only matches the
+   * `-direct-` accounts, and cleanupStaleProductionE2EAccounts - built for
+   * exactly these, with a cutoff sized past every lane's job ceiling - had no
+   * caller. Production 2026-10-08: four fixtures from 06:18Z the day before
+   * onward, each with nine live cash tables, a Spin and Sit & Go board and a
+   * daily MTT schedule, sat on the live board (one MTT 20 hours past its
+   * start), against Dan's four-clubs rule.
+   *
+   * Run here, in the always-run cleanup, so a residue it cannot retire is a
+   * loud cleanup failure of this run and never a reason to skip certifying.
+   */
+  try {
+    await cleanupStaleProductionE2EAccounts({ environment: process.env });
+  } catch (error) {
+    cleanupFailures.push(
+      new Error(`Stale Create Club Fixture Recovery Failed: ${error?.message || error}`)
+    );
+  }
+  if (cleanupFailures.length) {
+    throw new AggregateError(cleanupFailures, 'Club Create Certification Cleanup Was Incomplete.');
+  }
+});
+const releaseSignals = retireOnSignal(retireThisRunsFixtures);
+
 try {
   const { data: created, error: createUserError } = await admin.auth.admin.createUser({
     email,
@@ -989,162 +1155,9 @@ try {
     `PASS First-Club Welcome, Lifetime-Second Refusal, Custom And Placeholder Club Creation Certified For ${clubIds.join(', ')}.`
   );
 } finally {
-  const cleanupFailures = [];
-  if (userId) {
-    const { data: ownedClubs, error: ownedClubsError } = await admin
-      .from('clubs')
-      .select('id,name,is_union,union_id')
-      .eq('owner_id', userId);
-    if (ownedClubsError) {
-      cleanupFailures.push(
-        new Error(`Certification Could Not Inventory Its Owned Clubs: ${ownedClubsError.message}`)
-      );
-    } else {
-      const unexpected = (ownedClubs || []).filter(
-        (club) =>
-          !/^(?:Preset )?Crest Cert /.test(String(club.name || '')) ||
-          club.is_union === true ||
-          club.union_id != null
-      );
-      if (unexpected.length) {
-        cleanupFailures.push(
-          new Error(
-            `Certification Owner Has Unexpected Club State: ${unexpected.map((club) => club.id).join(', ')}`
-          )
-        );
-      } else {
-        for (const club of ownedClubs || []) {
-          if (!clubIds.includes(club.id)) clubIds.push(club.id);
-        }
-      }
-    }
-  }
-  // Append-only financial records intentionally prevent a plain hard delete:
-  // clubs -> chip_transactions is ON DELETE SET NULL, which is an UPDATE on an
-  // append-only journal (and chip_transactions.club_id is NOT NULL, so it could
-  // never have worked), and removing the last member emits an append-only
-  // management event. Every run between 2026-08-31 and 2026-09-03 therefore
-  // warned "Fixture Hard Delete Skipped" and left a club behind holding its
-  // 100,000-chip opening grant: 15 clubs, 1,300,000 chips.
-  //
-  // The welcome coordinator proves and removes only unused package-owned games,
-  // then invokes fn_ca_retire_certification_club in the same transaction. The
-  // long-standing retirement door still proves the club, retires its chips to
-  // the Mint with a declared journal row, and archives every journal row it
-  // touches. A failure here is loud: a leaked fixture is a real defect.
-  if (clubIds.length) {
-    const { error: retireError } = await admin
-      .from('clubs')
-      .update({ is_public: false, status: 'inactive' })
-      .in('id', clubIds);
-    if (retireError) console.error(`Fixture Retirement Failed: ${retireError.message}`);
-
-    for (const clubId of clubIds) {
-      // The door is one idempotent transaction (a repeat answers already_gone),
-      // so a statement timeout during a database load spike is retried with
-      // backoff instead of leaking the club: 2026-09-28 one such timeout left a
-      // fixture owned by the reserved identity and wedged every post-deploy
-      // certificate for ten hours. A `success: false` refusal is definitive and
-      // is never retried.
-      let data;
-      try {
-        data = await retireCertificationClubWithRetry({
-          configuration: certificationConfiguration,
-          clubId,
-          reason: 'cert-cleanup',
-          environment: process.env,
-        });
-      } catch (error) {
-        cleanupFailures.push(new Error(`Fixture Cleanup Failed For ${clubId}: ${error.message}`));
-        continue;
-      }
-      if (data?.already_gone || Number(data?.chips_retired) !== 100000) {
-        cleanupFailures.push(
-          new Error(
-            `Fixture ${clubId} Retired ${data?.chips_retired ?? 'Unknown'} Chips Instead Of 100000.`
-          )
-        );
-      } else {
-        console.log(
-          `Fixture ${clubId} retired: ${data?.chips_retired ?? 0} chips returned to the Mint.`
-        );
-      }
-    }
-
-    const { data: leaked, error: leakedError } = await retryTransient(
-      () => admin.from('clubs').select('id').in('id', clubIds),
-      { failureOf: (result) => result?.error, label: 'fixture club verification read' }
-    );
-    if (leakedError) {
-      // An unreadable answer is not an empty one.
-      cleanupFailures.push(
-        new Error(
-          `Certification could not verify its fixture clubs are gone: ${leakedError.message}`
-        )
-      );
-    } else if (leaked?.length) {
-      cleanupFailures.push(
-        new Error(
-          `Certification leaked ${leaked.length} fixture club(s) into Club Arena: ${leaked
-            .map((c) => c.id)
-            .join(', ')}`
-        )
-      );
-    }
-  }
-  if (logoPath) {
-    const { error: storageError } = await admin.storage.from('club-assets').remove([logoPath]);
-    if (storageError) {
-      cleanupFailures.push(new Error(`Fixture Asset Cleanup Failed: ${storageError.message}`));
-    }
-    const folder = logoPath.slice(0, logoPath.lastIndexOf('/'));
-    const fileName = logoPath.slice(logoPath.lastIndexOf('/') + 1);
-    const { data: remainingAssets, error: remainingAssetError } = await admin.storage
-      .from('club-assets')
-      .list(folder, { limit: 100, search: fileName });
-    if (remainingAssetError) {
-      cleanupFailures.push(
-        new Error(`Fixture Asset Verification Failed: ${remainingAssetError.message}`)
-      );
-    } else if (remainingAssets?.some((asset) => asset.name === fileName)) {
-      cleanupFailures.push(new Error(`Fixture Asset ${logoPath} Still Exists After Cleanup.`));
-    }
-  }
-  if (userId) {
-    try {
-      await cleanupProductionE2EAccount({
-        record: { id: userId, email },
-        environment: process.env,
-      });
-    } catch (error) {
-      cleanupFailures.push(error);
-    }
-  }
-  /*
-   * A FIXTURE ANOTHER RUN LEFT BEHIND IS RETIRED BY THE NEXT RUN (2026-10-08).
-   *
-   * The UI lane's reserved accounts (ca-customization-cert-postdeploy-<n>-...)
-   * own the Create Club fixtures its Playwright step makes, and when that run's
-   * own `retire-create-clubs` step fails the fixture stays: nothing else ever
-   * looked for one. cleanupResidualDirectCertificates above only matches the
-   * `-direct-` accounts, and cleanupStaleProductionE2EAccounts - built for
-   * exactly these, with a cutoff sized past every lane's job ceiling - had no
-   * caller. Production 2026-10-08: four fixtures from 06:18Z the day before
-   * onward, each with nine live cash tables, a Spin and Sit & Go board and a
-   * daily MTT schedule, sat on the live board (one MTT 20 hours past its
-   * start), against Dan's four-clubs rule.
-   *
-   * Run here, in the always-run cleanup, so a residue it cannot retire is a
-   * loud cleanup failure of this run and never a reason to skip certifying.
-   */
   try {
-    await cleanupStaleProductionE2EAccounts({ environment: process.env });
-  } catch (error) {
-    cleanupFailures.push(
-      new Error(`Stale Create Club Fixture Recovery Failed: ${error?.message || error}`)
-    );
-  }
-  if (cleanupFailures.length) {
-    throw new AggregateError(cleanupFailures, 'Club Create Certification Cleanup Was Incomplete.');
+    await retireThisRunsFixtures();
+  } finally {
+    releaseSignals();
   }
 }

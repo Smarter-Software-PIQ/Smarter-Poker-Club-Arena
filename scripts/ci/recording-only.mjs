@@ -79,7 +79,7 @@
  * provably clean today: nothing at or after 20260915 carries it.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -129,11 +129,34 @@ function repoRoot(repo) {
  * as "everything is recorded" it would disarm all of them, and a caller that
  * cannot tell the two apart will eventually write the second one.
  */
+// One parse per manifest version: classifyMigration() without a `manifest`
+// argument reads the manifest on every call, and the migration laws call it
+// for each of ~7,000 files - ~1.9 GB of JSON parsing per law, which took 37-58 s
+// on the shared pre-push host under load (Nov 20 2026). The cache key is the
+// file's path, size, inode and nanosecond mtime, so a rewritten manifest is
+// read again; the result for a given file is exactly what a fresh read returns.
+const MANIFEST_CACHE = new Map();
+
 export function loadManifest(repo) {
   const path = join(repoRoot(repo), MANIFEST_PATH);
   if (!existsSync(path)) {
     return { rows: new Map(), error: `manifest not found at ${MANIFEST_PATH}` };
   }
+  let key = null;
+  try {
+    const st = statSync(path, { bigint: true });
+    key = `${st.size}:${st.ino}:${st.mtimeNs}`;
+  } catch {
+    key = null;
+  }
+  const hit = key !== null ? MANIFEST_CACHE.get(path) : undefined;
+  if (hit && hit.key === key) return hit.value;
+  const value = readManifestFile(path);
+  if (key !== null) MANIFEST_CACHE.set(path, { key, value });
+  return value;
+}
+
+function readManifestFile(path) {
   let raw;
   try {
     raw = JSON.parse(readFileSync(path, 'utf8'));

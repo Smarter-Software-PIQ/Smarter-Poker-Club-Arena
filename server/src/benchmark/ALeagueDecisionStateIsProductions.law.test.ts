@@ -166,6 +166,75 @@ const NODES: Node[] = [
     },
     clampedShove: false,
   },
+  // 2026-11-20: fixed-limit hold'em, which the league now deals with the
+  // controller's own structure (LeagueDecisionState.leagueFixedLimitActionState).
+  {
+    name: 'FLH six-max preflop, first in',
+    variant: 'flh',
+    stacks: [200, 200, 200, 200, 200, 200],
+    dealer: 1,
+    script: () => undefined,
+    clampedShove: false,
+  },
+  {
+    name: 'FLH heads-up preflop, facing the cap',
+    variant: 'flh',
+    stacks: [200, 200],
+    dealer: 1,
+    script: (hc) => {
+      expect(hc.performAction(1, 'raise', 4)).toBe(true);
+      expect(hc.performAction(2, 'raise', 6)).toBe(true);
+      expect(hc.performAction(1, 'raise', 8)).toBe(true);
+      expect(hc.getAuthoritativeActionState(hc.getCurrentPlayer()!.user_id)).toMatchObject({
+        wagersCapped: true,
+        legalActions: ['fold', 'call'],
+      });
+    },
+    clampedShove: false,
+  },
+  {
+    name: 'FLH six-max turn, facing a big bet and a raise',
+    variant: 'flh',
+    stacks: [200, 200, 200, 200, 200, 200],
+    dealer: 1,
+    script: (hc) => {
+      for (const seat of [4, 5, 6, 1]) expect(hc.performAction(seat, 'fold')).toBe(true);
+      expect(hc.performAction(2, 'call')).toBe(true);
+      expect(hc.performAction(3, 'check')).toBe(true);
+      expect(hc.performAction(2, 'bet', 2)).toBe(true);
+      expect(hc.performAction(3, 'call')).toBe(true);
+      expect(hc.getState().stage).toBe('turn');
+      expect(hc.performAction(2, 'bet', 4)).toBe(true);
+      expect(hc.performAction(3, 'raise', 8)).toBe(true);
+    },
+    clampedShove: false,
+  },
+  // 2026-11-21: fixed-limit Omaha hi-lo (flo8), which now uses the same
+  // controller fixed-limit menu (LeagueDecisionState.leagueFixedLimitActionState).
+  {
+    name: 'FLO8 six-max preflop, first in',
+    variant: 'flo8',
+    stacks: [200, 200, 200, 200, 200, 200],
+    dealer: 1,
+    script: () => undefined,
+    clampedShove: false,
+  },
+  {
+    name: 'FLO8 heads-up turn, facing a big bet and a raise',
+    variant: 'flo8',
+    stacks: [200, 200],
+    dealer: 1,
+    script: (hc) => {
+      expect(hc.performAction(1, 'call')).toBe(true);
+      expect(hc.performAction(2, 'check')).toBe(true);
+      expect(hc.performAction(2, 'bet', 2)).toBe(true);
+      expect(hc.performAction(1, 'call')).toBe(true);
+      expect(hc.getState().stage).toBe('turn');
+      expect(hc.performAction(2, 'bet', 4)).toBe(true);
+      expect(hc.performAction(1, 'raise', 8)).toBe(true);
+    },
+    clampedShove: false,
+  },
 ];
 
 /** The request the live table sends the decision worker at this node, and
@@ -380,6 +449,10 @@ describe('a league decision state is the state the live table sends', () => {
       ['plo5', 6],
       ['nlh', 2],
       ['plo4', 2],
+      ['flh', 6],
+      ['flh', 2],
+      ['flo8', 6],
+      ['flo8', 2],
     ];
     let seed = 20261115;
     for (const [variant, seats] of cells)

@@ -2634,7 +2634,9 @@ class ControlInventoryTests(unittest.TestCase):
             self.assertTrue(changed)
 
     def fixture(self, folder):
-        parent=Path(folder);sha='a'*40
+        # Resolve macOS /var -> /private/var TMPDIR symlinks so parent matches
+        # _control_inventory_at's strict canonical link.resolve(strict=True) check.
+        parent=Path(folder).resolve();sha='a'*40
         generation=parent/'engine-control-generations'/sha;generation.mkdir(parents=True)
         source={name:b'# exact immutable fixture\n' for name in R.CONTROL_CORE}
         for name,raw in source.items(): (generation/name).write_bytes(raw)

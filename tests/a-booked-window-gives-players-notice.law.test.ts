@@ -766,3 +766,80 @@ it('books the 2026-11-20-owner-no-notice-engine-0430z engine window on the owner
   expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-20T04:30:00Z', '2026-11-20T09:20:00Z']);
   expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
 });
+
+it('books the 2026-11-20-owner-no-notice-engine-1730z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-20-owner-no-notice-engine-1730z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-20T17:30:00Z', '2026-11-20T23:20:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
+
+it('books the 2026-11-20-owner-no-notice-engine-2130z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-20-owner-no-notice-engine-2130z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-20T21:30:00Z', '2026-11-21T03:30:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
+
+it('books the 2026-11-20-owner-no-notice-engine-2330z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-20-owner-no-notice-engine-2330z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-20T23:30:00Z', '2026-11-21T05:30:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
+
+it('books the 2026-11-21-owner-no-notice-engine-0300z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-21-owner-no-notice-engine-0300z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-21T03:06:00Z', '2026-11-21T09:00:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
+
+it('books the 2026-11-21-owner-no-notice-engine-0825z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-21-owner-no-notice-engine-0825z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-21T08:25:00Z', '2026-11-21T09:20:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
+
+it('books the 2026-11-21-owner-no-notice-engine-1135z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-21-owner-no-notice-engine-1135z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-21T11:35:00Z', '2026-11-21T17:35:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
+
+it('books the 2026-11-21-owner-no-notice-engine-1906z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-21-owner-no-notice-engine-1906z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-21T19:06:00Z', '2026-11-21T22:06:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});

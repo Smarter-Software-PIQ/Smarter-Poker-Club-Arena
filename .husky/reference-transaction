@@ -14,6 +14,29 @@ set -u
 ZERO=0000000000000000000000000000000000000000
 
 while read -r OLD NEW REF; do
+  # ONE STASH LIST FOR EVERY WORKTREE (2026-11-21). refs/stash lives in the
+  # common git directory, so every worktree of a clone pushes onto and pops
+  # off the SAME list. On 2026-11-21 two agents stashed in two worktrees at
+  # once and each popped the other's changes into its own tree. A stash push
+  # stores refs/stash BEFORE it resets the tree, so refusing it here leaves
+  # the working tree exactly as it was (measured on git 2.43 and Apple git
+  # 2.50.1). Removing an entry (pop or drop of the last one) is still allowed
+  # so an old list can be drained. Commit to your own branch instead.
+  if [ "$REF" = "refs/stash" ]; then
+    [ "$NEW" != "$ZERO" ] || continue
+    {
+      echo
+      echo "  BLOCKED: this repository refuses new stash entries."
+      echo
+      echo "  Every worktree of this clone shares ONE stash list, so another"
+      echo "  agent's pop can take your changes, and yours can take theirs."
+      echo "  Your working tree is untouched. Commit the changes on your own"
+      echo "  branch in your own worktree instead (CLAUDE.md 10.87 rule 5)."
+      echo
+    } >&2
+    exit 1
+  fi
+
   case "$REF" in
     HEAD|refs/heads/main|refs/heads/master) ;;
     *) continue ;;

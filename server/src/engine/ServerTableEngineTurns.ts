@@ -1,6 +1,17 @@
 import { confirmedHuman } from './HorseConfirmedSeatRole.js';
+import { opponentHudSnapshotField } from '../services/OpponentHudStore.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
+import {
+  keepOmahaMathCoreDecision,
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from './omahaMathCore/OmahaMathCoreAcceptance.js';
+import {
+  omahaMathCoreRecoverAdmission,
+  omahaMathCoreSwitchOn,
+} from './omahaMathCore/OmahaMathCoreSwitchState.js';
+import type { OmahaMathCoreDecisionReceipt } from './omahaMathCore/OmahaMathCoreRule.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
 import { liveHorsePhase8GuardAuthority } from './HorseTournamentCatastropheGuardAuthority.js';
 /**
@@ -37,6 +48,7 @@ import {
   failureFallbackAction,
   type BettingStructure,
 } from './BettingStructure.js';
+import { omahaFallbackPricedCall } from './HorseOmahaFacingBetEquity.js';
 import { horseVariantRulesFor } from './VariantRules.js';
 import type {
   HandStage,
@@ -145,7 +157,12 @@ import { horseDecideOptsFromRuntimeSettings } from './runtimeSettings/apply.js';
  * Named rather than boolean because the five gates fail for opposite causes
  * and want opposite fixes - see ServerTableEngineTurns.secondLookPlan.
  */
-export type SecondLookDecline = 'not_facing_bet' | 'small_pot' | 'action_shape' | 'no_think_time';
+export type SecondLookDecline =
+  | 'not_facing_bet'
+  | 'small_pot'
+  | 'action_shape'
+  | 'no_think_time'
+  | 'math_core_owned';
 
 export type SecondLookPlan =
   | { ok: true; afterMs: number }
@@ -299,6 +316,9 @@ export function noteSecondLookDecline(reason: SecondLookDecline): void {
       return;
     case 'no_think_time':
       noteFire('v44_declined_no_think_time');
+      return;
+    case 'math_core_owned':
+      noteFire('v44_declined_math_core_owned');
       return;
   }
 }
@@ -498,7 +518,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
    * replay inside it.
    */
   static secondLookPlan(
-    decision: { action: string; thinkTime: number },
+    decision: {
+      action: string;
+      thinkTime: number;
+      omahaMathCore?: OmahaMathCoreDecisionReceipt | null;
+    },
     toCall: number,
     pot: number,
     bigBlind: number,
@@ -523,6 +547,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
      * week; the reason is one string, and it turns tomorrow's audit line into
      * a diagnosis.
      */
+    // COREGUARD (owner 2026-11-19 8:48 PM): an applied omahaMathCore choice is
+    // ONE decision. A deep replay would be a second Monte Carlo run of the core
+    // that could disagree with the receipt; the executed action is the receipt.
+    if (omahaMathCoreOwns(decision)) return { ok: false, reason: 'math_core_owned' };
     if (toCall <= 0) return { ok: false, reason: 'not_facing_bet' };
     if (pot < ServerTableEngineTurns.SECOND_LOOK_MIN_POT_BB * Math.max(bigBlind, 0.01))
       return { ok: false, reason: 'small_pot' };
@@ -535,18 +563,43 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
   }
 
   /**
-   * V44: what the deep replay is allowed to change. Only a call/fold/all-in
-   * that differs from the fast answer; a bet or raise from the replay is a
-   * sizing question the sample did not decide, and is ignored.
+   * V44: what the deep replay is allowed to change, and the exact retirement
+   * reason when it does not replace the fast answer. Only a call/fold/all-in
+   * that differs from a non-math-core fast answer replaces it; a deep bet or
+   * raise (`second_look_wager_ignored`), a fast `omahaMathCore` receipt
+   * (`second_look_math_core_kept`), or a deep exception fallback
+   * (`brain_exception`) is retired under its own reason instead of hiding
+   * inside `second_look_unchanged`.
    */
+  static secondLookDisposition(
+    fast: { action: string; amount?: number; omahaMathCore?: OmahaMathCoreDecisionReceipt | null },
+    deep: { action: string; amount?: number; policyFallback?: HorseDecision['policyFallback'] }
+  ):
+    | { kind: 'replace'; action: string; amount?: number }
+    | {
+        kind: 'retire';
+        reason:
+          | 'second_look_unchanged'
+          | 'second_look_wager_ignored'
+          | 'second_look_math_core_kept'
+          | 'brain_exception';
+      } {
+    if (omahaMathCoreOwns(fast)) return { kind: 'retire', reason: 'second_look_math_core_kept' };
+    if (deep.policyFallback !== undefined) return { kind: 'retire', reason: 'brain_exception' };
+    if (deep.action !== 'call' && deep.action !== 'fold' && deep.action !== 'all_in')
+      return { kind: 'retire', reason: 'second_look_wager_ignored' };
+    if (deep.action === fast.action) return { kind: 'retire', reason: 'second_look_unchanged' };
+    return { kind: 'replace', action: deep.action, amount: deep.amount };
+  }
+
   static secondLookVerdict(
-    fast: { action: string; amount?: number },
+    fast: { action: string; amount?: number; omahaMathCore?: OmahaMathCoreDecisionReceipt | null },
     deep: { action: string; amount?: number; policyFallback?: HorseDecision['policyFallback'] }
   ): { action: string; amount?: number } | null {
-    if (deep.policyFallback !== undefined) return null;
-    if (deep.action !== 'call' && deep.action !== 'fold' && deep.action !== 'all_in') return null;
-    if (deep.action === fast.action) return null;
-    return { action: deep.action, amount: deep.amount };
+    const disposition = ServerTableEngineTurns.secondLookDisposition(fast, deep);
+    return disposition.kind === 'replace'
+      ? { action: disposition.action, amount: disposition.amount }
+      : null;
   }
 
   private static readonly HORSE_MAX_BANK_BURN_MS = 9000;
@@ -3374,9 +3427,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // via scheduleHorseAction; purge any stale pre-action left behind.
       const stalePreAction = this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
       this.preActionEngine.clearPreAction?.(this.tableId, player.user_id);
-      // Evidence only: counted when there was something to purge.
+      // Evidence only: upgrade 09 is a GUARD (HorseUpgradeEvidence
+      // PER_HORSE_GUARD_UPGRADES). An armed pre-action here is its opportunity;
+      // it fired when the pre-action is gone after the clear.
       if (stalePreAction) {
-        noteFire('upgrade09_preaction_purge_table_seen');
+        noteFire('upgrade09_preaction_purge_opportunity_table_seen');
+        const purged = !this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
+        if (purged) noteFire('upgrade09_preaction_purge_table_seen');
         // Per-Horse evidence only: this branch is a server-owned Horse seat
         // (never a person's client). The tournament branch below is a Horse
         // seat a person's own client pilots, so it records no Horse event.
@@ -3385,7 +3442,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             player.user_id,
             this.activeHandVariant(),
             this.isTournamentTable() ? 'tournament' : 'cash',
-            'upgrade_09_preaction_purge'
+            'upgrade_09_preaction_purge',
+            purged
           );
       }
     } else if (
@@ -4481,6 +4539,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         const runtimeOpts = horseDecideOptsFromRuntimeSettings(this.currentHandRuntimeSettings);
         return runtimeOpts ? { opts: { ...runtimeOpts } } : {};
       })(),
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, option omahaOpponentLifetimeHud): every live opponent's lifetime
+      // public profile while armed for PLO4/PLO5 cash; {} otherwise (the snapshot and its key are unchanged).
+      ...opponentHudSnapshotField(gameState, decisionPlayer.user_id, Date.now()),
     };
     decisionSnapshot.decisionKey = buildHorseDecisionKey(decisionSnapshot);
 
@@ -4549,17 +4610,50 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         // call when the pot lays 4 to 1 or better and `call` is on the seat's
         // menu, else fold (BettingStructure.failureFallbackAction). Every
         // other structure folds when chips are owed, as before.
-        const fallbackAction = failureFallbackAction({
+        // COREGUARD (owner 2026-11-19 8:48 PM): a PLO4/PLO5 cash decision the
+        // core owns (omahaMathCore on) never becomes a liveness fold. The
+        // bounded minimal exact computation decides it instead (equity of the
+        // Horse's own holding vs random holdings against the price; check when
+        // free; omahaMathCore/OmahaMathCoreAcceptance.ts). Null outside the
+        // core's scope or with the switch off (PLO6 included): as before.
+        const coreRecovered = omahaMathCoreRecover({
+          player: decisionSnapshot.player,
+          gs: decisionSnapshot.gameState,
+          on: omahaMathCoreSwitchOn(
+            decisionSnapshot.opts as Readonly<Record<string, unknown>> | undefined
+          ),
+          from: 'worker_failure',
+          ...omahaMathCoreRecoverAdmission(
+            decisionSnapshot.opts as Readonly<Record<string, unknown>> | undefined
+          ),
+          error,
+          runCore: false,
+          budgetMs: 15,
+        });
+        const livenessAction = failureFallbackAction({
           structure: boundedActions.structure,
           toCall,
           pot: state.pot,
           legalActions: boundedActions.legalActions,
         });
-        const safeDecision: HorseDecision = {
-          action: fallbackAction,
-          ...(fallbackAction === 'call' ? { amount: toCall } : {}),
-          thinkTime: 0,
-        };
+        // 2026-11-19 (LIVEGRADE CR-1): the liveness fold of a PLO4/PLO5 cash
+        // seat facing a person's wager is priced first; a call that pays is
+        // taken (HorseOmahaFacingBetEquity.omahaFallbackPricedCall). Where the
+        // math core owns the decision (coreRecovered above) COREGUARD's
+        // computation decides and this pricing is not asked.
+        const pricedCall =
+          !coreRecovered && livenessAction === 'fold'
+            ? omahaFallbackPricedCall(decisionSnapshot.player, decisionSnapshot.gameState)
+            : null;
+        if (pricedCall !== null) noteFire('horse_fallback_priced_call');
+        const fallbackAction = pricedCall !== null ? 'call' : livenessAction;
+        const safeDecision: HorseDecision = coreRecovered
+          ? { ...coreRecovered, thinkTime: 0 }
+          : {
+              action: fallbackAction,
+              ...(fallbackAction === 'call' ? { amount: pricedCall ?? toCall } : {}),
+              thinkTime: 0,
+            };
         safeDecision.executionWitness = createHorseExecutionWitness(
           decisionSnapshot,
           safeDecision,
@@ -4866,11 +4960,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                   noteFire('phase15_deep_brain_exception_retired');
                   return;
                 }
-                const verdict = ServerTableEngineTurns.secondLookVerdict(
+                const disposition = ServerTableEngineTurns.secondLookDisposition(
                   decision,
                   deepResult.decision
                 );
-                if (verdict) {
+                if (disposition.kind === 'replace') {
+                  const verdict = disposition;
                   noteFire('v44_second_look_flipped');
                   retireHorseExecutionWitness(pendingExecutionWitness, 'second_look_replaced');
                   markPendingUtilityNotExecuted();
@@ -4893,7 +4988,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                   pendingJointLedger = decision.jointPolicy;
                   pendingExecutionWitness = decision.executionWitness;
                 } else {
-                  retireDecision(deepResult.decision, 'second_look_unchanged');
+                  retireDecision(deepResult.decision, disposition.reason);
                 }
               })
               .catch(async (error) => {
@@ -4980,6 +5075,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // replaced it, is checked here; missing, stale, withdrawn, refused,
             // mismatched, expired or restarted authority executes the reference
             // decision the shadow path would have executed.
+            // COREGUARD (owner 2026-11-19 8:48 PM): the decision as the core issued
+            // it. The Phase 8-14 rechecks below still record their verdicts and
+            // withdraw their own selections, but an applied omahaMathCore choice
+            // is never reverted to a pack's baseline (keepOmahaMathCoreDecision).
+            const coreIssued = decision;
             decision = recheckHorsePhase8GuardBeforeAcceptance(decision, decisionSnapshot);
             if (postflopLedger?.applied) {
               const verdict = liveHorsePhase8Authority.check(postflopLedger.authority);
@@ -5140,6 +5240,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             }
 
             decision = recheckHorsePhase14BeforeAcceptance(decision);
+            decision = keepOmahaMathCoreDecision(coreIssued, decision, 'commit_authority');
 
             // Authority can be withdrawn while a worker answer waits for its
             // think time. Re-selecting that owner's baseline above must not
@@ -5191,9 +5292,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // omahaValueSizeIsUnreadable (default off): a nut-class wager sized in the owner's
               // 80-95% band stays as sized while it is still legal and in the band on the fresh
               // state; the nut and near-pot roundings would only put the full pot back.
+              // omahaMathCore: the core's applied EV choice is final; the
+              // commit-door wager rules never re-decide it.
+              const mathCoreOwned = omahaMathCoreOwns(decision);
               const wagerGuarded =
                 safeWorkerFallback ||
                 decision.policyFallback === 'brain_exception' ||
+                mathCoreOwned ||
                 omahaValueSizeBandHolds(decision, privateHero, commitState)
                   ? decision
                   : fullPotNearPotWager(
@@ -5215,9 +5320,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // tournament. Last at the door too, on the controller's fresh
               // state, so no withdrawal above and no liveness fallback can fold
               // that spot. No equity is measured here, so it calls.
-              const guarded = brainChoseFold
-                ? wagerGuarded
-                : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
+              const guarded =
+                brainChoseFold || mathCoreOwned
+                  ? wagerGuarded
+                  : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
               if (guarded !== wagerGuarded) noteFire('short_all_in_call_floor_commit');
               if (guarded !== decision) {
                 decision = { ...decision, ...guarded };
@@ -5552,7 +5658,14 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               attemptedAmount: number | undefined,
               origin: 'horse_policy' | 'horse_fallback'
             ): boolean => {
-              if (origin === 'horse_policy' && !horseFeatureAcceptanceUsable(decision)) {
+              // COREGUARD: the core never reads the reference features, so a
+              // feature-authority withdrawal does not refuse its choice (the
+              // refusal path would check or fold it).
+              if (
+                origin === 'horse_policy' &&
+                !omahaMathCoreOwns(decision) &&
+                !horseFeatureAcceptanceUsable(decision)
+              ) {
                 noteFire('horse_feature_authority_withdrawn_before_acceptance');
                 noteHorseLegalizerDegraded(
                   activeVariant,
@@ -5682,8 +5795,38 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 // above produced no broadcast, so the clock must start again for
                 // whichever of these two lands.
                 this.lastActionAcceptedAtMs = Date.now();
-                applied = attemptAction('check', undefined, 'horse_fallback');
+                // COREGUARD: a refused core choice facing a bet is priced, never an
+                // automatic fold: the minimal exact computation on the fresh price
+                // calls when the equity beats it (then check, then fold, as before).
+                const refusedCore = omahaMathCoreOwns(decision)
+                  ? omahaMathCoreRecover({
+                      player: decisionSnapshot.player,
+                      gs: {
+                        ...decisionSnapshot.gameState,
+                        pot: currentState.pot,
+                        currentBet: currentState.currentBet,
+                        toCall,
+                      },
+                      on: true,
+                      from: 'controller_refused',
+                      error: 'controller_refused',
+                      runCore: false,
+                      budgetMs: 15,
+                    })
+                  : null;
+                applied = false;
+                if (refusedCore?.action === 'call' || refusedCore?.action === 'all_in') {
+                  const coreCallAmount =
+                    refusedCore.action === 'call' ? snapWagerNearest(toCall) : undefined;
+                  applied = attemptAction(refusedCore.action, coreCallAmount, 'horse_fallback');
+                  if (applied) {
+                    executedAction = refusedCore.action;
+                    executedAmount = coreCallAmount ?? null;
+                  }
+                }
                 if (applied) {
+                  noteFire('omaha_math_core_refused_choice_priced_call');
+                } else if ((applied = attemptAction('check', undefined, 'horse_fallback'))) {
                   executedAction = 'check';
                   executedAmount = null;
                 } else {

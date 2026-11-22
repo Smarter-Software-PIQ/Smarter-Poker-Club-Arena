@@ -111,6 +111,39 @@ describe('every tournament start and top-up decision is gated on the freeze (Gam
       expect(gate).toBeLessThan(start);
     }
   });
+
+  it('post-loop seat-mutating discovery sweeps (3 AM lobby close, unfilled-spin expiry, orphan reseat) gate on the freeze', () => {
+    // 2026-11-21 (H10, run 44887083680): rollback rehearsal across 03:00
+    // America/Chicago (09:00:04Z) dropped 6 seats while frozen because
+    // fn_daily_window_close_seat_first_lobbies (and adjacent fn_spin_expire_unfilled
+    // and repairOrphanedTournamentSeats) ran after the registering loop without
+    // checking isMaintenanceFrozen().
+    expect(gs).toMatch(
+      /if\s*\(\s*!isMaintenanceFrozen\(\)\s*&&\s*Date\.now\(\)\s*-\s*this\.lastSpinExpireAt\s*>\s*10\s*\*\s*60\s*\*\s*1000\s*\)\s*\{/
+    );
+    expect(gs).toMatch(
+      /if\s*\(\s*!isMaintenanceFrozen\(\)\s*&&\s*!spinSngBoardsOpen\(new Date\(\)\)\s*&&\s*Date\.now\(\)\s*-\s*this\.lastLobbyCloseAt\s*>\s*60\s*\*\s*1000\s*\)\s*\{/
+    );
+
+    const orphanRepair = sliceMethod(
+      gs,
+      'private async repairOrphanedTournamentSeats(): Promise<void> {'
+    );
+    const orphanGate = orphanRepair.search(GATE_RETURN);
+    expect(
+      orphanGate,
+      'repairOrphanedTournamentSeats must gate on isMaintenanceFrozen()'
+    ).toBeGreaterThan(-1);
+    expect(orphanGate).toBeLessThan(firstIo(orphanRepair));
+
+    const tm = read('tournament/TournamentManager.ts');
+    const absorb = sliceMethod(tm, 'public async absorbOrphanedSeats(): Promise<number> {');
+    const absorbGate = absorb.search(/if\s*\(\s*isMaintenanceFrozen\(\)\s*\)\s*return 0;/);
+    expect(absorbGate, 'absorbOrphanedSeats must gate on isMaintenanceFrozen()').toBeGreaterThan(
+      -1
+    );
+    expect(absorbGate).toBeLessThan(firstIo(absorb));
+  });
 });
 
 describe('every horse buy-in RPC call is gated on the freeze', () => {

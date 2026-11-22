@@ -26,6 +26,12 @@
 --   * All-in showdown is read from an 'all_in' action by a shown player; a call
 --     that happened to put a player all-in may be recorded as 'call', which
 --     under-counts owed by 500 ms on that hand (shows as -500 unintended).
+--
+-- Where the delay comes from (20261121000757): the after_* columns split the
+-- graded hands by whether the previous hand left a player at stack 0
+-- (someone_busted) and whether a tournament_seat_move_receipts row for this
+-- table (source or destination) was stamped inside the gap (seat_moved:
+-- post-bust table balancing). neither_unintended_p95_ms is the rest.
 WITH k AS (
   SELECT 500 AS bets_sweep_ms, 1100 AS pot_push_ms, 250 AS muck_ms,
          1400 AS showdown_read_base_ms, 350 AS showdown_read_per_extra_hand_ms,
@@ -35,7 +41,7 @@ WITH k AS (
          5000 AS rebuy_pause_max_ms, 30000 AS rit_reveal_max_ms
 ),
 h AS (
-  SELECT hh.id, hh.table_id, hh.tournament_id IS NOT NULL AS tournament,
+  SELECT hh.id, hh.table_id, hh.tournament_id, hh.tournament_id IS NOT NULL AS tournament,
          hh.ended_at, hh.actions, hh.players, hh.pots, hh.rit_boards,
          CASE WHEN jsonb_typeof(hh.showdown) = 'array' THEN hh.showdown ELSE '[]'::jsonb END AS shown,
          lead(hh.started_at) OVER (PARTITION BY hh.table_id ORDER BY hh.started_at) AS next_start,
@@ -61,7 +67,11 @@ s AS (
           AND (h.next_cadence->>'hold_ms') ~ '^\d+(\.\d+)?$'
           AND (h.next_cadence->>'rest_ms') ~ '^\d+(\.\d+)?$'
           AND (h.next_cadence->>'rebuy_pause_ms') ~ '^\d+(\.\d+)?$'
-          AND (h.rit_boards IS NULL OR (h.next_cadence->>'rit_reveal_ms') ~ '^\d+(\.\d+)?$')) AS has_cadence
+          AND (h.rit_boards IS NULL OR (h.next_cadence->>'rit_reveal_ms') ~ '^\d+(\.\d+)?$')) AS has_cadence,
+         EXISTS (SELECT 1 FROM tournament_seat_move_receipts mv
+                  WHERE mv.tournament_id = h.tournament_id
+                    AND mv.moved_at > h.ended_at AND mv.moved_at <= h.next_start
+                    AND (mv.source_table_id = h.table_id OR mv.destination_table_id = h.table_id)) AS seat_moved
   FROM h
   WHERE h.next_start IS NOT NULL AND h.next_start > h.ended_at
     AND h.next_start - h.ended_at < interval '60 seconds'
@@ -124,7 +134,15 @@ SELECT CASE WHEN tournament THEN 'tournament' ELSE 'cash' END AS kind, shape,
                   THEN percentile_cont(0.99) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded)
                   ELSE percentile_cont(0.99) WITHIN GROUP (ORDER BY gap_ms - owed_ms) END) AS unintended_p99_ms,
        CASE WHEN count(*) FILTER (WHERE row_graded) = 0 THEN NULL
-            ELSE count(*) FILTER (WHERE row_graded AND gap_ms - owed_ms > budget_ms) END AS over_budget
+            ELSE count(*) FILTER (WHERE row_graded AND gap_ms - owed_ms > budget_ms) END AS over_budget,
+       count(*) FILTER (WHERE row_graded AND someone_busted)::int AS after_bust,
+       count(*) FILTER (WHERE row_graded AND someone_busted AND gap_ms - owed_ms > budget_ms)::int AS after_bust_over_budget,
+       round(percentile_cont(0.95) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded AND someone_busted))::int AS after_bust_unintended_p95_ms,
+       count(*) FILTER (WHERE row_graded AND seat_moved)::int AS after_seat_move,
+       count(*) FILTER (WHERE row_graded AND seat_moved AND gap_ms - owed_ms > budget_ms)::int AS after_seat_move_over_budget,
+       round(percentile_cont(0.95) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded AND seat_moved))::int AS after_seat_move_unintended_p95_ms,
+       count(*) FILTER (WHERE row_graded AND someone_busted AND seat_moved AND gap_ms - owed_ms > budget_ms)::int AS after_bust_and_seat_move_over_budget,
+       round(percentile_cont(0.95) WITHIN GROUP (ORDER BY gap_ms - owed_ms) FILTER (WHERE row_graded AND NOT someone_busted AND NOT seat_moved))::int AS neither_unintended_p95_ms
 FROM shaped
 GROUP BY 1, 2
 ORDER BY 1, 2;

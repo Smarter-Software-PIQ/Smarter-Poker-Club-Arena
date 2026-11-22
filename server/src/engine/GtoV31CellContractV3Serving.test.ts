@@ -10,6 +10,7 @@
 // registry carries the option off-only; the loader follows the worker's
 // switch reading and is told of a change once.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import type { Card, CardRank, CardSuit, HorseDecision } from '../types.js';
 import { HorseLogic } from './HorseLogic.js';
 import { saveFastRandom, seedFastRandom } from './HorseEval.js';
@@ -178,41 +179,45 @@ interface Run {
   states: Array<Record<string, unknown>>;
 }
 function play(n: number, extra: Record<string, unknown> = {}): Run {
-  const out: Run = { decisions: [], rng: [], v31: [], states: [] };
-  for (let i = 0; i < n; i++) {
-    const { hero, gs } = spot();
-    seedFastRandom(0x2000 + i * 104729);
-    out.decisions.push(
+  return withFrozenDecisionClock(() => {
+    const out: Run = { decisions: [], rng: [], v31: [], states: [] };
+    for (let i = 0; i < n; i++) {
+      const { hero, gs } = spot();
+      seedFastRandom(0x2000 + i * 104729);
+      out.decisions.push(
+        HorseLogic.decide(hero as never, gs as never, 'balanced', {}, {
+          mind: false,
+          telemetry: false,
+          gtoV31DatasetChecksum: CHECKSUM,
+          onGtoV31Decision: (d: { cell: string; decisionState: { depthBucket: number } }) => {
+            out.v31.push({ cell: d.cell, depthBucket: d.decisionState.depthBucket });
+            out.states.push(d.decisionState as never);
+          },
+          ...extra,
+        } as never)
+      );
+      out.rng.push(saveFastRandom());
+    }
+    return out;
+  });
+}
+/** The demand records of n consults (the offline probe hook; the probe consults even an empty store). */
+function demand(n: number, extra: Record<string, unknown> = {}): Array<Record<string, unknown>> {
+  return withFrozenDecisionClock(() => {
+    const spots: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < n; i++) {
+      const { hero, gs } = spot();
+      seedFastRandom(0x3000 + i * 7919);
       HorseLogic.decide(hero as never, gs as never, 'balanced', {}, {
         mind: false,
         telemetry: false,
         gtoV31DatasetChecksum: CHECKSUM,
-        onGtoV31Decision: (d: { cell: string; decisionState: { depthBucket: number } }) => {
-          out.v31.push({ cell: d.cell, depthBucket: d.decisionState.depthBucket });
-          out.states.push(d.decisionState as never);
-        },
+        onV31Demand: (s: Record<string, unknown>) => spots.push(s),
         ...extra,
-      } as never)
-    );
-    out.rng.push(saveFastRandom());
-  }
-  return out;
-}
-/** The demand records of n consults (the offline probe hook; the probe consults even an empty store). */
-function demand(n: number, extra: Record<string, unknown> = {}): Array<Record<string, unknown>> {
-  const spots: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < n; i++) {
-    const { hero, gs } = spot();
-    seedFastRandom(0x3000 + i * 7919);
-    HorseLogic.decide(hero as never, gs as never, 'balanced', {}, {
-      mind: false,
-      telemetry: false,
-      gtoV31DatasetChecksum: CHECKSUM,
-      onV31Demand: (s: Record<string, unknown>) => spots.push(s),
-      ...extra,
-    } as never);
-  }
-  return spots;
+      } as never);
+    }
+    return spots;
+  });
 }
 // Wall-clock fields (think time, latency) are not decisions; everything else is compared.
 const CLOCK = new Set(['thinkTime', 'latencyMs', 'elapsedMs']);

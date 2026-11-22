@@ -18,6 +18,7 @@ import {
 import {
   createHorseExecutionWitness,
   expectedHorseExecutionAmount,
+  HORSE_NOT_EXECUTED_RETIREMENT_REASONS,
   type HorseExecutionWitness,
   type HorseWitnessPhase8Authority,
 } from '../../engine/HorseExecutionWitness.js';
@@ -746,15 +747,9 @@ export function reconcileHorseJournalHand(
         if (
           w.executionStatus === 'not_executed' &&
           w.acceptedActions.length === 0 &&
-          [
-            'caller_settled',
-            'turn_abandoned',
-            'response_fence',
-            'second_look_replaced',
-            'second_look_unchanged',
-            'brain_exception',
-            'action_rejected',
-          ].includes(w.retirementReason ?? '') &&
+          (HORSE_NOT_EXECUTED_RETIREMENT_REASONS as readonly string[]).includes(
+            w.retirementReason ?? ''
+          ) &&
           w.executedAction === null &&
           w.executedAmount === null
         ) {

@@ -154,7 +154,7 @@ export function omahaFlopBetMeasuredFoldShareOf(
   try {
     if (String(gs.stage ?? '') !== 'flop') return { kind: 'off' };
     if ((gs.communityCards ?? []).length !== 3) return { kind: 'off' };
-    if (!omahaPricedInScope(player, gs)) return { kind: 'off' };
+    if (!omahaPricedInScope(player, gs, opts)) return { kind: 'off' };
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (variant !== 'plo4' && variant !== 'plo5') return { kind: 'off' };
     if (fin(toCall) && toCall > 0) return { kind: 'off' };

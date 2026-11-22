@@ -535,12 +535,44 @@ DAILY_BOOTSTRAP_SCHEDULE_DIGEST = '37d3e1b4e70668e95123dce068e0a828f8f02d44956b1
 
 
 
+# Owner order 2026-11-21 02:22 Chicago (session_01Gw7aDsC1z7GdpSYmDAM2kv):
+# "I WANT A ENGINE CUT OVER EVERY 3 HOURS." The v2 policy selects 'daily' or
+# 'three-hourly' with one field; the v1 Phase1 policy keeps its exact shape.
+THREE_HOURLY_POLICY_ID = 'three-hourly-01Gw7aDs'
+THREE_HOURLY_START_HOURS = (1, 4, 7, 10, 13, 16, 19, 22)
+THREE_HOURLY_POLICY_KEYS = {'schema', 'policyId', 'timeZone', 'frequency', 'startHours', 'phase1Status',
+                            'ownerMessageId', 'ownerOrderAt', 'ownerOrder', 'completionEvidence'}
+
+
+def three_hourly_policy_valid(p: Any) -> bool:
+    return (isinstance(p, dict) and set(p) == THREE_HOURLY_POLICY_KEYS
+            and p.get('schema') == 'engine-maintenance-schedule/v2'
+            and p.get('policyId') == THREE_HOURLY_POLICY_ID and p.get('timeZone') == 'America/Chicago'
+            and p.get('frequency') in ('daily', 'three-hourly')
+            and isinstance(p.get('startHours'), list) and tuple(p['startHours']) == THREE_HOURLY_START_HOURS
+            and all(type(h) is int for h in p['startHours'])
+            and p.get('phase1Status') == 'off'
+            and p.get('ownerMessageId') == 'session_01Gw7aDsC1z7GdpSYmDAM2kv'
+            and p.get('ownerOrderAt') == '2026-11-21T02:22:00-06:00'
+            and isinstance(p.get('ownerOrder'), str) and 'I WANT A ENGINE CUT OVER EVERY 3 HOURS.' in p['ownerOrder']
+            and isinstance(p.get('completionEvidence'), str) and len(p['completionEvidence'].strip()) >= 12)
+
+
+def schedule_start_hours(p: dict[str, Any]) -> tuple[int, ...]:
+    """Chicago local start hours a routine window may use under policy `p`."""
+    return THREE_HOURLY_START_HOURS if p.get('frequency') == 'three-hourly' else (4,)
+
+
 def schedule_policy(repo: str, sha: str) -> dict[str, Any]:
     raw = run(['git', '-C', repo, 'show', f'{valid_sha(sha)}:{SCHEDULE_POLICY_PATH}'])
     try:
         p = json.loads(raw)
     except ValueError:
         die('maintenance schedule policy is unreadable')
+    if isinstance(p, dict) and p.get('schema') == 'engine-maintenance-schedule/v2':
+        if not three_hourly_policy_valid(p):
+            die('maintenance schedule policy is invalid')
+        return {**p, 'digest': hashlib.sha256(raw.encode()).hexdigest()}
     if (not isinstance(p, dict) or set(p) != {'schema', 'policyId', 'timeZone', 'phase1Status', 'ownerMessageId', 'completionEvidence'}
             or p.get('schema') != 'engine-maintenance-schedule/v1'
             or p.get('policyId') != SCHEDULE_POLICY_ID or p.get('timeZone') != 'America/Chicago'
@@ -549,7 +581,8 @@ def schedule_policy(repo: str, sha: str) -> dict[str, Any]:
             or (p['phase1Status'] != 'active' and (not isinstance(p['completionEvidence'], str) or len(p['completionEvidence'].strip()) < 12))
             or (p['phase1Status'] == 'active' and p['completionEvidence'] is not None)):
         die('maintenance schedule policy is invalid')
-    return {**p, 'digest': hashlib.sha256(raw.encode()).hexdigest()}
+    return {**p, 'frequency': 'phase1-hourly' if p['phase1Status'] == 'active' else 'daily',
+            'startHours': [4], 'digest': hashlib.sha256(raw.encode()).hexdigest()}
 
 
 def current_cycle_policy(repo: str, sha: str, control: str) -> dict[str, Any]:
@@ -691,14 +724,14 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 # Written under SealLock before the per-run reservation. An interrupted write
 # consumes the exception conservatively. Existing release recovery reads keep
 # their original run identity and never request a second announcement.
-NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-20-owner-no-notice-engine-0430z.json'
-NOV7_PREDECESSOR = 'aec0d93b40cd02d6cae87fd4a11ddbdb5519d553'
+NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-21-owner-no-notice-engine-1906z.json'
+NOV7_PREDECESSOR = 'bb21dc82673117a937f67c9498dec46b8c27522e'
 
 
 def require_nov7_reservation_authority(args, target, stamp):
     # The installed seal and its policy reader belong to the same pinned control generation.
     deadline = getattr(args, 'deadline', None)
-    expiry = int(datetime.fromisoformat('2026-11-20T09:20:00+00:00').timestamp())
+    expiry = int(datetime.fromisoformat('2026-11-21T22:06:00+00:00').timestamp())
     if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
             or not 330 <= (stamp // 1000) % 3600 <= 2940):
         die('Nov 7 announcement cannot fit the authorized window')
@@ -2743,6 +2776,52 @@ def recovery_window_eligibility(run_id: str, now_ms: int, *, after_completed: bo
     return blocker, eligible_at
 
 
+SLOT_SPACING_MS = 3600 * 1000
+
+
+def serving_start_hours(repo: str, desired_sha: str) -> tuple[int, ...]:
+    """Start hours the SERVING engine breaks on; (4,) when its source predates a policy."""
+    try:
+        path = run(['git', '-C', repo, 'ls-tree', '--name-only', valid_sha(desired_sha), '--', SCHEDULE_POLICY_PATH])
+    except SystemExit:
+        return (4,)
+    if not path:
+        return (4,)
+    return schedule_start_hours(schedule_policy(repo, desired_sha))
+
+
+def scheduled_cycle_starts_ms(start_hours: tuple[int, ...], around_ms: int) -> list[int]:
+    """Real epoch hours within +-6h whose Chicago hour is a start hour; the
+    repeated fall-back hour counts once (the first occurrence)."""
+    zone = ZoneInfo('America/Chicago')
+    base = (around_ms // 3600000) * 3600
+    out = []
+    for offset in range(-6, 7):
+        start = base + offset * 3600
+        hour = datetime.fromtimestamp(start, zone).hour
+        if hour in start_hours and datetime.fromtimestamp(start - 3600, zone).hour != hour:
+            out.append(start * 1000)
+    return out
+
+
+def scheduled_cycle_spacing(start_hours: tuple[int, ...], now_ms: int) -> int:
+    """0 when an off-cycle break announced now keeps a full rolling hour from
+    every scheduled cycle; otherwise the epoch ms when it may be announced.
+
+    ONE OFF-CYCLE BREAK PER ROLLING HOUR, SCHEDULED CYCLES INCLUDED (owner order
+    2026-11-21, docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md): a booked owner
+    window and a three-hourly cycle never break within the same hour.
+    """
+    if start_hours == (4,):
+        return 0  # The daily route keeps its existing, unchanged admission.
+    start = now_ms + 120000
+    eligible = 0
+    for cycle in scheduled_cycle_starts_ms(start_hours, now_ms):
+        if abs(start - cycle) < SLOT_SPACING_MS:
+            eligible = max(eligible, cycle + SLOT_SPACING_MS - 120000)
+    return eligible
+
+
 def recent_recovery_window(run_id: str, now_ms: int) -> str:
     """Keep the existing reservation reader's named-blocker contract."""
     return recovery_window_eligibility(run_id, now_ms)[0]
@@ -2859,6 +2938,11 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
                 die('initial hourly announcement does not own the fixed58 source cycle')
         blocker, eligible_at = recovery_window_eligibility(
             run_id, now_ms, after_completed=scheduled_cycle is None)
+        if not blocker and cause != 'engine-degraded' and scheduled_cycle is None:
+            # A dead or wedged engine is never held for a scheduled cycle.
+            spaced = scheduled_cycle_spacing(serving_start_hours(args.repo, state['desired']['sha']), now_ms)
+            if spaced:
+                blocker, eligible_at = 'scheduled-cycle', spaced
         if blocker:
             if getattr(args, "include_eligibility", False):
                 print(f"rate-limited:{eligible_at}")

@@ -117,11 +117,25 @@ describe('a Horse bet size is public information only', () => {
     for (const r of reads) expect(r).toMatch(/^opts\.omahaBetSizeByPublicState [!=]== true\b/);
     const node = body(
       LOGIC,
-      "decision = graph.run('wager_rules'",
+      'const wagerRulesNode = (): { decision: HorseDecision } =>',
       "reconcileHorsePhaseReceipts(phaseReceiptsBeforeLaterOwners, decision, 'wager_rules'"
     );
-    // Both of the node's answers pass through it, outermost.
-    expect(node.match(/decision: publicSized\(/g)).toHaveLength(2);
-    expect(node.match(/return \{\s*decision:/g)).toHaveLength(2);
+    // Both of the node's answers pass through it, outermost of the owner rules (only the default-off
+    // horseRiverNoBlockerBet, riverNoBlocker, wraps the node's answer after it: a river first bet only).
+    // (EMERG FACING 2026-11-19: the facing-bet answer is publicSized as ownersFinal, then only a final fold may
+    // become the call: omahaFacingBetIsPricedByEquity, default off.)
+    expect(node.match(/decision: publicSized\(/g)).toHaveLength(1);
+    expect(node.match(/const ownersFinal = publicSized\(/g)).toHaveLength(1);
+    // (omahaMathCore, default OFF, 2026-11-19: the node's third return is the core's, outermost over
+    // riverNoBlocker(wagerRulesNode()); with the switch off it returns that answer unchanged.)
+    // (omahaFourBetFoldPricedCall, default OFF, lane PREFLOP-UNCONTESTED 2026-11-20: the node's fourth return is
+    // the four-bet rule's. It turns only a final preflop fold into the legal call; the amount is the price to
+    // call (the smaller of the call and the stack), so it carries no bet size and nothing chosen from cards.)
+    expect(node.match(/return \{\s*decision:/g)).toHaveLength(4);
+    expect(node.match(/return \{\s*(?:\/\/[^\n]*\s*)*decision: omahaMathCoreRule\(/g)).toHaveLength(
+      1
+    );
+    expect(node).toContain("graph.run('wager_rules', decision, () => {");
+    expect(node).toContain('const ruled = riverNoBlocker(wagerRulesNode());');
   });
 });

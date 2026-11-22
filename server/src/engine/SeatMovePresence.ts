@@ -261,6 +261,16 @@ export function withdrawTournamentMovePresence(
   if (tournamentInTransit.get(k)?.requestId === requestId) tournamentInTransit.delete(k);
 }
 
+/** A tournament move to this table is waiting to be claimed (read only; the opponent HUD's 'move' trigger). */
+export function hasTournamentMovePresence(
+  playerId: string,
+  toTableId: string,
+  nowMs: number = Date.now()
+): boolean {
+  const found = tournamentInTransit.get(`${playerId}:${toTableId}`);
+  return !!found && nowMs - found.depositedAtMs <= MOVED_PRESENCE_FRESH_MS;
+}
+
 /** The destination, seeing the player seated at this table, takes it once. */
 export function claimTournamentMovePresence(
   playerId: string,

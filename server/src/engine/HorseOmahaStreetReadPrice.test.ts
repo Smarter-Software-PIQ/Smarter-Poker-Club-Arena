@@ -16,6 +16,7 @@ import {
   streetPriceFromRow,
   streetPriceRow,
   validStreetPrice,
+  type StreetPriceCounters,
 } from './HorseOmahaStreetReadPrice.js';
 import {
   STREET_PRICE_VECTOR_NAMED,
@@ -144,6 +145,18 @@ describe('the record', () => {
     expect(copyStreetPriceRecord({ street_counters_price: r })).toEqual({
       street_counters_price: r,
     });
+  });
+  it('a stored or supplied number of 1e12 or more in size counts as 0 (review note N6, 20261119213206)', () => {
+    const damaged = {
+      foldToRaise: { flop: { sum: 1e400, opp: 1e308 }, turn: { sum: -1e13, opp: 5 } },
+    } as unknown as StreetPriceCounters;
+    expect(addStreetPriceEvidence(damaged, inc([0.4, 1]))!.foldToRaise).toEqual({
+      flop: { sum: 0.4, opp: 1 },
+      turn: { sum: 0, opp: 5 },
+      river: { sum: 0, opp: 0 },
+    });
+    // a supplied count beyond the guard is no evidence: the base comes back as it was
+    expect(addStreetPriceEvidence(null, inc([0.5, 1e12]))).toBeNull();
   });
   it('the named vectors use both players', () => {
     expect(Object.keys(named('a turn check-raise')).sort()).toEqual([A, B]);

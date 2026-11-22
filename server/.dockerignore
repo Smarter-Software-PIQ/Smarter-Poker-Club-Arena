@@ -1,0 +1,38 @@
+# Non-runtime test, test-support, testing-helper, and benchmark-only paths
+# excluded symmetrically from the engine Docker build context,
+# server/tsconfig.runtime.json, and scripts/ci/engine-source-identity.sh.
+#
+# Keep rules strictly positive glob patterns (no ! negation, no [character]
+# classes, no backslash escapes) so Docker / BuildKit and
+# scripts/ci/engine-source-identity.sh agree byte-for-byte on every path.
+#
+# server/src/benchmark/ is intentionally NOT excluded wholesale: runtime
+# modules (server/src/index.ts, HorsePhase10-13Authority.ts, services) import
+# HorseLeague.ts, strength contracts, and reference scorers from it. Only
+# verified non-runtime test, fixture, and sparring-harness paths are excluded.
+
+src/**/*.test.ts
+src/**/*.test.tsx
+src/**/*.test.mts
+src/**/*.test.cts
+src/**/*.test.js
+src/**/*.test.mjs
+src/**/*.test.cjs
+src/**/*.spec.ts
+src/**/*.spec.tsx
+src/**/*.spec.mts
+src/**/*.spec.cts
+src/**/*.spec.js
+src/**/*.spec.mjs
+src/**/*.spec.cjs
+src/**/*.test-support.*
+src/**/__tests__
+src/**/__tests__/**
+src/testing
+src/testing/**
+src/engine/testing
+src/engine/testing/**
+src/benchmark/fixtures
+src/benchmark/fixtures/**
+src/benchmark/Sparring*.ts
+src/benchmark/sparringRun.ts

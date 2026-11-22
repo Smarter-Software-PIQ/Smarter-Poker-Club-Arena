@@ -33,3 +33,19 @@ export function resolveReleaseIdentity(
 }
 
 export const ENGINE_RELEASE_IDENTITY = resolveReleaseIdentity();
+
+/**
+ * The engine_build key of a hand row (hand_history.engine_build, migration
+ * 20261118073245): the exact build of the process that played and committed
+ * the hand. Every engine path that builds a hand row spreads this into it -
+ * logHandHistory for cash and tournament tables, LightningHandHost.handRow for
+ * Lightning - so no hand format can be left unstamped by a writer that forgot
+ * (aHandNamesTheEngineBuildThatDealtIt.law.test.ts). Only a full 40-hex
+ * GIT_COMMIT_SHA is release authority; otherwise the key is omitted and the
+ * column stays NULL. Resolved per call so the row reflects the environment
+ * the hand was committed under.
+ */
+export function handRowEngineBuild(env?: ReleaseIdentityEnvironment): { engine_build?: string } {
+  const sha = resolveReleaseIdentity(env).releaseSha;
+  return sha ? { engine_build: sha } : {};
+}

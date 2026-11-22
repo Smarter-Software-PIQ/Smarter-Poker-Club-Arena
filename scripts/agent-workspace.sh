@@ -55,33 +55,6 @@ case "$ROOT" in
 esac
 ROOT=${ROOT%/.git}
 REPO=$(basename "$ROOT")
-# ── WORKTREES LIVE ON THE EXTERNAL SSD (2026-09-29) ────────────────────────
-#
-# AGENTS.md has said for weeks that agent worktrees belong on
-# /Volumes/SmarterWork/agent-work. This script said otherwise, and this script
-# is what agents actually run: its default put every tree it made under
-# $HOME/Documents/.agent-trees. On 2026-09-29 the Mac carried 659 registered
-# worktrees, 490 of them on the boot disk, which reached 100% of its container
-# with 116 MiB left. Nothing announced itself as "disk full": npm ci died with
-# ENOSPC inside a pre-push gate, vitest failed on temp files, and a merge
-# resolved into a tree that could not be written. Agents spent hours on it.
-#
-# So the default follows the law: the SSD when it is mounted and writable, the
-# old path only as a fallback for a machine that has no SSD attached, and
-# AGENT_WORKTREE_ROOT still overrides both.
-SSD_TREES="/Volumes/SmarterWork/agent-work"
-if [ -n "${AGENT_WORKTREE_ROOT:-}" ]; then
-  TREES="$AGENT_WORKTREE_ROOT"
-elif [ -d "$SSD_TREES" ] && [ -w "$SSD_TREES" ]; then
-  TREES="$SSD_TREES/$REPO"
-else
-  echo "note: $SSD_TREES is not mounted or not writable; falling back to the boot disk." >&2
-  TREES="$HOME/Documents/.agent-trees/$REPO"
-fi
-
-SAFE_AGENT=$(printf '%s' "$AGENT" | tr -c 'A-Za-z0-9._-' '-')
-BRANCH="agent/${SAFE_AGENT}/$(printf '%s' "$SLUG" | sed 's#^agent/[^/]*/##')"
-DIR="$TREES/$SAFE_AGENT"
 
 # ── THE COPY ON DISK IS NOT NECESSARILY THE ESTATE'S (2026-09-11) ───────────
 #
@@ -125,6 +98,81 @@ if [ -z "${AGENT_WORKSPACE_REEXEC:-}" ] && [ -r "$0" ]; then
     AGENT_WORKSPACE_REEXEC=1 exec bash "$_MAIN_SCRIPT" "$@"
   fi
 fi
+
+# ── WORKTREES LIVE ON THE EXTERNAL SSD (2026-09-29) ────────────────────────
+#
+# AGENTS.md has said for weeks that agent worktrees belong on
+# /Volumes/SmarterWork/agent-work. This script said otherwise, and this script
+# is what agents actually run: its default put every tree it made under
+# $HOME/Documents/.agent-trees. On 2026-09-29 the Mac carried 659 registered
+# worktrees, 490 of them on the boot disk, which reached 100% of its container
+# with 116 MiB left. Nothing announced itself as "disk full": npm ci died with
+# ENOSPC inside a pre-push gate, vitest failed on temp files, and a merge
+# resolved into a tree that could not be written. Agents spent hours on it.
+#
+# So the default follows the law: the SSD when it is mounted and writable, the
+# old path only as a fallback for a machine that has no SSD attached, and
+# AGENT_WORKTREE_ROOT still overrides both.
+#
+# A ROOT IS WRITABLE WHEN A FILE CAN BE MADE IN IT, NOT WHEN `-w` SAYS SO
+# (2026-11-21). /Volumes/SmarterWork/agent-work became root-owned and
+# read-only; SSD2 (extreme-capacity) is the preferred external work volume
+# under the November 9, 2026 owner storage direction, ahead of the SSD root and
+# shared-capacity. The old selection fell through to the boot disk (forbidden
+# while the SSD is mounted) and died later with a bare "Permission denied", so
+# every agent had to discover AGENT_WORKTREE_ROOT by hand. Now each candidate
+# is proved by creating and removing a probe file (requiring its parent volume
+# directory to exist so an unmounted subdir is never fabricated), the order is
+# extreme-capacity -> SSD root -> shared-capacity, the boot disk is used only
+# when no SSD is attached, and when no candidate can be written the script
+# refuses here, once, naming the variable.
+# The function is inline (not sourced) because the handover above runs
+# origin/main's copy of this file from a temporary path.
+# >>> choose_agent_worktree_root
+agent_root_writable() {
+  local d="$1" probe
+  mkdir -p "$d" 2>/dev/null || return 1
+  probe=$(mktemp "$d/.agent-workspace-probe.XXXXXX" 2>/dev/null) || return 1
+  rm -f "$probe"
+}
+
+# usage: choose_agent_worktree_root <repo> <ssd agent-work dir> <boot-disk fallback>
+# Prints the chosen root on stdout; refuses (exit status 1) with one message.
+choose_agent_worktree_root() {
+  local repo="$1" ssd="$2" boot="$3" cand
+  if [ -n "${AGENT_WORKTREE_ROOT:-}" ]; then
+    if agent_root_writable "$AGENT_WORKTREE_ROOT"; then
+      printf '%s\n' "$AGENT_WORKTREE_ROOT"
+      return 0
+    fi
+    echo "REFUSED: AGENT_WORKTREE_ROOT=$AGENT_WORKTREE_ROOT is not writable. Set AGENT_WORKTREE_ROOT to a writable directory, for example $ssd/extreme-capacity/$repo." >&2
+    return 1
+  fi
+  if [ -d "$ssd" ]; then
+    for cand in "$ssd/extreme-capacity/$repo" "$ssd/$repo" "$ssd/shared-capacity/$repo"; do
+      if [ -d "${cand%/*}" ] && agent_root_writable "$cand"; then
+        printf '%s\n' "$cand"
+        return 0
+      fi
+    done
+    echo "REFUSED: no writable worktree root on the SSD ($ssd/extreme-capacity/$repo, $ssd/$repo and $ssd/shared-capacity/$repo all refused a write), and the boot disk is not used while the SSD is attached. Set AGENT_WORKTREE_ROOT to a writable directory on the SSD." >&2
+    return 1
+  fi
+  if agent_root_writable "$boot"; then
+    echo "note: $ssd is not mounted; falling back to the boot disk." >&2
+    printf '%s\n' "$boot"
+    return 0
+  fi
+  echo "REFUSED: $ssd is not mounted and $boot is not writable. Set AGENT_WORKTREE_ROOT to a writable directory." >&2
+  return 1
+}
+# <<< choose_agent_worktree_root
+SSD_TREES="/Volumes/SmarterWork/agent-work"
+TREES=$(choose_agent_worktree_root "$REPO" "$SSD_TREES" "$HOME/Documents/.agent-trees/$REPO") || exit 1
+
+SAFE_AGENT=$(printf '%s' "$AGENT" | tr -c 'A-Za-z0-9._-' '-')
+BRANCH="agent/${SAFE_AGENT}/$(printf '%s' "$SLUG" | sed 's#^agent/[^/]*/##')"
+DIR="$TREES/$SAFE_AGENT"
 
 # ── ONE CHECKOUT AT A TIME, AND ONLY WHAT THE LANE NEEDS (2026-11-18) ──────
 #

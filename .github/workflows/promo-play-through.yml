@@ -117,6 +117,8 @@ jobs:
             .github/workflows/promo-play-through.yml
             scripts/ci/test-promo-obligation-earning-matrix.py
             tests/fixtures/promo-obligation-earning-matrix/**
+            scripts/ci/test-hot-path-no-history-scans.py
+            tests/hot-path-never-scans-promo-history.law.test.ts
             tests/promo-play-through-is-a-required-proof.law.test.ts
         shell: bash
         run: |
@@ -269,6 +271,12 @@ jobs:
           TMPDIR: ${{ runner.temp }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-ticket-principal-returns.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-ticket-principal-returns
+      - name: Hot-path functions never transitively scan promo fee history
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          TMPDIR: ${{ runner.temp }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-hot-path-no-history-scans.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/hot-path-no-history-scans
       - name: Retain the regression evidence
         if: always() && steps.relevant.outputs.run == 'true'
         uses: actions/upload-artifact@v4
@@ -303,5 +311,6 @@ jobs:
             artifacts/promo-integrity/RESULTS.json
             artifacts/promo-integrity/review-race-*.log
             artifacts/promo-integrity-accepted-hand/RESULTS.json
+            artifacts/hot-path-no-history-scans/RESULTS.json
           retention-days: 7
           if-no-files-found: warn

@@ -1,0 +1,9 @@
+{
+  "_owner": "agent/plo-horsecards-01TLQer7J/feat/horse-hole-cards-are-kept (migration 20261120014240)",
+  "_comment": "Every Horse's own dealt hole cards per hand, service role only. Names are declarations, not production installation evidence.",
+  "tables": ["smarter_private.horse_dealt_hole_cards"],
+  "functions": [
+    "smarter_private.project_horse_dealt_hole_cards",
+    "smarter_private.prune_horse_dealt_hole_cards"
+  ]
+}

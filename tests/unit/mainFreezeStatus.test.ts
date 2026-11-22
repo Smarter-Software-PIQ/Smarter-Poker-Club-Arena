@@ -19,7 +19,7 @@ describe('main freeze states its owner window and its end', () => {
       }
     );
     expect(r.status).toBe(0);
-    expect(r.stdout + r.stderr).toMatch(/# pass 13\b/);
+    expect(r.stdout + r.stderr).toMatch(/# pass 16\b/);
     expect(r.stdout + r.stderr).toMatch(/# fail 0\b/);
   }, 60_000);
 });

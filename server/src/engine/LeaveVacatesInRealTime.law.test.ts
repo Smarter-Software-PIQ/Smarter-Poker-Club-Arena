@@ -120,10 +120,16 @@ describe('a busted seat is vacated at EVERY tournament format', () => {
   );
   const zeroStackVacate = atomicWrite.slice(zeroStackVacateStart, zeroStackVacateEnd);
 
-  it('keeps only the rebuy-window decision inside the rebuy gate', () => {
-    expect(bustedFlow).toContain('if (t && (t.is_rebuy ||');
-    expect(bustedFlow).toMatch(/rebuy_levels|windowOpen/);
-    expect(bustedFlow).toContain("reason: 'busted_awaiting_rebuy_decision'");
+  it('publishes tournament busts unconditionally with zero rebuy-window DB reads', () => {
+    const tStart = bustedFlow.indexOf('} else if (this.tableInfo?.tournament_id) {');
+    const tEnd = bustedFlow.indexOf('if (needsRebuyPause)', tStart);
+    expect(tStart).toBeGreaterThan(-1);
+    expect(tEnd).toBeGreaterThan(tStart);
+    const bustOnly = bustedFlow.slice(tStart, tEnd);
+    const code = blankNonCode(bustOnly);
+    expect(code).not.toContain(".from('tournaments')");
+    expect(code).not.toMatch(/\bawait\b/);
+    expect(bustOnly).toContain("reason: 'busted_awaiting_rebuy_decision'");
   });
 
   it('has no second process-side standings or seat writer after a bust', () => {

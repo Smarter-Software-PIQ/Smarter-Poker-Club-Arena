@@ -385,14 +385,21 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(job.if).toContain("needs.detect.outputs.window_sha != ''");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
+    // Window migrations stay at the 04:00 anchor when the engine cuts over
+    // every three hours (owner order 2026-11-21): a non-anchor cycle's
+    // identity carries 'T' and never runs this job.
+    expect(job.if).toContain("!contains(needs.detect.outputs.daily_preparation_date, 'T')");
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 3,8 * * *' },
-      { cron: '31,35,39,43 4,9 * * *' },
+      { cron: '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *' },
+      { cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
     ]);
     const admission = stage.jobs.detect.steps.find(
       (step: { id?: string }) => step.id === 'admission'
     );
-    expect(admission.run).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
+    expect(admission.run).toContain('WINDOW_MINUTES = 20');
+    expect(admission.run).toContain(
+      'HOURS = (1, 4, 7, 10, 13, 16, 19, 22) if three_hourly else (4,)'
+    );
     expect(admission.run).toContain('PHASE1_RESTORING');
     expect(job.permissions).toEqual({ contents: 'read' });
     expect(job.concurrency['cancel-in-progress']).toBe(false);

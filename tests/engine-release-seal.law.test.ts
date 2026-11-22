@@ -2320,6 +2320,23 @@ describe('every host mutation path obeys the durable release authority', () => {
     }
   });
 
+  it('skips container-referenced engine images without force-removing images or deleting containers', () => {
+    expect(retention).toContain(
+      "docker ps -a --no-trunc --format '{{.Image}}\\t{{.ID}}\\t{{.Status}}'"
+    );
+    expect(retention).toContain("docker container inspect -f '{{.Image}}'");
+    expect(retention).not.toMatch(/docker\s+image\s+rm\s+[^\n]*(-f|--force)\b/);
+    expect(retention).not.toMatch(/docker\s+(container\s+)?rm\b/);
+
+    const result = spawnSync(
+      'python3',
+      ['-B', resolve(ROOT, 'tests/operations/retain-engine-images.test.py')],
+      { encoding: 'utf8', timeout: 30_000 }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('Ran 2 tests');
+  }, 35_000);
+
   it('admits only generations compatible with the frozen release v1 wire contract', () => {
     expect(protocolV1).toBe(
       [

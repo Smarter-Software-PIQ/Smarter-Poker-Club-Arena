@@ -28,3 +28,5 @@ Confirmation, fresh seed 94202, run once and reported as it is: +0.57 to +0.59 a
 ## Limits
 
 Every opponent is a variant of the Horse brain; no human-calibrated Omaha field is qualified. Chips only (heads-up, so payout-linear). At 20 BB the gain against a re-shoving or call-heavy opponent is not distinguishable from zero, as for Omaha high. The option stays default OFF; activation would need a `docs/horse-default-on.d/` evidence file and is not proposed here.
+
+**Note (2026-11-21):** every PLO8 figure above from the evaluation league (`server/src/benchmark/HorseLeague.ts`, `playHand`) came from the high-only league, which paid every hi-lo pot to the high hand with no low half; it needs re-measurement on the league with hi-lo settlement (`settleLeagueShowdown`, `docs/changelog/2026-11-21-league-pays-the-low-half.md`).

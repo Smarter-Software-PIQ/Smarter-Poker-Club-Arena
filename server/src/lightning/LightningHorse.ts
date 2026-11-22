@@ -24,9 +24,11 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  * The think time is mapped exactly as the physical engine maps it, including
  * the time-bank burn for a "tank" decision when the horse's bank is usable.
  */
+import { opponentHudSnapshotField } from '../services/OpponentHudStore.js';
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
 import { omahaValueSizeBandHolds } from '../engine/HorseOmahaValueSizeBand.js';
+import { omahaFallbackPricedCall } from '../engine/HorseOmahaFacingBetEquity.js';
 import {
   noteFire,
   noteHorseLegalizerDegraded,
@@ -53,6 +55,14 @@ import type { ActionType, HorseDecision, SeatPlayer } from '../types.js';
 import type { LightningHorseVpipFloorInput } from './LightningHorseVpipLedger.js';
 import type { LiveHorseDecideOpts } from '../engine/horseDecision/protocol.js';
 import type { LightningFastFoldTuning } from '../engine/runtimeSettings/apply.js';
+import {
+  omahaMathCoreOwns,
+  omahaMathCoreRecover,
+} from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
+import {
+  omahaMathCoreRecoverAdmission,
+  omahaMathCoreSwitchOn,
+} from '../engine/omahaMathCore/OmahaMathCoreSwitchState.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -118,6 +128,9 @@ export interface LightningHorseDecision {
   /** omahaValueSizeIsUnreadable (default off): the band stamp of the worker's decision, carried to the
    *  door (shapeLightningHorseAction); absent unless the option sized this wager. */
   valueSize?: HorseDecision['valueSize'];
+  /** COREGUARD: the omahaMathCore receipt of a worker-failure answer the core's minimal computation priced
+   *  (omahaMathCoreRecover); absent otherwise (the lane's own decision carries its receipt in `fast`). */
+  omahaMathCore?: HorseDecision['omahaMathCore'];
 }
 
 /** The physical engine's snapshot of this turn, for this horse. */
@@ -208,6 +221,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
               hands: turn.vpipFloor.own.hands,
               vpipHands: turn.vpipFloor.own.vpipHands,
               leavingEntered: turn.vpipFloor.own.leavingEntered === true,
+              fromFirstHand: turn.vpipFloor.own.fromFirstHand === true,
             },
           },
         }
@@ -237,6 +251,8 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     style,
     mods,
     ...(turn.horseOpts ? { opts: { ...turn.horseOpts } } : {}),
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): the opponents' lifetime public profiles while armed; {} otherwise.
+    ...opponentHudSnapshotField(gameState, decisionPlayer.user_id, turn.now),
   };
   snapshot.decisionKey = buildHorseDecisionKey(snapshot);
   return snapshot;
@@ -255,12 +271,14 @@ export async function decideLightningHorse(
   const toCall =
     turn.hc.getAuthoritativeActionState(turn.userId, { asIfToAct: turn.earlyLook === true })
       ?.toCall ?? 0;
+  let asked: LiveHorseDecisionSnapshot | null = null;
   try {
     if (!turn.earlyLook) {
       noteHorseTelemetryOpportunity(turn.variant, 'cash', 'decision_started');
       if (turn.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_seen');
     }
     const snapshot = buildLightningHorseSnapshot(turn);
+    asked = snapshot;
     const fast = await lane().decideFast(snapshot, signal, {
       deadlineMs: horseDecisionDeadlineMs({
         actionTimeSeconds: turn.actionTimeSeconds,
@@ -277,6 +295,14 @@ export async function decideLightningHorse(
     });
   } catch (err) {
     if (signal.aborted) throw err;
+    // TASK #8 (2026-11-20): seven Lightning turn folds (Nov 16-19) were worker-failure liveness answers whose
+    // cause is in no database row: this path counted only a Prometheus metric and the legalizer's
+    // `lightning_timeout`; the host prints the error to the engine log only (onWorkerFailure). The reason is
+    // now a horse telemetry counter (horse_brain_telemetry, per reason and per street), so the next one can be
+    // diagnosed from the database without the engine host's logs. A snapshot that could not be built is not a
+    // lane failure and is named apart.
+    const fallbackReason =
+      asked === null ? 'snapshot_unavailable' : horseDecisionFallbackReason(err);
     try {
       EngineMetrics.horseDecisionFallbacksTotal.inc(1, {
         reason: horseDecisionFallbackReason(err),
@@ -284,16 +310,84 @@ export async function decideLightningHorse(
       if (!turn.earlyLook) {
         noteHorseLegalizerDegraded(turn.variant, 'cash', 'lightning_timeout');
       }
+      noteLightningHorseFallback(turn, fallbackReason);
     } catch {
       /* metrics must never affect gameplay */
     }
     onWorkerFailure?.(err);
+    // COREGUARD (owner 2026-11-19 8:48 PM): a PLO4/PLO5 decision the core owns
+    // (omahaMathCore on) never becomes a liveness fold: the bounded minimal
+    // exact computation prices it (OmahaMathCoreAcceptance). Null outside the
+    // core's scope or with the switch off: the liveness answer, as before.
+    let recovered: HorseDecision | null = null;
+    try {
+      const snapshot = buildLightningHorseSnapshot(turn);
+      recovered = omahaMathCoreRecover({
+        player: snapshot.player,
+        gs: { ...snapshot.gameState, toCall },
+        on: omahaMathCoreSwitchOn(snapshot.opts as Readonly<Record<string, unknown>> | undefined),
+        from: 'worker_failure',
+        ...omahaMathCoreRecoverAdmission(
+          snapshot.opts as Readonly<Record<string, unknown>> | undefined
+        ),
+        error: err,
+        runCore: false,
+        budgetMs: 15,
+      });
+    } catch {
+      recovered = null;
+    }
+    if (recovered)
+      return startedOnTurn(turn, {
+        action: String(recovered.action),
+        ...(recovered.amount !== undefined ? { amount: recovered.amount } : {}),
+        thinkTime: 0,
+        workerFallback: true,
+        fast: null,
+        omahaMathCore: recovered.omahaMathCore,
+      });
+    // 2026-11-19 (LIVEGRADE CR-1, hand 60117459): the liveness fold of a
+    // PLO4/PLO5 seat facing a person's wager on its own turn is priced first;
+    // a call that pays is taken. An early look keeps the liveness answer.
+    const pricedCall =
+      toCall > 0 && !turn.earlyLook && asked !== null
+        ? omahaFallbackPricedCall(asked.player, asked.gameState)
+        : null;
+    if (pricedCall !== null) noteFire('horse_fallback_priced_call');
     return startedOnTurn(turn, {
-      action: toCall > 0 ? 'fold' : 'check',
+      action: pricedCall !== null ? 'call' : toCall > 0 ? 'fold' : 'check',
+      ...(pricedCall !== null ? { amount: pricedCall } : {}),
       thinkTime: 0,
       workerFallback: true,
       fast: null,
     });
+  }
+}
+
+/**
+ * The durable record of a Lightning worker-failure answer: one counter per reason and, on the seat's own turn,
+ * one per street. Counters land in horse_brain_telemetry (BrainTelemetry flush), which is readable without the
+ * engine host. Never throws.
+ */
+export function noteLightningHorseFallback(turn: LightningHorseTurn, reason: string): void {
+  try {
+    const safe = /^[a-z_]{1,40}$/.test(reason) ? reason : 'unknown';
+    noteFire(`lightning_horse_fallback_${safe}_seen`);
+    if (turn.earlyLook) {
+      noteFire('lightning_horse_fallback_early_look_seen');
+      return;
+    }
+    let stage: string | undefined;
+    try {
+      stage = turn.hc.getState().stage;
+    } catch {
+      stage = undefined;
+    }
+    noteFire(
+      `lightning_horse_fallback_street_${stage === 'preflop' || stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'unknown'}_seen`
+    );
+  } catch {
+    /* telemetry must never affect gameplay */
   }
 }
 
@@ -372,7 +466,13 @@ export function lightningHorseThinkTimeMs(input: {
 export function shapeLightningHorseAction(
   hc: HandController,
   userId: string,
-  decision: { action: string; amount?: number; valueSize?: HorseDecision['valueSize'] },
+  decision: {
+    action: string;
+    amount?: number;
+    valueSize?: HorseDecision['valueSize'];
+    omahaMathCore?: HorseDecision['omahaMathCore'];
+    fast?: { decision?: Pick<HorseDecision, 'omahaMathCore'> } | null;
+  },
   allInOrFold: boolean
 ): { action: ActionType; amount?: number } {
   const state = hc.getState();
@@ -406,7 +506,10 @@ export function shapeLightningHorseAction(
   // the worker's final wager rules. Classic tables reapply the exact-nuts rule
   // at this boundary; Lightning must use the same rule and fresh legal menu.
   // This does not reinstate a withdrawn strategy or its plan effects.
-  if (me && auth?.canAct && state.stage === 'river') {
+  // COREGUARD: an omahaMathCore choice is the size the core priced; the
+  // exact-nuts rule never rewrites it (it is a reference-owner rule).
+  const coreOwned = omahaMathCoreOwns(decision) || omahaMathCoreOwns(decision.fast?.decision);
+  if (me && auth?.canAct && state.stage === 'river' && !coreOwned) {
     const nutState = {
       ...state,
       ...hc.getBlindSnapshot(),

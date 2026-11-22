@@ -51,7 +51,7 @@ Per-style tracking (2026-11-16), one per decision with the option on (ledger): h
 
 ## Tests
 
-HorsePlayStyle.test.ts, HorseOmahaPlayStyle.test.ts, and the style arms in HorseOmahaStrategyPrecedence.test.ts, HorseOmahaTurnRiverRaiseNeedsNuts.test.ts and HorseOmahaBigDrawAggression.test.ts.
+HorsePlayStyles.law.test.ts (docs/laws.d/server-src-engine-HorsePlayStyles.md), HorsePlayStyle.test.ts, HorseOmahaPlayStyle.test.ts, and the style arms in HorseOmahaStrategyPrecedence.test.ts, HorseOmahaTurnRiverRaiseNeedsNuts.test.ts and HorseOmahaBigDrawAggression.test.ts.
 
 ## Measured: census (scratch, not an evaluation)
 
@@ -123,3 +123,7 @@ Verdict by the declared rule: pressure WINNING against current (no cell losing; 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+
+## Rollback
+
+If enabled, set `horsePlayStyles` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('horsePlayStyles', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

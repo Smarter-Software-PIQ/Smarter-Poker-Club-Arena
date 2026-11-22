@@ -26,7 +26,14 @@
 #
 # Environment:
 #   CA_HEAVY_QUEUE=off            do not queue (the job still runs every check)
-#   CA_HEAVY_QUEUE_DIR=<dir>      queue directory (tests, or a moved SSD)
+#   CA_HEAVY_QUEUE_DIR=<dir>      queue directory (tests); default is ONE fixed
+#                                 folder on the boot disk (see hq_dir)
+#   CA_HEAVY_QUEUE_LOAD_CEILING=<n>  a free slot waits while the 1-minute load
+#                                 is above n AND another heavy job runs
+#                                 (default: the core count; 0 = off)
+#   CA_HEAVY_QUEUE_LOAD_FILE=<f>  read the 1-minute load from file f (tests)
+#   CA_HEAVY_QUEUE_LEGACY_DIRS=<d...>  old queue folders to read (tests; by
+#                                 default the pre-2026-11-20 SSD folders)
 #   CA_HEAVY_QUEUE_SLOTS=<n>      concurrent heavy jobs (default: cores / 7, min 2)
 #   CA_HEAVY_QUEUE_MAX_WAIT=<s>   longest wait before running anyway (default 2700)
 #   CA_HEAVY_QUEUE_POLL=<s>       poll interval (default 2)
@@ -70,33 +77,53 @@ hq_dir_writable() {
   rm -f "$probe"
 }
 
-# The queue directory: an explicit CA_HEAVY_QUEUE_DIR, else the authorized SSD
-# (SSD1 shared work area, then SSD2 work area), else a boot-disk fallback so
-# the queue still orders work while the SSD is unmounted. Prints the choice.
+# The queue directory (Horse SWITCH lane, 2026-11-20): ONE fixed folder on the
+# boot disk, whatever drives are attached. The tickets are a few hundred bytes
+# each; a queue that follows the SSD splits when a drive drops or returns. On
+# 2026-11-20 SSD1 dropped at 5:53 PM Chicago: waiters moved to a queue on SSD2,
+# the SSD1 tickets (the math-core gate held #121) were stranded, and once SSD1
+# came back new jobs queued there while SSD2's still ran - two queues of four
+# slots, so up to eight gates at once on a machine that fails tests at four.
+# CA_HEAVY_QUEUE_DIR still overrides it (tests).
+HQ_STABLE_DIR="${HOME:-/tmp}/.cache/club-arena-heavy-queue"
 hq_dir() {
   if [ -n "${CA_HEAVY_QUEUE_DIR:-}" ]; then
     hq_dir_writable "$CA_HEAVY_QUEUE_DIR" || return 1
     printf '%s\n' "$CA_HEAVY_QUEUE_DIR"
     return 0
   fi
-  local cand base
-  if [ "$(hq_env_value AGENT_SSD_USE_AUTHORIZED)" = true ]; then
-    for base in "$(hq_env_value SSD1_WORK_SHARED_DIR)" "$(hq_env_value SSD2_WORK_DIR)"; do
-      [ -n "$base" ] && [ -d "$base" ] || continue
-      cand="$base/heavy-queue"
-      if hq_dir_writable "$cand"; then
-        printf '%s\n' "$cand"
-        return 0
-      fi
-    done
-  fi
-  cand="${HOME:-/tmp}/.cache/club-arena-heavy-queue"
-  if hq_dir_writable "$cand"; then
-    HQ_DIR_NOTE="the authorized SSD is not writable now; queue kept on the boot disk at $cand"
-    printf '%s\n' "$cand"
+  hq_dir_writable "$HQ_STABLE_DIR" || return 1
+  printf '%s\n' "$HQ_STABLE_DIR"
+}
+
+# The queue folders the code before 2026-11-20 used (SSD1 shared work area,
+# SSD2 work area). A job an older checkout admitted there still loads the
+# machine, so its live RUNNING tickets count against the slots here until those
+# checkouts are gone. Read only: nothing is written or reaped in them.
+hq_legacy_dirs() {
+  local base
+  if [ -n "${CA_HEAVY_QUEUE_DIR:-}" ] || [ -n "${CA_HEAVY_QUEUE_LEGACY_DIRS+set}" ]; then
+    for base in ${CA_HEAVY_QUEUE_LEGACY_DIRS:-}; do printf '%s\n' "$base"; done
     return 0
   fi
-  return 1
+  for base in "$(hq_env_value SSD1_WORK_SHARED_DIR)" "$(hq_env_value SSD2_WORK_DIR)"; do
+    [ -n "$base" ] && [ -d "$base/heavy-queue/tickets" ] && printf '%s\n' "$base/heavy-queue"
+  done
+  return 0
+}
+
+hq_legacy_running() {
+  local d t n=0
+  while IFS= read -r d; do
+    [ -n "$d" ] && [ "$d" != "${HQ_STABLE_DIR:-}" ] || continue
+    for t in "$d"/tickets/*; do
+      case "$t" in *.run | *'*') continue ;; esac
+      [ -f "$t" ] && [ -f "$t.run" ] && hq_ticket_alive "$t" && n=$((n + 1))
+    done
+  done <<EOF
+$(hq_legacy_dirs)
+EOF
+  printf '%s\n' "$n"
 }
 
 hq_cores() {
@@ -115,6 +142,66 @@ hq_slots() {
   [ "$s" -ge 1 ] 2>/dev/null || s=1
   if [ -z "${CA_HEAVY_QUEUE_SLOTS:-}" ] && [ "$s" -lt 2 ]; then s=2; fi
   printf '%s\n' "$s"
+}
+
+# The 1-minute load average (macOS vm.loadavg, Linux /proc/loadavg); fails when unknown.
+hq_load1() {
+  local l=
+  if [ -n "${CA_HEAVY_QUEUE_LOAD_FILE:-}" ]; then
+    l=$(head -n 1 "$CA_HEAVY_QUEUE_LOAD_FILE" 2>/dev/null | tr -d ' ')
+  else
+    l=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{ print $1 }')
+    [ -n "$l" ] || l=$(awk '{ print $1 }' /proc/loadavg 2>/dev/null)
+  fi
+  case "$l" in '' | *[!0-9.]*) return 1 ;; esac
+  printf '%s\n' "$l"
+}
+
+# Above this 1-minute load a free slot is held while another heavy job runs.
+# Default: one runnable process per core. Measured 2026-11-20: four admitted
+# gates kept the load at 23-53 on 28 cores and each run failed a different
+# 30-second harness timeout; slots alone cannot see the load other work adds.
+hq_load_ceiling() {
+  local c=${CA_HEAVY_QUEUE_LOAD_CEILING:-}
+  case "$c" in '' | *[!0-9]*) c=$(hq_cores) ;; esac
+  printf '%s\n' "$c"
+}
+
+# True when the ceiling is off, the load is unknown, or the load is at or under it.
+hq_load_ok() {
+  local c l
+  c=$(hq_load_ceiling)
+  [ "$c" -gt 0 ] 2>/dev/null || return 0
+  l=$(hq_load1) || return 0
+  awk -v l="$l" -v c="$c" 'BEGIN { exit !(l + 0 <= c + 0) }'
+}
+
+# Run lengths (seconds) of the last finished heavy jobs, for the waiting ETA.
+hq_record_run() {
+  local t=$1 began q h
+  began=$(cat "$t.run" 2>/dev/null)
+  case "$began" in '' | *[!0-9]*) return 0 ;; esac
+  q=$(dirname "$(dirname "$t")")
+  h="$q/history"
+  printf '%s\n' "$(( $(date +%s) - began ))" >> "$h" 2>/dev/null || return 0
+  if [ "$(wc -l < "$h" 2>/dev/null | tr -d ' ')" -gt 60 ] 2>/dev/null; then
+    tail -n 40 "$h" > "$h.$$" 2>/dev/null && mv -f "$h.$$" "$h" 2>/dev/null
+  fi
+  return 0
+}
+
+# Median recorded run length in seconds; fails when none is recorded.
+hq_typical_run() {
+  [ -s "$1/history" ] || return 1
+  sort -n "$1/history" 2>/dev/null | awk '/^[0-9]+$/ { a[n++] = $1 } END { if (n == 0) exit 1; print a[int((n - 1) / 2)] }'
+}
+
+# ", about N min (a heavy job typically runs M min)" for place $2 with $3 slots; empty without history.
+hq_eta_note() {
+  local typ waves
+  typ=$(hq_typical_run "$1") || return 0
+  waves=$(( ($2 + $3 - 1) / $3 ))
+  printf ', about %s min (a heavy job typically runs %s min)' "$(( (typ * waves + 59) / 60 ))" "$(( (typ + 59) / 60 ))"
 }
 
 hq_pid_start() {
@@ -181,7 +268,7 @@ hq_failopen() {
 }
 
 hq_acquire() {
-  local label=${1:-heavy job} q seq slots t other ahead pos waited=0 last_note=-1 max poll began
+  local label=${1:-heavy job} q seq slots t other ahead running legacy pos waited=0 last_note=-1 max poll began
   HQ_STATE=
   HQ_TICKET=
   if [ "${CA_HEAVY_QUEUE:-on}" = off ]; then
@@ -229,13 +316,24 @@ hq_acquire() {
       return 0
     fi
     ahead=0
+    running=0
     for other in "$q"/tickets/*; do
       case "$other" in *.run | *'*') continue ;; esac
       [ "$other" = "$t" ] && break
       [ -f "$other" ] || continue
-      if hq_ticket_alive "$other"; then ahead=$((ahead + 1)); else hq_reap "$other"; fi
+      if hq_ticket_alive "$other"; then
+        ahead=$((ahead + 1))
+        [ -f "$other.run" ] && running=$((running + 1))
+      else
+        hq_reap "$other"
+      fi
     done
-    if [ "$ahead" -lt "$slots" ]; then
+    legacy=$(hq_legacy_running)
+    ahead=$((ahead + legacy))
+    running=$((running + legacy))
+    # A slot is free, and either nothing heavy runs (never a deadlock: the
+    # first job always starts) or the machine is under its load ceiling.
+    if [ "$ahead" -lt "$slots" ] && { [ "$running" -eq 0 ] || hq_load_ok; }; then
       date +%s > "$t.run" 2>/dev/null
       HQ_STATE=admitted
       HQ_HELD_TICKET=$t
@@ -251,9 +349,13 @@ hq_acquire() {
       hq_say "WARNING: waited ${waited}s (CA_HEAVY_QUEUE_MAX_WAIT) for a slot; running $label now. No check is skipped."
       return 0
     fi
-    pos=$((ahead - slots + 1))
     if [ "$last_note" -lt 0 ] || [ $((waited - last_note)) -ge 60 ]; then
-      hq_say "waiting for a heavy-job slot for $label: $ahead live jobs ahead of it, $slots run at once; place $pos in the waiting line (bash scripts/heavy-queue.sh status)."
+      if [ "$ahead" -lt "$slots" ]; then
+        hq_say "a slot is free for $label, but the 1-minute load $(hq_load1 2>/dev/null || echo '?') is above the ceiling $(hq_load_ceiling) while $running heavy job(s) run; holding until the load drops or one finishes (CA_HEAVY_QUEUE_LOAD_CEILING)."
+      else
+        pos=$((ahead - slots + 1))
+        hq_say "waiting for a heavy-job slot for $label: $ahead live jobs ahead of it, $slots run at once; place $pos in the waiting line$(hq_eta_note "$q" "$pos" "$slots") (bash scripts/heavy-queue.sh status)."
+      fi
       last_note=$waited
     fi
     sleep "$poll" 2>/dev/null || sleep 2
@@ -265,6 +367,7 @@ hq_release() {
   case "${HQ_STATE:-}" in
     admitted | timeout)
       if [ -n "${HQ_TICKET:-}" ]; then
+        hq_record_run "$HQ_TICKET"
         rm -f "$HQ_TICKET" "$HQ_TICKET.run" 2>/dev/null
       fi
       if [ "${HQ_HELD_TICKET:-}" = "${HQ_TICKET:-}" ]; then unset HQ_HELD_TICKET; fi

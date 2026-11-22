@@ -67,7 +67,7 @@ python3 scripts/release/book-owner-engine-window.py \
 - Add `--dry-run` first: it prints the plan (current window, new digests, files) and writes nothing. Add `--laws` to also run the three TypeScript laws after writing.
 - The current window id, predecessor and expiry are read from the release controls, never typed. The command refuses, writing nothing, when the id is already booked, a timing rule below is broken, a required phrase is missing, or any expected occurrence count differs (for example the transaction script not naming the current id exactly 4 times).
 - After writing it runs `python3 tests/operations/engine-activation-floor.test.py` and prints PASS or FAIL. Exit 0 is booked and passing, 1 is written and failing, 2 is refused.
-- It only edits the working tree. Review `git diff`, commit, push and merge as usual.
+- It only edits the working tree. Review `git diff`, commit, push and open the booking PR with `Lane: release-custody` in the opening PR description (use the `gh pr create` template printed by `book-owner-engine-window.py`, or pass `--pr-body-out <file>`) so Ownership map passes on the first run. Then merge as usual.
 - If it warns that the new notice overlaps a shipped notice, earlier cases in `tests/a-booked-window-gives-players-notice.law.test.ts` that assert no notice (or another primary notice) inside the new interval need a hand edit, as #10691 did; run that law.
 
 What the command changes (14 files):
@@ -82,7 +82,7 @@ What the command changes (14 files):
 - `PUBLISHING.md`, `docs/ENGINE-RELEASE-RUNBOOK.md`: one dated paragraph; a changelog file.
 - Tests: `tests/operations/engine-activation-floor.test.py` (a generated test for the new window, the previous window's test demoted to its literal digests, every absolute negative index shifted by one except those that follow a `.pop()` chain, the simulated reservation stamp and id count moved), `tests/an-engine-activation-floor-precedes-runtime-writes.law.test.ts` (case list and count), `tests/daily-engine-maintenance.law.test.ts` (pop chain), `tests/a-booked-window-gives-players-notice.law.test.ts` (new notice case).
 
-**No advance notice is the default (standing owner order, November 17, 2026 20:23 Chicago: "REMOVE THE ANNOUNCEMENT, I NEVER ASKED FOR IT, AND DON'T WANT IT APART OF ANY FUTURE ENGINE CUT OVER REQUIREMENTS EVER AGAIN!").** Omit `--notice-at` (or pass `--no-advance-notice`) for every engine window. The order file must contain the owner's exact sentence (`scripts/ci/owner-notice-waiver.mjs`) and need not contain `twenty minutes`. The window gets `ownerNoticeWaiver` and no `playerNoticeAt`, the client notice file is not touched, and preflight item 5 (served client carries the booked notice) does not apply. There is no expiry. Everything else in this playbook is unchanged, including the engine's own two-minute last-hand drain before the freeze. See `docs/changelog/2026-11-17-one-engine-release-without-advance-player-notice.md`.
+**No advance notice is the default (standing owner order, November 17, 2026 20:23 Chicago: "REMOVE THE ANNOUNCEMENT, I NEVER ASKED FOR IT, AND DON'T WANT IT APART OF ANY FUTURE ENGINE CUT OVER REQUIREMENTS EVER AGAIN!").** Omit `--notice-at` (or pass `--no-advance-notice`) for every engine window. The order file must contain the owner's exact sentence (`scripts/ci/owner-notice-waiver.mjs`) and need not contain `twenty minutes`. The window gets `ownerNoticeWaiver` and no `playerNoticeAt`, the client notice file is not touched, and preflight item 6 (served client carries the booked notice) does not apply. There is no expiry. Everything else in this playbook is unchanged, including the engine's own two-minute last-hand drain before the freeze. See `docs/changelog/2026-11-17-one-engine-release-without-advance-player-notice.md`.
 
 Timing rules for the booking (the command enforces the lead, the band, the 420 s fit, the six-hour bound and the 03:30 Chicago limit; the merge-time and certificate rules are yours):
 
@@ -109,17 +109,28 @@ Get an independent fresh-context review of the exact head, then protected squash
 
 ### 7. Preflight Immediately Before Dispatch
 
-Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-ready --repo . --serving SERVING_SHA --sha TARGET_SHA` through the configured read-only `DATABASE_URL`, or add `--production FRESH_SCHEMA_EVIDENCE_JSON` for a fresh capture. Require READY for **every ordinary candidate migration**, including exact-target byte-validated recorded names; a window-files-only check misses ordinary recordings with shortened filenames. Retain the certified-copy equality and required-function comparison below. Missing or changed inputs refuse; never rename installed history or replay SQL to satisfy a filename.
+Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-ready --repo . --serving SERVING_SHA --sha TARGET_SHA` through the configured read-only `DATABASE_URL`, or add `--production FRESH_SCHEMA_EVIDENCE_JSON` for a fresh capture. Both `--serving` and `--sha` require full 40-char commit SHAs (short SHAs are refused with `expected exact commit SHAs`). Require READY for **every ordinary candidate migration**, including exact-target byte-validated recorded names; a window-files-only check misses ordinary recordings with shortened filenames. Retain the certified-copy equality and required-function comparison below. Missing or changed inputs refuse; never rename installed history or replay SQL to satisfy a filename.
 
 All must hold:
 
 1. `backup-engine/certified` = success on the target.
-2. Release-authority projection of target equals main (`projection(sha, release_authority=True)` in `scripts/ci/read-engine-prequalification.py`).
-3. Production migration md5 equals the certificate copy's.
-4. Applier disabled; no receiver run active; no other Stage `workflow_dispatch` since the window opened.
-5. Served client (`https://smarter.poker/hub/club-arena/build-info.json`) carries the booked notice.
-6. Engine healthy: status ok, maintenance idle, 0 stalled, settlement ok, `recoveryWindowReady` true, no weekly payout.
-7. Host seal state clean; last recovery reservation more than 3600 s before your planned announcement.
+2. `Engine release prequalification` (`engine-release-prequalification.yml`) = success on the exact 40-char target SHA (`gh run list --workflow engine-release-prequalification.yml --commit <40-char-target-sha> -L 5` shows `completed` / `success`; otherwise `select-daily-engine.py` defers the candidate even when `backup-engine/certified` is green).
+3. Release-authority projection of target equals main (`projection(sha, release_authority=True)` in `scripts/ci/read-engine-prequalification.py`).
+4. Production migration md5 equals the certificate copy's.
+5. Applier disabled; no receiver run active; no other Stage `workflow_dispatch` since the window opened.
+6. Served client (`https://smarter.poker/hub/club-arena/build-info.json`) carries the booked notice (does not apply under the standing no-advance-notice order).
+7. Engine healthy: status ok, maintenance idle, 0 stalled, settlement ok, `recoveryWindowReady` true, no weekly payout.
+8. Host seal state clean; last recovery reservation more than 3600 s before your planned announcement.
+9. Every live Horse switch row is accepted by the target: `python3 -B server/scripts/engine-release-switch-rows.py candidate --repo . --sha TARGET_SHA` through the same read-only `DATABASE_URL` exits 0. Exit 1 lists the offenders: a swap with them runs EVERY Horse option at its release default (the fleet-reset trap); clear or fix the row first. Exit 3 (unreadable) is not a pass. Run it before booking too. After SEALED, run `... post-seal --serving TARGET_SHA --since <SEALED time>`: the serving registry accepts every row and no option-switch configuration alarm fired.
+
+### Custody Liveness
+
+If a booked window's custodian posts nothing within **20 minutes** of both `backup-engine/certified` and `engine-release-prequalification.yml` going green for the target commit while the window is open (`notBefore <= now < notAfter`), another named lane may take custody:
+
+1. Confirm read-only that no Stage dispatch (`stage-engine-release.yml`), receiver run (`auto-deploy-hetzner.yml`), or host transaction has started for the window.
+2. Post `TAKING CUSTODY` in `/Volumes/SmarterArchives/agent-evidence/COORDINATION-INBOX.md` naming the window id, exact 40-char target SHA, the silent custodian, and the UTC timestamp.
+3. Wait **5 minutes** for objection or acknowledgement from the original custodian.
+4. If no objection arrives and no dispatch started during the wait, complete Step 7 preflight and dispatch **ONCE** (Step 8). The taking lane then owns Steps 8 through 10 (verification, migration resume, and SEALED hand-off), and the original custodian must not compete on return.
 
 ### 8. Dispatch Once
 
@@ -142,7 +153,7 @@ Never retry. If the result is uncertain, read the Stage run, receiver run and ho
 - Receipt `/var/lib/club-arena/engine-release-results/<run>-1.json`: sha, image, container and instance equal public `/health` and `docker inspect`.
 - After the break end: `/health` maintenance idle, `resumeWaves` done, 0 stalled, settlement ok, all decision workers on the target revision; `engine_maintenance_break_log` newest row `thaw_ok` true; `hand_history` rows since the thaw for cash and tournaments; `fn_platform_frozen()` false.
 - Exclusions on the live manifest: held-out packs `enabled: false`, V31 store empty, no Pillar 2 entry.
-- Resume installs with ONE command, never a bare re-enable: `env -u GH_TOKEN -u GITHUB_TOKEN bash scripts/release/resume-migration-installs.sh <pause-start-sha>` (run `--dry-run` first). It switches BOTH the applier and Dispatch Merged Migrations back on, then sends every ordinary migration added or modified on main since the pause, once each, oldest first; window files stay for 04:00. Read each Apply Merged Migration run's result. Do the same on abandonment or expiry.
+- Resume installs with ONE command, never a bare re-enable: `env -u GH_TOKEN -u GITHUB_TOKEN bash scripts/release/resume-migration-installs.sh <pause-start-sha>` (run `--dry-run` first). **Run at :05-:49 UTC (refuses at :48-:04 UTC for the database :50-:03 DDL refusal window).** It switches BOTH the applier and Dispatch Merged Migrations back on, then sends every ordinary migration added or modified on main since the pause, once each, oldest first; window files stay for 04:00. Read each Apply Merged Migration run's result. Do the same on abandonment or expiry.
 - Post SEALED with exact identities in COORDINATION-INBOX, tell waiting lanes they are clear, archive evidence, remove your worktrees.
 
 ## Failure Modes Seen On November 12 To 13

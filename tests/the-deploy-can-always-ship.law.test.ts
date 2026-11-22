@@ -67,12 +67,14 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     expect(triggers).not.toContain("cron: '30 * * * *'");
     expect((triggers.match(/cron:/g) ?? []).length).toBe(2);
     expect(engineSignalCode).toContain('PHASE1_RESTORING');
-    expect(triggers).toContain("cron: '31,35,39,43 3,8 * * *'");
-    expect(triggers).toContain("cron: '31,35,39,43 4,9 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 0,1,2,3,4,5,6,7,8,9,10,11 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *'");
     expect(engineSignalCode).toContain(
       'moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)'
     );
-    expect(engineSignalCode).toContain('local = moment.astimezone(ZoneInfo("America/Chicago"))');
+    // Chicago cycles over real epoch hours (owner order 2026-11-21).
+    expect(engineSignalCode).toContain('zone = ZoneInfo("America/Chicago")');
+    expect(engineSignalCode).toContain('local = datetime.fromtimestamp(epoch, zone).hour');
     expect(engineSignal).toMatch(/^permissions:\s*\{\}\s*$/m);
     expect(engineSignal).toMatch(/^\s{2}detect:\s*$/m);
     expect(engineSignal).toContain('fetch-depth: 0');

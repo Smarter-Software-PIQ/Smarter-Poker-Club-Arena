@@ -36,6 +36,19 @@ This reader only READS (GitHub GETs) and prints for the plan job:
   state=due        baseline=<sha> must be certified now, refresh forced
   state=done       baseline=<sha> already holds a success certificate written
                    after tonight's freeze began; plan as before
+  state=claimed    baseline=<sha> is being certified right now by an active
+                   run (its pending status names it); plan as before
+
+ONE CERTIFICATION PER BASELINE (incident 076ff467, 2026-11-20). `done` used
+to be the only answer that stopped a re-certification, so every push merged
+while the baseline's own run was still soaking (1-2 hours) planned `due`
+again. On 2026-11-20 the baseline 62520794 was certified at 02:18 Chicago;
+two duplicates planned at 02:00 and 02:02 queued behind it, one timed out
+waiting for the Backup host turn and published `failure` over the success
+at 03:18, and the 03:30 selection, which reads the newest status, found no
+certified candidate. A run that is certifying the baseline now is a claim;
+the plan job writes that claim (a pending status naming its run) the moment
+it answers `due`, so the next planner sees it.
   state=unknown    could not tell; plan exactly as before (CLAUDE.md 10.86)
 
 The certification window is [freeze start, selection - one worst Backup run):
@@ -108,8 +121,39 @@ def decide(now_utc, clock, baseline_reader, certified_after):
     done = certified_after(baseline, start)
     if done is None:
         return {'state': 'unknown', 'why': 'certificate unreadable', 'baseline': baseline}
-    return {'state': 'done' if done else 'due', 'baseline': baseline,
+    state = done if done in ('done', 'claimed', 'due') else ('done' if done else 'due')
+    return {'state': state, 'baseline': baseline,
             'freezeStart': start.strftime('%Y-%m-%dT%H:%M:%SZ')}
+
+
+ACTIVE_RUN = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
+
+
+def certification_state(rows, start, run_status):
+    """'done', 'claimed' or 'due' for one commit's statuses (newest first, as
+    GitHub returns them). A success written after the freeze began is done.
+    Otherwise the newest status written after the freeze began decides: a
+    pending one whose run is still active is a claim; anything else (no
+    status, a failure, an error, a pending left by a run that ended) is due.
+    run_status(run_id) -> the run's status, or None if unreadable."""
+    after = []
+    for r in rows:
+        if r.get('context') != CONTEXT:
+            continue
+        at = datetime.fromisoformat(r['created_at'].replace('Z', '+00:00'))
+        if at >= start:
+            after.append(r)
+    if any(r.get('state') == 'success' for r in after):
+        return 'done'
+    if after and after[0].get('state') == 'pending':
+        m = re.search(r'/actions/runs/(\d+)', after[0].get('target_url') or '')
+        if m:
+            status = run_status(m[1])
+            if status is None:
+                return None
+            if status in ACTIVE_RUN:
+                return 'claimed'
+    return 'due'
 
 
 def gh(*args):
@@ -131,14 +175,15 @@ def main():
                      + until.strftime('%Y-%m-%dT%H:%M:%SZ'), '--jq', '.[0].sha // ""')
             return out.strip()
 
+        def run_status(run_id):
+            try:
+                return gh(f'repos/{a.repo}/actions/runs/{run_id}', '--jq', '.status').strip()
+            except Exception:  # noqa: BLE001 - unreadable is unknown, never due
+                return None
+
         def certified_after(sha, start):
             rows = json.loads(gh(f'repos/{a.repo}/commits/{sha}/statuses?per_page=100'))
-            for r in rows:
-                if r.get('context') == CONTEXT and r.get('state') == 'success':
-                    at = datetime.fromisoformat(r['created_at'].replace('Z', '+00:00'))
-                    if at >= start:
-                        return True
-            return False
+            return certification_state(rows, start, run_status)
 
         verdict = decide(now, clock, baseline_reader, certified_after)
     except Exception as error:  # noqa: BLE001 - every unreadable answer is unknown

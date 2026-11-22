@@ -1696,10 +1696,85 @@ describe('omahaReraisedCallVsRaisePriced in the decision (default OFF)', () => {
     }
     // the option reaches these spots (pinned so the test cannot pass vacuously)
     expect(priced).toBeGreaterThan(0);
-    // 16 priced decisions (the heads-up spots only: B1), none raised: with no record of the re-raiser he has no
-    // fold share (B2) and the raise does not clear its bar. The raises are pinned on recorded spots in
-    // HorseOmahaReraisedRaisePriced.test.ts.
-    expect([priced, raised]).toEqual([16, 0]);
+    // 48 priced decisions (16 heads-up, 32 with other players in the hand, priced with them in it: B1), none
+    // raised: with no record of the re-raiser he has no fold share (B2) and the raise does not clear its bar.
+    // The raises are pinned on recorded spots in HorseOmahaReraisedRaisePriced.test.ts.
+    expect([priced, raised]).toEqual([48, 0]);
+  });
+  it('OTHER PLAYERS IN THE HAND ARE PRICED IN IT (review of 59ea78d08f3, B1): a caller in for the price, a caller still to act, a raiser still to act', () => {
+    const BASE = {
+      hand: 0,
+      variant: 'plo5',
+      bb: 2,
+      dealer: 5,
+      stacks: '1:398,2:398,3:400,4:400,5:400,6:400',
+    };
+    // Seat 3 opens, hero (4) calls, the button (5) calls, the small blind re-raises, the opener calls: the opener is
+    // in for the price, the button has not answered.
+    const CALLER_IN: Recorded = {
+      ...BASE,
+      seat: 4,
+      hole: '',
+      actions: '1ps1,2pb2,3pR7,4pC7,5pC7,6pF,1pR36,2pF,3pC29,4pC29',
+    };
+    // Hero (3) limps, seat 4 raises, the small blind re-raises: the first raiser is still to act behind hero.
+    const RAISER_PENDING: Recorded = {
+      ...BASE,
+      seat: 3,
+      hole: '',
+      actions: '1ps1,2pb2,3pC2,4pR9,5pF,6pF,1pR30,2pF,3pC28',
+    };
+    const cases: Array<[string, Recorded, string[]]> = [
+      ['a caller in and a caller pending', CALLER_IN, ['caller', 'pending']],
+      ['a raiser pending', RAISER_PENDING, ['pendingRaiser']],
+    ];
+    let priced = 0;
+    let raised = 0;
+    for (const [name, rec, kinds] of cases)
+      for (const hole of ['AsAhKsQh7d', 'KsKhQs9h4d', 'Ts9s8h7h6d', 'AsKsQhJh9d', 'QsQhJsTh3c']) {
+        const build = () => stateAt(withHole(rec, hole), 2);
+        const rules = playMany(build, RULES);
+        const on = playMany(build, ON);
+        // no draw from the brain's random stream
+        expect(on.next, name).toEqual(rules.next);
+        on.bytes.forEach((b, k) => {
+          const d = JSON.parse(b) as {
+            action: string;
+            omahaReraisedRaise?: {
+              verdict: string;
+              multiway?: {
+                others: Array<{ kind: string; band: [number, number] }>;
+                low: { verdict: string; shareMultiway: number; foldShares: number[] };
+                high: { verdict: string; shareMultiway: number; foldShares: number[] };
+              };
+            };
+          };
+          expect(rank(d.action), `${name} ${hole}`).toBeGreaterThanOrEqual(rank(rules.actions[k]));
+          const r = d.omahaReraisedRaise;
+          if (!r) {
+            expect(b, name).toBe(rules.bytes[k]);
+            return;
+          }
+          priced++;
+          // the spot is priced with the other players in it, never heads-up and never with them folding
+          expect(r.multiway, `${name} ${hole}`).toBeDefined();
+          const m = r.multiway!;
+          expect(m.others.map((o) => o.kind).sort(), name).toEqual(kinds);
+          expect(m.low.shareMultiway, name).toBeGreaterThan(0);
+          expect(m.high.shareMultiway, name).toBeGreaterThan(0);
+          for (const fold of [...m.low.foldShares, ...m.high.foldShares])
+            expect(fold).toBeLessThan(1);
+          expect(r.verdict === 'raise').toBe(
+            m.low.verdict === 'raise' && m.high.verdict === 'raise'
+          );
+          if (d.action !== rules.actions[k]) {
+            raised++;
+            expect(r.verdict, name).toBe('raise');
+          }
+        });
+      }
+    // pinned so the test cannot pass vacuously: the option reaches these spots and prices them
+    expect([priced, raised]).toEqual([80, 0]);
   });
   it('PLO6, a tournament, Lightning, a bomb pot: on is byte-identical to the rules alone', () => {
     const rec = withHole(RECORDED.h59407629, 'KsKhQs9h4d');
@@ -1747,6 +1822,193 @@ describe('omahaReraisedCallVsRaisePriced in the decision (default OFF)', () => {
 // ─── ROWFIX 2026-11-18: each row switches only its own behaviour ───
 // REVIEW-97de6c23913 N8: the re-raise range rules judged the 4-bet they turn into a call with
 // omahaOopReraisedPotStrongRange forced on, so that row off did not turn its cell off.
+describe('omahaPreflopJamFacingReraiseIsPriced in the decision (default OFF)', () => {
+  const RULES: HorseDecideOpts = {
+    omahaOopReraisedPotStrongRange: true,
+    omahaReraiseRangeOutOfPosition: true,
+    omahaReraiseRangeEarlyPosition: true,
+  };
+  const ON: HorseDecideOpts = { ...RULES, omahaPreflopJamFacingReraiseIsPriced: true };
+  const SPOTS: Array<[string, Recorded, number]> = [
+    ...['KsKhQs9h4d', 'AsAhKsQh7d', 'Ts9s8h7h6d', 'AsKsQhJh9d', 'QsQhJsTh3c'].map(
+      (hole): [string, Recorded, number] => [
+        `3-bet out of position, ${hole}`,
+        withHole(RECORDED.h59407629, hole),
+        2,
+      ]
+    ),
+    ...['KsKhQs9h4d', 'AsAhKsQh7d', 'JsJhTs9h8d', 'AsKdQsQd9h'].map(
+      (hole): [string, Recorded, number] => [
+        `4-bet, ${hole}`,
+        withHole(RECORDED.h59462734, hole),
+        2,
+      ]
+    ),
+  ];
+  const kindOf = (a: string) => (a === 'raise' || a === 'all_in' ? 'raise' : a);
+  it('unset and false are byte-identical, with the rules on and with them off', () => {
+    for (const [name, rec, nth] of SPOTS) {
+      const build = () => stateAt(rec, nth);
+      for (const base of [{}, RULES]) {
+        const unset = playMany(build, base);
+        const off = playMany(build, { ...base, omahaPreflopJamFacingReraiseIsPriced: false });
+        expect(off.bytes, name).toEqual(unset.bytes);
+        expect(off.next, name).toEqual(unset.next);
+        expect(count(unset, 'omaha_preflop_three_way'), name).toBe(0);
+        expect(unset.bytes.join('').includes('omahaPreflopThreeWay'), name).toBe(false);
+      }
+    }
+  });
+  it('on: draws no random number; every priced decision plays the largest lower-bound EV it may play (never a fold over a standing call or raise; a standing re-raise of aces stands)', () => {
+    let priced = 0;
+    for (const [name, rec, nth] of SPOTS) {
+      const build = () => stateAt(rec, nth);
+      const rules = playMany(build, RULES);
+      const on = playMany(build, ON);
+      expect(on.next, name).toEqual(rules.next);
+      on.bytes.forEach((b, k) => {
+        const d = JSON.parse(b) as {
+          action: string;
+          omahaPreflopThreeWay?: {
+            verdict: string;
+            standing: string;
+            evCallLow: number;
+            evRaiseLow: number | null;
+          };
+        };
+        const r = d.omahaPreflopThreeWay;
+        if (!r) {
+          expect(b, name).toBe(rules.bytes[k]);
+          return;
+        }
+        priced++;
+        expect(kindOf(d.action), name).toBe(r.verdict);
+        expect(r.standing, name).toBe(kindOf(rules.actions[k]));
+        const evs: Record<string, number | null> = {
+          fold: 0,
+          call: r.evCallLow,
+          raise: r.evRaiseLow,
+        };
+        // EMERG lane PREFLOP-AUDIT 2026-11-20 (HorseOmahaThreeWayDoesNotFoldAStandingContinue.law.test.ts):
+        // a standing call or raise is never replaced by a fold and a standing re-raise of aces stands;
+        // everywhere else the largest lower bound among the actions it may play is played.
+        const aces = (rec.hole.match(/A/g) ?? []).length >= 2;
+        if (r.standing === 'raise' && aces) expect(r.verdict, name).toBe('raise');
+        else {
+          if (r.standing !== 'fold') expect(r.verdict, name).not.toBe('fold');
+          for (const [a, v] of Object.entries(evs))
+            if (v !== null && !(a === 'fold' && r.standing !== 'fold'))
+              expect(evs[r.verdict]!, name).toBeGreaterThanOrEqual(v - 1e-9);
+        }
+        if (r.verdict === r.standing) {
+          const { omahaPreflopThreeWay: _receipt, ...rest } = JSON.parse(b);
+          void _receipt;
+          expect(rest, name).toEqual(JSON.parse(rules.bytes[k]));
+        }
+      });
+    }
+    expect(priced).toBeGreaterThan(0);
+  });
+  it('PLO6, a tournament, a bomb pot: on is byte-identical to the rules alone (Lightning cash is priced)', () => {
+    const rec = withHole(RECORDED.h59407629, 'KsKhQs9h4d');
+    const variants: Array<[string, () => ReturnType<typeof stateAt>]> = [
+      ['plo6', () => stateAt({ ...rec, variant: 'plo6', hole: 'KsKhQs9h4d2c' }, 2)],
+      [
+        'tournament',
+        () => {
+          const st = stateAt(rec, 2);
+          (st.gs as unknown as { gameMode: string }).gameMode = 'tournament';
+          return st;
+        },
+      ],
+      [
+        'bomb pot',
+        () => {
+          const st = stateAt(rec, 2);
+          (st.gs as unknown as { bombPot: boolean }).bombPot = true;
+          return st;
+        },
+      ],
+    ];
+    for (const [name, build] of variants) {
+      const rules = playMany(build, RULES);
+      const on = playMany(build, ON);
+      expect(on.bytes, name).toEqual(rules.bytes);
+      expect(on.next, name).toEqual(rules.next);
+      expect(count(on, 'omaha_preflop_three_way'), name).toBe(0);
+    }
+  });
+});
+
+describe('omahaPreflopJamFacingReraiseIsPriced: an all-in short of a full raise is the raise it prices (AUDIT48-PREFLOP)', () => {
+  // Synthetic spot (made-up cards, no recorded identity) with the shape of the four recorded heads-up calls of
+  // aces facing a 5-bet where only the all-in was legal: six-handed, the Horse (seat 3) opened, 4-bet to 80 over a
+  // 3-bet, the button 5-bet to 230; the Horse's all-in (300 in all) is short of the 380 minimum raise.
+  const RULES: HorseDecideOpts = {
+    omahaOopReraisedPotStrongRange: true,
+    omahaReraiseRangeOutOfPosition: true,
+    omahaReraiseRangeEarlyPosition: true,
+  };
+  const ON: HorseDecideOpts = { ...RULES, omahaPreflopJamFacingReraiseIsPriced: true };
+  const shortJam = (hole: string): Recorded => ({
+    hand: 0,
+    variant: 'plo5',
+    bb: 2,
+    dealer: 6,
+    seat: 3,
+    hole,
+    stacks: '1:199,2:198,3:300,4:200,5:200,6:1000',
+    actions: '1ps1,2pb2,3pR7,4pF,5pF,6pR24,1pF,2pF,3pR80,6pR230',
+  });
+  // the engine's public node when the all-in cannot make a full raise: no raise range, only the all-in
+  const build = (hole: string) => () => {
+    const st = stateAt(shortJam(hole), 3);
+    const g = st.gs as unknown as {
+      maxRaiseTo?: number;
+      legalActions: string[];
+      minRaiseTo: number;
+    };
+    expect(st.hero.stack + st.hero.bet).toBeLessThan(g.minRaiseTo);
+    delete g.maxRaiseTo;
+    g.legalActions = ['fold', 'call', 'all_in'];
+    return st;
+  };
+  it('on: every standing call is priced against the all-in; aces jam, and the played action is the largest lower-bound EV', () => {
+    for (const hole of ['AsAhKsQh7d', 'AsAdKhJc9s']) {
+      const rules = playMany(build(hole), RULES);
+      const on = playMany(build(hole), ON);
+      expect(on.next, hole).toEqual(rules.next);
+      let priced = 0;
+      on.bytes.forEach((b, k) => {
+        const d = JSON.parse(b) as {
+          action: string;
+          omahaPreflopThreeWay?: { verdict: string; evCallLow: number; evRaiseLow: number | null };
+        };
+        if (rules.actions[k] !== 'call') return;
+        const r = d.omahaPreflopThreeWay!;
+        expect(r, hole).toBeDefined();
+        priced++;
+        expect(r.evRaiseLow, hole).not.toBeNull();
+        expect(r.evRaiseLow!, hole).toBeGreaterThan(r.evCallLow);
+        expect(r.verdict, hole).toBe('raise');
+        expect(d.action, hole).toBe('all_in');
+      });
+      expect(priced, hole).toBeGreaterThan(0);
+    }
+  });
+  it('unset and false stay byte-identical in the short all-in spot', () => {
+    for (const base of [{}, RULES]) {
+      const unset = playMany(build('AsAhKsQh7d'), base);
+      const off = playMany(build('AsAhKsQh7d'), {
+        ...base,
+        omahaPreflopJamFacingReraiseIsPriced: false,
+      });
+      expect(off.bytes).toEqual(unset.bytes);
+      expect(off.next).toEqual(unset.next);
+    }
+  });
+});
+
 describe('omahaOopReraisedPotStrongRange off: the re-raise range rules no longer run its call cell', () => {
   const STACKS = '1:199,2:198,3:200,4:200,5:200,6:200';
   // six-handed, dealer seat 6: under the gun (seat 3) opens to 7, the button 3-bets to 24, the blinds fold;
@@ -1824,4 +2086,111 @@ describe('omahaOopReraisedPotStrongRange off: the re-raise range rules no longer
       expect(foldedByCell).toBeGreaterThan(0);
     });
   }
+});
+
+// ─── MATHCORE ask (INTEGRATE-6, 2026-11-19): every transition the option makes is admitted by the worker validator ───
+// responseValidation admits a wager_rules change only from an enumerated list; a change it does not admit is an
+// invalid response, and the lane plays its CHECK/FOLD fallback. Here every decision the option changes, at the
+// table and in Lightning cash, is run through the validator with the decision's own request and no gate set.
+describe('omahaPreflopJamFacingReraiseIsPriced: every changed decision passes the worker receipt validator', () => {
+  const RULES: HorseDecideOpts = {
+    omahaOopReraisedPotStrongRange: true,
+    omahaReraiseRangeOutOfPosition: true,
+    omahaReraiseRangeEarlyPosition: true,
+  };
+  const ON: HorseDecideOpts = { ...RULES, omahaPreflopJamFacingReraiseIsPriced: true };
+  const lightning = (build: () => ReturnType<typeof stateAt>) => () => {
+    const st = build();
+    (st.gs as unknown as { publicMemoryDomain: object }).publicMemoryDomain = {
+      version: 1,
+      speed: 'lightning',
+      ante: 'none',
+    };
+    return st;
+  };
+  const shortJam = (hole: string) => () => {
+    const st = stateAt(
+      {
+        hand: 0,
+        variant: 'plo5',
+        bb: 2,
+        dealer: 6,
+        seat: 3,
+        hole,
+        stacks: '1:199,2:198,3:300,4:200,5:200,6:1000',
+        actions: '1ps1,2pb2,3pR7,4pF,5pF,6pR24,1pF,2pF,3pR80,6pR230',
+      },
+      3
+    );
+    const g = st.gs as unknown as { maxRaiseTo?: number; legalActions: string[] };
+    delete g.maxRaiseTo;
+    g.legalActions = ['fold', 'call', 'all_in'];
+    return st;
+  };
+  const builds: Array<[string, () => ReturnType<typeof stateAt>]> = [];
+  for (const hole of ['KsKhQs9h4d', 'AsAhKsQh7d', 'Ts9s8h7h6d', 'AsKsQhJh9d', 'QsQhJsTh3c'])
+    builds.push([`3-bet ${hole}`, () => stateAt(withHole(RECORDED.h59407629, hole), 2)]);
+  for (const hole of ['KsKhQs9h4d', 'AsAhKsQh7d', 'JsJhTs9h8d', 'AsKdQsQd9h'])
+    builds.push([`4-bet ${hole}`, () => stateAt(withHole(RECORDED.h59462734, hole), 2)]);
+  for (const hole of ['AsAhKsQh7d', 'AsAdKhJc9s'])
+    builds.push([`short all-in ${hole}`, shortJam(hole)]);
+  it('table and Lightning cash: every decision the option changes (fold, call, raise, all-in) is admitted', () => {
+    let changed = 0;
+    const kinds = new Set<string>();
+    for (const [name, build0] of builds)
+      for (const [where, build] of [
+        ['table', build0],
+        ['lightning', lightning(build0)],
+      ] as const)
+        for (const s of SEEDS.slice(0, 4)) {
+          HorseMind.reset();
+          let st = build();
+          seedFastRandom(s);
+          const rules = HorseLogic.decide(st.hero, st.gs, 'balanced', {}, RULES);
+          HorseMind.reset();
+          st = build();
+          seedFastRandom(s);
+          const d = structuredClone(HorseLogic.decide(st.hero, st.gs, 'balanced', {}, ON));
+          if (d.action === rules.action && d.amount === rules.amount) continue;
+          changed++;
+          kinds.add(`${rules.action}->${d.action}`);
+          expect(
+            horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+              player: st.hero,
+              gameState: st.gs,
+            }),
+            `${where} ${name} seed ${s} ${rules.action}->${d.action}`
+          ).toBeNull();
+        }
+    expect(changed).toBeGreaterThan(0);
+    expect([...kinds].some((k) => k.endsWith('->all_in') || k.endsWith('->raise'))).toBe(true);
+  });
+});
+
+// OWNER 2026-11-19 8:26 PM Chicago: the emergency batch is PLO4/PLO5 only; PLO6 is separate. The pack-depth options
+// (omahaPackEffectiveDepth, omahaPackClampDeepDepth) and the pre-flop jam pricing leave a PLO6 decision byte-identical,
+// at a normal depth and at a depth above the pack's deepest band (every stack x5).
+describe('PLO6 is untouched by the PLO4/PLO5 batch options (pre-flop, normal and very deep)', () => {
+  const OPTIONS: HorseDecideOpts[] = [
+    { omahaPackEffectiveDepth: true },
+    { omahaPackClampDeepDepth: true },
+    { omahaPackEffectiveDepth: true, omahaPackClampDeepDepth: true },
+    { omahaPreflopJamFacingReraiseIsPriced: true },
+  ];
+  const deep = (build: () => ReturnType<typeof stateAt>) => () => {
+    const st = build();
+    for (const p of st.gs.players ?? []) p.stack *= 5;
+    st.hero.stack *= 5;
+    return st;
+  };
+  it('each option on: every PLO6 decision and receipt is the one with it off', () => {
+    for (const hole of ['KsKhQs9h4d2c', 'AsAhKsQh7d3c', 'Ts9s8h7h6d5c']) {
+      const rec = { ...withHole(RECORDED.h59407629, hole), variant: 'plo6' };
+      for (const build of [() => stateAt(rec, 2), deep(() => stateAt(rec, 2))])
+        for (const o of OPTIONS)
+          expect(playMany(build, o).bytes, `${hole} ${Object.keys(o).join('+')}`).toEqual(
+            playMany(build, {}).bytes
+          );
+    }
+  });
 });

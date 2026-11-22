@@ -106,6 +106,8 @@ export const CLOSE_AUTH_FAILED = 4401;
 export const CLOSE_BANNED = 4403; // Round 70: banned by club / union blacklist
 
 export const CLOSE_TABLE_NOT_FOUND = 4404;
+/** Rolling handoff: the table moved to the other engine; reconnect now (RFC 6455 1012). */
+export const CLOSE_ENGINE_HANDOFF = 1012;
 /**
  * The TABLE_NOT_FOUND message for a tournament table its manager is failing to
  * admit. Mirrored by src/services/EngineSocketMux.ts (TOURNAMENT_TABLE_PAUSED_MESSAGE).
@@ -901,6 +903,36 @@ export class EngineWebSocketServer {
         this.retireConnection(conn, CLOSE_TABLE_NOT_FOUND, reason);
         touched++;
       }
+    }
+    return touched;
+  }
+
+  /**
+   * ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): `tableId`
+   * is now dealt by the other engine of the pair. Every socket that carries it
+   * is closed with 1012 (service restart), a code the client reconnects on at
+   * once; its reconnect reaches this engine's relay and lands on the engine
+   * that owns the table, with a fresh SNAPSHOT. A mux socket carries other
+   * tables too, so it is closed whole and resubscribes. Never called with
+   * ENGINE_ROLLING_HANDOFF off. Answers how many sockets it closed.
+   */
+  closeTableForHandoff(tableId: string): number {
+    let touched = 0;
+    for (const conn of [...this.connections.values()]) {
+      if (conn.isMux ? conn.subs?.has(tableId) : conn.tableId === tableId) {
+        this.retireConnection(conn, CLOSE_ENGINE_HANDOFF, 'engine_handoff');
+        touched++;
+      }
+    }
+    return touched;
+  }
+
+  /** Rolling handoff retirement: every socket reconnects to the engine that now owns it all. */
+  closeAllForHandoff(): number {
+    let touched = 0;
+    for (const conn of [...this.connections.values()]) {
+      this.retireConnection(conn, CLOSE_ENGINE_HANDOFF, 'engine_handoff');
+      touched++;
     }
     return touched;
   }

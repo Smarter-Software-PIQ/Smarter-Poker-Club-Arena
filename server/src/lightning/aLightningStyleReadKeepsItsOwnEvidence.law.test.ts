@@ -596,4 +596,46 @@ describe('L-016: a Lightning style read can keep its own evidence (lightningStyl
     // with the option off the read options are exactly what they were
     expect(readOptionsOf(lightningSpot(), ON)).toEqual(readOptionsOf(classicSpot(), SEPARATE));
   });
+
+  it('omahaFacingBetEvReadOf reads styleSizeShownLightning on a Lightning decision when lightningStyleReadSeparate is true', () => {
+    HorseMind.reset();
+    HorseMind.importSizeBuckets([
+      {
+        user_id: VILLAIN,
+        variant: 'plo4',
+        mode: 'cash',
+        size: 'short',
+        buckets: {
+          large: { bets: 10, shown: 8, strong: 6, best: 5, second: 2 } as never,
+        },
+      },
+    ]);
+    HorseMind.importSizeBuckets(
+      [
+        {
+          user_id: VILLAIN,
+          variant: 'plo4',
+          mode: 'cash',
+          size: 'short',
+          buckets: {
+            large: { bets: 4, shown: 3, strong: 1, best: 1, second: 1 } as never,
+          },
+        },
+      ],
+      'lightning'
+    );
+    HorseMind.setDecisionScope('omaha:short', 'plo4', 'cash');
+    expect(HorseMind.omahaFacingBetEvReadOf(VILLAIN, 'river', 0.75, false)?.sizeShown).toEqual({
+      shown: 8,
+      best: 5,
+      second: 2,
+    });
+    HorseMind.setDecisionReadOptions({ lightningStyleReadSeparate: true });
+    expect(HorseMind.omahaFacingBetEvReadOf(VILLAIN, 'river', 0.75, false)?.sizeShown).toEqual({
+      shown: 3,
+      best: 1,
+      second: 1,
+    });
+    HorseMind.setDecisionScope(null);
+  });
 });

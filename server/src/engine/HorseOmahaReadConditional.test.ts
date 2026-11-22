@@ -16,6 +16,7 @@
  *    changed decision is admitted by the worker receipt validator.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { fastRandom, omahaNutStatus, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
@@ -515,10 +516,12 @@ function playNode(
     seedFastRandom(s);
     const st = node(fx, ord);
     // mind on: the read is consulted only with the opponent memory present
-    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
-      telemetry: true,
-      ...opts,
-    } as never);
+    const d = withFrozenDecisionClock(() =>
+      HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        telemetry: true,
+        ...opts,
+      } as never)
+    );
     out.next.push(fastRandom());
     out.bytes.push(decisionBytes(d));
     out.actions.push(d.action);
@@ -673,10 +676,12 @@ function playScoped(
     seedFastRandom(s);
     const st = node(fx, ord);
     shape(st);
-    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
-      telemetry: true,
-      ...opts,
-    } as never);
+    const d = withFrozenDecisionClock(() =>
+      HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        telemetry: true,
+        ...opts,
+      } as never)
+    );
     out.next.push(fastRandom());
     out.bytes.push(scopedBytes(d));
     out.actions.push(d.action);

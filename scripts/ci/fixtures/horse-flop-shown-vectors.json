@@ -2544,6 +2544,233 @@
           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1
         ]
       }
+    },
+    {
+      "name": "a showdown entry shows a hand only with mucked: false written out; no flag, null or a string is not shown",
+      "hand": {
+        "actions": [
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "preflop",
+            "action": "bb",
+            "amount": 2,
+            "origin": "forced"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "preflop",
+            "action": "raise",
+            "amount": 6,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "preflop",
+            "action": "call",
+            "amount": 4,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "flop",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "flop",
+            "action": "bet",
+            "amount": 10,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "flop",
+            "action": "call",
+            "amount": 10,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "turn",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "turn",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "river",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "river",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          }
+        ],
+        "community_cards": ["Kspades", "8hearts", "3clubs", "2diamonds", "2clubs"],
+        "community_cards2": null,
+        "hole_cards": {
+          "00000000-0000-4000-8000-0000000000a1": [
+            { "rank": "K", "suit": "hearts" },
+            { "rank": "K", "suit": "diamonds" },
+            { "rank": "9", "suit": "spades" },
+            { "rank": "4", "suit": "spades" }
+          ],
+          "00000000-0000-4000-8000-0000000000a2": [
+            { "rank": "A", "suit": "clubs" },
+            { "rank": "8", "suit": "clubs" },
+            { "rank": "7", "suit": "diamonds" },
+            { "rank": "6", "suit": "diamonds" }
+          ]
+        },
+        "showdown": [
+          { "user_id": "00000000-0000-4000-8000-0000000000a1", "seat": 0, "reveal_order": 0 },
+          {
+            "user_id": "00000000-0000-4000-8000-0000000000a2",
+            "seat": 1,
+            "reveal_order": 1,
+            "mucked": "false"
+          }
+        ],
+        "winners": [{ "userId": "00000000-0000-4000-8000-0000000000a1", "amount": 30.5 }],
+        "big_blind": 2
+      },
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a1": [
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 500, -500, 1
+        ]
+      }
+    },
+    {
+      "name": "the bettor shown with mucked: false; the caller listed with mucked: null is counted unshown",
+      "hand": {
+        "actions": [
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "preflop",
+            "action": "bb",
+            "amount": 2,
+            "origin": "forced"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "preflop",
+            "action": "raise",
+            "amount": 6,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "preflop",
+            "action": "call",
+            "amount": 4,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "flop",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "flop",
+            "action": "bet",
+            "amount": 10,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "flop",
+            "action": "call",
+            "amount": 10,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "turn",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "turn",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a2",
+            "stage": "river",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          },
+          {
+            "userId": "00000000-0000-4000-8000-0000000000a1",
+            "stage": "river",
+            "action": "check",
+            "amount": 0,
+            "origin": "player"
+          }
+        ],
+        "community_cards": ["Kspades", "8hearts", "3clubs", "2diamonds", "2clubs"],
+        "community_cards2": null,
+        "hole_cards": {
+          "00000000-0000-4000-8000-0000000000a1": [
+            { "rank": "K", "suit": "hearts" },
+            { "rank": "K", "suit": "diamonds" },
+            { "rank": "9", "suit": "spades" },
+            { "rank": "4", "suit": "spades" }
+          ],
+          "00000000-0000-4000-8000-0000000000a2": [
+            { "rank": "A", "suit": "clubs" },
+            { "rank": "8", "suit": "clubs" },
+            { "rank": "7", "suit": "diamonds" },
+            { "rank": "6", "suit": "diamonds" }
+          ]
+        },
+        "showdown": [
+          {
+            "user_id": "00000000-0000-4000-8000-0000000000a1",
+            "seat": 0,
+            "reveal_order": 0,
+            "mucked": false
+          },
+          {
+            "user_id": "00000000-0000-4000-8000-0000000000a2",
+            "seat": 1,
+            "reveal_order": 1,
+            "mucked": null
+          }
+        ],
+        "winners": [{ "userId": "00000000-0000-4000-8000-0000000000a1", "amount": 30.5 }],
+        "big_blind": 2
+      },
+      "expected": {
+        "00000000-0000-4000-8000-0000000000a1": [
+          0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 500, -500, 1
+        ]
+      }
     }
   ],
   "random": [

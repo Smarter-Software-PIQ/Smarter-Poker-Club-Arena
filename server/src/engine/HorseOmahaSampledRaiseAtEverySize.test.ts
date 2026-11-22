@@ -48,10 +48,12 @@ import {
   decideAt,
   pricedSpot,
   type PricedSpot,
+  type PricedState,
 } from './HorseOmahaPricedRules.test-support.js';
 import {
   omahaPricedDrawRaiseRule,
   omahaPricedPressureRaiseSized,
+  type OmahaPricedPressureAdmission,
   omahaPricedPressureWithheld,
   omahaPricedSampledAdmitsResize,
   omahaPricedSetStreetRatesSource,
@@ -315,6 +317,8 @@ describe('through the rule and the whole decision', () => {
     { hole: '6h5h8c4d2d', board: BOARD, potBefore: 60, bet: 60 },
     { hole: 'AhKhJcTc2s', board: 'Qh9h3d2c', potBefore: 100, bet: 30 },
     { hole: 'JsTs8c4d2d', board: 'Qh9h3d2c', potBefore: 100, bet: 30, inPosition: true },
+    // review note C1: the brain's own draw raise (here its all-in) is resized to the priced size
+    { hole: 'AhKhJcTc2s', board: BOARD, potBefore: 216, bet: 100 },
   ];
   const SEEDS = [1, 3, 7, 11, 42, 2026];
   const bytes = (d: unknown) =>
@@ -386,8 +390,95 @@ describe('through the rule and the whole decision', () => {
     console.log(
       `[sampled raise at every size, whole decision] decisions changed by the option: ${changed}, raises resized: ${resized}`
     );
-    // not vacuous: the option changes whole decisions in these spots
+    // not vacuous: the option changes whole decisions in these spots, and moves raises to another
+    // size (so the dedicated admission above is exercised, review note C1)
     expect(changed).toBeGreaterThan(0);
+    expect(resized).toBeGreaterThan(0);
+  });
+
+  // ── review note C1: a DRAW raise resized end to end, through HorseLogic.decide ──
+  const DRAW_WHOLE = { ...LIVE_OPTIONS, omahaDrawRaiseIsPriced: true } as HorseDecideOpts;
+  const decideTold = (st: PricedState, opts: HorseDecideOpts, seed: number) => {
+    HorseMind.reset();
+    const now = st.fresh();
+    enableBrainTelemetry();
+    drainFires();
+    seedFastRandom(seed);
+    const d = structuredClone(
+      HorseLogic.decide(now.hero, now.gs, LIVE.style, LIVE.mods, {
+        observeMind: false,
+        decisionTimeMs: 1794938400000,
+        telemetry: true,
+        ...opts,
+      } as never)
+    );
+    return { d, now, fires: drainFires().map((f) => f.feature) };
+  };
+  it('C1: through the whole decision the brain makes a draw raise and it is made at the priced size', () => {
+    // The nut flush draw with a wrap out of position: the brain raises (or shoves) at its own size;
+    // with the option on the draw-raise rule makes that raise at the size of highest value.
+    const FIXTURES: Array<{ s: PricedSpot; seed: number }> = [
+      { s: { hole: 'AhKhJcTc2s', board: BOARD, potBefore: 100, bet: 50 }, seed: 2 },
+      { s: { hole: 'AhKhJcTc2s', board: BOARD, potBefore: 100, bet: 30 }, seed: 4 },
+      { s: { hole: 'AhKhJcTc2s', board: BOARD, potBefore: 216, bet: 100 }, seed: 1 },
+    ];
+    const moved: Array<{
+      st: PricedState;
+      on: ReturnType<typeof decideTold>;
+      off: ReturnType<typeof decideTold>;
+    }> = [];
+    for (const { s, seed } of FIXTURES) {
+      const st = pricedSpot(s);
+      const off = decideTold(st, { ...DRAW_WHOLE, [OPTION]: false }, seed);
+      const on = decideTold(st, { ...DRAW_WHOLE, [OPTION]: true }, seed);
+      const raised = (d: HorseDecision) => d.action === 'raise' || d.action === 'all_in';
+      if (
+        raised(off.d) &&
+        raised(on.d) &&
+        (on.d.action !== off.d.action || on.d.amount !== off.d.amount)
+      )
+        moved.push({ st, on, off });
+    }
+    // not vacuous: at least one whole decision moves the brain's draw raise to another size
+    expect(moved.length).toBeGreaterThan(0);
+    let ruledRaises = 0;
+    for (const { st, on, off } of moved) {
+      // the draw-raise rule did it, priced above the call (not the mix), under its receipt
+      expect(on.fires).toContain('omaha_priced_draw_raise_resized');
+      expect(on.fires).not.toContain('omaha_priced_draw_raise_mixed_resized');
+      expect(off.fires).not.toContain('omaha_priced_draw_raise_resized');
+      // a raise the brain gave (not its shove, which other owners may make of another raise): the
+      // size made is the rule's own answer for it on the same public state, the size of highest value
+      if (off.d.action === 'raise') {
+        HorseMind.reset();
+        const fresh = st.fresh();
+        const ruled = omahaPricedDrawRaiseRule(off.d, fresh.hero, fresh.gs, {
+          ...DRAW_WHOLE,
+          [OPTION]: true,
+        } as HorseDecideOpts)!;
+        expect([on.d.action, on.d.amount]).toEqual([ruled.action, ruled.amount]);
+        ruledRaises++;
+      }
+      // legal, admitted by the dedicated exact admission and by the whole receipt validator
+      expect(st.gs.legalActions).toContain(on.d.action);
+      if (on.d.action === 'raise') {
+        expect(on.d.amount!).toBeGreaterThanOrEqual((st.gs.minRaiseTo as number) - 1e-9);
+        expect(on.d.amount!).toBeLessThanOrEqual((st.gs.maxRaiseTo as number) + 1e-9);
+      }
+      expect(omahaPricedSampledAdmitsResize(on.now.hero, on.now.gs, on.d.action, on.d.amount)).toBe(
+        true
+      );
+      expect(
+        horseDecisionReceiptRefusal(structuredClone(on.d), 'plo5', {
+          player: on.now.hero,
+          gameState: on.now.gs,
+          omahaPricedRaise: false,
+        })
+      ).toBeNull();
+      // the size moved drops the notes of the old one
+      expect(on.d.valueSize).toBeUndefined();
+    }
+    expect(ruledRaises).toBeGreaterThan(0);
   });
 });
 
@@ -714,12 +805,12 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
   const sized = (
     st: ReturnType<typeof pricedSpot>,
     d: HorseDecision,
-    admitted: boolean,
+    admission: OmahaPricedPressureAdmission | null,
     opts = PRESS
   ) => {
     enableBrainTelemetry();
     drainFires();
-    const out = omahaPricedPressureRaiseSized(d, st.hero, st.gs, opts, admitted);
+    const out = omahaPricedPressureRaiseSized(d, st.hero, st.gs, opts, admission);
     return { out, fires: drainFires().map((f) => f.feature) };
   };
   const minRaise = (st: ReturnType<typeof pricedSpot>) =>
@@ -736,37 +827,41 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
       const st = pricedSpot({ hole, board: BOARD, potBefore: 50, bet: 50 });
       const d = minRaise(st);
       // the pricing says the raise is admitted at a priced size; it keeps nothing itself
-      const told: { sampledAtPrice?: boolean } = {};
+      const told: OmahaPricedPressureAdmission = {};
       expect(omahaPricedPressureWithheld('raise', st.hero, st.gs, PRESS, {} as never, told)).toBe(
         false
       );
       expect(told.sampledAtPrice).toBe(true);
+      expect(Number.isFinite(told.sampledTo)).toBe(true);
       // the caller's record of ITS decision is the only carrier: without it, on the same state
       // and straight after that pricing, the raise is the decision given
-      expect(sized(st, d, false).out).toBe(d);
-      expect(sized(pricedSpot({ hole, board: BOARD, potBefore: 50, bet: 50 }), d, false).out).toBe(
+      expect(sized(st, d, null).out).toBe(d);
+      expect(sized(st, d, {}).out).toBe(d);
+      expect(sized(pricedSpot({ hole, board: BOARD, potBefore: 50, bet: 50 }), d, null).out).toBe(
         d
       );
-      const on = sized(st, d, true);
+      const on = sized(st, d, told);
       expect(on.fires).toContain('omaha_priced_pressure_raise_resized');
       expect(on.out.action).toBe('raise');
       expect(on.out.amount!).toBeGreaterThan(d.amount!);
+      // made at the size the admission priced (the brain's size is a priced step here)
+      expect(on.out.amount).toBe(told.sampledTo);
       expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', on.out.amount)).toBe(true);
       expect(on.out.valueSize).toBeUndefined();
       // the size of highest value given: kept as it is
-      expect(sized(st, on.out, true).out).toBe(on.out);
+      expect(sized(st, on.out, told).out).toBe(on.out);
       // not a raise: untouched
       const call: HorseDecision = { action: 'call', amount: 50, thinkTime: 0 };
-      expect(sized(st, call, true).out).toBe(call);
+      expect(sized(st, call, told).out).toBe(call);
       // either option off: the decision itself, whatever the caller says
       for (const off of [
         { ...PRESS, omahaSampledRaiseIsPricedAtEverySize: false },
         { ...PRESS, omahaSampledRaiseIsPricedAtEverySize: 1 },
         { ...PRESS, omahaPressureIsPriced: false },
       ] as HorseDecideOpts[])
-        expect(sized(st, d, true, off).out).toBe(d);
+        expect(sized(st, d, told, off).out).toBe(d);
       // a draw the draw rule owns is priced and sized there, once
-      const owned = sized(st, d, true, {
+      const owned = sized(st, d, told, {
         ...PRESS,
         omahaNoDrawRaiseOutOfPosition: true,
         omahaDrawRaiseIsPriced: true,
@@ -785,7 +880,10 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
       return st;
     };
     const table = pricedSpot({ hole: 'QsQd7c4c2s', board: BOARD, potBefore: 50, bet: 50 });
-    const atTable = sized(table, minRaise(table), true);
+    const told: OmahaPricedPressureAdmission = {};
+    omahaPricedPressureWithheld('raise', table.hero, table.gs, PRESS, {} as never, told);
+    expect(told.sampledAtPrice).toBe(true);
+    const atTable = sized(table, minRaise(table), told);
     expect(atTable.fires).toContain('omaha_priced_pressure_raise_resized');
     const st = lightning(pricedSpot({ hole: 'QsQd7c4c2s', board: BOARD, potBefore: 50, bet: 50 }));
     const d = minRaise(st);
@@ -795,13 +893,13 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
       { ...PRESS, omahaPricedInLightning: false },
       { ...PRESS, omahaPricedInLightning: 1 },
     ] as HorseDecideOpts[])
-      expect(sized(st, d, true, off).out).toBe(d);
+      expect(sized(st, d, told, off).out).toBe(d);
     expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', atTable.out.amount)).toBe(false);
     expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', atTable.out.amount, false)).toBe(
       false
     );
     // on: the same size as at a table, and the receipt admission follows the same gate
-    const on = sized(st, d, true, { ...PRESS, omahaPricedInLightning: true } as HorseDecideOpts);
+    const on = sized(st, d, told, { ...PRESS, omahaPricedInLightning: true } as HorseDecideOpts);
     expect(on.fires).toContain('omaha_priced_pressure_raise_resized');
     expect([on.out.action, on.out.amount]).toEqual([atTable.out.action, atTable.out.amount]);
     expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', on.out.amount, true)).toBe(true);
@@ -812,11 +910,12 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
   });
   it('N1: a pressure raise the price withholds, or priced with the size option off, tells the caller nothing', () => {
     const air = pricedSpot({ hole: '2c3c7s8sKc', board: BOARD, potBefore: 100, bet: 20 });
-    const told: { sampledAtPrice?: boolean } = {};
+    const told: OmahaPricedPressureAdmission = {};
     expect(omahaPricedPressureWithheld('raise', air.hero, air.gs, PRESS, {} as never, told)).toBe(
       true
     );
     expect(told.sampledAtPrice).toBeUndefined();
+    expect(told.sampledTo).toBeUndefined();
     const st = pricedSpot({ hole: 'QsQd7c4c2s', board: BOARD, potBefore: 60, bet: 60 });
     const OFF = { ...PRESS, omahaSampledRaiseIsPricedAtEverySize: false } as HorseDecideOpts;
     expect(omahaPricedPressureWithheld('raise', st.hero, st.gs, OFF, {} as never, told)).toBe(
@@ -826,9 +925,10 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
     // the call-down asks nothing of the raise size
     omahaPricedPressureWithheld('call_down', st.hero, st.gs, PRESS, {} as never, told);
     expect(told.sampledAtPrice).toBeUndefined();
-    // even told to, a raise that is not priced above the call is not resized
+    expect(told.sampledTo).toBeUndefined();
+    // told nothing, a raise is not resized
     const d = minRaise(air);
-    expect(sized(air, d, true).out).toBe(d);
+    expect(sized(air, d, told).out).toBe(d);
   });
 
   // ── the whole decision: the brain itself prices and admits the pressure raise ──
@@ -993,5 +1093,60 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
         }
     expect(mixed).toBeGreaterThan(0);
     expect(priced).toBeGreaterThan(0);
+  });
+  it('N6: under the mix, a raise kept or a call made against the price carries a receipt that says so', () => {
+    // omahaPricedMix takes the lower of two actions within the sampling noise of each other. The
+    // plain receipts say the raise was priced above the call (kept) or was not (called); where the
+    // mix took the other action those words are untrue, so the mixed receipts fire instead.
+    let mixedKept = 0;
+    let mixedCalled = 0;
+    for (const sizeOn of [true, false]) {
+      const PLAIN = { ...DRAW_ON, omahaSampledRaiseIsPricedAtEverySize: sizeOn } as HorseDecideOpts;
+      const MIX = { ...PLAIN, omahaPricedMix: true } as HorseDecideOpts;
+      for (const hole of ['AhTh8c4d2d', 'JhTh8c7d2d'])
+        for (const [potBefore, bet] of [
+          [100, 20],
+          [100, 50],
+        ])
+          for (let seed = 1; seed <= 8; seed++) {
+            const st = pricedSpot({ hole, board: BOARD, potBefore, bet });
+            // the legal steps: one of them is the size of highest value, which a stood raise keeps
+            for (const to of [
+              2 * bet,
+              Math.round(2 * bet + 0.5 * (potBefore + bet)),
+              potBefore + 3 * bet,
+            ]) {
+              const decision: HorseDecision = { action: 'raise', amount: to, thinkTime: 1000 };
+              const plain = ruleOn(st, PLAIN, decision, seed);
+              const mix = ruleOn(st, MIX, decision, seed);
+              const took = mix.fires.includes('omaha_priced_mix_lower_action_taken');
+              const pricedAbove = plain.out!.action !== 'call';
+              if (mix.fires.includes('omaha_priced_draw_raise_mixed_kept')) {
+                mixedKept++;
+                expect(took).toBe(true);
+                expect(pricedAbove).toBe(false);
+                expect(mix.out).toBe(decision);
+              }
+              if (mix.fires.includes('omaha_priced_draw_raise_mixed_called')) {
+                mixedCalled++;
+                expect(took).toBe(true);
+                expect(pricedAbove).toBe(true);
+                expect(mix.out!.action).toBe('call');
+              }
+              // the plain words fire only where they are true
+              if (mix.fires.includes('omaha_priced_draw_raise_kept')) {
+                expect(took).toBe(false);
+                expect(pricedAbove).toBe(true);
+              }
+              if (mix.fires.includes('omaha_priced_draw_raise_called')) {
+                expect(took).toBe(false);
+                expect(pricedAbove).toBe(false);
+              }
+            }
+          }
+    }
+    // not vacuous: the mix took each other action in these spots
+    expect(mixedKept).toBeGreaterThan(0);
+    expect(mixedCalled).toBeGreaterThan(0);
   });
 });

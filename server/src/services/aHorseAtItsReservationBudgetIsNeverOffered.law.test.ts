@@ -60,7 +60,9 @@ vi.mock('./supabase/client.js', () => {
   };
   const client = {
     rpc: vi.fn(async (name: string) =>
-      name === 'fn_horses_at_tournament_reservation_budget' ? budgetAnswer : { data: null, error: null }
+      name === 'fn_horses_at_tournament_reservation_budget'
+        ? budgetAnswer
+        : { data: null, error: null }
     ),
     from: (table: string) => builder(table),
   };
@@ -84,7 +86,11 @@ describe('the free-horse picker honours the seat door reservation budget', () =>
   const booked = Array.from({ length: 360 }, (_, n) => id('b000', n));
 
   beforeEach(() => {
-    profiles = [...free, ...booked].map((i) => ({ id: i, is_horse: true, horse_status: 'available' }));
+    profiles = [...free, ...booked].map((i) => ({
+      id: i,
+      is_horse: true,
+      horse_status: 'available',
+    }));
     budgetAnswer = { data: booked, error: null };
     svc = new TournamentRecurringService();
     vi.spyOn(
@@ -124,7 +130,11 @@ describe('the free-horse picker honours the seat door reservation budget', () =>
     // Exactly the pool the picker offered before the read existed.
     expect(picked.some((h) => booked.includes(h))).toBe(true);
     await pick(3, true);
-    expect(vi.mocked(reportError).mock.calls.filter(([, ctx]) => ctx === 'HorseReservationBudget.read_failed')).toHaveLength(1);
+    expect(
+      vi
+        .mocked(reportError)
+        .mock.calls.filter(([, ctx]) => ctx === 'HorseReservationBudget.read_failed')
+    ).toHaveLength(1);
   });
 });
 
@@ -146,15 +156,21 @@ describe('a refusal the read did not know yet', () => {
 
 describe('the shared read computes the door predicate', () => {
   const dir = join(__dirname, '..', '..', '..', 'supabase', 'migrations');
-  const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
   const latest = (needle: RegExp) => {
     const hit = files.filter((f) => needle.test(readFileSync(join(dir, f), 'utf8'))).pop();
     if (!hit) throw new Error(`no migration matches ${needle}`);
     return readFileSync(join(dir, hit), 'utf8');
   };
   const squash = (s: string) => s.replace(/\s+/g, ' ');
-  const door = squash(latest(/CREATE OR REPLACE FUNCTION public\.fn_seat_horse_in_seat_first_game\(/));
-  const read = squash(latest(/CREATE OR REPLACE FUNCTION public\.fn_horses_at_tournament_reservation_budget\(/));
+  const door = squash(
+    latest(/CREATE OR REPLACE FUNCTION public\.fn_seat_horse_in_seat_first_game\(/)
+  );
+  const read = squash(
+    latest(/CREATE OR REPLACE FUNCTION public\.fn_horses_at_tournament_reservation_budget\(/)
+  );
 
   it('the door still refuses on the reason the engine remembers', () => {
     expect(door).toContain("'horse_tournament_reservation_budget'");

@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - server/Dockerfile
+      - server/.dockerignore
       - server/tsconfig.json
       - server/tsconfig.runtime.json
       - server/tsconfig.emit.json

@@ -20,6 +20,7 @@
  */
 import {
   OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_ON_SHADOW_NAMES,
   OPTION_SWITCH_PLAIN_NAMES,
   OPTION_SWITCH_SHADOW_NAMES,
 } from './HorseOptionSwitch.js';
@@ -42,13 +43,209 @@ export const OPTION_SWITCH_FOLLOW_UP_NAME = /^(\d{14})_[a-z0-9]+(?:_[a-z0-9]+)*$
 export const OPTION_SWITCH_FOLLOW_UP_COMMAND =
   'npx tsx scripts/gen-horse-option-switch-sql.ts --follow-up <YYYYMMDDHHMMSS>_horse_option_switch_<what>';
 
-type ListName = 'style-options' | 'plain-options' | 'off-only-options' | 'shadow-options';
+/**
+ * A SWITCH LIST IS NEVER STALE (2026-11-20, aSwitchListIsNeverStale.law.test.ts).
+ *
+ * Every list migration REPLACES the database's allowed-state lists wholesale. A lane that branched before another
+ * lane's list migration merged regenerates a file that is internally consistent with its own tree and still carries
+ * the OLD lists for every option the other lane changed (PR #11545 would have re-held huBbDefendsUnreadToPrice,
+ * lifted by 20261120210905). Three guards make that impossible to land quietly:
+ *
+ * 1. THE CHAIN. Every list migration after OPTION_SWITCH_CHAIN_ANCHOR names, on one `-- registry:follows: <file>`
+ *    line, the list migration it was generated after, and that must be the list migration immediately before it by
+ *    version. Two lanes generated from the same predecessor, or a lane whose file sorts on either side of a newer
+ *    list it never saw, break the chain in any tree holding both files: the PR's merge-group tree, main after the
+ *    merge, and every later branch.
+ * 2. MAIN. On a pull request (head checkout, non-strict required checks), a list migration the branch adds must be
+ *    newer than every list migration on origin/main, and the branch must hold main's newest list migration.
+ * 3. THE DATABASE. A follow-up stamps its version into fn_ca_horse_option_switch_states and refuses to install over
+ *    a newer stamp, so an older list never replaces a newer one whatever order the applier runs them in.
+ */
+export const OPTION_SWITCH_FOLLOWS_PREFIX = '-- registry:follows: ';
+/** The last list migration written before the chain: it and every older list migration carry no follows line. */
+export const OPTION_SWITCH_CHAIN_ANCHOR =
+  '20261120210905_horse_option_switch_heads_up_big_blind_hold_lift';
+/**
+ * The versions of every list migration written before the chain (the anchor included). A list migration at or below
+ * the anchor's version that is not one of these was added later with a hand-picked old version: refused.
+ */
+export const OPTION_SWITCH_PRE_CHAIN_VERSIONS: readonly string[] = [
+  '20261114072215',
+  '20261115185244',
+  '20261115191000',
+  '20261115230000',
+  '20261116003412',
+  '20261116005000',
+  '20261116005515',
+  '20261116005904',
+  '20261116010528',
+  '20261116011129',
+  '20261116073430',
+  '20261116074500',
+  '20261116140705',
+  '20261116180400',
+  '20261116191200',
+  '20261117182301',
+  '20261118000436',
+  '20261118013329',
+  '20261118070047',
+  '20261118092009',
+  '20261119051508',
+  '20261119094119',
+  '20261119144317',
+  '20261119144324',
+  '20261119175723',
+  '20261119193736',
+  '20261119205115',
+  '20261119232145',
+  '20261119234131',
+  '20261120022006',
+  '20261120023016',
+  '20261120113718',
+  '20261120163307',
+  '20261120181452',
+  '20261120210905',
+];
+/** The comment inside fn_ca_horse_option_switch_states that records which list migration wrote it. */
+export const OPTION_SWITCH_VERSION_STAMP = 'registry-lists-version: ';
+
+/** What the author of a stale list migration does, in the order they do it. */
+export function optionSwitchStaleRemedy(own: string, newest: string): string {
+  return (
+    `To fix: (1) bring main into your branch (git fetch origin main, then rebase onto origin/main or merge it); ` +
+    `(2) delete your list migration ${own} (it was generated from lists main no longer has; never installed, so ` +
+    `deleting it is safe); (3) from server/, regenerate it with "npx tsx scripts/gen-horse-option-switch-sql.ts ` +
+    `--follow-up <a version later than ${newest}>_horse_option_switch_<what>" (node scripts/new-migration.mjs ` +
+    `gives a free version), which re-reads the merged registry, writes the follows line and updates ` +
+    `${OPTION_SWITCH_PROOF_SCRIPT}`
+  );
+}
+
+const versionOf = (name: string): string => /(\d{14})_/.exec(name)?.[1] ?? '';
+const baseName = (name: string): string => name.replace(/^.*\//, '').replace(/\.sql$/, '');
+
+/** The follows lines of a migration, by name (without .sql). */
+export function optionSwitchFollowsLines(sql: string): string[] {
+  return [...sql.matchAll(/^-- registry:follows: (\S*)[ \t]*$/gm)].map((m) => m[1]!);
+}
+
+/** The version stamp inside the migration's fn_ca_horse_option_switch_states body, or null. */
+export function optionSwitchVersionStamp(sql: string): string | null {
+  const body =
+    /CREATE OR REPLACE FUNCTION public\.fn_ca_horse_option_switch_states\(p_option text\)[\s\S]*?AS \$function\$([\s\S]*?)\$function\$;/.exec(
+      sql
+    )?.[1];
+  return body ? (/-- registry-lists-version: (\d{14})\b/.exec(body)?.[1] ?? null) : null;
+}
+
+/**
+ * Null when the list migrations of a tree form one unbroken chain after the anchor, otherwise what is wrong and the
+ * remedy. `files` is every migration of the tree (non-list files are ignored).
+ */
+export function optionSwitchChainProblem(
+  files: readonly { readonly name: string; readonly text: string }[]
+): string | null {
+  const lists = files
+    .filter((f) => f.name.endsWith('.sql') && f.text.includes(OPTION_SWITCH_LIST_MARKER))
+    .map((f) => ({ ...f, base: baseName(f.name) }))
+    .sort((a, b) => (a.base < b.base ? -1 : a.base > b.base ? 1 : 0));
+  const anchor = lists.findIndex((f) => f.base === OPTION_SWITCH_CHAIN_ANCHOR);
+  if (anchor < 0)
+    return `the chain anchor ${OPTION_SWITCH_CHAIN_ANCHOR}.sql is not a list migration of this tree`;
+  const newest = lists[lists.length - 1]!.base;
+  for (const file of lists.slice(0, anchor + 1))
+    if (!OPTION_SWITCH_PRE_CHAIN_VERSIONS.includes(versionOf(file.base)))
+      return (
+        `the switch list migration ${OPTION_SWITCH_MIGRATIONS_DIR}/${file.name} sorts before the chain anchor ` +
+        `${OPTION_SWITCH_CHAIN_ANCHOR}.sql and is not one of the list migrations written before the chain: its version ` +
+        `is older than lists already installed, so it would put back older allowed states. ` +
+        optionSwitchStaleRemedy(`${OPTION_SWITCH_MIGRATIONS_DIR}/${file.name}`, newest)
+      );
+  for (let i = anchor + 1; i < lists.length; i++) {
+    const file = lists[i]!;
+    const previous = lists[i - 1]!.base;
+    const follows = optionSwitchFollowsLines(file.text);
+    const path = `${OPTION_SWITCH_MIGRATIONS_DIR}/${file.name}`;
+    if (follows.length !== 1 || follows[0] !== previous) {
+      const said =
+        follows.length === 0
+          ? 'names no list migration it follows'
+          : follows.length > 1
+            ? `has ${follows.length} follows lines`
+            : `was generated after ${follows[0]}.sql`;
+      return (
+        `the switch list migration ${path} ${said}, but the list migration immediately before it in this tree is ` +
+        `${previous}.sql. Its lists were generated without seeing ${previous}.sql, and installing it would put ` +
+        `back the older allowed states of every option that file changed. ` +
+        optionSwitchStaleRemedy(path, lists.filter((f) => f !== file).at(-1)!.base)
+      );
+    }
+    if (optionSwitchVersionStamp(file.text) !== versionOf(file.base))
+      return (
+        `the switch list migration ${path} does not stamp its own version (${OPTION_SWITCH_VERSION_STAMP}` +
+        `${versionOf(file.base)}) into fn_ca_horse_option_switch_states, so the database cannot refuse an older ` +
+        `list installed after it: regenerate it with --follow-up`
+      );
+    if (!file.text.includes(`'${OPTION_SWITCH_VERSION_STAMP}([0-9]{14})'`))
+      return `the switch list migration ${path} lacks the refusal of an older list: regenerate it with --follow-up`;
+  }
+  return null;
+}
+
+/**
+ * Null when the list migrations a branch adds (in `tree`, not on main) are newer than every list migration on main
+ * and the branch holds main's newest list migration; otherwise what is wrong and the remedy. Names may be paths or
+ * bare file names; only list migrations are passed.
+ */
+export function optionSwitchStaleAgainstMain(
+  treeLists: readonly string[],
+  mainLists: readonly string[]
+): string | null {
+  const tree = new Set(treeLists.map(baseName));
+  const main = [...new Set(mainLists.map(baseName))].sort();
+  const added = [...tree].filter((n) => !main.includes(n)).sort();
+  const mainNewest = main[main.length - 1];
+  if (added.length === 0 || !mainNewest) return null;
+  const own = `${OPTION_SWITCH_MIGRATIONS_DIR}/${added[added.length - 1]}.sql`;
+  if (!tree.has(mainNewest))
+    return (
+      `main holds the switch list migration ${mainNewest}.sql and this branch does not, while it adds ` +
+      `${added.map((n) => `${n}.sql`).join(', ')}: its lists were generated from an older main and would put back ` +
+      `whatever ${mainNewest}.sql changed. ` +
+      optionSwitchStaleRemedy(own, `${mainNewest}.sql`)
+    );
+  const older = added.filter((n) => versionOf(n) <= versionOf(mainNewest));
+  if (older.length > 0)
+    return (
+      `the switch list migration ${older[0]}.sql this branch adds is not newer than main's newest list migration ` +
+      `${mainNewest}.sql, so it is not the whitelist and it could install after it. ` +
+      optionSwitchStaleRemedy(
+        `${OPTION_SWITCH_MIGRATIONS_DIR}/${older[0]}.sql`,
+        `${mainNewest}.sql`
+      )
+    );
+  return null;
+}
+
+/** The migration with its follows line set to `follows` (added under the first line when it has none). */
+export function withFollowsLine(sql: string, follows: string): string {
+  const line = `${OPTION_SWITCH_FOLLOWS_PREFIX}${baseName(follows)}`;
+  if (/^-- registry:follows: .*$/m.test(sql))
+    return sql.replace(/^-- registry:follows: .*$/m, line);
+  const nl = sql.indexOf('\n');
+  return `${sql.slice(0, nl + 1)}${line}\n${sql.slice(nl + 1)}`;
+}
+
+type ListName =
+  'style-options' | 'plain-options' | 'off-only-options' | 'shadow-options' | 'on-shadow-options';
 const LISTS: readonly (readonly [ListName, () => readonly string[]])[] = [
   ['style-options', () => STYLE_SWITCH_OPTIONS as readonly string[]],
   ['plain-options', () => OPTION_SWITCH_PLAIN_NAMES],
   ['off-only-options', () => OPTION_SWITCH_OFF_ONLY_NAMES],
   // 2026-11-18: the non-style options that take shadow (a worker re-decision, HorseOptionShadow.ts)
   ['shadow-options', () => OPTION_SWITCH_SHADOW_NAMES],
+  // 2026-11-19: the non-style options that take on_shadow (acted true as on, re-decided false; HorseOptionSwitch.ts)
+  ['on-shadow-options', () => OPTION_SWITCH_ON_SHADOW_NAMES],
 ];
 /**
  * The migration every follow-up that carries the shadow list installs after: it makes the switch functions tell the
@@ -56,6 +253,13 @@ const LISTS: readonly (readonly [ListName, () => readonly string[]])[] = [
  */
 export const OPTION_SWITCH_STYLE_BY_NAME_MIGRATION_SUFFIX =
   '_the_horse_option_switch_tells_style_options_by_name.sql';
+/**
+ * The migration every follow-up that carries the on_shadow list installs after (2026-11-19): it gives on_shadow every
+ * rule of `on` in the set function (own citation, recorded evidence, the serving-registry guard), lets the publish
+ * accept on_shadow and widens the table's state check.
+ */
+export const OPTION_SWITCH_ON_SHADOW_RULES_MIGRATION_SUFFIX =
+  '_the_horse_option_switch_on_shadow_keeps_every_rule_of_on.sql';
 
 /** The names as SQL string literals, comma separated, wrapped under 100 columns with a four space indent. */
 export function sqlNameList(names: readonly string[]): string {
@@ -154,7 +358,7 @@ export function optionSwitchFollowUpRefusal(name: string, newest: string): strin
   return null;
 }
 
-/** The proof script with its style, plain, off-only and shadow lists set to the registry (its refused list is kept). */
+/** The proof script with its style, plain, off-only, shadow and on_shadow lists set to the registry (refused is kept). */
 export function proofScriptWithRegistryLists(script: string): string {
   let out = script;
   for (const [variable, names] of [
@@ -162,6 +366,7 @@ export function proofScriptWithRegistryLists(script: string): string {
     ['plain', OPTION_SWITCH_PLAIN_NAMES],
     ['offonly', OPTION_SWITCH_OFF_ONLY_NAMES],
     ['shadow', OPTION_SWITCH_SHADOW_NAMES],
+    ['onshadow', OPTION_SWITCH_ON_SHADOW_NAMES],
   ] as const) {
     const line = new RegExp(`^${variable}='[^']*'$`, 'm');
     if (!line.test(out)) throw new Error(`the proof script has no ${variable}='...' line`);
@@ -177,12 +382,13 @@ export function proofScriptWithRegistryLists(script: string): string {
  * Idempotent: DROP CONSTRAINT IF EXISTS then ADD, CREATE OR REPLACE. It never fixes data: a row that breaks the new
  * lists stops the install with a named error before anything changes.
  */
-export function optionSwitchFollowUpSql(name: string): string {
+export function optionSwitchFollowUpSql(name: string, follows?: string): string {
+  const version = versionOf(name);
   // Each list is an empty line between its markers: withRegistryLists replaces what lies between a begin line and the
   // next "\n<indent>-- registry:<list>:end", so an empty list needs its own line (or the match would run on to the
   // next block's end marker).
   const template = `-- HORSE OPTION SWITCH: THE REGISTERED NAMES, RE-ASSERTED (${name}; follow-up of 20261114072215)
---
+${follows ? `${OPTION_SWITCH_FOLLOWS_PREFIX}${baseName(follows)}\n` : ''}--
 -- Generated by server/scripts/gen-horse-option-switch-sql.ts --follow-up from the engine registry
 -- (server/src/engine/HorseOptionSwitch.ts, derived from HORSE_DATA_LEDGER). The installed switch migrations are never
 -- edited; the NEWEST migration carrying the registry markers is the database whitelist
@@ -191,10 +397,12 @@ export function optionSwitchFollowUpSql(name: string): string {
 --
 -- WHAT IT DOES: re-asserts the three CHECK constraints of public.ca_horse_style_switch (an option is registered; on
 -- for a non-style option cites its own authority; canary only for the style options, shadow only for the style
--- options and the listed shadow options, on never for an off-only option) and public.fn_ca_horse_option_switch_states
--- with the registry's current lists. A shadow option passes nothing to the engine's decision (the release default
--- acts); the engine re-decides it flipped and records the counterfactual, never acting on it (HorseOptionShadow.ts). Same table, same
--- functions, same grants. It adds no table, column or row and switches nothing; running it twice leaves the same
+-- options and the listed shadow options, on_shadow only for the listed on_shadow options, on and on_shadow never for
+-- an off-only option) and public.fn_ca_horse_option_switch_states with the registry's current lists. A shadow option
+-- passes nothing to the engine's decision (the release default acts); an on_shadow option passes true (exactly as
+-- on, and it cites its own authority exactly as on); the engine re-decides either once flipped and records the
+-- counterfactual, never acting on it (HorseOptionShadow.ts). Same table, same functions, same grants. It adds no
+-- table, column or row and switches nothing; running it twice leaves the same
 -- state. Registering an option ENABLES NOTHING: no row is the release default.
 --
 -- IT NEVER FIXES DATA. If a row already in the table would break the new lists (an option the registry no longer
@@ -212,12 +420,27 @@ DO ${Q}existing_rows_fit${Q}
 DECLARE
   r record;
 BEGIN
+  -- A list migration never installs over a newer one (2026-11-20): each follow-up stamps its version into
+  -- fn_ca_horse_option_switch_states, and an older list installed after a newer one would put back older allowed
+  -- states. This file is then superseded: never force it; delete it from main if it was never installed.
+  IF substring((SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.fn_ca_horse_option_switch_states(text)'::regprocedure)
+       FROM '${OPTION_SWITCH_VERSION_STAMP}([0-9]{14})') > '${version}' THEN
+    RAISE EXCEPTION 'switch list migration ${version} is older than the installed list %: it is superseded and installing it would put back older allowed states',
+      substring((SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.fn_ca_horse_option_switch_states(text)'::regprocedure)
+        FROM '${OPTION_SWITCH_VERSION_STAMP}([0-9]{14})');
+  END IF;
   -- A shadow option keeps every rule of 'on' only when the switch functions tell the style options by canary
   -- (*${OPTION_SWITCH_STYLE_BY_NAME_MIGRATION_SUFFIX}); refuse to install before that file.
   IF position('''shadow'' = ANY' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) > 0
      OR position('ARRAY[''shadow'']' IN pg_get_functiondef('public.fn_ca_horse_style_switch_effective()'::regprocedure)) > 0
      OR position('ARRAY[''shadow'']' IN pg_get_functiondef('public.fn_ca_horse_option_switch_effective()'::regprocedure)) > 0 THEN
     RAISE EXCEPTION 'the switch functions still tell the style options by shadow: install *${OPTION_SWITCH_STYLE_BY_NAME_MIGRATION_SUFFIX} first';
+  END IF;
+  -- An on_shadow option keeps every rule of 'on' only when the set function and the registry publish know on_shadow
+  -- (*${OPTION_SWITCH_ON_SHADOW_RULES_MIGRATION_SUFFIX}); refuse to install before that file.
+  IF position('''on_shadow''' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) = 0
+     OR position('''on_shadow''' IN pg_get_functiondef('public.fn_ca_horse_option_registry_publish(text, jsonb, text)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'the switch functions do not know on_shadow: install *${OPTION_SWITCH_ON_SHADOW_RULES_MIGRATION_SUFFIX} first';
   END IF;
   FOR r IN SELECT s.option, s.state FROM public.ca_horse_style_switch s ORDER BY s.option LOOP
     IF NOT (r.option IN (
@@ -232,12 +455,20 @@ BEGIN
       RAISE EXCEPTION 'switch row % (state %) names an option the registry no longer has: clear it before this migration',
         r.option, r.state;
     END IF;
-    IF r.state = 'on' AND r.option IN (
+    IF r.state IN ('on', 'on_shadow') AND r.option IN (
     -- registry:off-only-options:begin
 
     -- registry:off-only-options:end
     ) THEN
-      RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
+      RAISE EXCEPTION 'switch row % is % and the option is now off-only: set it off or clear it before this migration',
+        r.option, r.state;
+    END IF;
+    IF r.state = 'on_shadow' AND NOT (r.option IN (
+    -- registry:on-shadow-options:begin
+
+    -- registry:on-shadow-options:end
+    )) THEN
+      RAISE EXCEPTION 'switch row % is on_shadow and the option no longer takes it: set it on or off, or clear it, before this migration',
         r.option;
     END IF;
     IF r.state IN ('shadow', 'canary') AND NOT (r.option IN (
@@ -270,12 +501,12 @@ ALTER TABLE public.ca_horse_style_switch
     -- registry:plain-options:end
     ));
 
--- 'on' for a non-style option carries the option's OWN citation in the note, from any writer:
--- 'authority: <option> <file> sha256 <64 lowercase hex>'.
+-- 'on' and 'on_shadow' (which acts as on) for a non-style option carry the option's OWN citation in the note, from
+-- any writer: 'authority: <option> <file> sha256 <64 lowercase hex>'.
 ALTER TABLE public.ca_horse_style_switch
   DROP CONSTRAINT IF EXISTS ca_horse_style_switch_on_cites_authority,
   ADD CONSTRAINT ca_horse_style_switch_on_cites_authority CHECK (
-    state <> 'on'
+    state NOT IN ('on', 'on_shadow')
     OR option IN (
     -- registry:style-options:begin
 
@@ -285,8 +516,9 @@ ALTER TABLE public.ca_horse_style_switch
   );
 
 -- Canary only where the engine has a shadow arm: the seven style options. Shadow for them and for the listed shadow
--- options (re-decided flipped by the engine, never acted on). 'on' never for an off-only option (an owner hold, a
--- measured harm, a superseded option), from any writer.
+-- options (re-decided flipped by the engine, never acted on); on_shadow for the listed on_shadow options only (never a
+-- style or off-only option). 'on' never for an off-only option (an owner hold, a measured harm, a superseded option),
+-- from any writer.
 ALTER TABLE public.ca_horse_style_switch
   DROP CONSTRAINT IF EXISTS ca_horse_style_switch_state_fits_option,
   ADD CONSTRAINT ca_horse_style_switch_state_fits_option CHECK (
@@ -301,11 +533,16 @@ ALTER TABLE public.ca_horse_style_switch
 
     -- registry:shadow-options:end
     ))
-    OR option IN (
+    OR (state = 'on_shadow' AND option IN (
+    -- registry:on-shadow-options:begin
+
+    -- registry:on-shadow-options:end
+    ))
+    OR (state <> 'on_shadow' AND option IN (
     -- registry:style-options:begin
 
     -- registry:style-options:end
-    ));
+    )));
 
 -- The states an option may be set to; NULL for an option that is not registered.
 CREATE OR REPLACE FUNCTION public.fn_ca_horse_option_switch_states(p_option text)
@@ -314,6 +551,7 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, public
 AS ${Q}function${Q}
+  -- ${OPTION_SWITCH_VERSION_STAMP}${version}
   SELECT CASE
     WHEN p_option IN (
     -- registry:style-options:begin
@@ -332,7 +570,13 @@ AS ${Q}function${Q}
 
     -- registry:shadow-options:end
     )
-      THEN ARRAY['off', 'shadow', 'on']
+      THEN ARRAY['off', 'shadow', 'on_shadow', 'on']
+    WHEN p_option IN (
+    -- registry:on-shadow-options:begin
+
+    -- registry:on-shadow-options:end
+    )
+      THEN ARRAY['off', 'on_shadow', 'on']
     WHEN p_option IN (
     -- registry:plain-options:begin
 
@@ -369,7 +613,14 @@ BEGIN
 
     -- registry:shadow-options:end
        ]::text[]) AS n
-       WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off', 'shadow', 'on'])
+       WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off', 'shadow', 'on_shadow', 'on'])
+     OR EXISTS (
+       SELECT 1 FROM unnest(ARRAY[
+    -- registry:on-shadow-options:begin
+
+    -- registry:on-shadow-options:end
+       ]::text[]) AS n
+       WHERE NOT (public.fn_ca_horse_option_switch_states(n) @> ARRAY['off', 'on_shadow', 'on']))
      OR EXISTS (
        SELECT 1 FROM unnest(ARRAY[
     -- registry:plain-options:begin

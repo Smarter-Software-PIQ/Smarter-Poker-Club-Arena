@@ -4,5 +4,23 @@
     "declaration": false,
     "declarationMap": false
   },
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.spec.ts", "src/**/__tests__/**"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.test.mts",
+    "src/**/*.test.cts",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.spec.mts",
+    "src/**/*.spec.cts",
+    "src/**/*.test-support.*",
+    "src/**/__tests__/**",
+    "src/testing/**",
+    "src/engine/testing/**",
+    "src/benchmark/fixtures/**",
+    "src/benchmark/Sparring*.ts",
+    "src/benchmark/sparringRun.ts"
+  ]
 }

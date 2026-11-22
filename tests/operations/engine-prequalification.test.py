@@ -82,6 +82,27 @@ class Evidence(unittest.TestCase):
         with patch.object(reader, "projection", side_effect=["before","after"]), self.assertRaises(reader.Unqualified):
             self.verify()
 
+    def test_failed_or_incomplete_qualification_refusal_includes_run_id(self):
+        self.run_row = {**self.run_row, "id": 44878744051, "status": "completed", "conclusion": "failure"}
+        with self.assertRaises(reader.Unqualified) as ctx:
+            self.verify()
+        self.assertIn("latest qualification is incomplete, unsuccessful or untrusted", str(ctx.exception))
+        self.assertIn("run 44878744051", str(ctx.exception))
+        self.assertIn("conclusion=failure", str(ctx.exception))
+
+        self.run_row = {**self.run_row, "id": 44878744052, "status": "in_progress", "conclusion": None}
+        with self.assertRaises(reader.Unqualified) as ctx2:
+            self.verify()
+        self.assertIn("run 44878744052", str(ctx2.exception))
+        self.assertIn("status=in_progress", str(ctx2.exception))
+
+        # A completed run with a failed shard still reports the failing run id.
+        self.run_row = {**self.run_row, "id": 99, "status": "completed", "conclusion": "success"}
+        self.jobs[0]["conclusion"] = "failure"
+        with self.assertRaises(reader.Unqualified) as ctx3:
+            self.verify()
+        self.assertIn("run 99", str(ctx3.exception))
+
 
 class Selection(unittest.TestCase):
     def verify(self, *, altered=False, duplicate=False, late=False, pending=False, early=False, backup=False, owner=False, wrong_owner=False, wrong_stage=False, wrong_event=False, rerun=False,
@@ -263,6 +284,175 @@ class ControlInputs(unittest.TestCase):
                     self.assertNotEqual(strict, next_strict)
                     strict = next_strict
                 self.assertNotEqual(project, reader.projection(edit(reader.PATH,"changed")))
+
+    def test_pure_test_files_under_maintenance_and_scripts_do_not_invalidate_projection(self):
+        with tempfile.TemporaryDirectory() as folder:
+            git_env = {
+                "PATH": os.environ["PATH"],
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_AUTHOR_NAME": "fixture",
+                "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                "GIT_COMMITTER_NAME": "fixture",
+                "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+            }
+            def git(*args):
+                return subprocess.check_output(["git", "-C", folder, *args], text=True, env=git_env).strip()
+            git("init", "-q")
+            def commit_files(files, msg):
+                for path, text in files.items():
+                    file = Path(folder) / path
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_text(text)
+                git("add", *files.keys())
+                git("commit", "-qm", msg)
+                return git("rev-parse", "HEAD")
+
+            base = commit_files({
+                reader.PATH: "workflow v1\n",
+                "scripts/ci/recorded-migrations.manifest.json": '{"recordings":[]}\n',
+                "server/src/maintenance/MaintenanceBreak.ts": "export const v = 1;\n",
+                "server/src/maintenance/maintenanceSchedulePolicy.json": '{"frequency":"three-hourly"}\n',
+                "server/scripts/engine-release-seal.py": "# seal v1\n",
+                "server/scripts/engine-release-transaction.sh": "#!/usr/bin/env bash\n",
+            }, "base")
+
+            with patch.object(reader, "git", side_effect=git):
+                base_proj = reader.projection(base)
+                base_strict = reader.projection(base, release_authority=True)
+                base_backup = reader.backup_projection(base)
+
+                pure_tests = (
+                    "server/src/maintenance/foo.test.ts",
+                    "server/src/maintenance/bar.law.test.ts",
+                    "server/src/maintenance/nested/baz.spec.ts",
+                    "server/scripts/baz.test.py",
+                    "server/scripts/qux.test.mjs",
+                    "server/scripts/qux.test.js",
+                    "server/scripts/qux.test.cjs",
+                    "server/scripts/test_public215_helper.py",
+                )
+                for revision in ("v1\n", "v2\n"):
+                    commit_sha = commit_files({path: revision for path in pure_tests}, f"pure tests {revision.strip()}")
+                    with self.subTest(revision=revision.strip()):
+                        self.assertEqual(reader.projection(commit_sha), base_proj)
+                        self.assertEqual(reader.projection(commit_sha, release_authority=True), base_strict)
+                        self.assertEqual(reader.backup_projection(commit_sha), base_backup)
+
+                # Production files under server/src/maintenance/, server/scripts/,
+                # and scripts/ci/recorded-migrations.manifest.json MUST still change
+                # every projection.
+                prev_proj, prev_strict, prev_backup = base_proj, base_strict, base_backup
+                prod_edits = (
+                    ("server/src/maintenance/MaintenanceBreak.ts", "export const v = 2;\n"),
+                    ("server/src/maintenance/maintenanceSchedulePolicy.json", '{"frequency":"daily"}\n'),
+                    ("server/scripts/engine-release-seal.py", "# seal v2\n"),
+                    ("server/scripts/engine-release-transaction.sh", "#!/usr/bin/env bash\necho v2\n"),
+                    ("server/scripts/test_dir/runtime.py", "# directory name test_ is still runtime\n"),
+                    ("scripts/ci/recorded-migrations.manifest.json", '{"recordings":[{"name":"m1"}]}\n'),
+                )
+                for path, content in prod_edits:
+                    changed = commit_files({path: content}, f"edit {path}")
+                    with self.subTest(prod_file=path):
+                        next_proj = reader.projection(changed)
+                        next_strict = reader.projection(changed, release_authority=True)
+                        next_backup = reader.backup_projection(changed)
+                        self.assertNotEqual(next_proj, prev_proj)
+                        self.assertNotEqual(next_strict, prev_strict)
+                        self.assertNotEqual(next_backup, prev_backup)
+                        prev_proj, prev_strict, prev_backup = next_proj, next_strict, next_backup
+
+    def test_projection_filter_parses_only_tab_path_field_and_fails_closed(self):
+        lines = [
+            "100644 blob " + "a" * 40 + "\tserver/src/maintenance/MaintenanceBreak.ts",
+            "100644 blob " + "b" * 40 + "\tserver/src/maintenance/frozenDiscoverySweeps.test.ts",
+            "100644 blob " + "c" * 40 + "\tserver/src/maintenance/theFreezeIsTotal.law.test.ts",
+            "100644 blob " + "d" * 40 + "\tserver/scripts/engine-release-seal.py",
+            "100644 blob " + "e" * 40 + "\tserver/scripts/baz.test.py",
+            "100644 blob " + "f" * 40 + "\tscripts/ci/recorded-migrations.manifest.json",
+            "100644 blob " + "0" * 40 + "\tscripts/ci/not-excluded.test.py",
+            "100644 blob .test.ts\tserver/scripts/engine-up.sh",
+            "unparsed-line-without-tab server/src/maintenance/foo.test.ts",
+        ]
+        filtered = reader._filter_projection_tree("\n".join(lines)).splitlines()
+        self.assertEqual(filtered, [
+            lines[0],
+            lines[3],
+            lines[5],
+            lines[6],
+            lines[7],
+            lines[8],
+        ])
+
+    def test_read_accepts_test_only_control_delta_and_refuses_production_delta(self):
+        with tempfile.TemporaryDirectory() as folder:
+            git_env = {
+                "PATH": os.environ["PATH"],
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_AUTHOR_NAME": "fixture",
+                "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                "GIT_COMMITTER_NAME": "fixture",
+                "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+            }
+            def git(*args):
+                if args[:2] == ("merge-base", "--is-ancestor"):
+                    return ""
+                return subprocess.check_output(["git", "-C", folder, *args], text=True, env=git_env).strip()
+            git("init", "-q")
+            def commit_files(files, msg):
+                for path, text in files.items():
+                    file = Path(folder) / path
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_text(text)
+                git("add", *files.keys())
+                git("commit", "-qm", msg)
+                return git("rev-parse", "HEAD")
+
+            target = commit_files({
+                "server/src/maintenance/MaintenanceBreak.ts": "export const v = 1;\n",
+                "server/scripts/engine-release-seal.py": "# v1\n",
+            }, "target")
+            control_test_only = commit_files({
+                "server/src/maintenance/frozenDiscoverySweeps.test.ts": "// test\n",
+                "server/scripts/baz.test.py": "# test\n",
+            }, "test only")
+            control_prod = commit_files({
+                "server/src/maintenance/MaintenanceBreak.ts": "export const v = 2;\n",
+            }, "prod")
+
+            repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
+            tree = git("rev-parse", target + ":server")
+            image = "sha256:" + "1" * 64
+            rollback = "sha256:" + "2" * 64
+            name = {"full_name": repo}
+            run_row = dict(id=99, run_attempt=1, event="push", head_branch="main",
+                           path=reader.PATH, head_sha=target, repository=name,
+                           head_repository=name, status="completed", conclusion="success")
+            names = [f"Qualify exact engine ({n}/4)" for n in range(1, 5)] + [
+                "Stage immutable candidate and rollback images"
+            ]
+            jobs = [dict(name=n, run_id=99, run_attempt=1, head_sha=target,
+                         status="completed", conclusion="success", steps=[],
+                         completed_at=datetime.fromtimestamp(1700000000, timezone.utc).isoformat())
+                    for n in names]
+            jobs[-1]["steps"] = [dict(name=f"Prepared image {image} rollback {rollback} tree {tree}",
+                                      conclusion="success")]
+
+            with patch.object(reader, "git", side_effect=git):
+                args_ok = SimpleNamespace(repo=repo, target=target, control=control_test_only,
+                                          receiver_control=control_test_only, cutoff=1700000000)
+                calls = [{"workflow_runs": [run_row]}, {"total_count": len(jobs), "jobs": jobs},
+                         {"workflow_runs": [run_row]}]
+                with patch.object(reader, "api", side_effect=calls):
+                    result = reader.read(args_ok)
+                self.assertEqual(result["targetSha"], target)
+                self.assertEqual(result["controlSha"], control_test_only)
+
+                args_bad = SimpleNamespace(repo=repo, target=target, control=control_prod,
+                                           receiver_control=control_prod, cutoff=1700000000)
+                with self.assertRaisesRegex(reader.Unqualified, "qualification inputs differ from selected control"):
+                    reader.read(args_bad)
 
 
 class ArchiveTransport(unittest.TestCase):

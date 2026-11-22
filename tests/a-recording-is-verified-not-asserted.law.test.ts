@@ -39,6 +39,9 @@ import {
   readFileSync,
   existsSync,
   readdirSync,
+  openSync,
+  readSync,
+  closeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -87,11 +90,25 @@ const RECORDED_SQL = 'CREATE OR REPLACE FUNCTION public.fn_x() RETURNS void AS $
 
 describe('the freeze on the old first-line marker', () => {
   it('is at or after every file on disk that still uses it', () => {
+    // The marker lives on the first line: read the first 4 KB of each of the
+    // ~7,000 migrations instead of every byte (whole-file reads took 57 s on the
+    // shared pre-push host under load, Nov 20 2026). A first line longer than
+    // the prefix falls back to the whole file, so the line judged is identical.
+    const firstLine = (path: string): string => {
+      const fd = openSync(path, 'r');
+      try {
+        const buf = Buffer.alloc(4096);
+        const n = readSync(fd, buf, 0, buf.length, 0);
+        const head = buf.subarray(0, n).toString('utf8');
+        if (head.includes('\n') || n < buf.length) return head.split('\n', 1)[0];
+      } finally {
+        closeSync(fd);
+      }
+      return readFileSync(path, 'utf8').split('\n', 1)[0];
+    };
     const marked = readdirSync(join(REPO, MIGRATIONS))
       .filter((f) => f.endsWith('.sql'))
-      .filter((f) =>
-        carriesLegacyMarker(readFileSync(join(REPO, MIGRATIONS, f), 'utf8').split('\n', 1)[0])
-      );
+      .filter((f) => carriesLegacyMarker(firstLine(join(REPO, MIGRATIONS, f))));
 
     // The point of the cutoff is that it refuses nothing that already exists
     // and covers everything written from here on. If a file at or after it

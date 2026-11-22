@@ -33,6 +33,7 @@
  */
 import { IS_NATIVE_BUILD, isNativePlatform, publicOrigin } from './appBase';
 import { copyToClipboard } from './copyToClipboard';
+import { normalizeInviteCode, normalizeInviteToken, normalizeUuid } from './inviteCode';
 import { reportError } from '../utils/errorReporter';
 
 export type ShareOutcome = 'shared' | 'copied' | 'saved' | 'cancelled' | 'failed';
@@ -301,6 +302,174 @@ export function profileShareUrl(userId: string, origin?: string): string {
  */
 export function tournamentShareUrl(tournamentId: string, origin?: string): string {
   return `${origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
+}
+
+export interface TableShareUrlOptions {
+  origin?: string;
+  inviteCode?: string | null;
+  clusterId?: string | null;
+  inviteToken?: string | null;
+}
+
+export interface LightningShareUrlOptions {
+  origin?: string;
+  inviteCode?: string | null;
+}
+
+function withShareQueryParams(
+  base: string,
+  params: {
+    inviteCode?: string | null;
+    clusterId?: string | null;
+    inviteToken?: string | null;
+  }
+): string {
+  const q = new URLSearchParams();
+  const code = normalizeInviteCode(params.inviteCode);
+  const cluster = normalizeUuid(params.clusterId);
+  const token = normalizeInviteToken(params.inviteToken);
+  if (code) q.set('i', code);
+  if (cluster) q.set('cluster', cluster);
+  if (token) q.set('invite', token);
+  const qs = q.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+/**
+ * Shareable link to a live table (cash game, or a seated Spin / Heads-Up table).
+ *
+ * Uses smarter.poker/g/<id> (World Hub SSR preview + 1200x630 OG card via
+ * fn_ca_table_share_preview, instant redirect to /hub/club-arena/table/<id>
+ * when signed in, rich invite card when signed out) while preserving optional
+ * sender club invite code (`i`), Must-Move cluster id (`cluster`), and
+ * Heads-Up specific-player hold token (`invite`).
+ */
+export function tableShareUrl(
+  tableId: string,
+  originOrOptions?: string | TableShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const base = `${opts.origin ?? publicOrigin()}/g/${encodeURIComponent(tableId)}`;
+  return withShareQueryParams(base, opts);
+}
+
+/**
+ * Shareable link to a Lightning Cash cluster's join door.
+ *
+ * Uses smarter.poker/l/<clusterId> (World Hub SSR preview + 1200x630 OG card
+ * via fn_ca_lightning_share_preview, instant redirect to
+ * /hub/club-arena/lightning/<clusterId> when signed in). A Lightning pool
+ * session id belongs solely to one player — sharing the cluster door takes any
+ * club member straight into the pool while preserving optional `?i=<CODE>`.
+ */
+export function lightningShareUrl(
+  clusterId: string,
+  originOrOptions?: string | LightningShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const base = `${opts.origin ?? publicOrigin()}/l/${encodeURIComponent(clusterId)}`;
+  return withShareQueryParams(base, { inviteCode: opts.inviteCode });
+}
+
+export type GameInviteTarget =
+  | {
+      kind: 'table';
+      id: string;
+      inviteCode?: string | null;
+      clusterId?: string | null;
+      inviteToken?: string | null;
+    }
+  | { kind: 'tournament'; id: string; inviteCode?: string | null }
+  | { kind: 'lightning'; id: string; inviteCode?: string | null };
+
+export interface LobbyInviteTargetOptions {
+  inviteCode?: string | null;
+  clusterId?: string | null;
+}
+
+/**
+ * Canonical invite target for any lobby row: Lightning cash games route to
+ * their cluster entry door, classic cash games route to the live table (with
+ * normalized `clusterId` when belonging to a Must-Move cash game), and
+ * tournaments (MTT, Spin, Heads-Up SNG, Satellite) route to the tournament
+ * preview link.
+ */
+export function lobbyEntryInviteTarget(
+  entry: {
+    id: string;
+    kind: string;
+    clusterId?: string | null;
+    cashGameId?: string | null;
+    game?: { id?: string | null; mustMove?: boolean; lightning?: unknown } | null;
+    raw?: unknown;
+  },
+  options?: LobbyInviteTargetOptions
+): GameInviteTarget {
+  const inviteCode = normalizeInviteCode(options?.inviteCode);
+  if (entry.kind === 'cash') {
+    if (entry.game?.lightning && entry.game.id) {
+      return {
+        kind: 'lightning',
+        id: entry.game.id,
+        ...(inviteCode ? { inviteCode } : {}),
+      };
+    }
+    const rawRow =
+      entry.raw && typeof entry.raw === 'object'
+        ? (entry.raw as { cluster_id?: unknown; cluster_must_move?: unknown })
+        : null;
+    const rawClusterId =
+      options?.clusterId ??
+      entry.clusterId ??
+      entry.cashGameId ??
+      (entry.game?.id && entry.game.mustMove !== false ? entry.game.id : null) ??
+      (rawRow?.cluster_id && rawRow.cluster_must_move !== false ? rawRow.cluster_id : null);
+    const clusterId = normalizeUuid(rawClusterId);
+    return {
+      kind: 'table',
+      id: entry.id,
+      ...(inviteCode ? { inviteCode } : {}),
+      ...(clusterId ? { clusterId } : {}),
+    };
+  }
+  return {
+    kind: 'tournament',
+    id: entry.id,
+    ...(inviteCode ? { inviteCode } : {}),
+  };
+}
+
+/**
+ * Canonical invite URL for any Club Arena game: Lightning clusters point at
+ * their Lightning join route; classic cash tables and seated seat-first tables
+ * point directly at the table; MTTs, multi-seat SNGs, Spins and Satellites
+ * shared from the lobby point at the tournament preview link.
+ */
+export function gameInviteUrl(
+  target: GameInviteTarget,
+  originOrOptions?: string | TableShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const inviteCode = opts.inviteCode ?? target.inviteCode;
+  if (target.kind === 'tournament') return tournamentShareUrl(target.id, opts.origin);
+  if (target.kind === 'lightning') {
+    return lightningShareUrl(target.id, { origin: opts.origin, inviteCode });
+  }
+  return tableShareUrl(target.id, {
+    origin: opts.origin,
+    inviteCode,
+    clusterId: opts.clusterId ?? target.clusterId,
+    inviteToken: opts.inviteToken ?? target.inviteToken,
+  });
+}
+
+/** Consistent invite sentence paired with a game invite link. */
+export function gameInviteText(gameName: string | null | undefined): string {
+  const clean = (gameName || '').trim();
+  return clean ? `Join Me In ${clean} On Smarter.Poker` : 'Join My Poker Game On Smarter.Poker';
 }
 
 /**

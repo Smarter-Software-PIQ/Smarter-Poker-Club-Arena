@@ -55,6 +55,7 @@ import {
   resetWinnerReads,
   type HorseWinnerReadState,
 } from './HorseWinnerRead.js';
+import { hudExploitCounters } from './opponentHud/OpponentHudExploit.js';
 import { noteFire, withBrainTelemetrySuspended } from './BrainTelemetry.js';
 import { bettingStructureFor, type BettingStructure } from './BettingStructure.js';
 import {
@@ -135,6 +136,8 @@ import {
   mergeFlopStabRows,
   observeExploitRow,
   observeFlopStabRow,
+  setStyleShiftReleaseNoiseAware,
+  styleShiftReleaseNoiseAwareOn,
   openerRangeWidth,
   opponentExploitRead,
   presumedAggressorRead,
@@ -457,10 +460,25 @@ export interface DecisionReadOptions {
    *  the measured Omaha fold-over-MDF ratio scaled by the opponent's shrunk
    *  postflop fold-to-bet read (see OMAHA_EV_FOLD_MODEL below). */
   omahaEvFoldModel?: boolean;
+  /** omahaEvFoldModelHeadsUp (2026-11-19, default OFF): with omahaEvFoldModel on, a PLO4/PLO5 cash flop or turn
+   *  bet into ONE opponent is priced on the heads-up cell (OMAHA_EV_FOLD_MODEL_HEADS_UP) and his street read.
+   *  Present only when true. */
+  omahaEvFoldModelHeadsUp?: boolean;
+  /** NOV8 (default off): the Omaha EV fold model does not price PLO4 / PLO5; those games keep the
+   *  exploit bluff multiplier (the pre-#10104 price). PLO6 is unchanged. */
+  omahaEvFoldModelSkipsPlo45?: boolean;
   /** Owner directive 2026-11-13: an unknown Omaha opponent receives a neutral,
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
   omahaNeutralUnknown?: boolean;
+  /** OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, HorseDecideOpts.omahaOpponentLifetimeHud): in PLO4/PLO5 cash the
+   *  exploit read takes each opponent's counters from his lifetime public profile carried by the decision
+   *  (OpponentHudExploit.ts). Present only when true. */
+  opponentLifetimeHud?: boolean;
+  /** B4 SIX-MAX PREFLOP HUD (2026-11-21, PLO-OWNER lead-4, HorseDecideOpts.omahaPreflopReadIsPricedFromLifetime):
+   *  in 3–6 seat PLO4/PLO5 cash preflop, retires presumedAggressorRead via the lifetime HUD packet and prices
+   *  widened maniac-pressure spots on sh + pf.lr + pf.bvo cells (HorseOmahaPreflopHudPriced.ts). Default OFF. */
+  opponentLifetimeHudPreflopSixMax?: boolean;
   /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane,
    *  HorseDecideOpts.fixedLimitOmahaNoPresumption): on a fixed-limit Omaha
    *  decision (flo8) the shared aggressive raise presumption is not applied;
@@ -733,8 +751,88 @@ export const OMAHA_EV_FOLD_MODEL: Readonly<
   plo5: Object.freeze({ foldOverMdf: 1.458, population: 0.536 }),
   plo6: Object.freeze({ foldOverMdf: 1.409, population: 0.497 }),
 });
+/**
+ * OPPONENT HUD, MEASURED 2026-11-21 (lane OPPONENT-HUD-2, CRITERIA-OPPONENT-HUD-2-MEASURED sha 3cba1dd5): actual fold
+ * share to a Horse's first bet of a street over the pooled model's prediction from the responder's as-of LIFETIME
+ * fold-to-first-bet counts, PLO4 + PLO5 person-seated cash hands before Nov 17 (22,244 responses), each cell adopted
+ * only where it lowered the held-out log-loss on Nov 18-20 (4,108 responses):
+ *   flop  small n 7,733 actual .4005 model .3836 (factor 1.044: NOT adopted, held-out .6160 vs .6159) -> 1
+ *   flop  big   n 2,785 actual .6118 model .6219 -> 0.984 (held-out .6672 vs .6702)
+ *   turn  small n 5,261 actual .3870 model .4019 -> 0.963 (held-out .61781 vs .61783)
+ *   turn  big   n 2,885 actual .6135 model .6181 -> 0.993 (held-out .6388 vs .6395)
+ *   river small n 1,442 actual .6033 model .4185 -> 1.442 (held-out .6361 vs .7092)
+ *   river big   n 2,138 actual .7399 model .6152 -> 1.203 (held-out .5442 vs .5857)
+ * small = a bet up to 0.7 pot, big = above 0.7 pot or all-in. Population parameters from public actions only.
+ */
+export const HUD_EV_FOLD_CALIBRATION: Readonly<
+  Record<string, Readonly<{ sm: number; bg: number }>>
+> = Object.freeze({
+  flop: Object.freeze({ sm: 1, bg: 0.984 }),
+  turn: Object.freeze({ sm: 0.963, bg: 0.993 }),
+  river: Object.freeze({ sm: 1.442, bg: 1.203 }),
+});
 /** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
 export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
+
+/**
+ * OMAHA EV FOLD MODEL, HEADS-UP POT (2026-11-19, lane HU-OMAHA; rebuild of the intent of 2301473c493, which added
+ * unsourced plo4_hu / plo5_hu cells 1.0 / 0.311 that nothing selected). Read only by HorseMind.omahaEvFoldMulOf with
+ * omahaEvFoldModelHeadsUp on (default OFF, opt-in `=== true`).
+ *
+ * OMAHA_EV_FOLD_MODEL pools every seat of every pot, and most of its responses are multiway, where each respondent
+ * folds well above MDF. When the Horse's first flop or turn bet faces ONE opponent, people fold at about MDF.
+ * Measured on the FOLD-MODEL lane's extract (audit archive repairs/FOLD-MODEL/work/events-fit.jsonl, sha256
+ * 7cf63f9ad512bf35...; PLO4/PLO5 cash, one board, no bomb pot, a person seated, 2026-11-04 10:00Z to 2026-11-18
+ * 10:06Z): a person's first answer to a Horse's first bet on the flop or turn (nothing bet before it on that
+ * street, the bet not all-in, no raise before his answer) with exactly two players on the street. `fold` is his
+ * fold share, `foldOverMdf` that share over the mean break-even share s / (P + s) of the sizes he faced:
+ *
+ *   PLO4 flop  n 1,127  fold 0.3185 [0.291, 0.346]  mean s/(P+s) 0.3289  foldOverMdf 0.9684
+ *   PLO4 turn  n   777  fold 0.3411 [0.308, 0.374]  mean s/(P+s) 0.3554  foldOverMdf 0.9596
+ *   PLO5 flop  n   860  fold 0.3000 [0.269, 0.331]  mean s/(P+s) 0.3145  foldOverMdf 0.9539
+ *   PLO5 turn  n   623  fold 0.3579 [0.320, 0.396]  mean s/(P+s) 0.3693  foldOverMdf 0.9693
+ *   (multiway, same extract: people 1.27-1.57 over MDF, which is what the pooled model carries.)
+ *
+ * A cell is used only with at least OMAHA_EV_FOLD_HEADS_UP_MIN_N person answers; otherwise the variant's pooled
+ * flop+turn cell (PLO4 n 1,904 fold 0.3277 foldOverMdf 0.9646; PLO5 n 1,483 fold 0.3243 foldOverMdf 0.9610) is the
+ * fallback, and below that the pooled model stands. Nothing is keyed to a hand class, a bet size or an account.
+ */
+export type OmahaEvFoldHeadsUpStreet = 'flop' | 'turn';
+export interface OmahaEvFoldHeadsUpCell {
+  foldOverMdf: number;
+  population: number;
+  n: number;
+}
+export const OMAHA_EV_FOLD_HEADS_UP_MIN_N = 300;
+export const OMAHA_EV_FOLD_MODEL_HEADS_UP: Readonly<
+  Record<
+    'plo4' | 'plo5',
+    Readonly<Record<OmahaEvFoldHeadsUpStreet | 'pooled', Readonly<OmahaEvFoldHeadsUpCell>>>
+  >
+> = Object.freeze({
+  plo4: Object.freeze({
+    flop: Object.freeze({ foldOverMdf: 0.9684, population: 0.3185, n: 1127 }),
+    turn: Object.freeze({ foldOverMdf: 0.9596, population: 0.3411, n: 777 }),
+    pooled: Object.freeze({ foldOverMdf: 0.9646, population: 0.3277, n: 1904 }),
+  }),
+  plo5: Object.freeze({
+    flop: Object.freeze({ foldOverMdf: 0.9539, population: 0.3, n: 860 }),
+    turn: Object.freeze({ foldOverMdf: 0.9693, population: 0.3579, n: 623 }),
+    pooled: Object.freeze({ foldOverMdf: 0.961, population: 0.3243, n: 1483 }),
+  }),
+});
+/** The heads-up cell for one variant and street (the pooled cell below the minimum n; null below that too). */
+export function omahaEvFoldHeadsUpCell(
+  variant: string | null | undefined,
+  street: OmahaEvFoldHeadsUpStreet
+): OmahaEvFoldHeadsUpCell | null {
+  const v = (variant ?? '').toLowerCase();
+  if (v !== 'plo4' && v !== 'plo5') return null;
+  const cells = OMAHA_EV_FOLD_MODEL_HEADS_UP[v];
+  if (cells[street].n >= OMAHA_EV_FOLD_HEADS_UP_MIN_N) return cells[street];
+  if (cells.pooled.n >= OMAHA_EV_FOLD_HEADS_UP_MIN_N) return cells.pooled;
+  return null;
+}
 
 /** Exploit multipliers derived from a specific opponent's tendencies. */
 export interface ExploitProfile {
@@ -820,9 +918,23 @@ function evictOldest<K>(store: Map<K, unknown> | Set<K>, cap: number): K[] {
   return evicted;
 }
 
+/** Isolated style-learner maps for offline/replay sandboxes (AsOfOpponentMemory). Never set on live
+ *  snapshotDecisionReads views; when absent, runInSandbox leaves the process style maps untouched. */
+export interface HorseMindStyleMaps {
+  styleSizeShown: Map<string, SizeBucketTallies>;
+  styleAggression: Map<string, StreetAggression>;
+  styleHorseReference: Map<string, StreetAggression>;
+  styleSizeShownLightning: Map<string, SizeBucketTallies>;
+  styleAggressionLightning: Map<string, StreetAggression>;
+  styleHorseReferenceLightning: Map<string, StreetAggression>;
+  styleBootHandKeys: Set<string>;
+}
+
 /** A spare, isolated set of HorseMind's state containers (V12.2). Opaque to
- *  callers — create with HorseMind.createSandbox(), use via runInSandbox(). */
+ *  callers - create with HorseMind.createSandbox(), use via runInSandbox(). */
 export interface HorseMindSandbox {
+  /** Optional isolated style-learner maps; see HorseMindStyleMaps. */
+  styleMaps?: HorseMindStyleMaps;
   /** Absent only on predecessor snapshots; never falls through to live reads. */
   winnerReads?: HorseWinnerReadState;
   stats: Map<string, OpponentStats>;
@@ -1362,6 +1474,19 @@ export class HorseMind {
   /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
    *  process maps. Never set by a production path; a live engine keeps the default false. */
   private static harnessStyleLearning = false;
+  /** True only while runInSandbox has swapped in a sandbox's own isolated styleMaps. */
+  private static sandboxStyleLearning = false;
+  static createStyleMaps(): HorseMindStyleMaps {
+    return {
+      styleSizeShown: new Map(),
+      styleAggression: new Map(),
+      styleHorseReference: new Map(),
+      styleSizeShownLightning: new Map(),
+      styleAggressionLightning: new Map(),
+      styleHorseReferenceLightning: new Map(),
+      styleBootHandKeys: new Set(),
+    };
+  }
   static enableHarnessStyleLearning(on = true): void {
     this.harnessStyleLearning = on;
   }
@@ -1853,6 +1978,8 @@ export class HorseMind {
     // style's evidence at the fast rate so HorseManiacPressure.law.test.ts
     // still holds. See
     // docs/changelog/2026-11-06-opportunity-scoped-decay-with-style-shift-release.md.
+    // With the process switch styleShiftReleaseIsNoiseAware on (default off) the release is noise-aware and ages
+    // only what moved (setStyleShiftReleaseIsNoiseAware above).
     for (const [userId, increments] of exploitHandIncrements(actions, true))
       observeExploitRow(
         this.exploitCounters,
@@ -2578,6 +2705,29 @@ export class HorseMind {
   }
 
   /**
+   * STYLE SHIFT RELEASE IS NOISE-AWARE (2026-11-21, option styleShiftReleaseIsNoiseAware, registered default OFF).
+   * The process switch of the opportunity-scoped decay's style-shift release (HorseOpponentExploit
+   * STYLE_SHIFT_NOISE_K): on, a fast-window rate releases only beyond its sampling noise and ages only the statistic
+   * that moved (a moved preflop raise rate still ages every gated statistic); off is the 2026-11-06 rule exactly.
+   * PROCESS-LEVEL like FIXED-LIMIT BETS ARE NEVER PROBES: the completed-hand learner, the sandbox merge and the
+   * decision-time gear-shift gate all read it, so one value per process. The decision worker applies the registry
+   * state before every job (workerRuntime applyProcessSwitches and execute); no row, an unreadable, invalid or stale
+   * read put back the source default (off), never the last value. The durable profile's SQL twin
+   * (fn_horse_exploit_add) reads the same switch row itself.
+   */
+  static setStyleShiftReleaseIsNoiseAware(on: boolean): void {
+    setStyleShiftReleaseNoiseAware(on === true);
+  }
+  static styleShiftReleaseIsNoiseAwareOn(): boolean {
+    return styleShiftReleaseNoiseAwareOn();
+  }
+  static applyStyleShiftReleaseIsNoiseAwareOption(opts: {
+    readonly styleShiftReleaseIsNoiseAware?: boolean;
+  }): void {
+    this.setStyleShiftReleaseIsNoiseAware(opts.styleShiftReleaseIsNoiseAware === true);
+  }
+
+  /**
    * FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (2026-11-14,
    * Fixed-Limit lane). V83 (aggressionShownAsValue) keeps neutral respect for
    * a bettor whose big river bets that reached showdown were mostly strong,
@@ -2670,6 +2820,56 @@ export class HorseMind {
     return adjusted;
   }
 
+  /**
+   * OPPONENT HUD NO-LOWERING (2026-11-21, lead order after the symmetric re-score): whether this decision reads PLO4 /
+   * PLO5 opponents from the lifetime HUD (postflop consumer or B4 six-max preflop). Off: false.
+   */
+  static hudReadActive(): boolean {
+    const scope = this.decisionScope;
+    if (
+      !scope ||
+      (this.decisionReadOptions.opponentLifetimeHud !== true &&
+        this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true)
+    )
+      return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /** B4 six-max preflop HUD active (option omahaPreflopReadIsPricedFromLifetime + omahaOpponentLifetimeHud). */
+  static hudPreflopSixMaxActive(): boolean {
+    const scope = this.decisionScope;
+    if (!scope || this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /**
+   * The read this opponent would get WITHOUT the lifetime HUD (the decayed window and the PLO presumption), receipts
+   * muted. Used only where a lifetime read would LOWER a raise or a bet by itself: the caller prices that lowering,
+   * and where it cannot price it the lifetime read is not consumed there (the site answers as with the option off).
+   */
+  static opponentReadWithoutHud(userId: string): OpponentExploitRead | null {
+    return this.withoutHud(() => this.opponentRead(userId));
+  }
+  /** Run a read as without the lifetime HUD (receipts muted); with the option off, the read itself. */
+  static withoutHud<T>(fn: () => T): T {
+    if (
+      this.decisionReadOptions.opponentLifetimeHud !== true &&
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true
+    )
+      return fn();
+    const saved = this.decisionReadOptions;
+    this.decisionReadOptions = {
+      ...saved,
+      opponentLifetimeHud: false,
+      opponentLifetimeHudPreflopSixMax: false,
+    };
+    try {
+      return withBrainTelemetrySuspended(fn);
+    } finally {
+      this.decisionReadOptions = saved;
+    }
+  }
+
   static opponentRead(userId: string): OpponentExploitRead | null {
     const scope = this.decisionScope;
     if (!scope) return null;
@@ -2686,6 +2886,23 @@ export class HorseMind {
     // game's sibling table size, read against ITS own envelope, may
     // corroborate a statistic this size already places past every horse.
     const family = scope.split(':')[0];
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; option omahaOpponentLifetimeHud, default off, PLO4/PLO5 cash): his
+    // counters come from his LIFETIME public profile in this decision's packet (OpponentHudExploit.ts) instead of the
+    // 30-hand decayed window, so every read below sees his whole history from his first hand. Absent (option off, no
+    // packet, no profile of him): undefined, and every line below is what it was.
+    const hudOn =
+      this.decisionReadOptions.opponentLifetimeHud === true ||
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax === true;
+    const hudCounters =
+      hudOn && family === 'omaha' && (variant === 'plo4' || variant === 'plo5')
+        ? hudExploitCounters(
+            userId,
+            variant,
+            durable ?? this.exploitCounters.get(`${scope}|${userId}`)
+          )
+        : undefined;
+    if (hudCounters) noteFire('opponent_hud_exploit_counters');
+    const durableOrLifetime = hudCounters ?? durable;
     const siblings =
       durable && variant
         ? opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
@@ -2698,7 +2915,7 @@ export class HorseMind {
         : [];
     const readCounters = this.probeAdjusted(
       userId,
-      durable ??
+      durableOrLifetime ??
         (this.durableOpponentMemory && variant
           ? undefined
           : this.exploitCounters.get(`${scope}|${userId}`))
@@ -2735,6 +2952,18 @@ export class HorseMind {
         : gated;
     if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; lead 23:1xZ: replace the blanket presumption): with the lifetime
+    // read on, no Omaha opponent is presumed a maniac. An opponent with a lifetime profile is read from it (above);
+    // one with no history is read as the population for his stake and game (no exploit engaged; the accessor's
+    // priors carry the stake). The presumption below is unreachable on this path (AnOpponentIsReadFromHisLifetime law).
+    if (family === 'omaha' && hudOn && (variant === 'plo4' || variant === 'plo5')) {
+      noteFire(
+        hudCounters
+          ? 'opponent_hud_presumption_replaced_lifetime'
+          : 'opponent_hud_presumption_replaced_prior'
+      );
+      return read;
+    }
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.
@@ -2744,7 +2973,10 @@ export class HorseMind {
       // measured statistics with nothing engaged (see neutralUnknownRead).
       const neutral = neutralUnknownRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -2766,7 +2998,10 @@ export class HorseMind {
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -2893,9 +3128,13 @@ export class HorseMind {
     const exploit = this.opponentRead(userId);
     const variant = memoryVariant(this.decisionVariant);
     const size = scope.split(':')[1] as MemorySize;
+    const sizeShownMap =
+      this.decisionReadOptions.lightningStyleReadSeparate === true
+        ? this.styleSizeShownLightning
+        : this.styleSizeShown;
     const cell =
       street === 'river' && !isRaise && variant
-        ? (this.styleSizeShown.get(styleSizeKey(userId, variant, this.decisionMode, size))?.[
+        ? (sizeShownMap.get(styleSizeKey(userId, variant, this.decisionMode, size))?.[
             sizeBucketOf(potFrac)
           ] as { shown: number; best?: number; second?: number } | undefined)
         : undefined;
@@ -4008,7 +4247,19 @@ export class HorseMind {
     const liveReadIgnoresProbes = this.decisionReadIgnoresProbes;
     const liveMode = this.decisionMode;
     const liveDurable = this.durableOpponentMemory;
+    const liveSandboxStyleLearning = this.sandboxStyleLearning;
     this.durableOpponentMemory = false;
+    const liveStyleMaps = sandbox.styleMaps
+      ? {
+          styleSizeShown: this.styleSizeShown,
+          styleAggression: this.styleAggression,
+          styleHorseReference: this.styleHorseReference,
+          styleSizeShownLightning: this.styleSizeShownLightning,
+          styleAggressionLightning: this.styleAggressionLightning,
+          styleHorseReferenceLightning: this.styleHorseReferenceLightning,
+          styleBootHandKeys: this.styleBootHandKeys,
+        }
+      : null;
     const live = {
       stats: this.stats,
       seenActions: this.seenActions,
@@ -4059,6 +4310,17 @@ export class HorseMind {
     // A snapshot taken before the fingerprint layer reads as "no plan
     // fingerprint", never as the live map.
     this.planFingerprints = sandbox.planFingerprints ?? new Map();
+    if (sandbox.styleMaps) {
+      this.styleSizeShown = sandbox.styleMaps.styleSizeShown;
+      this.styleAggression = sandbox.styleMaps.styleAggression;
+      this.styleHorseReference = sandbox.styleMaps.styleHorseReference;
+      this.styleSizeShownLightning = sandbox.styleMaps.styleSizeShownLightning;
+      this.styleAggressionLightning = sandbox.styleMaps.styleAggressionLightning;
+      this.styleHorseReferenceLightning = sandbox.styleMaps.styleHorseReferenceLightning;
+      this.styleBootHandKeys = sandbox.styleMaps.styleBootHandKeys;
+      this.sandboxStyleLearning = true;
+      this.bumpStyleMemoEpoch();
+    }
     this.sandboxDepth = 1;
     this.decisionScope = null;
     this.decisionVariant = null;
@@ -4067,6 +4329,17 @@ export class HorseMind {
     try {
       return runWithWinnerReadState((sandbox.winnerReads ??= createWinnerReadState()), fn);
     } finally {
+      if (liveStyleMaps) {
+        this.styleSizeShown = liveStyleMaps.styleSizeShown;
+        this.styleAggression = liveStyleMaps.styleAggression;
+        this.styleHorseReference = liveStyleMaps.styleHorseReference;
+        this.styleSizeShownLightning = liveStyleMaps.styleSizeShownLightning;
+        this.styleAggressionLightning = liveStyleMaps.styleAggressionLightning;
+        this.styleHorseReferenceLightning = liveStyleMaps.styleHorseReferenceLightning;
+        this.styleBootHandKeys = liveStyleMaps.styleBootHandKeys;
+        this.bumpStyleMemoEpoch();
+      }
+      this.sandboxStyleLearning = liveSandboxStyleLearning;
       this.stats = live.stats;
       this.seenActions = live.seenActions;
       this.handFlags = live.handFlags;
@@ -5339,10 +5612,31 @@ export class HorseMind {
    * fold-to-bet read shrunk toward the game's population. A proven winner
    * keeps its bluff respect.
    */
-  static evFoldMul(userId: string, recencyBlend: boolean = true): number {
-    const model = this.omahaEvFoldMulOf(userId);
+  static evFoldMul(
+    userId: string,
+    recencyBlend: boolean = true,
+    headsUpStreet: OmahaEvFoldHeadsUpStreet | null = null
+  ): number {
+    const model = this.omahaEvFoldMulOf(userId, headsUpStreet);
     if (model !== null) return model;
     return this.exploit(userId, recencyBlend).bluffMod;
+  }
+
+  /**
+   * OPPONENT HUD: the measured calibration of the EV fold model when its input is the lifetime record
+   * (HUD_EV_FOLD_CALIBRATION), for hero's first bet of `street`; null unless omahaOpponentLifetimeHud reads this
+   * decision AND the pooled Omaha EV fold model is the one pricing PLO4 / PLO5 cash (the model the factors were
+   * measured against). Pure.
+   */
+  static evFoldCalibrationOf(street: string): { sm: number; bg: number } | null {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true || !this.decisionScope) return null;
+    if (this.decisionReadOptions.omahaEvFoldModel !== true || this.decisionMode !== 'cash')
+      return null;
+    if (this.decisionReadOptions.omahaEvFoldModelHeadsUp === true) return null;
+    if (this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true) return null;
+    const v = (this.decisionVariant ?? '').toLowerCase();
+    if (v !== 'plo4' && v !== 'plo5') return null;
+    return HUD_EV_FOLD_CALIBRATION[street] ?? null;
   }
 
   /**
@@ -5365,13 +5659,30 @@ export class HorseMind {
   /** The Omaha EV fold model's multiplier, or null when the option is off,
    *  outside a decision, at a tournament table, or in a game it was not
    *  measured on. */
-  static omahaEvFoldMulOf(userId: string): number | null {
+  static omahaEvFoldMulOf(
+    userId: string,
+    headsUpStreet: OmahaEvFoldHeadsUpStreet | null = null
+  ): number | null {
     if (this.decisionReadOptions.omahaEvFoldModel !== true || !this.decisionScope) return null;
     // Cash only: tournament Omaha players fold about MDF (see the model note).
     if (this.decisionMode !== 'cash') return null;
+    // omahaEvFoldModelHeadsUp (default off): a bet into one opponent is priced on the heads-up cell.
+    if (this.decisionReadOptions.omahaEvFoldModelHeadsUp === true && headsUpStreet !== null) {
+      const hu = this.omahaEvFoldHeadsUpMulOf(userId, headsUpStreet);
+      if (hu !== null) return hu;
+    }
     const v = (this.decisionVariant ?? '').toLowerCase() as OmahaEvFoldVariant;
     const cell = OMAHA_EV_FOLD_MODEL[v];
     if (!cell) return null;
+    // NOV8 (omahaEvFoldModelSkipsPlo45, default off): PLO4 / PLO5 cash return to the exploit bluff
+    // multiplier they priced with before #10104 went live (Nov 9 2026 1:41 PM Chicago); PLO6 never reads it.
+    if (
+      (v === 'plo4' || v === 'plo5') &&
+      this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true
+    ) {
+      noteFire('omaha_ev_fold_model_skipped_plo45');
+      return null;
+    }
     const c = this.decisionExploitCounters(userId);
     const n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
     const k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
@@ -5386,6 +5697,44 @@ export class HorseMind {
     // Receipt: live proof the model priced an opponent (one count per
     // opponent pricing, not per decision). Counting never decides.
     noteFire('omaha_ev_fold_model_priced');
+    return mul;
+  }
+
+  /**
+   * omahaEvFoldModelHeadsUp: the fold multiplier of one opponent facing the Horse's flop or turn bet heads-up, or
+   * null outside PLO4/PLO5 (the caller then keeps the pooled model). foldMul = foldOverMdf x his fold / population
+   * of the heads-up cell, where his fold is his measured fold to a bet on that street (the street record,
+   * HorseMind.omahaStreetReadOf) when it has opportunities, else his postflop fold-to-bet counters, either shrunk
+   * toward the cell's person population with OMAHA_EV_FOLD_PRIOR_STRENGTH pseudo-observations: a stranger is the
+   * heads-up population, a long record speaks for itself. A proven winner keeps its bluff respect, as in the pooled
+   * model. Public actions only; pure apart from the receipt.
+   */
+  private static omahaEvFoldHeadsUpMulOf(
+    userId: string,
+    street: OmahaEvFoldHeadsUpStreet
+  ): number | null {
+    const cell = omahaEvFoldHeadsUpCell(this.decisionVariant, street);
+    if (!cell) return null;
+    const streetCell = this.omahaStreetReadOf(userId)?.counters.foldToBet[street];
+    let n: number;
+    let k: number;
+    if (streetCell && Number.isFinite(streetCell.opp) && streetCell.opp > 0) {
+      n = streetCell.opp;
+      k = Math.max(0, Math.min(n, Number.isFinite(streetCell.hit) ? streetCell.hit : 0));
+    } else {
+      const c = this.decisionExploitCounters(userId);
+      n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
+      k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
+    }
+    const m = OMAHA_EV_FOLD_PRIOR_STRENGTH;
+    const fold =
+      Number.isFinite(n) && Number.isFinite(k)
+        ? (k + m * cell.population) / (n + m)
+        : cell.population;
+    let mul = (cell.foldOverMdf * fold) / cell.population;
+    if (isProvenWinner(userId, this.activeWinnerScope()) && !this.isLagBully(userId))
+      mul *= WINNER_BLUFF_MOD;
+    noteFire('omaha_ev_fold_model_heads_up_priced');
     return mul;
   }
 
@@ -5833,7 +6182,8 @@ export class HorseMind {
       // L7: the hand's own scope only, never a previous decision's
       const styleScope = scope ?? null;
       const styleLearn =
-        (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
+        ((this.sandboxDepth === 0 || this.sandboxStyleLearning) && !this.decisionEffectSink) ||
+        this.harnessStyleLearning;
       // (c): a hand the boot rebuild already counted is not counted again (one skip per key)
       const styleBootCounted = styleLearn && this.styleBootHandKeys.delete(handKey);
       if (styleLearn && !styleBootCounted && styleMode && styleVariant && styleScope) {

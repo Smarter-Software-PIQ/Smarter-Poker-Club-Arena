@@ -91,8 +91,10 @@ if (dirty) {
   say('');
   say('  Merging over your uncommitted work is your call, not mine:');
   say('');
-  say('      git stash && git merge --ff-only origin/main && git stash pop');
-  say('        or commit them first, then re-run npm run dev');
+  say('      commit them on your own branch first, then');
+  say('      git merge --ff-only origin/main and re-run npm run dev');
+  say('      (never git stash here: every worktree shares one stash list,');
+  say('       and the repository refuses new entries - CLAUDE.md 10.87 rule 5)');
   say('');
   say(`  On branch ${branch}. What you are missing:`);
   try {

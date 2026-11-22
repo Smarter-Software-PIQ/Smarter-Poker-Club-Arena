@@ -30,13 +30,17 @@ import { resolve } from 'node:path';
 import { parse } from 'yaml';
 import {
   identityArgs,
+  instrumentProbesSQL,
   loadCatalog,
   pinRehearsalSQL,
   planGuardCheck,
+  PRODUCTION_CONTROL_FIXTURES,
+  REHEARSAL_PROBE_USER_ID,
   armSQL,
   classifyExact,
   functionBodies,
   registryInserts,
+  seedProductionFixturesSQL,
   staticGuardFindings,
   NOT_REHEARSED,
   regprocedureKey,
@@ -449,5 +453,76 @@ COMMIT;`;
       '.github/workflows/window-migrations-install-before-merge.yml',
     ])
       expect(wf.on.pull_request.paths).toContain(p);
+  });
+
+  it('seeds minimal idempotent production-like control fixtures and fails broken $probe$ blocks before merge', () => {
+    expect(PRODUCTION_CONTROL_FIXTURES).toEqual([
+      'public.ca_promo_play_through_settings',
+      'public.ca_mtt_admission_contract',
+      'public.profiles',
+    ]);
+    const seedSql = seedProductionFixturesSQL();
+    expect(seedSql).toContain('SET session_replication_role = replica;');
+    expect(seedSql).toContain('SET session_replication_role = origin;');
+    expect(seedSql).toContain("to_regclass('public.ca_promo_play_through_settings') IS NOT NULL");
+    expect(seedSql).toContain('enforced_from');
+    expect(seedSql).toContain("to_regclass('public.ca_mtt_admission_contract') IS NOT NULL");
+    expect(seedSql).toContain("'unlimited-mtt-v2'");
+    expect(seedSql).toContain("to_regclass('public.profiles') IS NOT NULL");
+    expect(seedSql).toContain(REHEARSAL_PROBE_USER_ID);
+    expect(seedSql).toContain('ON CONFLICT');
+
+    // Migrations without -- @probe-for: pass through instrumentProbesSQL untouched.
+    const plain = 'BEGIN;\nSELECT 1;\nCOMMIT;\n';
+    expect(instrumentProbesSQL(plain)).toBe(plain);
+
+    // Migrations with -- @probe-for: get enter/exit markers bracketing each DO block.
+    const withProbe = [
+      'BEGIN;',
+      '-- @probe-for: public.fn_example',
+      'DO $probe$',
+      'BEGIN',
+      "  RAISE EXCEPTION 'probe-unwind';",
+      'EXCEPTION WHEN raise_exception THEN',
+      "  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;",
+      'END $probe$;',
+      'COMMIT;',
+    ].join('\n');
+    const instrumented = instrumentProbesSQL(withProbe);
+    expect(instrumented).toContain('CA_REHEARSAL_PROBE_ENTER:public.fn_example');
+    expect(instrumented).toContain('CA_REHEARSAL_PROBE_EXIT:public.fn_example');
+    expect(instrumented.indexOf('CA_REHEARSAL_PROBE_ENTER:public.fn_example')).toBeLessThan(
+      instrumented.indexOf('DO $probe$')
+    );
+    expect(instrumented.indexOf('CA_REHEARSAL_PROBE_EXIT:public.fn_example')).toBeGreaterThan(
+      instrumented.indexOf('END $probe$;')
+    );
+
+    // A failure inside an entered $probe$ (no matching EXIT) is classified as probe-failed and fails verdict.
+    const failedProbeOut = [
+      'NOTICE:  CA_REHEARSAL_PROBE_ENTER:public.fn_ca_promo_roll_event_principal',
+      'ERROR:  query returned no rows',
+      'CONTEXT:  PL/pgSQL function inline_code_block line 4 at PERFORM',
+    ].join('\n');
+    const probeRes = classifyExact(3, failedProbeOut, []);
+    expect(probeRes).toEqual({
+      outcome: 'probe-failed',
+      guard: 'migration function probe ($probe$)',
+      probe: 'public.fn_ca_promo_roll_event_principal',
+      detail: 'query returned no rows',
+    });
+    expect(verdict(probeRes, { stale: [] } as any)).toMatchObject({
+      fail: true,
+      by: 'exact',
+      reason: expect.stringContaining('public.fn_ca_promo_roll_event_principal'),
+    });
+
+    // A failure AFTER a probe exited is NOT misclassified as probe-failed.
+    const afterProbeOut = [
+      'NOTICE:  CA_REHEARSAL_PROBE_ENTER:public.fn_example',
+      'NOTICE:  CA_REHEARSAL_PROBE_EXIT:public.fn_example',
+      'ERROR:  some_unrelated_postcheck_on_empty_table',
+    ].join('\n');
+    expect(classifyExact(3, afterProbeOut, []).outcome).toBe('not-installable');
   });
 });

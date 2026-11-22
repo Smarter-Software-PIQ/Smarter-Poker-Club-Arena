@@ -19,12 +19,17 @@ describe('agent worktrees live on the external SSD', () => {
 
   it('defaults to the SSD and keeps the boot disk as a named fallback', () => {
     expect(workspace).toContain('SSD_TREES="/Volumes/SmarterWork/agent-work"');
-    // The old default may only be ASSIGNED after the SSD has been tried.
-    const ssdAt = workspace.indexOf('SSD_TREES="/Volumes');
-    const fallbackAt = workspace.indexOf('TREES="$HOME/Documents/.agent-trees/$REPO"');
+    // The boot disk is offered only after the SSD candidates have been tried,
+    // and only when no SSD is attached (agentWorktreeRootIsProvedWritable).
+    const ssdAt = workspace.indexOf(
+      'for cand in "$ssd/extreme-capacity/$repo" "$ssd/$repo" "$ssd/shared-capacity/$repo"'
+    );
+    const fallbackAt = workspace.indexOf('if agent_root_writable "$boot"');
     expect(ssdAt).toBeGreaterThan(0);
     expect(fallbackAt).toBeGreaterThan(ssdAt);
-    expect(workspace).toMatch(/elif \[ -d "\$SSD_TREES" \] && \[ -w "\$SSD_TREES" \]/);
+    expect(workspace).toContain(
+      'choose_agent_worktree_root "$REPO" "$SSD_TREES" "$HOME/Documents/.agent-trees/$REPO"'
+    );
   });
 
   it('still lets a caller name its own root', () => {

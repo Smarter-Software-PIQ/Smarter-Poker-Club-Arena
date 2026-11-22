@@ -88,6 +88,9 @@ import { SpadeConsole, type ConsoleInk } from '../components/console/SpadeConsol
 import PageBar from '../components/help/PageBar';
 import { relayTournamentEvent } from '../services/tournamentEventBridge';
 import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
+import { gameInviteText, shareLink, tournamentShareUrl } from '../lib/share';
+import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
+import { InviteLinkIcon } from '../components/table/TableMenuIcons';
 import { uuid } from '../utils/uuid';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../utils/multiDaySchedule';
 import { featuredNow, hasStarted } from '../lib/featuredOnItsDay';
@@ -201,6 +204,26 @@ export default function TournamentPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [inviteFallbackUrl, setInviteFallbackUrl] = useState('');
+
+  useEffect(() => {
+    setInviteFallbackUrl('');
+  }, [selectedTournament?.id]);
+
+  const handleInviteSelectedTournament = useCallback(async () => {
+    if (!selectedTournament?.id) return;
+    const url = tournamentShareUrl(selectedTournament.id);
+    setInviteFallbackUrl('');
+    const outcome = await shareLink({
+      source: 'TournamentPage.inviteToGame',
+      title: selectedTournament.name || 'Tournament',
+      text: gameInviteText(selectedTournament.name),
+      url,
+    });
+    if (outcome === 'copied') toast.success('Game Invite Link Copied');
+    else if (outcome === 'shared') toast.success('Game Invite Link Shared');
+    else if (outcome === 'failed') setInviteFallbackUrl(url);
+  }, [selectedTournament?.id, selectedTournament?.name, toast]);
   const membershipRevision = useRef(0);
   const [isOwner, setIsOwner] = useState(false);
   const [isInUnion, setIsInUnion] = useState(false);
@@ -1754,6 +1777,25 @@ export default function TournamentPage() {
               </div>
             )}
           </div>
+
+          {!['COMPLETED', 'CANCELLED', 'FINISHED'].includes(
+            String(selectedTournament.status || '').toUpperCase()
+          ) && (
+            <div className="tourn-invite-bar">
+              <button
+                type="button"
+                className="tourn-invite-btn"
+                data-testid="club-tournaments-invite-btn"
+                onClick={() => void handleInviteSelectedTournament()}
+              >
+                <InviteLinkIcon />
+                <span>Invite To Game</span>
+              </button>
+              {inviteFallbackUrl && (
+                <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
+              )}
+            </div>
+          )}
 
           {/* The money actions that are not the main one. The foot paints
               exactly two plates, so these are lit words on the glass. */}

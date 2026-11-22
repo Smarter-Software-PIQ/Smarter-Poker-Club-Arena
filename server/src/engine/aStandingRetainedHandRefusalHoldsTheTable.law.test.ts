@@ -177,7 +177,8 @@ describe('start() fences a standing refusal instead of killing for restart', () 
       const { engine, killed } = startable(cashAuthority(), error);
       await expect(engine.start()).rejects.toBe(error);
       expect(engine.getStartupRetainedHandRefusal()).toBeNull();
-      expect(killed).toEqual(['start_failed:start_load_table']);
+      // checkCrashRecovery threw: the kill names that step (2026-11-21).
+      expect(killed).toEqual(['start_failed:start_crash_recovery']);
       await engine.stop();
     }
   });

@@ -25,6 +25,7 @@
  */
 
 import { horseHash } from './HorseBehavior.js';
+import { stackIsAboveCeiling } from './HorseCashStackCeiling.js';
 
 export const BANK_THE_WIN_MIN_MULTIPLE = 4;
 export const BANK_THE_WIN_MAX_MULTIPLE = 6;
@@ -87,8 +88,14 @@ export function shouldBankTheWin(opts: {
   handsSinceBigPot: number | undefined;
   playersAtTable: number;
   nextHandIsBigBlind: boolean;
+  /** HorseCashStackCeiling: a stack above this (chips) is also at its line. Absent or null = no ceiling. */
+  stackCeiling?: number | null;
 }): boolean {
   if (!opts.nextHandIsBigBlind) return false;
-  if (!reachedBankTheWin(opts.horseId, opts.stack, opts.startingStack)) return false;
+  if (
+    !reachedBankTheWin(opts.horseId, opts.stack, opts.startingStack) &&
+    !stackIsAboveCeiling(opts.stack, opts.stackCeiling)
+  )
+    return false;
   return orbitHandsOwed(opts.handsSinceBigPot, opts.playersAtTable) === 0;
 }
