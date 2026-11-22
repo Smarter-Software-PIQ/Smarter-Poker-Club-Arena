@@ -34,7 +34,11 @@ import {
   type HudPopulation,
 } from '../src/engine/opponentHud/OpponentHud.js';
 import { extractHandDeltas } from '../src/engine/opponentHud/OpponentHudProfile.js';
-import { planOpponentHudBackfill } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
+import {
+  HUD_BACKFILL_PAGE_LIMIT,
+  pageAllOpponentHudHands,
+  planOpponentHudBackfill,
+} from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
@@ -131,27 +135,27 @@ async function firstRetainedHandMs(): Promise<number | null> {
 
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
-  let afterAt = since;
-  let afterId = '00000000-0000-0000-0000-000000000000';
-  for (;;) {
-    const { data, error } = await paced(() =>
-      client.rpc('fn_opponent_hud_hands_page', {
-        p_after_at: afterAt,
-        p_after_id: afterId,
-        p_until: until,
-        p_limit: 1500,
-      })
-    );
-    if (error) throw new Error(`hands page failed: ${error.message}`);
-    const rows = (data ?? []) as { id: string; created_at: string }[];
-    for (const r of rows) take(r);
-    if (rows.length) {
-      afterAt = rows[rows.length - 1].created_at;
-      afterId = rows[rows.length - 1].id;
-    }
-    process.stderr.write(`hands ${hands} through ${afterAt}\n`);
-    if (rows.length < 1500) break;
-  }
+  await pageAllOpponentHudHands({
+    since,
+    until,
+    limit: HUD_BACKFILL_PAGE_LIMIT,
+    fetchPage: async ({ afterAt, afterId, until: u, limit }) => {
+      const { data, error } = await paced(() =>
+        client.rpc('fn_opponent_hud_hands_page', {
+          p_after_at: afterAt,
+          p_after_id: afterId,
+          p_until: u,
+          p_limit: limit,
+        })
+      );
+      if (error) throw new Error(`hands page failed: ${error.message}`);
+      return (data ?? []) as { id: string; created_at: string }[];
+    },
+    onRow: (r) => take(r),
+    onPage: ({ afterAt }) => {
+      process.stderr.write(`hands ${hands} through ${afterAt}\n`);
+    },
+  });
 }
 
 function summary() {
@@ -301,8 +305,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  process.exit(1);
-});
+main().then(
+  () => {
+    process.stdout.write('', () => {
+      process.stderr.write('', () => process.exit(0));
+    });
+  },
+  (e) => {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.stderr.write('', () => process.exit(1));
+  }
+);
 void readFileSync;
