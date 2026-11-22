@@ -15,6 +15,9 @@ on:
       - 'supabase/migrations/20261111003710_the_classic_floor_judges_thirty_dealt_hands_and_warns_before.sql'
       - 'supabase/migrations/20261111022301_a_classic_rejoin_continues_the_vpip_sitting_and_the_approved.sql'
       - 'supabase/migrations/20261111093132_the_vpip_sample_reads_only_the_sitting.sql'
+      - 'scripts/ci/test-lightning-switch-off-vpip-sample.sh'
+      - 'scripts/ci/sql/lightning-switch-off-vpip/**'
+      - 'supabase/migrations/20261121152102_a_lightning_switch_off_starts_a_fresh_vpip_sample.sql'
       - '.github/actions/install-postgres-17/**'
       - '.github/workflows/classic-vpip-floor-proof.yml'
 # A newer push to the same pull request fully supersedes this pure check, and
@@ -44,6 +47,19 @@ jobs:
             echo '::error::The Classic floor proof did not run.'; exit 1
           fi
           grep -q '^PASS  every Classic VPIP floor assertion held$' artifacts/classic-vpip-floor/proof.log
+      # 2026-11-21: the window this proof builds is also where a Lightning
+      # switch-off starts a fresh sample (20261121152102). That proof runs on
+      # the same chain, then re-runs the Classic proofs over the new window.
+      - name: Prove a Lightning switch-off starts a fresh VPIP sample
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          mkdir -p artifacts/classic-vpip-floor
+          bash scripts/ci/test-lightning-switch-off-vpip-sample.sh | tee artifacts/classic-vpip-floor/lightning-switch-off.log
+          if grep -q '^SKIPPED' artifacts/classic-vpip-floor/lightning-switch-off.log; then
+            echo '::error::The Lightning switch-off proof did not run.'; exit 1
+          fi
+          grep -q '^PASS  every Lightning switch-off VPIP assertion held$' artifacts/classic-vpip-floor/lightning-switch-off.log
       - name: Retain the proof log
         if: always()
         uses: actions/upload-artifact@v4

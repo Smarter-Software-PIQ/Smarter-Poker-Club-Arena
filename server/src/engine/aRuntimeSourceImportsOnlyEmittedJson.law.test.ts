@@ -24,11 +24,21 @@ import { describe, expect, it } from 'vitest';
 const serverRoot = fileURLToPath(new URL('../../', import.meta.url));
 const srcRoot = join(serverRoot, 'src');
 
-/** The runtime build excludes exactly these (tsconfig.runtime.json). */
-const isRuntimeSource = (path: string): boolean =>
-  /\.(ts|mts|cts|tsx)$/.test(path) &&
-  !path.endsWith('.d.ts') &&
-  !/\.(test|spec)\.(ts|mts|cts|tsx)$/.test(path);
+/** The runtime build excludes exactly these (tsconfig.runtime.json + server/.dockerignore). */
+const isRuntimeSource = (relFromSrc: string): boolean => {
+  if (!/\.(ts|mts|cts|tsx)$/.test(relFromSrc) || relFromSrc.endsWith('.d.ts')) return false;
+  if (/\.(test|spec)\.(ts|mts|cts|tsx)$/.test(relFromSrc)) return false;
+  if (/\.test-support\./.test(relFromSrc)) return false;
+  if (relFromSrc.startsWith('testing/') || relFromSrc.startsWith('engine/testing/')) return false;
+  if (
+    relFromSrc.startsWith('benchmark/fixtures/') ||
+    /^benchmark\/Sparring[^/]*\.ts$/.test(relFromSrc) ||
+    relFromSrc === 'benchmark/sparringRun.ts'
+  ) {
+    return false;
+  }
+  return true;
+};
 
 function runtimeSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -36,8 +46,10 @@ function runtimeSources(dir: string, out: string[] = []): string[] {
       if (entry.name === '__tests__' || entry.name === 'node_modules' || entry.name === 'dist')
         continue;
       runtimeSources(join(dir, entry.name), out);
-    } else if (entry.isFile() && isRuntimeSource(entry.name)) {
-      out.push(join(dir, entry.name));
+    } else if (entry.isFile()) {
+      const full = join(dir, entry.name);
+      const rel = posix(relative(srcRoot, full));
+      if (isRuntimeSource(rel)) out.push(full);
     }
   }
   return out;

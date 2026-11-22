@@ -34,6 +34,7 @@ import {
   restoreFastRandom,
   saveFastRandom,
   scoreOmahaHi,
+  scoreOmahaLow,
   simulateEquity,
   variantInfo,
 } from '../engine/HorseEval.js';
@@ -923,7 +924,7 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
             const nb = stage === 'flop' ? 3 : stage === 'turn' ? 4 : 5;
             const board = e.board.slice(0, nb);
             const opps = e.cards.filter((c, i) => i !== t.seat && !e.folded[i] && c.length > 0);
-            const eq = horseEqVsActual(e.cards[t.seat], opps, board);
+            const eq = horseEqVsActual(e.cards[t.seat], opps, board, variant);
             const k = tellKey(stage, line, sizeBand(Number(fracS)), Number(liveS));
             const cell = (st.tells[k] ??= { wagers: 0, value: 0 });
             cell.wagers++;
@@ -1232,15 +1233,33 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
 }
 
 /** Exact-ish all-in equity of `hero` against the actual live opponents' hands (Monte Carlo runouts). */
-function horseEqVsActual(hero: Card[], opps: Card[][], board: Card[]): number {
+function horseEqVsActual(
+  hero: Card[],
+  opps: Card[][],
+  board: Card[],
+  variant: string = 'plo4'
+): number {
   if (opps.length === 0) return 1;
-  return runoutEquity(hero, opps, board);
+  return runoutEquity(hero, opps, board, variant);
 }
 
-function runoutEquity(hero: Card[], opps: Card[][], board: Card[]): number {
+/**
+ * All-in runout equity of `hero` against `opps` from `board`.
+ * For hi-lo variants (variantInfo(variant).isHiLo: plo8, flo8), splits the pot
+ * 50/50 between high winner(s) and qualifying 8-or-better low winner(s), or
+ * awards 100% to high winner(s) when no player qualifies low (matching
+ * PokerEngine.determineWinners). High-only variants stay on the high-only path.
+ */
+export function runoutEquity(
+  hero: Card[],
+  opps: Card[][],
+  board: Card[],
+  variant: string = 'plo4'
+): number {
   const used = new Set([...hero, ...opps.flat(), ...board].map(cardKey));
   const deck = referenceDeck().filter((c) => !used.has(cardKey(c)));
   const need = 5 - board.length;
+  const isHiLo = variantInfo(variant).isHiLo;
   const score = (bd: Card[]) => {
     const me = scoreOmahaHi(hero, bd);
     let best = -1;
@@ -1253,7 +1272,26 @@ function runoutEquity(hero: Card[], opps: Card[][], board: Card[]): number {
       }
       if (x === best) ties++;
     }
-    return me > best ? 1 : me === best ? 1 / (ties + 1) : 0;
+    const hiShare = me > best ? 1 : me === best ? 1 / (ties + 1) : 0;
+    if (!isHiLo) return hiShare;
+    const meLo = scoreOmahaLow(hero, bd);
+    let bestLo = meLo;
+    let loTies = meLo < Infinity ? 1 : 0;
+    let heroWinsLo = meLo < Infinity;
+    for (const o of opps) {
+      const x = scoreOmahaLow(o, bd);
+      if (x === Infinity) continue;
+      if (x < bestLo) {
+        bestLo = x;
+        loTies = 1;
+        heroWinsLo = false;
+      } else if (x === bestLo) {
+        loTies++;
+      }
+    }
+    if (bestLo === Infinity) return hiShare;
+    const loShare = heroWinsLo ? 1 / loTies : 0;
+    return hiShare * 0.5 + loShare * 0.5;
   };
   if (need === 0) return score(board);
   if (need === 1) {
