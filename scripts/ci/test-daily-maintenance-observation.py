@@ -177,9 +177,9 @@ BEGIN
     RAISE EXCEPTION 'daily note wrong: %', r->>'breaks_without_thaw_note';
   END IF;
 
-  -- Daily 04:00 break + thaw -> still daily/1
+  -- Daily 04:00 break + thaw (with boolean/decimal/nested shifted metadata as in v3 thaw) -> still daily/1
   INSERT INTO engine_maintenance_break_log VALUES (v_anchor_04, v_anchor_04 + interval '5 minutes', 0, 0, v_anchor_04 + interval '5 seconds', now());
-  INSERT INTO engine_maintenance_thaws VALUES (v_anchor_04, 301, v_anchor_04 + interval '5 minutes', '{"tables": 10}'::jsonb);
+  INSERT INTO engine_maintenance_thaws VALUES (v_anchor_04, 301, v_anchor_04 + interval '5 minutes', '{"applied": true, "tables": 10, "ratio": 1.5, "meta": {"v": 3}}'::jsonb);
   INSERT INTO hand_history VALUES
     (v_anchor_04 - interval '5 minutes', gen_random_uuid()),
     (v_anchor_04 - interval '1 minute', gen_random_uuid()),
@@ -187,6 +187,10 @@ BEGIN
   r := public.fn_maintenance_week_report(7);
   IF r->>'observed_cadence' <> 'daily' OR (r->>'expected_breaks_per_day')::int <> 1 THEN
     RAISE EXCEPTION 'daily-only report expected daily/1, got %', r;
+  END IF;
+  IF (r->'freezes'->'total_shifted'->>'tables')::bigint <> 10
+     OR (r->'freezes'->'total_shifted') ? 'applied' THEN
+    RAISE EXCEPTION 'total_shifted must sum only integer counters, got %', r->'freezes'->'total_shifted';
   END IF;
   IF (r->'dealing_by_minute'->>'before_53_57')::int <> 1
      OR (r->'dealing_by_minute'->>'last_hand_58_59')::int <> 1
@@ -205,12 +209,17 @@ BEGIN
     RAISE EXCEPTION 'three-hourly note wrong: %', r->>'breaks_without_thaw_note';
   END IF;
 
-  -- Thaw-only three-hourly detection (without break_log) also switches to three-hourly/8
+  -- Thaw-only three-hourly detection (without break_log, including NULL shifted row) also switches to three-hourly/8
   TRUNCATE engine_maintenance_break_log;
-  INSERT INTO engine_maintenance_thaws VALUES (v_anchor_19, 300, v_anchor_19 + interval '5 minutes', '{"tables": 12}'::jsonb);
+  INSERT INTO engine_maintenance_thaws VALUES
+    (v_anchor_19, 300, v_anchor_19 + interval '5 minutes', '{"applied": true, "tables": 12}'::jsonb),
+    (v_anchor_19, 299, v_anchor_19 + interval '5 minutes', NULL);
   r := public.fn_maintenance_week_report(7);
   IF r->>'observed_cadence' <> 'three-hourly' OR (r->>'expected_breaks_per_day')::int <> 8 THEN
     RAISE EXCEPTION 'thaw-only three-hourly detection failed: %', r;
+  END IF;
+  IF (r->'freezes'->'total_shifted'->>'tables')::bigint <> 22 THEN
+    RAISE EXCEPTION 'total_shifted sum across rows failed: %', r->'freezes'->'total_shifted';
   END IF;
 
   -- Service-role only ACL preserved on both functions
