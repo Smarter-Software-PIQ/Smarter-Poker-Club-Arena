@@ -20117,6 +20117,7 @@ export class HorseLogic {
           lastRaiserSeat >= 0 ? gs.players.find((p) => p.seat === lastRaiserSeat) : undefined;
         if (raiser && raiser.user_id !== player.user_id) {
           let read = HorseMind.opponentRead(raiser.user_id);
+          let legacyReadForHud: typeof read = null;
           // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): no priced raise-against-call
           // exists before the flop, so a lifetime read that would withdraw the opener / re-raiser exploit the decayed
           // read grants is not consumed here (the site answers as with the option off).
@@ -20127,9 +20128,9 @@ export class HorseLogic {
                 ? preflopVsOpener(r, vi.isOmaha)?.wide === true ||
                   aggressiveOpenerPressure(r, vi.isOmaha, v86) !== null
                 : raises >= 2 && preflopVsReRaiser(r, raises) !== null);
-            const legacyRead = HorseMind.opponentReadWithoutHud(raiser.user_id);
-            if (grantsHud(legacyRead) && !grantsHud(read)) {
-              read = legacyRead;
+            legacyReadForHud = HorseMind.opponentReadWithoutHud(raiser.user_id);
+            if (grantsHud(legacyReadForHud) && !grantsHud(read)) {
+              read = legacyReadForHud;
               if (telemetryOn(opts)) noteFire('opponent_hud_lowering_preflop_unpriced');
             }
           }
@@ -20139,9 +20140,15 @@ export class HorseLogic {
               (opts.v53Pressure ?? true) !== false
                 ? (aggressiveOpenerPressure(read, vi.isOmaha, v86) ?? undefined)
                 : undefined;
+            const legacyEvidencedOpener =
+              legacyReadForHud !== null &&
+              legacyReadForHud.presumed !== true &&
+              (preflopVsOpener(legacyReadForHud, vi.isOmaha)?.wide === true ||
+                aggressiveOpenerPressure(legacyReadForHud, vi.isOmaha, v86) !== null);
             if (
               HorseMind.hudPreflopSixMaxActive() &&
               read.presumed !== true &&
+              !legacyEvidencedOpener &&
               (rawOpener?.wide === true || rawPressure !== undefined)
             ) {
               const hudOpenVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
@@ -20202,9 +20209,14 @@ export class HorseLogic {
             }
           } else if (read && raises >= 2) {
             const rawReRaiser = preflopVsReRaiser(read, raises) ?? undefined;
+            const legacyEvidencedReRaiser =
+              legacyReadForHud !== null &&
+              legacyReadForHud.presumed !== true &&
+              preflopVsReRaiser(legacyReadForHud, raises) !== null;
             if (
               HorseMind.hudPreflopSixMaxActive() &&
               read.presumed !== true &&
+              !legacyEvidencedReRaiser &&
               rawReRaiser !== undefined
             ) {
               const hudRrVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
