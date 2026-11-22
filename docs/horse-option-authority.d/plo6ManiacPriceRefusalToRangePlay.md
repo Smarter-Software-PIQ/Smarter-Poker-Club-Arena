@@ -30,3 +30,7 @@ Full archived eight-row record: `docs/horse-default-on.d/plo6ManiacPriceRefusalT
 Machine-read (README.md, "The Replay row").
 
 - Replay: NOT RUN (moved to default OFF / opt-in on 2026-11-16 after Reach was ruled NOT MET; no audited-decision replay with --row has been scored, and any replay must use the corrected history of #11556)
+
+## Rollback
+
+If enabled, run `horse-option-switch.mjs set plo6ManiacPriceRefusalToRangePlay off --rollback` (`fn_ca_horse_option_switch_set('plo6ManiacPriceRefusalToRangePlay', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.
