@@ -3388,6 +3388,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemDangerBoardEquityIsPriced: true },
     b: {},
   },
+  // 2026-11-22 HORSE DECISIONS lane (horseSlowplayIsPriced, default OFF, Evidence NOT MET on HVH48 D+E n=13 < 20):
+  // replaces the H4 monster slowplay coin flip with deterministic EV pricing against empirical fold/stab priors,
+  // continuous free-card erosion, and heroBubbleFactor. Declared dark card; OPTION_SWITCH_REFUSED (0 migrations).
+  {
+    name: 'nlh_horse_slowplay_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { horseSlowplayIsPriced: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
