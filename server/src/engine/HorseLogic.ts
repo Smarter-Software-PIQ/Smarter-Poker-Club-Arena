@@ -27145,7 +27145,6 @@ export class HorseLogic {
               exploitCounters: countersFtPriced,
             });
             if (verdictFt.decision === 'bet' && verdictFt.betPotFrac !== null) {
-              planBarrel(equity);
               const betFtPriced = this.betSize(
                 planHandKey,
                 pot,
@@ -27159,6 +27158,7 @@ export class HorseLogic {
               const placedFtPriced =
                 betFtPriced.action === 'bet' || betFtPriced.action === 'all_in';
               if (placedFtPriced) {
+                planBarrel(equity);
                 if (tele15) {
                   noteFire('holdem_flop_turn_bluff_priced_bet_seen');
                   if (verdictFt.isDraw) {

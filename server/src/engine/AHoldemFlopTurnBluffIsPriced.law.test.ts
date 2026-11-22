@@ -26,7 +26,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HORSE_DATA_LEDGER } from './HorseDataLedger.js';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
@@ -842,6 +842,42 @@ describe('LAW: holdemFlopTurnBluffIsPriced (dark default-OFF priced replacement 
       );
       expect(withBaselineOn.action).toBe(results[0].decision.action);
       expect(withBaselineOn.amount).toBe(results[0].decision.amount);
+    });
+
+    it('never mutates HorseMind.notePlan when the priced flop/turn bet is legalized to check (unplaceable bet)', () => {
+      const { hero, gs } = buildFlopTurnSpot({
+        variant: 'nlh',
+        street: 'flop',
+        hole: '9s8d',
+        board: 'Th7c2s',
+        line: 'cbet',
+        inPosition: true,
+        pot: 60,
+        heroStack: 240,
+        villainStack: 240,
+      });
+      // Force bet to be illegal so betSize legalizes to check (placedFtPriced === false).
+      const illegalGs: HorseGameStateV2 = {
+        ...gs,
+        legalActions: ['check'],
+      };
+      const notePlanSpy = vi.spyOn(HorseMind, 'notePlan');
+      try {
+        HorseMind.reset();
+        drainFires();
+        seedFastRandom(101);
+        const decision = decideWithOpts(hero, illegalGs, {
+          flopTurnBluffBaseline: false,
+          holdemFlopTurnBluffIsPriced: true,
+        });
+        const fires = fireCounts();
+        expect(decision.action).toBe('check');
+        expect(fires[HOLDEM_FLOP_TURN_BLUFF_PRICED_RECEIPTS.illegal]).toBe(1);
+        expect(fires[HOLDEM_FLOP_TURN_BLUFF_PRICED_RECEIPTS.bet] ?? 0).toBe(0);
+        expect(notePlanSpy).not.toHaveBeenCalled();
+      } finally {
+        notePlanSpy.mockRestore();
+      }
     });
 
     it('fires deterministic priced air bet or station-check receipts cleanly on NLH turn overcards spots', () => {
