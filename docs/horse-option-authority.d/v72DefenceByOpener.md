@@ -10,7 +10,7 @@ Hold'em facing exactly one open with nobody calling, no limper, hero not yet in,
 
 ## Receipts
 
-v72_defend_vs_opener (server/src/engine/HorseDataLedger.ts): Hold'em facing one open with nobody in, defended on the (defender, opener seat) reference base.
+v72_defend_vs_opener (server/src/engine/HorseDataLedger.ts, consumer `'HorsePreflop (V72, v72DefenceByOpener)'` as of PR #11684 / `756498773cc9`): Hold'em facing one open with nobody in, defended on the (defender, opener seat) reference base.
 
 ## Tests
 
@@ -36,7 +36,7 @@ Unedited scorer lines (`server/scripts/audited-decision-replay.ts --placed ... -
 - `HVH48-D`: `placed (verdict-only; 3891 audited decisions, 372 judged bad; joined by node: 2734 replayed, 1157 not replayed, base reproduces the recorded action on 2030): arm on changed 219 (219 more aggressive, 0 more passive), resized 11, illegal 0, refused 0, errors 0; fixed 0, newly wrong 0, still wrong 0, ok to ok 0, unjudged 219; judged bad left unchanged 157; no bb (the audit declares no EV model); per receipt: (no receipt) 219 changed / 0 fixed / 0 newly wrong.`
 - `HVH48-E`: `placed (verdict-only; 10937 audited decisions, 244 judged bad; joined by node: 5356 replayed, 5581 not replayed, base reproduces the recorded action on 4434): arm on changed 132 (85 more aggressive, 47 more passive), resized 3, illegal 0, refused 0, errors 0; fixed 0, newly wrong 54, still wrong 0, ok to ok 0, unjudged 78; judged bad left unchanged 185; no bb (the audit declares no EV model); per receipt: (no receipt) 132 changed / 0 fixed / 54 newly wrong.`
 
-Why `(no receipt)` appears above: `HorseDataLedger.ts` registers `v72_defend_vs_opener` with source `'HorsePreflop (V72)'` rather than naming `(v72DefenceByOpener)`, so `ReplayArmReceipts.ts` (#11622) reports `note: the ledger names no receipt for v72DefenceByOpener; its rows keep only the receipt families`.
+Why `(no receipt)` appears above: at checkout `dce4d6d6a44`, `HorseDataLedger.ts` registered `v72_defend_vs_opener` with source `'HorsePreflop (V72)'` rather than naming `(v72DefenceByOpener)`, so `ReplayArmReceipts.ts` (#11622) reported `note: the ledger names no receipt for v72DefenceByOpener; its rows keep only the receipt families`. Fixed in PR #11684 (`756498773cc9`): `HorseDataLedger.ts` now attributes `v72_defend_vs_opener` to `'HorsePreflop (V72, v72DefenceByOpener)'` (pinned by regression test in `server/src/benchmark/ReplayArmReceipts.test.ts`), so future replays attribute `v72DefenceByOpener` decisions to `v72_defend_vs_opener` instead of `(no receipt)`. Recorded replay numbers and `Evidence NOT MET` status remain unchanged.
 
 Default-ON direction check (reverse `--base on --line off`, measuring what switching `v72DefenceByOpener` OFF from the live ON state would do): because `v72DefenceByOpener` was already default ON in production during the audited 48h window, verdict-only scoring only judges nodes where the base arm matches the recorded action.
 

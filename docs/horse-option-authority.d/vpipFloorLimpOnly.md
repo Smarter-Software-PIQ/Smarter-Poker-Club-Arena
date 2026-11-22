@@ -50,7 +50,7 @@ It cannot leak onto a Classic table. "Known" needs the Horse's own judged row, w
 
 ## Tests
 
-server/src/engine/HorseVpipFloorLimpOnly.test.ts (the priced mechanism on the four measured variants; the declared table; the line follows the floor the table carries; the floor never calls or raises in a raised pot on PLO5/PLO6 at 40% and 50%, PLO4 and hold'em; nothing changes at or above the line; option off is identical; a limp folded to a raise counts as VPIP in the sitting harness); the existing floor suites (HorseOmahaVpipFloorByLimp, HorseVpipFloor, HorseVpipFloorCallDown, HorseVpipFloorDeepStackOff, aTightRaisersFoldIsNotBoughtBackByTheVpipFloor, HorseStoredNodeCarriesVpipFloor, HorsePublicActionNodeVpip) unchanged and passing.
+`server/src/engine/HorseVpipFloorLimpOnly.test.ts` (the priced mechanism on the four measured variants; the declared table; the line follows the floor the table carries; the floor never calls or raises in a raised pot on PLO5/PLO6 at 40% and 50%, PLO4 and hold'em; nothing changes at or above the line; option off is identical; a limp folded to a raise counts as VPIP in the sitting harness), `server/src/engine/AReferenceNodeRuleIsAReferenceReturn.law.test.ts` (`docs/laws.d/server-src-engine-AReferenceNodeRuleIsAReferenceReturn.md`), and `server/src/engine/aVpipFloorLimpIsAReferenceReturn.guard.test.ts` (reference-node return shape admits the limp); the existing floor suites (HorseOmahaVpipFloorByLimp, HorseVpipFloor, HorseVpipFloorCallDown, HorseVpipFloorDeepStackOff, aTightRaisersFoldIsNotBoughtBackByTheVpipFloor, HorseStoredNodeCarriesVpipFloor, HorsePublicActionNodeVpip) unchanged and passing.
 
 ## Evidence rows
 
