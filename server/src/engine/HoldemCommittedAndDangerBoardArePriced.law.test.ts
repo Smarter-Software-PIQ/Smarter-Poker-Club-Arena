@@ -504,7 +504,8 @@ describe('LAW: holdemCommittedNoPairIsPriced — fixed-input before/after replay
       12
     );
 
-    // HUD Empirical-Bayes shrinkage pulls sticky opponents down smoothly and still attenuates at tiny prices.
+    // HUD Empirical-Bayes shrinkage pulls sticky opponents down smoothly and applies SINGLE
+    // quadratic smallPriceScale attenuation below avgVillainCallPrice (normPrice^2, NOT normPrice^4).
     const stickyHud = { eff: { 'r.fRaise': [20, 1] as const } };
     const stickyAtAvg = holdemCommittedJamFoldShare(
       allInCell.avgVillainCallPrice,
@@ -513,7 +514,34 @@ describe('LAW: holdemCommittedNoPairIsPriced — fixed-input before/after replay
     );
     expect(stickyAtAvg).toBeLessThan(allInCell.foldRate * 0.6);
     const stickyMinJam = holdemCommittedJamFoldShare(minJamPrice, 'river', stickyHud);
+    const expectedQuadScale = Math.pow(minJamPrice / allInCell.avgVillainCallPrice, 2);
+    expect(stickyMinJam).toBeCloseTo(stickyAtAvg * expectedQuadScale, 12);
     expect(stickyMinJam).toBeLessThan(stickyAtAvg * 0.1);
+
+    // Street-bet HUD fallback (`t.fBet`) also shrinks against unattenuated cell.foldRate and
+    // applies single quadratic attenuation below avgVillainCallPrice (exact proportionality).
+    const streetHud = { eff: { 't.fBet': [10, 3] as const } };
+    const streetAtAvg = holdemCommittedJamFoldShare(
+      allInCell.avgVillainCallPrice,
+      'turn',
+      streetHud
+    );
+    const halfAvgPrice = allInCell.avgVillainCallPrice * 0.5;
+    const streetAtHalf = holdemCommittedJamFoldShare(halfAvgPrice, 'turn', streetHud);
+    expect(streetAtHalf).toBeCloseTo(streetAtAvg * 0.25, 12);
+
+    // Neutral HUD matching cell.foldRate reproduces the exact unattenuated-prior quadratic curve
+    // (would drop to normPrice^4 if smallPriceScale were double-applied).
+    const neutralHud = {
+      eff: { 'r.fRaise': [100, Math.round(100 * allInCell.foldRate)] as const },
+    };
+    const neutralAtAvg = holdemCommittedJamFoldShare(
+      allInCell.avgVillainCallPrice,
+      'river',
+      neutralHud
+    );
+    const neutralAtHalf = holdemCommittedJamFoldShare(halfAvgPrice, 'river', neutralHud);
+    expect(neutralAtHalf).toBeCloseTo(neutralAtAvg * 0.25, 12);
 
     // Measured continuation barrel probabilities from holdemEmpiricalPriors.ts.
     expect(holdemCommittedContinuationBarrelShare('river')).toBe(0);

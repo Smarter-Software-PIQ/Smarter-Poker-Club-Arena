@@ -106,16 +106,17 @@ export function holdemCommittedJamFoldShare(
   if (!(p > 0)) return 0;
   const cell = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise;
   const normPrice = p / cell.avgVillainCallPrice;
-  const ratio = normPrice < 1 ? normPrice * normPrice : Math.min(1.5, normPrice);
-  const prior = Math.min(0.45, Math.max(0, cell.foldRate * ratio));
+  const highPriceScale = normPrice >= 1 ? Math.min(1.5, normPrice) : 1;
   const smallPriceScale = normPrice < 1 ? normPrice * normPrice : 1;
+  const unattenuatedPrior = Math.min(0.45, Math.max(0, cell.foldRate * highPriceScale));
+  const prior = Math.min(0.45, Math.max(0, unattenuatedPrior * smallPriceScale));
 
   const raiseStat = readHudOpponentStat(hudOpp, 'r.fRaise');
   if (raiseStat) {
     const shrunk = empiricalBayesShrink(
       raiseStat.hits,
       raiseStat.opportunities,
-      prior,
+      unattenuatedPrior,
       HOLDEM_PRIOR_STRENGTH.riverFoldToRaise,
       'hud_context'
     );
@@ -128,7 +129,7 @@ export function holdemCommittedJamFoldShare(
       const shrunk = empiricalBayesShrink(
         betStat.hits,
         betStat.opportunities,
-        prior,
+        unattenuatedPrior,
         HOLDEM_PRIOR_STRENGTH.riverFoldToRaise * 2,
         'hud_street'
       );
