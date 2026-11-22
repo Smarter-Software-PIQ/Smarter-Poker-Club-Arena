@@ -273,7 +273,8 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
       expect(result.stdout).toContain('sha=' + candidate);
       expect(result.stdout).toContain('refresh=auto');
       for (const step of backup.jobs.certify.steps) {
-        if (step.env?.SHA) expect(step.env.SHA).toBe('${{ needs.plan.outputs.sha }}');
+        if (step.env?.SHA)
+          expect(step.env.SHA).toBe('${{ needs.refresh.outputs.sha || needs.plan.outputs.sha }}');
       }
     }
   );
@@ -1590,10 +1591,13 @@ ${Object.entries(states)
       });
     });
 
-    // 2026-11-21 (E3): eliminate 75-minute lease-wait starvation and redundant
-    // 55-minute certifications on the 3-hourly cutover cadence.
-    describe('waiting push runs neither starve behind one soak nor duplicate work (E3)', () => {
+    // 2026-11-21 (E3 + O2): eliminate 75-minute lease-wait starvation,
+    // redundant 55-minute certifications, unnecessary disruption from
+    // completed/identical-source pushes, and post-lease drops on the 3-hourly
+    // cutover cadence.
+    describe('waiting push runs neither starve behind one soak nor drop acquired leases (E3 + O2)', () => {
       const turn = backup.jobs.refresh.steps.find((s: any) => s.id === 'turn');
+      const lateRetarget = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_retarget');
       const lateInherit = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_inherit');
       const latePriority = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_priority');
       const due = backup.jobs.refresh.steps.find((s: any) => s.id === 'due');
@@ -1601,7 +1605,24 @@ ${Object.entries(states)
         s.uses?.startsWith('actions/checkout')
       );
 
-      it('raises lease-wait ceiling to 120m, refresh timeout to 180m, and lease TTL to 150m', () => {
+      function withOriginRemote(f: ReturnType<typeof fixture>) {
+        const remote = mkdtempSync(resolve(tmpdir(), 'backup-origin-'));
+        const cleanEnv = hookFreeEnv();
+        const r = spawnSync('git', ['init', '-q', '--bare', remote], {
+          encoding: 'utf8',
+          env: cleanEnv,
+        });
+        if (r.status !== 0) throw new Error(r.stderr);
+        f.git('remote', 'add', 'origin', remote);
+        f.git('push', '-q', 'origin', 'main');
+        return {
+          remote,
+          pushMain: () => f.git('push', '-q', 'origin', 'main'),
+          cleanup: () => rmSync(remote, { recursive: true, force: true }),
+        };
+      }
+
+      it('wires 120m wait / 180m timeout / 150m lease, checkout before turn, in-place late_retarget before late_inherit/due, and retargeted outputs into certify', () => {
         expect(backup.jobs.refresh['timeout-minutes']).toBe(180);
         expect(turn.run).toContain('deadline=$(($(date +%s) + 7200))');
         expect(turn.run).toContain("'expiresAt': now + 9000");
@@ -1609,34 +1630,70 @@ ${Object.entries(states)
         // lease TTL (150m) strictly covers refresh headroom + certify timeout (75m).
         expect(backup.jobs.refresh['timeout-minutes']).toBeGreaterThanOrEqual(120 + 45);
         expect(9000 / 60).toBeGreaterThan(backup.jobs.certify['timeout-minutes'] + 60);
-        // Step gating prevents skipped/inherited/superseded runs from refreshing or certifying.
-        expect(refreshCheckout.if).toBe("steps.turn.outputs.acquired == '1'");
+        // Step ordering and gating: checkout precedes turn so turn can inspect
+        // engine-source-identity.sh; late_retarget runs right after turn, then
+        // late_inherit, then due, then late_priority.
+        const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.uses ?? s.name);
+        expect(ids.indexOf(refreshCheckout.uses)).toBeLessThan(ids.indexOf('turn'));
+        expect(ids.indexOf('late_retarget')).toBeGreaterThan(ids.indexOf('turn'));
+        expect(ids.indexOf('late_retarget')).toBeLessThan(ids.indexOf('late_inherit'));
+        expect(ids.indexOf('late_inherit')).toBeLessThan(ids.indexOf('due'));
+        expect(lateRetarget.if).toBe(
+          "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'"
+        );
         expect(lateInherit.if).toBe(
           "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.inherit_eligible == 'true'"
+        );
+        expect(lateInherit.env.SHA).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(due.if).toBe(
           "steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1'"
         );
-        const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
-        expect(ids.indexOf('late_inherit')).toBeGreaterThan(ids.indexOf('turn'));
-        expect(ids.indexOf('late_inherit')).toBeLessThan(ids.indexOf('due'));
+        expect(due.env.CONTROL).toBe(
+          '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
+        );
+        expect(latePriority.env.SHA).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+        );
+        expect(backup.jobs.refresh.outputs.sha).toBe(
+          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+        );
+        expect(backup.jobs.refresh.outputs.control_sha).toBe(
+          '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
+        );
+        expect(backup.jobs.certify.env.CONTROL_SHA).toBe(
+          '${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}'
+        );
         expect(backup.jobs.plan.outputs.priority).toBe('${{ steps.plan.outputs.priority }}');
         expect(backup.jobs.plan.outputs.inherit_eligible).toBe(
           '${{ steps.plan.outputs.inherit_eligible }}'
         );
+        // turn jq filter excludes completed runs.
+        expect(turn.run).toContain('.status != \\"completed\\"');
       });
 
       function runTurn(opts: {
         event?: string;
         freezeBaseline?: string;
         planPriority?: string;
-        newer: string;
+        newerShas: string[] | 'FAIL';
         livePriority?: string;
+        cwd?: string;
+        sha?: string;
+        githubSha?: string;
       }) {
         const dir = mkdtempSync(resolve(tmpdir(), 'backup-turn-e3-'));
         const calls = resolve(dir, 'calls');
         const countFile = resolve(dir, 'ssh-count');
-        const sha = 'd'.repeat(40);
+        const sha = opts.sha ?? 'd'.repeat(40);
+        const githubSha = opts.githubSha ?? sha;
+        const newerBody =
+          opts.newerShas === 'FAIL'
+            ? 'echo "HTTP 502" >&2; return 1'
+            : opts.newerShas.length === 0
+              ? ':'
+              : `printf '%s\\n' ${opts.newerShas.map((s) => `'${s}'`).join(' ')}`;
         const harness = `
 ssh() {
   echo "ssh $*" >> "$CALLS"
@@ -1651,9 +1708,7 @@ sleep() { echo "sleep $*" >> "$CALLS"; }
 gh() {
   echo "gh $*" >> "$CALLS"
   case "$*" in
-    *actions/workflows/backup-engine.yml/runs*) ${
-      opts.newer === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${opts.newer}'`
-    } ;;
+    *actions/workflows/backup-engine.yml/runs*) ${newerBody} ;;
     *contents/scripts/ci/backup-candidate-priority.py*) ${
       opts.livePriority === 'FAIL'
         ? 'echo "HTTP 502" >&2; return 1'
@@ -1665,52 +1720,123 @@ gh() {
 }
 `;
         try {
-          const result = planShell(harness + turn.run, {
-            CALLS: calls,
-            HOME: dir,
-            SSH_KEY: 'fixture-key-not-a-credential',
-            STANDBY_HOST: '192.0.2.1',
-            STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
-            GITHUB_REPOSITORY: 'o/r',
-            GITHUB_SHA: sha,
-            SHA: sha,
-            RUN_ID: '700',
-            RUN_ATTEMPT: '1',
-            EVENT: opts.event ?? 'push',
-            FREEZE_BASELINE: opts.freezeBaseline ?? '',
-            PLAN_PRIORITY: opts.planPriority ?? 'none',
-          });
+          const result = planShell(
+            harness + turn.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+              GITHUB_REPOSITORY: 'o/r',
+              GITHUB_SHA: githubSha,
+              SHA: sha,
+              RUN_ID: '700',
+              RUN_ATTEMPT: '1',
+              EVENT: opts.event ?? 'push',
+              FREEZE_BASELINE: opts.freezeBaseline ?? '',
+              PLAN_PRIORITY: opts.planPriority ?? 'none',
+            },
+            opts.cwd
+          );
           return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
         } finally {
           rmSync(dir, { recursive: true, force: true });
         }
       }
 
-      it('a waiting push run superseded by a newer push yields cleanly without holding the lease or writing a status', () => {
-        const r = runTurn({ newer: '2', livePriority: 'none' });
-        expect(r.status, r.stderr).toBe(0);
-        expect(r.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
-        expect(r.stdout).toContain('superseded=1');
-        expect(r.stdout).not.toContain('acquired=1');
-        expect(r.calls).not.toContain('sleep ');
-        expect(r.calls).not.toContain('/statuses/');
+      it('a waiting push run superseded by a newer active push with a different engine-source-identity yields cleanly without holding the lease or writing a status', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // c0 has v=1, c1 has v=2 (different engine-source-identity).
+          const r = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c0,
+            newerShas: [f.shas.c1],
+            livePriority: 'none',
+          });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+          expect(r.stdout).toContain('superseded=1');
+          expect(r.stdout).not.toContain('acquired=1');
+          expect(r.calls).not.toContain('sleep ');
+          expect(r.calls).not.toContain('/statuses/');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O2: a waiting push run does NOT supersede when newer active push runs share identical engine-source-identity and unchanged workflow, or when only completed runs exist', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // c1 and c3 share identical engine-source-identity and same backup-engine.yml.
+          const sameId = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [f.shas.c2, f.shas.c3],
+            livePriority: 'none',
+          });
+          expect(sameId.status, sameId.stderr).toBe(0);
+          expect(sameId.stdout).toContain('shares identical engine-source-identity');
+          expect(sameId.stdout).toContain('acquired=1');
+          expect(sameId.stdout).not.toContain('SUPERSEDED');
+          expect(sameId.stdout).not.toContain('superseded=1');
+
+          // Completed runs are filtered out by jq (.status != "completed") -> empty list.
+          const completedOnly = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [],
+            livePriority: 'none',
+          });
+          expect(completedOnly.status, completedOnly.stderr).toBe(0);
+          expect(completedOnly.stdout).toContain('acquired=1');
+          expect(completedOnly.stdout).not.toContain('SUPERSEDED');
+
+          // Same engine-source-identity BUT changed .github/workflows/backup-engine.yml -> MUST supersede.
+          f.write('.github/workflows/backup-engine.yml', '# changed workflow\n');
+          const wfChanged = f.commit('c4: change backup-engine.yml');
+          origin.pushMain();
+          const wfRun = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c1,
+            newerShas: [wfChanged],
+            livePriority: 'none',
+          });
+          expect(wfRun.status, wfRun.stderr).toBe(0);
+          expect(wfRun.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+          expect(wfRun.stdout).toContain('superseded=1');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
       });
 
       it('booking runs (via plan priority or live priority) are NEVER superseded while waiting', () => {
-        for (const cfg of [
-          { planPriority: 'booking', newer: '3', livePriority: 'none' },
-          { planPriority: 'unknown', newer: '3', livePriority: 'booking' },
-        ]) {
-          const r = runTurn(cfg);
-          expect(r.status, r.stderr).toBe(0);
-          expect(r.stdout).toContain('acquired=1');
-          expect(r.stdout).not.toContain('SUPERSEDED');
-          expect(r.stdout).not.toContain('superseded=1');
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          for (const cfg of [
+            { planPriority: 'booking', newerShas: [f.shas.c1], livePriority: 'none' },
+            { planPriority: 'unknown', newerShas: [f.shas.c1], livePriority: 'booking' },
+          ]) {
+            const r = runTurn({ cwd: f.dir, sha: f.shas.c0, ...cfg });
+            expect(r.status, r.stderr).toBe(0);
+            expect(r.stdout).toContain('acquired=1');
+            expect(r.stdout).not.toContain('SUPERSEDED');
+            expect(r.stdout).not.toContain('superseded=1');
+          }
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
         }
       });
 
       it('freeze_baseline runs are NEVER superseded while waiting', () => {
-        const r = runTurn({ freezeBaseline: '1', newer: '4' });
+        const r = runTurn({ freezeBaseline: '1', newerShas: ['e'.repeat(40)] });
         expect(r.status, r.stderr).toBe(0);
         expect(r.stdout).toContain('acquired=1');
         expect(r.stdout).not.toContain('SUPERSEDED');
@@ -1721,7 +1847,7 @@ gh() {
       it.each(['workflow_dispatch', 'schedule', 'repository_dispatch'])(
         '%s runs are NEVER superseded while waiting',
         (event) => {
-          const r = runTurn({ event, newer: '5' });
+          const r = runTurn({ event, newerShas: ['e'.repeat(40)] });
           expect(r.status, r.stderr).toBe(0);
           expect(r.stdout).toContain('acquired=1');
           expect(r.stdout).not.toContain('SUPERSEDED');
@@ -1730,41 +1856,191 @@ gh() {
         }
       );
 
-      it('CLAUDE.md 10.86: an unreadable newer-runs check keeps waiting instead of superseding', () => {
-        const r = runTurn({ newer: 'FAIL' });
-        expect(r.status, r.stderr).toBe(0);
-        expect(r.stdout).toContain('acquired=1');
-        expect(r.stdout).not.toContain('SUPERSEDED');
-        expect(r.stdout).not.toContain('superseded=1');
+      it('CLAUDE.md 10.86: unreadable newer-runs or unreadable identity keeps waiting instead of superseding', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          const apiFail = runTurn({ cwd: f.dir, sha: f.shas.c0, newerShas: 'FAIL' });
+          expect(apiFail.status, apiFail.stderr).toBe(0);
+          expect(apiFail.stdout).toContain('acquired=1');
+          expect(apiFail.stdout).not.toContain('SUPERSEDED');
+
+          const unknownCommit = runTurn({
+            cwd: f.dir,
+            sha: f.shas.c0,
+            newerShas: ['f'.repeat(40)],
+          });
+          expect(unknownCommit.status, unknownCommit.stderr).toBe(0);
+          expect(unknownCommit.stdout).toContain('keeping wait (CLAUDE.md 10.86)');
+          expect(unknownCommit.stdout).toContain('acquired=1');
+          expect(unknownCommit.stdout).not.toContain('SUPERSEDED');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
       });
 
-      function runLatePriorityWithNewer(opts: {
-        verdict: string;
-        newer: string;
-        planPriority?: string;
-      }) {
-        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-superseded-'));
+      function runLateRetarget(
+        repo: ReturnType<typeof fixture>,
+        opts: {
+          sha: string;
+          githubSha?: string;
+          controlSha?: string;
+          head: string;
+          headState?: string;
+          livePriority?: string;
+        }
+      ) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-retarget-'));
+        const calls = resolve(dir, 'calls');
+        const harness = `
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      opts.livePriority === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${opts.livePriority ?? 'none'}')" "print('window=w-o2')"`
+    } ;;
+    *'commits?sha=main&path=server'*) ${
+      opts.head === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${opts.head}'`
+    } ;;
+    *commits/*/statuses*) ${
+      opts.headState === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `echo '${opts.headState ?? 'missing'}'`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+`;
+        try {
+          const result = planShell(
+            harness + lateRetarget.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              SHA: opts.sha,
+              CONTROL_SHA: opts.controlSha ?? opts.sha,
+              GITHUB_SHA: opts.githubSha ?? opts.sha,
+              GITHUB_REPOSITORY: 'o/r',
+              STATUS_CONTEXT: 'backup-engine/certified',
+              PLAN_PRIORITY: 'none',
+            },
+            repo.dir
+          );
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('O2: late_retarget retargets in-place after lease acquisition to main newest uncertified server commit and checks out head, then late_inherit inherits on the retargeted SHA', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // Simulate runner originally checked out at c1 while c3 arrived on origin/main.
+          f.git('checkout', '-q', f.shas.c1);
+          const r = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'missing',
+          });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain(`RETARGETED IN-PLACE: ${f.shas.c1} -> ${f.shas.c3}`);
+          expect(r.stdout).toContain(`sha=${f.shas.c3}`);
+          expect(r.stdout).toContain(`control_sha=${f.shas.c3}`);
+          expect(r.stdout).toContain('retargeted=1');
+          expect(f.git('rev-parse', 'HEAD')).toBe(f.shas.c3);
+
+          // Immediately check late_inherit on the retargeted SHA (c3 shares identity with c1).
+          const inh = runLateInherit(f, f.shas.c3, { [f.shas.c1]: 'success' });
+          expect(inh.status, inh.stderr).toBe(0);
+          expect(inh.stdout).toContain(`INHERITED: Inherited from ${f.shas.c1}`);
+          expect(inh.stdout).toContain('inherited=1');
+          expect(inh.calls).toContain(`repos/o/r/statuses/${f.shas.c3}`);
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O2: late_retarget keeps SHA unchanged when head is already certified, changes backup-engine.yml, is booking, or API is unreadable', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          f.git('checkout', '-q', f.shas.c1);
+          const alreadyCert = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'success',
+          });
+          expect(alreadyCert.status, alreadyCert.stderr).toBe(0);
+          expect(alreadyCert.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(alreadyCert.stdout).toContain('retargeted=0');
+
+          const booking = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            livePriority: 'booking',
+          });
+          expect(booking.status, booking.stderr).toBe(0);
+          expect(booking.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(booking.stdout).toContain('retargeted=0');
+          expect(booking.calls).not.toContain('commits?sha=main&path=server');
+
+          const unreadableHead = runLateRetarget(f, { sha: f.shas.c1, head: 'FAIL' });
+          expect(unreadableHead.status, unreadableHead.stderr).toBe(0);
+          expect(unreadableHead.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(unreadableHead.stdout).toContain('retargeted=0');
+
+          const unreadableStatus = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'FAIL',
+          });
+          expect(unreadableStatus.status, unreadableStatus.stderr).toBe(0);
+          expect(unreadableStatus.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(unreadableStatus.stdout).toContain('retargeted=0');
+
+          // Workflow file changed between GITHUB_SHA and head -> must not retarget (preserves producer provenance).
+          f.git('checkout', '-q', 'main');
+          f.write('.github/workflows/backup-engine.yml', '# workflow modified\n');
+          const wfSha = f.commit('c4: modify backup-engine.yml');
+          origin.pushMain();
+          f.git('checkout', '-q', f.shas.c1);
+          const wfBlocked = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: wfSha,
+            headState: 'missing',
+          });
+          expect(wfBlocked.status, wfBlocked.stderr).toBe(0);
+          expect(wfBlocked.stdout).toContain('preserve producer provenance');
+          expect(wfBlocked.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(wfBlocked.stdout).toContain('retargeted=0');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O2: late_priority never drops an already-acquired lease for a newer ordinary push (only yields for owner-window booking priority)', () => {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-o2-'));
         const calls = resolve(dir, 'calls');
         const sha = 'e'.repeat(40);
         const harness = `
 gh() {
   echo "gh $*" >> "$CALLS"
   case "$*" in
-    *contents/scripts/ci/backup-candidate-priority.py*) ${
-      opts.verdict === 'FAIL'
-        ? 'echo "HTTP 502" >&2; return 1'
-        : `printf '%s\\n' "print('priority=${opts.verdict}')" "print('window=w-late')"`
-    } ;;
-    *actions/workflows/backup-engine.yml/runs*) ${
-      opts.newer === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${opts.newer}'`
-    } ;;
+    *contents/scripts/ci/backup-candidate-priority.py*)
+      printf '%s\\n' "print('priority=none')" "print('window=')" ;;
     *) return 1 ;;
   esac
 }
 ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
 `;
         try {
-          const result = planShell(harness + latePriority.run, {
+          const r = planShell(harness + latePriority.run, {
             CALLS: calls,
             HOME: dir,
             SHA: sha,
@@ -1775,39 +2051,16 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
             STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
             GITHUB_REPOSITORY: 'o/r',
             GITHUB_SHA: sha,
-            PLAN_PRIORITY: opts.planPriority ?? '',
+            PLAN_PRIORITY: 'none',
           });
-          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
-        } finally {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      }
-
-      it('late_priority yields and releases the host lease when a newer push arrived before certify', () => {
-        for (const verdict of ['none', 'candidate']) {
-          const r = runLatePriorityWithNewer({ verdict, newer: '2' });
-          expect(r.status, r.stderr).toBe(0);
-          expect(r.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
-          expect(r.stdout).toContain('deferred=1');
-          expect(r.calls).toMatch(
-            /ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/
-          );
-          expect(r.calls).not.toContain('/statuses/');
-        }
-      });
-
-      it('late_priority NEVER supersedes a booking run (live or plan) and fails closed on unreadable runs', () => {
-        for (const cfg of [
-          { verdict: 'booking', newer: '3' },
-          { verdict: 'FAIL', planPriority: 'booking', newer: '3' },
-          { verdict: 'none', newer: 'FAIL' },
-          { verdict: 'none', newer: '0' },
-        ]) {
-          const r = runLatePriorityWithNewer(cfg);
           expect(r.status, r.stderr).toBe(0);
           expect(r.stdout).not.toContain('SUPERSEDED');
           expect(r.stdout).not.toContain('deferred=1');
-          expect(r.calls).not.toContain('ssh ');
+          const callLog = existsSync(calls) ? readFileSync(calls, 'utf8') : '';
+          expect(callLog).not.toContain('actions/workflows/backup-engine.yml/runs');
+          expect(callLog).not.toContain('ssh ');
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
         }
       });
 
@@ -1931,6 +2184,317 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
           expect(boundary.stdout).toContain('inherited=0');
           expect(boundary.calls).not.toContain('ssh ');
         } finally {
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+    });
+
+    // 2026-11-21 (O1): runner-side mid-soak yield when a soaking push commit
+    // becomes unselectable before the next scheduled cutoff while keeping the
+    // offline standby host 100% network-free.
+    describe('mid-soak yield for obsolete unselectable push runs (O1)', () => {
+      const certifyJob = backup.jobs.certify;
+      const certifyStep = certifyJob.steps.find((s: any) => s.id === 'certify');
+      const publishStep = certifyJob.steps.find(
+        (s: any) => s.name === 'Publish the verdict on the exact commit'
+      );
+      const certifyCheckout = certifyJob.steps.find((s: any) =>
+        s.uses?.startsWith('actions/checkout')
+      );
+
+      // 2026-11-22T02:30:00Z = 2026-11-21 20:30 CST -> 60m (3600s < 4500s) before 21:30 CST (03:30Z) cutoff.
+      const CLOSE_TO_CUTOFF_EPOCH = String(Math.floor(Date.parse('2026-11-22T02:30:00Z') / 1000));
+      // 2026-11-22T02:00:00Z = 2026-11-21 20:00 CST -> 90m (5400s >= 4500s) before 21:30 CST cutoff.
+      const FAR_FROM_CUTOFF_EPOCH = String(Math.floor(Date.parse('2026-11-22T02:00:00Z') / 1000));
+
+      function withOrigin(f: ReturnType<typeof fixture>) {
+        const remote = mkdtempSync(resolve(tmpdir(), 'backup-o1-origin-'));
+        const cleanEnv = hookFreeEnv();
+        const r = spawnSync('git', ['init', '-q', '--bare', remote], {
+          encoding: 'utf8',
+          env: cleanEnv,
+        });
+        if (r.status !== 0) throw new Error(r.stderr);
+        f.git('remote', 'add', 'origin', remote);
+        f.git('push', '-q', 'origin', 'main');
+        return {
+          remote,
+          pushMain: () => f.git('push', '-q', 'origin', 'main'),
+          cleanup: () => rmSync(remote, { recursive: true, force: true }),
+        };
+      }
+
+      function runCertifyStep(
+        repo: ReturnType<typeof fixture>,
+        opts: {
+          sha: string;
+          event?: string;
+          freezeBaseline?: string;
+          planPriority?: string;
+          newerWaiting?: string;
+          nowEpoch?: string;
+          soakSeconds?: number;
+          breakRemote?: boolean;
+        }
+      ) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-o1-certify-'));
+        const calls = resolve(dir, 'calls');
+        const summary = resolve(dir, 'summary.md');
+        const soakS = opts.soakSeconds ?? 4;
+        const harness = `
+ssh() {
+  echo "ssh $*" >> "$CALLS"
+  case "$*" in
+    *'standby-engine certify'*)
+      sleep ${soakS}
+      echo '{"verdict":"pass","sha":"${opts.sha}"}'
+      return 0 ;;
+    *'stop_for_restore'*)
+      echo "CLEANUP_CALLED" >> "$CALLS"
+      return 0 ;;
+    *) return 0 ;;
+  esac
+}
+scp() {
+  echo "scp $*" >> "$CALLS"
+  printf '%s\\n' '{"migrations":[]}' > schema-evidence.json
+  return 0
+}
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *actions/workflows/backup-engine.yml/runs*) ${
+      opts.newerWaiting === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `echo '${opts.newerWaiting ?? '1'}'`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+`;
+        if (opts.breakRemote) {
+          repo.git('remote', 'set-url', 'origin', resolve(dir, 'missing-origin.git'));
+        }
+        try {
+          const result = planShell(
+            harness + certifyStep.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              GITHUB_STEP_SUMMARY: summary,
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+              SHA: opts.sha,
+              CONTROL_SHA: opts.sha,
+              REFRESH_RESULT: 'success',
+              EVENT: opts.event ?? 'push',
+              FREEZE_BASELINE: opts.freezeBaseline ?? '',
+              PLAN_PRIORITY: opts.planPriority ?? 'none',
+              RUN_ID: '800',
+              GITHUB_REPOSITORY: 'o/r',
+              YIELD_CHECK_INTERVAL: '1',
+              O1_NOW_EPOCH: opts.nowEpoch ?? CLOSE_TO_CUTOFF_EPOCH,
+            },
+            repo.dir
+          );
+          return {
+            ...result,
+            calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '',
+            summary: existsSync(summary) ? readFileSync(summary, 'utf8') : '',
+          };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('keeps standby-engine.sh strictly offline and wires O1 runner-side inputs + verdict suppression', () => {
+        const standby = read('server/standby/standby-engine.sh');
+        const cmdCertify = standby.slice(standby.indexOf('cmd_certify() {'));
+        expect(cmdCertify).not.toContain('gh api');
+        expect(cmdCertify).not.toContain('git fetch');
+        expect(certifyCheckout.with['sparse-checkout']).toContain(
+          'scripts/ci/read-engine-prequalification.py'
+        );
+        expect(certifyCheckout.with['sparse-checkout-cone-mode']).toBe(false);
+        expect(certifyStep.env.EVENT).toBe('${{ github.event_name }}');
+        expect(certifyStep.env.FREEZE_BASELINE).toBe('${{ needs.plan.outputs.freeze_baseline }}');
+        expect(certifyStep.env.PLAN_PRIORITY).toBe('${{ needs.plan.outputs.priority }}');
+        expect(certifyStep.env.RUN_ID).toBe('${{ github.run_id }}');
+        expect(publishStep.env.YIELDED).toBe('${{ steps.certify.outputs.yielded }}');
+        expect(publishStep.if).toBe('always()');
+      });
+
+      it('yields cleanly mid-soak when CONTROL_INPUTS projection diverges on origin/main within 75m of cutoff with a waiting push run, and publishes NO failure/error status', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('server/scripts/engine-release-transaction.sh', '# updated control script\n');
+          f.commit('c4: control input changed on main');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 10 });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('YIELDED_OBSOLETE:');
+          expect(r.stdout).toContain('control_projection_diverged');
+          expect(r.stdout).toContain('yielded=1');
+          expect(r.stdout).not.toContain('rc=1');
+          expect(r.calls).toContain('CLEANUP_CALLED');
+          expect(r.calls).toContain('stop_for_restore');
+          expect(r.summary).toContain('YIELDED_OBSOLETE');
+
+          // Publish step exits 0 and writes ZERO failure/error status when YIELDED=1.
+          const pubCalls = mkdtempSync(resolve(tmpdir(), 'backup-o1-pub-'));
+          const pubLog = resolve(pubCalls, 'calls');
+          try {
+            const pub = planShell(`gh() { echo "WRITE $*" >> "$CALLS"; }\n` + publishStep.run, {
+              CALLS: pubLog,
+              SHA: soakingSha,
+              RC: '',
+              YIELDED: '1',
+              JOB_STATUS: 'success',
+              INSTALLED: '',
+              PENDING: 'success',
+              POLICY: 'success',
+              REFRESH: 'success',
+              TURN: '1',
+              GITHUB_REPOSITORY: 'o/r',
+              GITHUB_SERVER_URL: 'https://github.com',
+              GITHUB_RUN_ID: '800',
+              STATUS_CONTEXT: 'backup-engine/certified',
+            });
+            expect(pub.status, pub.stderr).toBe(0);
+            expect(pub.stdout).toContain('YIELDED_OBSOLETE');
+            expect(existsSync(pubLog) ? readFileSync(pubLog, 'utf8') : '').toBe('');
+          } finally {
+            rmSync(pubCalls, { recursive: true, force: true });
+          }
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('yields cleanly mid-soak when supabase/migrations diverges on origin/main within 75m of cutoff with a waiting push run', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('supabase/migrations/20261122023000_new.sql', 'select 1;\n');
+          f.commit('c4: migration merged on main');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 10 });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('YIELDED_OBSOLETE:');
+          expect(r.stdout).toContain('migrations_tree_diverged');
+          expect(r.stdout).toContain('yielded=1');
+          expect(r.calls).toContain('CLEANUP_CALLED');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('does NOT yield when SHA is still selectable (only ordinary server code changed), far from cutoff (>= 75m), or no newer waiting push exists', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          // Only server/src/index.ts changed on main: neither projection nor migrations diverged.
+          const soakingSha = f.shas.c1;
+          f.write('server/src/index.ts', 'export const v = 99;\n');
+          f.commit('c4: ordinary server change only');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const stillSelectable = runCertifyStep(f, { sha: soakingSha, soakSeconds: 2 });
+          expect(stillSelectable.status, stillSelectable.stderr).toBe(0);
+          expect(stillSelectable.stdout).toContain('rc=0');
+          expect(stillSelectable.stdout).not.toContain('yielded=1');
+          expect(stillSelectable.calls).not.toContain('CLEANUP_CALLED');
+
+          // Now diverge CONTROL_INPUTS on main, and test >= 75m from cutoff and 0 waiting runs.
+          f.git('checkout', '-q', 'main');
+          f.write('server/scripts/engine-release-transaction.sh', '# diverged\n');
+          f.commit('c5: control diverged');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const farFromCutoff = runCertifyStep(f, {
+            sha: soakingSha,
+            nowEpoch: FAR_FROM_CUTOFF_EPOCH,
+            soakSeconds: 2,
+          });
+          expect(farFromCutoff.status, farFromCutoff.stderr).toBe(0);
+          expect(farFromCutoff.stdout).toContain('rc=0');
+          expect(farFromCutoff.stdout).not.toContain('yielded=1');
+          expect(farFromCutoff.calls).not.toContain('gh ');
+
+          const noWaitingRun = runCertifyStep(f, {
+            sha: soakingSha,
+            newerWaiting: '0',
+            soakSeconds: 2,
+          });
+          expect(noWaitingRun.status, noWaitingRun.stderr).toBe(0);
+          expect(noWaitingRun.stdout).toContain('rc=0');
+          expect(noWaitingRun.stdout).not.toContain('yielded=1');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('NEVER yields booking, freeze_baseline, workflow_dispatch, schedule, or repository_dispatch runs, and keeps soaking on unreadable checks (CLAUDE.md 10.86)', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('supabase/migrations/20261122023100_new.sql', 'select 1;\n');
+          f.commit('c4: migration diverged');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          for (const cfg of [
+            { planPriority: 'booking' },
+            { freezeBaseline: '1' },
+            { event: 'workflow_dispatch' },
+            { event: 'schedule' },
+            { event: 'repository_dispatch' },
+          ]) {
+            const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 1, ...cfg });
+            expect(r.status, r.stderr).toBe(0);
+            expect(r.stdout).toContain('rc=0');
+            expect(r.stdout).not.toContain('yielded=1');
+            expect(r.calls).not.toContain('CLEANUP_CALLED');
+            expect(r.calls).not.toContain('gh ');
+          }
+
+          // CLAUDE.md 10.86: unreadable gh api -> keep soaking.
+          const ghFail = runCertifyStep(f, {
+            sha: soakingSha,
+            newerWaiting: 'FAIL',
+            soakSeconds: 2,
+          });
+          expect(ghFail.status, ghFail.stderr).toBe(0);
+          expect(ghFail.stdout).toContain('rc=0');
+          expect(ghFail.stdout).not.toContain('yielded=1');
+          expect(ghFail.calls).not.toContain('CLEANUP_CALLED');
+
+          // CLAUDE.md 10.86: unreadable git fetch -> keep soaking.
+          const fetchFail = runCertifyStep(f, {
+            sha: soakingSha,
+            breakRemote: true,
+            soakSeconds: 2,
+          });
+          expect(fetchFail.status, fetchFail.stderr).toBe(0);
+          expect(fetchFail.stdout).toContain('rc=0');
+          expect(fetchFail.stdout).not.toContain('yielded=1');
+          expect(fetchFail.calls).not.toContain('CLEANUP_CALLED');
+        } finally {
+          origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });
         }
       });
