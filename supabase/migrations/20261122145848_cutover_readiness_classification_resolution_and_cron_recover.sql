@@ -35,6 +35,7 @@
 --      1e303f5e) after migration 20261122145633 recorded their forward
 --      declarations.
 --
+-- @replaces-md5: public.fn_ca_cron_failure_watch()=034c68aebcea84efcce3802b9c638ca4
 -- @probe-for: public.fn_ca_cron_failure_watch
 -- @probe-exempt: public.fn_ca_engine_cutover_watch calls external GitHub and engine /health via extensions.http; proven by native PostgreSQL test scripts/ci/test-a-missed-engine-cutover-is-paged.py
 -- @probe-exempt: smarter_private.reliability_runbook_cutover_diagnosis calls external GitHub via ca_cutover_http_json; proven by native PostgreSQL test scripts/ci/test-reliability-runbooks.py
