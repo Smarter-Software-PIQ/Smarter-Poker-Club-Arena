@@ -1189,6 +1189,11 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  // 2026-11-22 Horse Switch lane (Wave 10.1): built dark. Registering it needs a switch-list
+  // migration after grading PASS + VERIFIER-10 confirmation; until one lists it the switch may
+  // not carry it (league and tests pass it directly). Remove this line in the migration PR.
+  holdemTournamentAggressionIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

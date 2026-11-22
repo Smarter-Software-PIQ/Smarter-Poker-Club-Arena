@@ -865,6 +865,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V57'
   ),
   flag(
+    'holdemTournamentAggressionIsPriced',
+    '2026-11-22 Horse Switch lane (Wave 10.1, dark in OPTION_SWITCH_REFUSED, zero SQL migrations): default OFF (read === true) deterministic EV + ICM priced postflop single-board 2-card NLH tournament replacement for v57TournamentAggression (planBarrel 0.50 coin-flip, v58_low_spr_stack_off blanket jam, initiativeTurn57 / V7 barrel continuation coin-flips, and v58_one_card_low_flush_fold unconditional fold) backed by holdemEmpiricalPriors.ts; preflop tournamentAggression, v58MadeHandCellSkip, cash, Lightning, Omaha, Short Deck, Fixed Limit, Pot Limit, multi-board, bomb pots, and All-In-or-Fold stay untouched',
+    'Horse Switch'
+  ),
+  flag(
     'v58MadeHandCellSkip',
     'Dan 2026-10-26 (#8144) made-hand solver-cell skip: when hero holds a set/trips, straight, flush or better (cat >= 4), skip the hand-class-mean gto_postflop_compact open cell so the value ladder bets it across cash, Lightning and tournaments; decoupled from v57TournamentAggression so tournament aggression no longer reaches cash/Lightning made-hand skips; default on',
     'V58'
@@ -9466,6 +9471,66 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_plan_yes_seen',
+    'HorseLogic planBarrel (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament flop/turn bluff or semi-bluff deterministically planned a multi-street barrel because priced next-street EV(barrel) beat EV(give_up) under ICM',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_plan_no_seen',
+    'HorseLogic planBarrel (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament flop/turn bluff or semi-bluff deterministically declined a multi-street barrel plan because priced next-street EV(barrel) did not beat EV(give_up)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_low_spr_jam_seen',
+    'HorseLogic low-SPR unopened flop/turn (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament low-SPR hand shoved all-in because ICM-weighted EV(all_in) beat EV(check) and non-jam bets',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_low_spr_bet_seen',
+    'HorseLogic low-SPR unopened flop/turn (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament low-SPR hand chose a priced non-jam value/protection bet because ICM-weighted EV(bet) beat both EV(all_in) and EV(check)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_low_spr_check_seen',
+    'HorseLogic low-SPR unopened flop/turn (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament low-SPR hand checked deterministically because EV(check) beat ICM-weighted EV(all_in) and non-jam bets',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_turn_cell_skip_seen',
+    'HorseLogic turn GTO open cell (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament turn with hero initiative skipped the non-initiative-aware compact turn cell so the priced barrel/value engine decides',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_barrel_bet_seen',
+    'HorseLogic V7 barrel continuation (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament turn/river barrel continuation selected its highest-EV legal bet size under ICM instead of the 0.66/0.42 coin-flip',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_barrel_check_seen',
+    'HorseLogic V7 barrel continuation (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament turn/river barrel continuation checked deterministically because no legal bet size beat EV(check) under ICM',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_one_card_flush_fold_seen',
+    'HorseLogic committed 4-flush call (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament one-card low flush on a 4-flush board folded deterministically because Bayesian + ICM EV(call) < 0',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_one_card_flush_call_seen',
+    'HorseLogic committed 4-flush call (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament one-card flush on a 4-flush board called deterministically because Bayesian + ICM EV(call) >= 0 at the offered price',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.

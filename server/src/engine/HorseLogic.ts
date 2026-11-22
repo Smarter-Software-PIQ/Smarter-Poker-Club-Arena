@@ -519,6 +519,7 @@ import {
   tightOpenerRespect,
   tightReRaiserRespect,
   isValueBettor,
+  sizeBucketOf,
   type OpponentStyleRead,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
@@ -935,6 +936,16 @@ import {
   isPremiumMadeHand,
   type HoldemPremiumVerdict,
 } from './HorseHoldemPremiumAggression.js';
+import {
+  holdemFlopTextureFromBoard,
+  holdemFourFlushOneCardStatus,
+  holdemTournamentAggressionIsPricedApplies,
+  priceHoldemTournamentBarrelContinue,
+  priceHoldemTournamentBarrelPlan,
+  priceHoldemTournamentLowSprDecision,
+  priceHoldemTournamentOneCardFlushCall,
+  type HoldemTournamentVillainRead,
+} from './HorseHoldemTournamentAggressionPriced.js';
 // V35 (2026-09-02): the games are different games — per-variant preflop width
 // and postflop temperament, one row per game. See HorseVariantProfile.ts.
 import { variantPostflopProfile, variantPreflopShift } from './HorseVariantProfile.js';
@@ -4885,6 +4896,13 @@ export interface HorseDecideOpts {
   /** Dan 2026-10-25 NLH tournament aggression (wider opens/3-bets/defence,
    *  more turn barrels). Default on; false is the historical arm. */
   v57TournamentAggression?: boolean;
+  /** Default-OFF (read strictly === true, dark in OPTION_SWITCH_REFUSED): EV & ICM
+   *  priced postflop single-board 2-card NLH tournament replacement for
+   *  v57TournamentAggression (HorseHoldemTournamentAggressionPriced.ts). Preflop
+   *  tournamentAggression, v58MadeHandCellSkip, cash, Lightning, Omaha, Short Deck,
+   *  Fixed Limit, Pot Limit, multi-board, bomb pots, and All-In-or-Fold stay 100%
+   *  untouched. Bit-identical when unset or false. */
+  holdemTournamentAggressionIsPriced?: boolean;
   /** V58 made-hand solver-cell skip (Dan 2026-10-26, #8144): when hero holds
    *  a set/trips, straight, flush or better (cat >= 4), skip the hand-class-mean
    *  gto_postflop_compact open cell so the value ladder bets it instead of
@@ -24478,16 +24496,20 @@ export class HorseLogic {
     const calledThroughStraight40 = calledThrough40 && cat === 5 && nuts15?.flushPossible === true;
     // V37: the covering stack near the bubble bluffs a notch more — the
     // covered field is folding hands it would call with anywhere else.
+    let tourneyBubblePressure57 = 0;
     if (!sat37.active) {
       const bp37 = bubblePressure(gs, player, -1, (opts.v37Satellite ?? true) !== false);
+      tourneyBubblePressure57 = bp37;
       if (bp37 > 0) {
         bluffScale *= 1 + 0.2 * bp37;
         if (tele15) noteFire('v37_bubble_pressure_postflop');
       }
     }
     // V37: a big bounty on hero's own head gets called down wider.
+    let tourneyOwnBountyScale57 = 1;
     if ((opts.v24Bounty ?? true) !== false && isTournamentMode(gs)) {
       const own37 = headBountyScale(gs, player.user_id);
+      tourneyOwnBountyScale57 = own37;
       if (own37 > 1.5) {
         bluffScale *= Math.max(0.7, 1 - (own37 - 1.5) * 0.2);
         if (tele15) noteFire('v37_own_head_bounty');
@@ -24578,15 +24600,18 @@ export class HorseLogic {
     // horse coming off a bluff-heavy stretch gets called down - throttle the
     // bluffs until the image cools; a rock's rare bets get instant credit -
     // bluff a touch more. Read from the SAME stats opponents read.
+    let tourneySelfImageMod57 = 1;
     if ((opts.v18SelfImage ?? true) !== false && useMind) {
       try {
         const img = HorseMind.selfImageOf(player.user_id);
         if (img !== null) {
           if (img >= 0.75) {
             bluffScale *= 0.85;
+            tourneySelfImageMod57 = 0.85;
             if (tele15) noteFire('v18_self_image');
           } else if (img <= 0.35) {
             bluffScale *= 1.1;
+            tourneySelfImageMod57 = 1.1;
             if (tele15) noteFire('v18_self_image');
           }
         }
@@ -24768,7 +24793,54 @@ export class HorseLogic {
     // tournaments plan more multi-street lines, continue them more often and
     // give up less. Cash keeps the duplicate-deal-tuned numbers below; the
     // ICM survival premium still scales every bluff through bluffScale.
+    const holdemTourneyAggroPricedActive =
+      opts.holdemTournamentAggressionIsPriced === true &&
+      holdemTournamentAggressionIsPricedApplies({
+        enabled: opts.holdemTournamentAggressionIsPriced,
+        isTournament: isTournamentMode(gs),
+        isCashFormat: gs.format === 'cash',
+        street,
+        isOmaha: vi.isOmaha,
+        isPotLimit: vi.isPotLimit,
+        isFixedLimit: vi.isFixedLimit,
+        isShortDeck: vi.isShortDeck,
+        isHiLo: vi.isHiLo,
+        holeCount: vi.holeCount,
+        holeCardCount: player.cards.length,
+        boardLength: board.length,
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+        allInOrFold: gs.allInOrFold === true,
+        pot,
+        heroStack: stack,
+      });
+    const readTourneyVillainPriced = (
+      villainId: string | null,
+      potFracHint: number
+    ): HoldemTournamentVillainRead => {
+      if (!useMind || !villainId) {
+        return { exploitCallDownMod: exploit.callDownMod };
+      }
+      try {
+        const scopeV = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+        const countersV = HorseMind.getExploitCounters(villainId, scopeV);
+        const rfrV = HorseMind.riverFoldRate(villainId);
+        const styleV = HorseMind.styleReadUncounted(villainId);
+        const bucketV = styleV?.signals.shownBySize[sizeBucketOf(potFracHint)];
+        const styleSizeShown =
+          bucketV && bucketV.shown > 0 ? { shown: bucketV.shown, strong: bucketV.strong } : null;
+        return {
+          exploitCounters: countersV ?? null,
+          styleSizeShown,
+          riverFoldRate: rfrV,
+          exploitCallDownMod: exploit.callDownMod,
+        };
+      } catch {
+        return { exploitCallDownMod: exploit.callDownMod };
+      }
+    };
     const tourneyAggro =
+      !holdemTourneyAggroPricedActive &&
       (opts.v57TournamentAggression ?? true) !== false &&
       isTournamentMode(gs) &&
       (!vi.isOmaha || v86) &&
@@ -24804,7 +24876,43 @@ export class HorseLogic {
       // bluffs into a pool that calls; 0.40 keeps the coherent-story benefit
       // without torching chips on over-frequent second barrels.
       if (equityNow < 0.55) {
-        const intent = fastRandom() < (tourneyAggro ? 0.5 : 0.35);
+        let intent: boolean;
+        if (holdemTourneyAggroPricedActive && (street === 'flop' || street === 'turn')) {
+          let deepestOppPlan = 0;
+          let primaryOppId: string | null = null;
+          for (const o of opponents) {
+            if (o.is_all_in) continue;
+            const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
+            if (os > deepestOppPlan) {
+              deepestOppPlan = os;
+              primaryOppId = o.user_id;
+            }
+          }
+          const planVerdict = priceHoldemTournamentBarrelPlan({
+            street,
+            equity: equityNow,
+            pot,
+            heroStack: stack,
+            effBehind: Math.min(stack, deepestOppPlan),
+            currentBetApprox: Math.min(stack, pot * sizeBase),
+            inPosition: ip,
+            oppCount,
+            wetness,
+            drawsLive,
+            blocker,
+            icmRisk: risk,
+            bubblePressure: tourneyBubblePressure57,
+            ownBountyScale: tourneyOwnBountyScale57,
+            villain: readTourneyVillainPriced(primaryOppId, sizeBase),
+          });
+          intent = planVerdict.shouldPlan;
+          if (tele15) {
+            if (intent) noteFire('holdem_tourney_aggro_priced_plan_yes_seen');
+            else noteFire('holdem_tourney_aggro_priced_plan_no_seen');
+          }
+        } else {
+          intent = fastRandom() < (tourneyAggro ? 0.5 : 0.35);
+        }
         HorseMind.notePlan(handKey, player.user_id, intent);
         // Items 21 and 23: a planned line records what it expects to meet.
         pendingPlanFingerprint = intent && (opts.planFingerprint ?? true) !== false;
@@ -25679,6 +25787,7 @@ export class HorseLogic {
       // still fold. A tournament hold'em stack with at most one pot behind
       // and the equity to want it all in puts it in.
       if (
+        !holdemTourneyAggroPricedActive &&
         isTournamentMode(gs) &&
         (street === 'flop' || street === 'turn') &&
         vi.holeCount === 2 &&
@@ -25704,6 +25813,64 @@ export class HorseLogic {
         if (deepestOpp > 0 && effBehind <= pot && equity >= 0.45 + Math.max(0, mw) * 0.5) {
           if (tele15) noteFire('v58_low_spr_stack_off');
           return { action: 'all_in', thinkTime: 0 };
+        }
+      } else if (
+        holdemTourneyAggroPricedActive &&
+        (street === 'flop' || street === 'turn') &&
+        cat >= 1 &&
+        stack > 0 &&
+        pot > 0
+      ) {
+        let deepestOpp = 0;
+        let primaryOppId: string | null = null;
+        for (const o of opponents) {
+          if (o.is_all_in) continue;
+          const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
+          if (os > deepestOpp) {
+            deepestOpp = os;
+            primaryOppId = o.user_id;
+          }
+        }
+        const effBehind = Math.min(stack, deepestOpp);
+        if (deepestOpp > 0 && effBehind <= pot) {
+          const lowSprVerdict = priceHoldemTournamentLowSprDecision({
+            street,
+            equity,
+            cat,
+            pot,
+            heroStack: stack,
+            effBehind,
+            minBet: Math.max(gs.minRaise || 0, gs.bigBlind || 1, 0.01),
+            inPosition: ip,
+            hasInitiative: initiative === 'hero',
+            oppCount,
+            wetness,
+            texture: holdemFlopTextureFromBoard(board),
+            drawsLive,
+            icmRisk: risk,
+            bubblePressure: tourneyBubblePressure57,
+            ownBountyScale: tourneyOwnBountyScale57,
+            villain: readTourneyVillainPriced(primaryOppId, effBehind / pot),
+          });
+          if (lowSprVerdict.action === 'all_in') {
+            if (tele15) noteFire('holdem_tourney_aggro_priced_low_spr_jam_seen');
+            return { action: 'all_in', thinkTime: 0 };
+          }
+          if (lowSprVerdict.action === 'bet' && lowSprVerdict.betFraction !== null) {
+            if (tele15) noteFire('holdem_tourney_aggro_priced_low_spr_bet_seen');
+            return this.betSize(
+              planHandKey,
+              pot,
+              lowSprVerdict.betFraction,
+              player,
+              gs,
+              vi,
+              params,
+              useSizing
+            );
+          }
+          if (tele15) noteFire('holdem_tourney_aggro_priced_low_spr_check_seen');
+          return { action: 'check', thinkTime: 0 };
         }
       }
       // ═══ V36 FREEROLL BET ═══ a locked board and an unlocked one: every
@@ -26711,6 +26878,10 @@ export class HorseLogic {
           tourneyAggro &&
           (opts.v57TournamentAggression ?? true) !== false;
         if (initiativeTurn57 && telemetryOn(opts)) noteFire('v57_turn_cell_initiative_skip');
+        const initiativeTurnPricedSkip =
+          holdemTourneyAggroPricedActive && street === 'turn' && initiative === 'hero';
+        if (initiativeTurnPricedSkip && tele15)
+          noteFire('holdem_tourney_aggro_priced_turn_cell_skip_seen');
         // ═══ V58 THE CLASS MEAN CANNOT SEE A MADE HAND (Dan 2026-10-26) ══════
         // "I JUST WATCHED A HORSE RAISE AJc ... FLIP THE NUT FLUSH AND CHECK IT
         // EVERY SINGLE STREET". Hand 48442708: A-J of clubs on Q-5-8 of clubs,
@@ -26725,7 +26896,7 @@ export class HorseLogic {
         const madeBeyondClass58 = cat >= 4 && opts.v58MadeHandCellSkip !== false;
         if (madeBeyondClass58 && telemetryOn(opts)) noteFire('v58_made_hand_cell_skip');
         const advice29 =
-          tooDeep29 || initiativeTurn57 || madeBeyondClass58
+          tooDeep29 || initiativeTurn57 || initiativeTurnPricedSkip || madeBeyondClass58
             ? null
             : gtoStreetAdvice({
                 street,
@@ -26754,7 +26925,12 @@ export class HorseLogic {
             // V57: a solver flop bet is a line too. Record its barrel plan
             // the way every heuristic bet does, so the turn knows whether this
             // was a one-and-done or the start of a story.
-            if (street === 'flop' && tourneyAggro && pick !== 'check') planBarrel(equity);
+            if (
+              street === 'flop' &&
+              (tourneyAggro || holdemTourneyAggroPricedActive) &&
+              pick !== 'check'
+            )
+              planBarrel(equity);
             if (pick === 'bet_small') {
               // Flop cells derive bet_small from ~third-pot c-bets; the
               // turn/river root vocabulary is the 16%-pot block/probe, so
@@ -27317,7 +27493,61 @@ export class HorseLogic {
           outlook39 === 'good' ? 1.4 : outlook39 === 'scare' ? (blocker ? 1.2 : 0.5) : 1;
         const outlookReceipt39 = barrelOutlookRiverPending && isRiver;
         if (outlookReceipt39) barrelOutlookRiverPending = false;
-        if (barrelPlan && !dangered && oppCount <= 2 && (equity >= 0.15 || blocker)) {
+        if (holdemTourneyAggroPricedActive && (street === 'turn' || street === 'river')) {
+          let deepestOppCont = 0;
+          let primaryOppId: string | null = null;
+          for (const o of opponents) {
+            if (o.is_all_in) continue;
+            const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
+            if (os > deepestOppCont) {
+              deepestOppCont = os;
+              primaryOppId = o.user_id;
+            }
+          }
+          const contVerdict = priceHoldemTournamentBarrelContinue({
+            street,
+            equity,
+            pot,
+            heroStack: stack,
+            effBehind: Math.min(stack, deepestOppCont),
+            minBet: Math.max(gs.minRaise || 0, gs.bigBlind || 1, 0.01),
+            inPosition: ip,
+            oppCount,
+            playersBehind: Math.max(0, playersBehind17),
+            wetness,
+            drawsLive,
+            blocker,
+            dangered,
+            barrelPlan: barrelPlan === true,
+            outlook: outlook39,
+            geomFrac,
+            icmRisk: risk,
+            bubblePressure: tourneyBubblePressure57,
+            ownBountyScale: tourneyOwnBountyScale57,
+            lightCallerBluffMul,
+            selfImageMod: tourneySelfImageMod57,
+            villain: readTourneyVillainPriced(primaryOppId, sizeBase + 0.15),
+          });
+          if (outlookReceipt39 && tele15) noteFire('barrel_continuation_outlook_considered');
+          if (contVerdict.action === 'bet' && contVerdict.betFraction !== null) {
+            if (opts.barrelContinuationOutlook === true && street === 'turn') {
+              recordBarrelOutlook();
+            }
+            if (tele15) noteFire('holdem_tourney_aggro_priced_barrel_bet_seen');
+            return this.betSize(
+              planHandKey,
+              pot,
+              contVerdict.betFraction,
+              player,
+              gs,
+              vi,
+              params,
+              useSizing
+            );
+          }
+          if (tele15) noteFire('holdem_tourney_aggro_priced_barrel_check_seen');
+          return { action: 'check', thinkTime: 0 };
+        } else if (barrelPlan && !dangered && oppCount <= 2 && (equity >= 0.15 || blocker)) {
           // TUNED (duplicate-deal ablation): continuation frequencies cut
           // (turn 0.75->0.60, river 0.55->0.42) and total-air no-blocker
           // barrels abandoned — the original volume measurably lost.
@@ -29162,6 +29392,7 @@ export class HorseLogic {
       // in a tournament it does not call off the stack (a cheap call keeps
       // its price; cash keeps its own pricing).
       if (
+        !holdemTourneyAggroPricedActive &&
         isTournamentMode(gs) &&
         !vi.isOmaha &&
         !vi.isShortDeck &&
@@ -29178,6 +29409,70 @@ export class HorseLogic {
         if (boardFour !== null && player.cards.filter((c) => c.suit === boardFour).length === 1) {
           if (tele15) noteFire('v58_one_card_low_flush_fold');
           return { action: 'fold', thinkTime: 0, continuationGuard: 'dominated_commitment_floor' };
+        }
+      } else if (
+        holdemTourneyAggroPricedActive &&
+        (street === 'turn' || street === 'river') &&
+        cat === 6 &&
+        toCall > 0 &&
+        pot > 0 &&
+        Math.min(toCall, stack) >= stack * 0.5
+      ) {
+        const fourFlush = holdemFourFlushOneCardStatus(player.cards, board);
+        if (fourFlush.isFourFlushOneCard) {
+          let ns57 = ns21;
+          if (ns57 == null) {
+            try {
+              ns57 = nlhNutStatus(player.cards, board, false);
+            } catch {
+              ns57 = null;
+            }
+          }
+          if (ns57 != null && ns57.higherFlushRanks >= 3) {
+            let aggId57: string | null = null;
+            for (const a of gs.actionHistory ?? []) {
+              if (
+                a.stage === street &&
+                a.userId !== player.user_id &&
+                (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+              ) {
+                aggId57 = a.userId;
+              }
+            }
+            if (!aggId57) {
+              let topBet = -1;
+              for (const o of opponents) {
+                if ((o.bet ?? 0) > topBet) {
+                  topBet = o.bet ?? 0;
+                  aggId57 = o.user_id;
+                }
+              }
+            }
+            const flushVerdict = priceHoldemTournamentOneCardFlushCall({
+              street,
+              pot,
+              toCall,
+              heroStack: stack,
+              potFrac,
+              higherFlushRanks: ns57.higherFlushRanks,
+              oppCount,
+              pairedBoard,
+              raisedAfterAggr,
+              icmRisk: risk,
+              bountyCoverDiscount: bounty23 > 0 ? Math.min(0.4, bounty23 * 3) : 0,
+              villain: readTourneyVillainPriced(aggId57, potFrac),
+            });
+            if (flushVerdict.action === 'fold') {
+              if (tele15) noteFire('holdem_tourney_aggro_priced_one_card_flush_fold_seen');
+              return {
+                action: 'fold',
+                thinkTime: 0,
+                continuationGuard: 'dominated_commitment_floor',
+              };
+            }
+            if (tele15) noteFire('holdem_tourney_aggro_priced_one_card_flush_call_seen');
+            return { action: 'call', amount: toCall, thinkTime: 0 };
+          }
         }
       }
       // ═══ V61 ONE-PAIR RIVER BLUFF-CATCH SHADE, committed branch ═══ a

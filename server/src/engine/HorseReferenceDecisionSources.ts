@@ -339,6 +339,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off persona postflop scales (holdemPersonaPostflop, 2026-11-15): the persona's check-trap threshold and the archetype's turn-takeaway and range continuation-bet multipliers in no-limit hold'em",
     'src/engine/holdemEmpiricalPriors.ts':
       "measured NLH empirical pool priors and smooth Empirical-Bayes shrinkage helpers (Horse Switch lane 2026-11-21): fold-to-river-raise priors by raise kind, true villain incremental raise call price, measured all-callers river bluff share, and flop/turn fold priors; reached only by default-off priced Hold'em options (off is never entered)",
+    'src/engine/HorseHoldemTournamentAggressionPriced.ts':
+      'the dark default-off EV & ICM priced postflop single-board 2-card NLH tournament replacement for v57TournamentAggression (holdemTournamentAggressionIsPriced, Horse Switch lane 2026-11-22): replaces planBarrel 0.50 coin-flip, v58_low_spr_stack_off blanket shove, V7/V57 turn/river barrel continuation coin-flips + initiativeTurn57 blind skip, and v58_one_card_low_flush_fold unconditional fold with deterministic EV + ICM pricing backed by holdemEmpiricalPriors.ts; preflop, v58MadeHandCellSkip, cash, Lightning, Omaha, Short Deck, Fixed Limit, and multi-board are untouched; off is never entered',
     'src/engine/HorseHoldemPersonaPreflop.ts':
       "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
     'src/engine/HorseHoldemRiverFullHouseValue.ts':
