@@ -828,6 +828,19 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       /^league card flh_call_is_not_a_commitment_vs_maniac and _vs_tight_value, PR #11565 /
     );
     expect(OPTION_SWITCH_OFF_ONLY.fixedLimitCallIsNotACommitment!.reason).toMatch(/z -4\.53/);
+    // 2026-11-21: measured harm in the scripted no-limit league field (PR #11634), off-only since
+    expectStatus(
+      'holdemCommittedNoPairIsPriced',
+      'harm',
+      /^league card nlh_committed_no_pair_is_priced_vs_value_barreler and _vs_pot_barreler, PR #11634 /
+    );
+    expect(OPTION_SWITCH_OFF_ONLY.holdemCommittedNoPairIsPriced!.reason).toMatch(/z -3\.02/);
+    expectStatus(
+      'holdemDangerBoardEquityIsPriced',
+      'harm',
+      /^league card nlh_danger_board_equity_is_priced_vs_danger_bettor and _vs_danger_value, PR #11634 /
+    );
+    expect(OPTION_SWITCH_OFF_ONLY.holdemDangerBoardEquityIsPriced!.reason).toMatch(/z -9\.74/);
     expectStatus('v55OmahaRiverTripsFlat', 'superseded', /made-hand defense repair/);
     expect(OPTION_SWITCH_OFF_ONLY.commitUnderPot!.reason).toMatch(/RESULTS-HU-NLH-016, FAIL/);
     // future options are held by name pattern: a steal, All-In-Or-Fold widening

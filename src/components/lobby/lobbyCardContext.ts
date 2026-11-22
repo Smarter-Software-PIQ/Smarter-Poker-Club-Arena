@@ -12,6 +12,7 @@ export interface LobbyRowContext {
   onViewTable?: (entry: LobbyEntry) => void;
   onToggleFavorite?: (tableId: string, next: boolean, kind?: LobbyEntry['kind']) => void;
   onWaitlistToggle?: (tableId: string, joining: boolean) => void;
+  onInviteFailed?: (url: string, label: string) => void;
   spinTopTierLive?: boolean;
   actionBusy?: boolean;
   /**

@@ -25,6 +25,8 @@ import {
   HUD_RING_MS,
   HUD_SYNC_ROW,
   OpponentHudStore,
+  persistOpponentHudBeforeExit,
+  setOpponentHudStoreForTest,
   type HudStoredRow,
   type OpponentHudStoreDeps,
 } from './OpponentHudStore.js';
@@ -239,7 +241,7 @@ describe('OpponentHudStore with more than one engine process', () => {
     expect(ids(db.profile(7))).toEqual(new Set([H(1), H(2)]));
   });
 
-  it('cutover: the old process saves on its way out AFTER the new one loaded and counted; neither erases the other', async () => {
+  it('cutover: the old process saves on its way out (the real graceful-stop hook) AFTER the new one loaded and counted; neither erases the other', async () => {
     const db = new FakeDb();
     db.seedLifetime(1, 100);
     const old = await boot(db, [1]);
@@ -253,7 +255,15 @@ describe('OpponentHudStore with more than one engine process', () => {
     next.onAcceptedHand(db.accept(row(4, 1, 2, T0 + 12_000)));
     next.onAcceptedHand(db.accept(row(5, 1, 2, T0 + 13_000)));
     await next.persist();
-    old.setArmed(false); // shutdown: saves once
+    // shutdown: the engine's graceful stop (index.ts performShutdown -> persistOpponentHudBeforeExit), NOT a hand-made
+    // save and not the switch going off: the old process is still armed when it exits
+    setOpponentHudStoreForTest(old);
+    try {
+      await persistOpponentHudBeforeExit();
+    } finally {
+      setOpponentHudStoreForTest(null);
+    }
+    expect(old.armed()).toBe(true);
     await flush();
     await next.persist();
     next.onAcceptedHand(db.accept(row(6, 1, 2, T0 + 14_000)));

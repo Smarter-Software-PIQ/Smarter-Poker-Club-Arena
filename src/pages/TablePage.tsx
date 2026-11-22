@@ -6388,6 +6388,8 @@ function LiveTablePage({
      SHOULD SAY THE TOURNAMENT NAME AND BUY IN, NOT JUST NLH POKER
      TOURNAMENT"). '' until the tournament row has been read. */
   const [tournamentEventName, setTournamentEventName] = useState('');
+  const tournamentEventNameRef = useRef('');
+  tournamentEventNameRef.current = tournamentEventName;
   /* Dan 2026-11-05: the line under the event name says what KIND of event it
      is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
   const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
@@ -6468,19 +6470,39 @@ function LiveTablePage({
   const [headsUpPromptStep, setHeadsUpPromptStep] = useState<'choice' | 'invite'>('choice');
   const [tableInviteFallbackUrl, setTableInviteFallbackUrl] = useState('');
 
+  useEffect(() => {
+    setTableInviteFallbackUrl('');
+  }, [tableId]);
+
+  const handleCloseHeadsUpPrompt = useCallback(() => {
+    setHeadsUpPromptOpen(false);
+  }, []);
+
   const handleInviteToGame = useCallback(async () => {
     if (!tableId) return;
     const current = tableStateRef.current;
+    const lightning = lightningRoomRef.current;
     const isSeatFirstOpen = seatFirstOpenRef.current;
-    const url =
-      current.isTournament && current.tournamentId && !isSeatFirstOpen
+    const isTournamentShare =
+      !lightning?.clusterId &&
+      current.isTournament &&
+      Boolean(current.tournamentId) &&
+      !isSeatFirstOpen;
+    const url = lightning?.clusterId
+      ? gameInviteUrl({ kind: 'lightning', id: lightning.clusterId })
+      : isTournamentShare && current.tournamentId
         ? gameInviteUrl({ kind: 'tournament', id: current.tournamentId })
         : gameInviteUrl({ kind: 'table', id: tableId });
+    const gameTitle =
+      (isTournamentShare ? tournamentEventNameRef.current : '') ||
+      lightning?.meta?.name ||
+      current.tableName ||
+      'Club Arena Game';
     setTableInviteFallbackUrl('');
     const outcome = await shareLink({
       source: 'TablePage.inviteToGame',
-      title: current.tableName || 'Club Arena Game',
-      text: gameInviteText(current.tableName),
+      title: gameTitle,
+      text: gameInviteText(gameTitle),
       url,
     });
     if (outcome === 'copied') {
@@ -31644,16 +31666,19 @@ function LiveTablePage({
       )}
       {seatFirstBuyIn && tableId && (
         <HeadsUpWaitingModal
-          isOpen={headsUpPromptOpen}
+          isOpen={headsUpPromptOpen && isVisible}
           initialStep={headsUpPromptStep}
-          tableName={tableState.tableName || 'Heads Up Sit N Go'}
+          tableName={tournamentEventName || tableState.tableName || 'Heads Up Sit N Go'}
           inviteUrl={tableShareUrl(tableId)}
-          onChooseSpecific={() => setHeadsUpWaitMode('specific')}
+          onChooseSpecific={() => {
+            setHeadsUpWaitMode('specific');
+            setHeadsUpPromptStep('invite');
+          }}
           onChooseAnyone={() => {
             setHeadsUpWaitMode('anyone');
             toast?.info?.('Table Open, Waiting For Any Available Player');
           }}
-          onClose={() => setHeadsUpPromptOpen(false)}
+          onClose={handleCloseHeadsUpPrompt}
           onNotify={(kind, msg) => {
             if (kind === 'success') toast?.success?.(msg);
             else toast?.info?.(msg);
@@ -31939,18 +31964,20 @@ function LiveTablePage({
                   0,
                   seatFirstBuyIn.seats - tableState.players.filter(Boolean).length
                 );
+                /* 2026-10-04: the open seats are being kept for other
+                   people - say so, so a two-player table waiting for its
+                   second player never reads as a frozen one. Checked before
+                   the generic 30s stall copy so a player explicitly waiting on
+                   an invited friend keeps seeing that status. */
+                if (left > 0 && headsUpWaitMode === 'specific') {
+                  return 'Waiting For Your Invited Player';
+                }
                 /* Round 13: a wait past 30s says so, and says the seat is
                    safe - a stalled room must read differently from a normal
                    one, or leaving looks like the rational move (it did, at
                    18:06Z today). */
                 if (left > 0 && seatFirstWaitLong) {
                   return seatCopy(tableState.arenaAsset).stillFillingSeatIsSafe;
-                }
-                /* 2026-10-04: the open seats are being kept for other
-                   people - say so, so a two-player table waiting for its
-                   second player never reads as a frozen one. */
-                if (left > 0 && headsUpWaitMode === 'specific') {
-                  return 'Waiting For Your Invited Player';
                 }
                 if (
                   left > 0 &&

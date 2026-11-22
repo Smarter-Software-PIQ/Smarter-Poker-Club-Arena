@@ -38,6 +38,10 @@ import { HORSE_HYBRID_PROFILES } from './HorseHybridProfile.js';
 import { omahaCallClass } from './HorseOmahaBigBetCalls.js';
 import type { ActionType, Card, CardRank, CardSuit, HorseStyle, SeatPlayer } from '../types.js';
 import type { HorsePublicDeductions } from './HorsePublicDeductions.js';
+import {
+  publicMemoryDomainIsValid,
+  type HorsePublicMemoryDomain,
+} from './HorsePublicMemoryDomain.js';
 
 /** The public snapshot the engine records with every horse decision. */
 export interface ComplaintPublicNode {
@@ -114,6 +118,7 @@ export interface ExtractedHand {
   board?: string[] | null;
   bombPot?: boolean;
   runItTwice?: boolean;
+  publicMemoryDomain?: HorsePublicMemoryDomain | null;
   players: ComplaintPlayer[];
   /** user id -> hole cards, horses only. */
   horseHoleCards: Record<string, Card[]>;
@@ -140,6 +145,7 @@ export interface ComplaintFixture {
   handId: string;
   fmt: 'cash' | 'tour';
   variant: string;
+  publicMemoryDomain?: HorsePublicMemoryDomain | null;
   players: Array<{ seat: number; isHorse: boolean }>;
   /** seat -> hole cards, for the horse seats on the forbidden path only. */
   hole: Record<string, Card[]>;
@@ -362,6 +368,9 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     smallBlind: pn.smallBlind,
     ante: pn.ante ?? 0,
     bigBlindAnte: pn.anteType === 'big_blind',
+    ...(publicMemoryDomainIsValid(hand.publicMemoryDomain)
+      ? { publicMemoryDomain: { ...hand.publicMemoryDomain } }
+      : {}),
     dealerSeat: pn.dealerSeat,
     // The live engine hands every decision the dealt census and the seats
     // that posted the blinds (ServerTableEngineTurns). Without them the
@@ -851,6 +860,9 @@ export function toComplaintFixture(
     handId: hand.handId,
     fmt: hand.tournamentId ? 'tour' : 'cash',
     variant: hand.variant,
+    ...(publicMemoryDomainIsValid(hand.publicMemoryDomain)
+      ? { publicMemoryDomain: { ...hand.publicMemoryDomain } }
+      : {}),
     players: hand.players.map((p) => ({ seat: p.seat, isHorse: p.isHorse })),
     hole,
     actions: hand.actions.map((a) => ({

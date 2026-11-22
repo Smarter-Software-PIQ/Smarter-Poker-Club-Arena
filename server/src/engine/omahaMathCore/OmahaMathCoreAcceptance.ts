@@ -74,6 +74,8 @@ export function omahaMathCoreChoice(
 ): { action: Act; amount: number | null } | null {
   const r = d?.omahaMathCore;
   if (!r || r.applied !== true || r.switch !== 'omahaMathCore' || !r.action) return null;
+  // lane CORE-FIX-1 (AUDIT-A item 9): today's action kept because the core could not price it is not a core choice
+  if (r.owned === false) return null;
   return { action: r.action, amount: r.amount ?? null };
 }
 
@@ -318,7 +320,9 @@ export function omahaMathCoreRecover(input: {
           ...(input.streetOpts ?? {}),
         },
         (d) => omahaMathCoreExactLegalize(d, player, gs),
-        input.now
+        input.now,
+        // lane CORE-FIX-1 (AUDIT-A item 7): the incoming fold / check is synthetic; no margin protects it
+        'none'
       );
       const receipt = ruled.omahaMathCore;
       if (receipt?.applied === true) {

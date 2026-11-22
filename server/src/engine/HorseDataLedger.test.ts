@@ -145,6 +145,10 @@ const RECEIPT_ONLY_FILES = [
   'engine/HorseOmahaReadByStreetRule.ts',
   // Live raise-ladder alarm (2026-11-18, measurement only): the 4th consecutive minimum raise of a street.
   'engine/RaiseLadderAlarm.ts',
+  // omahaMathCore fallback counters (lane CORE-FIX-1, 2026-11-21): value-search error and equity collision in
+  // the core, tracker failure in the range tracker (the core-error counter is in OmahaMathCoreRule.ts above).
+  'engine/omahaMathCore/OmahaMathCore.ts',
+  'engine/omahaMathCore/OmahaMathCoreRangeTrack.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

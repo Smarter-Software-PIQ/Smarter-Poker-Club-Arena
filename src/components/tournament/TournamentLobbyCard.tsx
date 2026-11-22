@@ -286,9 +286,18 @@ function TournamentLobbyCardInner({
   const [lateRegCountdown, setLateRegCountdown] = useState<string>('');
   const [lateRegActive, setLateRegActive] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteFeedback, setInviteFeedback] = useState<'idle' | 'copied' | 'shared'>('idle');
   const [inviteFallbackUrl, setInviteFallbackUrl] = useState('');
   const inviteCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setInviteFeedback('idle');
+    setInviteFallbackUrl('');
+    if (inviteCopiedTimer.current) {
+      clearTimeout(inviteCopiedTimer.current);
+      inviteCopiedTimer.current = null;
+    }
+  }, [tournament.id]);
 
   useEffect(
     () => () => {
@@ -307,10 +316,10 @@ function TournamentLobbyCardInner({
       text: gameInviteText(tournament.name),
       url,
     }).then((outcome) => {
-      if (outcome === 'copied') {
-        setInviteCopied(true);
+      if (outcome === 'copied' || outcome === 'shared') {
+        setInviteFeedback(outcome);
         if (inviteCopiedTimer.current) clearTimeout(inviteCopiedTimer.current);
-        inviteCopiedTimer.current = setTimeout(() => setInviteCopied(false), 2400);
+        inviteCopiedTimer.current = setTimeout(() => setInviteFeedback('idle'), 2400);
       } else if (outcome === 'failed') {
         setInviteFallbackUrl(url);
       }
@@ -1091,16 +1100,25 @@ function TournamentLobbyCardInner({
           </span>
         </div>
       </div>
-      {tournament.status !== 'finished' && tournament.status !== 'cancelled' && (
+      {!['finished', 'completed', 'cancelled'].includes(
+        String(tournament.status || '').toLowerCase()
+      ) && (
         <div className={styles.inviteRow}>
           <button
             type="button"
             className={styles.inviteBtn}
             data-testid="tournament-card-invite-btn"
             onClick={handleInviteToTournament}
+            onDoubleClick={(e) => e.stopPropagation()}
           >
             <InviteLinkIcon />
-            <span>{inviteCopied ? 'Invite Link Copied' : 'Invite To Game'}</span>
+            <span>
+              {inviteFeedback === 'copied'
+                ? 'Invite Link Copied'
+                : inviteFeedback === 'shared'
+                  ? 'Invite Link Shared'
+                  : 'Invite To Game'}
+            </span>
           </button>
           {inviteFallbackUrl && (
             <div onClick={(e) => e.stopPropagation()}>

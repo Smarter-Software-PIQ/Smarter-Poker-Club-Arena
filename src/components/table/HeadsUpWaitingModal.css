@@ -4,13 +4,15 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .hu-waiting-dialog {
+  margin: auto;
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
   max-width: min(460px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
   width: 100%;
-  overflow: visible;
+  overflow-y: auto;
 }
 
 .hu-waiting-dialog[open] {
