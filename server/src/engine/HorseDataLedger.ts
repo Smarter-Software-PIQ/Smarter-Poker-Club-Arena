@@ -4692,8 +4692,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'upgrade04_*',
-    'HorseEval buildOmahaReservoir',
-    'an Omaha preflop reservoir was built; once per process and reservoir, so a handful per release; named *_seen (occurrence, not a layer)',
+    'HorseEval buildOmahaReservoir; horseDecision workerRuntime',
+    'an Omaha preflop reservoir was built (upgrade04_omaha_reservoir_*_seen: once per process and reservoir, so a handful per release; the build receipt), or (upgrade04_reservoir_used_seen, 2026-11-21) one FAST decision read a reservoir (the use receipt, once per decision, upgrade 04 evidence); named *_seen (occurrence, not a layer): silent where no Omaha table plays',
     '2026-11-12'
   ),
   receipt(
@@ -4712,7 +4712,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade09_*',
     'ServerTableEngineTurns; LightningHandHost',
-    'a stale pre-action on a Horse seat was cleared at its live turn; named *_seen (occurrence, not a layer); rare by design',
+    'a stale pre-action on a Horse seat was cleared at its live turn, or (upgrade09_preaction_purge_opportunity_*_seen, 2026-11-21) a server-owned Horse reached its turn with one armed (the guard opportunity); named *_seen (occurrence, not a layer); rare by design',
     '2026-11-12'
   ),
   receipt(
