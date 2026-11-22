@@ -528,6 +528,18 @@ describe('B4: priced six-max preflop read on lifetime HUD cells', () => {
     };
     expect(omahaPreflopHudWideningProved(clearCall, 10, 'call')).toBe(true);
     expect(omahaPreflopHudWideningProved(clearCall, 10, 'raise')).toBe(false);
+    expect(omahaPreflopHudWideningProved(clearCall, 10, 'threebet')).toBe(false);
+
+    const valueThreeBetCloseToCall = {
+      action: 'call' as const,
+      evFold: 0,
+      evCall: 2.0,
+      evRaise: 1.8, // strictly +EV over fold and within 0.05*pot (0.5) of evCall
+      foldAll: 0.35,
+      pReraise: 0.08,
+    };
+    expect(omahaPreflopHudWideningProved(valueThreeBetCloseToCall, 10, 'threebet')).toBe(true);
+    expect(omahaPreflopHudWideningProved(valueThreeBetCloseToCall, 10, 'raise')).toBe(false);
   });
 
   it('multiway raises>=1 includes cold-callers in equity/realization and weak hand vs aggro_passive_post open does not unpriced-3bet', () => {

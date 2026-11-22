@@ -224,11 +224,14 @@ export function hudThreeBetRealizationMargin(
 /**
  * Prove-it-to-widen check: a HUD preflop widening (`raise` or `call`) stands only when the priced
  * verdict strictly beats the passive baseline by at least `marginPot * pot`.
+ * For `threebet` (3-betting a wide opener at `raises === 1`), proves raising is strictly `+EV`
+ * (`> marginPot * pot`) and not materially worse than calling (`evRaise >= evCall - 0.05 * pot`),
+ * avoiding MC tie-vetoes on value 3-bets against genuinely wide openers.
  */
 export function omahaPreflopHudWideningProved(
   verdict: SixMaxPreflopHudVerdict | null,
   pot: number,
-  target: 'raise' | 'call',
+  target: 'raise' | 'call' | 'threebet',
   marginPot: number = HUD_PREFLOP_WIDEN_MIN_MARGIN_POT
 ): boolean {
   if (!verdict || !(pot > 0) || !Number.isFinite(pot)) return false;
@@ -238,6 +241,13 @@ export function omahaPreflopHudWideningProved(
     const baseline = Math.max(verdict.evFold ?? -Infinity, verdict.evCall ?? -Infinity);
     if (!Number.isFinite(baseline)) return verdict.evRaise > margin;
     return verdict.evRaise > baseline + margin;
+  }
+  if (target === 'threebet') {
+    if (verdict.evRaise === null) return false;
+    const foldEv = verdict.evFold ?? 0;
+    if (!(verdict.evRaise > foldEv + margin)) return false;
+    if (verdict.evCall !== null && verdict.evRaise < verdict.evCall - 0.05 * pot) return false;
+    return true;
   }
   if (verdict.evCall === null) return false;
   const foldEv = verdict.evFold ?? 0;
@@ -512,8 +522,9 @@ export function priceOmahaPreflopHudSixMax(
     if (eqCall === null || !Number.isFinite(eqCall)) return null;
     const potAfter = pot + callCost;
     const behind = Math.max(0, Math.min(stack - callCost, maxOppStack));
+    // Calling an open (raises <= 1) is a single-raised pot; only raises >= 2 is a 3-bet+ pot.
     evCall =
-      realizeFor(potAfter, behind, Math.max(0, activeModels.length - 1), raises >= 1) *
+      realizeFor(potAfter, behind, Math.max(0, activeModels.length - 1), raises >= 2) *
         eqCall *
         potAfter -
       callCost;

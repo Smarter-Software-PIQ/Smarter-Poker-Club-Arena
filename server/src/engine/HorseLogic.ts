@@ -20146,7 +20146,11 @@ export class HorseLogic {
             ) {
               const hudOpenVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
               const potOpen = Math.max(0, gs.pot ?? 0);
-              const raiseProved = omahaPreflopHudWideningProved(hudOpenVerdict, potOpen, 'raise');
+              const raiseProved = omahaPreflopHudWideningProved(
+                hudOpenVerdict,
+                potOpen,
+                'threebet'
+              );
               const callProved = omahaPreflopHudWideningProved(hudOpenVerdict, potOpen, 'call');
               if (rawOpener && rawOpener.wide) {
                 if (raiseProved || callProved || rawOpener.noBluffThreeBet) {
