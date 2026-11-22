@@ -6373,6 +6373,8 @@ function LiveTablePage({
    * clock and handed back in device time, which every timer here runs on.
    */
   const dbClockOffsetMsRef = useRef(0);
+  const seatFirstSeatsRef = useRef<number>(0);
+  const seatFirstLabelRef = useRef<string>('');
   const headsUpWaitModeRef = useRef<HeadsUpWaitMode | null>(null);
   const headsUpInviteTokenRef = useRef<string | null>(null);
   const headsUpHoldExpiresAtMsRef = useRef<number | null>(null);
@@ -6481,8 +6483,6 @@ function LiveTablePage({
      that exists precisely for the countless idempotent re-seat answer was
      therefore reading 0 and the player was told "Waiting For More Players"
      with no number. A ref is current by definition. */
-  const seatFirstSeatsRef = useRef<number>(0);
-  const seatFirstLabelRef = useRef<string>('');
   /** When this page saw its pre-start seat-first game begin, ms, else null. */
   const seatFirstDealtAtRef = useRef<number | null>(null);
   seatFirstSeatsRef.current = seatFirstBuyIn?.seats ?? 0;
