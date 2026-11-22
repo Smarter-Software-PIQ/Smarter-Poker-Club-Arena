@@ -29243,13 +29243,17 @@ function LiveTablePage({
           not touch is one merge away from being an unstyled paragraph at the
           top of a fixed-position page. The class names are kept so that
           stylesheet can take it over later without touching this file. */}
-      {tableLoadFailure && !lightningRoom && !mustMoveRoutingPending && (
-        <TableLoadFailureOverlay
-          tableLoadFailure={tableLoadFailure}
-          exitDestination={exitDestination}
-          inviteCode={incomingTableInvite.inviteCode}
-          returnPath={incomingTableInvite.returnPath}
-        />
+      {tableLoadFailure && !lightningRoom && (
+        <>
+          {!mustMoveRoutingPending && (
+            <TableLoadFailureOverlay
+              tableLoadFailure={tableLoadFailure}
+              exitDestination={exitDestination}
+              inviteCode={incomingTableInvite.inviteCode}
+              returnPath={incomingTableInvite.returnPath}
+            />
+          )}
+        </>
       )}
       {/* Phase 1.2 PR-F: hero disconnect banner. Only renders when the
           engine FSM reports MISSING or DISCONNECTED for this user. */}
