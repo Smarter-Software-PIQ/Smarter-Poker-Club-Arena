@@ -1020,9 +1020,19 @@ describe('the steal harm control card (2026-11-21)', () => {
     expect(card.humanPersona).toBe(FLH_PREFLOP_DEFENDING_BLINDS_PERSONA);
     expect(card.a).toEqual({ fixedLimitStealVsTightBlinds: true });
     expect(card.seats).toBe(6);
+    // The steal ALONE against the value-only blinds is not on the card (2 of 20,000 pairs diverged). Since
+    // 2026-11-21 they seat one card whose arms both carry the steal and differ only by the noise-aware style-shift
+    // release (flh_style_release_noise_aware_steal_vs_value_only_blinds).
     expect(
-      FIXED_LIMIT_SCRIPTED_FIELD_CARDS.some((m) => m.humanPersona === FLH_VALUE_ONLY_BLINDS_PERSONA)
-    ).toBe(false);
+      FIXED_LIMIT_SCRIPTED_FIELD_CARDS.filter(
+        (m) => m.humanPersona === FLH_VALUE_ONLY_BLINDS_PERSONA
+      ).map((m) => [m.name, m.b])
+    ).toEqual([
+      [
+        'flh_style_release_noise_aware_steal_vs_value_only_blinds',
+        { fixedLimitStealVsTightBlinds: true },
+      ],
+    ]);
     // Fixed seed and size: deterministic for a strategy build (measured 2026-11-21: 29 of 900).
     const r = await runMatchup(card, 900, 20261120);
     expect(r.illegalActions).toBe(0);
@@ -1172,4 +1182,24 @@ describe('the no-limit probe history (LeagueMatchup.probeHistoryHands)', () => {
     // The scripted field deals flh cards only; nlh is its warm-up variant.
     await expect(runMatchup({ ...base, variant: 'nlh' }, 1, 1)).rejects.toThrow(/deals flh/);
   });
+});
+
+describe('the noise-aware style-shift release card (2026-11-21)', () => {
+  it('measures the release under the steal against the value-only blinds, with every action legal', async () => {
+    const card = LEAGUE_MATCHUPS.find(
+      (m) => m.name === 'flh_style_release_noise_aware_steal_vs_value_only_blinds'
+    )!;
+    expect(card.humanPersona).toBe(FLH_VALUE_ONLY_BLINDS_PERSONA);
+    expect(card.a).toEqual({
+      fixedLimitStealVsTightBlinds: true,
+      styleShiftReleaseIsNoiseAware: true,
+    });
+    expect(card.b).toEqual({ fixedLimitStealVsTightBlinds: true });
+    // Fixed seed and size (measured 2026-11-21: 22 of 3,000 at seed 20261120).
+    const r = await runMatchup(card, 3000, 20261120);
+    expect(r.illegalActions).toBe(0);
+    expect(r.truncatedStreets).toBe(0);
+    expect(r.brainExceptionFallbacks).toBe(0);
+    expect(r.divergentPairs).toBeGreaterThan(0);
+  }, 300_000);
 });
