@@ -18,6 +18,8 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   DEFAULT_COMPARE_HOURS,
   DEFAULT_HEALTH_URL,
@@ -29,6 +31,10 @@ import {
   resolveLinkedSupabaseWorkdir,
   runPostCutoverAudit,
 } from './post-cutover-audit-lib.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+export const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 const USAGE = `Usage: node scripts/ops/post-cutover-audit.mjs [options]
 
@@ -43,7 +49,7 @@ Options:
   -h, --help                    Show this help text
 `;
 
-function createRealDeps({ cwd, supabaseWorkdir }) {
+export function createRealDeps({ cwd = REPO_ROOT, supabaseWorkdir } = {}) {
   const linkedWorkdir =
     supabaseWorkdir ??
     resolveLinkedSupabaseWorkdir({
@@ -131,7 +137,7 @@ async function main() {
   }
 
   const deps = createRealDeps({
-    cwd: process.cwd(),
+    cwd: REPO_ROOT,
     supabaseWorkdir: options.supabaseWorkdir,
   });
 
@@ -144,7 +150,12 @@ async function main() {
   process.exit(report.passed ? 0 : 1);
 }
 
-main().catch((err) => {
-  process.stderr.write(`Fatal error: ${err instanceof Error ? err.message : String(err)}\n`);
-  process.exit(2);
-});
+const isDirectRun =
+  process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+
+if (isDirectRun) {
+  main().catch((err) => {
+    process.stderr.write(`Fatal error: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(2);
+  });
+}

@@ -34,20 +34,23 @@ import {
   checkMaintenanceAndCutoverHold,
   evaluatePickup,
   evaluatePreflight,
+  extractAlarmBaseline,
   formatSwitchChangeLogLine,
   parseCliArgs,
+  parseReleaseDefaultOnOptions,
   parseSupabaseQueryJson,
 } from './horse-option-switch-lib.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
+const HORSE_OPTION_SWITCH_SOURCE_PATH = 'server/src/engine/HorseOptionSwitch.ts';
 
 export const USAGE = `Usage:
   node scripts/ops/horse-option-switch.mjs status [--json] [--health-url <url>] [--windows-file <path>] [--inbox-file <path>]
   node scripts/ops/horse-option-switch.mjs preflight <option> <off|shadow|on_shadow|on> [flags]
   node scripts/ops/horse-option-switch.mjs set <option> <off|shadow|on_shadow|on> --reason <text> --authority <ref> [--evidence-sha <64-hex>] --changed-by <actor> [--log-file <path>] [--dry-run] [--rollback] [--allow-window-override]
-  node scripts/ops/horse-option-switch.mjs verify-pickup <option> <off|shadow|on_shadow|on> [--baseline <n>] [--min-workers <n>]
+  node scripts/ops/horse-option-switch.mjs verify-pickup <option> <off|shadow|on_shadow|on> [--baseline <n>] [--min-workers <n>] [--alarm-baseline <json>]
 
 Legal states: ${LEGAL_STATES.join(', ')}
 `;
@@ -151,12 +154,23 @@ function loadOwnerWindows(windowsFile, readFile) {
   }
 }
 
-function loadInboxText(inboxFile, requireInbox, readFile) {
+function loadInboxText(inboxFile, readFile) {
   if (!inboxFile) return undefined;
   try {
     return readFile(inboxFile);
   } catch {
-    return requireInbox ? null : null;
+    return null;
+  }
+}
+
+function resolveReleaseDefaultOn(option, readFile) {
+  try {
+    const resolved = resolve(REPO_ROOT, HORSE_OPTION_SWITCH_SOURCE_PATH);
+    if (readFile === defaultReadFile && !existsSync(resolved)) return false;
+    const source = readFile(HORSE_OPTION_SWITCH_SOURCE_PATH);
+    return parseReleaseDefaultOnOptions(source).has(option);
+  } catch {
+    return false;
   }
 }
 
@@ -197,7 +211,7 @@ async function handleStatus(flags, deps) {
   const recentConfigAlarms = deps.queryDb(queries.recentConfigAlarms);
   const engineHealth = await deps.fetchHealth(flags.healthUrl);
   const ownerWindowsConfig = loadOwnerWindows(flags.windowsFile, deps.readFile);
-  const inboxText = loadInboxText(flags.inboxFile, flags.requireInbox, deps.readFile);
+  const inboxText = loadInboxText(flags.inboxFile, deps.readFile);
 
   const maintenanceHold = checkMaintenanceAndCutoverHold({
     nowUtc,
@@ -297,7 +311,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
   const recentConfigAlarms = deps.queryDb(queries.recentConfigAlarms);
   const engineHealth = await deps.fetchHealth(flags.healthUrl);
   const ownerWindowsConfig = loadOwnerWindows(flags.windowsFile, deps.readFile);
-  const inboxText = loadInboxText(flags.inboxFile, flags.requireInbox, deps.readFile);
+  const inboxText = loadInboxText(flags.inboxFile, deps.readFile);
 
   const resolvedEvidenceSha = resolveEvidenceSha(flags, deps.readFileBuffer);
   let evidenceRecorded = null;
@@ -305,6 +319,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
     const evRows = deps.queryDb(buildEvidenceLookupSql(safeOpt, resolvedEvidenceSha));
     evidenceRecorded = evRows.length > 0;
   }
+  const releaseDefaultOn = resolveReleaseDefaultOn(safeOpt, deps.readFile);
 
   const result = evaluatePreflight({
     option: safeOpt,
@@ -322,6 +337,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
     servingRegistries,
     registryRefusal,
     evidenceRecorded,
+    releaseDefaultOn,
     dbMaintenance,
     ownerWindowsConfig,
     engineHealth,
@@ -461,10 +477,12 @@ async function handleSet(positionals, flags, deps) {
     return { exitCode: 0, data: payload };
   }
 
-  // Capture telemetry baseline before the write so verify-pickup has an exact baseline.
+  // Capture telemetry baseline before the write so verify-pickup has an exact baseline
+  // (including pre-existing config alarms from earlier in the 24-48h window).
   const preTelemetry = deps.queryDb(buildPickupTelemetrySql(option, targetState));
   const seenFeature = `option_switch_${option}_${targetState}_seen`;
   const preBaseline = Number(preTelemetry.find((r) => r.feature === seenFeature)?.fires ?? 0);
+  const preAlarmBaseline = extractAlarmBaseline(preTelemetry);
 
   // Execute the switch write via supabase db query --linked (service-role SECURITY DEFINER RPC).
   deps.queryDb(sql);
@@ -505,9 +523,15 @@ async function handleSet(positionals, flags, deps) {
     auditId: row.latest_audit_id ?? null,
     note,
     prePickupBaseline: preBaseline,
+    preAlarmBaseline,
     logFile: flags.logFile || null,
     logLine,
   };
+
+  const alarmBaselineArg =
+    Object.keys(preAlarmBaseline).length > 0
+      ? ` --alarm-baseline '${JSON.stringify(preAlarmBaseline)}'`
+      : '';
 
   if (flags.json) {
     deps.stdout(JSON.stringify(payload, null, 2));
@@ -518,7 +542,7 @@ async function handleSet(positionals, flags, deps) {
         `   updated_at: ${row.updated_at} (audit#${row.latest_audit_id ?? '?'})`,
         `   log line:   ${logLine}`,
         flags.logFile ? `   appended:   ${flags.logFile}` : '   log file:   (not provided)',
-        `   next step:  node scripts/ops/horse-option-switch.mjs verify-pickup ${option} ${targetState} --baseline ${preBaseline}`,
+        `   next step:  node scripts/ops/horse-option-switch.mjs verify-pickup ${option} ${targetState} --baseline ${preBaseline}${alarmBaselineArg}`,
       ].join('\n')
     );
   }
@@ -540,6 +564,7 @@ async function handleVerifyPickup(positionals, flags, deps) {
     telemetryRows,
     baseline: flags.baseline,
     minWorkers: flags.minWorkers ?? DEFAULT_MIN_PICKUP_WORKERS,
+    alarmBaseline: flags.alarmBaseline ?? {},
   });
 
   const payload = {
