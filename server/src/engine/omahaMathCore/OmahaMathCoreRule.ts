@@ -655,11 +655,13 @@ export function omahaMathCoreRule(
       gs,
       opts.omahaMathCoreNetsTheWholeDeduction === true
     );
-    // B3 fast-path (lane core-repair, 2026-11-22): on PLO4/PLO5 cash turn/river when a live
-    // opponent-lifetime HUD packet is installed (Stage 1), ONLY fold -> plain call proven by
-    // priceTurnRiverLifetimeCall (plus CURRENT_NUTS_CALL_FLOOR) is permitted. Skip the wasted
-    // decideOmahaMathCore() Monte Carlo/value-search pass whose choice would be discarded,
-    // saving 10-57 ms per decision with bit-identical action outputs.
+    // B3 fast-path (lane core-repair, 2026-11-22; audit P0-1 & P0-2): on PLO4/PLO5 cash turn/river
+    // against a live incumbent ('today'), NEVER fall through to the failed, uncertified population
+    // turn/river decideOmahaMathCore() pass — even when no opponent-lifetime HUD packet is installed.
+    // ONLY fold -> plain call proven by priceTurnRiverLifetimeCall (when trProv.active(trVariant))
+    // plus CURRENT_NUTS_CALL_FLOOR is permitted. Any unpriced kept decision sets owned: false so
+    // downstream safety doors (commit-door, V44 Second Look, Lightning fold-through, Phase 8-14
+    // withdrawals) retain full authority.
     const trStage = String(gs.stage);
     const trVariantRaw = String(gs.gameVariant).toLowerCase();
     const trVariant: 'plo4' | 'plo5' | null =
@@ -668,8 +670,7 @@ export function omahaMathCoreRule(
     if (
       incumbent === 'today' &&
       trVariant !== null &&
-      (trStage === 'turn' || trStage === 'river') &&
-      trProv?.active?.(trVariant) === true
+      (trStage === 'turn' || trStage === 'river')
     ) {
       const trT0 = now();
       const keepInc: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
@@ -680,6 +681,7 @@ export function omahaMathCoreRule(
       let trSamples = 0;
       let trEv: number | null = incoming.action === 'fold' ? 0 : null;
       if (
+        trProv?.active?.(trVariant) === true &&
         incoming.action === 'fold' &&
         coreState.aggressorSeat !== null &&
         coreState.line !== null &&
@@ -789,6 +791,8 @@ export function omahaMathCoreRule(
         samples: trSamples,
         ms: Math.round((now() - trT0) * 10) / 10,
       };
+      const trKeptUnpriced =
+        trLegal.action === incoming.action && trLegal.amount === (incoming.amount ?? undefined);
       const trOut: HorseDecision = {
         ...decision,
         action: trLegal.action,
@@ -801,6 +805,9 @@ export function omahaMathCoreRule(
           incoming,
           error: null,
           core: trReceipt,
+          // Audit P0-2: unpriced kept turn/river decisions belong to the baseline rules, not the core,
+          // so omahaMathCoreOwns() returns false and downstream safety doors keep full authority.
+          ...(trKeptUnpriced ? { owned: false as const } : {}),
         },
       };
       if (trLegal.amount === undefined) delete trOut.amount;
@@ -925,10 +932,10 @@ export function omahaMathCoreRule(
         }
       }
     }
-    // RIVER-CORE criterion 3: on the PLO5 cash river (when not governed by a lifetime HUD record above,
-    // which already returned on the B3 fast-path before decideOmahaMathCore) the core may only turn
+    // RIVER-CORE criterion 3: on the PLO5 cash river against a live incumbent ('today', never during
+    // standalone omahaMathCoreRecover where incumbent === 'none'; audit P1-5) the core may only turn
     // today's fold into a plain call.
-    if (trVariant === 'plo5' && trStage === 'river') {
+    if (incumbent === 'today' && trVariant === 'plo5' && trStage === 'river') {
       const keep: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
       if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
         keep.amount = incoming.amount;
