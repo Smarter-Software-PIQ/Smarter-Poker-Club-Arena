@@ -1432,6 +1432,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMadeAndPairedBetsArePricedOnHisResponse',
+    'PLO-OWNER lane REPLACEMENTS-5 2026-11-21 (R5; freeing #19 omahaMadeHandDefenseVsValueLeader and #9/#10/#11 value-leader / paired-board bet-or-check rules). PLO4/PLO5 cash (table and Lightning where omahaPricedInLightning opens it), high only, one board, no bomb pot, turn and river only; default OFF, strict === true. Prices turn/river bets in the #19 and #9/#10/#11 spots (HU and multiway, acting even when those legacy switches are OFF) via omahaCardImpact with each live opponent lifetime HUD response curve (fb.{sm|bg}.{hu|mw}, rBet.{hu|mw}, stab.{hu|mw}), shrunk n/(n+k) with no cliff and no person-vs-Horse key, and prove-it-to-check guard (evBet - evCheck >= -(sampleSe + readSpread)). PLO6, hi-lo, bomb pots, hold-em and tournaments are out of scope.',
+    'V94'
+  ),
+  flag(
     'omahaNoDrawRaiseOutOfPosition',
     'Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS."): on a PLO4/PLO5 cash flop or turn the existing raises with a draw (below two pair, with a flush draw or 8+ straight outs: the baseline semi-bluff raise, the pressure semi-bluff raise, the combo draw pump, and any other raise reaching the final answer) are not made out of position, nor in position with a bare flush draw; the three sites fall through to the call-or-fold verdict, any other raise becomes a call; two pair or better is untouched (HorseOmahaBigDrawAggression.omahaDrawRaiseBar). Default OFF (opt-in); league cards plo4/plo5 _omaha_no_draw_raise_out_of_position',
     'V94'
@@ -6427,6 +6432,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_big_draw_bet_on_his_response_final_check_unpriced',
     'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
     'R4: a checked-to flop/turn big-draw bet would have been vetoed by a final check rule, so it was withheld without sampling equities',
+    'V94'
+  ),
+  receipt(
+    'omaha_made_paired_bet_on_his_response_kept',
+    'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
+    'a turn or river made-hand or paired-board bet stands under prove-it-to-check (evBet - evCheck >= -(sampleSe + readSpread)) on lifetime HUD fold/raise-back/stab response',
+    'V94'
+  ),
+  receipt(
+    'omaha_made_paired_bet_on_his_response_checked',
+    'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
+    'the same spot: checking beats the bet beyond sampling and lifetime HUD uncertainty, so the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_made_paired_bet_on_his_response_unpriced_kept',
+    'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
+    'the same spot could not be priced (an opponent all in, invalid stack/pot, no card-impact sample): the decision is kept',
     'V94'
   ),
   receipt(

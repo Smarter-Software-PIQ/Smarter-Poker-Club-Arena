@@ -4705,6 +4705,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBigDrawBetIsPricedOnHisResponse: true },
     b: {},
   })),
+  // 2026-11-22 R5 v3 (omahaMadeAndPairedBetsArePricedOnHisResponse, default OFF): replaces the
+  // bet-or-check halves of #19 and #9/#10/#11 on turn/river in PLO4/PLO5 cash using ONE
+  // lifetime HUD source (fb.sm/fb.bg, rBet, stab) via omahaCardImpact; a switches it on.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_made_and_paired_bets_are_priced_on_his_response`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaMadeAndPairedBetsArePricedOnHisResponse: true },
+    b: {},
+  })),
   // 2026-11-15 12:30 owner ruling (no draw raise out of position, no bare
   // flush draw raise in position), applied to the existing draw raises;
   // default OFF. a switches it on, b is today's brain.

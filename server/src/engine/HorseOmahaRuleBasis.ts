@@ -172,6 +172,17 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     price:
       'the checked-to big-draw bet beside the check with evBet - evCheck > sampleSe + readSpread and evBet > 0',
   },
+  omahaMadeAndPairedBetsArePricedOnHisResponse: {
+    kind: 'priced',
+    range:
+      'each live opponent range on turn and river made-hand and paired-board bet spots using lifetime public HUD fold (fb.sm/fb.bg), raise-vs-bet (rBet), and stab rates shrunk n/(n+k) via hudStat',
+    equity:
+      'exact/sampled Omaha equity via omahaCardImpact against continuing, raising, and stabbing ranges with exact 3-branch multiway EV',
+    realization:
+      'lifetime public HUD fold-to-bet, raise-vs-bet, and stab rates with street realization',
+    price:
+      'the turn or river made-hand or paired-board bet beside the check with prove-it-to-check guard evBet - evCheck >= -(sampleSe + readSpread)',
+  },
   omahaBigBetSizeIsPriced: {
     kind: 'priced',
     range:
@@ -706,6 +717,12 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_big_draw_bet_on_his_response_final_check_unpriced: exempt(
     'scope',
     'R4 unpriced pass-through receipt when a checked-to big-draw spot cannot be priced; keeps check'
+  ),
+  omaha_made_paired_bet_on_his_response_kept: CARD_IMPACT,
+  omaha_made_paired_bet_on_his_response_checked: CARD_IMPACT,
+  omaha_made_paired_bet_on_his_response_unpriced_kept: exempt(
+    'scope',
+    'R5 unpriced pass-through receipt when a turn/river made-hand or paired-board spot cannot be priced; keeps decision'
   ),
   omaha_flop_bet_on_his_response_checked: CARD_IMPACT,
   omaha_flop_bet_on_his_response_kept: CARD_IMPACT,

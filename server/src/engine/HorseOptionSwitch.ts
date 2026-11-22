@@ -403,6 +403,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)
   'omahaBigDrawBetIsPricedOnHisResponse',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R5 turn/river made-hand & paired-board bets priced on lifetime HUD (ships dark)
+  'omahaMadeAndPairedBetsArePricedOnHisResponse',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',

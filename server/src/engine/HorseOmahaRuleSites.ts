@@ -429,6 +429,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBigDrawBetIsPricedOnHisResponse: priced(
     'R4: PLO4/PLO5 cash flop/turn checked-to big-draw bets priced on lifetime HUD fold, raise-back and stab cells with a prove-it-to-bet bar (default OFF)'
   ),
+  omahaMadeAndPairedBetsArePricedOnHisResponse: priced(
+    'R5: turn/river made-hand defense (#19) and paired-board / OOP barrel (#9/#10/#11) bets priced beside the check via omahaCardImpact with lifetime HUD fold, raise-back (rBet) and stab cells and prove-it-to-check bar (default OFF)'
+  ),
   omahaStrongHandValue: priced('value bet, induce check and value raise by expected value'),
   omahaStrongHandSlowplayMix: priced('a mixed frequency over a priced raise and call'),
   omahaSlowplayMixInLightning: priced(

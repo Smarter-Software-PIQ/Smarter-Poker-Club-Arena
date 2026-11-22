@@ -194,6 +194,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaCommitZoneThreeBetPriceRelief',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to big-draw bets priced on lifetime HUD
   'omahaBigDrawBetIsPricedOnHisResponse',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R5 turn/river made-hand & paired-board bets priced on lifetime HUD
+  'omahaMadeAndPairedBetsArePricedOnHisResponse',
 ]);
 
 const SCOPABLE: ReadonlySet<string> = new Set(OMAHA_OPTION_GAME_SCOPE_OPTIONS);

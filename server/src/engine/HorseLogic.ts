@@ -1056,6 +1056,10 @@ import {
   withOmahaStrategyGameScope,
 } from './HorseOmahaStrategyGame.js';
 import { omahaBigDrawBetOnHisResponseRule } from './HorseOmahaBigDrawBetPriced.js';
+import {
+  omahaMadeAndPairedBetOnHisResponseRule,
+  omahaMadeAndPairedBetsResponseInScope,
+} from './HorseOmahaMadeAndPairedBetsPriced.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -4652,6 +4656,11 @@ export interface HorseDecideOpts {
    * raise-back and stab cells with a prove-it-to-bet uncertainty bar (replaces the
    * checked-to half of omahaBigDrawAggression without categorical OOP bars). */
   omahaBigDrawBetIsPricedOnHisResponse?: boolean;
+  /** R5 (lane REPLACEMENTS-5 2026-11-21, default OFF, strict === true, PLO4/PLO5 cash, turn & river):
+   * replaces the bet-or-check halves of #19 omahaMadeHandDefenseVsValueLeader and #9/#10/#11 value-leader /
+   * paired-board rules via omahaCardImpact with lifetime HUD fold, raise-back (rBet), and stab response,
+   * identity-free, with prove-it-to-check uncertainty bar. */
+  omahaMadeAndPairedBetsArePricedOnHisResponse?: boolean;
   /** Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF
    * POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH
    * DRAWS."): on a PLO4/PLO5 cash flop or turn the brain's existing raises
@@ -12082,6 +12091,11 @@ function pairedBoardRiverCheck(
     }
     if (priced && telemetryOn(opts)) noteFire('plo6_facing_bet_priced_paired_river_check_priced');
   }
+  // R5 omahaMadeAndPairedBetsArePricedOnHisResponse (default off): PLO4/PLO5 cash, priced on lifetime HUD response.
+  if (opts.omahaMadeAndPairedBetsArePricedOnHisResponse === true) {
+    const priced = omahaMadeAndPairedBetOnHisResponseRule(decision, player, gs, opts);
+    if (priced !== null) return priced;
+  }
   // omahaPairedBoardBetIsPriced (default off): PLO4/PLO5 cash, the river bet is priced beside the check.
   if (opts.omahaPairedBoardBetIsPriced === true) {
     const priced = omahaPricedPairedBoardBetRule(decision, player, gs, opts);
@@ -13179,7 +13193,17 @@ function omahaOopCheckRulesCore(
   // categorical rule acts (in position, or with omahaBareOverpairOopFlopCheck off): they must reach the flop branch.
   const flopPricedOn =
     opts.omahaFlopBetIsPriced === true || opts.omahaFlopBetIsPricedOnHisResponse === true;
-  if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn && !oopTurnOn && !flopPricedOn)
+  const madePairedResponseOn = opts.omahaMadeAndPairedBetsArePricedOnHisResponse === true;
+  if (
+    !flopOn &&
+    !turnOn &&
+    !riverOn &&
+    !pairedTurnOn &&
+    !planOn &&
+    !oopTurnOn &&
+    !flopPricedOn &&
+    !madePairedResponseOn
+  )
     return decision;
   // omahaOopTurnCheckAfterFlopCall, facing the turn bet after the check: the
   // one place these rules touch a decision facing a wager. The same rule runs
@@ -13266,6 +13290,21 @@ function omahaOopCheckRulesCore(
       if (tele) noteFire('omaha_turn_bet_without_river_plan_checked');
       return checked();
     };
+    // R5 omahaMadeAndPairedBetsArePricedOnHisResponse (default off): acts in #9/#10/#11 spots even with those rows off.
+    if (
+      madePairedResponseOn &&
+      omahaMadeAndPairedBetsResponseInScope(player, gs, opts) &&
+      ((stage === 'turn' &&
+        (omahaOverpairOopTurnBarrelSpot(player, gs) ||
+          omahaPairedTurnBarrelSpot(player, gs) ||
+          (omahaPairedBoardNoBoatSpot(player, gs) !== null && !omahaNutClassNow(player, gs)))) ||
+        (stage === 'river' &&
+          (omahaPairedRiverThinLeadSpot(player, gs) ||
+            (omahaPairedBoardNoBoatSpot(player, gs) !== null && !omahaNutClassNow(player, gs)))))
+    ) {
+      const priced = omahaMadeAndPairedBetOnHisResponseRule(decision, player, gs, opts);
+      if (priced !== null) return priced.action === 'check' ? priced : riverPlan();
+    }
     // omahaPairedBoardBetIsPriced (default off): in every spot these rules check a bet against a
     // value leader, the bet is priced beside the check against every opponent, whatever his label.
     if (
@@ -13410,11 +13449,26 @@ function omahaMadeHandDefenseRules(
     vsValueLeader && flatRaw.changed !== null && !leaders() ? { decision, changed: null } : flatRaw;
   if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
   if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
-  const noBetRaw = omahaBeatenNoBet(flat.decision, player, gs, defenseOn || vsValueLeader);
+  const r5MadeOn = omahaMadeAndPairedBetsResponseInScope(player, gs, opts);
+  const noBetRaw = omahaBeatenNoBet(
+    flat.decision,
+    player,
+    gs,
+    defenseOn || vsValueLeader || r5MadeOn
+  );
+  // R5 omahaMadeAndPairedBetsArePricedOnHisResponse (default off): prices the #19 bet-or-check spot on lifetime HUD.
+  const r5NoBet =
+    r5MadeOn && noBetRaw.changed !== null
+      ? omahaMadeAndPairedBetOnHisResponseRule(flat.decision, player, gs, opts)
+      : null;
   // omahaMadeHandBetIsPriced (default off): in the rule's spot the wager is priced beside the
   // check against every live opponent, whatever his label; the rule's own receipts do not fire.
   const pricedNoBet =
-    noBetRaw.changed !== null ? omahaPricedSitesMadeHandBet(flat.decision, player, gs, opts) : null;
+    r5NoBet !== null
+      ? r5NoBet
+      : noBetRaw.changed !== null
+        ? omahaPricedSitesMadeHandBet(flat.decision, player, gs, opts)
+        : null;
   const noBet =
     pricedNoBet !== null
       ? { decision: pricedNoBet, changed: null }
