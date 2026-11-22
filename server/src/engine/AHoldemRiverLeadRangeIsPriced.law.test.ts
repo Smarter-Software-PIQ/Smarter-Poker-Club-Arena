@@ -57,6 +57,10 @@ import {
   type HoldemRiverLeadRangePricedGateInput,
   type HoldemRiverLeadRangePricedInput,
 } from './HorseHoldemRiverLeadRangeIsPriced.js';
+import {
+  estimateHoldemRiverFoldToRaise,
+  holdemVillainRaiseCallPrice,
+} from './holdemEmpiricalPriors.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { OPTION_SWITCH_REFUSED, optionSwitchRefusal } from './HorseOptionSwitch.js';
@@ -362,7 +366,60 @@ describe('LAW: holdemRiverLeadRangePricedVerdict pure EV pricing & conservation 
       const b = ck.villainBetWhenCheckedTo;
       const checkTotal = (1 - b) * ck.eqVsCheckBack + b * ck.eqVsVillainBet;
       expect(checkTotal).toBeCloseTo(eq, 8);
+    }
+  });
 
+  it('prices OOP check-raise using post-stab pot (pot + villainBetAmount) and remaining villain stack (effStack - villainBetAmount)', () => {
+    const input = baseVerdictInput({
+      pot: 100,
+      heroStack: 300,
+      villainStack: 300,
+      bigBlind: 2,
+      showdownEquity: 0.98,
+      callDeductionFraction: 0.05,
+    });
+    const ck = evaluateHoldemRiverOopCheck(input);
+    const vBet = ck.villainBetAmount;
+    const xrTo = Math.min(300, Math.max(vBet + Math.max(2, vBet), 100 + vBet * 1.5));
+    const expectedPrice = holdemVillainRaiseCallPrice(
+      100 + vBet,
+      xrTo,
+      0,
+      vBet,
+      300,
+      Math.max(0, 300 - vBet)
+    );
+    // Exact algebraic identity: (xrTo - vBet) / (pot + 2 * xrTo)
+    expect(expectedPrice).toBeCloseTo((xrTo - vBet) / (100 + 2 * xrTo), 12);
+
+    // Must NOT match the stale pre-stab pot formula (pot instead of pot + vBet).
+    const staleBuggyPrice = holdemVillainRaiseCallPrice(100, xrTo, 0, vBet, 300, 300);
+    expect(expectedPrice).toBeLessThan(staleBuggyPrice - 0.02);
+
+    // Recompute exact evCheckRaise with expectedPrice and assert evaluateHoldemRiverOopCheck matches to 1e-10.
+    const xrAllIn = xrTo >= 300 - 1e-4;
+    const pFoldXr = Math.max(
+      0.12,
+      Math.min(
+        0.78,
+        estimateHoldemRiverFoldToRaise({
+          raiseKind: xrAllIn ? 'all_in_raise' : 'non_allin_raise',
+          villainCallPrice: expectedPrice,
+        }).mean
+      )
+    );
+    const xrCallMass = Math.max(1e-9, ck.villainBetWhenCheckedTo * (1 - pFoldXr));
+    const eqVsXrCall = Math.max(0, Math.min(1, Math.max(0, 0.98 - (1 - xrCallMass)) / xrCallMass));
+    const expectedEvXr =
+      pFoldXr * (100 + vBet) * 0.95 +
+      (1 - pFoldXr) * (eqVsXrCall * (100 + 2 * xrTo) * 0.95 - xrTo) -
+      0.02 * xrTo;
+    expect(ck.evCheckRaise).toBeCloseTo(expectedEvXr, 10);
+  });
+
+  it('conserves exact unconditional showdown equity across lead candidate quantile partitions', () => {
+    for (const eq of [0.05, 0.22, 0.48, 0.65, 0.82, 0.96]) {
+      const input = baseVerdictInput({ showdownEquity: eq });
       const v = holdemRiverLeadRangePricedVerdict(input);
       for (const cand of v.candidates) {
         expect(cand.foldProb + cand.callProb + cand.raiseProb).toBeCloseTo(1, 8);

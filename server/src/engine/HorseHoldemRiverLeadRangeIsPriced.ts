@@ -500,12 +500,12 @@ export function evaluateHoldemRiverOopCheck(
     );
     const xrAllIn = xrTo >= effStack - 1e-4;
     const vCallPrice = holdemVillainRaiseCallPrice(
-      pot,
+      pot + villainBetAmount,
       xrTo,
       0,
       villainBetAmount,
       effStack,
-      effStack
+      Math.max(0, effStack - villainBetAmount)
     );
     const xrFoldEst = estimateHoldemRiverFoldToRaise(
       { raiseKind: xrAllIn ? 'all_in_raise' : 'non_allin_raise', villainCallPrice: vCallPrice },
