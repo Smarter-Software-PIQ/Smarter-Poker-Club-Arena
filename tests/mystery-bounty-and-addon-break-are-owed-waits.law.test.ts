@@ -23,17 +23,31 @@
  * scripts/ci/test-hand-gap-watch.py (Phase 4).
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 const ROOT = join(__dirname, '..');
 const dir = join(ROOT, 'supabase', 'migrations');
 const FILE = '20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql';
+const PARITY_FILE = '20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql';
 const sql = readFileSync(join(dir, FILE), 'utf8');
+const paritySql = readFileSync(join(dir, PARITY_FILE), 'utf8');
 const proofScript = readFileSync(join(ROOT, 'scripts', 'ci', 'test-hand-gap-watch.py'), 'utf8');
 const migrations = readdirSync(dir)
   .filter((f) => f.endsWith('.sql'))
   .sort();
+
+function walkTs(root: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(root)) {
+    if (entry === 'node_modules' || entry === 'dist') continue;
+    const full = join(root, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) out.push(...walkTs(full));
+    else if (entry.endsWith('.ts') && !entry.includes('.test.')) out.push(full);
+  }
+  return out;
+}
 
 describe('mystery bounty chest reveals and add-on breaks are owed waits', () => {
   it('excludes Mystery Bounty chest reveals and add-on breaks by exact single-match anchor without dropping prior exclusions', () => {
@@ -56,7 +70,7 @@ describe('mystery bounty chest reveals and add-on breaks are owed waits', () => 
     expect(sql).toContain('AND NOT EXISTS (SELECT 1 FROM tournaments t');
   });
 
-  it('the newest hand_gap_classification runbook scans 15 minutes, classifies mystery_bounty and addon_break, and never treats tournament busts as intended rebuys', () => {
+  it('the newest hand_gap_classification runbook scans 15 minutes, classifies mystery_bounty and addon_break, never treats tournament busts as intended rebuys, and stays in parity with the grader', () => {
     const newestRunbookFile = migrations
       .filter((m) =>
         readFileSync(join(dir, m), 'utf8').includes(
@@ -64,11 +78,12 @@ describe('mystery bounty chest reveals and add-on breaks are owed waits', () => 
         )
       )
       .pop();
-    expect(newestRunbookFile).toBe(FILE);
-    const bodyStart = sql.indexOf(
+    expect(newestRunbookFile).toBe(PARITY_FILE);
+    const newestSql = readFileSync(join(dir, newestRunbookFile!), 'utf8');
+    const bodyStart = newestSql.indexOf(
       'CREATE OR REPLACE FUNCTION smarter_private.reliability_runbook_hand_gap_classification('
     );
-    const body = sql.slice(bodyStart, sql.indexOf('$function$;', bodyStart));
+    const body = newestSql.slice(bodyStart, newestSql.indexOf('$function$;', bodyStart));
     expect(body).toContain("interval '15 minutes'");
     expect(body).toContain("THEN 'mystery_bounty'");
     expect(body).toContain("THEN 'addon_break'");
@@ -78,23 +93,77 @@ describe('mystery bounty chest reveals and add-on breaks are owed waits', () => 
     expect(body).toContain(
       "key IN ('hand_for_hand', 'mystery_bounty', 'addon_break', 'tournament_break', 'maintenance_break', 'rebuy')"
     );
+    expect(body).toContain("pair.next_cadence->>'all_in_showdown' = 'true'");
+    expect(body).toContain("pair.next_cadence->>'bets_sweep_owed' = 'true'");
+    expect(body).toContain(
+      "WHERE pl->>'userId' = sd->>'user_id' AND coalesce((pl->>'stack')::numeric, 1) = 0"
+    );
+    expect(body).toContain(
+      "count(DISTINCT (coalesce(aw->>'board', '1'), coalesce(aw->>'potIndex', pp->>'index', '0'), coalesce(aw->>'low', 'false')))"
+    );
   });
 
-  it('locks down grants, probes both functions, carries a live proof, and is exercised in test-hand-gap-watch.py', () => {
-    expect(sql).toContain(
-      'REVOKE ALL ON FUNCTION public.fn_ca_hand_gap_unintended_delay(timestamptz, int) FROM PUBLIC, anon, authenticated;'
+  it('locks down grants, probes both functions, carries live proofs, and exercises both migrations in test-hand-gap-watch.py', () => {
+    for (const [name, content] of [
+      [FILE, sql],
+      [PARITY_FILE, paritySql],
+    ] as const) {
+      expect(content, name).toContain(
+        'REVOKE ALL ON FUNCTION public.fn_ca_hand_gap_unintended_delay(timestamptz, int) FROM PUBLIC, anon, authenticated;'
+      );
+      expect(content, name).toContain(
+        'GRANT EXECUTE ON FUNCTION public.fn_ca_hand_gap_unintended_delay(timestamptz, int) TO service_role;'
+      );
+      expect(content, name).toContain(
+        'REVOKE ALL ON FUNCTION smarter_private.reliability_runbook_hand_gap_classification(uuid, boolean, jsonb, timestamptz) FROM PUBLIC, anon, authenticated;'
+      );
+      expect(content, name).toContain('-- @probe-for: public.fn_ca_hand_gap_unintended_delay');
+      expect(content, name).toContain(
+        '-- @probe-for: smarter_private.reliability_runbook_hand_gap_classification'
+      );
+      expect(content, name).toMatch(/^-- @live-proof: /m);
+      expect(proofScript, name).toContain(name);
+    }
+    expect(paritySql).toContain(
+      "(length(v_def) - length(replace(v_def, c_old, ''))) / length(c_old) <> 1"
     );
-    expect(sql).toContain(
-      'GRANT EXECUTE ON FUNCTION public.fn_ca_hand_gap_unintended_delay(timestamptz, int) TO service_role;'
-    );
-    expect(sql).toContain(
-      'REVOKE ALL ON FUNCTION smarter_private.reliability_runbook_hand_gap_classification(uuid, boolean, jsonb, timestamptz) FROM PUBLIC, anon, authenticated;'
-    );
-    expect(sql).toContain('-- @probe-for: public.fn_ca_hand_gap_unintended_delay');
-    expect(sql).toContain(
-      '-- @probe-for: smarter_private.reliability_runbook_hand_gap_classification'
-    );
-    expect(sql).toMatch(/^-- @live-proof: /m);
-    expect(proofScript).toContain(FILE);
+    expect(paritySql).toContain("pair.next_cadence->>'all_in_showdown' = 'true'");
+    expect(paritySql).toContain("pair.next_cadence->>'bets_sweep_owed' = 'true'");
+    expect(paritySql).toContain('count(DISTINCT');
+  });
+
+  it('every non-test holdDealingUntil() call site in server/src is accounted for by the hand-gap grader', () => {
+    // COUPLING LAW (2026-11-22, incident 1e532243): Mystery Bounty chest reveals
+    // and add-on breaks both paged fn_ca_hand_gap_watch because new inter-hand
+    // holdDealingUntil() calls were added without matching grader exclusions.
+    // Any new file calling holdDealingUntil() must be reviewed and covered in
+    // fn_ca_hand_gap_unintended_delay + reliability_runbook_hand_gap_classification
+    // before extending this allowlist.
+    const callSites: Array<{ file: string; line: string }> = [];
+    for (const full of walkTs(join(ROOT, 'server', 'src'))) {
+      const rel = relative(ROOT, full);
+      const lines = readFileSync(full, 'utf8').split('\n');
+      for (const raw of lines) {
+        const trimmed = raw.trim();
+        if (
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('*') ||
+          trimmed.startsWith('/*') ||
+          trimmed.includes('public holdDealingUntil(')
+        )
+          continue;
+        if (trimmed.includes('.holdDealingUntil(')) {
+          callSites.push({ file: rel, line: trimmed });
+        }
+      }
+    }
+    const files = [...new Set(callSites.map((s) => s.file))].sort();
+    expect(files).toEqual([
+      'server/src/tournament/TournamentManagerBase.ts',
+      'server/src/tournament/TournamentManagerEliminations.ts',
+    ]);
+    // Every call site in TournamentManagerBase is pre-launch start or add-on break;
+    // the sole call site in TournamentManagerEliminations is Mystery Bounty reveal.
+    expect(callSites.length).toBe(8);
   });
 });

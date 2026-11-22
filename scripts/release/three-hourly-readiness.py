@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import types
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -53,6 +54,7 @@ STAGE_WORKFLOW = "stage-engine-release.yml"
 BACKUP_WORKFLOW = "backup-engine.yml"
 PREQUAL_WORKFLOW = "engine-release-prequalification.yml"
 PREQUAL_PATH = ".github/workflows/" + PREQUAL_WORKFLOW
+PREQUAL_HELPER_PATH = "scripts/ci/read-engine-prequalification.py"
 BACKUP_STATUS_CONTEXT = "backup-engine/certified"
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -124,13 +126,51 @@ def resolve_repo_root(repo_dir=None, script_root=None, cwd=None):
     )
 
 
-def load_prequalification_module(repo_root=ROOT):
-    """Import scripts/ci/read-engine-prequalification.py relative to repo_root."""
+def load_prequalification_module(repo_root=ROOT, control_sha=None):
+    """Import scripts/ci/read-engine-prequalification.py from control_sha blob or repo_root.
+
+    When control_sha (valid 40-hex commit SHA) is provided, reads the exact git
+    blob via `git show <control_sha>:scripts/ci/read-engine-prequalification.py`
+    into an in-memory module cached by (resolved_root, control_sha) so a stale
+    working tree on disk can never skew CONTROL_INPUTS comparisons. When
+    control_sha is None, falls back to the local working-tree file for legacy
+    callers and tests.
+    """
     resolved_root = Path(repo_root).resolve()
-    cached = _PREQUAL_MODULES.get(resolved_root)
+    if control_sha is not None:
+        if not isinstance(control_sha, str) or not SHA_RE.fullmatch(control_sha):
+            raise ReadError(f"invalid control_sha for prequalification reader: {control_sha!r}")
+        cache_key = (resolved_root, control_sha)
+        cached = _PREQUAL_MODULES.get(cache_key)
+        if cached is not None:
+            return cached
+        source = git_read(resolved_root, "show", f"{control_sha}:{PREQUAL_HELPER_PATH}")
+        if not source:
+            raise ReadError(
+                f"empty prequalification reader blob at {control_sha[:12]}:{PREQUAL_HELPER_PATH}"
+            )
+        module = types.ModuleType("read_engine_prequalification")
+        blob_label = f"{resolved_root}:{control_sha}:{PREQUAL_HELPER_PATH}"
+        module.__file__ = blob_label
+        try:
+            code = compile(source, blob_label, "exec")
+            exec(code, module.__dict__)
+        except Exception as exc:
+            raise ReadError(
+                f"failed to load prequalification reader from {control_sha[:12]}:{PREQUAL_HELPER_PATH}: {exc}"
+            ) from exc
+        if not callable(getattr(module, "projection", None)):
+            raise ReadError(
+                f"prequalification reader at {control_sha[:12]}:{PREQUAL_HELPER_PATH} missing projection()"
+            )
+        _PREQUAL_MODULES[cache_key] = module
+        return module
+
+    cache_key = (resolved_root, None)
+    cached = _PREQUAL_MODULES.get(cache_key)
     if cached is not None:
         return cached
-    helper_path = resolved_root / "scripts/ci/read-engine-prequalification.py"
+    helper_path = resolved_root / PREQUAL_HELPER_PATH
     if not helper_path.is_file():
         raise ReadError(f"missing prequalification reader: {helper_path}")
     spec = importlib.util.spec_from_file_location("read_engine_prequalification", helper_path)
@@ -138,7 +178,7 @@ def load_prequalification_module(repo_root=ROOT):
         raise ReadError(f"could not load prequalification reader: {helper_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    _PREQUAL_MODULES[resolved_root] = module
+    _PREQUAL_MODULES[cache_key] = module
     return module
 
 
@@ -156,11 +196,11 @@ def _in_directory(path):
         os.chdir(previous)
 
 
-def control_projection(sha, repo_root=ROOT):
+def control_projection(sha, repo_root=ROOT, control_sha=None):
     """Compute CONTROL_INPUTS projection via read-engine-prequalification.py."""
     if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
         raise ReadError(f"invalid SHA for CONTROL_INPUTS projection: {sha!r}")
-    module = load_prequalification_module(repo_root)
+    module = load_prequalification_module(repo_root, control_sha=control_sha)
     try:
         with _in_directory(repo_root):
             return module.projection(sha)
@@ -1102,8 +1142,6 @@ def collect_readiness(
         report["summary"] = str(exc)
         return report
 
-    proj_reader = projection_fn or (lambda sha: control_projection(sha, repo_root=resolved_root))
-
     try:
         health = health_reader()
         report["health"] = health
@@ -1143,6 +1181,9 @@ def collect_readiness(
             "limit": limit,
         }
 
+        proj_reader = projection_fn or (
+            lambda sha: control_projection(sha, repo_root=resolved_root, control_sha=control_sha)
+        )
         control_proj = proj_reader(control_sha)
         prequal_index = fetch_prequal_index(repo, gh_get=gh_reader)
 

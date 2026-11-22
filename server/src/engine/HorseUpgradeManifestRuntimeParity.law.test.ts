@@ -66,10 +66,11 @@ const PACK_SURFACE = 'RemainingVariantLivePolicy';
 const NOT_PER_DECISION: Record<string, string> = {
   core_action_freedom_and_turn_reliability: 'asserted in every cell by the style matrix law',
   upgrade_03_shared_deck_multiboard: 'needs a multi-board bomb pot',
-  upgrade_04_plo5_plo6_reservoir: 'counts a reservoir build, once per process and shape',
+  upgrade_04_plo5_plo6_reservoir:
+    'counts a decision that read an Omaha reservoir, which not every decision does',
   upgrade_05_street_prewarming: 'counts an idle prewarm, not a decision',
   upgrade_08_side_games_integration: 'needs a side game on offer',
-  upgrade_09_preaction_purge: 'needs a stale pre-action',
+  upgrade_09_preaction_purge: 'a guard: needs a stale pre-action, never a brain decision',
   upgrade_10_fast_recency_gear_shift: 'needs an observed opponent window',
   upgrade_11_persona_indifference_mixing: 'needs a near-indifferent candidate pool',
   upgrade_13_law_gate_and_watchcounters: 'a /metrics watchcounter, not a brain fire',
@@ -193,6 +194,29 @@ describe('fired equals declared, both directions, in all eighteen cells', () => 
       'upgrade_06_public_timing_pacing',
     ] as const)
       expect(fired(PER_DECISION_COUNTER[id]), id).toEqual(table(() => true));
+  });
+});
+
+describe('upgrade 04: the reservoir use receipt is one per decision, inside the declared games', () => {
+  const USED = 'upgrade04_reservoir_used_seen';
+  it('is the needle the manifest names for upgrade 04, and the build counter is not', () => {
+    expect(HORSE_UPGRADE_LIVE_EVIDENCE.upgrade_04_plo5_plo6_reservoir).toEqual([`'${USED}'`]);
+  });
+
+  it('counts at most once per decision, in every cell, however many equity samples read the reservoir', () => {
+    for (const { variant, mode } of CELLS)
+      expect([undefined, 1], `${variant} ${mode}`).toContain(cellOf(variant, mode).counted[USED]);
+  });
+
+  it('fires in no cell the manifest does not declare, and in declared cells of the Omaha games', () => {
+    const where = fired(USED);
+    for (const { variant, mode } of CELLS)
+      if (where[keyOf(variant, mode)])
+        expect(
+          declares('upgrade_04_plo5_plo6_reservoir', variant, mode),
+          `${variant} ${mode}`
+        ).toBe(true);
+    expect(Object.values(where).some(Boolean)).toBe(true);
   });
 });
 

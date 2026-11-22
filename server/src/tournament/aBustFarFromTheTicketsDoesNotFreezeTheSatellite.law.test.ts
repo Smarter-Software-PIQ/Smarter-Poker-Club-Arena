@@ -1,17 +1,36 @@
 /**
- * A BUST FAR FROM THE TICKETS DOES NOT FREEZE THE SATELLITE (Dan 2026-11-06).
+ * A BUST FAR FROM THE TICKETS DOES NOT FREEZE THE SATELLITE (Dan 2026-11-06;
+ * extended 2026-11-22 for entry_open and unresolved-far-from-tickets).
  *
  * "HANDS NEED TO START A FEW SECONDS AFTER THE LAST HAND IS OVER. FIX WHAT
  * EVER IS BLOCKING". Every zero-stack hand in a cohort satellite parked every
  * table in the event; production six-table satellites averaged 34-61 s
- * between hands on those gaps. The law:
+ * between hands on those gaps. On 2026-11-22 (15:40-15:56Z, incident 1e532243
+ * / alert c3ba0bb4, p95 +503 ms after a bust, 88% post-bust), cohort satellites
+ * 125c62be (Level 5/11, entry_open, 25 live) and 0e2ab711 (Level 12/11, 19 live)
+ * still froze every table for 433-2,917 ms on every bust because
+ * satelliteFieldWatermark only recorded 'continuing' — wiping itself on every
+ * 'entry_open' answer (all of late registration) and every 'unresolved' answer
+ * (every bust while post-commit or knockout recording was still in flight), even
+ * though satelliteBoundaryIsUnneeded (2026-11-07) already proves neither state
+ * needs the boundary.
  *
- *   1. A bust holds the qualifier boundary unless the last authoritative
- *      'continuing' answer, less every bust reported since it was read, is
- *      still more than one player above the full-ticket count.
- *   2. Without such an answer (none yet, any other state, an unreadable read,
- *      five minutes old) every bust holds exactly as before.
- *   3. The estimate only runs low: a bust reported while the read is in
+ * The law:
+ *
+ *   1. A bust holds the qualifier boundary unless:
+ *      (a) the last authoritative 'continuing' or 'unresolved' answer (whose
+ *          qualifierIds already exclude 0-chip players), less every bust
+ *          reported since before the read began, is still more than
+ *          SATELLITE_BUBBLE_MARGIN (1) above the full-ticket count, OR
+ *      (b) the last authoritative answer was 'entry_open', the prize pool is
+ *          still unfinalized on this manager, the blind level has not changed
+ *          since the read, and the watermark is younger than
+ *          SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS.
+ *   2. Without such a watermark (none yet, 'qualifying', 'unresolved' or
+ *      'continuing' at or inside the margin, prize pool finalized, blind level
+ *      advanced, an unreadable read, or expired age) every bust holds exactly
+ *      as before.
+ *   3. The field estimate only runs low: a bust reported while the read is in
  *      flight is subtracted again, so the boundary is held sooner, never later.
  *   4. Busts on different tables accumulate, so the field holds the moment
  *      their sum could reach the tickets.
@@ -167,10 +186,69 @@ describe('a bust far from the tickets does not freeze the satellite', () => {
     expect(m.satelliteQualifierBoundaryPending).toBe(true);
   });
 
-  it('every answer other than continuing withdraws the watermark', async () => {
+  it('entry_open vouches for busts until prize pool finalizes, level advances, or entry-open age expires', async () => {
+    const { m, engines, bust } = satellite();
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    m.currentLevel = 5;
+    m.prizePoolFinalized = false;
+    rpc.read.mockResolvedValue({ state: 'entry_open' });
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('continue');
+    // Busts during the same late-reg level keep every table dealing.
+    bust(TABLES[0]);
+    bust(TABLES[1], 2);
+    expect(m.satelliteQualifierBoundaryPending).toBe(false);
+    for (const engine of engines.values())
+      expect(engine.parkForTerminalCloseout).not.toHaveBeenCalled();
+    // Advancing the blind level withdraws the entry_open watermark immediately.
+    m.currentLevel = 6;
+    bust(TABLES[0]);
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+
+    // Re-arm entry_open at level 6, then finalize prize pool: next bust holds.
+    m.satelliteQualifierBoundaryPending = false;
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('continue');
+    m.prizePoolFinalized = true;
+    bust(TABLES[1]);
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+
+    // Re-arm entry_open unfinalized, then expire SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS.
+    m.satelliteQualifierBoundaryPending = false;
+    m.prizePoolFinalized = false;
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('continue');
+    now += TournamentManagerBase.SATELLITE_ENTRY_OPEN_WATERMARK_MAX_AGE_MS - 1;
+    bust(TABLES[0]);
+    expect(m.satelliteQualifierBoundaryPending).toBe(false);
+    now += 1;
+    bust(TABLES[1]);
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+  });
+
+  it('unresolved far from the tickets keeps the field watermark and still holds at the margin', async () => {
+    const { m, engines, bust } = satellite();
+    rpc.read.mockResolvedValue({
+      state: 'unresolved',
+      fullTicketCount: 5,
+      qualifierIds: field(10),
+    });
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('continue');
+    // 10 live (0-chip players already excluded by fn_get_satellite_qualifier_state), 5 tickets:
+    // three busts leave 7 (> 5 + 1), all keep dealing.
+    bust(TABLES[0], 2);
+    bust(TABLES[1], 1);
+    expect(m.satelliteQualifierBoundaryPending).toBe(false);
+    for (const engine of engines.values())
+      expect(engine.parkForTerminalCloseout).not.toHaveBeenCalled();
+    // The fourth bust reaches 6 (= 5 + 1): the field holds immediately.
+    bust(TABLES[0]);
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+  });
+
+  it('unresolved or qualifying at or inside the margin withdraws the watermark', async () => {
     for (const answer of [
-      { state: 'unresolved', fullTicketCount: 5, qualifierIds: field(20) },
-      { state: 'entry_open' },
+      { state: 'unresolved', fullTicketCount: 5, qualifierIds: field(6) },
+      { state: 'unresolved', fullTicketCount: 5, qualifierIds: field(5) },
+      { state: 'qualifying', fullTicketCount: 5, qualifierIds: field(5) },
     ]) {
       const { m, bust } = satellite();
       rpc.read.mockReset();

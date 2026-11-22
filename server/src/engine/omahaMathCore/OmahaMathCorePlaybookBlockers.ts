@@ -21,7 +21,7 @@
  * Pure, deterministic for a seed, never throws: any failure or a segment too thin to measure returns
  * the input unchanged with the reason in `source`. Postflop only (board of 3-5 cards).
  */
-import { buildPool, seededRng, type Pool } from './OmahaMathCoreEquity.js';
+import { buildPool, getPoolFastData, seededRng, type Pool } from './OmahaMathCoreEquity.js';
 
 export const PLAYBOOK_BLOCKERS_VERSION = 'playbook-blockers-v1';
 
@@ -53,6 +53,35 @@ const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
 const POOL_CACHE = new Map<string, Pool>();
 const CACHE_MAX = 32;
+/** Per-pool alive prefix sums along pool.order, keyed by (heroLo, heroHi), auto-GC'd with Pool. */
+const ALIVE_PREFIX_CACHE = new WeakMap<Pool, Map<string, Uint16Array>>();
+
+function alivePrefixOf(pool: Pool, heroLo: number, heroHi: number): Uint16Array {
+  let byHero = ALIVE_PREFIX_CACHE.get(pool);
+  if (!byHero) {
+    byHero = new Map();
+    ALIVE_PREFIX_CACHE.set(pool, byHero);
+  }
+  const hk = `${heroLo}:${heroHi}`;
+  let pref = byHero.get(hk);
+  if (!pref) {
+    const fast = getPoolFastData(pool);
+    const maskLo = fast.maskLo;
+    const maskHi = fast.maskHi;
+    const order = pool.order;
+    const n = pool.size;
+    pref = new Uint16Array(n + 1);
+    let acc = 0;
+    for (let t = 0; t < n; t++) {
+      const i = order[t];
+      if (((maskLo[i] & heroLo) | (maskHi[i] & heroHi)) === 0) acc++;
+      pref[t + 1] = acc;
+    }
+    if (byHero.size >= 16) byHero.clear();
+    byHero.set(hk, pref);
+  }
+  return pref;
+}
 
 function referencePool(
   board: readonly number[],
@@ -99,29 +128,25 @@ export function segmentSurvival(
       return empty('preflop or bad board: no blocker conditioning');
     if (!(holeCount >= 4 && holeCount <= 6)) return empty('hole count out of range');
     const pool = referencePool(board, holeCount, seed, opts);
-    const heroSet = new Set(hero);
+    let heroLo = 0;
+    let heroHi = 0;
+    for (let k = 0; k < hero.length; k++) {
+      const c = hero[k];
+      if (c < 32) heroLo |= 1 << c;
+      else heroHi |= 1 << (c - 32);
+    }
     const a = Math.floor(clamp01(band.lo) * pool.size);
-    const b = Math.max(a + 1, Math.round(clamp01(band.hi) * pool.size));
-    const inBand = pool.order.subarray(a, Math.min(pool.size, b));
+    const b = Math.min(pool.size, Math.max(a + 1, Math.round(clamp01(band.hi) * pool.size)));
+    const bandLen = b - a;
     const minSeg = opts.minSegment ?? 25;
+    const pref = alivePrefixOf(pool, heroLo, heroHi);
     const survival: (number | null)[] = [];
     const counts: number[] = [];
     for (const s of segments) {
-      const x = Math.floor(clamp01(s.lo) * inBand.length);
-      const y = Math.min(inBand.length, Math.max(x, Math.round(clamp01(s.hi) * inBand.length)));
-      let n = 0;
-      let alive = 0;
-      for (let t = x; t < y; t++) {
-        const i = inBand[t];
-        n++;
-        let blocked = false;
-        for (let k = 0; k < holeCount; k++)
-          if (heroSet.has(pool.cards[i * holeCount + k])) {
-            blocked = true;
-            break;
-          }
-        if (!blocked) alive++;
-      }
+      const x = Math.floor(clamp01(s.lo) * bandLen);
+      const y = Math.min(bandLen, Math.max(x, Math.round(clamp01(s.hi) * bandLen)));
+      const n = y - x;
+      const alive = pref[a + y] - pref[a + x];
       counts.push(n);
       survival.push(n >= minSeg ? alive / n : null);
     }

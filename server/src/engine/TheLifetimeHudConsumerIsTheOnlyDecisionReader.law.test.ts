@@ -33,7 +33,10 @@ const files = walk(ENGINE).map((p) => ({ p, rel: relative(ENGINE, p).split(sep).
 const READERS = [
   'HorseLogic.ts',
   'HorseMind.ts',
+  'HorseOmahaBigBetSizeIsPriced.ts',
+  'HorseOmahaBigDrawBetPriced.ts',
   'HorseOmahaPreflopHudPriced.ts',
+  'HorseOmahaPricedSites.ts',
   'HorseOmahaPricedWiring.ts',
   'horseDecision/protocol.ts',
   'horseDecision/workerRuntime.ts',

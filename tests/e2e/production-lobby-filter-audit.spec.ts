@@ -2034,8 +2034,9 @@ test.describe('functional filter matrix', () => {
           elements
             .filter(
               (element) =>
-                element.getAttribute('data-status') === 'open' ||
-                (['spin', 'sng'].includes(element.getAttribute('data-kind') || '') &&
+                (element.getAttribute('data-kind') !== 'spin' &&
+                  element.getAttribute('data-status') === 'open') ||
+                (element.getAttribute('data-kind') === 'sng' &&
                   element.getAttribute('data-status') === 'registering')
             )
             .map((element) => element.querySelector('.lt-status')?.textContent?.trim())
@@ -2830,7 +2831,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   for (const item of labelEvidence) {
     const raw = h.rawRows.get(item.id)!;
     expect(item.phase || '').not.toMatch(/Starts In 0:00$/);
-    if (item.state === 'open') expect(item.label).toBe('Seats Available');
+    if (item.state === 'open' && item.kind !== 'spin') expect(item.label).toBe('Seats Available');
     if (item.kind === 'mtt' && lateOpen(raw)) expect(item.label).toBe('Late Reg Open');
     if (
       item.kind === 'mtt' &&

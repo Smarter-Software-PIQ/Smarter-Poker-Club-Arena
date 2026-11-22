@@ -1919,6 +1919,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     if (this.completionPresentation) this.completionPresentation.completed = true;
   }
 
+  /** True while the post-hand completion display is playing before the pause gate. */
+  override isInCompletionPresentationHold(): boolean {
+    return this.completionPresentation?.completed === true;
+  }
+
   /** The hold reaches seat moves and the seat_left announcement through Base. */
   protected noteHeldDeparture(userId: string, occupancyId: string): void {
     const seat = this.seatedPlayers.find(
@@ -2958,6 +2963,123 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     );
     this.broadcastCurrentState();
     return { success: true, immediate: false, code: 'LIGHTNING_HAND_IN_PROGRESS' };
+  }
+
+  /**
+   * LIGHTNING POOL VPIP FLOOR EVICTION (between hands only, 100% atomic).
+   *
+   * Called by LightningPoolVpipDoor once LightningPoolVpipJudge confirms that
+   * a Lightning pool participant (human or Horse identically) exhausted their
+   * post-warning grace while still below the pool's VPIP floor.
+   *
+   * Guarantees:
+   *   - Never mutates during maintenance freeze or weekly accounting pause.
+   *   - Never evicts mid-hand (checks physical live hand, inLiveLightningHand,
+   *     and atomic_seat_cashout_locked's own LIGHTNING_HAND_IN_PROGRESS guard).
+   *   - Scoped to the exact original occupancy so a replacement seat is never
+   *     touched.
+   *   - Uses the single atomicCashout door on leaveMode 'vpip_evicted',
+   *     returning 100% of chips to the player's wallet and writing the
+   *     standard nit_game_vpip seat_left event.
+   */
+  public async evictForLightningVpip(
+    userId: string,
+    opts: {
+      occupancyId: string;
+      seatNumber: number;
+      vpip: number;
+      required: number;
+      hands: number;
+    }
+  ): Promise<'evicted' | 'deferred' | 'not_seated' | 'failed'> {
+    if (this.isTournamentTable() || isMaintenanceFrozen() || !this.lifecycleCanMutate()) {
+      return 'deferred';
+    }
+    const weeklyMutation = this.weeklyHandPause.enterMutation();
+    if (!weeklyMutation) return 'deferred';
+    try {
+      const releaseSeatBoundary = await this.acquireSeatBoundary();
+      try {
+        while (this.postHandTasksPromise) {
+          const pending = this.postHandTasksPromise;
+          await pending;
+          if (this.postHandTasksPromise === pending) break;
+        }
+        if (isMaintenanceFrozen() || !this.lifecycleCanMutate()) {
+          return 'deferred';
+        }
+        const seated = this.seatedPlayers.find(
+          (p) =>
+            p.user_id === userId &&
+            p.occupancy_id === opts.occupancyId &&
+            p.seat_number === opts.seatNumber
+        );
+        if (!seated) return 'not_seated';
+
+        const liveSelf = this.handController?.getState().players.find((p) => p.user_id === userId);
+        if (liveSelf) return 'deferred';
+        if (await this.inLiveLightningHand(userId)) return 'deferred';
+
+        const out: { failed: string | null; lightning: boolean } = {
+          failed: null,
+          lightning: false,
+        };
+        await atomicCashout(userId, this.tableId, seated.seat_number, {
+          occupancyId: seated.occupancy_id,
+          leaveMode: 'vpip_evicted' as const,
+          onFailed: (m) => {
+            out.failed = m;
+          },
+          onLightningHandInProgress: () => {
+            out.lightning = true;
+          },
+        });
+        if (out.lightning) return 'deferred';
+        if (out.failed !== null) {
+          console.warn(
+            `[ServerTableEngine:${this.tableId}] Lightning VPIP cash-out failed for ${userId} - seat preserved: ${out.failed}`
+          );
+          return 'failed';
+        }
+        if (
+          this.seatedPlayers.some(
+            (p) => p.user_id === userId && p.occupancy_id !== seated.occupancy_id
+          )
+        ) {
+          return 'evicted';
+        }
+        console.log(
+          `[ServerTableEngine:${this.tableId}] Lightning VPIP floor: evicted ${userId} ` +
+            `(${opts.vpip}% over ${opts.hands} hands < ${opts.required}% floor)`
+        );
+        this.hub?.emitEvent(this.tableId, {
+          type: 'seat_left',
+          table_id: this.tableId,
+          seat: seated.seat_number,
+          user_id: userId,
+          mid_hand: false,
+          reason: 'nit_game_vpip',
+          timestamp: Date.now(),
+        });
+        this.disconnectEngine.unregisterPlayer(this.tableId, userId);
+        this.forgetTimeBank(userId);
+        this.straddleEngine.removePlayer(this.tableId, userId);
+        this.preActionEngine.removePlayer(this.tableId, userId);
+        this.leaveHeldByClock.delete(userId);
+        this.chipContinuity.forget(userId);
+        this.lastAddOnAdjustedByUser.delete(userId);
+        this.seatedPlayers = this.seatedPlayers.filter(
+          (p) => p.user_id !== userId || p.occupancy_id !== seated.occupancy_id
+        );
+        this.broadcastCurrentState();
+        this.wakeClusterGame('seat_left');
+        return 'evicted';
+      } finally {
+        releaseSeatBoundary();
+      }
+    } finally {
+      weeklyMutation();
+    }
   }
 
   // ═════════════════════════════════════════════════════════════════════════════

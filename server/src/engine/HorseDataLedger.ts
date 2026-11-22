@@ -1217,6 +1217,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStabDefenceIsPriced',
+    "EMERG lane STAB-DEFENCE 2026-11-20. PLO4/PLO5 cash (table and Lightning), turn and river; default off (read === true). Where the facing-bet verdict prices the FIRST wager of the street (never a raise), the bettor's non-value share is priced from his own lifetime PUBLIC frequency of first wagers on unopened action of that street (per game, street, heads-up / multiway) against the population's, shrunk n / (n + k) with the measured k of the cell (turn heads-up 43, river heads-up 33, turn multiway 62, river multiway 45): a player who bets more often than the population's value density allows is priced with the extra bets as non-value. One provider and one formula for every opponent (HorseMind.setOmahaLifetimeStreetRecordProvider; OPPONENT-HUD's lifetime counts through HorseOmahaLifetimeHudAdapter); no record = the population prior exactly, so without lifetime counts the option changes nothing. No identity, no hand class, no size band as the decision. HorseOmahaStabDefence.ts",
+    'V94'
+  ),
+  flag(
+    'omahaStrongHandCheckIsPriced',
+    "EMERG lane STAB-DEFENCE 2026-11-20. HELD: development build, not graded; do not switch on. PLO4/PLO5 cash, turn and river, heads-up, the Horse first to act with nothing to call; default off (read === true). A final value bet is priced beside the check: the bet on the measured answer curve moved by the opponent's own lifetime public fold record to a street's first wager (n / (n + k), k turn 27.8, river 75.9), the check on his stab frequency and his measured stab size; the check is taken with the probability the comparison and its standard error give. It changes only a bet into a check. No identity. HorseOmahaStrongHandCheck.ts",
+    'V94'
+  ),
+  flag(
+    'omahaCbetRaiseIsPriced',
+    "EMERG lane CBET-DEFENCE 2026-11-21. PLO4/PLO5 cash (table and Lightning), the flop; tournaments and PLO6 untouched; default off (read === true). Where the Horse's own flop continuation bet is raised, the stated raise row inside omahaFlopFacingBetEv gives way to a measured raising range: the top W x rho (clamped to [0.02, 0.95]) of holdings on this flop with card removal, rho = (the raiser's lifetime public raises facing a first flop c-bet + K x the population share for the players and c-bet size) / (his opportunities + K), K 200, W 1.65 (frozen from public hands Nov 1-16: docs/horse-option-authority.d/omahaCbetRaiseIsPriced.CONSTANTS.md); the Horse continues when EV(call) beats the fold. A heads-up bluff or semi-bluff c-bet (the v38 flop bet path) gets the raise branch rho(size) x the value of that answer. One provider for every opponent, public history only, no identity branch; no record = the population share exactly.",
+    'V94'
+  ),
+  flag(
     'omahaRiverCheckedToBetIsMeasured',
     "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
     'V94'
@@ -1239,6 +1254,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaPreflopReadIsPricedFromLifetime',
     'PLO-OWNER lead-4 B4 2026-11-21: retires presumedAggressorRead on 3-6 seat PLO4/PLO5 cash preflop using the installed lifetime HUD packet (opponentLifetimeHudPreflopSixMax) and prices widened maniac-pressure spots directly on six-max (sh) HUD cells (pf.* table-size split, exact pf.lr, exact pf.bvo) with continuous n/(n+k) shrinkage, SRP vs 3-bet realization, zero sample cliff, zero person-vs-Horse key, and zero unshown hole cards. Requires omahaOpponentLifetimeHud === true; default OFF (read === true); HU, PLO6, hi-lo, bomb pots, multi-board, and tournaments untouched.',
+    'V94'
+  ),
+  flag(
+    'omahaBigBetSizeIsPriced',
+    'PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-21 (frees #18 omahaBigBetIsPotShare; zero blanket cliffs, zero person-vs-Horse key, zero unshown cards). PLO4/PLO5 cash (high-only, single board, not tournament/bomb-pot/all-in-or-fold/fixed-limit); default OFF (read === true). Replaces both the 20 BB / 0.70 turn-river aggressor-tier cliff (continuous pricedBetStrength from pot share frac/(frac+0.55), line count, and lifetime public HUD sd.strongBig/sd.strong/betCk via hudStat shrinkage n/(n+k)) and the blanket limped-pot 2 BB / 40% pot bet floor (EV comparison of current vs candidate size using exact/sampled equity, lifetime HUD fold-to-bet and raise-vs-bet interpolated smoothly by pot share, realization, and rake drag; resizes only when EV(target) > EV(amt) + 0.02 * pot). Off and out-of-scope games (PLO6, PLO8, holdem, tournaments) are byte-identical. HorseOmahaBigBetSizeIsPriced.ts',
     'V94'
   ),
   flag(
@@ -1407,6 +1427,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBigDrawBetIsPricedOnHisResponse',
+    'R4 (PLO-OWNER lane REPLACEMENTS-5, 2026-11-21; default OFF, read === true): PLO4/PLO5 cash flop/turn checked-to big-draw bet priced on lifetime HUD fold (fb.bg), raise-back (rBet) and stab cells with a prove-it-to-bet uncertainty bar (sampleSe + readSpread), replacing the checked-to half of omahaBigDrawAggression without categorical OOP bars (HorseOmahaBigDrawBetPriced.ts).',
+    'V94'
+  ),
+  flag(
     'omahaNoDrawRaiseOutOfPosition',
     'Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS."): on a PLO4/PLO5 cash flop or turn the existing raises with a draw (below two pair, with a flush draw or 8+ straight outs: the baseline semi-bluff raise, the pressure semi-bluff raise, the combo draw pump, and any other raise reaching the final answer) are not made out of position, nor in position with a bare flush draw; the three sites fall through to the call-or-fold verdict, any other raise becomes a call; two pair or better is untouched (HorseOmahaBigDrawAggression.omahaDrawRaiseBar). Default OFF (opt-in); league cards plo4/plo5 _omaha_no_draw_raise_out_of_position',
     'V94'
@@ -1418,7 +1443,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaNoCategoricalRules',
-    'Lane UNBLOCK 2026-11-19 (owner 8:37 PM Chicago: "Every decision needs to be made independently on each and every hand. No law or rule should ever prevent the correct decision from happening."). Default OFF (opt-in, read === true), unevaluated. In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot; HorseOmahaNoCategoricalRules.omahaNoCategoricalRulesInScope; never PLO6, PLO8, hold\'em or a tournament) every rule of the old decision path that forces or forbids an action by a hand class, a label, a position, a street or a fixed threshold is off for that decision: the options in OMAHA_NO_CATEGORICAL_RULES_OFF (HorseOmahaRuleSites categorical and open classes, the hidden default-on ones omahaRiverNutRaiseOnly, ploPairedBoardFold, ploPairedBoardRiverCheck, v74OmahaSemiBluffNeedsDraw, v81OmahaBigBetCalls, v84OmahaRiverReraiseCalls and v9Mood among them, the preflop class gates, the slowplay and priced-mix random draws and the street-plan priors) and the V81 / V84 / V86 / V87 big-bet call cells (omahaBigBetCallFoldCells). Paired with omahaMathCore so that nothing categorical decides before the core answers or when the core falls back on an error. Off: byte-identical; PLO6 byte-identical with it on.',
+    'Lane UNBLOCK 2026-11-19 (owner 8:37 PM Chicago: "Every decision needs to be made independently on each and every hand. No law or rule should ever prevent the correct decision from happening."). Default OFF (opt-in, read === true), unevaluated. In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot; HorseOmahaNoCategoricalRules.omahaNoCategoricalRulesInScope; never PLO6, PLO8, hold\'em or a tournament) every rule of the old decision path that forces or forbids an action by a hand class, a label, a position, a street or a fixed threshold is off for that decision: the options in OMAHA_NO_CATEGORICAL_RULES_OFF (HorseOmahaRuleSites categorical and open classes, the hidden default-on ones omahaRiverNutRaiseOnly, ploPairedBoardFold, ploPairedBoardRiverCheck, v74OmahaSemiBluffNeedsDraw, v81OmahaBigBetCalls, v84OmahaRiverReraiseCalls and v9Mood among them, the preflop class gates, the slowplay and priced-mix random draws and the flop street-plan prior; not the priced turn plans omahaStreetPlan and omahaStreetPlanThreeWay, BLANKET-AUDIT 2026-11-20) and the V81 / V84 / V86 / V87 big-bet call cells (omahaBigBetCallFoldCells). Paired with omahaMathCore so that nothing categorical decides before the core answers or when the core falls back on an error. Off: byte-identical; PLO6 byte-identical with it on.',
     'V94'
   ),
   flag(
@@ -1561,6 +1586,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaFlopBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The flop bet of a bare big pair (an overpair, or queens or better with one higher card on the flop, no flush draw, fewer than eight straight outs) with the betting lead, in either position, is priced beside the check heads-up (HorseOmahaPricedSites.omahaPricedSitesFlopBetEv): he folds the weakest share of his holdings given by his fold to a bet (the priced read), raises with the strongest share (measured 0.15) and calls with the band between; the Horse equity against each band comes from the flop facing-bet sampler with its cards removal; the bet stands when it is priced at least at the check. It replaces the out-of-position check of omahaBareOverpairOopFlopCheck and prices the same hand in position (owner fixture txHiARhC, hand 59833576). Multiway and unpriceable spots keep the rule decision.',
+    'V94'
+  ),
+  flag(
+    'omahaFlopBetIsPricedOnHisResponse',
+    'PLO-OWNER lane REPLACEMENTS-5 2026-11-21 (R2; freeing #13 omahaBareOverpairOopFlopCheck and addressing the flop facing-bet verdict unmeasured raiser/stabber range, B6 folded into R2). PLO4/PLO5 cash (table and Lightning where omahaPricedInLightning opens it), high only, one board, no bomb pot, flop only; default OFF, strict === true. Prices a bare big pair flop bet with the preflop lead (HU and multiway, OOP and IP) beside checking using lifetime HUD cells (f.fb.{sm|bg}.{hu|mw}, f.rBet.{hu|mw}, f.stab.{hu|mw}, 2*f.stabsz.{hu|mw}), shrunk n/(n+k) with no cliff and no person-vs-Horse key: the bet stands only when evBet - evCheck > sampleSe + readSpread. Also scales the flop facing-bet verdict (omahaFlopFacingBetEv) raiser range by his lifetime HUD f.rBet.{hu|mw} and post-check stabber range by f.stab.{hu|mw} (factor 1.0 when n=0). PLO6, hi-lo, bomb pots, hold-em and tournaments are out of scope.',
     'V94'
   ),
   flag(
@@ -2573,6 +2603,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'multiBoardFreerollIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (V36 multi-board freeroll bet/raise priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In multi-board hands (multiBoard36, nBoards36 >= 2) with a locked board (lockShare36 >= 1 / nBoards36), replaces both V36 random coin flips (v36_freeroll_bet 0.9 gate + random sizing, v36_freeroll_raise 0.85/0.9 gate + random sizing) with deterministic EV pricing (HorseMultiBoardFreerollPriced) using total equity lockShare + (1 - lockShare) * unlockedEq, lockShare-preserving calling-range discount, shrunk opponent fold/stab priors, continuous free-card erosion on unlocked boards, heroBubbleFactor risk utility, and strict Pot-Limit cap enforcement; never folds a qualifying freeroll. Draws no random number. OFF and all single-board hands: byte-identical.',
+    'V36'
+  ),
+  flag(
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
@@ -2586,6 +2621,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdemDangerBoardEquityIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of the 'board discipline' flat -0.15 in Antigravity 633eec005d5 and 6496e1610f0). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, turn or river, a four-flush or four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's range on this board (HorseHoldemCommittedPricing.holdemDangerBoardBettorEquity: the unseen combos split by what they make now, no pair / one pair / two pair or better, weighted by what people who bet such boards showed down, MEASURED 3 / 5 / 42 of 50, NLH cash 2026-10-20..11-19). Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Off: byte-identical.",
     "Hold'em Strategy"
+  ),
+  flag(
+    'multiBoardNonFreerollIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): deterministic zero-RNG, zero-hash EV pricing (HorseMultiBoardNonFreerollPriced) for unowned V86 multi-board non-freeroll hands (v86 && multiBoard36 && boardEq36.length >= 2 && lockShare36 < 1 / nBoards36). Facing a bet, replaces BOTH v86_multiboard_dead_half_fold (fixed cliff potFrac36 >= 0.6 && minBoardEq86 < 0.18 && maxBoardEq86 < 0.88) AND v86_multiboard_or_plo8 facing-bet raise (v86Hash01 < 0.78) with argmax { EV(fold)=0, EV(call), max_r EV(raise, r) } using continuous non-river dead-board realization penalty (0 on river), shrunk fold-to-raise priors, heroBubbleFactor risk utility, and strict Pot-Limit cap enforcement (v86_multiboard_priced_fold / v86_multiboard_priced_call / v86_multiboard_priced_raise). Not facing a bet (!isRiver && barrelPlan !== true), replaces v86_multiboard_or_plo8 open bet (v86Hash01 < 0.85) with max_b EV(bet, b) vs EV(check) using shrunk fold/stab priors, continuous free-card erosion across boards, and heroBubbleFactor (v86_multiboard_priced_open_bet / v86_multiboard_priced_open_check). Single-board hands, freeroll hands (lockShare36 >= 1 / nBoards36), and OFF remain 100% byte-identical.',
+    'V86'
+  ),
+  flag(
+    'multiBoardBluffTrimIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): deterministic zero-RNG public-info priced replacement (HorseMultiBoardBluffTrimPriced) for unowned V36 multi-board bluff-trim blanket multiplier (v36_multiboard_bluff_trim: bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5). Computes shrunk per-opponent single-board fold probability F_1_i from holdemEmpiricalPriors + public ExploitCounters (street, potSize, effStack, wetness), public multi-board independence exponent effBoards in [1, nBoards] from board-rank/pair/suit overlap and hero cross-board blockers (zero opponent hole cards), all-boards fold probability F_all = prod_i(F_1_i^effBoards), risk-adjusted break-even FE_be = (bf*s)/(1+bf*s) at s=0.65 with heroBubbleFactor, and smoothly maps pure-bluff evPerPot to a bounded multiplier in [0.0, 1.0] (receipt v36_multiboard_bluff_trim_priced, zero double-counting of legacy v36_multiboard_bluff_trim). Single-board hands (!multiBoard36) and OFF remain 100% byte-identical.',
+    'V36'
   ),
   flag(
     'omahaTightOpponentSteal',
@@ -4692,8 +4737,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'upgrade04_*',
-    'HorseEval buildOmahaReservoir',
-    'an Omaha preflop reservoir was built; once per process and reservoir, so a handful per release; named *_seen (occurrence, not a layer)',
+    'HorseEval buildOmahaReservoir; horseDecision workerRuntime',
+    'an Omaha preflop reservoir was built (upgrade04_omaha_reservoir_*_seen: once per process and reservoir, so a handful per release; the build receipt), or (upgrade04_reservoir_used_seen, 2026-11-21) one FAST decision read a reservoir (the use receipt, once per decision, upgrade 04 evidence); named *_seen (occurrence, not a layer): silent where no Omaha table plays',
     '2026-11-12'
   ),
   receipt(
@@ -4712,7 +4757,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade09_*',
     'ServerTableEngineTurns; LightningHandHost',
-    'a stale pre-action on a Horse seat was cleared at its live turn; named *_seen (occurrence, not a layer); rare by design',
+    'a stale pre-action on a Horse seat was cleared at its live turn, or (upgrade09_preaction_purge_opportunity_*_seen, 2026-11-21) a server-owned Horse reached its turn with one armed (the guard opportunity); named *_seen (occurrence, not a layer); rare by design',
     '2026-11-12'
   ),
   receipt(
@@ -5457,6 +5502,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_priced_big_bet_size_range_applied',
+    'HorseLogic decidePostflop range reads (HorseOmahaBigBetSizeIsPriced, omahaBigBetSizeIsPriced)',
+    'a PLO4/PLO5 cash turn or river decision where continuous pricedBetStrength replaced the 20 BB / 0.70 aggressor-tier cliff using pot share and lifetime public HUD',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_size_resized',
+    'HorseLogic omahaLimpedPotMinBetFloor (HorseOmahaBigBetSizeIsPriced, omahaBigBetSizeIsPriced)',
+    'a PLO4/PLO5 cash limped-pot small bet resized upward to the candidate size because EV(target) beat EV(current) by more than 2% of the pot',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_size_kept',
+    'HorseLogic omahaLimpedPotMinBetFloor (HorseOmahaBigBetSizeIsPriced, omahaBigBetSizeIsPriced)',
+    'a PLO4/PLO5 cash limped-pot small bet kept at its proposed size because the larger candidate did not beat EV(current) by 2% of the pot',
+    'V94'
+  ),
+  receipt(
     'omaha_paired_river_thin_lead_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedRiverNoThinLeadVsValueLeader)',
     'PLO4/PLO5 cash river bet with less than a full house on a paired final board, into opponents of whom one called the Horse flop or turn bet and who are all measured postflop value leaders: turned into a check',
@@ -5678,10 +5741,45 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "a PLO4/PLO5 cash flop fold-or-call decision in which the flop expected-value verdict that answered used a street record of the bettor (his flop bet rate on this texture and line, his turn and river bet rates, each beside his kind); fired with the verdict's own call or fold receipt, changed or not",
     'V94'
   ),
+  flag(
+    'omahaRiverBetFoldIsHisRecord',
+    "EMERG lane STAB-DEFENCE-5 2026-11-21. PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the answer curve those rules price a river bet with is the population's curve with its fold share multiplied by the opponent's own lifetime PUBLIC fold record at a river's first wager over the population's fold rate at the same sizes, shrunk by n / (n + k) (k = 75.9 river answers, measured; HorseOmahaRiverBetFoldRecord.ts). The raise share of his continues is unchanged and the fold share's standard error grows with the record's. With no lifetime provider, no record or any error it is the population curve exactly. Built because the population price bet the river into an opponent who does not fold it (stab-defence grade under AMENDMENT-4: heads-up calling station +10.41 +- 8.11 bb/100). One formula for every opponent; no hand class, size band, position or kind; nothing keyed to a person or a Horse. Never PLO6.",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_bet_fold_his_record_read',
+    'HorseLogic wager_rules (omahaRiverBetFoldRecordCurve, omahaRiverBetFoldIsHisRecord)',
+    "a PLO4/PLO5 cash river decision, heads-up, in which one of the two river bet rules priced the bet with the opponent's own lifetime public river fold record present (the answer curve was moved from the population's); it counts the read, not a changed action",
+    'V94'
+  ),
   receipt(
     'omaha_four_bet_fold_priced_call',
     'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
     "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
+    'V94'
+  ),
+  receipt(
+    'omaha_stab_defence_priced',
+    'HorseOmahaFacingBetEv verdict (omahaStabDefenceShare, omahaStabDefenceIsPriced)',
+    "a PLO4/PLO5 cash turn or river decision facing the first wager of the street in which the bettor's non-value share was priced from his own lifetime public first-wager frequency (a record was present and moved the share)",
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_check_priced',
+    'HorseLogic wager_rules (omahaStrongHandCheckRule, omahaStrongHandCheckIsPriced)',
+    'a PLO4/PLO5 cash turn or river decision, heads-up, the Horse first to act, in which a final value bet became the check the priced comparison chose',
+    'V94'
+  ),
+  receipt(
+    'omaha_cbet_raise_priced_range',
+    'HorseOmahaFlopFacingBetEvRule (omahaCbetRaiseRange, omahaCbetRaiseIsPriced)',
+    "a PLO4/PLO5 cash flop decision facing a raise of the Horse's own continuation bet in which the stated raise row was replaced by the measured raising range (top of W x rho)",
+    'V94'
+  ),
+  receipt(
+    'omaha_cbet_raise_priced_branch',
+    'HorseLogic v38 flop bet (omahaCbetRaiseBranch, omahaCbetRaiseIsPriced)',
+    'a PLO4/PLO5 cash heads-up flop bluff or semi-bluff continuation bet whose expected value carried the raise branch from the measured raise share',
     'V94'
   ),
   receipt(
@@ -6309,6 +6407,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_big_draw_bet_on_his_response_bet',
+    'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
+    'R4: a checked-to flop/turn big-draw bet beat the check line plus the sampling and lifetime HUD uncertainty proof bar',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_bet_on_his_response_withheld',
+    'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
+    'R4: a checked-to flop/turn big-draw bet was withheld because the check line plus proof bar was higher or the spot was multiway/unwagerable',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_bet_on_his_response_final_check_unpriced',
+    'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
+    'R4: a checked-to flop/turn big-draw bet would have been vetoed by a final check rule, so it was withheld without sampling equities',
+    'V94'
+  ),
+  receipt(
     'omaha_no_draw_raise_ft_semibluff',
     'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
     'PLO4/PLO5 cash flop or turn, the baseline flop/turn semi-bluff raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',
@@ -6866,6 +6982,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_flop_bet_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_on_his_response_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPricedOnHisResponse)',
+    'a bare big pair flop bet with the lead is proven above the check (evBet - evCheck > sampleSe + readSpread) on lifetime HUD fold/raise/stab response and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_on_his_response_checked',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPricedOnHisResponse)',
+    'the same spot: the bet is not proven above the check on lifetime HUD response, so the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_on_his_response_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPricedOnHisResponse)',
+    'the same spot could not be priced (an opponent all in, invalid stack/pot, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_facing_raise_hud_range_scaled',
+    'HorseOmahaFlopFacingBetEvRule (omahaFlopFacingBetEv + omahaFlopBetIsPricedOnHisResponse)',
+    'facing a flop raise in PLO4/PLO5 cash: the raiser range was scaled from his lifetime HUD f.rBet.{hu|mw} record relative to population prior',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_facing_stab_hud_range_scaled',
+    'HorseOmahaFlopFacingBetEvRule (omahaFlopFacingBetEv + omahaFlopBetIsPricedOnHisResponse)',
+    'facing a post-check flop stab in PLO4/PLO5 cash: the stabber range was scaled from his lifetime HUD f.stab.{hu|mw} record relative to population prior',
     'V94'
   ),
   receipt(
@@ -9233,6 +9379,66 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
     "a qualifying no-limit hold'em river full house with more than one opponent, or no population cell for the table: nothing priced, the boat keeps the check",
     'V94'
+  ),
+  receipt(
+    'v36_freeroll_priced_bet',
+    'HorseLogic not-facing-a-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll (lockShare >= 1/N && lockShare < 1) bet at highest-EV legal size (EV(bet) > EV(check)) with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v36_freeroll_priced_check',
+    'HorseLogic not-facing-a-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll (lockShare >= 1/N && lockShare < 1) checked because EV(check) >= max EV(bet) or no legal bet existed, with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v36_freeroll_priced_raise',
+    'HorseLogic facing-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll facing a bet raised to highest-EV legal size respecting minRaise, effective stack, and Pot-Limit cap (EV(raise) > EV(call)), with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v36_freeroll_priced_call',
+    'HorseLogic facing-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll facing a bet called because EV(call) >= max EV(raise) or no legal raise existed (never folds), with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v86_multiboard_priced_fold',
+    'HorseLogic facing-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll facing a bet folded because EV(call) <= 0 and no legal raise beat 0 (with continuous non-river dead-board realization penalty and 0 on river), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_call',
+    'HorseLogic facing-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll facing a bet called because EV(call) > 0 beat both fold and every legal raise (never blanket-folding a positive-EV dead-half call), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_raise',
+    'HorseLogic facing-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll facing a bet raised to highest-EV legal size respecting minRaise, effective stack, Pot-Limit cap, and !raisedAfterAggr (EV(raise) > max(0, EV(call))), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_open_bet',
+    'HorseLogic not-facing-a-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll (!isRiver && barrelPlan !== true) bet at highest-EV legal size respecting minBet, heroStack, and Pot-Limit cap (EV(bet) > EV(check)), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_open_check',
+    'HorseLogic not-facing-a-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll (!isRiver && barrelPlan !== true) checked because EV(check) >= max EV(bet) or no legal bet existed, with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v36_multiboard_bluff_trim_priced',
+    'HorseLogic multi-board bluffScale (multiBoardBluffTrimIsPriced)',
+    'multi-board hand replaced fixed V36 blanket 0.5/0.35 bluffScale trim with deterministic zero-RNG public-info priced multiplier in [0, 1] from shrunk per-opponent fold probability, public board correlation, hero cross-board blockers, street/pot/stack/wetness, and heroBubbleFactor',
+    'V36'
   ),
   receipt(
     'holdem_priced_value_raise_deferred',

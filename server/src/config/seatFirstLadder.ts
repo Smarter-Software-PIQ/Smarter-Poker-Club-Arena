@@ -212,26 +212,150 @@ export function feederWaitMs(
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- *  HOW WIDE THE BOARD IS (Dan, 2026-11-08, binding)
+ *  HORSE-SEEDED OCCUPANCY TARGETS & FULL EMPTY AVAILABILITY
+ *  (Dan, 2026-11-08 & 2026-11-22, binding)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Dan: "SIT ONE HORSE AT LIKE 11 DIFFERENT SPINS AND LIKE 6 SIT N GO'S."
+ * Dan 2026-11-08: "SIT ONE HORSE AT LIKE 11 DIFFERENT SPINS AND LIKE 6 SIT N
+ * GO'S ... THE IDEA BEING THAT WE AREN'T JUST RUNNING ALL DAY EVERY DAY FOR
+ * NO REASON."
  *
- * These are PLATFORM-WIDE counts of boards a player can join, not per club and
- * not per price point. Before this, every price point was permanently open on
- * every activated board: 64 Spin configs and 32 Heads-Up configs, times the
- * house board and each activated owner's. Measured 2026-11-08: 134 open
- * seat-first boards across two owners, each one cycling about every six
- * minutes.
+ * Dan 2026-11-22 (superseding the capped-catalogue & 6-HU parts):
+ * "NOT EVERY SPIN 'AVAILABLE' SHOULD HAVE 2 OF 3 PLAYERS. SOME SHOULD ONLY
+ * HAVE 1 OF 3 PLAYERS. SOME SHOULD BE 'EMPTY' FOR A HUMAN TO SIT DOWN AND
+ * START. CURRENTLY THERE IS 11 SITTING WITH 2 OF 3. AND NONE WITH 0 OF 3.
+ * THERE SHOULD BE EVERY OPTION OF SPIN AVAILABLE AS 0 OF 3 FOR HUMANS TO SIT
+ * DOWN AND PLAY. SAME THING FOR HEADS UP SIT N GO'S. THERE SHOULD BE ONLY A
+ * COUPLE OF 1 OF 2'S AVAILABLE AND MAJORITY 0 OF 2 FOR HUMAN PLAYERS TO SIT
+ * DOWN AT AND PLAY."
  *
- * The catalogue is unchanged - every price point still exists and is still
- * reachable. What changed is how many of them are open AT ONCE, and which ones
- * is drawn fresh each tick (see the shuffle in ensureBoardOpen) so the board
- * moves around the ladder over a day instead of pinning the cheapest eleven.
+ * These are PLATFORM-WIDE counts of HORSE-SEEDED boards (holding at least one
+ * live seat), NOT caps on how many empty `0/3` or `0/2` options exist:
+ *   - Every Spin option in SPIN_CONFIGS (and owner's maxStake slice) stays
+ *     open as a joinable REGISTERING board; at most SPIN_BOARD_OPEN_TARGET
+ *     (11) carry a horse (with at most SPIN_MAX_TWO_OF_THREE = 5 at 2/3, so
+ *     there is always a genuine mix of 1/3 and 2/3), and every remaining Spin
+ *     option stays open at 0/3 for humans to sit down and start.
+ *   - Every Heads-Up option in SNG_CONFIGS (and owner's maxStake slice) stays
+ *     open as a joinable REGISTERING board; at most SNG_BOARD_OPEN_TARGET (2,
+ *     "only a couple") carry a horse at 1/2, and the vast majority stay open
+ *     at 0/2 for humans to sit down and play.
  */
 export const SPIN_BOARD_OPEN_TARGET = 11;
-export const SNG_BOARD_OPEN_TARGET = 6;
+export const SNG_BOARD_OPEN_TARGET = 2;
 
 export function boardOpenTarget(variant: 'spin' | 'sng'): number {
   return variant === 'spin' ? SPIN_BOARD_OPEN_TARGET : SNG_BOARD_OPEN_TARGET;
+}
+
+/**
+ * Maximum number of horse-only Spins simultaneously at 2/3 platform-wide
+ * (Dan, 2026-11-22). Out of SPIN_BOARD_OPEN_TARGET (11) horse-seeded Spins,
+ * capping 2/3 at 5 keeps at least 6 waiting at 1/3 instead of letting all 11
+ * drift into 2/3 together. A human sitting in a 1/3 Spin always overtakes
+ * this cap and fills immediately after the 3-7 minute partner hold.
+ */
+export const SPIN_MAX_TWO_OF_THREE = 5;
+
+/**
+ * Staggered Spin horse-seeding (Dan, 2026-11-22). Opening all 11 Spins in one
+ * 30-second tick at 6:00 AM CST put every board on the same 60-80 minute
+ * first rung, so by 7:20 AM (before the earliest 60+30 = 90 minute finish) all
+ * 11 were mathematically guaranteed to sit at 2/3 simultaneously with 0 at 1/3.
+ *
+ * Seeding the first SPIN_IMMEDIATE_SEED_FLOOR (3) immediately gives players
+ * open 1/3 Spins right at 6:00 AM, and spacing each additional horse-seeded
+ * Spin by SPIN_SEED_SPACING_MS (8 minutes) spreads the 11 across ~64 minutes
+ * (the length of rung 1) so the cohort naturally stays mixed across 1/3 and
+ * 2/3 all day instead of marching in lockstep.
+ */
+export const SPIN_IMMEDIATE_SEED_FLOOR = 3;
+export const SPIN_SEED_SPACING_MS = 8 * MIN;
+
+/** How many Spins may receive an opening horse on this tick. Pure & durable. */
+export function spinSeedsAllowedThisTick(
+  openedCount: number,
+  mostRecentSeatAtMs: number | null,
+  nowMs: number,
+  maxPerTick: number
+): number {
+  if (!Number.isFinite(openedCount) || !Number.isFinite(maxPerTick) || maxPerTick <= 0) return 0;
+  const opened = Math.max(0, Math.floor(openedCount));
+  const room = Math.max(0, SPIN_BOARD_OPEN_TARGET - opened);
+  if (room <= 0) return 0;
+  if (opened < SPIN_IMMEDIATE_SEED_FLOOR) {
+    return Math.min(room, SPIN_IMMEDIATE_SEED_FLOOR - opened, Math.floor(maxPerTick));
+  }
+  if (
+    mostRecentSeatAtMs !== null &&
+    Number.isFinite(mostRecentSeatAtMs) &&
+    Number.isFinite(nowMs) &&
+    nowMs - mostRecentSeatAtMs < SPIN_SEED_SPACING_MS
+  ) {
+    return 0;
+  }
+  return Math.min(1, room, Math.floor(maxPerTick));
+}
+
+/** How many seat-first boards of `variant` may receive an opening horse this tick. */
+export function seatFirstSeedsAllowedThisTick(
+  variant: 'spin' | 'sng',
+  openedCount: number,
+  mostRecentSeatAtMs: number | null,
+  nowMs: number,
+  maxPerTick: number
+): number {
+  if (variant === 'spin') {
+    return spinSeedsAllowedThisTick(openedCount, mostRecentSeatAtMs, nowMs, maxPerTick);
+  }
+  if (!Number.isFinite(openedCount) || !Number.isFinite(maxPerTick) || maxPerTick <= 0) return 0;
+  const room = Math.max(0, SNG_BOARD_OPEN_TARGET - Math.max(0, Math.floor(openedCount)));
+  return Math.min(room, Math.floor(maxPerTick));
+}
+
+/** Total maximum duration of SPIN_LADDER (140 min) and safety cushion below alerts/expiry. */
+export const SPIN_LADDER_MAX_TOTAL_MS = SPIN_LADDER.reduce((total, rung) => total + rung.maxMs, 0);
+export const SPIN_ENVELOPE_SAFETY_MARGIN_MS = 10 * MIN;
+export const SPIN_TWO_OF_THREE_DEFER_MIN_MS = 5 * MIN;
+export const SPIN_TWO_OF_THREE_DEFER_MAX_MS = 10 * MIN;
+
+/**
+ * When a horse-only 1/3 Spin finishes rung 1 while at least SPIN_MAX_TWO_OF_THREE
+ * Spins are already sitting at 2/3, defer its promotion to 2/3 by 5-10 minutes
+ * (writing the new start_time so SpinUnfilledBacklog never trips), ONLY while
+ * enough headroom remains inside the SPIN_LADDER envelope (minus the 10-minute
+ * safety margin and rung 2's minimum 30-minute wait) so the board can never
+ * exceed SPIN_LADDER_FULL_ENVELOPE_SECONDS or fn_spin_expire_unfilled.
+ *
+ * Returns null when the board should advance to 2/3 immediately.
+ */
+export function spinTwoOfThreeDeferMs(params: {
+  twoOfThreeCount: number;
+  oldestSeatAtMs: number;
+  nowMs: number;
+  rand: (spanInclusive: number) => number;
+}): number | null {
+  const { twoOfThreeCount, oldestSeatAtMs, nowMs, rand } = params;
+  if (!Number.isFinite(twoOfThreeCount) || twoOfThreeCount < SPIN_MAX_TWO_OF_THREE) return null;
+  if (!Number.isFinite(oldestSeatAtMs) || !Number.isFinite(nowMs)) return null;
+  const rung2MinMs = SPIN_LADDER[1]?.minMs ?? 0;
+  const safeCeilingMs = oldestSeatAtMs + SPIN_LADDER_MAX_TOTAL_MS - SPIN_ENVELOPE_SAFETY_MARGIN_MS;
+  const maxDeferRoom = safeCeilingMs - rung2MinMs - nowMs;
+  if (maxDeferRoom < SPIN_TWO_OF_THREE_DEFER_MIN_MS) return null;
+  const upper = Math.min(SPIN_TWO_OF_THREE_DEFER_MAX_MS, Math.floor(maxDeferRoom));
+  const span = Math.max(0, upper - SPIN_TWO_OF_THREE_DEFER_MIN_MS);
+  return SPIN_TWO_OF_THREE_DEFER_MIN_MS + rand(span);
+}
+
+/**
+ * Clamp a Spin's rung-2 wait so a board that was deferred at 1/3 still deals
+ * strictly inside SPIN_LADDER_MAX_TOTAL_MS - SPIN_ENVELOPE_SAFETY_MARGIN_MS
+ * from its oldest live seat (preventing SpinFleetProducingNothing & expiry).
+ */
+export function clampSpinRungWaitMs(waitMs: number, oldestSeatAtMs: number, nowMs: number): number {
+  if (!Number.isFinite(waitMs) || waitMs <= 0) return 0;
+  if (!Number.isFinite(oldestSeatAtMs) || !Number.isFinite(nowMs)) return waitMs;
+  const safeCeilingMs = oldestSeatAtMs + SPIN_LADDER_MAX_TOTAL_MS - SPIN_ENVELOPE_SAFETY_MARGIN_MS;
+  const remaining = Math.max(0, safeCeilingMs - nowMs);
+  return Math.min(waitMs, remaining);
 }

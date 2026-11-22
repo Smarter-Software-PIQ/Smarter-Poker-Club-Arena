@@ -37,7 +37,13 @@
  */
 import type { Card } from '../types.js';
 import type { ExploitCounters } from './HorseOpponentExploit.js';
-import { scoreHoldem } from './HorseEval.js';
+import {
+  holdemCardId,
+  packHoldemBoardBits,
+  scoreHoldem,
+  scoreHoldemPlus2Ids,
+  type HoldemBoardBits,
+} from './HorseEval.js';
 import { SUITS, RANKS, RANK_VALUES } from './PokerEngine.js';
 import {
   HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE,
@@ -218,6 +224,17 @@ interface ComboRow {
 /** At most this many runouts per combo on the flop (a fixed, evenly strided subset: no random number). */
 const FLOP_RUNOUTS = 45;
 
+/** All 52 card IDs in exact `(for s of SUITS) (for r of RANKS)` unseenCards order. */
+const DECK_IDS_BY_SUIT_RANK = new Uint8Array(52);
+{
+  let k = 0;
+  for (const s of SUITS) {
+    for (const r of RANKS) {
+      DECK_IDS_BY_SUIT_RANK[k++] = holdemCardId({ rank: r, suit: s } as Card);
+    }
+  }
+}
+
 /**
  * Hero's equity against every unseen two-card combo, with the combo's made strength now. River: exact. Turn: every
  * river card. Flop: a fixed stride over the turn-river pairs of the unseen deck. Draws no random number.
@@ -229,10 +246,146 @@ export function holdemComboRows(
 ): ComboRow[] {
   const hole = holeIn.map(norm);
   const board = boardIn.map(norm);
+  const toCome = 5 - board.length;
+  if (toCome < 0 || toCome > 2) return [];
+
+  // Fast bitmask path: hoist all runout 5-card board states & hero scores outside the ~1,081-combo loop.
+  if (hole.length === 2) {
+    const h0 = holdemCardId(hole[0]);
+    const h1 = holdemCardId(hole[1]);
+    if (h0 >= 0 && h1 >= 0) {
+      const seen = new Uint8Array(64);
+      seen[h0] = 1;
+      seen[h1] = 1;
+      const boardIds = new Uint8Array(5);
+      let ok = true;
+      for (let i = 0; i < board.length; i++) {
+        const id = holdemCardId(board[i]);
+        if (id < 0) {
+          ok = false;
+          break;
+        }
+        boardIds[i] = id;
+        seen[id] = 1;
+      }
+      if (ok) {
+        for (let i = 0; i < dead.length; i++) {
+          const id = holdemCardId(norm(dead[i]));
+          if (id >= 0) seen[id] = 1;
+        }
+        const deckIds = new Uint8Array(52);
+        let deckLen = 0;
+        for (let i = 0; i < 52; i++) {
+          const id = DECK_IDS_BY_SUIT_RANK[i];
+          if (seen[id] === 0) deckIds[deckLen++] = id;
+        }
+
+        const currBoardBits = packHoldemBoardBits(boardIds, board.length);
+        const rows: ComboRow[] = [];
+
+        if (toCome === 0) {
+          const heroScore = scoreHoldemPlus2Ids(currBoardBits, h0, h1, false);
+          for (let i = 0; i < deckLen; i++) {
+            const a = deckIds[i];
+            for (let j = i + 1; j < deckLen; j++) {
+              const v = scoreHoldemPlus2Ids(currBoardBits, a, deckIds[j], false);
+              rows.push({ strength: v, eq: heroScore > v ? 1 : heroScore === v ? 0.5 : 0 });
+            }
+          }
+          return rows;
+        }
+
+        if (toCome === 1) {
+          const rHeroScore = new Int32Array(deckLen);
+          const rBoardBits: HoldemBoardBits[] = new Array(deckLen);
+          for (let r = 0; r < deckLen; r++) {
+            boardIds[4] = deckIds[r];
+            const bb = packHoldemBoardBits(boardIds, 5);
+            rBoardBits[r] = bb;
+            rHeroScore[r] = scoreHoldemPlus2Ids(bb, h0, h1, false);
+          }
+          for (let i = 0; i < deckLen; i++) {
+            const a = deckIds[i];
+            for (let j = i + 1; j < deckLen; j++) {
+              const b = deckIds[j];
+              let won = 0;
+              let n = 0;
+              for (let r = 0; r < deckLen; r++) {
+                const rc = deckIds[r];
+                if (rc === a || rc === b) continue;
+                const h = rHeroScore[r];
+                const v = scoreHoldemPlus2Ids(rBoardBits[r], a, b, false);
+                won += h > v ? 1 : h === v ? 0.5 : 0;
+                n++;
+              }
+              if (n === 0) continue;
+              rows.push({
+                strength: scoreHoldemPlus2Ids(currBoardBits, a, b, false),
+                eq: won / n,
+              });
+            }
+          }
+          return rows;
+        }
+
+        // toCome === 2 (flop): exact same stride over all (i < j) pairs in deckIds.
+        const totalPairs = (deckLen * (deckLen - 1)) >> 1;
+        const step = Math.max(1, Math.floor(totalPairs / FLOP_RUNOUTS));
+        const rCard0: number[] = [];
+        const rCard1: number[] = [];
+        let pairIdx = 0;
+        let nextTake = 0;
+        for (let i = 0; i < deckLen; i++) {
+          for (let j = i + 1; j < deckLen; j++) {
+            if (pairIdx === nextTake) {
+              rCard0.push(deckIds[i]);
+              rCard1.push(deckIds[j]);
+              nextTake += step;
+            }
+            pairIdx++;
+          }
+        }
+        const numRunouts = rCard0.length;
+        const rHeroScore = new Int32Array(numRunouts);
+        const rBoardBits: HoldemBoardBits[] = new Array(numRunouts);
+        for (let r = 0; r < numRunouts; r++) {
+          boardIds[3] = rCard0[r];
+          boardIds[4] = rCard1[r];
+          const bb = packHoldemBoardBits(boardIds, 5);
+          rBoardBits[r] = bb;
+          rHeroScore[r] = scoreHoldemPlus2Ids(bb, h0, h1, false);
+        }
+        for (let i = 0; i < deckLen; i++) {
+          const a = deckIds[i];
+          for (let j = i + 1; j < deckLen; j++) {
+            const b = deckIds[j];
+            let won = 0;
+            let n = 0;
+            for (let r = 0; r < numRunouts; r++) {
+              const c0 = rCard0[r];
+              const c1 = rCard1[r];
+              if (c0 === a || c0 === b || c1 === a || c1 === b) continue;
+              const h = rHeroScore[r];
+              const v = scoreHoldemPlus2Ids(rBoardBits[r], a, b, false);
+              won += h > v ? 1 : h === v ? 0.5 : 0;
+              n++;
+            }
+            if (n === 0) continue;
+            rows.push({
+              strength: scoreHoldemPlus2Ids(currBoardBits, a, b, false),
+              eq: won / n,
+            });
+          }
+        }
+        return rows;
+      }
+    }
+  }
+
+  // Generic fallback for non-2-card or malformed test inputs.
   const known = [...hole, ...board, ...dead.map(norm)];
   const deck = unseenCards(known);
   const rows: ComboRow[] = [];
-  const toCome = 5 - board.length;
   let runouts: Card[][] = [[]];
   if (toCome === 1) runouts = deck.map((c) => [c]);
   else if (toCome === 2) {
@@ -242,7 +395,7 @@ export function holdemComboRows(
     const step = Math.max(1, Math.floor(all.length / FLOP_RUNOUTS));
     runouts = [];
     for (let i = 0; i < all.length; i += step) runouts.push(all[i]);
-  } else if (toCome !== 0) return rows;
+  }
   for (let i = 0; i < deck.length; i++) {
     for (let j = i + 1; j < deck.length; j++) {
       const a = deck[i];
