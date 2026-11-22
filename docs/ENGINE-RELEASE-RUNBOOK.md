@@ -480,25 +480,59 @@ hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
 a second time), and a later control change on main (another lane's booking) makes
 that later commit the `booking`. A failed refresh is always a refusal: the verdict step reads `needs.refresh.result`
 and writes `failure` even when a provider answer stopped the job before certify
-(review of #10805). Nothing cancels a certification that is
-already running: a run that started before the booking merged still holds the
-host until it ends (about 50 minutes on November 14).
+(review of #10805). Owner-window priority itself does not cancel a running
+certification: a booking commit, freeze baseline, manual, nightly, or post-seal
+soak always runs to completion.
 
 The standby host turn wait (`turn` step of `backup-engine.yml` `refresh` job)
 allows up to 120 minutes (`7200` s; `refresh` `timeout-minutes: 180`, host
 lease TTL `9000` s) so a queued candidate behind an active refresh plus 55-min
 certification does not time out right before its turn (2026-11-21, E3). While
-waiting for the lease in `turn`, and again in `late_priority` before `certify`,
-an ordinary `push` run that observes a newer push run (larger run id, different
-head SHA) yields cleanly as `SUPERSEDED`, releasing any held host lease and
-writing no `error` or `failure` status; `booking`, `freeze_baseline`, manual,
-nightly and post-seal runs are never superseded, and an unreadable GitHub
-answer proceeds (CLAUDE.md 10.86). Immediately after acquiring the host turn,
-`late_inherit` re-checks whether the target SHA is already certified or whether
-a first-parent ancestor with identical `scripts/ci/engine-source-identity.sh`
-and `backup_projection` (`scripts/ci/read-engine-prequalification.py`) gained
+still waiting for the lease in `turn`, an ordinary `push` run yields cleanly as
+`SUPERSEDED` (writing no `error` or `failure` status) only when a strictly newer
+active (non-completed) push run exists on `main` with a different head SHA AND a
+different `scripts/ci/engine-source-identity.sh` (or a diff to
+`.github/workflows/backup-engine.yml`); completed newer runs and identical-source
+pushes never disrupt a waiting run (2026-11-21, O2). `booking`,
+`freeze_baseline`, manual, nightly and post-seal runs are never superseded, and
+any unreadable GitHub or git answer keeps waiting (CLAUDE.md 10.86).
+
+Immediately after acquiring the Backup host turn (and never dropping an
+already-acquired lease for a newer ordinary push), `late_retarget` checks
+`main`'s newest server commit (`head`) for non-`booking`, non-`freeze_baseline`
+push runs: if `head` descends from `SHA` and `GITHUB_SHA`, does not modify
+`.github/workflows/backup-engine.yml`, and does not already carry
+`backup-engine/certified = success`, the run retargets in-place (`sha="$head"`,
+`control_sha="$head"`, checking out `$head` and forwarding the updated target
+to `refresh` and `certify` outputs) (2026-11-21, O2). Right after
+`late_retarget`, `late_inherit` re-checks whether the target SHA is already
+certified or whether a first-parent ancestor with identical
+`scripts/ci/engine-source-identity.sh` and `backup_projection`
+(`scripts/ci/read-engine-prequalification.py`) gained
 `backup-engine/certified = success` while it waited; if so, it inherits the
 certificate, releases the host lease at once, and skips refresh and `certify`.
+Before `certify`, `late_priority` still yields the host lease for an owner
+window booked while the run waited (`predates` or `booking_pending`), but never
+throws away an already-acquired lease for a newer ordinary push.
+
+During `certify`, `cmd_certify` on the offline standby host remains strictly
+network-free (`server/standby/standby-engine.sh` is unchanged). For ordinary
+`push` runs only (never `booking`, `freeze_baseline`, `workflow_dispatch`,
+`schedule`, or `repository_dispatch`), the GitHub Actions runner executes the
+SSH `standby-engine certify` command in the background while a bounded
+runner-side loop checks every 60 s (2026-11-21, O1). If and only if ALL FOUR
+conditions hold - (a) a newer active push run of `backup-engine.yml` is queued
+or in progress on `main`, (b) `projection(SHA)` from
+`scripts/ci/read-engine-prequalification.py` or `supabase/migrations` on
+`origin/main` already differs from `SHA` (proving `SHA` can never be selected
+against current `main`), (c) fewer than 75 minutes (`4500` s) remain until the
+next scheduled three-hourly or daily cutoff (`THREE_HOURLY_START_HOURS`), and
+(d) every read succeeded (any unreadable check keeps soaking per CLAUDE.md
+10.86) - the runner terminates the SSH certify command, stops the
+`club-arena-engine-standby` container cleanly via SSH, releases the standby host
+lease, records `YIELDED_OBSOLETE` in the step summary, writes NO `failure` or
+`error` commit status, and exits `0` so the waiting selectable commit can
+immediately acquire `ca-backup`.
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only
