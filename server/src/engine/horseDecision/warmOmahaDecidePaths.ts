@@ -4,11 +4,13 @@
  * Lives in horseDecision/ (outside omahaMathCore/) so the math core remains strictly
  * identity-free while HorseLogic.decide receives valid synthetic SeatPlayer / HorseGameStateV2
  * records. Called once at worker boot by warmOmahaMathCore() before READY, with observeMind: false
- * and telemetry: false; RNG, HorseMind, core caches, and the turn/river HUD provider are restored
+ * and telemetry: false, inside withBrainTelemetrySuspended (no counter moves); RNG, HorseMind, core caches, and the turn/river HUD provider are restored
  * before returning.
  */
 import type { SeatPlayer } from '../../types.js';
+import { withBrainTelemetrySuspended } from '../BrainTelemetry.js';
 import { HorseLogic, type HorseGameStateV2 } from '../HorseLogic.js';
+import { withStyleRecordsKept } from '../HorseStyleShadow.js';
 import {
   OMAHA_MATH_CORE_TR_FW_EDGES,
   omahaMathCoreTurnRiverProvider,
@@ -240,18 +242,25 @@ export function warmOmahaDecidePaths(): boolean {
             userId: `warm-seat-${h.seat}`,
           })),
         } as unknown as HorseGameStateV2;
-        const d = HorseLogic.decide(
-          players[0]!,
-          gs,
-          'balanced',
-          {},
-          {
-            mind: false,
-            observeMind: false,
-            telemetry: false,
-            decisionTimeMs: WARM_TIME_MS,
-            ...spot.extraOpts,
-          }
+        // A synthetic decision counts nothing: `telemetry: false` only silences the counters guarded by
+        // telemetryOn(opts), and the worker arms telemetry before this runs (HorseMind's presumed-aggressor
+        // receipt is unguarded). The per-decision style records are put back as they were, too.
+        const d = withStyleRecordsKept(() =>
+          withBrainTelemetrySuspended(() =>
+            HorseLogic.decide(
+              players[0]!,
+              gs,
+              'balanced',
+              {},
+              {
+                mind: false,
+                observeMind: false,
+                telemetry: false,
+                decisionTimeMs: WARM_TIME_MS,
+                ...spot.extraOpts,
+              }
+            )
+          )
         );
         const clean =
           !!d?.action &&

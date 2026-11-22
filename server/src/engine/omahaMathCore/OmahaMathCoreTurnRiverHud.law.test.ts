@@ -21,6 +21,12 @@ import { cardToInt } from './OmahaMathCoreEval.js';
 import { rakeNet, type CoreState } from './OmahaMathCore.js';
 import { saveFastRandom } from '../HorseEval.js';
 import { HorseMind } from '../HorseMind.js';
+import {
+  disarmBrainTelemetryForTest,
+  drainFires,
+  enableBrainTelemetry,
+  peekDecisionLatency,
+} from '../BrainTelemetry.js';
 import { ServerTableEngineTurns } from '../ServerTableEngineTurns.js';
 import { omahaMathCoreOwns } from './OmahaMathCoreAcceptance.js';
 import { omahaMathCoreRule } from './OmahaMathCoreRule.js';
@@ -1253,9 +1259,25 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
       2
     );
     expect(HorseMind.getStats('preseeded-opp')?.hands).toBe(1);
+    // Review 2026-11-22: the worker arms telemetry before the warm-up runs, so the synthetic decisions must
+    // count nothing (HorseMind's presumed-aggressor receipt is not gated by opts.telemetry).
+    enableBrainTelemetry();
+    drainFires();
+    const latencyBefore = JSON.stringify(peekDecisionLatency());
     const before = saveFastRandom();
-    const w = warmOmahaMathCore(() => 0);
+    let w: ReturnType<typeof warmOmahaMathCore>;
+    let firesAfterWarm: ReturnType<typeof drainFires>;
+    let latencyAfter: string;
+    try {
+      w = warmOmahaMathCore(() => 0);
+      firesAfterWarm = drainFires();
+      latencyAfter = JSON.stringify(peekDecisionLatency());
+    } finally {
+      disarmBrainTelemetryForTest();
+    }
     const after = saveFastRandom();
+    expect(firesAfterWarm).toEqual([]);
+    expect(latencyAfter).toBe(latencyBefore);
     expect(w.ok).toBe(true);
     expect(errSpy).not.toHaveBeenCalled();
     expect(omahaMathCoreTurnRiverProvider()).toBe(prevProv);

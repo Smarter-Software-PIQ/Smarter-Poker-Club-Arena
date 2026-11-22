@@ -932,38 +932,10 @@ export function omahaMathCoreRule(
         }
       }
     }
-    // RIVER-CORE criterion 3: on the PLO5 cash river against a live incumbent ('today', never during
-    // standalone omahaMathCoreRecover where incumbent === 'none'; audit P1-5) the core may only turn
-    // today's fold into a plain call.
-    if (incumbent === 'today' && trVariant === 'plo5' && trStage === 'river') {
-      const keep: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
-      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
-        keep.amount = incoming.amount;
-      const pick = omahaMathCorePlo5RiverFoldToCall(
-        incoming.action,
-        receipt.evs,
-        player.stack ?? 0,
-        OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5
-      );
-      let narrowed: HorseDecision = keep;
-      if (pick) {
-        const proposed: HorseDecision = { action: 'call', thinkTime: decision.thinkTime };
-        if (pick.amount !== null) proposed.amount = pick.amount;
-        try {
-          const l = legalize(proposed);
-          if (l.action === 'call') narrowed = l;
-        } catch {
-          narrowed = keep;
-        }
-      }
-      const chosen = receipt.evs.find((e) => e.action === narrowed.action);
-      receipt.choice = {
-        action: narrowed.action as CoreReceipt['choice']['action'],
-        amount: narrowed.amount ?? null,
-        ev: chosen ? Math.round(chosen.ev * 100) / 100 : null,
-      };
-      legal = narrowed;
-    }
+    // RIVER-CORE criterion 3 (the PLO5 cash river against a live incumbent may only turn today's fold into a
+    // plain call) is enforced by the B3 turn/river fast path above, which returns before this point for every
+    // PLO4/PLO5 turn/river decision with incumbent === 'today' (audit P0-1). Only standalone recovery
+    // (incumbent === 'none') reaches here on those streets, and it is not narrowed (audit P1-5).
     // Current-nuts call floor, last word (lane CORE-POOLED-2 phase 2): whatever path reached a fold - the
     // change margin keeping today's fold, the PLO5 river fold -> call narrowing keeping it (an all-in call or
     // a fold that is no longer a priced candidate) - the exact current nuts facing a wager is called when a
