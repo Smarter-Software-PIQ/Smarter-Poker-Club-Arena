@@ -1,0 +1,3 @@
+# tests/a-lightning-switch-off-starts-a-fresh-vpip-sample.law.test.ts
+
+When a game leaves Lightning, the VPIP floor's sample starts at the switch-off (migration 20261121152102, inside fn_nit_sitting_since, the one window every reader shares), so a whole pool sitting is never turned into an instant, warning-free eviction and two-hour bar by a format change; pins the pre/post md5 guard, the conversion predicate (committed or pending, out of lightning or draining), that the term is only a GREATEST lower bound (never-Lightning and Classic games unchanged), that the function stays invoker-rights, STABLE and private and reads no Horse identity, that the live pool stays unjudged, and that scripts/ci/test-lightning-switch-off-vpip-sample.sh proves it by execution in CI.

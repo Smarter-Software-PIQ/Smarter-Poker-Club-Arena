@@ -61,6 +61,13 @@ import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../engine/Hor
 
 export const HUD_DB_TIMEOUT_MS = 2_000;
 export const HUD_RETRY_MS = 15_000;
+/**
+ * AUDIT-C item 4 (OPPONENT-HUD-FIX-1): a failed or timed-out load is retried on its own timer at these delays (from
+ * the failure), so one slow read cannot push readiness past HUD_READY_DEADLINE_MS: even three consecutive 2-second
+ * timeouts leave the fourth read inside 15 seconds (2 + 0.5 + 2 + 1.5 + 2 + 3 + 2 = 13 s). Past the schedule the
+ * cool-down is HUD_RETRY_MS and the next seat, hand or decision event retries, as before.
+ */
+export const HUD_RETRY_SCHEDULE_MS: readonly number[] = [500, 1_500, 3_000];
 export const HUD_CACHE_MAX = 6_000;
 export const HUD_RING_MS = 45 * 60 * 1000;
 export const HUD_RING_MAX = 20_000;
@@ -105,7 +112,8 @@ export type HudAlertName =
   | 'OpponentHudLoadFailing'
   | 'OpponentHudProfileLate'
   | 'OpponentHudPersistFailing'
-  | 'OpponentHudDrift';
+  | 'OpponentHudDrift'
+  | 'OpponentHudSyncHeld';
 /** load failures (timeouts and errors) in one alert window that raise OpponentHudLoadFailing */
 export const HUD_ALERT_LOAD_FAILURES = 5;
 export const HUD_ALERT_WINDOW_MS = 5 * 60_000;
@@ -152,6 +160,8 @@ export interface OpponentHudStoreDeps {
   warn?(message: string): void;
   /** pause used by the catch-up rate limit (tests inject a recorder); absent, a real unref'd timer */
   sleep?(ms: number): Promise<void>;
+  /** run `fn` after `ms` (the load retry schedule; tests inject a recorder); absent, a real unref'd timer */
+  schedule?(ms: number, fn: () => void): void;
 }
 
 type Entry =
@@ -226,6 +236,19 @@ export class OpponentHudStore {
   } | null = null;
   /** the time of the newest hand the ring has dropped: a profile first asked for before it may have missed hands */
   private ringDroppedAt = -1;
+  /** failed load attempts per player since his last ready profile (the retry schedule's position) */
+  private readonly loadAttempts = new Map<string, number>();
+  /**
+   * AUDIT-C items 9/10 (OPPONENT-HUD-FIX-1): why the sync point may not move. 'activating': the switch-on catch-up
+   * has not finished; 'catchup': it finished incomplete (a page or a player's load failed; it is re-run on the next
+   * alert tick); 'capped': the stored sync point was missing or older than HUD_ACTIVATION_MAX_CATCHUP_MS, so hands
+   * between it and the catch-up horizon are counted nowhere. While held, profiles are still saved (each hand once)
+   * but '#sync' is never written, so no later activation can start after an uncounted gap; 'capped' raises
+   * OpponentHudSyncHeld until the backfill (scripts/opponent-hud-build.ts --apply) has written a fresh sync point.
+   */
+  private syncHold: 'activating' | 'catchup' | 'capped' | null = null;
+  private syncHeldFloor = 0;
+  private persistRun: Promise<void> | null = null;
   private gapCatchUp: Promise<void> | null = null;
   private gapFrom: number | null = null;
   /** load-gap catch-ups run (operator report) */
@@ -293,20 +316,40 @@ export class OpponentHudStore {
         const floor = startedAt - HUD_ACTIVATION_MAX_CATCHUP_MS;
         const capped = syncMs === null || !(syncMs > floor);
         const fromMs = Math.max(floor, (syncMs ?? floor) - HUD_RING_MS);
+        if (this.syncHold !== 'capped' || !capped) this.syncHold = 'activating';
         if (capped) {
           noteFire('opponent_hud_catchup_capped');
+          noteFire('opponent_hud_sync_held');
+          this.syncHold = 'capped';
+          this.syncHeldFloor = floor;
           this.setAlert(
-            'OpponentHudDrift',
+            'OpponentHudSyncHeld',
             true,
-            'opponent HUD switched on more than 48 hours after its last sync point: re-run the backfill (scripts/opponent-hud-build.ts --apply)'
+            'opponent HUD switched on with no sync point or one older than 48 hours: the hands before the catch-up are counted nowhere, so the sync point is held until the backfill runs (scripts/opponent-hud-build.ts --apply)'
           );
         }
+        // boot / cutover: every profile updated in the last HUD_BOOT_WINDOW_MS is warm before the catch-up reads a
+        // page (AUDIT-C item 5: the 'boot' trigger, measured as opponent_hud_ready_boot_ms_*)
+        await this.prewarmProfiles(startedAt);
         const r = await this.catchUpInto(fromMs, null);
-        this.lastActivation = { fromMs, ...r, ms: this.deps.now() - startedAt, capped };
+        const { complete, ...counts } = r;
+        this.lastActivation = { fromMs, ...counts, ms: this.deps.now() - startedAt, capped };
+        if (!complete) {
+          // re-run on the next alert tick (idempotent: each hand is applied once); the sync point stays where it is
+          noteFire('opponent_hud_catchup_incomplete');
+          this.window.loadFailed += 1;
+          this.activationPending = true;
+          if (this.syncHold !== 'capped') this.syncHold = 'catchup';
+        } else if (!capped) {
+          this.syncHold = null;
+          this.setAlert('OpponentHudSyncHeld', false, 'opponent HUD sync point is current');
+        }
         noteFire('opponent_hud_activation_done');
         if (this.armedState) await this.persist();
       } catch {
         noteFire('opponent_hud_activation_failed');
+        this.activationPending = true;
+        if (this.syncHold !== 'capped') this.syncHold = 'catchup';
       } finally {
         this.activating = null;
       }
@@ -322,6 +365,8 @@ export class OpponentHudStore {
         this.asked.clear();
         this.ring.length = 0;
         this.packetCache.clear();
+        this.loadAttempts.clear();
+        this.syncHold = null;
         for (const name of [...this.alerting])
           this.setAlert(name, false, 'opponent HUD switched off');
       }
@@ -336,9 +381,10 @@ export class OpponentHudStore {
   private async catchUpInto(
     fromMs: number,
     toMs: number | null
-  ): Promise<{ applied: number; loaded: number }> {
-    const out = { applied: 0, loaded: 0 };
-    if (!this.deps.handsPage) return out;
+  ): Promise<{ applied: number; loaded: number; complete: boolean }> {
+    const out = { applied: 0, loaded: 0, complete: false };
+    if (!this.deps.handsPage) return { ...out, complete: true };
+    let walked = true;
     const st = this.catchupStats;
     const sleep = (ms: number): Promise<void> =>
       this.deps.sleep
@@ -405,6 +451,7 @@ export class OpponentHudStore {
           clearTimeout(t);
         }
       }
+      walked = false; // the page bound ran out before the last hand
     };
     try {
       const players = new Map<HudFamily, Set<string>>([
@@ -427,6 +474,11 @@ export class OpponentHudStore {
           out.loaded += Math.min(50, cold.length - i);
         }
       }
+      // a player whose load failed has none of these hands: the catch-up is incomplete (re-run, never skipped)
+      let allLoaded = true;
+      for (const [family, users] of players)
+        for (const u of users)
+          if (this.cache.get(key(family, u))?.state !== 'ready') allLoaded = false;
       await walk((rec) => {
         if (!this.armedState) return;
         const deltas = extractHandDeltas(rec);
@@ -438,6 +490,7 @@ export class OpponentHudStore {
           }
         }
       });
+      out.complete = walked && allLoaded && this.armedState;
     } catch {
       noteFire('opponent_hud_catchup_failed');
     }
@@ -549,8 +602,22 @@ export class OpponentHudStore {
         noteFire('opponent_hud_schema_missing');
         this.window.schemaMissing += 1;
       }
-      for (const u of users)
-        this.cache.set(key(family, u), { state: 'failed', retryAt: now + HUD_RETRY_MS });
+      const schemaMissing = now < this.disabledUntil;
+      const retry = new Map<number, string[]>();
+      for (const u of users) {
+        const k = key(family, u);
+        const attempt = this.loadAttempts.get(k) ?? 0;
+        this.loadAttempts.set(k, attempt + 1);
+        const delay =
+          !schemaMissing && attempt < HUD_RETRY_SCHEDULE_MS.length
+            ? HUD_RETRY_SCHEDULE_MS[attempt]
+            : HUD_RETRY_MS;
+        this.cache.set(k, { state: 'failed', retryAt: now + delay });
+        if (delay !== HUD_RETRY_MS) retry.set(delay, [...(retry.get(delay) ?? []), u]);
+      }
+      while (this.loadAttempts.size > HUD_CACHE_MAX)
+        this.loadAttempts.delete(this.loadAttempts.keys().next().value!);
+      for (const [delay, list] of retry) this.later(delay, () => this.retryFailed(family, list));
       noteFire(ac.signal.aborted ? 'opponent_hud_load_timeout' : 'opponent_hud_load_failed');
       this.window.loadFailed += 1;
     } finally {
@@ -559,6 +626,35 @@ export class OpponentHudStore {
   }
 
   /** One catch-up at a time from the earliest gap asked for; a gap noted while one runs starts the next. Never throws. */
+  private later(ms: number, fn: () => void): void {
+    const run = () => {
+      try {
+        fn();
+      } catch {
+        noteFire('opponent_hud_retry_error');
+      }
+    };
+    if (this.deps.schedule) this.deps.schedule(ms, run);
+    else (setTimeout(run, ms) as { unref?: () => void }).unref?.();
+  }
+  /** the retry schedule's timer: reload the players still failed whose retry time has come (never throws) */
+  private retryFailed(family: HudFamily, users: readonly string[]): void {
+    if (!this.armedState || this.deps.now() < this.disabledUntil) return;
+    const now = this.deps.now();
+    const due = users.filter((u) => {
+      const e = this.cache.get(key(family, u));
+      return e?.state === 'failed' && now >= e.retryAt;
+    });
+    if (!due.length) return;
+    noteFire('opponent_hud_load_retry');
+    for (let i = 0; i < due.length; i += 50) {
+      this.seatLoads += 1;
+      void this.load(due.slice(i, i + 50), family).finally(() => {
+        this.seatLoads -= 1;
+      });
+    }
+  }
+
   private loadGapCatchUp(fromMs: number): void {
     this.gapFrom = Math.min(this.gapFrom ?? fromMs, fromMs);
     if (this.gapCatchUp || !this.armedState) return;
@@ -596,6 +692,7 @@ export class OpponentHudStore {
       readAt: now,
     };
     this.cache.set(k, entry);
+    this.loadAttempts.delete(k);
     const asked = this.asked.get(k);
     if (asked) {
       const ms = Math.max(0, now - asked.at);
@@ -649,7 +746,7 @@ export class OpponentHudStore {
     bigBlind?: number | null;
   }): { opponentHud?: OpponentHudPacket } {
     try {
-      if (!this.armedState || !input.cash) return {};
+      if (!this.armedState) return {};
       const family = input.family === 'plo4' || input.family === 'plo5' ? input.family : null;
       if (!family) return {};
       const ids = [...new Set(input.opponentIds)].filter((u) => u !== input.heroId).sort();
@@ -678,7 +775,8 @@ export class OpponentHudStore {
         opponentHud: buildHudPacket(
           family,
           profiles,
-          priorsForStake(this.priors[family], input.bigBlind),
+          // a tournament big blind is chips, not a stake: the family prior
+          priorsForStake(this.priors[family], input.cash ? input.bigBlind : null),
           input.atMs,
           input.street,
           (p, minute, street) => {
@@ -813,7 +911,34 @@ export class OpponentHudStore {
    * this persistence. A hand that arrives while a save is in flight keeps its profile unsaved. The sync point moves
    * only when every changed profile is saved.
    */
-  async persist(force = false): Promise<void> {
+  /** Save every changed profile (one run at a time: a call while a save runs joins it). */
+  persist(force = false): Promise<void> {
+    if (this.persistRun) return this.persistRun;
+    const run = this.persistOnce(force).finally(() => {
+      if (this.persistRun === run) this.persistRun = null;
+    });
+    this.persistRun = run;
+    return run;
+  }
+  /**
+   * AUDIT-C item 3 (OPPONENT-HUD-FIX-1): the engine's graceful stop (index.ts performShutdown, after every dealer has
+   * drained, so after the last hand this process settles) saves every changed profile: a save already running is
+   * awaited first, then one more save covers the hands it did not carry. Bounded by the caller's deadline; never
+   * throws. Off: nothing (no statement).
+   */
+  async flushForExit(): Promise<void> {
+    this.stop();
+    if (!this.armedState) return;
+    try {
+      if (this.activating) await this.activating;
+      if (this.persistRun) await this.persistRun;
+      await this.persist(true);
+      noteFire('opponent_hud_exit_saved');
+    } catch {
+      noteFire('opponent_hud_exit_save_failed');
+    }
+  }
+  private async persistOnce(force: boolean): Promise<void> {
     if (!this.armedState && !force) return;
     if (this.persisting) return;
     this.persisting = true;
@@ -909,7 +1034,8 @@ export class OpponentHudStore {
       // hands older than the ring are still being read back for a merged profile
       if (this.gapCatchUp !== null || this.gapFrom !== null) unsaved = true;
       // the sync point: every hand accepted before this persistence began is in a saved profile or in the ring
-      if (dirty.length && !unsaved) {
+      if (this.syncHold !== null) noteFire('opponent_hud_sync_held_persist');
+      if (dirty.length && !unsaved && this.syncHold === null) {
         try {
           await this.deps.upsert(
             [
@@ -937,6 +1063,15 @@ export class OpponentHudStore {
   /** Engine boot: warm every profile updated in the last HUD_BOOT_WINDOW_MS, both families, in pages. */
   async prewarm(): Promise<number> {
     if (!this.armedState) return 0;
+    const n = await this.prewarmProfiles(this.deps.now());
+    // catch up the hands accepted since the last persistence (a restart loses no hand: applyHudHand counts each once)
+    await this.catchUp(new Date(this.deps.now() - HUD_BOOT_CATCHUP_MS).toISOString());
+    return n;
+  }
+  /** The 'boot' trigger (activation at engine boot or cutover): every stored profile updated in the last
+   *  HUD_BOOT_WINDOW_MS is made ready; each one's readiness from `startedAt` is counted as opponent_hud_ready_boot_*. */
+  private async prewarmProfiles(startedAt: number): Promise<number> {
+    if (!this.armedState) return 0;
     let n = 0;
     const since = new Date(this.deps.now() - HUD_BOOT_WINDOW_MS).toISOString();
     for (const family of HUD_FAMILIES) {
@@ -958,6 +1093,8 @@ export class OpponentHudStore {
             if (r.family !== family || !validHudProfile(r.profile) || r.profile.user !== r.user_id)
               continue;
             if (this.cache.get(key(family, r.user_id))?.state === 'ready') continue;
+            const k = key(family, r.user_id);
+            if (!this.asked.has(k)) this.asked.set(k, { at: startedAt, event: 'boot' });
             this.setReady(family, r.user_id, r.profile, now, storedRev(r));
             n += 1;
           }
@@ -971,8 +1108,6 @@ export class OpponentHudStore {
       }
     }
     noteFire('opponent_hud_event_boot');
-    // catch up the hands accepted since the last persistence (a restart loses no hand: applyHudHand counts each once)
-    await this.catchUp(new Date(this.deps.now() - HUD_BOOT_CATCHUP_MS).toISOString());
     return n;
   }
 
@@ -1077,6 +1212,7 @@ export class OpponentHudStore {
   tickAlerts(): void {
     if (!this.armedState) return;
     if (this.activationPending && !this.activating) void this.activate();
+    else if (this.syncHold === 'capped' && !this.activating) void this.releaseHoldIfBackfilled();
     try {
       const w = this.window;
       this.window = { loadFailed: 0, late: 0, persistFailed: 0, schemaMissing: 0 };
@@ -1098,6 +1234,18 @@ export class OpponentHudStore {
       );
     } catch {
       noteFire('opponent_hud_alert_error');
+    }
+  }
+
+  /** While the sync point is held for an uncounted gap: two small reads; once the backfill has written a sync point
+   *  newer than the held floor, the activation runs again from it (and releases the hold when it completes). */
+  private async releaseHoldIfBackfilled(): Promise<void> {
+    try {
+      const sync = await this.loadPriors();
+      if (!this.priorsReadFailed && sync !== null && sync > this.syncHeldFloor && this.armedState)
+        await this.activate();
+    } catch {
+      noteFire('opponent_hud_sync_hold_check_failed');
     }
   }
 
@@ -1283,7 +1431,9 @@ export function warmOpponentHudSeats(
 ): void {
   try {
     const family = familyOf(variant);
-    if (!shared || !family || tournament) return;
+    // tournaments are counted and warmed like cash (lead ruling 2026-11-21 18:38Z); `tournament` is kept for callers
+    void tournament;
+    if (!shared || !family) return;
     shared.warm(userIds, family, event);
   } catch {
     /* never into a seat path */
@@ -1351,7 +1501,35 @@ export function opponentHudOnAcceptedHand(row: unknown): void {
   }
 }
 
-/** Production start (lane.ts, once): create the store, load priors, prewarm, persist on its timer. */
+/**
+ * The engine's graceful stop (index.ts performShutdown, after gameServer.stop() has drained every dealer): save every
+ * changed profile before the process exits, so the hands this process settled after its successor's activation
+ * catch-up are stored (AUDIT-C item 3). Bounded by `deadlineMs`; never throws; a no-op when the store never started
+ * or the option is off.
+ */
+export async function persistOpponentHudBeforeExit(deadlineMs = 8_000): Promise<void> {
+  try {
+    const store = shared;
+    if (!store) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    await Promise.race([
+      store.flushForExit(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          noteFire('opponent_hud_exit_save_deadline');
+          resolve();
+        }, deadlineMs);
+        (timer as { unref?: () => void }).unref?.();
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+  } catch {
+    /* never into the shutdown path */
+  }
+}
+
+/** Production start (lane.ts, once): create the store and its timers; switching the option on loads the priors,
+ *  prewarms (the 'boot' trigger) and catches up. */
 export function startOpponentHudStore(): void {
   try {
     opponentHudStore().start();

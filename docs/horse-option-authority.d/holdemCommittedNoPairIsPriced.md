@@ -1,6 +1,6 @@
 # holdemCommittedNoPairIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago. Evidence NOT MET: the option stays OFF (read `=== true`, release default off, no switch row). Decided 2026-11-21 on the recorded league runs (the Horse mirror and the scripted barreler not significant; the value-only harm control significantly negative, `z = -3.02`) and a replay on real audited decisions (`1` changed of `2734`); see Verdict.
+Owner order of 2026-11-17 11:49 America/Chicago. Measured harm, locked off-only as measured harm. Evidence NOT MET: the option is off-only in the registry (`OPTION_SWITCH_OFF_ONLY`, status `harm`, Antigravity Coordinator ruling of 2026-11-21 on PR #11634: value-only harm control `-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant; pot barreler not resolved) and the database refuses `on` for it once list migration 20261121184749 is installed (read `=== true`, release default off, no switch row). This file proposes no switch row. Decided 2026-11-21 on the recorded league runs (the Horse mirror and the scripted barreler not significant; the value-only harm control significantly negative, `z = -3.02`) and a replay on real audited decisions (`1` changed of `2734`); see Verdict.
 
 Built by the Hold'em Strategy lane (2026-11-20, building on helper session_01TLQer8xSzdhPzuDRJXTPag) as the priced rebuild of the "Ace-High jamming gate" in Antigravity commits `633eec005d5` (HOLDEM STRATEGY) and `6496e1610f0` (HEADS UP), preserved locally as `archive/holdem-strategy/ace-high-jam-board-discipline-633eec0` and `archive/heads-up/bb-overfold-6496e16`. Those drafts (`if (aceHighJammingGate && cat === 1 && !holdemHoleDrawPresent && potFrac >= 0.40) return all_in`) forced a jam by hand class and an unmeasured `0.40` pot fraction; the brief and witness hands (`#59784826`, `#59784258`) asked for the opposite, that committed unpaired high-card hands stop jamming and calling off without positive expected value. This option drops the unmeasured `0.40` threshold and prices the spot by EV.
 
@@ -84,7 +84,7 @@ Card `nlh_committed_no_pair_is_priced_vs_value_barreler` (the harm control: bets
 
 - Mechanism, scope, receipts, law test, byte-identical off: MET.
 - Value against people: NOT MET (Horse mirror `-0.50 +/- 0.53 bb/100`, `z = -0.95`, not significant; scripted pot barreler `-0.21 +/- 0.70 bb/100`, `z = -0.30`, not significant; replay on HVH48-D changed `1` of `2734` decisions, unjudged; see Verdict).
-- Harm: MEASURED against the value-only harm control (`-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant). Reported to the coordinator for an off-only lock; this file does not lock it.
+- Harm: MEASURED against the value-only harm control (`-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant). Reported to the coordinator, who locked it off-only as measured harm on 2026-11-21 (list migration 20261121184749).
 - Do not switch on.
 
 ## Verdict (2026-11-21)

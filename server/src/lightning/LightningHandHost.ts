@@ -14,6 +14,10 @@ import {
   omahaMathCoreOwns,
   omahaMathCoreRecover,
 } from '../engine/omahaMathCore/OmahaMathCoreAcceptance.js';
+import {
+  lightningOmahaRecoverState,
+  type LightningOmahaRecoverInput,
+} from './LightningOmahaRecoverState.js';
 
 import { publicHandStatsFrame } from '../engine/presentation/publicHandStats.js';
 import {
@@ -23,6 +27,7 @@ import {
 import { bindLightningHorseObservationIdentity } from '../engine/HorseObservationIdentity.js';
 import { captureLightningHorseJournalCoordinate } from '../engine/HorseDecisionHandBinding.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
+import { handRowEngineBuild } from '../releaseIdentity.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  ONE LIGHTNING HAND, DEALT (Lightning Phase 6, 2026-09-27)
@@ -2905,19 +2910,19 @@ export class LightningHandHost {
           const priced = me
             ? omahaMathCoreRecover({
                 player: me as unknown as import('../types.js').SeatPlayer,
-                gs: {
-                  players: st.players,
-                  communityCards: st.communityCards,
-                  stage: st.stage,
-                  currentBet: st.currentBet,
-                  pot: st.pot,
-                  minRaise: st.minRaise,
-                  ...this.hc.getBlindSnapshot(),
-                  gameMode: 'cash',
-                  gameVariant: String(this.rules?.game_variant ?? 'nlh'),
-                  toCall: auth.toCall,
-                  legalActions: [...auth.legalActions],
-                } as unknown as import('../engine/HorseLogic.js').HorseGameStateV2,
+                // lane CORE-FIX-1 (AUDIT-A item 16): the whole fresh state, so the scope gate re-checks Diamond,
+                // the board count, all-in-or-fold and a capped street here and the price nets the table's rake
+                gs: lightningOmahaRecoverState({
+                  state: st as unknown as LightningOmahaRecoverInput['state'],
+                  heroUserId: userId,
+                  blinds: this.hc.getBlindSnapshot() as unknown as Record<string, unknown>,
+                  variant: String(this.hc.getGameVariant?.() || this.rules?.game_variant || 'nlh'),
+                  boardCount: this.hc.getActiveBoardCount(),
+                  asset: (this.rules?.arena?.asset as string | undefined) ?? null,
+                  allInOrFold,
+                  rakeConfig: this.hc.getRakeConfigSnapshot(),
+                  auth,
+                }),
                 on: true,
                 from: 'controller_refused',
                 error: 'controller_refused',
@@ -3453,6 +3458,15 @@ export class LightningHandHost {
       >[0]['perPotAwards'],
     });
     return {
+      /* A LIGHTNING HAND NAMES ITS BUILD (2026-11-21). hand_history.engine_build
+         (20261118073245) was stamped only by logHandHistory, which a Lightning
+         row never passes through, so every Lightning hand stored NULL (25,725
+         of 25,725 in the 20 hours after the 2026-11-20 19:12 UTC cutover,
+         against 0 unstamped physical hands) and could not be split by the
+         build that played it. Same helper, same rule as a physical hand; it
+         rides fn_lightning_settle_hand's row into fn_ca_commit_hand_settlement
+         unchanged. Built once per hand, so every settle retry is identical. */
+      ...handRowEngineBuild(),
       horse_exploit_dealt_count: participants.length,
       public_memory_domain: publicMemoryDomainFromRules(
         'lightning',

@@ -93,7 +93,10 @@ import {
   raiseEngineAlert,
   resolveEngineAlert,
 } from './services/engineAlerts.js';
-import { setOpponentHudAlertSink } from './services/OpponentHudStore.js';
+import {
+  persistOpponentHudBeforeExit,
+  setOpponentHudAlertSink,
+} from './services/OpponentHudStore.js';
 import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -622,6 +625,10 @@ async function performShutdown(): Promise<void> {
         `${localFailures.length} local shutdown step(s) failed after ownership release`
       );
     }
+    // OPPONENT HUD (AUDIT-C item 3): every dealer has drained, so the last hand this process settled is in the store;
+    // save the changed profiles before exit (bounded; never throws; nothing while the option is off). At a cutover
+    // the successor's sync point is already past these hands, so this save is what keeps them.
+    await persistOpponentHudBeforeExit();
     await persistEngineAlertsBeforeExit();
     await flushEngineLifecycleLogs(2_000);
     clearTimeout(hardDeadline);

@@ -44,6 +44,7 @@ import { OMAHA_MATH_CORE_ALL_STREETS } from './OmahaMathCoreRule.js';
 import {
   OMAHA_MATH_CORE_REALIZATION_CALIBRATION,
   OMAHA_MATH_CORE_WORK_BUDGET,
+  omahaMathCoreCallDraws,
   omahaMathCoreDrawCost,
   omahaMathCoreLateDraws,
 } from './OmahaMathCore.js';
@@ -585,12 +586,15 @@ describe('COREGUARD B4: an exception is never an automatic fold', () => {
     let n = 0;
     for (const spec of SPECS.filter((s) => s.facing).slice(0, 24)) {
       const { st } = gen(spec);
+      // lane CORE-FIX-1: the standalone run has no real incumbent (the synthetic fold is nobody's decision)
       const direct = omahaMathCoreRule(
         { action: 'fold', thinkTime: 0 },
         st.hero,
         st.gs,
         { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS, omahaMathCorePreflop: true },
-        (d) => omahaMathCoreExactLegalize(d, st.hero, st.gs)
+        (d) => omahaMathCoreExactLegalize(d, st.hero, st.gs),
+        undefined,
+        'none'
       );
       const brain = vi
         .spyOn(HorseLogic as unknown as { decideInternal: () => never }, 'decideInternal')
@@ -1047,8 +1051,8 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
             sane.push(`${w}: call ev ${raw} below -adds`);
         }
       }
-      // the equity work of a decision stays inside the budget whatever the seat count: the budget, plus the one
-      // call that crossed it, plus the reduced floor of every call after it
+      // the equity work of a decision is bounded call by call (lane CORE-FIX-1: every call takes the same draws for
+      // its range count, never sized by the work spent before it): calls x the largest per-call work up to k ranges
       {
         const wire = rec.core!.wire;
         const k = gs.players.filter((p) => p.seat !== hero.seat && !p.is_folded).length;
@@ -1056,9 +1060,14 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
         if (!wire || typeof wire.work !== 'number')
           sane.push(`${tag}: the receipt carries no wire.work`);
         else {
-          const bound =
-            OMAHA_MATH_CORE_WORK_BUDGET +
-            (1 + wire.lateEquityCalls) * 600 * omahaMathCoreDrawCost(Math.max(1, k));
+          let perCall = 0;
+          for (let j = 1; j <= Math.max(1, k); j++)
+            // the sampler stops on a 64-draw batch boundary: at most 63 draws past the call's allowance
+            perCall = Math.max(
+              perCall,
+              (omahaMathCoreCallDraws(j) + 63) * omahaMathCoreDrawCost(j)
+            );
+          const bound = wire.lateEquityCalls * perCall + 0.5;
           workChecked++;
           workMax[k] = Math.max(workMax[k] ?? 0, wire.work);
           if (wire.work > bound) sane.push(`${tag}: work ${wire.work} over ${Math.round(bound)}`);
@@ -1226,13 +1235,11 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
  * equity were lost to later play that cannot happen. The hero-all-in call was already exempt; this one was not.
  */
 describe('CORE-POOLED-6: the work budget charges a draw by the seats it draws', () => {
-  it('heads-up is charged as before (1 per draw, 600 late draws); a first call gets 4,000 / 3,750 / 1,562 / 732 / 366 draws against 1 to 5 ranges', () => {
+  it('heads-up is charged 1 per draw; every call (lane CORE-FIX-1: first or last) gets 2,400 / 750 / 312 / 150 / 150 draws against 1 to 5 ranges', () => {
     expect(omahaMathCoreDrawCost(1)).toBe(1);
     expect(omahaMathCoreLateDraws(1)).toBe(600);
-    const first = [1, 2, 3, 4, 5].map((k) =>
-      Math.min(4000, Math.floor(OMAHA_MATH_CORE_WORK_BUDGET / omahaMathCoreDrawCost(k)))
-    );
-    expect(first).toEqual([4000, 3750, 1562, 732, 366]);
+    expect(OMAHA_MATH_CORE_WORK_BUDGET).toBe(12000);
+    expect([1, 2, 3, 4, 5].map(omahaMathCoreCallDraws)).toEqual([2400, 750, 312, 150, 150]);
     // more seats never get more draws, and the late floor never goes under 150
     for (let k = 1; k < 8; k++) {
       expect(omahaMathCoreDrawCost(k + 1)).toBeGreaterThan(omahaMathCoreDrawCost(k));

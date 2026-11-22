@@ -146,6 +146,8 @@ export interface HudHandRecord {
   board: string[];
   showdown: HudShowdownEntry[];
   winners: string[];
+  /** a tournament hand (lead ruling 18:38Z: tournaments are counted; their big blind is chips, never a stake band) */
+  tournament?: true;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -183,19 +185,25 @@ export type HudRowRefusal =
 
 /**
  * A hand_history row (plain JSON as PostgREST returns it) to the public record, or the refusal. Copies ONLY the
- * public fields: from each player exactly seat, userId and stack; never `cards`. PLO4/PLO5 cash, one board, no bomb
- * pot. The same function serves the backfill, the incremental update and the reconciliation.
+ * public fields: from each player exactly seat, userId and stack; never `cards`. PLO4/PLO5, cash AND tournaments
+ * (lead ruling 2026-11-21 18:38Z, owner ruling Nov 14). Run-it-twice hands are counted: every action precedes the
+ * split, the first board is the board the hand was played on, and showdown/winners are the public outcome of every
+ * board (no unshown card is read). A single-board bomb pot is counted: its antes are dead money and nobody had a
+ * preflop decision, so it gives postflop evidence only. Only a bomb pot dealt on two or more boards is refused
+ * ('multi_board': its streets were played against several boards at once). The same function serves the backfill,
+ * the incremental update and the reconciliation.
  */
 export function handRecordFromRow(row: unknown): HudHandRecord | HudRowRefusal {
   const r = obj(row);
   if (!r) return 'bad_row';
   const family = r.game_variant;
   if (family !== 'plo4' && family !== 'plo5') return 'not_plo45';
-  if (r.tournament_id != null) return 'tournament';
-  if (r.bomb_pot != null && r.bomb_pot !== false) return 'bomb_pot';
+  const tournament = r.tournament_id != null;
+  const bomb = obj(r.bomb_pot);
   if (
     (Array.isArray(r.community_cards2) && r.community_cards2.length > 0) ||
-    (r.rit_boards != null && arr(r.rit_boards).length > 0)
+    (Array.isArray(r.community_cards3) && r.community_cards3.length > 0) ||
+    (bomb !== null && (num(bomb.board_count) ?? 1) > 1)
   )
     return 'multi_board';
   const id = typeof r.id === 'string' && UUID.test(r.id) ? r.id : null;
@@ -277,6 +285,7 @@ export function handRecordFromRow(row: unknown): HudHandRecord | HudRowRefusal {
     board,
     showdown,
     winners: [...winners].sort(),
+    ...(tournament ? { tournament: true as const } : {}),
   };
 }
 
@@ -860,7 +869,7 @@ export function extractHandDeltas(rec: HudHandRecord): HudHandDelta[] {
     }
     const st = seats.get(a.seat);
     const amt = Math.max(0, a.amount);
-    if (a.dead || a.action === 'ante') {
+    if (a.dead || a.action === 'ante' || a.action === 'bomb_ante') {
       pot += amt;
       continue;
     }
@@ -1180,7 +1189,7 @@ function ownBetBands(rec: HudHandRecord): Map<string, Map<HudStreet, HudBand[]>>
       committed.clear();
     }
     const amt = Math.max(0, a.amount);
-    if (a.dead || a.action === 'ante') {
+    if (a.dead || a.action === 'ante' || a.action === 'bomb_ante') {
       pot += amt;
       continue;
     }

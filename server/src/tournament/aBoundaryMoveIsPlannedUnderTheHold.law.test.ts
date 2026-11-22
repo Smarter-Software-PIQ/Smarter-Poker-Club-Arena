@@ -387,6 +387,141 @@ describe('a boundary move is planned under the hold', () => {
     });
   });
 
+  describe('a source that parks during a board read is moved or released in the same pass (2026-11-21, incident 1e532243)', () => {
+    // Production 2026-11-22 02:34Z (event 2d444aeb): cb2d8fa8 parked while a
+    // boundary balance was mid-read for d8b4fd33, and cbe6cd62 parked 63 ms
+    // into a 2.3 s read for cb2d8fa8. Because `parked` was snapshotted before
+    // the read, neither was moved or released, and drainBoundaryBalance then
+    // yielded to a full sweep (boundaryBalanceOwesSweep), parking them 26-28 s.
+
+    it('a fenced source that parks while balanceParkedGapSources is reading the board is moved in the same pass', async () => {
+      // Three tables: a (9), b (9), c (5) -> balancer plans one move from a and one from b.
+      const a = table(0, 9);
+      const b = table(1, 9);
+      const c = table(2, 5);
+      const { m, park } = manager([a, b, c]);
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(a.tableId)).toBe(true);
+      expect(m.gapBalanceFencedSources.has(b.tableId)).toBe(true);
+
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      let finishRead!: () => void;
+      m.loadBalancerTables.mockImplementation(
+        (...args: unknown[]) =>
+          new Promise((resolve) => {
+            finishRead = () => resolve(baseLoad(...args));
+          })
+      );
+
+      // Table `a` parks first and starts the boundary balance board read.
+      park(a.tableId);
+      expect(m.claimGapBalanceAtBoundary(a.tableId)).toBe(true);
+      await settle();
+      expect(m.executePlayerMoves).not.toHaveBeenCalled();
+
+      // Table `b` finishes its hand and parks WHILE the board read is in flight,
+      // and a sweep also arrives so drainBoundaryBalance will yield after this pass.
+      park(b.tableId);
+      m.boundaryBalanceOwesSweep = true;
+      finishRead();
+      await settle();
+
+      expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+      const movedFrom = new Set(
+        (m.executePlayerMoves.mock.calls[0][0] as Array<{ fromTableId: string }>).map(
+          (mv) => mv.fromTableId
+        )
+      );
+      expect(movedFrom.has(a.tableId)).toBe(true);
+      expect(movedFrom.has(b.tableId)).toBe(true);
+      expect(m.gapBalanceFencedSources.has(b.tableId)).toBe(false);
+    });
+
+    it('a fenced source that parks during the board read and is no longer needed is released in the same pass', async () => {
+      const a = table(0, 9);
+      const b = table(1, 9);
+      const c = table(2, 5);
+      const { m, engines, park } = manager([a, b, c]);
+      await m.checkTableBalance();
+
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      let finishRead!: () => void;
+      m.loadBalancerTables.mockImplementation(
+        (...args: unknown[]) =>
+          new Promise((resolve) => {
+            finishRead = () => resolve(baseLoad(...args));
+          })
+      );
+
+      // Now `a` and `b` both bust down to 6 players -> field is 6/6/5 (balanced).
+      a.players = a.players.slice(0, 6);
+      a.playerCount = 6;
+      b.players = b.players.slice(0, 6);
+      b.playerCount = 6;
+
+      park(a.tableId);
+      m.claimGapBalanceAtBoundary(a.tableId);
+      await settle();
+
+      // `b` parks while the board read is still in flight.
+      park(b.tableId);
+      finishRead();
+      await settle();
+
+      expect(m.executePlayerMoves).not.toHaveBeenCalled();
+      expect(engines.get(a.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(engines.get(b.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(m.gapBalanceFencedSources.size).toBe(0);
+    });
+
+    it('a balanced boundary pass also lifts still-dealing unneeded fences so they never park', async () => {
+      const a = table(0, 9);
+      const b = table(1, 9);
+      const c = table(2, 5);
+      const { m, engines, park } = manager([a, b, c]);
+      await m.checkTableBalance();
+      // Field becomes balanced while `b` is still dealing.
+      a.players = a.players.slice(0, 6);
+      a.playerCount = 6;
+      b.players = b.players.slice(0, 6);
+      b.playerCount = 6;
+
+      park(a.tableId);
+      m.claimGapBalanceAtBoundary(a.tableId);
+      await settle();
+
+      expect(engines.get(a.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(engines.get(b.tableId)!.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+      expect(m.gapBalanceFencedSources.size).toBe(0);
+    });
+
+    it('onEliminationSweepSettled drains an already-parked fenced source even when boundaryBalanceRequested was cleared', async () => {
+      const big = table(0, 8);
+      const short = table(1, 3);
+      const { m, park } = manager([big, short]);
+      await m.checkTableBalance();
+      park(big.tableId);
+      m.boundaryBalanceRequested = false;
+      m.isProcessingEliminations = false;
+
+      m.onEliminationSweepSettled();
+      await settle();
+
+      expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(false);
+    });
+
+    it('loadBalancerTables issues tables, table_seats, and tournament_players reads concurrently', () => {
+      const src = readFileSync(
+        fileURLToPath(new URL('./TournamentManager.ts', import.meta.url)),
+        'utf8'
+      );
+      const start = src.indexOf('private async loadBalancerTables(');
+      const body = src.slice(start, src.indexOf('const tableById = new Map(', start));
+      expect(body).toContain('const [tableRead, seatRead, rosterRead] = await Promise.all([');
+    });
+  });
+
   it('the hand-complete edge reaches the preparation before the hold plays', () => {
     const base = readFileSync(
       fileURLToPath(new URL('./TournamentManagerBase.ts', import.meta.url)),

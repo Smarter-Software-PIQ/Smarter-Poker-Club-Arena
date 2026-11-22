@@ -36,9 +36,14 @@
  * figure (fn_nit_status, ServerTableEngineBase.horseVpipDecisionInputs). A
  * pool has no judge today: a parked anchor runs the sit-out clock alone
  * (ServerTableEngineDealing, sitOutOnly), and no pool session has ever ended
- * on the floor (30 days to 2026-11-18: 0, people and Horses). When a pool
- * judge is built, this file is replaced by a read of that judge, as at a
- * table, and the line must then follow the judge's mode (rolling or whole
+ * on the floor (30 days to 2026-11-18: 0, people and Horses). Until
+ * 2026-11-21 the pool sitting WAS judged once, at the switch-off: the anchor
+ * became an ordinary table and its first eviction pass read every pool hand
+ * of the sitting (220 of 236 Lightning-game bars in 30 days, 235 of them
+ * Horses). Since migration 20261121152102 the table's sample starts at the
+ * switch-off (fn_nit_sitting_since), so pool hands are judged by nothing.
+ * When a pool judge is built, this file is replaced by a read of that judge,
+ * as at a table, and the line must then follow the judge's mode (rolling or whole
  * sitting, fn_nit_policy.rolling).
  *
  * RESTART AND NEW SITTINGS (review F3). A restart of the process empties the

@@ -865,6 +865,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V57'
   ),
   flag(
+    'v58MadeHandCellSkip',
+    'Dan 2026-10-26 (#8144) made-hand solver-cell skip: when hero holds a set/trips, straight, flush or better (cat >= 4), skip the hand-class-mean gto_postflop_compact open cell so the value ladder bets it across cash, Lightning and tournaments; decoupled from v57TournamentAggression so tournament aggression no longer reaches cash/Lightning made-hand skips; default on',
+    'V58'
+  ),
+  flag(
     'v61RiverOnePairShade',
     'Hold em one-pair (or board-paired two pair) river calls are shaded 6-12 equity points against the price unless the bettor reads as an over-bluffer; measured 14-day review stack-offs won 14-22% at prices demanding 20-40%; explicit off arm retained',
     'V61'
@@ -1108,7 +1113,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMathCoreNetsTheWholeDeduction',
-    'EMERG lane RAKE 2026-11-20 (lead order: every PLO4/PLO5 cash Horse decision rake-aware on the math). Default OFF (read === true); nothing without omahaMathCore. The math core nets every pot it prices of the whole deduction: the rake cap of the dealt-player tier (not the table cap), the fixed jackpot drop when it is collected, and both on a preflop line that reaches a flop; a preflop pot won because everyone folded still pays nothing (no flop, no drop). Off, the core nets the percentage and the table cap after the flop only and prices every preflop line rake-free. Public table rules only. PLO6 is outside the core.',
+    'INERT (lane CORE-FIX-1, AUDIT-A item 11, Nov 21): changes no decision. Since lane CORE-POOLED-4 the core nets the whole platform deduction by default and reads this option nowhere (law: OmahaMathCoreCoreFix1.law.test.ts, CORE-FIX-1: the option changes no decision); it stays registered only because the switch lists name it (retiring it needs a switch-list migration). Before: EMERG lane RAKE 2026-11-20 (lead order: every PLO4/PLO5 cash Horse decision rake-aware on the math). Default OFF (read === true); nothing without omahaMathCore. The math core nets every pot it prices of the whole deduction: the rake cap of the dealt-player tier (not the table cap), the fixed jackpot drop when it is collected, and both on a preflop line that reaches a flop; a preflop pot won because everyone folded still pays nothing (no flop, no drop). Off, the core nets the percentage and the table cap after the flop only and prices every preflop line rake-free. Public table rules only. PLO6 is outside the core.',
     'V94'
   ),
   flag(
@@ -1303,7 +1308,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'lightningVpipFloorLimpOnly',
-    'Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses must always follow"): every Lightning Games row carries a 40% VPIP floor in the ten-hand mode (migration 20261023230001, "Lightning uses 40% minimum VPIP and a BB ante") and the Lightning decision snapshot carried neither the floor nor the Horse own figure (production 2026-11-18, PLO5 1/2 pool: 49 Horses, 19,842 dealt hands, VPIP 24.6%, 48 of 48 with ten or more hands under 40%). The Lightning snapshot now carries the floor, the window and the Horse own last hands this pool sitting in deal order in lightningVpipFloor (LightningHorseVpipLedger; never in vpipFloor, so vpipFloorMul and vpipFloorCallDown still cannot fire in a pool), and with this on the floor has the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep): judged over the window of the game, rolling and projected with this hand (2026-11-19), when folding would leave the window under ceil(floor x window) entered hands (a new sitting seen from its first hand: every prefix at the floor; a count carried over a restart: nothing until it holds window - 1 hands), and one hand early only when priced, a preflop fold in a pot nobody has raised, for at most the big blind and less than the stack, becomes the limp or the small blind completion; never a raise, never a call of a raise, nothing postflop; no All-In-Or-Fold hand, no tournament. Independent of vpipFloorLimpOnly, which never governs a pool. No pool session is ended by the floor today, for a person or a Horse (the parked anchor runs the sit-out clock alone). Default off (opt-in) until its declared evaluation passes.',
+    'Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses must always follow"): every Lightning Games row carries a 40% VPIP floor in the ten-hand mode (migration 20261023230001, "Lightning uses 40% minimum VPIP and a BB ante") and the Lightning decision snapshot carried neither the floor nor the Horse own figure (production 2026-11-18, PLO5 1/2 pool: 49 Horses, 19,842 dealt hands, VPIP 24.6%, 48 of 48 with ten or more hands under 40%). The Lightning snapshot now carries the floor, the window and the Horse own last hands this pool sitting in deal order in lightningVpipFloor (LightningHorseVpipLedger; never in vpipFloor, so vpipFloorMul and vpipFloorCallDown still cannot fire in a pool), and with this on the floor has the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep): judged over the window of the game, rolling and projected with this hand (2026-11-19), when folding would leave the window under ceil(floor x window) entered hands (a new sitting seen from its first hand: every prefix at the floor; a count carried over a restart: nothing until it holds window - 1 hands), and one hand early only when priced, a preflop fold in a pot nobody has raised, for at most the big blind and less than the stack, becomes the limp or the small blind completion; never a raise, never a call of a raise, nothing postflop; no All-In-Or-Fold hand, no tournament. Independent of vpipFloorLimpOnly, which never governs a pool. No pool session is ended by the floor today, for a person or a Horse (the parked anchor runs the sit-out clock alone), and since migration 20261121152102 the switch-off does not judge the pool sitting either (the sample of the table starts at the switch-off). Default off (opt-in) until its declared evaluation passes.',
     'V94'
   ),
   flag(
@@ -2114,7 +2119,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'option_shadow_*',
     'horseDecision workerRuntime (OPTION SHADOW, HorseOptionShadow)',
-    'option_shadow_<option>_changed_seen / option_shadow_<option>_same_seen: a registered non-style option in shadow (passes nothing to the brain, so the acted decision is the release default) or in on_shadow (passes true, exactly as on; re-decided with false) was re-decided once with its value flipped from the same RNG position, never acted on, and the counterfactual action or amount differed / did not differ; option_shadow_<option>_changed_person_seen / _same_person_seen: the same, only when a person (a seat that is not a Horse) was dealt into the hand (Horse-only = all minus person); the journal field HorseDecision.optionShadowReceipt carries the counterfactual action and amount, street, variant, format and person presence; option_shadow_rotated_out_seen: another option in shadow of the same decision was not re-decided (one per decision, rotated by decision key); option_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen / _skipped_rate_seen: no re-decision because work was queued, the decision had spent the 15 ms budget, the governor scale moved, or the per-minute budget (HORSE_OPTION_SHADOW_PER_MINUTE) was used; option_shadow_scale_mismatch_seen / _redecide_failed_seen / _unencodable_seen: the re-decision ran at another scale, threw, or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
+    'option_shadow_<option>_changed_seen / option_shadow_<option>_same_seen: a registered non-style option in shadow (passes nothing to the brain, so the acted decision is the release default) or in on_shadow (passes true, exactly as on; re-decided with false) was re-decided once with its value flipped from the same RNG position, never acted on, and the counterfactual action or amount differed / did not differ; option_shadow_<option>_changed_person_seen / _same_person_seen: the same, only when a person (a seat that is not a Horse) was dealt into the hand (Horse-only = all minus person); the journal field HorseDecision.optionShadowReceipt carries the counterfactual action and amount, street, variant, format and person presence; option_shadow_rotated_out_seen: another option in shadow of the same decision was not re-decided (one per decision, rotated by decision key); option_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen / _skipped_rate_seen: no re-decision because work was queued, the decision had spent the 15 ms budget, the governor scale moved, or the per-minute budget (HORSE_OPTION_SHADOW_PER_MINUTE) was used (PEOPLE FIRST, 2026-11-21: that budget never refuses a decision with a person dealt in, only Horse-only ones, so _skipped_rate_ fires for a person only when the budget is 0); option_shadow_skipped_<backlog|budget|scale|stage_disabled|rate>_person_seen: the person-present subset of that skip (Horse-only = all minus person); option_shadow_rate_person_over_seen: a decision with a person dealt in was re-decided after the per-minute budget was already used; option_shadow_scale_mismatch_seen / _redecide_failed_seen / _unencodable_seen: the re-decision ran at another scale, threw, or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
     '2026-11-18'
   ),
   receipt(
@@ -2393,6 +2398,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseOpponentExploit.opponentExploitRead (holdemGearShiftReach)',
     'a statistic the long window and the stricter fast lines left unengaged was engaged high from the fast window at the ordinary credibility after a confirmed regime break; counts read computations; named *_seen',
     '2026-11-15'
+  ),
+  flag(
+    'styleShiftReleaseIsNoiseAware',
+    "2026-11-21 STYLE SHIFT RELEASE IS NOISE-AWARE (root fix of the release drain, docs/horse-league-fixed-limit.md 'The over-folder read and mixed frequencies'). Default OFF, read === true only, a PROCESS switch like fixedLimitBetsAreNeverProbes (opponent learning runs outside a decision). The 2026-11-06 opportunity-scoped decay's style-shift release (styleShiftReleased: any of pfr, rfi, threeBet, betCheckedTo, foldToBet, riverCall with a fast rate 0.2 from the long rate on 3+ decayed fast opportunities; then EVERY long-window gated statistic ages at the 8-hand rate) becomes: a statistic MOVED only when the gap is at least max(0.2, 1.5 x sqrt(q(1 - q) / nFast)), q the long rate shrunk half an observation toward one half, nFast the decayed fast count; a moved gated statistic ages only its own long window; a moved pfr (sampled every hand) still ages every gated statistic. The same rule gates the intra-session gear-shift read. Off: the 2026-11-06 rule byte for byte. The durable profile's SQL twin fn_horse_exploit_add reads the same switch row (fn_horse_style_shift_release_is_noise_aware) and applies the same rule. Measured on the stationary simulation (six seeds, 3,000 hands each): a stable 26% first-in raiser facing a postflop bet on 3% of hands keeps 33.2 decayed fold opportunities (off 13.5, release forced off 34.2); HorseManiacPressure style-change pins unchanged (NLH 21 / 11 hands, PLO4 17 / 12, off 17 / 13); evidence docs/horse-option-authority.d/styleShiftReleaseIsNoiseAware.md",
+    '2026-11-21',
+    'HorseOpponentExploit.decayAndAddOpportunityScoped and styleShiftReleased via HorseMind.applyStyleShiftReleaseIsNoiseAwareOption (decision worker, every job)'
+  ),
+  receipt(
+    'style_shift_noise_aware_released',
+    'HorseOpponentExploit.decayAndAddOpportunityScoped (styleShiftReleaseIsNoiseAware)',
+    'option on: a statistic moved beyond its sampling noise on this update, so its long window (every gated window when pfr moved) aged at the fast rate',
+    '2026-11-21'
+  ),
+  receipt(
+    'style_shift_noise_aware_withheld',
+    'HorseOpponentExploit.decayAndAddOpportunityScoped (styleShiftReleaseIsNoiseAware)',
+    'option on: the 2026-11-06 rule would have released every gated statistic on this update and the noise-aware rule released none',
+    '2026-11-21'
   ),
   flag(
     'holdemCallDownExcludesCurrentHand',
@@ -4249,7 +4272,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v58_made_hand_cell_skip',
-    'HorseLogic (tournament aggression)',
+    'HorseLogic (made-hand cell skip)',
     'a set, straight, flush or better was bet by the value ladder instead of following a hand-class-mean solver cell that cannot see it (2026-10-26)',
     'OPPX'
   ),
@@ -4996,7 +5019,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v72_defend_vs_opener',
-    'HorsePreflop (V72)',
+    'HorsePreflop (V72, v72DefenceByOpener)',
     "Hold'em facing one open with nobody in, defended on the (defender, opener seat) reference base",
     'V72',
     'decide_nlh',
@@ -5143,7 +5166,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_nut_class_pot_wager',
-    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense, omahaNutClassValueSize)',
     'a PLO4/PLO5 bet or raise with the nuts or an effective-nut hand was sized up to the full pot (or the stack)',
     'V94'
   ),
@@ -5293,7 +5316,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_preflop_reraise_defence_call',
-    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced, omahaPreflopReraiseDefencePricedInPosition)',
     'the same decision in which the priced decision was a call',
     'V94'
   ),
@@ -5305,7 +5328,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_preflop_reraise_defence_changed',
-    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced, omahaPreflopReraiseDefencePricedInPosition)',
     'the priced preflop decision differed from the answer it was given (a fold became a call, a call or a re-raise became a fold, a re-raise became a call)',
     'V94'
   ),
@@ -5317,37 +5340,37 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_reraised_call_priced_call',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     "PLO4/PLO5: a preflop call of a 3-bet or more that the class cell folds was priced and the fold OVERTURNED, the call kept: EV(call) = realization x equity against the re-raiser's measured range x (pot after the call, after rake) - call is at least 0 (owner 2026-11-17 15:30: no blanket rule). Never fires on a call the class cell keeps",
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_fold',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'PLO4/PLO5: a preflop call of a 3-bet or more that the class cell folds was priced and the fold CONFIRMED: EV(call) below 0 = EV(fold), so the call became a fold. The pricing alone never folds: a call the class cell keeps stands and fires neither priced receipt',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_in_position',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'finding F-02: a class fold was priced (either verdict) with the Horse in position as the realization fit defines it: it acts after the re-raiser (omahaReraisedPositionOf.ipVsRaiser, seat order only)',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_out_of_position',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'finding F-02: a class fold was priced (either verdict) with the Horse out of position as the realization fit defines it: it acts before the re-raiser',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_multiway_equity',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players already in for the price and the equity taken against the re-raiser and each of them (omahaReraisedEquityAgainst; each caller range is the band read from his line), with no per-player charge (measured -0.03, SE 0.06)',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_heads_up_diluted',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players counted in the pot and the equity heads-up against the re-raiser, so each is charged the 0.35 dilution (a tournament or Lightning hand, or a player in for the price with no readable band)',
     'V94'
   ),
@@ -5359,13 +5382,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_reraised_call_priced_call_after_own_raise',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'the subset of omaha_reraised_call_priced_call in which the Horse had raised earlier in the hand preflop (an input to the price only)',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_fold_after_own_raise',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'the subset of omaha_reraised_call_priced_fold in which the Horse had raised earlier in the hand preflop (an input to the price only)',
     'V94'
   ),
@@ -6085,13 +6108,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_facing_bet_ev_call',
-    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv, omahaFacingBetEvShownField, omahaFacingBetValueIsRangeRelative, omahaPairedBoardRiverIsPriced, omahaRiverBluffCatchIsPriced, omahaTurnCallRealizationByRunout)',
     "PLO4/PLO5 cash turn or river, facing a bet or a raise, today's answer a fold or a call: the expected value of the call, on the exact holdings count, the bettor's range and the actual price, exceeds the margin: call (the whole-stack call is the all-in)",
     'V94'
   ),
   receipt(
     'omaha_facing_bet_ev_fold',
-    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv, omahaFacingBetEvShownField, omahaFacingBetValueIsRangeRelative, omahaPairedBoardRiverIsPriced, omahaRiverBluffCatchIsPriced, omahaTurnCallRealizationByRunout)',
     'the same decision, the expected value of the call at or under the margin: fold',
     'V94'
   ),
@@ -6145,7 +6168,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_facing_bet_ev_changed',
-    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv, omahaFacingBetEvShownField, omahaFacingBetValueIsRangeRelative, omahaPairedBoardRiverIsPriced, omahaRiverBluffCatchIsPriced, omahaTurnCallRealizationByRunout)',
     "the expected-value verdict differs from the answer today's rules gave (a fold became a call or a call became a fold); the legacy rule is the legacy receipt fired in the same decision",
     'V94'
   ),
@@ -6897,7 +6920,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_public_bet_size_nut_class_kept',
-    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState, omahaNutClassValueSize)',
     "PLO4/PLO5 cash postflop, omahaNutClassValueSize on and a nut-class hand: that owner option's wager size stands (valid no-change)",
     'V94'
   ),
@@ -7111,7 +7134,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_full_table_sb_steal',
-    'HorsePreflop (V90, item 4)',
+    'HorsePreflop (V90, item 4, omahaSmallBlindSteal)',
     'PLO4/PLO5 tournament, four to eight dealt, not the bubble, hand-for-hand or a satellite: the small blind folded to (big blind alone, 20 BB or less) replaced the engine fold with the pot-limit raise on its top 40 percent of Omaha hands (no rate floor until a live day is measured)',
     'V90'
   ),
@@ -8365,20 +8388,44 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v44_declined_math_core_owned',
-    'ServerTableEngineTurns.secondLookPlan',
+    'ServerTableEngineTurns.secondLookPlan (omahaMathCore)',
     'no second look: omahaMathCore decided this action (its EV choice is final; no deep re-run replaces it)',
     'V94'
   ),
   receipt(
     'lightning_fold_through_math_core_owned',
-    'HorseLogic.decide (lightningEarlyFoldNeedsFoldThrough)',
+    'HorseLogic.decide (lightningEarlyFoldNeedsFoldThrough, omahaMathCore)',
     'the Lightning fold-through re-ask stood aside: omahaMathCore owns this decision',
     'V94'
   ),
   receipt(
     'omaha_math_core_refused_choice_priced_call',
-    'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD)',
+    'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD, omahaMathCore)',
     'a refused or failed worker answer on an omahaMathCore decision was replaced by the priced call or check, never a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_core_error',
+    'OmahaMathCoreRule.omahaMathCoreRule (catch)',
+    'lane CORE-FIX-1: the core threw on an admitted in-scope decision; the rules decision executed (applied false)',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_value_search_error',
+    'OmahaMathCore.decideOmahaMathCore (wired value search catch)',
+    'lane CORE-FIX-1: the wired value search threw; the core priced the decision with its one-step loop',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_equity_collision',
+    'OmahaMathCore.decideOmahaMathCore (equity eq)',
+    'lane CORE-FIX-1: narrow ranges collided on every draw; that equity call was priced against the unconditioned pool',
+    'V94'
+  ),
+  receipt(
+    'omaha_math_core_fallback_tracker_failure',
+    'OmahaMathCoreRangeTrack.trackRanges (catch)',
+    'lane CORE-FIX-1: the range tracker failed; the decision was priced with the untracked public ranges',
     'V94'
   ),
   receipt(
@@ -9010,7 +9057,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v86_*',
-    'HorseLogic / HorsePreflop / HorseOmahaBigBetCalls (V86)',
+    'HorseLogic / HorsePreflop / HorseOmahaBigBetCalls (V86, omahaRiverNutBlockerBluffReachable)',
     'V86 PLO4/5/6/8 preflop 3-bet/4-bet/squeeze rundowns & suited Ax, postflop combo-draw pump & SPR discipline, Bully-Breaker LAG counter, multi-board/PLO8 freeroll, and underboat/PLO6 river folds',
     'V86'
   ),
