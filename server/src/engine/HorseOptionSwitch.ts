@@ -400,6 +400,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverBetFoldIsHisRecord',
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
   'omahaBigBetSizeIsPriced',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)
+  'omahaBigDrawBetIsPricedOnHisResponse',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',

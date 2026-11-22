@@ -4651,6 +4651,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBigDrawAggression: true },
     b: {},
   })),
+  // 2026-11-21 R4 (omahaBigDrawBetIsPricedOnHisResponse, default OFF): replaces the
+  // checked-to bet half of omahaBigDrawAggression on flop/turn in PLO4/PLO5 cash using
+  // ONE lifetime HUD source (fb.bg, rBet, stab) with prove-it-to-bet bar; a switches it on.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_draw_bet_is_priced_on_his_response`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigDrawBetIsPricedOnHisResponse: true },
+    b: {},
+  })),
   // 2026-11-15 12:30 owner ruling (no draw raise out of position, no bare
   // flush draw raise in position), applied to the existing draw raises;
   // default OFF. a switches it on, b is today's brain.

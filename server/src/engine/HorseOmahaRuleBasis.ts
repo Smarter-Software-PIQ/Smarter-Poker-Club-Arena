@@ -150,6 +150,28 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
   omahaFourBetFoldPricedCall: PREFLOP_PRICED,
+  omahaOpponentLifetimeHudDecides: exempt(
+    'input',
+    'OPPONENT-HUD-9 consumer flag: reads lifetime public HUD counters shrunk n/(n+k) into HorseMind.opponentRead; decides nothing by itself'
+  ),
+  omahaPreflopReadIsPricedFromLifetime: {
+    kind: 'priced',
+    range:
+      'six-max preflop opponent range from lifetime public HUD cells (pf.*, pf.lr, pf.bvo) shrunk n/(n+k) via hudStat, retiring presumedAggressorRead',
+    equity: 'preflop equity against that measured range',
+    realization: 'measured six-max preflop position and depth realization',
+    price: 'the preflop call, raise, or fold against the pot after deduction',
+  },
+  omahaBigDrawBetIsPricedOnHisResponse: {
+    kind: 'priced',
+    range:
+      'each live opponent range on flop and turn checked-to spots using lifetime public HUD fold, raise-vs-bet, and stab rates shrunk n/(n+k) via hudStat',
+    equity: 'exact/sampled Omaha equity of the big draw against continuing and stabbing ranges',
+    realization:
+      'lifetime public HUD fold-to-bet (fb.bg), raise-vs-bet (rBet), and stab rates with street realization',
+    price:
+      'the checked-to big-draw bet beside the check with evBet - evCheck > sampleSe + readSpread and evBet > 0',
+  },
   omahaBigBetSizeIsPriced: {
     kind: 'priced',
     range:
@@ -679,6 +701,12 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_priced_big_bet_size_range_applied: FACING_BET_EV,
   omaha_priced_big_bet_size_resized: CARD_IMPACT,
   omaha_priced_big_bet_size_kept: CARD_IMPACT,
+  omaha_big_draw_bet_on_his_response_bet: CARD_IMPACT,
+  omaha_big_draw_bet_on_his_response_withheld: CARD_IMPACT,
+  omaha_big_draw_bet_on_his_response_final_check_unpriced: exempt(
+    'scope',
+    'R4 unpriced pass-through receipt when a checked-to big-draw spot cannot be priced; keeps check'
+  ),
   omaha_flop_bet_on_his_response_checked: CARD_IMPACT,
   omaha_flop_bet_on_his_response_kept: CARD_IMPACT,
   omaha_flop_bet_on_his_response_unpriced_kept: exempt(

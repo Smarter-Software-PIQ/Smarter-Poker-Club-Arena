@@ -1427,6 +1427,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBigDrawBetIsPricedOnHisResponse',
+    'R4 (PLO-OWNER lane REPLACEMENTS-5, 2026-11-21; default OFF, read === true): PLO4/PLO5 cash flop/turn checked-to big-draw bet priced on lifetime HUD fold (fb.bg), raise-back (rBet) and stab cells with a prove-it-to-bet uncertainty bar (sampleSe + readSpread), replacing the checked-to half of omahaBigDrawAggression without categorical OOP bars (HorseOmahaBigDrawBetPriced.ts).',
+    'V94'
+  ),
+  flag(
     'omahaNoDrawRaiseOutOfPosition',
     'Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS."): on a PLO4/PLO5 cash flop or turn the existing raises with a draw (below two pair, with a flush draw or 8+ straight outs: the baseline semi-bluff raise, the pressure semi-bluff raise, the combo draw pump, and any other raise reaching the final answer) are not made out of position, nor in position with a bare flush draw; the three sites fall through to the call-or-fold verdict, any other raise becomes a call; two pair or better is untouched (HorseOmahaBigDrawAggression.omahaDrawRaiseBar). Default OFF (opt-in); league cards plo4/plo5 _omaha_no_draw_raise_out_of_position',
     'V94'
@@ -6384,6 +6389,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_big_draw_aggression_final_check_unpriced',
     'HorseLogic wager_rules (HorseOmahaBigDrawAggression.omahaBigDrawVerdict finalCheckVetoes, omahaBigDrawAggression)',
     'a check with a declared big draw after an owner-ruled, discipline or street-plan check in the same decision, where the one bet the rule could make would be replaced by that check in the final decision (omahaOwnerRuledFinal): the bet was not priced (no equity count) and the check stands, the decision the veto would have given',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_bet_on_his_response_bet',
+    'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
+    'R4: a checked-to flop/turn big-draw bet beat the check line plus the sampling and lifetime HUD uncertainty proof bar',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_bet_on_his_response_withheld',
+    'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
+    'R4: a checked-to flop/turn big-draw bet was withheld because the check line plus proof bar was higher or the spot was multiway/unwagerable',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_bet_on_his_response_final_check_unpriced',
+    'HorseOmahaBigDrawBetPriced (omahaBigDrawBetIsPricedOnHisResponse)',
+    'R4: a checked-to flop/turn big-draw bet would have been vetoed by a final check rule, so it was withheld without sampling equities',
     'V94'
   ),
   receipt(

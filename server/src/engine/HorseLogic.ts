@@ -1032,6 +1032,7 @@ import {
   omahaStrategyHoleCount,
   withOmahaStrategyGameScope,
 } from './HorseOmahaStrategyGame.js';
+import { omahaBigDrawBetOnHisResponseRule } from './HorseOmahaBigDrawBetPriced.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -4623,6 +4624,11 @@ export interface HorseDecideOpts {
    * made hands. Default OFF (opt-in, read `=== true`) until its declared
    * evaluation passes; league cards plo4/plo5 _omaha_big_draw_aggression. */
   omahaBigDrawAggression?: boolean;
+  /** R4 (PLO-OWNER lane REPLACEMENTS-5, 2026-11-21; default OFF, strict `=== true`):
+   * PLO4/PLO5 cash flop/turn checked-to big-draw bet priced on lifetime HUD fold,
+   * raise-back and stab cells with a prove-it-to-bet uncertainty bar (replaces the
+   * checked-to half of omahaBigDrawAggression without categorical OOP bars). */
+  omahaBigDrawBetIsPricedOnHisResponse?: boolean;
   /** Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF
    * POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH
    * DRAWS."): on a PLO4/PLO5 cash flop or turn the brain's existing raises
@@ -11038,6 +11044,15 @@ export function omahaBigDrawAggression(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // R4 (default off): checked-to flop/turn big-draw bet priced on lifetime HUD response.
+  if (opts.omahaBigDrawBetIsPricedOnHisResponse === true && decision.action === 'check') {
+    const pub = omahaPublicSizeOf('bet', decision, player, gs, opts);
+    const r4 = omahaBigDrawBetOnHisResponseRule(decision, player, gs, opts, {
+      ...(pub === undefined ? {} : { publicTo: pub }),
+      finalCheckVetoes: (w) => omahaBigDrawBetIsVetoed(decision, w, player, gs, opts),
+    });
+    if (r4 !== null) return r4;
+  }
   if (opts.omahaBigDrawAggression !== true) return decision;
   if (decision.action !== 'check' && decision.action !== 'call') return decision;
   try {
@@ -11990,7 +12005,8 @@ function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
     opts.omahaStreetPlanThreeWay === true ||
     opts.omahaStrongHandValue === true ||
     opts.omahaCheckedToBetIsPriced === true ||
-    opts.omahaBigDrawAggression === true
+    opts.omahaBigDrawAggression === true ||
+    opts.omahaBigDrawBetIsPricedOnHisResponse === true
   );
 }
 
