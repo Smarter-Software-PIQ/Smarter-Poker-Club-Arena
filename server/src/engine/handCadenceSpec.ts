@@ -11,14 +11,29 @@ export const RIT_REVEAL_MAX_MS = ritRevealTimelineMs({
 }).doneAt;
 
 /**
- * Actual between-hand pause times recorded on the NEXT hand's
- * `hand_history.cadence` jsonb column so cash busts and run-it-multiple
- * hands are graded by fn_ca_hand_gap_unintended_delay and
- * scripts/sql/hand-gap-unintended-delay.sql.
+ * Actual between-hand pause times and bounded boolean shape facts recorded on
+ * the NEXT hand's `hand_history.cadence` jsonb column so
+ * `fn_ca_hand_gap_unintended_delay`, `scripts/sql/hand-gap-unintended-delay.sql`,
+ * and `reliability_runbook_hand_gap_classification` compute the exact same owed
+ * beats as `handCompletionHoldMs`:
+ *
+ * - `hold_ms`, `rest_ms`, `rebuy_pause_ms`, `rit_reveal_ms`: pause durations
+ *   (cash_bust rebuy pause and RIT reveal are clamped to spec maxes in SQL).
+ * - `all_in_showdown`: exact boolean passed to `handCompletionHoldMs`
+ *   (`isAllInShowdown`). Covers all-in calls, bets, raises, blinds, and antes
+ *   whose `actions[]` entry is not `'all_in'` and where the all-in player won
+ *   or chopped (`stack > 0`). In SQL this selects only `ALL_IN_SHOWDOWN_EXTRA_MS`
+ *   (2000 ms) vs `WINNING_CARDS_EXTRA_MS` (1500 ms) on `shown_n >= 2` (+500 ms
+ *   bounded spec beat; can never excuse arbitrary delay).
+ * - `bets_sweep_owed`: exact boolean returned by `showdownSweepOwed`. Covers
+ *   conservative sweep holds (non-5-card boards, non-flop street actions, etc.).
+ *   In SQL this selects only `BETS_SWEEP_MS` (500 ms) on `shown_n >= 2`.
  */
 export interface HandCadenceRecord {
   hold_ms: number;
   rest_ms: number;
   rebuy_pause_ms: number;
   rit_reveal_ms?: number;
+  all_in_showdown?: boolean;
+  bets_sweep_owed?: boolean;
 }
