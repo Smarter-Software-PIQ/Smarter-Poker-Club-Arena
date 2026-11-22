@@ -845,6 +845,30 @@ def fetch_backup_status(repo, sha, gh_get=gh_api_get):
     }
 
 
+def mark_abandoned_backup_pending(backup_info, sha, recent_backup_runs):
+    """Flag a pending certificate whose owning Backup run already completed (O14).
+
+    A Backup run that yields mid-soak (O1 YIELDED_OBSOLETE), stands down or is
+    cancelled writes no verdict, so its pending status never advances on its
+    own. Only a run visible in the same single recent-runs read is judged, and
+    an active Backup run on the same SHA keeps the candidate in flight. An
+    owning run that is not visible stays plain pending (CLAUDE.md 10.86).
+    """
+    if backup_info.get("state") != "pending" or not backup_info.get("runId"):
+        return backup_info
+    if any(
+        r.get("headSha") == sha and r.get("status") != "completed" for r in recent_backup_runs
+    ):
+        return backup_info
+    owner = next((r for r in recent_backup_runs if r.get("id") == backup_info["runId"]), None)
+    if owner is None or owner.get("status") != "completed":
+        return backup_info
+    return {
+        **backup_info,
+        "abandonedByRun": {"id": owner["id"], "conclusion": owner.get("conclusion")},
+    }
+
+
 def _is_trusted_prequal_run(run):
     if not isinstance(run, dict):
         return False
@@ -968,8 +992,15 @@ def classify_candidate(
     if not backup_green:
         active_b_run = next((r["id"] for r in active_backup_runs if r.get("headSha") == sha), None)
         b_run_id = backup_info.get("runId") or active_b_run
-        b_label = b_state if b_state != "absent" or not active_b_run else "in_progress"
-        waiting.append(f"backup={b_label}" + (f" (run {b_run_id})" if b_run_id else ""))
+        abandoned = backup_info.get("abandonedByRun")
+        if abandoned:
+            waiting.append(
+                f"backup=pending left by completed run {abandoned['id']} "
+                f"({abandoned.get('conclusion') or 'no conclusion'}, no verdict written; needs a new Backup run)"
+            )
+        else:
+            b_label = b_state if b_state != "absent" or not active_b_run else "in_progress"
+            waiting.append(f"backup={b_label}" + (f" (run {b_run_id})" if b_run_id else ""))
     if not prequal_green:
         p_run_id = prequal_info.get("runId")
         waiting.append(f"prequal={p_status}" + (f" (run {p_run_id})" if p_run_id else ""))
@@ -1023,7 +1054,9 @@ ACTIVE_RUN_STATUSES = frozenset({"queued", "in_progress", "waiting", "pending", 
 def _candidate_in_flight(candidate, active_backup):
     b_state = candidate["backup"]["state"]
     p_status = candidate["prequalification"]["status"]
-    if b_state == "pending" or p_status in ACTIVE_RUN_STATUSES:
+    if b_state == "pending" and not candidate["backup"].get("abandonedByRun"):
+        return True
+    if p_status in ACTIVE_RUN_STATUSES:
         return True
     return any(r.get("headSha") == candidate["sha"] for r in active_backup)
 
@@ -1158,7 +1191,8 @@ def collect_readiness(
     try:
         recent_stage = list_recent_workflow_runs(repo, STAGE_WORKFLOW, gh_get=gh_reader)
         active_stage = [r for r in recent_stage if r.get("status") != "completed"]
-        active_backup = list_active_workflow_runs(repo, BACKUP_WORKFLOW, gh_get=gh_reader)
+        recent_backup = list_recent_workflow_runs(repo, BACKUP_WORKFLOW, gh_get=gh_reader)
+        active_backup = [r for r in recent_backup if r.get("status") != "completed"]
         report["activeRuns"] = {"stage": active_stage, "backup": active_backup}
         report["closedCycleStageRun"] = find_closed_cycle_stage_run(
             recent_stage, schedule, checked_at, active_stage_runs=active_stage
@@ -1189,7 +1223,9 @@ def collect_readiness(
 
         candidates = []
         for sha in git_walk["shas"]:
-            backup_info = fetch_backup_status(repo, sha, gh_get=gh_reader)
+            backup_info = mark_abandoned_backup_pending(
+                fetch_backup_status(repo, sha, gh_get=gh_reader), sha, recent_backup
+            )
             prequal_info = fetch_prequal_for_sha(repo, sha, prequal_index, gh_get=gh_reader)
             cand_proj = proj_reader(sha)
             ctrl_match = cand_proj == control_proj
@@ -1252,6 +1288,8 @@ def _format_prequal_cell(prequal):
 def _format_backup_cell(backup):
     state = backup.get("state") or "absent"
     run_id = backup.get("runId")
+    if run_id and backup.get("abandonedByRun"):
+        return f"{state} (#{run_id} ended)"
     if run_id:
         return f"{state} (#{run_id})"
     return state
@@ -1269,6 +1307,14 @@ def _format_o3_defer_note(cycle):
     if in_window:
         return f"ACTIVE - clears {clear_label}"
     return f"starts {_format_minutes(minutes)}; clears {clear_label}"
+
+
+def _format_run_state(run):
+    """Status plus triggering event (push, schedule, repository_dispatch,
+    workflow_dispatch) so a late schedule or post-seal run is told apart
+    from a push run at a glance (O14)."""
+    event = run.get("event") or ""
+    return f"{run.get('status')}, {event}" if event else f"{run.get('status')}"
 
 
 def _format_closed_stage_run(run):
@@ -1387,7 +1433,7 @@ def render_table(report):
     lines.append("ACTIVE WORKFLOWS")
     if stage_runs:
         parts = [
-            f"run {r['id']} [{r['status']}] {(r.get('headSha') or '')[:12]} \"{r.get('displayTitle', '')}\""
+            f"run {r['id']} [{_format_run_state(r)}] {(r.get('headSha') or '')[:12]} \"{r.get('displayTitle', '')}\""
             for r in stage_runs
         ]
         lines.append(f"  {STAGE_WORKFLOW}: {len(stage_runs)} active -> " + "; ".join(parts))
@@ -1400,7 +1446,7 @@ def render_table(report):
 
     if backup_runs:
         parts = [
-            f"run {r['id']} [{r['status']}] {(r.get('headSha') or '')[:12]}"
+            f"run {r['id']} [{_format_run_state(r)}] {(r.get('headSha') or '')[:12]}"
             for r in backup_runs
         ]
         lines.append(f"  {BACKUP_WORKFLOW}: {len(backup_runs)} active -> " + "; ".join(parts))
