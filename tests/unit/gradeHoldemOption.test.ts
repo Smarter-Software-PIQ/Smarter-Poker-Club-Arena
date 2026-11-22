@@ -1072,6 +1072,169 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(recomputeRes.data.verdict).toBe('PASS');
   });
 
+  describe('--resume keeps finished cell-seed jobs across a gate abort (2026-11-22)', () => {
+    const LOCK = '/locks/shepherd.lock';
+    const baseArgs = [
+      'run',
+      '--manifest=/grade/manifest.json',
+      `--criteria-sha=${CRITERIA_SHA}`,
+      '--out=/grade/out',
+      '--workdir=/repo',
+      `--shepherd-lock=${LOCK}`,
+      '--json',
+    ];
+    function cellRunner(
+      recordMap: Map<string, Record<string, unknown>>,
+      calls: string[],
+      onCall?: (n: number) => void
+    ) {
+      return ({ cell, seed }: { cell: { id: string; role: string }; seed: number }) => {
+        calls.push(`${cell.id}::${seed}`);
+        onCall?.(calls.length);
+        const rec = recordMap.get(`${cell.id}::${seed}`)!;
+        if (cell.role === 'CONTROL') {
+          return {
+            exitCode: 0,
+            stdout: `DEVRESULT ${JSON.stringify(rec)}\n`,
+            stderr: '',
+            command: 'nice ...',
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `RESULT_JSON ${JSON.stringify({ seed, pairs: 6000, engineRevision: GIT_HEAD, result: rec })}\n`,
+          stderr: '',
+          command: 'nice ...',
+        };
+      };
+    }
+
+    it('33. a lock that appears mid-grade aborts, and --resume runs only the unfinished jobs to the same verdict', async () => {
+      const manifest = makeV80Manifest();
+      const total = manifest.cells.reduce(
+        (n: number, c: { seeds: number[] }) => n + c.seeds.length,
+        0
+      );
+      const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+
+      // Reference: one uninterrupted run.
+      const ref = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(manifest),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const refCalls: string[] = [];
+      const straight = await runGradeCli(baseArgs, {
+        ...ref.deps,
+        runCellCommand: cellRunner(recordMap, refCalls),
+      });
+      expect(straight.exitCode).toBe(EXIT_OK);
+
+      const vfs = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(manifest),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const firstCalls: string[] = [];
+      // Another lane takes shepherd.lock after the second job.
+      const first = await runGradeCli(baseArgs, {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, firstCalls, (n) => {
+          if (n === 2) vfs.files.set(resolve(LOCK), 'other lane');
+        }),
+      });
+      expect(first.exitCode).toBe(EXIT_REFUSED);
+      expect(first.data.status).toBe('MIDRUN_GATE_ABORTED');
+      expect(firstCalls).toHaveLength(2);
+      expect(vfs.files.has(resolve('/grade/out/verdict.json'))).toBe(false);
+
+      vfs.files.delete(resolve(LOCK));
+      const secondCalls: string[] = [];
+      const second = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, secondCalls),
+      });
+      expect(second.exitCode).toBe(EXIT_OK);
+      // The two finished jobs are not run again; every other job runs exactly once.
+      expect(secondCalls).toHaveLength(total - 2);
+      expect(secondCalls.some((k) => firstCalls.includes(k))).toBe(false);
+      expect([...firstCalls, ...secondCalls]).toEqual(refCalls);
+      // Same raw results, same verdict as the uninterrupted run.
+      expect(vfs.files.get(resolve('/grade/out/results.jsonl'))).toBe(
+        ref.files.get(resolve('/grade/out/results.jsonl'))
+      );
+      expect(second.data.verdict).toBe(straight.data.verdict);
+    });
+
+    it('34. --resume never re-runs a finished job that failed (ONE-LOOK) and writes no verdict', async () => {
+      const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+      const vfs = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const calls: string[] = [];
+      const crashing = cellRunner(recordMap, calls);
+      const first = await runGradeCli(baseArgs, {
+        ...vfs.deps,
+        runCellCommand: (arg: { cell: { id: string; role: string }; seed: number }) => {
+          if (arg.cell.id === 'cash6_v80' && arg.seed === 20261124) {
+            calls.push('crash');
+            return { exitCode: 137, stdout: '', stderr: 'Killed', command: 'nice ...' };
+          }
+          return crashing(arg);
+        },
+      });
+      expect(first.data.status).toBe('ONE_LOOK_REFUSED_NONZERO_EXIT');
+
+      const retryCalls: string[] = [];
+      const retry = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, retryCalls),
+      });
+      expect(retry.exitCode).toBe(EXIT_REFUSED);
+      expect(retry.data.status).toBe('ONE_LOOK_REFUSED_NONZERO_EXIT');
+      expect(retry.data.cellExitCodes['cash6_v80::20261124']).toBe(137);
+      expect(retryCalls).toHaveLength(0);
+      expect(vfs.files.has(resolve('/grade/out/verdict.json'))).toBe(false);
+    });
+
+    it('35. --resume refuses results from another git tree, and refuses results with no provenance key', async () => {
+      const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+      const vfs = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const calls: string[] = [];
+      await runGradeCli(baseArgs, {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, calls, (n) => {
+          if (n === 1) vfs.files.set(resolve(LOCK), 'other lane');
+        }),
+      });
+      vfs.files.delete(resolve(LOCK));
+      const kept = vfs.files.get(resolve('/grade/out/results.jsonl'));
+      expect(kept).toBeTruthy();
+
+      const otherTreeCalls: string[] = [];
+      const otherTree = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        readGitState: () => ({ gitHead: GIT_HEAD, gitTree: 'f'.repeat(40), gitPorcelain: '' }),
+        runCellCommand: cellRunner(recordMap, otherTreeCalls),
+      });
+      expect(otherTree.exitCode).toBe(EXIT_REFUSED);
+      expect(otherTree.data.status).toBe('RESUME_PROVENANCE_MISMATCH');
+      expect(otherTree.data.message).toContain('gitTree');
+      expect(otherTreeCalls).toHaveLength(0);
+      // The refused resume does not wipe the earlier results.
+      expect(vfs.files.get(resolve('/grade/out/results.jsonl'))).toBe(kept);
+
+      vfs.files.delete(resolve('/grade/out/resume-key.json'));
+      const noKey = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, []),
+      });
+      expect(noKey.data.status).toBe('RESUME_PROVENANCE_UNKNOWN');
+    });
+  });
+
   it('25. source security invariant: harness never reads .env, secrets, or mutates Supabase/switch tables', () => {
     const libSrc = readFileSync(
       resolve(__dirname, '../../scripts/ops/grade-holdem-option-lib.mjs'),

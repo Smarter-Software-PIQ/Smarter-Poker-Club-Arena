@@ -144,3 +144,186 @@ def verify(db, club, table, other, migration, runfile, check):
     holder.wait()
     db.run("CALL sp_ca_promo_profit_hourly_sweep(60);")
     check('the next run closes it', f"SELECT close_reason FROM ca_promo_play_through_grants WHERE id='{grant3}'", 'met')
+
+    # ── Incidents 053d3341 & 515d6f24 (2026-11-22):
+    #   1. fn_ca_promo_apply_pending_cash_funding never settles or scans promo
+    #      fee history inside post-commit envelopes, and never locks promo grants
+    #      when the pending add-on holds zero promo custody.
+    #   2. fn_ca_promo_locked_at and fn_ca_promo_leave_principal short-circuit
+    #      when no open grant holds positive custody at the checked location.
+    #   3. sp_ca_promo_profit_hourly_sweep refreshes the cache lock-free after
+    #      ACT mutates grants/gates and repairs signature-mismatched caches
+    #      without waiting for the 1-hour sweep cooldown.
+    mig_205903 = ROOT / 'supabase/migrations/20261122205903_post_commit_pending_addon_never_scans_promo_history_and_swee.sql'
+    u2, k_a, k_b = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    db.run(f"""INSERT INTO club_members(club_id,user_id,chip_balance,role) VALUES('{club}','{u2}',200,'member');
+      SELECT fn_ca_promo_play_through_record_grant('{club}','{u2}',10,'club_promo','{k_a}',NULL,'promo_wallet','{club}',NULL);
+      SELECT fn_ca_promo_play_through_record_grant('{club}','{u2}',10,'club_promo','{k_b}',NULL,'promo_wallet','{club}',NULL);""")
+    grant_a = db.one(f"SELECT id FROM ca_promo_play_through_grants WHERE source_ref='{k_a}'")
+    grant_b = db.one(f"SELECT id FROM ca_promo_play_through_grants WHERE source_ref='{k_b}'")
+    target_a = db.one(f"SELECT fee_target FROM ca_promo_play_through_grants WHERE id='{grant_a}'")
+
+    def fee_u2(amount):
+        h = str(uuid.uuid4())
+        db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{h}','{table}',1,clock_timestamp());"
+               f"INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{club}','{u2}',{amount},'{h}')")
+        return h
+
+    def seed_pending_addon(owner_uid, amount, applied_amt, refunded_amt, with_promo_custody=False):
+        pid, fid, lid, seat_id, occ_id = [str(uuid.uuid4()) for _ in range(5)]
+        db.run(f"""INSERT INTO table_seats(id,table_id,user_id,occupancy_id,stack)
+          VALUES('{seat_id}','{table}','{owner_uid}','{occ_id}',100)
+          ON CONFLICT DO NOTHING;
+          INSERT INTO cash_participant_funding_receipts(
+            id,recorded_at,operation_kind,operation_key,user_id,table_id,seat_id,occupancy_id,
+            seat_joined_at,source_ledger_id,account_type,account_entity_id,funding_club_id,
+            asset,unit_scale,amount,balance_before,balance_after,pending_addon_id)
+          VALUES('{fid}',clock_timestamp(),'addon','test:{pid}','{owner_uid}','{table}','{seat_id}','{occ_id}',
+            clock_timestamp(),'{lid}','player_wallet','{owner_uid}','{club}',
+            'chips',2,{amount},200,{200 - amount},'{pid}');
+          INSERT INTO cash_funding_application_receipts(
+            pending_addon_id,funding_receipt_id,applied_at,original_occupancy_id,
+            applied_occupancy_id,applied,refunded)
+          VALUES('{pid}','{fid}',clock_timestamp(),'{occ_id}',
+            {f"'{occ_id}'" if applied_amt > 0 else 'NULL'},{applied_amt},{refunded_amt});""")
+        if with_promo_custody:
+            db.run(f"""UPDATE ca_promo_principal_custody SET amount=amount-{with_promo_custody}
+              WHERE grant_id='{grant_b}' AND kind='player_wallet' AND entity_id='{owner_uid}';
+              INSERT INTO ca_promo_principal_custody(grant_id,kind,entity_id,amount)
+              VALUES('{grant_b}','pending_addon','{pid}',{with_promo_custody});""")
+        return pid
+
+    # Load the exact production preimage of fn_ca_promo_leave_principal from
+    # 20261116154841 (test-promo-profit.py only loads its sibling return helpers).
+    returns_mig = next((ROOT / 'supabase/migrations').glob('20261116154841_*.sql'))
+    returns_sql = returns_mig.read_text()
+    leave_start = returns_sql.index('CREATE FUNCTION public.fn_ca_promo_leave_principal(')
+    leave_end = returns_sql.index('REVOKE ALL ON FUNCTION public.fn_ca_promo_leave_principal(', leave_start)
+    leave_end = returns_sql.index(';', leave_end) + 1
+    db.run(returns_sql[leave_start:leave_end])
+
+    # BEFORE 20261122205903: reproduce all four defects on the pre-fix code.
+    db.run(f"DELETE FROM ca_promo_fee_state_cache WHERE club_id='{club}' AND user_id='{u2}';")
+    check('before fix: zero-custody fn_ca_promo_locked_at still scans fee history',
+          reads(f"public.fn_ca_promo_locked_at('{club}','{u2}','table_stack','{table}')"), '1')
+    p_before = seed_pending_addon(u2, 20, 0, 20)
+    check('before fix: zero-custody pending add-on scans fee history inside post-commit',
+          reads(f"public.fn_ca_promo_apply_pending_cash_funding('{p_before}')"), '1')
+    u3, k_u3 = str(uuid.uuid4()), str(uuid.uuid4())
+    db.run(f"INSERT INTO club_members(club_id,user_id,chip_balance,role) VALUES('{club}','{u3}',50,'member');"
+           f"SELECT fn_ca_promo_play_through_record_grant('{club}','{u3}',10,'club_promo','{k_u3}',NULL,'promo_wallet','{club}',NULL);"
+           f"UPDATE ca_promo_principal_custody SET kind='table_stack',entity_id='{table}' WHERE grant_id=(SELECT id FROM ca_promo_play_through_grants WHERE source_ref='{k_u3}');")
+    check('before fix: zero-wallet/pending-custody fn_ca_promo_leave_principal scans fee history',
+          reads(f"public.fn_ca_promo_leave_principal('{club}','{u3}')"), '1')
+    fee_u2(target_a)
+    db.run(f"DELETE FROM ca_promo_profit_sweep_state WHERE club_id='{club}' AND user_id='{u2}';"
+           f"CALL sp_ca_promo_profit_hourly_sweep(60);")
+    check('before fix: sweep closed grant_a and self-invalidated its own cache signature',
+          f"SELECT (SELECT close_reason FROM ca_promo_play_through_grants WHERE id='{grant_a}')||':'||"
+          f"fn_ca_promo_fee_state_is_current('{club}','{u2}')::text", 'met:false')
+    db.run("CALL sp_ca_promo_profit_hourly_sweep(60);")
+    check('before fix: second sweep skips self-invalidated account due to 1h cooldown',
+          f"SELECT fn_ca_promo_fee_state_is_current('{club}','{u2}')", 'f')
+
+    # Install 20261122205903 (verify exact production MD5 preimages & probes).
+    runfile(mig_205903)
+
+    # AFTER 20261122205903:
+    # 1. Sweep immediately repairs the already-mismatched cache signature without waiting 1h!
+    db.run("CALL sp_ca_promo_profit_hourly_sweep(60);")
+    check('after fix: sweep repairs signature-mismatched cache immediately within 1h cooldown',
+          f"SELECT fn_ca_promo_fee_state_is_current('{club}','{u2}')", 't')
+
+    # 2. Sweep closing one grant while another remains open leaves cache current immediately!
+    k_c = str(uuid.uuid4())
+    db.run(f"SELECT fn_ca_promo_play_through_record_grant('{club}','{u2}',10,'club_promo','{k_c}',NULL,'promo_wallet','{club}',NULL);")
+    grant_c = db.one(f"SELECT id FROM ca_promo_play_through_grants WHERE source_ref='{k_c}'")
+    check('new grant invalidates cache signature until next sweep tick',
+          f"SELECT fn_ca_promo_fee_state_is_current('{club}','{u2}')", 'f')
+    fee_u2(db.one(f"SELECT fee_target FROM ca_promo_play_through_grants WHERE id='{grant_b}'"))
+    db.run("CALL sp_ca_promo_profit_hourly_sweep(60);")
+    check('after fix: sweep closes grant_b and leaves cache current for surviving grant_c',
+          f"SELECT (SELECT close_reason FROM ca_promo_play_through_grants WHERE id='{grant_b}')||':'||"
+          f"(SELECT closed_at IS NULL FROM ca_promo_play_through_grants WHERE id='{grant_c}')::text||':'||"
+          f"fn_ca_promo_fee_state_is_current('{club}','{u2}')::text", 'met:true:true')
+
+    # 3. Zero-custody fn_ca_promo_locked_at reads 0 fee events even with NO cache!
+    db.run(f"DELETE FROM ca_promo_fee_state_cache WHERE club_id='{club}' AND user_id='{u2}';")
+    check('after fix: zero-custody fn_ca_promo_locked_at scans zero fee events with missing cache',
+          reads(f"public.fn_ca_promo_locked_at('{club}','{u2}','table_stack','{table}')"), '0')
+    check('after fix: zero-custody fn_ca_promo_locked_at returns 0',
+          f"SELECT fn_ca_promo_locked_at('{club}','{u2}','table_stack','{table}')", '0')
+    check('after fix: positive-custody fn_ca_promo_locked_at still returns exact locked principal',
+          f"SELECT fn_ca_promo_locked_at('{club}','{u2}','player_wallet','{u2}')", '10')
+
+    # 4. Zero-custody pending add-on scans 0 fee events AND takes 0 grant locks!
+    db.run(f"DELETE FROM ca_promo_fee_state_cache WHERE club_id='{club}' AND user_id='{u2}';")
+    p_zero = seed_pending_addon(u2, 20, 0, 20)
+    check('after fix: zero-custody pending add-on scans zero fee events with missing cache',
+          reads(f"public.fn_ca_promo_apply_pending_cash_funding('{p_zero}')"), '0')
+    grant_holder = subprocess.Popen(["psql", "-X", "-q", "-h", db.socket, "-p", db.port, "-U", "postgres", "-d", db.name, "-c",
+        f"BEGIN;SELECT 1 FROM ca_promo_play_through_grants WHERE id='{grant_c}' FOR UPDATE;SELECT pg_sleep(4);COMMIT;"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.0)
+    t_zero = time.time()
+    db.run(f"SELECT fn_ca_promo_apply_pending_cash_funding('{p_zero}')")
+    zero_dur = time.time() - t_zero
+    grant_holder.wait()
+    check('after fix: zero-custody pending add-on completes without waiting on a locked promo grant',
+          f"SELECT ({str(zero_dur < 2.0).lower()}) AND (SELECT principal_before=0 AND principal_applied=0 AND principal_refunded=0 FROM ca_promo_pending_custody_receipts WHERE pending_addon_id='{p_zero}')", 't')
+
+    # 5a. Promo-custody pending add-on (full refund) scans 0 fee events and conserves every cent!
+    db.run(f"DELETE FROM ca_promo_fee_state_cache WHERE club_id='{club}' AND user_id='{u2}';")
+    p_promo = seed_pending_addon(u2, 20, 10, 10)
+    db.run(f"""BEGIN;
+      UPDATE ca_promo_principal_custody SET amount=0
+       WHERE grant_id='{grant_c}' AND kind='player_wallet' AND entity_id='{u2}';
+      INSERT INTO ca_promo_principal_custody(grant_id,kind,entity_id,amount)
+      VALUES('{grant_c}','pending_addon','{p_promo}',10);
+      COMMIT;""")
+    check('after fix: promo-custody pending add-on scans zero fee events inside post-commit',
+          reads(f"public.fn_ca_promo_apply_pending_cash_funding('{p_promo}')"), '0')
+    db.run(f"SELECT fn_ca_promo_apply_pending_cash_funding('{p_promo}')")
+    check('after fix: promo-custody pending add-on conserves principal on full refund',
+          f"SELECT (SELECT principal_before||':'||principal_applied||':'||principal_refunded FROM ca_promo_pending_custody_receipts WHERE pending_addon_id='{p_promo}')||'|'||"
+          f"(SELECT COALESCE(sum(amount),0) FROM ca_promo_principal_custody WHERE grant_id='{grant_c}' AND kind='pending_addon' AND entity_id='{p_promo}')||'|'||"
+          f"(SELECT COALESCE(sum(amount),0) FROM ca_promo_principal_custody WHERE grant_id='{grant_c}' AND kind='table_stack' AND entity_id='{table}')||'|'||"
+          f"(SELECT COALESCE(sum(amount),0) FROM ca_promo_principal_custody WHERE grant_id='{grant_c}' AND kind='player_wallet' AND entity_id='{u2}')",
+          '10:0:10|0|0|10')
+
+    # 5b. Promo-custody pending add-on (partial apply + partial refund) moves exact principal to both table_stack and player_wallet with 0 fee scans!
+    p_split = seed_pending_addon(u2, 20, 15, 5)
+    db.run(f"""BEGIN;
+      UPDATE ca_promo_principal_custody SET amount=0
+       WHERE grant_id='{grant_c}' AND kind='player_wallet' AND entity_id='{u2}';
+      INSERT INTO ca_promo_principal_custody(grant_id,kind,entity_id,amount)
+      VALUES('{grant_c}','pending_addon','{p_split}',10);
+      COMMIT;""")
+    check('after fix: split promo-custody pending add-on scans zero fee events inside post-commit',
+          reads(f"public.fn_ca_promo_apply_pending_cash_funding('{p_split}')"), '0')
+    db.run(f"SELECT fn_ca_promo_apply_pending_cash_funding('{p_split}')")
+    check('after fix: split promo-custody pending add-on conserves principal across table_stack and player_wallet',
+          f"SELECT (SELECT principal_before||':'||principal_applied||':'||principal_refunded FROM ca_promo_pending_custody_receipts WHERE pending_addon_id='{p_split}')||'|'||"
+          f"(SELECT COALESCE(sum(amount),0) FROM ca_promo_principal_custody WHERE grant_id='{grant_c}' AND kind='pending_addon' AND entity_id='{p_split}')||'|'||"
+          f"(SELECT COALESCE(sum(amount),0) FROM ca_promo_principal_custody WHERE grant_id='{grant_c}' AND kind='table_stack' AND entity_id='{table}')||'|'||"
+          f"(SELECT COALESCE(sum(amount),0) FROM ca_promo_principal_custody WHERE grant_id='{grant_c}' AND kind='player_wallet' AND entity_id='{u2}')",
+          '10:5:5|0|5|5')
+
+    # 6. Zero-custody fn_ca_promo_leave_principal scans 0 fee events even with an open grant!
+    db.run(f"DELETE FROM ca_promo_fee_state_cache WHERE club_id='{club}' AND user_id='{u3}';")
+    check('after fix: zero-custody fn_ca_promo_leave_principal scans zero fee events',
+          reads(f"public.fn_ca_promo_leave_principal('{club}','{u3}')"), '0')
+
+    # 7. Exact owner-only ACLs preserved across all 5 redefined routines.
+    check('all 5 redefined routines remain postgres-owned and closed to anon/authenticated/service_role', """
+      SELECT count(*) FROM pg_proc p
+       WHERE p.oid IN (
+         'public.fn_ca_promo_apply_pending_cash_funding(uuid)'::regprocedure,
+         'public.fn_ca_promo_locked_at(uuid,uuid,text,uuid)'::regprocedure,
+         'public.fn_ca_promo_nonwallet_entry()'::regprocedure,
+         'public.fn_ca_promo_leave_principal(uuid,uuid)'::regprocedure,
+         'public.sp_ca_promo_profit_hourly_sweep(integer)'::regprocedure
+       )
+         AND p.proowner = 'postgres'::regrole
+         AND p.proacl::text = '{postgres=X/postgres}'
+    """, '5')

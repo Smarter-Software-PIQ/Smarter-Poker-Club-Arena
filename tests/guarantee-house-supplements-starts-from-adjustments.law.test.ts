@@ -20,7 +20,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const MIGRATIONS = resolve(process.cwd(), 'supabase/migrations');
-const FIX = '20261122183647_index_guarantee_house_supplements_and_single_eval.sql';
+const INDEX_FIX = '20261122183647_index_guarantee_house_supplements_and_single_eval.sql';
+const PLPGSQL_FIX = '20261122201323_plpgsql_plan_cache_for_guarantee_funding_functions.sql';
 
 function latestDefining(pattern: RegExp): { file: string; sql: string } {
   const files = readdirSync(MIGRATIONS)
@@ -46,7 +47,7 @@ function functionBody(sql: string, signature: string): string {
 
 describe('guarantee house supplements start from adjustments and evaluate once', () => {
   it('builds the settled player_wallet tournament_id index CONCURRENTLY before BEGIN', () => {
-    const sql = readFileSync(resolve(MIGRATIONS, FIX), 'utf8');
+    const sql = readFileSync(resolve(MIGRATIONS, INDEX_FIX), 'utf8');
     const idxPos = sql.indexOf(
       'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ca_manual_adjustments_settled_player_wallet_tournament'
     );
@@ -59,15 +60,17 @@ describe('guarantee house supplements start from adjustments and evaluate once',
     );
   });
 
-  it('anchors the newest fn_ca_guarantee_house_supplements(uuid) on a materialized adjustments CTE', () => {
+  it('keeps the newest fn_ca_guarantee_house_supplements(uuid) as plpgsql with an index-backed short-circuit', () => {
     const latest = latestDefining(
       /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.fn_ca_guarantee_house_supplements\s*\(\s*p_tournament_id\s+uuid\s*\)/i
     );
-    expect(latest.file >= FIX).toBe(true);
+    expect(latest.file >= PLPGSQL_FIX).toBe(true);
     const fn = functionBody(
       latest.sql,
       'public.fn_ca_guarantee_house_supplements(p_tournament_id uuid)'
     );
+    expect(fn).toMatch(/LANGUAGE\s+plpgsql/i);
+    expect(fn).toContain('IF NOT EXISTS');
     expect(fn).toContain('WITH adj AS MATERIALIZED');
     expect(fn).toContain('FROM public.ca_manual_adjustments a');
     expect(latest.sql).toContain(
@@ -78,15 +81,16 @@ describe('guarantee house supplements start from adjustments and evaluate once',
     );
   });
 
-  it('evaluates fn_ca_guarantee_house_supplements(p_tournament_id) once inside the newest fn_ca_guarantee_funding(uuid)', () => {
+  it('keeps the newest fn_ca_guarantee_funding(uuid) as plpgsql and evaluates supplements once', () => {
     const latest = latestDefining(
       /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.fn_ca_guarantee_funding\s*\(\s*p_tournament_id\s+uuid\s*\)/i
     );
-    expect(latest.file >= FIX).toBe(true);
+    expect(latest.file >= PLPGSQL_FIX).toBe(true);
     const fn = functionBody(latest.sql, 'public.fn_ca_guarantee_funding(p_tournament_id uuid)');
+    expect(fn).toMatch(/LANGUAGE\s+plpgsql/i);
     const calls = fn.match(/fn_ca_guarantee_house_supplements\s*\(/g) ?? [];
     expect(calls).toHaveLength(1);
-    expect(fn).toContain("'house_supplement_paid', v.house_supplement_paid");
+    expect(fn).toContain("'house_supplement_paid', v_sup");
     expect(latest.sql).toContain(
       'REVOKE ALL ON FUNCTION public.fn_ca_guarantee_funding(uuid) FROM PUBLIC, anon, authenticated;'
     );

@@ -1971,12 +1971,17 @@ export function parseGradeCliArgs(argv, lockResolutionOptions = {}) {
     laneOwner: null,
     maxLoad1m: null,
     json: false,
+    resume: false,
   };
 
   for (let i = 1; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--json') {
       flags.json = true;
+      continue;
+    }
+    if (arg === '--resume') {
+      flags.resume = true;
       continue;
     }
     const eqIdx = arg.indexOf('=');
