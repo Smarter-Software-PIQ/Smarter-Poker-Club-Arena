@@ -21,7 +21,7 @@
  * Adversaries: profile:<name> (SPARRING_PROFILES), probe:<name> (SPARRING_PROBES), probe:tell.
  * Prints aggregates only: no hole card is ever printed or written.
  */
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import {
   SPARRING_PROBES,
   guardFamilyZ,
@@ -286,6 +286,25 @@ async function main(): Promise<void> {
     arms,
     bbAnte: variant === 'plo5' ? 1 : 0,
     keepPerHand: process.env.SPARRING_PERHAND === '1',
+    // THE LIFETIME OPPONENT HUD (SparringHud.ts): data in, data out; nothing is warmed in this process.
+    ...(process.env.SPARRING_HUD === '1'
+      ? {
+          hud: {
+            priors: process.env.SPARRING_HUD_PRIORS
+              ? ((
+                  JSON.parse(readFileSync(process.env.SPARRING_HUD_PRIORS, 'utf8')) as Record<
+                    string,
+                    Record<string, [number, number]>
+                  >
+                )[variant] ?? {})
+              : {},
+            preload: process.env.SPARRING_HUD_PRELOAD
+              ? (JSON.parse(readFileSync(process.env.SPARRING_HUD_PRELOAD, 'utf8')) as unknown[])
+              : [],
+            exportProfiles: Boolean(process.env.SPARRING_HUD_EXPORT),
+          },
+        }
+      : {}),
   };
   let result: SparringCellResult;
   if (kind === 'profile') {
@@ -333,6 +352,14 @@ async function main(): Promise<void> {
     if (!pol) throw new Error(`unknown probe ${name}`);
     result = await runSparringCell({ name: adversary, policy: pol, ...common, mirror: true });
   } else throw new Error(`unknown adversary ${adversary}`);
+  if (process.env.SPARRING_HUD_EXPORT && result.hud) {
+    // the stores go to their own 0600 file (public counts only); the result line keeps the counts
+    writeFileSync(process.env.SPARRING_HUD_EXPORT, JSON.stringify(result.hud), { mode: 0o600 });
+    for (const h of result.hud) {
+      delete h.main.profiles;
+      if (h.mirror) delete h.mirror.profiles;
+    }
+  }
   const line = JSON.stringify({ adversary, dropped, ...result });
   if (process.env.SPARRING_OUT)
     appendFileSync(process.env.SPARRING_OUT, line + '\n', { mode: 0o600 });

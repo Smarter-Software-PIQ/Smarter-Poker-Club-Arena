@@ -515,6 +515,9 @@ export type LeagueSeatPolicy = (spot: LeagueSeatSpot) => { action: string; amoun
  * absent on every pre-existing path.
  */
 export interface LeagueHandObserver {
+  /** Called right before a seat is asked for its decision (2026-11-21, sparring's HUD provider: the bench installs
+   *  the acting seat's opponent packet here, the way the decision worker installs it around the decide call). */
+  beforeDecision?: (e: { seatIdx: number; stage: HandStage }) => void;
   onAction?: (e: {
     seatIdx: number;
     stage: HandStage;
@@ -533,6 +536,10 @@ export interface LeagueHandObserver {
     cards: Card[][];
     board: Card[];
     net: number[];
+    /** PUBLIC end of the hand (2026-11-21): every seat's chips won, and the hand NAME of each seat still in at a
+     *  showdown (empty when the hand ended by folds). A category name only: no card of a player is in it. */
+    winnings: number[];
+    shown: Array<{ seatIdx: number; handName: string }>;
   }) => void;
 }
 
@@ -1282,6 +1289,7 @@ export function playHand(
         );
       }
       leaguePinPublicStreams(handSeed, i, history.length);
+      observer?.beforeDecision?.({ seatIdx: i, stage });
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
@@ -1676,13 +1684,26 @@ export function playHand(
   }
 
   const net = seats.map((s, i) => winnings[i] - s.contributed);
-  observer?.onEnd?.({
-    endedByFolds: live().length === 1,
-    folded: seats.map((s) => s.player.is_folded),
-    cards: seats.map((s) => s.player.cards),
-    board,
-    net,
-  });
+  if (observer?.onEnd) {
+    const shown: Array<{ seatIdx: number; handName: string }> = [];
+    if (live().length >= 2)
+      seats.forEach((s, seatIdx) => {
+        if (s.player.is_folded) return;
+        const score = vi.isOmaha
+          ? scoreOmahaHi(s.player.cards, board)
+          : scoreHoldem(s.player.cards.concat(board), s.player.cards.length + 5, vi.isShortDeck);
+        shown.push({ seatIdx, handName: CAT_NAMES[Math.floor(score / 0x100000)] ?? '' });
+      });
+    observer.onEnd({
+      endedByFolds: live().length === 1,
+      folded: seats.map((s) => s.player.is_folded),
+      cards: seats.map((s) => s.player.cards),
+      board,
+      net,
+      winnings: [...winnings],
+      shown,
+    });
+  }
   return net;
 }
 
@@ -4009,6 +4030,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverFirstToActBetIsPriced: true },
     b: {},
   })),
+  // 2026-11-21 EMERG lane BLANKET-AUDIT (default OFF, PLO4/PLO5 cash): omahaBlanketRowsOffInPlo45Cash with the first
+  // declared members (v74OmahaSemiBluffNeedsDraw and the hidden four); a switches it on with that list, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_blanket_rows_off_in_plo45_cash`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaBlanketRowsOffInPlo45Cash: true,
+      omahaBlanketRowsOffList: [
+        'v74OmahaSemiBluffNeedsDraw',
+        'ploPairedBoardFold',
+        'ploPairedBoardRiverCheck',
+        'omahaRiverNutRaiseOnly',
+        'omahaTurnSetPound',
+      ],
+    },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane RANGE-MODEL-2 (default OFF, PLO4/PLO5 cash): omahaRiverCurrentNutsCallFloor (a final river
   // fold facing a wager with the exact current nuts becomes the call where a full chop still returns it); a switches it
   // on, b is today's brain.
@@ -5999,6 +6039,23 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'this: league stacks above 250 bb, or different stacks per seat.',
     }))
   ),
+  // 2026-11-21 (PLO-OWNER lane RELEASE-13, list train): omahaOpponentLifetimeHud,
+  // default off. Refused, not dealt: league opponents have no stored lifetime history.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_opponent_lifetime_hud`,
+    variant,
+    seats: 6,
+    a: { omahaOpponentLifetimeHud: true },
+    b: {},
+    reason:
+      "Unanswerable by this league: the option only builds and serves each opponent's lifetime public profile " +
+      'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
+      'arms read nothing and play the same hands; the provider by itself changes no decision ' +
+      '(TheHudProviderChangesNoDecision.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
+      'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
+      'change this: a league that seeds each opponent with a lifetime history.',
+  })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
   {

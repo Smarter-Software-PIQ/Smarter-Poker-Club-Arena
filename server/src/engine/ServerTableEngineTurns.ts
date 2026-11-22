@@ -1,4 +1,5 @@
 import { confirmedHuman } from './HorseConfirmedSeatRole.js';
+import { opponentHudSnapshotField } from '../services/OpponentHudStore.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
 import {
@@ -4538,6 +4539,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         const runtimeOpts = horseDecideOptsFromRuntimeSettings(this.currentHandRuntimeSettings);
         return runtimeOpts ? { opts: { ...runtimeOpts } } : {};
       })(),
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, option omahaOpponentLifetimeHud): every live opponent's lifetime
+      // public profile while armed for PLO4/PLO5 cash; {} otherwise (the snapshot and its key are unchanged).
+      ...opponentHudSnapshotField(gameState, decisionPlayer.user_id, Date.now()),
     };
     decisionSnapshot.decisionKey = buildHorseDecisionKey(decisionSnapshot);
 

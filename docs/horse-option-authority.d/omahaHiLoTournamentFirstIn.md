@@ -84,7 +84,7 @@ Limits as recorded: "Every opponent is a variant of the Horse brain; no human-ca
 - Replay on recorded audited decisions (README.md, "Replay bar"), first run 2026-11-21 with the borrowed Hold'em realization 0.72: PASS-BAR item 2 (newlyWrong <= fixed) failed: fixed 0, newly wrong 35 (section "Replay on recorded decisions").
 - Replay on recorded audited decisions, second run 2026-11-21 with the measured PLO8 realization 1.01 (the current constant): PASS-BAR passed, fixed 0, newly wrong 0, changed 248, all 248 unjudged; no audited gain (section "Measured out-of-position realization").
 - League settlement: until 2026-11-21 the league's PLO8 hands paid the whole pot to the high hand (no low half), so the first three league card rows measure a high-only game (section "Measured out-of-position realization"). Fixed 2026-11-21 (`settleLeagueShowdown`, `docs/changelog/2026-11-21-league-pays-the-low-half.md`); the re-run rows are under "League card runs".
-- Value against people, live reach of the receipt: NOT MEASURED. Production held no PLO8 two-player tournament hand with a person in it on 2026-11-21 (0 of 361).
+- Value against people, live reach of the receipt: NOT MEASURED. Production held 0 real-human (`has_human = true`) PLO8 heads-up tournament hands on 2026-11-21 (re-checked read-only on `public.hand_history` at 2026-11-21T21:24:48Z: 0 of 414 PLO8 heads-up tournament hands, out of 7,107 PLO8 tournament hands total and 468 with `has_human = true`; 0 of 361 in the earlier 2026-11-21T08:2xZ export).
 
 ## Replay on recorded decisions (2026-11-21)
 
@@ -176,7 +176,7 @@ What it means: with a PLO8-measured realization the 57 big-blind calls the optio
 
 ## What is still owed before this file may say the evidence is met
 
-1. A run row in which newlyWrong does not exceed fixed: DONE on the measured constant (second row under "Replay"; the first row, on the borrowed 0.72, stays as the record of the first run). The row shows no audited gain: every change is unjudged.
+1. A run row in which newlyWrong does not exceed fixed: DONE on the measured constant (the active A2 row under "Replay"; the superseded A1 run on the borrowed 0.72 Hold'em constant is preserved verbatim as historical prose so it does not trip the machine-read replay bar). Still blocked on audited gain (`fixed > 0`: every change in A2 is unjudged) and real human PLO8 heads-up tournament hands (0 in `public.hand_history` with `has_human = true` as of 2026-11-21T21:24:48Z). Status remains built, OFF, Evidence NOT MET.
 2. A league measurement of the hi-lo game: DONE 2026-11-21. The league now settles PLO8 pots by the engine's `determineWinners` (`settleLeagueShowdown`), and the card re-run on the same three seeds measured +32.36, +29.44 and +33.78 bb/100, each SIGNIFICANT (section "League card runs"). It is a mirror-field result, not an audited gain.
 3. The order to activate (owner or lane lead), recorded verbatim in "The order it rests on".
 4. For an activation: the serving engine build must know the option name, and the receipt `omaha_hilo_tournament_first_in` should be read live after switch-on (first-action fold rate of the heads-up small blind and big blind at 20 BB or less against the recorded 83 to 85 and 81 to 91 percent), with a rollback trigger declared before the switch.
@@ -189,13 +189,13 @@ What it means: with a PLO8-measured realization the 57 big-blind calls the optio
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
-First run, auditor PLO8-HU-FI-A1, out-of-position realization 0.72 (Auditor E's Hold'em constant, superseded):
-
-- Replay: fixed 0; newlyWrong 35; changed 248; unchanged 182; unjudged 213; set PLO8HU-FI PLO8 2-player tournaments 20bb; scorer d6b032d3204; source placed verdict-only; arm on vs off; replayed 430 of 430
-
-Second run, auditor PLO8-HU-FI-A2, out-of-position realization 1.01 (measured for PLO8, the current constant):
+Active run, auditor PLO8-HU-FI-A2, out-of-position realization 1.01 (measured for PLO8, the current constant):
 
 - Replay: fixed 0; newlyWrong 0; changed 248; unchanged 182; unjudged 248; set PLO8HU-FI PLO8 2-player tournaments 20bb; scorer d6b032d3204; source placed verdict-only; arm on vs off; replayed 430 of 430
+
+Historical superseded run (moved out of the machine-read `- Replay:` bar because A1 used Auditor E's borrowed Hold'em out-of-position realization 0.72 rather than the PLO8-measured 1.01 constant, preserved verbatim for audit trail):
+
+- Historical A1 run (superseded, auditor PLO8-HU-FI-A1, out-of-position realization 0.72): fixed 0; newlyWrong 35; changed 248; unchanged 182; unjudged 213; set PLO8HU-FI PLO8 2-player tournaments 20bb; scorer d6b032d3204; source placed verdict-only; arm on vs off; replayed 430 of 430
 
 How the row is produced (run from `server/`; `W` is the work directory holding the export, outside the repository):
 

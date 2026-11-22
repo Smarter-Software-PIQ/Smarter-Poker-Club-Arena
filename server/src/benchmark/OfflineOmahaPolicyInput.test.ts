@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withFrozenDecisionClock } from '../engine/testing/frozenDecisionClock.js';
 import { evaluatePlo4Policy, type Plo4PolicyInput } from './Plo4PolicyProgram.js';
 import { evaluateOmahaVariantProgram } from './OmahaVariantPolicyProgram.js';
 import { plo4ReferenceSpot } from './Plo4PolicyEvidence.js';
@@ -16,9 +17,11 @@ function inputFor(variant: Variant): Plo4PolicyInput {
   );
 }
 function evaluate(input: Plo4PolicyInput, shouldContinue?: () => boolean) {
-  return input.state.gameVariant === 'plo4'
-    ? evaluatePlo4Policy(input, shouldContinue)
-    : evaluateOmahaVariantProgram(input, shouldContinue);
+  return withFrozenDecisionClock(() =>
+    input.state.gameVariant === 'plo4'
+      ? evaluatePlo4Policy(input, shouldContinue)
+      : evaluateOmahaVariantProgram(input, shouldContinue)
+  );
 }
 function withoutClocks(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutClocks);

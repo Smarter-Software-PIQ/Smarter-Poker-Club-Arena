@@ -55,6 +55,10 @@ import {
   type LeagueSeatSpot,
 } from './HorseLeague.js';
 
+import { SparringHudStore, sparringBoardKeys, type SparringHudSpec } from './SparringHud.js';
+import { clearDecisionHud } from '../engine/opponentHud/OpponentHud.js';
+import type { OpponentHudProfile } from '../engine/opponentHud/OpponentHudProfile.js';
+
 const BB = 2;
 const STREETS = ['preflop', 'flop', 'turn', 'river'] as const;
 type Street = (typeof STREETS)[number];
@@ -520,6 +524,19 @@ export interface SparringCellSpec {
    *  arm, so a candidate arm changes only the opposing Horses and the paired change measures their
    *  defence, not the option's value in the probe's own hands. */
   seat0Opts?: HorseDecideOpts;
+  /** THE LIFETIME OPPONENT HUD (2026-11-21, REPLACEMENTS-3). Present: every arm and each of its two deals gets its
+   *  own store; before a decision the acting seat's packet is installed, after a hand its public record is learned
+   *  (SparringHud.ts). Absent: no packet is ever installed, every read is the population prior, as before. */
+  hud?: SparringHudSpec;
+}
+
+/** What one store of an arm held at the end of the cell (counts only, and the profiles when asked for). */
+export interface SparringHudReport {
+  hands: number;
+  applied: number;
+  refused: number;
+  packets: number;
+  profiles?: OpponentHudProfile[];
 }
 
 export interface SparringArmResult {
@@ -714,6 +731,8 @@ export interface SparringCellResult {
   seed: number;
   arms: SparringArmResult[];
   durationMs: number;
+  /** per arm (same order as `arms`): its main-deal store and its mirror-deal store; absent without spec.hud */
+  hud?: Array<{ label: string; main: SparringHudReport; mirror: SparringHudReport | null }>;
 }
 
 const meanSe = (xs: number[]): { mean: number; se: number } => {
@@ -743,6 +762,8 @@ interface ArmState {
   linesC: string[];
   flipE: SparringFlipDeal;
   flipC: SparringFlipDeal;
+  hudE: SparringHudStore | null;
+  hudC: SparringHudStore | null;
 }
 
 function devTag(s: LeagueSeatSpot, d: Decision): string {
@@ -794,6 +815,11 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       arm,
       sbE: HorseMind.createSandbox(),
       sbC: HorseMind.createSandbox(),
+      hudE: spec.hud ? new SparringHudStore(variant, spec.hud.priors, spec.hud.preload) : null,
+      hudC:
+        spec.hud && spec.mirror
+          ? new SparringHudStore(variant, spec.hud.priors, spec.hud.preload)
+          : null,
       e: [],
       c: [],
       chip: {},
@@ -944,16 +970,57 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
   let moodMs = 0;
   const dealt = (o: HorseDecideOpts): HorseDecideOpts => ({ ...o, decisionTimeMs: moodMs });
   /** Records the hand's public line and hands the legality tally back to the Horse seats. */
-  const traced = (line: SparringTraceEvent[], inner?: LeagueHandObserver): LeagueHandObserver => ({
+  // The seats' user ids as playHand names them (seat 0 is the field seat in both deals).
+  const hudUsers = Array.from({ length: seats }, (_, i) =>
+    i === EXPLOITER_SEAT ? `league-human-${i + 1}` : `league-${i + 1}`
+  );
+  let hudPair = 0;
+  let hudButton = 1;
+  const traced = (
+    line: SparringTraceEvent[],
+    inner?: LeagueHandObserver,
+    hud?: SparringHudStore | null,
+    deal = 'main'
+  ): LeagueHandObserver => ({
+    ...(hud
+      ? {
+          beforeDecision: (e) => hud.install(hudUsers, e.seatIdx, e.stage, hudPair),
+        }
+      : {}),
     onAction: (e) => {
       actor = 'horse';
       line.push({ s: e.seatIdx, st: e.stage, a: e.action, m: e.amount });
       inner?.onAction?.(e);
     },
-    onEnd: (e) => inner?.onEnd?.(e),
+    onEnd: (e) => {
+      inner?.onEnd?.(e);
+      // PUBLIC record only: the line, the board, the chips won, the hand name of a seat that showed down.
+      hud?.learn({
+        pair: hudPair,
+        deal,
+        seed,
+        variant,
+        bigBlind: BB,
+        smallBlind: BB / 2,
+        ante: (spec.bbAnte ?? 0) * BB,
+        buttonSeat: hudButton,
+        users: hudUsers,
+        stack: stackBB * BB,
+        actions: line.map((x) => ({
+          seatIdx: x.s,
+          stage: x.st as HandStage,
+          action: x.a,
+          amount: x.m,
+        })),
+        board: sparringBoardKeys(e.board),
+        shown: e.shown,
+        winnings: e.winnings,
+      });
+    },
   });
 
   const rng = saveFastRandom();
+  clearDecisionHud();
   try {
     for (let p = 0; p < pairs; p++) {
       if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
@@ -974,6 +1041,8 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
       // dealMoodClockMs(handSeed) (the league's own 'deal_seed' mood clock): an hour drawn uniformly
       // from the day, like production play, and the same whenever and wherever the cell runs.
       moodMs = dealMoodClockMs(handSeed);
+      hudPair = p;
+      hudButton = dealerSeat;
       for (const st of states) {
         cur = st;
         const field: LeagueHumanField = {
@@ -1009,7 +1078,7 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
             field,
             (): HorseStyle => hybrid.style,
             true,
-            traced(st.lineE, observer(st)),
+            traced(st.lineE, observer(st), st.hudE, 'main'),
             handClock
           )[EXPLOITER_SEAT] / BB;
         st.e.push(e);
@@ -1046,7 +1115,7 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
               control,
               (): HorseStyle => hybrid.style,
               true,
-              traced(st.lineC),
+              traced(st.lineC, undefined, st.hudC, 'mirror'),
               handClock
             )[EXPLOITER_SEAT] / BB;
           st.c.push(c);
@@ -1070,7 +1139,15 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
     }
   } finally {
     restoreFastRandom(rng);
+    clearDecisionHud();
   }
+  // A tree whose HorseLeague lacks the beforeDecision hook would play the whole cell on the prior and say nothing.
+  for (const st of states)
+    for (const h of [st.hudE, st.hudC])
+      if (h && pairs > 0 && (h.counts.packets === 0 || h.counts.hands !== pairs))
+        throw new Error(
+          `sparring: the HUD was asked for but the tree never installed or fed it (packets ${h.counts.packets}, hands ${h.counts.hands} of ${pairs}): its HorseLeague.ts has no beforeDecision / public onEnd`
+        );
   void cur;
   const n = Math.max(1, pairs);
   const a0 = states[0].e;
@@ -1136,6 +1213,21 @@ export async function runSparringCell(spec: SparringCellSpec): Promise<SparringC
     seed,
     arms,
     durationMs: Date.now() - t0,
+    ...(spec.hud
+      ? {
+          hud: states.map((st) => {
+            const rep = (h: SparringHudStore): SparringHudReport => ({
+              ...h.counts,
+              ...(spec.hud?.exportProfiles ? { profiles: h.exportProfiles() } : {}),
+            });
+            return {
+              label: st.arm.label,
+              main: rep(st.hudE!),
+              mirror: st.hudC ? rep(st.hudC) : null,
+            };
+          }),
+        }
+      : {}),
   };
 }
 

@@ -82,6 +82,27 @@ class Evidence(unittest.TestCase):
         with patch.object(reader, "projection", side_effect=["before","after"]), self.assertRaises(reader.Unqualified):
             self.verify()
 
+    def test_failed_or_incomplete_qualification_refusal_includes_run_id(self):
+        self.run_row = {**self.run_row, "id": 44878744051, "status": "completed", "conclusion": "failure"}
+        with self.assertRaises(reader.Unqualified) as ctx:
+            self.verify()
+        self.assertIn("latest qualification is incomplete, unsuccessful or untrusted", str(ctx.exception))
+        self.assertIn("run 44878744051", str(ctx.exception))
+        self.assertIn("conclusion=failure", str(ctx.exception))
+
+        self.run_row = {**self.run_row, "id": 44878744052, "status": "in_progress", "conclusion": None}
+        with self.assertRaises(reader.Unqualified) as ctx2:
+            self.verify()
+        self.assertIn("run 44878744052", str(ctx2.exception))
+        self.assertIn("status=in_progress", str(ctx2.exception))
+
+        # A completed run with a failed shard still reports the failing run id.
+        self.run_row = {**self.run_row, "id": 99, "status": "completed", "conclusion": "success"}
+        self.jobs[0]["conclusion"] = "failure"
+        with self.assertRaises(reader.Unqualified) as ctx3:
+            self.verify()
+        self.assertIn("run 99", str(ctx3.exception))
+
 
 class Selection(unittest.TestCase):
     def verify(self, *, altered=False, duplicate=False, late=False, pending=False, early=False, backup=False, owner=False, wrong_owner=False, wrong_stage=False, wrong_event=False, rerun=False,
