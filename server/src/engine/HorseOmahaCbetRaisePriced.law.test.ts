@@ -15,9 +15,14 @@ import {
   omahaCbetRaiseShare,
   setOmahaCbetRaiseRecordProvider,
 } from './HorseOmahaCbetRaisePriced.js';
+import { omahaFlopFacingBetEvAnswer } from './HorseOmahaFlopFacingBetEvRule.js';
+import { clearDecisionHud, installDecisionHud } from './opponentHud/OpponentHud.js';
 import { decideAt, LIVE_OPTIONS, pricedSpot } from './HorseOmahaPricedRules.test-support.js';
 
-afterEach(() => setOmahaCbetRaiseRecordProvider(null));
+afterEach(() => {
+  setOmahaCbetRaiseRecordProvider(null);
+  clearDecisionHud();
+});
 
 describe('rho: population, shrunk by his public record', () => {
   it('no provider: the population exactly', () => {
@@ -152,4 +157,104 @@ describe('a whole decision', () => {
       }
     }
   }, 300000);
+
+  it('joint-ON with R2 (hudRaiserStabResponse) does not double-scale a c-bet raise while preserving both options alone', () => {
+    enableBrainTelemetry();
+    setOmahaCbetRaiseRecordProvider({ cbetRaiseRecord: () => ({ opps: 100, raises: 100 }) });
+    installDecisionHud({
+      v: 1,
+      family: 'plo4',
+      pv: 1,
+      pri: { 'f.rBet.hu': [0.14, 20] },
+      opp: { u2: { hands: 300, eff: { 'f.rBet.hu': [80, 64] }, rc: {} } },
+    });
+    const hero: SeatPlayer = {
+      seat: 1,
+      user_id: 'u1',
+      stack: 200,
+      bet: 12,
+      cards: [
+        { rank: 'A', suit: 'diamonds' },
+        { rank: 'A', suit: 'hearts' },
+        { rank: 'K', suit: 'diamonds' },
+        { rank: 'J', suit: 'diamonds' },
+      ],
+      is_folded: false,
+      is_sitting_out: false,
+      is_all_in: false,
+    } as never;
+    const villain: SeatPlayer = {
+      seat: 2,
+      user_id: 'u2',
+      stack: 152,
+      bet: 48,
+      cards: [],
+      is_folded: false,
+      is_sitting_out: false,
+      is_all_in: false,
+    } as never;
+    const gs = gsOf(
+      'plo4',
+      [
+        [1, 'bet', 12],
+        [2, 'raise', 48],
+      ],
+      {
+        players: [hero, villain],
+        pot: 84,
+        currentBet: 48,
+        toCall: 36,
+        bigBlind: 2,
+        smallBlind: 1,
+        dealerSeat: 1,
+        bettingStructure: 'pot_limit',
+        legalActions: ['fold', 'call', 'raise'],
+      } as Partial<HorseGameStateV2>
+    );
+    const baseCtx = {
+      mind: true,
+      telemetry: true,
+      rake: 0.05,
+      inPosition: true,
+      bareOverpairContinuation: false,
+    };
+
+    drainFires();
+    const ansBase = omahaFlopFacingBetEvAnswer(hero, gs, baseCtx);
+    drainFires();
+    const ansR2 = omahaFlopFacingBetEvAnswer(hero, gs, {
+      ...baseCtx,
+      hudRaiserStabResponse: true,
+    });
+    const firesR2 = drainFires().map((f) => f.feature);
+
+    const ansCbet = omahaFlopFacingBetEvAnswer(hero, gs, {
+      ...baseCtx,
+      cbetRaisePriced: true,
+    });
+    const firesCbet = drainFires().map((f) => f.feature);
+
+    const ansJoint = omahaFlopFacingBetEvAnswer(hero, gs, {
+      ...baseCtx,
+      hudRaiserStabResponse: true,
+      cbetRaisePriced: true,
+    });
+    const firesJoint = drainFires().map((f) => f.feature);
+
+    expect(ansBase).not.toBeNull();
+    expect(ansR2).not.toBeNull();
+    expect(ansCbet).not.toBeNull();
+    expect(ansJoint).not.toBeNull();
+    // (a) R2 alone scales the raiser range via HUD
+    expect(firesR2).toContain('omaha_flop_facing_raise_hud_range_scaled');
+    expect(ansR2!.verdict.valueShare).toBeGreaterThan(ansBase!.verdict.valueShare);
+    expect(ansR2!.verdict.ev).not.toBe(ansBase!.verdict.ev);
+    // (b) CBET alone prices via the measured c-bet raise range
+    expect(firesCbet).toContain('omaha_cbet_raise_priced_range');
+    expect(firesCbet).not.toContain('omaha_flop_facing_raise_hud_range_scaled');
+    // (c) Joint-ON matches CBET alone exactly — zero double-scaling from R2's f.rBet factor
+    expect(ansJoint).toEqual(ansCbet);
+    expect(firesJoint).toContain('omaha_cbet_raise_priced_range');
+    expect(firesJoint).not.toContain('omaha_flop_facing_raise_hud_range_scaled');
+  });
 });

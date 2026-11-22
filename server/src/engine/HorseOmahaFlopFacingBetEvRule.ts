@@ -209,7 +209,12 @@ export function omahaFlopFacingBetEvAnswer(
     | 'omaha_flop_facing_raise_hud_range_scaled'
     | 'omaha_flop_facing_stab_hud_range_scaled'
     | null = null;
-  if (ctx.hudRaiserStabResponse === true && ctx.mind && (spot.isRaise || spot.stab)) {
+  if (
+    ctx.hudRaiserStabResponse === true &&
+    ctx.mind &&
+    (spot.isRaise || spot.stab) &&
+    !(cbetRange && spot.isRaise)
+  ) {
     const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
     const liveCount = (gs.players ?? []).filter((p) => !p.is_folded && !p.is_sitting_out).length;
     const family = (player.cards?.length ?? 0) === 5 ? 'plo5' : 'plo4';
