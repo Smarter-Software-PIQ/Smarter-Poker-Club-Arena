@@ -75,10 +75,13 @@ describe('the cause: a fill window was read as a start', () => {
 });
 
 describe('a Sit and Go of any size is judged by what actually happened', () => {
-  it('the installed fix is the newest definition of all three functions', () => {
-    expect(core.file).toBe(INSTALLED);
-    expect(diamond.file).toBe(INSTALLED);
-    expect(receipt.file).toBe(INSTALLED);
+  it('the newest definition of all three functions is the installed fix or a later one that keeps it', () => {
+    // A later migration may tighten the rule (for example, close the event once
+    // any launch receipt exists); it may not drop the authority.
+    for (const { file, body } of [core, diamond, receipt]) {
+      expect(file >= INSTALLED, `${file} is not older than the installed fix`).toBe(true);
+      expect(body).toContain('sng_actual_start');
+    }
   });
 
   it('every non-heads-up SNG Sit and Go leaves the scheduled clock', () => {
@@ -102,13 +105,14 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
     expect(occurrences, 'one clock refusal, inside the scheduled-clock branch').toBe(1);
   });
 
-  it('a seat-first event refuses on a hand, started_at or a completed launch', () => {
-    const actual = sliceBetween(
+  it('a seat-first event refuses on a persisted hand, started_at or its launch', () => {
+    const seatFirst = sliceBetween(
       core.body,
-      'SELECT r.completed_at INTO v_launch_completed_at',
-      'END IF;'
+      "IF v_start_authority='scheduled_clock' THEN",
+      'IF v_reg.id IS NULL THEN'
     );
-    expect(actual).toContain('v_t.started_at IS NOT NULL OR v_launch_completed_at IS NOT NULL');
+    expect(seatFirst).toContain('v_t.started_at IS NOT NULL');
+    expect(seatFirst).toContain('public.tournament_launch_receipts');
     expect(core.body).toContain('INTO v_persisted_hand_exists;');
   });
 
@@ -117,11 +121,12 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
     const reproof = sliceBetween(
       core.body,
       'Re-prove the chosen start authority',
-      "'seat-first tournament started before unregistration could commit'"
+      'INSERT INTO public.tournament_unregistration_receipts('
     );
     expect(reproof).toContain("NOT IN ('ANNOUNCED','REGISTERING')");
     expect(reproof).toContain('v_actual_started_at IS NOT NULL');
-    expect(reproof).toContain('v_launch_completed_at IS NOT NULL');
+    expect(reproof).toContain('public.tournament_launch_receipts');
+    expect(reproof).toContain("ERRCODE='55000'");
   });
 
   it('never asks who is a horse', () => {

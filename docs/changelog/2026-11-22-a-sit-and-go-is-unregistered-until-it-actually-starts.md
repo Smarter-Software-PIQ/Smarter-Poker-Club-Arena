@@ -189,3 +189,15 @@ Follow-up, so the repository says what production does:
 
 The when-full satellites are created with `tournament_type='SNG'`, which is the
 condition the installed rule keys on, so the reported event is covered.
+
+## The law admits a later tightening
+
+Lane `money-and-accounting` found that the installed rule closes a Sit and Go
+only once its launch receipt is completed, while the launch inserts the receipt
+first and seats afterwards; it is shipping a separate later migration that
+refuses once any receipt exists, under the same `sng_actual_start` name. The law
+no longer requires 20261122185915 to stay the newest definition: it requires the
+newest definition to be that file or a later one that keeps the authority, and
+checks the seat-first and second-proof branches by what they read (started_at,
+the launch receipts table, a persisted hand), not by one exact line. Checked
+with a later replacement that refuses on any receipt: the law passes.
