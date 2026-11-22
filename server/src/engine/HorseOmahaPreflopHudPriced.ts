@@ -77,7 +77,7 @@ export const HUD_PREFLOP_SIXMAX_EQUITY_SAMPLES = 100;
 export const HUD_PREFLOP_WIDEN_MIN_MARGIN_POT = 0.02;
 
 export interface HudThreeBetRealization {
-  /** Continuous realization penalty (0.04–0.05 IP, 0.08–0.10 OOP) from shrunk HUD aggression. */
+  /** Continuous realization penalty (0–0.05 IP, 0–0.10 OOP) from shrunk HUD aggression. */
   realization: number;
   /** True when shrunk preflop 3-bet/PFR or postflop betCheckedTo indicates an aggressive 3-bettor. */
   aggressiveThreeBettor: boolean;
@@ -212,11 +212,11 @@ export function hudThreeBetRealizationMargin(
   const betCkRaw = betCkBase.p ?? betCkBase.prior ?? 0.38;
   const betCk = clamp(Number.isFinite(betCkRaw) ? betCkRaw : 0.38, 0.01, 0.99);
   const intensity = clamp(
-    Math.max((threeBet - 0.06) / 0.08, (pfr - 0.18) / 0.12, (betCk - 0.35) / 0.15),
+    Math.max((threeBet - 0.1) / 0.12, (pfr - 0.28) / 0.14, (betCk - 0.42) / 0.15),
     0,
     1
   );
-  const realization = inPosition ? 0.04 + 0.01 * intensity : 0.08 + 0.02 * intensity;
+  const realization = inPosition ? 0.05 * intensity : 0.1 * intensity;
   const aggressiveThreeBettor = threeBet >= 0.11 || pfr >= 0.28 || betCk >= 0.45;
   return { realization, aggressiveThreeBettor };
 }

@@ -462,16 +462,16 @@ describe('B4: priced six-max preflop read on lifetime HUD cells', () => {
     const aggroPassive = makeProfile(OPP1, 'plo4', {
       withBvo: { fold: 15, call: 15, raise: 10 },
     });
-    aggroPassive.life['pf.3bet'] = [80, 18];
-    aggroPassive.rec['pf.3bet'] = [80, 18];
-    aggroPassive.life['pf.pfr'] = [200, 68];
-    aggroPassive.rec['pf.pfr'] = [200, 68];
+    aggroPassive.life['pf.3bet'] = [80, 26];
+    aggroPassive.rec['pf.3bet'] = [80, 26];
+    aggroPassive.life['pf.pfr'] = [200, 96];
+    aggroPassive.rec['pf.pfr'] = [200, 96];
     aggroPassive.life['f.betCk'] = [80, 10]; // very passive postflop
     aggroPassive.rec['f.betCk'] = [80, 10];
     aggroPassive.xc!['pf.3bet.sh.opps'] = 80;
-    aggroPassive.xc!['pf.3bet.sh.hits'] = 18;
+    aggroPassive.xc!['pf.3bet.sh.hits'] = 26;
     aggroPassive.xc!['pf.pfr.sh.opps'] = 200;
-    aggroPassive.xc!['pf.pfr.sh.hits'] = 68;
+    aggroPassive.xc!['pf.pfr.sh.hits'] = 96;
 
     installDecisionHud(buildHudPacket('plo4', [aggroPassive], {}, T, 'preflop'));
     const ip = hudThreeBetRealizationMargin(OPP1, 'plo4', true);
@@ -480,7 +480,7 @@ describe('B4: priced six-max preflop read on lifetime HUD cells', () => {
     expect(oop.realization).toBeCloseTo(0.1, 5);
     expect(ip.aggressiveThreeBettor).toBe(true);
 
-    // Continuous shrinkage: never collapses to 0 even for a tight passive 3-bettor
+    // Continuous shrinkage: ramps cleanly from 0 for tight passive 3-bettors up to 0.05/0.10 for aggressive 3-bettors
     const tightPassive = makeProfile(OPP2, 'plo4', {
       withBvo: { fold: 30, call: 8, raise: 2 },
     });
@@ -493,9 +493,24 @@ describe('B4: priced six-max preflop read on lifetime HUD cells', () => {
     tightPassive.xc!['pf.pfr.sh.hits'] = 24;
     installDecisionHud(buildHudPacket('plo4', [tightPassive], {}, T, 'preflop'));
     const tightOop = hudThreeBetRealizationMargin(OPP2, 'plo4', false);
-    expect(tightOop.realization).toBeGreaterThanOrEqual(0.08);
-    expect(tightOop.realization).toBeLessThanOrEqual(0.1);
+    expect(tightOop.realization).toBe(0);
     expect(tightOop.aggressiveThreeBettor).toBe(false);
+
+    // Mid-level aggression sits strictly between 0 and 0.10 OOP (no binary cliff)
+    const midAgg = makeProfile(OPP3, 'plo4', {
+      withBvo: { fold: 20, call: 15, raise: 5 },
+    });
+    midAgg.life['pf.3bet'] = [80, 14];
+    midAgg.life['pf.pfr'] = [200, 56];
+    midAgg.life['f.betCk'] = [80, 16];
+    midAgg.xc!['pf.3bet.sh.opps'] = 80;
+    midAgg.xc!['pf.3bet.sh.hits'] = 14;
+    midAgg.xc!['pf.pfr.sh.opps'] = 200;
+    midAgg.xc!['pf.pfr.sh.hits'] = 56;
+    installDecisionHud(buildHudPacket('plo4', [midAgg], {}, T, 'preflop'));
+    const midOop = hudThreeBetRealizationMargin(OPP3, 'plo4', false);
+    expect(midOop.realization).toBeGreaterThan(0);
+    expect(midOop.realization).toBeLessThan(0.1);
   });
 
   it('Sites #2 & #3: omahaPreflopHudWideningProved rejects null and noise ties (< 2% pot) and accepts strictly proved widening', () => {
