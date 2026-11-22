@@ -59,3 +59,66 @@ export function planOpponentHudBackfill<P extends BackfillProfileLike>(input: {
   }
   return { ok: true, write, kept };
 }
+
+/**
+ * Maximum page size requested from fn_opponent_hud_hands_page over PostgREST.
+ * Supabase PostgREST enforces a default server-side max_rows cap of 1,000; requesting
+ * more than 1,000 and breaking on `rows.length < limit` silently truncates after page 1.
+ */
+export const HUD_BACKFILL_PAGE_LIMIT = 1000;
+
+export interface BackfillPageRow {
+  id: string;
+  created_at: string;
+}
+
+/**
+ * Drains every keyset-paginated hand_history page in (since, until] until true EOF
+ * (`rows.length === 0`), regardless of any server-side PostgREST max_rows cap.
+ * Fails closed if a non-empty page fails to advance the (created_at, id) cursor.
+ */
+export async function pageAllOpponentHudHands<R extends BackfillPageRow>(input: {
+  since: string;
+  until: string;
+  limit?: number;
+  fetchPage: (cursor: {
+    afterAt: string;
+    afterId: string;
+    until: string;
+    limit: number;
+  }) => Promise<readonly R[]>;
+  onRow: (row: R) => void;
+  onPage?: (info: { page: number; rows: number; afterAt: string; afterId: string }) => void;
+}): Promise<{ pages: number; rows: number; afterAt: string; afterId: string }> {
+  const limit = Math.min(
+    HUD_BACKFILL_PAGE_LIMIT,
+    Math.max(1, input.limit ?? HUD_BACKFILL_PAGE_LIMIT)
+  );
+  let afterAt = input.since;
+  let afterId = '00000000-0000-0000-0000-000000000000';
+  let pages = 0;
+  let totalRows = 0;
+  for (;;) {
+    const rows = await input.fetchPage({ afterAt, afterId, until: input.until, limit });
+    if (rows.length === 0) break;
+    const last = rows[rows.length - 1];
+    const prevMs = Date.parse(afterAt);
+    const lastMs = Date.parse(last.created_at);
+    const movedBackwards = Number.isFinite(prevMs) && Number.isFinite(lastMs) && lastMs < prevMs;
+    const stalled =
+      (last.created_at === afterAt && last.id <= afterId) ||
+      (pages > 0 && lastMs === prevMs && last.created_at === afterAt && last.id === afterId);
+    if (movedBackwards || stalled) {
+      throw new Error(
+        `backfill cursor did not advance: prev=(${afterAt}, ${afterId}) last=(${last.created_at}, ${last.id})`
+      );
+    }
+    for (const r of rows) input.onRow(r);
+    afterAt = last.created_at;
+    afterId = last.id;
+    pages += 1;
+    totalRows += rows.length;
+    input.onPage?.({ page: pages, rows: rows.length, afterAt, afterId });
+  }
+  return { pages, rows: totalRows, afterAt, afterId };
+}

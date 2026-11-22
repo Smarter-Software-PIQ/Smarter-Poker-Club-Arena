@@ -69,6 +69,55 @@ export function isFlatPayoutCurve(payouts: number[]): boolean {
   return core.length >= 2 && core.every((payout) => Math.abs(payout - first) <= first * 0.05);
 }
 
+/** Precomputed bit-manipulation lookup tables for exact <=10-player Malmuth-Harville DP. */
+const EXACT_STATE_COUNT = 1 << EXACT_MAX_PLAYERS;
+const EXACT_POPCOUNT = new Uint8Array(EXACT_STATE_COUNT);
+const EXACT_MSB = new Uint8Array(EXACT_STATE_COUNT);
+for (let mask = 1; mask < EXACT_STATE_COUNT; mask++) {
+  EXACT_POPCOUNT[mask] = EXACT_POPCOUNT[mask >> 1] + (mask & 1);
+  EXACT_MSB[mask] = 31 - Math.clz32(mask);
+}
+/** Module-level synchronous DP scratch (exactCleanIcmEquity never invokes caller callbacks). */
+const EXACT_TOTAL_SCRATCH = new Float64Array(EXACT_STATE_COUNT);
+const EXACT_DP_SCRATCH = new Float64Array(EXACT_STATE_COUNT);
+
+/**
+ * Bounded per-process LRU for exact <=10-player Malmuth-Harville equities.
+ * Keyed by exact (hero slot, live stacks in order, paid-depth prize prefix);
+ * pure deterministic function of those inputs, so reuse is bit-identical.
+ */
+export const ICM_EXACT_EQUITY_CACHE_MAX = 4_096;
+const exactEquityCache = new Map<string, number>();
+let exactEquityCacheHits = 0;
+let exactEquityCacheBuilds = 0;
+
+/** Reuse counters of the exact Malmuth-Harville equity cache (benchmarks and tests). */
+export function icmExactCacheStats(): { hits: number; builds: number; size: number } {
+  return {
+    hits: exactEquityCacheHits,
+    builds: exactEquityCacheBuilds,
+    size: exactEquityCache.size,
+  };
+}
+
+/** Tests and benchmarks only: forget every cached exact ICM equity. */
+export function resetIcmExactCacheForTest(): void {
+  exactEquityCache.clear();
+  exactEquityCacheHits = 0;
+  exactEquityCacheBuilds = 0;
+}
+
+/** Uncached exact Malmuth-Harville equity, for differential tests only. */
+export function exactIcmEquityUncachedForTest(
+  stacks: number[],
+  payouts: number[],
+  heroIdx: number
+): number {
+  const original = cleanStacks(stacks);
+  const prizes = cleanPayouts(payouts);
+  return exactCleanIcmEquityUncached(original, prizes, heroIdx, payoutMass(prizes));
+}
+
 /**
  * Exact Malmuth-Harville equity for one player.
  *
@@ -83,8 +132,112 @@ export function exactIcmEquity(stacks: number[], payouts: number[], heroIdx: num
   return exactCleanIcmEquity(original, prizes, heroIdx, payoutMass(prizes));
 }
 
+function exactEquityKey(
+  compactHero: number,
+  clean: number[],
+  prizes: number[],
+  paidDepth: number
+): string {
+  let key = `${compactHero}|${clean[0]}`;
+  for (let i = 1; i < clean.length; i++) key += `,${clean[i]}`;
+  key += `|${prizes[0]}`;
+  for (let i = 1; i < paidDepth; i++) key += `,${prizes[i]}`;
+  return key;
+}
+
+/**
+ * Bottom-up exact Malmuth-Harville DP preserving bit-identical IEEE-754 order:
+ *  - totals[mask] adds clean[msb(mask)] last -> exact ascending-index sum order;
+ *  - winner iterates lowest-set-bit first -> exact ascending-index winner sum order.
+ */
+function exactDpCore(
+  clean: number[],
+  prizes: number[],
+  compactHero: number,
+  paidDepth: number,
+  dp: Float64Array
+): number {
+  const n = clean.length;
+  const fullMask = (1 << n) - 1;
+  const heroBit = 1 << compactHero;
+  const totals = EXACT_TOTAL_SCRATCH;
+  totals[0] = 0;
+  for (let mask = 1; mask <= fullMask; mask++) {
+    const hi = EXACT_MSB[mask];
+    totals[mask] = totals[mask ^ (1 << hi)] + clean[hi];
+  }
+
+  const minRemaining = n - paidDepth + 1;
+  for (let mask = heroBit; mask <= fullMask; mask++) {
+    if ((mask & heroBit) === 0) {
+      mask = (mask | heroBit) - 1;
+      continue;
+    }
+    const remaining = EXACT_POPCOUNT[mask];
+    if (remaining < minRemaining) {
+      dp[mask] = 0;
+      continue;
+    }
+    const total = totals[mask];
+    if (total <= 0) {
+      dp[mask] = 0;
+      continue;
+    }
+    const prize = prizes[n - remaining];
+    let equity = 0;
+    let bits = mask;
+    while (bits !== 0) {
+      const lsb = bits & -bits;
+      const winner = EXACT_MSB[lsb];
+      bits ^= lsb;
+      const probability = clean[winner] / total;
+      equity += winner === compactHero ? probability * prize : probability * dp[mask ^ lsb];
+    }
+    dp[mask] = equity;
+  }
+  return dp[fullMask];
+}
+
+function exactCleanIcmEquityUncached(
+  original: number[],
+  prizes: number[],
+  heroIdx: number,
+  prizeMass: number,
+  scratch?: Float64Array
+): number {
+  if (
+    original.length === 0 ||
+    heroIdx < 0 ||
+    heroIdx >= original.length ||
+    original[heroIdx] <= 0 ||
+    prizeMass <= 0
+  ) {
+    return 0;
+  }
+
+  // First-place probability in Malmuth-Harville is chip share, independent
+  // of field size. No finishing-order recursion or sampling is required.
+  if (isWinnerTakeAll(prizes)) {
+    if (!Number.isSafeInteger(heroIdx)) return 0;
+    return (original[heroIdx] / original.reduce((sum, stack) => sum + stack, 0)) * prizes[0];
+  }
+
+  const clean: number[] = [];
+  let compactHero = -1;
+  for (let index = 0; index < original.length; index++) {
+    if (original[index] <= 0) continue;
+    if (index === heroIdx) compactHero = clean.length;
+    clean.push(original[index]);
+  }
+  if (clean.length > EXACT_MAX_PLAYERS) return 0;
+  if (compactHero < 0) return 0;
+
+  const paidDepth = Math.min(clean.length, prizes.length);
+  return exactDpCore(clean, prizes, compactHero, paidDepth, scratch ?? EXACT_DP_SCRATCH);
+}
+
 /** Sanitization is owned by the public entry point or admitted estimator.
- * The exact recursion retains the same ascending sums and winner order.
+ * The exact DP retains the exact ascending sums and winner order.
  * An action-local scratch array contains no returned values or caller aliases. */
 function exactCleanIcmEquity(
   original: number[],
@@ -120,43 +273,27 @@ function exactCleanIcmEquity(
   if (clean.length > EXACT_MAX_PLAYERS) return 0;
   if (compactHero < 0) return 0;
 
-  const n = clean.length;
-  const fullMask = (1 << n) - 1;
-  const paidDepth = Math.min(n, prizes.length);
-  // At most 1,024 masks: indexed storage avoids hashing and per-entry allocation
-  // on every candidate vector while retaining the exact recursion and sum order.
-  const memo = scratch ?? new Float64Array(1 << n);
-  memo.fill(Number.NaN, 0, 1 << n);
-
-  const recurse = (mask: number): number => {
-    const cached = memo[mask];
-    if (!Number.isNaN(cached)) return cached;
-    if ((mask & (1 << compactHero)) === 0) return 0;
-
-    let remaining = 0;
-    let total = 0;
-    for (let index = 0; index < n; index++) {
-      if ((mask & (1 << index)) === 0) continue;
-      remaining++;
-      total += clean[index];
-    }
-    const place = n - remaining;
-    if (place >= paidDepth || total <= 0) return 0;
-
-    let equity = 0;
-    for (let winner = 0; winner < n; winner++) {
-      if ((mask & (1 << winner)) === 0 || clean[winner] <= 0) continue;
-      const probability = clean[winner] / total;
-      equity +=
-        winner === compactHero
-          ? probability * prizes[place]
-          : probability * recurse(mask & ~(1 << winner));
-    }
-    memo[mask] = equity;
-    return equity;
-  };
-
-  return recurse(fullMask);
+  const paidDepth = Math.min(clean.length, prizes.length);
+  if (clean.length <= 2) {
+    return exactDpCore(clean, prizes, compactHero, paidDepth, scratch ?? EXACT_DP_SCRATCH);
+  }
+  const key = exactEquityKey(compactHero, clean, prizes, paidDepth);
+  const cached = exactEquityCache.get(key);
+  if (cached !== undefined) {
+    exactEquityCacheHits++;
+    exactEquityCache.delete(key);
+    exactEquityCache.set(key, cached);
+    return cached;
+  }
+  const value = exactDpCore(clean, prizes, compactHero, paidDepth, scratch ?? EXACT_DP_SCRATCH);
+  exactEquityCacheBuilds++;
+  exactEquityCache.set(key, value);
+  while (exactEquityCache.size > ICM_EXACT_EQUITY_CACHE_MAX) {
+    const oldest = exactEquityCache.keys().next().value;
+    if (oldest === undefined) break;
+    exactEquityCache.delete(oldest);
+  }
+  return value;
 }
 
 /** Exact all-player vector for golden/differential checks and final tables. */
@@ -169,18 +306,6 @@ function mcTrials(players: number): number {
     MC_MIN_TRIALS,
     Math.min(MC_MAX_TRIALS, Math.floor(MC_TARGET_CLOCK_DRAWS / Math.max(1, players)))
   );
-}
-
-/** First index whose clock is not strictly less than `target`. */
-function lowerBound(sorted: Float64Array, target: number, maximumRank = sorted.length): number {
-  let low = 0;
-  let high = Math.min(sorted.length, maximumRank);
-  while (low < high) {
-    const mid = (low + high) >>> 1;
-    if (sorted[mid] < target) low = mid + 1;
-    else high = mid;
-  }
-  return low;
 }
 
 function isWinnerTakeAll(prizes: number[]): boolean {
@@ -315,8 +440,24 @@ export function createIcmEquityEstimator(
  * can return, and reusing it changes no decision. Anything else builds a new one. Bounded LRU per process
  * (each entry holds at most 240,000 doubles, about 1.9 MB).
  */
-export const ICM_MC_ESTIMATOR_CACHE_MAX = 8;
-const mcEstimatorCache = new Map<string, IcmEquityEstimator>();
+/**
+ * Bounded per-process LRU for Monte Carlo clock populations.
+ * Because remote clocks only retain the paid-place prefix `min(fixed, prizes)`
+ * in a flat Float64Array (~160-350 KB for typical MTT fields instead of 1.9 MB),
+ * 32 entries fit 4 concurrent 8-seat tables on one worker under a strict 16 MB
+ * byte ceiling without thrashing across seats.
+ */
+export const ICM_MC_ESTIMATOR_CACHE_MAX = 32;
+export const ICM_MC_ESTIMATOR_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const MC_ESTIMATE_MEMO_MAX = 1_024;
+
+interface CachedMcEstimator {
+  estimator: IcmEquityEstimator;
+  bytes: number;
+}
+
+const mcEstimatorCache = new Map<string, CachedMcEstimator>();
+let mcEstimatorCacheBytes = 0;
 let mcEstimatorCacheHits = 0;
 let mcEstimatorCacheBuilds = 0;
 
@@ -351,31 +492,50 @@ function sharedMonteCarloEquityEstimator(
     mcEstimatorCacheHits++;
     mcEstimatorCache.delete(key);
     mcEstimatorCache.set(key, cached);
-    return cached;
+    return cached.estimator;
   }
-  const built = createMonteCarloEquityEstimator(reference, prizes, heroIdx, mutable, maximumTrials);
+  const built = createMonteCarloEquityEstimatorWithSize(
+    reference,
+    prizes,
+    heroIdx,
+    mutable,
+    maximumTrials
+  );
   mcEstimatorCacheBuilds++;
   mcEstimatorCache.set(key, built);
-  while (mcEstimatorCache.size > ICM_MC_ESTIMATOR_CACHE_MAX) {
-    const oldest = mcEstimatorCache.keys().next().value;
-    if (oldest === undefined) break;
-    mcEstimatorCache.delete(oldest);
+  mcEstimatorCacheBytes += built.bytes;
+  while (
+    mcEstimatorCache.size > ICM_MC_ESTIMATOR_CACHE_MAX ||
+    (mcEstimatorCacheBytes > ICM_MC_ESTIMATOR_CACHE_MAX_BYTES && mcEstimatorCache.size > 1)
+  ) {
+    const oldestKey = mcEstimatorCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const evicted = mcEstimatorCache.get(oldestKey);
+    mcEstimatorCache.delete(oldestKey);
+    if (evicted) mcEstimatorCacheBytes -= evicted.bytes;
   }
-  return built;
+  return built.estimator;
 }
 
 /** Reuse counters of the Monte Carlo clock population (benchmarks and tests). */
-export function icmEstimatorCacheStats(): { hits: number; builds: number; size: number } {
+export function icmEstimatorCacheStats(): {
+  hits: number;
+  builds: number;
+  size: number;
+  bytes: number;
+} {
   return {
     hits: mcEstimatorCacheHits,
     builds: mcEstimatorCacheBuilds,
     size: mcEstimatorCache.size,
+    bytes: mcEstimatorCacheBytes,
   };
 }
 
 /** Tests and benchmarks only: forget every cached clock population. */
 export function resetIcmEstimatorCacheForTest(): void {
   mcEstimatorCache.clear();
+  mcEstimatorCacheBytes = 0;
   mcEstimatorCacheHits = 0;
   mcEstimatorCacheBuilds = 0;
 }
@@ -401,7 +561,6 @@ export function buildMonteCarloEquityEstimatorUncachedForTest(
   );
 }
 
-/** Inputs are detached and sanitized by the public workspace admission. */
 function createMonteCarloEquityEstimator(
   reference: number[],
   prizes: number[],
@@ -409,15 +568,45 @@ function createMonteCarloEquityEstimator(
   mutable: number[],
   maximumTrials: number
 ): IcmEquityEstimator {
+  return createMonteCarloEquityEstimatorWithSize(reference, prizes, heroIdx, mutable, maximumTrials)
+    .estimator;
+}
+
+/** Inputs are detached and sanitized by the public workspace admission. */
+function createMonteCarloEquityEstimatorWithSize(
+  reference: number[],
+  prizes: number[],
+  heroIdx: number,
+  mutable: number[],
+  maximumTrials: number
+): CachedMcEstimator {
   const live = reference.filter((stack) => stack > 0).length;
   const mutableSet = new Set(mutable);
   const mutableSlot = new Map(mutable.map((index, slot) => [index, slot]));
   const immutable = reference
     .map((stack, index) => ({ stack, index }))
     .filter((entry) => !mutableSet.has(entry.index));
-  const fixed = reference
-    .map((stack, index) => ({ stack, index }))
-    .filter((entry) => entry.stack > 0 && !mutableSet.has(entry.index));
+  let fixedCount = 0;
+  let drawCount = 0;
+  for (let index = 0; index < reference.length; index++) {
+    const stack = reference[index];
+    const isMutable = mutableSet.has(index);
+    if (stack <= 0 && !isMutable) continue;
+    drawCount++;
+    if (!isMutable) fixedCount++;
+  }
+  const drawSlots = new Int32Array(drawCount);
+  const drawStacks = new Float64Array(drawCount);
+  let planIdx = 0;
+  for (let index = 0; index < reference.length; index++) {
+    const stack = reference[index];
+    const slot = mutableSlot.get(index);
+    if (slot === undefined && stack <= 0) continue;
+    drawSlots[planIdx] = slot === undefined ? -1 : slot;
+    drawStacks[planIdx] = stack;
+    planIdx++;
+  }
+
   const trials = Math.min(
     mcTrials(live),
     Math.max(
@@ -428,14 +617,21 @@ function createMonteCarloEquityEstimator(
       )
     )
   );
-  const mutableDraws = mutable.map(() => new Float64Array(trials));
-  const remoteClocks: Float64Array[] = new Array(trials);
+  const mutableCount = mutable.length;
+  const prizesLength = prizes.length;
+  // Ranks beyond prizes.length always pay zero, so retaining only the smallest
+  // `min(fixedCount, prizesLength)` sorted remote clocks per trial is bit-identical
+  // to keeping the whole remote array while using 6-10x less memory in contiguous RAM.
+  const remoteCap = Math.min(fixedCount, prizesLength);
+  const flatMutable = new Float64Array(trials * mutableCount);
+  const flatRemote = new Float64Array(trials * remoteCap);
+  const sortScratch = new Float64Array(fixedCount);
 
   let seed =
     0x9e3779b9 ^
     ((heroIdx + 1) * 0x85ebca6b) ^
     (reference.length * 0xc2b2ae35) ^
-    (prizes.length << 16);
+    (prizesLength << 16);
   const rand = (): number => {
     seed ^= seed << 13;
     seed >>>= 0;
@@ -446,26 +642,22 @@ function createMonteCarloEquityEstimator(
   };
 
   for (let trial = 0; trial < trials; trial++) {
-    // Native Float64Array sorting is numeric and avoids constructing, sorting,
-    // then copying a boxed-number Array for every trial. At 200-1,000 live
-    // players this is the dominant Phase 7 action-clock cost. The RNG draw
-    // order and every clock value remain identical; only the container used
-    // for the same ascending sort changes.
-    const clocks = new Float64Array(fixed.length);
+    const mBase = trial * mutableCount;
     let clockIndex = 0;
-    for (let index = 0; index < reference.length; index++) {
-      const stack = reference[index];
-      if (stack <= 0 && !mutableSet.has(index)) continue;
+    for (let k = 0; k < drawCount; k++) {
       const exponential = -Math.log(rand());
-      const slot = mutableSlot.get(index);
-      if (slot !== undefined) mutableDraws[slot][trial] = exponential;
-      else clocks[clockIndex++] = exponential / stack;
+      const slot = drawSlots[k];
+      if (slot >= 0) flatMutable[mBase + slot] = exponential;
+      else sortScratch[clockIndex++] = exponential / drawStacks[k];
     }
-    if (clockIndex !== clocks.length) {
+    if (clockIndex !== fixedCount) {
       throw new Error('ICM fixed-clock workspace did not match its live remote field');
     }
-    clocks.sort();
-    remoteClocks[trial] = clocks;
+    sortScratch.sort();
+    const rBase = trial * remoteCap;
+    for (let rank = 0; rank < remoteCap; rank++) {
+      flatRemote[rBase + rank] = sortScratch[rank];
+    }
   }
 
   const heroSlot = mutableSlot.get(heroIdx);
@@ -473,13 +665,18 @@ function createMonteCarloEquityEstimator(
   const maximum = prizes.reduce((largest, payout) => Math.max(largest, payout), 0);
   const errorBound = maximum * Math.sqrt(Math.log(2 / MC_ERROR_ALPHA) / (2 * trials));
   const prizeMass = payoutMass(prizes);
-  // Only immutable scalar confidence bounds are cached, never an estimate.
   const prefixErrorBounds = new Map<number, number>([[trials, errorBound]]);
+  // Bounded per-estimator memo of pure (sampleTrials, localStacks) scalar results.
+  // Each estimate() returns a fresh object so caller mutations can never pollute it.
+  const estimateMemo = new Map<
+    string,
+    { equity: number; errorBound: number; standardError: number }
+  >();
 
-  return {
+  const estimator: IcmEquityEstimator = {
     method: 'plackett_luce_mc',
     trials,
-    randomClockDraws: trials * (fixed.length + mutable.length),
+    randomClockDraws: trials * (fixedCount + mutableCount),
     estimate(vector: number[], trialLimit: number = trials): IcmEstimate {
       if (vector.length !== reference.length) {
         throw new Error('ICM candidate vector length changed inside one action');
@@ -487,20 +684,27 @@ function createMonteCarloEquityEstimator(
       // Only table-local rates enter the trial loop. Preserve the exact
       // sanitization and immutable-field check without allocating a cleaned
       // copy of a thousand-player field for each candidate/future vector.
-      const localStacks = mutable.map((index) => {
-        const stack = vector[index];
-        return Number.isFinite(stack) && stack > 0 ? stack : 0;
-      });
+      const localStacks = new Array<number>(mutableCount);
+      for (let slot = 0; slot < mutableCount; slot++) {
+        const stack = vector[mutable[slot]];
+        localStacks[slot] = Number.isFinite(stack) && stack > 0 ? stack : 0;
+      }
       // Per-invocation ownership preserves reentrant caller-vector reads.
       // The retained slots follow exactly the prior ascending comparison order.
       const activeOpponentSlots: number[] = [];
-      let modeledPlayers = fixed.length;
-      for (let slot = 0; slot < localStacks.length; slot++) {
-        if (localStacks[slot] <= 0) continue;
+      const activeOpponentStacks: number[] = [];
+      let modeledPlayers = fixedCount;
+      for (let slot = 0; slot < mutableCount; slot++) {
+        const stack = localStacks[slot];
+        if (stack <= 0) continue;
         modeledPlayers++;
-        if (slot !== heroSlot) activeOpponentSlots.push(slot);
+        if (slot !== heroSlot) {
+          activeOpponentSlots.push(slot);
+          activeOpponentStacks.push(stack);
+        }
       }
-      for (const entry of immutable) {
+      for (let i = 0; i < immutable.length; i++) {
+        const entry = immutable[i];
         const raw = vector[entry.index];
         // Equal reference values already have their validated live count.
         // The slow path retains sanitization and the numeric drift boundary.
@@ -528,23 +732,65 @@ function createMonteCarloEquityEstimator(
         };
       }
 
+      let memoKey = `${sampleTrials}|${localStacks[0]}`;
+      for (let slot = 1; slot < mutableCount; slot++) memoKey += `,${localStacks[slot]}`;
+      const memoized = estimateMemo.get(memoKey);
+      if (memoized !== undefined) {
+        estimateMemo.delete(memoKey);
+        estimateMemo.set(memoKey, memoized);
+        return {
+          equity: memoized.equity,
+          errorBound: memoized.errorBound,
+          method: 'plackett_luce_mc',
+          modeledPlayers,
+          trials: sampleTrials,
+          standardError: memoized.standardError,
+        };
+      }
+
+      const oppCount = activeOpponentSlots.length;
+      const linearRemote = remoteCap <= 6;
+      const lastRemoteOffset = remoteCap - 1;
       let mean = 0;
       let m2 = 0;
       for (let trial = 0; trial < sampleTrials; trial++) {
-        const heroClock = mutableDraws[heroSlot][trial] / heroStack;
-        // A rank beyond the complete payout curve contributes exactly zero.
-        // Keep every remote clock and every paid place, but stop searching
-        // after this trial is already proven unpaid. Trial order is unchanged.
-        let playersAhead = lowerBound(remoteClocks[trial], heroClock, prizes.length);
-        for (
-          let active = 0;
-          active < activeOpponentSlots.length && playersAhead < prizes.length;
-          active++
-        ) {
-          const slot = activeOpponentSlots[active];
-          if (mutableDraws[slot][trial] / localStacks[slot] < heroClock) playersAhead++;
+        const mBase = trial * mutableCount;
+        const heroClock = flatMutable[mBase + heroSlot] / heroStack;
+        const rBase = trial * remoteCap;
+        let playersAhead: number;
+        if (remoteCap === 0) {
+          playersAhead = 0;
+        } else if (flatRemote[rBase + lastRemoteOffset] < heroClock) {
+          playersAhead = remoteCap;
+        } else if (linearRemote) {
+          playersAhead = 0;
+          while (playersAhead < lastRemoteOffset && flatRemote[rBase + playersAhead] < heroClock) {
+            playersAhead++;
+          }
+        } else if (flatRemote[rBase] >= heroClock) {
+          playersAhead = 0;
+        } else {
+          let low = 1;
+          let high = lastRemoteOffset;
+          while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (flatRemote[rBase + mid] < heroClock) low = mid + 1;
+            else high = mid;
+          }
+          playersAhead = low;
         }
-        const value = prizes[playersAhead] ?? 0;
+        if (playersAhead < prizesLength) {
+          for (let active = 0; active < oppCount; active++) {
+            if (
+              flatMutable[mBase + activeOpponentSlots[active]] / activeOpponentStacks[active] <
+              heroClock
+            ) {
+              playersAhead++;
+              if (playersAhead >= prizesLength) break;
+            }
+          }
+        }
+        const value = playersAhead < prizesLength ? prizes[playersAhead] : 0;
         const sample = trial + 1;
         const delta = value - mean;
         mean += delta / sample;
@@ -558,15 +804,26 @@ function createMonteCarloEquityEstimator(
         prefixErrorBound = maximum * Math.sqrt(Math.log(2 / MC_ERROR_ALPHA) / (2 * sampleTrials));
         prefixErrorBounds.set(sampleTrials, prefixErrorBound);
       }
+      const standardError = Math.sqrt(Math.max(0, variance) / sampleTrials);
+      estimateMemo.set(memoKey, { equity: mean, errorBound: prefixErrorBound, standardError });
+      if (estimateMemo.size > MC_ESTIMATE_MEMO_MAX) {
+        const oldest = estimateMemo.keys().next().value;
+        if (oldest !== undefined) estimateMemo.delete(oldest);
+      }
       return {
         equity: mean,
         errorBound: prefixErrorBound,
         method: 'plackett_luce_mc',
         modeledPlayers,
         trials: sampleTrials,
-        standardError: Math.sqrt(Math.max(0, variance) / sampleTrials),
+        standardError,
       };
     },
+  };
+
+  return {
+    estimator,
+    bytes: flatMutable.byteLength + flatRemote.byteLength,
   };
 }
 

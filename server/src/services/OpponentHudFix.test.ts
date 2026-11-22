@@ -21,7 +21,11 @@ import {
   handRecordFromRow,
   type HudHandRecord,
 } from '../engine/opponentHud/OpponentHudProfile.js';
-import { planOpponentHudBackfill } from '../engine/opponentHud/OpponentHudBackfillPlan.js';
+import {
+  HUD_BACKFILL_PAGE_LIMIT,
+  pageAllOpponentHudHands,
+  planOpponentHudBackfill,
+} from '../engine/opponentHud/OpponentHudBackfillPlan.js';
 import {
   depositTournamentMovePresence,
   hasTournamentMovePresence,
@@ -382,5 +386,51 @@ describe('OPPONENT-HUD-FIX-1 item 4 (AUDIT-C 6/10): the backfill starts at hand 
     expect(src).not.toMatch(/2026-01-01T00:00:00Z|2026-10-01/);
     expect(src).not.toMatch(/stored > p\.hands && !flag\('--force'\)/);
     expect(src).toMatch(/planOpponentHudBackfill\(/);
+    // Regression guard (2026-11-22 dry-run 44984942583): PostgREST max_rows=1000 truncated p_limit=1500
+    // after page 1, and missing process.exit(0) left Supabase client handles open for 6 hours.
+    expect(HUD_BACKFILL_PAGE_LIMIT).toBeLessThanOrEqual(1000);
+    expect(src).toMatch(/pageAllOpponentHudHands\(/);
+    expect(src).not.toMatch(/rows\.length\s*<\s*1500|p_limit:\s*1500/);
+    expect(src).toMatch(/process\.exit\(0\)/);
+  });
+  it('drains every page to true EOF even when PostgREST caps pages below the requested limit', async () => {
+    const allRows = Array.from({ length: 2350 }, (_, i) => ({
+      id: H(i + 1),
+      created_at: new Date(Date.parse('2026-07-22T14:29:00.000Z') + i * 1000).toISOString(),
+    }));
+    // Simulate PostgREST server-side cap (e.g. 500 or 1000 rows) strictly smaller than requested limit.
+    const serverCap = 500;
+    const seen: string[] = [];
+    const requestedLimits: number[] = [];
+    const res = await pageAllOpponentHudHands({
+      since: '2026-07-22T14:29:00.000Z',
+      until: '2026-11-22T00:00:00.000Z',
+      limit: HUD_BACKFILL_PAGE_LIMIT,
+      fetchPage: async ({ afterAt, afterId, limit }) => {
+        requestedLimits.push(limit);
+        const start = allRows.findIndex(
+          (r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId)
+        );
+        if (start === -1) return [];
+        return allRows.slice(start, start + Math.min(limit, serverCap));
+      },
+      onRow: (r) => seen.push(r.id),
+    });
+    expect(Math.max(...requestedLimits)).toBeLessThanOrEqual(1000);
+    expect(res.pages).toBe(5);
+    expect(res.rows).toBe(2350);
+    expect(seen).toHaveLength(2350);
+    expect(seen[0]).toBe(H(1));
+    expect(seen[seen.length - 1]).toBe(H(2350));
+  });
+  it('fails closed when a non-empty page fails to advance the keyset cursor', async () => {
+    await expect(
+      pageAllOpponentHudHands({
+        since: '2026-07-22T14:29:00.000Z',
+        until: '2026-11-22T00:00:00.000Z',
+        fetchPage: async () => [{ id: H(1), created_at: '2026-07-22T14:29:00.000Z' }],
+        onRow: () => {},
+      })
+    ).rejects.toThrow(/cursor did not advance/);
   });
 });
