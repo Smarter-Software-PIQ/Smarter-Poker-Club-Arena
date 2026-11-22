@@ -2603,6 +2603,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'multiBoardFreerollIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (V36 multi-board freeroll bet/raise priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In multi-board hands (multiBoard36, nBoards36 >= 2) with a locked board (lockShare36 >= 1 / nBoards36), replaces both V36 random coin flips (v36_freeroll_bet 0.9 gate + random sizing, v36_freeroll_raise 0.85/0.9 gate + random sizing) with deterministic EV pricing (HorseMultiBoardFreerollPriced) using total equity lockShare + (1 - lockShare) * unlockedEq, lockShare-preserving calling-range discount, shrunk opponent fold/stab priors, continuous free-card erosion on unlocked boards, heroBubbleFactor risk utility, and strict Pot-Limit cap enforcement; never folds a qualifying freeroll. Draws no random number. OFF and all single-board hands: byte-identical.',
+    'V36'
+  ),
+  flag(
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
@@ -2616,6 +2621,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdemDangerBoardEquityIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of the 'board discipline' flat -0.15 in Antigravity 633eec005d5 and 6496e1610f0). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, turn or river, a four-flush or four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's range on this board (HorseHoldemCommittedPricing.holdemDangerBoardBettorEquity: the unseen combos split by what they make now, no pair / one pair / two pair or better, weighted by what people who bet such boards showed down, MEASURED 3 / 5 / 42 of 50, NLH cash 2026-10-20..11-19). Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Off: byte-identical.",
     "Hold'em Strategy"
+  ),
+  flag(
+    'multiBoardNonFreerollIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): deterministic zero-RNG, zero-hash EV pricing (HorseMultiBoardNonFreerollPriced) for unowned V86 multi-board non-freeroll hands (v86 && multiBoard36 && boardEq36.length >= 2 && lockShare36 < 1 / nBoards36). Facing a bet, replaces BOTH v86_multiboard_dead_half_fold (fixed cliff potFrac36 >= 0.6 && minBoardEq86 < 0.18 && maxBoardEq86 < 0.88) AND v86_multiboard_or_plo8 facing-bet raise (v86Hash01 < 0.78) with argmax { EV(fold)=0, EV(call), max_r EV(raise, r) } using continuous non-river dead-board realization penalty (0 on river), shrunk fold-to-raise priors, heroBubbleFactor risk utility, and strict Pot-Limit cap enforcement (v86_multiboard_priced_fold / v86_multiboard_priced_call / v86_multiboard_priced_raise). Not facing a bet (!isRiver && barrelPlan !== true), replaces v86_multiboard_or_plo8 open bet (v86Hash01 < 0.85) with max_b EV(bet, b) vs EV(check) using shrunk fold/stab priors, continuous free-card erosion across boards, and heroBubbleFactor (v86_multiboard_priced_open_bet / v86_multiboard_priced_open_check). Single-board hands, freeroll hands (lockShare36 >= 1 / nBoards36), and OFF remain 100% byte-identical.',
+    'V86'
+  ),
+  flag(
+    'multiBoardBluffTrimIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): deterministic zero-RNG public-info priced replacement (HorseMultiBoardBluffTrimPriced) for unowned V36 multi-board bluff-trim blanket multiplier (v36_multiboard_bluff_trim: bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5). Computes shrunk per-opponent single-board fold probability F_1_i from holdemEmpiricalPriors + public ExploitCounters (street, potSize, effStack, wetness), public multi-board independence exponent effBoards in [1, nBoards] from board-rank/pair/suit overlap and hero cross-board blockers (zero opponent hole cards), all-boards fold probability F_all = prod_i(F_1_i^effBoards), risk-adjusted break-even FE_be = (bf*s)/(1+bf*s) at s=0.65 with heroBubbleFactor, and smoothly maps pure-bluff evPerPot to a bounded multiplier in [0.0, 1.0] (receipt v36_multiboard_bluff_trim_priced, zero double-counting of legacy v36_multiboard_bluff_trim). Single-board hands (!multiBoard36) and OFF remain 100% byte-identical.',
+    'V36'
   ),
   flag(
     'omahaTightOpponentSteal',
@@ -9364,6 +9379,66 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
     "a qualifying no-limit hold'em river full house with more than one opponent, or no population cell for the table: nothing priced, the boat keeps the check",
     'V94'
+  ),
+  receipt(
+    'v36_freeroll_priced_bet',
+    'HorseLogic not-facing-a-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll (lockShare >= 1/N && lockShare < 1) bet at highest-EV legal size (EV(bet) > EV(check)) with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v36_freeroll_priced_check',
+    'HorseLogic not-facing-a-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll (lockShare >= 1/N && lockShare < 1) checked because EV(check) >= max EV(bet) or no legal bet existed, with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v36_freeroll_priced_raise',
+    'HorseLogic facing-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll facing a bet raised to highest-EV legal size respecting minRaise, effective stack, and Pot-Limit cap (EV(raise) > EV(call)), with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v36_freeroll_priced_call',
+    'HorseLogic facing-bet multi-board freeroll (multiBoardFreerollIsPriced)',
+    'multi-board freeroll facing a bet called because EV(call) >= max EV(raise) or no legal raise existed (never folds), with zero fastRandom draw',
+    'V36'
+  ),
+  receipt(
+    'v86_multiboard_priced_fold',
+    'HorseLogic facing-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll facing a bet folded because EV(call) <= 0 and no legal raise beat 0 (with continuous non-river dead-board realization penalty and 0 on river), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_call',
+    'HorseLogic facing-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll facing a bet called because EV(call) > 0 beat both fold and every legal raise (never blanket-folding a positive-EV dead-half call), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_raise',
+    'HorseLogic facing-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll facing a bet raised to highest-EV legal size respecting minRaise, effective stack, Pot-Limit cap, and !raisedAfterAggr (EV(raise) > max(0, EV(call))), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_open_bet',
+    'HorseLogic not-facing-a-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll (!isRiver && barrelPlan !== true) bet at highest-EV legal size respecting minBet, heroStack, and Pot-Limit cap (EV(bet) > EV(check)), with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v86_multiboard_priced_open_check',
+    'HorseLogic not-facing-a-bet multi-board non-freeroll (multiBoardNonFreerollIsPriced)',
+    'multi-board non-freeroll (!isRiver && barrelPlan !== true) checked because EV(check) >= max EV(bet) or no legal bet existed, with zero fastRandom / v86Hash01 draw',
+    'V86'
+  ),
+  receipt(
+    'v36_multiboard_bluff_trim_priced',
+    'HorseLogic multi-board bluffScale (multiBoardBluffTrimIsPriced)',
+    'multi-board hand replaced fixed V36 blanket 0.5/0.35 bluffScale trim with deterministic zero-RNG public-info priced multiplier in [0, 1] from shrunk per-opponent fold probability, public board correlation, hero cross-board blockers, street/pot/stack/wetness, and heroBubbleFactor',
+    'V36'
   ),
   receipt(
     'holdem_priced_value_raise_deferred',
