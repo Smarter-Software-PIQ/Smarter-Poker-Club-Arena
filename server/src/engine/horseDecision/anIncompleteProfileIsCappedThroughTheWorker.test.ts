@@ -16,7 +16,11 @@ import { HorseMind } from '../HorseMind.js';
 import { horsePlanBatchBindingFromRequest, horsePlanContextKey } from '../HorsePlanHandIdentity.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
 import { restoreFastRandom, saveFastRandom } from '../HorseEval.js';
-import { enableBrainTelemetry } from '../BrainTelemetry.js';
+import {
+  disarmBrainTelemetryForTest,
+  drainFires,
+  enableBrainTelemetry,
+} from '../BrainTelemetry.js';
 import { liveHorsePhase8Safety } from '../HorsePhase8Safety.js';
 import { prepareTournamentFutureHandFacts } from '../HorseTournamentFutureHand.js';
 import { solverPolicyArtifactStatus } from '../../gto/SolverPolicyArtifactLoader.js';
@@ -163,6 +167,7 @@ interface Outcome {
   deepAction: string;
   deepAmount: number | null;
   reads: { fast: Seen[]; deep: Seen[] };
+  capReceiptFires: number;
   frameVersion: string;
   frameJson: string;
   record: ReturnType<typeof makeHorseJournalRecord>;
@@ -270,8 +275,12 @@ async function throughTheWorker(
     operation: 'OBSERVE_COMPLETED_HAND',
   });
   log.length = 0;
+  drainFires();
   runtime.receive(request);
   await runtime.drain();
+  const fastFires = drainFires();
+  const capReceiptFires =
+    fastFires.find((row) => row.feature === 'holdem_profile_completeness_cap_seen')?.fires ?? 0;
   const fast = messages.find((m): m is FastHorseDecisionResult => m.type === 'FAST_RESULT');
   if (!fast || payloads.length !== 1)
     throw new Error(`no journaled FAST decision: ${JSON.stringify(messages.at(-1))}`);
@@ -347,6 +356,7 @@ async function throughTheWorker(
     deepAction: deep.decision.action,
     deepAmount: deep.decision.amount ?? null,
     reads: { fast: fastReads, deep: deepReads },
+    capReceiptFires,
     frameVersion: frame.version,
     frameJson: frame.json,
     record,
@@ -355,6 +365,8 @@ async function throughTheWorker(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  disarmBrainTelemetryForTest();
+  drainFires();
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
 });
@@ -386,6 +398,7 @@ describe('an incomplete pooled profile through the decision worker', () => {
       expect(look.length).toBeGreaterThan(0);
       expect(look.every((r) => r.cap <= 0.4 + 1e-12)).toBe(true);
     }
+    expect(on.capReceiptFires).toBeGreaterThan(0);
     expect(on.frameVersion).toBe('horse-decision-reads-v17');
     // (FAST and DEEP carry different decision keys, and this river spot is mixed: the reads are compared, and the
     // exact replay below pins the action)
@@ -406,9 +419,11 @@ describe('an incomplete pooled profile through the decision worker', () => {
     const rowOn = await throughTheWorker(false, log, false, 'on');
     expect(rowOn.reads.fast.length).toBeGreaterThan(0);
     expect(rowOn.reads.fast.every((r) => r.cap <= 0.4 + 1e-12)).toBe(true);
+    expect(rowOn.capReceiptFires).toBeGreaterThan(0);
     expect(rowOn.frameVersion).toBe('horse-decision-reads-v17');
     log.length = 0;
     const rowOff = await throughTheWorker(true, log, false, 'off');
+    expect(rowOff.capReceiptFires).toBe(0);
     expect(rowOff.frameVersion).not.toBe('horse-decision-reads-v17');
   });
 
@@ -483,6 +498,9 @@ describe('an incomplete pooled profile through the decision worker', () => {
     const on = await throughTheWorker(true, log, true);
     expect(on.reads.fast.length).toBeGreaterThan(0);
     expect(on.reads.fast.every((r) => r.cap > 0.4)).toBe(true);
+    // Complete rows (initialized=true with valid public_memory_domain, matching 100% of horse_exact_profiles)
+    // never trip the cap and emit zero holdem_profile_completeness_cap_seen receipts.
+    expect(on.capReceiptFires).toBe(0);
     expect(on.frameVersion).not.toBe('horse-decision-reads-v17');
     const off = await throughTheWorker(
       false,
