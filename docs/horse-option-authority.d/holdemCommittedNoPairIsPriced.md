@@ -1,6 +1,6 @@
 # holdemCommittedNoPairIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago. Evidence NOT MET: the option stays OFF (read `=== true`, release default off, no switch row). Decided 2026-11-21 on the recorded league runs (not significant) and a replay on real audited decisions (`1` changed of `2734`); see Verdict.
+Owner order of 2026-11-17 11:49 America/Chicago. Measured harm, locked off-only as measured harm. Evidence NOT MET: the option is off-only in the registry (`OPTION_SWITCH_OFF_ONLY`, status `harm`, Antigravity Coordinator ruling of 2026-11-21 on PR #11634: value-only harm control `-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant; pot barreler not resolved) and the database refuses `on` for it once list migration 20261121184749 is installed (read `=== true`, release default off, no switch row). This file proposes no switch row. Decided 2026-11-21 on the recorded league runs (the Horse mirror and the scripted barreler not significant; the value-only harm control significantly negative, `z = -3.02`) and a replay on real audited decisions (`1` changed of `2734`); see Verdict.
 
 Built by the Hold'em Strategy lane (2026-11-20, building on helper session_01TLQer8xSzdhPzuDRJXTPag) as the priced rebuild of the "Ace-High jamming gate" in Antigravity commits `633eec005d5` (HOLDEM STRATEGY) and `6496e1610f0` (HEADS UP), preserved locally as `archive/holdem-strategy/ace-high-jam-board-discipline-633eec0` and `archive/heads-up/bb-overfold-6496e16`. Those drafts (`if (aceHighJammingGate && cat === 1 && !holdemHoleDrawPresent && potFrac >= 0.40) return all_in`) forced a jam by hand class and an unmeasured `0.40` pot fraction; the brief and witness hands (`#59784826`, `#59784258`) asked for the opposite, that committed unpaired high-card hands stop jamming and calling off without positive expected value. This option drops the unmeasured `0.40` threshold and prices the spot by EV.
 
@@ -64,10 +64,27 @@ Card `nlh_committed_no_pair_is_priced` (`HorseLeague.ts`; arm `a` `{"holdemCommi
 - Seed `20261122`: `-0.00 +/- 1.10 bb/100` (`80` divergent pairs, `0` illegal actions)
 - Combined (`36,000` hands): `-0.50 +/- 0.53 bb/100` (`z = -0.95`, not resolved). A Horse mirror is not the human bettor field (`n = 124` raise responses) the fold curve was measured on.
 
+### Scripted no-limit field (2026-11-21)
+
+The mirror cannot resolve the option, so it was dealt against scripted heads-up opponents that put a Horse with no pair into the committed branch (`server/src/benchmark/NlhScriptedField.ts`, `docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md`). Arm `a` `{"holdemCommittedNoPairIsPriced":true}`, arm `b` `{}`, heads-up NLH cash, 40bb (two pot-sized bets after a single-raised pot leave a stack-to-pot ratio under 1.2), hybrid cash persona, deal-seeded mood clock; `60,000` pairs per seed, declared from a 3,000-pair probe on seed `20261115` before the measured seeds were dealt; engine `af27d76821c`; `npx tsx src/scripts/horseLeagueCard.ts --card=<card> --seed=20261120,20261121 --pairs=60000`.
+
+Card `nlh_committed_no_pair_is_priced_vs_pot_barreler` (bets the pot every street with any two cards; DESIGN VALUE):
+
+- Seed `20261120`: `-0.74 +/- 1.01 bb/100` (`z = -0.74`, `576` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seed `20261121`: `+0.33 +/- 0.98 bb/100` (`z = +0.33`, `520` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seeds together: `-0.21 +/- 0.70 bb/100` (`z = -0.30`, not resolved).
+
+Card `nlh_committed_no_pair_is_priced_vs_value_barreler` (the harm control: bets the pot only with two pair or better, never bluffs; DESIGN VALUE):
+
+- Seed `20261120`: `-0.20 +/- 0.10 bb/100` (`z = -2.02`, `10` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seed `20261121`: `-0.22 +/- 0.10 bb/100` (`z = -2.26`, `6` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seeds together: `-0.21 +/- 0.07 bb/100` (`z = -3.02`, SIGNIFICANT harm). Both seeds are significant on their own. The option acts rarely against a value-only bettor (`16` of `120,000` pairs), but when it acts it loses: against a bettor who never folds a strong hand and never bluffs, a committed no-pair hand is behind, and the measured people's fold share the jam is priced with does not hold.
+
 ## Evidence rows
 
 - Mechanism, scope, receipts, law test, byte-identical off: MET.
-- Value against people: NOT MET (league `-0.50 +/- 0.53 bb/100`, `z = -0.95`, not significant; replay on HVH48-D changed `1` of `2734` decisions, unjudged; see Verdict).
+- Value against people: NOT MET (Horse mirror `-0.50 +/- 0.53 bb/100`, `z = -0.95`, not significant; scripted pot barreler `-0.21 +/- 0.70 bb/100`, `z = -0.30`, not significant; replay on HVH48-D changed `1` of `2734` decisions, unjudged; see Verdict).
+- Harm: MEASURED against the value-only harm control (`-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant). Reported to the coordinator, who locked it off-only as measured harm on 2026-11-21 (list migration 20261121184749).
 - Do not switch on.
 
 ## Verdict (2026-11-21)
@@ -76,4 +93,5 @@ Evidence NOT MET. The option stays OFF and no switch row is written.
 
 - League: the three recorded seeds combine to `-0.50 +/- 0.53 bb/100` (`z = -0.95`). That is not significant (`|mean|` is under 2 standard errors), no single seed is significant, and no significant positive run exists, so the bar of three significant positive runs is not reached. It is not measured harm either.
 - Real-hand replay: the row passes the build's bar (`newlyWrong 0 <= fixed 0`) but carries no information on value: `1` changed decision in `2734`, unjudged.
-- Missing, exactly: a significant positive league result (`|mean| > 2` standard errors, positive) on a field where the option acts, three such runs for a default-on promotion. The Horse mirror diverged on `20`, `34` and `80` pairs of `6,000`; a card against the person-like bettor field that the fold curve was measured on (`n = 124` raise responses) is the run that can resolve it. A larger audited hold'em cash set would also be needed before the Replay row says anything: 48 hours of play reached the spot twice.
+- Scripted field (2026-11-21): against the pot barreler, where the option acts on about `1` pair in `110`, the two seeds are `-0.74 +/- 1.01` and `+0.33 +/- 0.98` (together `-0.21 +/- 0.70`, `z = -0.30`): not resolved, no significant positive run. Against the value-only harm control both seeds are significantly negative (together `-0.21 +/- 0.07`, `z = -3.02`): measured harm.
+- Missing, exactly (before the harm result): a significant positive league result (`|mean| > 2` standard errors, positive) on a field where the option acts, three such runs for a default-on promotion. The Horse mirror diverged on `20`, `34` and `80` pairs of `6,000`; a card against the person-like bettor field that the fold curve was measured on (`n = 124` raise responses) is the run that can resolve it. A larger audited hold'em cash set would also be needed before the Replay row says anything: 48 hours of play reached the spot twice.

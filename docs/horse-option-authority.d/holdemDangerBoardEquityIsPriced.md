@@ -1,6 +1,6 @@
 # holdemDangerBoardEquityIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago. Evidence NOT MET: the option stays OFF (read `=== true`, release default off, no switch row). Decided 2026-11-21 on the recorded league runs (not significant) and a replay on real audited decisions (`5` changed of `2734`, `1` fixed, `1` newly wrong); the `n = 50` showdown sample it prices against is call-biased; see Verdict.
+Owner order of 2026-11-17 11:49 America/Chicago. Measured harm, locked off-only as measured harm. Evidence NOT MET: the option is off-only in the registry (`OPTION_SWITCH_OFF_ONLY`, status `harm`, Antigravity Coordinator ruling of 2026-11-21 on PR #11634: danger-board bettor `-7.90 +/- 0.81 bb/100`, `z = -9.74`, both seeds significant; its value-only control gain is the field most favourable to it) and the database refuses `on` for it once list migration 20261121184749 is installed (read `=== true`, release default off, no switch row). This file proposes no switch row. Decided 2026-11-21 on the recorded league runs (the Horse mirror not significant; against a scripted danger-board bettor that bluffs, significant harm, `z = -9.74`; against its value-only harm control, significant gain, `z = +7.61`) and a replay on real audited decisions (`5` changed of `2734`, `1` fixed, `1` newly wrong); the `n = 50` showdown sample it prices against is call-biased; see Verdict.
 
 Built by the Hold'em Strategy lane (2026-11-20, building on helper session_01TLQer8xSzdhPzuDRJXTPag) as the priced rebuild of the "board discipline" draft in Antigravity commits `633eec005d5` (flat `eq15 - 0.15` for one pair on turn/river at `potFrac >= 0.35` on a dangered board) and `6496e1610f0` (flat `cap21 -= 0.15` on four-flush or four-straight boards). An unmeasured flat `-0.15` haircut is a blanket rule prohibited by the 2026-11-17 owner order and Coordinator rule #4; this option drops both unmeasured constants and prices the hand's exact equity against the observed called-hand showdown class distribution (`n = 50`, biased toward hands that reached showdown rather than the bettor's full betting range) on four-flush and four-straight boards.
 
@@ -51,10 +51,29 @@ Card `nlh_danger_board_equity_is_priced` (`HorseLeague.ts`; arm `a` `{"holdemDan
 - Seed `20261122`: `+0.18 +/- 1.16 bb/100` (`104` divergent pairs, `0` illegal actions)
 - Combined (`36,000` hands): `-0.75 +/- 0.63 bb/100` (`z = -1.18`, not resolved). A Horse mirror is not the human showdown sample (`n = 50` called hands) the option prices against.
 
+### Scripted no-limit field (2026-11-21)
+
+The mirror cannot resolve the option, so it was dealt against scripted heads-up opponents that bet four-flush and four-straight turns and rivers (`server/src/benchmark/NlhScriptedField.ts`, `docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md`). Arm `a` `{"holdemDangerBoardEquityIsPriced":true}`, arm `b` `{}`, heads-up NLH cash, 100bb, hybrid cash persona, deal-seeded mood clock; `60,000` pairs per seed, declared from a 3,000-pair probe on seed `20261115` before the measured seeds were dealt; engine `af27d76821c`; `npx tsx src/scripts/horseLeagueCard.ts --card=<card> --seed=20261120,20261121 --pairs=60000`.
+
+Card `nlh_danger_board_equity_is_priced_vs_danger_bettor` (never folds before the river; on a danger board bets half the pot with a straight or better and with no pair, so its bluff share is whatever share of its wide range holds no pair there; DESIGN VALUE):
+
+- Seed `20261120`: `-7.31 +/- 1.11 bb/100` (`z = -6.61`, `522` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seed `20261121`: `-8.49 +/- 1.19 bb/100` (`z = -7.16`, `870` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seeds together: `-7.90 +/- 0.81 bb/100` (`z = -9.74`, SIGNIFICANT harm). Against a bettor who bluffs these boards, folding one pair to his bet because the people's called-hand sample is `42` of `50` straight-or-better gives up pots the call wins.
+
+Card `nlh_danger_board_equity_is_priced_vs_danger_value` (the harm control: the same, value only; DESIGN VALUE):
+
+- Seed `20261120`: `+2.14 +/- 0.45 bb/100` (`z = +4.78`, `269` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seed `20261121`: `+2.52 +/- 0.42 bb/100` (`z = +6.03`, `399` divergent pairs; illegal `0`, truncated `0`, corrected `0`, brain fallbacks `0`)
+- Seeds together: `+2.33 +/- 0.31 bb/100` (`z = +7.61`, SIGNIFICANT). Against a bettor who never bluffs, the folds save the calls.
+
+The two cards bound the answer: the option gains exactly where the bettor's range is the call-biased sample it is priced on, and loses about three times as much where the bettor bluffs at the rate a wide range holds no pair. Which of the two people are is the bettor-range measurement this file already lists as missing.
+
 ## Evidence rows
 
 - Mechanism, scope, receipts, law test, byte-identical off: MET.
-- Value against people: NOT MET (league `-0.75 +/- 0.63 bb/100`, `z = -1.18`, not significant; replay on HVH48-D changed `5` of `2734` decisions, `1` fixed and `1` newly wrong; the `n = 50` showdown sample is call-biased; see Verdict). Without a PASS it stays OFF.
+- Value against people: NOT MET (Horse mirror `-0.75 +/- 0.63 bb/100`, `z = -1.18`, not significant; scripted danger-board bettor `-7.90 +/- 0.81 bb/100`, `z = -9.74`, significant harm; value-only control `+2.33 +/- 0.31 bb/100`, `z = +7.61`, two significant positive runs against the field most favourable to the option; replay on HVH48-D changed `5` of `2734` decisions, `1` fixed and `1` newly wrong; the `n = 50` showdown sample is call-biased; see Verdict). Without a PASS it stays OFF.
+- Harm: MEASURED against a bettor who bluffs danger boards (`z = -9.74`, both seeds significant); not against the value-only harm control, where it gains. Reported to the coordinator, who locked it off-only as measured harm on 2026-11-21 (list migration 20261121184749).
 - Do not switch on.
 
 ## Verdict (2026-11-21)
@@ -64,4 +83,5 @@ Evidence NOT MET. The option stays OFF and no switch row is written.
 - League: the three recorded seeds combine to `-0.75 +/- 0.63 bb/100` (`z = -1.18`). That is not significant (`|mean|` is under 2 standard errors), no single seed is significant, and no significant positive run exists, so the bar of three significant positive runs is not reached. It is not measured harm either: the sign leans negative without resolving.
 - Real-hand replay: the row meets the build's bar at equality (`newlyWrong 1 <= fixed 1`), on five changed decisions. One call the audit judged right became a fold and one call the audit judged wrong became a fold: no net gain against people is shown.
 - The sample limit stands: the option prices against `HOLDEM_DANGER_BOARD_BETTOR_SHOWN`, `3 / 5 / 42` of `n = 50` showdowns. A shown hand is a called hand, so the sample overstates the bettor's value share, and an option built on it would tend to fold more one-pair hands than the bettor's whole betting range justifies. Every changed decision in the replay is a call turned into a fold, which is the direction that bias pushes.
+- Scripted field (2026-11-21): against a danger-board bettor who bets value and bluffs, both seeds are significantly negative (together `-7.90 +/- 0.81`, `z = -9.74`); against the value-only control both are significantly positive (together `+2.33 +/- 0.31`, `z = +7.61`). Two significant positive runs exist, both against the field the option is most favoured by and while a bluffing field shows larger significant harm, so neither the three-run bar nor the harm question is met.
 - Missing, exactly: (1) a significant positive league result (`|mean| > 2` standard errors, positive), three such runs for a default-on promotion, on a field whose bettors bluff these boards at a measured rate, since a Horse mirror is not the people the sample came from; (2) a bettor-range measurement on four-flush and four-straight boards that is not conditioned on a call (uncalled bets and bets that folded to a raise included), or a larger showdown sample with that bias corrected; (3) a Replay row with more fixed than newly wrong on a larger audited hold'em cash set.

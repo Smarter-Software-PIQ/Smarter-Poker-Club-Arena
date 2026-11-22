@@ -1,4 +1,5 @@
 import type { HorseVpipDecisionInputs } from './HorsePublicActionNode.js';
+import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import {
   raiseEngineAlert,
   resolveEngineAlert,
@@ -193,6 +194,7 @@ import {
   claimTournamentMovePresence,
   depositMovedPresence,
   hasMovedPresence,
+  hasTournamentMovePresence,
 } from './SeatMovePresence.js';
 import {
   readCashMoveArrivals,
@@ -2509,6 +2511,27 @@ export abstract class ServerTableEngineBase {
    */
   protected currentHandAllInShowdown = false;
   protected completedOriginalShowdownReadMs = 0;
+  /**
+   * HOLD JITTER DOES NOT STACK ONTO REST (incident 1e532243, 2026-11-21).
+   *
+   * `acceptedHandEndedAt` is stamped synchronously at HAND_COMPLETE (the same
+   * instant written to `hand_history.ended_at` and broadcast to clients). Two
+   * consecutive uncompensated `setTimeout` sleeps (`awaitHandCompletionDisplay`
+   * followed by `armNextHandRest`) stacked entry lag + hold timer overshoot +
+   * rest timer overshoot past `ENGINE_BETWEEN_HANDS_BUDGET_MS` (250 ms) under
+   * event-loop load.
+   *
+   * 1. `lastAcceptedHandEndedAtMs` anchors the completion hold to the actual
+   *    HAND_COMPLETE instant so real elapsed time before entering
+   *    `awaitHandCompletionDisplay` is absorbed without shortening the visible
+   *    client display below `targetHoldMs`.
+   * 2. `lastHoldDeadlineMs` records the hold's target end instant so
+   *    `armNextHandRest` can absorb hold overshoot up to
+   *    `MAX_HOLD_OVERSHOOT_ABSORB_MS` (never below the board-clear floor).
+   */
+  static readonly MAX_HOLD_OVERSHOOT_ABSORB_MS = 500;
+  protected lastAcceptedHandEndedAtMs: number | null = null;
+  protected lastHoldDeadlineMs: number | null = null;
 
   protected async awaitHandCompletionDisplay(totalMs: number): Promise<void> {
     // Multi-board and BBJ hold formulas do not contain this showdown-read
@@ -2518,7 +2541,17 @@ export abstract class ServerTableEngineBase {
         ? this.completedOriginalShowdownReadMs
         : 0;
     this.completedOriginalShowdownReadMs = 0;
-    await this.sleep(Math.max(0, totalMs - completedRead));
+    const targetHoldMs = Math.max(0, totalMs - completedRead);
+    const enteredAt = Date.now();
+    const handEndedAt = this.lastAcceptedHandEndedAtMs;
+    this.lastAcceptedHandEndedAtMs = null;
+    // Anchor only to a valid real-elapsed timestamp at or before entry; a
+    // backward clock step or absent stamp (direct unit-test call) anchors now.
+    const holdAnchorMs = handEndedAt !== null && handEndedAt <= enteredAt ? handEndedAt : enteredAt;
+    const holdDeadlineMs = holdAnchorMs + targetHoldMs;
+    this.lastHoldDeadlineMs = holdDeadlineMs;
+    const sleepMs = Math.max(0, holdDeadlineMs - enteredAt);
+    if (sleepMs > 0) await this.sleep(sleepMs);
   }
 
   /**
@@ -6492,6 +6525,25 @@ export abstract class ServerTableEngineBase {
     if (!this.lifecycleCanMutate()) return [];
     const previous = new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
     this.seatedPlayers = nextRoster;
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; owner 3:20 PM: "AS SOON AS A PLAYER JOINS A TABLE ... AS WELL AS
+    // WHEN THEY MOVE TABLES"): every seated player's lifetime profile is warmed now, ahead of his first hand. Fire and
+    // forget; PLO4/PLO5 cash and tournaments; never throws. A player arriving by a table move (a cash seat-move or a
+    // tournament balance move deposited for this table, read before this engine claims it) is the 'move' trigger
+    // (AUDIT-C item 5: opponent_hud_ready_move_ms_*); everyone else is 'sit'.
+    const tournamentTable = this.isTournamentTable();
+    const moved: string[] = [];
+    const seated: string[] = [];
+    for (const p of nextRoster)
+      (!previous.has(p.user_id) &&
+      (tournamentTable
+        ? hasTournamentMovePresence(p.user_id, this.tableId)
+        : hasMovedPresence(p.user_id, this.tableId))
+        ? moved
+        : seated
+      ).push(p.user_id);
+    const variant = this.activeHandVariant();
+    if (moved.length) warmOpponentHudSeats(moved, variant, tournamentTable, 'move');
+    warmOpponentHudSeats(seated, variant, tournamentTable, 'sit');
     // The roster now speaks for every committed arrival (SeatArrivalDisplay).
     this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one
@@ -8186,6 +8238,24 @@ export abstract class ServerTableEngineBase {
    */
   horsesSeated(): number {
     return this.seatedPlayers.filter((p) => p.is_horse === true && p.stack > 0).length;
+  }
+
+  /**
+   * Read-only identification of horse user IDs counted by `horsesSeated()` when
+   * this engine is a Lightning anchor table, so `poker_horses_seated` can count
+   * Lightning pool horses without double-counting seats already present here.
+   * Identification only (CLAUDE.md 10.5): decides nothing.
+   */
+  lightningAnchorHorseIds(): { clusterId: string; userIds: string[] } | null {
+    if (!this.isLightningAnchorNow()) return null;
+    const clusterId = this.tableInfo?.cluster_id;
+    if (!clusterId) return null;
+    return {
+      clusterId,
+      userIds: this.seatedPlayers
+        .filter((p) => p.is_horse === true && p.stack > 0)
+        .map((p) => p.user_id),
+    };
   }
 
   /**
@@ -10639,6 +10709,16 @@ export abstract class ServerTableEngineBase {
   /** Ms spent in the current by-design pause; 0 when not paused. */
   msPaused(): number {
     return this.pausedSinceMs === 0 ? 0 : Date.now() - this.pausedSinceMs;
+  }
+
+  /** Tournament id for tournament tables, or null for cash tables. */
+  getTournamentId(): string | null {
+    return this.tableInfo?.tournament_id ?? null;
+  }
+
+  /** Current dealing loop phase (read-only diagnostic accessor). */
+  getLoopPhase(): string {
+    return this.loopPhase;
   }
 
   /**

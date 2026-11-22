@@ -12,6 +12,12 @@
 #   JOBS (default 2; keep within the Mac's current worker rule)  PROFILE=<json>  OUT=<dir>
 #   SPARRING_CONTROL=0 drops the OFF-vs-OFF control arm CTRL (default: on whenever there is a candidate)
 #   TARGET="probe:a,probe:b" the candidate's target probes; every other adversary is a guard probe (LEAD-3 RULING 1)
+#   SPARRING_HUD=1 the bench LEARNS THE LIFETIME OPPONENT HUD: each arm and deal has its own store, fed every hand's
+#     public record, and the acting seat's packet is installed before every decision (SparringHud.ts). The tree must
+#     carry the HUD provider and this harness's HorseLeague hook, else the cell stops. Unset = no packet, as before.
+#     SPARRING_HUD_PRIORS=<json {plo4:{stat:[p,k]},plo5:{...}}> population priors (data);
+#     SPARRING_HUD_PRELOAD=<json [profiles]> start every store from an earlier block's export (data, never a
+#     warm-up block played in this process); SPARRING_HUD_EXPORT=1 writes each cell's stores beside its log.
 # The table opens with FLIPS FIRST (first divergences from BASE by street and change class, with denominators, and
 # the control row; illegal actions and fallbacks by seat class) and the guard thresholds z_fam for its own counts.
 # Prints the matchup table: the adversary's bb/100 vs BASE and CAND, the paired CAND-BASE change ± SE and verdict
@@ -34,9 +40,9 @@ WORK="${SPARRING_WORK:-$HERE/runs}"; OUT="${OUT:-$WORK/$(date +%Y%m%d-%H%M%S)-$$
 mkdir -p "$OUT"; chmod 700 "$OUT"; umask 077
 overlay() { # $1 tree  $2 dir: this harness's files with imports pointed at the tree's engine; nothing written into the tree
   mkdir -p "$2"; echo '{"type":"module"}' > "$2/package.json"
-  for f in SparringLeague.ts sparringRun.ts; do
+  for f in SparringLeague.ts SparringHud.ts sparringRun.ts; do
     sed -E -e "s#(from |import\\(|import )'\.\./#\\1'$1/server/src/#g" \
-        -e "s#(from |import\\(|import )'\./(HorseLeague|HorseLeagueHumanField|ExploiterLeague|OmahaReference)\.js'#\\1'$1/server/src/benchmark/\\2.js'#g" \
+        -e "s#(from |import\\(|import )'\./(HorseLeague|HorseLeagueHumanField|ExploiterLeague|OmahaReference|HudHistoryRows)\.js'#\\1'$1/server/src/benchmark/\\2.js'#g" \
         "$SRC/$f" > "$2/$f"
     # A relative specifier left behind resolves beside the overlay, where no engine lives: the module loads as a
     # SECOND instance (or not at all) and whatever it installs never reaches the engine that plays the Horses.
@@ -60,6 +66,9 @@ run_cell() { # cell out tree overlaydir basefile candfile(or empty) results perh
       SPARRING_CELL="$cell" SPARRING_OUT="$RES" SPARRING_BASE="$BF" SPARRING_PERHAND="$PH" \
       ${CTL:+SPARRING_CONTROL="$CTL"} \
       ${CF:+SPARRING_CAND="$CF"} ${PROFF:+SPARRING_PROFILE="$PROFF"} \
+      ${SPARRING_HUD:+SPARRING_HUD="$SPARRING_HUD"} ${SPARRING_HUD_PRIORS:+SPARRING_HUD_PRIORS="$SPARRING_HUD_PRIORS"} \
+      ${SPARRING_HUD_PRELOAD:+SPARRING_HUD_PRELOAD="$SPARRING_HUD_PRELOAD"} \
+      ${SPARRING_HUD_EXPORT:+SPARRING_HUD_EXPORT="$OUTD/$tag.hud.json"} \
       nice -n 15 node --max-old-space-size=3000 --import tsx "$OV/sparringRun.ts" ) > "$OUTD/$tag.log" 2>&1 \
     && echo "done $cell ($(basename "$RES"))" || echo "FAILED $cell (see $OUTD/$tag.log)"
 }

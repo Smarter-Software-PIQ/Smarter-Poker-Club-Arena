@@ -4,6 +4,7 @@
  * BLOCK BETTING TO A BIG RAISE". Spots from the anonymised fixtures shared with HorseOmahaSmallBet.test.ts.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import { fastRandom, seedFastRandom, variantInfo } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
@@ -63,10 +64,12 @@ function decide(build: () => Node, opts: HorseDecideOpts, seed: number) {
   drainFires();
   seedFastRandom(seed);
   const st = build();
-  const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
-    telemetry: true,
-    ...opts,
-  } as never);
+  const d = withFrozenDecisionClock(() =>
+    HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+      telemetry: true,
+      ...opts,
+    } as never)
+  );
   const out = {
     st,
     d,

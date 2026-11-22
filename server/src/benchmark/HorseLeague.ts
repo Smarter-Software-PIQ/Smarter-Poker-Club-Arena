@@ -118,9 +118,18 @@ import {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  NLH_SCRIPTED_POPULATION_ID,
+  NLH_SCRIPTED_FIELD_VARIANTS,
+  NLH_SCRIPTED_PERSONAS,
+  NLH_POT_BARRELER_PERSONA,
+  NLH_VALUE_BARRELER_PERSONA,
+  NLH_DANGER_BOARD_BETTOR_PERSONA,
+  NLH_DANGER_BOARD_VALUE_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
+  type NlhScriptedPersona,
 } from './HorseLeagueHumanField.js';
+import { NLH_SCRIPTED_COMMITTED_STACK_BB, nlhScriptedPolicy } from './NlhScriptedField.js';
 import {
   fixedLimitScriptedNode,
   fixedLimitScriptedPolicy,
@@ -186,7 +195,8 @@ export type LeagueOpponentPopulation =
   | typeof HUMAN_CALIBRATED_POPULATION_ID
   | typeof V53_PRESSURE_POPULATION_ID
   | typeof HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID
-  | typeof FIXED_LIMIT_SCRIPTED_POPULATION_ID;
+  | typeof FIXED_LIMIT_SCRIPTED_POPULATION_ID
+  | typeof NLH_SCRIPTED_POPULATION_ID;
 
 /** Variants each field may be dealt, or null for an unknown field. */
 export function leagueFieldVariants(population: unknown): readonly string[] | null {
@@ -195,6 +205,7 @@ export function leagueFieldVariants(population: unknown): readonly string[] | nu
   if (population === HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID)
     return HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS;
   if (population === FIXED_LIMIT_SCRIPTED_POPULATION_ID) return FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS;
+  if (population === NLH_SCRIPTED_POPULATION_ID) return NLH_SCRIPTED_FIELD_VARIANTS;
   return null;
 }
 import { supabase } from '../services/supabase.js';
@@ -504,6 +515,9 @@ export type LeagueSeatPolicy = (spot: LeagueSeatSpot) => { action: string; amoun
  * absent on every pre-existing path.
  */
 export interface LeagueHandObserver {
+  /** Called right before a seat is asked for its decision (2026-11-21, sparring's HUD provider: the bench installs
+   *  the acting seat's opponent packet here, the way the decision worker installs it around the decide call). */
+  beforeDecision?: (e: { seatIdx: number; stage: HandStage }) => void;
   onAction?: (e: {
     seatIdx: number;
     stage: HandStage;
@@ -522,6 +536,10 @@ export interface LeagueHandObserver {
     cards: Card[][];
     board: Card[];
     net: number[];
+    /** PUBLIC end of the hand (2026-11-21): every seat's chips won, and the hand NAME of each seat still in at a
+     *  showdown (empty when the hand ended by folds). A category name only: no card of a player is in it. */
+    winnings: number[];
+    shown: Array<{ seatIdx: number; handName: string }>;
   }) => void;
 }
 
@@ -1271,6 +1289,7 @@ export function playHand(
         );
       }
       leaguePinPublicStreams(handSeed, i, history.length);
+      observer?.beforeDecision?.({ seatIdx: i, stage });
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
@@ -1665,13 +1684,26 @@ export function playHand(
   }
 
   const net = seats.map((s, i) => winnings[i] - s.contributed);
-  observer?.onEnd?.({
-    endedByFolds: live().length === 1,
-    folded: seats.map((s) => s.player.is_folded),
-    cards: seats.map((s) => s.player.cards),
-    board,
-    net,
-  });
+  if (observer?.onEnd) {
+    const shown: Array<{ seatIdx: number; handName: string }> = [];
+    if (live().length >= 2)
+      seats.forEach((s, seatIdx) => {
+        if (s.player.is_folded) return;
+        const score = vi.isOmaha
+          ? scoreOmahaHi(s.player.cards, board)
+          : scoreHoldem(s.player.cards.concat(board), s.player.cards.length + 5, vi.isShortDeck);
+        shown.push({ seatIdx, handName: CAT_NAMES[Math.floor(score / 0x100000)] ?? '' });
+      });
+    observer.onEnd({
+      endedByFolds: live().length === 1,
+      folded: seats.map((s) => s.player.is_folded),
+      cards: seats.map((s) => s.player.cards),
+      board,
+      net,
+      winnings: [...winnings],
+      shown,
+    });
+  }
   return net;
 }
 
@@ -2251,6 +2283,18 @@ export function humanFieldPersonaProfile(
         `${table.variant} at ${table.seats} seats`
     );
   }
+  if (
+    persona === NLH_POT_BARRELER_PERSONA ||
+    persona === NLH_VALUE_BARRELER_PERSONA ||
+    persona === NLH_DANGER_BOARD_BETTOR_PERSONA ||
+    persona === NLH_DANGER_BOARD_VALUE_PERSONA
+  ) {
+    throw new Error(
+      `${persona} is a scripted persona of the ${NLH_SCRIPTED_POPULATION_ID} field ` +
+        `(NlhScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +
+        `${table.variant} at ${table.seats} seats`
+    );
+  }
   if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
     if (
       table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
@@ -2495,6 +2539,19 @@ async function runHumanFieldMatchup(
         `(${FIXED_LIMIT_SCRIPTED_PERSONAS.join(', ')}); got ${String(matchup.humanPersona)}`
     );
   }
+  // SCRIPTED NO-LIMIT FIELD (2026-11-21, NlhScriptedField.ts): the same seating
+  // for no-limit hold'em; the persona is required and must be one of its scripts.
+  const scriptedNoLimit = population === NLH_SCRIPTED_POPULATION_ID;
+  if (
+    scriptedNoLimit &&
+    (variant !== 'nlh' ||
+      !NLH_SCRIPTED_PERSONAS.includes(matchup.humanPersona as NlhScriptedPersona))
+  ) {
+    throw new Error(
+      `${matchup.name}: a ${population} card deals nlh and names one of its scripted personas ` +
+        `(${NLH_SCRIPTED_PERSONAS.join(', ')}); got ${String(matchup.humanPersona)}`
+    );
+  }
   const warmupHands = matchup.probeHistoryHands ?? 0;
   if (warmupHands !== 0) {
     if (
@@ -2512,7 +2569,7 @@ async function runHumanFieldMatchup(
     }
   }
   const persona =
-    matchup.humanPersona === undefined || scriptedFixedLimit
+    matchup.humanPersona === undefined || scriptedFixedLimit || scriptedNoLimit
       ? undefined
       : humanFieldPersonaProfile(matchup.humanPersona, {
           population,
@@ -2540,7 +2597,9 @@ async function runHumanFieldMatchup(
   const responses: Record<string, Record<string, number>> = {};
   const script = scriptedFixedLimit
     ? fixedLimitScriptedPolicy(matchup.humanPersona as FixedLimitScriptedPersona)
-    : undefined;
+    : scriptedNoLimit
+      ? nlhScriptedPolicy(matchup.humanPersona as NlhScriptedPersona)
+      : undefined;
   // The script's answers are tallied per node like a calibrated seat's (counts
   // only), so the result proves the field played. Probe passes get their own tally.
   const scriptedSeat =
@@ -4002,6 +4061,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaRiverFirstToActBetIsPriced: true },
+    b: {},
+  })),
+  // 2026-11-21 EMERG lane BLANKET-AUDIT (default OFF, PLO4/PLO5 cash): omahaBlanketRowsOffInPlo45Cash with the first
+  // declared members (v74OmahaSemiBluffNeedsDraw and the hidden four); a switches it on with that list, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_blanket_rows_off_in_plo45_cash`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaBlanketRowsOffInPlo45Cash: true,
+      omahaBlanketRowsOffList: [
+        'v74OmahaSemiBluffNeedsDraw',
+        'ploPairedBoardFold',
+        'ploPairedBoardRiverCheck',
+        'omahaRiverNutRaiseOnly',
+        'omahaTurnSetPound',
+      ],
+    },
     b: {},
   })),
   // 2026-11-20 EMERG lane RANGE-MODEL-2 (default OFF, PLO4/PLO5 cash): omahaRiverCurrentNutsCallFloor (a final river
@@ -5852,6 +5930,79 @@ LEAGUE_MATCHUPS.push({
 });
 
 /**
+ * THE SCRIPTED NO-LIMIT FIELD CARDS (2026-11-21, Hold'em Strategy lane;
+ * NlhScriptedField.ts).
+ *
+ * One hero Horse (live cash Hybrid persona, deal-seeded mood clock) heads-up
+ * against one scripted no-limit player (NLH_SCRIPTED_POPULATION_ID),
+ * arm A with the option on, arm B off, on the same deals
+ * (runHumanFieldMatchup). Each value card has its harm control beside it, with
+ * the same arms and table. Heads-up because both options act heads-up only.
+ * The committed-spot cards are dealt 40bb deep (NLH_SCRIPTED_COMMITTED_STACK_BB),
+ * where two pot-sized bets commit a Horse; the danger-board cards 100bb.
+ * Each card declares 6,000 pairs (the nightly size of the mirror cards it
+ * complements). The measurement runs were dealt at 60,000 pairs per seed, a
+ * size declared from a 3,000-pair probe on seed 20261115 before seeds 20261120
+ * and 20261121 were dealt (docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md);
+ * results are in the two authority files. The cards only measure. Both options
+ * stay default OFF; nothing here switches one on.
+ */
+function nlhScriptedCard(
+  name: string,
+  pairs: number,
+  humanPersona: NlhScriptedPersona,
+  a: HorseDecideOpts,
+  stackBB?: number
+): LeagueMatchup {
+  return {
+    name,
+    variant: 'nlh',
+    seats: 2,
+    ...(stackBB ? { stackBB } : {}),
+    pairs,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona,
+    a,
+    b: {},
+  };
+}
+export const NLH_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  nlhScriptedCard(
+    'nlh_committed_no_pair_is_priced_vs_pot_barreler',
+    6000,
+    NLH_POT_BARRELER_PERSONA,
+    {
+      holdemCommittedNoPairIsPriced: true,
+    },
+    NLH_SCRIPTED_COMMITTED_STACK_BB
+  ),
+  nlhScriptedCard(
+    'nlh_committed_no_pair_is_priced_vs_value_barreler',
+    6000,
+    NLH_VALUE_BARRELER_PERSONA,
+    {
+      holdemCommittedNoPairIsPriced: true,
+    },
+    NLH_SCRIPTED_COMMITTED_STACK_BB
+  ),
+  nlhScriptedCard(
+    'nlh_danger_board_equity_is_priced_vs_danger_bettor',
+    6000,
+    NLH_DANGER_BOARD_BETTOR_PERSONA,
+    { holdemDangerBoardEquityIsPriced: true }
+  ),
+  nlhScriptedCard(
+    'nlh_danger_board_equity_is_priced_vs_danger_value',
+    6000,
+    NLH_DANGER_BOARD_VALUE_PERSONA,
+    { holdemDangerBoardEquityIsPriced: true }
+  ),
+]);
+LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_FIELD_CARDS);
+
+/**
  * Why a fixed-limit arm is still refused (2026-11-20). Hold'em: the league
  * deals the legal game and the count is the arm's own count on it. Hi-lo: the
  * league still has no hand to deal.
@@ -5955,6 +6106,23 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'this: league stacks above 250 bb, or different stacks per seat.',
     }))
   ),
+  // 2026-11-21 (PLO-OWNER lane RELEASE-13, list train): omahaOpponentLifetimeHud,
+  // default off. Refused, not dealt: league opponents have no stored lifetime history.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_opponent_lifetime_hud`,
+    variant,
+    seats: 6,
+    a: { omahaOpponentLifetimeHud: true },
+    b: {},
+    reason:
+      "Unanswerable by this league: the option only builds and serves each opponent's lifetime public profile " +
+      'from production hand history (engine/opponentHud/), and league opponents have no stored history, so both ' +
+      'arms read nothing and play the same hands; the provider by itself changes no decision ' +
+      '(TheHudProviderChangesNoDecision.law). Measured instead on the learning bench with SPARRING_HUD=1 and ' +
+      'seeded priors (OPPONENT-HUD criteria, EMERG); in this league 0 of 0 pairs were dealt for it (not run: no ' +
+      'seat has a lifetime history). The option is DEFAULT OFF (read as === true). What would ' +
+      'change this: a league that seeds each opponent with a lifetime history.',
+  })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
   {

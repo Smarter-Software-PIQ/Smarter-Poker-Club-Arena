@@ -1,5 +1,7 @@
 # omahaMathCoreNetsTheWholeDeduction: Authority For The Live Switch
 
+**INERT (lane CORE-FIX-1, PLO-OWNER lead-3, AUDIT-A item 11, Nov 21 2026).** This option changes no decision. Since lane CORE-POOLED-4 the core nets every pot of the whole platform deduction by default (`omahaMathCoreState`: `wholeDeduction` is read by nothing), so on and off price and decide identically; the law `OmahaMathCoreCoreFix1.law.test.ts` ("CORE-FIX-1: the option changes no decision") proves it on generated in-scope PLO4/PLO5 decisions on every street. It stays in the ledger and rule sites only because the switch lists name it; retiring the name needs a switch-list migration. A switch row for it turns nothing on. The text below is the original record.
+
 Built 2026-11-20 by EMERG lane RAKE for the PLO-OWNER lead. This file does not authorize switching the option on. Switches are made only by the lead, through the delivery path. It records what the option is and what was measured.
 
 ## What It Does

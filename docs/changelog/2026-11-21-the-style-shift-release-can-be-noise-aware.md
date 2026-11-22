@@ -18,8 +18,8 @@ simulation, six seeds; `docs/horse-league-fixed-limit.md`, "The over-folder read
   switch row and calls `fn_horse_exploit_add_rule`), proved equal to the engine on PostgreSQL 16 by
   `scripts/ci/test-horse-exploit-style-shift-release-postgres.py`.
 - Registry: `HorseDataLedger`, `HorseOptionSwitch` (release default OFF, Hold'em Strategy lane, shadow refused),
-  switch list `20261121172137_horse_option_switch_style_shift_release_noise_aware.sql` (follows
-  `20261121042010`; adds the option to the plain list only).
+  switch list `20261122011559_horse_option_switch_style_shift_release_noise_aware.sql` (follows
+  `20261121214238_horse_option_switch_holdem_priced_options_harm`; adds the option to the plain list only).
 - League: `flh_style_release_noise_aware_steal_vs_value_only_blinds` and `human_nlh_style_release_noise_aware`
   (human-field cards: the process switch is set per pass, `withLeagueProcessSwitches`; a mirror card refuses to split
   it), and `server/src/scripts/styleShiftReleaseLeague.ts` for the Omaha development field and the gear-changer

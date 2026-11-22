@@ -9,6 +9,7 @@ import {
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
 import { tournamentStallExposure } from './observability/tournamentStallExposure.js';
+import { snapshotEventLoopDelay } from './observability/eventLoopMonitor.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -127,6 +128,7 @@ import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
 import { countHorseTablesByVariant } from './engine/HorsePolicyLedgerObserver.js';
+import { countHorseSeats } from './engine/HorseSeatCounter.js';
 import {
   settlementHealthSnapshot,
   settlementPrometheusLines,
@@ -6636,6 +6638,7 @@ export class GameServer {
             .reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
         ),
       },
+      eventLoopDelay: snapshotEventLoopDelay(),
       ...(livenessQuery
         ? { tableLiveness: selectPublicTableLiveness(tableLiveness, livenessQuery) }
         : {}),
@@ -6818,18 +6821,13 @@ export class GameServer {
     const neverStartedOldestSeconds = Math.round(
       neverStarted.reduce((max, t) => Math.max(max, t.msSinceLoopPhase), 0) / 1000
     );
-    /* One walk of the live engines for the two horse gauges below. Counted
-       here rather than from `liveness` because the seat rows carry the flag
-       and the liveness snapshot does not. */
-    const horseSeatCounts = { horses: 0, tables: 0 };
+    /* One walk of the live engines + Lightning pools for the two horse gauges
+       below. Counted here rather than from `liveness` because the seat rows
+       carry the flag and the liveness snapshot does not. Lightning pool horses
+       are included cleanly via `countHorseSeats` (read-only identification
+       only, deduplicated against anchor engines, never throws). */
+    const horseSeatCounts = countHorseSeats(this.tableEngines.values(), this.lightningRooms);
     const horseTablesByVariant = countHorseTablesByVariant(this.tableEngines.values());
-    for (const engine of this.tableEngines.values()) {
-      const n = engine.horsesSeated();
-      if (n > 0) {
-        horseSeatCounts.horses += n;
-        horseSeatCounts.tables += 1;
-      }
-    }
     /**
      * 2026-09-05: the gauge below used `stalled.length === 0` — the 120s
      * VISIBILITY list — while getStatus() killed on the 300s list. Two
@@ -6863,7 +6861,7 @@ export class GameServer {
 
          Identification only (CLAUDE.md 10.5): they count, they decide
          nothing, and the same line publishes the human count beside them. */
-      '# HELP poker_horses_seated Horses seated with chips across every live table',
+      '# HELP poker_horses_seated Horses seated with chips across every live table and Lightning pool',
       '# TYPE poker_horses_seated gauge',
       `poker_horses_seated ${horseSeatCounts.horses}`,
       '# HELP poker_tables_with_horses Live tables holding at least one horse with chips',
@@ -7441,6 +7439,7 @@ export class GameServer {
     secsIdle: number;
     reason: HeldTableStall['reason'];
     heldBy: string[];
+    blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
   }> {
     const out: Array<{
       tableId: string;
@@ -7448,6 +7447,7 @@ export class GameServer {
       secsIdle: number;
       reason: HeldTableStall['reason'];
       heldBy: string[];
+      blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
     }> = [];
     for (const [tableId, engine] of this.tableEngines) {
       if (exclude.has(tableId)) continue;
@@ -7461,13 +7461,48 @@ export class GameServer {
           heldOriginal: engine.isPreparedOriginalHeldAtPauseGate?.() === true,
         });
         if (!stall) continue;
-        out.push({
+        const entry: {
+          tableId: string;
+          dealable: number;
+          secsIdle: number;
+          reason: HeldTableStall['reason'];
+          heldBy: string[];
+          blockingPeers?: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }>;
+        } = {
           tableId,
           dealable: engine.dealableCount(),
           secsIdle: Math.round(stall.msHeld / 1000),
           reason: stall.reason,
           heldBy: stall.heldBy,
-        });
+        };
+        // Overlong boundary hold diagnostic (>= 90 s): name the active peer
+        // tables in the same tournament so operators immediately see which
+        // table is holding up hand_for_hand or tournament_move synchronization.
+        const tournamentId = engine.getTournamentId?.();
+        if (
+          tournamentId &&
+          stall.msHeld >= 90_000 &&
+          (stall.heldBy.includes('hand_for_hand') || stall.heldBy.includes('tournament_move'))
+        ) {
+          const peers: Array<{ tableId: string; loopPhase: string; secsSinceProgress: number }> =
+            [];
+          for (const [peerId, peerEngine] of this.tableEngines) {
+            if (peerId === tableId) continue;
+            if (peerEngine.getTournamentId?.() !== tournamentId) continue;
+            if (peerEngine.isPausedByDesign()) continue;
+            peers.push({
+              tableId: peerId,
+              loopPhase: peerEngine.getLoopPhase?.() ?? 'unknown',
+              secsSinceProgress: Math.round(peerEngine.msSinceProgress() / 1000),
+            });
+          }
+          if (peers.length > 0) {
+            entry.blockingPeers = peers
+              .sort((a, b) => b.secsSinceProgress - a.secsSinceProgress)
+              .slice(0, 3);
+          }
+        }
+        out.push(entry);
       } catch {
         // An engine that cannot be read is not named here; the reapers own it.
       }
@@ -10430,7 +10465,13 @@ export class GameServer {
          * clock available; this is the same reasoning as the back-pay above,
          * whose comment says a repair gated on another job's clock runs at
          * boot and then effectively never. */
-        if (Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): unfilled-spin expiry cancels
+        // lobbies via atomic_cancel_tournament (writing table_seats.left_at and
+        // refunding chips). Because lastSpinExpireAt starts at 0 on boot, an
+        // unguarded pass fires immediately after adopting an active freeze.
+        // Skipping while frozen leaves lastSpinExpireAt untouched so the first
+        // pass after thaw runs immediately.
+        if (!isMaintenanceFrozen() && Date.now() - this.lastSpinExpireAt > 10 * 60 * 1000) {
           this.lastSpinExpireAt = Date.now();
           try {
             const { data: exp, error: expErr } = await supabase.rpc('fn_spin_expire_unfilled', {
@@ -10475,7 +10516,18 @@ export class GameServer {
          * (smarter_private.daily_window_lobby_watchdog) pages if any lobby is
          * still open at 4:00. The RPC only acts on open games, so a repeat or a
          * second engine costs nothing. */
-        if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {
+        // THE FREEZE IS TOTAL (2026-11-21, H10): 3 AM lobby close cancels
+        // open used Spin/SNG lobbies via atomic_cancel_tournament (vacating
+        // table_seats and refunding chips). Without this gate, any break or
+        // cutover crossing 03:00 America/Chicago (09:00 UTC) mutates seats
+        // during the freeze (measured 2026-11-16 09:00:06Z and 2026-11-21
+        // 09:00:04Z in run 44887083680). Leaving lastLobbyCloseAt untouched
+        // ensures the first pass after thaw closes every open lobby at once.
+        if (
+          !isMaintenanceFrozen() &&
+          !spinSngBoardsOpen(new Date()) &&
+          Date.now() - this.lastLobbyCloseAt > 60 * 1000
+        ) {
           this.lastLobbyCloseAt = Date.now();
           try {
             const { data: lc, error: lcErr } = await supabase.rpc(
@@ -13217,9 +13269,11 @@ export class GameServer {
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
+    if (isMaintenanceFrozen()) return;
     if (this.tournamentEngines.size === 0) return;
 
     for (const [tournamentId, tm] of this.tournamentEngines) {
+      if (isMaintenanceFrozen()) return;
       if (!tm.isRunning()) continue;
       try {
         const moved = await tm.absorbOrphanedSeats();

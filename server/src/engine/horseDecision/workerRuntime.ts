@@ -1,4 +1,5 @@
 import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { installDecisionHud } from '../opponentHud/OpponentHud.js';
 import { warmOmahaMathCore } from '../omahaMathCore/OmahaMathCoreWarmUp.js';
 import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
@@ -3175,6 +3176,9 @@ export class HorseDecisionWorkerRuntime {
   }
 
   private executeFast(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD): this decision's lifetime opponent profiles, from its own request
+    // (journaled with it); absent installs nothing, so every read answers as before.
+    installDecisionHud(request.opponentHud);
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;
@@ -3458,6 +3462,10 @@ export class HorseDecisionWorkerRuntime {
     // outside its games and streets. When the pick is a staged option NOTHING of its re-decision runs here: it is
     // handed over after the answer is sent (below) and runs on a later turn of an idle worker, so the time from
     // request to response is that of no row. An option that is not staged takes exactly the path it had.
+    // PEOPLE FIRST (2026-11-21, HorseOptionShadow): the per-minute budget never refuses a decision with a person
+    // dealt in; the Horse-only decisions of that minute are dropped instead. Every skip also counts its
+    // person-present subset (option_shadow_skipped_<reason>_person_seen). The latency guards hold for everyone.
+    // A staged pick reads no seat here (its person split is taken after the answer, runOptionShadowStage).
     const stageTable = this.deps.optionShadowStage ?? OPTION_SHADOW_STAGE;
     const shadowOptions = optionShadowStageInScope(
       optionSwitchShadowOptions(optionStates),
@@ -3468,6 +3476,24 @@ export class HorseDecisionWorkerRuntime {
     const shadowPick =
       shadowOptions.length > 0 ? optionShadowPick(shadowOptions, request.decisionKey) : null;
     const stagedPick = optionShadowStaged(shadowPick, stageTable);
+    let shadowPerson: boolean | undefined;
+    const shadowPersonDealt = (): boolean => {
+      if (shadowPerson === undefined) {
+        try {
+          shadowPerson = optionShadowPersonPresence(
+            gameState as unknown as Parameters<typeof optionShadowPersonPresence>[0],
+            request.player.user_id
+          ).personDealt;
+        } catch {
+          shadowPerson = false;
+        }
+      }
+      return shadowPerson;
+    };
+    const shadowSkipped = (reason: string): void => {
+      this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
+      if (shadowPersonDealt()) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
+    };
     if (
       stagedPick ||
       shadowOptions.length === 0 ||
@@ -3475,10 +3501,9 @@ export class HorseDecisionWorkerRuntime {
       captured.value.policyFallback === 'brain_exception'
     ) {
       /* nothing in shadow, or a staged pick (after the answer): no receipt here */
-    } else if (this.pendingRequestIds.size > 1)
-      this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+    } else if (this.pendingRequestIds.size > 1) shadowSkipped('backlog');
     else if (!(Math.max(0, this.deps.now() - startedAt) <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
-      this.deps.noteFeature('option_shadow_skipped_budget_seen');
+      shadowSkipped('budget');
     else {
       let shadowScaleMoved = true;
       try {
@@ -3486,10 +3511,14 @@ export class HorseDecisionWorkerRuntime {
       } catch {
         /* an unreadable scale is a moved scale: skip */
       }
-      if (shadowScaleMoved) this.deps.noteFeature('option_shadow_skipped_scale_seen');
-      else if (!this.optionShadowBudget.take(this.deps.now()))
-        this.deps.noteFeature('option_shadow_skipped_rate_seen');
+      const admitted = shadowScaleMoved
+        ? null
+        : this.optionShadowBudget.admit(this.deps.now(), shadowPersonDealt());
+      if (shadowScaleMoved) shadowSkipped('scale');
+      else if (admitted === null) shadowSkipped('rate');
       else {
+        if (admitted === 'person_over')
+          this.deps.noteFeature('option_shadow_rate_person_over_seen');
         const pick = shadowPick!;
         for (let i = 1; i < shadowOptions.length; i++)
           this.deps.noteFeature('option_shadow_rotated_out_seen');
@@ -4013,8 +4042,22 @@ export class HorseDecisionWorkerRuntime {
       this.deps.noteFeature('option_shadow_skipped_backlog_seen');
       return;
     }
+    // PEOPLE FIRST (2026-11-21): after the answer, so reading the seats here costs the decision nothing
+    let personDealt = false;
+    try {
+      personDealt = optionShadowPersonPresence(
+        task.gameState as unknown as Parameters<typeof optionShadowPersonPresence>[0],
+        task.request.player.user_id
+      ).personDealt;
+    } catch {
+      /* unreadable seats: counted as Horse-only */
+    }
+    const skipped = (reason: string): void => {
+      this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
+      if (personDealt) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
+    };
     if (!(task.actedMs <= OPTION_SHADOW_STAGE_ACTED_BUDGET_MS)) {
-      this.deps.noteFeature('option_shadow_skipped_budget_seen');
+      skipped('budget');
       return;
     }
     let scaleMoved = true;
@@ -4023,20 +4066,15 @@ export class HorseDecisionWorkerRuntime {
     } catch {
       /* an unreadable scale is a moved scale: skip */
     }
-    if (scaleMoved) this.deps.noteFeature('option_shadow_skipped_scale_seen');
-    else if (this.optionShadowStageGuard.disabled(task.option))
-      this.deps.noteFeature('option_shadow_skipped_stage_disabled_seen');
-    else if (
-      !optionShadowPersonPresence(
-        task.gameState as unknown as Parameters<typeof optionShadowPersonPresence>[0],
-        task.request.player.user_id
-      ).personDealt &&
-      !this.optionShadowStageGuard.admitHorseOnly(this.deps.now())
-    )
+    let admitted: 'within' | 'person_over' | null = null;
+    if (scaleMoved) skipped('scale');
+    else if (this.optionShadowStageGuard.disabled(task.option)) skipped('stage_disabled');
+    else if (!personDealt && !this.optionShadowStageGuard.admitHorseOnly(this.deps.now()))
       this.deps.noteFeature('option_shadow_skipped_stage_horse_only_seen');
-    else if (!this.optionShadowBudget.take(this.deps.now()))
-      this.deps.noteFeature('option_shadow_skipped_rate_seen');
+    else if ((admitted = this.optionShadowBudget.admit(this.deps.now(), personDealt)) === null)
+      skipped('rate');
     else {
+      if (admitted === 'person_over') this.deps.noteFeature('option_shadow_rate_person_over_seen');
       const redecideMs = this.optionShadowReceipt(
         task.request,
         task.player,
@@ -4151,6 +4189,7 @@ export class HorseDecisionWorkerRuntime {
   }
 
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
+    installDecisionHud((request as { opponentHud?: unknown }).opponentHud);
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
     let deepDiveCapture: HorseDeepDiveCapture | undefined;

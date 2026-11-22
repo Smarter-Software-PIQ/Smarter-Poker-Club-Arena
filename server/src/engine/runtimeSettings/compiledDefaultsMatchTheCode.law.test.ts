@@ -34,6 +34,11 @@ import {
   OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX,
   omahaOptionGameScopeFromSettings,
 } from '../HorseOmahaOptionGameScope.js';
+import {
+  OMAHA_BLANKET_ROWS_OFF_REGISTRY,
+  OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
+  omahaBlanketRowsOffListFromSettings,
+} from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
 import { RUNTIME_SETTINGS_REGISTRY } from './registry.js';
 import { COMPILED_RUNTIME_SETTINGS, parseRuntimeSettings } from './snapshot.js';
 
@@ -45,6 +50,11 @@ const MIGRATION =
 /** The game scope keys of the omaha* options (HorseOmahaOptionGameScope.ts), one per listed option. */
 const GAME_SCOPE_KEYS: readonly string[] = OMAHA_OPTION_GAME_SCOPE_OPTIONS.map(
   (option) => OMAHA_OPTION_GAME_SCOPE_SETTING_PREFIX + option
+);
+
+/** The declared-list keys of omahaBlanketRowsOffInPlo45Cash, one per registry member. */
+const BLANKET_ROW_OFF_KEYS: readonly string[] = OMAHA_BLANKET_ROWS_OFF_REGISTRY.map(
+  (option) => OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX + option
 );
 
 /** The constant the code reads for each key. */
@@ -63,6 +73,8 @@ const CODE_VALUE: Readonly<Record<string, number>> = {
   'horse.cashStackCeilingBB': HORSE_CASH_STACK_CEILING_COMPILED_BB,
   // HorseOmahaOptionGameScope: 0 is "no scope" (only 4 or 5 confines an option to a game)
   ...Object.fromEntries(GAME_SCOPE_KEYS.map((key) => [key, 0])),
+  // HorseOmahaBlanketRowsOffInPlo45Cash: 0 is "not listed" (only 1 lists a blanket row)
+  ...Object.fromEntries(BLANKET_ROW_OFF_KEYS.map((key) => [key, 0])),
 };
 
 /**
@@ -70,7 +82,11 @@ const CODE_VALUE: Readonly<Record<string, number>> = {
  * published version does not name keeps its compiled default (snapshot.ts), so version 1 still parses to the
  * compiled snapshot with these absent. Each one must be absent from the seed.
  */
-const ADDED_AFTER_THE_SEED: readonly string[] = ['horse.cashStackCeilingBB', ...GAME_SCOPE_KEYS];
+const ADDED_AFTER_THE_SEED: readonly string[] = [
+  'horse.cashStackCeilingBB',
+  ...GAME_SCOPE_KEYS,
+  ...BLANKET_ROW_OFF_KEYS,
+];
 
 function seed(): Record<string, unknown> {
   const sql = read(MIGRATION);
@@ -125,6 +141,11 @@ describe('every runtime-tunable setting has a published default equal to its com
       if (spec.consumer === 'horse_decision') expect(horse[spec.key], spec.key).toBeDefined();
       else if (spec.consumer === 'horse_stack_management')
         expect(spec.key, spec.key).toBe('horse.cashStackCeilingBB'); // horseCashStackCeilingBBFrom
+      else if (spec.consumer === 'horse_blanket_rows_off')
+        // omahaBlanketRowsOffListFromSettings (read by horseDecideOptsFromRuntimeSettings)
+        expect(omahaBlanketRowsOffListFromSettings({ [spec.key]: 1 }), spec.key).toEqual([
+          spec.key.slice(OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX.length),
+        ]);
       else if (spec.consumer === 'horse_option_game_scope')
         // omahaOptionGameScopeFromSettings (read by horseDecideOptsFromRuntimeSettings)
         expect(omahaOptionGameScopeFromSettings({ [spec.key]: 5 }), spec.key).toEqual({

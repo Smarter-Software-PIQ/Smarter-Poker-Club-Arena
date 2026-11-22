@@ -73,7 +73,8 @@ describe('omahaMathCore + omahaNoCategoricalRules: the executed action is the co
         // cover that). Here: the choice is one of the core's priced actions, at its priced EV.
         const priced = core.core.evs.some(
           (e) =>
-            e.action === core.core!.choice.action && Math.abs(e.ev - core.core!.choice.ev) <= 0.01
+            e.action === core.core!.choice.action &&
+            Math.abs(e.ev - (core.core!.choice.ev ?? Number.NaN)) <= 0.01
         );
         if (!priced) misses.push(`hand ${r.n}: choice is not one of the core's priced actions`);
         if (d.action !== core.action || (d.amount ?? null) !== (core.amount ?? null))

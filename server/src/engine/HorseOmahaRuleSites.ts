@@ -366,6 +366,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPricedPriorsByOpponentKind: priced(
     "the priors and reference rates every priced comparison reads, by the opponent's measured kind; unpriceable spots keep the decision given, never the categorical rule (an input, not a rule site)"
   ),
+  omahaOpponentLifetimeHud: priced(
+    'the per-opponent lifetime public HUD provider every priced comparison may read; it decides nothing by itself (an input, not a rule site)'
+  ),
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
@@ -608,6 +611,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaOptionGameScope: outside(
     'a scope parameter (the game an omaha* option may be on in, from the runtime settings horse.omahaGameScope.<option>): it decides no action, it passes an option scoped to the other game as off'
   ),
+  omahaBlanketRowsOffInPlo45Cash: outside(
+    'a scope gate (PLO4/PLO5 cash): with it on, each blanket row on the declared list (registry members only: categorical, open or unclassed rules of the no-categorical list, never a priced one) stands aside; it decides no action'
+  ),
+  omahaBlanketRowsOffList: outside(
+    'the declared list of omahaBlanketRowsOffInPlo45Cash (runtime settings horse.blanketRowOffInPlo45Cash.<option>): it decides no action'
+  ),
   omahaNoCategoricalRules: outside(
     'a scope gate (PLO4/PLO5 cash): with it on every categorical and open rule here, and the big-bet call cells, stand aside'
   ),
@@ -619,7 +628,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaMathCorePreflop: outside(PREFLOP),
   omahaMathCoreNetsTheWholeDeduction: outside(
-    'a pricing term of omahaMathCore (the pot it prices is netted of the dealt-player rake cap, the jackpot drop, and both on a preflop line that reaches a flop; default OFF): it is no rule site of its own'
+    'INERT (lane CORE-FIX-1): formerly a pricing term of omahaMathCore; the core nets the whole deduction by default and this option changes no decision (law: OmahaMathCoreCoreFix1.law.test.ts); it is no rule site of its own'
   ),
   omahaFacingBetPaysTheWholeDeduction: priced(
     "the facing-bet call verdicts deduct the whole projected deduction of the pot after the call (capped rake plus the jackpot drop, the controller's own arithmetic) instead of the marginal rake rate (default OFF; EMERG lane RAKE 2026-11-20)"
