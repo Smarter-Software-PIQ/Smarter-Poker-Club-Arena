@@ -18,6 +18,12 @@ import {
 } from '../components/table/avatarCrownBounds';
 import { createOpponentAvatarLayout } from '../components/table/opponentAvatarLayout';
 import {
+  sixSeatPhoneRail,
+  sixSeatTopCaptionDrop,
+  sixSeatTopRailShift,
+  stationIsOnTheTopRail,
+} from '../components/table/sixSeatTopRail';
+import {
   placeProtectedCardRow,
   placeHiddenFans,
   type CardBox,
@@ -741,6 +747,11 @@ export function useProtectedCardLayout(
         window.innerWidth <= 640 &&
         window.innerHeight > window.innerWidth &&
         (page.getAttribute('data-seats') === '6' || page.getAttribute('data-seats') === '9');
+      const railTopSeat = sixSeatPhoneRail(
+        page.getAttribute('data-seats'),
+        window.innerWidth,
+        window.innerHeight
+      );
       const markerCards = inwardFans
         ? '.seat__cards .seat__card'
         : '.seat--hero .seat__cards .seat__card,.seat__cards--revealed .seat__card';
@@ -894,7 +905,26 @@ export function useProtectedCardLayout(
         const plateNow = (pod: HTMLElement) =>
           pod.querySelector('.seat__info')?.getBoundingClientRect().top;
         for (const entry of placed) {
-          if (sixMax) continue;
+          if (sixMax) {
+            // Dan 2026-11-22: on the phone the six-max top chair is placed
+            // from the rail up, never from the tab bar down. Its plate rests
+            // on its own rail station; the crown goes wherever that leaves it
+            // (under the bar, which paints above it). sixSeatTopRail.ts.
+            const station = parseFloat(railLine(entry.pod));
+            const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
+            if (railTopSeat && plate && stationIsOnTheTopRail(station)) {
+              const ring = scaler.getBoundingClientRect();
+              entry.shift = sixSeatTopRailShift({
+                ringTop: ring.top,
+                ringHeight: ring.height,
+                stationPct: station,
+                plateTop: entry.plateTop,
+                plateHeight: plate.height,
+                scale,
+              });
+            }
+            continue;
+          }
           let level = entry.plateTop + entry.shift * scale;
           for (const other of placed)
             if (railLine(other.pod) === railLine(entry.pod))
@@ -934,6 +964,34 @@ export function useProtectedCardLayout(
       scaler
         .querySelectorAll('.seat')
         .forEach((seat) => seat.dispatchEvent(new Event('seatcaptionmeasure')));
+      // The rail-placed top chair keeps its action caption in the lane above
+      // its crown wherever that lane is on screen, and just under the tab bar
+      // where the crown has gone behind it. Read every pass from the current
+      // crown rise; the chair never moves for it.
+      for (const pod of scaler.querySelectorAll<HTMLElement>(
+        '.seat-wrapper--cap, .seat-wrapper--top'
+      )) {
+        const seat = pod.querySelector<HTMLElement>('.seat');
+        if (!seat) continue;
+        if (!railTopSeat || seat.classList.contains('seat--empty')) {
+          seat.style.removeProperty('--sp-rail-caption-drop');
+          continue;
+        }
+        const header = page
+          .closest('.multi-table-page')
+          ?.querySelector('.multi-table-page__tab-bar-wrapper');
+        const seatStyle = getComputedStyle(seat);
+        const drop = sixSeatTopCaptionDrop({
+          seatTop: seat.getBoundingClientRect().top,
+          rise: parseFloat(seatStyle.getPropertyValue('--sp-art-rise')) || 0,
+          tagHeight: parseFloat(seatStyle.getPropertyValue('--sp-tag-h')) || 20,
+          headerBottom: header ? header.getBoundingClientRect().bottom : pageBox.top,
+          scale,
+        });
+        const value = `${Math.round(drop * 100) / 100}px`;
+        if (seat.style.getPropertyValue('--sp-rail-caption-drop') !== value)
+          seat.style.setProperty('--sp-rail-caption-drop', value);
+      }
       if (artwork.space()) {
         // Metadata arrives after initial card placement. Rebase shown rows
         // once against the final opponent position, then retain that slot.
@@ -1119,7 +1177,11 @@ export function useProtectedCardLayout(
         // including already-cached rows and Hero's visible deal/peek motion.
         if (hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards'))))
           return;
-        if (inwardFans && page.getAttribute('data-seats') === '9') {
+        // The six-max top chair stands on the rail (Dan 2026-11-22), so a hand
+        // it tables can fill the whole lane between its plate and the tab bar.
+        // Its caption then takes the nine-seat rail's answer: beside the shown
+        // cards, never through them and never behind the bar.
+        if (inwardFans && (page.getAttribute('data-seats') === '9' || railTopSeat)) {
           const header = page
             .closest('.multi-table-page')
             ?.querySelector('.multi-table-page__tab-bar-wrapper');
@@ -1131,7 +1193,11 @@ export function useProtectedCardLayout(
           )
             .map((node) => node.getBoundingClientRect())
             .filter((r) => r.width && r.height);
-          for (const caption of scaler.querySelectorAll<HTMLElement>('.seat > .seat__action')) {
+          for (const caption of scaler.querySelectorAll<HTMLElement>(
+            page.getAttribute('data-seats') === '9'
+              ? '.seat > .seat__action'
+              : ':is(.seat-wrapper--cap, .seat-wrapper--top):not(.seat-wrapper--hero) .seat > .seat__action'
+          )) {
             const seat = caption.closest('.seat')!;
             const rect = caption.getBoundingClientRect();
             const [dx, dy] = caption.style.translate.split(/\s+/).map(parseFloat);
@@ -2985,7 +3051,10 @@ export function useProtectedCardLayout(
       if (frame !== null) cancelAnimationFrame(frame);
       scaler
         .querySelectorAll<HTMLElement>('.seat-wrapper--cap .seat, .seat-wrapper--top .seat')
-        .forEach((seat) => seat.style.removeProperty('--sp-wrap-overlap'));
+        .forEach((seat) => {
+          seat.style.removeProperty('--sp-wrap-overlap');
+          seat.style.removeProperty('--sp-rail-caption-drop');
+        });
       scaler
         .querySelectorAll<HTMLElement>('.seat-wrapper--cap, .seat-wrapper--top')
         .forEach((pod) => {
