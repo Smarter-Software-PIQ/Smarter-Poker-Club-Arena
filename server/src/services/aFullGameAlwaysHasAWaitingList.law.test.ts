@@ -41,6 +41,7 @@ import {
 import { planHorseQueues, type QueuedHorseRow } from './HorseGameQueue.js';
 import { fullGameWaitTarget } from './HorseBehavior.js';
 import { isFullClassicQueueTable } from './HorseQueueAdmission.js';
+import { sliceBetween } from '../testHelpers/sourceWindow.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const read = (rel: string) => readFileSync(join(HERE, rel), 'utf8');
@@ -323,7 +324,9 @@ describe('LAW: the wiring - the chair and the line are one decision', () => {
       'gameOwesALine({ canCarryLine, openInGame: openChairsLeft.get(lastChairKey) ?? 0 })'
     );
     expect(ask).toBeGreaterThan(seating);
-    expect(FLEET.slice(ask, ask + 400)).toContain('horseQueueAsks.push({');
+    expect(sliceBetween(FLEET.slice(ask), 'gameOwesALine(', 'gameId:')).toContain(
+      'horseQueueAsks.push({'
+    );
     // ...and the planner is told about the seats this cycle took, so it sees
     // the game as full now rather than one cycle later.
     expect(FLEET).toContain('seated: seats.length + (seatedThisCycle.get(String(t.id)) ?? 0),');
