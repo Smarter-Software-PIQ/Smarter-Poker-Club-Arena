@@ -112,10 +112,10 @@ export interface ValueSpot {
     streetOffset: number,
     line: 'bet' | 'raise' | 'check_raise'
   ) => ValueResponse | null;
-  /** the field's wager after a hero check, `streetOffset` streets from now (null = no measured cell: no wager credited) */
-  wagerWhenChecked: (streetOffset: number) => ValueWagerWhenChecked | null;
-  /** the hero's equity against the strongest share `share` of the opponents' current range (share 1 = the whole range) */
-  equityAtShare: (share: number) => number;
+  /** the field's wager after a hero check, `streetOffset` streets from now (null = no measured cell: no wager credited); `effOpp` = remaining opponents at that node */
+  wagerWhenChecked: (streetOffset: number, effOpp?: number) => ValueWagerWhenChecked | null;
+  /** the hero's equity against the strongest share `share` of the `effOpp` remaining opponents' current range (share 1 = whole range; effOpp defaults to nOpp) */
+  equityAtShare: (share: number, effOpp?: number) => number;
   /** the standard error of the equities above (sampling) */
   equitySe: number;
   /** wager sizes as shares of the pot; defaults to VALUE_SIZE_MENU */
@@ -272,6 +272,11 @@ interface Node {
   /** offset from the decision street */
   off: number;
   /**
+   * effective number of live opponents remaining at this node (starts at spot.nOpp; narrows to callers
+   * on a called wager and to 1 on a raise; lane core-repair effOpp fix)
+   */
+  effOpp: number;
+  /**
    * the opponents called a raise or were the wagerer we called (lane COREWIRE, PROVE-2 root cause 2;
    * lane CORE-LEAD4 B1): what such a range folds to a later wager is not measured (the street barrel
    * cells measure ordinary flop callers facing a continuation bet), so later streets take no fold
@@ -288,12 +293,18 @@ interface Best {
 }
 
 /** Equity against the band of the range between the strongest `hi x share` and the strongest `lo x share` (callers below the raisers). */
-function bandEquity(eqAt: (s: number) => number, share: number, lo: number, hi: number): number {
+function bandEquity(
+  eqAt: (s: number, effOpp: number) => number,
+  share: number,
+  lo: number,
+  hi: number,
+  effOpp: number
+): number {
   const a = share * lo;
   const b = share * hi;
-  if (b - a < 1e-6) return eqAt(Math.max(b, 1e-6));
-  const eb = eqAt(b) * b;
-  const ea = a > 1e-9 ? eqAt(a) * a : 0;
+  if (b - a < 1e-6) return eqAt(Math.max(b, 1e-6), effOpp);
+  const eb = eqAt(b, effOpp) * b;
+  const ea = a > 1e-9 ? eqAt(a, effOpp) * a : 0;
   return clamp01((eb - ea) / (b - a));
 }
 
@@ -312,12 +323,13 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     throw new Error('omahaMathCoreValue: inconsistent spot');
   const menuSizes = (spot.sizes ?? VALUE_SIZE_MENU).filter((f) => f > 0 && f <= 1 + 1e-9);
   const memo = new Map<string, number>();
-  const eqAt = (s: number): number => {
+  const eqAt = (s: number, effOpp: number): number => {
     const k = Math.max(0.005, Math.round(clamp01(s) * 200) / 200);
-    const key = k.toFixed(3);
+    const e = Math.max(1, Math.min(spot.nOpp, Math.round(effOpp * 100) / 100));
+    const key = `${k.toFixed(3)}|${e.toFixed(2)}`;
     let v = memo.get(key);
     if (v === undefined) {
-      v = clamp01(spot.equityAtShare(k));
+      v = clamp01(spot.equityAtShare(k, e));
       if (!Number.isFinite(v)) throw new Error('omahaMathCoreValue: equity unavailable');
       memo.set(key, v);
     }
@@ -385,20 +397,21 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       let evRaise = 0;
       if (pr > 0) {
         // he raises the pot (capped by the stacks); the hero folds or calls, whichever is worth more, against the
-        // raising share; the hero's total from now if he calls is H (the opponent's earlier bet covers toCall)
+        // raising share of the 1 raiser; the hero's total from now if he calls is H
         const all = toCall + n.stack;
         const H = Math.min(all, adds + (n.pot + 2 * adds - toCall));
-        const eR = eqAt(n.share * pr);
+        const eR = eqAt(n.share * pr, 1);
         const callRaise = eR * net(n.pot + 2 * H - toCall) - H;
         evRaise = pr * Math.max(-adds, callRaise);
       }
-      // called: the callers are the band below the raisers
+      // called: the callers are the band below the raisers; remaining opponents narrow to callers (never > n.effOpp)
       let evCall = 0;
       let plan = 'showdown';
       let seLater = 0;
       let sd = 0;
       if (pc > 0) {
-        const eC = bandEquity(eqAt, n.share, pr, pr + pc);
+        const nextOpp = Math.max(1, Math.min(n.effOpp, callers));
+        const eC = bandEquity(eqAt, n.share, pr, pr + pc, nextOpp);
         const potAfter = n.pot + adds + callers * (adds - toCall);
         if (!allIn) sd = pc * eC * net(potAfter);
         const stackAfter = n.stack - (adds - toCall);
@@ -412,6 +425,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
             share: n.share * (pr + pc),
             st: n.st + 1,
             off: n.off + 1,
+            effOpp: nextOpp,
             capped: n.capped === true || isRaise,
           };
           const b = bestPlan(next);
@@ -452,7 +466,9 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     // fears) or folded to at the best available estimate (what a value raise fears): the borrowed cell's fold rate
     // when one exists, else the self-consistent defence s/(1+s) at this size. Neither side gets credit the data
     // does not carry.
-    const callers0 = measured ? Math.max(1, measured.callers) : Math.max(1, spot.nOpp);
+    const callers0 = measured
+      ? Math.max(1, Math.min(n.effOpp, measured.callers))
+      : Math.max(1, n.effOpp);
     const reason =
       n.off > 0 && n.capped === true
         ? 'later street after a called raise: capped range, unmeasured'
@@ -461,7 +477,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       {
         fold: 0,
         raise: measured ? measured.raise : 0,
-        callers: callers0,
+        callers: Math.max(1, n.effOpp),
         n: measured?.n,
         source: `${measured ? measured.source : 'no measured cell'}; no fold credit (${reason})`,
       },
@@ -504,7 +520,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
       return { ev: b.ev, plan: `check > ${b.plan}`, se: b.se };
     };
     if (closes) return goOn();
-    const w = spot.wagerWhenChecked(n.off);
+    const w = spot.wagerWhenChecked(n.off, n.effOpp);
     if (!w || !(w.p > 0)) return goOn();
     const p = clamp01(w.p);
     const bet = Math.min(w.frac * n.pot, n.stack);
@@ -512,10 +528,13 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
     const v = w.valueShare === undefined ? 1 : clamp01(w.valueShare);
     const top = n.share * p * v;
     const low = n.share * p * (1 - v);
-    const eqTop = top > 1e-6 ? eqAt(top) : 0;
+    const eqTop = top > 1e-6 ? eqAt(top, n.effOpp) : 0;
     const eqLow =
       low > 1e-6
-        ? clamp01((eqAt(n.share) * n.share - eqAt(n.share - low) * (n.share - low)) / low)
+        ? clamp01(
+            (eqAt(n.share, n.effOpp) * n.share - eqAt(n.share - low, n.effOpp) * (n.share - low)) /
+              low
+          )
         : 0;
     const eqVsWager = v * eqTop + (1 - v) * eqLow;
     // facing that wager: fold (0), call (continue with the pot grown), or check-raise (priced as a raise)
@@ -537,6 +556,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
         share: Math.max(1e-3, n.share * p * v || n.share * p),
         st: n.st + 1,
         off: n.off + 1,
+        effOpp: n.effOpp,
         capped: true,
       });
       call = { ev: b.ev - bet, plan: `check-call > ${b.plan}`, se: b.se };
@@ -570,7 +590,7 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   // later streets: in position the opponent has checked to the hero (his lead is not modelled: conservative for
   // the hero's wager, which is then priced only against the checking share); out of position the hero acts first
   const bestPlan = (n: Node): Best => {
-    const eqHere = eqAt(n.share);
+    const eqHere = eqAt(n.share, n.effOpp);
     const streetsLeft = 3 - n.st;
     const g = geometricFraction(n.pot, n.stack, streetsLeft);
     let best = checkEv(n, spot.ip, eqHere);
@@ -594,8 +614,15 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
   };
 
   const eff = Math.min(spot.heroStack - spot.toCall, spot.oppStack);
-  const root: Node = { pot: spot.pot, stack: Math.max(0, eff), share: 1, st: st0, off: 0 };
-  const eqNow = eqAt(1);
+  const root: Node = {
+    pot: spot.pot,
+    stack: Math.max(0, eff),
+    share: 1,
+    st: st0,
+    off: 0,
+    effOpp: Math.max(1, spot.nOpp),
+  };
+  const eqNow = eqAt(1, root.effOpp);
   const cands: ValueCandidate[] = [];
   if (spot.toCall <= 1e-9) {
     const c = checkEv(root, spot.checkCloses, eqNow);
@@ -662,9 +689,12 @@ export function planValue(spot: ValueSpot): ValueReceipt | null {
         share: 1,
         st: st0 + 1,
         off: 1,
+        effOpp: root.effOpp,
         capped: true,
       };
-      const b = spot.ip ? checkEv(next, false, eqAt(1), () => bestPlan(next)) : bestPlan(next);
+      const b = spot.ip
+        ? checkEv(next, false, eqAt(1, root.effOpp), () => bestPlan(next))
+        : bestPlan(next);
       ev = b.ev - callAdds;
       plan = `call > ${b.plan}`;
       seLater = b.se ?? 0;
