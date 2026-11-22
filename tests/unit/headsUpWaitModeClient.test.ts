@@ -84,9 +84,10 @@ describe('TablePage Heads-Up wait-mode persistence, hydration, and invite gate w
     expect(TABLE_PAGE).toContain("supabase.rpc('fn_set_heads_up_wait_mode'");
     expect(TABLE_PAGE).toContain("from('heads_up_wait_holds')");
     expect(TABLE_PAGE).toContain('.maybeSingle()');
-    expect(TABLE_PAGE).toContain(
-      'appendHeadsUpInviteToken(tableShareUrl(tableId), headsUpInviteToken)'
-    );
+    expect(TABLE_PAGE).toContain('appendHeadsUpInviteToken(');
+    expect(TABLE_PAGE).toContain('tableShareUrl(tableId, { inviteCode: senderInviteCode })');
+    expect(TABLE_PAGE).toContain('headsUpInviteToken');
+    expect(TABLE_PAGE).toContain('inviteToken: headsUpInviteToken');
     expect(TABLE_PAGE).toContain('busy={headsUpModeSaving}');
     expect(TABLE_PAGE).toContain('errorMessage={headsUpModeError}');
   });
