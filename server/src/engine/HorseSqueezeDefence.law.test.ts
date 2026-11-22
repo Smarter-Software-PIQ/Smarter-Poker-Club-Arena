@@ -11,9 +11,10 @@
  *     re-raise): facing a 4-bet or more the decision is exactly what it was,
  *     Dan's 2026-10-25 deep 5-bet discipline included.
  *  4. The explicit off arm (v75SqueezeDefence: false) routes the squeeze
- *     node exactly where it routed before V75 existed: the same legacy
- *     branch the v73Vs3BetDefence off arm reads (on the squeeze node the two
- *     flags gate the same single read, so their off arms must be identical).
+ *     node exactly where it routed before V75 existed (identical to disabling
+ *     both v73Vs3BetDefence and v75SqueezeDefence), while turning
+ *     v73Vs3BetDefence OFF alone leaves v75SqueezeDefence intact on squeeze
+ *     nodes (decoupled per REVIEW-HOLDEM-OFFLIST #19).
  */
 import { describe, expect, it } from 'vitest';
 import { HorseLogic } from './HorseLogic.js';
@@ -124,22 +125,35 @@ describe('V75 squeeze defence keeps the owner rules', () => {
     }
   });
 
-  it('the off arm is exactly the pre-V75 route (identical to the v73 off arm on this node)', () => {
+  it('the off arm is exactly the pre-V75 route, and v73Vs3BetDefence OFF leaves V75 intact', () => {
     for (const { ctx, hero, callers, three } of spots) {
       for (const h of HAND_CLASSES) {
+        const defOn = decide(
+          () => squeezeStateFor(ctx, hero, [...callers], three, holeFor(h.cls, 3)),
+          4409,
+          'balanced',
+          {}
+        );
         const v75off = decide(
           () => squeezeStateFor(ctx, hero, [...callers], three, holeFor(h.cls, 3)),
           4409,
           'balanced',
           { v75SqueezeDefence: false }
         );
-        const v73off = decide(
+        const bothOff = decide(
+          () => squeezeStateFor(ctx, hero, [...callers], three, holeFor(h.cls, 3)),
+          4409,
+          'balanced',
+          { v73Vs3BetDefence: false, v75SqueezeDefence: false }
+        );
+        const v73offOnly = decide(
           () => squeezeStateFor(ctx, hero, [...callers], three, holeFor(h.cls, 3)),
           4409,
           'balanced',
           { v73Vs3BetDefence: false }
         );
-        expect(v75off.action, `${h.cls} ${ctx.mode}`).toBe(v73off.action);
+        expect(v75off.action, `pre-V75 route ${h.cls} ${ctx.mode}`).toBe(bothOff.action);
+        expect(v73offOnly.action, `v73 OFF preserves V75 ${h.cls} ${ctx.mode}`).toBe(defOn.action);
       }
     }
   });

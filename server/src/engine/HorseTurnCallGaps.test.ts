@@ -138,7 +138,15 @@ function decideMany(s: ReturnType<typeof turn>, opts: Record<string, unknown>, s
 // Several fixtures here are top pair with a weak kicker (As4d on AhKdTs2c):
 // V79 (the kicker cap, pinned in HorseTopPairWeakKicker.law.test.ts) is held
 // off in BOTH arms so every case keeps measuring V69 alone.
-const OFF = { v69TurnCallGaps: false, v79TopPairWeakKicker: false };
+// After decoupling V69's three effects (REVIEW-HOLDEM-OFFLIST #12), OFF turns
+// off all three independent V69 flags together; per-flag independence is pinned
+// by HorseHoldemBlanketDecouplingV69V73.law.test.ts.
+const OFF = {
+  v69TurnCallGaps: false,
+  v69HoleDrawExemption: false,
+  v69V32DrawNoRoom: false,
+  v79TopPairWeakKicker: false,
+};
 const ON = { v79TopPairWeakKicker: false };
 
 /** A V32 solver cell for the turn board: every hand class bets big. */
