@@ -125,11 +125,18 @@ import {
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  PLO8_HU_SCRIPTED_POPULATION_ID,
+  PLO8_HU_SCRIPTED_FIELD_VARIANTS,
+  PLO8_HU_SCRIPTED_PERSONAS,
+  PLO8_HU_REC_CALLER_PERSONA,
+  PLO8_HU_TIGHT_BLIND_PERSONA,
   type FixedLimitScriptedPersona,
   type HumanFieldPersona,
   type NlhScriptedPersona,
+  type Plo8HuScriptedPersona,
 } from './HorseLeagueHumanField.js';
 import { NLH_SCRIPTED_COMMITTED_STACK_BB, nlhScriptedPolicy } from './NlhScriptedField.js';
+import { PLO8_HU_SCRIPTED_STACK_BB, plo8HuScriptedPolicy } from './Plo8HuScriptedField.js';
 import {
   fixedLimitScriptedNode,
   fixedLimitScriptedPolicy,
@@ -196,7 +203,8 @@ export type LeagueOpponentPopulation =
   | typeof V53_PRESSURE_POPULATION_ID
   | typeof HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID
   | typeof FIXED_LIMIT_SCRIPTED_POPULATION_ID
-  | typeof NLH_SCRIPTED_POPULATION_ID;
+  | typeof NLH_SCRIPTED_POPULATION_ID
+  | typeof PLO8_HU_SCRIPTED_POPULATION_ID;
 
 /** Variants each field may be dealt, or null for an unknown field. */
 export function leagueFieldVariants(population: unknown): readonly string[] | null {
@@ -206,6 +214,7 @@ export function leagueFieldVariants(population: unknown): readonly string[] | nu
     return HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS;
   if (population === FIXED_LIMIT_SCRIPTED_POPULATION_ID) return FIXED_LIMIT_SCRIPTED_FIELD_VARIANTS;
   if (population === NLH_SCRIPTED_POPULATION_ID) return NLH_SCRIPTED_FIELD_VARIANTS;
+  if (population === PLO8_HU_SCRIPTED_POPULATION_ID) return PLO8_HU_SCRIPTED_FIELD_VARIANTS;
   return null;
 }
 import { supabase } from '../services/supabase.js';
@@ -2295,6 +2304,13 @@ export function humanFieldPersonaProfile(
         `${table.variant} at ${table.seats} seats`
     );
   }
+  if (persona === PLO8_HU_REC_CALLER_PERSONA || persona === PLO8_HU_TIGHT_BLIND_PERSONA) {
+    throw new Error(
+      `${persona} is a scripted persona of the ${PLO8_HU_SCRIPTED_POPULATION_ID} field ` +
+        `(Plo8HuScriptedField.ts), not a calibrated profile; refused for ${table.population} ` +
+        `${table.variant} at ${table.seats} seats`
+    );
+  }
   if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
     if (
       table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
@@ -2552,6 +2568,22 @@ async function runHumanFieldMatchup(
         `(${NLH_SCRIPTED_PERSONAS.join(', ')}); got ${String(matchup.humanPersona)}`
     );
   }
+  // SCRIPTED PLO8 HEADS-UP FIELD (2026-11-21, Plo8HuScriptedField.ts): seats a
+  // pure deterministic PLO8 heads-up opponent; requires variant plo8, 2 seats,
+  // and one of its scripted personas.
+  const scriptedPlo8Hu = population === PLO8_HU_SCRIPTED_POPULATION_ID;
+  if (
+    scriptedPlo8Hu &&
+    (variant !== 'plo8' ||
+      SEATS !== 2 ||
+      !PLO8_HU_SCRIPTED_PERSONAS.includes(matchup.humanPersona as Plo8HuScriptedPersona))
+  ) {
+    throw new Error(
+      `${matchup.name}: a ${population} card deals plo8 heads-up (2 seats) and names one of its ` +
+        `scripted personas (${PLO8_HU_SCRIPTED_PERSONAS.join(', ')}); got variant=${variant} ` +
+        `seats=${SEATS} persona=${String(matchup.humanPersona)}`
+    );
+  }
   const warmupHands = matchup.probeHistoryHands ?? 0;
   if (warmupHands !== 0) {
     if (
@@ -2569,7 +2601,7 @@ async function runHumanFieldMatchup(
     }
   }
   const persona =
-    matchup.humanPersona === undefined || scriptedFixedLimit || scriptedNoLimit
+    matchup.humanPersona === undefined || scriptedFixedLimit || scriptedNoLimit || scriptedPlo8Hu
       ? undefined
       : humanFieldPersonaProfile(matchup.humanPersona, {
           population,
@@ -2599,7 +2631,9 @@ async function runHumanFieldMatchup(
     ? fixedLimitScriptedPolicy(matchup.humanPersona as FixedLimitScriptedPersona)
     : scriptedNoLimit
       ? nlhScriptedPolicy(matchup.humanPersona as NlhScriptedPersona)
-      : undefined;
+      : scriptedPlo8Hu
+        ? plo8HuScriptedPolicy(matchup.humanPersona as Plo8HuScriptedPersona)
+        : undefined;
   // The script's answers are tallied per node like a calibrated seat's (counts
   // only), so the result proves the field played. Probe passes get their own tally.
   const scriptedSeat =
@@ -6001,6 +6035,58 @@ export const NLH_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.freeze(
   ),
 ]);
 LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_FIELD_CARDS);
+
+/**
+ * THE SCRIPTED PLO8 HEADS-UP FIELD CARDS (2026-11-21, Heads Up lane).
+ *
+ * Non-mirror short-stack (12bb) PLO8 final-table heads-up cards for
+ * omahaHiLoTournamentFirstIn (HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID covers
+ * plo4/plo5/plo6 only). Each card seats one hero Horse (tournament Hybrid
+ * persona, deal-seeded mood clock) heads-up against one scripted PLO8 opponent
+ * (PLO8_HU_SCRIPTED_POPULATION_ID, Plo8HuScriptedField.ts):
+ *  - plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_rec_caller: loose
+ *    short-stack recreational caller/defender.
+ *  - plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_tight_blind: tight
+ *    short-stack blind (harm control for 75% BB defence + steal test for 100%
+ *    SB pot open).
+ * The cards only measure; omahaHiLoTournamentFirstIn stays default OFF.
+ */
+function plo8HuScriptedCard(
+  name: string,
+  pairs: number,
+  humanPersona: Plo8HuScriptedPersona,
+  a: HorseDecideOpts
+): LeagueMatchup {
+  return {
+    name,
+    variant: 'plo8',
+    seats: 2,
+    stackBB: PLO8_HU_SCRIPTED_STACK_BB,
+    context: finalTableMttContext(2, PLO8_HU_SCRIPTED_STACK_BB),
+    pairs,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: PLO8_HU_SCRIPTED_POPULATION_ID,
+    humanPersona,
+    a,
+    b: {},
+  };
+}
+export const PLO8_HU_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  plo8HuScriptedCard(
+    'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_rec_caller',
+    6000,
+    PLO8_HU_REC_CALLER_PERSONA,
+    { omahaHiLoTournamentFirstIn: true }
+  ),
+  plo8HuScriptedCard(
+    'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb_vs_tight_blind',
+    6000,
+    PLO8_HU_TIGHT_BLIND_PERSONA,
+    { omahaHiLoTournamentFirstIn: true }
+  ),
+]);
+LEAGUE_MATCHUPS.push(...PLO8_HU_SCRIPTED_FIELD_CARDS);
 
 /**
  * Why a fixed-limit arm is still refused (2026-11-20). Hold'em: the league

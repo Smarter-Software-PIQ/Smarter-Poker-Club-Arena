@@ -237,10 +237,37 @@ export const NLH_SCRIPTED_PERSONAS: readonly NlhScriptedPersona[] = Object.freez
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
 ]);
+/**
+ * THE SCRIPTED PLO8 HEADS-UP FIELD (2026-11-21, Heads Up lane). No population
+ * is calibrated for pot-limit Omaha hi-lo (HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID
+ * covers plo4/plo5/plo6 only), so omahaHiLoTournamentFirstIn had only a Horse
+ * mirror card. This field seats scripted PLO8 heads-up players instead, each a
+ * pure function of its own cards and the public state (Plo8HuScriptedField.ts),
+ * offered the same pot-limit legal menu a Horse gets and validated like a Horse.
+ * PLO8 heads-up only. Personas (LeagueMatchup.humanPersona):
+ *  - plo8_hu_rec_caller_v1: short-stack recreational caller/defender (wide SB
+ *    entry with limps and pot opens, wide 70% BB defence, sticky postflop with
+ *    any pair, made low or low draw).
+ *  - plo8_hu_tight_blind_v1: short-stack tight-blind / nit harm control (tight
+ *    top 25% SB opens, tight top 25% BB defence, value-heavy postflop).
+ * Development personas, not calibrated populations.
+ */
+export const PLO8_HU_SCRIPTED_POPULATION_ID = 'plo8_hu_scripted_field_v1' as const;
+export const PLO8_HU_SCRIPTED_FIELD_VARIANTS: readonly string[] = Object.freeze(['plo8']);
+export const PLO8_HU_REC_CALLER_PERSONA = 'plo8_hu_rec_caller_v1' as const;
+export const PLO8_HU_TIGHT_BLIND_PERSONA = 'plo8_hu_tight_blind_v1' as const;
+export type Plo8HuScriptedPersona =
+  | typeof PLO8_HU_REC_CALLER_PERSONA
+  | typeof PLO8_HU_TIGHT_BLIND_PERSONA;
+export const PLO8_HU_SCRIPTED_PERSONAS: readonly Plo8HuScriptedPersona[] = Object.freeze([
+  PLO8_HU_REC_CALLER_PERSONA,
+  PLO8_HU_TIGHT_BLIND_PERSONA,
+]);
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
   | FixedLimitScriptedPersona
   | NlhScriptedPersona
+  | Plo8HuScriptedPersona
   | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
@@ -267,4 +294,6 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,
   NLH_DANGER_BOARD_VALUE_PERSONA,
+  PLO8_HU_REC_CALLER_PERSONA,
+  PLO8_HU_TIGHT_BLIND_PERSONA,
 ]);
