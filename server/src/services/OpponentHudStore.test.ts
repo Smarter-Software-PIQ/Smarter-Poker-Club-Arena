@@ -14,6 +14,7 @@ import {
   OpponentHudStore,
   opponentHudSnapshotField,
   setOpponentHudStoreForTest,
+  supabaseHudDeps,
   type HudStoredRow,
   type OpponentHudStoreDeps,
 } from './OpponentHudStore.js';
@@ -921,5 +922,133 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
     expect(Math.max(...reconcileLimits)).toBeLessThanOrEqual(HUD_RECONCILE_PAGE_ROWS);
     expect(reconcileLimits[0]).toBe(HUD_RECONCILE_PAGE_ROWS);
     expect(reconcileLimits[1]).toBe(Math.floor(HUD_RECONCILE_PAGE_ROWS / 2));
+  });
+});
+
+describe('OpponentHudStore: the production hands-page dependency lets the adaptive retry see a database timeout', () => {
+  const dayStart = Date.parse('2027-01-14T12:00:00Z');
+  const hands = [
+    row(71_001, 1, 2, dayStart + 1000),
+    row(71_002, 1, 2, dayStart + 2000),
+    row(71_003, 1, 2, dayStart + 3000),
+  ];
+  type DbError = { code: string; message: string; details?: string; hint?: string };
+  type DbAnswer = { data: unknown; error: DbError | null; status: number };
+  /** A database client as the production dependencies call it: `.rpc(name, args).abortSignal(signal)`. */
+  function stubClient(handsPage: (args: Record<string, unknown>, call: number) => DbAnswer) {
+    const pageCalls: Record<string, unknown>[] = [];
+    // closed while the store is armed and warmed (its switch-on catch-up reads pages too): only the read under test counts
+    const gate = { open: false };
+    const client = {
+      rpc(name: string, args: Record<string, unknown>) {
+        return {
+          async abortSignal(): Promise<DbAnswer> {
+            if (name !== 'fn_opponent_hud_hands_page' || !gate.open)
+              return { data: [], error: null, status: 200 };
+            pageCalls.push(args);
+            return handsPage(args, pageCalls.length);
+          },
+        };
+      },
+    };
+    return { client, pageCalls, gate };
+  }
+  const page = (args: Record<string, unknown>): DbAnswer => ({
+    data: hands
+      .filter(
+        (r) =>
+          r.created_at > String(args.p_after_at) ||
+          (r.created_at === args.p_after_at && r.id > String(args.p_after_id))
+      )
+      .slice(0, Number(args.p_limit)),
+    error: null,
+    status: 200,
+  });
+  async function storeOver(client: unknown) {
+    const store = new OpponentHudStore({
+      ...supabaseHudDeps(client),
+      sleep: async () => {},
+      now: () => dayStart,
+    });
+    store.setArmed(true);
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    await flush();
+    await flush();
+    await flush();
+    return store;
+  }
+
+  it('a statement timeout from the database is retried on a smaller page and the read then succeeds', async () => {
+    const { client, pageCalls, gate } = stubClient((args, call) =>
+      call === 1
+        ? {
+            data: null,
+            error: { code: '57014', message: 'canceling statement due to statement timeout' },
+            status: 500,
+          }
+        : page(args)
+    );
+    const store = await storeOver(client);
+    gate.open = true;
+    const applied = await store.catchUp(new Date(dayStart).toISOString());
+    expect(applied).toBe(6);
+    expect(pageCalls.length).toBeGreaterThanOrEqual(2);
+    expect(pageCalls[0].p_limit).toBe(HUD_CATCHUP_PAGE_ROWS);
+    expect(pageCalls[1].p_limit).toBe(Math.floor(HUD_CATCHUP_PAGE_ROWS / 2));
+  });
+
+  it('a database error that is not transient still fails on the first attempt', async () => {
+    const { client, pageCalls, gate } = stubClient(() => ({
+      data: null,
+      error: {
+        code: '42501',
+        message: 'permission denied for function fn_opponent_hud_hands_page',
+      },
+      status: 403,
+    }));
+    const store = await storeOver(client);
+    gate.open = true;
+    expect(await store.catchUp(new Date(dayStart).toISOString())).toBe(0);
+    expect(pageCalls.length).toBe(1);
+    // the nightly comparison reads through the same wrapper: one more call, again no retry, nothing compared
+    expect((await store.reconcileDay('2027-01-14')).compared).toBe(0);
+    expect(pageCalls.length).toBe(2);
+    const ac = new AbortController();
+    await expect(
+      supabaseHudDeps(client).handsPage!(new Date(dayStart).toISOString(), H(0), 500, ac.signal)
+    ).rejects.toThrow(
+      /^opponent hud hands page failed \(code 42501, http 403\): permission denied/
+    );
+  });
+
+  it('the error carries the code, the status and one bounded line of the message: no details, hint or address', async () => {
+    const { client, gate } = stubClient(() => ({
+      data: null,
+      error: {
+        code: '08006',
+        message: `connection to postgresql://svc:hunter2@db.internal:5432/postgres lost\n${'x'.repeat(900)}`,
+        details: 'Failing row contains (secret-row-value)',
+        hint: 'secret-hint',
+      },
+      status: 503,
+    }));
+    gate.open = true;
+    const ac = new AbortController();
+    const err = await supabaseHudDeps(client).handsPage!(
+      new Date(dayStart).toISOString(),
+      H(0),
+      500,
+      ac.signal
+    ).then(
+      () => null,
+      (e: Error) => e
+    );
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message.startsWith('opponent hud hands page failed (code 08006, http 503): ')).toBe(
+      true
+    );
+    expect(message).not.toMatch(/hunter2|db\.internal|secret-row-value|secret-hint|\n/);
+    expect(message.length).toBeLessThanOrEqual(300);
   });
 });

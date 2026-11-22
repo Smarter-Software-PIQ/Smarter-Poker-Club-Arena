@@ -1621,9 +1621,38 @@ const missing = (error: { code?: string; message?: string }): boolean =>
   error.code === '42883' ||
   /could not find the function|function .* does not exist/i.test(error.message ?? '');
 
-function supabaseHudDeps(): OpponentHudStoreDeps {
+/**
+ * What a failed hands-page call says in its Error: the fixed prefix, the database's error code, the HTTP status and
+ * one bounded line of the database's own message, so the transient check (`isTransientBackfillError`: statement
+ * timeout, 502/503/504, ...) can recognise it and the adaptive retry runs. Never the details or hint (they can quote
+ * a row) and never an address.
+ */
+function hudDbFailure(
+  prefix: string,
+  error: { code?: unknown; message?: unknown },
+  status?: unknown
+): Error {
+  const code =
+    typeof error.code === 'string' && /^[A-Za-z0-9]{1,10}$/.test(error.code) ? error.code : '';
+  const http = typeof status === 'number' && status >= 100 && status <= 599 ? status : 0;
+  const tags = [code ? `code ${code}` : '', http ? `http ${http}` : ''].filter(Boolean).join(', ');
+  const text = (typeof error.message === 'string' ? error.message : '')
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[address]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return new Error(`${prefix}${tags ? ` (${tags})` : ''}: ${text || 'no message'}`);
+}
+
+type HudDbClient = Awaited<typeof import('./supabase.js')>['supabase'];
+
+/** The production dependencies. `clientForTest` stands in for the database client in a test of these wrappers. */
+export function supabaseHudDeps(clientForTest?: unknown): OpponentHudStoreDeps {
   // imported lazily so engine tests that never touch the store need no database client
-  const client = async () => (await import('./supabase.js')).supabase;
+  const client = async (): Promise<HudDbClient> =>
+    clientForTest !== undefined
+      ? (clientForTest as HudDbClient)
+      : (await import('./supabase.js')).supabase;
   return {
     async read(userIds, family, signal) {
       const { data, error } = await (await client())
@@ -1647,7 +1676,7 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
       return (data ?? []) as HudStoredRow[];
     },
     async handsPage(afterAt, afterId, limit, signal, untilIso) {
-      const { data, error } = await (
+      const { data, error, status } = await (
         await client()
       )
         .rpc('fn_opponent_hud_hands_page', {
@@ -1657,7 +1686,7 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
           p_limit: limit,
         })
         .abortSignal(signal);
-      if (error) throw new Error('opponent hud hands page failed');
+      if (error) throw hudDbFailure('opponent hud hands page failed', error, status);
       return (data ?? []) as { id: string; created_at: string }[];
     },
     alert(name, firing, summary) {
