@@ -67,22 +67,38 @@ REQUIRED_HOT_PATH_ROOTS = (
 
 # Roots that must have ZERO transitive paths to fn_ca_promo_shared_fee_state_live
 # even when including the cache-first reader fn_ca_promo_shared_fee_state.
+# Note: fn_ca_promo_roll_event_principal delegates to
+# fn_ca_promo_profit_project_earning / fn_ca_promo_profit_return_entitlement_ticket
+# -> fn_ca_promo_restrictions_exceed_capacity (conservative fast-path bound with
+# cache-first fallback on ambiguous over-capacity), identical to
+# fn_ca_promo_realize_event_principal, so it is enforced under walk_settle.
 STRICT_ZERO_PATH_ROOTS = (
     "fn_ca_commit_hand_settlement",
     "fn_ca_process_hand_post_commit_obligations",
     "process_tournament_rebuy",
     "fn_ca_promo_profit_credit_owned",
-    "fn_ca_promo_roll_event_principal",
 )
 
 # Functions loaded into pg_proc: all hot-path roots, all fn_ca_promo_* functions,
-# and all fn_ca_commit_hand_settlement* / fn_ca_process_hand_post_commit* /
-# fn_ca_share_* / fn_ca_tournament_* helpers.
+# non-fn_ca_promo_ bridge functions reachable from hot-path roots (such as
+# resolve_pending_addon -> fn_cash_record_funding_application ->
+# fn_ca_promo_apply_pending_cash_funding, incidents 053d3341 & 515d6f24),
+# and all fn_ca_commit_hand_settlement* / fn_ca_process_hand_post_commit* helpers.
 LOAD_PREFIXES = (
     "fn_ca_commit_hand_settlement",
     "fn_ca_process_hand_post_commit_obligations",
+    "fn_project_hand_side_effects",
+    "resolve_pending_addon",
+    "fn_cash_record_funding_application",
+    "promo_apply_playthrough",
     "process_tournament_rebuy",
     "fn_ca_promo_",
+)
+
+REQUIRED_BRIDGE_FNS = (
+    "resolve_pending_addon",
+    "fn_cash_record_funding_application",
+    "fn_ca_promo_apply_pending_cash_funding",
 )
 
 
@@ -197,12 +213,18 @@ def extract_anchored_rewrites(sql: str) -> list[tuple[str, str, str]]:
     def lit_pat(idx: int) -> str:
         return (
             rf"(?:E'(?P<e{idx}>(?:\\.|''|[^'])*)'"
+            rf"|'(?P<s{idx}>(?:''|[^'])*)'"
             rf"|\$(?P<t{idx}>[a-zA-Z0-9_]*)\$(?P<d{idx}>.*?)\$(?P=t{idx})\$)"
         )
 
     def extract_lit(m: re.Match, idx: int) -> str:
         e_val = m.group(f"e{idx}")
-        return decode_pg_e_string(e_val) if e_val is not None else m.group(f"d{idx}")
+        if e_val is not None:
+            return decode_pg_e_string(e_val)
+        s_val = m.group(f"s{idx}")
+        if s_val is not None:
+            return s_val.replace("''", "'")
+        return m.group(f"d{idx}")
 
     # Pattern 1: tuple in VALUES ('public.fn(...)', old, new)
     tup_pat = re.compile(
@@ -230,25 +252,38 @@ def extract_anchored_rewrites(sql: str) -> list[tuple[str, str, str]]:
         if anc_m and new_m:
             rewrites.append((sig_m.group(1), anc_m.group(2), new_m.group(2)))
 
-    # Pattern 3: SELECT pg_get_functiondef('public.fn(...)'::regprocedure) INTO def;
-    # followed by needle := E'...'; ... replace(def, needle, E'...');
+    # Pattern 3 & 4: SELECT pg_get_functiondef('public.fn(...)'::regprocedure) INTO def;
+    # OR signature := 'public.fn(...)'; ... SELECT pg_get_functiondef(signature::regprocedure) INTO def;
+    # followed by needle := ...; ... replace(def, needle, <lit> | needle || <lit> | <lit> || needle);
     sel_pat = re.compile(
-        r"SELECT\s+pg_get_functiondef\(\s*'public\.([a-zA-Z0-9_]+)\([^']*\)'::regprocedure\s*\)\s+INTO\s+def\s*;",
+        r"(?:SELECT\s+pg_get_functiondef\(\s*'public\.([a-zA-Z0-9_]+)\([^']*\)'::regprocedure\s*\)\s+INTO\s+def\s*;"
+        r"|signature\s*:=\s*'public\.([a-zA-Z0-9_]+)\([^']*\)';)",
         re.IGNORECASE,
     )
     sel_matches = list(sel_pat.finditer(sql))
     for idx, sm in enumerate(sel_matches):
-        fn = sm.group(1)
+        fn = sm.group(1) or sm.group(2)
         if not should_load_fn(fn):
             continue
         block_end = sel_matches[idx + 1].start() if idx + 1 < len(sel_matches) else len(sql)
         block = sql[sm.end():block_end]
+        # Direct replacement: replace(def, needle, <lit2>)
         pair_pat = re.compile(
-            r"needle\s*:=\s*" + lit_pat(1) + r"\s*;.*?(?:def\s*:=\s*|EXECUTE\s+)replace\(\s*def\s*,\s*needle\s*,\s*" + lit_pat(2) + r"\s*\)",
+            r"needle\s*:=\s*" + lit_pat(1) + r"\s*;.*?(?:def\s*:=\s*|EXECUTE\s+)replace\(\s*def\s*,\s*needle\s*,\s*"
+            + r"(?:(?P<pre>needle\s*\|\|\s*)" + lit_pat(2)
+            + r"|" + lit_pat(3) + r"\s*(?P<post>\|\|\s*needle)"
+            + r"|" + lit_pat(4) + r")\s*\)",
             re.DOTALL,
         )
         for pm in pair_pat.finditer(block):
-            rewrites.append((fn, extract_lit(pm, 1), extract_lit(pm, 2)))
+            old_val = extract_lit(pm, 1)
+            if pm.group("pre"):
+                new_val = old_val + extract_lit(pm, 2)
+            elif pm.group("post"):
+                new_val = extract_lit(pm, 3) + old_val
+            else:
+                new_val = extract_lit(pm, 4)
+            rewrites.append((fn, old_val, new_val))
 
     return rewrites
 
@@ -349,7 +384,7 @@ raw_edges AS (
     s.fn_name AS caller,
     m[1] AS callee
   FROM sanitized s
-  CROSS JOIN LATERAL regexp_matches(s.hot_src, '\m((?:fn_|process_tournament_rebuy|sp_ca_)[a-zA-Z0-9_]*)\s*\(', 'g') AS m
+  CROSS JOIN LATERAL regexp_matches(s.hot_src, '\m([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', 'g') AS m
   JOIN known_fns k ON k.fn_name = m[1]
   WHERE m[1] <> s.fn_name
 ),
@@ -393,8 +428,7 @@ walk_strict(root_fn, cur_fn, path, depth) AS (
     'fn_ca_commit_hand_settlement',
     'fn_ca_process_hand_post_commit_obligations',
     'process_tournament_rebuy',
-    'fn_ca_promo_profit_credit_owned',
-    'fn_ca_promo_roll_event_principal'
+    'fn_ca_promo_profit_credit_owned'
   ]) OR k.fn_name LIKE 'fn_ca_commit_hand_settlement_%'
   UNION ALL
   SELECT w.root_fn, e.callee, w.path || e.callee, w.depth + 1
@@ -580,13 +614,15 @@ def main() -> int:
             if mig_rewrites:
                 blocks = ["SET check_function_bodies = off;"]
                 for fn, old_text, new_text in mig_rewrites:
+                    q_old = "'" + old_text.replace("'", "''") + "'"
+                    q_new = "'" + new_text.replace("'", "''") + "'"
                     blocks.append(f"""
                     DO $$
                     DECLARE
                       r record;
                       v_def text;
-                      v_old text := $ro_old${old_text}$ro_old$;
-                      v_new text := $ro_new${new_text}$ro_new$;
+                      v_old text := {q_old};
+                      v_new text := {q_new};
                     BEGIN
                       FOR r IN SELECT oid FROM pg_proc
                         WHERE pronamespace = 'public'::regnamespace AND proname = '{fn}'
@@ -618,10 +654,13 @@ def main() -> int:
         )
         present_fns = set(json.loads(present_json or "[]"))
         missing_roots = [r for r in REQUIRED_HOT_PATH_ROOTS if r not in present_fns]
+        missing_bridges = [b for b in REQUIRED_BRIDGE_FNS if b not in present_fns]
         record(
-            "all required hot-path root functions loaded into pg_proc",
-            len(missing_roots) == 0 and "fn_ca_promo_shared_fee_state_live" in present_fns,
-            f"loaded={len(present_fns)} rewrites={rewrites_applied} missing={missing_roots}",
+            "all required hot-path root and bridge functions loaded into pg_proc",
+            len(missing_roots) == 0
+            and len(missing_bridges) == 0
+            and "fn_ca_promo_shared_fee_state_live" in present_fns,
+            f"loaded={len(present_fns)} rewrites={rewrites_applied} missing_roots={missing_roots} missing_bridges={missing_bridges}",
         )
 
         # Structural check 1: process_tournament_rebuy pre-lane exemption precondition.
@@ -701,6 +740,54 @@ def main() -> int:
             json.dumps(fund_check),
         )
 
+        # Structural check 4: pending cash add-on, locked_at, ticket_redeem, and leave_principal guards
+        # (incidents 053d3341 & 515d6f24).
+        pending_and_siblings_json = run_psql(
+            pg_bin,
+            sock_dir,
+            port,
+            """
+            SELECT jsonb_build_object(
+              'apply_pending_no_settle', (
+                SELECT position('fn_ca_promo_play_through_settle' in prosrc) = 0
+                   AND position('fn_ca_promo_locked_at' in prosrc) = 0
+                   AND position('fn_ca_promo_move_selected_custody' in prosrc) > 0
+                  FROM pg_catalog.pg_proc
+                 WHERE pronamespace = 'public'::regnamespace AND proname = 'fn_ca_promo_apply_pending_cash_funding'
+                 LIMIT 1
+              ),
+              'locked_at_guards_custody', (
+                SELECT position('ca_promo_principal_custody' in prosrc) > 0
+                   AND position('closed_at IS NULL' in prosrc) > 0
+                   AND position('closed_at IS NULL' in prosrc) < position('fn_ca_promo_play_through_state' in prosrc)
+                  FROM pg_catalog.pg_proc
+                 WHERE pronamespace = 'public'::regnamespace AND proname = 'fn_ca_promo_locked_at'
+                 LIMIT 1
+              ),
+              'nonwallet_guards_ticket_settle', (
+                SELECT position('ca_promo_principal_custody' in prosrc) > 0
+                   AND position('ca_promo_principal_custody' in prosrc) < position('fn_ca_promo_play_through_settle' in prosrc)
+                  FROM pg_catalog.pg_proc
+                 WHERE pronamespace = 'public'::regnamespace AND proname = 'fn_ca_promo_nonwallet_entry'
+                 LIMIT 1
+              ),
+              'leave_guards_custody', (
+                SELECT position('ca_promo_principal_custody' in prosrc) > 0
+                   AND position('ca_promo_principal_custody' in prosrc) < position('fn_ca_promo_play_through_settle' in prosrc)
+                  FROM pg_catalog.pg_proc
+                 WHERE pronamespace = 'public'::regnamespace AND proname = 'fn_ca_promo_leave_principal'
+                 LIMIT 1
+              )
+            );
+            """,
+        )
+        sibling_check = json.loads(pending_and_siblings_json)
+        record(
+            "pending cash add-on never settles/scans and locked_at/nonwallet/leave guard open custody",
+            all(bool(v) for v in sibling_check.values()),
+            json.dumps(sibling_check),
+        )
+
         # Core proof: run the PostgreSQL recursive CTE call-graph query
         violations_json = run_psql(pg_bin, sock_dir, port, CALL_GRAPH_SQL)
         violations = json.loads(violations_json or "[]")
@@ -712,8 +799,11 @@ def main() -> int:
         )
 
         # Positive mutation self-test (rolled back): inject a 2-hop regression into
-        # fn_ca_promo_realize_event_principal and an in-lane regression into
-        # process_tournament_rebuy, and prove the recursive CTE catches BOTH.
+        # fn_ca_promo_realize_event_principal, an in-lane regression into
+        # process_tournament_rebuy, AND a 4-hop post-commit bridge regression into
+        # fn_ca_promo_apply_pending_cash_funding (proving the exact 053d3341/515d6f24
+        # outage chain through resolve_pending_addon -> fn_cash_record_funding_application
+        # can never slip past this guard again).
         mutation_sql = f"""
         BEGIN;
         SET LOCAL check_function_bodies = off;
@@ -732,6 +822,11 @@ def main() -> int:
           PERFORM public.fn_ca_promo_shared_fee_state_live(p_tournament_id, p_user_id);
           RETURN '{{}}'::jsonb;
         END $$;
+        CREATE OR REPLACE FUNCTION public.fn_ca_promo_apply_pending_cash_funding(p_pending uuid)
+        RETURNS void LANGUAGE plpgsql AS $$
+        BEGIN
+          PERFORM public.fn_ca_promo_play_through_settle(gen_random_uuid(), gen_random_uuid());
+        END $$;
         {CALL_GRAPH_SQL}
         ROLLBACK;
         """
@@ -741,8 +836,10 @@ def main() -> int:
         mut_violations = json.loads(mut_lines[-1]) if mut_lines else []
         mut_roots = {v["root"] for v in mut_violations}
         record(
-            "mutation self-test catches synthetic transitive settle & in-lane live-scan regressions",
-            "fn_ca_promo_realize_event_principal" in mut_roots and "process_tournament_rebuy" in mut_roots,
+            "mutation self-test catches synthetic transitive settle, in-lane live-scan & 4-hop post-commit regressions",
+            "fn_ca_promo_realize_event_principal" in mut_roots
+            and "process_tournament_rebuy" in mut_roots
+            and "fn_ca_process_hand_post_commit_obligations" in mut_roots,
             f"caught_roots={sorted(mut_roots)} total_paths={len(mut_violations)}",
         )
 
