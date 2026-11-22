@@ -5517,6 +5517,24 @@ for (const [mirrorName, twinName] of [
   });
 }
 
+/** The human-field twin of mtt6_holdem_tournament_all_in_call_is_priced_12bb (2026-11-21). */
+export const HUMAN_MTT6_HOLDEM_TOURNAMENT_ALL_IN_CALL_IS_PRICED_12BB = `${HUMAN_FIELD_NAME_PREFIX}mtt6_holdem_tournament_all_in_call_is_priced_12bb`;
+{
+  const mirror = LEAGUE_MATCHUPS.find(
+    (m) => m.name === 'mtt6_holdem_tournament_all_in_call_is_priced_12bb'
+  );
+  if (!mirror) {
+    throw new Error(
+      'mtt6_holdem_tournament_all_in_call_is_priced_12bb left the card; its human twin has no mirror'
+    );
+  }
+  LEAGUE_MATCHUPS.push({
+    ...humanFieldTwin(mirror),
+    hybridBaseline: mirror.hybridBaseline,
+    moodClock: mirror.moodClock,
+  });
+}
+
 /**
  * HUMAN-FIELD CASH CARDS FOR holdemValueAndCallsArePriced (2026-11-22).
  * 6-max and 9-max NLH 100bb cash human-calibrated twins (one live cash Hybrid

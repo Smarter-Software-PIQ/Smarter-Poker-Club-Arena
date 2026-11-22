@@ -19,6 +19,7 @@ import {
   CHAT_MESSAGE_TYPE_EXCLUSION_OR,
   isChatMessageNotificationType,
 } from '../../lib/notificationFilters';
+import { buildTableInviteDeepLink } from '../../services/NotificationService';
 
 interface Notification {
   id: string;
@@ -183,6 +184,7 @@ export default function NotificationDropdown({ onNavigate }: NotificationDropdow
             data: n.data,
             isRead: false,
             createdAt: n.created_at,
+            link: n.link || n.action_url || null,
           },
           ...prev,
         ].slice(0, 20)
@@ -271,8 +273,12 @@ export default function NotificationDropdown({ onNavigate }: NotificationDropdow
     // `link` was resolved server-side by the one canonical resolver. This
     // component deliberately holds no routing rules of its own — that
     // duplication is exactly what made notification taps silently fail.
-    const url =
-      notification.link || notification.data?.action_url || notification.data?.path || null;
+    let url = notification.link || notification.data?.action_url || notification.data?.path || null;
+
+    if (!url && notification.type === 'table_invite' && notification.data) {
+      const resolved = buildTableInviteDeepLink(notification.data);
+      if (resolved !== '/') url = resolved;
+    }
 
     if (url) {
       // Club Arena paths route in-SPA; anything else is a real navigation
@@ -281,6 +287,9 @@ export default function NotificationDropdown({ onNavigate }: NotificationDropdow
         const inner = url.slice('/hub/club-arena'.length) || '/';
         if (onNavigate) onNavigate(inner);
         else leaveForHub(url);
+      } else if (/^\/(table|lightning|tournaments?)\//.test(url)) {
+        if (onNavigate) onNavigate(url);
+        else leaveForHub(`/hub/club-arena${url}`);
       } else if (url.startsWith('/')) {
         leaveForHub(url);
       } else if (onNavigate) {
