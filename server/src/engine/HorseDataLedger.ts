@@ -815,6 +815,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V87'
   ),
   flag(
+    'v87RiverBlockBetTrapIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for v87RiverBlockBetTrap on OOP heads-up river leads and facing-raise-after-block-bet spots in single-board 2-card NLH; compares EV(trap_block_lead) vs EV(normal_value_lead) vs EV(check) and EV(trap_reraise) vs EV(call) deterministically using pot/bet/stack/equity and measured NLH empirical response curves (holdemEmpiricalPriors, HorseHoldemV87RiverBlockBetTrapIsPriced); zero fastRandom or hash-unit coin flips, independent of v87RiverBlockBetTrap, zero PLO4/5/6 reach',
+    'Horse Switch'
+  ),
+  flag(
     'v87HollywoodTank',
     'V87 deterministic Hollywood timing eligibility; default enabled, false only for isolated offline ablation',
     'V87'
@@ -9325,6 +9330,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_block_lead_seen',
+    'HorseLogic not-facing-a-bet river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river nut trap chose the priced small block-bet lead because EV(trap_block_lead) beat EV(normal_value_lead) and EV(check)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_value_lead_seen',
+    'HorseLogic not-facing-a-bet river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river nut trap chose a priced normal value lead because EV(normal_value_lead) beat EV(trap_block_lead) and EV(check)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_check_seen',
+    'HorseLogic not-facing-a-bet river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH OOP heads-up non-exact river nut trap chose a priced check-trap because EV(check) beat both block and normal value leads',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_reraise_seen',
+    'HorseLogic facing-raise river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH river nut trap facing a raise after hero block bet chose a priced 3-bet or jam because EV(trap_reraise) beat EV(call)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_call_seen',
+    'HorseLogic facing-raise river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH river nut trap facing a raise after hero block bet flat-called because EV(call) beat or matched every legal priced 3-bet',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.
