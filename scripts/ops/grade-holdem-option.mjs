@@ -94,7 +94,10 @@ Options:
 // Mirrors horseLeagueCard.ts offline semantics with a = b = matchup.b (OFF-vs-OFF).
 // Uses a namespace dynamic import for HorseLeague.js so DEVELOPMENT_LEAGUE_CARDS is resolved
 // when exported and gracefully falls back to [] on older branches without that export.
-export const CONTROL_RUNNER_SOURCE = `
+// The body is async (dynamic imports). `tsx -e` compiles eval input as CommonJS, where top-level
+// await is a syntax error, so the shipped source wraps the body in an async function and exits 1 on
+// any error. (2026-11-22: the unwrapped body failed every CONTROL cell before any hand was dealt.)
+export const CONTROL_RUNNER_BODY = `
 process.env.EQUITY_GOVERNOR = 'off';
 process.env.SUPABASE_URL = 'https://supabase.invalid';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'horse-league-card-offline-placeholder';
@@ -128,6 +131,13 @@ console.log('DEVRESULT ' + JSON.stringify({
 }));
 process.exit(0);
 `.trim();
+
+export const CONTROL_RUNNER_SOURCE = `(async () => {
+${CONTROL_RUNNER_BODY}
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});`;
 
 // --- Default I/O Dependencies (all injectable for unit tests) ----------------------------------
 

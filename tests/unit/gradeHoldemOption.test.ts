@@ -25,6 +25,7 @@ import {
   verifyCriteriaContent,
 } from '../../scripts/ops/grade-holdem-option-lib.mjs';
 import {
+  CONTROL_RUNNER_BODY,
   CONTROL_RUNNER_SOURCE,
   EXIT_OK,
   EXIT_REFUSED,
@@ -1362,6 +1363,21 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(cliSrc).toContain('src/scripts/horseLeagueCard.ts');
   });
 
+  it('38. CONTROL_RUNNER_SOURCE compiles as the CommonJS that `tsx -e` emits (no top-level await) and wraps the body', async () => {
+    const { transformSync } = await import('esbuild');
+    // tsx -e compiles eval input with esbuild to cjs; top-level await is a hard error there.
+    expect(() => transformSync(CONTROL_RUNNER_BODY, { loader: 'ts', format: 'cjs' })).toThrow(
+      /Top-level await/
+    );
+    expect(() =>
+      transformSync(CONTROL_RUNNER_SOURCE, { loader: 'ts', format: 'cjs' })
+    ).not.toThrow();
+    expect(CONTROL_RUNNER_SOURCE).toContain(CONTROL_RUNNER_BODY);
+    expect(CONTROL_RUNNER_SOURCE).toMatch(
+      /\.catch\(\(err\) => \{\s*console\.error\(err\);\s*process\.exit\(1\);/
+    );
+  });
+
   it('26. CONTROL_RUNNER_SOURCE resolves DEVELOPMENT_LEAGUE_CARDS and falls back cleanly when undefined', async () => {
     expect(CONTROL_RUNNER_SOURCE).toContain("await import('./src/benchmark/HorseLeague.js')");
     expect(CONTROL_RUNNER_SOURCE).toContain('HL.DEVELOPMENT_LEAGUE_CARDS ?? []');
@@ -1377,7 +1393,7 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     ) {
       const capturedLogs: string[] = [];
       let exitCode: number | null = null;
-      const rewritten = CONTROL_RUNNER_SOURCE.replace(
+      const rewritten = CONTROL_RUNNER_BODY.replace(
         /await import\((['"][^'"]+['"])\)/g,
         'await __import($1)'
       );
