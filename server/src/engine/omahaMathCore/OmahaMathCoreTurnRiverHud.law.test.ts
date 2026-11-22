@@ -601,4 +601,234 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     );
     expect(rr).toEqual({ opps: 55, bets: 35 });
   });
+
+  it('14. PLO4 turn and river station/nit guard: 4-card hands produce 0 excess and 0 flips when fLo <= p_base', () => {
+    const plo4River = makeState({
+      variant: 'plo4',
+      street: 'river',
+      hole: cards('Kh9s6d3c'),
+      board: cards('Ks9d7c4h2s'),
+      pot: 200,
+      toCall: 100,
+      currentBet: 100,
+      wagerFrac: 1.0,
+      heroStack: 500,
+    });
+    const rStation = priceTurnRiverLifetimeCall({
+      state: plo4River,
+      counts: { opps: 200, bets: 40, bins: makeBins(11, 40), priorRate: 0.28 },
+      barrel: { opps: 80, bets: 16 },
+      riverCounts: null,
+      net: (p) => rakeNet(plo4River, p),
+      k: 5,
+    });
+    expect(rStation.excessMass).toBe(0);
+    expect(rStation.call).toBe(false);
+
+    const plo4Turn = makeState({
+      variant: 'plo4',
+      street: 'turn',
+      hole: cards('Kh9s6d3c'),
+      board: cards('Ks9d7c4h'),
+      pot: 200,
+      toCall: 100,
+      currentBet: 100,
+      wagerFrac: 1.0,
+      heroStack: 500,
+    });
+    const tStation = priceTurnRiverLifetimeCall({
+      state: plo4Turn,
+      counts: { opps: 200, bets: 45, bins: makeBins(11, 45), priorRate: 0.3 },
+      barrel: { opps: 80, bets: 18 },
+      riverCounts: { opps: 80, bets: 20 },
+      net: (p) => rakeNet(plo4Turn, p),
+      k: 5,
+    });
+    expect(tStation.excessMass).toBe(0);
+    expect(tStation.call).toBe(false);
+  });
+
+  it('15. PLO4 turn/river end-to-end Stage 1 boundary: flips fold->call vs pot-stabber, keeps fold vs station, never flips check->bet on turn', () => {
+    const U_HERO = '00000000-0000-4000-8000-000000000001';
+    const U_STAB = '00000000-0000-4000-8000-000000000002';
+    const hero = {
+      seat: 1,
+      user_id: U_HERO,
+      cards: cardObjs('Kh9s6d3c'),
+      stack: 500,
+      bet: 0,
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    } as unknown as SeatPlayer;
+    const gs = {
+      gameVariant: 'plo4',
+      stage: 'river',
+      pot: 200,
+      currentBet: 100,
+      bigBlind: 2,
+      smallBlind: 1,
+      minRaise: 100,
+      communityCards: cardObjs('Ks9d7c4h2s'),
+      players: [
+        hero,
+        {
+          seat: 2,
+          user_id: U_STAB,
+          stack: 400,
+          bet: 100,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+      ],
+      actionHistory: [
+        { seat: 2, stage: 'preflop', action: 'raise', amount: 6 },
+        { seat: 1, stage: 'preflop', action: 'call', amount: 6 },
+        { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 2, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 1, stage: 'turn', action: 'check', amount: 0 },
+        { seat: 2, stage: 'turn', action: 'check', amount: 0 },
+        { seat: 1, stage: 'river', action: 'check', amount: 0 },
+        { seat: 2, stage: 'river', action: 'bet', amount: 100 },
+      ],
+    } as unknown as HorseGameStateV2;
+    const legalize = (d: HorseDecision): HorseDecision => d;
+    const incomingFold: HorseDecision = { action: 'fold', thinkTime: 1000 };
+
+    // (a) Pot-stabber on PLO4 river: 170/200 at pot (b11) -> flips fold -> plain call
+    const pStab = emptyHudProfile(U_STAB, 'plo4');
+    pStab.hands = 500;
+    pStab.life['r.stab.hu'] = [200, 170];
+    pStab.xc = { 'r.fw.stab.hu.b11': 170 };
+    installDecisionHud(
+      buildHudPacket('plo4', [pStab], { 'r.stab.hu': [0.28, 33] }, 1_800_000_000_000, 'river')
+    );
+    const stabRes = omahaMathCoreRule(
+      incomingFold,
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo4River: true },
+      legalize
+    );
+    expect(stabRes.action).toBe('call');
+    expect(stabRes.amount).toBe(100);
+
+    // (b) Station/tight bettor on PLO4 river: 40/200 -> stays fold
+    const pTight = emptyHudProfile(U_STAB, 'plo4');
+    pTight.hands = 500;
+    pTight.life['r.stab.hu'] = [200, 40];
+    pTight.xc = { 'r.fw.stab.hu.b11': 40 };
+    installDecisionHud(
+      buildHudPacket('plo4', [pTight], { 'r.stab.hu': [0.28, 33] }, 1_800_000_000_000, 'river')
+    );
+    const tightRes = omahaMathCoreRule(
+      incomingFold,
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo4River: true },
+      legalize
+    );
+    expect(tightRes.action).toBe('fold');
+
+    // (c) Stage 1 PLO4 turn boundary: with HUD packet installed, incoming check is NEVER turned into a bet
+    const turnGs = {
+      ...gs,
+      stage: 'turn',
+      currentBet: 0,
+      communityCards: cardObjs('Ks9d7c4h'),
+      players: [
+        hero,
+        {
+          seat: 2,
+          user_id: U_STAB,
+          stack: 400,
+          bet: 0,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+      ],
+      actionHistory: [
+        { seat: 2, stage: 'preflop', action: 'raise', amount: 6 },
+        { seat: 1, stage: 'preflop', action: 'call', amount: 6 },
+        { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 2, stage: 'flop', action: 'check', amount: 0 },
+      ],
+    } as unknown as HorseGameStateV2;
+    installDecisionHud(
+      buildHudPacket('plo4', [pTight], { 't.stab.hu': [0.3, 43] }, 1_800_000_000_000, 'turn')
+    );
+    const turnCheckRes = omahaMathCoreRule(
+      { action: 'check', thinkTime: 1000 },
+      hero,
+      turnGs,
+      { omahaMathCore: true, omahaMathCorePlo4Turn: true },
+      legalize
+    );
+    expect(turnCheckRes.action).toBe('check');
+  });
+
+  it('16. PLO4 turn capped continuation + river stack-commit K_allin = 25 guard', () => {
+    const plo4Turn = makeState({
+      variant: 'plo4',
+      street: 'turn',
+      hole: cards('Kh9s6d3c'),
+      board: cards('Ks9d7c4h'),
+      pot: 200,
+      toCall: 100,
+      currentBet: 100,
+      wagerFrac: 1.0,
+      heroStack: 500,
+    });
+    const tRes = priceTurnRiverLifetimeCall({
+      state: plo4Turn,
+      counts: { opps: 120, bets: 102, bins: makeBins(11, 102), priorRate: 0.3 },
+      barrel: { opps: 80, bets: 68 },
+      riverCounts: { opps: 100, bets: 75 },
+      net: (p) => rakeNet(plo4Turn, p),
+      k: 5,
+    });
+    expect(tRes.capped).toBe(true);
+    expect(tRes.call).toBe(true);
+
+    // Plain non-committing call with marginal PLO4 bluff-catcher passes K=5, while stack-committing call requires K_allin=25
+    const plo4RiverPlain = makeState({
+      variant: 'plo4',
+      street: 'river',
+      hole: cards('9h7d6c3s'),
+      board: cards('Ks9d7c4h2s'),
+      pot: 200,
+      toCall: 100,
+      currentBet: 100,
+      wagerFrac: 1.0,
+      heroStack: 500,
+    });
+    const rPlain = priceTurnRiverLifetimeCall({
+      state: plo4RiverPlain,
+      counts: { opps: 100, bets: 68, bins: makeBins(11, 68), priorRate: 0.28 },
+      barrel: null,
+      riverCounts: null,
+      net: (p) => rakeNet(plo4RiverPlain, p),
+      k: 5,
+    });
+    expect(rPlain.commitsStack).toBe(false);
+    expect(rPlain.call).toBe(true);
+
+    const plo4RiverCommit = makeState({
+      ...plo4RiverPlain,
+      heroStack: 100,
+    });
+    const rCommit = priceTurnRiverLifetimeCall({
+      state: plo4RiverCommit,
+      counts: { opps: 100, bets: 68, bins: makeBins(11, 68), priorRate: 0.28 },
+      barrel: null,
+      riverCounts: null,
+      net: (p) => rakeNet(plo4RiverCommit, p),
+      k: 5,
+    });
+    expect(rCommit.commitsStack).toBe(true);
+    expect(rCommit.kApplied).toBe(25);
+    expect(rCommit.call).toBe(false);
+  });
 });
