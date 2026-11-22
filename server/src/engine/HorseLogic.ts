@@ -634,6 +634,18 @@ import {
   omahaPricedUnderpairFolds,
   type OmahaPricedDeps,
 } from './HorseOmahaPricedWiring.js';
+import {
+  omahaHudPricedBetOverCheck,
+  omahaHudPricedRaiseOverCall,
+} from './HorseOmahaPricedWiring.js';
+import { hudStat } from './opponentHud/OpponentHud.js';
+import { omahaHudPreflopPriced, type HudPreflopVerdict } from './HorseOmahaHudPreflopPriced.js';
+import {
+  hudThreeBetRealizationMargin,
+  isOmahaPreflopHudPricedInScope,
+  omahaPreflopHudWideningProved,
+  priceOmahaPreflopHudSixMax,
+} from './HorseOmahaPreflopHudPriced.js';
 import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
@@ -2887,12 +2899,6 @@ export interface GtoV31DecisionReceipt {
 
 /** V3/V4/V5 decision options (benchmark/test hooks — production uses defaults). */
 export interface HorseDecideOpts {
-  /** OPPONENT HUD PROVIDER (2026-11-21, lane OPPONENT-HUD; branch hud-provider): while on, the engine attaches each
-   * PLO4/PLO5 cash opponent's lifetime public profile to the decision request (opponentHud) and the worker installs it
-   * for the accessor (hudStat / hudStatIn / hudLifetimeCount / hudFirstWagerRecord). On this branch NO decision rule
-   * reads it: option on changes no decision (law TheHudProviderChangesNoDecision). Default OFF (read === true);
-   * scopable by horse.omahaGameScope.omahaOpponentLifetimeHud. */
-  omahaOpponentLifetimeHud?: boolean;
   /**
    * Epoch captured when the turn decision was requested. Live decisions can
    * wait in the isolated worker's FIFO; pinning time here prevents queue
@@ -3665,6 +3671,21 @@ export interface HorseDecideOpts {
    * bets after a check, no opponent kind (HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
    */
   omahaRiverCheckedToBetIsMeasured?: boolean;
+  /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
+   * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
+   * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
+   * for every opponent, person or Horse, no unshown card. Default OFF (read === true); scopable by
+   * horse.omahaGameScope.omahaOpponentLifetimeHud. */
+  omahaOpponentLifetimeHud?: boolean;
+  /** OPPONENT HUD CONSUMER (2026-11-21, PLO-OWNER lane OPPONENT-HUD-9; lead rulings 12:58 PM Chicago item 4): the
+   * decision READS the lifetime profile only with this on AND omahaOpponentLifetimeHud on (which arms the store and
+   * attaches the packet). omahaOpponentLifetimeHud alone stores, loads and attaches, and decides nothing, so the store
+   * can be switched on and backfilled before any decision reads it. Default OFF (read === true). */
+  omahaOpponentLifetimeHudDecides?: boolean;
+  /** B4 SIX-MAX PREFLOP HUD PRICED (2026-11-21, PLO-OWNER lead-4): retires presumedAggressorRead on 3–6 seat
+   * PLO4/PLO5 cash preflop using the lifetime HUD packet and prices widened maniac-pressure spots on sh + pf.lr +
+   * pf.bvo cells (HorseOmahaPreflopHudPriced.ts). Requires omahaOpponentLifetimeHud === true. Default OFF. */
+  omahaPreflopReadIsPricedFromLifetime?: boolean;
   /** omahaBandFallbackInBandUnit (CORE-LAND 2026-11-20, default OFF, read === true): simulateEquity's PLO4/PLO5
    * high band fallback measures the drawn opponent in the band's percentile unit (AUDIT-FILES-B 5d700d07db9) instead
    * of the raw score live decisions use (HorseEval.omahaBandFallbackScore). PLO6, hi-lo and every other game are
@@ -9465,6 +9486,81 @@ const OMAHA_PRESSURE_OPTION_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'pl
  * presumption, is withheld. The option off, another game, a tournament, the
  * mind off or any failure is false (today's play).
  */
+/**
+ * OPPONENT HUD PRICED PREFLOP: the spot for omahaHudPreflopPriced from the public state and the decision's lifetime
+ * packet (hudStat shrinks each rate n / (n + k) to the population prior). Null when out of scope or when a rate has
+ * neither a record nor a prior (an unpriced spot is not decided by this comparison).
+ */
+const hudNum = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
+/** OPPONENT HUD: the measured calibration of the lifetime-fed EV fold model for hero's first bet (null = today). */
+function hudEvFoldCalibration(street: string): { sm: number; bg: number } | null {
+  try {
+    return HorseMind.evFoldCalibrationOf(street);
+  } catch {
+    return null;
+  }
+}
+function omahaHudPreflopVerdictAt(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  lastRaiserSeat: number
+): HudPreflopVerdict | null {
+  try {
+    const fam = String(gs.gameVariant ?? '').toLowerCase();
+    if (fam !== 'plo4' && fam !== 'plo5') return null;
+    const hole = player.cards ?? [];
+    if (hole.length !== Number(fam.at(-1))) return null;
+    const heroBet = hudNum(player.bet);
+    const currentBet = hudNum(gs.currentBet);
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, currentBet - heroBet);
+    const pot = hudNum(gs.pot);
+    const stack = hudNum(player.stack);
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out && !p.is_all_in
+    );
+    if (!live.length || !(pot > 0) || !(stack > 0)) return null;
+    let unread = false;
+    const rate = (u: string, st: string) => {
+      const r = hudStat(u, fam, st, null, false);
+      const v = r.p ?? r.prior;
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        unread = true;
+        return 0;
+      }
+      return v;
+    };
+    const order = (seat: number) => postflopOrder(seat, gs.dealerSeat);
+    const legal = Array.isArray(gs.legalActions) ? gs.legalActions : null;
+    // the pot-limit raise: to the current bet plus the pot after the call
+    const raiseTo = Math.min(heroBet + stack, currentBet + pot + toCall);
+    const spot = {
+      hole,
+      dead: player.knownDeadCards ?? [],
+      pot,
+      toCall,
+      heroBet,
+      stack,
+      raiseTo,
+      inPosition: live.every((p) => order(p.seat) < order(player.seat)),
+      canCall: legal === null || legal.includes('call'),
+      canRaise: legal === null || legal.includes('raise') || legal.includes('bet'),
+      opponents: live.map((p) => ({
+        stack: hudNum(p.stack),
+        bet: hudNum(p.bet),
+        vpip: rate(p.user_id, 'pf.vpip'),
+        pfr: rate(p.user_id, 'pf.pfr'),
+        f3bet: rate(p.user_id, 'pf.f3bet'),
+        raised: p.seat === lastRaiserSeat,
+      })),
+    };
+    return unread ? null : omahaHudPreflopPriced(spot);
+  } catch {
+    return null;
+  }
+}
+
 function omahaPostflopPressureWithheld(
   bettorId: string,
   gs: HorseGameStateV2,
@@ -16019,10 +16115,6 @@ export class HorseLogic {
     // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
     HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
-    // OPPONENT HUD PROVIDER (2026-11-21, branch hud-provider): the option is read here for its receipt only; no
-    // decision rule reads it (law TheHudProviderChangesNoDecision).
-    if (opts.omahaOpponentLifetimeHud === true && telemetryOn(opts))
-      noteFire('opponent_hud_provider_armed_seen');
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
       shrinkResponseReads: opts.readShrinkResponse === true,
@@ -16043,6 +16135,23 @@ export class HorseLogic {
         ? { omahaManiacReRaiseMeasured: true, omahaManiacReRaiseReceipt: telemetryOn(opts) }
         : {}),
       fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
+      // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, default off): PLO4/PLO5 cash only (never PLO6, never a
+      // tournament); the key exists only when it is on, so with it off the read options are exactly what they were.
+      // POSTFLOP SCOPE (2026-11-21, lane OPPONENT-HUD-4, lead order): the lifetime read is consumed on the flop, turn
+      // and river only. A preflop decision reads its opponents exactly as with the option off (the heads-up button
+      // open, where the read only removed a presumption, is priced by its own option omahaButtonOpenIsPriced).
+      ...(opts.omahaOpponentLifetimeHud === true &&
+      opts.omahaOpponentLifetimeHudDecides === true &&
+      String((gameState as { stage?: unknown }).stage ?? 'preflop') !== 'preflop' &&
+      (String(gameState.gameVariant).toLowerCase() === 'plo4' ||
+        String(gameState.gameVariant).toLowerCase() === 'plo5') &&
+      !(gameState.gameMode === 'tournament' || gameState.tournament)
+        ? { opponentLifetimeHud: true }
+        : {}),
+      ...(opts.omahaPreflopReadIsPricedFromLifetime === true &&
+      isOmahaPreflopHudPricedInScope(player, gameState, opts)
+        ? { opponentLifetimeHudPreflopSixMax: true }
+        : {}),
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),
@@ -19152,6 +19261,56 @@ export class HorseLogic {
         // presumption supplied the width. This one fires only when the raiser
         // faced is a maniac on its own record, so the two can be told apart.
         if (telemetryOn(opts) && observedManiacRaiser) noteFire('observed_maniac_raiser_seen');
+        // OPPONENT HUD PRICED PREFLOP (2026-11-21; omahaOpponentLifetimeHud on only): where the lifetime read alone
+        // removes the maniac-pressure width the decayed read gives (the Horse would then raise where it folded or
+        // called), the widening stands only when the raise is priced above the call and the fold on the read-adjusted
+        // response of the players left (omahaHudPreflopPriced); otherwise, or unpriceable, the lifetime read is not
+        // consumed at this site (the widths as with the option off).
+        if (HorseMind.hudReadActive() && vi.isOmaha) {
+          const legacyW = HorseMind.withoutHud(() => {
+            let r: number | null = null;
+            let b: number | null = null;
+            const rm =
+              lastRaiserSeat >= 0 ? gs.players.find((p) => p.seat === lastRaiserSeat) : undefined;
+            if (rm && rm.user_id !== player.user_id)
+              r = maniacRaiseWidth(HorseMind.opponentRead(rm.user_id));
+            if (raises === 0)
+              for (const p of gs.players) {
+                if (p.seat === player.seat || p.is_folded || p.is_all_in || p.is_sitting_out)
+                  continue;
+                if (history.some((a) => a.seat === p.seat && MANIAC_VOLUNTARY.has(a.action)))
+                  continue;
+                const w = maniacRaiseWidth(HorseMind.opponentRead(p.user_id));
+                if (w !== null) b = Math.max(b ?? 0, w);
+              }
+            return { r, b };
+          });
+          const widened =
+            (legacyW.r !== null && maniacRaiserWidth == null) ||
+            (legacyW.b !== null && maniacBehindWidth === null);
+          if (widened) {
+            const sixMaxPriced = HorseMind.hudPreflopSixMaxActive();
+            const sixMaxVerdict = sixMaxPriced
+              ? priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts)
+              : null;
+            const verdict = sixMaxPriced
+              ? sixMaxVerdict
+              : omahaHudPreflopVerdictAt(player, gs, lastRaiserSeat);
+            const widenedProved = sixMaxPriced
+              ? omahaPreflopHudWideningProved(sixMaxVerdict, Math.max(0, gs.pot ?? 0), 'raise')
+              : verdict?.action === 'raise';
+            if (!widenedProved) {
+              if (maniacRaiserWidth == null) maniacRaiserWidth = legacyW.r;
+              if (maniacBehindWidth === null) maniacBehindWidth = legacyW.b;
+            }
+            if (telemetryOn(opts))
+              noteFire(
+                verdict === null
+                  ? 'opponent_hud_preflop_unpriced_legacy'
+                  : `opponent_hud_preflop_priced_${verdict.action}`
+              );
+          }
+        }
       } catch {
         /* reads are best-effort */
       }
@@ -19655,12 +19814,22 @@ export class HorseLogic {
             )
           ) {
             try {
-              if (aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null) {
-                const order53 = (seat: number): number => {
-                  const d = seat - (gs.dealerSeat ?? 0);
-                  return d <= 0 ? d + 1024 : d;
-                };
-                const heroIp53 = order53(player.seat) > order53(raiser38.seat);
+              const order53 = (seat: number): number => {
+                const d = seat - (gs.dealerSeat ?? 0);
+                return d <= 0 ? d + 1024 : d;
+              };
+              const heroIp53 = order53(player.seat) > order53(raiser38.seat);
+              if (HorseMind.hudPreflopSixMaxActive()) {
+                const fam53 = String(gs.gameVariant ?? '').toLowerCase();
+                if (fam53 === 'plo4' || fam53 === 'plo5') {
+                  const hud53 = hudThreeBetRealizationMargin(raiser38.user_id, fam53, heroIp53);
+                  v53Realization = hud53.realization;
+                  v53ThreeBet =
+                    aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null;
+                }
+              } else if (
+                aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null
+              ) {
                 v53ThreeBet = true;
                 v53Realization = heroIp53 ? 0.05 : 0.1;
               }
@@ -19953,42 +20122,144 @@ export class HorseLogic {
         const raiser =
           lastRaiserSeat >= 0 ? gs.players.find((p) => p.seat === lastRaiserSeat) : undefined;
         if (raiser && raiser.user_id !== player.user_id) {
-          const read = HorseMind.opponentRead(raiser.user_id);
+          let read = HorseMind.opponentRead(raiser.user_id);
+          let legacyReadForHud: typeof read = null;
+          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): no priced raise-against-call
+          // exists before the flop, so a lifetime read that would withdraw the opener / re-raiser exploit the decayed
+          // read grants is not consumed here (the site answers as with the option off).
+          if (HorseMind.hudReadActive()) {
+            const grantsHud = (r: typeof read): boolean =>
+              !!r &&
+              (raises === 1
+                ? preflopVsOpener(r, vi.isOmaha)?.wide === true ||
+                  aggressiveOpenerPressure(r, vi.isOmaha, v86) !== null
+                : raises >= 2 && preflopVsReRaiser(r, raises) !== null);
+            legacyReadForHud = HorseMind.opponentReadWithoutHud(raiser.user_id);
+            if (grantsHud(legacyReadForHud) && !grantsHud(read)) {
+              read = legacyReadForHud;
+              if (telemetryOn(opts)) noteFire('opponent_hud_lowering_preflop_unpriced');
+            }
+          }
           if (read && raises === 1) {
             const rawOpener = preflopVsOpener(read, vi.isOmaha) ?? undefined;
-            evidencedWideRaiser87 =
+            const rawPressure =
+              (opts.v53Pressure ?? true) !== false
+                ? (aggressiveOpenerPressure(read, vi.isOmaha, v86) ?? undefined)
+                : undefined;
+            const legacyEvidencedOpener =
+              legacyReadForHud !== null &&
+              legacyReadForHud.presumed !== true &&
+              (preflopVsOpener(legacyReadForHud, vi.isOmaha)?.wide === true ||
+                aggressiveOpenerPressure(legacyReadForHud, vi.isOmaha, v86) !== null);
+            if (
+              HorseMind.hudPreflopSixMaxActive() &&
               read.presumed !== true &&
-              (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
-            exploitOpener =
-              opts.v87DeepDiveDiscipline !== false
-                ? v87SanitizeOmahaOpenerExploit(
-                    rawOpener,
-                    read.presumed === true,
-                    vi.isOmaha,
-                    vi.isHiLo,
-                    vi.holeCount,
-                    callers
-                  )
-                : rawOpener;
-            if (opts.v87DeepDiveDiscipline !== false)
-              noteHorseDeepDiveRule(
-                'presumed_opener',
-                !!rawOpener &&
-                  read.presumed === true &&
-                  vi.isOmaha &&
-                  !vi.isHiLo &&
-                  (vi.holeCount >= 6 || callers > 0),
-                exploitOpener !== rawOpener
+              !legacyEvidencedOpener &&
+              (rawOpener?.wide === true || rawPressure !== undefined)
+            ) {
+              const hudOpenVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+              const potOpen = Math.max(0, gs.pot ?? 0);
+              const raiseProved = omahaPreflopHudWideningProved(
+                hudOpenVerdict,
+                potOpen,
+                'threebet'
               );
-            if (exploitOpener !== rawOpener && telemetryOn(opts))
-              noteFire('v87_deep_dive_discipline');
-            if ((opts.v53Pressure ?? true) !== false)
-              exploitPressure = aggressiveOpenerPressure(read, vi.isOmaha, v86) ?? undefined;
+              const callProved = omahaPreflopHudWideningProved(hudOpenVerdict, potOpen, 'call');
+              const fallbackOpener =
+                opts.v87DeepDiveDiscipline !== false
+                  ? v87SanitizeOmahaOpenerExploit(
+                      rawOpener,
+                      true,
+                      vi.isOmaha,
+                      vi.isHiLo,
+                      vi.holeCount,
+                      callers
+                    )
+                  : rawOpener;
+              if (rawOpener && rawOpener.wide) {
+                if (raiseProved || callProved) {
+                  exploitOpener = {
+                    wide: true,
+                    threeBetBar: raiseProved
+                      ? rawOpener.threeBetBar
+                      : (fallbackOpener?.threeBetBar ?? null),
+                    flatBar: callProved ? rawOpener.flatBar : (fallbackOpener?.flatBar ?? null),
+                    bbFlatBar: callProved
+                      ? rawOpener.bbFlatBar
+                      : (fallbackOpener?.bbFlatBar ?? null),
+                    noBluffThreeBet: rawOpener.noBluffThreeBet,
+                  };
+                } else {
+                  exploitOpener = fallbackOpener;
+                }
+              } else {
+                exploitOpener = fallbackOpener;
+              }
+              exploitPressure = raiseProved ? rawPressure : undefined;
+              evidencedWideRaiser87 =
+                (raiseProved || callProved) &&
+                (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
+            } else {
+              evidencedWideRaiser87 =
+                read.presumed !== true &&
+                (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
+              exploitOpener =
+                opts.v87DeepDiveDiscipline !== false
+                  ? v87SanitizeOmahaOpenerExploit(
+                      rawOpener,
+                      read.presumed === true,
+                      vi.isOmaha,
+                      vi.isHiLo,
+                      vi.holeCount,
+                      callers
+                    )
+                  : rawOpener;
+              if (opts.v87DeepDiveDiscipline !== false)
+                noteHorseDeepDiveRule(
+                  'presumed_opener',
+                  !!rawOpener &&
+                    read.presumed === true &&
+                    vi.isOmaha &&
+                    !vi.isHiLo &&
+                    (vi.holeCount >= 6 || callers > 0),
+                  exploitOpener !== rawOpener
+                );
+              if (exploitOpener !== rawOpener && telemetryOn(opts))
+                noteFire('v87_deep_dive_discipline');
+              exploitPressure = rawPressure;
+            }
           } else if (read && raises >= 2) {
-            exploitReRaiser = preflopVsReRaiser(read, raises) ?? undefined;
-            evidencedWideRaiser87 =
+            const rawReRaiser = preflopVsReRaiser(read, raises) ?? undefined;
+            const legacyEvidencedReRaiser =
+              legacyReadForHud !== null &&
+              legacyReadForHud.presumed !== true &&
+              preflopVsReRaiser(legacyReadForHud, raises) !== null;
+            if (
+              HorseMind.hudPreflopSixMaxActive() &&
               read.presumed !== true &&
-              (exploitReRaiser !== undefined || maniacRaiseWidth(read) !== null);
+              !legacyEvidencedReRaiser &&
+              rawReRaiser !== undefined
+            ) {
+              const hudRrVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+              const potRr = Math.max(0, gs.pot ?? 0);
+              const raiseProved = omahaPreflopHudWideningProved(hudRrVerdict, potRr, 'raise');
+              const callProved = omahaPreflopHudWideningProved(hudRrVerdict, potRr, 'call');
+              if (raiseProved || callProved) {
+                exploitReRaiser = {
+                  fourBetBar: raiseProved ? rawReRaiser.fourBetBar : 1,
+                  callBar: callProved ? rawReRaiser.callBar : 1,
+                };
+                evidencedWideRaiser87 = true;
+              } else {
+                exploitReRaiser = undefined;
+                evidencedWideRaiser87 = false;
+              }
+            } else {
+              exploitReRaiser = rawReRaiser;
+              evidencedWideRaiser87 =
+                read.presumed !== true &&
+                (exploitReRaiser !== undefined || maniacRaiseWidth(read) !== null);
+            }
           }
           // ═══ STYLE READ #6 TIGHT RAISER RESPECT (2026-11-13, default off) ═══
           // A credibly TIGHT opener or re-raiser (the low side the exploit
@@ -20095,6 +20366,12 @@ export class HorseLogic {
               const lr = HorseMind.limpReraiseOf(a.userId);
               const rate = limpReraiseRate(lr?.raises ?? 0, lr?.opps ?? 0);
               limpReraiseRate69 = Math.max(limpReraiseRate69 ?? 0, rate);
+            }
+          }
+          if (exploitIso > 0 && HorseMind.hudPreflopSixMaxActive()) {
+            const hudIsoVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+            if (!omahaPreflopHudWideningProved(hudIsoVerdict, Math.max(0, gs.pot ?? 0), 'raise')) {
+              exploitIso = 0;
             }
           }
           if (
@@ -22453,6 +22730,8 @@ export class HorseLogic {
     let bands: Array<[number, number] | null> | undefined;
     let oppReads: Array<OppPostflopRead | null> | undefined;
     let exploit: ExploitProfile = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
+    // OPPONENT HUD NO-LOWERING: the table's bluff scale as without the lifetime read (null when the read is off)
+    let exploitNoHud: ExploitProfile | null = null;
     // STYLE READ item 3 as applied below (1 = not applied), and the read it
     // came from, so the river bluff-raise gate can tell its part apart.
     let styleFoldBluffMul = 1;
@@ -22569,6 +22848,10 @@ export class HorseLogic {
           useCounterAdapt,
           exploitReadOpts83
         );
+        if (HorseMind.hudReadActive())
+          exploitNoHud = HorseMind.withoutHud(() =>
+            HorseMind.tableExploit(player.seat, gs.players, useCounterAdapt, exploitReadOpts83)
+          );
         // STYLE READ item 3 (2026-11-13): bluff frequency follows this
         // opponent's fold-to-bet ON THIS STREET (river: river call), heads-up,
         // hold'em, not in bounty events. Default off; explicit true only.
@@ -25148,7 +25431,12 @@ export class HorseLogic {
                 /* an unavailable read keeps the neutral fold model */
               }
             }
-            return { foldMul, canRespond: !o.is_all_in && o.stack > 0 };
+            const foldCal = useMind ? hudEvFoldCalibration('flop') : null;
+            return {
+              foldMul,
+              canRespond: !o.is_all_in && o.stack > 0,
+              ...(foldCal ? { foldCal } : {}),
+            };
           }),
           realization: realizationFactor({
             street: 'flop',
@@ -25551,6 +25839,8 @@ export class HorseLogic {
           let rfrRb: number | null = null;
           let overFolderRb = 0;
           let fcCallingMoreRb = false;
+          // OPPONENT HUD NO-LOWERING: the same three reads as without the lifetime read (receipts muted)
+          let hudLegacyRb: { station: boolean; lowFold: boolean; overFolder: number } | null = null;
           if (useMind) {
             try {
               const readRb = HorseMind.opponentRead(oppRb.user_id);
@@ -25579,11 +25869,33 @@ export class HorseLogic {
                   calledBarrels40 >= 2 ? 0.12 : 0.06
                 );
               }
+              if (HorseMind.hudReadActive()) {
+                const readL = HorseMind.opponentReadWithoutHud(oppRb.user_id);
+                hudLegacyRb = {
+                  station:
+                    isStation(readL) ||
+                    fcRb?.callingDown === true ||
+                    (rfrRb !== null && rfrRb < 0.35),
+                  lowFold: v86 && vi.isOmaha && readL?.stats.foldToBet.engaged === 'low',
+                  overFolder:
+                    (opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true
+                      ? withBrainTelemetrySuspended(() =>
+                          riverBluffFrequency(
+                            riverFoldLowerBound(readL),
+                            sizeRb.sizeFrac,
+                            useIQ && scare.any,
+                            blocker,
+                            calledBarrels40 >= 2 ? 0.12 : 0.06
+                          )
+                        )
+                      : 0,
+                };
+              }
             } catch {
               /* reads are best-effort: no read is the baseline */
             }
           }
-          const pRb = riverBluffProbability({
+          const rbArgs = {
             eligibility: eligRb,
             sizeFrac: sizeRb.sizeFrac,
             valueShare: compRb ? compRb.valueShare : RIVER_BLUFF_PRIOR_VALUE_SHARE,
@@ -25603,7 +25915,41 @@ export class HorseLogic {
               calledBarrels40 >= 2 &&
               rangeChange?.improves !== true &&
               rangeChange?.nutAdvantage !== true,
-          });
+          };
+          let pRb = riverBluffProbability(rbArgs);
+          let stationLowFoldRb = stationLowFold86;
+          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): the lifetime read alone does not
+          // lower the river bluff; the lowering stands only when the check is priced above every bet on his lifetime
+          // response; unpriceable, the lifetime read is not consumed here.
+          if (hudLegacyRb) {
+            const pL = riverBluffProbability({
+              ...rbArgs,
+              reads: {
+                ...rbArgs.reads,
+                station: hudLegacyRb.station,
+                overFolderFrequency: hudLegacyRb.overFolder,
+                bluffMod: fcCallingMoreRb
+                  ? Math.min(1, exploitNoHud?.bluffMod ?? exploit.bluffMod)
+                  : (exploitNoHud?.bluffMod ?? exploit.bluffMod),
+              },
+            });
+            const lowered = (stationLowFold86 && !hudLegacyRb.lowFold) || pL > pRb;
+            if (lowered) {
+              const pricedRb = omahaHudPricedBetOverCheck(player, gs, opts);
+              if (pricedRb !== false) {
+                pRb = Math.max(pRb, pL);
+                stationLowFoldRb = stationLowFold86 && hudLegacyRb.lowFold;
+              }
+              if (tele15)
+                noteFire(
+                  pricedRb === false
+                    ? 'opponent_hud_lowering_bet_priced_check'
+                    : pricedRb
+                      ? 'opponent_hud_lowering_bet_priced_bet'
+                      : 'opponent_hud_lowering_bet_unpriced'
+                );
+            }
+          }
           // RESPONSES TO TIGHT PLAYERS: a credibly tight-passive player checked to the Horse (styleTightPlayerExploit).
           // Bounded: never above 0.9 unless the baseline already was; the size is the baseline's own.
           const tightRb = leadRb ? 1 : tightCheckedToMul();
@@ -25624,7 +25970,7 @@ export class HorseLogic {
               nutLowBlockers: nutLowBlockersHeld(player.cards, board),
             });
           if (nutLowBet92 && tele15) noteFire('hilo_nut_low_freeroll_bet');
-          if (sizeRb.sizeFrac > 0 && ((!stationLowFold86 && rollRb < pRbT) || nutLowBet92)) {
+          if (sizeRb.sizeFrac > 0 && ((!stationLowFoldRb && rollRb < pRbT) || nutLowBet92)) {
             const betRb = this.betSize(
               planHandKey,
               pot,
@@ -25975,7 +26321,7 @@ export class HorseLogic {
               /* reads are best-effort: no read is the baseline */
             }
           }
-          const pFt = flopTurnBluffProbability({
+          const ftArgs = {
             eligibility: eligFt,
             omaha: vi.isOmaha,
             opponents: opponents.length,
@@ -25987,7 +26333,41 @@ export class HorseLogic {
             stackToPot: pot > 0 ? effFt / pot : 10,
             reads: { station: stationFt, foldToCbet: ftcFt, bluffMod: exploit.bluffMod },
             icmRisk: isTournamentMode(gs) ? risk : 0,
-          });
+          };
+          const pFt = flopTurnBluffProbability(ftArgs);
+          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): a lifetime station read alone
+          // does not lower the bluff frequency; the lowering stands only when the check is priced above every bet
+          // (turn); unpriceable (the flop), the lifetime read is not consumed here.
+          let pFtUse = pFt;
+          if (useMind && HorseMind.hudReadActive()) {
+            try {
+              const stationL =
+                opponents.length === 1
+                  ? isStation(HorseMind.opponentReadWithoutHud(opponents[0].user_id))
+                  : stationFt;
+              const bluffModL = exploitNoHud?.bluffMod ?? exploit.bluffMod;
+              if (stationL !== stationFt || bluffModL !== exploit.bluffMod) {
+                const pL = flopTurnBluffProbability({
+                  ...ftArgs,
+                  reads: { ...ftArgs.reads, station: stationL, bluffMod: bluffModL },
+                });
+                if (pL > pFt) {
+                  const pricedFt = omahaHudPricedBetOverCheck(player, gs, opts);
+                  if (pricedFt !== false) pFtUse = pL;
+                  if (tele15)
+                    noteFire(
+                      pricedFt === false
+                        ? 'opponent_hud_lowering_bet_priced_check'
+                        : pricedFt
+                          ? 'opponent_hud_lowering_bet_priced_bet'
+                          : 'opponent_hud_lowering_bet_unpriced'
+                    );
+                }
+              }
+            } catch {
+              /* reads are best-effort */
+            }
+          }
           const sizeFt = flopTurnBluffSize({
             potLimit: vi.isPotLimit,
             street: street === 'flop' ? 'flop' : 'turn',
@@ -25998,7 +26378,7 @@ export class HorseLogic {
             effectiveStack: effFt,
             u: fastRandom(),
           });
-          if (sizeFt.sizeFrac > 0 && fastRandom() < pFt) {
+          if (sizeFt.sizeFrac > 0 && fastRandom() < pFtUse) {
             planBarrel(equity);
             const betFt = this.betSize(
               planHandKey,
@@ -26830,7 +27210,8 @@ export class HorseLogic {
           }
           // horsePlayStyles: the pressure style in position (fold-equity prior).
           if (styleFoldEquityMul !== undefined) foldMul *= styleFoldEquityMul;
-          models38.push({ foldMul, canRespond });
+          const foldCal38 = useMind ? hudEvFoldCalibration(street) : null;
+          models38.push({ foldMul, canRespond, ...(foldCal38 ? { foldCal: foldCal38 } : {}) });
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
         // omahaFoldModelFittedOnPeople (default off): a person's fold share to the bet is
@@ -28819,6 +29200,30 @@ export class HorseLogic {
             bettor53 = a.userId;
         }
         if (bettor53) pressure53 = aggressiveBettorPressure(HorseMind.opponentRead(bettor53), v86);
+        // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): the lifetime read alone never
+        // withdraws the pressure raise the decayed read grants. The raise against the call is priced on his lifetime
+        // response; the call stands only when it is priced above the raise; unpriceable here, the lifetime read is not
+        // consumed (the pressure stands as with the option off).
+        if (bettor53 && pressure53 === null && HorseMind.hudReadActive()) {
+          const legacy53 = aggressiveBettorPressure(
+            HorseMind.opponentReadWithoutHud(bettor53),
+            v86
+          );
+          if (legacy53 !== null) {
+            const priced53 = omahaHudPricedRaiseOverCall(player, gs, opts);
+            if (priced53 === false) {
+              if (tele15) noteFire('opponent_hud_lowering_raise_priced_call');
+            } else {
+              pressure53 = legacy53;
+              if (tele15)
+                noteFire(
+                  priced53
+                    ? 'opponent_hud_lowering_raise_priced_raise'
+                    : 'opponent_hud_lowering_raise_unpriced'
+                );
+            }
+          }
+        }
         // omahaPressureNeedsPostflopAggression (default off): PLO4/PLO5 cash,
         // the pressure play needs the bettor's own postflop betting measured
         // high; a preflop-wide or presumed-aggressive bettor who is a value
