@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { sliceBetween } from './helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '..');
 const DIR = resolve(ROOT, 'supabase/migrations');
@@ -178,7 +179,9 @@ describe('a Sit and Go of any size is judged by what actually happened', () => {
     expect(reproof).toBeLessThan(
       core.indexOf('INSERT INTO public.tournament_unregistration_receipts(')
     );
-    expect(core.slice(reproof, reproof + 120)).toContain("ERRCODE='55000'");
+    expect(sliceBetween(core.slice(reproof), 'sit and go launch began', 'END IF;')).toContain(
+      "ERRCODE='55000'"
+    );
   });
 
   it("the launch's own release of a registrant it cannot seat keeps its authority", () => {

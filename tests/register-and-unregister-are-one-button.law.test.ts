@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { sliceBetween } from './helpers/sourceWindow';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 const page = read('src/pages/tournament/TournamentDetails.tsx');
@@ -39,7 +40,9 @@ describe('Register and Unregister are the same control', () => {
 
   it('the footer offers it too, on the same plate the footer Register wears', () => {
     const branch = page.slice(page.indexOf('if (isRegistered) {\n      return ('));
-    expect(branch.slice(0, 120)).not.toContain('if (footer) return null');
+    expect(sliceBetween(branch, 'if (isRegistered) {', '<RegisterButton')).not.toContain(
+      'if (footer) return null'
+    );
     expect(page).toContain("{tournamentAction('footer')}");
     expect(page).toContain("{tournamentAction('header')}");
   });
