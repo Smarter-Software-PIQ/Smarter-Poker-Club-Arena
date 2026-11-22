@@ -118,6 +118,7 @@ import {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   NLH_SCRIPTED_POPULATION_ID,
   NLH_SCRIPTED_FIELD_VARIANTS,
   NLH_SCRIPTED_PERSONAS,
@@ -197,6 +198,7 @@ export {
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   FLO8_SCRIPTED_POPULATION_ID,
   FLO8_SCRIPTED_FIELD_VARIANTS,
   FLO8_SCRIPTED_PERSONAS,
@@ -2322,7 +2324,8 @@ export function humanFieldPersonaProfile(
     persona === FLH_PASSIVE_CALLER_PERSONA ||
     persona === FLH_OVER_FOLDING_BLINDS_PERSONA ||
     persona === FLH_VALUE_ONLY_BLINDS_PERSONA ||
-    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA
+    persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA ||
+    persona === FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA
   ) {
     throw new Error(
       `${persona} is a scripted persona of the ${FIXED_LIMIT_SCRIPTED_POPULATION_ID} field ` +
@@ -6179,6 +6182,15 @@ export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object
     6,
     3000,
     FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+    { fixedLimitStealVsTightBlinds: true }
+  ),
+  // 2026-11-21: the steal's harm control with blinds that defend preflop AND continue postflop
+  // with top pair or better (value-betting/raising two pair+, calling one wager with top pair/overpair).
+  fixedLimitScriptedCard(
+    'flh_steal_vs_tight_blinds_vs_defending_postflop_blinds',
+    6,
+    3000,
+    FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
     { fixedLimitStealVsTightBlinds: true }
   ),
   // 2026-11-21 STYLE SHIFT RELEASE IS NOISE-AWARE (styleShiftReleaseIsNoiseAware, default OFF, a process switch:
