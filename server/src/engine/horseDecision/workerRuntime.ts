@@ -1163,14 +1163,17 @@ export class HorseDecisionWorkerRuntime {
   private stagedOptionShadowReceipts: StagedOptionShadowReceipt[] = [];
   /**
    * 2026-11-15 (owner rule 11:26, every option switchable live): the registered options that are PROCESS switches
-   * rather than decision options. One today: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
-   * counts, inside a decision or not. The read is the decision's own holder on the same clock (it re-reads only
+   * rather than decision options: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
+   * counts, inside a decision or not, and (2026-11-21) styleShiftReleaseIsNoiseAware, read by the exploit learner
+   * and the gear-shift gate. The read is the decision's own holder on the same clock (it re-reads only
    * when the poll window has passed), so an off row reaches the counts at the next job, and no row, an unreadable,
    * invalid or stale read put back the source default, never the last value.
    */
   private applyProcessSwitches(): void {
     const states = this.optionSwitch.refresh(performance.now());
-    HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionSwitchDecisionOpts(states));
+    const opts = optionSwitchDecisionOpts(states);
+    HorseMind.applyFixedLimitBetsAreNeverProbesOption(opts);
+    HorseMind.applyStyleShiftReleaseIsNoiseAwareOption(opts);
   }
   private featureAuthorityAdmitted = false;
   private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
@@ -3261,6 +3264,7 @@ export class HorseDecisionWorkerRuntime {
     const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
     // the decision's own observation counts with the state this decision journals (process switch, see above)
     HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionBrainOpts);
+    HorseMind.applyStyleShiftReleaseIsNoiseAwareOption(optionBrainOpts);
     // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
     noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // P15-A step 4: the worker-owned state this decision reads besides its
