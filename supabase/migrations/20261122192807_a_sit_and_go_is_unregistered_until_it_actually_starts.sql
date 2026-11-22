@@ -121,6 +121,10 @@ BEGIN
 $o$  ELSIF v_t.format_contract='sng-v1'
      AND COALESCE(v_t.max_players,0)=2 THEN
     v_start_authority:='heads_up_sng_actual_start';
+  ELSIF v_t.format_contract='sng-v1'
+     AND upper(COALESCE(v_t.tournament_type::text,''))='SNG'
+     AND lower(COALESCE(v_t.variant::text,''))<>'spin' THEN
+    v_start_authority:='sng_actual_start';
   END IF;$o$,
 $r$  ELSIF v_t.format_contract='sng-v1'
      AND COALESCE(v_t.max_players,0)=2 THEN
@@ -201,16 +205,16 @@ BEGIN
   FOR v_edit IN SELECT * FROM (VALUES
     ('completed_launch',
 $o$     OR (v_r.start_authority IN (
-           'spin_actual_start','heads_up_sng_actual_start','launch_release')
+           'spin_actual_start','heads_up_sng_actual_start','sng_actual_start','launch_release')
        AND EXISTS ($o$,
 $r$     OR (v_r.start_authority IN (
-           'spin_actual_start','heads_up_sng_actual_start','launch_release',
+           'spin_actual_start','heads_up_sng_actual_start','sng_actual_start','launch_release',
            'sit_and_go_actual_start')
        AND EXISTS ($r$),
     ('whitelist',
 $o$     OR v_r.start_authority NOT IN (
           'scheduled_clock','spin_actual_start','heads_up_sng_actual_start',
-          'launch_release')$o$,
+          'sng_actual_start','launch_release')$o$,
 $r$     OR (v_r.start_authority='sit_and_go_actual_start'
        AND NOT EXISTS (
          SELECT 1 FROM public.tournaments t
@@ -219,7 +223,7 @@ $r$     OR (v_r.start_authority='sit_and_go_actual_start'
             AND COALESCE(t.max_players,0)<>2))
      OR v_r.start_authority NOT IN (
           'scheduled_clock','spin_actual_start','heads_up_sng_actual_start',
-          'launch_release','sit_and_go_actual_start')$r$)
+          'sng_actual_start','launch_release','sit_and_go_actual_start')$r$)
   ) AS e(label,old_text,new_text) LOOP
     IF (length(v_def)-length(replace(v_def,v_edit.old_text,'')))/length(v_edit.old_text)<>1 THEN
       RAISE EXCEPTION 'fn_ca_tournament_unregistration_receipt anchor % was expected exactly once',v_edit.label;
@@ -254,6 +258,10 @@ BEGIN
 $o$  ELSIF v_t.format_contract='sng-v1'
      AND COALESCE(v_t.max_players,0)=2 THEN
     v_authority := 'heads_up_sng_actual_start';
+  ELSIF v_t.format_contract='sng-v1'
+     AND upper(COALESCE(v_t.tournament_type::text,''))='SNG'
+     AND lower(COALESCE(v_t.variant::text,''))<>'spin' THEN
+    v_authority := 'sng_actual_start';
   END IF;$o$,
 $r$  ELSIF v_t.format_contract='sng-v1'
      AND COALESCE(v_t.max_players,0)=2 THEN
@@ -289,6 +297,11 @@ $r$  ELSIF EXISTS (SELECT 1 FROM public.tournament_launch_receipts r
   EXECUTE v_def;
 END
 $sit_and_go_diamond$;
+
+SELECT public.fn_ca_declare_guard_redefinition(
+  'fn_poker_diamond_tournament_unregister',
+  'migration 20261122192807_a_sit_and_go_is_unregistered_until_it_actually_starts'
+);
 
 -- @probe-for: public.fn_poker_diamond_tournament_unregister
 DO $probe$

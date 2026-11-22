@@ -66,34 +66,24 @@ function applyOnce(body: string, list: ReturnType<typeof edits>, name: string): 
 }
 
 const coreBefore = recordedBody(
-  '20261102154336_midway_promo_funded_bounty_only_free_buys.sql',
+  '20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql',
   'fn_ca_unregister_tournament_player_exact'
 );
 const core = applyOnce(coreBefore, edits('sit_and_go_core'), 'core');
 
 const diamondBefore = recordedBody(
-  '20260930235000_a_retry_gets_its_first_receipt.sql',
+  '20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql',
   'fn_poker_diamond_tournament_unregister'
 );
 const diamond = applyOnce(diamondBefore, edits('sit_and_go_diamond'), 'diamond');
 
-/* The receipt reader is its 20260909183657 body with the two anchored edits
-   of 20260909235709 (launch_release) already applied. */
+/* The receipt reader is its installed 20261122185915 body (which added
+   sng_actual_start on top of 20260909235709 launch_release). */
 function receiptBeforeThisMigration(): string {
-  let body = between(
-    read('20260909183657_seat_first_unregistration_uses_actual_start_truth.sql'),
-    '$actual_start_unregistration_receipt$'
+  return recordedBody(
+    '20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql',
+    'fn_ca_tournament_unregistration_receipt'
   );
-  const patch = read(
-    '20260909235709_a_registrant_the_launch_cannot_seat_is_released_with_an_exac.sql'
-  );
-  for (const n of ['1', '2']) {
-    const oldText = between(patch, `v_old${n} text := $t$`, '$t$;');
-    const newText = between(patch, `v_new${n} text := $t$`, '$t$;');
-    expect(body.split(oldText).length - 1, `launch_release anchor ${n}`).toBe(1);
-    body = body.replace(oldText, () => newText);
-  }
-  return body;
 }
 const receipt = applyOnce(receiptBeforeThisMigration(), edits('sit_and_go_receipt'), 'receipt');
 
@@ -105,9 +95,9 @@ describe('the cause: a fill window was read as a start', () => {
     expect(creator).toContain('p_seats NOT IN (6,9)');
   });
 
-  it('before this migration only a two seat Sit and Go escaped the clock', () => {
+  it('before this migration non-SNG-typed sng-v1 events still fell back to the clock and any-launch-receipt guard was absent', () => {
     expect(coreBefore).toMatch(
-      /ELSIF v_t\.format_contract='sng-v1'\s+AND COALESCE\(v_t\.max_players,0\)=2 THEN\s+v_start_authority:='heads_up_sng_actual_start';\s+END IF;/
+      /ELSIF v_t\.format_contract='sng-v1'\s+AND COALESCE\(v_t\.max_players,0\)=2 THEN\s+v_start_authority:='heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1'\s+AND upper\(COALESCE\(v_t\.tournament_type::text,''\)\)='SNG'\s+AND lower\(COALESCE\(v_t\.variant::text,''\)\)<>'spin' THEN\s+v_start_authority:='sng_actual_start';\s+END IF;/
     );
     expect(coreBefore).not.toContain('sit_and_go_actual_start');
     expect(coreBefore).toMatch(
@@ -239,13 +229,13 @@ describe('the immutable receipt can name and prove the new authority', () => {
 
   it('the reader accepts it only for a Sit and Go that is not Heads-Up and had no completed launch', () => {
     expect(receipt).toMatch(
-      /'spin_actual_start','heads_up_sng_actual_start','launch_release',\s+'sit_and_go_actual_start'\)\s+AND EXISTS \([\s\S]{0,260}?launch\.completed_at<=v_r\.settled_at/
+      /'spin_actual_start','heads_up_sng_actual_start','sng_actual_start','launch_release',\s+'sit_and_go_actual_start'\)\s+AND EXISTS \([\s\S]{0,260}?launch\.completed_at<=v_r\.settled_at/
     );
     expect(receipt).toMatch(
       /OR \(v_r\.start_authority='sit_and_go_actual_start'\s+AND NOT EXISTS \(\s+SELECT 1 FROM public\.tournaments t\s+WHERE t\.id=v_r\.tournament_id\s+AND t\.format_contract='sng-v1'\s+AND COALESCE\(t\.max_players,0\)<>2\)\)/
     );
     expect(receipt).toMatch(
-      /v_r\.start_authority NOT IN \(\s+'scheduled_clock','spin_actual_start','heads_up_sng_actual_start',\s+'launch_release','sit_and_go_actual_start'\)/
+      /v_r\.start_authority NOT IN \(\s+'scheduled_clock','spin_actual_start','heads_up_sng_actual_start',\s+'sng_actual_start','launch_release','sit_and_go_actual_start'\)/
     );
   });
 });
