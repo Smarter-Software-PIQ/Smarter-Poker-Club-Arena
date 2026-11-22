@@ -1,4 +1,5 @@
 # omahaCbetRaiseIsPriced constants (CBET-DEFENCE 2026-11-21; criteria CRITERIA-CBET-DEFENCE.md sha256 cfb19103...)
+
 Source: public PLO4/PLO5 cash hands that saw a flop, Nov 1-16 2026 UTC (434,098 hands; public actions only; every opponent together, no identity). The first player facing the preflop raiser's first flop bet; share that raised. Wilson 95% intervals.
 | players | c-bet size | n | raises | share [95%] |
 |---|---|---|---|---|
