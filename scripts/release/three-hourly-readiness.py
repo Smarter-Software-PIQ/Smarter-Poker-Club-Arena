@@ -62,19 +62,66 @@ EXIT_CODES = {
 }
 
 ROOT = Path(__file__).resolve().parents[2]
-_PREQUAL_MODULE = None
+_PREQUAL_MODULES = {}
 
 
 class ReadError(Exception):
     """Raised when any required live health, git or GitHub read fails."""
 
 
+def _git_toplevel(path):
+    """Return the resolved git repository root for path via read-only git rev-parse, or None."""
+    target = Path(path).expanduser()
+    if not target.is_dir():
+        return None
+    try:
+        out = git_read(target, "rev-parse", "--show-toplevel")
+    except ReadError:
+        return None
+    return Path(out).resolve() if out else None
+
+
+def resolve_repo_root(repo_dir=None, script_root=None, cwd=None):
+    """Resolve the local git repository root deterministically.
+
+    Order:
+      1. Explicit --repo-dir when provided (must exist and be a git repo; never falls back).
+      2. Script's repository root (Path(__file__).resolve().parents[2]) if .git exists.
+      3. Current working directory if inside a git repository.
+    Fails closed with ReadError (-> verdict UNKNOWN, exit 3) if none resolves.
+    """
+    if repo_dir is not None:
+        candidate = Path(repo_dir).expanduser()
+        if not candidate.is_dir():
+            raise ReadError(f"--repo-dir is not an existing directory: {repo_dir}")
+        resolved = candidate.resolve()
+        toplevel = _git_toplevel(resolved)
+        if toplevel is None:
+            raise ReadError(f"--repo-dir is not a git repository: {resolved}")
+        return toplevel
+
+    default_root = Path(script_root) if script_root is not None else ROOT
+    if default_root.is_dir() and (default_root / ".git").exists():
+        return default_root.resolve()
+
+    current = Path(cwd) if cwd is not None else Path.cwd()
+    toplevel = _git_toplevel(current)
+    if toplevel is not None:
+        return toplevel
+
+    raise ReadError(
+        "could not locate a git repository from script path or working directory; "
+        "pass --repo-dir <path>"
+    )
+
+
 def load_prequalification_module(repo_root=ROOT):
-    """Import scripts/ci/read-engine-prequalification.py cleanly."""
-    global _PREQUAL_MODULE
-    if _PREQUAL_MODULE is not None and repo_root == ROOT:
-        return _PREQUAL_MODULE
-    helper_path = Path(repo_root) / "scripts/ci/read-engine-prequalification.py"
+    """Import scripts/ci/read-engine-prequalification.py relative to repo_root."""
+    resolved_root = Path(repo_root).resolve()
+    cached = _PREQUAL_MODULES.get(resolved_root)
+    if cached is not None:
+        return cached
+    helper_path = resolved_root / "scripts/ci/read-engine-prequalification.py"
     if not helper_path.is_file():
         raise ReadError(f"missing prequalification reader: {helper_path}")
     spec = importlib.util.spec_from_file_location("read_engine_prequalification", helper_path)
@@ -82,8 +129,7 @@ def load_prequalification_module(repo_root=ROOT):
         raise ReadError(f"could not load prequalification reader: {helper_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    if repo_root == ROOT:
-        _PREQUAL_MODULE = module
+    _PREQUAL_MODULES[resolved_root] = module
     return module
 
 
@@ -697,7 +743,8 @@ def collect_readiness(
     limit=DEFAULT_LIMIT,
     health_url=DEFAULT_HEALTH_URL,
     control_ref=DEFAULT_CONTROL_REF,
-    repo_root=ROOT,
+    repo_root=None,
+    repo_dir=None,
     now_utc=None,
     health_fn=None,
     gh_get_fn=None,
@@ -712,7 +759,6 @@ def collect_readiness(
     health_reader = health_fn or (lambda: fetch_health(health_url))
     gh_reader = gh_get_fn or gh_api_get
     git_reader = git_fn or git_read
-    proj_reader = projection_fn or (lambda sha: control_projection(sha, repo_root=repo_root))
 
     report = {
         "schema": SCHEMA_VERSION,
@@ -732,6 +778,20 @@ def collect_readiness(
     }
 
     try:
+        if repo_dir is not None:
+            resolved_root = resolve_repo_root(repo_dir=repo_dir)
+        elif repo_root is not None:
+            resolved_root = Path(repo_root)
+        else:
+            resolved_root = resolve_repo_root()
+    except ReadError as exc:
+        report["errors"].append(str(exc))
+        report["summary"] = str(exc)
+        return report
+
+    proj_reader = projection_fn or (lambda sha: control_projection(sha, repo_root=resolved_root))
+
+    try:
         health = health_reader()
         report["health"] = health
         schedule = compute_next_cycle(checked_at, health["frequency"], health["startHours"])
@@ -748,11 +808,12 @@ def collect_readiness(
 
         remote_main_sha = fetch_remote_main_sha(repo, gh_get=gh_reader)
         git_walk = walk_candidates_git(
-            repo_root, control_ref, health["releaseSha"], limit, git_fn=git_reader
+            resolved_root, control_ref, health["releaseSha"], limit, git_fn=git_reader
         )
         control_sha = git_walk["controlSha"]
         local_ref_stale = remote_main_sha != control_sha
         report["git"] = {
+            "repoDir": str(resolved_root),
             "controlRef": control_ref,
             "controlSha": control_sha,
             "remoteMainSha": remote_main_sha,
@@ -983,6 +1044,11 @@ def build_parser():
         help=f"Local protected main ref to walk (default: {DEFAULT_CONTROL_REF})",
     )
     parser.add_argument(
+        "--repo-dir",
+        default=None,
+        help="Optional path to a local git checkout (defaults to script repo root if .git exists, else cwd)",
+    )
+    parser.add_argument(
         "--now",
         help="Optional ISO-8601 UTC timestamp for deterministic schedule evaluation",
     )
@@ -1008,6 +1074,7 @@ def main(argv=None):
             limit=args.limit,
             health_url=args.health_url,
             control_ref=args.control_ref,
+            repo_dir=args.repo_dir,
             now_utc=now_utc,
         )
     except Exception as exc:  # fail closed to UNKNOWN (CLAUDE.md 10.86)

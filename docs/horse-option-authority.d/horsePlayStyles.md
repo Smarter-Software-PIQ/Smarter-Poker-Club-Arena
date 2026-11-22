@@ -51,7 +51,7 @@ Per-style tracking (2026-11-16), one per decision with the option on (ledger): h
 
 ## Tests
 
-HorsePlayStyle.test.ts, HorseOmahaPlayStyle.test.ts, and the style arms in HorseOmahaStrategyPrecedence.test.ts, HorseOmahaTurnRiverRaiseNeedsNuts.test.ts and HorseOmahaBigDrawAggression.test.ts.
+HorsePlayStyles.law.test.ts (docs/laws.d/server-src-engine-HorsePlayStyles.md), HorsePlayStyle.test.ts, HorseOmahaPlayStyle.test.ts, and the style arms in HorseOmahaStrategyPrecedence.test.ts, HorseOmahaTurnRiverRaiseNeedsNuts.test.ts and HorseOmahaBigDrawAggression.test.ts.
 
 ## Measured: census (scratch, not an evaluation)
 

@@ -62,6 +62,11 @@ const LEAVING = {
 };
 const POOL_ON: HorseDecideOpts = { ...PRODUCTION_28372C9A, lightningVpipFloorLimpOnly: true };
 const TABLE_ON: HorseDecideOpts = { ...PRODUCTION_28372C9A, vpipFloorLimpOnly: true };
+const TEN_HAND_ON: HorseDecideOpts = {
+  ...PRODUCTION_28372C9A,
+  vpipFloorLimpOnly: true,
+  vpipFloorLimpOnlyTenHandWindow: true,
+};
 
 type Snap = { player: SeatPlayer; gameState: HorseGameStateV2; opts: HorseDecideOpts };
 
@@ -72,14 +77,15 @@ function spotState(
   stackBB: number,
   kind: 'pool' | 'table',
   floor: unknown,
-  extra?: (gs: Record<string, unknown>) => void
+  extra?: (gs: Record<string, unknown>) => void,
+  windowHands = 30
 ): { hero: SeatPlayer; gs: HorseGameStateV2 } {
   const table =
     kind === 'table'
       ? {
           variant: 'nlh' as const,
           floor: 40,
-          window: 30,
+          window: windowHands,
           ownVpip: floor as { hands: number; vpip: number },
         }
       : { variant: 'nlh' as const, floor: 0 };
@@ -341,5 +347,59 @@ describe('the table floor limp of a short hold’em stack (vpipFloorLimpOnly)', 
     expect(at(OWN, TABLE_ON, (g) => delete g.vpipFloor)).toBe(false); // no floor
     expect(at(OWN, TABLE_ON, (g) => (g.gameMode = 'tournament'))).toBe(false);
     expect(at(OWN, TABLE_ON, (g) => (g.straddleActive = true))).toBe(false);
+  });
+});
+
+describe('the ten-hand table floor limp of a short hold’em stack (vpipFloorLimpOnlyTenHandWindow)', () => {
+  /** 10-hand window at 40%: the target is 7 of 10; 20% over 9 hands is well short. */
+  const OWN_TEN = { hands: 9, vpip: 22 };
+
+  it('on a ten-hand table, chart_open_jam limps at short depths are admitted (including under 6.67bb)', () => {
+    let limps = 0;
+    let underCap = 0;
+    const seats = new Set<string>();
+    for (const name of FIRST_IN)
+      for (const depth of DEPTHS)
+        for (const [i, hole] of WEAK.entries()) {
+          const { hero, gs } = spotState(SPOTS[name], hole, depth, 'table', OWN_TEN, undefined, 10);
+          const { decision } = decide(hero, gs, TEN_HAND_ON, 4700 + i);
+          const r = decision.tournamentPreflopAttribution;
+          if (r?.route !== 'chart_open_jam' || decision.action !== 'call') continue;
+          limps++;
+          seats.add(name);
+          const toCall = gs.currentBet - hero.bet;
+          if (toCall > 0.15 * hero.stack) underCap++;
+          expect(toCall).toBeLessThanOrEqual(BB);
+          expect(r.referenceProposal).toEqual({ action: 'call', amount: toCall });
+          const snapshot: Snap = { player: hero, gameState: gs, opts: TEN_HAND_ON };
+          expect(necessaryReferenceRouteGates('chart_open_jam', snapshot)).toBe(true);
+          expect(horsePhase6AttributionMismatch(decision, snapshot)).toBeNull();
+        }
+    expect(limps).toBeGreaterThan(20);
+    expect(underCap).toBeGreaterThan(5);
+    expect([...seats].sort()).toEqual([...FIRST_IN].sort());
+  });
+
+  it('admits the ten-hand table limp only under the line; switch delivery need not appear in request opts', () => {
+    const limp = {
+      route: 'chart_open_jam',
+      referenceProposal: { action: 'call', amount: BB },
+    } as never;
+    const at = (
+      own: unknown,
+      opts: HorseDecideOpts,
+      change?: (g: Record<string, unknown>) => void
+    ) => {
+      const { hero, gs } = spotState(SPOTS.btnFirstIn, WEAK[0], 6.35, 'table', own, change, 10);
+      return referenceReturnShape(limp, { player: hero, gameState: gs, opts });
+    };
+    expect(at(OWN_TEN, TEN_HAND_ON)).toBe(true);
+    expect(at(OWN_TEN, TABLE_ON)).toBe(true);
+    expect(at(OWN_TEN, PRODUCTION_28372C9A)).toBe(true);
+    expect(at({ hands: 10, vpip: 70 }, TEN_HAND_ON)).toBe(false); // at/over the 7-of-10 line
+    expect(at({ hands: 2, vpip: 0 }, TEN_HAND_ON)).toBe(false); // no judged sample yet
+    expect(at(OWN_TEN, TEN_HAND_ON, (g) => delete g.vpipFloor)).toBe(false); // no floor
+    expect(at(OWN_TEN, TEN_HAND_ON, (g) => (g.gameMode = 'tournament'))).toBe(false);
+    expect(at(OWN_TEN, TEN_HAND_ON, (g) => (g.straddleActive = true))).toBe(false);
   });
 });

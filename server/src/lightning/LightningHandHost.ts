@@ -27,6 +27,7 @@ import {
 import { bindLightningHorseObservationIdentity } from '../engine/HorseObservationIdentity.js';
 import { captureLightningHorseJournalCoordinate } from '../engine/HorseDecisionHandBinding.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
+import { handRowEngineBuild } from '../releaseIdentity.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  ONE LIGHTNING HAND, DEALT (Lightning Phase 6, 2026-09-27)
@@ -3449,6 +3450,15 @@ export class LightningHandHost {
       >[0]['perPotAwards'],
     });
     return {
+      /* A LIGHTNING HAND NAMES ITS BUILD (2026-11-21). hand_history.engine_build
+         (20261118073245) was stamped only by logHandHistory, which a Lightning
+         row never passes through, so every Lightning hand stored NULL (25,725
+         of 25,725 in the 20 hours after the 2026-11-20 19:12 UTC cutover,
+         against 0 unstamped physical hands) and could not be split by the
+         build that played it. Same helper, same rule as a physical hand; it
+         rides fn_lightning_settle_hand's row into fn_ca_commit_hand_settlement
+         unchanged. Built once per hand, so every settle retry is identical. */
+      ...handRowEngineBuild(),
       horse_exploit_dealt_count: participants.length,
       public_memory_domain: publicMemoryDomainFromRules(
         'lightning',
