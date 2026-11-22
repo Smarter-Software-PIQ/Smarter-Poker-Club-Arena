@@ -13,45 +13,106 @@ import {
 const ROOT = resolve(__dirname, '../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
 
+import { parseAppUrl } from '../../src/lib/native/deepLinks';
+
+const CLUSTER_UUID = '11111111-2222-4333-8444-555555555555';
+
 describe('game invite URL builders', () => {
-  it('builds a canonical table share URL with encoded table id', () => {
+  it('builds a canonical table share URL (/g/:id) with encoded table id', () => {
     expect(tableShareUrl('tbl-123/4', 'https://smarter.poker')).toBe(
-      'https://smarter.poker/hub/club-arena/table/tbl-123%2F4'
+      'https://smarter.poker/g/tbl-123%2F4'
     );
   });
 
-  it('builds a canonical Lightning share URL with encoded cluster id', () => {
+  it('appends normalized inviteCode, clusterId, and inviteToken query params cleanly and omits invalid ones', () => {
+    expect(
+      tableShareUrl('tbl-1', {
+        origin: 'https://smarter.poker',
+        inviteCode: ' abc2345 ',
+        clusterId: CLUSTER_UUID.toUpperCase(),
+        inviteToken: 'hu_token-99',
+      })
+    ).toBe(`https://smarter.poker/g/tbl-1?i=ABC2345&cluster=${CLUSTER_UUID}&invite=hu_token-99`);
+
+    // Invalid params produce a clean URL with no stray '?'.
+    expect(
+      tableShareUrl('tbl-1', {
+        origin: 'https://smarter.poker',
+        inviteCode: 'BAD01',
+        clusterId: 'not-a-uuid',
+        inviteToken: 'x',
+      })
+    ).toBe('https://smarter.poker/g/tbl-1');
+  });
+
+  it('builds a canonical Lightning share URL (/l/:id) with encoded cluster id and optional inviteCode', () => {
     expect(lightningShareUrl('cl-9/a', 'https://smarter.poker')).toBe(
-      'https://smarter.poker/hub/club-arena/lightning/cl-9%2Fa'
+      'https://smarter.poker/l/cl-9%2Fa'
     );
+    expect(
+      lightningShareUrl('cl-9/a', { origin: 'https://smarter.poker', inviteCode: 'xyz6789' })
+    ).toBe('https://smarter.poker/l/cl-9%2Fa?i=XYZ6789');
   });
 
-  it('routes table, lightning, and tournament targets to their canonical builders', () => {
+  it('routes table, lightning, and tournament targets to their canonical builders with query params', () => {
     expect(gameInviteUrl({ kind: 'table', id: 'cash-99' }, 'https://smarter.poker')).toBe(
       tableShareUrl('cash-99', 'https://smarter.poker')
     );
+    expect(
+      gameInviteUrl(
+        {
+          kind: 'table',
+          id: 'cash-99',
+          inviteCode: 'ABC2345',
+          clusterId: CLUSTER_UUID,
+          inviteToken: 'hold_44',
+        },
+        'https://smarter.poker'
+      )
+    ).toBe(`https://smarter.poker/g/cash-99?i=ABC2345&cluster=${CLUSTER_UUID}&invite=hold_44`);
     expect(gameInviteUrl({ kind: 'lightning', id: 'cluster-7' }, 'https://smarter.poker')).toBe(
       lightningShareUrl('cluster-7', 'https://smarter.poker')
     );
+    expect(
+      gameInviteUrl(
+        { kind: 'lightning', id: 'cluster-7', inviteCode: 'ABC2345' },
+        'https://smarter.poker'
+      )
+    ).toBe('https://smarter.poker/l/cluster-7?i=ABC2345');
     expect(gameInviteUrl({ kind: 'tournament', id: 'mtt-42' }, 'https://smarter.poker')).toBe(
       tournamentShareUrl('mtt-42', 'https://smarter.poker')
     );
   });
 
-  it('resolves lobby entry invite targets for classic cash, Lightning cash, and tournaments', () => {
+  it('native deepLinks parseAppUrl resolves /g/:id, /l/:id, and /t/:id preview links with query params', () => {
+    expect(
+      parseAppUrl(`https://smarter.poker/g/tbl-9?i=ABC2345&cluster=${CLUSTER_UUID}`)?.path
+    ).toBe(`/table/tbl-9?i=ABC2345&cluster=${CLUSTER_UUID}`);
+    expect(parseAppUrl('https://smarter.poker/l/cl-7?i=ABC2345')?.path).toBe(
+      '/lightning/cl-7?i=ABC2345'
+    );
+    expect(parseAppUrl('https://smarter.poker/t/mtt-42')?.path).toBe('/tournaments/mtt-42');
+    expect(parseAppUrl('clubarena://g/tbl-9?i=ABC2345')?.path).toBe('/table/tbl-9?i=ABC2345');
+  });
+
+  it('resolves lobby entry invite targets for classic cash, Must-Move cash, Lightning cash, and tournaments', () => {
     expect(lobbyEntryInviteTarget({ id: 'tbl-1', kind: 'cash', game: null })).toEqual({
       kind: 'table',
       id: 'tbl-1',
     });
     expect(
-      lobbyEntryInviteTarget({
-        id: 'tbl-anchor',
-        kind: 'cash',
-        game: { id: 'cluster-42', lightning: { players: 8, status: 'live' } },
-      })
+      lobbyEntryInviteTarget(
+        {
+          id: 'tbl-anchor',
+          kind: 'cash',
+          game: { id: 'cluster-42', lightning: { players: 8, status: 'live' } },
+        },
+        { inviteCode: 'ABC2345' }
+      )
     ).toEqual({
       kind: 'lightning',
       id: 'cluster-42',
+      inviteCode: 'ABC2345',
     });
     expect(
       lobbyEntryInviteTarget({
@@ -62,6 +123,32 @@ describe('game invite URL builders', () => {
     ).toEqual({
       kind: 'table',
       id: 'tbl-main',
+    });
+    expect(
+      lobbyEntryInviteTarget(
+        {
+          id: 'tbl-main',
+          kind: 'cash',
+          game: { id: CLUSTER_UUID, mustMove: true, lightning: undefined },
+        },
+        { inviteCode: 'ABC2345' }
+      )
+    ).toEqual({
+      kind: 'table',
+      id: 'tbl-main',
+      inviteCode: 'ABC2345',
+      clusterId: CLUSTER_UUID,
+    });
+    // Manual (non-must-move) cluster does not attach ?cluster=.
+    expect(
+      lobbyEntryInviteTarget({
+        id: 'tbl-manual',
+        kind: 'cash',
+        game: { id: CLUSTER_UUID, mustMove: false, lightning: undefined },
+      })
+    ).toEqual({
+      kind: 'table',
+      id: 'tbl-manual',
     });
     expect(lobbyEntryInviteTarget({ id: 'hu-9', kind: 'sng' })).toEqual({
       kind: 'tournament',
@@ -88,7 +175,7 @@ describe('lobby and table invite wiring', () => {
   it('GameLobbyPanel offers Invite To Game via lobbyEntryInviteTarget, shareLink, and ShareLinkFallback', () => {
     const panel = read('src/components/lobby/GameLobbyPanel.tsx');
     expect(panel).toContain('Invite To Game');
-    expect(panel).toContain('gameInviteUrl(lobbyEntryInviteTarget(entry))');
+    expect(panel).toContain('gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }))');
     expect(panel).toContain("source: 'GameLobbyPanel.inviteToGame'");
     expect(panel).toContain('<ShareLinkFallback');
     expect(panel).toContain("entry.status !== 'completed' && entry.status !== 'closed'");
@@ -102,8 +189,10 @@ describe('lobby and table invite wiring', () => {
     const tournPage = read('src/pages/TournamentPage.tsx');
 
     expect(lobbyTable).toContain('data-testid="lobby-invite-btn"');
-    expect(lobbyTable).toContain('<InviteRowButton entry={e} onFailed={ctx.onInviteFailed} />');
-    expect(lobbyTable).toContain('gameInviteUrl(lobbyEntryInviteTarget(entry))');
+    expect(lobbyTable).toContain(
+      '<InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />'
+    );
+    expect(lobbyTable).toContain('gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }))');
     expect(lobbyTable).toContain("source: 'LobbyTable.inviteToGame'");
     expect(lobbyTable).toContain('<ShareLinkFallback');
     expect(lobbyTable).toContain("if (entry.status === 'completed' || entry.status === 'closed')");
@@ -126,7 +215,7 @@ describe('lobby and table invite wiring', () => {
     expect(tournPage).toContain("['COMPLETED', 'CANCELLED', 'FINISHED']");
   });
 
-  it('TableMenu, TableTabBar, MasterBus, and TablePage wire INVITE_TO_GAME including Lightning clusters', () => {
+  it('TableMenu, TableTabBar, MasterBus, and TablePage wire INVITE_TO_GAME including Lightning clusters and sender invite code', () => {
     const bus = read('src/core/MasterBus.ts');
     const menu = read('src/components/table/TableMenu.tsx');
     const bar = read('src/components/table/TableTabBar.tsx');
@@ -138,8 +227,17 @@ describe('lobby and table invite wiring', () => {
     expect(bar).toContain("action: 'INVITE_TO_GAME'");
     expect(page).toContain("case 'INVITE_TO_GAME':");
     expect(page).toContain("source: 'TablePage.inviteToGame'");
-    expect(page).toContain("gameInviteUrl({ kind: 'lightning', id: lightning.clusterId })");
+    expect(page).toContain(
+      "gameInviteUrl({ kind: 'lightning', id: lightning.clusterId, inviteCode })"
+    );
+    expect(page).toContain('useSenderInviteCode(');
     expect(page).toContain('tableInviteFallbackUrl');
+    expect(bus).toContain("| 'INVITE_ONLINE_FRIEND'");
+    expect(menu).toContain("id: 'invite-online-friend'");
+    expect(menu).toContain("label: 'Invite Online Friend'");
+    expect(bar).toContain("action: 'INVITE_ONLINE_FRIEND'");
+    expect(page).toContain("case 'INVITE_ONLINE_FRIEND':");
+    expect(page).toContain('<OnlineFriendInvitePicker');
   });
 
   it('FriendListPanel Invite To Table button renders a visible icon', () => {
