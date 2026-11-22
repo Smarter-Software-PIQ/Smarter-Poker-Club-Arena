@@ -198,7 +198,13 @@ describe('omahaRiverCurrentNutsCallFloor: the decision', () => {
     const floor = src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        checkedTo2.decision');
     expect(floor).toBeGreaterThan(src.indexOf('const openMeasured = omahaOpenMeasuredRule('));
     expect(floor).toBeGreaterThan(src.indexOf('const firstToAct = omahaRiverFirstToActBetRule('));
-    expect(src.indexOf('return { decision: nutsFloored };')).toBeGreaterThan(floor);
+    // STAB-DEFENCE 2026-11-20: the node now returns through omahaStrongHandCheckRule (default off), which takes the
+    // floor's answer and changes only a bet with nothing to call into a check; it never touches a call or a fold.
+    const strongCheck = src.indexOf(
+      'const strongCheck = omahaStrongHandCheckRule(\n        nutsFloored,'
+    );
+    expect(strongCheck).toBeGreaterThan(floor);
+    expect(src.indexOf('return { decision: strongCheck.decision };')).toBeGreaterThan(strongCheck);
     const nodeEnd = src.indexOf("decision = graph.run('wager_rules'");
     expect(nodeEnd).toBeGreaterThan(floor);
   });

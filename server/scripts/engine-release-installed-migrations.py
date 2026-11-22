@@ -552,6 +552,7 @@ def main(argv):
     r.add_argument('--production', help='a production JSON file (tests); default: DATABASE_URL')
     r.add_argument('--repo', default='.')
     r.add_argument('--control')
+    r.add_argument('--sha', help='exact candidate SHA for comparable production digest')
     r.add_argument('--wait', type=int, default=0)
     d = sub.add_parser('certified-digest')
     d.add_argument('--evidence', required=True)
@@ -640,8 +641,18 @@ def main(argv):
         due, why = refresh_due(evidence, args.copy_evidence_sha, production)
         if pending:
             why += f'; still not installed after {args.wait}s: {", ".join(pending[:5])}'
+        comparable_sha = args.sha or args.control
+        comparable_digest = ''
+        if comparable_sha and re.fullmatch(r'[0-9a-f]{40}', comparable_sha):
+            try:
+                comparable_digest = digest(comparable(production['migrations'], window_versions(args.repo, comparable_sha)))
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+                comparable_digest = ''
         print(f'due={"true" if due else "false"}')
         print(f'production={digest(production["migrations"])}')
+        print(f'pending={",".join(pending)}')
+        if comparable_digest:
+            print(f'comparable={comparable_digest}')
         print(f'reason={why}', file=sys.stderr)
         return 0
     return 2

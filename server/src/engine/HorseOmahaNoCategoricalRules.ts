@@ -65,9 +65,14 @@ export const OMAHA_NO_CATEGORICAL_RULES_OFF = Object.freeze([
   'omahaStrongHandSlowplayMix',
   'omahaSlowplayMixInLightning',
   'omahaPricedMix',
-  'omahaStreetPlan',
+  // omahaStreetPlan and omahaStreetPlanThreeWay are NOT here (lead ruling 2026-11-20, lane BLANKET-AUDIT): they
+  // price the turn check and each bet as whole lines over every exact river card (HorseOmahaStreetPlan.ts); only
+  // their fallback range (a fixed keep share of a fixed sample) is categorical, declared 'partly' in
+  // HorseOmahaRuleBasis.ts. Exact replay on the serving build 26c2e74930dd (424 decisions where it fired): off
+  // turned 366 turn checks into bets. A first all-chip grade of that (-1,588 +/- 330) was asymmetric and is
+  // superseded: the symmetric grade of the same row-off is +1,118 +/- 112 (Horse-only, 2026-11-21) and the row is
+  // off by the lead's decision. They stay out of this list because they are priced in form, not because off loses.
   'omahaStreetPlanFlop',
-  'omahaStreetPlanThreeWay',
   'omahaTurnBetNeedsRiverPlan',
   'v9Mood',
 ] as const satisfies readonly (keyof HorseDecideOpts)[]);

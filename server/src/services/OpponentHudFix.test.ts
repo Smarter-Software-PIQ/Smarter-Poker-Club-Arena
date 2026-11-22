@@ -23,8 +23,10 @@ import {
 } from '../engine/opponentHud/OpponentHudProfile.js';
 import {
   HUD_BACKFILL_PAGE_LIMIT,
+  isTransientBackfillError,
   pageAllOpponentHudHands,
   planOpponentHudBackfill,
+  withTransientBackfillRetry,
 } from '../engine/opponentHud/OpponentHudBackfillPlan.js';
 import {
   depositTournamentMovePresence,
@@ -386,10 +388,12 @@ describe('OPPONENT-HUD-FIX-1 item 4 (AUDIT-C 6/10): the backfill starts at hand 
     expect(src).not.toMatch(/2026-01-01T00:00:00Z|2026-10-01/);
     expect(src).not.toMatch(/stored > p\.hands && !flag\('--force'\)/);
     expect(src).toMatch(/planOpponentHudBackfill\(/);
-    // Regression guard (2026-11-22 dry-run 44984942583): PostgREST max_rows=1000 truncated p_limit=1500
-    // after page 1, and missing process.exit(0) left Supabase client handles open for 6 hours.
-    expect(HUD_BACKFILL_PAGE_LIMIT).toBeLessThanOrEqual(1000);
+    // Regression guard (2026-11-22 dry-runs 44984942583 & 45026021393): PostgREST max_rows=1000 truncated
+    // p_limit=1500 after page 1, p_limit=1000 crossed the 8s statement_timeout on a heavy page, and missing
+    // process.exit(0) left Supabase client handles open for 6 hours.
+    expect(HUD_BACKFILL_PAGE_LIMIT).toBeLessThanOrEqual(500);
     expect(src).toMatch(/pageAllOpponentHudHands\(/);
+    expect(src).toMatch(/withTransientBackfillRetry\(/);
     expect(src).not.toMatch(/rows\.length\s*<\s*1500|p_limit:\s*1500/);
     expect(src).toMatch(/process\.exit\(0\)/);
   });
@@ -398,8 +402,8 @@ describe('OPPONENT-HUD-FIX-1 item 4 (AUDIT-C 6/10): the backfill starts at hand 
       id: H(i + 1),
       created_at: new Date(Date.parse('2026-07-22T14:29:00.000Z') + i * 1000).toISOString(),
     }));
-    // Simulate PostgREST server-side cap (e.g. 500 or 1000 rows) strictly smaller than requested limit.
-    const serverCap = 500;
+    // Simulate PostgREST server-side cap strictly smaller than requested limit.
+    const serverCap = 300;
     const seen: string[] = [];
     const requestedLimits: number[] = [];
     const res = await pageAllOpponentHudHands({
@@ -416,12 +420,102 @@ describe('OPPONENT-HUD-FIX-1 item 4 (AUDIT-C 6/10): the backfill starts at hand 
       },
       onRow: (r) => seen.push(r.id),
     });
-    expect(Math.max(...requestedLimits)).toBeLessThanOrEqual(1000);
-    expect(res.pages).toBe(5);
+    expect(Math.max(...requestedLimits)).toBeLessThanOrEqual(500);
+    expect(res.pages).toBe(8);
     expect(res.rows).toBe(2350);
+    expect(res.retries).toBe(0);
     expect(seen).toHaveLength(2350);
     expect(seen[0]).toBe(H(1));
     expect(seen[seen.length - 1]).toBe(H(2350));
+  });
+  it('halves page size and retries cleanly on transient statement timeouts, then recovers back to base limit', async () => {
+    const allRows = Array.from({ length: 2100 }, (_, i) => ({
+      id: H(i + 1),
+      created_at: new Date(Date.parse('2026-07-22T14:29:00.000Z') + i * 1000).toISOString(),
+    }));
+    const seen: string[] = [];
+    const observedLimits: number[] = [];
+    const sleeps: number[] = [];
+    let timedOutOnce = false;
+    const res = await pageAllOpponentHudHands({
+      since: '2026-07-22T14:29:00.000Z',
+      until: '2026-11-22T00:00:00.000Z',
+      limit: 500,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      fetchPage: async ({ afterAt, afterId, limit }) => {
+        observedLimits.push(limit);
+        const start = allRows.findIndex(
+          (r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId)
+        );
+        if (start === -1) return [];
+        // Page 2 fails once at limit=500 with PostgREST 8s statement timeout, succeeds at limit=250.
+        if (start === 500 && limit > 250 && !timedOutOnce) {
+          timedOutOnce = true;
+          throw new Error('hands page failed: canceling statement due to statement timeout');
+        }
+        return allRows.slice(start, start + limit);
+      },
+      onRow: (r) => seen.push(r.id),
+    });
+    expect(res.rows).toBe(2100);
+    expect(res.retries).toBe(1);
+    expect(sleeps).toEqual([1000]);
+    expect(observedLimits.slice(0, 3)).toEqual([500, 500, 250]);
+    // After 5 clean pages at 250, limit recovers back to 500.
+    expect(observedLimits[observedLimits.length - 1]).toBe(500);
+    expect(new Set(seen).size).toBe(2100);
+    expect(seen[0]).toBe(H(1));
+    expect(seen[seen.length - 1]).toBe(H(2100));
+  });
+  it('fails closed immediately on non-transient errors and after exhausting bounded transient retries', async () => {
+    expect(
+      isTransientBackfillError(new Error('canceling statement due to statement timeout'))
+    ).toBe(true);
+    expect(isTransientBackfillError(new Error('permission denied for function'))).toBe(false);
+    let permAttempts = 0;
+    await expect(
+      pageAllOpponentHudHands({
+        since: '2026-07-22T14:29:00.000Z',
+        until: '2026-11-22T00:00:00.000Z',
+        sleep: async () => {},
+        fetchPage: async () => {
+          permAttempts += 1;
+          throw new Error('permission denied for function fn_opponent_hud_hands_page');
+        },
+        onRow: () => {},
+      })
+    ).rejects.toThrow(/permission denied/);
+    expect(permAttempts).toBe(1);
+
+    let timeoutAttempts = 0;
+    await expect(
+      pageAllOpponentHudHands({
+        since: '2026-07-22T14:29:00.000Z',
+        until: '2026-11-22T00:00:00.000Z',
+        maxRetries: 3,
+        sleep: async () => {},
+        fetchPage: async () => {
+          timeoutAttempts += 1;
+          throw new Error('hands page failed: canceling statement due to statement timeout');
+        },
+        onRow: () => {},
+      })
+    ).rejects.toThrow(/statement timeout/);
+    expect(timeoutAttempts).toBe(4);
+
+    let rpcAttempts = 0;
+    const out = await withTransientBackfillRetry(
+      async () => {
+        rpcAttempts += 1;
+        if (rpcAttempts < 3) throw new Error('502 Bad Gateway');
+        return 'ok';
+      },
+      { sleep: async () => {} }
+    );
+    expect(out).toBe('ok');
+    expect(rpcAttempts).toBe(3);
   });
   it('fails closed when a non-empty page fails to advance the keyset cursor', async () => {
     await expect(
