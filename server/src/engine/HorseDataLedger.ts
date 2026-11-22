@@ -4996,7 +4996,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v72_defend_vs_opener',
-    'HorsePreflop (V72)',
+    'HorsePreflop (V72, v72DefenceByOpener)',
     "Hold'em facing one open with nobody in, defended on the (defender, opener seat) reference base",
     'V72',
     'decide_nlh',
@@ -5143,7 +5143,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_nut_class_pot_wager',
-    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense, omahaNutClassValueSize)',
     'a PLO4/PLO5 bet or raise with the nuts or an effective-nut hand was sized up to the full pot (or the stack)',
     'V94'
   ),
@@ -5293,7 +5293,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_preflop_reraise_defence_call',
-    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced, omahaPreflopReraiseDefencePricedInPosition)',
     'the same decision in which the priced decision was a call',
     'V94'
   ),
@@ -5305,7 +5305,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_preflop_reraise_defence_changed',
-    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced, omahaPreflopReraiseDefencePricedInPosition)',
     'the priced preflop decision differed from the answer it was given (a fold became a call, a call or a re-raise became a fold, a re-raise became a call)',
     'V94'
   ),
@@ -5317,37 +5317,37 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_reraised_call_priced_call',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     "PLO4/PLO5: a preflop call of a 3-bet or more that the class cell folds was priced and the fold OVERTURNED, the call kept: EV(call) = realization x equity against the re-raiser's measured range x (pot after the call, after rake) - call is at least 0 (owner 2026-11-17 15:30: no blanket rule). Never fires on a call the class cell keeps",
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_fold',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'PLO4/PLO5: a preflop call of a 3-bet or more that the class cell folds was priced and the fold CONFIRMED: EV(call) below 0 = EV(fold), so the call became a fold. The pricing alone never folds: a call the class cell keeps stands and fires neither priced receipt',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_in_position',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'finding F-02: a class fold was priced (either verdict) with the Horse in position as the realization fit defines it: it acts after the re-raiser (omahaReraisedPositionOf.ipVsRaiser, seat order only)',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_out_of_position',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'finding F-02: a class fold was priced (either verdict) with the Horse out of position as the realization fit defines it: it acts before the re-raiser',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_multiway_equity',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players already in for the price and the equity taken against the re-raiser and each of them (omahaReraisedEquityAgainst; each caller range is the band read from his line), with no per-player charge (measured -0.03, SE 0.06)',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_heads_up_diluted',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players counted in the pot and the equity heads-up against the re-raiser, so each is charged the 0.35 dilution (a tournament or Lightning hand, or a player in for the price with no readable band)',
     'V94'
   ),
@@ -5359,13 +5359,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_reraised_call_priced_call_after_own_raise',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'the subset of omaha_reraised_call_priced_call in which the Horse had raised earlier in the hand preflop (an input to the price only)',
     'V94'
   ),
   receipt(
     'omaha_reraised_call_priced_fold_after_own_raise',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange, omahaReraisedPositionInLightning)',
     'the subset of omaha_reraised_call_priced_fold in which the Horse had raised earlier in the hand preflop (an input to the price only)',
     'V94'
   ),
@@ -6085,13 +6085,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_facing_bet_ev_call',
-    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv, omahaFacingBetEvShownField, omahaFacingBetValueIsRangeRelative, omahaPairedBoardRiverIsPriced, omahaRiverBluffCatchIsPriced, omahaTurnCallRealizationByRunout)',
     "PLO4/PLO5 cash turn or river, facing a bet or a raise, today's answer a fold or a call: the expected value of the call, on the exact holdings count, the bettor's range and the actual price, exceeds the margin: call (the whole-stack call is the all-in)",
     'V94'
   ),
   receipt(
     'omaha_facing_bet_ev_fold',
-    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv, omahaFacingBetEvShownField, omahaFacingBetValueIsRangeRelative, omahaPairedBoardRiverIsPriced, omahaRiverBluffCatchIsPriced, omahaTurnCallRealizationByRunout)',
     'the same decision, the expected value of the call at or under the margin: fold',
     'V94'
   ),
@@ -6145,7 +6145,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_facing_bet_ev_changed',
-    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv, omahaFacingBetEvShownField, omahaFacingBetValueIsRangeRelative, omahaPairedBoardRiverIsPriced, omahaRiverBluffCatchIsPriced, omahaTurnCallRealizationByRunout)',
     "the expected-value verdict differs from the answer today's rules gave (a fold became a call or a call became a fold); the legacy rule is the legacy receipt fired in the same decision",
     'V94'
   ),
@@ -6897,7 +6897,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_public_bet_size_nut_class_kept',
-    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState, omahaNutClassValueSize)',
     "PLO4/PLO5 cash postflop, omahaNutClassValueSize on and a nut-class hand: that owner option's wager size stands (valid no-change)",
     'V94'
   ),
@@ -7111,7 +7111,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_full_table_sb_steal',
-    'HorsePreflop (V90, item 4)',
+    'HorsePreflop (V90, item 4, omahaSmallBlindSteal)',
     'PLO4/PLO5 tournament, four to eight dealt, not the bubble, hand-for-hand or a satellite: the small blind folded to (big blind alone, 20 BB or less) replaced the engine fold with the pot-limit raise on its top 40 percent of Omaha hands (no rate floor until a live day is measured)',
     'V90'
   ),
@@ -8365,19 +8365,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v44_declined_math_core_owned',
-    'ServerTableEngineTurns.secondLookPlan',
+    'ServerTableEngineTurns.secondLookPlan (omahaMathCore)',
     'no second look: omahaMathCore decided this action (its EV choice is final; no deep re-run replaces it)',
     'V94'
   ),
   receipt(
     'lightning_fold_through_math_core_owned',
-    'HorseLogic.decide (lightningEarlyFoldNeedsFoldThrough)',
+    'HorseLogic.decide (lightningEarlyFoldNeedsFoldThrough, omahaMathCore)',
     'the Lightning fold-through re-ask stood aside: omahaMathCore owns this decision',
     'V94'
   ),
   receipt(
     'omaha_math_core_refused_choice_priced_call',
-    'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD)',
+    'ServerTableEngineTurns / LightningHandHost worker refusal path (COREGUARD, omahaMathCore)',
     'a refused or failed worker answer on an omahaMathCore decision was replaced by the priced call or check, never a fold',
     'V94'
   ),
@@ -9034,7 +9034,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'v86_*',
-    'HorseLogic / HorsePreflop / HorseOmahaBigBetCalls (V86)',
+    'HorseLogic / HorsePreflop / HorseOmahaBigBetCalls (V86, omahaRiverNutBlockerBluffReachable)',
     'V86 PLO4/5/6/8 preflop 3-bet/4-bet/squeeze rundowns & suited Ax, postflop combo-draw pump & SPR discipline, Bully-Breaker LAG counter, multi-board/PLO8 freeroll, and underboat/PLO6 river folds',
     'V86'
   ),

@@ -63,20 +63,130 @@ cd "$repo_root"
 mig_dir="${RESERVE_MIGRATION_DIR:-supabase/migrations}"
 mkdir -p "$mig_dir"
 
+# Portable mtime in Unix seconds. BSD stat (macOS) takes -f %m; GNU stat
+# (Linux) takes -c %Y. GNU accepts -f too - it means "filesystem status" and
+# prints a multi-line report that exits 0 - so "the first one that succeeded"
+# is not a test. Keep only an answer that is a bare number of seconds
+# (2026-10-16: the old chain fed that report to $(( )) and every Linux run died
+# "File: unbound variable" before reserving anything).
+mtime_seconds() {
+  local target="$1" candidate stat_form
+  for stat_form in "-c %Y" "-f %m"; do
+    # shellcheck disable=SC2086
+    candidate=$(stat $stat_form "$target" 2>/dev/null || true)
+    case "$candidate" in
+      '' | *[!0-9]*) ;;
+      *) printf '%s\n' "$candidate"; return 0 ;;
+    esac
+  done
+  printf '0\n'
+}
+
+pid_is_alive() {
+  local pid="$1" err
+  case "$pid" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "$pid" -gt 0 ] || return 1
+  if err=$(kill -0 "$pid" 2>&1); then
+    return 0
+  fi
+  # EPERM means a live process owned by another user holds the PID.
+  case "$err" in
+    *[Pp]ermit* | *EPERM*) return 0 ;;
+  esac
+  return 1
+}
+
+# A lock dir is stale if:
+#   1. its pid file names a numeric PID that is no longer alive, OR
+#   2. it has no readable numeric PID file (e.g. a legacy empty lock dir or a
+#      holder killed between mkdir and writing pid) AND its mtime is at least
+#      lock_grace_s old, so a brand-new holder racing to write pid is never
+#      evicted.
+lock_is_stale() {
+  local dir="$1" grace="$2" pid now_s mtime_s
+  [ -d "$dir" ] || return 1
+  if [ -f "$dir/pid" ]; then
+    pid=$(tr -d '[:space:]' < "$dir/pid" 2>/dev/null || true)
+    case "$pid" in
+      '' | *[!0-9]*) ;;
+      *)
+        if pid_is_alive "$pid"; then
+          return 1
+        fi
+        return 0
+        ;;
+    esac
+  fi
+  now_s=$(date +%s)
+  mtime_s=$(mtime_seconds "$dir")
+  [ "$mtime_s" -gt 0 ] && [ $(( now_s - mtime_s )) -ge "$grace" ]
+}
+
+# Reclaim a stale lock dir atomically under a guard dir, double-checking
+# staleness inside the guard so a concurrent live caller that acquired $dir in
+# the meantime is never disturbed.
+reclaim_stale_lock() {
+  local dir="$1" grace="$2" guard_mtime now_s reclaimed=1
+  local guard="${dir}.reclaim"
+  lock_is_stale "$dir" "$grace" || return 1
+  if ! mkdir "$guard" 2>/dev/null; then
+    now_s=$(date +%s)
+    guard_mtime=$(mtime_seconds "$guard")
+    if [ "$guard_mtime" -gt 0 ] && [ $(( now_s - guard_mtime )) -ge "$grace" ]; then
+      rmdir "$guard" 2>/dev/null || true
+    fi
+    mkdir "$guard" 2>/dev/null || return 1
+  fi
+  if lock_is_stale "$dir" "$grace"; then
+    rm -f "$dir/pid" "$dir/ts" 2>/dev/null || true
+    if rmdir "$dir" 2>/dev/null; then
+      reclaimed=0
+    fi
+  fi
+  rmdir "$guard" 2>/dev/null || true
+  return "$reclaimed"
+}
+
 # A lock so two agents on THIS machine cannot draw in the same instant. The
-# directory form is atomic on every filesystem; flock is not on macOS.
+# directory form is atomic on every filesystem; flock is not on macOS. Record
+# the holder PID and epoch timestamp inside the lock dir so a crashed or legacy
+# stale lock is recovered automatically without ever evicting a live holder.
 lock="${TMPDIR:-/tmp}/club-arena-migration-version.lock"
+lock_grace_s=30
 migration_lock_owned=0
+release_migration_lock() {
+  if [ "$migration_lock_owned" = "1" ]; then
+    local owner_pid
+    owner_pid=$(tr -d '[:space:]' < "$lock/pid" 2>/dev/null || true)
+    if [ -z "$owner_pid" ] || [ "$owner_pid" = "$$" ]; then
+      rm -f "$lock/pid" "$lock/ts" 2>/dev/null || true
+      rmdir "$lock" 2>/dev/null || true
+    fi
+    migration_lock_owned=0
+  fi
+}
+trap release_migration_lock EXIT
+trap 'release_migration_lock; exit 130' INT
+trap 'release_migration_lock; exit 143' TERM
+
 for _ in $(seq 1 50); do
-  if mkdir "$lock" 2>/dev/null; then migration_lock_owned=1; break; fi
+  if mkdir "$lock" 2>/dev/null; then
+    migration_lock_owned=1
+    printf '%s\n' "$$" > "$lock/pid"
+    date +%s > "$lock/ts"
+    break
+  fi
+  if reclaim_stale_lock "$lock" "$lock_grace_s"; then
+    continue
+  fi
   sleep 0.2
 done
 if [ "$migration_lock_owned" != "1" ]; then
   echo "could not acquire migration reservation lock; nothing was reserved." >&2
   exit 1
 fi
-# shellcheck disable=SC2064
-trap "rmdir '$lock' 2>/dev/null || true" EXIT
 
 # The fetch is the only slow part (network), and it is usually redundant:
 # agent-workspace.sh fetches main when it builds the tree. Skip it when the ref
@@ -88,21 +198,7 @@ if [ "${RESERVE_MIGRATION_SKIP_FETCH:-0}" != "1" ]; then
   fetch_needed=1
   if [ -f "$ref_file" ]; then
     now_s=$(date +%s)
-    # BSD stat (macOS) takes -f %m; GNU stat (Linux) takes -c %Y. GNU accepts
-    # -f too - it means "filesystem status" and prints a multi-line report
-    # that exits 0 - so "the first one that succeeded" is not a test. Keep
-    # only an answer that is a bare number of seconds (2026-10-16: the old
-    # chain fed that report to $(( )) and every Linux run died "File: unbound
-    # variable" before reserving anything).
-    ref_s=0
-    for stat_form in "-c %Y" "-f %m"; do
-      # shellcheck disable=SC2086
-      candidate=$(stat $stat_form "$ref_file" 2>/dev/null || true)
-      case "$candidate" in
-        '' | *[!0-9]*) ;;
-        *) ref_s=$candidate; break ;;
-      esac
-    done
+    ref_s=$(mtime_seconds "$ref_file")
     [ $(( now_s - ref_s )) -lt 600 ] && fetch_needed=0
   fi
   [ "$fetch_needed" = "1" ] && git fetch --quiet origin main 2>/dev/null || true

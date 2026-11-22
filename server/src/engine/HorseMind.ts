@@ -887,9 +887,23 @@ function evictOldest<K>(store: Map<K, unknown> | Set<K>, cap: number): K[] {
   return evicted;
 }
 
+/** Isolated style-learner maps for offline/replay sandboxes (AsOfOpponentMemory). Never set on live
+ *  snapshotDecisionReads views; when absent, runInSandbox leaves the process style maps untouched. */
+export interface HorseMindStyleMaps {
+  styleSizeShown: Map<string, SizeBucketTallies>;
+  styleAggression: Map<string, StreetAggression>;
+  styleHorseReference: Map<string, StreetAggression>;
+  styleSizeShownLightning: Map<string, SizeBucketTallies>;
+  styleAggressionLightning: Map<string, StreetAggression>;
+  styleHorseReferenceLightning: Map<string, StreetAggression>;
+  styleBootHandKeys: Set<string>;
+}
+
 /** A spare, isolated set of HorseMind's state containers (V12.2). Opaque to
- *  callers — create with HorseMind.createSandbox(), use via runInSandbox(). */
+ *  callers - create with HorseMind.createSandbox(), use via runInSandbox(). */
 export interface HorseMindSandbox {
+  /** Optional isolated style-learner maps; see HorseMindStyleMaps. */
+  styleMaps?: HorseMindStyleMaps;
   /** Absent only on predecessor snapshots; never falls through to live reads. */
   winnerReads?: HorseWinnerReadState;
   stats: Map<string, OpponentStats>;
@@ -1429,6 +1443,19 @@ export class HorseMind {
   /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
    *  process maps. Never set by a production path; a live engine keeps the default false. */
   private static harnessStyleLearning = false;
+  /** True only while runInSandbox has swapped in a sandbox's own isolated styleMaps. */
+  private static sandboxStyleLearning = false;
+  static createStyleMaps(): HorseMindStyleMaps {
+    return {
+      styleSizeShown: new Map(),
+      styleAggression: new Map(),
+      styleHorseReference: new Map(),
+      styleSizeShownLightning: new Map(),
+      styleAggressionLightning: new Map(),
+      styleHorseReferenceLightning: new Map(),
+      styleBootHandKeys: new Set(),
+    };
+  }
   static enableHarnessStyleLearning(on = true): void {
     this.harnessStyleLearning = on;
   }
@@ -4079,7 +4106,19 @@ export class HorseMind {
     const liveReadIgnoresProbes = this.decisionReadIgnoresProbes;
     const liveMode = this.decisionMode;
     const liveDurable = this.durableOpponentMemory;
+    const liveSandboxStyleLearning = this.sandboxStyleLearning;
     this.durableOpponentMemory = false;
+    const liveStyleMaps = sandbox.styleMaps
+      ? {
+          styleSizeShown: this.styleSizeShown,
+          styleAggression: this.styleAggression,
+          styleHorseReference: this.styleHorseReference,
+          styleSizeShownLightning: this.styleSizeShownLightning,
+          styleAggressionLightning: this.styleAggressionLightning,
+          styleHorseReferenceLightning: this.styleHorseReferenceLightning,
+          styleBootHandKeys: this.styleBootHandKeys,
+        }
+      : null;
     const live = {
       stats: this.stats,
       seenActions: this.seenActions,
@@ -4130,6 +4169,17 @@ export class HorseMind {
     // A snapshot taken before the fingerprint layer reads as "no plan
     // fingerprint", never as the live map.
     this.planFingerprints = sandbox.planFingerprints ?? new Map();
+    if (sandbox.styleMaps) {
+      this.styleSizeShown = sandbox.styleMaps.styleSizeShown;
+      this.styleAggression = sandbox.styleMaps.styleAggression;
+      this.styleHorseReference = sandbox.styleMaps.styleHorseReference;
+      this.styleSizeShownLightning = sandbox.styleMaps.styleSizeShownLightning;
+      this.styleAggressionLightning = sandbox.styleMaps.styleAggressionLightning;
+      this.styleHorseReferenceLightning = sandbox.styleMaps.styleHorseReferenceLightning;
+      this.styleBootHandKeys = sandbox.styleMaps.styleBootHandKeys;
+      this.sandboxStyleLearning = true;
+      this.bumpStyleMemoEpoch();
+    }
     this.sandboxDepth = 1;
     this.decisionScope = null;
     this.decisionVariant = null;
@@ -4138,6 +4188,17 @@ export class HorseMind {
     try {
       return runWithWinnerReadState((sandbox.winnerReads ??= createWinnerReadState()), fn);
     } finally {
+      if (liveStyleMaps) {
+        this.styleSizeShown = liveStyleMaps.styleSizeShown;
+        this.styleAggression = liveStyleMaps.styleAggression;
+        this.styleHorseReference = liveStyleMaps.styleHorseReference;
+        this.styleSizeShownLightning = liveStyleMaps.styleSizeShownLightning;
+        this.styleAggressionLightning = liveStyleMaps.styleAggressionLightning;
+        this.styleHorseReferenceLightning = liveStyleMaps.styleHorseReferenceLightning;
+        this.styleBootHandKeys = liveStyleMaps.styleBootHandKeys;
+        this.bumpStyleMemoEpoch();
+      }
+      this.sandboxStyleLearning = liveSandboxStyleLearning;
       this.stats = live.stats;
       this.seenActions = live.seenActions;
       this.handFlags = live.handFlags;
@@ -5963,7 +6024,8 @@ export class HorseMind {
       // L7: the hand's own scope only, never a previous decision's
       const styleScope = scope ?? null;
       const styleLearn =
-        (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
+        ((this.sandboxDepth === 0 || this.sandboxStyleLearning) && !this.decisionEffectSink) ||
+        this.harnessStyleLearning;
       // (c): a hand the boot rebuild already counted is not counted again (one skip per key)
       const styleBootCounted = styleLearn && this.styleBootHandKeys.delete(handKey);
       if (styleLearn && !styleBootCounted && styleMode && styleVariant && styleScope) {
