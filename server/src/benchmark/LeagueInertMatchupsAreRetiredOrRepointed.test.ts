@@ -125,6 +125,12 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-21 (list train): league opponents have no lifetime history (omahaOpponentLifetimeHud).
         'plo4_opponent_lifetime_hud',
         'plo5_opponent_lifetime_hud',
+        // 2026-11-21 (OPPONENT-HUD-9): the consumer reads the same absent history (omahaOpponentLifetimeHudDecides).
+        'plo4_opponent_lifetime_hud_decides',
+        'plo5_opponent_lifetime_hud_decides',
+        // 2026-11-21 (B4): priced 6-max preflop HUD reads the same absent history (omahaPreflopReadIsPricedFromLifetime).
+        'plo4_omaha_preflop_read_is_priced_from_lifetime',
+        'plo5_omaha_preflop_read_is_priced_from_lifetime',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

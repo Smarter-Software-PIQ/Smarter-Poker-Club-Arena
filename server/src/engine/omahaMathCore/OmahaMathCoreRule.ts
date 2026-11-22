@@ -773,18 +773,21 @@ export function omahaMathCoreRule(
         }
       }
     }
-    // B3 (lane core-repair, CORE-LEAD4-B3-TURN-RIVER-SPEC.md): on PLO5 cash turn/river when a live
+    // B3 (lane core-repair, CORE-LEAD4-B3-TURN-RIVER-SPEC.md): on PLO4/PLO5 cash turn/river when a live
     // opponent-lifetime HUD packet is installed (Stage 1), ONLY fold -> plain call proven by
     // priceTurnRiverLifetimeCall is permitted (station/nit guard by construction, K_allin = 25 on river
     // commits; never bets, raises, or folds a baseline call — zero fallback to population turn/river tables).
     let trHudGoverned = false;
     const trStage = String(gs.stage);
+    const trVariantRaw = String(gs.gameVariant).toLowerCase();
+    const trVariant: 'plo4' | 'plo5' | null =
+      trVariantRaw === 'plo4' || trVariantRaw === 'plo5' ? trVariantRaw : null;
     const trProv = omahaMathCoreTurnRiverProvider();
     if (
       incumbent === 'today' &&
-      String(gs.gameVariant).toLowerCase() === 'plo5' &&
+      trVariant !== null &&
       (trStage === 'turn' || trStage === 'river') &&
-      trProv?.active?.('plo5') === true
+      trProv?.active?.(trVariant) === true
     ) {
       trHudGoverned = true;
       const keepInc: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
@@ -805,18 +808,19 @@ export function omahaMathCoreRule(
         const lineFw = trProv.firstWager(
           gs,
           coreState.aggressorSeat,
-          'plo5',
+          trVariant,
           trStage,
           'hu',
           hudLine
         );
-        const pooledFw = trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
+        const pooledFw = trProv.firstWager(gs, coreState.aggressorSeat, trVariant, trStage, 'hu');
         const fw = lineFw && lineFw.opps > 0 ? lineFw : pooledFw;
         if (fw && fw.opps > 0) {
-          const brl = trProv.barrel?.(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu') ?? null;
+          const brl =
+            trProv.barrel?.(gs, coreState.aggressorSeat, trVariant, trStage, 'hu') ?? null;
           const rvFw =
             trStage === 'turn'
-              ? (trProv.riverRate?.(gs, coreState.aggressorSeat, 'plo5', 'hu') ?? null)
+              ? (trProv.riverRate?.(gs, coreState.aggressorSeat, trVariant, 'hu') ?? null)
               : null;
           const trRes = priceTurnRiverLifetimeCall({
             state: coreState,
