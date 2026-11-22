@@ -2638,6 +2638,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   flag(
+    'horseRunItTwiceIsPriced',
+    'HORSE DECISIONS lane (UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22; dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): main-thread all-in Run-It-Twice priced replacement (HorseRunItTwicePriced / HorseRunItTwiceSwitch / ServerTableEngineRunout.horseRitRuns). Replaces fixed HorseRunItTwice.horseRunItTwiceRuns thresholds with the EV-equal measured people-curve mix (role chooser/responder, normalized variance share e(1-e), ln potBB, compiled offline in HorseRunItTwicePeople.data.ts) plus bounded +/-0.5 logit own-persona tilt, deterministic FNV-1a hash draw, unknown-equity single-run fallback, and explicit owner lopsided cut (equity <= 0.25 or >= 0.75 always runs once). Emits horse_rit_priced_owner_cut / horse_rit_priced_equity_unknown / horse_rit_priced_three / horse_rit_priced_multi / horse_rit_priced_once. OFF path is byte-identical to horseRunItTwiceRuns.',
+    'RIT'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -9456,6 +9461,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
     'H4 monster slowplay priced verdict chose value bet (EV(bet) >= EV(check)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
     "Hold'em Strategy"
+  ),
+  receipt(
+    'horse_rit_priced_owner_cut',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision enforced explicit owner lopsided cut (equity <= 0.25 or >= 0.75) and ran once',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_equity_unknown',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision had unknown public all-in equity and fell back to running once',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_three',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced chooser decision selected 3 runs from the measured people curve (maxRuns === 3, inside non-lopsided band)',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_multi',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision selected 2 runs from the measured people curve + bounded own-persona tilt',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_once',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision selected 1 run (measured single-run draw or maxRuns < 2)',
+    'RIT'
   ),
   receipt(
     'holdem_priced_value_raise_deferred',

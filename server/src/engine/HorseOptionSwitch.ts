@@ -1197,6 +1197,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'dark zero-migration priced replacement for unowned V36 multi-board bluff-trim blanket multiplier (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   horseSlowplayIsPriced:
     "dark zero-migration priced replacement for unowned H4 monster slowplay mix (Hold'em Strategy, 2026-11-22): default OFF, held out of SQL switch until activation evidence and switch-list registration",
+  horseRunItTwiceIsPriced:
+    'dark zero-migration priced replacement for Run-It-Twice fixed thresholds (HORSE DECISIONS lane, UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22): default OFF, held out of SQL switch until switch-list registration and authority rename',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

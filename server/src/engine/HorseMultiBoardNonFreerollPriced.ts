@@ -22,23 +22,26 @@
  *
  * Pricing model:
  *   - Average multi-board equity: `E_avg = mean(boardEquities)`.
- *   - Risk-adjusted utility facing a wager `w` against pre-wager pot `P` under bubble factor `bf >= 1`:
- *       `U(e, P, w, bf) = e * (P + w) - (1 - e) * bf * w`
- *     At `bf = 1` (cash / chip EV), `U(e, P, w, 1) === e * (P + 2 * w) - w`.
+ *   - Risk-adjusted utility facing a wager `w` against pre-wager pot `P` under bubble factor `bf >= 1`
+ *     and rake fraction `r in [0, 0.25]`:
+ *       `U(e, P, w, bf, r) = e * ((1 - r) * (P + 2 * w) - w) - (1 - e) * bf * w`
+ *     At `r = 0, bf = 1` (rake-free cash / chip EV), `U(e, P, w, 1, 0) === e * (P + 2 * w) - w`;
+ *     at `bf = 1` with rake `r`, break-even equity is `w / ((P + 2 * w) * (1 - r))`.
  *   - Facing-bet decision (`argmax { EV(fold)=0, EV(call), max_r EV(raise, r) }`):
  *       - Continuous non-river `deadBoardRealizationPenalty` when `minBoardEq` is low and chips
  *         remain behind (`0` strictly on river and `0` when all-in; never a cliff fold).
  *       - `EV(fold) = 0`.
- *       - `EV(call) = U(E_call_realized, P0, effCall, bf)` where `P0 = max(0, pot - effCall)`.
- *       - `EV(raise, r) = F_raise(r) * pot + (1 - F_raise(r)) * U(E_called_raise(r), P0, effWager, bf)`
+ *       - `EV(call) = U(E_call_realized, P0, effCall, bf, r)` where `P0 = max(0, pot - toCall)`
+ *         (excludes villain's uncallable excess `toCall - effCall` on short-stack all-in calls).
+ *       - `EV(raise, r) = F_raise(r) * pot * (1 - r_rake) + (1 - F_raise(r)) * U(E_called_raise(r), P0, effWager, bf, r_rake)`
  *         across legal raise-TO candidates (0.75x, 1.00x `(pot + toCall)`, effective max, and
  *         max-legal / all-in — strictly respecting `minRaise`, effective stack, Pot-Limit cap
  *         `currentBet + pot + toCall`, and `canRaise` / `!raisedAfterAggr`).
  *   - Open / checked-to decision (`max_b EV(bet, b)` vs `EV(check)`):
- *       - `EV(bet, b) = F(b) * pot + (1 - F(b)) * U(E_called(b), pot, effB, bf)` across legal
+ *       - `EV(bet, b) = F(b) * pot * (1 - r_rake) + (1 - F(b)) * U(E_called(b), pot, effB, bf, r_rake)` across legal
  *         bet candidates (0.50, 0.75, 1.00, geometric, max-legal / all-in — strictly honoring
  *         `minBet`, `heroStack`, and Pot-Limit `pot` cap).
- *       - `EV(check) = B * max(0, U(E_free, pot, stabSize, bf)) + (1 - B) * E_free * pot` using
+ *       - `EV(check) = B * max(0, U(E_free, pot, stabSize, bf, r_rake)) + (1 - B) * E_free * pot * (1 - r_rake)` using
  *         shrunk `betWhenCheckedTo` priors and continuous free-card equity erosion (`0` on river).
  */
 import { potLimitRaiseTo } from './BettingStructure.js';
@@ -161,6 +164,8 @@ export interface PriceMultiBoardNonFreerollOpenInput {
   readonly flopTexture?: HoldemFlopTexture;
   /** Hero tournament/Spin bubble factor (`>= 1`). Null/undefined/`<= 1` resolves to chip EV (`1`). */
   readonly heroBubbleFactor?: number | null;
+  /** Optional rake/deduction fraction on pot won, clamped to `[0, 0.25]`. Defaults to `0`. */
+  readonly rakeFraction?: number;
   /** Optional per-opponent public HUD packet and/or HorseMind exploit counters. */
   readonly opponents?: readonly NonFreerollOpponentInput[];
 }
@@ -209,6 +214,8 @@ export interface PriceMultiBoardNonFreerollFacingBetInput {
   readonly canRaise?: boolean;
   /** Hero tournament/Spin bubble factor (`>= 1`). Null/undefined/`<= 1` resolves to chip EV (`1`). */
   readonly heroBubbleFactor?: number | null;
+  /** Optional rake/deduction fraction on pot won, clamped to `[0, 0.25]`. Defaults to `0`. */
+  readonly rakeFraction?: number;
   /** Optional per-opponent public HUD packet and/or HorseMind exploit counters. */
   readonly opponents?: readonly NonFreerollOpponentInput[];
 }
@@ -260,6 +267,15 @@ function resolveBubbleFactor(bf: number | null | undefined): number {
   return typeof bf === 'number' && Number.isFinite(bf) && bf > 1 ? bf : 1;
 }
 
+/** Maximum accepted rake/deduction fraction (25%). */
+export const MAX_NON_FREEROLL_RAKE_FRACTION = 0.25;
+
+function resolveRakeFraction(rakeFraction: number | null | undefined): number {
+  return typeof rakeFraction === 'number' && Number.isFinite(rakeFraction)
+    ? clampRange(rakeFraction, 0, MAX_NON_FREEROLL_RAKE_FRACTION)
+    : 0;
+}
+
 function sanitizeBoardEquities(boardEquities: readonly number[]): number[] {
   if (!boardEquities || boardEquities.length === 0) return [];
   return boardEquities.map(clamp01);
@@ -297,22 +313,27 @@ export function multiBoardAverageEquity(boardEquities: readonly number[]): numbe
 
 /**
  * Risk-adjusted expected utility of contesting a wager `wager` into pre-wager `pot` with equity
- * `equity` under tournament bubble factor `bubbleFactor >= 1`:
- *   win branch (prob `equity`):      +(pot + wager)
+ * `equity` under tournament bubble factor `bubbleFactor >= 1` and pot rake fraction
+ * `rakeFraction in [0, 0.25]`:
+ *   win branch (prob `equity`):      (1 - rakeFraction) * (pot + 2 * wager) - wager
  *   lose branch (prob `1 - equity`): -bubbleFactor * wager
- * At `bubbleFactor = 1`, reduces identically to `equity * (pot + 2 * wager) - wager`.
+ * At `rakeFraction = 0, bubbleFactor = 1`, reduces identically to `equity * (pot + 2 * wager) - wager`.
+ * At `bubbleFactor = 1`, break-even equity is `wager / ((pot + 2 * wager) * (1 - rakeFraction))`,
+ * matching `HorseLogic`'s downstream raked pot-odds formula.
  */
 export function riskAdjustedUtility(
   equity: number,
   pot: number,
   wager: number,
-  bubbleFactor: number
+  bubbleFactor: number,
+  rakeFraction: number = 0
 ): number {
   const e = clamp01(equity);
   const p = sanitizePositive(pot);
   const w = sanitizePositive(wager);
   const bf = resolveBubbleFactor(bubbleFactor);
-  return e * (p + w) - (1 - e) * bf * w;
+  const r = resolveRakeFraction(rakeFraction);
+  return e * ((1 - r) * (p + 2 * w) - w) - (1 - e) * bf * w;
 }
 
 /**
@@ -661,6 +682,8 @@ export function priceMultiBoardNonFreerollOpen(
   const nBoards = Math.max(2, eqs.length);
   const averageEquity = multiBoardAverageEquity(eqs);
   const bf = resolveBubbleFactor(input.heroBubbleFactor);
+  const rakeFraction = resolveRakeFraction(input.rakeFraction);
+  const netPotFactor = 1 - rakeFraction;
   const opps = Math.max(1, Math.floor(Number.isFinite(input.oppCount) ? input.oppCount : 1));
   const penalty = nonFreerollFreeCardPenalty(input.wetness, opps, input.street);
   const freeCardEquity = clamp01(averageEquity * (1 - penalty));
@@ -675,7 +698,7 @@ export function priceMultiBoardNonFreerollOpen(
       action: 'check',
       betAmount: 0,
       evBet: 0,
-      evCheck: freeCardEquity * pot,
+      evCheck: freeCardEquity * pot * netPotFactor,
       averageEquity,
       freeCardEquity,
       foldProb: 0,
@@ -699,8 +722,11 @@ export function priceMultiBoardNonFreerollOpen(
   }
   const stabProb = clamp01(1 - noneStabProb);
   // Hero always retains the option to fold to a stab (`EV = 0`) if calling the stab is -EV.
-  const evVsStab = Math.max(0, riskAdjustedUtility(freeCardEquity, pot, stabSize, bf));
-  const evCheck = stabProb * evVsStab + (1 - stabProb) * freeCardEquity * pot;
+  const evVsStab = Math.max(
+    0,
+    riskAdjustedUtility(freeCardEquity, pot, stabSize, bf, rakeFraction)
+  );
+  const evCheck = stabProb * evVsStab + (1 - stabProb) * freeCardEquity * pot * netPotFactor;
 
   const rawAmounts: number[] = [];
   if (maxLegalBet >= minBet) {
@@ -766,7 +792,8 @@ export function priceMultiBoardNonFreerollOpen(
     const foldProb = clamp01(allFold);
     const calledEquity = nonFreerollOpenCalledEquity(eqs, potFraction);
     const ev =
-      foldProb * pot + (1 - foldProb) * riskAdjustedUtility(calledEquity, pot, effectiveWager, bf);
+      foldProb * pot * netPotFactor +
+      (1 - foldProb) * riskAdjustedUtility(calledEquity, pot, effectiveWager, bf, rakeFraction);
 
     const cand: NonFreerollBetCandidate = {
       amount,
@@ -845,6 +872,8 @@ export function priceMultiBoardNonFreerollFacingBet(
   const averageEquity = multiBoardAverageEquity(eqs);
   const minBoardEq = eqs.length > 0 ? Math.min(...eqs) : 0;
   const bf = resolveBubbleFactor(input.heroBubbleFactor);
+  const rakeFraction = resolveRakeFraction(input.rakeFraction);
+  const netPotFactor = 1 - rakeFraction;
   const opps = Math.max(1, Math.floor(Number.isFinite(input.oppCount) ? input.oppCount : 1));
   const canRaise = input.canRaise !== false;
 
@@ -857,8 +886,9 @@ export function priceMultiBoardNonFreerollFacingBet(
   const deepestOppStack = sanitizePositive(input.deepestOppStack);
 
   const effCall = Math.min(toCall, heroStack);
-  // Chips in pot prior to hero's matching portion (handles short-stack all-in call cleanly).
-  const potBeforeBet = Math.max(0, pot - effCall);
+  // Pre-bet pot before villain's wager: subtracts full `toCall` so any uncallable excess
+  // (`toCall - effCall`, returned to villain on a short-stack all-in call) never inflates EV(call).
+  const potBeforeBet = Math.max(0, pot - toCall);
   const behindAfterCall = Math.max(0, Math.min(heroStack - effCall, deepestOppStack));
   const deadBoardPenalty = deadBoardRealizationPenalty({
     boardEquities: eqs,
@@ -866,10 +896,10 @@ export function priceMultiBoardNonFreerollFacingBet(
     inPosition: input.inPosition,
     oppCount: opps,
     effectiveBehindAfterAction: behindAfterCall,
-    potAfterAction: pot + effCall,
+    potAfterAction: potBeforeBet + 2 * effCall,
   });
   const callRealizedEquity = clamp01(averageEquity - deadBoardPenalty);
-  const evCall = riskAdjustedUtility(callRealizedEquity, potBeforeBet, effCall, bf);
+  const evCall = riskAdjustedUtility(callRealizedEquity, potBeforeBet, effCall, bf, rakeFraction);
 
   const maxRaiseToByStack = floorCents(playerBet + heroStack);
   const maxRaiseToByPotLimit = input.isPotLimit
@@ -969,8 +999,9 @@ export function priceMultiBoardNonFreerollFacingBet(
       });
       const calledEquity = clamp01(baseCalledEq - raiseDeadPenalty);
       const ev =
-        foldProb * pot +
-        (1 - foldProb) * riskAdjustedUtility(calledEquity, potBeforeBet, effectiveWager, bf);
+        foldProb * pot * netPotFactor +
+        (1 - foldProb) *
+          riskAdjustedUtility(calledEquity, potBeforeBet, effectiveWager, bf, rakeFraction);
 
       const cand: NonFreerollRaiseCandidate = {
         raiseTo,

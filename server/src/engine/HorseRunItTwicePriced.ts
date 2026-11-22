@@ -183,8 +183,17 @@ export function horseRunItTwiceAnswer(
   return { runs: priced.runs, priced };
 }
 
+export type HorseRunItTwicePricedReceipt =
+  | 'horse_rit_priced_owner_cut'
+  | 'horse_rit_priced_equity_unknown'
+  | 'horse_rit_priced_three'
+  | 'horse_rit_priced_multi'
+  | 'horse_rit_priced_once';
+
 /** Receipt name for a priced answer. */
-export function horseRunItTwicePricedReceipt(a: HorseRunItTwicePricedAnswer): string {
+export function horseRunItTwicePricedReceipt(
+  a: HorseRunItTwicePricedAnswer
+): HorseRunItTwicePricedReceipt {
   switch (a.reason) {
     case 'owner_cut_lopsided':
       return 'horse_rit_priced_owner_cut';
