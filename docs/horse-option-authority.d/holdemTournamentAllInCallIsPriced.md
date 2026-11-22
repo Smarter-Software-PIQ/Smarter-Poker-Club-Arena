@@ -98,6 +98,12 @@ Human-field reach note: `human-calibrated-v1-20261008` plays `0` preflop open-ja
 - The overcall model prices only the widest player behind waking up, not two.
 - Postflop it uses the engine's equity as it stands, and only facing a jam (see 0f7c778b and 2b5b823c above).
 
+## Activation and rollback
+
+- Activation prerequisite: serving engine at `https://engine.smarter.poker/health` carries PR `#11684` (`756498773cc9`) or later so the preflop placement fix is live before enabling the switch.
+- Evidence note format: `authority: holdemTournamentAllInCallIsPriced docs/horse-option-authority.d/holdemTournamentAllInCallIsPriced.md sha256 <64 hex>` (recorded via `fn_ca_horse_option_switch_record_evidence`, then enabled via `fn_ca_horse_option_switch_set('holdemTournamentAllInCallIsPriced', 'on', ...)`).
+- Rollback: `fn_ca_horse_option_switch_set('holdemTournamentAllInCallIsPriced', 'off', ...)` restores the base brain byte-for-byte within ~30s.
+
 ## Replay
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
