@@ -40,8 +40,12 @@ export interface HeadsUpWaitingModalProps {
   inviteUrl: string;
   /** Optional target context enabling inline one-tap online friend invites. */
   friendInviteTarget?: HeadsUpFriendInviteTarget | null;
-  onChooseSpecific: () => void;
-  onChooseAnyone: () => void;
+  /** True while persisting the player's wait-mode choice to the server. */
+  busy?: boolean;
+  /** Honest inline error when persisting wait mode failed. */
+  errorMessage?: string | null;
+  onChooseSpecific: () => void | boolean | Promise<boolean | void>;
+  onChooseAnyone: () => void | boolean | Promise<boolean | void>;
   onClose: () => void;
   onNotify?: (kind: 'success' | 'info', message: string) => void;
 }
@@ -52,6 +56,8 @@ export function HeadsUpWaitingModal({
   tableName,
   inviteUrl,
   friendInviteTarget,
+  busy = false,
+  errorMessage = null,
   onChooseSpecific,
   onChooseAnyone,
   onClose,
@@ -187,14 +193,28 @@ export function HeadsUpWaitingModal({
   }, [inviteUrl, markCopied, onNotify, tableName]);
 
   const handlePickSpecific = useCallback(() => {
-    onChooseSpecific();
-    setStep('invite');
-  }, [onChooseSpecific]);
+    if (busy) return;
+    const result = onChooseSpecific();
+    if (result && typeof (result as Promise<boolean | void>).then === 'function') {
+      void (result as Promise<boolean | void>).then((ok) => {
+        if (ok !== false) setStep('invite');
+      });
+      return;
+    }
+    if (result !== false) setStep('invite');
+  }, [busy, onChooseSpecific]);
 
   const handlePickAnyone = useCallback(() => {
-    onChooseAnyone();
-    onClose();
-  }, [onChooseAnyone, onClose]);
+    if (busy) return;
+    const result = onChooseAnyone();
+    if (result && typeof (result as Promise<boolean | void>).then === 'function') {
+      void (result as Promise<boolean | void>).then((ok) => {
+        if (ok !== false) onClose();
+      });
+      return;
+    }
+    if (result !== false) onClose();
+  }, [busy, onChooseAnyone, onClose]);
 
   const showShareSheet = hasShareSheet();
 
@@ -219,11 +239,13 @@ export function HeadsUpWaitingModal({
               plates={{
                 secondary: {
                   label: 'Play Anyone',
+                  disabled: busy,
                   onClick: handlePickAnyone,
                 },
                 primary: {
                   ink: 'white',
                   label: 'Specific Player',
+                  disabled: busy,
                   onClick: handlePickSpecific,
                 },
               }}
@@ -235,6 +257,11 @@ export function HeadsUpWaitingModal({
               <p className="hu-waiting-dialog__hint">
                 Choose Specific Player To Get An Invite Link You Can Send Directly To Your Opponent.
               </p>
+              {errorMessage && (
+                <p className="hu-waiting-dialog__error" role="alert">
+                  {errorMessage}
+                </p>
+              )}
             </SpadeConsole>
           ) : (
             <SpadeConsole
