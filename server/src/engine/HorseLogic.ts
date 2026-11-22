@@ -17,6 +17,7 @@ import {
   holdemDangerBoardBettorEquity,
 } from './HorseHoldemCommittedPricing.js';
 import {
+  holdemEquityOfShare,
   holdemFillEquities,
   holdemHandIsMade,
   holdemLineLikelihood,
@@ -28,6 +29,12 @@ import {
   type HoldemLineStreet,
   type HoldemPricedSpot,
 } from './HorseHoldemValueAndCallsArePriced.js';
+import {
+  v66BoardScareTexture,
+  v66RaiseLineKeep,
+  v66RaisedOnePairPricedApplies,
+  v66RaisedOnePairPricedVerdict,
+} from './HorseHoldemV66RaisedOnePairIsPriced.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -3350,6 +3357,13 @@ export interface HorseDecideOpts {
    * price and never jams. Default on; explicit false keeps today's
    * committed-branch pricing. */
   v66BetRaisedOnePair?: boolean;
+  /** v66BetRaisedOnePairIsPriced (2026-11-21, Horse Switch lane, default OFF, read === true):
+   * priced replacement for V66 on flop/turn bet-then-raised one pair (or bluff-catch class with
+   * no real draw) in single-board 2-card NLH. Computes EV(call) vs EV(fold) = 0 from pot odds,
+   * SPR/street/position/scare-board realization, and combo-level Monte-Carlo equity against the
+   * raiser's narrowed line range (HorseHoldemV66RaisedOnePairIsPriced) with no fixed 0.42 floor
+   * and no hardcoded class fold or jam. Independent of v66BetRaisedOnePair. */
+  v66BetRaisedOnePairIsPriced?: boolean;
   /** V67 (2026-10-31): a hold'em one-pair (or board-paired two pair) hand
    * that bet the river and was raised is priced against the raise: the V63
    * shade plus a raise-specific V67_RIVER_RAISE_SHADE (capped at
@@ -29436,6 +29450,53 @@ export class HorseLogic {
       !holdemRealDraw(player.cards, board) &&
       toCall > 0 &&
       pot > 0;
+    // ═══ V66 PRICED REPLACEMENT (2026-11-21, Horse Switch lane, DARK / DEFAULT OFF) ═══
+    // Read strictly as === true so OFF/absent produces 0 bytes of behavior change across all formats.
+    // Independently of v66BetRaisedOnePair, prices flop/turn bet-then-raised one-pair / bluff-catch
+    // hands by EV(call) vs EV(fold) = 0 against the raiser's narrowed combo-weighted line range,
+    // replacing V66's fixed shade and the committed branch's fixed 0.42 floor / jam.
+    if (
+      opts.v66BetRaisedOnePairIsPriced === true &&
+      v66RaisedOnePairPricedApplies({
+        enabled: opts.v66BetRaisedOnePairIsPriced,
+        street,
+        raisedAfterAggr,
+        isTournament: isTournamentMode(gs),
+        isOmaha: vi.isOmaha,
+        isShortDeck: vi.isShortDeck,
+        isFixedLimit: vi.isFixedLimit,
+        holeCount: vi.holeCount,
+        playerCardCount: player.cards.length,
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+        cat,
+        pairedBoard,
+        hasRealDraw: holdemRealDraw(player.cards, board),
+        toCall,
+        pot,
+      })
+    ) {
+      const priced66 = this.v66BetRaisedOnePairPriced(
+        player,
+        gs,
+        opts,
+        street as 'flop' | 'turn',
+        ip,
+        pot,
+        toCall,
+        stack,
+        callDeductionFraction ?? 0
+      );
+      if (priced66 === 'call') {
+        if (tele15) noteFire('v66_bet_raised_one_pair_priced_call_taken');
+        return { action: 'call', amount: Math.min(toCall, stack), thinkTime: 0 };
+      }
+      if (priced66 === 'fold') {
+        if (tele15) noteFire('v66_bet_raised_one_pair_priced_fold_taken');
+        return { action: 'fold', thinkTime: 0 };
+      }
+      if (tele15) noteFire('v66_bet_raised_one_pair_priced_unpriced');
+    }
     // ═══ STYLE READ #4 RAISE RESPECT (2026-11-13, default off) ═══ a flop or
     // turn RAISE from a player whose postflop raise frequency is credibly
     // below the Horse mean is value more often than the generic read prices:
@@ -32136,6 +32197,217 @@ export class HorseLogic {
     } catch {
       if (tele) noteFire('holdem_priced_unpriced');
       return decision;
+    }
+  }
+
+  /**
+   * v66BetRaisedOnePairIsPriced (2026-11-21, Horse Switch lane, default OFF, read === true):
+   * computes EV(call) vs EV(fold) = 0 for a single-board 2-card NLH flop/turn bet-then-raised
+   * bluff-catch hand against the raiser's narrowed combo-weighted line range
+   * (HorseHoldemV66RaisedOnePairIsPriced). Uses holdemFillEquities's private deterministic PRNG
+   * (never draws from fastRandom) and returns 'unpriced' when multiway, side-potted, or no range
+   * can be constructed so the existing path handles it untouched.
+   */
+  private static v66BetRaisedOnePairPriced(
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    opts: HorseDecideOpts,
+    street: 'flop' | 'turn',
+    inPosition: boolean,
+    pot: number,
+    toCall: number,
+    heroStack: number,
+    callDeductionFraction: number
+  ): 'call' | 'fold' | 'unpriced' {
+    try {
+      const board = gs.communityCards ?? [];
+      if (board.length < 3 || board.length > 4 || player.cards.length !== 2) return 'unpriced';
+      const liveOpps = (gs.players ?? []).filter(
+        (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+      );
+      if (liveOpps.length !== 1) return 'unpriced';
+      const opp = liveOpps[0];
+      const variant = 'nlh';
+      const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+      const envelope = exploitEnvelopeFor(scope, variant);
+      if (!envelope) return 'unpriced';
+      const counters =
+        opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+      const foldAtReference = statRead(
+        counters?.foldToBet ?? 0,
+        counters?.foldToBetOpp ?? 0,
+        envelope.foldToBet
+      ).mean;
+      const betWhenCheckedTo = statRead(
+        counters?.betCheckedTo ?? 0,
+        counters?.betCheckedToOpp ?? 0,
+        envelope.betCheckedTo
+      ).mean;
+      let raiseAggressionShift = 0;
+      if (opts.mind !== false) {
+        try {
+          const style = HorseMind.styleRead(opp.user_id);
+          const sr = style?.signals?.streetRaise?.[street];
+          if (style?.consumersMayAct && sr && sr.confidence > 0) {
+            const strength = Math.max(0, Math.min(1, sr.magnitude * sr.confidence));
+            const cap = Math.max(0, Math.min(1, style.confidenceCap));
+            if (sr.side === 'low') raiseAggressionShift = -0.12 * strength * cap;
+            else if (sr.side === 'high') raiseAggressionShift = 0.16 * strength * cap;
+          }
+        } catch {
+          raiseAggressionShift = 0;
+        }
+      }
+      const scareTexture = v66BoardScareTexture(board);
+      const history = gs.actionHistory ?? [];
+      const preflop = history.filter((x) => x.stage === 'preflop');
+      let band: [number, number] | null = null;
+      try {
+        band = HorseMind.bandFor(
+          opp.user_id,
+          preflop,
+          gs.bigBlind,
+          true,
+          null,
+          undefined,
+          HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+        );
+      } catch {
+        band = null;
+      }
+      const posteriorOf = (h: typeof history, stage: 'flop' | 'turn' | 'river' = street) =>
+        computeActionLinePosterior({
+          villainUserId: opp.user_id,
+          villainSeat: opp.seat,
+          heroSeat: player.seat,
+          stage,
+          board,
+          pot: gs.pot,
+          bigBlind: gs.bigBlind,
+          actionHistory: h as never,
+          multiwayCount: 2,
+        });
+      const streets = ['flop', 'turn', 'river'] as const;
+      const isOpp = (x: (typeof history)[number]) =>
+        x.userId === opp.user_id || (x.userId === undefined && x.seat === opp.seat);
+      let totalHistoryAdded = 0;
+      {
+        let stScan = 'preflop';
+        let commScan = new Map<string, number>();
+        for (const x of history) {
+          const st = x.stage ?? 'preflop';
+          if (st !== stScan) {
+            stScan = st;
+            commScan = new Map();
+          }
+          const key = x.userId ?? `s${x.seat}`;
+          const prev = commScan.get(key) ?? 0;
+          const amt = Math.max(0, Number(x.amount ?? 0));
+          const total =
+            x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+          totalHistoryAdded += Math.max(0, total - prev);
+          commScan.set(key, total);
+        }
+      }
+      const line: HoldemLineStreet[] = [];
+      const appliedCheckStreets = new Set<string>();
+      const pushCheckStreetIfOnlyChecks = (stName: string) => {
+        const k = streets.indexOf(stName as never);
+        if (k < 0 || k + 3 > board.length || appliedCheckStreets.has(stName)) return;
+        appliedCheckStreets.add(stName);
+        const mine = history.filter((y) => y.stage === stName && isOpp(y));
+        if (mine.length === 0 || mine.some((y) => y.action !== 'check')) return;
+        const upTo = (end: number) =>
+          history.filter((y) => y.stage === 'preflop' || streets.indexOf(y.stage as never) < end);
+        line.push({
+          board: board.slice(0, k + 3),
+          likelihood: holdemLineLikelihood(
+            posteriorOf(upTo(k + 1), stName as 'flop' | 'turn' | 'river'),
+            posteriorOf(upTo(k), stName as 'flop' | 'turn' | 'river')
+          ),
+        });
+      };
+      let runningPot = Math.max(0, Number(gs.pot ?? 0) - totalHistoryAdded);
+      let streetOf = 'preflop';
+      let committedMap = new Map<string, number>();
+      let facingTo = 0;
+      let oppNarrowedPostflop = false;
+      for (let idx = 0; idx < history.length; idx++) {
+        const x = history[idx];
+        const st = x.stage ?? 'preflop';
+        if (st !== streetOf) {
+          pushCheckStreetIfOnlyChecks(streetOf);
+          streetOf = st;
+          committedMap = new Map();
+          facingTo = 0;
+        }
+        const key = x.userId ?? `s${x.seat}`;
+        const prev = committedMap.get(key) ?? 0;
+        const amt = Math.max(0, Number(x.amount ?? 0));
+        const wager = x.action === 'raise' || x.action === 'all_in' || x.action === 'bet';
+        const total =
+          x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+        const added = Math.max(0, total - prev);
+        const k = streets.indexOf(st as never);
+        if (k >= 0 && k + 3 <= board.length && isOpp(x)) {
+          const sb = board.slice(0, k + 3);
+          if (x.action === 'call' || (x.action === 'all_in' && total <= facingTo + 1e-9)) {
+            const sub = holdemLineRange(player.cards, board, band, line);
+            const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
+            line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
+            oppNarrowedPostflop = true;
+          } else if (wager && total > facingTo + 1e-9) {
+            const upTo = history.slice(0, idx + 1);
+            const betShare = oppNarrowedPostflop
+              ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+              : betWhenCheckedTo;
+            const postBluff = posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
+            if (facingTo > 0 && (st === 'flop' || st === 'turn')) {
+              const keep = v66RaiseLineKeep({
+                street: st,
+                betShare,
+                posteriorBluffShare: postBluff,
+                raisePotFrac: runningPot > 1e-9 ? added / runningPot : 0,
+                scareTexture: v66BoardScareTexture(sb),
+                raiseAggressionShift: st === street ? raiseAggressionShift : 0,
+              });
+              line.push({ board: sb, keep: { top: keep.top, bottom: keep.bottom } });
+            } else {
+              const half = facingTo > 0 ? 0.5 : 1;
+              line.push({
+                board: sb,
+                keep: {
+                  top: betShare * (1 - postBluff) * half,
+                  bottom: betShare * postBluff * half,
+                },
+              });
+            }
+            oppNarrowedPostflop = true;
+          }
+        }
+        if (total > facingTo) facingTo = total;
+        committedMap.set(key, total);
+        runningPot += added;
+      }
+      pushCheckStreetIfOnlyChecks(streetOf);
+      const range = holdemLineRange(player.cards, board, band, line);
+      if (range.total <= 0) return 'unpriced';
+      holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+      const rawEquity = holdemEquityOfShare(range, 1).equity;
+      const verdict = v66RaisedOnePairPricedVerdict({
+        street,
+        inPosition,
+        pot,
+        toCall,
+        heroStack,
+        villainStack: Math.max(0, Number(opp.stack ?? 0)),
+        rawEquity,
+        scareTexture,
+        callDeductionFraction,
+      });
+      return verdict.decision;
+    } catch {
+      return 'unpriced';
     }
   }
 

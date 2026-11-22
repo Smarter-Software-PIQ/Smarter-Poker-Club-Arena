@@ -1221,6 +1221,11 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'decoupled V87 postflop sub-rule (IP flop float vs stabber); split from v87HoldemOverhaul, not registered in SQL switch',
   v87BullyReadAdjust:
     'decoupled V87 postflop sub-rule (postflop anti-LAG/bully read modifiers in maniacCallDown, V80 & V53); split from v87HoldemOverhaul, not registered in SQL switch',
+  // 2026-11-21 Horse Switch lane: built dark. Registering it needs a switch-list migration, and those go one at a
+  // time; until one lists it the switch may not carry it (league and tests pass it directly). Remove this line in
+  // the change that adds the list migration.
+  v66BetRaisedOnePairIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
   multiBoardFreerollIsPriced:
     'dark zero-migration priced replacement for unowned V36 multi-board freeroll bet/raise coin flips (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   multiBoardNonFreerollIsPriced:

@@ -950,6 +950,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V66'
   ),
   flag(
+    'v66BetRaisedOnePairIsPriced',
+    '2026-11-21 (Horse Switch lane, dark default OFF, read === true): priced replacement for V66 on flop/turn bet-then-raised one pair or bluff-catch hands with no real draw in single-board 2-card NLH; computes EV(call) vs EV(fold) = 0 from pot odds, SPR/street/position/scare-texture realization, and combo-level Monte-Carlo equity against the raiser narrowed line range (HorseHoldemV66RaisedOnePairIsPriced); independent of v66BetRaisedOnePair, zero fixed 0.42 floor, zero hardcoded class fold or jam, never enters PLO4/5/6',
+    'Horse Switch'
+  ),
+  flag(
     'v67RiverBetRaisedOnePair',
     '2026-10-31 Hold em river bet-then-raised one pair (or board-paired two pair): the raiser is sampled from a river raise stratum (10% bluff, otherwise 75/22/3 two pair+/top pair/weaker), the call carries the V63 shade plus 0.10 (cap 0.25) even under a V62 polar read, and the class calls or folds at that price without the 0.42 floor or a jam; measured 7-day review calls/jams won 11.9% cash (n=226) and 19.2% MTT (n=125) at an average raise of 0.72 pot; explicit off arm retained',
     'V67'
@@ -9621,6 +9626,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_call_taken',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH flop/turn bet-then-raised one-pair or bluff-catch hand called by positive EV against the raiser narrowed line range',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_fold_taken',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH flop/turn bet-then-raised one-pair or bluff-catch hand folded because EV(call) <= 0 against the raiser narrowed line range',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_unpriced',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a flop/turn bet-then-raised one-pair spot could not be priced heads-up (multiway, side pot, or empty range); existing behavior ran unchanged',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.
