@@ -19279,7 +19279,7 @@ export class HorseLogic {
             return { r, b };
           });
           const widened =
-            (legacyW.r !== null && maniacRaiserWidth === null) ||
+            (legacyW.r !== null && maniacRaiserWidth == null) ||
             (legacyW.b !== null && maniacBehindWidth === null);
           if (widened) {
             const sixMaxPriced = HorseMind.hudPreflopSixMaxActive();
@@ -19293,7 +19293,7 @@ export class HorseLogic {
               ? omahaPreflopHudWideningProved(sixMaxVerdict, Math.max(0, gs.pot ?? 0), 'raise')
               : verdict?.action === 'raise';
             if (!widenedProved) {
-              if (maniacRaiserWidth === null) maniacRaiserWidth = legacyW.r;
+              if (maniacRaiserWidth == null) maniacRaiserWidth = legacyW.r;
               if (maniacBehindWidth === null) maniacBehindWidth = legacyW.b;
             }
             if (telemetryOn(opts))
