@@ -6,6 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
+import os from 'os';
+import path from 'path';
 
 const dir = 'operations/ops-mac';
 const read = (f: string) => fs.readFileSync(`${dir}/${f}`, 'utf8');
@@ -41,6 +43,35 @@ describe('operations Mac services', () => {
     expect(out).not.toContain('fn_patched');
     expect(out).toContain("ARRAY['public.fn_existing','public.fn_new_helper']");
     expect(out.trim().split('\n').at(-1)).toMatch(/^SELECT 'liveproof', \(/);
+  });
+  it('never reports a boot-disk folder as the work or archive drive (alerts 447666-447668)', () => {
+    // 2026-11-22 23:40Z: root, work and archives all read 35.2 GB / 3.8% free,
+    // because "/Volumes/SmarterWork" is a boot-disk folder while the drive is
+    // mounted at "/Volumes/SmarterWork 1" (OWNER-POLICY.md). statvfs on a
+    // folder answers for the disk under it, so the SSDs were never measured.
+    expect(beat).not.toMatch(/disk\('\/Volumes\/Smarter/);
+    expect(beat).toContain('disk_report.py');
+    expect(read('setup.sh')).toMatch(/heartbeat\.sh,disk_report\.py,/);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'volumes-'));
+    for (const d of ['SmarterWork', 'SmarterWork 1', 'SmarterArchives', 'SmarterWorkshop']) fs.mkdirSync(path.join(root, d));
+    const out = JSON.parse(execFileSync('python3', [`${dir}/disk_report.py`, root], { encoding: 'utf8' }));
+    for (const v of ['work', 'archives']) {
+      expect(out[v].mounted).toBe(false);
+      expect(out[v]).not.toHaveProperty('free_pct');
+    }
+    expect(out.work.error).not.toContain('SmarterWorkshop');
+    expect(out.root.mounted).toBe(true);
+    expect(typeof out.root.free_pct).toBe('number');
+    // A real mount point is measured at its own path.
+    const dev = JSON.parse(
+      execFileSync('python3', ['-c', `import sys,json; sys.path.insert(0,'${dir}'); import disk_report as d; print(json.dumps(d.volume('/', 'dev')))`], { encoding: 'utf8' })
+    );
+    expect(dev).toMatchObject({ path: '/dev', mounted: true });
+  });
+  it('raises HostVolumeNotMounted instead of going quiet about an unmounted drive', () => {
+    expect(beat).toContain('HostVolumeNotMounted');
+    expect(beat).toContain("v.get(\"mounted\") is False");
+    expect(beat).toContain('A missing or broken disk_report.py must never silence the heartbeat.');
   });
   it('alerts on a failed job and on a stopped queue', () => {
     expect(queue).toContain('InstallQueueJobFailed');
