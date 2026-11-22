@@ -894,7 +894,11 @@ function responseFoldProbability(
   opponent: SeatPlayer,
   evidence: TournamentUtilityOpponentEvidence | undefined,
   sampledDecisionStrength: number,
-  seats: SeatPlayer[]
+  seats: SeatPlayer[],
+  plan: SettlementPlan,
+  candidateCache: CandidateSettlementCache,
+  responseStep: number,
+  responseMask: number
 ): number {
   if (opponent.is_all_in) return 0;
   const target =
@@ -909,7 +913,21 @@ function responseFoldProbability(
   // Price each responder after the candidate and preceding responses have
   // committed. A short stack cannot defend side pots it can never win, and
   // its own not-yet-paid call must not appear twice in the price denominator.
-  const potFacing = calculateContestablePot(seats, opponent.user_id, facing);
+  // Within one candidate, every earlier seat's fold/call state is uniquely
+  // encoded by (responseMask, responseStep), eliminating per-sample string keys.
+  let potFacing: number;
+  if (plan.useBitmaskCache) {
+    const maskKey = responseMask * 32 + responseStep;
+    const cached = candidateCache.contestablePotByMask.get(maskKey);
+    if (cached !== undefined) {
+      potFacing = cached;
+    } else {
+      potFacing = calculateContestablePot(seats, opponent.user_id, facing);
+      candidateCache.contestablePotByMask.set(maskKey, potFacing);
+    }
+  } else {
+    potFacing = cachedContestablePot(seats, opponent.user_id, facing, plan.contestablePotCache);
+  }
   let foldMul = evidence?.foldMul ?? 1;
   if (input.v86AsymmetricIcmAndPreflop !== false) {
     const heroTotal = Math.max(0, input.hero.stack) + Math.max(0, input.hero.bet);
@@ -918,25 +936,27 @@ function responseFoldProbability(
     // Asymmetric cover pressure: when hero covers a medium stack on a pay-jump
     // or satellite bubble, the covered opponent's survival bubble factor raises
     // their required continuing equity (higher fold frequency).
+    // All five arguments to pairwiseBubbleFactor are invariant across showdown
+    // samples within this action; memoize per (oppFieldIdx, facing) so late-stage
+    // exact-ICM tables do not recompute 2^10 Malmuth-Harville DP thousands of times.
     if (
       oppFieldIdx !== undefined &&
       field.heroIndex >= 0 &&
       heroTotal > oppTotal * 1.05 &&
-      field.stacks.length <= 10 &&
-      (input.context.payoutPct.length >= 2 ||
-        (input.context.satellite && input.context.satelliteSeats >= 1))
+      plan.effectiveCoverPayouts !== null
     ) {
-      const effectivePayouts =
-        input.context.satellite && input.context.satelliteSeats >= 1
-          ? Array.from({ length: Math.max(1, input.context.satelliteSeats) }, () => 1)
-          : input.context.payoutPct;
-      const oppBF = pairwiseBubbleFactor(
-        field.stacks,
-        effectivePayouts,
-        oppFieldIdx,
-        field.heroIndex,
-        facing
-      );
+      const bfKey = `${oppFieldIdx}|${facing}`;
+      let oppBF = plan.coverBubbleFactorCache.get(bfKey);
+      if (oppBF === undefined) {
+        oppBF = pairwiseBubbleFactor(
+          field.stacks,
+          plan.effectiveCoverPayouts,
+          oppFieldIdx,
+          field.heroIndex,
+          facing
+        );
+        plan.coverBubbleFactorCache.set(bfKey, oppBF);
+      }
       if (oppBF > 1.08) {
         foldMul *= 1 + Math.min(0.28, (oppBF - 1.08) * 0.22);
       }
@@ -978,38 +998,58 @@ function responseDraw(sampleIndex: number, userId: string): number {
   return (hash >>> 0) / 0x1_0000_0000;
 }
 
-function scoreFor(
-  input: Pick<TournamentUtilityInput, 'hero' | 'sampledOpponentIds'>,
-  board: TournamentUtilityBoardOutcome,
-  userId: string
-): { high: number; low: number | null } | null {
-  if (userId === input.hero.user_id) return { high: board.heroHigh, low: board.heroLow };
-  const index = input.sampledOpponentIds.indexOf(userId);
-  if (index < 0) return null;
-  return { high: board.opponentHigh[index], low: board.opponentLow[index] };
-}
-
 function winnersFor(
   input: Pick<TournamentUtilityInput, 'hero' | 'sampledOpponentIds'>,
   board: TournamentUtilityBoardOutcome,
-  eligible: string[]
+  eligible: string[],
+  sampledOpponentIndexById?: Map<string, number>
 ): { high: string[]; low: string[] } | null {
-  const scored = eligible
-    .map((userId) => ({ userId, score: scoreFor(input, board, userId) }))
-    .filter(
-      (entry): entry is { userId: string; score: { high: number; low: number | null } } =>
-        entry.score !== null
-    );
-  if (scored.length === 0) return null;
-  const bestHigh = Math.max(...scored.map((entry) => entry.score.high));
-  const high = scored.filter((entry) => entry.score.high === bestHigh).map((entry) => entry.userId);
-  const lowScores = scored.filter((entry) => entry.score.low !== null);
+  const heroId = input.hero.user_id;
+  let bestHigh = Number.NEGATIVE_INFINITY;
+  let bestLow = Number.POSITIVE_INFINITY;
+  let scoredCount = 0;
+  let high: string[] = [];
   let low: string[] = [];
-  if (lowScores.length > 0) {
-    const bestLow = Math.min(...lowScores.map((entry) => entry.score.low!));
-    low = lowScores.filter((entry) => entry.score.low === bestLow).map((entry) => entry.userId);
+
+  for (let i = 0; i < eligible.length; i++) {
+    const userId = eligible[i];
+    let h: number;
+    let l: number | null;
+    if (userId === heroId) {
+      h = board.heroHigh;
+      l = board.heroLow;
+    } else {
+      const idx = sampledOpponentIndexById
+        ? sampledOpponentIndexById.get(userId)
+        : input.sampledOpponentIds.indexOf(userId);
+      if (idx === undefined || idx < 0) continue;
+      h = board.opponentHigh[idx];
+      l = board.opponentLow[idx];
+    }
+    scoredCount++;
+    if (h > bestHigh) {
+      bestHigh = h;
+      high = [userId];
+    } else if (h === bestHigh) {
+      high.push(userId);
+    }
+    if (l !== null) {
+      if (l < bestLow) {
+        bestLow = l;
+        low = [userId];
+      } else if (l === bestLow) {
+        low.push(userId);
+      }
+    }
   }
+  if (scoredCount === 0) return null;
   return { high, low };
+}
+
+/** Per-candidate integer-keyed settlement caches (valid when responseOrder.length <= 24). */
+interface CandidateSettlementCache {
+  contestablePotByMask: Map<number, number>;
+  potsByMask: Map<number, Pot[]>;
 }
 
 /** Action-wide facts every candidate/sample settlement reads unchanged. */
@@ -1019,12 +1059,34 @@ interface SettlementPlan {
   /** Clockwise response order after hero, as public-seat indices. */
   responseOrder: number[];
   evidenceById: Map<string, TournamentUtilityOpponentEvidence>;
+  /** Last public seat index for each user_id (matches Map construction semantics). */
+  seatIndexById: Map<string, number>;
+  sampledOpponentIndexById: Map<string, number>;
+  /** Effective payout curve for <=10-player cover-pressure bubble factors, or null if inapplicable. */
+  effectiveCoverPayouts: number[] | null;
+  /** Action-scoped memo of pairwiseBubbleFactor(field.stacks, effectiveCoverPayouts, oppIdx, heroIdx, facing). */
+  coverBubbleFactorCache: Map<string, number>;
+  /** Action-scoped memo of calculatePots(seats) keyed by per-seat (is_folded, totalInvested). */
+  potCache: Map<string, Pot[]>;
+  /** Action-scoped memo of calculateContestablePot(seats, opponentId, facing). */
+  contestablePotCache: Map<string, number>;
+  /** Lazily populated common response draws indexed by sampleIndex * opponentCount + opponentIndex. */
+  responseDrawCache: Float64Array;
+  sampledOpponentCount: number;
+  /** Reusable per-sample seat workspace (reset from input.players before each sample). */
+  workSeats: SeatPlayer[];
+  /** True when responseOrder.length <= 24 so a single SMI bitmask encodes responder states. */
+  useBitmaskCache: boolean;
 }
 
-function settlementPlan(input: TournamentUtilityInput): SettlementPlan {
+function settlementPlan(input: TournamentUtilityInput, field: FieldState): SettlementPlan {
   let heroSeat = -1;
-  for (let index = 0; index < input.players.length; index++)
-    if (input.players[index].user_id === input.hero.user_id) heroSeat = index;
+  const seatIndexById = new Map<string, number>();
+  for (let index = 0; index < input.players.length; index++) {
+    const userId = input.players[index].user_id;
+    seatIndexById.set(userId, index);
+    if (userId === input.hero.user_id) heroSeat = index;
+  }
   const heroSeatNumber = heroSeat < 0 ? 0 : input.players[heroSeat].seat;
   // The same stable comparison the per-sample seat copies used; seat numbers
   // are never changed by a settlement, so the permutation is action-wide.
@@ -1036,11 +1098,70 @@ function settlementPlan(input: TournamentUtilityInput): SettlementPlan {
           Number(input.players[b].seat <= heroSeatNumber) ||
         input.players[a].seat - input.players[b].seat
     );
+  const sampledOpponentIndexById = new Map<string, number>();
+  for (let index = 0; index < input.sampledOpponentIds.length; index++) {
+    sampledOpponentIndexById.set(input.sampledOpponentIds[index], index);
+  }
+  const effectiveCoverPayouts =
+    field.stacks.length <= 10 &&
+    (input.context.payoutPct.length >= 2 ||
+      (input.context.satellite && input.context.satelliteSeats >= 1))
+      ? input.context.satellite && input.context.satelliteSeats >= 1
+        ? Array.from({ length: Math.max(1, input.context.satelliteSeats) }, () => 1)
+        : input.context.payoutPct
+      : null;
+  const sampledOpponentCount = input.sampledOpponentIds.length;
+  const responseDrawCache = new Float64Array(input.showdownSamples.length * sampledOpponentCount);
+  responseDrawCache.fill(-1);
+  const workSeats = input.players.map((player) => ({ ...player, cards: [...player.cards] }));
   return {
     heroSeat,
     responseOrder,
     evidenceById: new Map(input.opponents.map((evidence) => [evidence.userId, evidence])),
+    seatIndexById,
+    sampledOpponentIndexById,
+    effectiveCoverPayouts,
+    coverBubbleFactorCache: new Map(),
+    potCache: new Map(),
+    contestablePotCache: new Map(),
+    responseDrawCache,
+    sampledOpponentCount,
+    workSeats,
+    useBitmaskCache: responseOrder.length <= 24,
   };
+}
+
+function seatsStateKey(seats: SeatPlayer[]): string {
+  let key = `${seats[0].is_folded ? 'F' : 'L'}${seats[0].totalInvested}`;
+  for (let i = 1; i < seats.length; i++) {
+    key += `|${seats[i].is_folded ? 'F' : 'L'}${seats[i].totalInvested}`;
+  }
+  return key;
+}
+
+function cachedBranchPots(seats: SeatPlayer[], potCache: Map<string, Pot[]>): Pot[] {
+  const key = seatsStateKey(seats);
+  let pots = potCache.get(key);
+  if (pots === undefined) {
+    pots = calculatePots(seats);
+    potCache.set(key, pots);
+  }
+  return pots;
+}
+
+function cachedContestablePot(
+  seats: SeatPlayer[],
+  userId: string,
+  facing: number,
+  cache: Map<string, number>
+): number {
+  const key = `${seatsStateKey(seats)}|${userId}|${facing}`;
+  let pot = cache.get(key);
+  if (pot === undefined) {
+    pot = calculateContestablePot(seats, userId, facing);
+    cache.set(key, pot);
+  }
+  return pot;
 }
 
 function settleSample(args: {
@@ -1051,13 +1172,25 @@ function settleSample(args: {
   sampleIndex: number;
   payoutWeight: number;
   plan: SettlementPlan;
+  candidateCache: CandidateSettlementCache;
 }): BranchResult | null {
-  const { input, field, candidate, sample, plan } = args;
+  const { input, field, candidate, sample, plan, candidateCache } = args;
   if (plan.heroSeat < 0) return null;
   const vector = field.stacks.slice();
-  const seats = input.players.map((player) => ({ ...player, cards: [...player.cards] }));
-  let seatsById: Map<string, SeatPlayer> | undefined;
-  const seatById = () => (seatsById ??= new Map(seats.map((player) => [player.user_id, player])));
+  const seats = plan.workSeats;
+  for (let i = 0; i < input.players.length; i++) {
+    const src = input.players[i];
+    const dst = seats[i];
+    dst.stack = src.stack;
+    dst.bet = src.bet;
+    dst.totalInvested = src.totalInvested;
+    dst.is_folded = src.is_folded;
+    dst.is_all_in = src.is_all_in;
+  }
+  const seatForId = (userId: string): SeatPlayer | undefined => {
+    const idx = plan.seatIndexById.get(userId);
+    return idx === undefined ? undefined : seats[idx];
+  };
   const hero = seats[plan.heroSeat];
 
   const commit = (player: SeatPlayer, requested: number): void => {
@@ -1077,9 +1210,11 @@ function settleSample(args: {
   const evidenceById = plan.evidenceById;
   let discretionaryCallers = 0;
   let forcedCallers = 0;
+  let responseMask = 0;
   // Earlier calls change the next responder's available pot. Use actual
   // clockwise action order, not the storage order of the public seat array.
-  for (const seatIndex of plan.responseOrder) {
+  for (let responseStep = 0; responseStep < plan.responseOrder.length; responseStep++) {
+    const seatIndex = plan.responseOrder[responseStep];
     const opponent = seats[seatIndex];
     if (
       opponent.user_id === hero.user_id ||
@@ -1104,18 +1239,41 @@ function settleSample(args: {
       }
       continue;
     }
-    const opponentIndex = input.sampledOpponentIds.indexOf(opponent.user_id);
-    if (opponentIndex < 0) return null;
+    const opponentIndex = plan.sampledOpponentIndexById.get(opponent.user_id);
+    if (opponentIndex === undefined) return null;
     const sampledStrength =
-      sample.boards.reduce((sum, board) => sum + board.opponentDecisionStrength[opponentIndex], 0) /
-      sample.boards.length;
+      sample.boards.length === 1
+        ? sample.boards[0].opponentDecisionStrength[opponentIndex]
+        : sample.boards.reduce(
+            (sum, board) => sum + board.opponentDecisionStrength[opponentIndex],
+            0
+          ) / sample.boards.length;
+    const drawSlot = args.sampleIndex * plan.sampledOpponentCount + opponentIndex;
+    let draw = plan.responseDrawCache[drawSlot];
+    if (draw < 0) {
+      draw = responseDraw(args.sampleIndex, opponent.user_id);
+      plan.responseDrawCache[drawSlot] = draw;
+    }
     const folds =
-      responseDraw(args.sampleIndex, opponent.user_id) <
-      responseFoldProbability(input, field, candidate, opponent, evidence, sampledStrength, seats);
+      draw <
+      responseFoldProbability(
+        input,
+        field,
+        candidate,
+        opponent,
+        evidence,
+        sampledStrength,
+        seats,
+        plan,
+        candidateCache,
+        responseStep,
+        responseMask
+      );
     if (folds) {
       opponent.is_folded = true;
       continue;
     }
+    responseMask |= 1 << responseStep;
     discretionaryCallers++;
     const target =
       candidate.kind === 'jam'
@@ -1124,7 +1282,9 @@ function settleSample(args: {
     commit(opponent, Math.max(0, target - Math.max(0, opponent.bet)));
   }
   const allFold = wager && discretionaryCallers === 0 && forcedCallers === 0;
+  let ranContinuation = false;
   if (input.continuation && !hero.is_folded && !hero.is_all_in && !allFold) {
+    ranContinuation = true;
     const streets = sample.boards[0]?.continuationStreets;
     if (
       sample.boards.length !== 1 ||
@@ -1159,7 +1319,14 @@ function settleSample(args: {
         dealerSeat: input.settlement.dealerSeat,
         splitLow: input.settlement.splitLow,
       });
-    } else branchPots = calculatePots(seats);
+    } else if (plan.useBitmaskCache && !ranContinuation) {
+      let pots = candidateCache.potsByMask.get(responseMask);
+      if (pots === undefined) {
+        pots = calculatePots(seats);
+        candidateCache.potsByMask.set(responseMask, pots);
+      }
+      branchPots = pots;
+    } else branchPots = cachedBranchPots(seats, plan.potCache);
   } catch {
     return null;
   }
@@ -1193,13 +1360,11 @@ function settleSample(args: {
   } else
     for (let layerIndex = 0; layerIndex < branchPots.length; layerIndex++) {
       const layer = branchPots[layerIndex];
-      const liveEligible = layer.eligiblePlayers.filter(
-        (userId) => !seatById().get(userId)?.is_folded
-      );
+      const liveEligible = layer.eligiblePlayers.filter((userId) => !seatForId(userId)?.is_folded);
       if (liveEligible.length === 0) return null;
       const boardAmount = layer.amount / sample.boards.length;
       for (const board of sample.boards) {
-        const winners = winnersFor(input, board, liveEligible);
+        const winners = winnersFor(input, board, liveEligible, plan.sampledOpponentIndexById);
         if (!winners) {
           if (liveEligible.length !== 1) return null;
           winnersByPot[layerIndex].add(liveEligible[0]);
@@ -1231,7 +1396,7 @@ function settleSample(args: {
   let heroFinishedPaid = false;
   if (heroBusted) {
     const startOf = (userId: string): number => {
-      const player = seatById().get(userId)!;
+      const player = seatForId(userId)!;
       return player.stack + player.totalInvested;
     };
     const heroStart = startOf(input.hero.user_id);
@@ -1585,6 +1750,10 @@ function evaluateCandidate(args: {
     (level) => `${level.smallBlind}:${level.bigBlind}:${level.ante}:${level.anteType}`
   );
   const levelSlot = levelIdentity.map((key) => levelIdentity.indexOf(key));
+  const candidateCache: CandidateSettlementCache = {
+    contestablePotByMask: new Map(),
+    potsByMask: new Map(),
+  };
 
   for (let index = 0; index < args.input.showdownSamples.length; index++) {
     if (
@@ -1600,6 +1769,7 @@ function evaluateCandidate(args: {
     if (weight <= 0) continue;
     let branch = settleSample({
       plan: args.plan,
+      candidateCache,
       input: args.input,
       field: args.field,
       candidate: args.candidate,
@@ -1976,21 +2146,26 @@ function evaluateWithWorkspace(
   const localSet = new Set(localIndices);
   const remoteIndices = field.stacks.map((_, i) => i).filter((i) => !localSet.has(i));
   const vectorKey = (vector: number[], rounded: boolean) => {
-    if (!boundedFuture)
-      return (rounded ? vector.map((stack) => Math.round(stack * 100) / 100) : vector).join(',');
-    // The remote field is immutable within this action. Check it without
-    // allocating a thousand formatted numbers for every candidate/future
-    // bound. Only table-local coordinates can distinguish valid vectors.
-    if (vector.length !== field.stacks.length)
-      throw new Error('Continuation changed the immutable remote field');
-    for (let slot = 0; slot < remoteIndices.length; slot++) {
-      const index = remoteIndices[slot];
-      if (vector[index] !== field.stacks[index])
+    // The remote field is immutable within this action: only table-local
+    // coordinates can distinguish valid vectors. Keep the full remote-field
+    // mutation guard for continuation rollouts, and avoid formatting hundreds
+    // of invariant remote stacks on every Phase 7 branch.
+    if (boundedFuture) {
+      if (vector.length !== field.stacks.length)
         throw new Error('Continuation changed the immutable remote field');
+      for (let slot = 0; slot < remoteIndices.length; slot++) {
+        const index = remoteIndices[slot];
+        if (vector[index] !== field.stacks[index])
+          throw new Error('Continuation changed the immutable remote field');
+      }
     }
-    return localIndices
-      .map((i) => (rounded ? Math.round(vector[i] * 100) / 100 : vector[i]))
-      .join(',');
+    const first = vector[localIndices[0]];
+    let key = String(rounded ? Math.round(first * 100) / 100 : first);
+    for (let slot = 1; slot < localIndices.length; slot++) {
+      const value = vector[localIndices[slot]];
+      key += `,${rounded ? Math.round(value * 100) / 100 : value}`;
+    }
+    return key;
   };
   const estimateCache = (!boundedFuture && workspace?.estimateCache) || new Map<string, Estimate>();
   const actionIcm =
@@ -2060,7 +2235,7 @@ function evaluateWithWorkspace(
   }
   const futureDraws = new Map<string, FutureHandDraw>();
   const futureResults: FutureRolloutCache = new Map();
-  const plan = settlementPlan(input);
+  const plan = settlementPlan(input, field);
   const candidateEvaluations = actionCandidates.map((candidate) => {
     const evaluated = evaluateCandidate({
       input,

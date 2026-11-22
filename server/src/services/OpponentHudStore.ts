@@ -34,11 +34,13 @@ import {
   applyHudHand,
   emptyHudProfile,
   extractHandDeltas,
+  familyForVariant,
   handRecordFromRow,
   hudDayOf,
   hudHandDigest,
   hudIdPrefix,
   hudProfileBytesBound,
+  isHudFamily,
   validHudProfile,
   type HudFamily,
   type HudHandRecord,
@@ -216,6 +218,7 @@ export class OpponentHudStore {
   private readonly priors: Record<HudFamily, HudPopulation> = {
     plo4: { family: {}, stakes: {} },
     plo5: { family: {}, stakes: {} },
+    nlh: { family: {}, stakes: {} },
   };
   /** failures and late profiles in the current alert window; the alert states raised */
   private window = { loadFailed: 0, late: 0, persistFailed: 0, schemaMissing: 0 };
@@ -454,10 +457,9 @@ export class OpponentHudStore {
       walked = false; // the page bound ran out before the last hand
     };
     try {
-      const players = new Map<HudFamily, Set<string>>([
-        ['plo4', new Set()],
-        ['plo5', new Set()],
-      ]);
+      const players = new Map<HudFamily, Set<string>>(
+        HUD_FAMILIES.map((f) => [f, new Set<string>()])
+      );
       await walk((rec) => {
         for (const seat of rec.seats) players.get(rec.family)!.add(seat.userId);
       });
@@ -747,7 +749,7 @@ export class OpponentHudStore {
   }): { opponentHud?: OpponentHudPacket } {
     try {
       if (!this.armedState) return {};
-      const family = input.family === 'plo4' || input.family === 'plo5' ? input.family : null;
+      const family = isHudFamily(input.family) ? input.family : null;
       if (!family) return {};
       const ids = [...new Set(input.opponentIds)].filter((u) => u !== input.heroId).sort();
       const profiles: OpponentHudProfile[] = [];
@@ -1413,10 +1415,7 @@ let alertSink: HudAlertSink | null = null;
 export function setOpponentHudAlertSink(sink: HudAlertSink | null): void {
   alertSink = sink;
 }
-const familyOf = (variant: unknown): HudFamily | null => {
-  const v = String(variant ?? '').toLowerCase();
-  return v === 'plo4' || v === 'plo5' ? v : null;
-};
+const familyOf = (variant: unknown): HudFamily | null => familyForVariant(variant);
 
 /**
  * Seat events (a roster adopted at a table: sit-down, must-move arrival, table move; a Lightning hand formed; a hand

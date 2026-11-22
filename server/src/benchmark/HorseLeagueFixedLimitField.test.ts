@@ -30,6 +30,7 @@ import {
   FLH_TIGHT_VALUE_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   LEAGUE_MATCHUPS,
   UNMEASURABLE_MATCHUPS,
   humanFieldPersonaProfile,
@@ -43,12 +44,14 @@ import {
 } from './HorseLeague.js';
 import {
   fixedLimitScriptedPolicy,
+  flhDefendingPostflopBlindsPolicy,
   flhManiacPolicy,
   flhOverFoldingBlindsPolicy,
   flhPassiveCallerPolicy,
   flhPreflopDefendingBlindsPolicy,
   flhTightValuePolicy,
   flhValueOnlyBlindsPolicy,
+  hasTopPairOrOverpair,
   ownMadeClass,
 } from './FixedLimitScriptedField.js';
 import type { FixedLimitScriptedPersona } from './HorseLeagueHumanField.js';
@@ -291,6 +294,8 @@ describe('the scripted fixed-limit field plays the live controller hand', () => 
     [FLH_VALUE_ONLY_BLINDS_PERSONA, 2, 60],
     [FLH_PREFLOP_DEFENDING_BLINDS_PERSONA, 6, 60],
     [FLH_PREFLOP_DEFENDING_BLINDS_PERSONA, 2, 60],
+    [FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA, 6, 60],
+    [FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA, 2, 60],
   ] as const)(
     '%s at %i seats: every node, menu, script answer and settlement equals a real HandController',
     (persona, seats, hands) => {
@@ -657,6 +662,153 @@ describe('the scripts', () => {
     }
   });
 
+  it('the defending-postflop blinds defend preflop without raising, continue flop top pair+/overpair, and value-bet/raise two pair+ on every street', () => {
+    const preFacing = {
+      toCall: 2,
+      currentBet: 4,
+      legalActions: ['fold', 'call', 'raise', 'all_in'],
+      minRaiseTo: 6,
+      maxRaiseTo: 6,
+    };
+    const raised = [
+      { seat: 5, userId: 'x', action: 'raise', amount: 4, stage: 'preflop', timestamp: 1 },
+    ] as never[];
+    expect(
+      flhDefendingPostflopBlindsPolicy(
+        spot({ stage: 'preflop', cards: ['Jh', '9s'].map(c), ...preFacing, history: raised })
+      )
+    ).toEqual({ action: 'call' });
+    expect(
+      flhDefendingPostflopBlindsPolicy(
+        spot({ stage: 'preflop', cards: ['Ah', 'As'].map(c), ...preFacing, history: raised })
+      )
+    ).toEqual({ action: 'call' });
+    expect(
+      flhDefendingPostflopBlindsPolicy(
+        spot({ stage: 'preflop', cards: ['7h', '2s'].map(c), ...preFacing, history: raised })
+      )
+    ).toEqual({ action: 'fold' });
+
+    const flopBoard = ['Kh', '7d', '2c'].map(c);
+    const turnBoard = ['Kh', '7d', '2c', '4s'].map(c);
+    expect(hasTopPairOrOverpair(['Kd', 'Qs'].map(c), flopBoard)).toBe(true);
+    expect(hasTopPairOrOverpair(['Ad', 'As'].map(c), flopBoard)).toBe(true);
+    expect(hasTopPairOrOverpair(['Qd', 'Qs'].map(c), flopBoard)).toBe(false);
+    expect(hasTopPairOrOverpair(['7s', '9s'].map(c), flopBoard)).toBe(false);
+
+    const postFacing = {
+      toCall: 2,
+      currentBet: 2,
+      legalActions: ['fold', 'call', 'raise', 'all_in'],
+      minRaiseTo: 4,
+      maxRaiseTo: 4,
+    };
+    const flopBet = [
+      { seat: 3, userId: 'x', action: 'bet', amount: 2, stage: 'flop', timestamp: 1 },
+    ] as never[];
+    const flopTwoWagers = [
+      flopBet[0],
+      { seat: 4, userId: 'y', action: 'raise', amount: 4, stage: 'flop', timestamp: 2 },
+    ] as never[];
+    const turnBet = [
+      { seat: 3, userId: 'x', action: 'bet', amount: 4, stage: 'turn', timestamp: 3 },
+    ] as never[];
+
+    // Flop top pair & overpair bet when checked to, call one flop wager, fold to two flop wagers,
+    // and fold unimproved on turn/river big-bet wagers.
+    for (const cards of [
+      ['Kd', 'Qs'],
+      ['Ad', 'As'],
+    ]) {
+      expect(
+        flhDefendingPostflopBlindsPolicy(
+          spot({ stage: 'flop', cards: cards.map(c), board: flopBoard })
+        )
+      ).toEqual({ action: 'bet', amount: 2 });
+      expect(
+        flhDefendingPostflopBlindsPolicy(
+          spot({
+            stage: 'flop',
+            cards: cards.map(c),
+            board: flopBoard,
+            ...postFacing,
+            history: flopBet,
+          })
+        )
+      ).toEqual({ action: 'call' });
+      expect(
+        flhDefendingPostflopBlindsPolicy(
+          spot({
+            stage: 'flop',
+            cards: cards.map(c),
+            board: flopBoard,
+            ...postFacing,
+            history: flopTwoWagers,
+          })
+        )
+      ).toEqual({ action: 'fold' });
+      expect(
+        flhDefendingPostflopBlindsPolicy(
+          spot({
+            stage: 'turn',
+            cards: cards.map(c),
+            board: turnBoard,
+            ...postFacing,
+            history: turnBet,
+          })
+        )
+      ).toEqual({ action: 'fold' });
+    }
+
+    // Middle pair, underpair, and air check/fold on the flop.
+    for (const cards of [
+      ['7s', '9s'],
+      ['Qd', 'Qs'],
+      ['9d', '8s'],
+    ]) {
+      expect(
+        flhDefendingPostflopBlindsPolicy(
+          spot({ stage: 'flop', cards: cards.map(c), board: flopBoard })
+        )
+      ).toEqual({ action: 'check' });
+      expect(
+        flhDefendingPostflopBlindsPolicy(
+          spot({
+            stage: 'flop',
+            cards: cards.map(c),
+            board: flopBoard,
+            ...postFacing,
+            history: flopBet,
+          })
+        )
+      ).toEqual({ action: 'fold' });
+    }
+
+    // Two pair+ bets and raises on flop and turn; trips re-raises two wagers.
+    expect(
+      flhDefendingPostflopBlindsPolicy(
+        spot({
+          stage: 'turn',
+          cards: ['Kd', '7s'].map(c),
+          board: turnBoard,
+          ...postFacing,
+          history: turnBet,
+        })
+      )
+    ).toEqual({ action: 'raise', amount: 4 });
+    expect(
+      flhDefendingPostflopBlindsPolicy(
+        spot({
+          stage: 'flop',
+          cards: ['7c', '7s'].map(c),
+          board: flopBoard,
+          ...postFacing,
+          history: flopTwoWagers,
+        })
+      )
+    ).toEqual({ action: 'raise', amount: 4 });
+  });
+
   it('the tight-value player raises or folds first in: it never limps', () => {
     const pre = (cards: string[]) =>
       flhTightValuePolicy(
@@ -892,6 +1044,31 @@ describe('the steal harm control card (2026-11-21)', () => {
       expect(counts.bet ?? 0, node).toBe(0);
       expect(counts.raise ?? 0, node).toBe(0);
     }
+  }, 300_000);
+
+  it('the defending-postflop blinds card diverges with postflop continuation and zero preflop wagers', async () => {
+    const card = LEAGUE_MATCHUPS.find(
+      (m) => m.name === 'flh_steal_vs_tight_blinds_vs_defending_postflop_blinds'
+    )!;
+    expect(card.humanPersona).toBe(FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA);
+    expect(card.a).toEqual({ fixedLimitStealVsTightBlinds: true });
+    expect(card.seats).toBe(6);
+    // Fixed seed and size: deterministic for a strategy build (measured 2026-11-21: 20 of 2,000).
+    const r = await runMatchup(card, 1200, 20261120);
+    expect(r.illegalActions).toBe(0);
+    expect(r.truncatedStreets).toBe(0);
+    expect(r.brainExceptionFallbacks).toBe(0);
+    expect(r.divergentPairs).toBeGreaterThan(0);
+    expect(r.inert).toBe(false);
+    const responses = r.humanResponses ?? {};
+    // Preflop never raises; postflop continues (calls/bets/raises) with top pair+ / two pair+.
+    expect(responses['preflop/facing_bet']?.raise ?? 0).toBe(0);
+    expect(responses['preflop/checked_to']?.raise ?? 0).toBe(0);
+    expect(responses['flop/facing_bet']?.call ?? 0).toBeGreaterThan(0);
+    expect(responses['flop/checked_to']?.bet ?? 0).toBeGreaterThan(0);
+    expect(horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })).toBe(
+      true
+    );
   }, 300_000);
 });
 

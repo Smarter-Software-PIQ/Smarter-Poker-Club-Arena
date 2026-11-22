@@ -180,6 +180,8 @@ export interface CoreState {
   band: Band | null;
   /** the last wager's share of the pot (bet: added/pot before; raise: (added - to call)/(pot + to call)) */
   wagerFrac: number;
+  /** true when at least one player checked on this street before its first wager (HUD 'stab' vs 'lead') */
+  checkedBeforeWager?: boolean;
   /** the line a hero wager would be (cbet/barrel/stab/probe/donk/raise/check_raise) */
   heroWagerLine: Line;
   /** preflop raises so far (0 unopened, 1 open, 2 three-bet, ...) */
@@ -421,7 +423,7 @@ export function platformDeduction(
  * the core prices reaches a flop, and with `rake.whole` it is netted of the capped rake and the
  * jackpot drop like a postflop pot (EMERG lane RAKE 2026-11-20). Without `rake.whole`: as before.
  */
-function rakeNet(state: CoreState, final: number, foldOut = false): number {
+export function rakeNet(state: CoreState, final: number, foldOut = false): number {
   const rake = state.rake;
   if (rake?.platform)
     return final - platformDeduction(rake.platform, final, state.street === 'preflop' && foldOut);
