@@ -1336,9 +1336,11 @@ const STATUS_RANK: Record<LobbyStatusKey, number> = {
 };
 function InviteRowButton({
   entry,
+  inviteCode,
   onFailed,
 }: {
   entry: LobbyEntry;
+  inviteCode?: string | null;
   onFailed?: (url: string, label: string) => void;
 }) {
   const [feedback, setFeedback] = useState<'idle' | 'copied' | 'shared'>('idle');
@@ -1357,7 +1359,7 @@ function InviteRowButton({
 
   const handleInvite = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = gameInviteUrl(lobbyEntryInviteTarget(entry));
+    const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     void shareLink({
       source: 'LobbyTable.inviteToGame',
       title: entry.name || 'Club Arena Game',
@@ -1397,8 +1399,8 @@ const COL_STATUS: ColumnDef = {
   sortable: true,
   sortValue: (e) => STATUS_RANK[e.status] ?? 9,
   /* The "you are in this game" chip used to live here and is now rendered in
-     the title cell — the phone layout hides this whole cell on tournament
-     cards, which is precisely where the chip mattered. See PlayerStateChip. */
+     the title cell — the phone layout hides the status badge on MTT cards,
+     which is precisely where the chip mattered. See PlayerStateChip. */
   render: (e, ctx) => (
     <span className="lt-statuscell">
       {/* No countdown here any more, on any kind. An MTT carries a live
@@ -1407,7 +1409,7 @@ const COL_STATUS: ColumnDef = {
           Min..." beside a badge reading Filling was two different answers to
           the same question; and a cash game is running now. */}
       <LobbyStatusBadge status={e.status} label={e.statusLabel} />
-      <InviteRowButton entry={e} onFailed={ctx.onInviteFailed} />
+      <InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />
     </span>
   ),
 };

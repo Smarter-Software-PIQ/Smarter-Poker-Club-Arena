@@ -78,6 +78,12 @@ import { WaitlistCallToAction } from '../components/table/WaitlistCallToAction';
 import { TournamentLateRegCallToAction } from '../components/table/TournamentLateRegCallToAction';
 import { HeadsUpWaitingModal, type HeadsUpWaitMode } from '../components/table/HeadsUpWaitingModal';
 import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
+import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
+import {
+  evaluateMustMoveRoutingTrigger,
+  parseTableInviteParams,
+  resolveMustMoveRoutingOutcome,
+} from '../lib/mustMoveInviteRouting';
 import { gameInviteText, gameInviteUrl, shareLink, tableShareUrl } from '../lib/share';
 
 /**
@@ -687,7 +693,11 @@ import {
   type DeadTableRow,
   type DeadTableVerdict,
 } from '../lib/deadTableRecovery';
-import { resolveCashGameLiveTable } from '../services/cashGameLobby';
+import {
+  joinCashGame,
+  joinGameRefusalText,
+  resolveCashGameLiveTable,
+} from '../services/cashGameLobby';
 import RabbitHunt from '../components/table/RabbitHunt';
 import type { RabbitHuntRevealResult } from '../components/table/RabbitHunt';
 import {
@@ -6478,21 +6488,37 @@ function LiveTablePage({
     setHeadsUpPromptOpen(false);
   }, []);
 
+  const isChipClubTable = tableState.arenaAsset === 'chips';
+  const senderInviteCode = useSenderInviteCode(
+    lightningRoom ? null : tableId,
+    userId && userId !== 'guest' ? userId : null,
+    isChipClubTable,
+    lightningClubId
+  );
+  const senderInviteCodeRef = useRef(senderInviteCode);
+  senderInviteCodeRef.current = senderInviteCode;
+
   const handleInviteToGame = useCallback(async () => {
     if (!tableId) return;
     const current = tableStateRef.current;
     const lightning = lightningRoomRef.current;
     const isSeatFirstOpen = seatFirstOpenRef.current;
+    const inviteCode = senderInviteCodeRef.current;
     const isTournamentShare =
       !lightning?.clusterId &&
       current.isTournament &&
       Boolean(current.tournamentId) &&
       !isSeatFirstOpen;
     const url = lightning?.clusterId
-      ? gameInviteUrl({ kind: 'lightning', id: lightning.clusterId })
+      ? gameInviteUrl({ kind: 'lightning', id: lightning.clusterId, inviteCode })
       : isTournamentShare && current.tournamentId
         ? gameInviteUrl({ kind: 'tournament', id: current.tournamentId })
-        : gameInviteUrl({ kind: 'table', id: tableId });
+        : gameInviteUrl({
+            kind: 'table',
+            id: tableId,
+            inviteCode,
+            clusterId: !current.isTournament ? current.clusterId : null,
+          });
     const gameTitle =
       (isTournamentShare ? tournamentEventNameRef.current : '') ||
       lightning?.meta?.name ||
@@ -15715,6 +15741,89 @@ function LiveTablePage({
      and never got an answer. They are different sentences to the player and
      only one of them is worth a retry button. null = loaded, or still trying. */
   const [tableLoadFailure, setTableLoadFailure] = useState<'missing' | 'unreachable' | null>(null);
+
+  const incomingTableInvite = useMemo(
+    () => parseTableInviteParams(tableId, location.search),
+    [tableId, location.search]
+  );
+  const mustMoveRoutedKeysRef = useRef<Set<string>>(new Set());
+  const [mustMoveRoutingPending, setMustMoveRoutingPending] = useState(false);
+  const occupiedSeatCount = tableState.players.filter(Boolean).length;
+  const heroSeatedOnTable =
+    tableState.heroSeat > 0 ||
+    tableState.players.some((p) => Boolean(p && userId && userId !== 'guest' && p.id === userId));
+
+  useEffect(() => {
+    setMustMoveRoutingPending(false);
+  }, [tableId, incomingTableInvite.clusterId]);
+
+  useEffect(() => {
+    const clusterId = incomingTableInvite.clusterId;
+    if (!tableId || !clusterId) return;
+    const trigger = evaluateMustMoveRoutingTrigger({
+      tableId,
+      clusterId,
+      userId,
+      isLightningRoom: Boolean(lightningRoom),
+      tableLoadFailure,
+      loadedTableId: tableState.tableId,
+      loadedClusterId: tableState.clusterId,
+      isTournament: tableState.isTournament,
+      maxPlayers: tableState.maxPlayers,
+      occupiedSeats: occupiedSeatCount,
+      heroSeated: heroSeatedOnTable,
+    });
+    if (!trigger) return;
+    const arrivalKey = `${tableId}:${clusterId}`;
+    if (mustMoveRoutedKeysRef.current.has(arrivalKey)) return;
+    mustMoveRoutedKeysRef.current.add(arrivalKey);
+
+    let cancelled = false;
+    setMustMoveRoutingPending(true);
+    void joinCashGame(clusterId)
+      .then((res) => {
+        if (cancelled) return;
+        const outcome = resolveMustMoveRoutingOutcome(res, tableId, clusterId);
+        if (outcome.kind === 'redirect') {
+          toast?.info?.(outcome.toastMessage);
+          navigate(outcome.to, { replace: true });
+          return;
+        }
+        if (outcome.kind === 'waitlisted') {
+          toast?.info?.(outcome.toastMessage);
+        }
+        setMustMoveRoutingPending(false);
+      })
+      .catch((err) => {
+        reportError(err, 'TablePage.mustMoveInviteRouting', {
+          tableId,
+          clusterId,
+          trigger,
+        });
+        if (cancelled) return;
+        if (trigger === 'full') {
+          toast?.info?.(joinGameRefusalText(err));
+        }
+        setMustMoveRoutingPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tableId,
+    incomingTableInvite.clusterId,
+    userId,
+    lightningRoom,
+    tableLoadFailure,
+    tableState.tableId,
+    tableState.clusterId,
+    tableState.isTournament,
+    tableState.maxPlayers,
+    occupiedSeatCount,
+    heroSeatedOnTable,
+    navigate,
+    toast,
+  ]);
 
   const subscribeRebalanceAuth = useCallback<TournamentRebalanceOptions['subscribeAuth']>(
     (listener) => masterBus.subscribe('AUTH_STATE_CHANGED', (event) => listener(event.payload)),
@@ -29128,10 +29237,12 @@ function LiveTablePage({
           not touch is one merge away from being an unstyled paragraph at the
           top of a fixed-position page. The class names are kept so that
           stylesheet can take it over later without touching this file. */}
-      {tableLoadFailure && !lightningRoom && (
+      {tableLoadFailure && !lightningRoom && !mustMoveRoutingPending && (
         <TableLoadFailureOverlay
           tableLoadFailure={tableLoadFailure}
           exitDestination={exitDestination}
+          inviteCode={incomingTableInvite.inviteCode}
+          returnPath={incomingTableInvite.returnPath}
         />
       )}
       {/* Phase 1.2 PR-F: hero disconnect banner. Only renders when the
@@ -31669,7 +31780,7 @@ function LiveTablePage({
           isOpen={headsUpPromptOpen && isVisible}
           initialStep={headsUpPromptStep}
           tableName={tournamentEventName || tableState.tableName || 'Heads Up Sit N Go'}
-          inviteUrl={tableShareUrl(tableId)}
+          inviteUrl={tableShareUrl(tableId, { inviteCode: senderInviteCode })}
           onChooseSpecific={() => {
             setHeadsUpWaitMode('specific');
             setHeadsUpPromptStep('invite');

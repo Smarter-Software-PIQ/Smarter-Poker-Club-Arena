@@ -33,6 +33,7 @@
  */
 import { IS_NATIVE_BUILD, isNativePlatform, publicOrigin } from './appBase';
 import { copyToClipboard } from './copyToClipboard';
+import { normalizeInviteCode, normalizeInviteToken, normalizeUuid } from './inviteCode';
 import { reportError } from '../utils/errorReporter';
 
 export type ShareOutcome = 'shared' | 'copied' | 'saved' | 'cancelled' | 'failed';
@@ -303,12 +304,51 @@ export function tournamentShareUrl(tournamentId: string, origin?: string): strin
   return `${origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
 }
 
+export interface TableShareUrlOptions {
+  origin?: string;
+  inviteCode?: string | null;
+  clusterId?: string | null;
+  inviteToken?: string | null;
+}
+
+export interface LightningShareUrlOptions {
+  origin?: string;
+  inviteCode?: string | null;
+}
+
+function withShareQueryParams(
+  base: string,
+  params: {
+    inviteCode?: string | null;
+    clusterId?: string | null;
+    inviteToken?: string | null;
+  }
+): string {
+  const q = new URLSearchParams();
+  const code = normalizeInviteCode(params.inviteCode);
+  const cluster = normalizeUuid(params.clusterId);
+  const token = normalizeInviteToken(params.inviteToken);
+  if (code) q.set('i', code);
+  if (cluster) q.set('cluster', cluster);
+  if (token) q.set('invite', token);
+  const qs = q.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 /**
  * Direct link to a live table (cash game, or a seated Spin / Heads-Up table).
  * One builder, so every lobby and in-table invite sends the same address.
+ * Optional query params attach the sender's club invite code (`i`), Must-Move
+ * cluster id (`cluster`), and/or Heads-Up specific-player hold token (`invite`).
  */
-export function tableShareUrl(tableId: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/hub/club-arena/table/${encodeURIComponent(tableId)}`;
+export function tableShareUrl(
+  tableId: string,
+  originOrOptions?: string | TableShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const base = `${opts.origin ?? publicOrigin()}/hub/club-arena/table/${encodeURIComponent(tableId)}`;
+  return withShareQueryParams(base, opts);
 }
 
 /**
@@ -317,33 +357,82 @@ export function tableShareUrl(tableId: string, origin?: string): string {
  * sends everyone else to a missing-table screen. Sharing the cluster's
  * `/lightning/:clusterId` route takes any club member straight into the pool.
  */
-export function lightningShareUrl(clusterId: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/hub/club-arena/lightning/${encodeURIComponent(clusterId)}`;
+export function lightningShareUrl(
+  clusterId: string,
+  originOrOptions?: string | LightningShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const base = `${opts.origin ?? publicOrigin()}/hub/club-arena/lightning/${encodeURIComponent(clusterId)}`;
+  return withShareQueryParams(base, { inviteCode: opts.inviteCode });
 }
 
 export type GameInviteTarget =
-  | { kind: 'table'; id: string }
-  | { kind: 'tournament'; id: string }
-  | { kind: 'lightning'; id: string };
+  | {
+      kind: 'table';
+      id: string;
+      inviteCode?: string | null;
+      clusterId?: string | null;
+      inviteToken?: string | null;
+    }
+  | { kind: 'tournament'; id: string; inviteCode?: string | null }
+  | { kind: 'lightning'; id: string; inviteCode?: string | null };
+
+export interface LobbyInviteTargetOptions {
+  inviteCode?: string | null;
+  clusterId?: string | null;
+}
 
 /**
  * Canonical invite target for any lobby row: Lightning cash games route to
- * their cluster entry door, classic cash games route to the live table, and
+ * their cluster entry door, classic cash games route to the live table (with
+ * normalized `clusterId` when belonging to a Must-Move cash game), and
  * tournaments (MTT, Spin, Heads-Up SNG, Satellite) route to the tournament
  * preview link.
  */
-export function lobbyEntryInviteTarget(entry: {
-  id: string;
-  kind: string;
-  game?: { id?: string | null; lightning?: unknown } | null;
-}): GameInviteTarget {
+export function lobbyEntryInviteTarget(
+  entry: {
+    id: string;
+    kind: string;
+    clusterId?: string | null;
+    cashGameId?: string | null;
+    game?: { id?: string | null; mustMove?: boolean; lightning?: unknown } | null;
+    raw?: unknown;
+  },
+  options?: LobbyInviteTargetOptions
+): GameInviteTarget {
+  const inviteCode = normalizeInviteCode(options?.inviteCode);
   if (entry.kind === 'cash') {
     if (entry.game?.lightning && entry.game.id) {
-      return { kind: 'lightning', id: entry.game.id };
+      return {
+        kind: 'lightning',
+        id: entry.game.id,
+        ...(inviteCode ? { inviteCode } : {}),
+      };
     }
-    return { kind: 'table', id: entry.id };
+    const rawRow =
+      entry.raw && typeof entry.raw === 'object'
+        ? (entry.raw as { cluster_id?: unknown; cluster_must_move?: unknown })
+        : null;
+    const rawClusterId =
+      options?.clusterId ??
+      entry.clusterId ??
+      entry.cashGameId ??
+      (entry.game?.id && entry.game.mustMove !== false ? entry.game.id : null) ??
+      (rawRow?.cluster_id && rawRow.cluster_must_move !== false ? rawRow.cluster_id : null);
+    const clusterId = normalizeUuid(rawClusterId);
+    return {
+      kind: 'table',
+      id: entry.id,
+      ...(inviteCode ? { inviteCode } : {}),
+      ...(clusterId ? { clusterId } : {}),
+    };
   }
-  return { kind: 'tournament', id: entry.id };
+  return {
+    kind: 'tournament',
+    id: entry.id,
+    ...(inviteCode ? { inviteCode } : {}),
+  };
 }
 
 /**
@@ -352,10 +441,23 @@ export function lobbyEntryInviteTarget(entry: {
  * point directly at the table; MTTs, multi-seat SNGs, Spins and Satellites
  * shared from the lobby point at the tournament preview link.
  */
-export function gameInviteUrl(target: GameInviteTarget, origin?: string): string {
-  if (target.kind === 'tournament') return tournamentShareUrl(target.id, origin);
-  if (target.kind === 'lightning') return lightningShareUrl(target.id, origin);
-  return tableShareUrl(target.id, origin);
+export function gameInviteUrl(
+  target: GameInviteTarget,
+  originOrOptions?: string | TableShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const inviteCode = opts.inviteCode ?? target.inviteCode;
+  if (target.kind === 'tournament') return tournamentShareUrl(target.id, opts.origin);
+  if (target.kind === 'lightning') {
+    return lightningShareUrl(target.id, { origin: opts.origin, inviteCode });
+  }
+  return tableShareUrl(target.id, {
+    origin: opts.origin,
+    inviteCode,
+    clusterId: opts.clusterId ?? target.clusterId,
+    inviteToken: opts.inviteToken ?? target.inviteToken,
+  });
 }
 
 /** Consistent invite sentence paired with a game invite link. */
