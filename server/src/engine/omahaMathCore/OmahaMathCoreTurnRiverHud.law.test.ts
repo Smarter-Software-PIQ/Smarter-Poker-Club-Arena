@@ -215,7 +215,7 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
       state: turnState,
       counts: { opps: 250, bets: 200, bins: makeBins(11, 200), priorRate: 0.3 },
       barrel: { opps: 150, bets: 125 },
-      riverCounts: { opps: 100, bets: 80, bins: makeBins(11, 80), priorRate: 0.28 },
+      riverCounts: { opps: 100, bets: 80 },
       net: (p) => rakeNet(turnState, p),
       k: 5,
     });
@@ -561,5 +561,44 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     });
     expect(normal.excessMass).toBe(0);
     expect(normal.call).toBe(false);
+  });
+
+  it('13. polarized value+excess mixture proves medium bluff-catcher vs barrel_air & reads riverRate across turn packets', () => {
+    // Medium PLO5 river bluff-catcher (middle two pair 9-7 on Ks 9d 7c 4h 2s: loses to all K-x two pair & sets)
+    const bpState = makeState({
+      hole: cards('9h7d8c5c3h'),
+      board: cards('Ks9d7c4h2s'),
+      pot: 175,
+      toCall: 75,
+      currentBet: 75,
+      wagerFrac: 0.75,
+      heroStack: 500,
+    });
+    const rPol = priceTurnRiverLifetimeCall({
+      state: bpState,
+      counts: { opps: 80, bets: 52, bins: makeBins(9, 52), priorRate: 0.28 },
+      barrel: { opps: 55, bets: 44 },
+      riverCounts: null,
+      net: (p) => rakeNet(bpState, p),
+      k: 5,
+    });
+    expect(rPol.excessMass).toBeGreaterThan(0.35);
+    expect(rPol.call).toBe(true);
+
+    // Cross-street riverRate reads o.lc even on a turn packet (where o.xc only holds turn counters)
+    const U_OPP = '00000000-0000-4000-8000-000000000002';
+    const pTurn = emptyHudProfile(U_OPP, 'plo5');
+    pTurn.hands = 200;
+    pTurn.life['r.stab.hu'] = [25, 20];
+    pTurn.life['r.lead.hu'] = [30, 15];
+    pTurn.xc = { 't.fw.stab.hu.b11': 18 };
+    installDecisionHud(buildHudPacket('plo5', [pTurn], {}, 1_800_000_000_000, 'turn'));
+    const rr = omahaMathCoreTurnRiverHud.riverRate!(
+      { players: [{ seat: 2, user_id: U_OPP }] },
+      2,
+      'plo5',
+      'hu'
+    );
+    expect(rr).toEqual({ opps: 55, bets: 35 });
   });
 });

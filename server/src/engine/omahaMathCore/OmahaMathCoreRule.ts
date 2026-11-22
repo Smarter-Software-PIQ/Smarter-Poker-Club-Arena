@@ -810,19 +810,18 @@ export function omahaMathCoreRule(
           'hu',
           hudLine
         );
-        const fw =
-          lineFw && lineFw.opps > 0
-            ? lineFw
-            : trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
+        const pooledFw = trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
+        const fw = lineFw && lineFw.opps > 0 ? lineFw : pooledFw;
         if (fw && fw.opps > 0) {
           const brl = trProv.barrel?.(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu') ?? null;
           const rvFw =
             trStage === 'turn'
-              ? trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', 'river', 'hu')
+              ? (trProv.riverRate?.(gs, coreState.aggressorSeat, 'plo5', 'hu') ?? null)
               : null;
           const trRes = priceTurnRiverLifetimeCall({
             state: coreState,
             counts: fw,
+            pooledCounts: pooledFw,
             barrel: brl,
             riverCounts: rvFw,
             net: (p) => rakeNet(coreState, p),

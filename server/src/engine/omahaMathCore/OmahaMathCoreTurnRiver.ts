@@ -91,6 +91,13 @@ export interface OmahaMathCoreTurnRiverProvider {
     street: 'turn' | 'river',
     players: 'hu' | 'mw'
   ): TurnRiverBarrelRecord | null;
+  /** Cross-street river first-wager rate (from o.lc, available on turn packets where o.xc only holds turn bins). */
+  riverRate?(
+    table: unknown,
+    seat: number,
+    game: 'plo4' | 'plo5',
+    players: 'hu' | 'mw'
+  ): { opps: number; bets: number } | null;
 }
 
 let TR_PROVIDER: OmahaMathCoreTurnRiverProvider | null = null;
@@ -138,7 +145,8 @@ export interface TurnRiverTailFrequencyResult {
 
 /**
  * Empirical-Bayes shrunk tail wager frequency and excess-aggression mass above p_base.
- * Barrel sharpening activates only when prevAggressor=true and the barrel lower bound strictly sharpens fLo.
+ * Evaluates line-specific firstWager, optional pooled firstWager, and (when prevAggressor=true) barrel record,
+ * taking the sharpest (highest fLo) lower bound so neither line pooling nor line splitting dilutes a strong signal.
  */
 export function turnRiverTailFrequency(
   rec: TurnRiverFirstWagerRecord,
@@ -147,48 +155,72 @@ export function turnRiverTailFrequency(
   street: 'turn' | 'river',
   players: 'hu' | 'mw',
   prevAggressor: boolean,
-  kFreq: number = OMAHA_MATH_CORE_TR_FREQ_K
+  kFreq: number = OMAHA_MATH_CORE_TR_FREQ_K,
+  pooledRec?: TurnRiverFirstWagerRecord | null
 ): TurnRiverTailFrequencyResult {
   const key = `${street}|${players}`;
   const kPrior = OMAHA_MATH_CORE_TR_PRIOR_OPPS[key] ?? 40;
   const pBase = OMAHA_MATH_CORE_TR_BASELINE_RATE[key] ?? 0.28;
-  const p0 =
-    typeof rec.priorRate === 'number' && Number.isFinite(rec.priorRate)
-      ? Math.min(pBase, Math.max(0, rec.priorRate))
-      : pBase;
-  const n1 = okCount(rec.opps) ? rec.opps : 0;
-  const rawTail = cumulativeTailBets(rec.bins, frac);
-  const h1 = Math.min(n1, rawTail);
-  const f1 = (h1 + kPrior * p0) / (n1 + kPrior);
-  const se1 = Math.sqrt(Math.max(0, f1 * (1 - f1)) / (n1 + kPrior));
-  const fLo1 = Math.max(0, f1 - kFreq * se1);
+  const evalBound = (r: TurnRiverFirstWagerRecord) => {
+    const p0 =
+      typeof r.priorRate === 'number' && Number.isFinite(r.priorRate)
+        ? Math.min(pBase, Math.max(0, r.priorRate))
+        : pBase;
+    const n = okCount(r.opps) ? r.opps : 0;
+    const rawTail = cumulativeTailBets(r.bins, frac);
+    const h = Math.min(n, rawTail);
+    const f = (h + kPrior * p0) / (n + kPrior);
+    const fSe = Math.sqrt(Math.max(0, f * (1 - f)) / (n + kPrior));
+    const fLo = Math.max(0, f - kFreq * fSe);
+    return { opps: n, tailBets: h, rawTail, bets: okCount(r.bets) ? r.bets : 0, p0, f, fSe, fLo };
+  };
 
-  let opps = n1;
-  let tailBets = h1;
-  let f = f1;
-  let fSe = se1;
-  let fLo = fLo1;
+  let best = evalBound(rec);
   let usedBarrel = false;
 
+  if (pooledRec && okCount(pooledRec.opps) && pooledRec.opps > 0) {
+    const pb = evalBound(pooledRec);
+    if (pb.fLo > best.fLo) best = pb;
+  }
+
   if (prevAggressor && barrel && okCount(barrel.opps) && barrel.opps > 0 && okCount(barrel.bets)) {
-    const tailShare = okCount(rec.bets) && rec.bets > 0 ? Math.min(1, rawTail / rec.bets) : 0;
+    // Use the broader size histogram (pooled if available, else line-specific) to compute tailShare
+    const sizeSrc =
+      pooledRec && okCount(pooledRec.bets) && pooledRec.bets > 0 ? evalBound(pooledRec) : best;
+    const tailShare = sizeSrc.bets > 0 ? Math.min(1, sizeSrc.rawTail / sizeSrc.bets) : 0;
     const n2 = barrel.opps;
     const h2 = Math.min(n2, Math.min(barrel.opps, barrel.bets) * tailShare);
-    const f2 = (h2 + kPrior * p0) / (n2 + kPrior);
+    const f2 = (h2 + kPrior * best.p0) / (n2 + kPrior);
     const se2 = Math.sqrt(Math.max(0, f2 * (1 - f2)) / (n2 + kPrior));
     const fLo2 = Math.max(0, f2 - kFreq * se2);
-    if (fLo2 > fLo1) {
-      opps = n2;
-      tailBets = h2;
-      f = f2;
-      fSe = se2;
-      fLo = fLo2;
+    if (fLo2 > best.fLo) {
+      best = {
+        opps: n2,
+        tailBets: h2,
+        rawTail: h2,
+        bets: barrel.bets,
+        p0: best.p0,
+        f: f2,
+        fSe: se2,
+        fLo: fLo2,
+      };
       usedBarrel = true;
     }
   }
 
-  const excessMass = fLo > pBase && fLo > 0 ? (fLo - pBase) / fLo : 0;
-  return { opps, tailBets, kPrior, p0, pBase, f, fSe, fLo, excessMass, usedBarrel };
+  const excessMass = best.fLo > pBase && best.fLo > 0 ? (best.fLo - pBase) / best.fLo : 0;
+  return {
+    opps: best.opps,
+    tailBets: best.tailBets,
+    kPrior,
+    p0: best.p0,
+    pBase,
+    f: best.f,
+    fSe: best.fSe,
+    fLo: best.fLo,
+    excessMass,
+    usedBarrel,
+  };
 }
 
 /** Worst-for-hero equity on a complete board against the mass-m prefix of (beats, ties, loses). */
@@ -197,6 +229,33 @@ function prefixEquity(m: number, beats: number, ties: number): number {
   const t = Math.max(0, Math.min(ties, m - beats));
   const w = Math.max(0, m - beats - ties);
   return (w + 0.5 * t) / m;
+}
+
+/**
+ * Value-core (worst-for-hero pBase prefix) + excess-uniform (remaining 1 - pBase pool) mixture equity on a
+ * complete board. Equals prefixEquity(m) when fr <= pBase and equals exact full-pool equity when fr = 1.
+ */
+function polarizedRiverEquity(
+  fr: number,
+  pBase: number,
+  N: number,
+  beats: number,
+  ties: number
+): number {
+  if (!(fr > 0) || !(N > 0)) return 0;
+  const f = Math.min(1, fr);
+  if (f <= pBase) return prefixEquity(f * N, beats, ties);
+  const mVal = pBase * N;
+  const eqVal = prefixEquity(mVal, beats, ties);
+  const mRem = N - mVal;
+  if (!(mRem > 0)) return eqVal;
+  const beatsRem = Math.max(0, beats - mVal);
+  const tiesRem = Math.max(0, Math.min(ties, beats + ties - mVal));
+  const losesRem = Math.max(0, mRem - beatsRem - tiesRem);
+  const eqEx = (losesRem + 0.5 * tiesRem) / mRem;
+  const wVal = pBase / f;
+  const wEx = (f - pBase) / f;
+  return wVal * eqVal + wEx * eqEx;
 }
 
 /**
@@ -253,13 +312,14 @@ const decline = (reason: string): TurnRiverCallReceipt => ({
 export function priceTurnRiverLifetimeCall(input: {
   state: CoreState;
   counts: TurnRiverFirstWagerRecord | null;
+  pooledCounts?: TurnRiverFirstWagerRecord | null;
   barrel?: TurnRiverBarrelRecord | null;
-  riverCounts?: TurnRiverFirstWagerRecord | null;
+  riverCounts?: { opps: number; bets: number } | null;
   net: (finalPot: number) => number;
   k?: number;
   kFreq?: number;
 }): TurnRiverCallReceipt {
-  const { state, counts, barrel, riverCounts, net } = input;
+  const { state, counts, pooledCounts, barrel, riverCounts, net } = input;
   const street = state.street;
   if (street !== 'turn' && street !== 'river') return decline('not turn or river');
   const holeLen = Number(String(state.variant).slice(-1));
@@ -322,7 +382,8 @@ export function priceTurnRiverLifetimeCall(input: {
     street,
     'hu',
     agg.prevAggressor,
-    kFreq
+    kFreq,
+    pooledCounts
   );
 
   const base: TurnRiverCallReceipt = {
@@ -386,7 +447,7 @@ export function priceTurnRiverLifetimeCall(input: {
       if (s > heroScore) beats++;
       else if (s === heroScore) ties++;
     }
-    shareAt = (fr) => prefixEquity(mOf(fr), beats, ties);
+    shareAt = (fr) => polarizedRiverEquity(fr, freq.pBase, N, beats, ties);
   } else {
     const R = U;
     const heroR = new Float64Array(R);
@@ -430,21 +491,38 @@ export function priceTurnRiverLifetimeCall(input: {
     const budget = riverBudget;
     shareAt = (fr) => {
       if (!(mOf(fr) > 0)) return 0;
-      const m = Math.max(1, Math.min(N, Math.floor(mOf(fr))));
+      const f = Math.min(1, fr);
+      const mVal = Math.max(1, Math.min(N, Math.floor(freq.pBase * N)));
+      const usePolar = f > freq.pBase && mVal < N;
+      const m = usePolar ? mVal : Math.max(1, Math.min(N, Math.floor(mOf(f))));
+      const wVal = usePolar ? freq.pBase / f : 1;
+      const wEx = usePolar ? (f - freq.pBase) / f : 0;
       let tot = 0;
       let wsum = 0;
       for (let r = 0; r < R; r++) {
-        let s2 = 0;
-        let cnt = 0;
+        let sVal = 0;
+        let cVal = 0;
         for (let q = 0; q < m; q++) {
           const o = out[order[q] * R + r];
           if (o < 0) continue;
-          s2 += o;
-          cnt++;
+          sVal += o;
+          cVal++;
         }
-        if (cnt === 0) continue;
-        tot += cnt * lifetimeRiverShare(s2 / (2 * cnt), sigma, budget);
-        wsum += cnt;
+        if (cVal === 0) continue;
+        let eqR = sVal / (2 * cVal);
+        if (usePolar) {
+          let sEx = 0;
+          let cEx = 0;
+          for (let q = m; q < N; q++) {
+            const o = out[order[q] * R + r];
+            if (o < 0) continue;
+            sEx += o;
+            cEx++;
+          }
+          if (cEx > 0) eqR = wVal * eqR + wEx * (sEx / (2 * cEx));
+        }
+        tot += cVal * lifetimeRiverShare(eqR, sigma, budget);
+        wsum += cVal;
       }
       return wsum > 0 ? tot / wsum : 0;
     };

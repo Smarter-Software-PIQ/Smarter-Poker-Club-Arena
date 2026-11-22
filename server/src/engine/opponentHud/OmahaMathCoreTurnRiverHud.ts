@@ -15,6 +15,7 @@ import {
 import {
   decisionHudFamily,
   hudBarrelRecord,
+  hudFirstWagerRecord,
   hudFirstWagerSizeCounts,
   hudStat,
 } from './OpponentHud.js';
@@ -63,6 +64,18 @@ export const omahaMathCoreTurnRiverHud: OmahaMathCoreTurnRiverProvider = {
       if (family !== game) return null;
       const brl = hudBarrelRecord(id, family, { street, players });
       return brl ? { opps: brl.opps, bets: brl.bets } : null;
+    } catch {
+      return null;
+    }
+  },
+  riverRate(table, seat, game, players) {
+    try {
+      const id = seatUserId(table, seat);
+      if (!id) return null;
+      const family = decisionHudFamily();
+      if (family !== game) return null;
+      const r = hudFirstWagerRecord(id, family, 'river', players);
+      return r ? { opps: r.opps, bets: r.bets } : null;
     } catch {
       return null;
     }
