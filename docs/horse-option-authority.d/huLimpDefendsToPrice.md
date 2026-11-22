@@ -35,3 +35,7 @@ Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md. Nothing was run for this file; e
 Machine-read (README.md, "The Replay row").
 
 - Replay: NOT RUN (off-only under the owner preflop range hold; no audited-decision replay was scored, and any replay must use the corrected history of #11556, which removed forced posts from replayed preflop actionHistory)
+
+## Rollback
+
+If enabled, run `horse-option-switch.mjs set huLimpDefendsToPrice off --rollback` (`fn_ca_horse_option_switch_set('huLimpDefendsToPrice', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

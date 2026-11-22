@@ -526,10 +526,12 @@ export function priceHoldemTournamentLowSprDecision(
           ).mean;
 
     // Low-SPR stickiness: opponents facing a bet at SPR <= 1.0 are pot-committed and fold
-    // materially less than the deep-stack c-bet average (measured low-SPR multiplier 0.719x,
-    // attenuated further as SPR approaches 0 and when leading without initiative).
+    // materially less as SPR approaches 0. On the flop, `estimateHoldemFlopCbetFold` already
+    // applied `HOLDEM_EMPIRICAL_FLOP_SMALL_SPR_MULT.low.mult` (0.719x), so apply ONLY the
+    // smooth sub-1-SPR attenuation there; on the turn, apply both once.
     const lowSprMult =
-      HOLDEM_EMPIRICAL_FLOP_SMALL_SPR_MULT.low.mult * (0.55 + 0.45 * clamp(spr, 0, 1));
+      (input.street === 'flop' ? 1.0 : HOLDEM_EMPIRICAL_FLOP_SMALL_SPR_MULT.low.mult) *
+      (0.55 + 0.45 * clamp(spr, 0, 1));
     const initMult = input.hasInitiative === false ? 0.72 : 1.0;
     const villainCallPrice = w / (pot + 2 * w);
     const priceScale = clamp(villainCallPrice / 0.28, 0.45, 1.12);

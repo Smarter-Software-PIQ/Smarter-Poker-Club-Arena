@@ -20,6 +20,7 @@ import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
 import { rakeNet, type CoreState } from './OmahaMathCore.js';
 import { omahaMathCoreRule } from './OmahaMathCoreRule.js';
+import { warmOmahaMathCore } from './OmahaMathCoreWarmUp.js';
 import {
   OMAHA_MATH_CORE_TR_FW_EDGES,
   cumulativeTailBets,
@@ -830,5 +831,130 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     expect(rCommit.commitsStack).toBe(true);
     expect(rCommit.kApplied).toBe(25);
     expect(rCommit.call).toBe(false);
+  });
+
+  it('17. fast-path: skips wasted decideOmahaMathCore on HUD-governed PLO5/PLO4 turn/river spots, preserves nuts floor, and warms priceTurnRiverLifetimeCall', () => {
+    const U_OPP = '00000000-0000-4000-8000-000000000002';
+    const U_HERO = '00000000-0000-4000-8000-000000000001';
+    const pTight = emptyHudProfile(U_OPP, 'plo5');
+    pTight.hands = 500;
+    pTight.life['r.stab.hu'] = [220, 22];
+    pTight.xc = { 'r.fw.stab.hu.b11': 22 };
+    installDecisionHud(
+      buildHudPacket('plo5', [pTight], { 'r.stab.hu': [0.28, 33] }, 1_800_000_000_000, 'river')
+    );
+
+    const mkGs = (holeStr: string) => {
+      const hero = {
+        seat: 1,
+        user_id: U_HERO,
+        cards: cardObjs(holeStr),
+        stack: 500,
+        bet: 0,
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      } as unknown as SeatPlayer;
+      const gs = {
+        gameVariant: 'plo5',
+        stage: 'river',
+        pot: 200,
+        currentBet: 100,
+        bigBlind: 2,
+        smallBlind: 1,
+        buttonSeat: 2,
+        communityCards: cardObjs('Ks9d7c4h2s'),
+        players: [
+          hero,
+          {
+            seat: 2,
+            user_id: U_OPP,
+            stack: 400,
+            bet: 100,
+            is_folded: false,
+            is_all_in: false,
+            is_sitting_out: false,
+          },
+        ],
+        actionHistory: [
+          { seat: 2, stage: 'preflop', action: 'raise', amount: 6 },
+          { seat: 1, stage: 'preflop', action: 'call', amount: 6 },
+          { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+          { seat: 2, stage: 'flop', action: 'check', amount: 0 },
+          { seat: 1, stage: 'turn', action: 'check', amount: 0 },
+          { seat: 2, stage: 'turn', action: 'check', amount: 0 },
+          { seat: 1, stage: 'river', action: 'check', amount: 0 },
+          { seat: 2, stage: 'river', action: 'bet', amount: 100 },
+        ],
+        rakePercent: 5,
+        rakeCap: 6,
+        noFlopNoDrop: true,
+        handNumber: 777099,
+      } as unknown as HorseGameStateV2;
+      return { hero, gs };
+    };
+
+    const legalize = (d: HorseDecision): HorseDecision => d;
+
+    // Non-fold incoming action skips Monte Carlo completely (0 samples, b3-turn-river-hud receipt)
+    const { hero, gs } = mkGs('Kh9c8d5c3h');
+    const callKeep = omahaMathCoreRule(
+      { action: 'call', amount: 100, thinkTime: 1000 },
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo5River: true },
+      legalize
+    );
+    expect(callKeep.action).toBe('call');
+    expect(callKeep.omahaMathCore?.core?.tables).toBe('b3-turn-river-hud');
+    expect(callKeep.omahaMathCore?.core?.samples).toBe(0);
+
+    // Tight opponent fold stays fold with 0 Monte Carlo samples (station/nit guard short-circuit)
+    const foldTight = omahaMathCoreRule(
+      { action: 'fold', thinkTime: 1000 },
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo5River: true },
+      legalize
+    );
+    expect(foldTight.action).toBe('fold');
+    expect(foldTight.omahaMathCore?.core?.tables).toBe('b3-turn-river-hud');
+    expect(foldTight.omahaMathCore?.core?.samples).toBe(0);
+
+    // Current nuts facing a wager still triggers call floor on the fast-path
+    const { hero: nutsHero, gs: nutsGs } = mkGs('KhKcQdJcTh');
+    const nutsRes = omahaMathCoreRule(
+      { action: 'fold', thinkTime: 1000 },
+      nutsHero,
+      nutsGs,
+      { omahaMathCore: true, omahaMathCorePlo5River: true },
+      legalize
+    );
+    expect(nutsRes.action).toBe('call');
+    expect(nutsRes.omahaMathCore?.core?.tables).toBe('b3-turn-river-hud');
+
+    // PLO4 turn/river fast-path skips wasted decideOmahaMathCore when PLO4 HUD packet is active
+    const pTight4 = emptyHudProfile(U_OPP, 'plo4');
+    pTight4.hands = 500;
+    pTight4.life['r.stab.hu'] = [220, 22];
+    pTight4.xc = { 'r.fw.stab.hu.b11': 22 };
+    installDecisionHud(
+      buildHudPacket('plo4', [pTight4], { 'r.stab.hu': [0.28, 33] }, 1_800_000_000_000, 'river')
+    );
+    const { hero: h4, gs: gs4 } = mkGs('Kh9c8d5c');
+    const plo4Res = omahaMathCoreRule(
+      { action: 'fold', thinkTime: 1000 },
+      h4,
+      { ...gs4, gameVariant: 'plo4' } as unknown as HorseGameStateV2,
+      { omahaMathCore: true, omahaMathCorePlo4River: true },
+      legalize
+    );
+    expect(plo4Res.action).toBe('fold');
+    expect(plo4Res.omahaMathCore?.core?.tables).toBe('b3-turn-river-hud');
+    expect(plo4Res.omahaMathCore?.core?.samples).toBe(0);
+
+    // Worker-start warm-up warms priceTurnRiverLifetimeCall cleanly across PLO4/PLO5 turn+river
+    const w = warmOmahaMathCore();
+    expect(w.ok).toBe(true);
   });
 });

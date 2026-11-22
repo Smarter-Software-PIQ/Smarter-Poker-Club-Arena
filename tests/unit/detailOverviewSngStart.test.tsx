@@ -109,20 +109,53 @@ describe('fixed SNG Details start semantics', () => {
     interval.mockRestore();
   });
   it.each([
+    {
+      format_contract: 'sng-v1',
+      tournament_type: 'sng',
+      variant: 'sng',
+      max_players: 2,
+      min_players: 2,
+      table_size: 2,
+      satellite_target_id: null,
+      satellite_seats: null,
+    },
+    {
+      format_contract: 'spin-v1',
+      tournament_type: 'spin',
+      variant: 'spin',
+      max_players: 3,
+      min_players: 3,
+      table_size: 3,
+      satellite_target_id: null,
+      satellite_seats: null,
+    },
+  ])('shows When Full for regular SNG and Spin contracts: %j', (overrides) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-30T19:00:00.000Z'));
+    const { container } = show(props(6, overrides));
+    expect(container.querySelector('.dov-hero__eyebrow')?.textContent).toBe('Starts');
+    expect(container.querySelector('.dov-hero__time')?.textContent).toBe('When Full');
+    expect(container.querySelector('.dov-hero__note')?.textContent).not.toContain('Oct 30');
+    expect(container.textContent).not.toContain('Starts In');
+  });
+  it.each([
     { format_contract: 'mtt-v2', tournament_type: 'satellite', variant: 'satellite' },
-    { satellite_seats: 1 },
-  ])(
-    'preserves scheduled countdowns unless the exact fixed contract qualifies: %j',
-    (overrides) => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-10-30T19:00:00.000Z'));
-      const { container } = show(props(6, overrides));
-      expect(container.querySelector('.dov-hero__eyebrow')?.textContent).toBe('Starts In');
-      expect(container.querySelector('.dov-hero__time')?.textContent).toBe('1:00:00');
-      expect(container.querySelector('.dov-hero__note')?.textContent).toContain('Oct 30');
-      expect(container.textContent).not.toContain('When Full');
-    }
-  );
+    {
+      format_contract: 'mtt-v1',
+      tournament_type: 'mtt',
+      variant: 'nlh',
+      satellite_target_id: null,
+      satellite_seats: null,
+    },
+  ])('preserves scheduled countdowns for scheduled MTT contracts: %j', (overrides) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-30T19:00:00.000Z'));
+    const { container } = show(props(6, overrides));
+    expect(container.querySelector('.dov-hero__eyebrow')?.textContent).toBe('Starts In');
+    expect(container.querySelector('.dov-hero__time')?.textContent).toBe('1:00:00');
+    expect(container.querySelector('.dov-hero__note')?.textContent).toContain('Oct 30');
+    expect(container.textContent).not.toContain('When Full');
+  });
   it('keeps actual Started time and running level behavior after the fixed SNG starts', () => {
     const { container } = show(props(6, { status: 'RUNNING', started_at: start }));
     expect(container.querySelector('.dov-hero__note')?.textContent).toContain('Running Since');

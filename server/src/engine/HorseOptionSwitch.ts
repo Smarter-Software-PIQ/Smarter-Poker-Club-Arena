@@ -1189,6 +1189,12 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  multiBoardFreerollIsPriced:
+    'dark zero-migration priced replacement for unowned V36 multi-board freeroll bet/raise coin flips (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
+  multiBoardNonFreerollIsPriced:
+    'dark zero-migration priced replacement for unowned V86 multi-board non-freeroll dead-half fold and strong-board open/raise branches (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
+  multiBoardBluffTrimIsPriced:
+    'dark zero-migration priced replacement for unowned V36 multi-board bluff-trim blanket multiplier (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   // 2026-11-22 Horse Switch lane (Wave 10.1): built dark. Registering it needs a switch-list
   // migration after grading PASS + VERIFIER-10 confirmation; until one lists it the switch may
   // not carry it (league and tests pass it directly). Remove this line in the migration PR.

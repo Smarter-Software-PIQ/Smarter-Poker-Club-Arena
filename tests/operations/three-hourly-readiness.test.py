@@ -949,6 +949,190 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         found = mod.find_closed_cycle_stage_run([run_too_old, run_in_window], post_sched, post_now)
         self.assertEqual(found["id"], 1001)
 
+    def test_control_sha_loads_prequalification_from_git_blob_ignoring_stale_working_tree(self):
+        with tempfile.TemporaryDirectory() as outer:
+            fake_repo = Path(outer) / "repo"
+            fake_repo.mkdir()
+
+            def run_git(*args):
+                subprocess.run(
+                    ["git", "-C", str(fake_repo), *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+            run_git("init", "-q")
+            run_git("config", "user.email", "test@example.com")
+            run_git("config", "user.name", "Test")
+
+            stale_prequal_src = (
+                "import subprocess\n"
+                "SOURCE_TAG = 'stale-pre-o9'\n"
+                "def projection(sha):\n"
+                "    return subprocess.check_output("
+                "['git', 'ls-tree', '-r', sha, '--', 'scripts/ci/read-engine-prequalification.py', 'server/scripts'], "
+                "text=True).strip()\n"
+            )
+            authoritative_prequal_src = (
+                "import subprocess\n"
+                "SOURCE_TAG = 'authoritative-o9'\n"
+                "def projection(sha):\n"
+                "    out = subprocess.check_output("
+                "['git', 'ls-tree', '-r', sha, '--', 'scripts/ci/read-engine-prequalification.py', 'server/scripts'], "
+                "text=True).strip()\n"
+                "    return '\\n'.join("
+                "line for line in out.splitlines() if not line.endswith('\\tserver/scripts/opponent-hud-build.ts'))\n"
+            )
+
+            helper = fake_repo / "scripts/ci/read-engine-prequalification.py"
+            helper.parent.mkdir(parents=True, exist_ok=True)
+            hud_script = fake_repo / "server/scripts/opponent-hud-build.ts"
+            hud_script.parent.mkdir(parents=True, exist_ok=True)
+
+            # Commit 1 (serving): stale pre-O9 helper
+            helper.write_text(stale_prequal_src, encoding="utf-8")
+            hud_script.write_text("export const V = 0;\n", encoding="utf-8")
+            run_git("add", "scripts/ci/read-engine-prequalification.py", "server/scripts/opponent-hud-build.ts")
+            run_git("commit", "-q", "-m", "base: stale pre-O9 helper")
+            serving = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            # Commit 2 (candidate): O9 excludes opponent-hud-build.ts
+            helper.write_text(authoritative_prequal_src, encoding="utf-8")
+            hud_script.write_text("export const V = 1;\n", encoding="utf-8")
+            run_git("add", "scripts/ci/read-engine-prequalification.py", "server/scripts/opponent-hud-build.ts")
+            run_git("commit", "-q", "-m", "fix: O9 exclude opponent-hud-build.ts")
+            candidate = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            # Commit 3 (head / control_sha): modifies only opponent-hud-build.ts
+            hud_script.write_text("export const V = 2;\n", encoding="utf-8")
+            run_git("add", "server/scripts/opponent-hud-build.ts")
+            run_git("commit", "-q", "-m", "fix(hud): update opponent-hud-build.ts")
+            head = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            # Simulate stale working tree on disk (uncommitted pre-O9 file, like ~/Documents/club-arena)
+            helper.write_text(stale_prequal_src, encoding="utf-8")
+
+            # Legacy control_sha=None reads the stale working-tree file and sees a false mismatch
+            disk_mod = mod.load_prequalification_module(fake_repo)
+            self.assertEqual(disk_mod.SOURCE_TAG, "stale-pre-o9")
+            self.assertNotEqual(
+                mod.control_projection(candidate, repo_root=fake_repo),
+                mod.control_projection(head, repo_root=fake_repo),
+            )
+
+            # control_sha loads the authoritative git blob and caches by (resolved_root, control_sha)
+            blob_mod_1 = mod.load_prequalification_module(fake_repo, control_sha=head)
+            blob_mod_2 = mod.load_prequalification_module(fake_repo, control_sha=head)
+            serving_mod = mod.load_prequalification_module(fake_repo, control_sha=serving)
+            self.assertIs(blob_mod_1, blob_mod_2)
+            self.assertIsNot(blob_mod_1, disk_mod)
+            self.assertIsNot(blob_mod_1, serving_mod)
+            self.assertEqual(blob_mod_1.SOURCE_TAG, "authoritative-o9")
+            self.assertEqual(serving_mod.SOURCE_TAG, "stale-pre-o9")
+
+            # End-to-end collect_readiness() uses control_sha blob: candidate has CTRL=MATCH and SELECTABLE
+            def gh_get(path):
+                if "stage-engine-release.yml/runs" in path or "backup-engine.yml/runs" in path:
+                    return {"workflow_runs": []}
+                if path.endswith("/git/ref/heads/main"):
+                    return {"object": {"sha": head}}
+                if "engine-release-prequalification.yml/runs" in path:
+                    return {
+                        "workflow_runs": [
+                            {
+                                "id": 9701,
+                                "status": "completed",
+                                "conclusion": "success",
+                                "event": "push",
+                                "head_branch": "main",
+                                "path": mod.PREQUAL_PATH,
+                                "head_sha": candidate,
+                                "run_attempt": 1,
+                                "updated_at": "2026-11-22T00:10:00Z",
+                                "html_url": "https://github.com/o/r/actions/runs/9701",
+                            }
+                        ]
+                    }
+                if f"/commits/{candidate}/status" in path:
+                    return {
+                        "statuses": [
+                            {
+                                "context": "backup-engine/certified",
+                                "state": "success",
+                                "target_url": "https://github.com/o/r/actions/runs/9700",
+                                "updated_at": "2026-11-22T00:05:00Z",
+                            }
+                        ]
+                    }
+                if f"/commits/{head}/status" in path:
+                    return {"statuses": []}
+                raise AssertionError(f"unexpected gh api path: {path}")
+
+            report = mod.collect_readiness(
+                repo="o/r",
+                control_ref="HEAD",
+                repo_dir=str(fake_repo),
+                now_utc=datetime(2026, 11, 22, 0, 20, tzinfo=timezone.utc),
+                health_fn=lambda: _health(release_sha=serving),
+                gh_get_fn=gh_get,
+            )
+            self.assertEqual(report["verdict"], "READY")
+            self.assertEqual(report["selectableSha"], candidate)
+            cand_row = next(c for c in report["candidates"] if c["sha"] == candidate)
+            self.assertTrue(cand_row["controlInputsMatch"])
+            self.assertEqual(cand_row["changedControlPaths"], [])
+            self.assertEqual(cand_row["status"], "SELECTABLE")
+
+    def test_load_prequalification_module_fails_closed_on_invalid_or_unreadable_control_sha(self):
+        with tempfile.TemporaryDirectory() as outer:
+            fake_repo = Path(outer) / "repo"
+            fake_repo.mkdir()
+
+            def run_git(*args):
+                subprocess.run(
+                    ["git", "-C", str(fake_repo), *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+            run_git("init", "-q")
+            run_git("config", "user.email", "test@example.com")
+            run_git("config", "user.name", "Test")
+
+            # Valid working-tree file exists on disk; invalid control_sha must STILL fail closed!
+            helper = fake_repo / "scripts/ci/read-engine-prequalification.py"
+            helper.parent.mkdir(parents=True, exist_ok=True)
+            helper.write_text("def projection(sha):\n    return sha\n", encoding="utf-8")
+
+            # Commit without projection() to prove missing callable fails closed
+            (fake_repo / "README.md").write_text("hi\n", encoding="utf-8")
+            run_git("add", "README.md")
+            run_git("commit", "-q", "-m", "init without prequal helper")
+            missing_blob_sha = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            helper.write_text("NOT_PROJECTION = 1\n", encoding="utf-8")
+            run_git("add", "scripts/ci/read-engine-prequalification.py")
+            run_git("commit", "-q", "-m", "helper missing projection()")
+            bad_module_sha = mod.git_read(fake_repo, "rev-parse", "HEAD")
+
+            # Restore valid disk file so only git blob loading can catch these errors
+            helper.write_text("def projection(sha):\n    return sha\n", encoding="utf-8")
+
+            for bad_sha in ("main", "HEAD", "1234", "Z" * 40, 123):
+                with self.assertRaises(mod.ReadError):
+                    mod.load_prequalification_module(fake_repo, control_sha=bad_sha)
+
+            with self.assertRaises(mod.ReadError):
+                mod.load_prequalification_module(fake_repo, control_sha=_sha("9"))
+
+            with self.assertRaises(mod.ReadError):
+                mod.load_prequalification_module(fake_repo, control_sha=missing_blob_sha)
+
+            with self.assertRaises(mod.ReadError):
+                mod.load_prequalification_module(fake_repo, control_sha=bad_module_sha)
+
 
 if __name__ == "__main__":
     unittest.main()

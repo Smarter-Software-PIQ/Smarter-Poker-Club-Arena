@@ -14,6 +14,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261007215818_a_failing_hourly_cron_reaches_the_board.sql
+      - supabase/migrations/20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql
       - scripts/ci/fixtures/cron-failure-watch/**
       - scripts/ci/test-cron-failure-watch-reaches-the-board.py
       - .github/workflows/cron-failure-watch-reaches-the-board.yml
