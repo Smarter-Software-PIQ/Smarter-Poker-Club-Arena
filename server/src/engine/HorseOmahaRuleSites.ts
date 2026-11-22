@@ -531,6 +531,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRiverCheckedToBetIsMeasured: priced(
     'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'
   ),
+  omahaSemiBluffRaiseIsPriced: priced(
+    'the semi-bluff raise of the two frequency sites is made only where its expected value at the legal size of highest value beats the better of the call and the fold by more than the uncertainty of the sample and of his measured fold; no roll, class, size band or position decides (default OFF)'
+  ),
   omahaRiverFirstToActBetIsPriced: priced(
     'a river check by the first actor heads-up becomes a bet only where the bet, priced on the measured response curve and the card-impact range, beats the check by more than its standard error; it changes only a check (default OFF)'
   ),

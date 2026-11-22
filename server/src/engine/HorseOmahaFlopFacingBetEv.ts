@@ -460,6 +460,12 @@ const NO_FIELD: OmahaFlopEvField = { always: [], behind: 0, behindShare: 1 };
 /** The golden-ratio step: successive draws walk a region evenly. */
 const WALK = 0.6180339887498949;
 
+let flopEvSampledRunCount = 0;
+/** How many times omahaFlopEvCounts has dealt a fresh flop sample in this process (for latency work laws). */
+export function omahaFlopEvSampledRuns(): number {
+  return flopEvSampledRunCount;
+}
+
 /** Test seam: forget the remembered hands. */
 export function omahaFlopEvCountsResetCache(): void {
   FLOP_SAMPLES.length = 0;
@@ -527,6 +533,7 @@ export function omahaFlopEvCounts(
     FLOP_SAMPLES.unshift(entry);
     if (FLOP_SAMPLES.length > FLOP_SAMPLES_MAX) FLOP_SAMPLES.length = FLOP_SAMPLES_MAX;
   }
+  flopEvSampledRunCount++;
   const seed =
     (omahaFlopEvSeed(hole, board, deadCards) ^ Math.imul(salt >>> 0, 0x85ebca6b)) >>> 0 || 1;
   const rnd = stream(seed);

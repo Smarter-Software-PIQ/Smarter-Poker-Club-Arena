@@ -648,6 +648,8 @@ import {
   omahaPricedBigBetCallRule,
   omahaPricedBlockerBluffAdmits,
   omahaPricedDrawRaiseBarred,
+  omahaSemiBluffRaisePricedFinal,
+  omahaSemiBluffRaiseSiteStandsAside,
   omahaPricedDrawRaiseRule,
   omahaPricedPressureRaiseSized,
   type OmahaPricedPressureAdmission,
@@ -4354,6 +4356,15 @@ export interface HorseDecideOpts {
    * shares and the opponent's fold rate (replaces omahaNoDrawRaiseOutOfPosition
    * and the position and combo-draw bars of omahaBigDrawAggression). */
   omahaDrawRaiseIsPriced?: boolean;
+  /**
+   * omahaSemiBluffRaiseIsPriced (lane REPLACEMENTS-1 2026-11-21, default OFF, strict `=== true`;
+   * PLO4/PLO5 cash only): the brain's two semi-bluff raise sites (the flop/turn raise and the
+   * pressure semi-bluff) stop rolling a frequency. The raise is made only where it is priced above
+   * the better of the call and the fold by more than its uncertainty, at the legal size of highest
+   * value (omahaPricedSemiBluffRaise). Stands alone: it does not need omahaNoDrawRaiseOutOfPosition
+   * or v74OmahaSemiBluffNeedsDraw, which it lets go off.
+   */
+  omahaSemiBluffRaiseIsPriced?: boolean;
   /** The turn bet out of position after the flop bet was called is priced
    * beside the check, and the turn bet then faced is the facing-bet EV
    * verdict's (replaces omahaOopTurnCheckAfterFlopCall). */
@@ -11748,18 +11759,24 @@ function omahaDrawRules(
 ): HorseDecision {
   // omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced (both default off): a pressure
   // raise admitted at a priced size is made at that size (the decision itself with either off).
-  return omahaBigDrawAggression(
-    omahaNoDrawRaiseFinal(
-      omahaPricedPressureRaiseSized(
-        decision,
+  // omahaSemiBluffRaiseIsPriced (default off): the priced raise consulted on the finished decision
+  return omahaSemiBluffRaisePricedFinal(
+    omahaBigDrawAggression(
+      omahaNoDrawRaiseFinal(
+        omahaPricedPressureRaiseSized(
+          decision,
+          player,
+          gs,
+          opts,
+          omahaPressureAdmittedAtPriceMemo !== null &&
+            omahaPressureAdmittedAtPriceMemo.gs === gs &&
+            omahaPressureAdmittedAtPriceMemo.seat === player.seat
+            ? { sampledAtPrice: true, sampledTo: omahaPressureAdmittedAtPriceMemo.to }
+            : null
+        ),
         player,
         gs,
-        opts,
-        omahaPressureAdmittedAtPriceMemo !== null &&
-          omahaPressureAdmittedAtPriceMemo.gs === gs &&
-          omahaPressureAdmittedAtPriceMemo.seat === player.seat
-          ? { sampledAtPrice: true, sampledTo: omahaPressureAdmittedAtPriceMemo.to }
-          : null
+        opts
       ),
       player,
       gs,
@@ -30634,8 +30651,13 @@ export class HorseLogic {
             pFr = Math.max(pFr, ploPersona?.comboDrawAggro ?? 0.85, 0.85);
           }
         }
-        if (fastRandom() < pFr && !drawRaiseBarred('ft')) {
-          const raiseToFr = currentBet + (pot + toCall) * (0.75 + fastRandom() * 0.25);
+        // omahaSemiBluffRaiseIsPriced (default off): in PLO4/PLO5 cash the price answers, not the roll.
+        // Both rolls are still drawn, in their order.
+        const pricedFr = omahaSemiBluffRaiseSiteStandsAside(player, gs, opts);
+        const rollFr = fastRandom() < pFr;
+        if ((pricedFr ? pricedFr.raise : rollFr) && !drawRaiseBarred('ft')) {
+          const rolledToFr = currentBet + (pot + toCall) * (0.75 + fastRandom() * 0.25);
+          const raiseToFr = pricedFr ? pricedFr.to / params.sizingMultiplier : rolledToFr;
           if (
             !multiBoard36 &&
             this.v78CommitsWithoutJam(raiseToFr * params.sizingMultiplier, player, gs, vi, opts)
@@ -30712,6 +30734,7 @@ export class HorseLogic {
     // gated by the target's fold tendency + our blockers). V4: pure draws
     // only — made hands in the band call instead of bloating the pot.
     // V8: Omaha raise semi-bluffs demand draw QUALITY too.
+    let priced53: ReturnType<typeof omahaSemiBluffRaiseSiteStandsAside> = null;
     if (
       !planCallOnly23 &&
       // The baseline above owned this qualified draw and has had its roll.
@@ -30749,16 +30772,23 @@ export class HorseLogic {
       potFrac <= (pressure53 ? 1.0 : 0.85) &&
       // V74: in Omaha a semi-bluff raise needs a draw (see the option note).
       !v74NoDrawRaise() &&
-      fastRandom() <
-        Math.min(
-          pressure53 ? 0.6 : 1,
-          params.bluffFreq *
-            params.aggression *
-            bluffScale *
-            0.5 *
-            omahaDrawMod() *
-            (pressure53 ? pressure53.semiBluffMul : 1)
-        ) &&
+      // omahaSemiBluffRaiseIsPriced (default off): in PLO4/PLO5 cash the price answers, not the
+      // roll (drawn all the same, in its order).
+      ((roll53: boolean): boolean => {
+        priced53 = omahaSemiBluffRaiseSiteStandsAside(player, gs, opts);
+        return priced53 ? priced53.raise : roll53;
+      })(
+        fastRandom() <
+          Math.min(
+            pressure53 ? 0.6 : 1,
+            params.bluffFreq *
+              params.aggression *
+              bluffScale *
+              0.5 *
+              omahaDrawMod() *
+              (pressure53 ? pressure53.semiBluffMul : 1)
+          )
+      ) &&
       !drawRaiseBarred('v53')
     ) {
       if (tele15 && pressure53) noteFire('v53_pressure_semibluff_raise');
@@ -30770,7 +30800,8 @@ export class HorseLogic {
       // re-rolled the dice — the exact incoherence the V7 plan layer exists
       // to remove, on the lines where a coherent story matters most.
       planBarrel(equity);
-      const raiseToAmt = currentBet + (pot + toCall) * (0.8 + fastRandom() * 0.3);
+      const rolledToAmt = currentBet + (pot + toCall) * (0.8 + fastRandom() * 0.3);
+      const raiseToAmt = priced53 ? priced53.to / params.sizingMultiplier : rolledToAmt;
       // V78: a semi-bluff raise that commits 40%+ of the stack without
       // being all-in cannot fold to the re-shove it invites; price the hand
       // as a call or a fold instead. Every roll is consumed in its original
@@ -31694,6 +31725,7 @@ export class HorseLogic {
         if (
           (nutComboPump86 || plo8ScoopPump86) &&
           v86Hash01(v86SeedKey, 8632) < pumpAggro86 &&
+          !omahaSemiBluffRaiseSiteStandsAside(player, gs, opts) &&
           !drawRaiseBarred('v86')
         ) {
           const raiseTo86 =

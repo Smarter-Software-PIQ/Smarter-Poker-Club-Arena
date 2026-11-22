@@ -4476,6 +4476,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverCheckedToBetIsMeasured: true },
     b: {},
   })),
+  // 2026-11-21 lane REPLACEMENTS-1 (default OFF, PLO4/PLO5 cash): omahaSemiBluffRaiseIsPriced (the semi-bluff raise
+  // answered by price alone, both bars it replaces off); b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_semibluff_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaSemiBluffRaiseIsPriced: true,
+      omahaNoDrawRaiseOutOfPosition: false,
+      v74OmahaSemiBluffNeedsDraw: false,
+    },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverFirstToActBetIsPriced (the river
   // first-to-act heads-up check priced beside the bets on the measured response); a switches it on, b is today's brain.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

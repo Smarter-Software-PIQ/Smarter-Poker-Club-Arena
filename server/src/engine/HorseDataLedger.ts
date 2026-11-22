@@ -1237,6 +1237,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaSemiBluffRaiseIsPriced',
+    "Lane REPLACEMENTS-1 2026-11-21 (owner: there may never be any blanket rules in the PLO4/PLO5 Horses; a rule that loses chips when removed alone needs a priced replacement). PLO4/PLO5 cash (table and Lightning where omahaPricedInLightning opens it), high only, one board, FLOP ONLY (lead ruling Nov 21: one priced mechanism per street, the turn and river raise stay with omahaTurnRiverRaiseIsPriced), facing a wager, default OFF, strict === true. The brain's two semi-bluff raise sites (the flop/turn raise and the pressure semi-bluff) stop rolling a frequency (bluffFreq x aggression, the legacy semi-bluff raise that answered whenever omahaNoDrawRaiseOutOfPosition or v74OmahaSemiBluffNeedsDraw was off). The raise is made only where its expected value at the pot-limit legal size of highest value (sampled equity against the range that continues; the opponent's fold measured at the price laid from his lifetime public record, shrunk to the population n/(n+k)) beats the better of the call and the fold by more than the sample's standard error plus the standard error of his fold rate (0.5/sqrt(n+k) of the pot). One or two opponents, none all in; any other spot is not raised by these sites. No hand class, size band, position or opponent kind is read. It stands alone: it needs neither bar, and lets both go off. PLO6, hi-lo, bomb pots, hold'em and tournaments are out of scope.",
+    'V94'
+  ),
+  flag(
     'omahaRiverFirstToActBetIsPriced',
     "EMERG lane OFFENCE-BUILD 2026-11-20 (owner 3:05 PM Chicago: upgrade the Horses' offence, deny the equity, put the humans in difficult spots; every decision priced). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). In the wager_rules node, before the river current-nuts floor: on the river, heads-up, nothing to call and the opponent still to act (the Horse acts first), the node's final check is priced beside the engine's bet sizes with the card-impact model and the measured pooled response curve of river first-to-act heads-up bets (hands with a person seated, Nov 13-17, every player pooled, no responder above 20% of a cell), the called branch at the lower of the model's and the production-fitted continue equity, a raise charged as the bet lost; the best bet replaces the check only when it beats it by more than the comparison's standard error. No identity, no hand class. HorseOmahaRiverFirstToActBet.ts",
     'V94'
@@ -6740,6 +6745,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_draw_raise_site_admitted',
     'HorseOmahaPricedWiring (HorseLogic decidePostflop raise sites; omahaDrawRaiseIsPriced)',
     'PLO4/PLO5 cash flop or turn, one of the three draw-raise sites of the brain, a draw the bar names: the pot raise is priced above the call, so the site makes its raise',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_raise',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    'a PLO4/PLO5 cash flop or turn decision facing a wager at a semi-bluff raise site: the raise is priced above the better of the call and the fold by more than its uncertainty (the site then makes it at the priced size unless a later bar of that site stops it)',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_no_raise',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    'the same site: the raise is not proven above the call and the fold, so the site falls through to its own call or fold whatever its frequency roll says',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_fold_measured',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    "the same site: the price read the opponent's own fold-to-raise record of this street (at least one opportunity), not the population figure alone",
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_unpriced_no_raise',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    'the same site in a spot the sample cannot price (three or more opponents, one all in, no legal raise): no semi-bluff raise is made',
     'V94'
   ),
   receipt(

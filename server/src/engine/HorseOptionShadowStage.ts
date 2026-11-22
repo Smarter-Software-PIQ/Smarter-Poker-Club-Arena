@@ -84,6 +84,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop']),
   }),
+  omahaSemiBluffRaiseIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
   omahaFourBetFoldPricedCall: PLO4_PLO5,
   omahaStabDefenceIsPriced: PLO4_PLO5,
   omahaBigDrawBetIsPricedOnHisResponse: Object.freeze({

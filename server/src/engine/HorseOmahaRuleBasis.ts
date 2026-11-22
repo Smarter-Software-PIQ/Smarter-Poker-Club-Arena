@@ -183,6 +183,17 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     price:
       'the turn or river made-hand or paired-board bet beside the check with prove-it-to-check guard evBet - evCheck >= -(sampleSe + readSpread)',
   },
+  omahaSemiBluffRaiseIsPriced: {
+    kind: 'priced',
+    range:
+      'each live opponent flop continuing and re-raising range using lifetime public HUD fold-to-raise (f.fRaise) and re-raise (f.rRaise) shrunk n/(n+k) via hudStat with pot-odds MDF continuing bound',
+    equity:
+      'memoized sampled Omaha flop equity via omahaFlopEvCounts against continuing and re-raising ranges with multiway order-statistic continuing equity',
+    realization:
+      'lifetime public HUD fold-to-raise and re-raise rates with flop realization and facing-raise bucket',
+    price:
+      'every pot-limit legal flop raise size beside the better of call and fold with evRaise - baseEv > sampleSe + readSpread',
+  },
   omahaBigBetSizeIsPriced: {
     kind: 'priced',
     range:
@@ -723,6 +734,16 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_made_paired_bet_on_his_response_unpriced_kept: exempt(
     'scope',
     'R5 unpriced pass-through receipt when a turn/river made-hand or paired-board spot cannot be priced; keeps decision'
+  ),
+  omaha_semibluff_raise_priced_raise: FACING_BET_EV,
+  omaha_semibluff_raise_priced_no_raise: FACING_BET_EV,
+  omaha_semibluff_raise_priced_fold_measured: exempt(
+    'input',
+    'R1 telemetry note recording that the flop fold-to-raise rate came from a measured lifetime HUD record'
+  ),
+  omaha_semibluff_raise_priced_unpriced_no_raise: exempt(
+    'scope',
+    'R1 unpriced pass-through receipt when a flop facing-bet spot cannot be priced; no semi-bluff raise is made'
   ),
   omaha_flop_bet_on_his_response_checked: CARD_IMPACT,
   omaha_flop_bet_on_his_response_kept: CARD_IMPACT,
