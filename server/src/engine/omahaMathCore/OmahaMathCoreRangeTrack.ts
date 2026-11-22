@@ -36,9 +36,19 @@
  * its own ranges, receipt says so). Public information only: own cards, board, public actions, sizes
  * and measured public frequencies.
  */
-import { omahaBest, categoryOf } from './OmahaMathCoreEval.js';
+import {
+  omahaBest,
+  categoryOf,
+  buildPoolFastData,
+  createBoardTable,
+  loadBoardTable,
+  scorePoolHoldingWithBoard,
+  sortIndicesDescStable,
+  type PoolFastData,
+} from './OmahaMathCoreEval.js';
 import {
   seededRng,
+  setPoolFastData,
   type Pool,
   type RangePart,
   type RangeSpec,
@@ -174,60 +184,73 @@ export function strengthOn(
   board: readonly number[],
   deck: readonly number[],
   runs: number,
-  rng: Rng
+  rng: Rng,
+  fastIn?: PoolFastData
 ): { mean: Float64Array; se: Float64Array; cat: Int8Array } {
+  const fast = fastIn ?? buildPoolFastData(cards, size, hc);
+  const maskLo = fast.maskLo;
+  const maskHi = fast.maskHi;
   const sum = new Float64Array(size);
   const sq = new Float64Array(size);
   const cnt = new Float64Array(size);
   const cat = new Int8Array(size).fill(-1);
-  const hold = new Int8Array(hc);
   const full = new Int8Array(5);
-  const score = new Float64Array(size);
-  const ok = new Uint8Array(size);
-  if (board.length >= 3) {
-    const b = Int8Array.from(board);
+  const tbl = createBoardTable();
+  const bLen = board.length;
+  if (bLen >= 3) {
+    loadBoardTable(tbl, board, bLen);
     for (let i = 0; i < size; i++) {
-      for (let k = 0; k < hc; k++) hold[k] = cards[i * hc + k];
-      cat[i] = categoryOf(omahaBest(hold, hc, b, board.length));
+      cat[i] = categoryOf(scorePoolHoldingWithBoard(fast, cards, i, tbl));
     }
   }
-  const missing = 5 - board.length;
+  const missing = 5 - bLen;
   const nRuns = missing === 0 ? 1 : runs;
-  const used = new Uint8Array(52);
-  const idx: number[] = [];
+  const deckLen = deck.length;
+  const stride = size <= 4096 ? 4096 : 65536;
+  const invStride = 1 / stride;
+  const packed = new Float64Array(size);
+  for (let k = 0; k < bLen; k++) full[k] = board[k];
   for (let r = 0; r < nRuns; r++) {
-    used.fill(0);
-    for (let k = 0; k < board.length; k++) full[k] = board[k];
-    for (let k = board.length; k < 5; k++) {
+    let runLo = 0;
+    let runHi = 0;
+    for (let k = bLen; k < 5; k++) {
       let c: number;
-      do c = deck[Math.floor(rng() * deck.length)];
-      while (used[c]);
-      used[c] = 1;
+      for (;;) {
+        c = deck[Math.floor(rng() * deckLen)];
+        if (c < 32) {
+          const bit = 1 << c;
+          if ((runLo & bit) === 0) {
+            runLo |= bit;
+            break;
+          }
+        } else {
+          const bit = 1 << (c - 32);
+          if ((runHi & bit) === 0) {
+            runHi |= bit;
+            break;
+          }
+        }
+      }
       full[k] = c;
     }
-    idx.length = 0;
+    loadBoardTable(tbl, full, 5);
+    let m = 0;
     for (let i = 0; i < size; i++) {
-      let clash = false;
-      for (let k = 0; k < hc; k++) {
-        const c = cards[i * hc + k];
-        hold[k] = c;
-        if (used[c]) clash = true;
-      }
-      ok[i] = clash ? 0 : 1;
-      if (!clash) {
-        score[i] = omahaBest(hold, hc, full, 5);
-        idx.push(i);
-      }
+      if ((maskLo[i] & runLo) | (maskHi[i] & runHi)) continue;
+      packed[m++] = scorePoolHoldingWithBoard(fast, cards, i, tbl) * stride + i;
     }
-    if (idx.length < 2) continue;
-    idx.sort((x, y) => score[x] - score[y]);
+    if (m < 2) continue;
+    packed.subarray(0, m).sort();
     let p = 0;
-    while (p < idx.length) {
+    const denom = m - 1;
+    while (p < m) {
       let q = p;
-      while (q + 1 < idx.length && score[idx[q + 1]] === score[idx[p]]) q++;
-      const pct = (p + q) / 2 / (idx.length - 1);
+      const sp = Math.floor(packed[p] * invStride);
+      while (q + 1 < m && Math.floor(packed[q + 1] * invStride) === sp) q++;
+      const pct = (p + q) / 2 / denom;
       for (let t = p; t <= q; t++) {
-        const i = idx[t];
+        const v = packed[t];
+        const i = v - Math.floor(v * invStride) * stride;
         sum[i] += pct;
         sq[i] += pct * pct;
         cnt[i] += 1;
@@ -268,46 +291,68 @@ function preflopStrength(
   refine: number,
   bandOf: (seat: number) => PreflopBand | null,
   seats: readonly number[],
-  rng: Rng
+  rng: Rng,
+  fast: PoolFastData
 ): { pct: Float64Array; se: Float64Array } {
   const refN = Math.min(size, 150);
+  const maskLo = fast.maskLo;
+  const maskHi = fast.maskHi;
   const sum = new Float64Array(size);
   const sq = new Float64Array(size);
   const cnt = new Float64Array(size);
-  const hold = new Int8Array(hc);
   const full = new Int8Array(5);
-  const used = new Uint8Array(52);
-  const refScore: number[] = [];
+  const deckLen = deck.length;
+  const tbl = createBoardTable();
+  const refScore = new Int32Array(refN);
+  const refCache = new Int32Array(refN);
   const evalRuns = (who: readonly number[], nRuns: number) => {
+    const whoLen = who.length;
     for (let r = 0; r < nRuns; r++) {
-      used.fill(0);
+      let runLo = 0;
+      let runHi = 0;
       for (let k = 0; k < 5; k++) {
         let c: number;
-        do c = deck[Math.floor(rng() * deck.length)];
-        while (used[c]);
-        used[c] = 1;
+        for (;;) {
+          c = deck[Math.floor(rng() * deckLen)];
+          if (c < 32) {
+            const bit = 1 << c;
+            if ((runLo & bit) === 0) {
+              runLo |= bit;
+              break;
+            }
+          } else {
+            const bit = 1 << (c - 32);
+            if ((runHi & bit) === 0) {
+              runHi |= bit;
+              break;
+            }
+          }
+        }
         full[k] = c;
       }
-      refScore.length = 0;
+      loadBoardTable(tbl, full, 5);
+      let m = 0;
       for (let i = 0; i < refN; i++) {
-        let clash = false;
-        for (let k = 0; k < hc; k++) {
-          hold[k] = cards[i * hc + k];
-          if (used[hold[k]]) clash = true;
+        if ((maskLo[i] & runLo) | (maskHi[i] & runHi)) {
+          refCache[i] = -1;
+          continue;
         }
-        if (!clash) refScore.push(omahaBest(hold, hc, full, 5));
+        const s = scorePoolHoldingWithBoard(fast, cards, i, tbl);
+        refCache[i] = s;
+        refScore[m++] = s;
       }
-      if (refScore.length < 10) continue;
-      refScore.sort((a, b) => a - b);
-      const m = refScore.length;
-      for (const i of who) {
-        let clash = false;
-        for (let k = 0; k < hc; k++) {
-          hold[k] = cards[i * hc + k];
-          if (used[hold[k]]) clash = true;
+      if (m < 10) continue;
+      refScore.subarray(0, m).sort();
+      for (let wIdx = 0; wIdx < whoLen; wIdx++) {
+        const i = who[wIdx];
+        let s: number;
+        if (i < refN) {
+          s = refCache[i];
+          if (s < 0) continue;
+        } else {
+          if ((maskLo[i] & runLo) | (maskHi[i] & runHi)) continue;
+          s = scorePoolHoldingWithBoard(fast, cards, i, tbl);
         }
-        if (clash) continue;
-        const s = omahaBest(hold, hc, full, 5);
         // share of the reference beaten (ties half)
         let lo = 0,
           hi = m;
@@ -335,11 +380,14 @@ function preflopStrength(
       const v = cnt[i] > 0 ? Math.max(0, sq[i] / cnt[i] - mean[i] * mean[i]) : 0.09;
       seE[i] = Math.sqrt(v / Math.max(1, cnt[i]));
     }
-    const ord = all.slice().sort((a, b) => mean[b] - mean[a]);
+    const ord = sortIndicesDescStable(mean, size);
     const pct = new Float64Array(size);
-    ord.forEach((i, k) => (pct[i] = (k + 0.5) / size));
-    // error in rank units: pool share with equity within one SE, halved
-    const sorted = ord.map((i) => mean[i]); // descending
+    const sorted = new Float64Array(size);
+    for (let k = 0; k < size; k++) {
+      const i = ord[k];
+      pct[i] = (k + 0.5) / size;
+      sorted[k] = mean[i];
+    }
     const se = new Float64Array(size);
     for (let i = 0; i < size; i++) {
       const a = mean[i] + seE[i];
@@ -423,9 +471,8 @@ export function boundedEdges(
  * Weighted "share stronger" of each holding inside a range on a board: F_i = weight of the range
  * strictly stronger than i plus half the weight of i (0 = his strongest, 1 = his weakest).
  */
-function rangeCdf(w: Float64Array, strength: Float64Array): Float64Array {
+function rangeCdfOrdered(w: Float64Array, strength: Float64Array, ord: Int32Array): Float64Array {
   const n = w.length;
-  const ord = Array.from({ length: n }, (_, i) => i).sort((a, b) => strength[b] - strength[a]);
   const F = new Float64Array(n);
   let acc = 0;
   let tot = 0;
@@ -435,8 +482,10 @@ function rangeCdf(w: Float64Array, strength: Float64Array): Float64Array {
   while (p < n) {
     let q = p;
     let wsum = 0;
-    while (q < n && strength[ord[q]] === strength[ord[p]]) wsum += w[ord[q++]];
-    for (let t = p; t < q; t++) F[ord[t]] = (acc + wsum / 2) / tot;
+    const sp = strength[ord[p]];
+    while (q < n && strength[ord[q]] === sp) wsum += w[ord[q++]];
+    const v = (acc + wsum / 2) / tot;
+    for (let t = p; t < q; t++) F[ord[t]] = v;
     acc += wsum;
     p = q;
   }
@@ -580,6 +629,7 @@ export interface TrackInput {
 
 interface TrackCacheEntry {
   cards: Int8Array;
+  fast: PoolFastData;
   pf: { pct: Float64Array; se: Float64Array };
   byStreet: Map<PostStreet, { mean: Float64Array; se: Float64Array; cat: Int8Array }>;
 }
@@ -604,10 +654,11 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
     const cacheKey = `${inp.variant}|${inp.seed}|${inp.hole.join('.')}|${inp.board.join('.')}|${size}|${inp.pfRuns ?? 24}|${inp.pfRefineRuns ?? 160}|${inp.postRuns ?? 8}|${bandKey}`;
     const hit = inp.cache?.get(cacheKey) as TrackCacheEntry | undefined;
     let cards: Int8Array;
+    let fast: PoolFastData;
     let pf: { pct: Float64Array; se: Float64Array };
     let byStreet: Map<PostStreet, { mean: Float64Array; se: Float64Array; cat: Int8Array }>;
     if (hit) {
-      ({ cards, pf, byStreet } = hit);
+      ({ cards, fast, pf, byStreet } = hit);
     } else {
       cards = new Int8Array(size * hc);
       const tmp = deckPool.slice();
@@ -619,6 +670,7 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
           tmp[j] = t;
           cards[i * hc + k] = tmp[k];
         }
+      fast = buildPoolFastData(cards, size, hc);
       // preflop strength: random full boards from every card but the hero's (the board was unknown preflop)
       const deckPf = unseen(inp.hole);
       pf = preflopStrength(
@@ -630,12 +682,13 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
         inp.pfRefineRuns ?? 160,
         inp.preflopBand,
         inp.seats,
-        rng
+        rng,
+        fast
       );
       byStreet = new Map();
       if (inp.cache) {
         if (inp.cache.size >= 64) inp.cache.delete(inp.cache.keys().next().value as string);
-        inp.cache.set(cacheKey, { cards, pf, byStreet } satisfies TrackCacheEntry);
+        inp.cache.set(cacheKey, { cards, fast, pf, byStreet } satisfies TrackCacheEntry);
       }
     }
     const pfPct = pf.pct;
@@ -653,12 +706,14 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
           boardAt(st),
           deckPool,
           inp.postRuns ?? 8,
-          seededRng(`${inp.seed}|rangeadv|${st}`)
+          seededRng(`${inp.seed}|rangeadv|${st}`),
+          fast
         );
         byStreet.set(st, s);
       }
       return s;
     };
+    const ordByStreet = new Map<PostStreet, Int32Array>();
     const ranges = new Map<number, TrackedRange>();
     for (const seat of inp.seats) {
       const w = new Float64Array(size);
@@ -715,15 +770,37 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
           continue;
         }
         const S = streetStrength(a.street);
-        const F = rangeCdf(w, S.mean);
+        let ordDesc = ordByStreet.get(a.street);
+        if (!ordDesc) {
+          ordDesc = sortIndicesDescStable(S.mean, size);
+          ordByStreet.set(a.street, ordDesc);
+        }
+        const F = rangeCdfOrdered(w, S.mean, ordDesc);
         // strength error expressed in range-share units: local density of the range around each holding
         // (one standard error of strength either side of i covers this much of his range: half of it = seF)
         const seF = new Float64Array(size);
+        const sMean = S.mean;
+        const sSe = S.se;
+        // Skip exact zero weights (adding 0 never changes an IEEE-754 sum), preserving ascending j order
+        const nzMean = new Float64Array(size);
+        const nzW = new Float64Array(size);
+        let nz = 0;
+        for (let j = 0; j < size; j++) {
+          const wj = w[j];
+          if (wj !== 0) {
+            nzMean[nz] = sMean[j];
+            nzW[nz] = wj;
+            nz++;
+          }
+        }
         for (let i = 0; i < size; i++) {
           let m = 0;
-          const si = S.mean[i];
-          const e = S.se[i];
-          for (let j = 0; j < size; j++) if (Math.abs(S.mean[j] - si) <= e) m += w[j];
+          const si = sMean[i];
+          const e = sSe[i];
+          for (let k = 0; k < nz; k++) {
+            const d = nzMean[k] - si;
+            if (d <= e && d >= -e) m += nzW[k];
+          }
           seF[i] = Math.min(0.5, Math.max(1 / size, m / 2));
         }
         const L = likelihood(a, F, seF, nf);
@@ -745,27 +822,32 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
       ranges.set(seat, { seat, w, effN: eff, steps });
     }
     // current-board pool for the core (strength / category / order on the board as it is now)
-    const cur =
+    const curStreet: PostStreet | null =
       inp.board.length >= 3
-        ? streetStrength(
-            inp.board.length === 3 ? 'flop' : inp.board.length === 4 ? 'turn' : 'river'
-          )
-        : {
-            mean: Float64Array.from(pfPct, (q) => 1 - q),
-            se: pf.se,
-            cat: new Int8Array(size).fill(-1),
-          };
-    const order = Int32Array.from(
-      Array.from({ length: size }, (_, i) => i).sort((x, y) => cur.mean[y] - cur.mean[x])
-    );
+        ? inp.board.length === 3
+          ? 'flop'
+          : inp.board.length === 4
+            ? 'turn'
+            : 'river'
+        : null;
+    const cur = curStreet
+      ? streetStrength(curStreet)
+      : {
+          mean: Float64Array.from(pfPct, (q) => 1 - q),
+          se: pf.se,
+          cat: new Int8Array(size).fill(-1),
+        };
+    const order =
+      (curStreet ? ordByStreet.get(curStreet) : undefined) ?? sortIndicesDescStable(cur.mean, size);
     const pool: Pool = {
       holeCount: hc,
       cards,
       size,
       strength: Float64Array.from(cur.mean),
       category: Int8Array.from(cur.cat),
-      order,
+      order: Int32Array.from(order),
     };
+    setPoolFastData(pool, fast);
     return { version: RANGE_TRACK_VERSION, pool, pfPct, pfSe: pf.se, ranges, ms: now() - t0 };
   } catch {
     // lane CORE-FIX-1 (AUDIT-A item 14): the untracked fallback prices this decision; counted on the live ledger
@@ -774,12 +856,22 @@ export function trackRanges(inp: TrackInput): TrackedHand | null {
   }
 }
 
+const SINGLE_IDX_CACHE: Int32Array[] = Array.from({ length: 2048 }, (_, i) => Int32Array.of(i));
+
 /** A tracked range as the core's RangeSpec (holdings with negligible weight dropped, weights kept). */
 export function toRangeSpec(t: TrackedRange, label: string, minShare = 1e-4): RangeSpec {
   const parts: RangePart[] = [];
-  const max = t.w.reduce((m, x) => Math.max(m, x), 0);
-  for (let i = 0; i < t.w.length; i++)
-    if (t.w[i] > max * minShare) parts.push({ idx: Int32Array.of(i), weight: t.w[i] });
+  const w = t.w;
+  const n = w.length;
+  let max = 0;
+  for (let i = 0; i < n; i++) if (w[i] > max) max = w[i];
+  const cut = max * minShare;
+  for (let i = 0; i < n; i++)
+    if (w[i] > cut)
+      parts.push({
+        idx: i < SINGLE_IDX_CACHE.length ? SINGLE_IDX_CACHE[i] : Int32Array.of(i),
+        weight: w[i],
+      });
   return {
     parts,
     label: `${label} Tracked EffN ${Math.round(t.effN)} [${t.steps.join(' > ')}] (${RANGE_TRACK_VERSION})`,

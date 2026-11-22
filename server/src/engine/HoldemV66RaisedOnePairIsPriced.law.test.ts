@@ -51,6 +51,7 @@ interface RaisedSpot {
   mode?: 'cash' | 'tournament';
   lightning?: boolean;
   stackChips?: number;
+  villainStackChips?: number;
   heroBet?: number;
   raiseTo?: number;
   heroOop?: boolean;
@@ -60,6 +61,7 @@ interface RaisedSpot {
 
 function buildBetRaisedSpot(f: RaisedSpot) {
   const stackChips = f.stackChips ?? 200;
+  const villainStackChips = f.villainStackChips ?? stackChips;
   const heroBet = f.heroBet ?? 8;
   const raiseTo = f.raiseTo ?? 24;
   const heroSeat = f.heroOop ? 2 : 1;
@@ -80,12 +82,12 @@ function buildBetRaisedSpot(f: RaisedSpot) {
     seat: villainSeat,
     user_id: 'villain',
     username: 'v',
-    stack: Math.max(0, stackChips - 6 - raiseTo),
+    stack: Math.max(0, villainStackChips - 6 - raiseTo),
     bet: raiseTo,
     totalInvested: 6 + raiseTo,
     cards: [],
     is_folded: false,
-    is_all_in: stackChips - 6 - raiseTo <= 0,
+    is_all_in: villainStackChips - 6 - raiseTo <= 0,
     is_sitting_out: false,
   };
   const players: SeatPlayer[] = [hero, villain];
@@ -222,6 +224,7 @@ describe('HorseHoldemV66RaisedOnePairIsPriced: pure pricing math', () => {
       enabled: true,
       street: 'flop',
       raisedAfterAggr: true,
+      isTournament: false,
       isOmaha: false,
       isShortDeck: false,
       isFixedLimit: false,
@@ -242,7 +245,8 @@ describe('HorseHoldemV66RaisedOnePairIsPriced: pure pricing math', () => {
     for (const disabled of [undefined, false, 1, 'true', {}]) {
       expect(v66RaisedOnePairPricedApplies({ ...base, enabled: disabled })).toBe(false);
     }
-    // Exclusions: Omaha, Short Deck, Fixed Limit, river, real draw, two pair on unpaired board, multi-board, bomb pot
+    // Exclusions: tournaments (ICM guard), Omaha, Short Deck, Fixed Limit, river, real draw, two pair on unpaired board, multi-board, bomb pot
+    expect(v66RaisedOnePairPricedApplies({ ...base, isTournament: true })).toBe(false);
     expect(v66RaisedOnePairPricedApplies({ ...base, isOmaha: true })).toBe(false);
     expect(v66RaisedOnePairPricedApplies({ ...base, isShortDeck: true })).toBe(false);
     expect(v66RaisedOnePairPricedApplies({ ...base, isFixedLimit: true })).toBe(false);
@@ -321,6 +325,26 @@ describe('HorseHoldemV66RaisedOnePairIsPriced: pure pricing math', () => {
     });
     expect(wetFlopOop.realization).toBeLessThan(dryTurnIp.realization);
     expect(wetFlopOop.realization).toBeGreaterThanOrEqual(V66_PRICED_REALIZATION_FLOOR);
+
+    // Over-shove unmatched excess: villain shoves 200 over hero's bet of 8 into pre-raise pot 12 (pot = 220,
+    // toCall = 192), while hero has only 30 behind. Unmatched excess is 162, so effective potAfterCall is
+    // (220 - 162) + 30 = 88 and potOdds = 30 / 88 (~0.3409), NOT 30 / 250 (0.12). With 0.25 equity hero folds.
+    const overShove = v66RaisedOnePairPricedVerdict({
+      street: 'turn',
+      inPosition: true,
+      pot: 220,
+      toCall: 192,
+      heroStack: 30,
+      villainStack: 0,
+      rawEquity: 0.25,
+      scareTexture: 0,
+    });
+    expect(overShove.callable).toBe(30);
+    expect(overShove.potAfterCall).toBe(88);
+    expect(overShove.potOdds).toBeCloseTo(30 / 88, 6);
+    expect(overShove.realization).toBe(1);
+    expect(overShove.evCall).toBeLessThan(0);
+    expect(overShove.decision).toBe('fold');
   });
 
   it('board scare texture and raise-line narrowing respond monotonically to wetness, raise size, street, and style', () => {
@@ -548,6 +572,80 @@ describe('v66BetRaisedOnePairIsPriced: ON behavior, pricing, independence, and i
     const mwOn = decideOne(mwSpot, { v66BetRaisedOnePairIsPriced: true });
     expect(mwOn.decision).toEqual(mwOff.decision);
     expect(mwOn.fires[V66_RAISED_ONE_PAIR_PRICED_RECEIPTS.unpriced]).toBe(1);
+  });
+
+  it('prices over-shove unmatched excess accurately and never bypasses tournament ICM', () => {
+    // Villain covers hero and over-shoves 180 over hero's bet of 8 when hero only has 8 chips behind (toCall = 172):
+    // effective potAfterCall is 44 (potOdds = 8 / 44 = 18.2%); TPTK takes the priced call (clamped to stack before
+    // legalize normalizes an all-in call to action 'all_in', never leaking raw toCall = 172).
+    const overShoveCall = decideOne(
+      {
+        hole: 'AsQd',
+        board: 'Qh7d2s',
+        street: 'flop',
+        stackChips: 22,
+        villainStackChips: 200,
+        heroBet: 8,
+        raiseTo: 180,
+      },
+      { v66BetRaisedOnePairIsPriced: true }
+    );
+    expect(overShoveCall.decision.action).toBe('all_in');
+    expect(overShoveCall.decision.amount).not.toBe(172);
+    expect(overShoveCall.fires[V66_RAISED_ONE_PAIR_PRICED_RECEIPTS.callTaken]).toBe(1);
+
+    // Over-shove unmatched excess fold: weak pair facing villain's 200 over-shove with only 30 behind folds once
+    // the 162 uncallable excess is subtracted from the pot (true potOdds 30 / 88 = 34.1%, not fake 30 / 250 = 12%).
+    const overShoveFold = decideOne(
+      {
+        hole: '7s6d',
+        board: 'Qh7d2s4c',
+        street: 'turn',
+        stackChips: 44,
+        villainStackChips: 210,
+        heroBet: 8,
+        raiseTo: 200,
+      },
+      { v66BetRaisedOnePairIsPriced: true }
+    );
+    expect(overShoveFold.decision.action).toBe('fold');
+    expect(overShoveFold.fires[V66_RAISED_ONE_PAIR_PRICED_RECEIPTS.foldTaken]).toBe(1);
+
+    // Tournament mode (regular raise AND all-in raise): gate refuses so tournament ICM/survival arbiter is never bypassed
+    const tourneySpots: Array<[string, RaisedSpot]> = [
+      [
+        'MTT flop raise',
+        {
+          hole: 'AsQd',
+          board: 'Qh7d2s',
+          street: 'flop',
+          mode: 'tournament',
+          heroBet: 8,
+          raiseTo: 16,
+        },
+      ],
+      [
+        'MTT all-in over-shove',
+        {
+          hole: 'AsQd',
+          board: 'Qh7d2s',
+          street: 'flop',
+          mode: 'tournament',
+          stackChips: 30,
+          villainStackChips: 200,
+          heroBet: 8,
+          raiseTo: 180,
+        },
+      ],
+    ];
+    for (const [label, spot] of tourneySpots) {
+      const off = decideOne(spot, { v66BetRaisedOnePairIsPriced: false });
+      const on = decideOne(spot, { v66BetRaisedOnePairIsPriced: true });
+      expect(on, label).toEqual(off);
+      expect(on.fires[V66_RAISED_ONE_PAIR_PRICED_RECEIPTS.callTaken]).toBeUndefined();
+      expect(on.fires[V66_RAISED_ONE_PAIR_PRICED_RECEIPTS.foldTaken]).toBeUndefined();
+      expect(on.fires[V66_RAISED_ONE_PAIR_PRICED_RECEIPTS.unpriced]).toBeUndefined();
+    }
   });
 
   it('is registered in HorseDataLedger, HorseReferenceDecisionSources, and OPTION_SWITCH_REFUSED', () => {

@@ -681,3 +681,538 @@ export function estimateHoldemBetWhenCheckedTo(
   }
   return empiricalBayesShrink(0, 0, prior, HOLDEM_PRIOR_STRENGTH.betWhenCheckedTo, 'pool_prior');
 }
+
+// ---------------------------------------------------------------------------
+// WAVE 5.4 ADDITIVE EXPORTS: NLH FLOP/TURN/RIVER FOLD-TO-RAISE PRIORS,
+// VILLAIN RAISE-CONTINUING RANGE EQUITY CONDITIONING, AND RAISE EV PRICING.
+// 100% additive; zero changes to any existing export or live default-ON path.
+// ---------------------------------------------------------------------------
+
+export type HoldemRaisePriorSource = HoldemPriorSource | 'opponent_sample';
+
+export interface HoldemStreetFoldToRaiseCell {
+  /** Reference fold-to-raise probability (HU, 3x raise / 0.75x pot, SPR 6, uncommitted). */
+  readonly baseFoldRate: number;
+  /** Reference villain 3-bet/reraise response probability on this street. */
+  readonly baseReraiseRate: number;
+  /** Default Beta-Binomial prior strength k for opponent sample shrinkage. */
+  readonly priorStrength: number;
+  /** Provenance / empirical anchor description. */
+  readonly derivation: string;
+}
+
+export interface HoldemFoldToRaiseOpponentSample {
+  readonly folds: number;
+  readonly opportunities: number;
+}
+
+export interface HoldemFoldToRaisePriorParams {
+  readonly street: HoldemEmpiricalStreet;
+  /** Raise-to-bet ratio (`raiseTo / villainBet`, reference = 3.0). */
+  readonly raiseToBetRatio?: number;
+  /** Raise-to-pot ratio (`heroAdded / potBeforeRaise`, reference = 0.75). */
+  readonly raiseToPotRatio?: number;
+  /** Active opponents in the pot facing hero's raise (1 = heads-up, 2 = 3-way, ...). Default 1. */
+  readonly opponentsInPot?: number;
+  /** Effective stack-to-pot ratio before hero's raise (higher = deeper, less committed; reference = 6.0). */
+  readonly spr?: number;
+  /** Optional villain commitment factor in [0, 1] (0 = uncommitted, 1 = fully pot-committed). */
+  readonly commitmentFactor?: number;
+  /** Whether hero's raise is an all-in jam (empirically called substantially more often than non-all-in raises). */
+  readonly isAllInRaise?: boolean;
+  /** Optional public fold-to-raise sample for the bettor (strictly action counts; zero hole cards). */
+  readonly opponentSample?: HoldemFoldToRaiseOpponentSample | null;
+  /** Optional OpponentHud packet (`f.fRaise` / `t.fRaise` / `r.fRaise`, fallback `f/t/r.fBet`). */
+  readonly hudOpp?: HoldemHudPacketOpponent | null;
+  /** Optional Bayesian Beta-Binomial prior strength k override (> 0). */
+  readonly priorStrength?: number;
+}
+
+export interface HoldemFoldToRaisePriorEstimate {
+  /** Posterior effective probability that all active opponents fold to hero's raise, in [0, 1]. */
+  readonly mean: number;
+  /** Empirical NLH pool prior (after street, raise-size, SPR, commitment, and multiway adjustments). */
+  readonly prior: number;
+  /** Bettor-specific fold prior before multiplying by extra multiway opponents' fold retention. */
+  readonly bettorPrior: number;
+  /** Bettor-specific posterior fold probability before multiplying by extra multiway opponents' fold retention. */
+  readonly bettorMean: number;
+  /** Multiway retention factor `extraOpponentFoldRetention^(opponentsInPot - 1)` in (0, 1]. */
+  readonly multiwayRetention: number;
+  /** Empirical-Bayes shrinkage weight `n / (n + k)` in [0, 1]. 0 when no opponent data. */
+  readonly weight: number;
+  /** Effective opponent sample size contributing to the posterior. */
+  readonly effectiveN: number;
+  /** Prior pseudo-observation count k used for Beta-Binomial shrinkage. */
+  readonly priorStrength: number;
+  /** Which public evidence tier supplied opponent counts (or 'pool_prior' when none). */
+  readonly source: HoldemRaisePriorSource;
+}
+
+export interface HoldemEquityConditioningOptions {
+  /** Optional street selecting default truncation sharpness (flop 0.65 < turn 0.85 < river 1.0). */
+  readonly street?: HoldemEmpiricalStreet;
+  /** Explicit positive sharpness override (> 0). Higher = stronger adverse selection when called. */
+  readonly sharpness?: number;
+  /**
+   * 'smooth' (default): exact Bayes power-law continuation kernel `e^(1 + kappa * f / (1 - f))`.
+   * 'sharp': deterministic river range truncation `max(0, (e - f) / (1 - f))`.
+   */
+  readonly mode?: 'smooth' | 'sharp';
+}
+
+export interface HoldemVillainReraiseResponse {
+  /** Unconditional probability villain 3-bets/jams over hero's raise, clamped to [0, 1 - foldToRaiseProb]. */
+  readonly reraiseProb: number;
+  /** Additional chips hero must call if villain 3-bets/jams (omit or <= 0 to assume hero folds to 3-bet). */
+  readonly reraiseToCall?: number;
+  /** Final showdown pot if hero calls villain's 3-bet/jam (defaults to `finalPot + 2 * reraiseToCall`). */
+  readonly potAfterReraiseCall?: number;
+  /** Optional explicit equity vs villain's 3-bet/jam range (defaults to conditioned top `reraiseProb` slice). */
+  readonly eqVsReraise?: number;
+  /** Force hero to fold vs 3-bet (`EV = -effectiveHeroAdded`) even if `reraiseToCall` is provided. */
+  readonly assumeFoldToReraise?: boolean;
+}
+
+export interface HoldemRaiseEvParams {
+  /** Total pot currently in the middle before hero acts, including villain's bet. */
+  readonly pot: number;
+  /** Additional chips hero must put in to call villain's bet. */
+  readonly toCall: number;
+  /** Additional chips hero puts in to raise (for a call-equivalent boundary test, `heroAdded === toCall`). */
+  readonly heroAdded: number;
+  /** Hero's unconditioned showdown equity in [0, 1] against villain's betting range. */
+  readonly rawEquity: number;
+  /** Additional chips villain puts in to call hero's raise (defaults to `Math.max(0, heroAdded - toCall)`). */
+  readonly villainCall?: number;
+  /** Rake / fee deduction fraction in [0, 1). Default 0. */
+  readonly rakeFraction?: number;
+  /** Explicit fold-to-raise probability in [0, 1]. When omitted, derived from `priorParams` (or 0 if absent). */
+  readonly foldToRaiseProb?: number;
+  /** Optional parameters passed to `estimateHoldemFoldToRaisePrior` when `foldToRaiseProb` is omitted. */
+  readonly priorParams?: HoldemFoldToRaisePriorParams;
+  /** Options passed to `conditionEquityAgainstRaiseCallRange`. Defaults `street` from `priorParams?.street`. */
+  readonly equityConditioning?: HoldemEquityConditioningOptions;
+  /** Optional explicit conditioned equity when called (e.g. from exact combo enumeration), clamped to [0, 1]. */
+  readonly eqWhenCalledOverride?: number;
+  /** Optional villain 3-bet / jam response term. When omitted or `reraiseProb === 0`, uses pure fold/call EV. */
+  readonly reraiseResponse?: HoldemVillainReraiseResponse | null;
+}
+
+export interface HoldemRaiseEvResult {
+  readonly evFold: number;
+  readonly evCall: number;
+  readonly evRaise: number;
+  readonly bestAction: 'fold' | 'call' | 'raise';
+  readonly raiseEdgeOverBestPassive: number;
+  readonly foldToRaiseProb: number;
+  readonly callProb: number;
+  readonly reraiseProb: number;
+  readonly eqWhenCalled: number;
+  readonly eqVsReraise: number | null;
+  readonly evOnReraise: number | null;
+  readonly effectiveHeroAdded: number;
+  readonly villainCall: number;
+  readonly finalPot: number;
+  readonly foldPriorEstimate: HoldemFoldToRaisePriorEstimate | null;
+}
+
+function logit(p: number): number {
+  const c = Math.max(EPS, Math.min(1 - EPS, p));
+  return Math.log(c / (1 - c));
+}
+
+function sigmoid(x: number): number {
+  if (!Number.isFinite(x)) return x > 0 ? 1 : 0;
+  if (x >= 0) {
+    const z = Math.exp(-x);
+    return 1 / (1 + z);
+  }
+  const z = Math.exp(x);
+  return z / (1 + z);
+}
+
+/**
+ * Street-specific NLH fold-to-raise empirical priors at reference geometry
+ * (heads-up, 3x raise / 0.75x pot raise, SPR = 6, uncommitted).
+ *
+ * Anchored to production NLH measurements already recorded in this repository:
+ *   - River (`266 / 495 = 0.5374`, reraise `24 / 495 = 0.0485`): exact `HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.non_allin_raise`
+ *     (2026-11-21, 72h all-NLH + 30d has_human, n = 495). Zero draws remain -> highest non-committed fold rate.
+ *   - Turn (`0.44`, reraise `0.08`): anchored to 30d NLH cash mid-price raise response `24 / 55 = 0.4364`
+ *     (`HOLDEM_RAISE_FOLD_SHARE_BY_PRICE` in `HorseHoldemCommittedPricing.ts`, 2026-11-19). One card to come.
+ *   - Flop (`0.36`, reraise `0.11`): conservative shrinkage below 30d NLH pooled postflop raise fold rate
+ *     `52 / 124 = 0.4194` because two cards remain and bettors continue widely with draws, pairs, and floats.
+ *
+ * Strictly ordered: `flop (0.36) < turn (0.44) < river (0.5374)`.
+ */
+export const HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE: Readonly<
+  Record<HoldemEmpiricalStreet, HoldemStreetFoldToRaiseCell>
+> = Object.freeze({
+  flop: Object.freeze({
+    baseFoldRate: 0.36,
+    baseReraiseRate: 0.11,
+    priorStrength: 14,
+    derivation:
+      'Conservative NLH flop fold-to-raise prior below 30d pooled postflop human rate (52/124 = 0.4194); 2 cards to come -> widest draw/pair peel share',
+  }),
+  turn: Object.freeze({
+    baseFoldRate: 0.44,
+    baseReraiseRate: 0.08,
+    priorStrength: 14,
+    derivation:
+      'Anchored to 30d NLH mid-price (0.20-0.30) raise fold rate (24/55 = 0.4364, HorseHoldemCommittedPricing.ts); 1 card to come',
+  }),
+  river: Object.freeze({
+    baseFoldRate: HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.non_allin_raise.foldRate,
+    baseReraiseRate: HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.non_allin_raise.reraiseRate,
+    priorStrength: HOLDEM_PRIOR_STRENGTH.riverFoldToRaise,
+    derivation:
+      'Exact HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.non_allin_raise (266/495 = 0.5374, 72h all-NLH + 30d has_human); 0 cards to come',
+  }),
+});
+
+/**
+ * Calibrated log-odds elasticity and multiway retention constants for `estimateHoldemFoldToRaisePrior`.
+ * Chosen so that:
+ *   - Reference geometry (3x raise, 0.75x pot, SPR 6, HU, uncommitted) reproduces the exact street base rate.
+ *   - River all-in jam without explicit SPR reproduces `HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise.foldRate` (88/294 = 0.2993).
+ *   - River at committed SPR = 0.5 lands at ~0.296 (matching measured all-in jam fold rate 0.2993).
+ *   - Every continuous axis (`raiseToBetRatio`, `raiseToPotRatio`, `spr`, `commitmentFactor`, `opponentsInPot`) is strictly monotonic.
+ */
+export const HOLDEM_RAISE_PRIOR_MODEL_PARAMS = Object.freeze({
+  referenceRaiseToBet: 3.0,
+  referenceRaiseToPot: 0.75,
+  referenceSpr: 6.0,
+  raiseToBetLogitWeight: 0.35,
+  raiseToPotLogitWeight: 0.45,
+  sprLogitWeight: 0.48,
+  sprLogOffset: 0.25,
+  commitmentLogitWeight: -1.1,
+  allInLogitShiftWithSpr: -0.5,
+  allInLogitShiftUnconditioned:
+    logit(HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise.foldRate) -
+    logit(HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.non_allin_raise.foldRate),
+  multiwayBettorTightenLogitWeight: -0.3,
+  extraOpponentFoldRetention: 0.82,
+});
+
+/**
+ * Default range-truncation sharpness `kappa` by street for `conditionEquityAgainstRaiseCallRange`.
+ * Flop (2 cards to come) retains more live draw/out equity when called than turn (1 card) than river (0 cards).
+ */
+export const HOLDEM_RAISE_RANGE_TRUNCATION_SHARPNESS: Readonly<
+  Record<HoldemEmpiricalStreet, number>
+> = Object.freeze({
+  flop: 0.65,
+  turn: 0.85,
+  river: 1.0,
+});
+
+/**
+ * Dedicated NLH flop/turn/river fold-to-raise prior estimator with smooth log-odds adjustments
+ * for raise geometry (`raiseToBetRatio`, `raiseToPotRatio`), stack commitment (`spr`,
+ * `commitmentFactor`, `isAllInRaise`), multiway pot size (`opponentsInPot`), and Bayesian
+ * Beta-Binomial shrinkage toward optional public opponent fold-to-raise counts.
+ *
+ * Strictly public-state & public-action-count only: never accepts or inspects hole cards or
+ * player identities.
+ */
+export function estimateHoldemFoldToRaisePrior(
+  params: HoldemFoldToRaisePriorParams
+): HoldemFoldToRaisePriorEstimate {
+  const cell = HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE[params.street];
+  const cfg = HOLDEM_RAISE_PRIOR_MODEL_PARAMS;
+  let z = logit(cell.baseFoldRate);
+
+  if (
+    params.raiseToBetRatio !== undefined &&
+    Number.isFinite(params.raiseToBetRatio) &&
+    params.raiseToBetRatio > 0
+  ) {
+    z +=
+      cfg.raiseToBetLogitWeight *
+      (Math.log(1 + params.raiseToBetRatio) - Math.log(1 + cfg.referenceRaiseToBet));
+  }
+
+  if (params.raiseToPotRatio !== undefined && Number.isFinite(params.raiseToPotRatio)) {
+    const rPot = Math.max(0, params.raiseToPotRatio);
+    z +=
+      cfg.raiseToPotLogitWeight * (Math.log(0.5 + rPot) - Math.log(0.5 + cfg.referenceRaiseToPot));
+  }
+
+  const hasSpr = params.spr !== undefined && Number.isFinite(params.spr);
+  if (hasSpr) {
+    const spr = Math.max(0, params.spr!);
+    z +=
+      cfg.sprLogitWeight *
+      (Math.log(cfg.sprLogOffset + spr) - Math.log(cfg.sprLogOffset + cfg.referenceSpr));
+  }
+
+  const hasCommitment =
+    params.commitmentFactor !== undefined && Number.isFinite(params.commitmentFactor);
+  if (hasCommitment) {
+    z += cfg.commitmentLogitWeight * clamp01(params.commitmentFactor!);
+  }
+
+  if (params.isAllInRaise === true) {
+    z += hasSpr || hasCommitment ? cfg.allInLogitShiftWithSpr : cfg.allInLogitShiftUnconditioned;
+  }
+
+  const oppCount =
+    params.opponentsInPot !== undefined && Number.isFinite(params.opponentsInPot)
+      ? Math.max(1, params.opponentsInPot)
+      : 1;
+  const extraOpponents = oppCount - 1;
+  if (extraOpponents > 0) {
+    z += cfg.multiwayBettorTightenLogitWeight * Math.log(1 + extraOpponents);
+  }
+
+  const bettorPrior = clamp01(sigmoid(z));
+  const multiwayRetention =
+    extraOpponents > 0 ? Math.pow(cfg.extraOpponentFoldRetention, extraOpponents) : 1;
+  const prior = clamp01(bettorPrior * multiwayRetention);
+
+  const defaultK =
+    params.priorStrength !== undefined &&
+    Number.isFinite(params.priorStrength) &&
+    params.priorStrength > 0
+      ? params.priorStrength
+      : cell.priorStrength;
+
+  const finalize = (
+    hits: number,
+    opportunities: number,
+    k: number,
+    source: HoldemRaisePriorSource
+  ): HoldemFoldToRaisePriorEstimate => {
+    const n = Number.isFinite(opportunities) && opportunities > 0 ? opportunities : 0;
+    if (!(n > 0)) {
+      return {
+        mean: prior,
+        prior,
+        bettorPrior,
+        bettorMean: bettorPrior,
+        multiwayRetention,
+        weight: 0,
+        effectiveN: 0,
+        priorStrength: k,
+        source: 'pool_prior',
+      };
+    }
+    const h = Number.isFinite(hits) ? Math.max(0, Math.min(n, hits)) : 0;
+    const weight = n / (n + k);
+    const bettorMean = clamp01((h + k * bettorPrior) / (n + k));
+    const mean = clamp01(bettorMean * multiwayRetention);
+    return {
+      mean,
+      prior,
+      bettorPrior,
+      bettorMean,
+      multiwayRetention,
+      weight,
+      effectiveN: n,
+      priorStrength: k,
+      source,
+    };
+  };
+
+  if (
+    params.opponentSample &&
+    Number.isFinite(params.opponentSample.opportunities) &&
+    params.opponentSample.opportunities > 0
+  ) {
+    return finalize(
+      params.opponentSample.folds,
+      params.opponentSample.opportunities,
+      defaultK,
+      'opponent_sample'
+    );
+  }
+
+  const prefix = params.street === 'flop' ? 'f' : params.street === 'turn' ? 't' : 'r';
+  const hudRaise = readHudOpponentStat(params.hudOpp, `${prefix}.fRaise`);
+  if (hudRaise) {
+    return finalize(hudRaise.hits, hudRaise.opportunities, defaultK, 'hud_context');
+  }
+
+  const hudBet = readHudOpponentStat(params.hudOpp, `${prefix}.fBet`);
+  if (hudBet) {
+    // Attenuate first-bet fold counts (doubled k) because facing a raise is stickier than a first bet.
+    return finalize(hudBet.hits, hudBet.opportunities, defaultK * 2, 'hud_street');
+  }
+
+  return finalize(0, 0, defaultK, 'pool_prior');
+}
+
+/**
+ * Condition hero's raw showdown equity (`rawEquity` vs villain's betting range) on villain
+ * continuing (calling or 3-betting) after folding their weakest `foldToRaiseProb` fraction.
+ *
+ * Derivation (exact Bayes power-law continuation model, mode = 'smooth'):
+ *   Model villain's betting range strength as `U ~ Uniform(0, 1)` where hero beats `U < e`.
+ *   Villain continues with hand strength `u` at smooth monotone rate `c(u) = u^gamma` with
+ *   `gamma = f / (1 - f)`, yielding exact continuation share `integral_0^1 u^gamma du = 1 - f`.
+ *   By Bayes' rule, hero's equity when villain continues is:
+ *     `P(U < e | continue) = e^(1 + kappa * f / (1 - f))`
+ *   where `kappa > 0` (`sharpness`, default 1.0 or street-specific `flop 0.65 < turn 0.85 < river 1.0`)
+ *   captures how tightly villain's fold decision correlates with final river showdown ordering.
+ *
+ * Optional `mode = 'sharp'` applies exact deterministic truncation `max(0, (e - f) / (1 - f))`.
+ *
+ * Invariants guaranteed across both modes:
+ *   - Bounded in `[0, 1]`, finite for all inputs.
+ *   - Exact boundaries: `f = 0 => rawEquity`, `rawEquity = 0 => 0`, `rawEquity = 1 => 1`.
+ *   - Strictly `< rawEquity` for every interior `f in (0, 1)` and `rawEquity in (0, 1)`.
+ *   - Monotonically non-increasing (strictly decreasing on smooth interior) in `foldToRaiseProb`.
+ *   - Monotonically increasing in `rawEquity`.
+ */
+export function conditionEquityAgainstRaiseCallRange(
+  rawEquity: number,
+  foldToRaiseProb: number,
+  opts?: HoldemEquityConditioningOptions
+): number {
+  const e = clamp01(rawEquity);
+  if (e <= 0) return 0;
+  if (e >= 1) return 1;
+  const f = clamp01(foldToRaiseProb);
+  if (f <= 0) return e;
+  if (f >= 1) return 0;
+
+  if (opts?.mode === 'sharp') {
+    return clamp01((e - f) / (1 - f));
+  }
+
+  const kappa =
+    opts?.sharpness !== undefined && Number.isFinite(opts.sharpness) && opts.sharpness > 0
+      ? opts.sharpness
+      : opts?.street
+        ? HOLDEM_RAISE_RANGE_TRUNCATION_SHARPNESS[opts.street]
+        : 1.0;
+
+  const exponent = 1 + kappa * (f / (1 - f));
+  return clamp01(Math.pow(e, exponent));
+}
+
+/**
+ * Reusable Hold'em raise EV pricer comparing `EV(raise)`, `EV(call)`, and `EV(fold) = 0`
+ * using villain fold-to-raise priors and conditioned continuing-range equity.
+ *
+ * Base algebraic identity (zero reraise response, rake `r`, `keep = 1 - r`):
+ *   `EV(fold)  = 0`
+ *   `EV(call)  = rawEquity * (pot + toCall) * keep - toCall`
+ *   `EV(raise) = f * pot * keep + (1 - f) * (eqWhenCalled * finalPot * keep - effectiveHeroAdded)`
+ * where `villainCall = params.villainCall ?? Math.max(0, heroAdded - toCall)`,
+ * `effectiveHeroAdded = toCall + villainCall`, and `finalPot = pot + effectiveHeroAdded + villainCall`.
+ *
+ * When `reraiseResponse` is provided with `r3 = clamp(reraiseProb, 0, 1 - f) > 0`:
+ *   `callProb = 1 - f - r3`
+ *   `EV(raise) = f * pot * keep + callProb * (eqWhenCalled * finalPot * keep - effectiveHeroAdded) + r3 * EV(vs 3-bet)`
+ * where `EV(vs 3-bet) = max(-effectiveHeroAdded, eqVsReraise * potAfterReraiseCall * keep - (effectiveHeroAdded + reraiseToCall))`
+ * (or `-effectiveHeroAdded` when hero folds to a 3-bet / `reraiseToCall` is omitted).
+ */
+export function priceHoldemRaiseEv(params: HoldemRaiseEvParams): HoldemRaiseEvResult {
+  const pot = Number.isFinite(params.pot) ? Math.max(0, params.pot) : 0;
+  const toCall = Number.isFinite(params.toCall) ? Math.max(0, params.toCall) : 0;
+  const heroAddedRaw = Number.isFinite(params.heroAdded) ? Math.max(0, params.heroAdded) : 0;
+  const e = clamp01(params.rawEquity);
+  const keep = 1 - clamp01(params.rakeFraction ?? 0);
+
+  const inferredVillainCall = Math.max(0, heroAddedRaw - toCall);
+  const villainCall =
+    params.villainCall !== undefined && Number.isFinite(params.villainCall)
+      ? Math.max(0, params.villainCall)
+      : inferredVillainCall;
+  // Uncalled excess above `toCall + villainCall` is returned to hero when villain is short-stacked.
+  const effectiveHeroAdded = Math.min(heroAddedRaw, toCall + villainCall);
+  const finalPot = pot + effectiveHeroAdded + villainCall;
+
+  let foldPriorEstimate: HoldemFoldToRaisePriorEstimate | null = null;
+  let f: number;
+  if (params.foldToRaiseProb !== undefined && Number.isFinite(params.foldToRaiseProb)) {
+    f = clamp01(params.foldToRaiseProb);
+  } else if (params.priorParams) {
+    foldPriorEstimate = estimateHoldemFoldToRaisePrior(params.priorParams);
+    f = foldPriorEstimate.mean;
+  } else {
+    f = 0;
+  }
+
+  const conditioningOpts: HoldemEquityConditioningOptions | undefined =
+    params.equityConditioning ??
+    (params.priorParams ? { street: params.priorParams.street } : undefined);
+
+  const eqWhenCalled =
+    params.eqWhenCalledOverride !== undefined && Number.isFinite(params.eqWhenCalledOverride)
+      ? clamp01(params.eqWhenCalledOverride)
+      : conditionEquityAgainstRaiseCallRange(e, f, conditioningOpts);
+
+  const evFold = 0;
+  const evCall = e * (pot + toCall) * keep - toCall;
+
+  const reraiseSpec = params.reraiseResponse;
+  const r3 =
+    reraiseSpec && Number.isFinite(reraiseSpec.reraiseProb)
+      ? Math.min(1 - f, clamp01(reraiseSpec.reraiseProb))
+      : 0;
+  const callProb = Math.max(0, 1 - f - r3);
+
+  let eqVsReraise: number | null = null;
+  let evOnReraise: number | null = null;
+  if (r3 > 0 && reraiseSpec) {
+    eqVsReraise =
+      reraiseSpec.eqVsReraise !== undefined && Number.isFinite(reraiseSpec.eqVsReraise)
+        ? clamp01(reraiseSpec.eqVsReraise)
+        : conditionEquityAgainstRaiseCallRange(e, 1 - r3, conditioningOpts);
+
+    const evFoldVsReraise = -effectiveHeroAdded;
+    if (
+      !reraiseSpec.assumeFoldToReraise &&
+      reraiseSpec.reraiseToCall !== undefined &&
+      Number.isFinite(reraiseSpec.reraiseToCall) &&
+      reraiseSpec.reraiseToCall > 0
+    ) {
+      const reraiseToCall = reraiseSpec.reraiseToCall;
+      const potAfterReraiseCall =
+        reraiseSpec.potAfterReraiseCall !== undefined &&
+        Number.isFinite(reraiseSpec.potAfterReraiseCall) &&
+        reraiseSpec.potAfterReraiseCall > 0
+          ? reraiseSpec.potAfterReraiseCall
+          : finalPot + 2 * reraiseToCall;
+      const evCallVsReraise =
+        eqVsReraise * potAfterReraiseCall * keep - (effectiveHeroAdded + reraiseToCall);
+      evOnReraise = Math.max(evFoldVsReraise, evCallVsReraise);
+    } else {
+      evOnReraise = evFoldVsReraise;
+    }
+  }
+
+  const evWhenCalled = eqWhenCalled * finalPot * keep - effectiveHeroAdded;
+  const evRaise =
+    f * pot * keep +
+    callProb * evWhenCalled +
+    (r3 > 0 && evOnReraise !== null ? r3 * evOnReraise : 0);
+
+  const bestPassive = Math.max(evFold, evCall);
+  const raiseEdgeOverBestPassive = evRaise - bestPassive;
+  const bestAction: HoldemRaiseEvResult['bestAction'] =
+    evRaise > bestPassive ? 'raise' : evCall > evFold ? 'call' : 'fold';
+
+  return {
+    evFold,
+    evCall,
+    evRaise,
+    bestAction,
+    raiseEdgeOverBestPassive,
+    foldToRaiseProb: f,
+    callProb,
+    reraiseProb: r3,
+    eqWhenCalled,
+    eqVsReraise,
+    evOnReraise,
+    effectiveHeroAdded,
+    villainCall,
+    finalPot,
+    foldPriorEstimate,
+  };
+}

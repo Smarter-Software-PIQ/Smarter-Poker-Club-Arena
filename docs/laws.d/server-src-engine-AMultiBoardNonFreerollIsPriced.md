@@ -1,0 +1,3 @@
+# server/src/engine/AMultiBoardNonFreerollIsPriced.law.test.ts
+
+The dark zero-migration option multiBoardNonFreerollIsPriced replaces the unowned V86 multi-board non-freeroll dead-half cliff fold and strong-board hash-coin-flip open/raise branches with deterministic zero-RNG, zero-hash EV pricing, stays 100% byte-identical when OFF, on single-board hands, or on freeroll hands (including exact fastRandom state), calls profitable dead-half hands on river and non-river while folding truly -EV weak hands, strictly respects Pot-Limit caps and !raisedAfterAggr, satisfies monotonicity in fold rate, board equity, dead-board realization penalty (0 on river), wetness, and heroBubbleFactor, fires all five priced receipts, and stays strictly in OPTION_SWITCH_REFUSED.

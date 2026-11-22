@@ -23,6 +23,7 @@ function actualBootstrap(leader: boolean, stop: () => Promise<void>) {
       isLeaderBooted: () => leader,
       getTableEngine: vi.fn(),
     },
+    tableStateHub: { emitEvent: vi.fn() },
     horseAdaptiveJournalWorker: worker,
     trackLeaderBootMutation: vi.fn(),
     reportHorsePolicySourcesAtBoot: vi.fn(),
@@ -53,6 +54,7 @@ function actualBootstrap(leader: boolean, stop: () => Promise<void>) {
     'CommerceRenewalConsumer',
     'HorseDiamondSpins',
     'LightningBankTheWin',
+    'LightningPoolVpipDoor',
   ]) {
     context['start' + name] = vi.fn();
     context['stop' + name] = async () => undefined;

@@ -24,9 +24,10 @@
  * combo-by-combo Monte-Carlo runout equities against the raiser's narrowed range. No fixed 0.42 floor; no hardcoded
  * class fold or jam; no binary label cliff; no hidden opponent cards.
  *
- * SCOPE. Strictly dark & default OFF (`=== true`). Single-board 2-card NLH flop/turn only; never Omaha (PLO4/5/6,
- * Hi-Lo), Short Deck, Fixed Limit, multi-board, bomb pot, river, or real draws. Multiway or side-pot spots return
- * unpriced (falling through cleanly without altering existing behavior).
+ * SCOPE. Strictly dark & default OFF (`=== true`). Single-board 2-card NLH cash flop/turn only; never tournaments
+ * (so the tournament ICM/survival arbiter is never bypassed), Omaha (PLO4/5/6, Hi-Lo), Short Deck, Fixed Limit,
+ * multi-board, bomb pot, river, or real draws. Multiway or side-pot spots return unpriced (falling through cleanly
+ * without altering existing behavior).
  */
 import type { Card, CardRank } from '../types.js';
 import { RANK_VALUES } from './PokerEngine.js';
@@ -57,6 +58,7 @@ export interface V66RaisedOnePairPricedGateInput {
   enabled: unknown;
   street: string;
   raisedAfterAggr: boolean;
+  isTournament: boolean;
   isOmaha: boolean;
   isShortDeck: boolean;
   isFixedLimit: boolean;
@@ -73,14 +75,15 @@ export interface V66RaisedOnePairPricedGateInput {
 
 /**
  * Pure structural gate for v66BetRaisedOnePairIsPriced: strictly dark & default OFF (`=== true`), single-board 2-card
- * NLH flop/turn bet-then-raised bluff-catch class with no real draw. Never touches PLO4/5/6, Hi-Lo, Short Deck,
- * Fixed Limit, river, or draws.
+ * NLH cash flop/turn bet-then-raised bluff-catch class with no real draw. Never touches tournaments (preserving the
+ * tournament ICM/survival arbiter), PLO4/5/6, Hi-Lo, Short Deck, Fixed Limit, river, or draws.
  */
 export function v66RaisedOnePairPricedApplies(input: V66RaisedOnePairPricedGateInput): boolean {
   return (
     input.enabled === true &&
     (input.street === 'flop' || input.street === 'turn') &&
     input.raisedAfterAggr === true &&
+    !input.isTournament &&
     !input.isOmaha &&
     !input.isShortDeck &&
     !input.isFixedLimit &&
@@ -256,11 +259,10 @@ export function v66RaisedOnePairPricedVerdict(
   const pot = Math.max(0, Number.isFinite(input.pot) ? input.pot : 0);
   const heroStack = Math.max(0, Number.isFinite(input.heroStack) ? input.heroStack : 0);
   const villainStack = Math.max(0, Number.isFinite(input.villainStack) ? input.villainStack : 0);
-  const callable = Math.max(
-    0,
-    Math.min(Number.isFinite(input.toCall) ? input.toCall : 0, heroStack)
-  );
-  const potAfterCall = pot + callable;
+  const rawToCall = Math.max(0, Number.isFinite(input.toCall) ? input.toCall : 0);
+  const callable = Math.min(rawToCall, heroStack);
+  const unmatchedExcess = Math.max(0, rawToCall - callable);
+  const potAfterCall = Math.max(0, pot - unmatchedExcess) + callable;
   const deduction = clamp(input.callDeductionFraction ?? 0, 0, 0.25);
   const netPotAfterCall = potAfterCall * (1 - deduction);
   const potOdds = netPotAfterCall > EPS ? callable / netPotAfterCall : 1;

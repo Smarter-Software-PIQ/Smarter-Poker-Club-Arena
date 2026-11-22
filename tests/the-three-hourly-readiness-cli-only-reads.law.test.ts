@@ -72,7 +72,7 @@ describe('the three-hourly readiness CLI only reads', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toMatch(/Ran 15 tests/);
+    expect(result.stderr).toMatch(/Ran 17 tests/);
     expect(result.stderr).not.toMatch(/skipped=/);
   });
 

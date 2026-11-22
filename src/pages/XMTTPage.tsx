@@ -1,7 +1,9 @@
 import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
-import { isTournamentEntryUnavailable } from '../utils/tournamentPresentation';
+import {
+  isTournamentEntryUnavailable,
+  tournamentStartsWhenFull,
+} from '../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CLUB ENGINE - XMTT (Cross-Club Multi-Table Tournament) Lobby
@@ -259,7 +261,7 @@ export default function XMTTPage() {
         buy_in_amount: Number((t as any).buy_in ?? (t as any).buy_in_amount ?? 0),
         buy_in_fee: Number(t.buy_in_fee ?? 0),
         start_time: (t as any).start_time ?? null,
-        startsWhenFull: satelliteStartsWhenFull(t),
+        startsWhenFull: tournamentStartsWhenFull(t),
         /* The player's OWN club, never the row's `club_id`: a union tournament
            carries the union container in that column, and handing a union id to the balance RPC reads
            a wallet that does not exist. */
@@ -591,7 +593,9 @@ export default function XMTTPage() {
                 <div className={styles.row}>
                   <span className="sc-label sc-ink--blue">Starts</span>
                   <span className={`${styles.value} sc-ink--silver`}>
-                    {formatDate(t.start_time || t.created_at)}
+                    {tournamentStartsWhenFull(t)
+                      ? 'When Full'
+                      : formatDate(t.start_time || t.created_at)}
                   </span>
                 </div>
                 {inLine ? (

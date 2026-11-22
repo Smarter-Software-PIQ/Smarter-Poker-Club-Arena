@@ -15,21 +15,24 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = readFileSync(resolve(__dirname, 'GameServer.ts'), 'utf8');
 
-describe('the past-start walk leaves a seat-first board with a seat sold to the ladder', () => {
+describe('the past-start walk leaves regular seat-first boards (both empty 0/3 & 0/2 and occupied ladder boards) alone (Dan 2026-11-22)', () => {
   const block = SRC.slice(SRC.indexOf('if (needsPastStartTopUp) {'));
-  const guard = 'if (isSngOrSpin && rosterByTournament.get(tournament.id) !== 0) continue;';
+  const guardMatch = block.match(
+    /if\s*\(\s*isSngOrSpin\s*&&\s*\(rosterByTournament\.get\(tournament\.id\)\s*!==\s*0\s*\|\|\s*tournament\.format_contract\s*!==\s*'seat-first-satellite-v1'\)\s*\)\s*continue;/
+  );
 
   it('guards before the full-field target is computed', () => {
-    const at = block.indexOf(guard);
+    expect(guardMatch).toBeTruthy();
+    const at = guardMatch!.index!;
     expect(at).toBeGreaterThan(0);
     expect(at).toBeLessThan(
       block.indexOf('const target = tournament.effective_max_players ?? minPlayers;')
     );
   });
 
-  it('a board with nothing sold keeps the past-start path and its empty-event cancellation', () => {
-    expect(guard).toContain('!== 0');
-    expect(block.indexOf('shouldCancelEmptyPastStartEvent(')).toBeGreaterThan(block.indexOf(guard));
+  it('leaves empty 0/3 Spins and 0/2 Heads-Up boards untouched while empty legacy satellite feeders keep the past-start path', () => {
+    expect(guardMatch![0]).toContain("tournament.format_contract !== 'seat-first-satellite-v1'");
+    expect(block.indexOf('shouldCancelEmptyPastStartEvent(')).toBeGreaterThan(guardMatch!.index!);
   });
 
   it('the fast lane still climbs one rung for a horse-only board', () => {

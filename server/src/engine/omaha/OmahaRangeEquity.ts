@@ -1,5 +1,13 @@
 import type { Card } from '../../types.js';
 import { omahaSamplerScoring } from './OmahaVariantSampler.js';
+import {
+  RANK_KEY,
+  createFiveBoardTriples,
+  getPoolPairKeys,
+  loadFiveBoardTriples,
+  scorePairKeysOnFiveBoard,
+  type PoolFastData,
+} from '../omahaMathCore/OmahaMathCoreEval.js';
 
 /**
  * EMERG lane EQUITY (2026-11-19): showdown equity of a PLO4 / PLO5 hero against
@@ -112,8 +120,13 @@ function xorshift(seed: number) {
 
 interface PreparedSeat {
   kind: 'random' | 'combos' | 'weightFn';
-  /** combos: index lists, alias table. */
-  hands?: Int32Array[];
+  /** combos: flat cards, masks, precomputed RANK_KEY pair sums, suit masks, alias table. */
+  count?: number;
+  handCards?: Int8Array;
+  maskLo?: Int32Array;
+  maskHi?: Int32Array;
+  pairKeys?: Int32Array;
+  suitMask?: Uint8Array;
   prob?: Float64Array;
   alias?: Int32Array;
   weight?: OmahaRangeWeight;
@@ -122,24 +135,56 @@ interface PreparedSeat {
 
 function aliasTable(weights: number[]) {
   const n = weights.length;
-  const total = weights.reduce((a, b) => a + b, 0);
+  let total = 0;
+  for (let i = 0; i < n; i++) total += weights[i];
   const prob = new Float64Array(n);
   const alias = new Int32Array(n);
-  const scaled = weights.map((w) => (w * n) / total);
+  const scaled = new Float64Array(n);
   const small: number[] = [];
   const large: number[] = [];
-  scaled.forEach((p, i) => (p < 1 ? small : large).push(i));
+  for (let i = 0; i < n; i++) {
+    const p = (weights[i] * n) / total;
+    scaled[i] = p;
+    if (p < 1) small.push(i);
+    else large.push(i);
+  }
   while (small.length && large.length) {
     const s = small.pop()!;
     const l = large.pop()!;
     prob[s] = scaled[s];
     alias[s] = l;
     scaled[l] = scaled[l] + scaled[s] - 1;
-    (scaled[l] < 1 ? small : large).push(l);
+    if (scaled[l] < 1) small.push(l);
+    else large.push(l);
   }
-  for (const i of large) prob[i] = 1;
-  for (const i of small) prob[i] = 1;
+  for (let i = 0; i < large.length; i++) prob[large[i]] = 1;
+  for (let i = 0; i < small.length; i++) prob[small[i]] = 1;
   return { prob, alias };
+}
+
+function fillHandPairKeys(
+  cards: ArrayLike<number>,
+  offset: number,
+  holes: number,
+  outPairKeys: Int32Array,
+  pkOffset: number
+): number {
+  let seenSuits = 0;
+  let dupSuits = 0;
+  for (let k = 0; k < holes; k++) {
+    const sb = 1 << (cards[offset + k] & 3);
+    dupSuits |= seenSuits & sb;
+    seenSuits |= sb;
+  }
+  let p = 0;
+  for (let a = 0; a < holes - 1; a++) {
+    const ka = RANK_KEY[cards[offset + a] >> 2];
+    for (let b = a + 1; b < holes; b++) {
+      outPairKeys[pkOffset + p] = ka + RANK_KEY[cards[offset + b] >> 2];
+      p++;
+    }
+  }
+  return dupSuits;
 }
 
 export function equityVsRanges(
@@ -176,27 +221,61 @@ function run(
   for (let i = 0; i < 52; i++) if (!dead[i]) live.push(i);
   if (live.length < oppRanges.length * holes + 5 - board.length) return null;
 
+  const nPairs = (holes * (holes - 1)) >> 1;
   const seats: PreparedSeat[] = [];
+  let hasWeightFn = false;
   for (const range of oppRanges) {
     if (range.kind === 'random') seats.push({ kind: 'random' });
     else if (range.kind === 'weightFn') {
       const maxWeight = range.maxWeight ?? 1;
       if (!(maxWeight > 0) || !Number.isFinite(maxWeight)) return null;
+      hasWeightFn = true;
       seats.push({ kind: 'weightFn', weight: range.weight, maxWeight });
     } else if (range.kind === 'combos') {
-      const hands: Int32Array[] = [];
+      const validHands: number[][] = [];
       const weights: number[] = [];
       for (const combo of range.combos) {
         if (!(combo.weight > 0) || !Number.isFinite(combo.weight)) continue;
         if (combo.cards.length !== holes) continue;
         const idx = combo.cards.map(indexOf);
         if (idx.some((i) => i < 0 || dead[i]) || new Set(idx).size !== holes) continue;
-        hands.push(Int32Array.from(idx));
+        validHands.push(idx);
         weights.push(combo.weight);
       }
-      if (!hands.length) return null; // the range is impossible given the known cards
+      const m = validHands.length;
+      if (!m) return null; // the range is impossible given the known cards
+      const handCards = new Int8Array(m * holes);
+      const maskLo = new Int32Array(m);
+      const maskHi = new Int32Array(m);
+      const pairKeys = new Int32Array(m * nPairs);
+      const suitMask = new Uint8Array(m);
+      for (let i = 0; i < m; i++) {
+        const h = validHands[i];
+        const cOff = i * holes;
+        let lo = 0;
+        let hi = 0;
+        for (let t = 0; t < holes; t++) {
+          const c = h[t];
+          handCards[cOff + t] = c;
+          if (c < 32) lo |= 1 << c;
+          else hi |= 1 << (c - 32);
+        }
+        maskLo[i] = lo;
+        maskHi[i] = hi;
+        suitMask[i] = fillHandPairKeys(handCards, cOff, holes, pairKeys, i * nPairs);
+      }
       const { prob, alias } = aliasTable(weights);
-      seats.push({ kind: 'combos', hands, prob, alias });
+      seats.push({
+        kind: 'combos',
+        count: m,
+        handCards,
+        maskLo,
+        maskHi,
+        pairKeys,
+        suitMask,
+        prob,
+        alias,
+      });
     } else return null;
   }
 
@@ -204,11 +283,10 @@ function run(
   const maxProposals = options.maxProposalsPerSeat ?? 20_000;
   const minSamples = Math.max(1, options.minSamples ?? 400);
   const target = options.targetSE;
-  const { loadTriples, newTriples, omahaHiFast, omahaHiTable, rankPairTable } = omahaSamplerScoring;
-  const tri = newTriples();
-  const publicTri = newTriples();
+  const { loadTriples, newTriples, omahaHiTable, rankPairTable } = omahaSamplerScoring;
+  const publicTri = hasWeightFn ? newTriples() : null;
   let publicTable: Int32Array | null = null;
-  if (board.length >= 3) {
+  if (hasWeightFn && board.length >= 3 && publicTri) {
     loadTriples(
       publicTri,
       board.map((c) => codeOfIndex(indexOf(c))),
@@ -216,18 +294,23 @@ function run(
     );
     publicTable = rankPairTable(publicTri);
   }
-  const proposalCodes = new Array<number>(holes);
+  const proposalCodes = hasWeightFn ? new Array<number>(holes) : [];
   const weightCtx = { publicHigh: 0 };
-  const heroCodes = hero.map((c) => codeOfIndex(indexOf(c)));
+  const heroIdx = Int8Array.from(hero.map(indexOf));
+  const heroPairKeys = new Int32Array(nPairs);
+  const heroSuitMask = fillHandPairKeys(heroIdx, 0, holes, heroPairKeys, 0);
   const boardIdx = board.map(indexOf);
-  const boardCodes = new Array<number>(5);
-  for (let i = 0; i < boardIdx.length; i++) boardCodes[i] = codeOfIndex(boardIdx[i]);
+  const fullBoard = new Int8Array(5);
+  for (let i = 0; i < boardIdx.length; i++) fullBoard[i] = boardIdx[i];
   const k = seats.length;
   const oppIdx: Int32Array[] = seats.map(() => new Int32Array(holes));
-  const oppCodes: number[][] = seats.map(() => new Array<number>(holes));
-  const used = new Uint8Array(52);
-  const scratchCards: Card[] = new Array(holes);
-  const pool = new Int32Array(live.length);
+  const oppPick = new Int32Array(k);
+  const dynPairKeys = new Int32Array(nPairs);
+  const scratchCards: Card[] = hasWeightFn ? new Array(holes) : [];
+  const liveArr = Int8Array.from(live);
+  const liveLen = liveArr.length;
+  const pool = new Int8Array(liveLen);
+  const bt = createFiveBoardTriples();
   let sum = 0;
   let sumSq = 0;
   let wins = 0;
@@ -239,7 +322,6 @@ function run(
   /** One hand from a weightFn seat, uniform proposal over the live deck. */
   const drawWeighted = (seat: PreparedSeat, into: Int32Array): boolean => {
     for (let p = 0; p < maxProposals; p++) {
-      // partial Fisher-Yates on a copy of the live deck positions
       for (let h = 0; h < holes; h++) {
         let pick: number;
         do pick = live[Math.floor(random() * live.length)];
@@ -250,7 +332,8 @@ function run(
         scratchCards[h] = DECK_CARDS[into[h]];
         proposalCodes[h] = codeOfIndex(into[h]);
       }
-      weightCtx.publicHigh = publicTable ? omahaHiTable(proposalCodes, publicTri, publicTable) : 0;
+      weightCtx.publicHigh =
+        publicTable && publicTri ? omahaHiTable(proposalCodes, publicTri, publicTable) : 0;
       const w = seat.weight!(scratchCards, weightCtx);
       if (!(w >= 0) || w > seat.maxWeight! * (1 + 1e-9)) throw new Error('weight out of range');
       if (w > 0 && random() * seat.maxWeight! < w) return true;
@@ -261,22 +344,42 @@ function run(
   sampleLoop: while (n < maxSamples) {
     // 1. weighted seats, independently, redrawn jointly on any collision
     let redraws = 0;
+    let usedLo = 0;
+    let usedHi = 0;
     for (;;) {
-      used.fill(0);
+      usedLo = 0;
+      usedHi = 0;
       let collided = false;
       for (let s = 0; s < k && !collided; s++) {
         const seat = seats[s];
         if (seat.kind === 'random') continue;
         if (seat.kind === 'combos') {
-          const m = seat.hands!.length;
+          const m = seat.count!;
           const col = Math.floor(random() * m);
           const pickIndex = random() < seat.prob![col] ? col : seat.alias![col];
-          oppIdx[s].set(seat.hands![pickIndex]);
-        } else if (!drawWeighted(seat, oppIdx[s])) return null;
-        for (let h = 0; h < holes; h++) {
-          const c = oppIdx[s][h];
-          if (used[c]) collided = true;
-          used[c] = 1;
+          oppPick[s] = pickIndex;
+          const mLo = seat.maskLo![pickIndex];
+          const mHi = seat.maskHi![pickIndex];
+          if ((usedLo & mLo) | (usedHi & mHi)) {
+            collided = true;
+          } else {
+            usedLo |= mLo;
+            usedHi |= mHi;
+          }
+        } else {
+          if (!drawWeighted(seat, oppIdx[s])) return null;
+          for (let h = 0; h < holes; h++) {
+            const c = oppIdx[s][h];
+            if (c < 32) {
+              const bit = 1 << c;
+              if (usedLo & bit) collided = true;
+              usedLo |= bit;
+            } else {
+              const bit = 1 << (c - 32);
+              if (usedHi & bit) collided = true;
+              usedHi |= bit;
+            }
+          }
         }
       }
       if (!collided) break;
@@ -285,7 +388,10 @@ function run(
     }
     // 2. random seats and the board from the remaining deck
     let m = 0;
-    for (const c of live) if (!used[c]) pool[m++] = c;
+    for (let i = 0; i < liveLen; i++) {
+      const c = liveArr[i];
+      if (c < 32 ? (usedLo & (1 << c)) === 0 : (usedHi & (1 << (c - 32))) === 0) pool[m++] = c;
+    }
     let take = 0;
     const deal = () => {
       const j = take + Math.floor(random() * (m - take));
@@ -297,22 +403,56 @@ function run(
     };
     for (let s = 0; s < k; s++)
       if (seats[s].kind === 'random') for (let h = 0; h < holes; h++) oppIdx[s][h] = deal();
-    for (let i = boardIdx.length; i < 5; i++) boardCodes[i] = codeOfIndex(deal());
-    // 3. showdown
-    loadTriples(tri, boardCodes, 5);
-    const heroScore = omahaHiFast(heroCodes, tri);
-    let best = heroScore;
+    for (let i = boardIdx.length; i < 5; i++) fullBoard[i] = deal();
+    // 3. showdown (exact NO_FLUSH5/FLUSH5 ordering, early-out once beaten)
+    loadFiveBoardTriples(bt, fullBoard[0], fullBoard[1], fullBoard[2], fullBoard[3], fullBoard[4]);
+    const heroScore = scorePairKeysOnFiveBoard(
+      heroPairKeys,
+      0,
+      nPairs,
+      heroIdx,
+      0,
+      holes,
+      heroSuitMask,
+      bt,
+      -1
+    );
     let bestCount = 1;
     let heroBest = true;
     for (let s = 0; s < k; s++) {
-      const codes = oppCodes[s];
-      for (let h = 0; h < holes; h++) codes[h] = codeOfIndex(oppIdx[s][h]);
-      const score = omahaHiFast(codes, tri);
-      if (score > best) {
-        best = score;
-        bestCount = 1;
+      const seat = seats[s];
+      let score: number;
+      if (seat.kind === 'combos') {
+        const pi = oppPick[s];
+        score = scorePairKeysOnFiveBoard(
+          seat.pairKeys!,
+          pi * nPairs,
+          nPairs,
+          seat.handCards!,
+          pi * holes,
+          holes,
+          seat.suitMask![pi],
+          bt,
+          heroScore
+        );
+      } else {
+        const dMask = fillHandPairKeys(oppIdx[s], 0, holes, dynPairKeys, 0);
+        score = scorePairKeysOnFiveBoard(
+          dynPairKeys,
+          0,
+          nPairs,
+          oppIdx[s],
+          0,
+          holes,
+          dMask,
+          bt,
+          heroScore
+        );
+      }
+      if (score > heroScore) {
         heroBest = false;
-      } else if (score === best) bestCount++;
+        break;
+      } else if (score === heroScore) bestCount++;
     }
     const share = heroBest ? 1 / bestCount : 0;
     if (heroBest) {
@@ -343,6 +483,245 @@ function run(
     ms: performance.now() - started,
     stoppedOnTargetSE,
   };
+}
+
+/**
+ * Zero-allocation integer fast path for equityVsPoolsEquityLane: exact same alias-table joint draws,
+ * xorshift RNG stream, deck completion and showdown ordering as equityVsRanges, reading directly from
+ * a precomputed PoolFastData without constructing Card objects or re-indexing combos.
+ */
+export function equityVsIntPools(
+  hero: readonly number[],
+  board: readonly number[],
+  poolCards: Int8Array,
+  poolFast: PoolFastData,
+  ranges: readonly { parts: readonly { idx: Int32Array; weight: number }[] }[],
+  maxSamples: number,
+  options: { targetSE?: number; minSamples?: number; seed?: number } = {}
+): EquityVsRangesResult | null {
+  try {
+    const started = performance.now();
+    const holes = hero.length;
+    if ((holes !== 4 && holes !== 5) || board.length > 5 || (board.length > 0 && board.length < 3))
+      return null;
+    if (!ranges.length || ranges.length > 9 || !(maxSamples >= 1) || poolFast.holeCount !== holes)
+      return null;
+    let deadLo = 0;
+    let deadHi = 0;
+    let deadCount = 0;
+    for (let i = 0; i < holes; i++) {
+      const c = hero[i];
+      if (c < 0 || c >= 52) return null;
+      if (c < 32) {
+        const bit = 1 << c;
+        if (deadLo & bit) return null;
+        deadLo |= bit;
+      } else {
+        const bit = 1 << (c - 32);
+        if (deadHi & bit) return null;
+        deadHi |= bit;
+      }
+      deadCount++;
+    }
+    for (let i = 0; i < board.length; i++) {
+      const c = board[i];
+      if (c < 0 || c >= 52) return null;
+      if (c < 32) {
+        const bit = 1 << c;
+        if (deadLo & bit) return null;
+        deadLo |= bit;
+      } else {
+        const bit = 1 << (c - 32);
+        if (deadHi & bit) return null;
+        deadHi |= bit;
+      }
+      deadCount++;
+    }
+    const liveLen = 52 - deadCount;
+    if (liveLen < ranges.length * holes + 5 - board.length) return null;
+    const liveArr = new Int8Array(liveLen);
+    let li = 0;
+    for (let c = 0; c < 52; c++) {
+      if (c < 32 ? (deadLo & (1 << c)) === 0 : (deadHi & (1 << (c - 32))) === 0) liveArr[li++] = c;
+    }
+
+    const k = ranges.length;
+    const pMaskLo = poolFast.maskLo;
+    const pMaskHi = poolFast.maskHi;
+    const pPairKeys = getPoolPairKeys(poolFast, poolCards);
+    const pSuitMask = poolFast.suitMask;
+    const nPairs = poolFast.nPairs;
+    const seatHoldingIdx: Int32Array[] = new Array(k);
+    const seatProb: Float64Array[] = new Array(k);
+    const seatAlias: Int32Array[] = new Array(k);
+    const seatCount = new Int32Array(k);
+
+    for (let s = 0; s < k; s++) {
+      const r = ranges[s];
+      let cap = 0;
+      for (let p = 0; p < r.parts.length; p++) {
+        const part = r.parts[p];
+        if (part.idx.length > 0 && part.weight > 0) cap += part.idx.length;
+      }
+      if (cap === 0) return null;
+      const hIdx = new Int32Array(cap);
+      const weights: number[] = [];
+      let m = 0;
+      for (let p = 0; p < r.parts.length; p++) {
+        const part = r.parts[p];
+        const plen = part.idx.length;
+        if (!plen || !(part.weight > 0)) continue;
+        const w = part.weight / plen;
+        if (!(w > 0) || !Number.isFinite(w)) continue;
+        const pidx = part.idx;
+        for (let t = 0; t < plen; t++) {
+          const i = pidx[t];
+          if ((deadLo & pMaskLo[i]) | (deadHi & pMaskHi[i])) continue;
+          hIdx[m++] = i;
+          weights.push(w);
+        }
+      }
+      if (!m) return null;
+      const { prob, alias } = aliasTable(weights);
+      seatHoldingIdx[s] = hIdx;
+      seatProb[s] = prob;
+      seatAlias[s] = alias;
+      seatCount[s] = m;
+    }
+
+    const random = xorshift(options.seed ?? Math.floor(Math.random() * 0x100000000));
+    const minSamples = Math.max(1, options.minSamples ?? 400);
+    const target = options.targetSE;
+    const heroIdx = Int8Array.from(hero);
+    const heroPairKeys = new Int32Array(nPairs);
+    const heroSuitMask = fillHandPairKeys(heroIdx, 0, holes, heroPairKeys, 0);
+    const bLen = board.length;
+    const fullBoard = new Int8Array(5);
+    for (let i = 0; i < bLen; i++) fullBoard[i] = board[i];
+    const oppHolding = new Int32Array(k);
+    const deckPool = new Int8Array(liveLen);
+    const bt = createFiveBoardTriples();
+    let sum = 0;
+    let sumSq = 0;
+    let wins = 0;
+    let ties = 0;
+    let n = 0;
+    let jointRedraws = 0;
+    let stoppedOnTargetSE = false;
+
+    sampleLoop: while (n < maxSamples) {
+      let redraws = 0;
+      let usedLo = 0;
+      let usedHi = 0;
+      for (;;) {
+        usedLo = 0;
+        usedHi = 0;
+        let collided = false;
+        for (let s = 0; s < k && !collided; s++) {
+          const m = seatCount[s];
+          const col = Math.floor(random() * m);
+          const pick = random() < seatProb[s][col] ? col : seatAlias[s][col];
+          const hi = seatHoldingIdx[s][pick];
+          oppHolding[s] = hi;
+          const mLo = pMaskLo[hi];
+          const mHi = pMaskHi[hi];
+          if ((usedLo & mLo) | (usedHi & mHi)) {
+            collided = true;
+          } else {
+            usedLo |= mLo;
+            usedHi |= mHi;
+          }
+        }
+        if (!collided) break;
+        jointRedraws++;
+        if (++redraws > 10_000) return null;
+      }
+      let m = 0;
+      for (let i = 0; i < liveLen; i++) {
+        const c = liveArr[i];
+        if (c < 32 ? (usedLo & (1 << c)) === 0 : (usedHi & (1 << (c - 32))) === 0)
+          deckPool[m++] = c;
+      }
+      let take = 0;
+      for (let i = bLen; i < 5; i++) {
+        const j = take + Math.floor(random() * (m - take));
+        const v = deckPool[j];
+        deckPool[j] = deckPool[take];
+        deckPool[take] = v;
+        take++;
+        fullBoard[i] = v;
+      }
+      loadFiveBoardTriples(
+        bt,
+        fullBoard[0],
+        fullBoard[1],
+        fullBoard[2],
+        fullBoard[3],
+        fullBoard[4]
+      );
+      const heroScore = scorePairKeysOnFiveBoard(
+        heroPairKeys,
+        0,
+        nPairs,
+        heroIdx,
+        0,
+        holes,
+        heroSuitMask,
+        bt,
+        -1
+      );
+      let bestCount = 1;
+      let heroBest = true;
+      for (let s = 0; s < k; s++) {
+        const hi = oppHolding[s];
+        const score = scorePairKeysOnFiveBoard(
+          pPairKeys,
+          hi * nPairs,
+          nPairs,
+          poolCards,
+          hi * holes,
+          holes,
+          pSuitMask[hi],
+          bt,
+          heroScore
+        );
+        if (score > heroScore) {
+          heroBest = false;
+          break;
+        } else if (score === heroScore) bestCount++;
+      }
+      const share = heroBest ? 1 / bestCount : 0;
+      if (heroBest) {
+        if (bestCount === 1) wins++;
+        else ties++;
+      }
+      sum += share;
+      sumSq += share * share;
+      n++;
+      if (target !== undefined && n >= minSamples && n % 100 === 0) {
+        const mean = sum / n;
+        const se = Math.sqrt(Math.max(0, sumSq / n - mean * mean) / (n - 1));
+        if (se <= target) {
+          stoppedOnTargetSE = true;
+          break sampleLoop;
+        }
+      }
+    }
+    const mean = sum / n;
+    const se = n > 1 ? Math.sqrt(Math.max(0, sumSq / n - mean * mean) / (n - 1)) : 0.5;
+    return {
+      equity: mean,
+      se,
+      samples: n,
+      winShare: wins / n,
+      tieShare: ties / n,
+      jointRedraws,
+      ms: performance.now() - started,
+      stoppedOnTargetSE,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
