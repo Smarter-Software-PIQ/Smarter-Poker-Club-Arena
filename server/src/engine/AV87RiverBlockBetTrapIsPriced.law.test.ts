@@ -537,6 +537,104 @@ describe('LAW: v87RiverBlockBetTrapIsPriced (dark default-OFF priced river block
       const cFires = fireCounts();
       expect(cDecision.action).toBe('call');
       expect(cFires[V87_RIVER_BLOCK_BET_TRAP_PRICED_RECEIPTS.call]).toBe(1);
+
+      // Regression (HIGH): when hero covers a short raiser (villainStack < heroStack) and
+      // verdict87.raiseTo < heroBet + heroStack, verdict87.isAllIn is true (puts villain all-in)
+      // but HorseLogic MUST emit a sized raise rather than shoving hero's full stack as 'all_in'.
+      const shortRaiserSpot = buildFacingRaiseAfterBlockBetSpot({
+        hole: 'AsKs',
+        board: 'QsJsTs2d3c',
+        potAtRiverStart: 100,
+        heroBlockBet: 30,
+        villainRaiseTo: 120,
+        heroStack: 600,
+        villainStack: 40,
+      });
+      const shortVerdict = v87RiverBlockBetTrapFacingRaiseVerdict({
+        pot: shortRaiserSpot.gs.pot,
+        toCall: shortRaiserSpot.gs.toCall ?? 0,
+        heroBet: shortRaiserSpot.hero.bet,
+        currentBet: shortRaiserSpot.gs.currentBet,
+        heroStack: shortRaiserSpot.hero.stack,
+        villainStack: 40,
+        bigBlind: shortRaiserSpot.gs.bigBlind,
+        minRaiseTo: shortRaiserSpot.gs.minRaiseTo ?? null,
+        equity: 1.0,
+        isExactRiverNuts: true,
+      });
+      expect(shortVerdict.decision).toBe('reraise');
+      expect(shortVerdict.isAllIn).toBe(true);
+      expect(shortVerdict.raiseTo!).toBeLessThan(
+        shortRaiserSpot.hero.bet + shortRaiserSpot.hero.stack - 1
+      );
+      seedFastRandom(1010);
+      drainFires();
+      const shortDecision = decideWithOpts(shortRaiserSpot.hero, shortRaiserSpot.gs, {
+        mind: false,
+        v87RiverBlockBetTrap: true,
+        v87RiverBlockBetTrapIsPriced: true,
+      });
+      const shortFires = fireCounts();
+      expect(shortDecision.action).toBe('raise');
+      expect(shortDecision.amount).toBeLessThan(
+        shortRaiserSpot.hero.bet + shortRaiserSpot.hero.stack
+      );
+      expect(shortFires[V87_RIVER_BLOCK_BET_TRAP_PRICED_RECEIPTS.reraise]).toBe(1);
+      expect(shortFires['v87_river_block_trap_reraise'] ?? 0).toBe(0);
+
+      // Regression (HIGH + MEDIUM): multiway facing-raise after block bet (short raiser + deep
+      // third opponent behind) must NOT enter the HU-only priced facing-raise path AND must NOT
+      // leak into the legacy blanket v87_river_block_trap_reraise when v87RiverBlockBetTrapIsPriced is ON.
+      const multiwaySpot = buildFacingRaiseAfterBlockBetSpot({
+        hole: 'AsKs',
+        board: 'QsJsTs2d3c',
+        potAtRiverStart: 100,
+        heroBlockBet: 30,
+        villainRaiseTo: 120,
+        heroStack: 600,
+        villainStack: 40,
+      });
+      multiwaySpot.gs.players.push({
+        seat: 3,
+        user_id: 'deep-third-opp',
+        username: 'deep-third-opp',
+        stack: 700,
+        bet: 30,
+        totalInvested: 80,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      });
+      seedFastRandom(1111);
+      drainFires();
+      decideWithOpts(multiwaySpot.hero, multiwaySpot.gs, {
+        mind: false,
+        v87RiverBlockBetTrap: true,
+        v87RiverBlockBetTrapIsPriced: true,
+      });
+      const mwFires = fireCounts();
+      expect(mwFires[V87_RIVER_BLOCK_BET_TRAP_PRICED_RECEIPTS.reraise] ?? 0).toBe(0);
+      expect(mwFires[V87_RIVER_BLOCK_BET_TRAP_PRICED_RECEIPTS.call] ?? 0).toBe(0);
+      expect(mwFires['v87_river_block_trap_reraise'] ?? 0).toBe(0);
+
+      // Regression (MEDIUM): bomb-pot facing-raise rejected by v87RiverBlockBetTrapFacingRaiseApplies
+      // must also never leak into legacy v87_river_block_trap_reraise when priced flag is ON.
+      const bombRaiseSpot = buildFacingRaiseAfterBlockBetSpot({
+        hole: 'AsKs',
+        board: 'QsJsTs2d3c',
+        bombPot: true,
+      });
+      seedFastRandom(1212);
+      drainFires();
+      decideWithOpts(bombRaiseSpot.hero, bombRaiseSpot.gs, {
+        mind: false,
+        v87RiverBlockBetTrap: true,
+        v87RiverBlockBetTrapIsPriced: true,
+      });
+      const bombFires = fireCounts();
+      expect(bombFires[V87_RIVER_BLOCK_BET_TRAP_PRICED_RECEIPTS.reraise] ?? 0).toBe(0);
+      expect(bombFires['v87_river_block_trap_reraise'] ?? 0).toBe(0);
     });
   });
 
@@ -645,6 +743,7 @@ describe('LAW: v87RiverBlockBetTrapIsPriced (dark default-OFF priced river block
         enabled: true,
         isV87Nlh: true,
         isRiver: true,
+        oppCount: 1,
         raisedAfterAggr: true,
         planCallOnly: false,
         trueRiverNutTrap: true,
@@ -659,6 +758,7 @@ describe('LAW: v87RiverBlockBetTrapIsPriced (dark default-OFF priced river block
       expect(v87RiverBlockBetTrapFacingRaiseApplies(baseRaise)).toBe(true);
       expect(v87RiverBlockBetTrapFacingRaiseApplies({ ...baseRaise, enabled: false })).toBe(false);
       expect(v87RiverBlockBetTrapFacingRaiseApplies({ ...baseRaise, isV87Nlh: false })).toBe(false);
+      expect(v87RiverBlockBetTrapFacingRaiseApplies({ ...baseRaise, oppCount: 2 })).toBe(false);
       expect(v87RiverBlockBetTrapFacingRaiseApplies({ ...baseRaise, multiBoard: true })).toBe(
         false
       );

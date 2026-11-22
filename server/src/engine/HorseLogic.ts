@@ -29341,6 +29341,7 @@ export class HorseLogic {
               enabled: opts.v87RiverBlockBetTrapIsPriced,
               isV87Nlh,
               isRiver,
+              oppCount,
               raisedAfterAggr,
               planCallOnly: planCallOnly23,
               trueRiverNutTrap: trueRiverNutTrap87,
@@ -29375,14 +29376,18 @@ export class HorseLogic {
             });
             if (verdict87.decision === 'reraise' && verdict87.raiseTo !== null) {
               if (tele15) noteFire('v87_river_block_bet_trap_priced_reraise_seen');
-              if (verdict87.isAllIn || verdict87.raiseTo >= (player.bet ?? 0) + stack - 1e-4) {
+              if (verdict87.raiseTo >= (player.bet ?? 0) + stack - 1e-4) {
                 return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
               }
               return this.raiseTo(planHandKey, verdict87.raiseTo, player, gs, vi);
             }
             if (tele15) noteFire('v87_river_block_bet_trap_priced_call_seen');
             return this.legalize({ action: 'call', thinkTime: 0 }, player, gs, vi);
-          } else if (opts.v87RiverBlockBetTrap !== false && trueRiverNutTrap87) {
+          } else if (
+            opts.v87RiverBlockBetTrapIsPriced !== true &&
+            opts.v87RiverBlockBetTrap !== false &&
+            trueRiverNutTrap87
+          ) {
             if (tele15) noteFire('v87_river_block_trap_reraise');
             if (stack <= (pot + toCall) * 1.5)
               return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);

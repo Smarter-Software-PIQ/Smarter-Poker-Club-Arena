@@ -118,6 +118,7 @@ export interface V87RiverBlockBetTrapFacingRaiseGateInput {
   enabled: unknown;
   isV87Nlh: boolean;
   isRiver: boolean;
+  oppCount: number;
   raisedAfterAggr: boolean;
   planCallOnly: boolean;
   trueRiverNutTrap: boolean;
@@ -132,8 +133,9 @@ export interface V87RiverBlockBetTrapFacingRaiseGateInput {
 
 /**
  * Pure structural gate for the facing-raise site of `v87RiverBlockBetTrapIsPriced`.
- * Strictly dark & default OFF (`=== true`), single-board 2-card NLH river after hero's <= 36% pot
- * block bet was raised; zero PLO4/5/6, Hi-Lo, Short Deck, Fixed Limit, multi-board, bomb-pot, or AoF reach.
+ * Strictly dark & default OFF (`=== true`), single-board 2-card NLH heads-up (`oppCount === 1`)
+ * river after hero's <= 36% pot block bet was raised; zero multiway, PLO4/5/6, Hi-Lo, Short Deck,
+ * Fixed Limit, multi-board, bomb-pot, or AoF reach.
  */
 export function v87RiverBlockBetTrapFacingRaiseApplies(
   input: V87RiverBlockBetTrapFacingRaiseGateInput
@@ -142,6 +144,7 @@ export function v87RiverBlockBetTrapFacingRaiseApplies(
     input.enabled === true &&
     input.isV87Nlh === true &&
     input.isRiver === true &&
+    input.oppCount === 1 &&
     input.raisedAfterAggr === true &&
     !input.planCallOnly &&
     input.trueRiverNutTrap === true &&
