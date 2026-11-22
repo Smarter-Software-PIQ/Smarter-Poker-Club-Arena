@@ -258,14 +258,24 @@ describe('the production grade reads the same numbers', () => {
   ])('%s', (name, value) => {
     expect(SQL).toMatch(new RegExp(`\\b${value} AS ${name}\\b`));
   });
-  it('records actual between-hand pause times onto the next hand cadence', () => {
+  it('records actual between-hand pause times and bounded shape booleans onto the next hand cadence', () => {
     expect(DEALING).toContain('this.pendingPriorHandCadence = {');
     expect(DEALING).toContain('hold_ms: Math.round(resultDisplayMs)');
     expect(DEALING).toContain('rest_ms: Math.round(restMs)');
     expect(DEALING).toContain('rebuy_pause_ms: rebuyPauseMs');
     expect(DEALING).toContain('rit_reveal_ms: ritRevealMs');
+    expect(DEALING).toContain('all_in_showdown: this.currentHandAllInShowdown');
+    expect(DEALING).toContain('bets_sweep_owed: priorBetsSweepOwed');
     expect(DEALING).toContain('this.currentHandCadence = this.pendingPriorHandCadence;');
     expect(DEALING).toContain('REBUY_PAUSE_MAX_MS');
+    expect(SQL).toContain("h.next_cadence->>'all_in_showdown' = 'true'");
+    expect(SQL).toContain("h.next_cadence->>'bets_sweep_owed' = 'true'");
+    expect(SQL).toContain(
+      "WHERE pl->>'userId' = sd->>'user_id' AND coalesce((pl->>'stack')::numeric, 1) = 0"
+    );
+    expect(SQL).toContain(
+      "count(DISTINCT (coalesce(aw->>'board', '1'), coalesce(aw->>'potIndex', p->>'index', '0'), coalesce(aw->>'low', 'false')))"
+    );
   });
   it('excludes Lightning hands by their pooled hand row, not by table name', () => {
     expect(SQL).toContain('lightning_hand lh WHERE lh.hand_history_id = hh.id');

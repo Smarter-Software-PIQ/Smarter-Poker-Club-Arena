@@ -23,9 +23,15 @@
 --     recorded hand_history.cadence (rebuy_pause_ms, clamped to
 --     rebuy_pause_max_ms = 5000 ms); legacy rows without cadence remain ungraded.
 --   * Bad Beat Jackpot hits (9 s celebration): not marked on the row; rare.
---   * All-in showdown is read from an 'all_in' action by a shown player; a call
---     that happened to put a player all-in may be recorded as 'call', which
---     under-counts owed by 500 ms on that hand (shows as -500 unintended).
+--   * All-in showdown is read from (1) an 'all_in' action by a shown player,
+--     (2) a shown player finishing with stack = 0 (covers legacy rows where an
+--     all-in call/bet/raise/blind busted), or (3) next hand's cadence
+--     all_in_showdown = true (covers all-in call/bet/raise/blind winners/chops;
+--     bounded strictly to the +500 ms ALL_IN_SHOWDOWN_EXTRA_MS beat).
+--   * Bets sweep owed is read from river chip commitments or next hand's
+--     cadence bets_sweep_owed = true (bounded strictly to BETS_SWEEP_MS = 500 ms).
+--   * Award groups deduplicates by (board, potIndex, low) to match
+--     ServerTableEngineDealing.countAwardGroups (chopped pots count as 1 group).
 --
 -- Where the delay comes from (20261121000757): the after_* columns split the
 -- graded hands by whether the previous hand left a player at stack 0
@@ -53,14 +59,21 @@ h AS (
 s AS (
   SELECT h.*, extract(epoch FROM h.next_start - h.ended_at) * 1000 AS gap_ms,
          jsonb_array_length(h.shown) AS shown_n,
-         EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a
-                 WHERE a->>'stage' = 'river' AND coalesce((a->>'amount')::numeric, 0) > 0
-                   AND a->>'action' <> 'return') AS river_chips,
-         EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a, jsonb_array_elements(h.shown) sd
-                 WHERE a->>'action' = 'all_in' AND a->>'userId' = sd->>'user_id') AS all_in_shown,
-         GREATEST(1, (SELECT count(*) FROM jsonb_array_elements(coalesce(h.pots, '[]'::jsonb)) p,
+         (EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a
+                  WHERE a->>'stage' = 'river' AND coalesce((a->>'amount')::numeric, 0) > 0
+                    AND a->>'action' <> 'return')
+          OR (jsonb_typeof(h.next_cadence) = 'object'
+              AND h.next_cadence->>'bets_sweep_owed' = 'true')) AS river_chips,
+         (EXISTS (SELECT 1 FROM jsonb_array_elements(h.actions) a, jsonb_array_elements(h.shown) sd
+                  WHERE a->>'action' = 'all_in' AND a->>'userId' = sd->>'user_id')
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) pl, jsonb_array_elements(h.shown) sd
+                     WHERE pl->>'userId' = sd->>'user_id' AND coalesce((pl->>'stack')::numeric, 1) = 0)
+          OR (jsonb_typeof(h.next_cadence) = 'object'
+              AND h.next_cadence->>'all_in_showdown' = 'true')) AS all_in_shown,
+         GREATEST(1, (SELECT count(DISTINCT (coalesce(aw->>'board', '1'), coalesce(aw->>'potIndex', p->>'index', '0'), coalesce(aw->>'low', 'false')))
+                        FROM jsonb_array_elements(coalesce(h.pots, '[]'::jsonb)) p,
                              jsonb_array_elements(coalesce(p->'awards', '[]'::jsonb)) aw
-                      WHERE coalesce((aw->>'amount')::numeric, 0) > 0)) AS award_groups,
+                       WHERE coalesce((aw->>'amount')::numeric, 0) > 0)) AS award_groups,
          EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) pl
                  WHERE coalesce((pl->>'stack')::numeric, 1) = 0) AS someone_busted,
          (jsonb_typeof(h.next_cadence) = 'object'

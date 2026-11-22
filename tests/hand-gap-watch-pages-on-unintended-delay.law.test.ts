@@ -37,13 +37,32 @@ const ROOT = join(__dirname, '..');
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const BASE_FILE = '20261119052955_an_unintended_delay_between_hands_pages_within_minutes.sql';
 const FILE = '20261119180500_sustained_hand_delay_alerts_and_cadence_grading.sql';
+const PARITY_FILE = '20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql';
 const baseSql = read('supabase', 'migrations', BASE_FILE);
 const sql = read('supabase', 'migrations', FILE);
+const paritySql = read('supabase', 'migrations', PARITY_FILE);
 const script = read('scripts', 'sql', 'hand-gap-unintended-delay.sql');
 const code = (s: string) => s.replace(/--[^\n]*/g, ' ');
 const flat = (s: string) => code(s).replace(/\s+/g, ' ').trim();
 const grade = code(sql.split('$g$')[1] ?? '');
 const watch = code(sql.split('$f$')[1] ?? '');
+/** Unquote single-quoted SQL literals joined by || chr(10) || in an anchored DO block. */
+const unquoteSqlConcat = (s: string) =>
+  [...s.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, "'")).join('\n');
+const parityGradeBlock = paritySql.split('$grade$')[1] ?? '';
+const parityOld = unquoteSqlConcat(
+  parityGradeBlock.slice(
+    parityGradeBlock.indexOf('c_old constant text :='),
+    parityGradeBlock.indexOf('c_new constant text :=')
+  )
+);
+const parityNew = unquoteSqlConcat(
+  parityGradeBlock.slice(
+    parityGradeBlock.indexOf('c_new constant text :='),
+    parityGradeBlock.indexOf('BEGIN')
+  )
+);
+const latestGrade = grade.replace(parityOld, parityNew);
 
 /** The text between two markers, both required. */
 const between = (s: string, a: string, b: string): string => {
@@ -87,7 +106,8 @@ describe('an unintended delay between hands pages after 15 minutes and grades ca
       flat(between(s, 'CASE WHEN s.rit_boards IS NOT NULL AND s.has_cadence THEN', 'AS owed_ms'));
     expect(owed(grade)).toBe(owed(script).replace(/NOT s\.tournament/g, 's.tournament_id IS NULL'));
     const facts = (s: string) => flat(between(s, 'AS shown_n,', 'AS has_cadence'));
-    expect(facts(grade)).toBe(facts(script).replace(/\bh\./g, 'pair.'));
+    expect(latestGrade).not.toBe(grade);
+    expect(facts(latestGrade)).toBe(facts(script).replace(/\bh\./g, 'pair.'));
   });
 
   it('adds nullable hand_history.cadence safely and never grades intended waits', () => {
