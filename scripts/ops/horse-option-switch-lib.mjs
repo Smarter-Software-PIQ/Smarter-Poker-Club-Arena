@@ -553,13 +553,39 @@ export function checkAuditSpacing({
 }
 
 /**
+ * Returns true when the text immediately preceding a `SEALED` token in the same clause
+ * expresses a future/conditional target (e.g. "UNTIL 1:00 AM CST SEALED", "HOLD ... -> ... SEALED",
+ * "NOT SEALED") or references an already-serving historical build ("ON SEALED <sha>").
+ */
+function isProspectiveOrReferenceSealPrefix(textBefore) {
+  const clause = textBefore.slice(textBefore.lastIndexOf(';') + 1);
+  if (/->|→/.test(clause)) return true;
+  if (
+    /\b(?:AFTER|UNTIL|TILL|BEFORE|NOT|ONCE|WHEN|WAITING\s+FOR|HELD|HOLD(?!\s+LIFTED)|HOLDING|NO\s+MERGES?|STOP\s+ALL|PAUSE)\b/i.test(
+      clause
+    )
+  ) {
+    return true;
+  }
+  if (/(?:\b(?:ON|OF|FROM|FOR)\s+|(?:POST|PRE)-)$/i.test(clause)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Fixed coordination inbox freeze parser (replaces switch.sh's brittle freeze_state()).
  * Handles:
  * - Both `T` and space between date and time, with or without `:SS` seconds
- * - `CUTOVER-N BOOKING` vs `CUTOVER-N (IS )?SEALED` and `SEALED <sha> (...CUTOVER-N...)`
- * - Negative lookbehind tokens (`AFTER`, `UNTIL`, `FOR`, `BEFORE`, `NOT`, `ONCE`, `WHEN`, `TILL`, `POST-`, `PRE-`)
- *   so incidental mentions like "after SEALED" never unlock an active cutover
- * - Legacy custodian `BOOKING MERGED` / `MAIN LOCKED` vs `SEALED`
+ * - Authoritative `CUTOVER-N BOOKING` vs `CUTOVER-N (IS )?SEALED` and `SEALED <sha> (...CUTOVER-N...)`
+ * - Newer non-numbered / dated cutover seals (`SEALED: 7:00 AM CST (13:00Z) ENGINE CUTOVER <sha>`,
+ *   `7:00 AM CST (13:00Z) SEALED`, `Engine Release <sha> SEALED`, `1906z SEALED <sha>`) clearing
+ *   earlier booked cutovers while older numbered seals (`CUTOVER-8 SEALED`) never clear a newer
+ *   numbered booking (`CUTOVER-9 BOOKING`)
+ * - Prospective/conditional clauses (`AFTER`, `UNTIL`, `FOR`, `BEFORE`, `NOT`, `ONCE`, `WHEN`,
+ *   `TILL`, `HOLD ... -> ... SEALED`, `POST-`, `PRE-`) so incidental mentions never unlock an active cutover
+ * - Authoritative `BOOKING MERGED`, `MAIN LOCKED`, `ENGINE CUTOVER DISPATCHED`, and active
+ *   `COMBINED CUTOVER HOLD` / `CUTOVER HOLD` entries detected fail-closed until cleared
  */
 export function evaluateInboxFreezeState(inboxText) {
   if (typeof inboxText !== 'string') {
@@ -569,17 +595,24 @@ export function evaluateInboxFreezeState(inboxText) {
     };
   }
 
-  const notYetPrefix =
-    '(?<!AFTER )(?<!UNTIL )(?<!FOR )(?<!BEFORE )(?<!NOT )(?<!ONCE )(?<!WHEN )(?<!TILL )(?<!POST-)(?<!PRE-)';
-  const cutoverSealedRe = new RegExp(`${notYetPrefix}\\bCUTOVER-(\\d+) (?:IS )?SEALED\\b`, 'g');
-  const sealedShaRe = new RegExp(`${notYetPrefix}\\bSEALED [0-9a-f]{7,}`);
-  const cutoverSealedSingleRe = new RegExp(`${notYetPrefix}\\bCUTOVER-\\d+ (?:IS )?SEALED\\b`);
+  const cutoverBookingRe =
+    /(?<!AFTER )(?<!UNTIL )(?<!BEFORE )(?<!FOR THE )(?<!ON THE )\bCUTOVER-(\d+) BOOKING\b(?!\s+TIME\b)/g;
+  const cutoverSealedRe = /\bCUTOVER-(\d+) (?:IS )?SEALED\b/g;
+  const sealedShaRe = /(?<!\w)SEALED:?\s+`?[0-9a-f]{7,}\b/;
+  const namedCutoverSealedRe =
+    /\b(?:[Ee]ngine\s+(?:[Cc]utover|[Rr]elease)|ENGINE\s+(?:CUTOVER|RELEASE)|CUTOVER|WINDOW)\b[^;]*\bSEALED\b/;
+  const datedCutoverSealedRe =
+    /(?:\b\d{1,2}:\d{2}\s*(?:AM|PM)\s*(?:CST|CDT|CT|UTC)\b|\b\d{2}:?\d{2}[Zz]\b)[^;]*\bSEALED\b/;
   const headingRe = /^## (\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?Z\s+(.*)$/gm;
+  const releaseAuthorityRe =
+    /\b(?:ENGINE )?CUSTODIAN\b|Dedicated Engine (?:Custodian|Cutover)|RELEASE (?:OPERATOR|OWNER)|\bRELEASE-\d+\b|\bRELEASE[-_ ]VERIFY\b|\bPLO-OWNER lead-\d+\b/i;
 
   const booked = new Map();
   const sealed = new Map();
+  let genericSeal = null;
   let lock = null;
   let seal = null;
+  let holdLift = null;
 
   for (const m of inboxText.matchAll(headingRe)) {
     const ts = `${m[1]}T${m[2]}${m[3] || ':00'}Z`;
@@ -587,18 +620,25 @@ export function evaluateInboxFreezeState(inboxText) {
     const sm = /SUBJECT:\s*(.*)$/.exec(rest);
     const subj = sm ? sm[1] : rest.replace(/^(?:\u2014|--)\s*/, '');
     const head = rest.includes(' TO ') ? rest.split(' TO ')[0] : rest;
+    const isAuthorityOrBare = releaseAuthorityRe.test(head) || !/\bFROM\b/.test(head);
 
-    for (const bm of subj.matchAll(/\bCUTOVER-(\d+) BOOKING\b/g)) {
-      const n = Number(bm[1]);
-      if (!booked.has(n) || ts > booked.get(n)) booked.set(n, ts);
+    if (isAuthorityOrBare) {
+      for (const bm of subj.matchAll(cutoverBookingRe)) {
+        const n = Number(bm[1]);
+        if (!booked.has(n) || ts > booked.get(n)) booked.set(n, ts);
+      }
     }
 
     const sealedNums = [];
     for (const csm of subj.matchAll(cutoverSealedRe)) {
-      sealedNums.push(Number(csm[1]));
+      if (!isProspectiveOrReferenceSealPrefix(subj.slice(0, csm.index))) {
+        sealedNums.push(Number(csm[1]));
+      }
     }
-    if (/^SEALED\b/.test(subj)) {
-      for (const cn of subj.matchAll(/\bCUTOVER-(\d+)\b/g)) {
+    const isLeadingSeal = /^`?SEALED\b/.test(subj);
+    if (isLeadingSeal) {
+      const firstClause = subj.split(';')[0];
+      for (const cn of firstClause.matchAll(/\bCUTOVER-(\d+)\b/g)) {
         sealedNums.push(Number(cn[1]));
       }
     }
@@ -606,22 +646,68 @@ export function evaluateInboxFreezeState(inboxText) {
       if (!sealed.has(n) || ts > sealed.get(n)) sealed.set(n, ts);
     }
 
-    const isCustodian =
-      /\b(?:ENGINE )?CUSTODIAN\b|Dedicated Engine Custodian|RELEASE OPERATOR|\bRELEASE-\d+\b/.test(
-        head
-      );
-    if (isCustodian) {
-      if (
+    if (isAuthorityOrBare) {
+      let isGenuineSeal = isLeadingSeal || sealedNums.length > 0;
+      if (!isGenuineSeal) {
+        const shaMatch = sealedShaRe.exec(subj);
+        if (shaMatch && !isProspectiveOrReferenceSealPrefix(subj.slice(0, shaMatch.index))) {
+          isGenuineSeal = true;
+        }
+      }
+      if (!isGenuineSeal) {
+        const namedMatch = namedCutoverSealedRe.exec(subj);
+        if (namedMatch) {
+          const sealedOffset = namedMatch.index + namedMatch[0].lastIndexOf('SEALED');
+          if (!isProspectiveOrReferenceSealPrefix(subj.slice(0, sealedOffset))) {
+            isGenuineSeal = true;
+          }
+        }
+      }
+      if (!isGenuineSeal) {
+        const datedMatch = datedCutoverSealedRe.exec(subj);
+        if (datedMatch) {
+          const sealedOffset = datedMatch.index + datedMatch[0].lastIndexOf('SEALED');
+          if (!isProspectiveOrReferenceSealPrefix(subj.slice(0, sealedOffset))) {
+            isGenuineSeal = true;
+          }
+        }
+      }
+
+      if (isGenuineSeal) {
+        if (!seal || ts > seal.ts) seal = { ts, subj: subj.slice(0, 90) };
+        if (sealedNums.length === 0) {
+          if (!genericSeal || ts > genericSeal.ts) {
+            genericSeal = { ts, subj: subj.slice(0, 90) };
+          }
+        }
+      } else if (
         /^(?:CUTOVER-\d+ )?BOOKING MERGED\b/.test(subj) ||
         /\bMAIN (?:IS |STAYS |NOW )?LOCKED\b/.test(subj)
       ) {
-        if (!lock || ts > lock.ts) lock = { ts, subj: subj.slice(0, 90) };
+        if (!lock || ts > lock.ts) {
+          lock = { ts, kind: 'lock', label: 'MAIN LOCKED', subj: subj.slice(0, 90) };
+        }
       } else if (
-        /^SEALED\b/.test(subj) ||
-        sealedShaRe.test(subj) ||
-        cutoverSealedSingleRe.test(subj)
+        /(?<!NOT )(?<!WAS )\b(?:ENGINE\s+CUTOVER|CUTOVER-\d+(?:\s+CERTIFIED\s*\+)?|\d{4}[Zz])\s+DISPATCHED\b/.test(
+          subj
+        ) &&
+        !/\bkeep-serving\b/i.test(subj)
       ) {
-        if (!seal || ts > seal.ts) seal = { ts, subj: subj.slice(0, 90) };
+        if (!lock || ts > lock.ts) {
+          lock = { ts, kind: 'lock', label: 'CUTOVER DISPATCHED', subj: subj.slice(0, 90) };
+        }
+      } else if (
+        /\b(?:COMBINED\s+)?CUTOVER\s+HOLD\b/.test(subj) &&
+        !/\bHOLD\s+LIFTED\b/i.test(subj) &&
+        !/\bACTIVE\s+AT\b/i.test(subj)
+      ) {
+        if (!lock || ts > lock.ts) {
+          lock = { ts, kind: 'hold', label: 'COMBINED CUTOVER HOLD', subj: subj.slice(0, 90) };
+        }
+      }
+
+      if (/\bHOLD\s+LIFTED\b/i.test(subj)) {
+        if (!holdLift || ts > holdLift.ts) holdLift = { ts, subj: subj.slice(0, 90) };
       }
     }
   }
@@ -629,8 +715,14 @@ export function evaluateInboxFreezeState(inboxText) {
   if (booked.size > 0) {
     const maxN = Math.max(...booked.keys());
     const bookedTs = booked.get(maxN);
-    const sealedTs = sealed.get(maxN) ?? '';
-    if (sealedTs < bookedTs) {
+    let clearingSealTs = '';
+    for (const [n, ts] of sealed.entries()) {
+      if (n >= maxN && ts > clearingSealTs) clearingSealTs = ts;
+    }
+    if (genericSeal && genericSeal.ts > clearingSealTs) {
+      clearingSealTs = genericSeal.ts;
+    }
+    if (clearingSealTs < bookedTs) {
       return {
         frozen: true,
         reason: `CUTOVER-${maxN} booked at ${bookedTs} and not SEALED since`,
@@ -638,18 +730,33 @@ export function evaluateInboxFreezeState(inboxText) {
     }
   }
 
-  if (lock && (!seal || seal.ts < lock.ts)) {
-    return {
-      frozen: true,
-      reason: `MAIN LOCKED at ${lock.ts} (${lock.subj}), no later SEALED`,
-    };
+  if (lock) {
+    const clearedBySeal = Boolean(seal && seal.ts >= lock.ts);
+    const clearedByLift = lock.kind === 'hold' && Boolean(holdLift && holdLift.ts >= lock.ts);
+    if (!clearedBySeal && !clearedByLift) {
+      return {
+        frozen: true,
+        reason: `${lock.label} at ${lock.ts} (${lock.subj}), no later SEALED`,
+      };
+    }
   }
 
-  if (sealed.size > 0) {
-    const maxSealed = Math.max(...sealed.keys());
+  let bestSealTs = genericSeal?.ts ?? '';
+  let bestSealDesc = genericSeal ? `last SEALED ${genericSeal.ts}` : '';
+  if (seal && seal.ts > bestSealTs) {
+    bestSealTs = seal.ts;
+    bestSealDesc = `last SEALED ${seal.ts}`;
+  }
+  for (const [n, ts] of sealed.entries()) {
+    if (ts >= bestSealTs) {
+      bestSealTs = ts;
+      bestSealDesc = `last CUTOVER-${n} SEALED ${ts}`;
+    }
+  }
+  if (bestSealDesc) {
     return {
       frozen: false,
-      reason: `not frozen (last CUTOVER-${maxSealed} SEALED ${sealed.get(maxSealed)})`,
+      reason: `not frozen (${bestSealDesc})`,
     };
   }
   return {

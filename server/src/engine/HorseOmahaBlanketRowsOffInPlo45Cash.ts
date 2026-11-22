@@ -79,6 +79,7 @@ export const OMAHA_BLANKET_ROWS_OFF_REGISTRY: readonly string[] = Object.freeze(
   'omahaReraisedPotStackOffFold',
   'omahaReraisedFoldVsTight',
   'omahaTightOpponent',
+  'omahaTurnBetNeedsRiverPlan',
   'v9Mood',
   // OMAHA_BLANKET_ROWS_OFF_EXTRA (below), in its order
   'omahaBigBetIsPotShare',
@@ -86,6 +87,7 @@ export const OMAHA_BLANKET_ROWS_OFF_REGISTRY: readonly string[] = Object.freeze(
   'ploSuitedAcesFourBet',
   'v86PloOverhaul',
   'v46Charts',
+  'omahaPairedBoardFoldRespectsPrice',
 ]);
 
 /**
@@ -95,6 +97,11 @@ export const OMAHA_BLANKET_ROWS_OFF_REGISTRY: readonly string[] = Object.freeze(
  * hand-class 4-bet and two umbrellas (the V86 Omaha overhaul and the V46 preflop charts) that an OFF row would take
  * away in PLO6, tournaments and, for the umbrellas, every other game. `false` is the off path of each (the law test
  * reads the read form in the source). None is classed 'priced' by the rule-site register.
+ * Added 2026-11-21 (EMERG RULES-FIX-1/LEAKS-RULES, AUDIT-B item 5): omahaPairedBoardFoldRespectsPrice (fixed price and
+ * stack thresholds, reclassed open; a carve-out of ploPairedBoardFold, list it only with that rule).
+ * NOTE (AUDIT-B item 14, PLO-OWNER lead-4 ruling 2026-11-21): v81OmahaBigBetCalls and v84OmahaRiverReraiseCalls are
+ * already registry members above via OMAHA_NO_CATEGORICAL_RULES_OFF; v87DeepDiveDiscipline stays OUT of this registry
+ * because V87 is under the owner hold (OPTION_SWITCH_REFUSED).
  */
 export const OMAHA_BLANKET_ROWS_OFF_EXTRA: readonly string[] = Object.freeze([
   'omahaBigBetIsPotShare',
@@ -102,6 +109,7 @@ export const OMAHA_BLANKET_ROWS_OFF_EXTRA: readonly string[] = Object.freeze([
   'ploSuitedAcesFourBet',
   'v86PloOverhaul',
   'v46Charts',
+  'omahaPairedBoardFoldRespectsPrice',
 ]);
 
 const LISTABLE: ReadonlySet<string> = new Set(OMAHA_BLANKET_ROWS_OFF_REGISTRY);

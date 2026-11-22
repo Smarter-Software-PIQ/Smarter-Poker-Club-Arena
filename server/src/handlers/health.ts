@@ -29,6 +29,10 @@ import {
 import { horsePlo5DepartureEvidence } from '../services/HorsePlo5DepartureEvidence.js';
 import { horseWorkScheduleEvidence } from '../services/HorseWorkSchedule.js';
 import { overlayCoverEvidence } from '../services/horseOverlayCover.js';
+import {
+  horseDecisionLatencyHealth,
+  type HorseDecisionLatencyHealthSnapshot,
+} from '../observability/HorseDecisionLatencyHealth.js';
 
 // Minimal structural typing so handlers don't need to import the GameServer
 // class (which lives in `index.ts`) nor the transport classes. Anything that
@@ -66,6 +70,11 @@ export interface HealthDeps {
    * In-memory and synchronous; a null leaves the body without the section.
    */
   horseDiamondSpins?: () => HorseSpinStatus | null;
+  /**
+   * Per-worker >100 ms starvation latency breakdown over a bounded 5-minute
+   * rolling window (read-only diagnostic; never moves routing readiness).
+   */
+  horseDecisionLatency?: () => HorseDecisionLatencyHealthSnapshot | null;
 }
 
 export interface WsMetricsDeps {
@@ -160,6 +169,7 @@ export function handleHealth(
   // The same rule for the Diamond Spins figures: diagnostics on a copy of the
   // body, never a routing verdict.
   const horseDiamondSpins = (deps.horseDiamondSpins ?? horseDiamondSpinsStatus)();
+  const horseDecisionLatency = (deps.horseDecisionLatency ?? horseDecisionLatencyHealth)();
   const status = {
     ...snapshot,
     ...(horseJournal ? { horseJournal } : {}),
@@ -171,6 +181,9 @@ export function handleHealth(
     // only, no identities. A diagnostic; never a routing verdict.
     horseWorkSchedule: horseWorkScheduleEvidence(),
     overlayCover: overlayCoverEvidence(),
+    // Per-worker >100 ms starvation telemetry (5-minute rolling window, bounded O(1) memory).
+    // Read-only diagnostic; never moves dealer routing readiness.
+    ...(horseDecisionLatency ? { horseDecisionLatency } : {}),
   };
   sendJSON(res, dealerReady ? 200 : 503, status);
 }

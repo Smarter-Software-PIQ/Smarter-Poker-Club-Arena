@@ -24,6 +24,7 @@ import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire, telemetryOn } from './BrainTelemetry.js';
 import { saveFastRandom } from './HorseEval.js';
 import { HorseMind } from './HorseMind.js';
+import { hudLifetimeCountOf, hudStat } from './opponentHud/OpponentHud.js';
 import { exploitEnvelopeFor } from './HorseOpponentExploit.js';
 import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
 import {
@@ -1243,4 +1244,85 @@ export function omahaPricedOwnsBigBetCalls(
 /** Test seam: run `fn` with the facing-bet range model in its stepped (off) mode. */
 export function omahaPricedWithoutMode<T>(fn: () => T): T {
   return withOmahaPricedMode(OMAHA_PRICED_MODE_OFF, fn);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// OPPONENT HUD NO-LOWERING (2026-11-21, lane OPPONENT-HUD; option omahaOpponentLifetimeHud, default OFF)
+// ---------------------------------------------------------------------------------------------------------------
+// Where the lifetime read would turn a raise into a call or a bet into a check BY ITSELF (the decayed read with the
+// PLO presumption would have raised or bet), the lowering stands only if a priced comparison says so: the raise
+// against the call (flop / turn sampled shares, his fold to a raise) or the bet against the check (turn / river), on
+// the response the lifetime read measures (his fold to a bet: hudStat, shrunk n / (n + k) to the population prior;
+// his fold to a raise: his raw lifetime cell, shrunk at use by the comparison). Null: not priceable here, and the
+// caller then does not consume the lifetime read at that site.
+
+const HUD_SK: Record<string, string> = { flop: 'f', turn: 't', river: 'r' };
+function hudPricedReadOf(
+  p: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): OmahaPricedRead {
+  const base = omahaPricedReadOfUser(p.user_id, gs, opts);
+  const family = String(gs.gameVariant ?? '').toLowerCase();
+  const sk = HUD_SK[String(gs.stage ?? '')];
+  if ((family !== 'plo4' && family !== 'plo5') || !sk || !p.user_id) return base;
+  const fb = hudStat(p.user_id, family, `${sk}.fBet`, null, false);
+  const fr = hudLifetimeCountOf(p.user_id, family, `${sk}.fRaise`);
+  return {
+    ...base,
+    foldToBet: fb.n > 0 && fb.p !== null ? fb.p : base.foldToBet,
+    foldToRaise: fr.n > 0 ? { hit: fr.hits, opp: fr.n } : base.foldToRaise,
+  };
+}
+/** The raise priced above the call on the lifetime read (true), the call above the raise (false), or null. */
+export function omahaHudPricedRaiseOverCall(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean | null {
+  try {
+    if (!omahaPricedInScope(player, gs, opts)) return null;
+    const spot = sampledSpot(player, gs);
+    if (!spot) return null;
+    const verdict = omahaPricedSampledRaise({
+      street: spot.street,
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      dead: player.knownDeadCards ?? [],
+      pot: num(gs.pot),
+      toCall: spot.toCall,
+      stack: num(player.stack),
+      heroBet: num(player.bet),
+      currentBet: num(gs.currentBet),
+      to: potRaiseTo(player, gs, spot.toCall),
+      inPosition: spot.inPosition,
+      opponents: spot.live.map((p) => ({
+        stack: num(p.stack),
+        bet: num(p.bet),
+        read: hudPricedReadOf(p, gs, opts),
+      })),
+      sizes: sampledSizes(player, gs, opts, spot.toCall),
+    });
+    return verdict ? verdict.raise === true : null;
+  } catch {
+    return null;
+  }
+}
+/** The best bet priced above the check on the lifetime read (true), the check above every bet (false), or null. */
+export function omahaHudPricedBetOverCheck(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean | null {
+  try {
+    if (!omahaPricedInScope(player, gs, opts)) return null;
+    const verdict = omahaPricedBet(player, gs, (seat: number) => {
+      const p = (gs.players ?? []).find((x) => x.seat === seat);
+      return p ? hudPricedReadOf(p, gs, opts) : null;
+    });
+    if (!verdict) return null;
+    return verdict.best !== null && verdict.best.ev > verdict.evCheck;
+  } catch {
+    return null;
+  }
 }

@@ -286,8 +286,26 @@ export const FLO8_SCRIPTED_PERSONAS: readonly Flo8ScriptedPersona[] = Object.fre
   FLO8_RIVER_FOLDER_PERSONA,
   FLO8_PASSIVE_CALLER_PERSONA,
 ]);
+/**
+ * THE OMAHA VALUE-LEADER FIELD (2026-11-20, Horse SWITCH lane, task #6). The
+ * Omaha development field's own profile with its POSTFLOP play pushed to the
+ * player HorseOmahaReadConditional labels a value leader: checked to it bets
+ * only its top hands (flop 15%, turn 14%, river 12% of holdings, no bluffs),
+ * facing a bet it folds more than the calibrated field (below 0.66 / 0.70 /
+ * 0.78 strength against 0.52 / 0.55 / 0.52) and raises only its best, so it
+ * rarely calls a river. Preflop it enters at the calibrated rate but raises
+ * only its top 7% first in (4% of big blinds over a limp), so its own raising
+ * disproves the maniac presumption and the read is measured. The label
+ * is earned by the read on the seat's measured play; nothing here sets it.
+ * It exists because the *VsValueLeader rules (all live) act only against a
+ * measured value leader and Horse self-play never produces one, so no card
+ * could grade them. A development persona, not a calibrated population.
+ * Omaha development field only (HorseLeague refuses it anywhere else).
+ */
+export const OMAHA_VALUE_LEADER_FIELD_PERSONA = 'omaha_value_leader_field_v1' as const;
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
+  | typeof OMAHA_VALUE_LEADER_FIELD_PERSONA
   | FixedLimitScriptedPersona
   | NlhScriptedPersona
   | Flo8ScriptedPersona
@@ -307,6 +325,7 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   HU_NIT_BIG_BLIND_PERSONA,
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
+  OMAHA_VALUE_LEADER_FIELD_PERSONA,
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,

@@ -64,11 +64,32 @@ const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([
  * shadow (a release-default classification, a separate switch-list change).
  */
 export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
+  // OPPONENT-HUD-9 2026-11-21: the lifetime-HUD consumer re-decides postflop (its only scope) while the store option is
+  // on and has attached the packet; with the store off no packet exists and the re-decision reads "same" (no reads).
+  omahaOpponentLifetimeHudDecides: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+    companions: Object.freeze(['omahaOpponentLifetimeHud']),
+  }),
+  // PLO-OWNER lead-4 B4 2026-11-21: priced six-max preflop read on lifetime HUD cells
+  omahaPreflopReadIsPricedFromLifetime: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['preflop']),
+    companions: Object.freeze(['omahaOpponentLifetimeHud']),
+  }),
   omahaBetSizeIsPricedForTheRange: PLO4_PLO5,
   omahaRiverCheckedToBetIsMeasured: PLO4_PLO5,
   omahaRiverFirstToActBetIsPriced: PLO4_PLO5,
+  omahaFlopBetIsPricedOnHisResponse: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
   omahaFourBetFoldPricedCall: PLO4_PLO5,
   omahaStabDefenceIsPriced: PLO4_PLO5,
+  omahaBigDrawBetIsPricedOnHisResponse: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn']),
+  }),
   omahaMathCorePlo5Flop: Object.freeze({
     games: Object.freeze([5] as const),
     streets: Object.freeze(['flop']),
