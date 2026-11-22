@@ -1,24 +1,32 @@
 /**
- * LAW: V78 COMMITTING BLUFF-RAISE PRICED REPLACEMENT (2026-11-22, Hold'em Strategy / HORSE DECISIONS).
+ * LAW: V78 COMMITTING BLUFF-RAISE PRICED REPLACEMENT (v2, 2026-11-22, Hold'em Strategy / HORSE DECISIONS).
  *
  * Replaces the blanket 40%-of-stack bluff-raise veto (`v78NoCommittingBluffRaise`) in single-board
  * 2-card NLH with deterministic public-info EV pricing (`HorseV78CommittingBluffRaisePriced.ts`)
- * over measured NLH fold priors (`holdemEmpiricalPriors.ts`) and tournament `heroBubbleFactor`.
+ * wired directly onto `#11759`'s Wave 5.4 NLH raise pricing stack in `holdemEmpiricalPriors.ts`:
+ *   - `estimateHoldemFoldToRaisePrior` (measured NLH flop/turn/river fold-to-raise priors)
+ *   - `conditionEquityAgainstRaiseCallRange` (Bayes raise-continuing equity conditioning)
+ *   - `priceHoldemRaiseEv` (fold / call / 3-bet reraise response EV over contestable pot)
+ *   - `heroBubbleFactor` tournament risk utility.
  *
  * Strictly dark, default OFF (`read === true`), held in `OPTION_SWITCH_REFUSED` (zero SQL migrations).
  *
  * Proves:
- *  1. Pure pricing math: determinism (zero `fastRandom()` draw), monotonicity in fold probability &
- *     HUD/ExploitCounters shrinkage, river all-in vs non-all-in fold distinction, flop texture/SPR
- *     conditioning, multiway product and all-in opponent fold=0, tournament bubble-factor scaling,
- *     effective contestable commitment cap, and fail-closed veto on unpriceable inputs.
+ *  1. Pure pricing math: determinism (zero `fastRandom()` draw), exact alignment with `#11759`'s
+ *     `estimateHoldemFoldToRaisePrior`, `conditionEquityAgainstRaiseCallRange`, and `priceHoldemRaiseEv`;
+ *     street ordering (`flop < turn < river` base fold-to-raise, `flop > turn > river` conditioned
+ *     retained equity); SPR, commitment, all-in, and multiway monotonicity; opponentSample & HUD
+ *     (`f/t/r.fRaise` > attenuated `f/t/r.fBet`) shrinkage; villain 3-bet reraise response on
+ *     non-all-in raises; `heroBubbleFactor` monotonicity; effective contestable stack cap; and
+ *     fail-closed veto on unpriceable inputs.
  *  2. OFF / unset / false is 100% byte-identical to `origin/main` across styles, streets, and seeds.
  *  3. Out-of-scope games (Omaha PLO4/PLO5, Short Deck, Fixed Limit, multi-board, bomb pot) are 100%
  *     untouched even when `v78NoCommittingBluffRaiseIsPriced: true`.
  *  4. Live `HorseLogic.decide` with ON emits `v78_committing_bluff_raise_priced_allowed` /
- *     `v78_committing_bluff_raise_priced_vetoed`, allows positive-EV committing raises >= 40% stack
- *     that blanket V78 vetoed, vetoes negative-EV bluff-raises even < 40% stack, obeys bubble factor,
- *     is label-neutral (human vs horse), and is 100% public-info-only (invariant to opponent hole cards).
+ *     `v78_committing_bluff_raise_priced_vetoed`, vetoes negative-EV committing turn bluff-raises
+ *     that v1 over-allowed, allows genuinely positive-EV committing raises >= 40% stack that blanket
+ *     V78 vetoed, obeys bubble factor, is label-neutral (human vs horse), and is 100% public-info-only
+ *     (invariant to opponent hole cards).
  *  5. Registered in `OPTION_SWITCH_REFUSED` and absent from `OPTION_SWITCH_NAMES` (zero migrations).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -28,7 +36,12 @@ import { OPTION_SWITCH_NAMES, OPTION_SWITCH_REFUSED } from './HorseOptionSwitch.
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
-  classifyHoldemFlopTexture,
+  HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE,
+  conditionEquityAgainstRaiseCallRange,
+  estimateHoldemFoldToRaisePrior,
+  priceHoldemRaiseEv,
+} from './holdemEmpiricalPriors.js';
+import {
   priceCommittingBluffRaise,
   type CommittingBluffRaisePriceInput,
 } from './HorseV78CommittingBluffRaisePriced.js';
@@ -69,7 +82,7 @@ function basePriceInput(
   };
 }
 
-function makeTurnSpot(opts: {
+function makeSpot(opts: {
   hole?: string;
   board?: string;
   heroBehind?: number;
@@ -208,7 +221,7 @@ function wagerOf(d: D) {
   return { action: d.action, amount: d.amount ?? null, thinkTime: d.thinkTime ?? null };
 }
 function runDecide(
-  s: ReturnType<typeof makeTurnSpot>,
+  s: ReturnType<typeof makeSpot>,
   style: string,
   seed: number,
   opts: Record<string, unknown> = {},
@@ -226,7 +239,7 @@ function runDecide(
   return { decision, wager: wagerOf(decision), fires };
 }
 
-describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced replacement)', () => {
+describe('LAW: v78NoCommittingBluffRaiseIsPriced v2 (#11759 priors + Bayes raise-continuing equity)', () => {
   beforeEach(() => {
     enableBrainTelemetry();
     HorseMind.reset();
@@ -237,7 +250,7 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
     drainFires();
   });
 
-  describe('1. Pure pricing math & invariants', () => {
+  describe('1. Pure pricing math & #11759 integration invariants', () => {
     it('is 100% deterministic and consumes zero fastRandom() draws', () => {
       const input = basePriceInput();
       seedFastRandom(123456);
@@ -251,8 +264,101 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
       expect(r1.allow).toBe(!r1.veto);
     });
 
-    it('replaces the flat 40% stack threshold: allows positive-EV committing raise (>= 40% stack) and vetoes negative-EV shallow raise (< 40% stack)', () => {
-      // Commits 67/84 = 79.8% of stack, but against an over-folding opponent with decent draw equity -> positive EV -> ALLOW
+    it('matches #11759 estimateHoldemFoldToRaisePrior, conditionEquityAgainstRaiseCallRange, and priceHoldemRaiseEv exactly', () => {
+      const input = basePriceInput({
+        street: 'turn',
+        legalAction: 'raise',
+        legalAmount: 67,
+        heroBet: 0,
+        heroStack: 84,
+        currentBet: 15,
+        pot: 34,
+        toCall: 15,
+        equity: 0.3,
+        spr: 2.5,
+        opponents: [{ stack: 400, bet: 15, isAllIn: false }],
+        heroBubbleFactor: 1,
+      });
+      const res = priceCommittingBluffRaise(input);
+
+      const expectedPrior = estimateHoldemFoldToRaisePrior({
+        street: 'turn',
+        raiseToBetRatio: 67 / 15,
+        raiseToPotRatio: 67 / 34,
+        opponentsInPot: 1,
+        spr: 2.5,
+        commitmentFactor: 15 / 415,
+        isAllInRaise: false,
+      });
+      const expectedEq = conditionEquityAgainstRaiseCallRange(0.3, expectedPrior.mean, {
+        street: 'turn',
+      });
+      const expectedEv = priceHoldemRaiseEv({
+        pot: 34,
+        toCall: 15,
+        heroAdded: 67,
+        rawEquity: 0.3,
+        villainCall: 52,
+        foldToRaiseProb: expectedPrior.mean,
+        equityConditioning: { street: 'turn' },
+        reraiseResponse: {
+          reraiseProb: HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE.turn.baseReraiseRate,
+          reraiseToCall: 84 - 67,
+        },
+      });
+
+      expect(res.foldPriorSource).toBe('pool_prior');
+      expect(res.foldProb).toBeCloseTo(expectedPrior.mean, 12);
+      expect(res.eqWhenCalled).toBeCloseTo(expectedEq, 12);
+      expect(res.eqWhenCalled).toBeLessThan(0.3);
+      expect(res.reraiseProb).toBeCloseTo(
+        HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE.turn.baseReraiseRate,
+        12
+      );
+      expect(res.evRaise).toBeCloseTo(expectedEv.evRaise, 12);
+      expect(res.baselineEv).toBeCloseTo(Math.max(0, expectedEv.evCall), 12);
+      // Key v2 fix: committing 67/84 on the turn with 30% raw equity into average pool is -EV -> VETO
+      expect(res.evRaise).toBeLessThan(res.baselineEv);
+      expect(res.allow).toBe(false);
+      expect(res.veto).toBe(true);
+      expect(res.reason).toBe('ev_non_positive');
+    });
+
+    it('obeys street fold-to-raise ordering (flop < turn < river) and Bayes conditioned equity ordering (flop > turn > river)', () => {
+      const sameGeom = (street: 'flop' | 'turn' | 'river') =>
+        priceCommittingBluffRaise(
+          basePriceInput({
+            street,
+            board:
+              street === 'flop'
+                ? cards('8c6h9h')
+                : street === 'turn'
+                  ? cards('8c6h9h3d')
+                  : cards('8c6h9h3d2s'),
+            legalAction: 'raise',
+            legalAmount: 45,
+            heroStack: 360,
+            currentBet: 15,
+            pot: 60,
+            toCall: 15,
+            equity: 0.35,
+            spr: 6.0,
+            opponents: [{ stack: 360, bet: 15, isAllIn: false }],
+          })
+        );
+      const flop = sameGeom('flop');
+      const turn = sameGeom('turn');
+      const river = sameGeom('river');
+      expect(flop.foldProb).toBeLessThan(turn.foldProb);
+      expect(turn.foldProb).toBeLessThan(river.foldProb);
+      // Higher street has BOTH higher fold rate and sharper truncation kappa -> strictly lower eqWhenCalled
+      expect(flop.eqWhenCalled).toBeGreaterThan(turn.eqWhenCalled);
+      expect(turn.eqWhenCalled).toBeGreaterThan(river.eqWhenCalled);
+      expect(flop.eqWhenCalled).toBeLessThan(0.35);
+    });
+
+    it('replaces the flat 40% stack threshold: allows genuinely +EV committing raise (>= 40% stack) vs over-folder and vetoes -EV shallow raise (< 40% stack)', () => {
+      // Commits 67/84 = 79.8% of stack, against a measured over-folder (32/40 fold-to-raise) -> positive EV -> ALLOW
       const highFold = priceCommittingBluffRaise(
         basePriceInput({
           legalAmount: 67,
@@ -263,19 +369,61 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
               stack: 400,
               bet: 15,
               isAllIn: false,
-              hudOpp: { eff: { 't.fb.bg.hu': [40, 32] } }, // 80% fold
+              hudOpp: { eff: { 't.fRaise': [40, 32] } },
             },
           ],
         })
       );
+      expect(highFold.foldPriorSource).toBe('hud_context');
       expect(highFold.add).toBe(67);
       expect(highFold.add / 84).toBeGreaterThanOrEqual(0.4);
+      expect(highFold.eqWhenCalled).toBeLessThan(0.36);
       expect(highFold.evRaise).toBeGreaterThan(highFold.baselineEv);
       expect(highFold.allow).toBe(true);
       expect(highFold.veto).toBe(false);
       expect(highFold.reason).toBe('ev_positive');
 
-      // Only commits 67/400 = 16.8% of stack (< 40%), but against a sticky calling station with low equity -> negative EV -> VETO
+      // Direct public opponentSample shrinkage works identically and takes precedence over HUD
+      const sampleAllow = priceCommittingBluffRaise(
+        basePriceInput({
+          legalAmount: 67,
+          heroStack: 84,
+          equity: 0.36,
+          opponents: [
+            {
+              stack: 400,
+              bet: 15,
+              isAllIn: false,
+              opponentSample: { folds: 32, opportunities: 40 },
+              hudOpp: { eff: { 't.fRaise': [40, 4] } },
+            },
+          ],
+        })
+      );
+      expect(sampleAllow.foldPriorSource).toBe('opponent_sample');
+      expect(sampleAllow.foldProb).toBeCloseTo(highFold.foldProb, 12);
+      expect(sampleAllow.allow).toBe(true);
+
+      // HUD first-bet fallback (`t.fBet`) is attenuated (doubled k) relative to exact `t.fRaise`
+      const hudRaiseSticky = priceCommittingBluffRaise(
+        basePriceInput({
+          opponents: [
+            { stack: 400, bet: 15, isAllIn: false, hudOpp: { eff: { 't.fRaise': [28, 3] } } },
+          ],
+        })
+      );
+      const hudBetSticky = priceCommittingBluffRaise(
+        basePriceInput({
+          opponents: [
+            { stack: 400, bet: 15, isAllIn: false, hudOpp: { eff: { 't.fBet': [28, 3] } } },
+          ],
+        })
+      );
+      expect(hudRaiseSticky.foldPriorSource).toBe('hud_context');
+      expect(hudBetSticky.foldPriorSource).toBe('hud_street');
+      expect(hudBetSticky.foldProb).toBeGreaterThan(hudRaiseSticky.foldProb);
+
+      // Only commits 67/400 = 16.8% of stack (< 40%), against sticky opponent -> negative EV -> VETO
       const lowFold = priceCommittingBluffRaise(
         basePriceInput({
           legalAmount: 67,
@@ -286,7 +434,7 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
               stack: 400,
               bet: 15,
               isAllIn: false,
-              hudOpp: { eff: { 't.fb.bg.hu': [40, 4] } }, // 10% fold
+              hudOpp: { eff: { 't.fRaise': [40, 4] } },
             },
           ],
         })
@@ -298,18 +446,20 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
       expect(lowFold.reason).toBe('ev_non_positive');
     });
 
-    it('distinguishes river all-in raise (29.9% base) vs river non-all-in raise (53.7% base)', () => {
+    it('distinguishes river non-all-in raise vs all-in raise (all-in drops foldProb and zeroes reraiseProb)', () => {
+      // Risk 65 to win 75 (potBeforeBet = 50 + oppBet = 25): break-even FE ~46.4%
       const nonAllIn = priceCommittingBluffRaise(
         basePriceInput({
           street: 'river',
           board: cards('8c6h9h3d2s'),
           legalAction: 'raise',
-          legalAmount: 90,
-          heroStack: 200,
+          legalAmount: 65,
+          heroStack: 160,
           currentBet: 25,
-          pot: 50,
+          pot: 75,
           toCall: 25,
           equity: 0.1,
+          spr: 4.5,
           opponents: [{ stack: 200, bet: 25, isAllIn: false }],
         })
       );
@@ -319,60 +469,78 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
           board: cards('8c6h9h3d2s'),
           legalAction: 'all_in',
           legalAmount: undefined,
-          heroStack: 90,
+          heroStack: 65,
           currentBet: 25,
-          pot: 50,
+          pot: 75,
           toCall: 25,
           equity: 0.1,
+          spr: 4.5,
           opponents: [{ stack: 200, bet: 25, isAllIn: false }],
         })
       );
       expect(nonAllIn.isAllInRaise).toBe(false);
       expect(allIn.isAllInRaise).toBe(true);
+      expect(nonAllIn.reraiseProb).toBeGreaterThan(0);
+      expect(allIn.reraiseProb).toBe(0);
       expect(nonAllIn.foldProb).toBeGreaterThan(allIn.foldProb);
       expect(nonAllIn.evRaise).toBeGreaterThan(allIn.evRaise);
       expect(nonAllIn.allow).toBe(true);
       expect(allIn.allow).toBe(false);
     });
 
-    it('conditions flop folds monotonically on texture (paired > unpaired > mono) and small IP SPR (mid > deep > low)', () => {
-      expect(classifyHoldemFlopTexture(cards('AhKhQh'))).toBe('mono');
-      expect(classifyHoldemFlopTexture(cards('AhAd7c'))).toBe('paired');
-      expect(classifyHoldemFlopTexture(cards('AhKd7c'))).toBe('unpaired_nonmono');
-
-      const flopOf = (boardStr: string, spr = 5) =>
+    it('is strictly monotonic in SPR (deeper -> more folds) and villain commitment (more committed -> fewer folds)', () => {
+      const atSpr = (spr: number) =>
         priceCommittingBluffRaise(
           basePriceInput({
             street: 'flop',
-            board: cards(boardStr),
-            inPosition: true,
-            spr,
-            legalAmount: 35,
+            board: cards('8c6h3d'),
+            legalAmount: 45,
             heroStack: 200,
             currentBet: 15,
             pot: 60,
             toCall: 15,
             equity: 0.3,
+            spr,
             opponents: [{ stack: 200, bet: 15, isAllIn: false }],
           })
         );
-      const paired = flopOf('8c8h3d');
-      const unpaired = flopOf('8c6h3d');
-      const mono = flopOf('8h6h3h');
-      expect(paired.foldProb).toBeGreaterThan(unpaired.foldProb);
-      expect(unpaired.foldProb).toBeGreaterThan(mono.foldProb);
-      expect(paired.evRaise).toBeGreaterThan(unpaired.evRaise);
-      expect(unpaired.evRaise).toBeGreaterThan(mono.evRaise);
+      const sprDeep = atSpr(10);
+      const sprMid = atSpr(5);
+      const sprLow = atSpr(1.5);
+      expect(sprDeep.foldProb).toBeGreaterThan(sprMid.foldProb);
+      expect(sprMid.foldProb).toBeGreaterThan(sprLow.foldProb);
 
-      // Small IP raise (potFraction <= 0.40) varies with SPR band: mid (3..7) > deep (>=7) > low (<3)
-      const sprMid = flopOf('8c6h3d', 5);
-      const sprDeep = flopOf('8c6h3d', 10);
-      const sprLow = flopOf('8c6h3d', 2);
-      expect(sprMid.foldProb).toBeGreaterThan(sprDeep.foldProb);
-      expect(sprDeep.foldProb).toBeGreaterThan(sprLow.foldProb);
+      // Villain with small remaining stack behind bet is pot-committed -> folds strictly less
+      const uncommitted = priceCommittingBluffRaise(
+        basePriceInput({
+          street: 'turn',
+          legalAmount: 45,
+          heroStack: 200,
+          currentBet: 15,
+          pot: 60,
+          toCall: 15,
+          equity: 0.25,
+          spr: 4,
+          opponents: [{ stack: 300, bet: 15, isAllIn: false }],
+        })
+      );
+      const committed = priceCommittingBluffRaise(
+        basePriceInput({
+          street: 'turn',
+          legalAmount: 45,
+          heroStack: 200,
+          currentBet: 15,
+          pot: 60,
+          toCall: 15,
+          equity: 0.25,
+          spr: 4,
+          opponents: [{ stack: 35, bet: 15, isAllIn: false }],
+        })
+      );
+      expect(uncommitted.foldProb).toBeGreaterThan(committed.foldProb);
     });
 
-    it('takes fold product over multiple live opponents and sets foldProb=0 when any opponent is all-in', () => {
+    it('reduces foldProb multiway and sets foldProb=0 when any opponent is all-in', () => {
       const hu = priceCommittingBluffRaise(
         basePriceInput({
           opponents: [{ stack: 400, bet: 15, isAllIn: false }],
@@ -400,6 +568,7 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
         })
       );
       expect(oneAllIn.foldProb).toBe(0);
+      expect(oneAllIn.eqWhenCalled).toBeCloseTo(0.25, 12);
       expect(oneAllIn.allow).toBe(false);
       expect(oneAllIn.veto).toBe(true);
 
@@ -414,27 +583,78 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
       expect(allAllIn.reason).toBe('no_foldable_opponent');
     });
 
-    it('scales negative called outcomes by heroBubbleFactor, turning borderline chip-EV raises into bubble vetoes', () => {
-      const spot = basePriceInput({
+    it('computes true expected utility E[u(X)] under heroBubbleFactor (no Jensen u(E[X]) bug), vetoing marginally +chipEV committing raises at bf = 2.0', () => {
+      // Case A: Borderline +chipEV river raise -> monotonically penalized by bf and vetoed at bf = 2.0
+      const riverSpot = basePriceInput({
         street: 'river',
         board: cards('8c6h9h3d2s'),
         legalAction: 'raise',
-        legalAmount: 90,
-        heroStack: 200,
+        legalAmount: 65,
+        heroStack: 160,
         currentBet: 25,
-        pot: 50,
+        pot: 75,
         toCall: 25,
         equity: 0.1,
+        spr: 4.5,
         opponents: [{ stack: 200, bet: 25, isAllIn: false }],
       });
-      const bf1 = priceCommittingBluffRaise({ ...spot, heroBubbleFactor: 1 });
-      const bf15 = priceCommittingBluffRaise({ ...spot, heroBubbleFactor: 1.5 });
-      const bf25 = priceCommittingBluffRaise({ ...spot, heroBubbleFactor: 2.5 });
+      const bf1 = priceCommittingBluffRaise({ ...riverSpot, heroBubbleFactor: 1 });
+      const bf15 = priceCommittingBluffRaise({ ...riverSpot, heroBubbleFactor: 1.5 });
+      const bf20 = priceCommittingBluffRaise({ ...riverSpot, heroBubbleFactor: 2.0 });
       expect(bf1.evRaise).toBeGreaterThan(bf15.evRaise);
-      expect(bf15.evRaise).toBeGreaterThan(bf25.evRaise);
+      expect(bf15.evRaise).toBeGreaterThan(bf20.evRaise);
       expect(bf1.allow).toBe(true);
-      expect(bf25.allow).toBe(false);
-      expect(bf25.veto).toBe(true);
+      expect(bf1.evRaise).toBeGreaterThan(0);
+      expect(bf20.evRaise).toBeLessThan(0);
+      expect(bf20.allow).toBe(false);
+      expect(bf20.veto).toBe(true);
+
+      // Case B: Direct Jensen's inequality proof — committing all-in semi-bluff where BOTH
+      // chip-EV(call) > 0 AND chip-EV(called) > 0, so buggy u(E[X]) would be completely blind to bf,
+      // while true E[u(X)] = e * (pot + callAdd) - (1 - e) * bf * add drops < 0 and VETOES at bf = 2.0!
+      const jensenSpot = basePriceInput({
+        street: 'flop',
+        board: cards('8c6h9h'),
+        legalAction: 'all_in',
+        legalAmount: undefined,
+        heroBet: 0,
+        heroStack: 100,
+        currentBet: 15,
+        pot: 50,
+        toCall: 15,
+        equity: 0.56,
+        spr: 2.0,
+        opponents: [
+          {
+            stack: 200,
+            bet: 15,
+            isAllIn: false,
+            opponentSample: { folds: 2, opportunities: 40 },
+          },
+        ],
+      });
+      const chip = priceCommittingBluffRaise({ ...jensenSpot, heroBubbleFactor: 1.0 });
+      const bubble = priceCommittingBluffRaise({ ...jensenSpot, heroBubbleFactor: 2.0 });
+
+      // Verify both call chip-EV and called chip-EV are strictly positive (so u(E[X]) would have ignored bf)
+      const calledChipEv =
+        chip.eqWhenCalled * (50 + chip.callAdd) - (1 - chip.eqWhenCalled) * chip.add;
+      expect(calledChipEv).toBeGreaterThan(0);
+      expect(chip.baselineEv).toBeGreaterThan(0);
+      expect(chip.evRaise).toBeGreaterThan(chip.baselineEv);
+      expect(chip.allow).toBe(true);
+
+      // Verify exact true E[u(X)] formulas at bf = 2.0:
+      const expectedBubbleBaseline = Math.max(0, 0.56 * 50 - (1 - 0.56) * 2.0 * 15);
+      const expectedBubbleCalledUtil =
+        bubble.eqWhenCalled * (50 + bubble.callAdd) - (1 - bubble.eqWhenCalled) * 2.0 * bubble.add;
+      const expectedBubbleEv =
+        bubble.foldProb * 50 + (1 - bubble.foldProb) * expectedBubbleCalledUtil;
+      expect(bubble.baselineEv).toBeCloseTo(expectedBubbleBaseline, 12);
+      expect(bubble.evRaise).toBeCloseTo(expectedBubbleEv, 12);
+      expect(bubble.evRaise).toBeLessThan(0);
+      expect(bubble.allow).toBe(false);
+      expect(bubble.veto).toBe(true);
     });
 
     it('caps effective hero commitment at what the deepest live opponent can match', () => {
@@ -453,6 +673,7 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
       // Max villain total on street = 15 + 50 = 65 -> hero can only risk 65, not 500
       expect(capped.add).toBe(65);
       expect(capped.callAdd).toBe(50);
+      expect(capped.reraiseProb).toBe(0);
     });
 
     it('fails closed to veto on unpriceable inputs or non-raise legalized actions', () => {
@@ -483,9 +704,9 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
   describe('2. HorseLogic.decide integration, OFF identity, and scope isolation', () => {
     it('OFF / unset / false is 100% byte-identical across styles, streets, and seeds with zero priced receipts', () => {
       const spots = [
-        makeTurnSpot({ hole: 'AsTd', heroBehind: 84, stage: 'turn' }),
-        makeTurnSpot({ hole: 'AhKh', board: '9h5h2c', heroBehind: 84, stage: 'flop' }),
-        makeTurnSpot({
+        makeSpot({ hole: 'AsTd', heroBehind: 84, stage: 'turn' }),
+        makeSpot({ hole: 'AhKh', board: '9h5h2c', heroBehind: 84, stage: 'flop' }),
+        makeSpot({
           hole: 'Ah5d',
           board: 'KhQh7c3d2h',
           heroBehind: 84,
@@ -511,12 +732,12 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
 
     it('Omaha (PLO4/PLO5), Short Deck, Fixed Limit, multi-board, and bomb pot are 100% untouched even when ON', () => {
       const outOfScope = [
-        makeTurnSpot({ hole: 'AsTd9s7d', variant: 'plo4', heroBehind: 84 }),
-        makeTurnSpot({ hole: 'AsTd9s7d5c', variant: 'plo5', heroBehind: 84 }),
-        makeTurnSpot({ hole: 'AsTd', variant: 'short_deck', heroBehind: 84 }),
-        makeTurnSpot({ hole: 'AsTd', variant: 'flh', heroBehind: 84 }),
-        makeTurnSpot({ hole: 'AsTd', multiBoard: true, heroBehind: 84 }),
-        makeTurnSpot({ hole: 'AsTd', bombPot: true, heroBehind: 84 }),
+        makeSpot({ hole: 'AsTd9s7d', variant: 'plo4', heroBehind: 84 }),
+        makeSpot({ hole: 'AsTd9s7d5c', variant: 'plo5', heroBehind: 84 }),
+        makeSpot({ hole: 'AsTd', variant: 'short_deck', heroBehind: 84 }),
+        makeSpot({ hole: 'AsTd', variant: 'flh', heroBehind: 84 }),
+        makeSpot({ hole: 'AsTd', multiBoard: true, heroBehind: 84 }),
+        makeSpot({ hole: 'AsTd', bombPot: true, heroBehind: 84 }),
       ];
       for (const s of outOfScope) {
         for (const style of ['balanced', 'lag'] as const) {
@@ -532,31 +753,26 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
       }
     });
 
-    it('when ON in single-board NLH: emits priced receipts, allows positive-EV committing raises, and vetoes negative-EV ones', () => {
-      const s = makeTurnSpot({ hole: 'AsTd', heroBehind: 84, stage: 'turn' });
-      let sawAllowed = false;
-      let sawBlanketVetoDiff = false;
+    it('when ON in single-board NLH: vetoes negative-EV committing turn bluff-raises and emits priced receipts', () => {
+      // Negative-EV committing turn bluff-raise (67/84 stack, low conditioned equity) -> VETOED by v2!
+      const negTurnSpot = makeSpot({ hole: 'AsTd', heroBehind: 84, stage: 'turn' });
+      let sawVetoed = false;
       for (const style of STYLES) {
         for (let seed = 1; seed <= 80; seed++) {
-          const off = runDecide(s, style, seed, {});
-          const on = runDecide(s, style, seed, { v78NoCommittingBluffRaiseIsPriced: true });
-          if (on.fires.includes('v78_committing_bluff_raise_priced_allowed')) {
-            sawAllowed = true;
+          const on = runDecide(negTurnSpot, style, seed, {
+            v78NoCommittingBluffRaiseIsPriced: true,
+          });
+          if (on.fires.includes('v78_committing_bluff_raise_priced_vetoed')) {
+            sawVetoed = true;
             expect(on.fires).not.toContain('v78_no_committing_bluff_raise');
-            if (
-              off.fires.includes('v78_no_committing_bluff_raise') &&
-              on.decision.action === 'raise'
-            ) {
-              sawBlanketVetoDiff = true;
-            }
+            expect(on.decision.action).not.toBe('raise');
           }
         }
       }
-      expect(sawAllowed).toBe(true);
-      expect(sawBlanketVetoDiff).toBe(true);
+      expect(sawVetoed).toBe(true);
 
-      // Tournament bubble spot with high heroBubbleFactor + low-equity scare-card/river bluff-raise -> VETO
-      const bubbleSpot = makeTurnSpot({
+      // Tournament bubble spot with high heroBubbleFactor -> also VETOED
+      const bubbleSpot = makeSpot({
         hole: 'AsTd',
         board: '8c6h9h3d',
         heroBehind: 84,
@@ -572,8 +788,24 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
           nearBubble: true,
         },
       });
-      // Also test a 3-way flop/turn semi-bluff spot where a 3rd player is already all-in (F=0 -> VETO)
-      const mwAllInSpot = makeTurnSpot({
+      let sawBubbleVetoed = false;
+      for (const style of STYLES) {
+        for (let seed = 1; seed <= 120; seed++) {
+          const on = runDecide(bubbleSpot, style, seed, {
+            v78NoCommittingBluffRaiseIsPriced: true,
+          });
+          if (on.fires.includes('v78_committing_bluff_raise_priced_vetoed')) {
+            sawBubbleVetoed = true;
+            expect(on.decision.action).not.toBe('raise');
+            break;
+          }
+        }
+        if (sawBubbleVetoed) break;
+      }
+      expect(sawBubbleVetoed).toBe(true);
+
+      // Multiway spot with an all-in opponent -> F = 0 -> VETOED
+      const mwAllInSpot = makeSpot({
         hole: 'AhKh',
         board: '9h5h2c3d',
         heroBehind: 84,
@@ -595,37 +827,92 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced (dark zero-migration priced rep
         is_sitting_out: false,
         is_horse: false,
       } as SeatPlayer);
-
-      let sawVetoed = false;
-      for (const testSpot of [mwAllInSpot, bubbleSpot]) {
-        for (const style of STYLES) {
-          for (let seed = 1; seed <= 120; seed++) {
-            const on = runDecide(testSpot, style, seed, {
-              v78NoCommittingBluffRaiseIsPriced: true,
-            });
-            if (on.fires.includes('v78_committing_bluff_raise_priced_vetoed')) {
-              sawVetoed = true;
-              expect(on.decision.action).not.toBe('raise');
-              break;
-            }
+      let sawMwAllInVetoed = false;
+      for (const style of STYLES) {
+        for (let seed = 1; seed <= 120; seed++) {
+          const on = runDecide(mwAllInSpot, style, seed, {
+            v78NoCommittingBluffRaiseIsPriced: true,
+          });
+          if (on.fires.includes('v78_committing_bluff_raise_priced_vetoed')) {
+            sawMwAllInVetoed = true;
+            expect(on.decision.action).not.toBe('raise');
+            break;
           }
-          if (sawVetoed) break;
         }
-        if (sawVetoed) break;
+        if (sawMwAllInVetoed) break;
       }
-      expect(sawVetoed).toBe(true);
+      expect(sawMwAllInVetoed).toBe(true);
+
+      // Deep-SPR turn check-raise bluff (`heroBehind: 1200`, `oppBet: 25`, `potBeforeBet: 30`):
+      // high SPR lifts fold-to-raise prior above break-even FE -> ALLOWED!
+      const deepTurnSpot = makeSpot({
+        hole: 'AsTd',
+        board: '8c6h9h3d',
+        heroBehind: 1200,
+        oppBehind: 1200,
+        oppBet: 25,
+        potBeforeBet: 30,
+        stage: 'turn',
+      });
+      let sawAllowed = false;
+      for (const style of STYLES) {
+        for (let seed = 1; seed <= 80; seed++) {
+          const on = runDecide(deepTurnSpot, style, seed, {
+            v78NoCommittingBluffRaiseIsPriced: true,
+          });
+          if (on.fires.includes('v78_committing_bluff_raise_priced_allowed')) {
+            sawAllowed = true;
+            expect(on.fires).not.toContain('v78_no_committing_bluff_raise');
+            expect(on.decision.action).toBe('raise');
+            break;
+          }
+        }
+        if (sawAllowed) break;
+      }
+      expect(sawAllowed).toBe(true);
+
+      // Contrast with blanket V78: a negative-EV < 40%-stack turn bluff-raise (`heroBehind: 400`,
+      // `oppBet: 15`, `potBeforeBet: 19`) that blanket V78 let through is cleanly VETOED by v2!
+      const shallowNegSpot = makeSpot({
+        hole: 'AsTd',
+        board: '8c6h9h3d',
+        heroBehind: 400,
+        oppBehind: 600,
+        oppBet: 15,
+        potBeforeBet: 19,
+        stage: 'turn',
+      });
+      let sawBlanketDiffVeto = false;
+      for (const style of STYLES) {
+        for (let seed = 1; seed <= 80; seed++) {
+          const off = runDecide(shallowNegSpot, style, seed, {});
+          const on = runDecide(shallowNegSpot, style, seed, {
+            v78NoCommittingBluffRaiseIsPriced: true,
+          });
+          if (
+            off.decision.action === 'raise' &&
+            on.fires.includes('v78_committing_bluff_raise_priced_vetoed') &&
+            on.decision.action !== 'raise'
+          ) {
+            sawBlanketDiffVeto = true;
+            break;
+          }
+        }
+        if (sawBlanketDiffVeto) break;
+      }
+      expect(sawBlanketDiffVeto).toBe(true);
     });
 
     it('is label-neutral (human vs horse) and public-info-only (invariant to opponent hole cards) when ON', () => {
       for (let seed = 1; seed <= 40; seed++) {
         const humanVillain = runDecide(
-          makeTurnSpot({ hole: 'AsTd', heroBehind: 84, flip: false, oppCards: 'KsKh' }),
+          makeSpot({ hole: 'AsTd', heroBehind: 84, flip: false, oppCards: 'KsKh' }),
           'lag',
           seed,
           { v78NoCommittingBluffRaiseIsPriced: true }
         );
         const horseVillain = runDecide(
-          makeTurnSpot({ hole: 'AsTd', heroBehind: 84, flip: true, oppCards: '2c4s' }),
+          makeSpot({ hole: 'AsTd', heroBehind: 84, flip: true, oppCards: '2c4s' }),
           'lag',
           seed,
           { v78NoCommittingBluffRaiseIsPriced: true }

@@ -32264,23 +32264,11 @@ export class HorseLogic {
               estAdd > 0 ? estAdd : undefined
             ) ?? 1)
           : 1;
-      const pricedOpponents: CommittingBluffRaiseOpponent[] = pricedCtx.opponents.map((o) => {
-        let exploitCounters: { foldToBet: number; foldToBetOpp: number } | null = null;
-        if (pricedCtx.useMind) {
-          try {
-            const c = HorseMind.foldToBetCountersOf(o.user_id);
-            if (c && c.opp > 0) exploitCounters = { foldToBet: c.hit, foldToBetOpp: c.opp };
-          } catch {
-            exploitCounters = null;
-          }
-        }
-        return {
-          stack: Number.isFinite(o.stack) ? Math.max(0, o.stack) : 0,
-          bet: Number.isFinite(o.bet) ? Math.max(0, o.bet) : 0,
-          isAllIn: o.is_all_in === true,
-          exploitCounters,
-        };
-      });
+      const pricedOpponents: CommittingBluffRaiseOpponent[] = pricedCtx.opponents.map((o) => ({
+        stack: Number.isFinite(o.stack) ? Math.max(0, o.stack) : 0,
+        bet: Number.isFinite(o.bet) ? Math.max(0, o.bet) : 0,
+        isAllIn: o.is_all_in === true,
+      }));
       const priced = priceCommittingBluffRaise({
         street: pricedCtx.street,
         legalAction: legal.action,

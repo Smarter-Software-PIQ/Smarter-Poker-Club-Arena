@@ -1,31 +1,38 @@
 /**
- * V78 COMMITTING BLUFF-RAISE PRICED REPLACEMENT (2026-11-22, Hold'em Strategy / HORSE DECISIONS;
+ * V78 COMMITTING BLUFF-RAISE PRICED REPLACEMENT (v2, 2026-11-22, Hold'em Strategy / HORSE DECISIONS;
  * option `v78NoCommittingBluffRaiseIsPriced`, read `=== true`, default OFF, `OPTION_SWITCH_REFUSED`).
  *
  * Replaces the unowned blanket 40%-of-stack bluff-raise veto (`v78NoCommittingBluffRaise`,
  * `added >= 0.4 * player.stack`) in single-board 2-card NLH with deterministic public-info EV
- * pricing over measured NLH fold priors (`holdemEmpiricalPriors.ts`) and tournament bubble
- * factor (`heroBubbleFactor`).
- *
- *   u(x)            = x < 0 ? x * bf : x               (bf = max(1, heroBubbleFactor ?? 1))
- *   EV(bluffRaise)  = F * pot + (1 - F) * u(e * (pot + add + callAdd) - add)
- *   baseline        = max(0, u(e * (pot + toCall) - toCall))
+ * pricing wired directly onto `#11759`'s Wave 5.4 NLH raise pricing stack in
+ * `holdemEmpiricalPriors.ts`:
+ *   - `estimateHoldemFoldToRaisePrior` (measured NLH flop/turn/river fold-to-raise priors over
+ *     raise geometry, SPR, villain commitment, all-in shift, multiway tightening/retention, and
+ *     optional public opponent fold-to-raise sample / HUD shrinkage),
+ *   - `conditionEquityAgainstRaiseCallRange` (exact Bayes power-law continuation conditioning with
+ *     street-specific range-truncation sharpness: flop 0.65 < turn 0.85 < river 1.0),
+ *   - `priceHoldemRaiseEv` (fold / call / villain 3-bet reraise response EV over contestable pot),
+ *   - `heroBubbleFactor` true expected utility `E[u(X)]` (`u(x) = x < 0 ? x * bf : x`, `bf = max(1, bf)`):
+ *       `callUtility    = e * pot - (1 - e) * bf * toCall`
+ *       `calledUtility  = eqWhenCalled * (pot + callAdd) - (1 - eqWhenCalled) * bf * add`
+ *       `reraiseUtility = max(-bf * add, eqVsReraise * (pot + callAdd + reraiseToCall) - (1 - eqVsReraise) * bf * (add + reraiseToCall))`
+ *       `evRaise        = f * pot + callProb * calledUtility + r3 * reraiseUtility`
+ *     (exact `priceHoldemRaiseEv` chip EV at `bf === 1`; avoids Jensen's inequality error of `u(E[X])`).
  *
  * Allows the raise iff `EV(bluffRaise) > baseline`; vetoes otherwise (and fails closed to veto
  * on any unpriceable input). Zero `fastRandom()` draw, zero opponent hole cards, zero direct
  * import of `opponentHud/` (preserving `TheHudProviderChangesNoDecision.law.test.ts`).
  */
 import type { Card } from '../types.js';
-import type { ExploitCounters } from './HorseOpponentExploit.js';
 import {
-  estimateHoldemFlopCbetFold,
-  estimateHoldemRiverFoldToRaise,
-  estimateHoldemTurnBetFold,
-  holdemVillainRaiseCallPrice,
+  HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE,
+  conditionEquityAgainstRaiseCallRange,
+  estimateHoldemFoldToRaisePrior,
+  priceHoldemRaiseEv,
   type HoldemEmpiricalStreet,
-  type HoldemFlopTexture,
+  type HoldemFoldToRaiseOpponentSample,
   type HoldemHudPacketOpponent,
-  type HoldemRiverRaiseKind,
+  type HoldemRaisePriorSource,
 } from './holdemEmpiricalPriors.js';
 
 const EPS = 1e-9;
@@ -37,10 +44,10 @@ export interface CommittingBluffRaiseOpponent {
   readonly bet: number;
   /** True when the opponent is already all-in (fold probability = 0). */
   readonly isAllIn: boolean;
-  /** Optional structural OpponentHud packet (no opponentHud/ import). */
+  /** Optional structural OpponentHud packet (`f/t/r.fRaise`, fallback `f/t/r.fBet`; no opponentHud/ import). */
   readonly hudOpp?: HoldemHudPacketOpponent | null;
-  /** Optional HorseMind ExploitCounters slice for Empirical-Bayes shrinkage. */
-  readonly exploitCounters?: Pick<ExploitCounters, 'foldToBet' | 'foldToBetOpp'> | null;
+  /** Optional public fold-to-raise action-count sample for Empirical-Bayes shrinkage (zero hole cards). */
+  readonly opponentSample?: HoldemFoldToRaiseOpponentSample | null;
 }
 
 export interface CommittingBluffRaisePriceInput {
@@ -59,7 +66,7 @@ export interface CommittingBluffRaisePriceInput {
   readonly pot: number;
   /** Chips hero needs to call without raising. */
   readonly toCall: number;
-  /** Hero's public-info equity estimate in [0, 1]. */
+  /** Hero's public-info equity estimate in [0, 1] vs villain's betting range. */
   readonly equity: number;
   /** True when hero is in position on this street. */
   readonly inPosition: boolean;
@@ -86,22 +93,13 @@ export interface CommittingBluffRaisePriceResult {
   readonly evRaise: number;
   readonly baselineEv: number;
   readonly foldProb: number;
+  readonly eqWhenCalled: number;
+  readonly reraiseProb: number;
   readonly add: number;
   readonly callAdd: number;
   readonly isAllInRaise: boolean;
+  readonly foldPriorSource: HoldemRaisePriorSource | null;
   readonly reason: CommittingBluffRaiseReason;
-}
-
-/** Classify flop board texture from the first 3 public community cards. */
-export function classifyHoldemFlopTexture(board: readonly Card[]): HoldemFlopTexture | undefined {
-  if (!Array.isArray(board) || board.length < 3) return undefined;
-  const b0 = board[0];
-  const b1 = board[1];
-  const b2 = board[2];
-  if (!b0 || !b1 || !b2) return undefined;
-  if (b0.suit === b1.suit && b1.suit === b2.suit) return 'mono';
-  if (b0.rank === b1.rank || b1.rank === b2.rank || b0.rank === b2.rank) return 'paired';
-  return 'unpaired_nonmono';
 }
 
 function vetoResult(
@@ -116,23 +114,28 @@ function vetoResult(
     evRaise: 0,
     baselineEv: Number.isFinite(baselineEv) ? baselineEv : 0,
     foldProb: 0,
+    eqWhenCalled: 0,
+    reraiseProb: 0,
     add: Number.isFinite(add) && add > 0 ? add : 0,
     callAdd: 0,
     isAllInRaise,
+    foldPriorSource: null,
     reason,
   };
 }
 
 /**
- * Deterministically prices a candidate NLH committing bluff-raise using measured empirical fold
- * priors (`holdemEmpiricalPriors.ts`) and tournament bubble factor.
+ * Deterministically prices a candidate NLH committing bluff-raise using `#11759`'s measured NLH
+ * street fold-to-raise priors (`estimateHoldemFoldToRaisePrior`), Bayes raise-continuing equity
+ * conditioning (`conditionEquityAgainstRaiseCallRange`), `priceHoldemRaiseEv`, and tournament
+ * bubble factor (`heroBubbleFactor`).
  *
  * Allows the raise iff `evRaise > baselineEv`; fails closed to veto on unpriceable inputs.
  */
 export function priceCommittingBluffRaise(
   input: CommittingBluffRaisePriceInput
 ): CommittingBluffRaisePriceResult {
-  const { street, legalAction, legalAmount, equity, inPosition, spr, board, opponents } = input;
+  const { street, legalAction, legalAmount, equity, spr, opponents } = input;
   if (street !== 'flop' && street !== 'turn' && street !== 'river') {
     return vetoResult('unpriceable_inputs');
   }
@@ -168,8 +171,8 @@ export function priceCommittingBluffRaise(
     Number.isFinite(input.heroBubbleFactor)
       ? Math.max(1, input.heroBubbleFactor)
       : 1;
-  const u = (x: number): number => (x < 0 ? x * bf : x);
-  const baselineEv = Math.max(0, u(equity * (pot + toCall) - toCall));
+  // True expected utility E[u(X)] for calling (winning gains +pot, losing drops -bf * toCall).
+  const baselineEv = Math.max(0, equity * pot - (1 - equity) * bf * toCall);
 
   let raiseTo: number;
   let rawAdd: number;
@@ -201,9 +204,11 @@ export function priceCommittingBluffRaise(
     return vetoResult('not_a_raise', baselineEv, rawAdd, isAllInRaise);
   }
 
-  // Validate opponent stacks/bets and find live non-all-in opponents.
+  // Validate opponent stacks/bets, locate foldable opponents and the primary bettor.
   let maxOppTotal = 0;
   let foldableCount = 0;
+  let hasAllInOpponent = false;
+  let primaryBettor: CommittingBluffRaiseOpponent | null = null;
   for (const opp of opponents) {
     if (
       !opp ||
@@ -214,14 +219,19 @@ export function priceCommittingBluffRaise(
     ) {
       return vetoResult('unpriceable_inputs', baselineEv, rawAdd, isAllInRaise);
     }
-    if (!opp.isAllIn && opp.stack > EPS) {
+    if (opp.isAllIn || !(opp.stack > EPS)) {
+      hasAllInOpponent = true;
+    } else {
       foldableCount++;
       const total = opp.bet + opp.stack;
       if (total > maxOppTotal) maxOppTotal = total;
+      if (primaryBettor === null || opp.bet > primaryBettor.bet) {
+        primaryBettor = opp;
+      }
     }
   }
 
-  if (foldableCount === 0) {
+  if (foldableCount === 0 || primaryBettor === null) {
     return vetoResult('no_foldable_opponent', baselineEv, rawAdd, isAllInRaise);
   }
 
@@ -232,86 +242,118 @@ export function priceCommittingBluffRaise(
     return vetoResult('no_foldable_opponent', baselineEv, rawAdd, isAllInRaise);
   }
 
-  const headsUp = opponents.length === 1;
-  const texture = street === 'flop' ? classifyHoldemFlopTexture(board) : undefined;
-  const safeSpr = Number.isFinite(spr) && spr >= 0 ? spr : undefined;
-
-  let foldProb = 1;
   let callAdd = 0;
-
+  let maxOppRemainingAfterCall = 0;
+  let anyZeroCallAdd = false;
   for (const opp of opponents) {
-    // An all-in opponent cannot fold -> product F = 0.
-    if (opp.isAllIn || !(opp.stack > EPS)) {
-      foldProb = 0;
-      continue;
-    }
+    if (opp.isAllIn || !(opp.stack > EPS)) continue;
     const oppCallAdd = Math.min(opp.stack, Math.max(0, effRaiseTo - opp.bet));
     if (oppCallAdd > callAdd) callAdd = oppCallAdd;
     if (!(oppCallAdd > EPS)) {
-      foldProb = 0;
-      continue;
+      anyZeroCallAdd = true;
     }
-
-    let oppFold: number;
-    if (street === 'river') {
-      const villainCallPrice = holdemVillainRaiseCallPrice(
-        pot,
-        effRaiseTo,
-        heroBet,
-        opp.bet,
-        heroStack,
-        opp.stack
-      );
-      const raiseKind: HoldemRiverRaiseKind =
-        isAllInRaise || oppCallAdd >= opp.stack - EPS ? 'all_in_raise' : 'non_allin_raise';
-      oppFold = estimateHoldemRiverFoldToRaise({ raiseKind, villainCallPrice }, opp.hudOpp).mean;
-    } else {
-      const potBeforeCall = pot + add - oppCallAdd;
-      const potFraction = potBeforeCall > EPS ? oppCallAdd / potBeforeCall : 0;
-      if (street === 'flop') {
-        oppFold = estimateHoldemFlopCbetFold(
-          {
-            bettorInPosition: inPosition,
-            potFraction,
-            texture,
-            spr: safeSpr,
-            headsUp,
-          },
-          opp.hudOpp,
-          opp.exploitCounters
-        ).mean;
-      } else {
-        oppFold = estimateHoldemTurnBetFold(
-          {
-            bettorInPosition: inPosition,
-            potFraction,
-            headsUp,
-          },
-          opp.hudOpp,
-          opp.exploitCounters
-        ).mean;
-      }
-    }
-
-    foldProb *= oppFold;
+    const remAfterCall = Math.max(0, opp.stack - oppCallAdd);
+    if (remAfterCall > maxOppRemainingAfterCall) maxOppRemainingAfterCall = remAfterCall;
   }
 
-  const calledNet = equity * (pot + add + callAdd) - add;
-  const evRaise = foldProb * pot + (1 - foldProb) * u(calledNet);
-  if (!Number.isFinite(evRaise) || !Number.isFinite(baselineEv)) {
+  // Compute empirical NLH fold-to-raise probability (`F`) via `#11759`'s `estimateHoldemFoldToRaisePrior`.
+  // Any already-all-in or already-matched opponent forces `F = 0` (cannot win pot without showdown).
+  let foldProb = 0;
+  let foldPriorSource: HoldemRaisePriorSource | null = null;
+  if (!hasAllInOpponent && !anyZeroCallAdd) {
+    const bettorBet = primaryBettor.bet > EPS ? primaryBettor.bet : currentBet;
+    const raiseToBetRatio = bettorBet > EPS ? effRaiseTo / bettorBet : undefined;
+    const raiseToPotRatio = pot > EPS ? add / pot : undefined;
+    const safeSpr = Number.isFinite(spr) && spr >= 0 ? spr : undefined;
+    const bettorTotal = primaryBettor.bet + primaryBettor.stack;
+    const commitmentFactor =
+      primaryBettor.bet > EPS && bettorTotal > EPS ? primaryBettor.bet / bettorTotal : 0;
+    const bettorCallAdd = Math.min(
+      primaryBettor.stack,
+      Math.max(0, effRaiseTo - primaryBettor.bet)
+    );
+    const effectiveAllIn = isAllInRaise || bettorCallAdd >= primaryBettor.stack - EPS;
+
+    const priorEst = estimateHoldemFoldToRaisePrior({
+      street,
+      raiseToBetRatio,
+      raiseToPotRatio,
+      opponentsInPot: opponents.length,
+      spr: safeSpr,
+      commitmentFactor,
+      isAllInRaise: effectiveAllIn,
+      opponentSample: primaryBettor.opponentSample ?? null,
+      hudOpp: primaryBettor.hudOpp ?? null,
+    });
+    foldProb = priorEst.mean;
+    foldPriorSource = priorEst.source;
+  }
+
+  // Condition hero's called equity on villain's stronger raise-continuing range via Bayes power-law kernel.
+  const eqWhenCalled = conditionEquityAgainstRaiseCallRange(equity, foldProb, { street });
+
+  // Non-all-in raises with chips behind on both sides face villain's measured street 3-bet / jam response.
+  const heroRemainingAfterRaise = Math.max(0, heroStack - add);
+  const canBeReraised =
+    !isAllInRaise && heroRemainingAfterRaise > EPS && maxOppRemainingAfterCall > EPS;
+  const reraiseResponse = canBeReraised
+    ? {
+        reraiseProb: HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE[street].baseReraiseRate,
+        reraiseToCall: Math.min(heroRemainingAfterRaise, maxOppRemainingAfterCall),
+      }
+    : null;
+
+  const pricedEv = priceHoldemRaiseEv({
+    pot,
+    toCall,
+    heroAdded: add,
+    rawEquity: equity,
+    villainCall: callAdd,
+    foldToRaiseProb: foldProb,
+    equityConditioning: { street },
+    eqWhenCalledOverride: eqWhenCalled,
+    reraiseResponse,
+  });
+
+  // Apply tournament bubble-factor true expected utility E[u(X)] (equals pricedEv.evRaise at bf === 1).
+  const effAdd = pricedEv.effectiveHeroAdded;
+  const effCallAdd = pricedEv.villainCall;
+  const finalBaselineEv = Math.max(0, equity * pot - (1 - equity) * bf * toCall);
+  const calledUtility =
+    pricedEv.eqWhenCalled * (pot + effCallAdd) - (1 - pricedEv.eqWhenCalled) * bf * effAdd;
+  let reraiseUtility = 0;
+  if (pricedEv.reraiseProb > 0 && reraiseResponse !== null && pricedEv.eqVsReraise !== null) {
+    const r3Call = reraiseResponse.reraiseToCall;
+    const totalRisk = effAdd + r3Call;
+    const winNetVsReraise = pot + effCallAdd + r3Call;
+    const callReraiseUtility =
+      pricedEv.eqVsReraise * winNetVsReraise - (1 - pricedEv.eqVsReraise) * bf * totalRisk;
+    reraiseUtility = Math.max(-bf * effAdd, callReraiseUtility);
+  }
+  const evRaise =
+    bf === 1
+      ? pricedEv.evRaise
+      : pricedEv.foldToRaiseProb * pot +
+        pricedEv.callProb * calledUtility +
+        (pricedEv.reraiseProb > 0 ? pricedEv.reraiseProb * reraiseUtility : 0);
+
+  if (!Number.isFinite(evRaise) || !Number.isFinite(finalBaselineEv)) {
     return vetoResult('unpriceable_inputs', baselineEv, add, isAllInRaise);
   }
 
-  const allow = evRaise > baselineEv;
+  const allow = evRaise > finalBaselineEv;
   return {
     allow,
     veto: !allow,
     evRaise,
-    baselineEv,
-    foldProb,
-    add,
-    callAdd,
+    baselineEv: finalBaselineEv,
+    foldProb: pricedEv.foldToRaiseProb,
+    eqWhenCalled: pricedEv.eqWhenCalled,
+    reraiseProb: pricedEv.reraiseProb,
+    add: pricedEv.effectiveHeroAdded,
+    callAdd: pricedEv.villainCall,
     isAllInRaise,
+    foldPriorSource,
     reason: allow ? 'ev_positive' : 'ev_non_positive',
   };
 }
