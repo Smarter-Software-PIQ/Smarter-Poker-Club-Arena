@@ -77,6 +77,15 @@ import { ButtonImagePreloader } from '../components/table/ButtonImagePreloader';
 import { WaitlistCallToAction } from '../components/table/WaitlistCallToAction';
 import { TournamentLateRegCallToAction } from '../components/table/TournamentLateRegCallToAction';
 import { HeadsUpWaitingModal, type HeadsUpWaitMode } from '../components/table/HeadsUpWaitingModal';
+import {
+  appendHeadsUpInviteToken,
+  fromHeadsUpWaitModeDb,
+  headsUpWaitModeErrorText,
+  normalizeHeadsUpInviteToken,
+  parseHeadsUpHoldExpiresAtMs,
+  parseHeadsUpInviteToken,
+  toHeadsUpWaitModeDb,
+} from '../utils/headsUpWaitMode';
 import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
 import { gameInviteText, gameInviteUrl, shareLink, tableShareUrl } from '../lib/share';
 
@@ -6364,8 +6373,22 @@ function LiveTablePage({
    * clock and handed back in device time, which every timer here runs on.
    */
   const dbClockOffsetMsRef = useRef(0);
+  const headsUpWaitModeRef = useRef<HeadsUpWaitMode | null>(null);
+  const headsUpInviteTokenRef = useRef<string | null>(null);
+  const headsUpHoldExpiresAtMsRef = useRef<number | null>(null);
   const partnerHoldEndsLocalMs = (startTimeMs: number | null | undefined): number => {
     const offset = dbClockOffsetMsRef.current;
+    if (seatFirstSeatsRef.current === 2 && seatFirstLabelRef.current === 'Heads Up') {
+      if (headsUpWaitModeRef.current === 'anyone') return -Infinity;
+      if (headsUpWaitModeRef.current === 'specific') {
+        const expiresServerMs = headsUpHoldExpiresAtMsRef.current;
+        if (expiresServerMs !== null && Number.isFinite(expiresServerMs)) {
+          const localExpires = expiresServerMs + offset;
+          return localExpires > Date.now() ? localExpires : -Infinity;
+        }
+        return -Infinity;
+      }
+    }
     const seatedServerMs =
       heroSeatJoinedAtRef.current ??
       (seatAcquiredAtRef.current !== null ? seatAcquiredAtRef.current - offset : null);
@@ -6466,17 +6489,134 @@ function LiveTablePage({
   seatFirstLabelRef.current = seatFirstBuyIn?.label ?? '';
   const [seatFirstPending, setSeatFirstPending] = useState(false);
   const [headsUpWaitMode, setHeadsUpWaitMode] = useState<HeadsUpWaitMode | null>(null);
+  const [headsUpInviteToken, setHeadsUpInviteToken] = useState<string | null>(null);
+  const [headsUpHoldExpiresAtMs, setHeadsUpHoldExpiresAtMs] = useState<number | null>(null);
+  const [headsUpModeSaving, setHeadsUpModeSaving] = useState(false);
+  const [headsUpModeError, setHeadsUpModeError] = useState<string | null>(null);
   const [headsUpPromptOpen, setHeadsUpPromptOpen] = useState(false);
   const [headsUpPromptStep, setHeadsUpPromptStep] = useState<'choice' | 'invite'>('choice');
   const [tableInviteFallbackUrl, setTableInviteFallbackUrl] = useState('');
+  headsUpWaitModeRef.current = headsUpWaitMode;
+  headsUpInviteTokenRef.current = headsUpInviteToken;
+  headsUpHoldExpiresAtMsRef.current = headsUpHoldExpiresAtMs;
+  const headsUpInviteParam = useMemo(
+    () => parseHeadsUpInviteToken(location.search),
+    [location.search]
+  );
 
   useEffect(() => {
     setTableInviteFallbackUrl('');
+    setHeadsUpInviteToken(null);
+    setHeadsUpHoldExpiresAtMs(null);
+    setHeadsUpModeError(null);
   }, [tableId]);
 
   const handleCloseHeadsUpPrompt = useCallback(() => {
     setHeadsUpPromptOpen(false);
+    setHeadsUpModeError(null);
   }, []);
+
+  const persistHeadsUpWaitMode = useCallback(
+    async (mode: HeadsUpWaitMode): Promise<boolean> => {
+      if (!tableId) return false;
+      setHeadsUpModeSaving(true);
+      setHeadsUpModeError(null);
+      try {
+        const { data, error } = await supabase.rpc('fn_set_heads_up_wait_mode', {
+          p_table_id: tableId,
+          p_mode: toHeadsUpWaitModeDb(mode),
+        });
+        const res = (data ?? {}) as {
+          ok?: boolean;
+          reason?: string;
+          mode?: string;
+          invite_token?: string | null;
+          hold_expires_at?: string | null;
+        };
+        if (error || !res.ok) {
+          const reason = error?.message || res.reason || '';
+          const message = headsUpWaitModeErrorText(reason);
+          reportError(
+            new Error(`fn_set_heads_up_wait_mode failed: ${reason || 'unknown'}`),
+            'TablePage.heads_up_wait_mode_failed',
+            { tableId, mode, reason }
+          );
+          setHeadsUpModeError(message);
+          toast?.error?.(message);
+          return false;
+        }
+        const persistedMode = fromHeadsUpWaitModeDb(res.mode) ?? mode;
+        const nextToken =
+          persistedMode === 'specific' ? normalizeHeadsUpInviteToken(res.invite_token) : null;
+        const nextExpiresMs =
+          persistedMode === 'specific' ? parseHeadsUpHoldExpiresAtMs(res.hold_expires_at) : null;
+        setHeadsUpWaitMode(persistedMode);
+        setHeadsUpInviteToken(nextToken);
+        setHeadsUpHoldExpiresAtMs(nextExpiresMs);
+        setHeadsUpModeError(null);
+        if (persistedMode === 'specific') {
+          setHeadsUpPromptStep('invite');
+        } else {
+          toast?.info?.('Table Open, Waiting For Any Available Player');
+        }
+        return true;
+      } catch (err) {
+        const message = headsUpWaitModeErrorText(undefined);
+        reportError(err as Error, 'TablePage.heads_up_wait_mode_exception', { tableId, mode });
+        setHeadsUpModeError(message);
+        toast?.error?.(message);
+        return false;
+      } finally {
+        setHeadsUpModeSaving(false);
+      }
+    },
+    [tableId, toast]
+  );
+
+  // Hydrate persisted Heads-Up wait mode + invite token on mount/reload so
+  // refreshing the browser preserves 'specific_player' mode and its exact link.
+  useEffect(() => {
+    const tournId = tableState.tournamentId;
+    const isPreStartHeadsUpHero =
+      Boolean(tableId) &&
+      Boolean(tournId) &&
+      Boolean(userId) &&
+      seatFirstBuyIn?.seats === 2 &&
+      seatFirstBuyIn.label === 'Heads Up' &&
+      tableState.heroSeat > 0 &&
+      !playHasBegun;
+    if (!isPreStartHeadsUpHero || !tournId || !userId) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from('heads_up_wait_holds')
+        .select('wait_mode, invite_token, hold_expires_at')
+        .eq('tournament_id', tournId)
+        .eq('creator_user_id', userId)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      const row = data as {
+        wait_mode?: string | null;
+        invite_token?: string | null;
+        hold_expires_at?: string | null;
+      };
+      const hydratedMode = fromHeadsUpWaitModeDb(row.wait_mode);
+      if (!hydratedMode) return;
+      setHeadsUpWaitMode(hydratedMode);
+      if (hydratedMode === 'specific') {
+        setHeadsUpInviteToken(normalizeHeadsUpInviteToken(row.invite_token));
+        setHeadsUpHoldExpiresAtMs(parseHeadsUpHoldExpiresAtMs(row.hold_expires_at));
+      } else {
+        setHeadsUpInviteToken(null);
+        setHeadsUpHoldExpiresAtMs(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tableId, tableState.tournamentId, tableState.heroSeat, userId, seatFirstBuyIn, playHasBegun]);
 
   const handleInviteToGame = useCallback(async () => {
     if (!tableId) return;
@@ -6488,11 +6628,15 @@ function LiveTablePage({
       current.isTournament &&
       Boolean(current.tournamentId) &&
       !isSeatFirstOpen;
-    const url = lightning?.clusterId
+    const baseUrl = lightning?.clusterId
       ? gameInviteUrl({ kind: 'lightning', id: lightning.clusterId })
       : isTournamentShare && current.tournamentId
         ? gameInviteUrl({ kind: 'tournament', id: current.tournamentId })
         : gameInviteUrl({ kind: 'table', id: tableId });
+    const url =
+      isSeatFirstOpen && headsUpWaitModeRef.current === 'specific'
+        ? appendHeadsUpInviteToken(baseUrl, headsUpInviteTokenRef.current)
+        : baseUrl;
     const gameTitle =
       (isTournamentShare ? tournamentEventNameRef.current : '') ||
       lightning?.meta?.name ||
@@ -6527,6 +6671,9 @@ function LiveTablePage({
       setHeadsUpPromptOpen(false);
       if (!seatFirstBuyIn || playHasBegun || tableState.heroSeat <= 0) {
         setHeadsUpWaitMode(null);
+        setHeadsUpInviteToken(null);
+        setHeadsUpHoldExpiresAtMs(null);
+        setHeadsUpModeError(null);
       }
     }
   }, [seatFirstBuyIn, playHasBegun, tableState.heroSeat, seatFirstOccupiedCount]);
@@ -6611,7 +6758,7 @@ function LiveTablePage({
       if (counting || ticks % 15 === 0) setSeatFillClock(Date.now());
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [seatFirstBuyIn, tableState.heroSeat, playHasBegun]);
+  }, [seatFirstBuyIn, tableState.heroSeat, playHasBegun, headsUpWaitMode, headsUpHoldExpiresAtMs]);
   /**
    * Which tournament the seat-first recovery has already settled, so it asks
    * once per game rather than on every render that leaves seat-first null. A
@@ -24719,6 +24866,40 @@ function LiveTablePage({
         /* audio is best-effort and must never block a buy-in */
       }
       try {
+        // Heads-Up specific-player invite hold: verify server-side before taking
+        // seat 2 so uninvited players cannot snipe a seat reserved via invite link.
+        if (seatFirstSeatsRef.current === 2 && seatFirstLabelRef.current === 'Heads Up') {
+          const { data: inviteData, error: inviteError } = await supabase.rpc(
+            'fn_check_heads_up_seat_invite',
+            {
+              p_table_id: tableId,
+              p_invite_token: headsUpInviteParam,
+            }
+          );
+          const inviteRes = (inviteData ?? {}) as {
+            ok?: boolean;
+            allowed?: boolean;
+            reason?: string;
+          };
+          if (inviteError) {
+            setSeatFirstConfirm(null);
+            reportError(
+              new Error(`heads_up_seat_invite check failed: ${inviteError.message}`),
+              'TablePage.heads_up_seat_invite_check_failed',
+              { tableId, seatNumber }
+            );
+            toast?.error?.('Could Not Verify Seat Reservation, Please Try Again');
+            return;
+          }
+          if (inviteRes.allowed === false) {
+            setSeatFirstConfirm(null);
+            toast?.error?.(
+              seatFirstBuyInRefusalText(inviteRes.reason || 'heads_up_invite_required')
+            );
+            return;
+          }
+        }
+
         const { data, error } = await supabase.rpc('fn_take_seat_and_buy_in', {
           p_table_id: tableId,
           p_seat_number: seatNumber,
@@ -24876,6 +25057,9 @@ function LiveTablePage({
             needed === 2 && taken <= 1 && seatFirstLabelRef.current === 'Heads Up';
           if (isEmptyHeadsUpSng) {
             setHeadsUpWaitMode(null);
+            setHeadsUpInviteToken(null);
+            setHeadsUpHoldExpiresAtMs(null);
+            setHeadsUpModeError(null);
             setHeadsUpPromptStep('choice');
             setHeadsUpPromptOpen(true);
           } else {
@@ -24897,7 +25081,7 @@ function LiveTablePage({
         setSeatFirstPending(false);
       }
     },
-    [tableId, seatFirstPending, tableState.tournamentId, navigate, toast]
+    [tableId, seatFirstPending, tableState.tournamentId, headsUpInviteParam, navigate, toast]
   );
 
   /**
@@ -31669,15 +31853,11 @@ function LiveTablePage({
           isOpen={headsUpPromptOpen && isVisible}
           initialStep={headsUpPromptStep}
           tableName={tournamentEventName || tableState.tableName || 'Heads Up Sit N Go'}
-          inviteUrl={tableShareUrl(tableId)}
-          onChooseSpecific={() => {
-            setHeadsUpWaitMode('specific');
-            setHeadsUpPromptStep('invite');
-          }}
-          onChooseAnyone={() => {
-            setHeadsUpWaitMode('anyone');
-            toast?.info?.('Table Open, Waiting For Any Available Player');
-          }}
+          inviteUrl={appendHeadsUpInviteToken(tableShareUrl(tableId), headsUpInviteToken)}
+          busy={headsUpModeSaving}
+          errorMessage={headsUpModeError}
+          onChooseSpecific={() => persistHeadsUpWaitMode('specific')}
+          onChooseAnyone={() => persistHeadsUpWaitMode('anyone')}
           onClose={handleCloseHeadsUpPrompt}
           onNotify={(kind, msg) => {
             if (kind === 'success') toast?.success?.(msg);

@@ -111,3 +111,13 @@
 .hu-waiting-dialog__fallback {
   margin-top: 10px;
 }
+
+.hu-waiting-dialog__error {
+  margin: 10px 0 0;
+  color: #ff8e8e;
+  font:
+    600 0.8rem/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}
