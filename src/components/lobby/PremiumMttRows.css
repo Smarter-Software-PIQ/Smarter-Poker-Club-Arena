@@ -243,7 +243,10 @@
   grid-row: 1;
   align-items: center;
   justify-content: center;
-  padding-left: 6cqw !important;
+  padding-top: 0.4cqw !important;
+  padding-right: 1.1cqw !important;
+  padding-bottom: calc(var(--premium-card-body-height) - 10.2cqw) !important;
+  padding-left: 6.5cqw !important;
 }
 .has-premium-chassis tbody tr[data-id] > td[data-label='Stakes'],
 .has-premium-chassis tbody tr[data-id] > td[data-label='Buy-In'] {
@@ -281,7 +284,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding-right: 6cqw !important;
+  padding-top: 0.3cqw !important;
+  padding-right: 6.8cqw !important;
+  padding-bottom: calc(var(--premium-card-body-height) - 10cqw) !important;
+  padding-left: 1.2cqw !important;
 }
 .has-premium-chassis tbody tr[data-id] > td[data-label='Stakes']::before,
 .has-premium-chassis tbody tr[data-id] > td[data-label='Buy-In']::before,
@@ -723,35 +729,31 @@
 }
 .has-premium-chassis tbody tr[data-id] .premium-cash-style {
   position: absolute;
-  inset: 0.4cqw auto 1.6cqw 6cqw;
-  width: 23.5%;
+  inset: 0.3cqw auto calc(var(--premium-card-body-height) - 10cqw) 6.8cqw;
+  width: 21.3%;
   justify-content: center;
 }
 .has-premium-chassis tbody tr[data-id] .lt-name--seatfirst {
+  display: flex;
+  flex-direction: column;
   width: 100%;
+  min-width: 0;
   align-items: center;
+  justify-content: center;
 }
 .has-premium-chassis tbody tr[data-id] .lt-name--seatfirst,
 .compact-lobby.has-premium-chassis tbody tr[data-kind='sng'] .compact-lobby__open,
 .compact-lobby.has-premium-chassis tbody tr[data-kind='spin'] .compact-lobby__open {
   gap: 0;
-  line-height: 0.9;
+  line-height: 0.88;
 }
 .has-premium-chassis tbody tr[data-id] .lt-name--seatfirst .lt-name__table,
+.has-premium-chassis tbody tr[data-id] .lt-name--seatfirst .compact-lobby__destination,
 .compact-lobby.has-premium-chassis tbody tr[data-kind='sng'] .compact-lobby__meta,
 .compact-lobby.has-premium-chassis tbody tr[data-kind='spin'] .compact-lobby__meta {
-  line-height: 0.9;
-}
-.has-premium-chassis tbody tr[data-id] > td.lt-col-name,
-.compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
-  padding-bottom: 1cqw !important;
-}
-/* Center the three-line seat-first stack in its native glass. The PLO5/6
-   satellite witness at 378px had ink y0.109..38.24 in a y1.134..38.556 face;
-   0.65cqw leaves balanced ink clearance without reducing the 12px font floor. */
-.compact-lobby.has-premium-chassis tbody tr[data-id][data-kind='sng'] > td:first-child,
-.compact-lobby.has-premium-chassis tbody tr[data-id][data-kind='spin'] > td:first-child {
-  padding-bottom: 0.65cqw !important;
+  font-size: clamp(12px, 2.75cqw, 20px);
+  line-height: 0.88;
+  letter-spacing: -0.015em;
 }
 .has-premium-chassis tbody tr[data-id] .lt-name__phase {
   font: inherit;
@@ -826,8 +828,8 @@
   > td:first-child
   > .lt-name__meta {
   position: absolute;
-  inset: 0.4cqw auto 1.6cqw 6cqw;
-  width: 23.5%;
+  inset: 0.3cqw auto calc(var(--premium-card-body-height) - 10cqw) 6.8cqw;
+  width: 21.3%;
   z-index: 1;
 }
 
@@ -969,4 +971,144 @@
   width: 100%;
   height: 100%;
   z-index: 0;
+}
+
+/* Elevate Invite controls above the stretched Details hit-area and keep every
+   status label and button strictly inside its painted glass or plaque frame. */
+.has-premium-chassis .lt-invite-btn {
+  position: relative;
+  z-index: 2;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-height: 0;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.has-premium-chassis .lt-tournament-heading__guarantee .lt-invite-btn {
+  width: auto;
+  max-width: calc(100% - 1.2cqw);
+  height: clamp(20px, 5.1cqw, 42px);
+  padding: 0 clamp(8px, 2.2cqw, 20px);
+  gap: clamp(4px, 0.8cqw, 8px);
+  border-color: rgb(69 173 255 / 60%);
+  background: linear-gradient(180deg, rgb(69 173 255 / 22%) 0%, rgb(15 44 82 / 55%) 100%);
+  color: #bfe4ff;
+  font-size: clamp(10px, 2.4cqw, 18px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.has-premium-chassis .lt-tournament-heading__guarantee .lt-invite-btn.is-done {
+  border-color: rgb(53 217 90 / 65%);
+  background: rgb(53 217 90 / 20%);
+  color: #c8ffd2;
+}
+.has-premium-chassis .lt-tournament-heading__guarantee .lt-invite-btn svg {
+  flex: none;
+  width: clamp(10px, 2.3cqw, 18px) !important;
+  height: clamp(10px, 2.3cqw, 18px) !important;
+}
+
+.has-premium-chassis tbody tr[data-id] > td.lt-col-status::before,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(4)::before {
+  font-size: clamp(9px, 2.4cqw, 16px);
+  margin-bottom: 0.4cqw;
+}
+.has-premium-chassis tbody tr[data-id] .lt-statuscell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  max-height: 100%;
+  gap: clamp(2px, 0.45cqw, 6px);
+}
+.has-premium-chassis
+  tbody
+  tr[data-id]
+  > td[data-label='Status']:has(.lt-statuscell--invite-only)::before {
+  content: none;
+}
+.has-premium-chassis .lt-statuscell--invite-only .lt-invite-btn {
+  height: clamp(24px, 6cqw, 46px);
+  padding: 0 clamp(10px, 2.4cqw, 22px);
+  gap: clamp(4px, 0.8cqw, 8px);
+  border-color: rgb(69 173 255 / 60%);
+  background: linear-gradient(180deg, rgb(69 173 255 / 22%) 0%, rgb(15 44 82 / 55%) 100%);
+  color: #bfe4ff;
+  font-size: clamp(10.5px, 2.5cqw, 18px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.has-premium-chassis .lt-statuscell--invite-only .lt-invite-btn.is-done {
+  border-color: rgb(53 217 90 / 65%);
+  background: rgb(53 217 90 / 20%);
+  color: #c8ffd2;
+}
+.has-premium-chassis .lt-statuscell--invite-only .lt-invite-btn svg {
+  flex: none;
+  width: clamp(11px, 2.4cqw, 18px) !important;
+  height: clamp(11px, 2.4cqw, 18px) !important;
+}
+.club-home .has-premium-chassis tbody tr[data-id] > td[data-label='Status'] .lt-status,
+.has-premium-chassis tbody tr[data-id] > td[data-label='Status'] .lt-status {
+  font-size: clamp(11px, 3.1cqw, 24px) !important;
+  line-height: 1.02;
+}
+.has-premium-chassis
+  tbody
+  tr[data-id]
+  > td[data-label='Status']:has(.lt-status):has(.lt-invite-btn)::before {
+  content: none;
+}
+.club-home
+  .has-premium-chassis
+  tbody
+  tr[data-id]
+  > td[data-label='Status']:has(.lt-status):has(.lt-invite-btn)
+  .lt-status,
+.has-premium-chassis
+  tbody
+  tr[data-id]
+  > td[data-label='Status']:has(.lt-status):has(.lt-invite-btn)
+  .lt-status {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(9.5px, 2.35cqw, 18px) !important;
+  line-height: 1.02;
+}
+.has-premium-chassis
+  tbody
+  tr[data-id]
+  > td[data-label='Status']:has(.lt-status):has(.lt-invite-btn)
+  .lt-invite-btn {
+  height: clamp(20px, 4.5cqw, 34px);
+  padding: 0 clamp(6px, 1.8cqw, 14px);
+  gap: clamp(3px, 0.6cqw, 6px);
+  font-size: clamp(8.5px, 2cqw, 14px);
+}
+.has-premium-chassis
+  tbody
+  tr[data-id]
+  > td[data-label='Status']:has(.lt-status):has(.lt-invite-btn)
+  .lt-invite-btn
+  svg {
+  flex: none;
+  width: clamp(9px, 2cqw, 14px) !important;
+  height: clamp(9px, 2cqw, 14px) !important;
+}
+@media (max-width: 640px) {
+  .lobby-table.has-premium-chassis
+    tbody
+    tr[data-id][data-kind='mtt']
+    > td.lt-col-status
+    .lt-invite-btn {
+    height: 24px;
+    min-height: 24px;
+    padding: 2px 8px;
+    font-size: 10px;
+  }
 }
