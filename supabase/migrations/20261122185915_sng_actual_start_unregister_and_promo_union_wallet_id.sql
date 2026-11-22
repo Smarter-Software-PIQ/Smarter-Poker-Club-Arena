@@ -1610,6 +1610,10 @@ BEGIN
 END $function$
 ;
 REVOKE ALL ON FUNCTION public.fn_poker_diamond_tournament_unregister(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+SELECT public.fn_ca_declare_guard_redefinition(
+  'fn_poker_diamond_tournament_unregister',
+  'migration 20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id'
+);
 
 -- @probe-for: public.fn_ca_promo_lock_grant_funds
 -- @probe-for: public.fn_ca_promo_return_principal
