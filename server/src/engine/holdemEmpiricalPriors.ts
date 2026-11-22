@@ -119,6 +119,7 @@ export const HOLDEM_EMPIRICAL_PRIORS_PROVENANCE = Object.freeze({
 export const HOLDEM_PRIOR_STRENGTH = Object.freeze({
   flopCbetFold: 16,
   turnBetFold: 14,
+  riverFoldToBet: 12,
   riverFoldToRaise: 12,
   riverBluffShare: 8,
   betWhenCheckedTo: 16,
@@ -526,6 +527,111 @@ export function estimateHoldemTurnBetFold(
     );
   }
   return empiricalBayesShrink(0, 0, prior, HOLDEM_PRIOR_STRENGTH.turnBetFold, 'pool_prior');
+}
+
+/**
+ * Smooth piecewise-linear NLH pool prior for villain fold frequency facing a RIVER FIRST BET
+ * of pot-relative size `potFraction`, interpolated across the four measured empirical cells
+ * in `HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET` (n = 15,623 pooled NLH rivers).
+ */
+export function holdemEmpiricalRiverFoldToBetPrior(potFraction: number): number {
+  const f = Number.isFinite(potFraction) ? Math.max(0, potFraction) : 0;
+  const f0 = 0.25;
+  const f1 = 0.5;
+  const f2 = 0.83;
+  const f3 = 1.25;
+  const r0 = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET.le_33.rate;
+  const r1 = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET['34_67'].rate;
+  const r2 = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET['67_100'].rate;
+  const r3 = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET.gt_100.rate;
+  let rate: number;
+  if (f <= f0) {
+    rate = r0 * (0.75 + 0.25 * (f / f0));
+  } else if (f <= f1) {
+    rate = r0 + ((r1 - r0) * (f - f0)) / (f1 - f0);
+  } else if (f <= f2) {
+    rate = r1 + ((r2 - r1) * (f - f1)) / (f2 - f1);
+  } else if (f <= f3) {
+    rate = r2 + ((r3 - r2) * (f - f2)) / (f3 - f2);
+  } else {
+    rate = r3 + Math.min(0.08, (f - f3) * 0.04);
+  }
+  return Math.max(0.1, Math.min(0.92, clamp01(rate)));
+}
+
+/**
+ * Empirical-Bayes estimator for opponent fold frequency facing a RIVER FIRST BET
+ * (`holdemRiverBluffIsPriced` and unopened / checked-to river pricing spots).
+ *
+ * Preference order:
+ *   1. `OpponentHud` size-and-player-count context stat (`r.fb.sm|bg.hu|mw`),
+ *   2. `OpponentHud` river street fold-to-bet stat (`r.fBet`), shrunk against the medium-bet
+ *      pool prior and scaled proportionally to preserve bet-size elasticity,
+ *   3. `HorseMind` `ExploitCounters` (`riverCall` / `riverCallOpp`, `foldHits = opp - call`),
+ *      shrunk with k = 6 and scaled proportionally to preserve bet-size elasticity,
+ *   4. 100% measured NLH empirical river first-bet pool prior (weight = 0).
+ */
+export function estimateHoldemRiverFoldToBet(
+  ctx: {
+    readonly potFraction: number;
+    readonly headsUp?: boolean;
+  },
+  hudOpp?: HoldemHudPacketOpponent | null,
+  exploitCounters?: Pick<ExploitCounters, 'riverCall' | 'riverCallOpp'> | null
+): EmpiricalShrinkEstimate {
+  const prior = holdemEmpiricalRiverFoldToBetPrior(ctx.potFraction);
+  const pl = ctx.headsUp === false ? 'mw' : 'hu';
+  const sz = ctx.potFraction > 0.7 + EPS ? 'bg' : 'sm';
+  const ctxStat = readHudOpponentStat(hudOpp, `r.fb.${sz}.${pl}`);
+  if (ctxStat) {
+    return empiricalBayesShrink(
+      ctxStat.hits,
+      ctxStat.opportunities,
+      prior,
+      HOLDEM_PRIOR_STRENGTH.riverFoldToBet,
+      'hud_context'
+    );
+  }
+
+  const baseMedPrior = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET['34_67'].rate;
+  const scaleRelativeToMedium = (
+    hits: number,
+    opportunities: number,
+    priorStrength: number,
+    source: HoldemPriorSource
+  ): EmpiricalShrinkEstimate => {
+    const shrunk = empiricalBayesShrink(hits, opportunities, baseMedPrior, priorStrength, source);
+    const ratio = baseMedPrior > EPS ? shrunk.mean / baseMedPrior : 1;
+    const mean = Math.max(0.05, Math.min(0.92, clamp01(prior * ratio)));
+    return {
+      mean,
+      prior,
+      weight: shrunk.weight,
+      effectiveN: shrunk.effectiveN,
+      priorStrength: shrunk.priorStrength,
+      source: shrunk.source,
+    };
+  };
+
+  const streetStat = readHudOpponentStat(hudOpp, 'r.fBet');
+  if (streetStat) {
+    return scaleRelativeToMedium(
+      streetStat.hits,
+      streetStat.opportunities,
+      HOLDEM_PRIOR_STRENGTH.riverFoldToBet,
+      'hud_street'
+    );
+  }
+  if (exploitCounters && exploitCounters.riverCallOpp > 0) {
+    const foldHits = Math.max(0, exploitCounters.riverCallOpp - exploitCounters.riverCall);
+    return scaleRelativeToMedium(
+      foldHits,
+      exploitCounters.riverCallOpp,
+      HOLDEM_PRIOR_STRENGTH.exploitCountersFallback,
+      'exploit_counters'
+    );
+  }
+  return empiricalBayesShrink(0, 0, prior, HOLDEM_PRIOR_STRENGTH.riverFoldToBet, 'pool_prior');
 }
 
 /**

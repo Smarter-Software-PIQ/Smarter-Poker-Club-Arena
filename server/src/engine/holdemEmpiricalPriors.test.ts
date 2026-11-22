@@ -26,10 +26,12 @@ import {
   estimateHoldemBetWhenCheckedTo,
   estimateHoldemFlopCbetFold,
   estimateHoldemRiverBluffShare,
+  estimateHoldemRiverFoldToBet,
   estimateHoldemRiverFoldToRaise,
   estimateHoldemTurnBetFold,
   holdemBetSizeBand,
   holdemEmpiricalFlopCbetFoldPrior,
+  holdemEmpiricalRiverFoldToBetPrior,
   holdemRiverBluffShareCell,
   holdemSprBand,
   holdemVillainRaiseCallPrice,
@@ -310,5 +312,61 @@ describe('empiricalBayesShrink and OpponentHudStore integration', () => {
 
     // Villain short stack caps villainCall.
     expect(holdemVillainRaiseCallPrice(60, 100, 0, 20, 100, 10)).toBeCloseTo(10 / (160 + 10), 10);
+  });
+
+  it('estimateHoldemRiverFoldToBet interpolates monotonically and shrinks HUD context -> HUD street -> ExploitCounters -> pool prior', () => {
+    const p33 = holdemEmpiricalRiverFoldToBetPrior(0.33);
+    const p55 = holdemEmpiricalRiverFoldToBetPrior(0.55);
+    const p75 = holdemEmpiricalRiverFoldToBetPrior(0.75);
+    const p100 = holdemEmpiricalRiverFoldToBetPrior(1.0);
+    const p125 = holdemEmpiricalRiverFoldToBetPrior(1.25);
+    expect(p33).toBeLessThan(p55);
+    expect(p55).toBeLessThan(p75);
+    expect(p75).toBeLessThan(p100);
+    expect(p100).toBeLessThan(p125);
+    expect(holdemEmpiricalRiverFoldToBetPrior(0.5)).toBeCloseTo(
+      HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET['34_67'].rate,
+      10
+    );
+    expect(holdemEmpiricalRiverFoldToBetPrior(1.25)).toBeCloseTo(
+      HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET.gt_100.rate,
+      10
+    );
+
+    const pool = estimateHoldemRiverFoldToBet({ potFraction: 0.75, headsUp: true });
+    expect(pool.source).toBe('pool_prior');
+    expect(pool.weight).toBe(0);
+    expect(pool.mean).toBeCloseTo(p75, 10);
+
+    // ExploitCounters fallback (sticky caller: called 18 of 20 river bets -> foldHits = 2)
+    const stickyExp = estimateHoldemRiverFoldToBet({ potFraction: 0.75, headsUp: true }, null, {
+      riverCall: 18,
+      riverCallOpp: 20,
+    });
+    expect(stickyExp.source).toBe('exploit_counters');
+    expect(stickyExp.mean).toBeLessThan(pool.mean * 0.55);
+
+    // HUD street (`r.fBet`) overrides ExploitCounters and preserves bet-size monotonicity.
+    const hudStreetSm = estimateHoldemRiverFoldToBet(
+      { potFraction: 0.33, headsUp: true },
+      { eff: { 'r.fBet': [24, 18] } },
+      { riverCall: 18, riverCallOpp: 20 }
+    );
+    const hudStreetBg = estimateHoldemRiverFoldToBet(
+      { potFraction: 1.0, headsUp: true },
+      { eff: { 'r.fBet': [24, 18] } },
+      { riverCall: 18, riverCallOpp: 20 }
+    );
+    expect(hudStreetSm.source).toBe('hud_street');
+    expect(hudStreetBg.source).toBe('hud_street');
+    expect(hudStreetBg.mean).toBeGreaterThan(hudStreetSm.mean);
+
+    // HUD context (`r.fb.bg.hu`) overrides HUD street (`r.fBet`).
+    const hudCtx = estimateHoldemRiverFoldToBet(
+      { potFraction: 1.0, headsUp: true },
+      { eff: { 'r.fb.bg.hu': [24, 4], 'r.fBet': [24, 18] } }
+    );
+    expect(hudCtx.source).toBe('hud_context');
+    expect(hudCtx.mean).toBeLessThan(0.4);
   });
 });

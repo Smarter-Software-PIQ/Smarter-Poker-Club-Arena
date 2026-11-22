@@ -28,6 +28,10 @@ import {
   type HoldemLineStreet,
   type HoldemPricedSpot,
 } from './HorseHoldemValueAndCallsArePriced.js';
+import {
+  holdemRiverBluffIsPricedApplies,
+  holdemRiverBluffPricedVerdict,
+} from './HorseHoldemRiverBluffIsPriced.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -5252,6 +5256,15 @@ export interface HorseDecideOpts {
    *  draws first, reads reshaping it (a station fewer, a folder more), never
    *  zero without a read. Disable to ablate (default: enabled). */
   riverBluffBaseline?: boolean;
+  /** holdemRiverBluffIsPriced (2026-11-22, Horse Switch lane, default OFF, read === true):
+   *  dark priced replacement for riverBluffBaseline (A2, REVIEW-HOLDEM-OFFLIST-20261121.md §5)
+   *  on unopened / checked-to heads-up rivers in single-board 2-card NLH. Replaces random size
+   *  and frequency draws with deterministic EV pricing over candidate legal bluff sizes
+   *  (0.33x, 0.55x, 0.75x, 1.0x, 1.25x pot / stack cap) vs EV(check) using
+   *  estimateHoldemRiverFoldToBet and blocker/scare/line conditioning
+   *  (HorseHoldemRiverBluffIsPriced). Independent of riverBluffBaseline; zero PLO4/5/6 reach;
+   *  bit-identical when OFF. */
+  holdemRiverBluffIsPriced?: boolean;
   /** Baseline flop and turn bluff and semi-bluff range (2026-11-07,
    *  HorseFlopTurnBluffRange.ts): qualified draws, backdoors, overcards and
    *  blockers bet or raise at the solved frequency for their class on a line
@@ -25736,10 +25749,43 @@ export class HorseLogic {
       // coherent line: it bets at the balanced rate for its size, weighted to
       // blockers and missed draws, reads reshaping it, or it checks. See
       // HorseRiverBluffRange.ts. Spots it does not own fall through unchanged.
+      const holdemRiverBluffPricedActive =
+        opts.holdemRiverBluffIsPriced === true &&
+        holdemRiverBluffIsPricedApplies({
+          enabled: opts.holdemRiverBluffIsPriced,
+          isOmaha: vi.isOmaha,
+          isPotLimit: vi.isPotLimit,
+          isHiLo: vi.isHiLo,
+          isShortDeck: vi.isShortDeck,
+          isFixedLimit: vi.isFixedLimit,
+          holeCount: vi.holeCount,
+          holeCardCount: player.cards.length,
+          boardLength: board.length,
+          isRiver,
+          facingBet,
+          multiBoard: multiBoard36,
+          bombPot: gs.bombPot === true,
+          allInOrFold: gs.allInOrFold === true,
+          satelliteActive: sat37.active,
+          barrelOutlookRiverPending,
+          opponentsLive: opponents.length,
+          opponentCanRespond:
+            opponents.length === 1 &&
+            !opponents[0].is_all_in &&
+            !opponents[0].is_sitting_out &&
+            opponents[0].stack > 0,
+          pot,
+          heroStack: stack,
+          villainStack:
+            opponents.length === 1
+              ? (isFinite(opponents[0].stack) ? opponents[0].stack : 0) +
+                (isFinite(opponents[0].bet) ? opponents[0].bet : 0)
+              : 0,
+        });
       if (
         isRiver &&
         board.length === 5 &&
-        (opts.riverBluffBaseline ?? true) !== false &&
+        (holdemRiverBluffPricedActive || (opts.riverBluffBaseline ?? true) !== false) &&
         !sat37.active &&
         // An explicitly selected barrelContinuationOutlook candidate owns the
         // planned river barrel it was built for (HorseSkillActivationWiring).
@@ -25799,206 +25845,301 @@ export class HorseLogic {
           hiShare: hiLoSplit?.hi,
           quarterShare: hiLoSplit?.quarter,
         });
-        // Hi-lo: the opponent's likely low makes any bet a half-pot giveaway.
-        if (eligRb.reason === 'low_giveaway') {
-          if (tele15) noteFire('river_bluff_baseline_skip_low_giveaway');
-          return { action: 'check', thinkTime: 0 };
-        }
-        const leadRb = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
-        if (eligRb.eligible && oppRb) {
-          const effRb = Math.min(stack, oppRb.stack + (isFinite(oppRb.bet) ? oppRb.bet : 0));
-          const sizeRb = riverBluffSize({
-            potLimit: vi.isPotLimit,
-            pot,
-            effectiveStack: effRb,
-            nutBlocker: eligRb.selection === 'blocker' || eligRb.selection === 'blockerAndDraw',
-            riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
-            icmRisk: isTournamentMode(gs) ? risk : 0,
-            u: fastRandom(),
-            // Fixed limit: the river's one legal bet. The controller publishes
-            // it; otherwise the big bet is twice the hand's small bet.
-            ...(vi.isFixedLimit
-              ? {
-                  fixedLimitBet:
-                    Number.isFinite(gs.fixedBetSize) && (gs.fixedBetSize as number) > 0
-                      ? (gs.fixedBetSize as number)
-                      : 2 *
-                        (Number.isFinite(gs.fixedLimitSmallBet) &&
-                        (gs.fixedLimitSmallBet as number) > 0
-                          ? (gs.fixedLimitSmallBet as number)
-                          : gs.bigBlind),
+        if (holdemRiverBluffPricedActive) {
+          if (eligRb.eligible && oppRb) {
+            const leadRbPriced = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
+            const oppStackRbPriced =
+              (isFinite(oppRb.stack) ? oppRb.stack : 0) + (isFinite(oppRb.bet) ? oppRb.bet : 0);
+            let stationRbPriced = false;
+            let rfrRbPriced: number | null = null;
+            let fcCallingMoreRbPriced = false;
+            let countersRbPriced: ReturnType<typeof HorseMind.getExploitCounters> | undefined;
+            if (useMind) {
+              try {
+                const readRbPriced = HorseMind.opponentRead(oppRb.user_id);
+                rfrRbPriced = HorseMind.riverFoldRate(oppRb.user_id);
+                const fcRbPriced =
+                  (opts.riverFastCalldown ?? true) !== false
+                    ? HorseMind.fastCalldownRead(oppRb.user_id)
+                    : null;
+                if (fcRbPriced) {
+                  rfrRbPriced = fcRbPriced.riverFoldRate;
+                  fcCallingMoreRbPriced = fcRbPriced.callingMore;
                 }
-              : {}),
-          });
-          const compRb =
-            ownRange && opponentRange
-              ? estimateRiverRangeComposition(board, ownRange, opponentRange, vi)
-              : null;
-          let stationRb = false;
-          let stationLowFold86 = false;
-          let rfrRb: number | null = null;
-          let overFolderRb = 0;
-          let fcCallingMoreRb = false;
-          // OPPONENT HUD NO-LOWERING: the same three reads as without the lifetime read (receipts muted)
-          let hudLegacyRb: { station: boolean; lowFold: boolean; overFolder: number } | null = null;
-          if (useMind) {
-            try {
-              const readRb = HorseMind.opponentRead(oppRb.user_id);
-              stationLowFold86 = v86 && vi.isOmaha && readRb?.stats.foldToBet.engaged === 'low';
-              rfrRb = HorseMind.riverFoldRate(oppRb.user_id);
-              // 2026-11-07 FAST CALL-DOWN READ (HorseFastCalldownRead.ts): a
-              // player who has started calling rivers is a station now, and
-              // the fold rate follows his recent river play. Null: unchanged.
-              const fcRb =
-                (opts.riverFastCalldown ?? true) !== false
-                  ? HorseMind.fastCalldownRead(oppRb.user_id)
-                  : null;
-              if (fcRb) {
-                rfrRb = fcRb.riverFoldRate;
-                fcCallingMoreRb = fcRb.callingMore;
+                stationRbPriced =
+                  isStation(readRbPriced) ||
+                  fcRbPriced?.callingDown === true ||
+                  (rfrRbPriced !== null && rfrRbPriced < 0.35);
+                if (tele15 && fcRbPriced?.callingDown) noteFire('river_fast_calldown_station');
+                const scopeRbPriced = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+                countersRbPriced = HorseMind.getExploitCounters(oppRb.user_id, scopeRbPriced);
+              } catch {
+                /* reads are best-effort: no read uses measured NLH empirical pool prior */
               }
-              stationRb =
-                isStation(readRb) || fcRb?.callingDown === true || (rfrRb !== null && rfrRb < 0.35);
-              if (tele15 && fcRb?.callingDown) noteFire('river_fast_calldown_station');
-              if ((opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true) {
-                overFolderRb = riverBluffFrequency(
-                  riverFoldLowerBound(readRb),
-                  sizeRb.sizeFrac,
-                  useIQ && scare.any,
-                  blocker,
-                  calledBarrels40 >= 2 ? 0.12 : 0.06
-                );
-              }
-              if (HorseMind.hudReadActive()) {
-                const readL = HorseMind.opponentReadWithoutHud(oppRb.user_id);
-                hudLegacyRb = {
-                  station:
-                    isStation(readL) ||
-                    fcRb?.callingDown === true ||
-                    (rfrRb !== null && rfrRb < 0.35),
-                  lowFold: v86 && vi.isOmaha && readL?.stats.foldToBet.engaged === 'low',
-                  overFolder:
-                    (opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true
-                      ? withBrainTelemetrySuspended(() =>
-                          riverBluffFrequency(
-                            riverFoldLowerBound(readL),
-                            sizeRb.sizeFrac,
-                            useIQ && scare.any,
-                            blocker,
-                            calledBarrels40 >= 2 ? 0.12 : 0.06
-                          )
-                        )
-                      : 0,
-                };
-              }
-            } catch {
-              /* reads are best-effort: no read is the baseline */
             }
-          }
-          const rbArgs = {
-            eligibility: eligRb,
-            sizeFrac: sizeRb.sizeFrac,
-            valueShare: compRb ? compRb.valueShare : RIVER_BLUFF_PRIOR_VALUE_SHARE,
-            airShare: compRb ? compRb.airShare : RIVER_BLUFF_PRIOR_AIR_SHARE,
-            reads: {
-              station: stationRb,
-              riverFoldRate: rfrRb,
-              overFolderFrequency: overFolderRb,
-              // A folder's bluffMod describes the style a player who is now
-              // calling more has left (fast call-down read).
-              bluffMod: fcCallingMoreRb ? Math.min(1, exploit.bluffMod) : exploit.bluffMod,
-              lightCallerFactor: lightCallerBluffMul,
-            },
-            icmRisk: isTournamentMode(gs) ? risk : 0,
-            omahaThirdBarrel:
-              vi.isOmaha &&
-              calledBarrels40 >= 2 &&
-              rangeChange?.improves !== true &&
-              rangeChange?.nutAdvantage !== true,
-          };
-          let pRb = riverBluffProbability(rbArgs);
-          let stationLowFoldRb = stationLowFold86;
-          // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): the lifetime read alone does not
-          // lower the river bluff; the lowering stands only when the check is priced above every bet on his lifetime
-          // response; unpriceable, the lifetime read is not consumed here.
-          if (hudLegacyRb) {
-            const pL = riverBluffProbability({
-              ...rbArgs,
-              reads: {
-                ...rbArgs.reads,
-                station: hudLegacyRb.station,
-                overFolderFrequency: hudLegacyRb.overFolder,
-                bluffMod: fcCallingMoreRb
-                  ? Math.min(1, exploitNoHud?.bluffMod ?? exploit.bluffMod)
-                  : (exploitNoHud?.bluffMod ?? exploit.bluffMod),
-              },
-            });
-            const lowered = (stationLowFold86 && !hudLegacyRb.lowFold) || pL > pRb;
-            if (lowered) {
-              const pricedRb = omahaHudPricedBetOverCheck(player, gs, opts);
-              if (pricedRb !== false) {
-                pRb = Math.max(pRb, pL);
-                stationLowFoldRb = stationLowFold86 && hudLegacyRb.lowFold;
-              }
-              if (tele15)
-                noteFire(
-                  pricedRb === false
-                    ? 'opponent_hud_lowering_bet_priced_check'
-                    : pricedRb
-                      ? 'opponent_hud_lowering_bet_priced_bet'
-                      : 'opponent_hud_lowering_bet_unpriced'
-                );
-            }
-          }
-          // RESPONSES TO TIGHT PLAYERS: a credibly tight-passive player checked to the Horse (styleTightPlayerExploit).
-          // Bounded: never above 0.9 unless the baseline already was; the size is the baseline's own.
-          const tightRb = leadRb ? 1 : tightCheckedToMul();
-          const pRbT = tightRb > 1 ? Math.max(pRb, Math.min(0.9, pRb * tightRb)) : pRb;
-          const rollRb = fastRandom();
-          // SPEC-FL-02 (opt-in): the fixed-limit hi-lo nut-low freeroll bets
-          // every time; the draw above is still taken, so off is unchanged.
-          const nutLowBet92 =
-            opts.fixedLimitHiLoNutLowRiverBet === true &&
-            !isTournamentMode(gs) &&
-            hiLoNutLowRiverBets({
-              isFixedLimit: vi.isFixedLimit === true,
-              isHiLo: vi.isHiLo === true,
-              headsUp: opponents.length === 1,
-              freeroll: eligRb.selection === 'freeroll',
-              opponentCanRespond: !oppRb.is_all_in && oppRb.stack > 0,
-              opponentNeverFolds: stationRb || stationLowFold86,
-              nutLowBlockers: nutLowBlockersHeld(player.cards, board),
-            });
-          if (nutLowBet92 && tele15) noteFire('hilo_nut_low_freeroll_bet');
-          if (sizeRb.sizeFrac > 0 && ((!stationLowFoldRb && rollRb < pRbT) || nutLowBet92)) {
-            const betRb = this.betSize(
-              planHandKey,
+            const verdictRb = holdemRiverBluffPricedVerdict({
               pot,
-              sizeRb.sizeFrac,
-              player,
-              gs,
-              vi,
-              { ...params, sizingMultiplier: 1 },
-              false
-            );
-            const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
-            if (placedRb) riverBluffDeclaredPending = true;
-            if (tele15 && placedRb) {
-              noteFire(`river_bluff_baseline_${eligRb.selection}`);
-              for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_bet_${t}`);
-              if (leadRb) noteFire(`river_lead_bluff_${eligRb.line}`);
-              if (eligRb.hiLo) noteFire(`river_bluff_hilo_${eligRb.hiLo.kind}`);
-            } else if (tele15) noteFire('river_bluff_baseline_illegal');
-            return betRb;
+              heroStack: stack,
+              villainStack: oppStackRbPriced,
+              bigBlind: gs.bigBlind,
+              showdownEquity: equity,
+              line: eligRb.line,
+              selection: eligRb.selection === 'freeroll' ? 'junk' : eligRb.selection,
+              nutBlocker: nutBlockerRb(board),
+              unblocker: eligRb.unblocker,
+              missedDraw: eligRb.missedDraw,
+              scareCard: scare.any,
+              riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
+              rangesFavorOpponent:
+                runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
+              calledBarrels: calledBarrels40,
+              callDeductionFraction: callDeductionFraction ?? rakeMarg,
+              icmRisk: isTournamentMode(gs) ? risk : 0,
+              station: stationRbPriced,
+              riverFoldRate: rfrRbPriced,
+              fastCalldownCallingMore: fcCallingMoreRbPriced,
+              lightCallerFactor: lightCallerBluffMul,
+              bluffMod: fcCallingMoreRbPriced ? Math.min(1, exploit.bluffMod) : exploit.bluffMod,
+              tightCheckedTo: leadRbPriced ? 1 : tightCheckedToMul(),
+              exploitCounters: countersRbPriced,
+            });
+            if (verdictRb.decision === 'bet' && verdictRb.betPotFrac !== null) {
+              const betRbPriced = this.betSize(
+                planHandKey,
+                pot,
+                verdictRb.betPotFrac,
+                player,
+                gs,
+                vi,
+                { ...params, sizingMultiplier: 1 },
+                false
+              );
+              const placedRbPriced =
+                betRbPriced.action === 'bet' || betRbPriced.action === 'all_in';
+              if (placedRbPriced) {
+                riverBluffDeclaredPending = true;
+                if (tele15) {
+                  noteFire('holdem_river_bluff_priced_bet_seen');
+                  if (verdictRb.betPotFrac > 1.0 + 1e-9) {
+                    noteFire('holdem_river_bluff_priced_overbet_seen');
+                  }
+                }
+              } else if (tele15) {
+                noteFire('holdem_river_bluff_priced_illegal_seen');
+              }
+              return betRbPriced;
+            }
+            if (tele15) {
+              noteFire('holdem_river_bluff_priced_check_seen');
+              if (stationRbPriced) noteFire('holdem_river_bluff_priced_station_check_seen');
+            }
+            return { action: 'check', thinkTime: 0 };
           }
-          if (tele15) {
-            if (leadRb && stationRb) noteFire('river_lead_skip_station');
-            noteFire('river_bluff_baseline_check');
-            for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_check_${t}`);
+        } else {
+          // Hi-lo: the opponent's likely low makes any bet a half-pot giveaway.
+          if (eligRb.reason === 'low_giveaway') {
+            if (tele15) noteFire('river_bluff_baseline_skip_low_giveaway');
+            return { action: 'check', thinkTime: 0 };
           }
-          return { action: 'check', thinkTime: 0 };
-        } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
-          noteFire(`river_bluff_baseline_skip_${eligRb.reason}`);
+          const leadRb = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
+          if (eligRb.eligible && oppRb) {
+            const effRb = Math.min(stack, oppRb.stack + (isFinite(oppRb.bet) ? oppRb.bet : 0));
+            const sizeRb = riverBluffSize({
+              potLimit: vi.isPotLimit,
+              pot,
+              effectiveStack: effRb,
+              nutBlocker: eligRb.selection === 'blocker' || eligRb.selection === 'blockerAndDraw',
+              riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
+              icmRisk: isTournamentMode(gs) ? risk : 0,
+              u: fastRandom(),
+              // Fixed limit: the river's one legal bet. The controller publishes
+              // it; otherwise the big bet is twice the hand's small bet.
+              ...(vi.isFixedLimit
+                ? {
+                    fixedLimitBet:
+                      Number.isFinite(gs.fixedBetSize) && (gs.fixedBetSize as number) > 0
+                        ? (gs.fixedBetSize as number)
+                        : 2 *
+                          (Number.isFinite(gs.fixedLimitSmallBet) &&
+                          (gs.fixedLimitSmallBet as number) > 0
+                            ? (gs.fixedLimitSmallBet as number)
+                            : gs.bigBlind),
+                  }
+                : {}),
+            });
+            const compRb =
+              ownRange && opponentRange
+                ? estimateRiverRangeComposition(board, ownRange, opponentRange, vi)
+                : null;
+            let stationRb = false;
+            let stationLowFold86 = false;
+            let rfrRb: number | null = null;
+            let overFolderRb = 0;
+            let fcCallingMoreRb = false;
+            // OPPONENT HUD NO-LOWERING: the same three reads as without the lifetime read (receipts muted)
+            let hudLegacyRb: { station: boolean; lowFold: boolean; overFolder: number } | null =
+              null;
+            if (useMind) {
+              try {
+                const readRb = HorseMind.opponentRead(oppRb.user_id);
+                stationLowFold86 = v86 && vi.isOmaha && readRb?.stats.foldToBet.engaged === 'low';
+                rfrRb = HorseMind.riverFoldRate(oppRb.user_id);
+                // 2026-11-07 FAST CALL-DOWN READ (HorseFastCalldownRead.ts): a
+                // player who has started calling rivers is a station now, and
+                // the fold rate follows his recent river play. Null: unchanged.
+                const fcRb =
+                  (opts.riverFastCalldown ?? true) !== false
+                    ? HorseMind.fastCalldownRead(oppRb.user_id)
+                    : null;
+                if (fcRb) {
+                  rfrRb = fcRb.riverFoldRate;
+                  fcCallingMoreRb = fcRb.callingMore;
+                }
+                stationRb =
+                  isStation(readRb) ||
+                  fcRb?.callingDown === true ||
+                  (rfrRb !== null && rfrRb < 0.35);
+                if (tele15 && fcRb?.callingDown) noteFire('river_fast_calldown_station');
+                if ((opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true) {
+                  overFolderRb = riverBluffFrequency(
+                    riverFoldLowerBound(readRb),
+                    sizeRb.sizeFrac,
+                    useIQ && scare.any,
+                    blocker,
+                    calledBarrels40 >= 2 ? 0.12 : 0.06
+                  );
+                }
+                if (HorseMind.hudReadActive()) {
+                  const readL = HorseMind.opponentReadWithoutHud(oppRb.user_id);
+                  hudLegacyRb = {
+                    station:
+                      isStation(readL) ||
+                      fcRb?.callingDown === true ||
+                      (rfrRb !== null && rfrRb < 0.35),
+                    lowFold: v86 && vi.isOmaha && readL?.stats.foldToBet.engaged === 'low',
+                    overFolder:
+                      (opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true
+                        ? withBrainTelemetrySuspended(() =>
+                            riverBluffFrequency(
+                              riverFoldLowerBound(readL),
+                              sizeRb.sizeFrac,
+                              useIQ && scare.any,
+                              blocker,
+                              calledBarrels40 >= 2 ? 0.12 : 0.06
+                            )
+                          )
+                        : 0,
+                  };
+                }
+              } catch {
+                /* reads are best-effort: no read is the baseline */
+              }
+            }
+            const rbArgs = {
+              eligibility: eligRb,
+              sizeFrac: sizeRb.sizeFrac,
+              valueShare: compRb ? compRb.valueShare : RIVER_BLUFF_PRIOR_VALUE_SHARE,
+              airShare: compRb ? compRb.airShare : RIVER_BLUFF_PRIOR_AIR_SHARE,
+              reads: {
+                station: stationRb,
+                riverFoldRate: rfrRb,
+                overFolderFrequency: overFolderRb,
+                // A folder's bluffMod describes the style a player who is now
+                // calling more has left (fast call-down read).
+                bluffMod: fcCallingMoreRb ? Math.min(1, exploit.bluffMod) : exploit.bluffMod,
+                lightCallerFactor: lightCallerBluffMul,
+              },
+              icmRisk: isTournamentMode(gs) ? risk : 0,
+              omahaThirdBarrel:
+                vi.isOmaha &&
+                calledBarrels40 >= 2 &&
+                rangeChange?.improves !== true &&
+                rangeChange?.nutAdvantage !== true,
+            };
+            let pRb = riverBluffProbability(rbArgs);
+            let stationLowFoldRb = stationLowFold86;
+            // OPPONENT HUD NO-LOWERING (2026-11-21; omahaOpponentLifetimeHud on only): the lifetime read alone does not
+            // lower the river bluff; the lowering stands only when the check is priced above every bet on his lifetime
+            // response; unpriceable, the lifetime read is not consumed here.
+            if (hudLegacyRb) {
+              const pL = riverBluffProbability({
+                ...rbArgs,
+                reads: {
+                  ...rbArgs.reads,
+                  station: hudLegacyRb.station,
+                  overFolderFrequency: hudLegacyRb.overFolder,
+                  bluffMod: fcCallingMoreRb
+                    ? Math.min(1, exploitNoHud?.bluffMod ?? exploit.bluffMod)
+                    : (exploitNoHud?.bluffMod ?? exploit.bluffMod),
+                },
+              });
+              const lowered = (stationLowFold86 && !hudLegacyRb.lowFold) || pL > pRb;
+              if (lowered) {
+                const pricedRb = omahaHudPricedBetOverCheck(player, gs, opts);
+                if (pricedRb !== false) {
+                  pRb = Math.max(pRb, pL);
+                  stationLowFoldRb = stationLowFold86 && hudLegacyRb.lowFold;
+                }
+                if (tele15)
+                  noteFire(
+                    pricedRb === false
+                      ? 'opponent_hud_lowering_bet_priced_check'
+                      : pricedRb
+                        ? 'opponent_hud_lowering_bet_priced_bet'
+                        : 'opponent_hud_lowering_bet_unpriced'
+                  );
+              }
+            }
+            // RESPONSES TO TIGHT PLAYERS: a credibly tight-passive player checked to the Horse (styleTightPlayerExploit).
+            // Bounded: never above 0.9 unless the baseline already was; the size is the baseline's own.
+            const tightRb = leadRb ? 1 : tightCheckedToMul();
+            const pRbT = tightRb > 1 ? Math.max(pRb, Math.min(0.9, pRb * tightRb)) : pRb;
+            const rollRb = fastRandom();
+            // SPEC-FL-02 (opt-in): the fixed-limit hi-lo nut-low freeroll bets
+            // every time; the draw above is still taken, so off is unchanged.
+            const nutLowBet92 =
+              opts.fixedLimitHiLoNutLowRiverBet === true &&
+              !isTournamentMode(gs) &&
+              hiLoNutLowRiverBets({
+                isFixedLimit: vi.isFixedLimit === true,
+                isHiLo: vi.isHiLo === true,
+                headsUp: opponents.length === 1,
+                freeroll: eligRb.selection === 'freeroll',
+                opponentCanRespond: !oppRb.is_all_in && oppRb.stack > 0,
+                opponentNeverFolds: stationRb || stationLowFold86,
+                nutLowBlockers: nutLowBlockersHeld(player.cards, board),
+              });
+            if (nutLowBet92 && tele15) noteFire('hilo_nut_low_freeroll_bet');
+            if (sizeRb.sizeFrac > 0 && ((!stationLowFoldRb && rollRb < pRbT) || nutLowBet92)) {
+              const betRb = this.betSize(
+                planHandKey,
+                pot,
+                sizeRb.sizeFrac,
+                player,
+                gs,
+                vi,
+                { ...params, sizingMultiplier: 1 },
+                false
+              );
+              const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
+              if (placedRb) riverBluffDeclaredPending = true;
+              if (tele15 && placedRb) {
+                noteFire(`river_bluff_baseline_${eligRb.selection}`);
+                for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_bet_${t}`);
+                if (leadRb) noteFire(`river_lead_bluff_${eligRb.line}`);
+                if (eligRb.hiLo) noteFire(`river_bluff_hilo_${eligRb.hiLo.kind}`);
+              } else if (tele15) noteFire('river_bluff_baseline_illegal');
+              return betRb;
+            }
+            if (tele15) {
+              if (leadRb && stationRb) noteFire('river_lead_skip_station');
+              noteFire('river_bluff_baseline_check');
+              for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_check_${t}`);
+            }
+            return { action: 'check', thinkTime: 0 };
+          } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
+            noteFire(`river_bluff_baseline_skip_${eligRb.reason}`);
+          }
         }
       }
       // V86 NATIVE OMAHA NUT-BLOCKER RIVER BLUFF: covers heads-up missed-draw /

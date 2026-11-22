@@ -2869,6 +2869,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff baseline'
   ),
   flag(
+    'holdemRiverBluffIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for riverBluffBaseline (A2, REVIEW-HOLDEM-OFFLIST-20261121.md §5) on unopened / checked-to heads-up rivers in single-board 2-card NLH; evaluates legal candidate bluff sizes (0.33x, 0.55x, 0.75x, 1.0x, 1.25x pot / stack cap) vs EV(check) deterministically using estimateHoldemRiverFoldToBet and blocker/scare/line conditioning (HorseHoldemRiverBluffIsPriced); zero fastRandom coin flips, independent of riverBluffBaseline, zero PLO4/5/6 reach',
+    'Horse Switch'
+  ),
+  flag(
     'riverLeadRange',
     'out-of-position river leads (HorseRiverBluffRange): first to act on the river into the turn bettor, bluff-lead rivers that complete the caller draws (blockers first), rarely blanks, never into a credible station, and let value hands through the V11 gate on those rivers; Omaha paired boards never lead; default on, false ablates (2026-11-07)',
     'River lead range'
@@ -9335,6 +9340,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_bet_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff placed a priced bet because EV(bestBluff) beat EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_overbet_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff selected a priced polar overbet (> 1.0x pot)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_check_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff checked deterministically because no legal bluff size beat EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_station_check_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff checked deterministically against a confirmed calling station',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river priced bluff bet could not be legalized as a bet or all-in',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.
