@@ -21,11 +21,11 @@
 import { readFileSync, writeFileSync, createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import {
+  HUD_FAMILIES,
   HUD_STATS,
   applyHudHandToProfiles,
   emptyHudProfile,
   handRecordFromRow,
-  type HudFamily,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import {
@@ -160,7 +160,7 @@ function summary() {
   const byFamily: Record<string, number> = {};
   for (const p of profiles.values()) byFamily[p.family] = (byFamily[p.family] ?? 0) + 1;
   const priors: Record<string, HudPopulation> = {};
-  for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+  for (const fam of HUD_FAMILIES) {
     const stakes: HudPopulation['stakes'] = {};
     for (const [band, pool] of Object.entries(stakePools[fam] ?? {})) {
       stakes[band] = {};
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
     // A stored profile with MORE hands than this rebuild holds hands the rebuild did not read: it is KEPT, always
     // (OpponentHudBackfillPlan, decided on the actual retained rows; no override). Every other row is rebuilt.
     const storedHands = new Map<string, number>();
-    for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+    for (const fam of HUD_FAMILIES) {
       const users = [...profiles.values()].filter((p) => p.family === fam).map((p) => p.user);
       for (let i = 0; i < users.length; i += 50) {
         const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
@@ -262,7 +262,7 @@ async function main(): Promise<void> {
       });
     }
     console.log(`KEPT ${kept} stored profiles that hold more hands than this rebuild read`);
-    for (const fam of ['plo4', 'plo5'] as HudFamily[])
+    for (const fam of HUD_FAMILIES)
       rows.push({
         user_id: '*',
         family: fam,

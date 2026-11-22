@@ -253,6 +253,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'COREGUARD: the acceptance law of an omahaMathCore decision (exact legalize, the core run standalone from the decide catch); nothing between the core and the table alters its choice',
     'src/engine/opponentHud/OmahaMathCoreHudRecords.ts':
       'lane CORE-EXTEND-5 seat-only opponent-record adapter over the decision HUD packet (hudCbetRaiseRecord for PLO4 flop continuation bets); read only while a default-off math core street flag is on',
+    'src/engine/omahaMathCore/OmahaMathCoreTurnRiver.ts':
+      'lane core-repair B3 opponent-lifetime-backed PLO5 turn/river facing-bet pricing (cumulative fw1 tail mass, barrel sharpening, station/nit guard, capped turn continuation, river K_allin=25); default OFF behind omahaMathCorePlo5Turn / omahaMathCorePlo5River',
+    'src/engine/opponentHud/OmahaMathCoreTurnRiverHud.ts':
+      'lane core-repair B3 seat-only HUD adapter over OpponentHudPacket (hudFirstWagerSizeCounts + hudBarrelRecord) for PLO5 turn/river math core; read only while a default-off math core turn/river flag is on',
     'src/engine/omaha/OmahaRangeEquity.ts':
       'lane EQUITY equityVsRanges: hero equity against weighted ranges per opponent with exact joint draws, run to the river (used by the math core)',
     'src/engine/HorseOmahaBetRead.ts':

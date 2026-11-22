@@ -72,15 +72,17 @@ describe('the three-hourly readiness CLI only reads', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toMatch(/Ran 10 tests/);
+    expect(result.stderr).toMatch(/Ran 15 tests/);
     expect(result.stderr).not.toMatch(/skipped=/);
   });
 
-  it('is documented in docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md with --repo-dir and no Unicode dashes', () => {
+  it('is documented in docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md with --repo-dir, NEXT OPEN CYCLE, MIGRATION GATE, and no Unicode dashes', () => {
     expect(docSource).toContain('python3 -B scripts/release/three-hourly-readiness.py');
     expect(docSource).toContain('--json');
     expect(docSource).toContain('--limit');
     expect(docSource).toContain('--repo-dir');
+    expect(docSource).toContain('NEXT OPEN CYCLE');
+    expect(docSource).toContain('MIGRATION GATE');
     expect(docSource).not.toContain('\u2014');
     expect(docSource).not.toContain('\u2013');
   });
