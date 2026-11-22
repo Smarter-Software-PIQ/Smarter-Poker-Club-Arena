@@ -131,6 +131,17 @@ def main():
       AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
     FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
   """,'t')
+  runfile(ROOT/'supabase/migrations/20261122203048_a_heavy_member_s_promo_fee_reader_measures_both_routes.sql')
+  for member_rows,window_rows in ((0,0),(300,0),(1308,2000),(16385,0)):
+   db.run(f"\\set historical_rows {member_rows}\n\\set window_rows {window_rows}\n"+original_cases)
+  # Incident 9408cfd4: 16,385 recent postings inside a 20,000-hand window. The
+  # fixture refuses one posting probe per window hand (the unmeasured route).
+  db.run("\\set historical_rows 0\n\\set recent_rows 16385\n\\set window_rows 20000\n"+original_cases)
+  check('a heavy member is measured against the clock window and the reader stays owner-only',"""
+    SELECT md5(pg_get_functiondef(oid))='9fbd419ad5ae2b8311d4167547415715' AND prosecdef
+      AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
+    FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
+  """,'t')
   check('both actual cash refund owners consume exact bust and terminal loss basis',"SELECT count(*) FROM pg_proc WHERE proname IN('fn_ca_promo_return_principal','fn_ca_promo_return_spent_event_fee') AND prosrc LIKE '%JOIN public.ca_promo_original_entry_loss_basis fs%'",'2')
   check('terminal loss basis preserves exact lot identity without duplicate rows',"SELECT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION%' AND NOT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION ALL%'",'t')
 

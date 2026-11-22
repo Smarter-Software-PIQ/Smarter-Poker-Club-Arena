@@ -261,6 +261,31 @@ export function extractMigrationMd5Pins(sql) {
     }
   }
 
+  // 3b. The catalog-row spelling of the same assertion (on main since
+  //     20261118024233): the MD5 is taken from the row's own oid and the
+  //     function is named by the row filter.
+  //    -- @live-proof: (SELECT md5(pg_get_functiondef(oid))='<md5>' ... FROM pg_proc WHERE oid='schema.fn(args)'::regprocedure)
+  const liveProofRowMd5Re =
+    /\bmd5\s*\(\s*(?:pg_catalog\s*\.\s*)?pg_get_functiondef\s*\(\s*(?:[a-z_]+\s*\.\s*)?oid\s*\)\s*\)\s*=\s*'([0-9a-f]{32})'/gi;
+  const liveProofRowSigRe =
+    /\boid\s*=\s*(?:(?:pg_catalog\s*\.\s*)?to_regprocedure\s*\(\s*'([^']+)'\s*\)|'([^']+)'\s*::\s*(?:pg_catalog\s*\.\s*)?regprocedure)/gi;
+  for (let idx = 0; idx < lines.length; idx += 1) {
+    if (!/^\s*--\s*@live-proof:/i.test(lines[idx])) continue;
+    const md5s = [...lines[idx].matchAll(liveProofRowMd5Re)].map((m) => m[1].toLowerCase());
+    const sigs = [...lines[idx].matchAll(liveProofRowSigRe)]
+      .map((m) => m[1] || m[2])
+      .filter((sig) => sig && sig.includes('('));
+    // One function and one MD5 on the line, or the pairing is not known.
+    if (md5s.length !== 1 || sigs.length !== 1) continue;
+    postImages.push({
+      sig: sigs[0],
+      normalizedSig: normalizeSignature(sigs[0]),
+      md5: md5s[0],
+      line: idx + 1,
+      kind: 'live-proof',
+    });
+  }
+
   return { preImages, postImages };
 }
 
