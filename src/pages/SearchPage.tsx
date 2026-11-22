@@ -1,6 +1,9 @@
 import { formatTournamentTitle } from '../utils/formatGameTitle';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
+import {
+  getTournamentEntryCapacity,
+  tournamentStartsWhenFull,
+} from '../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  COMMUNITY SEARCH — /search
@@ -1305,7 +1308,12 @@ export default function SearchPage() {
                               ) : null}
                             </span>
                             <span className={styles.subRow}>
-                              {formatStartTime(tournament.start_time)}
+                              {tournamentStartsWhenFull(tournament) &&
+                              !['RUNNING', 'COMPLETED', 'CANCELLED', 'BAGGED'].includes(
+                                String(tournament.status || '').toUpperCase()
+                              )
+                                ? 'When Full'
+                                : formatStartTime(tournament.start_time)}
                               {tournament.club_name ? ` · ${tournament.club_name}` : ''}
                             </span>
                           </span>
