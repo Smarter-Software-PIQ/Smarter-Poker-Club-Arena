@@ -7,7 +7,8 @@
  * FOR KEY SHARE on the cash_games row, waiting on fn_cash_cluster_tick, which
  * took that row FOR UPDATE: the one row lock that conflicts with a foreign key
  * check. The tick never deletes a game and never changes a key a foreign key
- * can use, so it takes FOR NO KEY UPDATE (migration 20261122232612). The
+ * can use, so it takes FOR NO KEY UPDATE (migration 20261122232612), in both
+ * the original and fn_cash_cluster_tick_uncapped, the copy the engine calls. The
  * behaviour is proved natively by
  * scripts/dev/prove-a-cluster-tick-never-blocks-a-waiting-list-join.sh.
  */
@@ -40,6 +41,20 @@ describe('the tick takes its game row with the lock its writes need, and no stro
     expect(sql).toContain('the cluster tick lock did not install exactly');
   });
 
+  it('edits both copies of the tick, the one the engine calls first among them', () => {
+    for (const fn of ['fn_cash_cluster_tick', 'fn_cash_cluster_tick_uncapped']) {
+      expect(sql).toContain(
+        `v_def text := pg_get_functiondef('public.${fn}(uuid,integer)'::regprocedure);`
+      );
+      expect(sql).toContain(`-- @probe-for: public.${fn}\n`);
+      expect(sql).toContain(`the cluster tick lock did not install exactly in ${fn}'`);
+      expect(sql).toContain(
+        `-- @live-proof: (SELECT pg_get_functiondef('public.${fn}(uuid,integer)'::regprocedure) NOT LIKE`
+      );
+    }
+    expect(sql.match(/EXECUTE v_def;/g)).toHaveLength(2);
+  });
+
   it('refuses to lighten the lock if the tick ever deletes a game', () => {
     expect(sql).toContain("position('DELETE FROM public.cash_games' IN v_def)>0");
   });
@@ -60,7 +75,7 @@ describe('the tick takes its game row with the lock its writes need, and no stro
     const later = readdirSync(DIR).filter((f) => /^\d{14}_.*\.sql$/.test(f) && f > MIGRATION);
     for (const file of later) {
       const source = readFileSync(resolve(DIR, file), 'utf8');
-      if (!/fn_cash_cluster_tick\s*\(/.test(source)) continue;
+      if (!/fn_cash_cluster_tick(_uncapped)?(\s*\(|')/.test(source)) continue;
       expect(source, `${file} takes the tick's game row FOR UPDATE again`).not.toMatch(OLD_LOCK);
     }
   });

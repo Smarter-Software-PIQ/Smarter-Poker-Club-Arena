@@ -7,7 +7,8 @@
 --
 -- THE DEFECT, READ FROM THE POSTGRES LOG. A join of a cash game's waiting list
 -- (INSERT INTO cash_game_waitlist) and the cluster pass
--- (fn_cash_clusters_tick_all_uncapped -> fn_cash_cluster_tick) deadlocked
+-- (fn_cash_clusters_tick_all_uncapped -> fn_cash_cluster_tick_uncapped, the
+-- copy this engine calls) deadlocked
 -- 2 to 10 times an hour, all of 2026-11-21 and 2026-11-22 (98 of 112
 -- deadlocks in the 24 hours to 23:25 UTC on 2026-11-22 named both). Each time
 -- Postgres cancelled one side: either a player's join failed or the pass lost
@@ -17,7 +18,7 @@
 --   SELECT 1 FROM ONLY "public"."cash_games" x WHERE "id" = $1 FOR KEY SHARE OF x
 --
 -- That is the foreign key check cash_game_waitlist_game_id_fkey makes for
--- every new row. It waited on the pass, because fn_cash_cluster_tick takes
+-- every new row. It waited on the pass, because the tick takes
 -- its game row with SELECT ... FOR UPDATE, the one row lock that conflicts
 -- with FOR KEY SHARE, while the pass in turn waited on the join's
 -- transaction.
@@ -36,6 +37,11 @@
 -- exactly as before. The only thing it no longer blocks is a foreign key
 -- check, which never conflicted with anything the tick does.
 --
+-- BOTH COPIES. fn_cash_cluster_tick_uncapped (migration 20261112154904) is
+-- the copy the engine calls and carries the same two lines; the original is
+-- what fn_cash_clusters_tick_all calls. Both get the identical edit here, as
+-- server/src/cluster/TheUncappedTickStaysInStep.law.test.ts requires.
+--
 -- Nothing here moves or prices money, seats anyone or reads is_horse.
 --
 -- Proof: scripts/dev/prove-a-cluster-tick-never-blocks-a-waiting-list-join.sh
@@ -45,13 +51,14 @@
 -- HOW. Anchored edits of the live definition: each needle must occur exactly
 -- once or the whole file aborts and nothing changes.
 -- @live-proof: (SELECT pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure) NOT LIKE '%cash_games WHERE id = p_game_id FOR UPDATE%' AND pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure) LIKE '%cash_games WHERE id = p_game_id FOR NO KEY UPDATE SKIP LOCKED;%')
+-- @live-proof: (SELECT pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure) NOT LIKE '%cash_games WHERE id = p_game_id FOR UPDATE%' AND pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure) LIKE '%cash_games WHERE id = p_game_id FOR NO KEY UPDATE SKIP LOCKED;%')
 
 BEGIN;
 
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '30s';
 
-DO $tick_lock$
+DO $lock_tick$
 DECLARE
   v_def text := pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure);
   v_edit record;
@@ -77,26 +84,74 @@ $r$    SELECT * INTO g FROM public.cash_games WHERE id = p_game_id FOR NO KEY UP
   END LOOP;
   EXECUTE v_def;
 END
-$tick_lock$;
+$lock_tick$;
 
 -- @probe-for: public.fn_cash_cluster_tick
-DO $probe$
+DO $probe_tick$
 BEGIN
   PERFORM public.fn_cash_cluster_tick(gen_random_uuid(), NULL);
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
+END $probe_tick$;
 
-DO $verify_tick_lock$
+DO $verify_tick$
 BEGIN
   IF position('cash_games WHERE id = p_game_id FOR UPDATE' IN pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure))>0
      OR position('cash_games WHERE id = p_game_id FOR NO KEY UPDATE SKIP LOCKED' IN pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure))=0
      OR (length(pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure))-length(replace(pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure),'cash_games WHERE id = p_game_id FOR NO KEY UPDATE','')))
         /length('cash_games WHERE id = p_game_id FOR NO KEY UPDATE')<>2 THEN
-    RAISE EXCEPTION 'the cluster tick lock did not install exactly';
+    RAISE EXCEPTION 'the cluster tick lock did not install exactly in fn_cash_cluster_tick';
   END IF;
 END
-$verify_tick_lock$;
+$verify_tick$;
+
+DO $lock_uncapped$
+DECLARE
+  v_def text := pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure);
+  v_edit record;
+BEGIN
+  IF position('FOR NO KEY UPDATE' IN v_def)>0 THEN
+    RAISE EXCEPTION 'fn_cash_cluster_tick_uncapped already takes FOR NO KEY UPDATE: re-read before editing';
+  END IF;
+  IF position('DELETE FROM public.cash_games' IN v_def)>0 THEN
+    RAISE EXCEPTION 'fn_cash_cluster_tick_uncapped deletes a cash_games row; it needs FOR UPDATE';
+  END IF;
+  FOR v_edit IN SELECT * FROM (VALUES
+    ('wake',
+$o$    SELECT * INTO g FROM public.cash_games WHERE id = p_game_id FOR UPDATE SKIP LOCKED;$o$,
+$r$    SELECT * INTO g FROM public.cash_games WHERE id = p_game_id FOR NO KEY UPDATE SKIP LOCKED;$r$),
+    ('pass',
+$o$    SELECT * INTO g FROM public.cash_games WHERE id = p_game_id FOR UPDATE;$o$,
+$r$    SELECT * INTO g FROM public.cash_games WHERE id = p_game_id FOR NO KEY UPDATE;$r$)
+  ) AS e(label,old_text,new_text) LOOP
+    IF (length(v_def)-length(replace(v_def,v_edit.old_text,'')))/length(v_edit.old_text)<>1 THEN
+      RAISE EXCEPTION 'fn_cash_cluster_tick_uncapped anchor % was expected exactly once',v_edit.label;
+    END IF;
+    v_def:=replace(v_def,v_edit.old_text,v_edit.new_text);
+  END LOOP;
+  EXECUTE v_def;
+END
+$lock_uncapped$;
+
+-- @probe-for: public.fn_cash_cluster_tick_uncapped
+DO $probe_uncapped$
+BEGIN
+  PERFORM public.fn_cash_cluster_tick_uncapped(gen_random_uuid(), NULL);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe_uncapped$;
+
+DO $verify_uncapped$
+BEGIN
+  IF position('cash_games WHERE id = p_game_id FOR UPDATE' IN pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure))>0
+     OR position('cash_games WHERE id = p_game_id FOR NO KEY UPDATE SKIP LOCKED' IN pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure))=0
+     OR (length(pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure))-length(replace(pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure),'cash_games WHERE id = p_game_id FOR NO KEY UPDATE','')))
+        /length('cash_games WHERE id = p_game_id FOR NO KEY UPDATE')<>2 THEN
+    RAISE EXCEPTION 'the cluster tick lock did not install exactly in fn_cash_cluster_tick_uncapped';
+  END IF;
+END
+$verify_uncapped$;
 
 COMMIT;
