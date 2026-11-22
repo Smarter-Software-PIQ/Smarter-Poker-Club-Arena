@@ -3557,6 +3557,24 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemDangerBoardEquityIsPriced: true },
     b: {},
   },
+  // 2026-11-22 HORSE DECISIONS lane (v17PosIsPriced, default OFF, OPTION_SWITCH_REFUSED, 0 migrations):
+  // the V17 players-behind bluff table priced from the measured field fold-through. Cash and MTT cards.
+  {
+    name: 'nlh_v17_pos_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { v17PosIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_mtt_v17_pos_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    stackBB: 40,
+    context: bigBlindAnteMttContext(6, 40),
+    a: { v17PosIsPriced: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
