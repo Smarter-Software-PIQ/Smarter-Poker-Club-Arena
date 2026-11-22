@@ -31,6 +31,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HORSE_DATA_LEDGER } from '../engine/HorseDataLedger.js';
 import {
+  DEVELOPMENT_LEAGUE_CARDS,
   LEAGUE_MATCHUPS,
   OMAHA_PRICED_FAMILY_CARDS,
   OMAHA_PRICED_SITE_CARDS,
@@ -116,7 +117,7 @@ const switchedOnInOneArm = (matchups: readonly Arms[]): Set<string> => {
   return keys;
 };
 
-const dealt = () => switchedOnInOneArm(LEAGUE_MATCHUPS);
+const dealt = () => switchedOnInOneArm([...LEAGUE_MATCHUPS, ...DEVELOPMENT_LEAGUE_CARDS]);
 const refused = () => switchedOnInOneArm(UNMEASURABLE_MATCHUPS);
 const listed = (k: string) => UNDEALT_WHEN_WRITTEN.has(k) || UNDEALT_WHEN_WIDENED.has(k);
 
