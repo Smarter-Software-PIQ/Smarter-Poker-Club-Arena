@@ -6355,6 +6355,24 @@ LEAGUE_MATCHUPS.push({
 });
 
 /**
+ * HORSE RIVER NO BLOCKER BET on the calibrated no-limit hold'em field (2026-11-22): six seats, the hero on the
+ * live cash Hybrid persona with the deal-seeded mood clock, a with horseRiverNoBlockerBet on, b off. Human-field
+ * twin of nlh_horse_river_no_blocker_bet (the mirror uses productionStyles; balanced alone is near-inert on
+ * sub-25% NLH river bets, while the live Hybrid persona reaches them).
+ */
+LEAGUE_MATCHUPS.push({
+  name: 'human_nlh_horse_river_no_blocker_bet',
+  variant: 'nlh',
+  seats: 6,
+  pairs: HUMAN_FIELD_PAIRS,
+  hybridBaseline: true,
+  moodClock: 'deal_seed',
+  a: { horseRiverNoBlockerBet: true },
+  b: {},
+  opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+});
+
+/**
  * THE SCRIPTED FIXED-LIMIT OMAHA HI-LO FIELD CARDS (2026-11-21,
  * Flo8ScriptedField.ts).
  *

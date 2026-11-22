@@ -29517,10 +29517,11 @@ export class HorseLogic {
       // holdemValueAndCallsArePriced (default off): the raise against the call is priced when this function
       // returns (HorseLogic.holdemPricedReference, the legal sizes against the bettor's line range); no random
       // draw decides it here. Off, or out of its scope, nothing changes.
-      if (
-        opts.holdemValueAndCallsArePriced === true &&
-        typeof holdemPricedOpponent(player, gs, vi, opts) === 'object'
-      ) {
+      const pricedOpp =
+        opts.holdemValueAndCallsArePriced === true
+          ? holdemPricedOpponent(player, gs, vi, opts)
+          : 'out';
+      if (typeof pricedOpp === 'object' && Math.max(0, Number(pricedOpp.stack ?? 0)) > 0) {
         if (tele15) noteFire('holdem_priced_value_raise_deferred');
         return { action: 'call', amount: toCall, thinkTime: 0 };
       }
@@ -31272,7 +31273,11 @@ export class HorseLogic {
           if (Number.isFinite(to) && to > currentBet && !legal.has(to)) legal.set(to, d);
         }
       }
-      const verdict = holdemPricedVerdict(spot, range, [...legal.keys()]);
+      const verdict = holdemPricedVerdict(
+        spot,
+        range,
+        [...legal.keys()].sort((x, y) => x - y)
+      );
       if (!facing && street !== 'river' && verdict.equity < 0.5) {
         if (tele) noteFire('holdem_priced_not_value_kept');
         return decision;
@@ -31283,12 +31288,17 @@ export class HorseLogic {
       if (best.kind === 'fold') out = { action: 'fold', thinkTime };
       else if (best.kind === 'check') out = { action: 'check', thinkTime };
       else if (best.kind === 'call')
-        out = this.legalize(
-          { action: 'call', amount: Math.min(currentBet - heroIn, heroStack), thinkTime },
-          player,
-          gs,
-          vi
-        );
+        // When villain is already all-in (0 chips behind), any non-fold baseline action is already
+        // putting the chips in; keep the baseline action token rather than rewriting all_in/raise to call.
+        out =
+          villainStack <= 0 && a !== 'fold'
+            ? decision
+            : this.legalize(
+                { action: 'call', amount: Math.min(currentBet - heroIn, heroStack), thinkTime },
+                player,
+                gs,
+                vi
+              );
       else out = { ...(legal.get(best.to) as HorseDecision), thinkTime };
       if (tele) {
         if (best.kind === 'fold') noteFire('holdem_priced_fold');
