@@ -3056,6 +3056,106 @@ export const OMAHA_LIVE_OPTIONS_20261118: HorseDecideOpts = Object.freeze({
   omahaTurnRiverRaiseIsPriced: true,
 });
 
+/**
+ * HOLD'EM BLANKET-OFF CANDIDATE CARDS (2026-11-21, Horse Switch lane):
+ * The three clean Hold'em blanket-off candidates from
+ * REVIEW-HOLDEM-OFFLIST-20261121.md whose OFF path routes directly to V38
+ * priced logic without coupling a second rule or reinstating another fixed rule:
+ *   1. v80TopPairStrongKicker  (35/day; Burls/owner top-pair cell A, strong kicker)
+ *   2. v79TopPairWeakKicker    (82/day; Burls/owner top-pair cell A/B, weak kicker)
+ *   3. v68TurnAirDrawCalls     (706/day; turn high-card air shade + stack implied-odds veto)
+ *
+ * Each candidate gets a cash6 primary card (6 seats, 100bb NLH cash) and a hu
+ * guard card (2 seats, 100bb NLH cash). Arm A switches the single blanket rule
+ * OFF (`false`); arm B is `{}` (release default, rule ON). Note that v79 and v80
+ * exclude heads-up tables (`headsUpTable: true`) in v79InMeasuredCell /
+ * v80InMeasuredCell, so their hu cards are inert guards proving HU tables stay
+ * untouched, while v68 is active in both cash6 and hu.
+ *
+ * These are DEVELOPMENT_LEAGUE_CARDS, never LEAGUE_MATCHUPS: the nightly worker
+ * never deals them, they take no part in rotation, and they are run by exact
+ * name via `src/scripts/horseLeagueCard.ts --card=<name> --seed=<n>`.
+ */
+export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'cash6_v80_top_pair_strong_kicker_off',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v80TopPairStrongKicker: false },
+    b: {},
+  },
+  {
+    name: 'hu_v80_top_pair_strong_kicker_off',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v80TopPairStrongKicker: false },
+    b: {},
+  },
+  {
+    name: 'cash6_v79_top_pair_weak_kicker_off',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v79TopPairWeakKicker: false },
+    b: {},
+  },
+  {
+    name: 'hu_v79_top_pair_weak_kicker_off',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v79TopPairWeakKicker: false },
+    b: {},
+  },
+  {
+    name: 'cash6_v68_turn_air_draw_calls_off',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v68TurnAirDrawCalls: false },
+    b: {},
+  },
+  {
+    name: 'hu_v68_turn_air_draw_calls_off',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v68TurnAirDrawCalls: false },
+    b: {},
+  },
+]);
+
+/**
+ * DEVELOPMENT CARDS: declared like a nightly card and dealt by the same
+ * runMatchup, but by name only, for a declared grade run
+ * (src/scripts/horseLeagueCard.ts --card=<name>). They are NOT in LEAGUE_MATCHUPS:
+ * the nightly worker never deals them, they take no part in the rotation, and no
+ * row of horse_league_results comes from one.
+ */
+export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+]);
+
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
   { name: 'v10_strategy', a: {}, b: { v10: false } },
