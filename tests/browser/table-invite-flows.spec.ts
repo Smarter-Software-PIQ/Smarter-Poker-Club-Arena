@@ -4,7 +4,7 @@ const USER_UUID = '11111111-2222-4333-8444-555555555555';
 const TABLE_UUID = '11111111-2222-4333-8444-555555555555';
 const CLUSTER_UUID = '33333333-4444-4555-8666-777777777777';
 const CLUB_UUID = '44444444-5555-4666-8777-888888888888';
-const FIXTURE_URL = 'tests/e2e/fixtures/table-invite-flows/index.html';
+const FIXTURE_URL = 'tests/browser/fixtures/table-invite-flows/index.html';
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript((userId: string) => {

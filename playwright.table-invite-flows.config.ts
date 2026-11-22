@@ -5,7 +5,7 @@ const PORT = portFor(5194);
 const SHARED_PREVIEW = process.env.ARENA_SHARED_PREVIEW_URL?.replace(/\/$/, '');
 
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: './tests/browser',
   testMatch: 'table-invite-flows.spec.ts',
   workers: 1,
   retries: 0,
