@@ -686,6 +686,14 @@
   margin: 0;
 }
 
+/* Not an error: the linked game started without this player, and the button
+   leads to the open one (src/lib/nextOpenGame.ts). */
+.tournament-recovery-notice--next-game {
+  color: #cfe3ff;
+  background: rgba(24, 119, 242, 0.14);
+  border-bottom-color: rgba(24, 119, 242, 0.4);
+}
+
 /* On a wide screen the action does not need to be a thousand pixels long.
    The buttons keep to the right of the column, where the eye lands last. */
 @media (min-width: 768px) {

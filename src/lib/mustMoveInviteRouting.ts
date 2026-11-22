@@ -1,15 +1,24 @@
 import type { CashGameJoinResult } from '../services/cashGameLobby';
-import { normalizeInviteCode, normalizeUuid } from './inviteCode';
+import { normalizeInviteCode, normalizeInviteToken, normalizeUuid } from './inviteCode';
 
 export interface TableInviteParams {
   inviteCode: string | null;
   clusterId: string | null;
+  /** Heads Up seat-hold token (`?invite=`), the key to a seat held for one invited player. */
+  inviteToken: string | null;
   returnPath: string | null;
 }
 
 /**
- * Parse and validate `?i=<CODE>` and `?cluster=<UUID>` from a table URL's
- * query string, and build the safe internal return path for club-join flows.
+ * Parse and validate `?i=<CODE>`, `?cluster=<UUID>` and `?invite=<TOKEN>` from
+ * a table URL's query string, and build the safe internal return path for
+ * club-join flows.
+ *
+ * THE RETURN PATH CARRIES THE SEAT-HOLD TOKEN (2026-11-22). It used to carry
+ * only `cluster`, so a friend who had to join the club first came back to the
+ * table without `invite`, and the seat held for them answered
+ * heads_up_invite_required: the one person the hold was made for was the one
+ * person it refused.
  */
 export function parseTableInviteParams(
   tableId: string | undefined,
@@ -18,12 +27,16 @@ export function parseTableInviteParams(
   const params = new URLSearchParams(search);
   const inviteCode = normalizeInviteCode(params.get('i'));
   const clusterId = normalizeUuid(params.get('cluster'));
-  const returnPath = tableId
-    ? clusterId
-      ? `/table/${encodeURIComponent(tableId)}?cluster=${clusterId}`
-      : `/table/${encodeURIComponent(tableId)}`
-    : null;
-  return { inviteCode, clusterId, returnPath };
+  const inviteToken = normalizeInviteToken(params.get('invite'));
+  let returnPath: string | null = null;
+  if (tableId) {
+    const back = new URLSearchParams();
+    if (clusterId) back.set('cluster', clusterId);
+    if (inviteToken) back.set('invite', inviteToken);
+    const qs = back.toString();
+    returnPath = `/table/${encodeURIComponent(tableId)}${qs ? `?${qs}` : ''}`;
+  }
+  return { inviteCode, clusterId, inviteToken, returnPath };
 }
 
 export interface MustMoveRoutingEligibilityInput {

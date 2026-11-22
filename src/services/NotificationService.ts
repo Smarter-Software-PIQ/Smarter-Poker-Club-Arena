@@ -67,6 +67,14 @@ function appendInviteQueryParams(
  * Pure canonical deep-link resolver for `table_invite` notifications.
  * Accepts both snake_case and camelCase metadata payloads so DB rows written
  * by any producer resolve to the exact Club Arena in-app destination.
+ *
+ * ONE MEANING PER PARAMETER (2026-11-22). `i` is the sender's club invite code
+ * and `invite` is the Heads Up seat-hold token, exactly as every shared link
+ * spells them (src/lib/share.ts withShareQueryParams) and as the table reads
+ * them (parseTableInviteParams, parseHeadsUpInviteToken). This builder had the
+ * two crossed, so a friend invited in the app arrived with the hold token
+ * under `i` and the club code under `invite`: the table read neither, and the
+ * seat held for that friend refused them (heads_up_invite_required).
  */
 export function buildTableInviteDeepLink(metadata?: Record<string, unknown> | null): string {
   if (!metadata || typeof metadata !== 'object') return '/';
@@ -85,14 +93,14 @@ export function buildTableInviteDeepLink(metadata?: Record<string, unknown> | nu
   if (kind === 'lightning') {
     if (clusterId) {
       return appendInviteQueryParams(`/lightning/${encodeURIComponent(clusterId)}`, {
-        i: inviteToken,
-        invite: inviteCode,
+        i: inviteCode,
+        invite: inviteToken,
       });
     }
     if (tableId) {
       return appendInviteQueryParams(`/table/${encodeURIComponent(tableId)}`, {
-        i: inviteToken,
-        invite: inviteCode,
+        i: inviteCode,
+        invite: inviteToken,
       });
     }
     return '/';
@@ -103,14 +111,14 @@ export function buildTableInviteDeepLink(metadata?: Record<string, unknown> | nu
     // invitee lands straight on the felt; otherwise open the tournament lobby.
     if (tableId) {
       return appendInviteQueryParams(`/table/${encodeURIComponent(tableId)}`, {
-        i: inviteToken,
-        invite: inviteCode,
+        i: inviteCode,
+        invite: inviteToken,
       });
     }
     if (tournamentId) {
       return appendInviteQueryParams(`/tournaments/${encodeURIComponent(tournamentId)}`, {
-        i: inviteToken,
-        invite: inviteCode,
+        i: inviteCode,
+        invite: inviteToken,
       });
     }
     return '/';
@@ -118,23 +126,23 @@ export function buildTableInviteDeepLink(metadata?: Record<string, unknown> | nu
 
   if (tableId) {
     return appendInviteQueryParams(`/table/${encodeURIComponent(tableId)}`, {
-      i: inviteToken,
+      i: inviteCode,
       cluster: clusterId,
-      invite: inviteCode,
+      invite: inviteToken,
     });
   }
 
   if (clusterId) {
     return appendInviteQueryParams(`/lightning/${encodeURIComponent(clusterId)}`, {
-      i: inviteToken,
-      invite: inviteCode,
+      i: inviteCode,
+      invite: inviteToken,
     });
   }
 
   if (tournamentId) {
     return appendInviteQueryParams(`/tournaments/${encodeURIComponent(tournamentId)}`, {
-      i: inviteToken,
-      invite: inviteCode,
+      i: inviteCode,
+      invite: inviteToken,
     });
   }
 

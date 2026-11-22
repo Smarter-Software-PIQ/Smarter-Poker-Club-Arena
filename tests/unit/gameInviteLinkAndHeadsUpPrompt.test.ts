@@ -227,9 +227,11 @@ describe('lobby and table invite wiring', () => {
     expect(bar).toContain("action: 'INVITE_TO_GAME'");
     expect(page).toContain("case 'INVITE_TO_GAME':");
     expect(page).toContain("source: 'TablePage.inviteToGame'");
-    expect(page).toContain(
-      "gameInviteUrl({ kind: 'lightning', id: lightning.clusterId, inviteCode })"
-    );
+    // 2026-11-22: one target for the link and the in-app friend invite
+    // (tableInviteTarget), Lightning clusters included.
+    expect(page).toContain('tableInviteTarget({');
+    expect(page).toContain('lightningClusterId: lightningRoomRef.current?.clusterId ?? null');
+    expect(page).toContain('gameInviteUrl(target)');
     expect(page).toContain('useSenderInviteCode(');
     expect(page).toContain('tableInviteFallbackUrl');
     expect(bus).toContain("| 'INVITE_ONLINE_FRIEND'");
