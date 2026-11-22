@@ -94,9 +94,9 @@
   gap: 5px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgb(31 143 85 / 20%);
-  border: 1px solid rgb(34 197 94 / 38%);
-  color: #86efac;
+  background: rgb(46 160 67 / 20%);
+  border: 1px solid rgb(63 185 80 / 38%);
+  color: #4dc660;
   font:
     600 0.72rem/1 Inter,
     system-ui,
@@ -188,9 +188,9 @@
 }
 
 .friend-invite-picker__toggle--active {
-  border-color: rgb(34 197 94 / 58%);
-  background: rgb(31 143 85 / 26%);
-  color: #bbf7d0;
+  border-color: rgb(63 185 80 / 58%);
+  background: rgb(46 160 67 / 26%);
+  color: #4dc660;
 }
 
 .friend-invite-picker__toggle:active {
@@ -290,8 +290,8 @@
 }
 
 .friend-invite-picker__dot--online {
-  background: #22c55e;
-  box-shadow: 0 0 6px rgb(34 197 94 / 65%);
+  background: #3fb950;
+  box-shadow: 0 0 6px rgb(63 185 80 / 65%);
 }
 
 .friend-invite-picker__dot--offline {
@@ -334,9 +334,9 @@
 }
 
 .friend-invite-picker__invite-btn--invited {
-  border-color: rgb(34 197 94 / 45%);
-  background: rgb(31 143 85 / 22%);
-  color: #86efac;
+  border-color: rgb(63 185 80 / 45%);
+  background: rgb(46 160 67 / 22%);
+  color: #4dc660;
   cursor: default;
 }
 
