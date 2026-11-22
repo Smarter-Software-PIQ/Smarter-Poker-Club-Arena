@@ -175,7 +175,9 @@ describe('omahaStrongHandCheckIsPriced: the comparison (HorseOmahaStrongHandChec
       const d = bet(40);
       expect(omahaStrongHandCheckRule(d, s.hero, s.gs, false, 0.05, () => null).decision).toBe(d);
       const chk: HorseDecision = { action: 'check', thinkTime: 1 };
-      expect(omahaStrongHandCheckRule(chk, s.hero, s.gs, true, 0.05, () => null).decision).toBe(chk);
+      expect(omahaStrongHandCheckRule(chk, s.hero, s.gs, true, 0.05, () => null).decision).toBe(
+        chk
+      );
     }
     for (const s of FACING) expect(omahaStrongHandCheckSpot(s.hero, s.gs)).toBeNull();
     const six = spot('plo5', STRONG, BOARD, 'river');
@@ -260,7 +262,15 @@ describe('omahaStrongHandCheckIsPriced: the comparison (HorseOmahaStrongHandChec
   it('6. source law: counts and frequencies only; no identity, no random stream', () => {
     const src = readFileSync(new URL('./HorseOmahaStrongHandCheck.ts', import.meta.url), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const banned of ['is_horse', 'isHorse', 'kind', 'person', 'username', 'user_id', 'Math.random'])
+    for (const banned of [
+      'is_horse',
+      'isHorse',
+      'kind',
+      'person',
+      'username',
+      'user_id',
+      'Math.random',
+    ])
       expect(code.includes(banned), banned).toBe(false);
   });
 });
@@ -340,7 +350,12 @@ describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-
   it('12. no fold record: the multiplier is 1 and the curve is the population curve exactly', () => {
     for (const variant of ['plo4', 'plo5'])
       for (const street of ['turn', 'river'] as const) {
-        for (const rec of [null, undefined, {}, { foldSmall: { folds: 0, opps: 0 }, foldBig: null }]) {
+        for (const rec of [
+          null,
+          undefined,
+          {},
+          { foldSmall: { folds: 0, opps: 0 }, foldBig: null },
+        ]) {
           const m = omahaStrongHandCheckFoldMultiplier(variant, street, rec);
           expect(m.m).toBe(1);
           expect(m.weight).toBe(0);
@@ -350,7 +365,9 @@ describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-
     expect(omahaStrongHandCheckCurveOf(OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE, 1)).toEqual(
       OMAHA_STRONG_HAND_CHECK_TURN_RESPONSE.map((p) => ({ ...p }))
     );
-    expect(omahaStrongHandCheckFoldMultiplier('plo6', 'turn', { foldBig: { folds: 9, opps: 9 } }).m).toBe(1);
+    expect(
+      omahaStrongHandCheckFoldMultiplier('plo6', 'turn', { foldBig: { folds: 9, opps: 9 } }).m
+    ).toBe(1);
   });
 
   it('13. the record moves the fold share by n / (n + k): population-like counts give 1, a non-folder goes to 0', () => {
@@ -441,8 +458,13 @@ describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-
         const k = OMAHA_STRONG_HAND_CHECK_STAB_SIZE_PRIOR_STABS[street];
         expect(pop).toBeGreaterThan(0.3);
         expect(pop).toBeLessThan(1.2);
-        expect(omahaStrongHandCheckStabSize(variant, street, null)).toEqual({ size: pop, weight: 0 });
-        expect(omahaStrongHandCheckStabSize(variant, street, { stabs: 0, sizeSum: 0 })!.size).toBe(pop);
+        expect(omahaStrongHandCheckStabSize(variant, street, null)).toEqual({
+          size: pop,
+          weight: 0,
+        });
+        expect(omahaStrongHandCheckStabSize(variant, street, { stabs: 0, sizeSum: 0 })!.size).toBe(
+          pop
+        );
         const big = omahaStrongHandCheckStabSize(variant, street, { stabs: 40, sizeSum: 40 })!;
         expect(big.size).toBeCloseTo((40 + k * pop) / (40 + k), 10);
         expect(big.weight).toBeCloseTo(40 / (40 + k), 10);
@@ -469,12 +491,20 @@ describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-
       hudLifetimeCount: (id, fam, alias, ctx) => {
         calls.push(`lc|${id}|${fam}|${alias}|${ctx.street}|${ctx.players}`);
         if (id === 'boom') throw new Error('x');
-        return id === 'none' ? { n: 0, hits: 0 } : { n: 12, hits: alias === 'x.foldToBet.big' ? 9 : 3 };
+        return id === 'none'
+          ? { n: 0, hits: 0 }
+          : { n: 12, hits: alias === 'x.foldToBet.big' ? 9 : 3 };
       },
     });
     expect(p.unopenedWagerRecord('a', 'plo5', 'river', 'hu')).toEqual({ bets: 30, opps: 50 });
-    expect(p.firstWagerFoldRecord!('a', 'plo5', 'river', 'hu', 'big')).toEqual({ folds: 9, opps: 12 });
-    expect(p.firstWagerFoldRecord!('a', 'plo4', 'turn', 'mw', 'small')).toEqual({ folds: 3, opps: 12 });
+    expect(p.firstWagerFoldRecord!('a', 'plo5', 'river', 'hu', 'big')).toEqual({
+      folds: 9,
+      opps: 12,
+    });
+    expect(p.firstWagerFoldRecord!('a', 'plo4', 'turn', 'mw', 'small')).toEqual({
+      folds: 3,
+      opps: 12,
+    });
     expect(p.stabSizeRecord!('a', 'plo5', 'river', 'hu')).toEqual({ stabs: 20, sizeSum: 15 });
     for (const id of ['none', 'boom']) {
       expect(p.unopenedWagerRecord(id, 'plo5', 'turn', 'hu')).toBeNull();
@@ -484,7 +514,10 @@ describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-
     expect(calls).toContain('lc|a|plo4|x.foldToBet.small|turn|mw');
     HorseMind.setOmahaLifetimeStreetRecordProvider(p);
     try {
-      expect(HorseMind.omahaStabDefenceRecordOf('a', 'PLO5', 'river', 1)).toEqual({ bets: 30, opps: 50 });
+      expect(HorseMind.omahaStabDefenceRecordOf('a', 'PLO5', 'river', 1)).toEqual({
+        bets: 30,
+        opps: 50,
+      });
       expect(HorseMind.omahaStrongHandCheckRecordsOf('a', 'plo5', 'river', 1)).toEqual({
         foldSmall: { folds: 3, opps: 12 },
         foldBig: { folds: 9, opps: 12 },
@@ -503,7 +536,10 @@ describe('omahaStrongHandCheckIsPriced: his own fold record and stab size (STAB-
     mem.noteFirstWagerAnswer('u', 'plo5', 'turn', 'hu', 'big', true);
     mem.noteFirstWagerAnswer('u', 'plo5', 'turn', 'hu', 'big', false);
     mem.noteStab('u', 'plo5', 'turn', 'hu', 3);
-    expect(mem.firstWagerFoldRecord('u', 'plo5', 'turn', 'hu', 'big')).toEqual({ folds: 1, opps: 2 });
+    expect(mem.firstWagerFoldRecord('u', 'plo5', 'turn', 'hu', 'big')).toEqual({
+      folds: 1,
+      opps: 2,
+    });
     expect(mem.firstWagerFoldRecord('u', 'plo5', 'turn', 'hu', 'small')).toBeNull();
     expect(mem.stabSizeRecord('u', 'plo5', 'turn', 'hu')).toEqual({ stabs: 1, sizeSum: 2 });
   });

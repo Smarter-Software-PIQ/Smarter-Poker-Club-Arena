@@ -63,12 +63,13 @@ export const OMAHA_STAB_DEFENCE_TABLE: Readonly<
 export const OMAHA_STAB_DEFENCE_PRIOR_OPPS = 37;
 /** The same constant measured per street and table (STAB-DEFENCE.md: p(1-p)/SD^2 - 1 on the per-street rates of the
  *  same public extract): the weight of a per-street record is n / (n + k) with the k of its own street. */
-export const OMAHA_STAB_DEFENCE_PRIOR_OPPS_BY_CELL: Readonly<Record<string, number>> = Object.freeze({
-  'turn|hu': 43,
-  'river|hu': 33,
-  'turn|mw': 62,
-  'river|mw': 45,
-});
+export const OMAHA_STAB_DEFENCE_PRIOR_OPPS_BY_CELL: Readonly<Record<string, number>> =
+  Object.freeze({
+    'turn|hu': 43,
+    'river|hu': 33,
+    'turn|mw': 62,
+    'river|mw': 45,
+  });
 export function omahaStabDefencePriorOpps(street: string, opponents: number): number {
   return (
     OMAHA_STAB_DEFENCE_PRIOR_OPPS_BY_CELL[`${street}|${opponents <= 1 ? 'hu' : 'mw'}`] ??

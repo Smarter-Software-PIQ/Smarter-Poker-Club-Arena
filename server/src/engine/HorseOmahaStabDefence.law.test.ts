@@ -31,7 +31,10 @@ describe('omahaStabDefenceIsPriced: the priced non-value share (HorseOmahaStabDe
       for (const q0 of [0.13, 0.19, 0.22, 0.4]) {
         expect(omahaStabDefenceShare(q0, null, variant, street, opp)!.q).toBeCloseTo(q0, 10);
         expect(omahaStabDefenceShare(q0, rec(0.9, 0), variant, street, opp)!.q).toBeCloseTo(q0, 10);
-        expect(omahaStabDefenceShare(q0, rec(POP, 500), variant, street, opp)!.q).toBeCloseTo(q0, 10);
+        expect(omahaStabDefenceShare(q0, rec(POP, 500), variant, street, opp)!.q).toBeCloseTo(
+          q0,
+          10
+        );
       }
     }
   });
@@ -77,7 +80,16 @@ describe('omahaStabDefenceIsPriced: the priced non-value share (HorseOmahaStabDe
   it('7. source law: counts and frequencies only', () => {
     const src = readFileSync(new URL('./HorseOmahaStabDefence.ts', import.meta.url), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const banned of ['is_horse', 'isHorse', 'kind', 'person', 'username', 'user_id', 'Card', 'Math.random'])
+    for (const banned of [
+      'is_horse',
+      'isHorse',
+      'kind',
+      'person',
+      'username',
+      'user_id',
+      'Card',
+      'Math.random',
+    ])
       expect(code.includes(banned), banned).toBe(false);
   });
   it('8. the verdict share is the read as before while no priced share is given', () => {

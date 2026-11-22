@@ -203,7 +203,11 @@ function foldSeAt(curve: readonly OmahaRiverFirstToActPoint[], share: number): n
 }
 
 /** A unit draw from public decision state and the Horse's own cards (FNV-1a); no random stream is read. */
-export function omahaStrongHandCheckDraw(hero: SeatPlayer, gs: HorseGameStateV2, salt: number): number {
+export function omahaStrongHandCheckDraw(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  salt: number
+): number {
   const card = (c: Card) => `${c.rank}${String(c.suit)[0]}`;
   const text = [
     (hero.cards ?? []).map(card).join(''),
