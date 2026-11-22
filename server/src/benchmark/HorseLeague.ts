@@ -1981,6 +1981,7 @@ export async function runMatchup(
           (matchup.context ?? CASH_LEAGUE_CONTEXT).gameMode === 'tournament' ? 'tournament' : 'cash'
         ]
       : undefined;
+  refuseMirrorProcessSwitchSplit(matchup);
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
   const learn = matchup.memoryLearning !== 'off';
   const t0 = Date.now();
@@ -2449,6 +2450,32 @@ export function leagueProbeHistoryWarmup(
   }
 }
 
+/**
+ * STYLE SHIFT RELEASE IS NOISE-AWARE (2026-11-21, option styleShiftReleaseIsNoiseAware): a PROCESS switch (the opponent
+ * memory every seat of a sandbox learns), not a decision option. A human-field card has one Horse arm per pass and
+ * pass sandbox, so the pass runs with the switch set from its own arm and the previous value is put back; a mirror
+ * card seats both arms in one sandbox, so it cannot split the switch and refuses a card whose arms differ on it.
+ */
+export function withLeagueProcessSwitches<T>(opts: HorseDecideOpts, fn: () => T): T {
+  const before = HorseMind.styleShiftReleaseIsNoiseAwareOn();
+  HorseMind.setStyleShiftReleaseIsNoiseAware(opts.styleShiftReleaseIsNoiseAware === true);
+  try {
+    return fn();
+  } finally {
+    HorseMind.setStyleShiftReleaseIsNoiseAware(before);
+  }
+}
+export function refuseMirrorProcessSwitchSplit(matchup: LeagueMatchup): void {
+  if (
+    (matchup.a.styleShiftReleaseIsNoiseAware === true) !==
+    (matchup.b.styleShiftReleaseIsNoiseAware === true)
+  )
+    throw new Error(
+      `${matchup.name}: styleShiftReleaseIsNoiseAware is a process switch (one opponent memory per sandbox); ` +
+        'a mirror card seats both arms in one sandbox, so measure it on a human-field card'
+    );
+}
+
 /** Seat index the hero horse takes on a human-field card. The dealer button
  *  rotates every pair, so the hero plays every position once per SEATS pairs. */
 export const HUMAN_FIELD_HERO_SEAT = 0;
@@ -2630,25 +2657,29 @@ async function runHumanFieldMatchup(
     // NO-LIMIT PROBE HISTORY: each pass sandbox learns the field's no-limit
     // probes first, the hero on that pass's own arm (LeagueMatchup.probeHistoryHands).
     if (warmupHands > 0) {
-      leagueProbeHistoryWarmup(
-        sb1,
-        warmupHands,
-        runSeed,
-        SEATS,
-        matchup.stackBB ?? 100,
-        () => optsA,
-        () => modsA,
-        styleOf
+      withLeagueProcessSwitches(matchup.a, () =>
+        leagueProbeHistoryWarmup(
+          sb1,
+          warmupHands,
+          runSeed,
+          SEATS,
+          matchup.stackBB ?? 100,
+          () => optsA,
+          () => modsA,
+          styleOf
+        )
       );
-      leagueProbeHistoryWarmup(
-        sb2,
-        warmupHands,
-        runSeed,
-        SEATS,
-        matchup.stackBB ?? 100,
-        () => optsB,
-        () => modsB,
-        styleOf
+      withLeagueProcessSwitches(matchup.b, () =>
+        leagueProbeHistoryWarmup(
+          sb2,
+          warmupHands,
+          runSeed,
+          SEATS,
+          matchup.stackBB ?? 100,
+          () => optsB,
+          () => modsB,
+          styleOf
+        )
       );
     }
     // SPOT-SEEDED: the probe plays the hero on arm B (or either arm) against
@@ -2687,22 +2718,24 @@ async function runHumanFieldMatchup(
               (s) => s === HERO,
               true,
               (observer) =>
-                playHand(
-                  handSeed,
-                  dealerSeat,
-                  () => opts,
-                  { illegal: 0, truncated: 0 },
-                  HorseMind.createSandbox(),
-                  variant,
-                  SEATS,
-                  matchup.stackBB ?? 100,
-                  matchup.context ?? CASH_LEAGUE_CONTEXT,
-                  () => mods,
-                  probeField,
-                  styleOf,
-                  false,
-                  observer as LeagueHandObserver,
-                  leaguePairHandClock(c, runSeed)
+                withLeagueProcessSwitches(arm === 'a' ? matchup.a : matchup.b, () =>
+                  playHand(
+                    handSeed,
+                    dealerSeat,
+                    () => opts,
+                    { illegal: 0, truncated: 0 },
+                    HorseMind.createSandbox(),
+                    variant,
+                    SEATS,
+                    matchup.stackBB ?? 100,
+                    matchup.context ?? CASH_LEAGUE_CONTEXT,
+                    () => mods,
+                    probeField,
+                    styleOf,
+                    false,
+                    observer as LeagueHandObserver,
+                    leaguePairHandClock(c, runSeed)
+                  )
                 )
             );
             spot.observe?.({
@@ -2788,8 +2821,8 @@ async function runHumanFieldMatchup(
           // Both passes of the pair are dealt on one hand clock.
           leaguePairHandClock(p, runSeed)
         );
-      const a = play(optsA, modsA, sb1, 'pass1')[HERO];
-      const b = play(optsB, modsB, sb2, 'pass2')[HERO];
+      const a = withLeagueProcessSwitches(matchup.a, () => play(optsA, modsA, sb1, 'pass1'))[HERO];
+      const b = withLeagueProcessSwitches(matchup.b, () => play(optsB, modsB, sb2, 'pass2'))[HERO];
       netA.push(a / BB);
       netB.push(b / BB);
       perPairDiff.push((a - b) / BB);
@@ -5773,7 +5806,9 @@ function fixedLimitScriptedCard(
   pairs: number,
   humanPersona: FixedLimitScriptedPersona,
   a: HorseDecideOpts,
-  probeHistoryHands?: number
+  probeHistoryHands?: number,
+  /** 2026-11-21: arm B's options (default {}), for a card that measures one option on top of another. */
+  b: HorseDecideOpts = {}
 ): LeagueMatchup {
   return {
     name,
@@ -5785,7 +5820,7 @@ function fixedLimitScriptedCard(
     opponentPopulation: FIXED_LIMIT_SCRIPTED_POPULATION_ID,
     humanPersona,
     a,
-    b: {},
+    b,
     ...(probeHistoryHands ? { probeHistoryHands } : {}),
   };
 }
@@ -5859,8 +5894,40 @@ export const FIXED_LIMIT_SCRIPTED_FIELD_CARDS: readonly LeagueMatchup[] = Object
     FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
     { fixedLimitStealVsTightBlinds: true }
   ),
+  // 2026-11-21 STYLE SHIFT RELEASE IS NOISE-AWARE (styleShiftReleaseIsNoiseAware, default OFF, a process switch:
+  // human-field cards only, withLeagueProcessSwitches). The steal is on in BOTH arms; a adds the noise-aware
+  // release. The value-only blinds raise some first-in hands and fold every other (a mixed preflop frequency) and
+  // fold one pair to a postflop wager: the over-folder whose fold sample the 2026-11-06 release drains, which is
+  // why the steal alone diverged on 2 of 20,000 pairs against them (docs/horse-league-fixed-limit.md).
+  fixedLimitScriptedCard(
+    'flh_style_release_noise_aware_steal_vs_value_only_blinds',
+    6,
+    3000,
+    FLH_VALUE_ONLY_BLINDS_PERSONA,
+    { fixedLimitStealVsTightBlinds: true, styleShiftReleaseIsNoiseAware: true },
+    undefined,
+    { fixedLimitStealVsTightBlinds: true }
+  ),
 ]);
 LEAGUE_MATCHUPS.push(...FIXED_LIMIT_SCRIPTED_FIELD_CARDS);
+
+/**
+ * STYLE SHIFT RELEASE IS NOISE-AWARE on the calibrated no-limit hold'em field (2026-11-21): six seats, the hero on
+ * the live cash Hybrid persona with the deal-seeded mood clock, a with the noise-aware release, b the 2026-11-06
+ * rule. Every opponent read the brain takes from the decayed exploit counters is in play; the calibrated field's
+ * frequencies are mixed, which is what trips the 2026-11-06 rule. A human-field card (the switch is per sandbox).
+ */
+LEAGUE_MATCHUPS.push({
+  name: 'human_nlh_style_release_noise_aware',
+  variant: 'nlh',
+  seats: 6,
+  pairs: HUMAN_FIELD_PAIRS,
+  hybridBaseline: true,
+  moodClock: 'deal_seed',
+  a: { styleShiftReleaseIsNoiseAware: true },
+  b: {},
+  opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+});
 
 /**
  * THE SCRIPTED NO-LIMIT FIELD CARDS (2026-11-21, Hold'em Strategy lane;

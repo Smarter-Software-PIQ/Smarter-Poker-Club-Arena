@@ -5291,6 +5291,13 @@ export interface HorseDecideOpts {
    *  applies it to the process switch before every job (HorseMind.applyFixedLimitBetsAreNeverProbesOption)
    *  and the whole thread counts with one value. Absent: the source default (on). */
   fixedLimitBetsAreNeverProbes?: boolean;
+  /** STYLE SHIFT RELEASE IS NOISE-AWARE, live switch (2026-11-21, option registered default OFF): the registry's
+   *  on/off for the PROCESS switch HorseMind.setStyleShiftReleaseIsNoiseAware (HorseOpponentExploit
+   *  STYLE_SHIFT_NOISE_K). The decision never reads it: opponent learning also happens outside a decision, so the
+   *  decision worker applies it before every job (HorseMind.applyStyleShiftReleaseIsNoiseAwareOption) and the whole
+   *  thread learns and reads with one value. The league applies it per pass to the pass's sandbox (human-field
+   *  cards only). Absent: the source default (off). */
+  styleShiftReleaseIsNoiseAware?: boolean;
   /** A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED ("F1b", 2026-11-15, own
    *  option since 2026-11-16, Fixed-Limit lane): at a fixed-limit decision,
    *  with the F1 process switch on, an opponent's pooled no-limit/pot-limit
