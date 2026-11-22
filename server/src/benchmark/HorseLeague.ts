@@ -4078,6 +4078,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { omahaRiverFirstToActBetIsPriced: true, omahaRiverCheckedToBetIsMeasured: true },
   })),
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5 (default OFF, PLO4/PLO5 cash): R2 omahaFlopBetIsPricedOnHisResponse
+  // (replaces #13 omahaBareOverpairOopFlopCheck + HUD flop raiser/stabber range); a on, b today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_priced_on_his_response`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBareOverpairOopFlopCheck: false, omahaFlopBetIsPricedOnHisResponse: true },
+    b: { omahaBareOverpairOopFlopCheck: true },
+  })),
   // 2026-11-21 EMERG lane CBET-DEFENCE (default OFF, PLO4/PLO5 cash): omahaCbetRaiseIsPriced; a on, b today. Without a
   // lifetime provider fed by the harness the raise share is the population's.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
