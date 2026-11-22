@@ -1,0 +1,78 @@
+name: Opponent HUD Backfill
+
+# Sanctioned operator door for server/scripts/opponent-hud-build.ts (PLO-OWNER,
+# Policy 2.9: zero local .env sourcing, zero engine-host load, zero hole cards).
+# Reads public hand_history rows via service-role fn_opponent_hud_hands_page
+# from hand one (cash + tournaments, RIT, single-board bomb pots) and in apply
+# mode upserts opponent_hud_profiles via fn_opponent_hud_profiles_upsert
+# (never overwriting a stored row that already holds more hands).
+# No schedule / cron / watcher: runs ONLY when an operator dispatches it.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Backfill mode (dry-run reads only; apply upserts opponent_hud_profiles)
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      slow_ms:
+        description: Backoff threshold in ms for page reads (measured 6000 for 1,500-hand pages)
+        required: false
+        default: '6000'
+        type: string
+
+concurrency:
+  group: opponent-hud-backfill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    if: github.ref == 'refs/heads/main' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install server dependencies
+        run: npm --prefix server ci --no-audit --no-fund
+      - name: Run opponent-hud-build.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKFILL_MODE: ${{ inputs.mode }}
+          BACKFILL_SLOW_MS: ${{ inputs.slow_ms }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKFILL_MODE" == "dry-run" || "$BACKFILL_MODE" == "apply" ]] || { echo "::error::Invalid mode"; exit 1; }
+          [[ "$BACKFILL_SLOW_MS" =~ ^[0-9]+$ ]] && [ "$BACKFILL_SLOW_MS" -ge 1000 ] && [ "$BACKFILL_SLOW_MS" -le 60000 ] || { echo "::error::Invalid slow_ms"; exit 1; }
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "::error::Required Supabase service env missing"; exit 1; }
+          OUT_DIR="$RUNNER_TEMP/opponent-hud-backfill"
+          install -d -m 0700 "$OUT_DIR"
+          cd server
+          if [ "$BACKFILL_MODE" = "dry-run" ]; then
+            npx tsx scripts/opponent-hud-build.ts --from-db --dry-run --slow-ms "$BACKFILL_SLOW_MS" --out "$OUT_DIR/dry-run.json" 2>&1 | tee "$OUT_DIR/backfill.log"
+          else
+            npx tsx scripts/opponent-hud-build.ts --from-db --apply --slow-ms "$BACKFILL_SLOW_MS" 2>&1 | tee "$OUT_DIR/backfill.log"
+          fi
+      - name: Upload backfill log and summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opponent-hud-backfill-${{ inputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/opponent-hud-backfill/backfill.log
+          if-no-files-found: warn
+          retention-days: 14
