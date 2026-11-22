@@ -4,12 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
 import {
+  HUD_CACHE_MAX,
   HUD_CATCHUP_MAX_PAUSE_MS,
   HUD_CATCHUP_PAGE_ROWS,
   HUD_CATCHUP_PAUSE_MS,
   HUD_READY_DEADLINE_MS,
+  HUD_RECONCILE_PAGE_ROWS,
   HUD_RING_MS,
   OpponentHudStore,
+  opponentHudSnapshotField,
+  setOpponentHudStoreForTest,
   type HudStoredRow,
   type OpponentHudStoreDeps,
 } from './OpponentHudStore.js';
@@ -760,5 +764,161 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       store.indexOf('export function armOpponentHudFromSwitch(')
     );
     expect(field).not.toMatch(/\bawait\b|\basync\b/);
+  });
+
+  it('AUDIT-24H P1-2: opponentHudSnapshotField attaches packets ONLY for PLO4/PLO5 cash (never NLH or tournaments)', () => {
+    const store = new OpponentHudStore(fakeDeps(new Map()));
+    store.setArmed(true);
+    setOpponentHudStoreForTest(store);
+    try {
+      const players = [{ user_id: U(1) }, { user_id: U(2) }];
+      // PLO4 and PLO5 cash get packets
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo4', gameMode: 'cash', stage: 'flop', players, bigBlind: 2 },
+          U(1),
+          T0
+        ).opponentHud?.family
+      ).toBe('plo4');
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo5', gameMode: 'cash', stage: 'turn', players, bigBlind: 2 },
+          U(1),
+          T0
+        ).opponentHud?.family
+      ).toBe('plo5');
+      // NLH cash, NLH tournament, PLO4/PLO5 tournaments, and PLO6 get {} (zero IPC bloat)
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'nlh', gameMode: 'cash', stage: 'flop', players, bigBlind: 2 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'nlh', gameMode: 'tournament', stage: 'flop', players, bigBlind: 200 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo5', gameMode: 'tournament', stage: 'flop', players, bigBlind: 200 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo4', tournament: { id: 't1' }, stage: 'flop', players, bigBlind: 200 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo6', gameMode: 'cash', stage: 'flop', players, bigBlind: 2 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+    } finally {
+      setOpponentHudStoreForTest(null);
+    }
+  });
+
+  it('AUDIT-24H P1-2: boot prewarm queries only PLO4/PLO5 and NLH cache traffic can never evict PLO4/PLO5 profiles', async () => {
+    const p1 = emptyHudProfile(U(1), 'plo4');
+    const p3 = emptyHudProfile(U(3), 'nlh');
+    const stored = new Map<string, HudStoredRow>([
+      [
+        `plo4|${U(1)}`,
+        { user_id: U(1), family: 'plo4', version: 1, hands: 0, wm_ms: -1, rev: 1, profile: p1 },
+      ],
+      [`plo5|${U(2)}`, lifetime(2, 5)],
+      [
+        `nlh|${U(3)}`,
+        { user_id: U(3), family: 'nlh', version: 1, hands: 0, wm_ms: -1, rev: 1, profile: p3 },
+      ],
+    ]);
+    const prewarmFamilies: string[] = [];
+    const deps = fakeDeps(stored);
+    const baseRecent = deps.recent;
+    deps.recent = async (family, sinceIso, afterUser, limit, signal) => {
+      prewarmFamilies.push(family);
+      return baseRecent(family, sinceIso, afterUser, limit, signal);
+    };
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    await store.prewarm();
+    // prewarm never queries NLH (only PLO4 & PLO5)
+    expect(new Set(prewarmFamilies)).toEqual(new Set(['plo4', 'plo5']));
+    expect(prewarmFamilies).not.toContain('nlh');
+    expect(store.ready(U(1), 'plo4')).toBe(true);
+    expect(store.ready(U(2), 'plo5')).toBe(true);
+    expect(store.ready(U(3), 'nlh')).toBe(false);
+
+    // Flood NLH past HUD_CACHE_MAX clean entries: NLH evicts only NLH, never PLO4 or PLO5
+    const nlhBatch = Array.from({ length: HUD_CACHE_MAX + 5 }, (_, i) => U(10_000 + i));
+    for (let i = 0; i < nlhBatch.length; i += 250) {
+      store.warm(nlhBatch.slice(i, i + 250), 'nlh', 'sit');
+    }
+    await flush();
+    await flush();
+    expect(store.ready(U(1), 'plo4')).toBe(true);
+    expect(store.ready(U(2), 'plo5')).toBe(true);
+  });
+
+  it('AUDIT-24H P1-2: catchUp and reconcileDay cap page limits <= 500 and recover via adaptive retry on transient statement timeouts', async () => {
+    const dayStart = Date.parse('2027-01-14T12:00:00Z');
+    const hands = [
+      row(70_001, 1, 2, dayStart + 1000),
+      row(70_002, 1, 2, dayStart + 2000),
+      row(70_003, 1, 2, dayStart + 3000),
+    ];
+    const deps = fakeDeps(new Map());
+    deps.sleep = async () => {};
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    await flush();
+
+    const catchUpLimits: number[] = [];
+    let catchUpTimedOut = false;
+    deps.handsPage = async (afterAt, afterId, limit) => {
+      catchUpLimits.push(limit);
+      if (!catchUpTimedOut) {
+        catchUpTimedOut = true;
+        throw new Error('canceling statement due to statement timeout');
+      }
+      return hands
+        .filter((r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId))
+        .slice(0, limit);
+    };
+    const applied = await store.catchUp(new Date(dayStart).toISOString());
+    expect(applied).toBe(6);
+    expect(Math.max(...catchUpLimits)).toBeLessThanOrEqual(HUD_CATCHUP_PAGE_ROWS);
+    expect(catchUpLimits[0]).toBe(HUD_CATCHUP_PAGE_ROWS);
+    expect(catchUpLimits[1]).toBe(Math.floor(HUD_CATCHUP_PAGE_ROWS / 2));
+
+    // Now test reconcileDay with a transient timeout on attempt 1
+    const reconcileLimits: number[] = [];
+    let reconcileTimedOut = false;
+    deps.handsPage = async (afterAt, afterId, limit) => {
+      reconcileLimits.push(limit);
+      if (!reconcileTimedOut) {
+        reconcileTimedOut = true;
+        throw new Error('canceling statement due to statement timeout');
+      }
+      return hands
+        .filter((r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId))
+        .slice(0, limit);
+    };
+    const rec = await store.reconcileDay('2027-01-14');
+    expect(rec.drifted).toBe(0);
+    expect(Math.max(...reconcileLimits)).toBeLessThanOrEqual(HUD_RECONCILE_PAGE_ROWS);
+    expect(reconcileLimits[0]).toBe(HUD_RECONCILE_PAGE_ROWS);
+    expect(reconcileLimits[1]).toBe(Math.floor(HUD_RECONCILE_PAGE_ROWS / 2));
   });
 });
