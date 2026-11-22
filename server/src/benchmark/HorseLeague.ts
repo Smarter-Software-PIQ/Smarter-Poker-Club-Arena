@@ -5447,6 +5447,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // sign: arm A is still "probe on".
   { name: 'v17_river_probe', pairs: 6000, a: { v17RiverProbe: true }, b: {} },
   { name: 'shortdeck_v17', variant: 'short_deck', pairs: 6000, a: {}, b: { v17ShortDeck: false } },
+  // 2026-11-22 HORSE DECISIONS lane (v17ShortDeckIsPriced, default OFF, OPTION_SWITCH_REFUSED, 0 migrations):
+  // the priced Short Deck multiway shift against the fixed V17 overlay. Horse-vs-Horse: informational only.
+  {
+    name: 'shortdeck_v17_priced',
+    variant: 'short_deck',
+    pairs: 6000,
+    a: { v17ShortDeckIsPriced: true },
+    b: {},
+  },
   // ── V18 (2026-08-26) ──
   { name: 'v18_squeeze_response', pairs: 6000, a: {}, b: { v18Squeeze: false } },
   // ── V29-V33 (2026-09-01) ── THE SOLVER STACK HAD NO ABLATION MATCHUP AT

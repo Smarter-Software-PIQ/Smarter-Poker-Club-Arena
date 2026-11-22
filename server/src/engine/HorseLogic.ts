@@ -5,6 +5,7 @@ import {
 } from './HorseNonBottomRiverValue.js';
 import { reconcileHorsePhaseReceipts } from './HorsePhaseControllerWithdrawal.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
+import { priceShortDeckMultiwayShift } from './HorseShortDeckMultiwayPriced.js';
 import {
   HOLDEM_RIVER_BOAT_LEAD_FREQUENCY,
   holdemRiverBoatLeadPrice,
@@ -3105,6 +3106,13 @@ export interface HorseDecideOpts {
   /** disable the V17 short-deck overlay: 36-card equities cluster tighter,
    *  so value thresholds rise and multiway tightens harder (default: on) */
   v17ShortDeck?: boolean;
+  /** V17 SHORT DECK SHIFT PRICED (2026-11-22, HORSE DECISIONS lane): dark, default OFF (`=== true`),
+   *  OPTION_SWITCH_REFUSED (zero SQL migrations). In Short Deck postflop, replaces the fixed overlay
+   *  `mw += 0.015 + (oppCount - 1) * 0.012` with `HorseShortDeckMultiwayPriced.priceShortDeckMultiwayShift`:
+   *  the shift this hand's own equity needs against each live opponent's continuing range in a 36-card
+   *  deck (measured continuation sharpness, Short Deck fold prior shrunk with each opponent's own
+   *  fold-to-bet record). Draws no random number. OFF, and every other variant: byte-identical. */
+  v17ShortDeckIsPriced?: boolean;
   /** disable the V16 deep-read wiring (2026-08-26): fold-to-c-bet scaled
    *  c-bets, fold-to-3-bet scaled bluff 3-bets, and big-river-bet sizing
    *  tells in the call-down (default: enabled; reads ride the mind layer, so
@@ -25062,7 +25070,28 @@ export class HorseLogic {
     // ═══ V17 SHORT-DECK OVERLAY ═══ 36-card equities cluster: a "strong"
     // hand is less far ahead, so value thresholds rise and every extra
     // opponent tightens harder than the NLH step.
-    if ((opts.v17ShortDeck ?? true) !== false && vi.isShortDeck) {
+    if (opts.v17ShortDeckIsPriced === true && vi.isShortDeck) {
+      // V17 SHORT DECK SHIFT PRICED (v17ShortDeckIsPriced, default OFF): the shift this hand needs,
+      // not a fixed increment (HorseShortDeckMultiwayPriced.ts). Reads only public records.
+      const sd17 = priceShortDeckMultiwayShift({
+        street,
+        equity,
+        opponents: opponents.map((o) => {
+          const canRespond = !o.is_all_in && Number.isFinite(o.stack) && o.stack > 0;
+          const rec = canRespond && useMind ? HorseMind.foldToBetCountersOf(o.user_id) : null;
+          return {
+            canRespond,
+            foldToBet: rec ? { hits: rec.hit, opportunities: rec.opp } : null,
+          };
+        }),
+      });
+      mw += sd17.delta;
+      if (tele15) {
+        if (sd17.kind !== 'priced') noteFire('v17_short_deck_priced_unpriceable');
+        else if (sd17.delta > 0) noteFire('v17_short_deck_priced_tighter');
+        else noteFire('v17_short_deck_priced_looser');
+      }
+    } else if ((opts.v17ShortDeck ?? true) !== false && vi.isShortDeck) {
       mw += 0.015 + (oppCount - 1) * 0.012;
       if (tele15) noteFire('v17_short_deck');
     }

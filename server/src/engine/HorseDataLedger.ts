@@ -2633,6 +2633,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   flag(
+    'v17ShortDeckIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): replaces the fixed V17 Short Deck multiway overlay (mw += 0.015 + (oppCount - 1) * 0.012) with HorseShortDeckMultiwayPriced: delta = e - e^rho, rho = (1 + kappa_SD g) / (1 + kappa_NLH g), g = mean live-opponent f/(1-f), f = measured Short Deck fold-to-first-bet prior shrunk with each opponent own fold-to-bet record; kappa measured per street with the engine scorer for both decks (river: no measured difference, shift 0). Deterministic, zero draws, public info only. Criteria CRITERIA-V17-SHORTDECK-PRICED.md sha256 420f5649922688c9f2fa406be518e6f5fcca67dd00fe9a2afb5d89675df8b73d',
+    'V17'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -9439,6 +9444,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic multi-board bluffScale (multiBoardBluffTrimIsPriced)',
     'multi-board hand replaced fixed V36 blanket 0.5/0.35 bluffScale trim with deterministic zero-RNG public-info priced multiplier in [0, 1] from shrunk per-opponent fold probability, public board correlation, hero cross-board blockers, street/pot/stack/wetness, and heroBubbleFactor',
     'V36'
+  ),
+  receipt(
+    'v17_short_deck_priced_tighter',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift raised the multiway bars (delta > 0): this hand loses more against the continuing range in a 36-card deck than in the NLH terms the bars were built in',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_looser',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift lowered or kept the multiway bars (delta <= 0): the continuing range costs this hand less in a 36-card deck than in NLH terms (river: no measured difference, delta 0)',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_unpriceable',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift could not be priced (equity not finite, no live opponent, or a street other than flop/turn/river): delta 0, the fixed overlay is not re-applied',
+    'V17'
   ),
   receipt(
     'holdem_priced_value_raise_deferred',
