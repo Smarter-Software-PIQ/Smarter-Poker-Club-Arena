@@ -21,6 +21,8 @@ import {
   type CoreOpponent,
   type CoreReceipt,
   type CoreState,
+  OMAHA_MATH_CORE_CBET_RAISE_READ,
+  omahaMathCoreOpponentRecords,
 } from './OmahaMathCore.js';
 import { sizeBand, type Band, type Line } from './MeasuredRanges.js';
 import type { PreflopLevel, PreflopPosition } from './OmahaMathCoreTables.js';
@@ -453,6 +455,23 @@ export function omahaMathCoreState(
       preflopLevel: preLevel.get(p.seat) ?? 'none',
     }));
   const live = opponents.filter((o) => !o.folded);
+  // lane CORE-EXTEND-5: each live opponent's lifetime public answers to a flop continuation bet, by seat, from the
+  // one opponent-record provider (installed outside the core); only where the core reads them
+  const recs = omahaMathCoreOpponentRecords();
+  if (
+    recs &&
+    street === 'flop' &&
+    OMAHA_MATH_CORE_CBET_RAISE_READ.streets[variant]?.includes('flop')
+  ) {
+    const players = live.length === 1 ? 'hu' : 'mw';
+    for (const o of live) {
+      try {
+        o.cbetAnswers = recs.cbetAnswers(gs, o.seat, variant, players);
+      } catch {
+        o.cbetAnswers = null;
+      }
+    }
+  }
   const heroRank = orderRank(player.seat, gs.dealerSeat);
   const ip = live.every((o) => orderRank(o.seat, gs.dealerSeat) < heroRank);
   // lane CORE-POOLED-5: the rated player count is the platform's own count at settlement
