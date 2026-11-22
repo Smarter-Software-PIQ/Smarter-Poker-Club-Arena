@@ -1,15 +1,17 @@
 -- OPPONENT HUD: ADD 'nlh' FAMILY ALONGSIDE 'plo4' AND 'plo5' (2026-11-22, Horse SWITCH Wave 2 Enhancement 2.1).
 --
 -- Pre-image verified read-only against production on 2026-11-22:
---   - public.opponent_hud_profiles has 0 rows and CHECK constraint opponent_hud_profiles_family_check
---     restricting family to ('plo4','plo5').
+--   - public.opponent_hud_profiles had 0 rows at pre-image check and may already contain backfilled
+--     'plo4'/'plo5' rows (from #11695 opponent-hud-backfill.yml) at install time, with CHECK constraint
+--     opponent_hud_profiles_family_check restricting family to ('plo4','plo5'). Using NOT VALID +
+--     VALIDATE CONSTRAINT avoids holding ACCESS EXCLUSIVE across an inline ADD CONSTRAINT table scan.
 --   - fn_opponent_hud_profiles_read, fn_opponent_hud_profiles_recent, fn_opponent_hud_profiles_upsert,
 --     and fn_opponent_hud_hands_page (updated for tournaments in 20261121190000) all restrict family /
 --     game_variant to ('plo4','plo5').
 --   - public.hand_history holds 2,333,757 'nlh' rows alongside 1,063,041 'plo4' and 681,415 'plo5' rows.
 --
 -- What this changes (additive):
---   - Widens opponent_hud_profiles_family_check to ('plo4','plo5','nlh').
+--   - Widens opponent_hud_profiles_family_check to ('plo4','plo5','nlh') via NOT VALID + VALIDATE CONSTRAINT.
 --   - Widens the four service-role opponent HUD RPCs to accept 'nlh' alongside 'plo4' and 'plo5', preserving
 --     identical signatures, compare-and-swap rev semantics, tournament inclusion, public-fields-only projection
 --     (dealt cards never leave the database), service_role-only EXECUTE grants, and RLS on opponent_hud_profiles.
@@ -22,7 +24,10 @@ BEGIN;
 
 ALTER TABLE public.opponent_hud_profiles
   DROP CONSTRAINT IF EXISTS opponent_hud_profiles_family_check,
-  ADD CONSTRAINT opponent_hud_profiles_family_check CHECK (family IN ('plo4', 'plo5', 'nlh'));
+  ADD CONSTRAINT opponent_hud_profiles_family_check CHECK (family IN ('plo4', 'plo5', 'nlh')) NOT VALID;
+
+ALTER TABLE public.opponent_hud_profiles
+  VALIDATE CONSTRAINT opponent_hud_profiles_family_check;
 
 -- Read up to 50 named profiles of one family (the engine's warm on a seat event).
 CREATE OR REPLACE FUNCTION public.fn_opponent_hud_profiles_read(p_user_ids text[], p_family text)
