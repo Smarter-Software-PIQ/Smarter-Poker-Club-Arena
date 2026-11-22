@@ -640,11 +640,12 @@
   background: #1877f2;
 }
 
+/* Unregister is Register's own plate with a different word (Dan 2026-11-22:
+   "THE REGISTER / UNREGISTER BUTTON NEED TO BE THE SAME SIZE AND STYLE"). It
+   takes the same ink as Register; it draws no outline or colour of its own. */
 .details-footer .btn-unregister,
 .details-header__actions .btn-unregister {
-  color: #ffb4b4;
-  background: transparent;
-  border-color: rgba(239, 68, 68, 0.55);
+  color: #ffffff;
 }
 
 .details-footer button:disabled,
@@ -797,6 +798,35 @@
 .details-header__actions > * {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* THE ACTION ROW NEVER CUTS A BUTTON OFF (Dan 2026-11-22: "SHOULD NEVER BE
+   CUT OFF"). On a phone the status pill, the ID and two 144px plates cannot
+   share one line, so the actions already wrapped to a line of their own, and
+   the 55% cap above then left them 158px to 219px of it: two plates stacked,
+   and anything that could shrink was crushed beside the first one. Under
+   768px the actions own that whole line and the plates share it side by side
+   at their painted 3:1 face, each at most its 144px native width; the close
+   button stays on the first line beside the ID. */
+@media (max-width: 767px) {
+  .details-header__actions {
+    order: 1;
+    flex: 1 1 100%;
+    align-items: center;
+    max-width: 100%;
+  }
+
+  .details-header__actions .tournament-register-button.tournament-register-button {
+    flex: 1 1 120px;
+    width: auto;
+    max-width: 144px;
+    min-height: 0;
+  }
+
+  .details-header__actions .tournament-register-button.late-reg {
+    flex-basis: 140px;
+    max-width: 168px;
+  }
 }
 
 /* On a short landscape viewport the header, tabs and 44px controls cannot

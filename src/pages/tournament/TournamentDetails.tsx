@@ -2179,17 +2179,24 @@ export default function TournamentDetails({
       );
     }
 
+    /* REGISTER AND UNREGISTER ARE ONE BUTTON (Dan 2026-11-22, binding): "THE
+       REGISTER / UNREGISTER BUTTON NEED TO BE THE SAME SIZE AND STYLE, AND
+       SHOULD NEVER BE CUT OFF." Unregister was a bare outlined `<button>`
+       beside the painted Invite plate: `flex: 1 1 0; min-width: 0` let it
+       collapse to the 47px the plate left inside the 55% action box, and its
+       label ran out of it and off the screen. It prints on the same plate
+       Register does, in the header and in the footer, so the two states are
+       the same control with a different word. */
     if (isRegistered) {
-      if (footer) return null;
       return (
-        <button
-          className="btn btn-unregister"
+        <RegisterButton
+          className={`${registerClass} btn-unregister`}
           type="button"
           onClick={handleUnregister}
           disabled={isProcessing}
         >
           {isProcessing ? 'Processing...' : 'Unregister'}
-        </button>
+        </RegisterButton>
       );
     }
 
