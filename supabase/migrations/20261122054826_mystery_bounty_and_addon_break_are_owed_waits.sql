@@ -26,7 +26,7 @@
 --   3. smarter_private.reliability_runbook_hand_gap_classification (20261119234324):
 --      (a) classified any tournament bust in an is_rebuy/is_reentry tournament as
 --          intended 'rebuy', even though tournament tables never pause for rebuys
---          (ServerTableEngineDealing.ts — only cash tables run the <= 5 s rebuy
+--          (ServerTableEngineDealing.ts: only cash tables run the <= 5 s rebuy
 --          pause). In event 2d444aeb (02:30-02:40 UTC), 143 real unintended delays
 --          (10-33 s parked balancing waits) were mislabeled 'rebuy' (intended),
 --          risking false auto-resolution of real critical alerts;
