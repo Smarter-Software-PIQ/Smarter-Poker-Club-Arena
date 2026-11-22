@@ -182,27 +182,43 @@ jobs:
           RECEIPT: ${{ github.event.client_payload.gameplay_receipt }}
         run: |
           set -euo pipefail
-          [[ "$RUN_KEY" =~ ^[1-9][0-9]*-[1-9][0-9]*$ && "$TARGET" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUN_KEY" =~ ^[1-9][0-9]*-[1-9][0-9]*$ && "$TARGET" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::Sealed-release event has no exact run key ($RUN_KEY) and engine SHA ($TARGET)."; exit 1; }
           api="repos/$GITHUB_REPOSITORY/actions"
           parent="$api/runs/${RUN_KEY%-*}/attempts/${RUN_KEY#*-}"
           created=$(gh api "$parent" | jq -er --arg title "Engine Release $TARGET" --arg attempt "${RUN_KEY#*-}" '
             select(.path==".github/workflows/auto-deploy-hetzner.yml" and .event=="repository_dispatch" and
-              .head_branch=="main" and .display_title==$title and (.run_attempt|tostring)==$attempt) | .created_at')
+              .head_branch=="main" and .display_title==$title and (.run_attempt|tostring)==$attempt) | .created_at') \
+            || { echo "::error::Run $RUN_KEY is not the protected Engine Release receiver attempt for $TARGET."; exit 1; }
           gh api "$parent/jobs?per_page=100" | jq -e '
             any(.jobs[]; .name=="Record The Append-Only Engine Release Receipt" and .conclusion=="success") and
             any(.jobs[]; .name=="Publish Through Hetzner Club Arena" and .conclusion=="success" and
-              any(.steps[]; .name=="Read original sealed runtime for the post-deploy gameplay observer" and .conclusion=="success"))' >/dev/null
+              any(.steps[]; .name=="Read original sealed runtime for the post-deploy gameplay observer" and .conclusion=="success"))' >/dev/null \
+            || { echo "::error::Receiver $RUN_KEY has not recorded a successful sealed receipt and publish."; exit 1; }
           instance=$(jq -er --arg key "$RUN_KEY" --arg sha "$TARGET" '
             select(.runId==$key and .sha==$sha and .result=="sealed") | .completionRuntime.instanceId |
-            select(type=="string" and test("^[1-9][0-9]*-[0-9a-f]{8}$"))' <<< "$RECEIPT")
+            select(type=="string" and test("^[1-9][0-9]*-[0-9a-f]{8}$"))' <<< "$RECEIPT") \
+            || { echo "::error::The event's receipt is not the sealed receipt of $RUN_KEY for $TARGET."; exit 1; }
           curl -fsS --max-time 15 https://engine.smarter.poker/health |
             jq -e --arg sha "$TARGET" --arg instance "$instance" '
-              .running==true and .releaseSha==$sha and .instanceId==$instance' >/dev/null
+              .running==true and .releaseSha==$sha and .instanceId==$instance' >/dev/null \
+            || { echo "::error::Live /health is not running $TARGET on sealed instance $instance."; exit 1; }
           # Serialized Backup runs give the earliest delivery sole custody, including on retries.
+          # THIS RUN IS ALWAYS ONE OF THEM (2026-11-22, O15). GitHub's created-filtered
+          # run list lags a new run by several seconds: at 22:02:28Z Backup 45075415442
+          # (created 22:02:24Z) did not yet list itself, read `null`, and refused the
+          # 16:00 CST seal of 88b8dac0ebdc with a bare exit 1; the receiver's own poll
+          # first saw it at 22:02:34Z (same on 2026-11-20, 44827012024). An earlier
+          # delivery was created earlier and is listed; this run's own id joins the
+          # set, so a lagging list can no longer disown the first delivery. An
+          # unreadable list still refuses (pipefail).
           runs=$(gh api --paginate "$api/workflows/backup-engine.yml/runs?event=repository_dispatch&created=%3E%3D$created&per_page=100" |
-            jq -s --arg title "Backup after seal $RUN_KEY" '[.[].workflow_runs[] | select(.display_title==$title) | .id] | min')
+            jq -s --arg title "Backup after seal $RUN_KEY" --argjson self "$GITHUB_RUN_ID" \
+              '[.[].workflow_runs[] | select(.display_title==$title) | .id] + [$self] | min') \
+            || { echo "::error::Could not read the Backup runs that answered sealed receiver $RUN_KEY (CLAUDE.md 10.86)."; exit 1; }
           if [[ "$runs" != "$GITHUB_RUN_ID" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
-            [[ "$runs" =~ ^[1-9][0-9]*$ && "$runs" -le "$GITHUB_RUN_ID" ]] || exit 1
+            [[ "$runs" =~ ^[1-9][0-9]*$ && "$runs" -le "$GITHUB_RUN_ID" ]] \
+              || { echo "::error::Backup custody of sealed receiver $RUN_KEY is unreadable ($runs)."; exit 1; }
             echo "Original Backup run $runs owns sealed receiver $RUN_KEY"
             exit 0
           fi
@@ -700,6 +716,33 @@ jobs:
             echo "PRIORITY: $SHA is the booking commit of open owner engine window $window; keeping exact SHA without retargeting."
           else
             head=$(gh api "repos/${GITHUB_REPOSITORY:-}/commits?sha=main&path=server&per_page=1" --jq '.[0].sha // ""' 2>/dev/null || echo unreadable)
+            # FOLLOW A NEWER RELEASE-CONTROL COMMIT TOO (2026-11-22, O13).
+            # The selector compares every candidate's CONTROL_INPUTS projection
+            # with main's, so when main's newest commit touching a release
+            # control (scripts/ci/read-engine-prequalification.py,
+            # select-daily-engine.py, the release workflows, the recorded
+            # migrations manifest, ...) is newer than its newest server/ commit,
+            # certifying that older server commit buys a certificate the cycle
+            # can never select and costs the lease one full soak. Follow the
+            # newest commit on main touching server/ or any CONTROL_INPUTS path
+            # (read from this checkout, no extra API call) when it descends
+            # from the server head. Unreadable inputs keep the server head.
+            if [[ "$head" =~ ^[0-9a-f]{40}$ ]] && git fetch -q origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null; then
+              control_paths=()
+              while IFS= read -r control_path; do
+                [ -n "$control_path" ] && control_paths+=("$control_path")
+              done < <(python3 -B -c 'import runpy; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print("\n".join(m["CONTROL_INPUTS"]))' 2>/dev/null || true)
+              if [ "${#control_paths[@]}" -gt 0 ]; then
+                control_head=$(git log -1 --format=%H refs/remotes/origin/main -- server "${control_paths[@]}" 2>/dev/null || echo '')
+                if [[ "$control_head" =~ ^[0-9a-f]{40}$ ]] && [ "$control_head" != "$head" ] \
+                   && git merge-base --is-ancestor "$head" "$control_head" 2>/dev/null; then
+                  echo "FOLLOWING RELEASE CONTROLS: main's newest release-control commit $control_head is newer than its newest server commit $head."
+                  head="$control_head"
+                fi
+              else
+                echo "could not read CONTROL_INPUTS; following main's newest server commit $head only (CLAUDE.md 10.86)."
+              fi
+            fi
             if [[ "$head" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$SHA" ]; then
               if git fetch -q origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null \
                  && git merge-base --is-ancestor "$SHA" "$head" 2>/dev/null \
@@ -713,7 +756,7 @@ jobs:
                   case "$head_state" in
                     missing|pending|failure|error)
                       if git checkout --force --quiet "$head" 2>/dev/null; then
-                        echo "RETARGETED IN-PLACE: $SHA -> $head (newest uncertified server commit on main; keeping acquired Backup host lease)."
+                        echo "RETARGETED IN-PLACE: $SHA -> $head (newest uncertified server or release-control commit on main; keeping acquired Backup host lease)."
                         { echo "### Backup Engine"; echo ""; echo "- RETARGETED IN-PLACE \`$SHA\` -> \`$head\` after acquiring host turn (lease kept)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
                         target_sha="$head"
                         target_control="$head"
