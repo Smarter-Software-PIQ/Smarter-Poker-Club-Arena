@@ -1,0 +1,3 @@
+# tests/register-and-unregister-are-one-button.law.test.ts
+
+Register and Unregister are one button and it is never cut off (Dan 2026-11-22: "THE REGISTER / UNREGISTER BUTTON NEED TO BE THE SAME SIZE AND STYLE, AND SHOULD NEVER BE CUT OFF"). On the tournament lobby page Unregister was a bare red-outlined button beside the painted Invite plate: inside the header's 55% action box it collapsed to the 47px the plate left it at 390px and its label ran off the screen. Unregister now prints on the Register plate (TournamentRegisterButton) in the header and the footer, draws no outline or colour of its own, and under 768px the header actions own a whole line so the plates sit side by side at their painted width and wrap instead of clipping.
