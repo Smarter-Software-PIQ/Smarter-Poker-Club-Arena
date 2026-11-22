@@ -25,4 +25,6 @@ A reference to the pull request (for example `#10615`) and one section per row o
 ## Limits
 ```
 
-If a row does not apply, say why under its heading. The law checks that each section exists and is not empty; whether the answers are good enough is the reviewer's judgment.
+Each row states its status on a line of its own, directly under its heading: `Status: MET`, `Status: NOT MET` or `Status: NOT APPLICABLE` (say why under it). A row that is `NOT MET` in a file for an option that is on by default also carries, in the same row, `Owner authority: <retained file> sha256 <hex>`: the retained owner instruction that allows it to ship on with that row unmet. Without it the option ships as an opt-in arm (`=== true`).
+
+The law checks that each section exists, is not empty and states its status, and that an unmet row cites the owner's authority. It does not judge whether `MET` is true; that is the reviewer's judgment.
