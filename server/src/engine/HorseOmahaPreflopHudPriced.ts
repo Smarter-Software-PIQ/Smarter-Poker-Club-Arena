@@ -73,6 +73,16 @@ export interface SixMaxPreflopGameState {
 
 export const HUD_PREFLOP_SIXMAX_EQUITY_SAMPLES = 100;
 
+/** Prove-it-to-widen EV margin (fraction of current pot) required before HUD widens a preflop action. */
+export const HUD_PREFLOP_WIDEN_MIN_MARGIN_POT = 0.02;
+
+export interface HudThreeBetRealization {
+  /** Continuous realization penalty (0.04–0.05 IP, 0.08–0.10 OOP) from shrunk HUD aggression. */
+  realization: number;
+  /** True when shrunk preflop 3-bet/PFR or postflop betCheckedTo indicates an aggressive 3-bettor. */
+  aggressiveThreeBettor: boolean;
+}
+
 export interface PreflopResponseTriplet {
   fold: number;
   call: number;
@@ -158,6 +168,81 @@ const postflopOrder = (seat: number, dealerSeat: number | undefined): number => 
   const d = seat - (dealerSeat ?? 0);
   return d <= 0 ? d + 1024 : d;
 };
+
+/**
+ * Continuous six-max (`sh`) shrunk rate for a single HUD stat (`n / (n + k)` toward prior).
+ * Falls back to the overall shrunk rate when the `sh` split has zero opps, or `null` if unread.
+ */
+function readShRate(
+  userId: string,
+  family: HudFamily,
+  stat: string,
+  fallback: number
+): number | null {
+  const base = hudStat(userId, family, stat, null, false);
+  const priorOrBase = base.prior ?? base.p ?? fallback;
+  if (typeof priorOrBase !== 'number' || !Number.isFinite(priorOrBase)) return null;
+  const split = hudPreflopExactCounts(userId, family, stat, 'sh');
+  if (split && Number.isFinite(split.opps) && split.opps > 0) {
+    const n = split.opps;
+    const h = clamp(Number.isFinite(split.hits) ? split.hits : 0, 0, n);
+    const prior =
+      typeof base.prior === 'number' && Number.isFinite(base.prior) ? base.prior : priorOrBase;
+    return clamp((h + HUD_DEFAULT_K * prior) / (n + HUD_DEFAULT_K), 0.01, 0.99);
+  }
+  const v = base.p ?? base.prior;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return clamp(v, 0.01, 0.99);
+}
+
+/**
+ * Continuous 3-bet realization margin for `HorseLogic.ts` V53 (`raises === 2`) when B4 retires
+ * `presumedAggressorRead` on 6-max preflop. Scales smoothly from `pf.3bet`, `pf.pfr` (`sh`) and
+ * postflop `f.betCk` with zero sample cliff, so passive-postflop / aggressive-preflop 3-bettors
+ * never collapse realization from `0.05/0.10` to `0.00`.
+ */
+export function hudThreeBetRealizationMargin(
+  userId: string,
+  family: HudFamily,
+  inPosition: boolean
+): HudThreeBetRealization {
+  const threeBet = readShRate(userId, family, 'pf.3bet', 0.08) ?? 0.08;
+  const pfr = readShRate(userId, family, 'pf.pfr', 0.18) ?? 0.18;
+  const betCkBase = hudStat(userId, family, 'f.betCk', null, false);
+  const betCkRaw = betCkBase.p ?? betCkBase.prior ?? 0.38;
+  const betCk = clamp(Number.isFinite(betCkRaw) ? betCkRaw : 0.38, 0.01, 0.99);
+  const intensity = clamp(
+    Math.max((threeBet - 0.06) / 0.08, (pfr - 0.18) / 0.12, (betCk - 0.35) / 0.15),
+    0,
+    1
+  );
+  const realization = inPosition ? 0.04 + 0.01 * intensity : 0.08 + 0.02 * intensity;
+  const aggressiveThreeBettor = threeBet >= 0.11 || pfr >= 0.28 || betCk >= 0.45;
+  return { realization, aggressiveThreeBettor };
+}
+
+/**
+ * Prove-it-to-widen check: a HUD preflop widening (`raise` or `call`) stands only when the priced
+ * verdict strictly beats the passive baseline by at least `marginPot * pot`.
+ */
+export function omahaPreflopHudWideningProved(
+  verdict: SixMaxPreflopHudVerdict | null,
+  pot: number,
+  target: 'raise' | 'call',
+  marginPot: number = HUD_PREFLOP_WIDEN_MIN_MARGIN_POT
+): boolean {
+  if (!verdict || !(pot > 0) || !Number.isFinite(pot)) return false;
+  const margin = Math.max(0, marginPot) * pot;
+  if (target === 'raise') {
+    if (verdict.action !== 'raise' || verdict.evRaise === null) return false;
+    const baseline = Math.max(verdict.evFold ?? -Infinity, verdict.evCall ?? -Infinity);
+    if (!Number.isFinite(baseline)) return verdict.evRaise > margin;
+    return verdict.evRaise > baseline + margin;
+  }
+  if (verdict.evCall === null) return false;
+  const foldEv = verdict.evFold ?? 0;
+  return verdict.evCall > foldEv + margin;
+}
 
 /**
  * Exact scope gate for B4 (`omahaPreflopReadIsPricedFromLifetime`):
@@ -270,32 +355,19 @@ export function priceOmahaPreflopHudSixMax(
   const unitBB = Math.max(1e-9, hudNum(gs.bigBlind) || 1);
   let unread = false;
   const shRate = (userId: string, stat: string, fallback: number): number => {
-    const base = hudStat(userId, fam, stat, null, false);
-    const priorOrBase = base.prior ?? base.p ?? fallback;
-    if (typeof priorOrBase !== 'number' || !Number.isFinite(priorOrBase)) {
+    const v = readShRate(userId, fam, stat, fallback);
+    if (v === null) {
       unread = true;
       return fallback;
     }
-    const split = hudPreflopExactCounts(userId, fam, stat, 'sh');
-    if (split && Number.isFinite(split.opps) && split.opps > 0) {
-      const n = split.opps;
-      const h = clamp(Number.isFinite(split.hits) ? split.hits : 0, 0, n);
-      const prior =
-        typeof base.prior === 'number' && Number.isFinite(base.prior) ? base.prior : priorOrBase;
-      return clamp((h + HUD_DEFAULT_K * prior) / (n + HUD_DEFAULT_K), 0.01, 0.99);
-    }
-    const v = base.p ?? base.prior;
-    if (typeof v !== 'number' || !Number.isFinite(v)) {
-      unread = true;
-      return fallback;
-    }
-    return clamp(v, 0.01, 0.99);
+    return v;
   };
 
   interface OppModel {
     player: SixMaxPreflopPlayer;
     isRaiser: boolean;
     isLimper: boolean;
+    isCaller: boolean;
     isBlindBehind: boolean;
     vpip: number;
     pfr: number;
@@ -308,7 +380,8 @@ export function priceOmahaPreflopHudSixMax(
   for (const p of live) {
     const isRaiser = p.seat === lastRaiserSeat;
     const isLimper = raises === 0 && limperSeats.has(p.seat);
-    const isBehind = !isRaiser && !isLimper && !voluntarySeats.has(p.seat);
+    const isCaller = raises >= 1 && !isRaiser && voluntarySeats.has(p.seat);
+    const isBehind = !isRaiser && !isLimper && !isCaller && !voluntarySeats.has(p.seat);
     const isBlindBehind = isBehind && hudNum(p.bet) > 0 && hudNum(p.bet) <= unitBB * 1.05;
 
     const vpip = shRate(p.user_id, 'pf.vpip', 0.42);
@@ -341,6 +414,7 @@ export function priceOmahaPreflopHudSixMax(
       player: p,
       isRaiser,
       isLimper,
+      isCaller,
       isBlindBehind,
       vpip,
       pfr,
@@ -419,7 +493,7 @@ export function priceOmahaPreflopHudSixMax(
   let evCall: number | null = null;
   if (canCall || toCall <= 0.005) {
     const callCost = toCall <= 0.005 ? 0 : Math.min(toCall, stack);
-    const activeModels = models.filter((m) => m.isRaiser || m.isLimper);
+    const activeModels = models.filter((m) => m.isRaiser || m.isLimper || m.isCaller);
     const eqCall =
       activeModels.length <= 1
         ? sampleSingle(

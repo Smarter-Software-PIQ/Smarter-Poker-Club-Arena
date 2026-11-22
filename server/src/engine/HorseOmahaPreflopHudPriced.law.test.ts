@@ -25,7 +25,10 @@ import {
   OPTION_SWITCH_RELEASE_DEFAULT_ON,
 } from './HorseOptionSwitch.js';
 import {
+  HUD_PREFLOP_WIDEN_MIN_MARGIN_POT,
+  hudThreeBetRealizationMargin,
   isOmahaPreflopHudPricedInScope,
+  omahaPreflopHudWideningProved,
   priceOmahaPreflopHudSixMax,
   shrunkPreflopExactTriplet,
 } from './HorseOmahaPreflopHudPriced.js';
@@ -453,5 +456,176 @@ describe('B4: priced six-max preflop read on lifetime HUD cells', () => {
     times.sort((a, b) => a - b);
     const p50 = times[Math.floor(times.length / 2)]!;
     expect(p50).toBeLessThan(25);
+  });
+
+  it('Site #1: hudThreeBetRealizationMargin preserves 0.05 IP / 0.10 OOP vs aggressive-preflop passive-postflop 3-bettors without cliff', () => {
+    const aggroPassive = makeProfile(OPP1, 'plo4', {
+      withBvo: { fold: 15, call: 15, raise: 10 },
+    });
+    aggroPassive.life['pf.3bet'] = [80, 18];
+    aggroPassive.rec['pf.3bet'] = [80, 18];
+    aggroPassive.life['pf.pfr'] = [200, 68];
+    aggroPassive.rec['pf.pfr'] = [200, 68];
+    aggroPassive.life['f.betCk'] = [80, 10]; // very passive postflop
+    aggroPassive.rec['f.betCk'] = [80, 10];
+    aggroPassive.xc!['pf.3bet.sh.opps'] = 80;
+    aggroPassive.xc!['pf.3bet.sh.hits'] = 18;
+    aggroPassive.xc!['pf.pfr.sh.opps'] = 200;
+    aggroPassive.xc!['pf.pfr.sh.hits'] = 68;
+
+    installDecisionHud(buildHudPacket('plo4', [aggroPassive], {}, T, 'preflop'));
+    const ip = hudThreeBetRealizationMargin(OPP1, 'plo4', true);
+    const oop = hudThreeBetRealizationMargin(OPP1, 'plo4', false);
+    expect(ip.realization).toBeCloseTo(0.05, 5);
+    expect(oop.realization).toBeCloseTo(0.1, 5);
+    expect(ip.aggressiveThreeBettor).toBe(true);
+
+    // Continuous shrinkage: never collapses to 0 even for a tight passive 3-bettor
+    const tightPassive = makeProfile(OPP2, 'plo4', {
+      withBvo: { fold: 30, call: 8, raise: 2 },
+    });
+    tightPassive.life['pf.3bet'] = [80, 2];
+    tightPassive.life['pf.pfr'] = [200, 24];
+    tightPassive.life['f.betCk'] = [80, 12];
+    tightPassive.xc!['pf.3bet.sh.opps'] = 80;
+    tightPassive.xc!['pf.3bet.sh.hits'] = 2;
+    tightPassive.xc!['pf.pfr.sh.opps'] = 200;
+    tightPassive.xc!['pf.pfr.sh.hits'] = 24;
+    installDecisionHud(buildHudPacket('plo4', [tightPassive], {}, T, 'preflop'));
+    const tightOop = hudThreeBetRealizationMargin(OPP2, 'plo4', false);
+    expect(tightOop.realization).toBeGreaterThanOrEqual(0.08);
+    expect(tightOop.realization).toBeLessThanOrEqual(0.1);
+    expect(tightOop.aggressiveThreeBettor).toBe(false);
+  });
+
+  it('Sites #2 & #3: omahaPreflopHudWideningProved rejects null and noise ties (< 2% pot) and accepts strictly proved widening', () => {
+    expect(omahaPreflopHudWideningProved(null, 10, 'raise')).toBe(false);
+    expect(omahaPreflopHudWideningProved(null, 10, 'call')).toBe(false);
+    const noiseTie = {
+      action: 'raise' as const,
+      evFold: 0,
+      evCall: 0.1,
+      evRaise: 0.1 + HUD_PREFLOP_WIDEN_MIN_MARGIN_POT * 10 * 0.25,
+      foldAll: 0.3,
+      pReraise: 0.1,
+    };
+    expect(omahaPreflopHudWideningProved(noiseTie, 10, 'raise')).toBe(false);
+    expect(omahaPreflopHudWideningProved(noiseTie, 10, 'call')).toBe(false);
+
+    const clearRaise = {
+      ...noiseTie,
+      evRaise: 0.1 + HUD_PREFLOP_WIDEN_MIN_MARGIN_POT * 10 + 0.05,
+    };
+    expect(omahaPreflopHudWideningProved(clearRaise, 10, 'raise')).toBe(true);
+
+    const clearCall = {
+      action: 'call' as const,
+      evFold: 0,
+      evCall: HUD_PREFLOP_WIDEN_MIN_MARGIN_POT * 10 + 0.05,
+      evRaise: -0.5,
+      foldAll: 0.1,
+      pReraise: 0.2,
+    };
+    expect(omahaPreflopHudWideningProved(clearCall, 10, 'call')).toBe(true);
+    expect(omahaPreflopHudWideningProved(clearCall, 10, 'raise')).toBe(false);
+  });
+
+  it('multiway raises>=1 includes cold-callers in equity/realization and weak hand vs aggro_passive_post open does not unpriced-3bet', () => {
+    const onOpts = { omahaOpponentLifetimeHud: true, omahaPreflopReadIsPricedFromLifetime: true };
+    const weakHand: Card[] = [
+      c('K', 'clubs'),
+      c('8', 'diamonds'),
+      c('4', 'hearts'),
+      c('2', 'spades'),
+    ];
+    const aggroPassive = makeProfile(OPP1, 'plo4', {
+      withBvo: { fold: 15, call: 15, raise: 10 },
+      f3bet: [40, 12],
+    });
+    aggroPassive.life['pf.pfr'] = [200, 76];
+    aggroPassive.life['pf.open'] = [100, 48];
+    aggroPassive.life['f.betCk'] = [80, 10];
+    aggroPassive.xc!['pf.pfr.sh.opps'] = 200;
+    aggroPassive.xc!['pf.pfr.sh.hits'] = 76;
+    const callerProf = makeProfile(OPP2, 'plo4', { withBvo: { fold: 20, call: 20, raise: 4 } });
+
+    const { hero, gs } = makeSixMaxState({
+      pot: 5,
+      currentBet: 3.5,
+      toCall: 3.5,
+      minRaiseTo: 7,
+      maxRaiseTo: 12,
+      dealerSeat: 4,
+      players: [
+        {
+          seat: 3,
+          user_id: HERO,
+          username: 'hero',
+          cards: weakHand,
+          stack: 100,
+          bet: 0,
+          totalInvested: 0,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+        {
+          seat: 4,
+          user_id: OPP1,
+          username: 'opp1',
+          cards: [],
+          stack: 96.5,
+          bet: 3.5,
+          totalInvested: 3.5,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+        {
+          seat: 5,
+          user_id: OPP2,
+          username: 'opp2',
+          cards: [],
+          stack: 99,
+          bet: 1,
+          totalInvested: 1,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+      ],
+      actionHistory: [
+        { stage: 'preflop', seat: 4, userId: OPP1, action: 'raise', amount: 3.5, timestamp: T },
+      ],
+    });
+    const heroWeak = gs.players[0]!;
+    installDecisionHud(buildHudPacket('plo4', [aggroPassive, callerProf], {}, T, 'preflop'));
+    const huPot = priceOmahaPreflopHudSixMax(heroWeak, gs, 4, onOpts);
+
+    // Now add a cold-caller on seat 5: multiway EV(call) must drop below heads-up EV(call)
+    const multiwayGs: HorseGameStateV2 = {
+      ...gs,
+      pot: 8.5,
+      players: gs.players.map((p) =>
+        p.seat === 5 ? { ...p, stack: 96.5, bet: 3.5, totalInvested: 3.5 } : p
+      ),
+      actionHistory: [
+        { stage: 'preflop', seat: 4, userId: OPP1, action: 'raise', amount: 3.5, timestamp: T },
+        { stage: 'preflop', seat: 5, userId: OPP2, action: 'call', amount: 3.5, timestamp: T },
+      ],
+    };
+    const mwPot = priceOmahaPreflopHudSixMax(heroWeak, multiwayGs, 4, onOpts);
+    expect(huPot).not.toBeNull();
+    expect(mwPot).not.toBeNull();
+    expect(mwPot!.evCall!).toBeLessThan(huPot!.evCall!);
+
+    // Full decision on weak rainbow K842 OOP vs aggro_passive_post open + cold-caller: must NOT raise and 0 presumption fires
+    enableBrainTelemetry();
+    drainFires();
+    const decision = decideWith(heroWeak, multiwayGs, onOpts);
+    const fires = drainFires().map((f) => f.feature);
+    expect(decision.action).toBe('fold');
+    expect(fires).not.toContain('plo_opponent_presumed_aggressive');
+    void hero;
   });
 });

@@ -641,7 +641,9 @@ import {
 import { hudStat } from './opponentHud/OpponentHud.js';
 import { omahaHudPreflopPriced, type HudPreflopVerdict } from './HorseOmahaHudPreflopPriced.js';
 import {
+  hudThreeBetRealizationMargin,
   isOmahaPreflopHudPricedInScope,
+  omahaPreflopHudWideningProved,
   priceOmahaPreflopHudSixMax,
 } from './HorseOmahaPreflopHudPriced.js';
 import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
@@ -19280,10 +19282,17 @@ export class HorseLogic {
             (legacyW.r !== null && maniacRaiserWidth === null) ||
             (legacyW.b !== null && maniacBehindWidth === null);
           if (widened) {
-            const verdict = HorseMind.hudPreflopSixMaxActive()
+            const sixMaxPriced = HorseMind.hudPreflopSixMaxActive();
+            const sixMaxVerdict = sixMaxPriced
               ? priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts)
+              : null;
+            const verdict = sixMaxPriced
+              ? sixMaxVerdict
               : omahaHudPreflopVerdictAt(player, gs, lastRaiserSeat);
-            if (verdict?.action !== 'raise') {
+            const widenedProved = sixMaxPriced
+              ? omahaPreflopHudWideningProved(sixMaxVerdict, Math.max(0, gs.pot ?? 0), 'raise')
+              : verdict?.action === 'raise';
+            if (!widenedProved) {
               if (maniacRaiserWidth === null) maniacRaiserWidth = legacyW.r;
               if (maniacBehindWidth === null) maniacBehindWidth = legacyW.b;
             }
@@ -19798,12 +19807,23 @@ export class HorseLogic {
             )
           ) {
             try {
-              if (aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null) {
-                const order53 = (seat: number): number => {
-                  const d = seat - (gs.dealerSeat ?? 0);
-                  return d <= 0 ? d + 1024 : d;
-                };
-                const heroIp53 = order53(player.seat) > order53(raiser38.seat);
+              const order53 = (seat: number): number => {
+                const d = seat - (gs.dealerSeat ?? 0);
+                return d <= 0 ? d + 1024 : d;
+              };
+              const heroIp53 = order53(player.seat) > order53(raiser38.seat);
+              if (HorseMind.hudPreflopSixMaxActive()) {
+                const fam53 = String(gs.gameVariant ?? '').toLowerCase();
+                if (fam53 === 'plo4' || fam53 === 'plo5') {
+                  const hud53 = hudThreeBetRealizationMargin(raiser38.user_id, fam53, heroIp53);
+                  v53Realization = hud53.realization;
+                  v53ThreeBet =
+                    hud53.aggressiveThreeBettor ||
+                    aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null;
+                }
+              } else if (
+                aggressiveBettorPressure(HorseMind.opponentRead(raiser38.user_id)) !== null
+              ) {
                 v53ThreeBet = true;
                 v53Realization = heroIp53 ? 0.05 : 0.1;
               }
@@ -20115,39 +20135,94 @@ export class HorseLogic {
           }
           if (read && raises === 1) {
             const rawOpener = preflopVsOpener(read, vi.isOmaha) ?? undefined;
-            evidencedWideRaiser87 =
+            const rawPressure =
+              (opts.v53Pressure ?? true) !== false
+                ? (aggressiveOpenerPressure(read, vi.isOmaha, v86) ?? undefined)
+                : undefined;
+            if (
+              HorseMind.hudPreflopSixMaxActive() &&
               read.presumed !== true &&
-              (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
-            exploitOpener =
-              opts.v87DeepDiveDiscipline !== false
-                ? v87SanitizeOmahaOpenerExploit(
-                    rawOpener,
-                    read.presumed === true,
-                    vi.isOmaha,
-                    vi.isHiLo,
-                    vi.holeCount,
-                    callers
-                  )
-                : rawOpener;
-            if (opts.v87DeepDiveDiscipline !== false)
-              noteHorseDeepDiveRule(
-                'presumed_opener',
-                !!rawOpener &&
-                  read.presumed === true &&
-                  vi.isOmaha &&
-                  !vi.isHiLo &&
-                  (vi.holeCount >= 6 || callers > 0),
-                exploitOpener !== rawOpener
-              );
-            if (exploitOpener !== rawOpener && telemetryOn(opts))
-              noteFire('v87_deep_dive_discipline');
-            if ((opts.v53Pressure ?? true) !== false)
-              exploitPressure = aggressiveOpenerPressure(read, vi.isOmaha, v86) ?? undefined;
+              (rawOpener?.wide === true || rawPressure !== undefined)
+            ) {
+              const hudOpenVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+              const potOpen = Math.max(0, gs.pot ?? 0);
+              const raiseProved = omahaPreflopHudWideningProved(hudOpenVerdict, potOpen, 'raise');
+              const callProved = omahaPreflopHudWideningProved(hudOpenVerdict, potOpen, 'call');
+              if (rawOpener && rawOpener.wide) {
+                if (raiseProved || callProved || rawOpener.noBluffThreeBet) {
+                  exploitOpener = {
+                    wide: raiseProved || callProved,
+                    threeBetBar: raiseProved ? rawOpener.threeBetBar : null,
+                    flatBar: callProved ? rawOpener.flatBar : null,
+                    bbFlatBar: callProved ? rawOpener.bbFlatBar : null,
+                    noBluffThreeBet: rawOpener.noBluffThreeBet,
+                  };
+                } else {
+                  exploitOpener = undefined;
+                }
+              } else {
+                exploitOpener = rawOpener;
+              }
+              exploitPressure = raiseProved ? rawPressure : undefined;
+              evidencedWideRaiser87 =
+                (raiseProved || callProved) &&
+                (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
+            } else {
+              evidencedWideRaiser87 =
+                read.presumed !== true &&
+                (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
+              exploitOpener =
+                opts.v87DeepDiveDiscipline !== false
+                  ? v87SanitizeOmahaOpenerExploit(
+                      rawOpener,
+                      read.presumed === true,
+                      vi.isOmaha,
+                      vi.isHiLo,
+                      vi.holeCount,
+                      callers
+                    )
+                  : rawOpener;
+              if (opts.v87DeepDiveDiscipline !== false)
+                noteHorseDeepDiveRule(
+                  'presumed_opener',
+                  !!rawOpener &&
+                    read.presumed === true &&
+                    vi.isOmaha &&
+                    !vi.isHiLo &&
+                    (vi.holeCount >= 6 || callers > 0),
+                  exploitOpener !== rawOpener
+                );
+              if (exploitOpener !== rawOpener && telemetryOn(opts))
+                noteFire('v87_deep_dive_discipline');
+              exploitPressure = rawPressure;
+            }
           } else if (read && raises >= 2) {
-            exploitReRaiser = preflopVsReRaiser(read, raises) ?? undefined;
-            evidencedWideRaiser87 =
+            const rawReRaiser = preflopVsReRaiser(read, raises) ?? undefined;
+            if (
+              HorseMind.hudPreflopSixMaxActive() &&
               read.presumed !== true &&
-              (exploitReRaiser !== undefined || maniacRaiseWidth(read) !== null);
+              rawReRaiser !== undefined
+            ) {
+              const hudRrVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+              const potRr = Math.max(0, gs.pot ?? 0);
+              const raiseProved = omahaPreflopHudWideningProved(hudRrVerdict, potRr, 'raise');
+              const callProved = omahaPreflopHudWideningProved(hudRrVerdict, potRr, 'call');
+              if (raiseProved || callProved) {
+                exploitReRaiser = {
+                  fourBetBar: raiseProved ? rawReRaiser.fourBetBar : 1,
+                  callBar: callProved ? rawReRaiser.callBar : 1,
+                };
+                evidencedWideRaiser87 = true;
+              } else {
+                exploitReRaiser = undefined;
+                evidencedWideRaiser87 = false;
+              }
+            } else {
+              exploitReRaiser = rawReRaiser;
+              evidencedWideRaiser87 =
+                read.presumed !== true &&
+                (exploitReRaiser !== undefined || maniacRaiseWidth(read) !== null);
+            }
           }
           // ═══ STYLE READ #6 TIGHT RAISER RESPECT (2026-11-13, default off) ═══
           // A credibly TIGHT opener or re-raiser (the low side the exploit
@@ -20254,6 +20329,12 @@ export class HorseLogic {
               const lr = HorseMind.limpReraiseOf(a.userId);
               const rate = limpReraiseRate(lr?.raises ?? 0, lr?.opps ?? 0);
               limpReraiseRate69 = Math.max(limpReraiseRate69 ?? 0, rate);
+            }
+          }
+          if (exploitIso > 0 && HorseMind.hudPreflopSixMaxActive()) {
+            const hudIsoVerdict = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+            if (!omahaPreflopHudWideningProved(hudIsoVerdict, Math.max(0, gs.pot ?? 0), 'raise')) {
+              exploitIso = 0;
             }
           }
           if (
