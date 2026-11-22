@@ -105,14 +105,14 @@ describe('post-cutover-audit-lib', () => {
     });
 
     it('auto-resolves linked Supabase workdir from git common dir when in a worktree', () => {
-      const worktreeCwd = '/Volumes/SmarterWork/wt';
+      const worktreeCwd = path.resolve(REPO_ROOT, 'fixtures', 'mock-worktree');
+      const primaryCheckout = path.resolve(REPO_ROOT, 'fixtures', 'mock-primary-checkout');
       const resolved = resolveLinkedSupabaseWorkdir({
         cwd: worktreeCwd,
-        gitCommonDirRunner: () => '/Users/smarter.poker/Documents/club-arena/.git\n',
-        pathExists: (p) =>
-          p === '/Users/smarter.poker/Documents/club-arena/supabase/.temp/project-ref',
+        gitCommonDirRunner: () => `${path.join(primaryCheckout, '.git')}\n`,
+        pathExists: (p) => p === path.join(primaryCheckout, 'supabase', '.temp', 'project-ref'),
       });
-      expect(resolved).toBe('/Users/smarter.poker/Documents/club-arena');
+      expect(resolved).toBe(primaryCheckout);
     });
 
     it('never reads .env or contains raw secret loaders in either script file', () => {
