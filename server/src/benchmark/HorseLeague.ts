@@ -7645,6 +7645,53 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'V56 off on both arms, which would measure a brain production does not play.',
     })
   ),
+  {
+    name: 'multiboard_freeroll_is_priced',
+    variant: 'nlh',
+    a: { multiBoardFreerollIsPriced: true },
+    b: {},
+    reason:
+      'HorseLeague deals single-board hands only (boardCount: 1; no communityCards2 / ' +
+      'communityCards3 or bomb-pot multi-board runouts), whereas multiBoardFreerollIsPriced ' +
+      '(DEFAULT OFF, OPTION_SWITCH_REFUSED) is strictly scoped to multiBoard36 hands ' +
+      '(nBoards36 >= 2) with at least one locked board (lockShare36 >= 1 / N) and is ' +
+      'byte-identical on every single-board hand, so 0 of 6,000 pairs can ever diverge in ' +
+      'this single-board league harness. Verified deterministically in ' +
+      'server/src/engine/AMultiBoardFreerollIsPriced.law.test.ts and via dedicated paired ' +
+      'multi-board NLH/PLO4 bomb-pot evaluation. What would change this: extending HorseLeague ' +
+      'to deal double-board bomb-pot hands.',
+  },
+  {
+    name: 'multiboard_non_freeroll_is_priced',
+    variant: 'nlh',
+    a: { multiBoardNonFreerollIsPriced: true },
+    b: {},
+    reason:
+      'HorseLeague deals single-board hands only (boardCount: 1; no communityCards2 / ' +
+      'communityCards3 or bomb-pot multi-board runouts), whereas multiBoardNonFreerollIsPriced ' +
+      '(DEFAULT OFF, OPTION_SWITCH_REFUSED) is strictly scoped to multiBoard36 non-freeroll ' +
+      'hands (v86 && nBoards36 >= 2 && lockShare36 < 1 / N) and is byte-identical on every ' +
+      'single-board hand, so 0 of 6,000 pairs can ever diverge in this single-board league ' +
+      'harness. Verified deterministically in ' +
+      'server/src/engine/AMultiBoardNonFreerollIsPriced.law.test.ts and via dedicated paired ' +
+      'multi-board NLH/PLO4 bomb-pot evaluation. What would change this: extending HorseLeague ' +
+      'to deal double-board bomb-pot hands.',
+  },
+  {
+    name: 'multiboard_bluff_trim_is_priced',
+    variant: 'nlh',
+    a: { multiBoardBluffTrimIsPriced: true },
+    b: {},
+    reason:
+      'HorseLeague deals single-board hands only (boardCount: 1; no communityCards2 / ' +
+      'communityCards3 or bomb-pot multi-board runouts), whereas multiBoardBluffTrimIsPriced ' +
+      '(DEFAULT OFF, OPTION_SWITCH_REFUSED) is strictly scoped to multiBoard36 hands ' +
+      '(nBoards36 >= 2) and is 100% byte-identical on every single-board hand, so 0 of 6,000 ' +
+      'pairs can ever diverge in this single-board league harness. Verified deterministically in ' +
+      'server/src/engine/AMultiBoardBluffTrimIsPriced.law.test.ts and via dedicated paired ' +
+      'multi-board NLH/PLO4 bomb-pot evaluation. What would change this: extending HorseLeague ' +
+      'to deal multi-board bomb-pot hands.',
+  },
 ] as UnmeasurableMatchup[]);
 
 for (const u of UNMEASURABLE_MATCHUPS) {
