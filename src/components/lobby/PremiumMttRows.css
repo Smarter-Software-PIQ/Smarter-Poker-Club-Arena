@@ -729,8 +729,8 @@
 }
 .has-premium-chassis tbody tr[data-id] .premium-cash-style {
   position: absolute;
-  inset: 0.3cqw auto calc(var(--premium-card-body-height) - 10cqw) 6.8cqw;
-  width: 21.3%;
+  inset: 0.4cqw auto 1.6cqw 6.5cqw;
+  width: 21.9%;
   justify-content: center;
 }
 .has-premium-chassis tbody tr[data-id] .lt-name--seatfirst {
