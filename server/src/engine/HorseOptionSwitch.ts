@@ -353,6 +353,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemValueAndCallsArePriced',
   'holdemCommittedNoPairIsPriced',
   'holdemDangerBoardEquityIsPriced',
+  // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
+  'styleShiftReleaseIsNoiseAware',
   'omahaTurnRiverRaiseIsPriced',
   'omahaDrawRaiseIsPriced',
   'omahaOopTurnBarrelIsPriced',
@@ -874,6 +876,8 @@ export function optionSwitchOffOnly(name: string): OptionSwitchOffOnly | null {
 export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Object.freeze({
   fixedLimitBetsAreNeverProbes:
     'a process switch: HorseMind.applyFixedLimitBetsAreNeverProbesOption applies it before every job, not per decision',
+  styleShiftReleaseIsNoiseAware:
+    'a process switch: HorseMind.applyStyleShiftReleaseIsNoiseAwareOption applies it before every job, and the opponent memory it changes is learned outside a decision',
   gtoV31CellContractV3Serving:
     'the V31 loader follows the switched value process-wide (noteGtoV31CellContractV3ServingSwitch), not per decision',
   styleLongShownMemory:
@@ -1021,6 +1025,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
     'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
   ],
+  styleShiftReleaseIsNoiseAware: [
+    HOLDEM,
+    'Every variant, opponent exploit learning (live memory and the durable profile) and the gear-shift gate, every Horse process',
+    'the style-shift release fires only beyond sampling noise and ages only the statistic that moved (process switch)',
+  ],
 };
 
 const STYLE_DESCRIPTION: Readonly<Record<StyleSwitchOption, readonly [string, string]>> = {
@@ -1080,6 +1089,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   vpipFloorDeepStackOff: 'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   omahaPreflopCallWithActionBehind:
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
+  v58MadeHandCellSkip:
+    'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
   // 2026-11-21 Horse Switch lane: built dark. Registering it needs a switch-list migration, and those go one at a
   // time; until one lists it the switch may not carry it (league and tests pass it directly). Remove this line in
   // the change that adds the list migration.
