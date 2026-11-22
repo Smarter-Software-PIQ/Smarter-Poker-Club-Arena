@@ -66,8 +66,10 @@ The `selection` job in `.github/workflows/stage-engine-release.yml` also appends
 What it reports without mutating git, dispatching workflows, or touching credentials:
 
 - Live `https://engine.smarter.poker/health` serving `releaseSha`, `frequency`, `startHours`, `phase`, and `stalledTables`.
-- Next DST-aware `America/Chicago` cycle start, preparation cutoff (`start - 30m`, UTC and Chicago), and recommended combined migration + release-control hold start (`cutoff - 75m`).
-- Active `stage-engine-release.yml` reservation run and active `backup-engine.yml` runs on `main`.
+- Next DST-aware `America/Chicago` cycle start, preparation cutoff (`start - 30m`, UTC and Chicago), per-cycle O3 deferral / nightly freeze bounds (`o3DeferStart`, `o3Clear`), and recommended combined migration + release-control hold start (`cutoff - 75m`).
+- `NEXT OPEN CYCLE`: the first scheduled cycle whose preparation cutoff is still in the future (equals the next scheduled cycle before `:30`, and automatically advances to the following cycle once the current cycle's cutoff has passed).
+- `MIGRATION GATE`: deterministic `NIGHTLY_FREEZE` (`23:45-04:15` Chicago), `O3_DEFERRAL` (`[cycleStart - 90m, cycleStart + 10m)` on three-hourly cadence), or `OPEN` status matching `scripts/ci/merged-migration-dispatch.mjs`, with exact clear time or next deferral start.
+- Active `stage-engine-release.yml` reservation run and active `backup-engine.yml` runs on `main`, plus closed-cycle `stage-engine-release.yml` completion visibility (`closedCycleStageRun`, reused from the existing workflow runs fetch with zero extra API calls when the cutoff has passed and no Stage run is active).
 - Recent first-parent commits on `refs/remotes/origin/main` since the serving SHA with `backup-engine/certified` state, latest `engine-release-prequalification.yml` status and run ID, `CONTROL_INPUTS` projection equality vs `origin/main` (via `scripts/ci/read-engine-prequalification.py`), and per-candidate `SELECTABLE`, `PENDING`, or `DISQUALIFIED` classification with an exact single-line reason.
 - Top-level verdict: `READY`, `IN_FLIGHT`, `NO_CANDIDATE` (exit `0`), or `UNKNOWN` (exit `3`) whenever any live health, git, or GitHub API read is unavailable (CLAUDE.md 10.86).
 

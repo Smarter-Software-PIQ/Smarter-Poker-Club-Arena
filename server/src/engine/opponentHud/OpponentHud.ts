@@ -46,6 +46,8 @@ import {
 import { noteFire } from '../BrainTelemetry.js';
 // the math core reads its opponent records through this packet (lane CORE-EXTEND-5; a function-only cycle)
 import './OmahaMathCoreHudRecords.js';
+// B3 math core turn/river seat-only HUD adapter (function-only cycle; default OFF behind turn/river flags)
+import './OmahaMathCoreTurnRiverHud.js';
 
 export const OPPONENT_HUD_OPTION = 'omahaOpponentLifetimeHud' as const;
 export const HUD_PACKET_VERSION = 1 as const;
