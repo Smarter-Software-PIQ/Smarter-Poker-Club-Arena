@@ -535,6 +535,7 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
     it('runs only for a push run that holds the host, after the copy and before certify', () => {
       expect(late.if).toContain("github.event_name == 'push'");
       expect(late.if).toContain("steps.turn.outputs.acquired == '1'");
+      expect(late.if).toContain("steps.late_inherit.outputs.inherited != '1'");
       // Tonight's freeze baseline is the 04:00 build and never yields.
       expect(late.if).toContain("needs.plan.outputs.freeze_baseline != '1'");
       expect(backup.jobs.plan.outputs.freeze_baseline).toBe(
@@ -545,7 +546,7 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
       const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
       expect(ids.indexOf('late_priority')).toBe(ids.length - 1);
       expect(backup.jobs.refresh.outputs.deferred).toBe(
-        '${{ steps.late_priority.outputs.deferred }}'
+        "${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}"
       );
       expect(backup.jobs.certify.if).toContain("needs.refresh.outputs.deferred != '1'");
     });
@@ -1374,6 +1375,352 @@ ${Object.entries(states)
           expect(result.stderr).not.toContain(`commits/${late.shas.c0}/`);
         } finally {
           rmSync(late.dir, { recursive: true, force: true });
+        }
+      });
+    });
+
+    // 2026-11-21 (E3): eliminate 75-minute lease-wait starvation and redundant
+    // 55-minute certifications on the 3-hourly cutover cadence.
+    describe('waiting push runs neither starve behind one soak nor duplicate work (E3)', () => {
+      const turn = backup.jobs.refresh.steps.find((s: any) => s.id === 'turn');
+      const lateInherit = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_inherit');
+      const latePriority = backup.jobs.refresh.steps.find((s: any) => s.id === 'late_priority');
+      const due = backup.jobs.refresh.steps.find((s: any) => s.id === 'due');
+      const refreshCheckout = backup.jobs.refresh.steps.find((s: any) =>
+        s.uses?.startsWith('actions/checkout')
+      );
+
+      it('raises lease-wait ceiling to 120m, refresh timeout to 180m, and lease TTL to 150m', () => {
+        expect(backup.jobs.refresh['timeout-minutes']).toBe(180);
+        expect(turn.run).toContain('deadline=$(($(date +%s) + 7200))');
+        expect(turn.run).toContain("'expiresAt': now + 9000");
+        // Refresh timeout strictly covers lease wait (120m) + refresh headroom;
+        // lease TTL (150m) strictly covers refresh headroom + certify timeout (75m).
+        expect(backup.jobs.refresh['timeout-minutes']).toBeGreaterThanOrEqual(120 + 45);
+        expect(9000 / 60).toBeGreaterThan(backup.jobs.certify['timeout-minutes'] + 60);
+        // Step gating prevents skipped/inherited/superseded runs from refreshing or certifying.
+        expect(refreshCheckout.if).toBe("steps.turn.outputs.acquired == '1'");
+        expect(lateInherit.if).toBe(
+          "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.inherit_eligible == 'true'"
+        );
+        expect(due.if).toBe(
+          "steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1'"
+        );
+        const ids = backup.jobs.refresh.steps.map((s: any) => s.id ?? s.name);
+        expect(ids.indexOf('late_inherit')).toBeGreaterThan(ids.indexOf('turn'));
+        expect(ids.indexOf('late_inherit')).toBeLessThan(ids.indexOf('due'));
+        expect(backup.jobs.plan.outputs.priority).toBe('${{ steps.plan.outputs.priority }}');
+        expect(backup.jobs.plan.outputs.inherit_eligible).toBe(
+          '${{ steps.plan.outputs.inherit_eligible }}'
+        );
+      });
+
+      function runTurn(opts: {
+        event?: string;
+        freezeBaseline?: string;
+        planPriority?: string;
+        newer: string;
+        livePriority?: string;
+      }) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-turn-e3-'));
+        const calls = resolve(dir, 'calls');
+        const countFile = resolve(dir, 'ssh-count');
+        const sha = 'd'.repeat(40);
+        const harness = `
+ssh() {
+  echo "ssh $*" >> "$CALLS"
+  cat > /dev/null
+  n=0
+  [ -f "${countFile}" ] && n=$(cat "${countFile}")
+  n=$((n + 1))
+  echo "$n" > "${countFile}"
+  if [ "$n" -eq 1 ]; then echo "held:999"; else echo "acquired"; fi
+}
+sleep() { echo "sleep $*" >> "$CALLS"; }
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *actions/workflows/backup-engine.yml/runs*) ${
+      opts.newer === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${opts.newer}'`
+    } ;;
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      opts.livePriority === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${opts.livePriority ?? 'none'}')" "print('window=w-e3')"`
+    } ;;
+    *actions/runs/999*) echo "in_progress" ;;
+    *) return 1 ;;
+  esac
+}
+`;
+        try {
+          const result = planShell(harness + turn.run, {
+            CALLS: calls,
+            HOME: dir,
+            SSH_KEY: 'fixture-key-not-a-credential',
+            STANDBY_HOST: '192.0.2.1',
+            STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+            GITHUB_REPOSITORY: 'o/r',
+            GITHUB_SHA: sha,
+            SHA: sha,
+            RUN_ID: '700',
+            RUN_ATTEMPT: '1',
+            EVENT: opts.event ?? 'push',
+            FREEZE_BASELINE: opts.freezeBaseline ?? '',
+            PLAN_PRIORITY: opts.planPriority ?? 'none',
+          });
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('a waiting push run superseded by a newer push yields cleanly without holding the lease or writing a status', () => {
+        const r = runTurn({ newer: '2', livePriority: 'none' });
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
+        expect(r.stdout).toContain('superseded=1');
+        expect(r.stdout).not.toContain('acquired=1');
+        expect(r.calls).not.toContain('sleep ');
+        expect(r.calls).not.toContain('/statuses/');
+      });
+
+      it('booking runs (via plan priority or live priority) are NEVER superseded while waiting', () => {
+        for (const cfg of [
+          { planPriority: 'booking', newer: '3', livePriority: 'none' },
+          { planPriority: 'unknown', newer: '3', livePriority: 'booking' },
+        ]) {
+          const r = runTurn(cfg);
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('acquired=1');
+          expect(r.stdout).not.toContain('SUPERSEDED');
+          expect(r.stdout).not.toContain('superseded=1');
+        }
+      });
+
+      it('freeze_baseline runs are NEVER superseded while waiting', () => {
+        const r = runTurn({ freezeBaseline: '1', newer: '4' });
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain('acquired=1');
+        expect(r.stdout).not.toContain('SUPERSEDED');
+        expect(r.stdout).not.toContain('superseded=1');
+        expect(r.calls).not.toContain('actions/workflows/backup-engine.yml/runs');
+      });
+
+      it.each(['workflow_dispatch', 'schedule', 'repository_dispatch'])(
+        '%s runs are NEVER superseded while waiting',
+        (event) => {
+          const r = runTurn({ event, newer: '5' });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('acquired=1');
+          expect(r.stdout).not.toContain('SUPERSEDED');
+          expect(r.stdout).not.toContain('superseded=1');
+          expect(r.calls).not.toContain('actions/workflows/backup-engine.yml/runs');
+        }
+      );
+
+      it('CLAUDE.md 10.86: an unreadable newer-runs check keeps waiting instead of superseding', () => {
+        const r = runTurn({ newer: 'FAIL' });
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain('acquired=1');
+        expect(r.stdout).not.toContain('SUPERSEDED');
+        expect(r.stdout).not.toContain('superseded=1');
+      });
+
+      function runLatePriorityWithNewer(opts: {
+        verdict: string;
+        newer: string;
+        planPriority?: string;
+      }) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-superseded-'));
+        const calls = resolve(dir, 'calls');
+        const sha = 'e'.repeat(40);
+        const harness = `
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      opts.verdict === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${opts.verdict}')" "print('window=w-late')"`
+    } ;;
+    *actions/workflows/backup-engine.yml/runs*) ${
+      opts.newer === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${opts.newer}'`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
+`;
+        try {
+          const result = planShell(harness + latePriority.run, {
+            CALLS: calls,
+            HOME: dir,
+            SHA: sha,
+            RUN_ID: '700',
+            RUN_ATTEMPT: '1',
+            SSH_KEY: 'fixture-key-not-a-credential',
+            STANDBY_HOST: '192.0.2.1',
+            STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+            GITHUB_REPOSITORY: 'o/r',
+            GITHUB_SHA: sha,
+            PLAN_PRIORITY: opts.planPriority ?? '',
+          });
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('late_priority yields and releases the host lease when a newer push arrived before certify', () => {
+        for (const verdict of ['none', 'candidate']) {
+          const r = runLatePriorityWithNewer({ verdict, newer: '2' });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
+          expect(r.stdout).toContain('deferred=1');
+          expect(r.calls).toMatch(
+            /ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/
+          );
+          expect(r.calls).not.toContain('/statuses/');
+        }
+      });
+
+      it('late_priority NEVER supersedes a booking run (live or plan) and fails closed on unreadable runs', () => {
+        for (const cfg of [
+          { verdict: 'booking', newer: '3' },
+          { verdict: 'FAIL', planPriority: 'booking', newer: '3' },
+          { verdict: 'none', newer: 'FAIL' },
+          { verdict: 'none', newer: '0' },
+        ]) {
+          const r = runLatePriorityWithNewer(cfg);
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).not.toContain('SUPERSEDED');
+          expect(r.stdout).not.toContain('deferred=1');
+          expect(r.calls).not.toContain('ssh ');
+        }
+      });
+
+      function runLateInherit(
+        repo: ReturnType<typeof fixture>,
+        targetSha: string,
+        states: Record<string, string>,
+        writeExit = 0
+      ) {
+        const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-inherit-'));
+        const calls = resolve(dir, 'calls');
+        const harness = `
+gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$2" in
+    repos/o/r/statuses/*)
+      return ${writeExit} ;;
+    repos/o/r/commits/*/statuses*)
+      sha=\${2#repos/o/r/commits/}; sha=\${sha%%/statuses*}
+      case "$sha" in
+${Object.entries(states)
+  .map(([k, v]) => `        ${k}) ${v === 'unreadable' ? 'return 1' : `echo '${v}'`} ;;`)
+  .join('\n')}
+        *) echo missing ;;
+      esac ;;
+    *) return 1 ;;
+  esac
+}
+ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
+`;
+        try {
+          const result = planShell(
+            harness + lateInherit.run,
+            {
+              CALLS: calls,
+              HOME: dir,
+              SHA: targetSha,
+              DEPTH: '60',
+              STATUS_CONTEXT: 'backup-engine/certified',
+              GITHUB_REPOSITORY: 'o/r',
+              GITHUB_SERVER_URL: 'https://github.com',
+              GITHUB_RUN_ID: '701',
+              RUN_ID: '701',
+              RUN_ATTEMPT: '1',
+              SSH_KEY: 'fixture-key-not-a-credential',
+              STANDBY_HOST: '192.0.2.1',
+              STANDBY_HOST_KEY: '192.0.2.1 ssh-ed25519 AAAA',
+            },
+            repo.dir
+          );
+          return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+
+      it('late_inherit inherits a newly certified identical ancestor after lease acquisition and immediately releases the host lease', () => {
+        const f = fixture();
+        try {
+          const r = runLateInherit(f, f.shas.c3, { [f.shas.c1]: 'success' });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain(`INHERITED: Inherited from ${f.shas.c1}`);
+          expect(r.stdout).toContain('inherited=1');
+          expect(r.calls).toContain(`repos/o/r/statuses/${f.shas.c3}`);
+          expect(r.calls).toContain('-f state=success');
+          expect(r.calls).toMatch(
+            /ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/
+          );
+        } finally {
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('late_inherit releases the lease immediately if the target SHA itself became certified while waiting', () => {
+        const f = fixture();
+        try {
+          const r = runLateInherit(f, f.shas.c3, { [f.shas.c3]: 'success' });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain(`ALREADY CERTIFIED: ${f.shas.c3}`);
+          expect(r.stdout).toContain('inherited=1');
+          expect(r.calls).not.toContain(`repos/o/r/statuses/${f.shas.c3}`);
+          expect(r.calls).toMatch(
+            /ssh .*-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15/
+          );
+        } finally {
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('late_inherit keeps the lease and certifies in full on failure, unreadable status, qualification boundary, or failed write', () => {
+        const f = fixture();
+        try {
+          const failedAncestor = runLateInherit(f, f.shas.c3, {
+            [f.shas.c2]: 'failure',
+            [f.shas.c1]: 'success',
+          });
+          expect(failedAncestor.status, failedAncestor.stderr).toBe(0);
+          expect(failedAncestor.stdout).toContain('inherited=0');
+          expect(failedAncestor.calls).not.toContain('ssh ');
+          expect(failedAncestor.calls).not.toContain('repos/o/r/statuses/');
+
+          const unreadable = runLateInherit(f, f.shas.c3, {
+            [f.shas.c2]: 'unreadable',
+            [f.shas.c1]: 'success',
+          });
+          expect(unreadable.status, unreadable.stderr).toBe(0);
+          expect(unreadable.stdout).toContain('inherited=0');
+          expect(unreadable.calls).not.toContain('ssh ');
+
+          const writeFailed = runLateInherit(f, f.shas.c3, { [f.shas.c1]: 'success' }, 1);
+          expect(writeFailed.status, writeFailed.stderr).toBe(0);
+          expect(writeFailed.stdout).toContain('could not write the late inherited certificate');
+          expect(writeFailed.stdout).toContain('inherited=0');
+          expect(writeFailed.calls).not.toContain('ssh ');
+
+          f.write('supabase/migrations/20261121000000.sql', 'select 1;\n');
+          const migSha = f.commit('migration changes backup_projection');
+          const boundary = runLateInherit(f, migSha, { [f.shas.c3]: 'success' });
+          expect(boundary.status, boundary.stderr).toBe(0);
+          expect(boundary.stdout).toContain('qualification inputs differ');
+          expect(boundary.stdout).toContain('inherited=0');
+          expect(boundary.calls).not.toContain('ssh ');
+        } finally {
+          rmSync(f.dir, { recursive: true, force: true });
         }
       });
     });
