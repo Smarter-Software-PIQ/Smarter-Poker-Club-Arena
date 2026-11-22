@@ -474,8 +474,9 @@ function wagerValue(
   const add = Math.max(0, Math.min(to - heroIn, heroStack));
   const his = Math.max(0, Math.min(to - villainIn, villainStack));
   const matched = Math.max(0, Math.min(add, villainIn + his - heroIn));
-  // he folds at the price, never more than the weak part of the range facing the wager
-  const f = Math.min(holdemPricedFold(foldAtReference, add, pot), range.weakShare);
+  // he folds at the effective matched price (unmatched surplus above his stack cannot lay a higher price),
+  // never more than the weak part of the range facing the wager
+  const f = Math.min(holdemPricedFold(foldAtReference, matched, pot), range.weakShare);
   const cont = holdemEquityOfShare(range, (1 - f) * rangeShare, 'top', rangeSkip);
   const ev = f * pot + (1 - f) * (r * cont.equity * (pot + matched + his) - matched);
   return { kind: 'raise', to, ev, fold: f, equityWhenCalled: cont.equity };
@@ -592,18 +593,32 @@ export function holdemPricedVerdict(
   return { options, best, equity: all };
 }
 
-/** The wager street totals to price: the bet or raise fractions and, within 1.5 pots, all in. */
+/** The wager street totals to price: the bet or raise fractions and, within 1.5 pots, effective all in. */
 export function holdemPricedWagerTargets(spot: HoldemPricedSpot): number[] {
   const facing = spot.currentBet > spot.heroIn + 1e-9;
-  const allIn = spot.heroIn + spot.heroStack;
+  const effAllIn = Math.min(spot.heroIn + spot.heroStack, spot.villainIn + spot.villainStack);
+  const effStack = Math.max(0, effAllIn - spot.heroIn);
   const out: number[] = [];
+  const pushUnique = (x: number) => {
+    if (!out.some((y) => Math.abs(y - x) <= 1e-9)) out.push(x);
+  };
   if (facing) {
     const base = spot.pot + (spot.currentBet - spot.heroIn);
-    for (const f of HOLDEM_PRICED_RAISE_FRACTIONS) out.push(spot.currentBet + f * base);
-    if (allIn - spot.currentBet <= HOLDEM_PRICED_ALL_IN_POTS * base) out.push(allIn);
+    for (const f of HOLDEM_PRICED_RAISE_FRACTIONS) {
+      const t = Math.min(spot.currentBet + f * base, effAllIn);
+      if (t > spot.currentBet) pushUnique(t);
+    }
+    if (
+      effAllIn > spot.currentBet &&
+      effAllIn - spot.currentBet <= HOLDEM_PRICED_ALL_IN_POTS * base
+    )
+      pushUnique(effAllIn);
   } else {
-    for (const f of HOLDEM_PRICED_BET_FRACTIONS) out.push(spot.heroIn + f * spot.pot);
-    if (spot.heroStack <= HOLDEM_PRICED_ALL_IN_POTS * spot.pot) out.push(allIn);
+    for (const f of HOLDEM_PRICED_BET_FRACTIONS) {
+      const t = Math.min(spot.heroIn + f * spot.pot, effAllIn);
+      if (t > spot.heroIn) pushUnique(t);
+    }
+    if (effStack > 0 && effStack <= HOLDEM_PRICED_ALL_IN_POTS * spot.pot) pushUnique(effAllIn);
   }
   return out;
 }

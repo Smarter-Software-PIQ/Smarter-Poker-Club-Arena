@@ -462,4 +462,77 @@ describe('holdemValueAndCallsArePriced: line-range construction invariants (2026
     expect(v.options.map((o) => o.kind)).toEqual(['check']);
     expect(v.best.kind).toBe('check');
   });
+
+  it('prices fold equity against matched stack (not unmatched surplus) and caps wager targets at villain effective stack', () => {
+    // Covering hero (stack 102.3) facing bet 41 from short villain (27 behind, effAllIn = 68).
+    const facingSpot = spotOf({
+      street: 'turn',
+      pot: 147.5,
+      currentBet: 41,
+      heroIn: 0,
+      villainIn: 41,
+      heroStack: 102.3,
+      villainStack: 27,
+      foldAtReference: 0.43,
+    });
+    const raiseTargets = holdemPricedWagerTargets(facingSpot);
+    expect(raiseTargets).toEqual([68]);
+    expect(raiseTargets.every((t) => t <= facingSpot.villainIn + facingSpot.villainStack)).toBe(
+      true
+    );
+
+    // Even if both min-raise (82) and unmatched shove (102.3) are supplied as legal wagers, both have
+    // identical matched exposure (68), so they must produce identical fold share and EV, and ascending
+    // tie-breaking keeps the smaller legal raise (82) instead of shoving surplus chips.
+    const r = synthetic([0.7, 0.8, 0.9, 1, 1], [4, 3, 1, 0, 0]);
+    const v = holdemPricedVerdict(facingSpot, r, [82, 102.3]);
+    const r82 = v.options.find((o) => o.kind === 'raise' && o.to === 82);
+    const rAll = v.options.find((o) => o.kind === 'raise' && o.to === 102.3);
+    expect(r82).toBeDefined();
+    expect(rAll).toBeDefined();
+    expect(r82?.fold).toBeCloseTo(holdemPricedFold(0.43, 68, 147.5), 9);
+    expect(rAll?.fold).toBeCloseTo(r82!.fold!, 9);
+    expect(rAll?.ev).toBeCloseTo(r82!.ev, 9);
+    expect(v.best.to).toBe(82);
+
+    // First-in bet targets also never exceed villain's effective stack.
+    const openTargets = holdemPricedWagerTargets(
+      spotOf({ street: 'river', pot: 100, heroStack: 150, villainStack: 80 })
+    );
+    expect(openTargets).toEqual([33, 50, 75, 80]);
+  });
+
+  it('never defers value raises or rewrites non-fold tokens when the sole opponent is already all-in (opp.stack <= 0)', () => {
+    const f = bySlug('turn-77-boat-calls');
+    const st = state(f);
+    const allInOppState = {
+      ...st,
+      gs: {
+        ...st.gs,
+        players: st.gs.players.map((p) =>
+          p.seat === st.hero.seat || p.is_folded ? p : { ...p, stack: 0, is_all_in: true }
+        ),
+      },
+    };
+    const off = replayAt(allInOppState, PROFILE, SEEDS, LIVE);
+    const on = replayAt(allInOppState, PROFILE, SEEDS, ON);
+    expect(on.receipts.holdem_priced_value_raise_deferred ?? 0).toBe(0);
+    // Every seed preserves the exact non-fold baseline action token when villain has 0 chips behind.
+    expect(on.kinds).toEqual(off.kinds);
+    expect(on.actions).toEqual(off.actions);
+
+    // Losing calls facing an all-in opponent still fold as priced.
+    const dead = bySlug('river-a7-dead-call');
+    const deadSt = state(dead);
+    const deadAllIn = {
+      ...deadSt,
+      gs: {
+        ...deadSt.gs,
+        players: deadSt.gs.players.map((p) =>
+          p.seat === deadSt.hero.seat || p.is_folded ? p : { ...p, stack: 0, is_all_in: true }
+        ),
+      },
+    };
+    expect(replayAt(deadAllIn, PROFILE, SEEDS, ON).kinds).toEqual({ fold: SEEDS.length });
+  });
 });
