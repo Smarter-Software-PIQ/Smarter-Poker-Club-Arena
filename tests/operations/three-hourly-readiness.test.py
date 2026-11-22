@@ -674,6 +674,281 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
             self.assertEqual(missing_payload["verdict"], "UNKNOWN")
             self.assertIn("not an existing directory", missing_payload["summary"])
 
+    def test_per_cycle_o3_deferral_and_nightly_freeze_timestamps(self):
+        # Non-04:00 three-hourly cycle (2026-11-22 07:00 CST = 13:00Z)
+        day_cycle = mod.compute_next_cycle(
+            datetime(2026, 11, 22, 10, 20, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(day_cycle["cycleId"], "2026-11-22T07")
+        self.assertEqual(day_cycle["o3DeferKind"], "o3-deferral")
+        self.assertEqual(day_cycle["o3DeferStartUtc"], "2026-11-22T11:30:00Z")
+        self.assertEqual(day_cycle["o3DeferStartChicago"], "2026-11-22T05:30:00-06:00")
+        self.assertEqual(day_cycle["o3DeferStartChicagoLabel"], "2026-11-22 05:30:00 CST")
+        self.assertEqual(day_cycle["o3ClearUtc"], "2026-11-22T13:10:00Z")
+        self.assertEqual(day_cycle["o3ClearChicagoLabel"], "2026-11-22 07:10:00 CST")
+        self.assertFalse(day_cycle["inO3DeferWindow"])
+
+        # 04:00 anchor (2026-11-22 04:00 CST = 10:00Z) uses nightly freeze 23:45-04:15 Chicago
+        anchor = mod.compute_next_cycle(
+            datetime(2026, 11, 22, 9, 43, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(anchor["cycleId"], "2026-11-22")
+        self.assertEqual(anchor["o3DeferKind"], "nightly-freeze")
+        self.assertEqual(anchor["o3DeferStartUtc"], "2026-11-22T05:45:00Z")
+        self.assertEqual(anchor["o3DeferStartChicago"], "2026-11-21T23:45:00-06:00")
+        self.assertEqual(anchor["o3DeferStartChicagoLabel"], "2026-11-21 23:45:00 CST")
+        self.assertEqual(anchor["o3ClearUtc"], "2026-11-22T10:15:00Z")
+        self.assertEqual(anchor["o3ClearChicagoLabel"], "2026-11-22 04:15:00 CST")
+        self.assertTrue(anchor["inO3DeferWindow"])
+
+        # Spring-forward 04:00 CDT anchor (2026-03-08 04:00 CDT = 09:00Z): freeze 23:45 CST -> 04:15 CDT
+        sf_anchor = mod.compute_next_cycle(
+            datetime(2026, 3, 8, 7, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(sf_anchor["cycleId"], "2026-03-08")
+        self.assertEqual(sf_anchor["o3DeferStartUtc"], "2026-03-08T05:45:00Z")
+        self.assertEqual(sf_anchor["o3DeferStartChicagoLabel"], "2026-03-07 23:45:00 CST")
+        self.assertEqual(sf_anchor["o3ClearUtc"], "2026-03-08T09:15:00Z")
+        self.assertEqual(sf_anchor["o3ClearChicagoLabel"], "2026-03-08 04:15:00 CDT")
+
+        # Fall-back 04:00 CST anchor (2026-11-01 04:00 CST = 10:00Z): freeze 23:45 CDT -> 04:15 CST
+        fb_anchor = mod.compute_next_cycle(
+            datetime(2026, 11, 1, 6, 10, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(fb_anchor["cycleId"], "2026-11-01")
+        self.assertEqual(fb_anchor["o3DeferStartUtc"], "2026-11-01T04:45:00Z")
+        self.assertEqual(fb_anchor["o3DeferStartChicagoLabel"], "2026-10-31 23:45:00 CDT")
+        self.assertEqual(fb_anchor["o3ClearUtc"], "2026-11-01T10:15:00Z")
+        self.assertEqual(fb_anchor["o3ClearChicagoLabel"], "2026-11-01 04:15:00 CST")
+
+    def test_next_open_cycle_advances_after_cutoff_and_matches_before_cutoff(self):
+        # Pre-cutoff: nextOpenCycle equals nextCycle
+        pre = datetime(2026, 11, 22, 9, 29, 59, tzinfo=timezone.utc)
+        pre_bundle = mod.compute_cycle_schedule(pre, "three-hourly")
+        self.assertFalse(pre_bundle["nextCycle"]["cutoffPassed"])
+        self.assertEqual(pre_bundle["nextOpenCycle"], pre_bundle["nextCycle"])
+
+        # Exact cutoff boundary (09:30:00Z): cutoffPassed=True -> advances to 07:00 CST
+        at_cutoff = datetime(2026, 11, 22, 9, 30, 0, tzinfo=timezone.utc)
+        at_bundle = mod.compute_cycle_schedule(at_cutoff, "three-hourly")
+        self.assertTrue(at_bundle["nextCycle"]["cutoffPassed"])
+        self.assertEqual(at_bundle["nextCycle"]["cycleId"], "2026-11-22")
+        self.assertEqual(at_bundle["nextOpenCycle"]["cycleId"], "2026-11-22T07")
+        self.assertFalse(at_bundle["nextOpenCycle"]["cutoffPassed"])
+
+        # Live 2026-11-22T09:43:00Z replay (13m after 04:00 CST cutoff)
+        post = datetime(2026, 11, 22, 9, 43, 0, tzinfo=timezone.utc)
+        open_cycle = mod.compute_next_open_cycle(post, "three-hourly")
+        self.assertEqual(open_cycle["cycleId"], "2026-11-22T07")
+        self.assertEqual(open_cycle["cycleStartUtc"], "2026-11-22T13:00:00Z")
+        self.assertEqual(open_cycle["cycleStartChicagoLabel"], "2026-11-22 07:00:00 CST")
+        self.assertEqual(open_cycle["preparationCutoffUtc"], "2026-11-22T12:30:00Z")
+        self.assertEqual(open_cycle["o3DeferStartUtc"], "2026-11-22T11:30:00Z")
+        self.assertEqual(open_cycle["o3ClearUtc"], "2026-11-22T13:10:00Z")
+        self.assertEqual(open_cycle["recommendedHoldStartUtc"], "2026-11-22T11:15:00Z")
+        self.assertFalse(open_cycle["cutoffPassed"])
+        self.assertFalse(open_cycle["inHoldWindow"])
+
+        # Daily cadence post-cutoff advances to tomorrow's 04:00 anchor
+        daily_open = mod.compute_next_open_cycle(post, "daily")
+        self.assertEqual(daily_open["cycleId"], "2026-11-23")
+        self.assertEqual(daily_open["cycleStartUtc"], "2026-11-23T10:00:00Z")
+
+    def test_migration_gate_nightly_freeze_o3_deferral_open_and_dst(self):
+        # 1. NIGHTLY_FREEZE at 09:43Z (03:43 CST) -> clears at 10:15Z (04:15 CST)
+        g_freeze = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 9, 43, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_freeze["status"], "NIGHTLY_FREEZE")
+        self.assertEqual(g_freeze["clearAtUtc"], "2026-11-22T10:15:00Z")
+        self.assertEqual(g_freeze["clearAtChicagoLabel"], "2026-11-22 04:15:00 CST")
+        self.assertEqual(g_freeze["minutesToClear"], 32.0)
+        self.assertIsNone(g_freeze["nextDeferStartUtc"])
+
+        # 2. OPEN right at 10:15Z (04:15 CST): nextDefer is O3 at 11:30Z on three-hourly, 23:45 CST on daily
+        g_open_3h = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 10, 15, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_open_3h["status"], "OPEN")
+        self.assertIsNone(g_open_3h["clearAtUtc"])
+        self.assertEqual(g_open_3h["nextDeferKind"], "O3_DEFERRAL")
+        self.assertEqual(g_open_3h["nextDeferStartUtc"], "2026-11-22T11:30:00Z")
+        self.assertEqual(g_open_3h["nextDeferStartChicagoLabel"], "2026-11-22 05:30:00 CST")
+
+        g_open_daily = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 10, 15, tzinfo=timezone.utc), "daily"
+        )
+        self.assertEqual(g_open_daily["status"], "OPEN")
+        self.assertEqual(g_open_daily["nextDeferKind"], "NIGHTLY_FREEZE")
+        self.assertEqual(g_open_daily["nextDeferStartUtc"], "2026-11-23T05:45:00Z")
+
+        # 3. O3_DEFERRAL daytime [cycleStart - 90m, cycleStart + 10m) for 07:00 CST (13:00Z)
+        g_o3_start = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 11, 30, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_o3_start["status"], "O3_DEFERRAL")
+        self.assertEqual(g_o3_start["cycleId"], "2026-11-22T07")
+        self.assertEqual(g_o3_start["clearAtUtc"], "2026-11-22T13:10:00Z")
+        self.assertEqual(g_o3_start["clearAtChicagoLabel"], "2026-11-22 07:10:00 CST")
+
+        g_o3_end_minus_1s = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 13, 9, 59, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_o3_end_minus_1s["status"], "O3_DEFERRAL")
+
+        g_after_o3 = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 13, 10, 0, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_after_o3["status"], "OPEN")
+        self.assertEqual(g_after_o3["nextDeferStartUtc"], "2026-11-22T14:30:00Z")
+
+        # Daily cadence does NOT activate O3_DEFERRAL at 11:30Z
+        g_daily_day = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 11, 30, tzinfo=timezone.utc), "daily"
+        )
+        self.assertEqual(g_daily_day["status"], "OPEN")
+
+        # 4. 23:35 CST (05:35Z): O3_DEFERRAL for 01:00 CST continuing seamlessly into nightly freeze -> clears 04:15 CST
+        g_o3_to_freeze = mod.compute_migration_gate(
+            datetime(2026, 11, 22, 5, 35, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_o3_to_freeze["status"], "O3_DEFERRAL")
+        self.assertEqual(g_o3_to_freeze["clearAtUtc"], "2026-11-22T10:15:00Z")
+        self.assertIn("RELEASE_SCHEMA_FREEZE_CHICAGO", g_o3_to_freeze["reason"])
+
+        # 5. Spring-forward (2026-03-08) and fall-back (2026-11-01) DST boundaries
+        g_sf_o3 = mod.compute_migration_gate(
+            datetime(2026, 3, 8, 5, 35, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_sf_o3["status"], "O3_DEFERRAL")
+        self.assertEqual(g_sf_o3["clearAtUtc"], "2026-03-08T09:15:00Z")
+
+        g_sf_open = mod.compute_migration_gate(
+            datetime(2026, 3, 8, 9, 15, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_sf_open["status"], "OPEN")
+        self.assertEqual(g_sf_open["nextDeferStartUtc"], "2026-03-08T10:30:00Z")
+
+        g_fb_freeze = mod.compute_migration_gate(
+            datetime(2026, 11, 1, 4, 50, tzinfo=timezone.utc), "three-hourly"
+        )
+        self.assertEqual(g_fb_freeze["status"], "NIGHTLY_FREEZE")
+        self.assertEqual(g_fb_freeze["clearAtUtc"], "2026-11-01T10:15:00Z")
+        self.assertEqual(g_fb_freeze["clearAtChicagoLabel"], "2026-11-01 04:15:00 CST")
+
+    def test_post_cutoff_closed_stage_run_reuses_single_fetch_and_renders_o8_sections(self):
+        serving = _sha("0")
+        head = _sha("4")
+        now = datetime(2026, 11, 22, 9, 43, 0, tzinfo=timezone.utc)
+        stage_fetch_count = {"n": 0}
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path:
+                stage_fetch_count["n"] += 1
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 45000042559,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "display_title": "Daily engine selection",
+                            "event": "schedule",
+                            "head_sha": head,
+                            "created_at": "2026-11-22T09:20:00Z",
+                            "updated_at": "2026-11-22T09:31:08Z",
+                            "html_url": "https://github.com/o/r/actions/runs/45000042559",
+                        },
+                        {
+                            "id": 44990000001,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "display_title": "Older cycle",
+                            "event": "schedule",
+                            "head_sha": serving,
+                            "created_at": "2026-11-22T06:20:00Z",
+                            "updated_at": "2026-11-22T06:31:00Z",
+                            "html_url": "https://github.com/o/r/actions/runs/44990000001",
+                        },
+                    ]
+                }
+            if "backup-engine.yml/runs" in path:
+                return {"workflow_runs": []}
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": head}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {"workflow_runs": []}
+            if f"/commits/{head}/status" in path:
+                return {"statuses": []}
+            raise AssertionError(path)
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(head, serving, [(head, "feat: post-cutoff")]),
+            projection_fn=lambda _sha: "same-tree",
+        )
+
+        # Strictly zero extra API calls for Stage workflow runs
+        self.assertEqual(stage_fetch_count["n"], 1)
+        self.assertTrue(report["schedule"]["cutoffPassed"])
+        self.assertEqual(report["nextOpenCycle"]["cycleId"], "2026-11-22T07")
+        self.assertEqual(report["migrationGate"]["status"], "NIGHTLY_FREEZE")
+        self.assertEqual(report["migrationGate"]["clearAtUtc"], "2026-11-22T10:15:00Z")
+
+        closed = report["closedCycleStageRun"]
+        self.assertIsNotNone(closed)
+        self.assertEqual(closed["id"], 45000042559)
+        self.assertEqual(closed["conclusion"], "success")
+        self.assertEqual(closed["updatedAt"], "2026-11-22T09:31:08Z")
+        self.assertEqual(closed["headSha"], head)
+
+        table = mod.render_table(report)
+        self.assertIn("NEXT SCHEDULED CYCLE (2026-11-22)", table)
+        self.assertIn("NEXT OPEN CYCLE (2026-11-22T07)", table)
+        self.assertIn("MIGRATION GATE", table)
+        self.assertIn("NIGHTLY_FREEZE", table)
+        self.assertIn("45000042559", table)
+        self.assertIn("2026-11-22T11:30:00Z", table)
+        self.assertNotIn("\u2014", table)
+        self.assertNotIn("\u2013", table)
+
+    def test_closed_cycle_stage_run_ignores_pre_cutoff_active_or_stale_runs(self):
+        post_now = datetime(2026, 11, 22, 9, 43, 0, tzinfo=timezone.utc)
+        post_sched = mod.compute_next_cycle(post_now, "three-hourly")
+        pre_now = datetime(2026, 11, 22, 9, 20, 0, tzinfo=timezone.utc)
+        pre_sched = mod.compute_next_cycle(pre_now, "three-hourly")
+
+        run_in_window = {
+            "id": 1001,
+            "status": "completed",
+            "conclusion": "success",
+            "headSha": _sha("1"),
+            "updatedAt": "2026-11-22T09:31:00Z",
+        }
+        run_too_old = {
+            "id": 1000,
+            "status": "completed",
+            "conclusion": "success",
+            "headSha": _sha("2"),
+            "updatedAt": "2026-11-22T09:24:59Z",  # 1s before cutoff - 5m (09:25:00Z)
+        }
+
+        # Pre-cutoff -> None
+        self.assertIsNone(mod.find_closed_cycle_stage_run([run_in_window], pre_sched, pre_now))
+        # Active stage run present -> None
+        self.assertIsNone(
+            mod.find_closed_cycle_stage_run(
+                [run_in_window], post_sched, post_now, active_stage_runs=[{"id": 9999}]
+            )
+        )
+        # Only stale run outside [cutoff - 5m, now] -> None
+        self.assertIsNone(mod.find_closed_cycle_stage_run([run_too_old], post_sched, post_now))
+        # Exact match within [cutoff - 5m, now] -> returned
+        found = mod.find_closed_cycle_stage_run([run_too_old, run_in_window], post_sched, post_now)
+        self.assertEqual(found["id"], 1001)
+
 
 if __name__ == "__main__":
     unittest.main()

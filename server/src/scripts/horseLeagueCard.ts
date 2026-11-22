@@ -8,7 +8,8 @@
  *   npx tsx src/scripts/horseLeagueCard.ts --list
  *
  * The card is looked up by exact name in LEAGUE_MATCHUPS, then in
- * DEVELOPMENT_LEAGUE_CARDS (cards the nightly never deals), and passed, as it
+ * DEVELOPMENT_LEAGUE_CARDS (cards the nightly never deals, e.g. the Omaha
+ * development field's and Hold'em blanket-off candidates), and passed, as it
  * is declared, to the league's own runMatchup(matchup, pairs, seed): the
  * function the nightly compute worker calls for every card. An unknown name is
  * refused; a name in UNMEASURABLE_MATCHUPS is refused with its recorded reason.

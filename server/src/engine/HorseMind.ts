@@ -55,6 +55,7 @@ import {
   resetWinnerReads,
   type HorseWinnerReadState,
 } from './HorseWinnerRead.js';
+import { hudExploitCounters } from './opponentHud/OpponentHudExploit.js';
 import { noteFire, withBrainTelemetrySuspended } from './BrainTelemetry.js';
 import { bettingStructureFor, type BettingStructure } from './BettingStructure.js';
 import {
@@ -470,6 +471,14 @@ export interface DecisionReadOptions {
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
   omahaNeutralUnknown?: boolean;
+  /** OPPONENT HUD (2026-11-20, lane OPPONENT-HUD, HorseDecideOpts.omahaOpponentLifetimeHud): in PLO4/PLO5 cash the
+   *  exploit read takes each opponent's counters from his lifetime public profile carried by the decision
+   *  (OpponentHudExploit.ts). Present only when true. */
+  opponentLifetimeHud?: boolean;
+  /** B4 SIX-MAX PREFLOP HUD (2026-11-21, PLO-OWNER lead-4, HorseDecideOpts.omahaPreflopReadIsPricedFromLifetime):
+   *  in 3–6 seat PLO4/PLO5 cash preflop, retires presumedAggressorRead via the lifetime HUD packet and prices
+   *  widened maniac-pressure spots on sh + pf.lr + pf.bvo cells (HorseOmahaPreflopHudPriced.ts). Default OFF. */
+  opponentLifetimeHudPreflopSixMax?: boolean;
   /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane,
    *  HorseDecideOpts.fixedLimitOmahaNoPresumption): on a fixed-limit Omaha
    *  decision (flo8) the shared aggressive raise presumption is not applied;
@@ -741,6 +750,26 @@ export const OMAHA_EV_FOLD_MODEL: Readonly<
   plo4: Object.freeze({ foldOverMdf: 1.289, population: 0.49 }),
   plo5: Object.freeze({ foldOverMdf: 1.458, population: 0.536 }),
   plo6: Object.freeze({ foldOverMdf: 1.409, population: 0.497 }),
+});
+/**
+ * OPPONENT HUD, MEASURED 2026-11-21 (lane OPPONENT-HUD-2, CRITERIA-OPPONENT-HUD-2-MEASURED sha 3cba1dd5): actual fold
+ * share to a Horse's first bet of a street over the pooled model's prediction from the responder's as-of LIFETIME
+ * fold-to-first-bet counts, PLO4 + PLO5 person-seated cash hands before Nov 17 (22,244 responses), each cell adopted
+ * only where it lowered the held-out log-loss on Nov 18-20 (4,108 responses):
+ *   flop  small n 7,733 actual .4005 model .3836 (factor 1.044: NOT adopted, held-out .6160 vs .6159) -> 1
+ *   flop  big   n 2,785 actual .6118 model .6219 -> 0.984 (held-out .6672 vs .6702)
+ *   turn  small n 5,261 actual .3870 model .4019 -> 0.963 (held-out .61781 vs .61783)
+ *   turn  big   n 2,885 actual .6135 model .6181 -> 0.993 (held-out .6388 vs .6395)
+ *   river small n 1,442 actual .6033 model .4185 -> 1.442 (held-out .6361 vs .7092)
+ *   river big   n 2,138 actual .7399 model .6152 -> 1.203 (held-out .5442 vs .5857)
+ * small = a bet up to 0.7 pot, big = above 0.7 pot or all-in. Population parameters from public actions only.
+ */
+export const HUD_EV_FOLD_CALIBRATION: Readonly<
+  Record<string, Readonly<{ sm: number; bg: number }>>
+> = Object.freeze({
+  flop: Object.freeze({ sm: 1, bg: 0.984 }),
+  turn: Object.freeze({ sm: 0.963, bg: 0.993 }),
+  river: Object.freeze({ sm: 1.442, bg: 1.203 }),
 });
 /** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
 export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
@@ -2898,6 +2927,56 @@ export class HorseMind {
     return adjusted;
   }
 
+  /**
+   * OPPONENT HUD NO-LOWERING (2026-11-21, lead order after the symmetric re-score): whether this decision reads PLO4 /
+   * PLO5 opponents from the lifetime HUD (postflop consumer or B4 six-max preflop). Off: false.
+   */
+  static hudReadActive(): boolean {
+    const scope = this.decisionScope;
+    if (
+      !scope ||
+      (this.decisionReadOptions.opponentLifetimeHud !== true &&
+        this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true)
+    )
+      return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /** B4 six-max preflop HUD active (option omahaPreflopReadIsPricedFromLifetime + omahaOpponentLifetimeHud). */
+  static hudPreflopSixMaxActive(): boolean {
+    const scope = this.decisionScope;
+    if (!scope || this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    return scope.split(':')[0] === 'omaha' && (variant === 'plo4' || variant === 'plo5');
+  }
+  /**
+   * The read this opponent would get WITHOUT the lifetime HUD (the decayed window and the PLO presumption), receipts
+   * muted. Used only where a lifetime read would LOWER a raise or a bet by itself: the caller prices that lowering,
+   * and where it cannot price it the lifetime read is not consumed there (the site answers as with the option off).
+   */
+  static opponentReadWithoutHud(userId: string): OpponentExploitRead | null {
+    return this.withoutHud(() => this.opponentRead(userId));
+  }
+  /** Run a read as without the lifetime HUD (receipts muted); with the option off, the read itself. */
+  static withoutHud<T>(fn: () => T): T {
+    if (
+      this.decisionReadOptions.opponentLifetimeHud !== true &&
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax !== true
+    )
+      return fn();
+    const saved = this.decisionReadOptions;
+    this.decisionReadOptions = {
+      ...saved,
+      opponentLifetimeHud: false,
+      opponentLifetimeHudPreflopSixMax: false,
+    };
+    try {
+      return withBrainTelemetrySuspended(fn);
+    } finally {
+      this.decisionReadOptions = saved;
+    }
+  }
+
   static opponentRead(userId: string): OpponentExploitRead | null {
     const scope = this.decisionScope;
     if (!scope) return null;
@@ -2914,6 +2993,23 @@ export class HorseMind {
     // game's sibling table size, read against ITS own envelope, may
     // corroborate a statistic this size already places past every horse.
     const family = scope.split(':')[0];
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; option omahaOpponentLifetimeHud, default off, PLO4/PLO5 cash): his
+    // counters come from his LIFETIME public profile in this decision's packet (OpponentHudExploit.ts) instead of the
+    // 30-hand decayed window, so every read below sees his whole history from his first hand. Absent (option off, no
+    // packet, no profile of him): undefined, and every line below is what it was.
+    const hudOn =
+      this.decisionReadOptions.opponentLifetimeHud === true ||
+      this.decisionReadOptions.opponentLifetimeHudPreflopSixMax === true;
+    const hudCounters =
+      hudOn && family === 'omaha' && (variant === 'plo4' || variant === 'plo5')
+        ? hudExploitCounters(
+            userId,
+            variant,
+            durable ?? this.exploitCounters.get(`${scope}|${userId}`)
+          )
+        : undefined;
+    if (hudCounters) noteFire('opponent_hud_exploit_counters');
+    const durableOrLifetime = hudCounters ?? durable;
     const siblings =
       durable && variant
         ? opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
@@ -2926,7 +3022,7 @@ export class HorseMind {
         : [];
     const readCounters = this.probeAdjusted(
       userId,
-      durable ??
+      durableOrLifetime ??
         (this.durableOpponentMemory && variant
           ? undefined
           : this.exploitCounters.get(`${scope}|${userId}`))
@@ -2963,6 +3059,18 @@ export class HorseMind {
         : gated;
     if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
+    // OPPONENT HUD (2026-11-20, lane OPPONENT-HUD; lead 23:1xZ: replace the blanket presumption): with the lifetime
+    // read on, no Omaha opponent is presumed a maniac. An opponent with a lifetime profile is read from it (above);
+    // one with no history is read as the population for his stake and game (no exploit engaged; the accessor's
+    // priors carry the stake). The presumption below is unreachable on this path (AnOpponentIsReadFromHisLifetime law).
+    if (family === 'omaha' && hudOn && (variant === 'plo4' || variant === 'plo5')) {
+      noteFire(
+        hudCounters
+          ? 'opponent_hud_presumption_replaced_lifetime'
+          : 'opponent_hud_presumption_replaced_prior'
+      );
+      return read;
+    }
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.
@@ -2972,7 +3080,10 @@ export class HorseMind {
       // measured statistics with nothing engaged (see neutralUnknownRead).
       const neutral = neutralUnknownRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -2994,7 +3105,10 @@ export class HorseMind {
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
         read,
-        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        this.probeAdjusted(
+          userId,
+          durableOrLifetime ?? this.exploitCounters.get(`${scope}|${userId}`)
+        ),
         scope,
         this.decisionVariant
       );
@@ -5703,6 +5817,23 @@ export class HorseMind {
     const model = this.omahaEvFoldMulOf(userId, headsUpStreet);
     if (model !== null) return model;
     return this.exploit(userId, recencyBlend).bluffMod;
+  }
+
+  /**
+   * OPPONENT HUD: the measured calibration of the EV fold model when its input is the lifetime record
+   * (HUD_EV_FOLD_CALIBRATION), for hero's first bet of `street`; null unless omahaOpponentLifetimeHud reads this
+   * decision AND the pooled Omaha EV fold model is the one pricing PLO4 / PLO5 cash (the model the factors were
+   * measured against). Pure.
+   */
+  static evFoldCalibrationOf(street: string): { sm: number; bg: number } | null {
+    if (this.decisionReadOptions.opponentLifetimeHud !== true || !this.decisionScope) return null;
+    if (this.decisionReadOptions.omahaEvFoldModel !== true || this.decisionMode !== 'cash')
+      return null;
+    if (this.decisionReadOptions.omahaEvFoldModelHeadsUp === true) return null;
+    if (this.decisionReadOptions.omahaEvFoldModelSkipsPlo45 === true) return null;
+    const v = (this.decisionVariant ?? '').toLowerCase();
+    if (v !== 'plo4' && v !== 'plo5') return null;
+    return HUD_EV_FOLD_CALIBRATION[street] ?? null;
   }
 
   /**

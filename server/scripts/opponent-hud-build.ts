@@ -21,11 +21,11 @@
 import { readFileSync, writeFileSync, createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import {
+  HUD_FAMILIES,
   HUD_STATS,
   applyHudHandToProfiles,
   emptyHudProfile,
   handRecordFromRow,
-  type HudFamily,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import {
@@ -34,7 +34,11 @@ import {
   type HudPopulation,
 } from '../src/engine/opponentHud/OpponentHud.js';
 import { extractHandDeltas } from '../src/engine/opponentHud/OpponentHudProfile.js';
-import { planOpponentHudBackfill } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
+import {
+  HUD_BACKFILL_PAGE_LIMIT,
+  pageAllOpponentHudHands,
+  planOpponentHudBackfill,
+} from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
@@ -131,27 +135,27 @@ async function firstRetainedHandMs(): Promise<number | null> {
 
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
-  let afterAt = since;
-  let afterId = '00000000-0000-0000-0000-000000000000';
-  for (;;) {
-    const { data, error } = await paced(() =>
-      client.rpc('fn_opponent_hud_hands_page', {
-        p_after_at: afterAt,
-        p_after_id: afterId,
-        p_until: until,
-        p_limit: 1500,
-      })
-    );
-    if (error) throw new Error(`hands page failed: ${error.message}`);
-    const rows = (data ?? []) as { id: string; created_at: string }[];
-    for (const r of rows) take(r);
-    if (rows.length) {
-      afterAt = rows[rows.length - 1].created_at;
-      afterId = rows[rows.length - 1].id;
-    }
-    process.stderr.write(`hands ${hands} through ${afterAt}\n`);
-    if (rows.length < 1500) break;
-  }
+  await pageAllOpponentHudHands({
+    since,
+    until,
+    limit: HUD_BACKFILL_PAGE_LIMIT,
+    fetchPage: async ({ afterAt, afterId, until: u, limit }) => {
+      const { data, error } = await paced(() =>
+        client.rpc('fn_opponent_hud_hands_page', {
+          p_after_at: afterAt,
+          p_after_id: afterId,
+          p_until: u,
+          p_limit: limit,
+        })
+      );
+      if (error) throw new Error(`hands page failed: ${error.message}`);
+      return (data ?? []) as { id: string; created_at: string }[];
+    },
+    onRow: (r) => take(r),
+    onPage: ({ afterAt }) => {
+      process.stderr.write(`hands ${hands} through ${afterAt}\n`);
+    },
+  });
 }
 
 function summary() {
@@ -160,7 +164,7 @@ function summary() {
   const byFamily: Record<string, number> = {};
   for (const p of profiles.values()) byFamily[p.family] = (byFamily[p.family] ?? 0) + 1;
   const priors: Record<string, HudPopulation> = {};
-  for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+  for (const fam of HUD_FAMILIES) {
     const stakes: HudPopulation['stakes'] = {};
     for (const [band, pool] of Object.entries(stakePools[fam] ?? {})) {
       stakes[band] = {};
@@ -228,7 +232,7 @@ async function main(): Promise<void> {
     // A stored profile with MORE hands than this rebuild holds hands the rebuild did not read: it is KEPT, always
     // (OpponentHudBackfillPlan, decided on the actual retained rows; no override). Every other row is rebuilt.
     const storedHands = new Map<string, number>();
-    for (const fam of ['plo4', 'plo5'] as HudFamily[]) {
+    for (const fam of HUD_FAMILIES) {
       const users = [...profiles.values()].filter((p) => p.family === fam).map((p) => p.user);
       for (let i = 0; i < users.length; i += 50) {
         const { data, error } = await client.rpc('fn_opponent_hud_profiles_read', {
@@ -262,7 +266,7 @@ async function main(): Promise<void> {
       });
     }
     console.log(`KEPT ${kept} stored profiles that hold more hands than this rebuild read`);
-    for (const fam of ['plo4', 'plo5'] as HudFamily[])
+    for (const fam of HUD_FAMILIES)
       rows.push({
         user_id: '*',
         family: fam,
@@ -301,8 +305,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  process.exit(1);
-});
+main().then(
+  () => {
+    process.stdout.write('', () => {
+      process.stderr.write('', () => process.exit(0));
+    });
+  },
+  (e) => {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.stderr.write('', () => process.exit(1));
+  }
+);
 void readFileSync;

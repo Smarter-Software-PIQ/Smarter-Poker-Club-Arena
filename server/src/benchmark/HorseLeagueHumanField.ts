@@ -170,6 +170,11 @@ export const OMAHA_TIGHT_FIELD_PERSONA = 'omaha_tight_field_v1' as const;
  *    raises; defends a single raise at the published blind defence widths
  *    (80% six-max, 88% heads-up) and after the flop checks or folds to every
  *    wager (design value).
+ *  - flh_defending_postflop_blinds_v1 (2026-11-21, steal harm control): same
+ *    never-raise preflop defence as flh_preflop_defending_blinds_v1 (80%
+ *    six-max, 88% heads-up), and after the flop continues with top pair or
+ *    better (bets/raises two pair+, calls one wager with top pair/overpair,
+ *    folds weaker pairs and air; design value).
  * Development personas, not calibrated populations.
  */
 export const FIXED_LIMIT_SCRIPTED_POPULATION_ID = 'flh_scripted_field_v1' as const;
@@ -183,13 +188,15 @@ export const FLH_PASSIVE_CALLER_PERSONA = 'flh_passive_caller_v1' as const;
 export const FLH_OVER_FOLDING_BLINDS_PERSONA = 'flh_over_folding_blinds_v1' as const;
 export const FLH_VALUE_ONLY_BLINDS_PERSONA = 'flh_value_only_blinds_v1' as const;
 export const FLH_PREFLOP_DEFENDING_BLINDS_PERSONA = 'flh_preflop_defending_blinds_v1' as const;
+export const FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA = 'flh_defending_postflop_blinds_v1' as const;
 export type FixedLimitScriptedPersona =
   | typeof FLH_MANIAC_PERSONA
   | typeof FLH_TIGHT_VALUE_PERSONA
   | typeof FLH_PASSIVE_CALLER_PERSONA
   | typeof FLH_OVER_FOLDING_BLINDS_PERSONA
   | typeof FLH_VALUE_ONLY_BLINDS_PERSONA
-  | typeof FLH_PREFLOP_DEFENDING_BLINDS_PERSONA;
+  | typeof FLH_PREFLOP_DEFENDING_BLINDS_PERSONA
+  | typeof FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA;
 export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[] = Object.freeze([
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
@@ -197,6 +204,7 @@ export const FIXED_LIMIT_SCRIPTED_PERSONAS: readonly FixedLimitScriptedPersona[]
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
 ]);
 /**
  * THE SCRIPTED NO-LIMIT FIELD (2026-11-21, Hold'em Strategy lane). Two
@@ -278,8 +286,26 @@ export const FLO8_SCRIPTED_PERSONAS: readonly Flo8ScriptedPersona[] = Object.fre
   FLO8_RIVER_FOLDER_PERSONA,
   FLO8_PASSIVE_CALLER_PERSONA,
 ]);
+/**
+ * THE OMAHA VALUE-LEADER FIELD (2026-11-20, Horse SWITCH lane, task #6). The
+ * Omaha development field's own profile with its POSTFLOP play pushed to the
+ * player HorseOmahaReadConditional labels a value leader: checked to it bets
+ * only its top hands (flop 15%, turn 14%, river 12% of holdings, no bluffs),
+ * facing a bet it folds more than the calibrated field (below 0.66 / 0.70 /
+ * 0.78 strength against 0.52 / 0.55 / 0.52) and raises only its best, so it
+ * rarely calls a river. Preflop it enters at the calibrated rate but raises
+ * only its top 7% first in (4% of big blinds over a limp), so its own raising
+ * disproves the maniac presumption and the read is measured. The label
+ * is earned by the read on the seat's measured play; nothing here sets it.
+ * It exists because the *VsValueLeader rules (all live) act only against a
+ * measured value leader and Horse self-play never produces one, so no card
+ * could grade them. A development persona, not a calibrated population.
+ * Omaha development field only (HorseLeague refuses it anywhere else).
+ */
+export const OMAHA_VALUE_LEADER_FIELD_PERSONA = 'omaha_value_leader_field_v1' as const;
 export type HumanFieldPersona =
   | typeof OMAHA_TIGHT_FIELD_PERSONA
+  | typeof OMAHA_VALUE_LEADER_FIELD_PERSONA
   | FixedLimitScriptedPersona
   | NlhScriptedPersona
   | Flo8ScriptedPersona
@@ -299,12 +325,14 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   HU_NIT_BIG_BLIND_PERSONA,
   HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
+  OMAHA_VALUE_LEADER_FIELD_PERSONA,
   FLH_MANIAC_PERSONA,
   FLH_TIGHT_VALUE_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_VALUE_ONLY_BLINDS_PERSONA,
   FLH_PREFLOP_DEFENDING_BLINDS_PERSONA,
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   NLH_POT_BARRELER_PERSONA,
   NLH_VALUE_BARRELER_PERSONA,
   NLH_DANGER_BOARD_BETTOR_PERSONA,

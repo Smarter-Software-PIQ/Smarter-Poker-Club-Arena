@@ -82,6 +82,7 @@ import {
   STYLE_SWITCH_STALE_MS,
   STYLE_SWITCH_STATES,
   type StyleSwitchOption,
+  type StyleSwitchState,
 } from './HorseStyleSwitch.js';
 
 /** The lanes of the Horse programme that own decision options. 'Programme': no lane override is recorded. */
@@ -383,6 +384,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBlanketRowsOffInPlo45Cash',
   // 2026-11-20 PLO-OWNER lane OPPONENT-HUD: the lifetime opponent profile read from hand one (ships dark)
   'omahaOpponentLifetimeHud',
+  // 2026-11-21 PLO-OWNER lane OPPONENT-HUD-9: the decision reads that profile only with this on too (ships dark)
+  'omahaOpponentLifetimeHudDecides',
+  // 2026-11-21 PLO-OWNER lead-4 B4: priced six-max preflop read on lifetime HUD cells (ships dark)
+  'omahaPreflopReadIsPricedFromLifetime',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R2 flop bet-or-check + flop facing raise/stab HUD response (ships dark)
   'omahaFlopBetIsPricedOnHisResponse',
   // 2026-11-20 EMERG lane STAB-DEFENCE: the first wager of a turn or river priced on the bettor's lifetime public
@@ -1463,6 +1468,93 @@ export function parseOptionSwitchConfig(
   return states ? { ok: true, states } : { ok: false };
 }
 
+/** One declared entry a replay arm cannot apply on this build, and why. */
+export interface OptionSwitchArmDrop {
+  option: string;
+  state: string;
+  reason: string;
+}
+
+/** A declared arm split option by option: what the brain will actually run with on this build. */
+export interface OptionSwitchArm {
+  /** The plain (non-style) options: a set optionSwitchStatesFrom accepts, in registry order. */
+  states: OptionSwitchStates;
+  /** The style options, for the style switch (HorseStyleSwitch); never part of `states`. */
+  style: Readonly<Partial<Record<StyleSwitchOption, StyleSwitchState>>>;
+  /** Every declared entry left out, in the order declared, with the reason. Empty when the arm is exactly as declared. */
+  dropped: readonly OptionSwitchArmDrop[];
+}
+
+/**
+ * REPLAY ARMS ARE SPLIT OPTION BY OPTION (2026-11-20). A declared or journaled option set mixes the style options
+ * (their own switch), the plain options, and possibly entries this build cannot apply (an option made off-only
+ * since the journal was written, a name this build does not register). Handed whole to the option switch, any one
+ * of those voids the set and the arm silently runs at the release defaults. This keeps every entry that applies,
+ * routes style names to `style`, and lists each entry it leaves out with the reason, so a driver can report it and
+ * refuse to score an arm whose declared difference was dropped (optionSwitchArmStrict).
+ */
+export function optionSwitchArmFrom(
+  declared: Readonly<Record<string, unknown>> | null | undefined
+): OptionSwitchArm {
+  const plain: Record<string, string> = {};
+  const style: Partial<Record<StyleSwitchOption, StyleSwitchState>> = {};
+  const dropped: OptionSwitchArmDrop[] = [];
+  for (const [option, raw] of Object.entries(declared ?? {})) {
+    const state = typeof raw === 'string' ? raw : String(JSON.stringify(raw));
+    if ((STYLE_SWITCH_OPTIONS as readonly string[]).includes(option)) {
+      if (typeof raw === 'string' && (STYLE_SWITCH_STATES as readonly string[]).includes(raw))
+        style[option as StyleSwitchOption] = raw as StyleSwitchState;
+      else
+        dropped.push({
+          option,
+          state,
+          reason: `a style option supports ${STYLE_SWITCH_STATES.join(' / ')}`,
+        });
+      continue;
+    }
+    const entry = PLAIN_BY_NAME.get(option);
+    if (!entry) {
+      dropped.push({
+        option,
+        state,
+        reason: optionSwitchRefusal(option) ?? 'not a registered option of this build',
+      });
+      continue;
+    }
+    if (typeof raw === 'string' && (entry.states as readonly string[]).includes(raw)) {
+      plain[option] = raw;
+      continue;
+    }
+    const offOnly = optionSwitchOffOnly(option);
+    dropped.push({
+      option,
+      state,
+      reason:
+        raw === 'on' && offOnly
+          ? `off-only: ${offOnly.status}`
+          : `unsupported state: the option supports ${entry.states.join(' / ')}`,
+    });
+  }
+  const states = optionSwitchStatesFrom(plain);
+  if (states === null)
+    throw new Error(
+      'optionSwitchArmFrom: a filtered set was refused (registry and filter disagree)'
+    );
+  return { states, style: Object.freeze(style), dropped: Object.freeze(dropped) };
+}
+
+/** optionSwitchArmFrom, but an arm that cannot be applied exactly as declared throws (an inert arm is never scored). */
+export function optionSwitchArmStrict(
+  declared: Readonly<Record<string, unknown>> | null | undefined
+): OptionSwitchArm {
+  const arm = optionSwitchArmFrom(declared);
+  if (arm.dropped.length > 0)
+    throw new Error(
+      `replay arm not applied as declared: ${arm.dropped.map((d) => `${d.option}=${d.state} (${d.reason})`).join('; ')}`
+    );
+  return arm;
+}
+
 /** The unknown non-style names a version 2 answer delivers (their rows are skipped alone); [] otherwise. */
 export function optionSwitchConfigUnknownNames(raw: unknown): readonly string[] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
@@ -1486,11 +1578,29 @@ export type OptionSwitchReading =
 export type OptionSwitchSource = (nowMs: number) => OptionSwitchReading;
 export const ABSENT_OPTION_SWITCH_SOURCE: OptionSwitchSource = () => ({ kind: 'absent' });
 
-/** Replay: serves the recorded switched set as received now (it never ages inside a replay). */
+/**
+ * Replay: serves the recorded switched set as received now (it never ages inside a replay).
+ *
+ * A REFUSED SET IS AN ERROR HERE, NEVER SILENT DEFAULTS (2026-11-20). The live holder treats a set that
+ * optionSwitchStatesFrom refuses whole (a style name among the plain options, or a state an option does not support,
+ * e.g. `on` for an off-only option) as invalid, raises its alarm and runs every non-style option at its release
+ * default. Inside a replay nothing watches that alarm: on 2026-11-19 an arm built from a journal's full option set
+ * was refused whole, every option fell to its default and the on and off arms came out identical (coordination
+ * inbox 2026-11-19T21:38:29Z). A set this build refuses whole therefore throws, naming every entry it cannot apply;
+ * build arm sets with optionSwitchArmFrom, which splits a declared set option by option.
+ */
 export function optionSwitchSourceFromStates(
   states: OptionSwitchStates | null | undefined
 ): OptionSwitchSource {
   if (optionSwitchNothingSwitched(states)) return ABSENT_OPTION_SWITCH_SOURCE;
+  if (optionSwitchStatesFrom(states) === null) {
+    const why = optionSwitchArmFrom(states as Record<string, unknown>)
+      .dropped.map((d) => `${d.option}=${d.state} (${d.reason})`)
+      .join('; ');
+    throw new Error(
+      `replay option source: this build refuses the whole set, so every option would run at its release default: ${why || 'invalid set'}. Build the arm with optionSwitchArmFrom.`
+    );
+  }
   const options = { ...states };
   return (nowMs) => ({
     kind: 'present',

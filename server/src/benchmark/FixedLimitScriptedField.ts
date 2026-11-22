@@ -35,6 +35,7 @@ import type { Card, HandStage } from '../types.js';
 import { scoreHoldem } from '../engine/HorseEval.js';
 import { humanCalibratedPreflopPercentile } from './HumanCalibratedPopulation.js';
 import {
+  FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA,
   FLH_MANIAC_PERSONA,
   FLH_OVER_FOLDING_BLINDS_PERSONA,
   FLH_PASSIVE_CALLER_PERSONA,
@@ -439,6 +440,72 @@ function preflopDefendingBlindsPreflop(s: LeagueSeatSpot): Decision {
 export const flhPreflopDefendingBlindsPolicy: LeagueSeatPolicy = (s) =>
   (s.stage as HandStage) === 'preflop' ? preflopDefendingBlindsPreflop(s) : foldOrCheck(s);
 
+/**
+ * flh_defending_postflop_blinds_v1 (2026-11-21): steal harm control that
+ * defends preflop AND continues postflop with top pair or better on the flop
+ * and two pair or better on every street.
+ *
+ * Preflop: identical to flh_preflop_defending_blinds_v1 (never raises so
+ * pfr = rfi = threeBet = 0 never trips styleShiftReleased; defends 80% at
+ * six-max and 88% heads-up against a single raise).
+ *
+ * Postflop: DESIGN VALUE (fit-or-fold continuation calibrated to keep
+ * multi-street postflop foldToBet safely above the holdem:full over-folder
+ * envelope high edge 0.633 while punishing widened trash steals postflop):
+ *  - two pair or better (ownMadeClass >= 3): bets when checked to, raises one
+ *    wager, caps/reraises with trips or better (ownMadeClass >= 4), otherwise calls;
+ *  - top pair or overpair (ownMadeClass === 2 matching highest board rank or
+ *    pocket pair above highest board rank): bets when checked to on the flop
+ *    and calls one flop small bet, then folds unimproved one pair to turn/river
+ *    big-bet wagers;
+ *  - weaker one pair (middle/bottom/underpair) or high card: checks or folds.
+ */
+const RANK_ORDER = '23456789TJQKA';
+function rankValue(rank: string): number {
+  const idx = RANK_ORDER.indexOf(rank === '10' ? 'T' : rank.toUpperCase());
+  return idx >= 0 ? idx + 2 : 0;
+}
+
+/** True when hole cards make top pair (matching highest board rank) or an overpair. */
+export function hasTopPairOrOverpair(cards: readonly Card[], board: readonly Card[]): boolean {
+  if (cards.length < 2 || board.length < 3) return false;
+  let topBoard = 0;
+  for (const c of board) topBoard = Math.max(topBoard, rankValue(c.rank));
+  const r0 = rankValue(cards[0].rank);
+  const r1 = rankValue(cards[1].rank);
+  if (r0 === r1 && r0 > topBoard) return true;
+  return r0 === topBoard || r1 === topBoard;
+}
+
+export const FLH_DEFENDING_POSTFLOP_BLINDS_POSTFLOP = Object.freeze({
+  /** Made class (scoreHoldem category: 3 two pair) to raise one wager or call two+. DESIGN VALUE. */
+  valueClass: FLH_TIGHT_VALUE_POSTFLOP.valueClass,
+  /** Made class (4 trips) to put in a third wager or more. DESIGN VALUE. */
+  reraiseClass: FLH_TIGHT_VALUE_POSTFLOP.reraiseClass,
+});
+
+function defendingPostflopBlindsPostflop(s: LeagueSeatSpot): Decision {
+  const t = FLH_DEFENDING_POSTFLOP_BLINDS_POSTFLOP;
+  const made = ownMadeClass(s.cards, s.board);
+  const flopTopPair =
+    (s.stage as HandStage) === 'flop' && made === 2 && hasTopPairOrOverpair(s.cards, s.board);
+  const wagers = streetWagers(s);
+  const wager = fixedWager(s);
+  if (s.toCall <= 0)
+    return (made >= t.valueClass || flopTopPair) && wager ? wager : { action: 'check' };
+  if (made >= t.valueClass) {
+    if (wager && made >= (wagers >= 2 ? t.reraiseClass : t.valueClass)) return wager;
+    return { action: 'call' };
+  }
+  if (flopTopPair && wagers < 2) return { action: 'call' };
+  return { action: 'fold' };
+}
+
+export const flhDefendingPostflopBlindsPolicy: LeagueSeatPolicy = (s) =>
+  (s.stage as HandStage) === 'preflop'
+    ? preflopDefendingBlindsPreflop(s)
+    : defendingPostflopBlindsPostflop(s);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The no-limit probe history (LeagueMatchup.probeHistoryHands)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -477,6 +544,7 @@ export function fixedLimitScriptedPolicy(persona: FixedLimitScriptedPersona): Le
   if (persona === FLH_OVER_FOLDING_BLINDS_PERSONA) return flhOverFoldingBlindsPolicy;
   if (persona === FLH_VALUE_ONLY_BLINDS_PERSONA) return flhValueOnlyBlindsPolicy;
   if (persona === FLH_PREFLOP_DEFENDING_BLINDS_PERSONA) return flhPreflopDefendingBlindsPolicy;
+  if (persona === FLH_DEFENDING_POSTFLOP_BLINDS_PERSONA) return flhDefendingPostflopBlindsPolicy;
   throw new Error(`Unknown scripted fixed-limit persona: ${String(persona)}`);
 }
 
