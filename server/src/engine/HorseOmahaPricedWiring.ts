@@ -105,6 +105,19 @@ export const omahaPricedInLightningOn = (opts: OmahaPricedScopeOpts | null | und
   opts?.omahaPricedInLightning === true;
 
 /**
+ * omahaTurnRiverRaiseIsPricedInLightning (PLO-OWNER lead-4 2026-11-22, default OFF, read `=== true`):
+ * opens Lightning PLO4/PLO5 cash ONLY to omahaTurnRiverRaiseIsPriced (so #2 omahaRiverNutRaiseOnly has
+ * a priced Lightning owner without widening omahaPricedInLightning to every other priced rule).
+ */
+export const omahaTurnRiverRaiseInLightningOn = (
+  opts:
+    | Pick<HorseDecideOpts, 'omahaPricedInLightning' | 'omahaTurnRiverRaiseIsPricedInLightning'>
+    | null
+    | undefined
+): boolean =>
+  opts?.omahaPricedInLightning === true || opts?.omahaTurnRiverRaiseIsPricedInLightning === true;
+
+/**
  * PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning (Lightning too when the decision's
  * omahaPricedInLightning is on): the scope of every option here.
  */
@@ -406,11 +419,20 @@ export function omahaPricedTurnRiverRaiseRule(
   opts: HorseDecideOpts,
   deps: OmahaPricedDeps
 ): HorseDecision | null {
-  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs, opts))
+  const inLightning = omahaTurnRiverRaiseInLightningOn(opts);
+  const scopeOpts =
+    inLightning === omahaPricedInLightningOn(opts)
+      ? opts
+      : { ...opts, omahaPricedInLightning: true };
+  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs, scopeOpts))
     return null;
   const tele = telemetryOn(opts);
+  const narrowLightning =
+    opts.omahaTurnRiverRaiseIsPricedInLightning === true &&
+    opts.omahaPricedInLightning !== true &&
+    gs.publicMemoryDomain?.speed === 'lightning';
   try {
-    const scope = omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts));
+    const scope = omahaRaiseNeedsNutsScope(player, gs, inLightning);
     if (!scope) return null;
     const raises = omahaDecisionRaises(decision, player, scope);
     if (
@@ -420,6 +442,7 @@ export function omahaPricedTurnRiverRaiseRule(
       decision.action !== 'all_in'
     )
       return decision;
+    if (tele && narrowLightning) noteFire('omaha_turn_river_raise_in_lightning');
     if (omahaNutClassNow(player, gs)) {
       if (tele && raises) noteFire('omaha_priced_raise_kept');
       return decision;
@@ -490,11 +513,16 @@ export function omahaPricedOwnsTurnRiverRaise(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
+  const inLightning = omahaTurnRiverRaiseInLightningOn(opts);
+  const scopeOpts =
+    inLightning === omahaPricedInLightningOn(opts)
+      ? opts
+      : { ...opts, omahaPricedInLightning: true };
   return (
     opts.omahaTurnRiverRaiseIsPriced === true &&
-    omahaPricedInScope(player, gs, opts) &&
+    omahaPricedInScope(player, gs, scopeOpts) &&
     // every spot in scope, priceable or not (#11212): the inner nut rule never decides one
-    omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts)) !== null
+    omahaRaiseNeedsNutsScope(player, gs, inLightning) !== null
   );
 }
 

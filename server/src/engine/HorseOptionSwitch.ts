@@ -421,6 +421,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaCheckedToBetIsPriced',
   'omahaCheckedToBetResponseIsMeasured',
   'omahaCheckedToBetInLightning',
+  'omahaTurnRiverRaiseIsPricedInLightning',
   'omahaReraisedCallVsRaisePriced',
   'omahaPreflopJamFacingReraiseIsPriced',
   'omahaFoldModelFittedOnPeople',

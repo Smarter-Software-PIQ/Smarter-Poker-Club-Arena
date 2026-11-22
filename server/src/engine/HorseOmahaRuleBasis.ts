@@ -313,6 +313,10 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaBluffShareFromBetRate: FACING_BET_EV,
   omahaCardImpact: CARD_IMPACT,
   omahaCheckedToBetInLightning: exempt('scope', 'decides where a rule applies, never the action'),
+  omahaTurnRiverRaiseIsPricedInLightning: exempt(
+    'scope',
+    'opens Lightning pools to omahaTurnRiverRaiseIsPriced only (giving #2 omahaRiverNutRaiseOnly a priced Lightning owner); decides nothing by itself'
+  ),
   omahaCheckedToBetIsPriced: BET_EV,
   omahaCheckedToBetResponseIsMeasured: exempt(
     'input',
@@ -723,6 +727,10 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_priced_big_bet_size_range_applied: FACING_BET_EV,
   omaha_priced_big_bet_size_resized: CARD_IMPACT,
   omaha_priced_big_bet_size_kept: CARD_IMPACT,
+  omaha_turn_river_raise_in_lightning: exempt(
+    'scope',
+    'receipt that omahaTurnRiverRaiseIsPricedInLightning opened a Lightning pool to omahaTurnRiverRaiseIsPriced alone'
+  ),
   omaha_big_draw_bet_on_his_response_bet: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_withheld: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_final_check_unpriced: exempt(

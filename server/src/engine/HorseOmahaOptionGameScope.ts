@@ -179,6 +179,7 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaSmallBetIsPriced',
   'omahaCheckedToBetIsPriced',
   'omahaCheckedToBetInLightning',
+  'omahaTurnRiverRaiseIsPricedInLightning',
   'omahaCheckedToBetResponseIsMeasured',
   'omahaMultiwayCheckedToBetIsPriced',
   'omahaStrongHandValue',

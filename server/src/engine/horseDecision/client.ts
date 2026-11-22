@@ -138,6 +138,7 @@ import {
   omahaSlowplayMixInLightningGateCandidates,
   omahaBluffPricedAgainstTheTargetGateCandidates,
   omahaMultiwayIsPricedInTournamentsGateCandidates,
+  omahaTurnRiverRaiseInLightningGateCandidates,
   plo6FacingBetIsPricedGateCandidates,
   omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
@@ -2265,6 +2266,11 @@ export class LiveHorseDecisionWorkerClient {
           previous
         ),
         omahaMultiwayIsPricedInTournamentsGateCandidates(
+          active.request.opts,
+          this.deliveredSwitchConfigs.current,
+          previous
+        ),
+        omahaTurnRiverRaiseInLightningGateCandidates(
           active.request.opts,
           this.deliveredSwitchConfigs.current,
           previous

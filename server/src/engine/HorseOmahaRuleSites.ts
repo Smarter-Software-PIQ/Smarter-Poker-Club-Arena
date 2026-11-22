@@ -416,6 +416,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaCheckedToBetInLightning: priced(
     'a scope option: the game of omahaCheckedToBetIsPriced includes the Lightning pools without omahaPricedInLightning; switches the rule on nowhere by itself (default OFF; EMERG lane OPEN-ITEMS-3 2026-11-20)'
   ),
+  omahaTurnRiverRaiseIsPricedInLightning: priced(
+    'a scope option: omahaTurnRiverRaiseIsPriced includes the Lightning pools without widening omahaPricedInLightning to any other rule, giving #2 omahaRiverNutRaiseOnly a priced Lightning owner; switches the rule on nowhere by itself (default OFF; PLO-OWNER lead-4 2026-11-22)'
+  ),
   omahaFoldModelFittedOnPeople: priced(
     'every v38 flop or turn bet size, heads-up against a person facing no bet, is priced with his fold share from the fold model fitted on people (measured cells by variant, street, pot type and bet-size bucket, shrunk to OMAHA_EV_FOLD_MODEL where thin, scaled by his own read); default OFF'
   ),

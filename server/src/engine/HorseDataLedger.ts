@@ -1644,6 +1644,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnRiverRaiseIsPricedInLightning',
+    "PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-22. A scope option, default OFF (read === true): with it on (and omahaTurnRiverRaiseIsPriced on), omahaPricedTurnRiverRaiseRule and omahaPricedOwnsTurnRiverRaise (HorseOmahaPricedWiring.ts) include the Lightning PLO4/PLO5 cash pools (gs.publicMemoryDomain.speed === 'lightning') without widening omahaPricedInLightning to any other priced rule, giving #2 omahaRiverNutRaiseOnly a priced Lightning owner so Packet 09 can be off-listed cleanly. Admits ONLY omahaPricedAdmitsRaiseToCall in responseValidation.ts for Lightning pools. Zero new pricing math, zero blast radius on other rules, zero PLO6/hold'em/hi-lo/tournament/bomb-pot/multi-board reach.",
+    'V94'
+  ),
+  flag(
     'omahaMultiwayCheckedToBetIsPriced',
     "Lane MULTIWAY-BET 2026-11-19 (owner: no blanket rules, every decision from ranges, equity, price and EV; the human's largest winning bucket was multiway pots the Horses checked through and he took with a bet every Horse correctly folded to: 109 of 215 multiway turn folders had checked first, 56 with two pair, 14 with the best hand of the field). In PLO4/PLO5 cash, one board, high only, a pot not re-raised before the flop, on the flop or the turn (not the river: its measured response did not hold out of sample) with nothing to call and two or more live opponents, the owner's check is priced against bets of the card-impact candidate sizes (HorseOmahaMultiwayDiscipline.ts section 4, the one owner of the multiway bet-against-check price): the Horse's showdown share against each opponent's range (exact counts on the turn, the sampled flop counts on the flop), each opponent kind's measured multiway response by pot share (continue and raise) and the measured cost of the check (players still to act bet at their kind's measured rate when checked to), fit window 2026-11-01..15 (6,814 hands). The best bet replaces the check only when it is worth more by 2% of the pot; never turns a bet into a check, never overrides an owner-ruled check, prices only the final check of the rule chain (inside omahaOwnerRuledFinal, never a later rule's bet), never bets all in; heads-up spots stay with the small-bet rule; tournaments and PLO6 unchanged. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_multiway_checked_to_bet_is_priced",
     'V94'
@@ -7081,6 +7086,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_checked_to_bet_in_lightning',
     'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetInLightning)',
     'the checked-to river comparison was priced in a Lightning pool because omahaCheckedToBetInLightning opened the pool to that one rule (omahaPricedInLightning off); fires with omaha_checked_to_bet_priced_bet or omaha_checked_to_bet_priced_check_kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_in_lightning',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule, omahaTurnRiverRaiseIsPricedInLightning)',
+    'the turn/river raise comparison was priced in a Lightning pool because omahaTurnRiverRaiseIsPricedInLightning opened the pool to omahaTurnRiverRaiseIsPriced alone (omahaPricedInLightning off); fires alongside the omaha_priced_raise_* receipt',
     'V94'
   ),
   receipt(

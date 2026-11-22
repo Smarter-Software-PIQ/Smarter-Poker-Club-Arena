@@ -7441,6 +7441,29 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'sets the domain.',
   },
   {
+    // PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-22: omahaTurnRiverRaiseIsPriced on in BOTH arms; the one-arm
+    // question is its own Lightning scope (unblocks #2 omahaRiverNutRaiseOnly in Lightning without widening
+    // omahaPricedInLightning to any other priced rule).
+    name: 'plo5_omaha_turn_river_raise_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaTurnRiverRaiseIsPriced: true,
+      omahaTurnRiverRaiseIsPricedInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnRiverRaiseIsPriced: true },
+    reason:
+      'No Lightning domain in the league table. omahaTurnRiverRaiseIsPricedInLightning is DEFAULT OFF ' +
+      '(HorseOmahaPricedWiring.omahaTurnRiverRaiseInLightningOn: opts.omahaTurnRiverRaiseIsPricedInLightning === true) ' +
+      'and it changes one thing: the scope of omahaTurnRiverRaiseIsPriced no longer refuses a decision whose ' +
+      'gs.publicMemoryDomain.speed is "lightning". The league deals its own tables and no league context carries ' +
+      'a Lightning public memory domain, so both arms play identical poker by construction. Measured 2026-11-22 by ' +
+      'running this refused matchup through runMatchup: 0 of 300 pairs diverged (run seed 20261120, inert by ' +
+      'construction). It is measured where the Lightning domain exists: LightningPairedEval (paired Lightning pool ' +
+      'evaluation). What would change this: a league context that deals the Lightning contract and sets ' +
+      'publicMemoryDomain.speed = "lightning".',
+  },
+  {
     // EMERG lane OPEN-ITEMS-3 2026-11-20: omahaCheckedToBetIsPriced on in BOTH arms; the one-arm question is its
     // own Lightning scope.
     name: 'plo5_omaha_checked_to_bet_in_lightning',

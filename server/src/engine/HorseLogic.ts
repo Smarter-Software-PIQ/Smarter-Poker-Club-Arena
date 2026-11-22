@@ -4787,6 +4787,13 @@ export interface HorseDecideOpts {
    * league note _omaha_checked_to_bet_in_lightning (no Lightning domain in
    * the league). */
   omahaCheckedToBetInLightning?: boolean;
+  /** PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-22: a scope option, default OFF (read === true).
+   * With it on (and omahaTurnRiverRaiseIsPriced on), omahaPricedTurnRiverRaiseRule and
+   * omahaPricedOwnsTurnRiverRaise include the Lightning pools (gs.publicMemoryDomain.speed === 'lightning')
+   * without omahaPricedInLightning, so #2 omahaRiverNutRaiseOnly can leave the blanket off-list with
+   * a priced Lightning owner and zero blast radius on any other priced rule. PLO6, hold'em, hi-lo,
+   * tournaments, multi-board, and bomb pots untouched. */
+  omahaTurnRiverRaiseIsPricedInLightning?: boolean;
   /** Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR
    * JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN'T ALWAYS RAISE 100% OF THE
    * TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS";
