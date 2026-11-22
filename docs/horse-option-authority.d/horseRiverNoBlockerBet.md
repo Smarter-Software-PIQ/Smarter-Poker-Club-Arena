@@ -78,3 +78,7 @@ Per-set detail (0 illegal, 0 refused, 0 errors across all 9,777 replayed nodes):
 ## Verdict
 
 Evidence NOT MET for statistical league gain (`human_nlh_horse_river_no_blocker_bet` `-0.33 +/- 0.25 bb/100, z = -1.31`, `not resolved`; `nlh_horse_river_no_blocker_bet` `+0.02 +/- 0.12 bb/100, z = +0.16`, `not resolved`; PLO4/PLO5 league cards not yet run). Real-hand HVH48 replay is net positive (`4 fixed / 1 newlyWrong` across 9,777 nodes, `0` illegal/refused/errors). Keep default OFF in source until the owner/lead either activates under the 2026-11-19 16:47 owner order (with PLO4/PLO5 league verification) or adds EV-priced NLH river sizing so thin value bets are not checked away unpriced.
+
+## Rollback
+
+If enabled, run `horse-option-switch.mjs set horseRiverNoBlockerBet off --rollback` (`fn_ca_horse_option_switch_set('horseRiverNoBlockerBet', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.

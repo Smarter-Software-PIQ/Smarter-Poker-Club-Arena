@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
+      - supabase/migrations/20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql
       - scripts/ci/test-a-missed-engine-cutover-is-paged.py
       - scripts/ci/fixtures/engine-cutover-preimages.json
       - .github/workflows/a-missed-engine-cutover-is-paged.yml

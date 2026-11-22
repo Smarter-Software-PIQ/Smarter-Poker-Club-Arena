@@ -3,7 +3,13 @@ import type { Card } from '../../types.js';
 import { compareHands, evaluateOmahaHand } from '../PokerEngine.js';
 import { scoreOmahaHi, scoreOmahaHiPartial } from '../HorseEval.js';
 import { omahaSamplerScoring } from './OmahaVariantSampler.js';
-import { equityVsRanges, exactEquityVsHands, type OmahaOpponentRange } from './OmahaRangeEquity.js';
+import {
+  equityVsIntPools,
+  equityVsRanges,
+  exactEquityVsHands,
+  type OmahaOpponentRange,
+} from './OmahaRangeEquity.js';
+import { buildPoolFastData } from '../omahaMathCore/OmahaMathCoreEval.js';
 
 /**
  * EMERG lane EQUITY law tests. No hand from production appears here: every
@@ -333,5 +339,74 @@ describe('equityVsRanges', () => {
     expect(
       equityVsRanges([...hero, hero[0]], cards.slice(4, 7), [{ kind: 'random' }], 100)
     ).toBeNull();
+  });
+
+  it('equityVsIntPools is bit-identical to equityVsRanges on seeded PLO4 and PLO5 multiway weighted ranges', () => {
+    const random = rng(0x51a77);
+    const cardInt = (c: Card) => RANKS.indexOf(c.rank) * 4 + SUITS.indexOf(c.suit);
+    const intCard = (i: number): Card => ({
+      rank: RANKS[i >> 2] as Card['rank'],
+      suit: SUITS[i & 3],
+    });
+    for (const holes of [4, 5]) {
+      for (const boardSize of [3, 4, 5]) {
+        for (const nOpp of [1, 2, 3]) {
+          const dealt = deal(random, holes + boardSize);
+          const heroCards = dealt.slice(0, holes);
+          const boardCards = dealt.slice(holes);
+          const heroInt = heroCards.map(cardInt);
+          const boardInt = boardCards.map(cardInt);
+          const dead = new Set([...heroInt, ...boardInt]);
+          const liveDeck: number[] = [];
+          for (let c = 0; c < 52; c++) if (!dead.has(c)) liveDeck.push(c);
+          const poolSize = 80;
+          const poolCards = new Int8Array(poolSize * holes);
+          for (let i = 0; i < poolSize; i++) {
+            const tmp = liveDeck.slice();
+            for (let k = 0; k < holes; k++) {
+              const j = k + Math.floor(random() * (tmp.length - k));
+              const t = tmp[k];
+              tmp[k] = tmp[j];
+              tmp[j] = t;
+              poolCards[i * holes + k] = tmp[k];
+            }
+          }
+          const fast = buildPoolFastData(poolCards, poolSize, holes);
+          const intRanges = Array.from({ length: nOpp }, (_, s) => ({
+            parts: Array.from({ length: 40 }, (__, p) => ({
+              idx: Int32Array.of((p + s * 13) % poolSize),
+              weight: (p + 1) * (s + 1),
+            })),
+          }));
+          const cardRanges: OmahaOpponentRange[] = intRanges.map((r) => ({
+            kind: 'combos',
+            combos: r.parts.map((p) => {
+              const i = p.idx[0];
+              const cards: Card[] = [];
+              for (let k = 0; k < holes; k++) cards.push(intCard(poolCards[i * holes + k]));
+              return { cards, weight: p.weight };
+            }),
+          }));
+          const seed = holes * 1000 + boardSize * 100 + nOpp;
+          const a = equityVsRanges(heroCards, boardCards, cardRanges, 1200, {
+            targetSE: 0.01,
+            minSamples: 400,
+            seed,
+          })!;
+          const b = equityVsIntPools(heroInt, boardInt, poolCards, fast, intRanges, 1200, {
+            targetSE: 0.01,
+            minSamples: 400,
+            seed,
+          })!;
+          expect(b.equity).toBe(a.equity);
+          expect(b.se).toBe(a.se);
+          expect(b.samples).toBe(a.samples);
+          expect(b.winShare).toBe(a.winShare);
+          expect(b.tieShare).toBe(a.tieShare);
+          expect(b.jointRedraws).toBe(a.jointRedraws);
+          expect(b.stoppedOnTargetSE).toBe(a.stoppedOnTargetSE);
+        }
+      }
+    }
   });
 });
