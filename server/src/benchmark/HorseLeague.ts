@@ -3284,6 +3284,33 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  // 2026-11-22 Horse Switch lane (holdemCommittedNoPairIsPriced, default OFF, locked off-only
+  // pending re-grade after EV pricing repair): dedicated cash6 PRIMARY + HU GUARD cards in
+  // DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS) for unified grade-holdem-option.mjs runs.
+  {
+    name: 'cash6_holdem_committed_no_pair_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemCommittedNoPairIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'hu_holdem_committed_no_pair_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemCommittedNoPairIsPriced: true },
+    b: {},
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

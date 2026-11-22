@@ -36,8 +36,18 @@
  * flat 0.15 haircut; card removal by hero's hand (a blocker) is exact.
  */
 import type { Card } from '../types.js';
+import type { ExploitCounters } from './HorseOpponentExploit.js';
 import { scoreHoldem } from './HorseEval.js';
 import { SUITS, RANKS, RANK_VALUES } from './PokerEngine.js';
+import {
+  HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE,
+  HOLDEM_PRIOR_STRENGTH,
+  empiricalBayesShrink,
+  estimateHoldemBetWhenCheckedTo,
+  readHudOpponentStat,
+  type HoldemEmpiricalStreet,
+  type HoldemHudPacketOpponent,
+} from './holdemEmpiricalPriors.js';
 
 /**
  * MEASURED 2026-11-19 (read-only SELECT on production hand_history, no-limit hold'em cash with a person seated,
@@ -64,6 +74,82 @@ export function holdemRaiseFoldShare(price: number): number {
   for (const c of HOLDEM_RAISE_FOLD_SHARE_BY_PRICE)
     if (p < c.below) return (c.folds + 1) / (c.answers + 2);
   return 0;
+}
+
+/**
+ * Smooth, zero-cliff empirical fold share facing a committed all-in jam, backed by
+ * `holdemEmpiricalPriors.ts` (`HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise`:
+ * n = 294, 88/294 = 29.93% at avgVillainCallPrice = 0.1855).
+ *
+ * Below `avgVillainCallPrice`, scales quadratically `(p / avg)^2` so `f'(0) = 0`: this matches the
+ * measured 0/5 folds below price 0.20 in `HOLDEM_RAISE_FOLD_SHARE_BY_PRICE` and eliminates the
+ * zero-price min-jam arbitrage (where any linear slope `k > 1` credits a 1-chip or 20-to-1 min-jam
+ * with phantom fold equity exceeding the chips risked). Above `avgVillainCallPrice`, scales linearly
+ * up to 1.5x (44.9%, matching the measured 24/55 = 43.6% and 28/64 = 43.8% ceiling).
+ *
+ * When a lifetime `hudOpp` packet is supplied (`r.fRaise` or street `fBet`), shrinks smoothly
+ * via `empiricalBayesShrink` and applies the same low-price quadratic attenuation below the
+ * reference call price so tiny min-jams never manufacture phantom fold equity.
+ */
+export function holdemCommittedJamFoldShare(
+  villainCallPrice: number,
+  street?: HoldemEmpiricalStreet,
+  hudOpp?: HoldemHudPacketOpponent | null
+): number {
+  const p = Number.isFinite(villainCallPrice) ? Math.max(0, villainCallPrice) : 0;
+  if (!(p > 0)) return 0;
+  const cell = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise;
+  const normPrice = p / cell.avgVillainCallPrice;
+  const ratio = normPrice < 1 ? normPrice * normPrice : Math.min(1.5, normPrice);
+  const prior = Math.min(0.45, Math.max(0, cell.foldRate * ratio));
+  const smallPriceScale = normPrice < 1 ? normPrice * normPrice : 1;
+
+  const raiseStat = readHudOpponentStat(hudOpp, 'r.fRaise');
+  if (raiseStat) {
+    const shrunk = empiricalBayesShrink(
+      raiseStat.hits,
+      raiseStat.opportunities,
+      prior,
+      HOLDEM_PRIOR_STRENGTH.riverFoldToRaise,
+      'hud_context'
+    );
+    return Math.min(0.9, Math.max(0, shrunk.mean * smallPriceScale));
+  }
+  if (street) {
+    const key = street === 'flop' ? 'f.fBet' : street === 'turn' ? 't.fBet' : 'r.fBet';
+    const betStat = readHudOpponentStat(hudOpp, key);
+    if (betStat) {
+      const shrunk = empiricalBayesShrink(
+        betStat.hits,
+        betStat.opportunities,
+        prior,
+        HOLDEM_PRIOR_STRENGTH.riverFoldToRaise * 2,
+        'hud_street'
+      );
+      return Math.min(0.9, Math.max(0, shrunk.mean * smallPriceScale));
+    }
+  }
+  return prior;
+}
+
+/**
+ * Measured probability that villain fires a continuation barrel on remaining street(s) after hero
+ * calls with bare high card and chips behind (`remainingEff > 0`), backed by
+ * `estimateHoldemBetWhenCheckedTo` in `holdemEmpiricalPriors.ts`:
+ *  - river: 0 (no future streets; call closes action)
+ *  - turn:  river bet-when-checked-to (measured 1,619 / 5,180 = 31.25%, shrunk with HUD/Mind)
+ *  - flop:  1 - (1 - pTurn) * (1 - pRiver) (turn 38.95% + river 31.25% => 58.03% combined pressure)
+ */
+export function holdemCommittedContinuationBarrelShare(
+  street: HoldemEmpiricalStreet,
+  hudOpp?: HoldemHudPacketOpponent | null,
+  exploitCounters?: Pick<ExploitCounters, 'betCheckedTo' | 'betCheckedToOpp'> | null
+): number {
+  if (street === 'river') return 0;
+  const pRiver = estimateHoldemBetWhenCheckedTo('river', hudOpp, exploitCounters).mean;
+  if (street === 'turn') return pRiver;
+  const pTurn = estimateHoldemBetWhenCheckedTo('turn', hudOpp, exploitCounters).mean;
+  return Math.min(1, Math.max(0, 1 - (1 - pTurn) * (1 - pRiver)));
 }
 
 /**
@@ -213,6 +299,16 @@ export interface HoldemCommittedNoPairPriceInput {
   equityCalled: number;
   foldShare: number;
   rake: number;
+  /**
+   * Optional effective chips remaining behind both players after hero calls (`min(stack - toCall, oppBehind)`).
+   * When positive together with `barrelShare > 0` on flop or turn, EV(call) prices future-street barrel
+   * pressure by backward induction instead of assuming 100% free showdown realization.
+   */
+  remainingEff?: number;
+  /** Measured probability villain barrels on remaining street(s) when hero calls with chips behind. */
+  barrelShare?: number;
+  /** Hero's equity against the strongest `barrelShare` portion of villain's betting range. */
+  equityVsBarrel?: number;
 }
 export interface HoldemCommittedNoPairPrice {
   evCall: number;
@@ -230,7 +326,28 @@ export function holdemCommittedNoPairPrice(
   const e = Math.min(1, Math.max(0, i.equity));
   const ec = Math.min(1, Math.max(0, i.equityCalled));
   const f = Math.min(1, Math.max(0, i.foldShare));
-  const evCall = e * (i.pot + i.toCall) * keep - i.toCall;
+  const potAfterCall = i.pot + i.toCall;
+  const rem =
+    typeof i.remainingEff === 'number' && Number.isFinite(i.remainingEff) && i.remainingEff > 0
+      ? i.remainingEff
+      : 0;
+  const pBar =
+    typeof i.barrelShare === 'number' && Number.isFinite(i.barrelShare)
+      ? Math.min(1, Math.max(0, i.barrelShare))
+      : 0;
+  let evCall: number;
+  if (rem > 0 && pBar > 0) {
+    const nextBet = Math.min(rem, potAfterCall);
+    const eBar =
+      typeof i.equityVsBarrel === 'number' && Number.isFinite(i.equityVsBarrel)
+        ? Math.min(e, Math.max(0, i.equityVsBarrel))
+        : e;
+    const evCheckBranch = Math.max(0, e - pBar * eBar) * potAfterCall * keep;
+    const evBarrelBranch = pBar * Math.max(0, eBar * (potAfterCall + 2 * nextBet) * keep - nextBet);
+    evCall = evCheckBranch + evBarrelBranch - i.toCall;
+  } else {
+    evCall = e * potAfterCall * keep - i.toCall;
+  }
   const r = i.jamTotal;
   const evJam =
     r > i.toCall ? f * i.pot * keep + (1 - f) * (ec * (i.pot + 2 * r - i.toCall) * keep - r) : null;
@@ -276,7 +393,9 @@ export function holdemDangerBoardBettorEquity(
 
 /**
  * holdemCommittedNoPairIsPriced end to end: enumerate the combos, calibrate his range to the engine's equity,
- * price his continuing range at the measured fold share, and compare fold, call and jam. Null: nothing priced.
+ * price his continuing range at the smooth empirical all-in fold share (`holdemCommittedJamFoldShare`),
+ * price future-street continuation barrel pressure when calling non-all-in on flop/turn, and compare fold,
+ * call and jam. Null: nothing priced.
  */
 export function holdemCommittedNoPairDecision(i: {
   hole: readonly Card[];
@@ -287,14 +406,42 @@ export function holdemCommittedNoPairDecision(i: {
   jamTotal: number;
   equity: number;
   rake: number;
+  street?: HoldemEmpiricalStreet;
+  remainingEff?: number;
+  hudOpp?: HoldemHudPacketOpponent | null;
+  exploitCounters?: Pick<ExploitCounters, 'betCheckedTo' | 'betCheckedToOpp'> | null;
 }):
-  | (HoldemCommittedNoPairPrice & { equityCalled: number; rangeShare: number; foldShare: number })
+  | (HoldemCommittedNoPairPrice & {
+      equityCalled: number;
+      rangeShare: number;
+      foldShare: number;
+      barrelShare: number;
+      equityVsBarrel: number | null;
+    })
   | null {
   const rows = holdemComboRows(i.hole, i.board, i.dead);
   const raise = i.jamTotal - i.toCall;
-  const foldShare = raise > 0 ? holdemRaiseFoldShare(raise / (i.pot + i.jamTotal + raise)) : 0;
+  const street: HoldemEmpiricalStreet =
+    i.street ?? (i.board.length >= 5 ? 'river' : i.board.length === 4 ? 'turn' : 'flop');
+  const foldShare =
+    raise > 0
+      ? holdemCommittedJamFoldShare(raise / (i.pot + i.jamTotal + raise), street, i.hudOpp)
+      : 0;
   const called = holdemCalledRangeEquity(rows, i.equity, foldShare);
   if (called === null) return null;
+  const rem =
+    typeof i.remainingEff === 'number' && Number.isFinite(i.remainingEff) && i.remainingEff > 0
+      ? i.remainingEff
+      : 0;
+  let barrelShare = 0;
+  let equityVsBarrel: number | null = null;
+  if (street !== 'river' && rem > 0) {
+    barrelShare = holdemCommittedContinuationBarrelShare(street, i.hudOpp, i.exploitCounters);
+    if (barrelShare > 0) {
+      const vsBarrel = holdemCalledRangeEquity(rows, i.equity, 1 - barrelShare);
+      equityVsBarrel = vsBarrel ? vsBarrel.equityCalled : null;
+    }
+  }
   const price = holdemCommittedNoPairPrice({
     pot: i.pot,
     toCall: i.toCall,
@@ -303,6 +450,9 @@ export function holdemCommittedNoPairDecision(i: {
     equityCalled: called.equityCalled,
     foldShare,
     rake: i.rake,
+    remainingEff: rem,
+    barrelShare,
+    equityVsBarrel: equityVsBarrel ?? undefined,
   });
-  return price === null ? null : { ...price, ...called, foldShare };
+  return price === null ? null : { ...price, ...called, foldShare, barrelShare, equityVsBarrel };
 }

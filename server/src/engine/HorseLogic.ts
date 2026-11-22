@@ -28852,6 +28852,10 @@ export class HorseLogic {
         const oppBehind0 = opp0.is_all_in
           ? 0
           : Math.max(0, Number.isFinite(opp0.stack) ? opp0.stack : 0);
+        const remainingEff0 = Math.max(0, Math.min(stack - toCall, oppBehind0));
+        const scope0 = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+        const counters0 =
+          useMind && opp0.user_id ? HorseMind.getExploitCounters(opp0.user_id, scope0) : undefined;
         const priced0 = holdemCommittedNoPairDecision({
           hole: player.cards,
           board,
@@ -28861,6 +28865,9 @@ export class HorseLogic {
           jamTotal: Math.min(stack, rawToCall + oppBehind0),
           equity: eq15,
           rake: callDeductionFraction ?? rakeMarg,
+          street: street === 'river' ? 'river' : street === 'turn' ? 'turn' : 'flop',
+          remainingEff: remainingEff0,
+          exploitCounters: counters0,
         });
         if (priced0 === null) {
           if (tele15) noteFire('holdem_committed_no_pair_unpriced');
