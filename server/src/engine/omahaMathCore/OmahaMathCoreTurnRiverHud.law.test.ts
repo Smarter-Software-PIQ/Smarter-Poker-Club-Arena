@@ -457,5 +457,42 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
       legalize
     );
     expect(tightRes.action).toBe('fold');
+
+    // (d) Stage 1 turn boundary: with HUD packet installed on PLO5 turn, incoming check is NEVER turned into a bet
+    const turnGs = {
+      ...gs,
+      stage: 'turn',
+      currentBet: 0,
+      communityCards: cardObjs('Ks9d7c4h'),
+      players: [
+        hero,
+        {
+          seat: 2,
+          user_id: U_STAB,
+          stack: 400,
+          bet: 0,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+      ],
+      actionHistory: [
+        { seat: 2, stage: 'preflop', action: 'raise', amount: 6 },
+        { seat: 1, stage: 'preflop', action: 'call', amount: 6 },
+        { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 2, stage: 'flop', action: 'check', amount: 0 },
+      ],
+    } as unknown as HorseGameStateV2;
+    installDecisionHud(
+      buildHudPacket('plo5', [pTight], { 't.stab.hu': [0.3, 43] }, 1_800_000_000_000, 'turn')
+    );
+    const turnCheckRes = omahaMathCoreRule(
+      { action: 'check', thinkTime: 1000 },
+      hero,
+      turnGs,
+      { omahaMathCore: true, omahaMathCorePlo5Turn: true },
+      legalize
+    );
+    expect(turnCheckRes.action).toBe('check');
   });
 });

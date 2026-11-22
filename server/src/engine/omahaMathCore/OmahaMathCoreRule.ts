@@ -772,31 +772,40 @@ export function omahaMathCoreRule(
         }
       }
     }
-    // B3 (lane core-repair, CORE-LEAD4-B3-TURN-RIVER-SPEC.md): on PLO5 cash turn/river facing a first wager
-    // when an opponent-lifetime HUD record is available and incoming is fold, priceTurnRiverLifetimeCall is the
-    // sole gate for fold -> plain call (station/nit guard by construction, K_allin = 25 on river commits).
+    // B3 (lane core-repair, CORE-LEAD4-B3-TURN-RIVER-SPEC.md): on PLO5 cash turn/river when a live
+    // opponent-lifetime HUD packet is installed (Stage 1), ONLY fold -> plain call proven by
+    // priceTurnRiverLifetimeCall is permitted (station/nit guard by construction, K_allin = 25 on river
+    // commits; never bets, raises, or folds a baseline call — zero fallback to population turn/river tables).
     let trHudGoverned = false;
     const trStage = String(gs.stage);
+    const trProv = omahaMathCoreTurnRiverProvider();
     if (
       incumbent === 'today' &&
-      incoming.action === 'fold' &&
       String(gs.gameVariant).toLowerCase() === 'plo5' &&
       (trStage === 'turn' || trStage === 'river') &&
-      coreState.aggressorSeat !== null &&
-      coreState.line !== null &&
-      coreState.line !== 'raise' &&
-      coreState.line !== 'check_raise'
+      trProv?.active?.('plo5') === true
     ) {
-      const prov = omahaMathCoreTurnRiverProvider();
+      trHudGoverned = true;
+      const keepInc: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
+      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
+        keepInc.amount = incoming.amount;
+      let trDec: HorseDecision = keepInc;
       const liveOpps = coreState.opponents.filter((o) => !o.folded);
-      if (prov && liveOpps.length === 1 && liveOpps[0].seat === coreState.aggressorSeat) {
-        const fw = prov.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
+      if (
+        incoming.action === 'fold' &&
+        coreState.aggressorSeat !== null &&
+        coreState.line !== null &&
+        coreState.line !== 'raise' &&
+        coreState.line !== 'check_raise' &&
+        liveOpps.length === 1 &&
+        liveOpps[0].seat === coreState.aggressorSeat
+      ) {
+        const fw = trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu');
         if (fw && fw.opps > 0) {
-          trHudGoverned = true;
-          const brl = prov.barrel?.(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu') ?? null;
+          const brl = trProv.barrel?.(gs, coreState.aggressorSeat, 'plo5', trStage, 'hu') ?? null;
           const rvFw =
             trStage === 'turn'
-              ? prov.firstWager(gs, coreState.aggressorSeat, 'plo5', 'river', 'hu')
+              ? trProv.firstWager(gs, coreState.aggressorSeat, 'plo5', 'river', 'hu')
               : null;
           const trRes = priceTurnRiverLifetimeCall({
             state: coreState,
@@ -806,8 +815,6 @@ export function omahaMathCoreRule(
             net: (p) => rakeNet(coreState, p),
             k: OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5,
           });
-          const keepFold: HorseDecision = { action: 'fold', thinkTime: decision.thinkTime };
-          let trDec: HorseDecision = keepFold;
           if (trRes.call && trRes.callChips !== undefined) {
             const proposed: HorseDecision = {
               action: 'call',
@@ -820,18 +827,18 @@ export function omahaMathCoreRule(
                 trDec = l;
               }
             } catch {
-              trDec = keepFold;
+              trDec = keepInc;
             }
           }
-          const chosen = receipt.evs.find((e) => e.action === trDec.action);
-          receipt.choice = {
-            action: trDec.action as CoreReceipt['choice']['action'],
-            amount: trDec.amount ?? null,
-            ev: chosen ? Math.round(chosen.ev * 100) / 100 : trDec.action === 'fold' ? 0 : null,
-          };
-          legal = trDec;
         }
       }
+      const chosen = receipt.evs.find((e) => e.action === trDec.action);
+      receipt.choice = {
+        action: trDec.action as CoreReceipt['choice']['action'],
+        amount: trDec.amount ?? null,
+        ev: chosen ? Math.round(chosen.ev * 100) / 100 : trDec.action === 'fold' ? 0 : null,
+      };
+      legal = trDec;
     }
     // RIVER-CORE criterion 3: on the PLO5 cash river (when not governed by a lifetime HUD record above)
     // the core may only turn today's fold into a plain call

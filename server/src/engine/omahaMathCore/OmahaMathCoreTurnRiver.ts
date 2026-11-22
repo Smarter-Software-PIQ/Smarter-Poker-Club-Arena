@@ -74,6 +74,8 @@ export interface TurnRiverBarrelRecord {
  * The HUD adapter outside omahaMathCore resolves seat -> public HUD packet counts.
  */
 export interface OmahaMathCoreTurnRiverProvider {
+  /** True when a live lifetime HUD packet for this game family is installed for the decision in flight. */
+  active?(game: 'plo4' | 'plo5'): boolean;
   firstWager(
     table: unknown,
     seat: number,

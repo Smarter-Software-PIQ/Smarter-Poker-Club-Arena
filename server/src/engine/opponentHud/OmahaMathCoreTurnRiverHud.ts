@@ -27,6 +27,9 @@ function seatUserId(table: unknown, seat: number): string | null {
 }
 
 export const omahaMathCoreTurnRiverHud: OmahaMathCoreTurnRiverProvider = {
+  active(game) {
+    return decisionHudFamily() === game;
+  },
   firstWager(table, seat, game, street, players) {
     try {
       const id = seatUserId(table, seat);
