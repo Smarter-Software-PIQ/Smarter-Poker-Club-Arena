@@ -110,7 +110,7 @@ rule did not exist for them).
   edits to the newest recorded body of each function and asserts the rule, the
   lock order, the unchanged refund path and that no later migration replaces
   these functions without it.
-- `scripts/dev/prove-sit-and-go-unregister-start-gate.sh`: installs the
+- (removed in the follow-up below) `scripts/dev/prove-sit-and-go-unregister-start-gate.sh`: installed the
   recorded function text over stub tables on a throwaway local PostgreSQL,
   reproduces `tournament_started` for the nine seat board, installs the
   migration byte for byte and shows the gate open, with every other format
@@ -162,3 +162,30 @@ two header plates stack.
 - The header was measured in a static headless render of the real CSS and
   markup, not in the running app, so the label fitting done in JavaScript
   (`useFitText`) was not exercised there.
+
+## Superseded on install (same day)
+
+Another lane fixed the same root cause in parallel as
+`20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id`
+(authority `sng_actual_start`). The merged-migration dispatcher held both until
+after the 16:00 Chicago engine cutover and sent them at 22:10 UTC; 185915
+applied first, and this file then refused with "anchor authority was expected
+exactly once" because the text it edits had already changed. It rolled back and
+changed nothing, which is what its anchors were for.
+
+Follow-up, so the repository says what production does:
+
+- `20261122192807` is now verify-only: it asserts the installed rule is present
+  (with a `@live-proof`) and records itself, so a merged migration is live and
+  no second name for the same authority ever exists.
+- `tests/a-sit-and-go-is-unregistered-until-it-actually-starts.law.test.ts` now
+  pins the installed rule: the newest body of all three functions, the receipt
+  constraint and reader, the row lock and second proof, no `is_horse`, and that
+  no later migration may replace these functions without `sng_actual_start`.
+  Checked by breaking the installed rule and by adding a later replacement
+  without it; both fail the law.
+- `scripts/dev/prove-sit-and-go-unregister-start-gate.sh` is removed: it applied
+  the superseded anchors and can no longer describe production.
+
+The when-full satellites are created with `tournament_type='SNG'`, which is the
+condition the installed rule keys on, so the reported event is covered.
