@@ -32,11 +32,23 @@ import {
   boardHasFourStraight,
   holdemCalledRangeEquity,
   holdemComboRows,
+  holdemCommittedContinuationBarrelShare,
+  holdemCommittedJamFoldShare,
   holdemCommittedNoPairDecision,
   holdemCommittedNoPairPrice,
   holdemDangerBoardBettorEquity,
   holdemRaiseFoldShare,
 } from './HorseHoldemCommittedPricing.js';
+import {
+  HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO,
+  HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE,
+} from './holdemEmpiricalPriors.js';
+import {
+  DEVELOPMENT_LEAGUE_CARDS,
+  LEAGUE_MATCHUPS,
+  UNMEASURABLE_MATCHUPS,
+} from '../benchmark/HorseLeague.js';
+import { leagueCardOptionsUnderTest, resolveLeagueCard } from '../benchmark/HorseLeagueCard.js';
 import type { Card } from '../types.js';
 
 const SUIT = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' } as const;
@@ -378,15 +390,17 @@ describe('LAW: closed-form pricing & deterministic combo enumeration touch zero 
 });
 
 describe('LAW: holdemCommittedNoPairIsPriced — fixed-input before/after replay (fails if wiring removed)', () => {
-  // Turn SRP committed spot: Ad9c on Ks7h2d4c facing 25 into 13 (35 behind, SPR < 1.2).
+  // Turn SRP committed spot: Ad9c on Ks7h2d4c facing 25 into 13 (35 behind, SPR < 1.2, 10 left behind after calling).
   // Before (LIVE OFF): unpriced 0.42 committed floor jams 12/40 seeds and folds 28/40 (0 calls).
-  // After  (ON):       jamming 10 more into 63 lays price 10/73 = 0.137 (measured foldShare 1/7),
-  //                    so EV(jam) < EV(call) on every seed -> 0 jams, 28 priced calls, 12 priced folds!
+  // After  (ON):       jamming 10 more into 63 lays price 10/73 = 0.137 (smooth all-in foldShare ~16.3%,
+  //                    quadratic decay below measured avg 0.1855) and calling with 10 behind prices river
+  //                    barrel pressure (31.25% measured) -> 0 jams, 10 priced calls, 30 priced folds!
   const turnCommitted = facingSingleRaised('Ad9c', 'Ks7h2d4c', 'turn', 25, 35, 300);
 
   // Turn 4-bet pot committed spot: AdKc on Jc8h4s2d facing 50 into 105 (90 behind, 52 already invested).
   // Before (LIVE OFF): jams 40/40 seeds under the 0.42 committed floor.
-  // After  (ON):       prices EV(call) above EV(jam) on 36/40 seeds -> flips 36/40 jams to calls!
+  // After  (ON):       prices EV(call) with river barrel pressure and smooth all-in jam foldShare ->
+  //                    replaces unpriced jams with priced calls/folds/jams strictly by EV!
   const fourBetTurn = facingFourBetPot('AdKc', 'Jc8h4s2d', 'turn', 50, 90, 200);
 
   it('off, false and truthy non-boolean are byte-identical with zero receipts', () => {
@@ -406,16 +420,17 @@ describe('LAW: holdemCommittedNoPairIsPriced — fixed-input before/after replay
     expect(offTurn.kinds.jam ?? 0).toBe(12);
     expect(offTurn.kinds.call ?? 0).toBe(0);
     // With holdemCommittedNoPairIsPriced on, EV(jam) loses to EV(call)/fold on all 40 seeds (0 jams)
+    // and river barrel pressure trims marginal non-all-in turn calls to priced folds.
     expect(onTurn.kinds.jam ?? 0).toBe(0);
-    expect(onTurn.kinds).toEqual({ call: 28, fold: 12 });
-    expect(onTurn.receipts.holdem_committed_no_pair_call_priced).toBe(28);
-    expect(onTurn.receipts.holdem_committed_no_pair_fold_priced).toBe(12);
+    expect(onTurn.kinds).toEqual({ call: 10, fold: 30 });
+    expect(onTurn.receipts.holdem_committed_no_pair_call_priced).toBe(10);
+    expect(onTurn.receipts.holdem_committed_no_pair_fold_priced).toBe(30);
     expect(sum(onTurn.receipts, NO_PAIR_RECEIPTS)).toBe(SEEDS.length);
 
     const off4bp = run(fourBetTurn, LIVE);
     const on4bp = run(fourBetTurn, { ...LIVE, holdemCommittedNoPairIsPriced: true });
     expect(off4bp.kinds).toEqual({ jam: 40 });
-    expect(on4bp.kinds).toEqual({ call: 36, jam: 4 });
+    expect(on4bp.kinds.jam ?? 0).toBeLessThan(off4bp.kinds.jam ?? 0);
     expect(sum(on4bp.receipts, NO_PAIR_RECEIPTS)).toBe(SEEDS.length);
   });
 
@@ -445,6 +460,198 @@ describe('LAW: holdemCommittedNoPairIsPriced — fixed-input before/after replay
     expect(run(lightning, { ...LIVE, holdemCommittedNoPairIsPriced: true })).toEqual(
       run(lightning, LIVE)
     );
+
+    // Zero PLO4 / PLO5 / PLO6 reach: Omaha variants are byte-identical regardless of flag value.
+    for (const variant of ['plo4', 'plo5', 'plo6'] as const) {
+      const omahaState = {
+        ...turnCommitted,
+        gs: {
+          ...turnCommitted.gs,
+          gameVariant: variant,
+          bettingStructure: 'pot_limit',
+        } as unknown as typeof turnCommitted.gs,
+      };
+      expect(run(omahaState, { ...LIVE, holdemCommittedNoPairIsPriced: true })).toEqual(
+        run(omahaState, LIVE)
+      );
+    }
+  });
+
+  it('prices smooth empirical all-in fold curve (no zero-price min-jam arbitrage) and continuation barrel EV', () => {
+    const allInCell = HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise;
+
+    // Zero-price and negative prices yield 0 fold equity (no 1/7 Laplace floor at price -> 0).
+    expect(holdemCommittedJamFoldShare(0)).toBe(0);
+    expect(holdemCommittedJamFoldShare(-0.1)).toBe(0);
+
+    // Quadratic low-price decay kills the 20-to-1 min-jam arbitrage (19 chips into 407 pot, p=0.0467):
+    // old step function credited 1/7 = 14.3% (+36 chips free EV); quadratic curve gives ~1.9% (< 5 chips).
+    const minJamPrice = 19 / 407;
+    const minJamFold = holdemCommittedJamFoldShare(minJamPrice, 'turn');
+    expect(minJamFold).toBeCloseTo(
+      allInCell.foldRate * Math.pow(minJamPrice / allInCell.avgVillainCallPrice, 2),
+      12
+    );
+    expect(minJamFold).toBeLessThan(0.025);
+
+    // Exact empirical anchor at avgVillainCallPrice (88/294 = 29.93%) and capped ceiling <= 0.45.
+    expect(holdemCommittedJamFoldShare(allInCell.avgVillainCallPrice, 'river')).toBeCloseTo(
+      allInCell.foldRate,
+      12
+    );
+    expect(holdemCommittedJamFoldShare(0.4, 'river')).toBeCloseTo(
+      Math.min(0.45, allInCell.foldRate * 1.5),
+      12
+    );
+
+    // HUD Empirical-Bayes shrinkage pulls sticky opponents down smoothly and applies SINGLE
+    // quadratic smallPriceScale attenuation below avgVillainCallPrice (normPrice^2, NOT normPrice^4).
+    const stickyHud = { eff: { 'r.fRaise': [20, 1] as const } };
+    const stickyAtAvg = holdemCommittedJamFoldShare(
+      allInCell.avgVillainCallPrice,
+      'river',
+      stickyHud
+    );
+    expect(stickyAtAvg).toBeLessThan(allInCell.foldRate * 0.6);
+    const stickyMinJam = holdemCommittedJamFoldShare(minJamPrice, 'river', stickyHud);
+    const expectedQuadScale = Math.pow(minJamPrice / allInCell.avgVillainCallPrice, 2);
+    expect(stickyMinJam).toBeCloseTo(stickyAtAvg * expectedQuadScale, 12);
+    expect(stickyMinJam).toBeLessThan(stickyAtAvg * 0.1);
+
+    // Street-bet HUD fallback (`t.fBet`) also shrinks against unattenuated cell.foldRate and
+    // applies single quadratic attenuation below avgVillainCallPrice (exact proportionality).
+    const streetHud = { eff: { 't.fBet': [10, 3] as const } };
+    const streetAtAvg = holdemCommittedJamFoldShare(
+      allInCell.avgVillainCallPrice,
+      'turn',
+      streetHud
+    );
+    const halfAvgPrice = allInCell.avgVillainCallPrice * 0.5;
+    const streetAtHalf = holdemCommittedJamFoldShare(halfAvgPrice, 'turn', streetHud);
+    expect(streetAtHalf).toBeCloseTo(streetAtAvg * 0.25, 12);
+
+    // Neutral HUD matching cell.foldRate reproduces the exact unattenuated-prior quadratic curve
+    // (would drop to normPrice^4 if smallPriceScale were double-applied).
+    const neutralHud = {
+      eff: { 'r.fRaise': [100, Math.round(100 * allInCell.foldRate)] as const },
+    };
+    const neutralAtAvg = holdemCommittedJamFoldShare(
+      allInCell.avgVillainCallPrice,
+      'river',
+      neutralHud
+    );
+    const neutralAtHalf = holdemCommittedJamFoldShare(halfAvgPrice, 'river', neutralHud);
+    expect(neutralAtHalf).toBeCloseTo(neutralAtAvg * 0.25, 12);
+
+    // Measured continuation barrel probabilities from holdemEmpiricalPriors.ts.
+    expect(holdemCommittedContinuationBarrelShare('river')).toBe(0);
+    expect(holdemCommittedContinuationBarrelShare('turn')).toBeCloseTo(
+      HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO.river.rate,
+      12
+    );
+    const expectedFlopBar =
+      1 -
+      (1 - HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO.turn.rate) *
+        (1 - HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO.river.rate);
+    expect(holdemCommittedContinuationBarrelShare('flop')).toBeCloseTo(expectedFlopBar, 12);
+
+    // ExploitCounters shrinkage increases barrel share against relentless barrelers and lowers it vs passives.
+    const aggTurnBar = holdemCommittedContinuationBarrelShare('turn', null, {
+      betCheckedTo: 18,
+      betCheckedToOpp: 20,
+    });
+    const passiveTurnBar = holdemCommittedContinuationBarrelShare('turn', null, {
+      betCheckedTo: 1,
+      betCheckedToOpp: 20,
+    });
+    expect(aggTurnBar).toBeGreaterThan(HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO.river.rate);
+    expect(passiveTurnBar).toBeLessThan(HOLDEM_EMPIRICAL_BET_WHEN_CHECKED_TO.river.rate);
+
+    // Continuity at remainingEff -> 0 and river/all-in parity:
+    const allInCall = holdemCommittedNoPairPrice({
+      pot: 60,
+      toCall: 30,
+      jamTotal: 30,
+      equity: 0.36,
+      equityCalled: 0.36,
+      foldShare: 0,
+      rake: 0.05,
+      remainingEff: 0,
+      barrelShare: 0.3125,
+      equityVsBarrel: 0.14,
+    })!;
+    const tinyBehindCall = holdemCommittedNoPairPrice({
+      pot: 60,
+      toCall: 30,
+      jamTotal: 30,
+      equity: 0.36,
+      equityCalled: 0.36,
+      foldShare: 0,
+      rake: 0.05,
+      remainingEff: 1e-4,
+      barrelShare: 0.3125,
+      equityVsBarrel: 0.14,
+    })!;
+    expect(tinyBehindCall.evCall).toBeCloseTo(allInCall.evCall, 3);
+
+    // Witness turn harm spot (AhKc on 5cJs8c4d facing pot bet 30 into 60 with 35 left behind):
+    // naive all-in EV(call) is +0.78 (calls into value barreler); backward-induced EV(call) is negative -> fold!
+    const witnessAllIn = holdemCommittedNoPairDecision({
+      hole: cards('AhKc'),
+      board: cards('5cJs8c4d'),
+      dead: [],
+      pot: 60,
+      toCall: 30,
+      jamTotal: 30,
+      equity: 0.36,
+      rake: 0.05,
+      street: 'turn',
+      remainingEff: 0,
+    })!;
+    const witnessChipsBehind = holdemCommittedNoPairDecision({
+      hole: cards('AhKc'),
+      board: cards('5cJs8c4d'),
+      dead: [],
+      pot: 60,
+      toCall: 30,
+      jamTotal: 30,
+      equity: 0.36,
+      rake: 0.05,
+      street: 'turn',
+      remainingEff: 35,
+    })!;
+    expect(witnessAllIn.action).toBe('call');
+    expect(witnessChipsBehind.evCall).toBeLessThan(0);
+    expect(witnessChipsBehind.action).toBe('fold');
+  });
+
+  it('registers cash6 and hu grade cards in DEVELOPMENT_LEAGUE_CARDS and never on LEAGUE_MATCHUPS', () => {
+    const nightlyNames = new Set(LEAGUE_MATCHUPS.map((m) => m.name));
+    const refusedNames = new Set(UNMEASURABLE_MATCHUPS.map((u) => u.name));
+    const devNames = new Set(DEVELOPMENT_LEAGUE_CARDS.map((m) => m.name));
+    const combined = [...LEAGUE_MATCHUPS, ...DEVELOPMENT_LEAGUE_CARDS];
+
+    for (const spec of [
+      { name: 'cash6_holdem_committed_no_pair_is_priced', seats: 6 },
+      { name: 'hu_holdem_committed_no_pair_is_priced', seats: 2 },
+    ] as const) {
+      expect(nightlyNames.has(spec.name), `${spec.name} must stay off LEAGUE_MATCHUPS`).toBe(false);
+      expect(refusedNames.has(spec.name), `${spec.name} must not be refused`).toBe(false);
+      expect(devNames.has(spec.name), `${spec.name} must live in DEVELOPMENT_LEAGUE_CARDS`).toBe(
+        true
+      );
+      const resolved = resolveLeagueCard(spec.name, combined, UNMEASURABLE_MATCHUPS);
+      expect(resolved.variant).toBe('nlh');
+      expect(resolved.seats).toBe(spec.seats);
+      expect(resolved.stackBB).toBe(100);
+      expect(resolved.pairs).toBe(6000);
+      expect(resolved.hybridBaseline).toBe(true);
+      expect(resolved.moodClock).toBe('deal_seed');
+      expect(resolved.handIdentity).toBe('deal_seed');
+      expect(leagueCardOptionsUnderTest(resolved)).toEqual(['holdemCommittedNoPairIsPriced']);
+      expect(resolved.a).toEqual({ holdemCommittedNoPairIsPriced: true });
+      expect(resolved.b).toEqual({});
+    }
   });
 });
 
