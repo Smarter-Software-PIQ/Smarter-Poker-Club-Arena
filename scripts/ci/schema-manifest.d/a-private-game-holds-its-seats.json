@@ -1,0 +1,16 @@
+{
+  "_owner": "claude/private-invite-games. Migrations 20261123013126_a_private_game_holds_its_seats_for_invited_friends and 20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder (not yet installed when written): a Heads Up or Spin seat held for an invited friend (src/lib/privateGameInvite.ts, server/src/services/privateGameHolds.ts).",
+  "tables": ["private_game_holds", "private_game_admissions"],
+  "functions": [
+    "fn_accept_private_game_invite",
+    "fn_ca_private_game_hold_open",
+    "fn_cancel_private_game_hold",
+    "fn_invite_to_private_game",
+    "fn_private_game_entry_guard",
+    "fn_private_game_entry_refusal",
+    "fn_private_game_hold_deadline",
+    "fn_private_game_hold_state",
+    "fn_private_game_hold_view",
+    "fn_private_game_live_holds"
+  ]
+}

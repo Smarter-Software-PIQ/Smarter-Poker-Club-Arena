@@ -378,6 +378,8 @@ describe('topUpWithHorses - the pre-check in front of the RPC', () => {
       return { data: null, error: null };
     });
     svc = new TournamentRecurringService();
+    // No game in this file holds a seat for an invited friend (privateGameHolds.ts).
+    vi.spyOn(svc.privateGameHolds, 'snapshot').mockResolvedValue(new Map());
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
