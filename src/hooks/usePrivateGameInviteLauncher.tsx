@@ -9,6 +9,15 @@
  * inviter is taken to that table - the answer to their own tap - where the
  * link with its token is waiting under "Seat Held For Your Friend".
  *
+ * A SIT & GO TOO (2026-11-23). A six or nine seat Sit & Go (an ordinary one,
+ * or a "Starts When Full" satellite run as one) holds up to seats - 1 seats
+ * for the friends the inviter chooses, in place: the inviter is registered
+ * through the normal registration door if they are not in it yet, and every
+ * other seat still fills as usual. It has no table before it starts, so the
+ * inviter lands on its tournament page, where the link is waiting under
+ * "Seats Held For Your Friends" (usePrivateSitAndGoHold). A surface that is
+ * already that page passes `onSitAndGoHeld` and opens it in place.
+ *
  * `offer(row)` answers whether the private flow took the invite. When it
  * answers false (another format, a started game, an engine that does not
  * honour held seats) the surface shares its ordinary link exactly as before.
@@ -19,9 +28,13 @@ import { PrivateGameInviteModal } from '../components/table/PrivateGameInviteMod
 import {
   inviteToPrivateGame,
   isPrivateInviteFormat,
+  isSitAndGoInviteFormat,
   privateGameHoldsSupported,
   privateGameRefusalText,
+  privateSeatsChoosable,
   privateSeatsHoldable,
+  privateSitAndGoHoldsSupported,
+  type PrivateGameHold,
 } from '../lib/privateGameInvite';
 
 export interface PrivateInviteRow {
@@ -31,6 +44,9 @@ export interface PrivateInviteRow {
   variant?: string | null;
   max_players?: number | null;
   maxPlayers?: number | null;
+  format_contract?: unknown;
+  /** Entries already in the field, when the surface knows them (bounds the friend chooser). */
+  current_players?: number | null;
   buy_in_amount?: number | string | null;
   buy_in_fee?: number | string | null;
   started_at?: string | null;
@@ -44,10 +60,16 @@ interface Target {
   seats: number;
   cost: number;
   spin: boolean;
+  sitAndGo: boolean;
+  maxHoldable: number;
   alreadySeated: boolean;
 }
 
-export function usePrivateGameInviteLauncher(notify?: (kind: 'success' | 'error', message: string) => void) {
+export function usePrivateGameInviteLauncher(
+  notify?: (kind: 'success' | 'error', message: string) => void,
+  /** The surface is this Sit & Go's own page: show the held seats there instead of navigating. */
+  onSitAndGoHeld?: (hold: PrivateGameHold) => void
+) {
   const navigate = useAppNavigate();
   const [target, setTarget] = useState<Target | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,17 +85,25 @@ export function usePrivateGameInviteLauncher(notify?: (kind: 'success' | 'error'
     if (!row?.id || !isPrivateInviteFormat(row)) return false;
     const status = String(row.status ?? '').toUpperCase();
     if ((status && !['ANNOUNCED', 'REGISTERING'].includes(status)) || row.started_at) return false;
-    if (!(await privateGameHoldsSupported())) return false;
+    const sitAndGo = isSitAndGoInviteFormat(row);
+    if (!(await (sitAndGo ? privateSitAndGoHoldsSupported() : privateGameHoldsSupported())))
+      return false;
+    const seats = Number(row.max_players ?? row.maxPlayers ?? 0);
+    const alreadySeated = row.alreadySeated === true;
     setError(null);
     setTarget({
       tournamentId: row.id,
       name: String(row.name ?? ''),
-      seats: Number(row.max_players ?? row.maxPlayers ?? 0),
+      seats,
       // Printed only when the surface knows the exact price; the charge is the seat door's.
       cost:
         row.buy_in_amount === undefined ? NaN : Number(row.buy_in_amount ?? 0) + Number(row.buy_in_fee ?? 0),
       spin: String(row.variant ?? '').toLowerCase() === 'spin',
-      alreadySeated: row.alreadySeated === true,
+      sitAndGo,
+      maxHoldable: sitAndGo
+        ? privateSeatsChoosable(seats, row.current_players ?? null, alreadySeated)
+        : privateSeatsHoldable(seats),
+      alreadySeated,
     });
     return true;
   }, []);
@@ -85,6 +115,16 @@ export function usePrivateGameInviteLauncher(notify?: (kind: 'success' | 'error'
       setError(null);
       try {
         const res = await inviteToPrivateGame(target.tournamentId, seatsHeld);
+        if (res.ok && res.sitAndGo && res.hold) {
+          setTarget(null);
+          notify?.(
+            'success',
+            res.registered ? 'You Are Registered, Seats Held For Your Friends' : 'Seats Held For Your Friends'
+          );
+          if (onSitAndGoHeld) onSitAndGoHeld(res.hold);
+          else navigate(`/tournaments/${encodeURIComponent(res.hold.tournamentId)}?held=1`);
+          return;
+        }
         if (!res.ok || !res.hold?.tableId) {
           setError(privateGameRefusalText(res.reason));
           return;
@@ -101,7 +141,7 @@ export function usePrivateGameInviteLauncher(notify?: (kind: 'success' | 'error'
         setBusy(false);
       }
     },
-    [busy, navigate, notify, target]
+    [busy, navigate, notify, onSitAndGoHeld, target]
   );
 
   /* Wrapped so a tap inside the dialog never also reaches the card or
@@ -111,10 +151,13 @@ export function usePrivateGameInviteLauncher(notify?: (kind: 'success' | 'error'
     <PrivateGameInviteModal
       isOpen
       step="start"
-      formatLabel={target.spin ? 'Spin' : target.seats === 2 ? 'Heads Up Sit N Go' : 'Sit N Go'}
+      formatLabel={
+        target.spin ? 'Spin' : target.seats === 2 ? 'Heads Up Sit N Go' : `${target.seats} Seat Sit N Go`
+      }
+      sitAndGo={target.sitAndGo}
       tableName={target.name}
       costLabel={Number.isFinite(target.cost) && target.cost > 0 ? target.cost.toLocaleString() : ''}
-      maxHoldable={privateSeatsHoldable(target.seats)}
+      maxHoldable={target.maxHoldable}
       alreadySeated={target.alreadySeated}
       hold={null}
       inviteUrl=""

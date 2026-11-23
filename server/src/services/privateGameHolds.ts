@@ -32,6 +32,24 @@
  * again, which costs a horse-only board seconds on an hour-long ladder. The
  * one answer that IS "no holds" is a database that has no such door yet
  * (PGRST202): without the function no hold can exist.
+ *
+ * ── A SIT & GO HOLDS ITS FRIENDS' SEATS TOO (2026-11-23) ─────────────────────
+ *
+ * Migration 20261123071654 opens the same hold on a six or nine seat Sit & Go
+ * (an ordinary one, or a "Starts When Full" satellite run as one). It is held
+ * IN PLACE and never exclusively: the held seats are kept for the invited
+ * friends and every other seat stays open to anyone, a person or a horse,
+ * because a Sit & Go's field fills around the people in it. So the engine's
+ * part is narrower than for a Spin: the horse fill (registerHorses, which
+ * every Sit & Go top-up reaches) registers horses only into the UNHELD seats,
+ * `max_players - entrants - heldOpen`, while the hold is live, and nothing at
+ * all when that is none. The field then stays short, so the start gate (every
+ * seat taken) waits for the friends; when the hold expires, is cancelled or
+ * its inviter unregisters, the board fills by its ordinary rules. A held Sit &
+ * Go is still its board's instance (it is not exclusive), so it is counted as
+ * one; its start is human-triggered by construction - its inviter holds an
+ * entry. The rule is the database's (fn_private_game_entry_refusal); nothing
+ * here reads which entrant is a horse.
  */
 
 export interface PrivateGameHold {
@@ -119,6 +137,63 @@ export function privatelyHeldIds(
   return ids;
 }
 
+/**
+ * Can this event hold seats in place for invited friends as a Sit & Go? The
+ * persisted format decides (sng-v1, variant 'sng', four to nine seats), the
+ * same test fn_invite_to_private_game applies. Two-seat Heads Up and three-seat
+ * Spins are seat-first tables with their own path; an MTT never holds.
+ */
+export function sitAndGoCanHoldSeats(
+  row:
+    | {
+        format_contract?: unknown;
+        variant?: unknown;
+        max_players?: unknown;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!row) return false;
+  const seats = Number(row.max_players);
+  return (
+    row.format_contract === 'sng-v1' &&
+    String(row.variant ?? '').toLowerCase() === 'sng' &&
+    Number.isInteger(seats) &&
+    seats >= 4 &&
+    seats <= 9
+  );
+}
+
+/** Seats still held for invited friends right now: 0 when nothing is held. */
+export function privateHeldOpenSeats(hold: PrivateGameHold | undefined, nowMs: number): number {
+  if (!privateHoldIsLive(hold, nowMs)) return 0;
+  const held = Math.floor(Number(hold!.heldOpen));
+  return Number.isFinite(held) && held > 0 ? held : 0;
+}
+
+/**
+ * How many horses a Sit & Go fill may register now: the seats that are
+ * neither taken nor held for an invited friend, and never more than asked.
+ * An unreadable count admits nobody (CLAUDE.md 10.86).
+ */
+export function sitAndGoHorseRoom(input: {
+  maxPlayers: number;
+  entrants: number;
+  heldOpen: number;
+  requested: number;
+}): number {
+  const { maxPlayers, entrants, heldOpen, requested } = input;
+  if (
+    ![maxPlayers, entrants, heldOpen, requested].every((n) => Number.isFinite(n)) ||
+    maxPlayers <= 0 ||
+    entrants < 0 ||
+    heldOpen < 0
+  )
+    return 0;
+  const open = Math.floor(maxPlayers) - Math.floor(entrants) - Math.floor(heldOpen);
+  return Math.max(0, Math.min(Math.floor(requested), open));
+}
+
 /** A PostgREST answer meaning "no such function": the door is not installed yet. */
 export function isMissingFunction(error: { code?: string | null; message?: string | null } | null): boolean {
   if (!error) return false;
@@ -186,5 +261,18 @@ export class PrivateGameHoldReader {
     const holds = await this.snapshot();
     if (!holds) return null;
     return privatelyHeldIds(holds, this.now());
+  }
+
+  /**
+   * The seats this game still holds for invited friends and until when, or
+   * null when the holds could not be read. Nothing held reads
+   * `{ heldOpen: 0, untilMs: -Infinity }`.
+   */
+  async heldSeats(tournamentId: string): Promise<{ heldOpen: number; untilMs: number } | null> {
+    const holds = await this.snapshot();
+    if (!holds) return null;
+    const hold = holds.get(tournamentId);
+    const now = this.now();
+    return { heldOpen: privateHeldOpenSeats(hold, now), untilMs: privateHoldUntilMs(hold, now) };
   }
 }

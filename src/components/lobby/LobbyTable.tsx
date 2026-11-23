@@ -1410,6 +1410,8 @@ function InviteRowButton({
           status: typeof raw.status === 'string' ? raw.status : null,
           variant: typeof raw.variant === 'string' ? raw.variant : null,
           max_players: Number(raw.max_players ?? entry.capacity ?? 0),
+          format_contract: raw.format_contract,
+          current_players: Number(raw.current_players ?? entry.players ?? 0),
           buy_in_amount: raw.buy_in_amount as number | string | null | undefined,
           buy_in_fee: raw.buy_in_fee as number | string | null | undefined,
           started_at: typeof raw.started_at === 'string' ? raw.started_at : null,

@@ -91,6 +91,13 @@ import {
 } from '../../server/src/tournament/recoveryFee';
 import { withTournamentPurchaseIntent } from './TournamentPurchaseIntent';
 import {
+  acceptPrivateGameInvite,
+  isPrivateGameSeatHeldError,
+  isSitAndGoInviteFormat,
+  privateGameRefusalText,
+  privateInviteTokenFor,
+} from '../lib/privateGameInvite';
+import {
   withTournamentUnregistrationIntent,
   ObsoleteTournamentUnregistrationIntentError,
 } from './TournamentUnregistrationIntent';
@@ -1730,6 +1737,27 @@ class TournamentService {
       throw new Error('Could Not Use The Tournament Ticket. No Chips Were Charged.');
     }
 
+    /* A SEAT HELD FOR AN INVITED FRIEND IN A SIT & GO (2026-11-23). Asked
+       before any money moves, from whichever surface registers: the token the
+       friend's link carried admits them, and anyone else whose only open
+       seats are held hears the rule now rather than after a refused
+       purchase. The database's entry guard applies the same rule to the
+       registration itself. A database without the door yet admits as before. */
+    if (isSitAndGoInviteFormat(tournament as { variant?: string | null; max_players?: number | null; format_contract?: unknown })) {
+      const admission = await acceptPrivateGameInvite(tournamentId, privateInviteTokenFor(tournamentId));
+      if (!admission.unavailable && !admission.allowed) {
+        if (admission.reason && /private_game/.test(admission.reason)) {
+          throw new Error(privateGameRefusalText(admission.reason));
+        }
+        reportError(
+          new Error(`private_game_admission check failed: ${admission.reason}`),
+          'TournamentService.private_game_admission_failed',
+          { tournamentId }
+        );
+        throw new Error('Could Not Verify The Seat Reservation. No Chips Were Charged.');
+      }
+    }
+
     // ═══ AUDIT 2026-08-15: registration is SERVER-AUTHORITATIVE ═══
     // The old path called atomic_tournament_register directly — a
     // service_role-only RPC — so EVERY human registration from the browser
@@ -1769,8 +1797,13 @@ class TournamentService {
         invokeAdmission(requestId, signal)
       );
       // A Free Buy ticket refusal rolled the whole registration back; asking
-      // again cannot pass, so it is not retried (owner, 2026-11-06).
-      if (rpcCall.error && !freeBuyTicketRefusalReason(rpcCall.error))
+      // again cannot pass, so it is not retried (owner, 2026-11-06). Nor is a
+      // seat held for an invited friend: the rule gives the same answer.
+      if (
+        rpcCall.error &&
+        !freeBuyTicketRefusalReason(rpcCall.error) &&
+        !isPrivateGameSeatHeldError(rpcCall.error)
+      )
         rpcCall = await withTournamentRegistrationReadBoundary((signal) =>
           invokeAdmission(requestId, signal)
         );
@@ -1794,6 +1827,9 @@ class TournamentService {
       if (isPlatformFrozenError(rpcError)) throw new Error(registerReasonText('platform_frozen'));
       const ticketRefusal = freeBuyTicketRefusalReason(rpcError);
       if (ticketRefusal) throw new Error(registerReasonText(ticketRefusal));
+      // The entry guard refused a seat held for an invited friend: say so.
+      if (isPrivateGameSeatHeldError(rpcError))
+        throw new Error(privateGameRefusalText('private_game_seat_held'));
       if (rpcError) {
         reportError(rpcError, 'TournamentService.registration_result_unconfirmed', {
           tournamentId,

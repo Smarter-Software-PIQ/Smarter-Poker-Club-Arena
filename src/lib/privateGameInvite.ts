@@ -24,9 +24,26 @@
  * The private game is offered only when the engine serving the tables says it
  * honours held seats (/health privateGameHolds). An older engine cannot see a
  * hold and would fill the seat with a horse.
+ *
+ * ── A SIT & GO HOLDS ITS FRIENDS' SEATS TOO (2026-11-23) ─────────────────────
+ *
+ * Dan: "if a human joins any Sit & Go it starts" - the field fills around the
+ * people in it, so a friend sent a plain link to a six or nine seat Sit & Go
+ * (or a "Starts When Full" satellite run as one) arrived to a game that had
+ * filled and started. Invite To Game on one now holds up to seats - 1 seats
+ * for the friends the inviter chooses (fn_invite_to_private_game, migration
+ * 20261123071654): the inviter is registered through the normal registration
+ * door when they are not in it yet, and the seats are held IN this game. The
+ * hold is never exclusive in a Sit & Go: every other seat still fills as
+ * usual, and the start waits for the friends until the hold ends. A Sit & Go
+ * has no table before it starts, so its address is the tournament page: the
+ * link is the tournament link with the hold's token (`?invite=`), the inviter
+ * sees the held seats there, and the friend's Take Seat registers them.
+ * Offered only when the serving engine says it honours Sit & Go holds
+ * (/health privateSitAndGoHolds).
  */
 import { supabase } from './supabase';
-import { gameInviteUrl, tableInviteTarget } from './share';
+import { gameInviteUrl, tableInviteTarget, tournamentShareUrl } from './share';
 
 export interface PrivateGameHold {
   tournamentId: string;
@@ -48,6 +65,10 @@ export interface PrivateInviteResult {
   ok: boolean;
   reason: string | null;
   created: boolean;
+  /** A Sit & Go held in place (no table until it starts). */
+  sitAndGo: boolean;
+  /** The invite registered the inviter through the normal registration door. */
+  registered: boolean;
   hold: PrivateGameHold | null;
 }
 
@@ -60,22 +81,59 @@ export interface PrivateAdmission {
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
-/** The longest a Spin, Heads Up or satellite can hold: every seat but the inviter's. */
+/**
+ * The most a game can hold: every seat but the inviter's. A Spin 2, a Heads Up
+ * 1, a six seat Sit & Go 5 and a nine seat Sit & Go 8.
+ */
 export function privateSeatsHoldable(maxPlayers: number): number {
   const n = Math.floor(Number(maxPlayers) || 0);
-  return n >= 2 && n <= 3 ? n - 1 : 0;
+  return n >= 2 && n <= 9 ? n - 1 : 0;
 }
 
-/** Is this game a seat-first board whose invite can hold a private seat? */
-export function isPrivateInviteFormat(row: {
+type InviteFormatRow = {
   variant?: string | null;
   max_players?: number | null;
   maxPlayers?: number | null;
-} | null | undefined): boolean {
+  format_contract?: unknown;
+} | null | undefined;
+
+/**
+ * Is this a Sit & Go of four to nine seats, held in place? The database reads
+ * the persisted format (sng-v1); a row that says otherwise is refused there.
+ */
+export function isSitAndGoInviteFormat(row: InviteFormatRow): boolean {
+  if (!row) return false;
+  const seats = Number(row.max_players ?? row.maxPlayers ?? 0);
+  if (String(row.variant ?? '').toLowerCase() !== 'sng') return false;
+  if (row.format_contract !== undefined && row.format_contract !== 'sng-v1') return false;
+  return Number.isInteger(seats) && seats >= 4 && seats <= 9;
+}
+
+/** Is this game one whose invite can hold a seat: a Spin, a Heads Up or a Sit & Go? */
+export function isPrivateInviteFormat(row: InviteFormatRow): boolean {
   if (!row) return false;
   const seats = Number(row.max_players ?? row.maxPlayers ?? 0);
   const spin = String(row.variant ?? '').toLowerCase() === 'spin';
-  return (spin && seats === 3) || seats === 2;
+  return (spin && seats === 3) || seats === 2 || isSitAndGoInviteFormat(row);
+}
+
+/**
+ * How many friends the inviter may choose to hold seats for: every seat but
+ * their own, and never more than the field has room for (their own entry
+ * counted when they are not in it yet). The database bounds it again under
+ * its lock; this only keeps the chooser honest. At least 1, so the database's
+ * own answer is what the inviter reads when the room is gone.
+ */
+export function privateSeatsChoosable(
+  maxPlayers: number,
+  entrants: number | null | undefined,
+  alreadyIn: boolean
+): number {
+  const most = privateSeatsHoldable(maxPlayers);
+  const taken = Math.floor(Number(entrants));
+  if (!Number.isFinite(taken) || taken < 0) return Math.max(1, most);
+  const room = Math.floor(Number(maxPlayers)) - taken - (alreadyIn ? 0 : 1);
+  return Math.max(1, Math.min(most, room));
 }
 
 function parseMs(raw: unknown): number | null {
@@ -125,6 +183,8 @@ export async function inviteToPrivateGame(
       ok: false,
       reason: String(res.reason ?? error?.message ?? 'private_game_refused'),
       created: false,
+      sitAndGo: false,
+      registered: false,
       hold: null,
     };
   }
@@ -133,6 +193,8 @@ export async function inviteToPrivateGame(
     ok: true,
     reason: null,
     created: res.created === true,
+    sitAndGo: res.sit_and_go === true,
+    registered: res.registered === true,
     hold: parsePrivateGameHold({ ...res, is_creator: true }, id),
   };
 }
@@ -191,6 +253,53 @@ export function privateGameInviteUrl(hold: {
   );
 }
 
+/**
+ * The link a Sit & Go's friends open: the tournament itself (a Sit & Go has no
+ * table before it starts), with the hold's token, through the same builder
+ * every tournament link uses (World Hub /t/<id>, which passes `invite` on).
+ */
+export function privateSitAndGoInviteUrl(hold: {
+  tournamentId: string;
+  inviteToken: string | null;
+  inviteCode?: string | null;
+}): string {
+  return tournamentShareUrl(hold.tournamentId, {
+    inviteCode: hold.inviteCode ?? null,
+    inviteToken: hold.inviteToken,
+  });
+}
+
+/*
+ * THE TOKEN A FRIEND ARRIVED WITH (2026-11-23). A Sit & Go is registered for
+ * from several surfaces (its page, the lobby card, the lobby panel), all
+ * through TournamentService.registerPlayer. The tournament page remembers the
+ * `?invite=` token it was opened with, so the registration asks
+ * fn_accept_private_game_invite with it before any money moves, whichever
+ * button the friend pressed. Session memory only: a token is never stored.
+ */
+const rememberedTokens = new Map<string, string>();
+
+export function rememberPrivateInviteToken(tournamentId: string, token: string | null): void {
+  if (!tournamentId) return;
+  if (token && TOKEN_RE.test(token)) {
+    if (rememberedTokens.size > 50) rememberedTokens.clear();
+    rememberedTokens.set(tournamentId, token);
+  }
+}
+
+export function privateInviteTokenFor(tournamentId: string): string | null {
+  return rememberedTokens.get(tournamentId) ?? null;
+}
+
+/** The database's entry guard refused a seat held for an invited friend. */
+export function isPrivateGameSeatHeldError(err: unknown): boolean {
+  const text =
+    err && typeof err === 'object'
+      ? `${String((err as { message?: unknown }).message ?? '')} ${String((err as { hint?: unknown }).hint ?? '')}`
+      : String(err ?? '');
+  return /PRIVATE_GAME_SEAT_HELD|private_game_seat_held/.test(text);
+}
+
 /** "9:41" until the hold ends; "0:00" once it has. */
 export function formatHoldRemaining(expiresAtMs: number | null, nowMs: number = Date.now()): string {
   if (expiresAtMs === null || !Number.isFinite(expiresAtMs)) return '0:00';
@@ -208,39 +317,69 @@ export function privateGameRefusalText(reason: string | null | undefined): strin
   if (/another_invite_is_holding/.test(r)) return 'Another Player Is Already Holding Seats In This Game';
   if (/no_open_seat/.test(r)) return 'There Is No Open Seat Left To Hold';
   if (/game_already_started/.test(r)) return 'This Game Has Already Started';
-  if (/format_not_supported/.test(r)) return 'Private Games Are Available For Spins And Heads Up Only';
+  if (/format_not_supported/.test(r))
+    return 'Seats Can Be Held For Spins, Heads Up And Sit N Gos Only';
   if (/insufficient|balance/.test(r)) return 'Not Enough Chips To Buy In';
   if (/table_limit_reached/.test(r)) return 'You Are Already Playing The Maximum Number Of Tables';
+  if (/already_registered/.test(r)) return 'You Are Already Registered For This Game';
+  if (/registration_closed|tournament_full/.test(r)) return 'This Game Is No Longer Taking Entries';
   if (/platform_frozen|daily_maintenance_window|spin_sng_closed_until_reopen/.test(r))
     return 'New Games Are Paused For Maintenance, Please Try Again Soon';
   if (/board_not_reproducible/.test(r)) return 'This Game Cannot Be Made Private, Please Share It Instead';
   return 'Could Not Start A Private Game, Please Try Again';
 }
 
-let engineSupportCache: { at: number; value: boolean } | null = null;
+interface EngineHoldSupport {
+  /** Spins and Heads Up (/health privateGameHolds). */
+  seatFirst: boolean;
+  /** Six and nine seat Sit & Gos (/health privateSitAndGoHolds). */
+  sitAndGo: boolean;
+}
 
-/**
- * Does the engine serving the tables honour held seats? Read from /health,
- * never inferred from this client or a database row. Unreadable is false: the
- * plain share link is offered instead.
- */
-export async function privateGameHoldsSupported(): Promise<boolean> {
+let engineSupportCache: { at: number; value: EngineHoldSupport } | null = null;
+
+/** The serving engine's answer, read from /health and kept for a minute. */
+async function engineHoldSupport(): Promise<EngineHoldSupport> {
   if (engineSupportCache && Date.now() - engineSupportCache.at < 60_000) return engineSupportCache.value;
   const base =
     import.meta.env.VITE_GAME_SERVER_URL ||
     (import.meta.env.PROD ? 'https://engine.smarter.poker' : 'http://localhost:8080');
-  let value = false;
+  let value: EngineHoldSupport = { seatFirst: false, sitAndGo: false };
   try {
     const response = await fetch(`${base}/health`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (response.ok) {
-      const health = (await response.json()) as { privateGameHolds?: unknown } | null;
-      value = health?.privateGameHolds === 1;
+      const health = (await response.json()) as {
+        privateGameHolds?: unknown;
+        privateSitAndGoHolds?: unknown;
+      } | null;
+      value = {
+        seatFirst: health?.privateGameHolds === 1,
+        sitAndGo: health?.privateSitAndGoHolds === 1,
+      };
     }
   } catch {
-    value = false;
+    value = { seatFirst: false, sitAndGo: false };
   }
   engineSupportCache = { at: Date.now(), value };
   return value;
+}
+
+/**
+ * Does the engine serving the tables honour held seats at a Spin or Heads Up?
+ * Read from /health, never inferred from this client or a database row.
+ * Unreadable is false: the plain share link is offered instead.
+ */
+export async function privateGameHoldsSupported(): Promise<boolean> {
+  return (await engineHoldSupport()).seatFirst;
+}
+
+/**
+ * Does it honour held seats in a six or nine seat Sit & Go? A separate answer:
+ * an engine with only the Spin and Heads Up half would register a horse into
+ * a Sit & Go seat held for a friend.
+ */
+export async function privateSitAndGoHoldsSupported(): Promise<boolean> {
+  return (await engineHoldSupport()).sitAndGo;
 }
 
 /** Test seam: forget the cached engine answer. */
