@@ -6719,6 +6719,59 @@ export const NLH_SCRIPTED_OPEN_JAMMER_CARDS: readonly LeagueMatchup[] = Object.f
 LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_OPEN_JAMMER_CARDS);
 
 /**
+ * NASH CALL VS TIGHT JAMMER RESPECT CARDS (2026-11-21, default OFF prototype).
+ *
+ * Isolates nashCallVsTightJammerRespect (arm A: true, arm B: unset/false, both
+ * with default-ON nashCallVsJam) against the 15bb tight/nut-only open-jammer
+ * harm control and against the 12bb/15bb realistic Nash open-jammer fields.
+ */
+export const NLH_SCRIPTED_TIGHT_JAMMER_RESPECT_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'nlh_nash_call_vs_tight_jammer_respect_vs_tight_15bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 15,
+    context: bigBlindAnteMttContext(6, 15),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_TIGHT_JAMMER_PERSONA,
+    a: { nashCallVsTightJammerRespect: true },
+    b: {},
+  },
+  {
+    name: 'nlh_nash_call_vs_tight_jammer_respect_vs_nash_12bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_NASH_OPEN_JAMMER_PERSONA,
+    a: { nashCallVsTightJammerRespect: true },
+    b: {},
+  },
+  {
+    name: 'nlh_nash_call_vs_tight_jammer_respect_vs_nash_15bb',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 15,
+    context: bigBlindAnteMttContext(6, 15),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    opponentPopulation: NLH_SCRIPTED_POPULATION_ID,
+    humanPersona: NLH_NASH_OPEN_JAMMER_PERSONA,
+    a: { nashCallVsTightJammerRespect: true },
+    b: {},
+  },
+]);
+LEAGUE_MATCHUPS.push(...NLH_SCRIPTED_TIGHT_JAMMER_RESPECT_CARDS);
+
+/**
  * THE SCRIPTED PLO8 HEADS-UP FIELD CARDS (2026-11-21, Heads Up lane).
  *
  * Non-mirror short-stack (12bb) PLO8 final-table heads-up cards for
