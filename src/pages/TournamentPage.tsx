@@ -89,6 +89,7 @@ import PageBar from '../components/help/PageBar';
 import { relayTournamentEvent } from '../services/tournamentEventBridge';
 import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
 import { gameInviteText, shareLink, tournamentShareUrl } from '../lib/share';
+import { useTournamentSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { ShareLinkFallback } from '../components/common/ShareLinkFallback';
 import { InviteLinkIcon } from '../components/table/TableMenuIcons';
 import { uuid } from '../utils/uuid';
@@ -210,9 +211,19 @@ export default function TournamentPage() {
     setInviteFallbackUrl('');
   }, [selectedTournament?.id]);
 
+  /* The invite link carries the sender's club code (2026-11-22), read when a
+     tournament is selected so the tap goes straight to the share sheet. */
+  const selectedInviteCode = useTournamentSenderInviteCode(
+    {
+      tournamentId: selectedTournament?.id,
+      clubId: selectedTournament?.club_id,
+      unionId: selectedTournament?.union_id,
+    },
+    user?.id
+  );
   const handleInviteSelectedTournament = useCallback(async () => {
     if (!selectedTournament?.id) return;
-    const url = tournamentShareUrl(selectedTournament.id);
+    const url = tournamentShareUrl(selectedTournament.id, { inviteCode: selectedInviteCode });
     setInviteFallbackUrl('');
     const outcome = await shareLink({
       source: 'TournamentPage.inviteToGame',
@@ -223,7 +234,7 @@ export default function TournamentPage() {
     if (outcome === 'copied') toast.success('Game Invite Link Copied');
     else if (outcome === 'shared') toast.success('Game Invite Link Shared');
     else if (outcome === 'failed') setInviteFallbackUrl(url);
-  }, [selectedTournament?.id, selectedTournament?.name, toast]);
+  }, [selectedTournament?.id, selectedTournament?.name, toast, selectedInviteCode]);
   const membershipRevision = useRef(0);
   const [isOwner, setIsOwner] = useState(false);
   const [isInUnion, setIsInUnion] = useState(false);
