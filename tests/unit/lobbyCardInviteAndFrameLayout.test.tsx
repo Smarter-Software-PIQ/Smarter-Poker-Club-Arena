@@ -141,7 +141,9 @@ describe('Lobby card Invite placement & layout contracts (SNG, Spin, MTT, Cash)'
       }
     }
 
-    // Clicking the plaque Invite shares the canonical /t/:id URL without opening the row.
+    // Clicking the plaque Invite shares the canonical /t/:id URL without opening the row,
+    // carrying the sender's club code (2026-11-22,
+    // tests/a-tournament-link-carries-the-club.law.test.ts).
     const compactPlaqueBtn = document.querySelector(
       '.compact-lobby tr[data-game-heading="sng-hu-2"] .lt-tournament-heading__guarantee [data-testid="lobby-invite-btn"]'
     ) as HTMLElement;
@@ -150,7 +152,7 @@ describe('Lobby card Invite placement & layout contracts (SNG, Spin, MTT, Cash)'
     await waitFor(() => {
       expect(shareMock.shareLink).toHaveBeenCalledTimes(1);
     });
-    expect(shareMock.shareLink.mock.calls[0][0].url).toMatch(/\/t\/sng-hu-2$/);
+    expect(shareMock.shareLink.mock.calls[0][0].url).toMatch(/\/t\/sng-hu-2\?i=ABC2345$/);
     expect(onSelect).not.toHaveBeenCalled();
   });
 

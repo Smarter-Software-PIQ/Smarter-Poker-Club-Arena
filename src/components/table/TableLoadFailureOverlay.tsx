@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { normalizeInviteCode, safeInviteNextPath } from '../../lib/inviteCode';
+import { clubInviteJoinPath } from '../../lib/inviteCode';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TableLoadFailureOverlay.css';
 
@@ -28,14 +28,10 @@ export function TableLoadFailureOverlay({
 }: TableLoadFailureOverlayProps) {
   const navigate = useNavigate();
   const missing = tableLoadFailure === 'missing';
-  const validInviteCode = normalizeInviteCode(inviteCode);
-  const safeReturn = safeInviteNextPath(returnPath);
-  const canJoinWithInvite = missing && Boolean(validInviteCode);
-  const joinDestination = validInviteCode
-    ? safeReturn
-      ? `/i/${validInviteCode}?next=${encodeURIComponent(safeReturn)}`
-      : `/i/${validInviteCode}`
-    : null;
+  /* The same detour a tournament link takes (clubInviteJoinPath): the club's
+     own join page, then back to this table. */
+  const joinDestination = clubInviteJoinPath(inviteCode, returnPath);
+  const canJoinWithInvite = missing && Boolean(joinDestination);
   const singleWayOut = missing && !canJoinWithInvite;
 
   return (

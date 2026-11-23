@@ -433,10 +433,24 @@ describe('COREGUARD end to end: committed action == the core receipt', () => {
       );
       expect(door.action).toBe(rec.action);
       expect(door.amount ?? null).toBe(rec.amount);
-      // one decision: no second look for a core decision
-      expect(
-        ServerTableEngineTurns.secondLookPlan(d, st.gs.toCall ?? 0, st.gs.pot, 2, 3000, 10000)
-      ).toEqual({ ok: false, reason: 'math_core_owned' });
+      // one decision: no second look for a core-owned decision; unpriced kept B3 turn/river decisions
+      // have owned: false (audit P0-2) so downstream safety doors retain full authority.
+      if (omahaMathCoreOwns(d)) {
+        expect(
+          ServerTableEngineTurns.secondLookPlan(d, st.gs.toCall ?? 0, st.gs.pot, 2, 3000, 10000)
+        ).toEqual({ ok: false, reason: 'math_core_owned' });
+      } else {
+        expect(rec.owned).toBe(false);
+        const slp = ServerTableEngineTurns.secondLookPlan(
+          d,
+          st.gs.toCall ?? 0,
+          st.gs.pot,
+          2,
+          3000,
+          10000
+        );
+        expect(slp.ok || slp.reason !== 'math_core_owned').toBe(true);
+      }
     }
     ms.sort((a, b) => a - b);
     const p = (q: number) => ms[Math.min(ms.length - 1, Math.floor(q * ms.length))];
@@ -533,7 +547,7 @@ describe('COREGUARD B1: authority withdrawal records the verdict, never reverts 
 
 describe('COREGUARD B2: one decision', () => {
   it('a core decision never gets a second look and a deep answer never replaces it; other decisions as before', () => {
-    const { st } = gen(SPECS.find((s) => s.street === 'turn' && s.facing)!);
+    const { st } = gen(SPECS.find((s) => s.street === 'flop' && s.facing)!);
     const d = decide(st, {
       omahaMathCore: true,
       ...OMAHA_MATH_CORE_ALL_STREETS,
@@ -728,7 +742,12 @@ describe('COREGUARD B5: the Lightning fold-through never re-asks a core fold', (
       });
       expect(b.action).toBe(a.action);
       expect(b.amount ?? null).toBe(a.amount ?? null);
-      expect(omahaMathCoreOwns(b)).toBe(true);
+      // Core-owned decisions stay owned; unpriced kept B3 turn/river decisions stay owned: false (audit P0-2)
+      if (spec.street === 'flop' || spec.street === 'preflop') {
+        expect(omahaMathCoreOwns(b)).toBe(true);
+      } else {
+        expect(omahaMathCoreOwns(b)).toBe(omahaMathCoreOwns(a));
+      }
     }
   }, 300_000);
 });
@@ -1022,7 +1041,7 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
           sane.push(`${tag}: receipt opponents ${recSeats} != ${liveSeats}`);
         // the decision is a priced candidate, or today's action kept because the core could not price it
         const chosen = c0.evs.find((e) => e.action === d.action);
-        if (c0.kept?.unpriced) keptUnpriced++;
+        if (c0.kept?.unpriced || c0.tables === 'b3-turn-river-hud') keptUnpriced++;
         else if (!chosen)
           sane.push(`${tag}: the decision ${d.action} is not among the priced candidates`);
         const winnable = gs.pot + others.reduce((a, p) => a + Math.min(p.stack, hero.stack), 0);
@@ -1052,8 +1071,12 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
         }
       }
       // the equity work of a decision is bounded call by call (lane CORE-FIX-1: every call takes the same draws for
-      // its range count, never sized by the work spent before it): calls x the largest per-call work up to k ranges
-      {
+      // its range count, never sized by the work spent before it): calls x the largest per-call work up to k ranges.
+      // B3 turn/river fast-path (audit P0-1) skips decideOmahaMathCore (0 wire work), so wire.work is checked on
+      // full-core decisions and counted as 0-work on b3-turn-river-hud fast-path receipts.
+      if (rec.core!.tables === 'b3-turn-river-hud') {
+        workChecked++;
+      } else {
         const wire = rec.core!.wire;
         const k = gs.players.filter((p) => p.seat !== hero.seat && !p.is_folded).length;
         // every receipt carries the units it spent: without the field the bound below would check nothing
@@ -1074,15 +1097,22 @@ describe('CORE-POOLED-6 property: every action the core emits is legal pot-limit
         }
       }
       // a river check that closes the action (the hero is last, everyone checked) is equity x the pot
-      {
-        const chk = rec.core!.evs.find((e) => e.action === 'check');
-        if (
-          spec.street === 'river' &&
-          facing <= 0.005 &&
-          hero.seat === spec.n &&
-          chk &&
-          chk.equity !== null
-        ) {
+      // (verified via standalone recovery/core when live incumbent takes the B3 fast-path)
+      if (spec.street === 'river' && facing <= 0.005 && hero.seat === spec.n) {
+        const riverEvs =
+          rec.core!.tables === 'b3-turn-river-hud'
+            ? (omahaMathCoreRule(
+                { action: 'check', thinkTime: 0 },
+                hero,
+                gs,
+                { omahaMathCore: true, ...OMAHA_MATH_CORE_ALL_STREETS },
+                (x) => omahaMathCoreExactLegalize(x, hero, gs),
+                undefined,
+                'none'
+              ).omahaMathCore?.core?.evs ?? [])
+            : rec.core!.evs;
+        const chk = riverEvs.find((e) => e.action === 'check');
+        if (chk && chk.equity !== null) {
           riverChecks++;
           const exact = chk.equity * gs.pot;
           riverCheckGap = Math.max(riverCheckGap, Math.abs(chk.ev - exact) / Math.max(1, gs.pot));

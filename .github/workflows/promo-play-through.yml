@@ -67,6 +67,7 @@ jobs:
             supabase/migrations/*_tournament_winnings_retain_original_*.sql
             supabase/migrations/*_promo_expiry_keeps_*.sql
             supabase/migrations/*_a_spin_fee_source_agrees_*.sql
+            supabase/migrations/*_a_refunded_entry_keeps_its_promo_*.sql
             scripts/ci/test-signup-promo-identity.py
             tests/fixtures/signup-promo-identity/**
             scripts/ci/test-promo-play-through.py

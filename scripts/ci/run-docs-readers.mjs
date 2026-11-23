@@ -28,6 +28,16 @@
 // resolve(ROOT, 'docs', 'a'). A path assembled any other way is invisible
 // here; write it as one of those.
 //
+// A test that sweeps docs a scanner cannot see (a walk from the repository
+// root, say) declares what it reads in a comment, one line per test file:
+//
+//   // @reads-docs: docs !docs/changelog
+//
+// Each entry is a docs/ path (or `docs` for the whole tree) the test reads; an
+// entry starting with ! is a path inside those that it skips. The declaration
+// is read even though comments are otherwise ignored: it is the one comment
+// that is about reading.
+//
 // "Could not tell" is not "nothing to run" (CLAUDE.md 10.86): when the changed
 // files cannot be read, the classifier admits every suite and this step has
 // nothing to add; when a test cannot be read, the step fails.
@@ -72,6 +82,34 @@ export function covers(literals, path) {
   return literals.some((l) => path === l || path.startsWith(`${l}/`));
 }
 
+const DECLARATION = /@reads-docs:[ \t]*([^\n]*)/g;
+const DECLARED_ENTRY = /^!?docs(?:\/[A-Za-z0-9_.@/-]+)?$/;
+
+/** The paths a source declares it reads and skips (see the header). */
+export function declaredDocs(rawSource) {
+  const reads = [];
+  const skips = [];
+  for (const m of String(rawSource).matchAll(DECLARATION)) {
+    for (const raw of m[1].replace(/\*\/.*$/, '').split(/[\s,]+/)) {
+      const entry = raw.replace(/\/+$/, '');
+      if (!DECLARED_ENTRY.test(entry)) continue;
+      if (entry.startsWith('!')) skips.push(entry.slice(1));
+      else reads.push(entry);
+    }
+  }
+  return { reads, skips };
+}
+
+/**
+ * Does a source read the changed path, by literal or by declaration? A path
+ * the source declares it skips is not read, even where a literal names it (a
+ * walker names the folders it skips in order to skip them).
+ */
+export function sourceReads(literals, declared, path) {
+  if (covers(declared.skips, path)) return false;
+  return covers(literals, path) || covers(declared.reads, path);
+}
+
 function readSource(root, file) {
   return readFileSync(resolve(root, file), 'utf8');
 }
@@ -92,10 +130,11 @@ export function readersOf(root, changedDocs, tests) {
   return tests.filter((test) => {
     const source = readSource(root, test);
     const literals = docsLiterals(source);
+    const declared = declaredDocs(source);
     for (const script of source.match(SCRIPT_LITERAL) || []) {
       literals.push(...literalsOfScript(script));
     }
-    return changedDocs.some((path) => covers(literals, path));
+    return changedDocs.some((path) => sourceReads(literals, declared, path));
   });
 }
 
