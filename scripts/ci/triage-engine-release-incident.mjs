@@ -165,7 +165,7 @@ async function runInspect() {
   const client = new Client({
     connectionString: url,
     connectionTimeoutMillis: 15_000,
-    statement_timeout: 15_000,
+    statement_timeout: 25_000,
   });
   try {
     await client.connect();
@@ -212,11 +212,10 @@ async function runInspect() {
     const inboxEvents =
       inboxIds.length > 0
         ? await safeSelect(
-            `SELECT id, source, alertname, severity, status, summary, received_at,
-                    investigation_status, investigation_note, payload
-               FROM public.operational_alert_events
-              WHERE id = ANY($1::bigint[])
-              ORDER BY id DESC
+            `SELECT to_jsonb(e) AS row
+               FROM public.operational_alert_events e
+              WHERE e.id = ANY($1::bigint[])
+              ORDER BY e.id DESC
               LIMIT 5`,
             [inboxIds]
           )
@@ -245,8 +244,16 @@ async function runInspect() {
            FROM smarter_private.ca_merged_migration_watch w
           WHERE w.installed_seen_at IS NULL
              OR w.retired_at IS NOT NULL
+             OR w.version IN ('20261123002808', '20261123024924', '20261123013136', '20261123071654')
           ORDER BY w.merged_at DESC
-          LIMIT 15`
+          LIMIT 20`
+      );
+      context.guardDefSnapshot = await safeSelect(
+        `SELECT to_jsonb(g) AS guard_row,
+                md5(pg_get_functiondef('public.fn_poker_diamond_tournament_unregister(uuid,uuid,uuid)'::regprocedure)) AS live_def_md5,
+                has_function_privilege('anon', 'public.fn_ca_closed_arena_finding_is_intended()', 'EXECUTE') AS closed_arena_anon_exec
+           FROM public.ca_guard_defs g
+          WHERE g.proname = 'fn_poker_diamond_tournament_unregister'`
       );
     }
     if (
@@ -290,6 +297,81 @@ async function runInspect() {
           ORDER BY q.period_end DESC, q.last_requested_at DESC
           LIMIT 10`
       );
+      const periodEnd = inc.scope?.period_end || '2026-11-23T08:00:00+00:00';
+      context.missingScopeCashOutcomesByGroup = await safeSelect(
+        `WITH missing AS (
+           SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at,
+                  o.evidence->>'status' AS ev_status,
+                  o.evidence->>'reason' AS ev_reason,
+                  t.club_id, t.union_id, t.game_type, t.name AS table_name,
+                  (t.lightning_cluster_id IS NOT NULL) AS is_lightning
+             FROM public.union_pnl_cash_outcomes o
+             LEFT JOIN public.tables t ON t.id = o.table_id
+            WHERE o.recognized_at >= ($1::timestamptz - interval '7 days')
+              AND o.recognized_at < $1::timestamptz
+              AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
+              AND NOT EXISTS (
+                SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
+                 WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
+              )
+         )
+         SELECT ev_status, ev_reason, is_lightning, game_type, union_id,
+                date_trunc('day', recognized_at) AS utc_day,
+                count(*) AS n,
+                count(DISTINCT table_id) AS tables,
+                min(recognized_at) AS first_at,
+                max(recognized_at) AS last_at
+           FROM missing
+          GROUP BY 1, 2, 3, 4, 5, 6
+          ORDER BY utc_day DESC, n DESC
+          LIMIT 30`,
+        [periodEnd]
+      );
+      context.missingScopeCashOutcomesSample = await safeSelect(
+        `SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at, o.game_scope,
+                o.evidence,
+                p.status AS prov_status, p.issues AS prov_issues, p.manifest_id,
+                (t.lightning_cluster_id IS NOT NULL) AS is_lightning, t.name AS table_name
+           FROM public.union_pnl_cash_outcomes o
+           LEFT JOIN public.cash_hand_provenance_receipts p
+             ON p.table_id = o.table_id AND p.hand_number = o.hand_number
+           LEFT JOIN public.tables t ON t.id = o.table_id
+          WHERE o.recognized_at >= ($1::timestamptz - interval '7 days')
+            AND o.recognized_at < $1::timestamptz
+            AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
+            AND NOT EXISTS (
+              SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
+               WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
+            )
+          ORDER BY o.recognized_at DESC
+          LIMIT 8`,
+        [periodEnd]
+      );
+      if (
+        Array.isArray(context.missingScopeCashOutcomesSample) &&
+        context.missingScopeCashOutcomesSample.length > 0
+      ) {
+        const firstSample = context.missingScopeCashOutcomesSample[0];
+        context.sampleLinkProofCheck = await safeSelect(
+          `SELECT table_id, hand_number,
+                  proof->>'status' AS proof_status,
+                  proof->>'reason' AS proof_reason,
+                  proof->'issues' AS proof_issues,
+                  proof->>'roster_source' AS roster_source,
+                  proof->'game_scope' AS proof_scope
+             FROM public.fn_union_pnl_prove_cash_outcome_links(
+                    $1::timestamptz - interval '30 seconds',
+                    $1::timestamptz + interval '30 seconds'
+                  )
+            WHERE table_id = $2::uuid AND hand_number = $3::bigint
+            LIMIT 3`,
+          [firstSample.recognized_at, firstSample.table_id, firstSample.hand_number]
+        );
+        context.sampleLightningProofCheck = await safeSelect(
+          `SELECT public.fn_lightning_original_pnl_proof($1::uuid, $2::bigint) AS proof`,
+          [firstSample.table_id, firstSample.hand_number]
+        );
+      }
     }
     const openDriftIncidents = await safeSelect(
       `SELECT to_jsonb(d) AS row
@@ -305,13 +387,16 @@ async function runInspect() {
         LIMIT 2`
     );
     const unpickedCriticalAlerts24h = await safeSelect(
-      `SELECT id, source, alertname, severity, status, summary, received_at, investigation_status
-         FROM public.operational_alert_events
-        WHERE received_at >= now() - interval '24 hours'
-          AND severity = 'critical'
-          AND (investigation_status IS NULL OR investigation_status NOT IN ('verified_fixed', 'informational'))
-        ORDER BY id DESC
-        LIMIT 20`
+      `SELECT e.id, e.source, e.alertname, e.severity, e.status, e.received_at,
+              e.investigation_status, e.investigation_note
+         FROM public.operational_alert_events e
+        WHERE (e.received_at >= now() - interval '24 hours'
+               AND e.severity = 'critical'
+               AND (e.investigation_status IS NULL
+                    OR e.investigation_status NOT IN ('verified_fixed', 'informational')))
+           OR e.id IN (447812, 447813, 447851, 447865, 447897)
+        ORDER BY e.id DESC
+        LIMIT 25`
     );
     console.log(
       JSON.stringify(
@@ -350,7 +435,7 @@ async function runClaim() {
   const client = new Client({
     connectionString: url,
     connectionTimeoutMillis: 15_000,
-    statement_timeout: 15_000,
+    statement_timeout: 25_000,
   });
   try {
     await client.connect();
