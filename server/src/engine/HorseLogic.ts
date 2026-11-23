@@ -1030,6 +1030,11 @@ import {
   priceHoldemTournamentOneCardFlushCall,
   type HoldemTournamentVillainRead,
 } from './HorseHoldemTournamentAggressionPriced.js';
+import {
+  priceV67RiverBetRaisedOnePair,
+  v67RiverBetRaisedOnePairIsPricedApplies,
+  type V67VillainRaiseProfile,
+} from './HorseV67RiverBetRaisedOnePairPriced.js';
 // V35 (2026-09-02): the games are different games — per-variant preflop width
 // and postflop temperament, one row per game. See HorseVariantProfile.ts.
 import { variantPostflopProfile, variantPreflopShift } from './HorseVariantProfile.js';
@@ -3461,6 +3466,12 @@ export interface HorseDecideOpts {
    * class calls or folds at that price (no 0.42 floor, no jam). Inside
    * V61's gates. Default on; explicit false keeps today's pricing. */
   v67RiverBetRaisedOnePair?: boolean;
+  /** v67RiverBetRaisedOnePairIsPriced (2026-11-22, Horse Switch lane, default OFF, read === true,
+   * dark in OPTION_SWITCH_REFUSED): deterministic EV-priced single-board 2-card NLH river
+   * replacement for all three v67RiverBetRaisedOnePair blanket sites (river raise stratum,
+   * river block-bet raised one-pair blanket fold, and v67Class/shade67 committed & V38 overrides).
+   * Independent of v67RiverBetRaisedOnePair; 100% bit-identical when unset or false. */
+  v67RiverBetRaisedOnePairIsPriced?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
   /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
@@ -24449,7 +24460,26 @@ export class HorseLogic {
     // won 12-19% of the time live. It replaces a V62 polar read for that
     // raiser. Same hand-class gate as the V67 call branch below.
     // Decoupled from v61RiverOnePairShade so V61 OFF never silently turns off V67.
+    // v67RiverBetRaisedOnePairIsPriced (default OFF, === true): suppresses Site 1's
+    // blanket raisePolar67 stratum override on single-board 2-card NLH rivers so the
+    // priced replacement is 100% independent of v67RiverBetRaisedOnePair.
+    const v67PricedSuppressStratum =
+      opts.v67RiverBetRaisedOnePairIsPriced === true &&
+      isRiver &&
+      facingBet &&
+      !vi.isOmaha &&
+      !vi.isPotLimit &&
+      !vi.isFixedLimit &&
+      !vi.isShortDeck &&
+      !vi.isHiLo &&
+      vi.holeCount === 2 &&
+      player.cards.length === 2 &&
+      gs.communityCards.length === 5 &&
+      extraBoards.length === 0 &&
+      gs.bombPot !== true &&
+      gs.allInOrFold !== true;
     if (
+      !v67PricedSuppressStratum &&
       (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
       isRiver &&
       facingBet &&
@@ -30950,6 +30980,106 @@ export class HorseLogic {
       }
     }
 
+    // ═══ V67 PRICED REPLACEMENT (2026-11-22, Horse Switch lane, DARK / DEFAULT OFF) ═══
+    // Read strictly as === true so unset/false produces 0 bytes of behavior change.
+    // Replaces Site 2 (block-bet raised blanket fold) and Site 3 (v67Class/shade67
+    // committed & V38 river overrides) deterministically, independent of v67RiverBetRaisedOnePair.
+    const v67PricedEligible =
+      opts.v67RiverBetRaisedOnePairIsPriced === true &&
+      v67RiverBetRaisedOnePairIsPricedApplies({
+        enabled: opts.v67RiverBetRaisedOnePairIsPriced,
+        isRiver,
+        raisedAfterAggr,
+        isOmaha: vi.isOmaha,
+        isPotLimit: vi.isPotLimit,
+        isFixedLimit: vi.isFixedLimit,
+        isShortDeck: vi.isShortDeck,
+        isHiLo: vi.isHiLo,
+        holeCount: vi.holeCount,
+        holeCardCount: player.cards.length,
+        boardLength: board.length,
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+        allInOrFold: gs.allInOrFold === true,
+        cat,
+        pairedBoard,
+        toCall,
+        pot,
+        heroStack: stack,
+      });
+    const decideV67Priced = (wasBlockBet: boolean, blockBetFrac?: number) => {
+      let raiserId: string | null = null;
+      for (const a of gs.actionHistory ?? []) {
+        if (
+          a.stage === 'river' &&
+          a.userId !== player.user_id &&
+          (a.action === 'raise' || a.action === 'all_in' || a.action === 'bet')
+        ) {
+          raiserId = a.userId;
+        }
+      }
+      if (!raiserId && opponents.length > 0) {
+        let topOpp = opponents[0];
+        for (const o of opponents) {
+          if ((o.bet ?? 0) > (topOpp.bet ?? 0)) topOpp = o;
+        }
+        raiserId = topOpp.user_id;
+      }
+      let villainProfile: V67VillainRaiseProfile = {
+        exploitCallDownMod: exploit.callDownMod,
+      };
+      if (useMind && raiserId) {
+        try {
+          const styleV67 = HorseMind.styleReadUncounted(raiserId);
+          const potBeforeV67 = Math.max(1e-9, pot - toCall);
+          const bucketV67 = styleV67?.signals.shownBySize[sizeBucketOf(toCall / potBeforeV67)];
+          const styleSizeShown =
+            bucketV67 && bucketV67.shown > 0
+              ? { shown: bucketV67.shown, strong: bucketV67.strong }
+              : null;
+          villainProfile = {
+            exploitCallDownMod: exploit.callDownMod,
+            styleSizeShown,
+            styleAggressionScore: styleV67?.aggression.score ?? 0,
+            styleBettingRangeScore: styleV67?.bettingRange.score ?? 0,
+            styleConfidence: styleV67?.confidenceCap ?? 0,
+          };
+        } catch {
+          villainProfile = { exploitCallDownMod: exploit.callDownMod };
+        }
+      }
+      const verdict = priceV67RiverBetRaisedOnePair({
+        pot,
+        toCall,
+        heroStack: stack,
+        hole: player.cards,
+        board,
+        cat,
+        oppCount,
+        callDeductionFraction: callDeductionFraction ?? rakeMarg,
+        sideGamePotOverlay: sidePost86?.postflopPotOverlayChips,
+        icmRisk: isTournamentMode(gs) && risk > 0 && stack > 0 ? risk : 0,
+        wasBlockBet,
+        blockBetFrac,
+        villain: villainProfile,
+      });
+      if (tele15) {
+        if (wasBlockBet) {
+          if (verdict.decision === 'call')
+            noteFire('v67_river_bet_raised_one_pair_priced_block_bet_call_taken');
+          else noteFire('v67_river_bet_raised_one_pair_priced_block_bet_fold_taken');
+        } else if (verdict.decision === 'call') {
+          noteFire('v67_river_bet_raised_one_pair_priced_call_taken');
+        } else {
+          noteFire('v67_river_bet_raised_one_pair_priced_fold_taken');
+        }
+      }
+      if (verdict.decision === 'call') {
+        return { action: 'call' as const, amount: toCall, thinkTime: 0 };
+      }
+      return { action: 'fold' as const, thinkTime: 0 };
+    };
+
     if (isV87Nlh && !planCallOnly23) {
       const potFracAfterPlan87 = toCall > 0 ? toCall / Math.max(1e-9, pot - toCall) : 0;
       // V87 Ecosystem #1: hero's small (<= 36% pot) river block bet was
@@ -31020,6 +31150,12 @@ export class HorseLogic {
             if (stack <= (pot + toCall) * 1.5)
               return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
             return this.raiseTo(planHandKey, currentBet + (pot + toCall) * 0.9, player, gs, vi);
+          }
+          // v67RiverBetRaisedOnePairIsPriced (dark): prices the raised river
+          // block-bet one-pair spot instead of the V67 fold below. Gated like
+          // that fold by the decoupled V87 block-balance sub-rule.
+          if (opts.v87RiverBlockBalance !== false && v67PricedEligible) {
+            return decideV67Priced(true, blockBetFrac87);
           }
           // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently gated.
           if (
@@ -31270,6 +31406,17 @@ export class HorseLogic {
     // BETS), in the committed branch and the V38 river verdict alike, and
     // the class calls or folds at that price: no 0.42 floor, no jam.
     // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently controllable.
+    // v67RiverBetRaisedOnePairIsPriced (default OFF, === true): replaces Site 3's
+    // v67Class / shade67 committed & V38 river overrides deterministically.
+    if (v67PricedEligible) {
+      const blockBetFrac67 = v87HeroRiverBlockBetFrac(
+        gs.actionHistory,
+        player.user_id,
+        gs.pot,
+        toCall
+      );
+      return decideV67Priced(blockBetFrac67 !== null, blockBetFrac67 ?? undefined);
+    }
     const v67Class =
       (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
       raisedAfterAggr &&
