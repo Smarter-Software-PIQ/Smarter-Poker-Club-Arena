@@ -1,0 +1,18 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOURNAMENT CLUB JOIN GATE - on the spade console (2026-11-22, #ClubArenaConsole)
+
+   The same chassis and sizing as the table's load-failure console
+   (TableLoadFailureOverlay.css), printed inline on the tournament page's
+   error state rather than over a table shell. Not a popup, so it carries no
+   popup class for metallic-popups.css to repaint. Nothing drawn; no :hover.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tournament-club-join-gate {
+  width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+.tournament-club-join-gate__body {
+  padding: 1cqw 1cqw 2cqw;
+  font-size: 3.8cqw;
+}

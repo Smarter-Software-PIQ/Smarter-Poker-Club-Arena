@@ -116,7 +116,9 @@ describe('an invite sent from a table names the game, not the chair', () => {
       ...extra,
     });
     expect(target).toEqual({ kind: 'tournament', id: TOURNAMENT, inviteCode: CLUB_CODE });
-    expect(gameInviteUrl(target, ORIGIN)).toBe(`${ORIGIN}/t/${TOURNAMENT}`);
+    // The tournament link carries the club code too (2026-11-22,
+    // tests/a-tournament-link-carries-the-club.law.test.ts).
+    expect(gameInviteUrl(target, ORIGIN)).toBe(`${ORIGIN}/t/${TOURNAMENT}?i=${CLUB_CODE}`);
   });
 
   it('a Heads Up seat held for a named player is the table with its token', () => {

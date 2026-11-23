@@ -48,6 +48,7 @@ import {
 
 import { useState, useEffect, useRef, memo } from 'react';
 import { gameInviteText, shareLink, tournamentShareUrl } from '../../lib/share';
+import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { InviteLinkIcon } from '../table/TableMenuIcons';
 /* Dan 2026-08-28: this card is the SatellitesTab of TournamentDetails, which
@@ -91,6 +92,9 @@ interface Tournament extends TournamentEntryWindowRow {
   break_ends_at?: string | null;
   id: string;
   name: string;
+  /** The hosting club and union, so Invite carries the sender's club code. */
+  club_id?: string | null;
+  union_id?: string | null;
   type: 'sng' | 'mtt' | 'satellite' | 'spin' | 'bounty' | 'pko' | 'mystery';
   /** The TOTAL a player pays, whole chips. Never the prize half on its own. */
   buyIn: number;
@@ -307,9 +311,17 @@ function TournamentLobbyCardInner({
     []
   );
 
+  /* The invite link carries the sender's club code (2026-11-22). Asked once
+     per club for the session, so a lobby of cards in one club asks once; the
+     lobby and the satellites hand the card its club. A card handed no club
+     reads nothing extra and shares the plain link. */
+  const inviteCode = useTournamentSenderInviteCode(
+    { clubId: tournament.club_id, unionId: tournament.union_id },
+    user?.id
+  );
   const handleInviteToTournament = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = tournamentShareUrl(tournament.id);
+    const url = tournamentShareUrl(tournament.id, { inviteCode });
     setInviteFallbackUrl('');
     void shareLink({
       source: 'TournamentLobbyCard.inviteToGame',

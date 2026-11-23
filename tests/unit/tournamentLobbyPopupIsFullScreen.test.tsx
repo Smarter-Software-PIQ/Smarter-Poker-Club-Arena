@@ -122,8 +122,8 @@ describe('the page inside the popup', () => {
       PAGE.indexOf('if (isLoading) {'),
       PAGE.indexOf('const shortDescription')
     );
-    // loading, failed to load, and not found
-    expect(loading.match(/\{closeButton\}/g)?.length).toBe(3);
+    // loading, failed to load, a shared link's club join (2026-11-22), and not found
+    expect(loading.match(/\{closeButton\}/g)?.length).toBe(4);
     expect(PAGE).toContain('aria-label="Close Tournament Lobby"');
   });
 
