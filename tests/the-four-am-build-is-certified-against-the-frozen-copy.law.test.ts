@@ -400,3 +400,99 @@ cat "$sum"`,
     expect(out).toContain(`FREEZE BASELINE \`${oldBaseline}\`: unselectable`);
   });
 });
+
+// O17 (2026-11-23): under the three-hourly cadence the 01:00 Chicago cycle
+// seals inside the freeze, so the serving engine can already contain the
+// night's baseline. The 04:00 selector only walks commits after the serving
+// release, so certifying such a baseline is a wasted soak on the one host.
+describe('O17: a freeze baseline the serving engine already contains is not owed', () => {
+  const plan = workflow.slice(workflow.indexOf('      - id: plan'));
+
+  function py(code: string): any {
+    const script = [
+      'import importlib.util, json',
+      'from datetime import datetime',
+      `spec = importlib.util.spec_from_file_location('b', ${JSON.stringify(join(ROOT, 'scripts/ci/backup-freeze-baseline.py'))})`,
+      'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)',
+      `clock = m.clock_of(open(${JSON.stringify(join(ROOT, 'scripts/ci/merged-migration-dispatch.mjs'))}).read(), open(${JSON.stringify(join(ROOT, 'scripts/ci/select-daily-engine.py'))}).read())`,
+      code,
+    ].join('\n');
+    return JSON.parse(execFileSync('python3', ['-c', script], { encoding: 'utf8' }));
+  }
+
+  it('answers served before reading any certificate or control selectability', () => {
+    const out = py(`
+now = datetime.fromisoformat('2026-11-23T07:10:00+00:00')
+base = 'b' * 40
+called = []
+verdict = m.decide(
+  now, clock, lambda u: base, lambda sha, st: called.append('certified') or False,
+  control_selectable=lambda b: called.append('control') or True,
+  served_contains=lambda b: True,
+)
+print(json.dumps({'verdict': verdict, 'called': called}))
+`);
+    expect(out.verdict).toEqual({
+      state: 'served',
+      baseline: 'b'.repeat(40),
+      freezeStart: '2026-11-23T05:45:00Z',
+    });
+    expect(out.called).toEqual([]);
+  });
+
+  it('a baseline the serving engine lacks, or an unreadable answer, plans exactly as before', () => {
+    for (const answer of ['False', 'None']) {
+      const out = py(`
+now = datetime.fromisoformat('2026-11-23T07:10:00+00:00')
+verdict = m.decide(now, clock, lambda u: 'b' * 40, lambda sha, st: False, served_contains=lambda b: ${answer})
+print(json.dumps(verdict))
+`);
+      expect(out.state, answer).toBe('due');
+    }
+    // The historical four-argument call still works and never asks.
+    expect(decide('2026-11-23T07:10:00Z').state).toBe('due');
+  });
+
+  it('replays tonight: c0706e2b3563 contains baseline 8d4a7ef726d9, 735299cd5fda does not', () => {
+    const out = py(`
+base = '8d4a7ef726d95ecd0424d56499800470bc5c7bf8'
+statuses = {'c0706e2b35631627a88dc26aec4bce830c3ec615': 'ahead', '735299cd5fda6b59c43d1379371d1a3dfb1a050f': 'behind'}
+def compare(b, h):
+    return statuses[h]
+def boom(b, h):
+    raise RuntimeError('HTTP 502')
+print(json.dumps({
+  'sealed_past': m.contains(base, 'c0706e2b35631627a88dc26aec4bce830c3ec615', compare),
+  'serving_older': m.contains(base, '735299cd5fda6b59c43d1379371d1a3dfb1a050f', compare),
+  'same': m.contains(base, base, boom),
+  'diverged': m.contains(base, 'c' * 40, lambda b, h: 'diverged'),
+  'odd_answer': m.contains(base, 'c' * 40, lambda b, h: 'weird'),
+  'unreadable_compare': m.contains(base, 'c' * 40, boom),
+  'unreadable_health': m.contains(base, None, compare),
+  'unreadable_url': m.serving_release('http://127.0.0.1:9/health', timeout=2),
+}))
+`);
+    expect(out).toEqual({
+      sealed_past: true,
+      serving_older: false,
+      same: true,
+      diverged: false,
+      odd_answer: null,
+      unreadable_compare: null,
+      unreadable_health: null,
+      unreadable_url: null,
+    });
+  });
+
+  it('is wired into main() read-only, and the plan job treats served as plan-as-before', () => {
+    expect(reader).toContain('served_contains=served_contains,');
+    expect(reader).toContain("HEALTH_URL = 'https://engine.smarter.poker/health'");
+    expect(reader).toContain("method='GET'");
+    expect(reader).toContain("/compare/{base}...{head}', '--jq', '.status'");
+    // The plan job acts only on due, claimed and unselectable.
+    expect(plan).toContain(
+      'if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then'
+    );
+    expect(plan).not.toContain('"$baseline_state" = served');
+  });
+});
