@@ -25,6 +25,7 @@ import {
   verifyCriteriaContent,
 } from '../../scripts/ops/grade-holdem-option-lib.mjs';
 import {
+  CONTROL_RUNNER_BODY,
   CONTROL_RUNNER_SOURCE,
   EXIT_OK,
   EXIT_REFUSED,
@@ -368,6 +369,44 @@ describe('Unified Holdem Grade Harness — system gate evaluator', () => {
     expect(foreignLock.ok).toBe(false);
     expect(foreignLock.failures.map((f: { code: string }) => f.code)).toContain(
       'LANE_LOCK_FOREIGN_OWNER'
+    );
+  });
+});
+
+describe('Unified Holdem Grade Harness — opt-in grading beside a push on a quiet host (2026-11-22)', () => {
+  it('36. with --max-load-while-push-locked a present lock passes only below that load; unset, it always refuses', () => {
+    const quiet = evaluateSystemGate(
+      makeCleanGateInput({ shepherdLockExists: true, load1m: 12, maxLoad1mWhilePushLocked: 16 })
+    );
+    expect(quiet.ok).toBe(true);
+    expect(quiet.checks.shepherdLock.allowedUnderLockBelowLoad).toBe(16);
+
+    const busy = evaluateSystemGate(
+      makeCleanGateInput({ shepherdLockExists: true, load1m: 16, maxLoad1mWhilePushLocked: 16 })
+    );
+    expect(busy.ok).toBe(false);
+    expect(busy.failures.map((f: { code: string }) => f.code)).toContain('SHEPHERD_LOCK_PRESENT');
+
+    // Default (unset) keeps the original rule even on an idle host.
+    const unset = evaluateSystemGate(makeCleanGateInput({ shepherdLockExists: true, load1m: 1 }));
+    expect(unset.ok).toBe(false);
+    expect(unset.failures.map((f: { code: string }) => f.code)).toContain('SHEPHERD_LOCK_PRESENT');
+
+    // A ceiling at or above the ordinary load ceiling, or not a positive number, is ignored (fail closed).
+    for (const bad of [35, 40, 0, -1, Number.NaN]) {
+      const g = evaluateSystemGate(
+        makeCleanGateInput({ shepherdLockExists: true, load1m: 1, maxLoad1mWhilePushLocked: bad })
+      );
+      expect(g.ok).toBe(false);
+      expect(g.checks.shepherdLock.allowedUnderLockBelowLoad).toBe(null);
+    }
+
+    // The ordinary load ceiling still applies with no lock present.
+    const noLockHigh = evaluateSystemGate(
+      makeCleanGateInput({ shepherdLockExists: false, load1m: 35, maxLoad1mWhilePushLocked: 16 })
+    );
+    expect(noLockHigh.failures.map((f: { code: string }) => f.code)).toContain(
+      'SYSTEM_LOAD_TOO_HIGH'
     );
   });
 });
@@ -1235,6 +1274,72 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     });
   });
 
+  it('37. --max-load-while-push-locked reaches the mid-run gate: a lock taken mid-grade on a quiet host does not abort', async () => {
+    const LOCK = '/locks/shepherd.lock';
+    const args = [
+      'run',
+      '--manifest=/grade/manifest.json',
+      `--criteria-sha=${CRITERIA_SHA}`,
+      '--out=/grade/out',
+      '--workdir=/repo',
+      `--shepherd-lock=${LOCK}`,
+      '--json',
+    ];
+    const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+    const runner = (vfs: ReturnType<typeof makeVirtualFs>) => {
+      let n = 0;
+      return ({ cell, seed }: { cell: { id: string; role: string }; seed: number }) => {
+        n += 1;
+        if (n === 1) vfs.files.set(resolve(LOCK), 'other lane pushing');
+        const rec = recordMap.get(`${cell.id}::${seed}`)!;
+        if (cell.role === 'CONTROL') {
+          return {
+            exitCode: 0,
+            stdout: `DEVRESULT ${JSON.stringify(rec)}\n`,
+            stderr: '',
+            command: 'nice ...',
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `RESULT_JSON ${JSON.stringify({ seed, pairs: 6000, engineRevision: GIT_HEAD, result: rec })}\n`,
+          stderr: '',
+          command: 'nice ...',
+        };
+      };
+    };
+    // Without the flag the lock aborts the grade (load is 8.5 in the virtual host).
+    const strict = makeVirtualFs({
+      '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+      '/grade/CRITERIA.md': CRITERIA_TEXT,
+    });
+    const strictRes = await runGradeCli(args, { ...strict.deps, runCellCommand: runner(strict) });
+    expect(strictRes.data.status).toBe('MIDRUN_GATE_ABORTED');
+
+    // With a ceiling above the load, the grade finishes and scores.
+    const quiet = makeVirtualFs({
+      '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+      '/grade/CRITERIA.md': CRITERIA_TEXT,
+    });
+    const quietRes = await runGradeCli([...args, '--max-load-while-push-locked=16'], {
+      ...quiet.deps,
+      runCellCommand: runner(quiet),
+    });
+    expect(quietRes.exitCode).toBe(EXIT_OK);
+    expect(quietRes.data.verdict).toBe('PASS');
+
+    // With a ceiling below the load, it aborts as before.
+    const busy = makeVirtualFs({
+      '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+      '/grade/CRITERIA.md': CRITERIA_TEXT,
+    });
+    const busyRes = await runGradeCli([...args, '--max-load-while-push-locked=8'], {
+      ...busy.deps,
+      runCellCommand: runner(busy),
+    });
+    expect(busyRes.data.status).toBe('MIDRUN_GATE_ABORTED');
+  });
+
   it('25. source security invariant: harness never reads .env, secrets, or mutates Supabase/switch tables', () => {
     const libSrc = readFileSync(
       resolve(__dirname, '../../scripts/ops/grade-holdem-option-lib.mjs'),
@@ -1258,6 +1363,21 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(cliSrc).toContain('src/scripts/horseLeagueCard.ts');
   });
 
+  it('38. CONTROL_RUNNER_SOURCE compiles as the CommonJS that `tsx -e` emits (no top-level await) and wraps the body', async () => {
+    const { transformSync } = await import('esbuild');
+    // tsx -e compiles eval input with esbuild to cjs; top-level await is a hard error there.
+    expect(() => transformSync(CONTROL_RUNNER_BODY, { loader: 'ts', format: 'cjs' })).toThrow(
+      /Top-level await/
+    );
+    expect(() =>
+      transformSync(CONTROL_RUNNER_SOURCE, { loader: 'ts', format: 'cjs' })
+    ).not.toThrow();
+    expect(CONTROL_RUNNER_SOURCE).toContain(CONTROL_RUNNER_BODY);
+    expect(CONTROL_RUNNER_SOURCE).toMatch(
+      /\.catch\(\(err\) => \{\s*console\.error\(err\);\s*process\.exit\(1\);/
+    );
+  });
+
   it('26. CONTROL_RUNNER_SOURCE resolves DEVELOPMENT_LEAGUE_CARDS and falls back cleanly when undefined', async () => {
     expect(CONTROL_RUNNER_SOURCE).toContain("await import('./src/benchmark/HorseLeague.js')");
     expect(CONTROL_RUNNER_SOURCE).toContain('HL.DEVELOPMENT_LEAGUE_CARDS ?? []');
@@ -1273,7 +1393,7 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     ) {
       const capturedLogs: string[] = [];
       let exitCode: number | null = null;
-      const rewritten = CONTROL_RUNNER_SOURCE.replace(
+      const rewritten = CONTROL_RUNNER_BODY.replace(
         /await import\((['"][^'"]+['"])\)/g,
         'await __import($1)'
       );
