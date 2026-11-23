@@ -17,8 +17,11 @@
  *     omahaPairedBoardBetIsPriced replays)
  *   - post-check stab:       `<s>.stab.{hu|mw}`
  *
- * Prove-it-to-bet guard: the proposed bet stands only when `evBet - evCheck > sampleSe + readSpread`;
- * otherwise the bet becomes a check. Deterministic, legal actions only, never reads unshown hole cards.
+ * Prove-it-to-CHECK guard: a proposed bet becomes a check only when checking is proven better beyond the
+ * uncertainty, `evCheck - evBet > sampleSe + readSpread`; otherwise the bet stands (`betStands: gap >= -proof`).
+ * A spot that cannot be priced (an opponent all in, an invalid stack or pot, no card-impact sample) is NOT
+ * decided here: the rule returns null and the legacy bet-or-check path of the site decides it (Turn 5b,
+ * 2026-11-22). Deterministic, legal actions only, never reads unshown hole cards.
  */
 import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
@@ -399,7 +402,8 @@ export function omahaMadeAndPairedBetMemoHeld(): boolean {
  * R5 rule application on a proposed turn/river wager in one of the covered spots (#19, #9, #10, #11,
  * paired-board river check): returns the kept wager if `evBet - evCheck >= -proof`, else a check.
  * Memoizes per decision `(player, gs, amount)` so overlapping river sites never re-run Monte Carlo
- * or emit duplicate receipts on the same decision. Null when option is off or out of scope.
+ * or emit duplicate receipts on the same decision. Null when the option is off, out of scope, or the
+ * spot cannot be priced: the caller's legacy path then decides (the bet is not kept by default).
  */
 export function omahaMadeAndPairedBetOnHisResponseRule(
   decision: HorseDecision,
@@ -423,21 +427,20 @@ export function omahaMadeAndPairedBetOnHisResponseRule(
       v = fin(amount) ? omahaMadeAndPairedBetOnHisResponseVerdict(player, gs, opts, amount) : null;
       if (fin(key)) r5DecisionMemo.byAmount.set(key, v);
     }
-    const fireOnce = (feature: string): void => {
-      if (tele && r5DecisionMemo && !r5DecisionMemo.receiptFired) {
-        r5DecisionMemo.receiptFired = true;
-        noteFire(feature);
-      }
-    };
+    // One receipt per decision (overlapping sites consult the same memo). Literal keys: the ledger
+    // contract finds each receipt by its noteFire call.
+    const fires = tele && !r5DecisionMemo.receiptFired;
+    if (fires) r5DecisionMemo.receiptFired = true;
     if (v === null) {
-      fireOnce('omaha_made_paired_bet_on_his_response_unpriced_kept');
-      return decision;
+      // Cannot be priced: not decided here. The caller's legacy bet-or-check path runs.
+      if (fires) noteFire('omaha_made_paired_bet_on_his_response_unpriced_legacy');
+      return null;
     }
     if (v.betStands) {
-      fireOnce('omaha_made_paired_bet_on_his_response_kept');
+      if (fires) noteFire('omaha_made_paired_bet_on_his_response_kept');
       return decision;
     }
-    fireOnce('omaha_made_paired_bet_on_his_response_checked');
+    if (fires) noteFire('omaha_made_paired_bet_on_his_response_checked');
     return checkedOf(decision);
   } catch {
     if (tele) noteFire('omaha_strategy_rule_failed');

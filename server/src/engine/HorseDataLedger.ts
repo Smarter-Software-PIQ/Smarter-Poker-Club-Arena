@@ -6457,9 +6457,9 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
-    'omaha_made_paired_bet_on_his_response_unpriced_kept',
+    'omaha_made_paired_bet_on_his_response_unpriced_legacy',
     'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
-    'the same spot could not be priced (an opponent all in, invalid stack/pot, no card-impact sample): the decision is kept',
+    'the same spot could not be priced (an opponent all in, invalid stack/pot, no card-impact sample): the rule does not decide and the legacy bet-or-check path of the site runs',
     'V94'
   ),
   receipt(
@@ -6768,6 +6768,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_semibluff_raise_priced_fold_measured',
     'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
     "the same site: the price read the opponent's own fold-to-raise record of this street (at least one opportunity), not the population figure alone",
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_owner_ruling_no_raise',
+    'HorseOmahaPricedWiring (omahaPricedSemiBluffRaise, omahaSemiBluffRaisePricedFinal; omahaSemiBluffRaiseIsPriced)',
+    'a PLO4/PLO5 cash flop decision facing a wager with the option on: the owner ruling of 2026-11-15 12:30 decides before any price (out of position, or in position without the combo draw: no semi-bluff raise is priced or made; a draw raise that came in barred by the ruling became the call)',
     'V94'
   ),
   receipt(
@@ -7092,6 +7098,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_turn_river_raise_in_lightning',
     'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule, omahaTurnRiverRaiseIsPricedInLightning)',
     'the turn/river raise comparison was priced in a Lightning pool because omahaTurnRiverRaiseIsPricedInLightning opened the pool to omahaTurnRiverRaiseIsPriced alone (omahaPricedInLightning off); fires alongside the omaha_priced_raise_* receipt',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_in_lightning_non_nut_no_raise',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule, omahaTurnRiverRaiseIsPricedInLightning)',
+    'a Lightning PLO4/PLO5 cash turn or river decision facing a wager with omahaTurnRiverRaiseIsPricedInLightning on: a raise proposed with a hand that is not nut class was not kept (owner ruling 2026-11-15 12:52); the price chose its call or fold (omaha_priced_raise_called / omaha_priced_raise_folded), and with no price it became the call',
     'V94'
   ),
   receipt(

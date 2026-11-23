@@ -13476,15 +13476,15 @@ function omahaMadeHandDefenseRules(
   if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
   if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
   const r5MadeOn = omahaMadeAndPairedBetsResponseInScope(player, gs, opts);
-  const noBetRaw = omahaBeatenNoBet(
-    flat.decision,
-    player,
-    gs,
-    defenseOn || vsValueLeader || r5MadeOn
-  );
-  // R5 omahaMadeAndPairedBetsArePricedOnHisResponse (default off): prices the #19 bet-or-check spot on lifetime HUD.
+  // The legacy #19 verdict, by its own switches alone: what decides when R5 is off, out of scope, or
+  // cannot price the spot (Turn 5b: R5 on never widens the legacy check to a spot its switches leave alone).
+  const noBetRaw = omahaBeatenNoBet(flat.decision, player, gs, defenseOn || vsValueLeader);
+  // R5 omahaMadeAndPairedBetsArePricedOnHisResponse (default off): prices the #19 bet-or-check spot on
+  // lifetime HUD, in the rule's spot whether or not the legacy switches are on.
   const r5NoBet =
-    r5MadeOn && noBetRaw.changed !== null
+    r5MadeOn &&
+    (noBetRaw.changed !== null ||
+      omahaBeatenNoBet(flat.decision, player, gs, true).changed !== null)
       ? omahaMadeAndPairedBetOnHisResponseRule(flat.decision, player, gs, opts)
       : null;
   // omahaMadeHandBetIsPriced (default off): in the rule's spot the wager is priced beside the

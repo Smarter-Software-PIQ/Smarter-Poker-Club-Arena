@@ -34,6 +34,7 @@ import {
   OMAHA_SEMIBLUFF_SIZE_MODEL_REF,
   omahaPricedSemiBluffRaise,
   omahaSemiBluffRaisePricedFinal,
+  omahaSemiBluffRaiseHandMayRaise,
 } from './HorseOmahaPricedWiring.js';
 import {
   omahaFlopEvCountsResetCache,
@@ -75,6 +76,15 @@ for (const hole of HOLES)
         if ((hole.match(/../g) ?? []).some((c) => used.has(c))) continue;
         SPOTS.push({ hole, board, potBefore, bet, inPosition });
       }
+/**
+ * Turn 5b (owner ruling 2026-11-15 12:30): the option prices a raise only with the combo draw IN POSITION.
+ * Combo draws (a flush draw with eight or more straight outs, below two pair) that today's brain calls with.
+ */
+const COMBO_IP: PricedSpot[] = [];
+for (const hole of ['ThJdJhQd5s', '2hTh2d5cJd', 'Th8dJhTc7s', '6hJc6dTc3h', 'ThJhJc5h9d'])
+  for (const [potBefore, bet] of BETS)
+    COMBO_IP.push({ hole, board: 'Qh9h3d', potBefore, bet, inPosition: true });
+const FLOP_SPOTS: PricedSpot[] = [...SPOTS.filter(isFlop), ...COMBO_IP];
 
 const told = (
   st: PricedState,
@@ -252,7 +262,7 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
   it('against a lifetime folder (HUD f.fRaise / t.fRaise) a call or a fold becomes the priced raise, legal, through the whole decision', () => {
     let yes = 0;
     let made = 0;
-    for (const s of SPOTS.filter(isFlop)) {
+    for (const s of FLOP_SPOTS) {
       const st = pricedSpot(s);
       for (const seed of [1, 2, 3]) {
         const on = told(st, ON, seed, (now) => hud(now, { fold: [400, 360] }));
@@ -261,6 +271,8 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
         legal(on);
         if (omahaNutClassNow(on.now.hero, on.now.gs)) expect(on.d.action).not.toBe('fold');
         if (!on.fires.includes('omaha_semibluff_raise_priced_raise')) continue;
+        // Turn 5b: a raise is priced only with the combo draw in position
+        expect(omahaSemiBluffRaiseHandMayRaise(on.now.hero, on.now.gs)).toBe(true);
         // a later LIVE rule may take the proven raise back (the turn nuts rule on its own pooled read, the bare
         // overpair flop check): then its receipt is there. Stated in the lane log; not this option's doing.
         if (!raised(on.d)) {
@@ -280,15 +292,13 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
     expect(made).toBeGreaterThan(0);
   });
 
-  it('the price moves with his lifetime record: folder above stranger above never-folder on semi-bluffs; a longer record needs less proof; his re-raise lowers it', () => {
+  it('the price moves with his lifetime record: a folder above a stranger on combo draws in position; a longer record needs less proof; his re-raise lowers it', () => {
     const on = { ...LIVE_OPTIONS, [OPTION]: true } as HorseDecideOpts;
     let moved = 0;
     let reraiseLowers = 0;
-    // Semi-bluff draw (KhJh5c4s2d) + combo draw (AhKhJcTc2s): on a semi-bluff, folding less lowers EV strictly;
-    // on a combo draw that is an equity favorite when called wide, a 0%-fold station can still raise value-jam EV.
-    for (const s of SPOTS.filter(
-      (x) => isFlop(x) && !x.inPosition && (x.hole === 'KhJh5c4s2d' || x.hole === 'AhKhJcTc2s')
-    )) {
+    // Combo draws in position (the only hands the rule prices since Turn 5b). On a combo draw that is an equity
+    // favorite when called wide, a 0%-fold station can still raise value-jam EV, so the never-folder is not compared.
+    for (const s of COMBO_IP) {
       const st = pricedSpot(s);
       const at = (r: Parameters<typeof hud>[1] | null) => {
         const now = st.fresh();
@@ -300,7 +310,6 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
       };
       const none = at(null);
       const folder = at({ fold: [400, 360] });
-      const never = at({ fold: [400, 0] });
       const short = at({ fold: [10, 9] });
       const mid = at({ fold: [40, 36] });
       // a record above the population re-raise figure (0.12 / 0.13): 30%
@@ -308,10 +317,6 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
       const wild = at({ fold: [400, 200], reraise: [400, 200] });
       const tame = at({ fold: [400, 200], reraise: [400, 0] });
       expect(folder.gap).toBeGreaterThan(none.gap);
-      if (s.hole === 'KhJh5c4s2d') {
-        expect(never.gap).toBeLessThanOrEqual(none.gap + 1e-6);
-        expect(short.gap).toBeGreaterThanOrEqual(none.gap - 1e-6);
-      }
       expect(short.gap).toBeLessThanOrEqual(folder.gap + 1e-6);
       // At the same empirical fold rate (90%), a longer record (n=400 vs n=40) needs strictly less proof
       if (Math.abs(folder.to - mid.to) < 0.01) expect(folder.proof).toBeLessThan(mid.proof);
@@ -351,7 +356,7 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
 
   it('a size cut to what a short opponent covers is never under the minimum raise (development run, PLO5 heads-up: raise to 191 with the minimum at 192)', () => {
     let raisedShort = 0;
-    for (const s of SPOTS.filter(isFlop)) {
+    for (const s of FLOP_SPOTS) {
       const st = pricedSpot(s);
       for (const seed of [1, 2]) {
         const on = told(st, ON, seed, (now) => {
@@ -444,7 +449,7 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
   it('THE WORK: R1 v2 uses zero omahaBigDrawEquities deals and reuses memoized omahaFlopEvCounts (at most 1 deal per decision)', () => {
     let priced = 0;
     let decisions = 0;
-    for (const s of SPOTS.filter(isFlop)) {
+    for (const s of FLOP_SPOTS) {
       const st = pricedSpot(s);
       for (const seed of [1, 2]) {
         omahaFlopEvCountsResetCache();
@@ -466,7 +471,7 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
     }
     expect(priced).toBeGreaterThan(0);
     // Direct consult: 0 omahaBigDrawEquities deals, and second consult hits FLOP_SAMPLES cache (0 additional deals)
-    for (const s of SPOTS.filter(isFlop).slice(0, 12)) {
+    for (const s of [...SPOTS.filter(isFlop).slice(0, 12), ...COMBO_IP.slice(0, 8)]) {
       const st = pricedSpot(s);
       const now = st.fresh();
       omahaFlopEvCountsResetCache();
@@ -527,7 +532,8 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
       board: 'Qh9h3d',
       potBefore: 100,
       bet: 50,
-      inPosition: false,
+      // Turn 5b: the rule prices only the combo draw in position
+      inPosition: true,
     });
     const firstBet = st.fresh();
     const facingRaise = st.fresh();
@@ -584,27 +590,45 @@ describe('omahaSemiBluffRaiseIsPriced', () => {
     }
   });
 
-  it('R1 v4 regression: omahaSemiBluffRaisePricedFinal withholds unproven legacy flop draw raises into calls when #06 is off, while keeping proven raises vs lifetime folders', () => {
-    const st = pricedSpot({
+  it('Turn 5b: omahaSemiBluffRaisePricedFinal turns a legacy flop draw raise the owner ruling bars into the call whatever his record (#06 on or off), and leaves a combo-draw raise in position as it came', () => {
+    const proposedRaise: HorseDecision = { action: 'raise', amount: 250, thinkTime: 0 };
+    // Out of position with a flush draw (omahaDrawRaiseBarOf === 'out_of_position'): never kept on price
+    const oop = pricedSpot({
       hole: 'KhJh5c4s2d',
       board: 'Qh9h3d',
       potBefore: 100,
       bet: 50,
       inPosition: false,
     });
-    const proposedRaise: HorseDecision = { action: 'raise', amount: 250, thinkTime: 0 };
-    // Unread villain (n=0): legacy flop draw raise is NOT proven profitable -> must be withheld to call
-    const unread = st.fresh();
+    const unread = oop.fresh();
     clearDecisionHud();
     const resUnread = omahaSemiBluffRaisePricedFinal(proposedRaise, unread.hero, unread.gs, ON);
     expect(resUnread.action).toBe('call');
     expect(resUnread.amount).toBe(50);
-
-    // Lifetime folder (90% f.fRaise, n=400): draw raise IS proven profitable -> raise stands
-    const folder = st.fresh();
+    // A lifetime folder (90% f.fRaise, n=400) changes nothing: the ruling is not priced
+    const folder = oop.fresh();
     hud(folder, { fold: [400, 360] });
     const resFolder = omahaSemiBluffRaisePricedFinal(proposedRaise, folder.hero, folder.gs, ON);
     clearDecisionHud();
-    expect(resFolder.action === 'raise' || resFolder.action === 'all_in').toBe(true);
+    expect(resFolder.action).toBe('call');
+    expect(resFolder.amount).toBe(50);
+    // In position with a bare flush draw: the same
+    const bareIp = pricedSpot({
+      hole: 'KhJh5c4s2d',
+      board: 'Qh9h3d',
+      potBefore: 100,
+      bet: 50,
+      inPosition: true,
+    }).fresh();
+    hud(bareIp, { fold: [400, 360] });
+    const resBare = omahaSemiBluffRaisePricedFinal(proposedRaise, bareIp.hero, bareIp.gs, ON);
+    clearDecisionHud();
+    expect(resBare.action).toBe('call');
+    // In position with the combo draw: the ruling allows the raise, it stands as it came
+    const comboIp = pricedSpot(COMBO_IP[1]!).fresh();
+    clearDecisionHud();
+    expect(omahaSemiBluffRaisePricedFinal(proposedRaise, comboIp.hero, comboIp.gs, ON)).toEqual(
+      proposedRaise
+    );
   });
 });

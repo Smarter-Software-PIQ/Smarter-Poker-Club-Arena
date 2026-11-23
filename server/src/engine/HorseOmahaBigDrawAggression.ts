@@ -504,6 +504,10 @@ let omahaBigDrawEquitiesMemo: {
   got: number[];
   won: number[];
 } | null = null;
+/** Forget the last sampled spot, so the next call deals its sample again (the memo law compares the two). */
+export function omahaBigDrawEquitiesMemoClear(): void {
+  omahaBigDrawEquitiesMemo = null;
+}
 let omahaBigDrawSampledRunCount = 0;
 /** How many times omahaBigDrawEquities has dealt its sample in this process (a law pins the work per decision). */
 export function omahaBigDrawSampledRuns(): number {

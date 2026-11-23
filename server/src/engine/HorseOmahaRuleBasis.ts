@@ -731,6 +731,10 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
     'scope',
     'receipt that omahaTurnRiverRaiseIsPricedInLightning opened a Lightning pool to omahaTurnRiverRaiseIsPriced alone'
   ),
+  omaha_turn_river_raise_in_lightning_non_nut_no_raise: exempt(
+    'scope',
+    'receipt that a non-nut raise was not kept in a Lightning pool opened by omahaTurnRiverRaiseIsPricedInLightning (owner ruling 2026-11-15 12:52)'
+  ),
   omaha_big_draw_bet_on_his_response_bet: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_withheld: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_final_check_unpriced: exempt(
@@ -739,15 +743,19 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   ),
   omaha_made_paired_bet_on_his_response_kept: CARD_IMPACT,
   omaha_made_paired_bet_on_his_response_checked: CARD_IMPACT,
-  omaha_made_paired_bet_on_his_response_unpriced_kept: exempt(
+  omaha_made_paired_bet_on_his_response_unpriced_legacy: exempt(
     'scope',
-    'R5 unpriced pass-through receipt when a turn/river made-hand or paired-board spot cannot be priced; keeps decision'
+    'R5 unpriced pass-through receipt when a turn/river made-hand or paired-board spot cannot be priced; the legacy bet-or-check path decides'
   ),
   omaha_semibluff_raise_priced_raise: FACING_BET_EV,
   omaha_semibluff_raise_priced_no_raise: FACING_BET_EV,
   omaha_semibluff_raise_priced_fold_measured: exempt(
     'input',
     'R1 telemetry note recording that the flop fold-to-raise rate came from a measured lifetime HUD record'
+  ),
+  omaha_semibluff_raise_priced_owner_ruling_no_raise: exempt(
+    'scope',
+    'R1 owner-ruling receipt (2026-11-15 12:30): out of position, or in position without the combo draw, no semi-bluff raise is priced or made'
   ),
   omaha_semibluff_raise_priced_unpriced_no_raise: exempt(
     'scope',
