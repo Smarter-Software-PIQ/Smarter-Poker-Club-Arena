@@ -1,0 +1,3 @@
+# tests/the-digest-big-diamond-moves-skip-certification-fixtures.law.test.ts
+
+The daily digest's `big_diamond_move` attention item listed the Table Studio commerce certification's 18,975 Diamond `adjustment` to a throwaway `@example.invalid` buyer (`Certbuy*`) every night from 2026-11-02 to 2026-11-04 (Production Alerts rows 331657, 339500, 348143). Migration 20261105174204 adds a guard to the `big_movements` filter in `fn_sp_daily_metrics_compute` that skips a row whose `auth.users` email ends in `.invalid`. The law pins the guard and its refusal of a missing anchor. It also checks that the guard never filters horses or a named player (CLAUDE.md 10.5) and moves no money, and that no later migration redefines the function without the guard.
