@@ -106,6 +106,10 @@ const HISTORY_PATHS = [
 const DATED = /(^|\/)\d{4}-\d{2}-\d{2}[-.]/;
 
 /** Every doc and script an agent in this repo might read or run. */
+// This walks every doc in the repository from its root, which no scanner can
+// see, so it declares what it reads for scripts/ci/run-docs-readers.mjs: a
+// docs-only pull request then runs it. The skips are HISTORY_PATHS below.
+// @reads-docs: docs !docs/_archive !docs/changelog !docs/handoffs
 function docsAndScripts(root: string): string[] {
   const SKIP = new Set([
     'node_modules',

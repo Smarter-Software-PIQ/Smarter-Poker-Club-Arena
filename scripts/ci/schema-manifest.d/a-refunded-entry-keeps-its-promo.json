@@ -1,0 +1,9 @@
+{
+  "_owner": "20261123000232_a_refunded_entry_keeps_its_promo_with_the_player.sql adds the restore owner and its receipts, and replaces the two existing live refund-return functions.",
+  "tables": ["ca_promo_refund_restore_receipts"],
+  "functions": [
+    "fn_ca_promo_restore_refunded_entry_cost",
+    "fn_ca_promo_return_refunded_principal",
+    "fn_ca_promo_return_spent_event_fee"
+  ]
+}

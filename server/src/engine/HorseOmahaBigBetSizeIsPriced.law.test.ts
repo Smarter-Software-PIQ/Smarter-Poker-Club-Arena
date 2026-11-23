@@ -304,6 +304,7 @@ describe('LAW: omahaBigBetSizeIsPriced replaces #18 omahaBigBetIsPotShare with c
       ['plo8', { gameVariant: 'plo8', heroCards: 'AsKsAdKd' }],
       ['holdem', { gameVariant: 'nlh', heroCards: 'AsKs' }],
       ['tournament', { gameVariant: 'plo4', gameMode: 'tournament' }],
+      ['missingMode', { gameVariant: 'plo4', gameMode: undefined }],
       ['multiBoard', { gameVariant: 'plo4', boardCount: 2 }],
       ['bombPot', { gameVariant: 'plo4', bombPot: true }],
       ['fixedLimit', { gameVariant: 'plo4', bettingStructure: 'fixed_limit' }],
@@ -311,6 +312,39 @@ describe('LAW: omahaBigBetSizeIsPriced replaces #18 omahaBigBetIsPotShare with c
     for (const [label, ov] of cases) {
       const { hero, gs } = buildLimpedRiverSpot(ov);
       expect(omahaBigBetSizeScope(hero, gs), label).toBeNull();
+    }
+  });
+
+  it('falls through untouched to omahaBigBetIsPotShare in out-of-scope games (tournaments, PLO6, bomb pot, multi-board) when both flags are ON', () => {
+    const outOfScope: Array<
+      [string, Partial<HorseGameStateV2> & { gameVariant?: string; heroCards?: string }]
+    > = [
+      ['plo4_tourney', { gameVariant: 'plo4', gameMode: 'tournament' }],
+      ['plo5_tourney', { gameVariant: 'plo5', gameMode: 'tournament', heroCards: 'AsKsAdKdQs' }],
+      ['plo6_cash', { gameVariant: 'plo6', gameMode: 'cash', heroCards: 'AsKsAdKdQsJs' }],
+      ['plo4_bomb_pot', { gameVariant: 'plo4', gameMode: 'cash', bombPot: true }],
+      ['plo4_multi_board', { gameVariant: 'plo4', gameMode: 'cash', boardCount: 2 }],
+    ];
+    for (const [label, ov] of outOfScope) {
+      const { hero, gs } = buildLimpedRiverSpot({ pot: 20, ...ov });
+      seedFastRandom(77);
+      const onlyPotShare = HorseLogic.decide(hero, gs, 'balanced', {} as never, {
+        observeMind: false,
+        telemetry: false,
+        omahaBigBetIsPotShare: true,
+        omahaBigBetSizeIsPriced: false,
+      });
+      seedFastRandom(77);
+      const bothOn = HorseLogic.decide(hero, gs, 'balanced', {} as never, {
+        observeMind: false,
+        telemetry: false,
+        omahaBigBetIsPotShare: true,
+        omahaBigBetSizeIsPriced: true,
+      });
+      expect({ action: bothOn.action, amount: bothOn.amount }, label).toEqual({
+        action: onlyPotShare.action,
+        amount: onlyPotShare.amount,
+      });
     }
   });
 
