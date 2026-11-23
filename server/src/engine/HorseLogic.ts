@@ -5218,7 +5218,7 @@ export interface HorseDecideOpts {
    *  spots holdemPersonaPostflop scales (flop range c-bet, turn takeaway, OOP flop check-trap, flop check-raise
    *  into a stabber) are decided by EV against the opponent's line range using measured live NLH empirical priors
    *  shrunk smoothly against opponent reads instead of a fixed or persona frequency; independent of
-   *  holdemPersonaPostflop (HorseHoldemPersonaPostflopIsPriced, holdemEmpiricalPriors). */
+   *  holdemPersonaPostflop (HorseHoldemPersonaPostflopIsPriced, measured NLH empirical prior module). */
   holdemPersonaPostflopIsPriced?: boolean;
   /** HOLD'EM PERSONA PREFLOP (2026-11-15, plan lines 85 and 152; module
    *  HorseHoldemPersonaPreflop). One option for the Hold'em persona's preflop
@@ -6043,7 +6043,7 @@ export interface HorseDecideOpts {
    * dark priced replacement for V87 river block-bet nut trap (lead + facing-raise sites) in
    * single-board 2-card NLH. Replaces hash-unit coin flips and blind 3-bets with deterministic EV
    * comparisons using pot/bet/stack/equity and measured NLH response curves from
-   * holdemEmpiricalPriors (HorseHoldemV87RiverBlockBetTrapIsPriced). Independent of
+   * the measured NLH empirical prior module (HorseHoldemV87RiverBlockBetTrapIsPriced). Independent of
    * v87RiverBlockBetTrap; zero PLO4/5/6 reach; bit-identical when OFF. */
   v87RiverBlockBetTrapIsPriced?: boolean;
   v87HollywoodTank?: boolean;
@@ -32974,7 +32974,7 @@ export class HorseLogic {
 
   /**
    * holdemPersonaPostflopIsPriced (V2 empirical priors, default off): whether one of the four V87 spots takes
-   * its action, by EV (HorseHoldemPersonaPostflopIsPriced + holdemEmpiricalPriors). `amount` is the site's wager
+   * its action, by EV (HorseHoldemPersonaPostflopIsPriced + the measured NLH empirical prior module). `amount` is the site's wager
    * at the midpoint of its own size mix, as the site would hand it to legalize (bet: the chips bet; check_raise:
    * the raise-to); unused for the trap, which prices the check against every priced bet size. Unpriceable (more
    * than one live opponent, no population cell, an empty range, an error): false, the spot is declined. Draws
