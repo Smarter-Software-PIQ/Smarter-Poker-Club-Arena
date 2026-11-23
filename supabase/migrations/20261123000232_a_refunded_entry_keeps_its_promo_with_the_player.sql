@@ -261,6 +261,13 @@ BEGIN
   RETURN total;
 END $$;
 
+-- CREATE OR REPLACE keeps the private grants both owners already had. They
+-- are restated so this file alone shows that no browser role can call them.
+REVOKE ALL ON FUNCTION public.fn_ca_promo_return_spent_event_fee(uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_return_refunded_principal(uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+
 -- Each new body runs once before COMMIT. With no matching refund the fee owner
 -- reads both of its sources and answers zero; the other two refuse by name.
 -- @probe-for: public.fn_ca_promo_restore_refunded_entry_cost

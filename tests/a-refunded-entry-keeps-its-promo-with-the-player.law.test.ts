@@ -113,6 +113,14 @@ describe('a refunded entry keeps its promo with the player', () => {
     expect(SQL).toContain(
       'REVOKE ALL ON FUNCTION public.fn_ca_promo_restore_refunded_entry_cost(uuid, text, numeric, uuid, uuid)'
     );
+    for (const owner of [
+      'fn_ca_promo_return_spent_event_fee',
+      'fn_ca_promo_return_refunded_principal',
+    ]) {
+      expect(SQL).toContain(
+        `REVOKE ALL ON FUNCTION public.${owner}(uuid)\n  FROM PUBLIC, anon, authenticated, service_role;`
+      );
+    }
   });
 
   it('keeps the real-database proof wired into the required promo workflow', () => {
