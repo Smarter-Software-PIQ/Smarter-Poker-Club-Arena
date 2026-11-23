@@ -6607,6 +6607,12 @@ export class GameServer {
          the private game only when the engine it plays on says so: a hold an
          older engine cannot see would be filled by its horses. */
       privateGameHolds: 1,
+      /* A SIT & GO HOLDS ITS FRIENDS' SEATS (2026-11-23). This engine's horse
+         fill registers no horse into a Sit & Go seat held for an invited
+         friend (registerHorses, privateGameHolds.ts). The client offers the
+         Sit & Go hold only when the engine serving the tables says so: an
+         engine that has only the Spin and Heads Up half would fill it. */
+      privateSitAndGoHolds: 1,
       // Public liveness comes from the worker-owned store. The main thread no
       // longer hydrates a second solver artifact whose status could look healthy
       // while the live action path was empty or failed.

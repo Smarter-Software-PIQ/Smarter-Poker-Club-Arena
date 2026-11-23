@@ -333,6 +333,8 @@ function TournamentLobbyCardInner({
         status: String(row.status ?? ''),
         variant: typeof row.variant === 'string' ? row.variant : null,
         max_players: Number(row.maxPlayers ?? row.max_players ?? 0),
+        format_contract: row.format_contract ?? row.formatContract,
+        current_players: Number(row.currentPlayers ?? row.current_players ?? NaN),
         started_at: typeof row.started_at === 'string' ? row.started_at : null,
         alreadySeated: isRegistered,
       })

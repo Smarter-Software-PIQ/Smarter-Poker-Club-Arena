@@ -128,7 +128,12 @@ describe('a refunded entry keeps its promo with the player', () => {
     expect(returns).toContain("label='promo-refunded-entry-keeps-promo'");
     expect(returns).toContain('actual-exact-entry-refund-keeps-promo-with-the-member');
     expect(returns).toContain('exact refund took promo away from the member or moved the fund');
-    expect(returns).toContain('kept=not closed and not cross');
+    // 20261123071237 widened what stays with the member; its own law pins the
+    // closed-grant and ticket treatments. The open-grant restore is still here.
+    expect(returns).toContain(
+      "treatment='fund' if cross or lapsed else 'successor' if lost else 'released' if closed else 'restore'"
+    );
+    expect(returns).toContain("kept=treatment=='restore'");
     const financial = read('scripts/ci/test-promo-tournament-earning-financial.py');
     expect(financial).toContain('refunded-entry-keeps-promo.sql');
     const fixture = read('tests/fixtures/promo-ticket-play-through/refunded-entry-keeps-promo.sql');

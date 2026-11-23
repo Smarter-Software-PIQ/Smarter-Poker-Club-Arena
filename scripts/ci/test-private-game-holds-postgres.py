@@ -2,9 +2,10 @@
 """A held seat is refused to anyone but its invited holder, on a real cluster.
 
 Installs, UNCHANGED from supabase/migrations, the Heads Up hold migration
-(20261122025900), the private game hold rule (20261123013126) and the window
-migration that attaches its entry guard (20261123013136), over the stand-in
-doors in scripts/ci/fixtures/private-game-holds/bootstrap.sql. Then, as real
+(20261122025900), the private game hold rule (20261123013126), the window
+migration that attaches its entry guard (20261123013136) and the Sit & Go
+door (20261123071654), over the stand-in doors in
+scripts/ci/fixtures/private-game-holds/bootstrap.sql. Then, as real
 authenticated sessions:
 
   * Invite To Game from outside a Heads Up that already holds a horse opens a
@@ -17,7 +18,16 @@ authenticated sessions:
     leaves, and is released by Cancel - each time the game is ordinary again;
   * a failed inviter buy-in leaves no game, no hold and no charge;
   * Specific Player at an empty Heads Up is the same hold;
-  * removing the trigger lets the stranger in: the trigger is the cause.
+  * a six or nine seat Sit & Go (20261123071654): the inviter is registered
+    through the normal registration door and up to seats - 1 seats are held
+    in place; horses fill only the unheld seats, the field stays short until
+    the friends register, a stranger and a horse are refused a held seat, the
+    hold ends on expiry, Cancel or the inviter unregistering (normal refund)
+    and the board fills as usual; no room, another inviter's hold, the daily
+    close and an unknown format are refused before any money moves;
+  * before 20261123071654 a Sit & Go invite was refused: that file is the cause;
+  * removing the trigger lets the stranger in: the trigger is the cause, for a
+    seat-first game and for a Sit & Go alike.
 
 Usage: python3 scripts/ci/test-private-game-holds-postgres.py [--pg-bin DIR]
 """
@@ -34,8 +44,10 @@ FILES = [
     MIG / '20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql',
     MIG / '20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql',
 ]
+SIT_AND_GO = MIG / '20261123071654_a_sit_and_go_holds_seats_for_invited_friends.sql'
 BOOT = ROOT / 'scripts/ci/fixtures/private-game-holds/bootstrap.sql'
 CLUB = '00000000-0000-4000-8000-0000000000c1'
+TARGET = '00000000-0000-4000-8000-0000000000a7'
 
 cluster = Path(tempfile.mkdtemp(prefix='private-holds-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='private-holds-sock-', dir='/tmp'))
@@ -123,6 +135,27 @@ try:
         q(f.read_text())
     ok(q("SELECT count(*) FROM pg_trigger WHERE tgname='trg_private_game_entry_guard'") == '1',
        'the three migrations install unchanged and attach the entry guard')
+
+    # RED WITHOUT THE SIT & GO DOOR: before 20261123071654 a Sit & Go is refused.
+    def sit_and_go(seats, fmt="'sng-v1'"):
+        tid = str(uuid.uuid4())
+        q(f"""INSERT INTO public.tournaments (id, club_id, union_id, name, game_type, variant, tournament_type, buy_in_amount,
+                buy_in_fee, guaranteed_prize, starting_chips, max_players, min_players, table_size, current_players, status,
+                blind_structure, payout_structure, start_time, late_reg_levels, late_reg_mins, satellite_target_id,
+                satellite_seats, format_contract)
+              VALUES ('{tid}', '{CLUB}', '{CLUB}', 'Satellite Into Nightly {seats}-Max SNG Satellite', 'nlh', 'sng', 'SNG', 9, 1,
+                0, 10000, {seats}, {seats}, {seats}, 0, 'REGISTERING', '[]', '[]', now() + interval '2 minutes', 0, 0,
+                '{TARGET}', 2, {fmt});""")
+        return tid
+
+    early = person()
+    pre = j(f"SELECT public.fn_invite_to_private_game('{sit_and_go(6)}', 2)", early)
+    ok(pre['ok'] is False and pre['reason'] == 'format_not_supported' and balance(early) == 100.0,
+       'RED WITHOUT THE FIX: before 20261123071654 Invite To Game refuses a six seat Sit & Go')
+    q(SIT_AND_GO.read_text())
+    ok(q("SELECT strpos(pg_get_functiondef('public.fn_invite_to_private_game(uuid,integer)'::regprocedure),"
+         " 'fn_register_for_tournament_request') > 0") == 't',
+       'the Sit & Go door installs unchanged over the three')
 
     inviter, friend, stranger, friend2 = person(), person(), person(), person()
     horse, horse2 = person(horse=True), person(horse=True)
@@ -269,10 +302,152 @@ try:
     q(f"UPDATE public.tournament_players SET chips = 5 WHERE tournament_id='{p7}'", None, 'postgres')
     ok(True, 'chip and status writes inside a held game pass the guard untouched')
 
+    # ── 10. A Sit & Go holds seats for invited friends (20261123071654) ──────
+    def entries(tid):
+        return int(q(f"SELECT count(*) FROM public.tournament_players WHERE tournament_id='{tid}'"
+                     " AND status IN ('registered', 'playing')"))
+
+    def register_sql(tid):
+        return f"SELECT public.fn_register_for_tournament_request('{tid}', gen_random_uuid())"
+
+    def register(tid, uid):
+        return j(register_sql(tid), uid)
+
+    def horse_entry(tid, horse):
+        return f"SELECT public.fn_register_horse_for_tournament('{tid}', '{horse}');"
+
+    def horse_in(tid, horse):
+        return psql(horse_entry(tid, horse), None, 'postgres', check=False).returncode == 0
+
+    def view(tid):
+        return j(f"SELECT public.fn_private_game_hold_view('{tid}')", None, 'postgres')
+
+    herd = [person(horse=True) for _ in range(30)]
+
+    def horses(n):
+        out = herd[:n]
+        del herd[:n]
+        return out
+
+    # 10a. Six seats, the inviter outside it, two friends.
+    six = sit_and_go(6)
+    inv, fa, fb, fc, strn = person(), person(), person(), person(), person()
+    res = j(f"SELECT public.fn_invite_to_private_game('{six}', 2)", inv)
+    ok(res['ok'] and res.get('sit_and_go') and res.get('registered') and res['created'] is False
+       and res['tournament_id'] == six and res['exclusive'] is False and res['seats_held'] == 2 and res['live'],
+       'a six seat Sit & Go: the inviter is registered and two seats are held in this same game')
+    ok(balance(inv) == 90.0 and entries(six) == 1,
+       'the inviter is charged exactly one buy-in, through the normal registration door')
+    tok6 = res['invite_token']
+    first = horses(4)
+    ok(all(horse_in(six, h) for h in first[:3]) and entries(six) == 4,
+       'horses fill the three unheld seats around the inviter')
+    ok(refused(horse_entry(six, first[3]), None, 'postgres'),
+       'a fourth horse is refused: a held seat is never given to a horse')
+    ok(refused(register_sql(six), strn) and balance(strn) == 100.0,
+       'a stranger is refused the held seat by the same line, and charged nothing')
+    ok(entries(six) == 4 and view(six)['held_open'] == 2,
+       'so the field stays at four of six: the game cannot start without the friends')
+    deny6 = j(f"SELECT public.fn_accept_private_game_invite('{six}', NULL)", strn)
+    ok(deny6['allowed'] is False and deny6['reason'] == 'private_game_seat_held',
+       'a stranger asking first is answered with the rule before any money moves')
+    a1 = j(f"SELECT public.fn_accept_private_game_invite('{six}', '{tok6}')", fa)
+    ok(a1['allowed'] and a1['admitted'] and register(six, fa)['ok'] and balance(fa) == 90.0,
+       'the first friend is admitted by the token and registers through the normal door, once')
+    ok(view(six)['held_open'] == 1 and view(six)['live'] is True, 'one seat is still held for the second friend')
+    j(f"SELECT public.fn_accept_private_game_invite('{six}', '{tok6}')", fb)
+    ok(register(six, fb)['ok'] and entries(six) == 6 and view(six)['outcome'] == 'fulfilled',
+       'the second friend takes the last held seat: every seat is taken, friends included, and the hold is over')
+    full6 = j(f"SELECT public.fn_accept_private_game_invite('{six}', '{tok6}')", fc)
+    ok(full6['allowed'] is True and full6['reserved'] is False and register(six, fc)['ok'] is False,
+       'after that the game is an ordinary full board: a third token holder meets the full field, not the hold')
+
+    # 10b. Nine seats, the inviter registered alone: up to eight friends.
+    nine = sit_and_go(9)
+    inv9 = person()
+    ok(register(nine, inv9)['ok'], 'an inviter can register first, as anyone does')
+    r9 = j(f"SELECT public.fn_invite_to_private_game('{nine}', 12)", inv9)
+    ok(r9['ok'] and r9['seats_held'] == 8 and r9.get('registered') is False and balance(inv9) == 90.0,
+       'a nine seat Sit & Go holds at most seats - 1 = 8, and nothing more is bought')
+    h9 = horses(2)
+    ok(refused(horse_entry(nine, h9[0]), None, 'postgres') and refused(register_sql(nine), strn),
+       'with every other seat held, a horse and a stranger are both refused')
+    c9 = j(f"SELECT public.fn_cancel_private_game_hold('{nine}')", inv9)
+    ok(c9['ok'] and view(nine)['outcome'] == 'cancelled', 'Cancel releases a Sit & Go hold')
+    ok(horse_in(nine, h9[0]) and horse_in(nine, h9[1]),
+       'and the board fills as usual again: horses take the seats that were held')
+
+    # 10c. Nine seats, a partial field: the hold is bounded by the open seats.
+    part = sit_and_go(9)
+    invp = person()
+    register(part, invp)
+    hp = horses(6)
+    ok(horse_in(part, hp[0]) and horse_in(part, hp[1]), 'two horses are already in')
+    rp = j(f"SELECT public.fn_invite_to_private_game('{part}', 5)", invp)
+    ok(rp['ok'] and rp['seats_held'] == 5, 'five friends are held beside them')
+    ok(horse_in(part, hp[2]) and refused(horse_entry(part, hp[3]), None, 'postgres') and entries(part) == 4,
+       'the one unheld seat fills; the five held seats do not')
+    age_hold(part, 12)
+    q(f"INSERT INTO public.engine_maintenance_thaws VALUES (now() - interval '6 minutes', 300)")
+    ok(view(part)['live'] is True and refused(horse_entry(part, hp[3]), None, 'postgres'),
+       'a cutover inside the hold is given back: the held seats are still kept')
+    q("DELETE FROM public.engine_maintenance_thaws")
+    ok(view(part)['outcome'] == 'expired', 'without the frozen time the ten minutes have run out')
+    ok(all(horse_in(part, h) for h in hp[3:6]) and entries(part) == 7,
+       'an expired hold falls back to the ordinary fill: horses take the seats that were held')
+
+    # 10d. The inviter unregisters: the normal refund, and the hold is gone.
+    six_u = sit_and_go(6)
+    invu = person()
+    j(f"SELECT public.fn_invite_to_private_game('{six_u}', 1)", invu)
+    un = j(f"SELECT public.fn_unregister_from_tournament('{six_u}')", invu)
+    ok(un['ok'] and balance(invu) == 100.0, 'the inviter can unregister and is refunded in full, once')
+    ok(view(six_u)['outcome'] == 'creator_left' and horse_in(six_u, horses(1)[0]),
+       'the hold ends with them and the game is an ordinary board again')
+
+    # 10e. Refused before any money moves.
+    crowded = sit_and_go(6)
+    for h in horses(5):
+        q(horse_entry(crowded, h), None, 'postgres')
+    out = person()
+    rc = j(f"SELECT public.fn_invite_to_private_game('{crowded}', 1)", out)
+    ok(rc['ok'] is False and rc['reason'] == 'no_open_seat' and balance(out) == 100.0
+       and entries(crowded) == 5 and q(f"SELECT count(*) FROM public.private_game_holds WHERE tournament_id='{crowded}'") == '0',
+       'a Sit & Go with no room for the inviter and a friend is refused, with no entry, no hold and no charge')
+    room = sit_and_go(6)
+    for h in horses(3):
+        q(horse_entry(room, h), None, 'postgres')
+    invr = person()
+    rr = j(f"SELECT public.fn_invite_to_private_game('{room}', 5)", invr)
+    ok(rr['ok'] and rr['seats_held'] == 2 and entries(room) == 4,
+       'from outside, the friends held are bounded by the room left after the inviter')
+    other = person()
+    ro = j(f"SELECT public.fn_invite_to_private_game('{room}', 1)", other)
+    ok(ro['ok'] is False and ro['reason'] == 'another_invite_is_holding' and balance(other) == 100.0,
+       'a second inviter is told another player is holding seats, before paying')
+    q("INSERT INTO public.fixture_knobs VALUES ('window', 'spin_sng_closed_until_reopen')")
+    rw = j(f"SELECT public.fn_invite_to_private_game('{sit_and_go(6)}', 1)", other)
+    ok(rw['ok'] is False and rw['reason'] == 'spin_sng_closed_until_reopen' and balance(other) == 100.0,
+       'no Sit & Go is entered through the invite inside the daily Spin and Sit & Go close')
+    q("DELETE FROM public.fixture_knobs")
+    for odd in (sit_and_go(10), sit_and_go(6, 'NULL')):
+        r = j(f"SELECT public.fn_invite_to_private_game('{odd}', 1)", other)
+        ok(r['ok'] is False and r['reason'] == 'format_not_supported' and balance(other) == 100.0,
+           'a field outside four to nine seats, or with no persisted sng-v1 format, is not offered')
+
+    # A held Sit & Go seat for the red case below: every unheld seat taken.
+    red = sit_and_go(6)
+    invx = person()
+    register(red, invx)
+    j(f"SELECT public.fn_invite_to_private_game('{red}', 5)", invx)
+    ok(refused(register_sql(red), strn), 'with the trigger attached a stranger cannot register into a held Sit & Go seat')
+
     # ── 9. The trigger is the cause: remove it and the stranger gets in ──────
     q("DROP TRIGGER trg_private_game_entry_guard ON public.tournament_players")
     ok(j(f"SELECT public.fn_take_seat_and_buy_in('{t7}', 2)", stranger)['ok'] is True,
        'RED WITHOUT THE FIX: with the trigger removed a stranger takes the held seat')
+    ok(register(red, strn)['ok'] is True and horse_in(red, horses(1)[0]),
+       'RED WITHOUT THE FIX: and a stranger and a horse take held Sit & Go seats')
     print(f'ALL {passed} CHECKS PASSED', flush=True)
 finally:
     if started:

@@ -86,6 +86,8 @@ import { isFixedBoardClub } from '../config/fixedBoard.js';
 import {
   PrivateGameHoldReader,
   PRIVATE_GAME_HOLD_UNKNOWN_RETRY_MS,
+  sitAndGoCanHoldSeats,
+  sitAndGoHorseRoom,
 } from './privateGameHolds.js';
 import {
   FREE_BUY_BOARD_NAMES,
@@ -7683,6 +7685,46 @@ export class TournamentRecurringService {
         );
         return 0;
       }
+      /* A SEAT HELD FOR AN INVITED FRIEND IN A SIT & GO (2026-11-23). Invite
+         To Game holds seats in place in a six or nine seat Sit & Go
+         (20261123071654, privateGameHolds.ts). Every horse entry into one
+         passes here - the past-start top-up, the fixed satellites' tick, the
+         overlay guard - so this is where the fill is told: horses take only
+         the seats that are neither taken nor held, and none at all when that
+         is none, so the field stays short and its start waits for the
+         friends. Read before the union's daily horse plan below, so a board
+         whose open seats are all held does not spend a plan slot. The rule is
+         the database's (fn_private_game_entry_refusal); a horse waits for it
+         exactly as a person without the invite does. An unreadable answer
+         registers nobody this pass and is asked again on the next. */
+      if (sitAndGoCanHoldSeats(entryEvent)) {
+        const held = await this.privateGameHolds.heldSeats(tournamentId);
+        if (held === null) return 0;
+        if (held.heldOpen > 0) {
+          const room = sitAndGoHorseRoom({
+            maxPlayers: Number(entryEvent.max_players),
+            entrants: Number(entryEvent.current_players),
+            heldOpen: held.heldOpen,
+            requested: count,
+          });
+          if (room <= 0) {
+            /* A deliberate wait, not an empty pool: the past-start top-up
+               reads it through seatFirstPartnerHoldUntil and does not back
+               the board off or report it as unfillable. */
+            if (this.partnerHolds.get(tournamentId) !== held.untilMs) {
+              if (this.partnerHolds.size > 500) this.partnerHolds.clear();
+              this.partnerHolds.set(tournamentId, held.untilMs);
+              console.log(
+                `[TournamentRecurring] invite hold: Sit & Go ${tournamentId.slice(0, 8)} keeps ${held.heldOpen} held seat(s) for invited friends until ${new Date(held.untilMs).toISOString()}; no horse takes them`
+              );
+            }
+            return 0;
+          }
+          count = room;
+        } else {
+          this.partnerHolds.delete(tournamentId);
+        }
+      }
       if (entryEvent.format_contract === 'sng-v1' && isFixedSngSatellite(entryEvent)) {
         const { data: plan, error: planError } = await supabase.rpc(
           'fn_sng_satellite_horse_fill_plan',
@@ -8277,6 +8319,10 @@ export class TournamentRecurringService {
           if (capRefusal) console.warn(capRefusal);
           failures.set(regError.message, (failures.get(regError.message) || 0) + 1);
           this.horseEntryBackoff.refused(tournamentId, horse.id);
+          /* The entry guard refused a seat held for an invited friend: the
+             race between the hold read above and this call. Every later horse
+             would hear the same rule, so the pass stops here. */
+          if (String(regError.message ?? '').includes('PRIVATE_GAME_SEAT_HELD')) break;
           // The database did not answer: every further call would be one more
           // request queued on a pool that is not serving. The next pass asks.
           if (databaseDidNotAnswer(regError)) {

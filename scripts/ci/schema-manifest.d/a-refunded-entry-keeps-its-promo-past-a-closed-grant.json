@@ -1,0 +1,24 @@
+{
+  "_owner": "20261123071237_a_refunded_entry_keeps_its_promo_on_a_ticket_and_past_a_clos.sql adds the keep receipts and the successor-grant owner, and replaces the existing restore owner and returned-ticket owner (both already listed by their own fragments).",
+  "tables": ["ca_promo_refund_keep_receipts"],
+  "functions": ["fn_ca_promo_refund_successor_grant"],
+  "columns": {
+    "ca_promo_refund_keep_receipts": [
+      "id",
+      "grant_id",
+      "operation_ref",
+      "treatment",
+      "grant_close_reason",
+      "entitlement_id",
+      "ledger_id",
+      "ticket_id",
+      "successor_grant_id",
+      "holder_club_id",
+      "user_id",
+      "fee_amount",
+      "loss_amount",
+      "amount",
+      "created_at"
+    ]
+  }
+}
