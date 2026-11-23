@@ -41,6 +41,11 @@ prize-pool legs shown. If it cannot be read the line keeps "A Prize Pool".
 Any other `reversal`, and any category nobody has mapped, prints exactly as
 before.
 
+`tests/components/TransactionHistoryRefresh.test.tsx` pinned that the page
+makes no table read at all. It now pins what it was written for: movements
+come only from the journal RPC, and the single table the page may read is
+`tournaments`, for a name.
+
 ## Decided not to do
 
 - **No grouping.** The statement has no collapse pattern and its footer
