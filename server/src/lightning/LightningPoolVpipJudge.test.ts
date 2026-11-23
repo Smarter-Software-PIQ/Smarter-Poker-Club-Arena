@@ -408,6 +408,164 @@ describe('LightningPoolVpipJudge rolling 30/10/25% state machine', () => {
     expect(replay.hands).toBe(1);
   });
 
+  it('delayed pre-warning fast-folded hands settling after warning opens never consume post-warning recovery grace', () => {
+    const judge = new LightningPoolVpipJudge({ enabled: () => true });
+    // Player fast-folds hand #2 and #4 (slow river pots), while hands #1, #3, #5..#12 settle first.
+    const initialSettleOrder = [1, 3, 5, 6, 7, 8, 9, 10, 11, 12];
+    let opened = null;
+    for (const h of initialSettleOrder) {
+      opened = judge.recordHand({
+        clusterId: CLUSTER_A,
+        poolSessionId: 's-delayed-grace',
+        playerId: 'p1',
+        handNumber: h,
+        hadOpportunity: true,
+        entered: false,
+        policy,
+      });
+    }
+    expect(opened?.verdict).toBe('warn');
+    expect(opened?.warningOpened).toBe(true);
+    expect(opened?.graceRemaining).toBe(10);
+
+    // Delayed pre-warning fast-fold hand #2 settles immediately after the warning opens.
+    // It enters the rolling window (11 hands) but MUST NOT eat any of the 10 post-warning grace hands.
+    const lateHand2 = judge.recordHand({
+      clusterId: CLUSTER_A,
+      poolSessionId: 's-delayed-grace',
+      playerId: 'p1',
+      handNumber: 2,
+      hadOpportunity: true,
+      entered: false,
+      policy,
+    });
+    expect(lateHand2.verdict).toBe('warn');
+    expect(lateHand2.warningOpened).toBe(false);
+    expect(lateHand2.hands).toBe(11);
+    expect(lateHand2.graceRemaining).toBe(10);
+
+    // 9 genuine post-warning hands (#13..#21) elapse -> 1 grace hand must remain.
+    for (let h = 13; h <= 21; h++) {
+      const r = judge.recordHand({
+        clusterId: CLUSTER_A,
+        poolSessionId: 's-delayed-grace',
+        playerId: 'p1',
+        handNumber: h,
+        hadOpportunity: true,
+        entered: false,
+        policy,
+      });
+      expect(r.verdict).toBe('warn');
+      expect(r.graceRemaining).toBe(22 - h);
+      expect(r.evictPending).toBe(false);
+    }
+
+    // Another delayed pre-warning fast-fold hand #4 settles with only 1 grace hand left.
+    // Still MUST NOT trigger eviction early!
+    const lateHand4 = judge.recordHand({
+      clusterId: CLUSTER_A,
+      poolSessionId: 's-delayed-grace',
+      playerId: 'p1',
+      handNumber: 4,
+      hadOpportunity: true,
+      entered: false,
+      policy,
+    });
+    expect(lateHand4.verdict).toBe('warn');
+    expect(lateHand4.graceRemaining).toBe(1);
+    expect(lateHand4.evictPending).toBe(false);
+
+    // Only the 10th genuine post-warning hand (#22) exhausts recovery grace and triggers eviction.
+    const tenthPostWarning = judge.recordHand({
+      clusterId: CLUSTER_A,
+      poolSessionId: 's-delayed-grace',
+      playerId: 'p1',
+      handNumber: 22,
+      hadOpportunity: true,
+      entered: false,
+      policy,
+    });
+    expect(tenthPostWarning.verdict).toBe('evict');
+    expect(tenthPostWarning.graceRemaining).toBe(0);
+    expect(tenthPostWarning.evictPending).toBe(true);
+  });
+
+  it('uses the highest settled hand number when a delayed hand opens the warning, and ignores out-of-window stragglers', () => {
+    const judge = new LightningPoolVpipJudge({ enabled: () => true });
+    // Hands 1..9 except 2, plus hand 12 (9 hands total -> still in initial grace).
+    for (const h of [1, 3, 4, 5, 6, 7, 8, 9, 12]) {
+      const r = judge.recordHand({
+        clusterId: CLUSTER_A,
+        poolSessionId: 's-watermark',
+        playerId: 'p1',
+        handNumber: h,
+        hadOpportunity: true,
+        entered: false,
+        policy,
+      });
+      expect(r.verdict).toBe('grace');
+    }
+    // Hand 10 settles as the 10th eligible hand and opens the warning while hand 12 is already settled.
+    const open = judge.recordHand({
+      clusterId: CLUSTER_A,
+      poolSessionId: 's-watermark',
+      playerId: 'p1',
+      handNumber: 10,
+      hadOpportunity: true,
+      entered: false,
+      policy,
+    });
+    expect(open.verdict).toBe('warn');
+    expect(open.warningOpened).toBe(true);
+    expect(open.graceRemaining).toBe(10);
+
+    // Hand 11 was dealt BEFORE hand 12 (before the warning opened), so settling late must NOT eat grace.
+    const lateHand11 = judge.recordHand({
+      clusterId: CLUSTER_A,
+      poolSessionId: 's-watermark',
+      playerId: 'p1',
+      handNumber: 11,
+      hadOpportunity: true,
+      entered: false,
+      policy,
+    });
+    expect(lateHand11.verdict).toBe('warn');
+    expect(lateHand11.graceRemaining).toBe(10);
+
+    // Out-of-window straggler test: fill a fresh 30-hand rolling window (hands #11..#40) with 7 VPIPs.
+    const vpipHands = new Set([11, 12, 13, 14, 16, 20, 24]);
+    for (let h = 11; h <= 40; h++) {
+      judge.recordHand({
+        clusterId: CLUSTER_A,
+        poolSessionId: 's-old-window',
+        playerId: 'p2',
+        handNumber: h,
+        hadOpportunity: true,
+        entered: vpipHands.has(h),
+        policy,
+      });
+    }
+    const beforeStraggler = judge.getStatus('s-old-window', policy)!;
+    expect(beforeStraggler.hands).toBe(30);
+    expect(beforeStraggler.totalEligibleHands).toBe(30);
+    expect(beforeStraggler.warned).toBe(true);
+
+    // Delayed hand #5 is older than the entire 30-hand rolling window (#11..#40) and immediately shifts out:
+    // neither totalEligibleHands nor graceRemaining may move.
+    const straggler = judge.recordHand({
+      clusterId: CLUSTER_A,
+      poolSessionId: 's-old-window',
+      playerId: 'p2',
+      handNumber: 5,
+      hadOpportunity: true,
+      entered: false,
+      policy,
+    });
+    expect(straggler.hands).toBe(30);
+    expect(straggler.totalEligibleHands).toBe(beforeStraggler.totalEligibleHands);
+    expect(straggler.graceRemaining).toBe(beforeStraggler.graceRemaining);
+  });
+
   it('handles deferred evictions without burning retry budget and caps failed attempts', async () => {
     const outcomes: Array<'deferred' | 'failed' | 'evicted'> = [
       'deferred',

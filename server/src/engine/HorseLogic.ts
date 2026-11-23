@@ -182,6 +182,11 @@ import {
   plo6PairedRiverBetPriced,
   type Plo6FacingBetPricedVerdict,
 } from './HorsePlo6FacingBetIsPriced.js';
+import {
+  plo6FacingBetPricedV2,
+  plo6FacingBetPricedV2Scope,
+  type Plo6FacingBetPricedV2Verdict,
+} from './HorsePlo6FacingBetPricedV2.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
 import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
@@ -5030,6 +5035,13 @@ export interface HorseDecideOpts {
    *  HorseGtoDefenceRanges, HorseNlhOpenSize). Default on; false = the prior
    *  ranges and sizes, kept for the paired league. No-limit hold'em cash only. */
   v85CashAction?: boolean;
+  /** Default-off cash cold-call trim (2026-11-21): on no-limit hold'em cash
+   *  tables facing one open under V72/V85/V87, preserve V85/V87 3-bet widths
+   *  (valueBar, bluffProb), V85 opens, and heads-up / late-open BB defends,
+   *  while restoring per-player-behind IP cold-call discipline and removing
+   *  double-stacked V85+V87 multiway/low-stakes continueBar widening. Default
+   *  off (read === true); tournaments and unset/false are byte-identical. */
+  cashDefenceTrimColdCalls?: boolean;
   /** V87 (2026-11-10): all-hands human-vs-Horse deep-dive discipline building
    *  on V86 across PLO4/PLO5/PLO6 multiway preflop & 5/6-card hand classes,
    *  PLO6 big-bet call discipline, Omaha bet-raised commitment/shade,
@@ -5497,6 +5509,13 @@ export interface HorseDecideOpts {
    * is the priced fold, call or raise. Off: every decision as before.
    */
   plo6FacingBetIsPriced?: boolean;
+  /**
+   * plo6FacingBetIsPricedV2 (prototype, default OFF, read `=== true`;
+   * HorsePlo6FacingBetPricedV2.ts). Six-card native facing-bet pricing model
+   * fixing valueShare blowup, low-SPR all-in jam bucketing, six-card bluff
+   * priors, paired-board fold preservation, and two-way priced folds.
+   */
+  plo6FacingBetIsPricedV2?: boolean;
   /** NLH barrel outlook excludes shared board improvements and dirty outs.
    * False retains the previous algorithm for paired offline measurement. */
   drawOutlookQuality?: boolean;
@@ -9129,6 +9148,10 @@ function plo6RiverNutDiscipline(
       if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_river_nut_rule_not_run');
       return decision;
     }
+    if (opts.plo6FacingBetIsPricedV2 === true && plo6FacingBetPricedV2Scope(player, gs) !== null) {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_v2_river_nut_rule_not_run');
+      return decision;
+    }
     const board = gs.communityCards ?? [];
     if (board.length !== 5 || (gs.boardCount ?? 1) > 1) return decision;
     const ranks = new Map<string, number>();
@@ -9353,6 +9376,148 @@ function plo6FacingBetIsPricedRule(
   return raised;
 }
 
+let plo6FacingBetPricedV2Memo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  stage: unknown;
+  toCall: unknown;
+  pot: unknown;
+  answer: Plo6FacingBetPricedV2Verdict | null;
+} | null = null;
+
+export function plo6FacingBetPricedV2VerdictOf(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): Plo6FacingBetPricedV2Verdict | null {
+  const memo = plo6FacingBetPricedV2Memo;
+  if (
+    memo &&
+    memo.player === player &&
+    memo.gs === gs &&
+    memo.stage === gs.stage &&
+    memo.toCall === gs.toCall &&
+    memo.pot === gs.pot
+  )
+    return memo.answer;
+  let answer: Plo6FacingBetPricedV2Verdict | null = null;
+  try {
+    if (plo6FacingBetPricedV2Scope(player, gs) !== null) {
+      const inPosition = actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []);
+      answer = plo6FacingBetPricedV2(player, gs, {
+        rake: rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        inPosition,
+        realization: realizationFactor({ street: 'turn', inPosition }),
+      });
+    }
+  } catch {
+    answer = null;
+  }
+  plo6FacingBetPricedV2Memo = {
+    player,
+    gs,
+    stage: gs.stage,
+    toCall: gs.toCall,
+    pot: gs.pot,
+    answer,
+  };
+  return answer;
+}
+
+function plo6FacingBetPricedV2Of(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): Plo6FacingBetPricedV2Verdict | null {
+  return opts.plo6FacingBetIsPricedV2 === true ? plo6FacingBetPricedV2VerdictOf(player, gs) : null;
+}
+
+/**
+ * plo6FacingBetIsPricedV2 (prototype, default off): six-card native pricing
+ * rule for PLO6 cash facing a bet.
+ * - Flop & turn: upgrades `fold -> call` when `callPriced` (`evCall > margin`,
+ *   respecting paired-board guard); standing non-paired-board calls and raises
+ *   are preserved.
+ * - River: two-way priced fold, call, or raise (`fold -> call`, `call -> fold`
+ *   when `foldPriced`, and value raises with `vsValue >= 0.60`, preserving
+ *   `privateRiverNuts` standing raises and `currentRiverNutsFloor` calls).
+ */
+function plo6FacingBetIsPricedV2Rule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.plo6FacingBetIsPricedV2 !== true) return decision;
+  let v: Plo6FacingBetPricedV2Verdict | null = null;
+  try {
+    v = plo6FacingBetPricedV2Of(player, gs, opts);
+  } catch {
+    v = null;
+  }
+  if (!v) return decision;
+  const tele = telemetryOn(opts);
+  const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const toCall = Number.isFinite(gs.toCall)
+    ? Math.max(0, gs.toCall as number)
+    : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+  const isCall =
+    decision.action === 'call' ||
+    (decision.action === 'all_in' && (player.bet || 0) + stack <= (gs.currentBet || 0) + 0.005);
+  const isRaise = decision.action === 'raise' || (decision.action === 'all_in' && !isCall);
+  const callFor = (): HorseDecision => {
+    const d: HorseDecision =
+      v!.allInCall || toCall >= stack - 0.005
+        ? { ...decision, action: 'all_in' }
+        : { ...decision, action: 'call', amount: Math.round(v!.paid * 100) / 100 };
+    if (d.action === 'all_in') delete d.amount;
+    delete d.continuationGuard;
+    return d;
+  };
+  const foldFor = (): HorseDecision => {
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    delete folded.continuationGuard;
+    return folded;
+  };
+  if (v.street !== 'river') {
+    if (decision.action !== 'fold' || !v.callPriced) return decision;
+    if (tele) noteFire('plo6_facing_bet_priced_v2_called');
+    return callFor();
+  }
+  if (isRaise && v.privateRiverNuts === true) {
+    return decision;
+  }
+  if (v.action === 'fold') {
+    if (decision.action === 'fold') return decision;
+    if (isCall && !v.foldPriced) return decision;
+    if (tele) noteFire('plo6_facing_bet_priced_v2_folded');
+    return foldFor();
+  }
+  if (v.action === 'call') {
+    if (isCall) return decision;
+    if (tele)
+      noteFire(
+        isRaise ? 'plo6_facing_bet_priced_v2_raise_to_call' : 'plo6_facing_bet_priced_v2_called'
+      );
+    return callFor();
+  }
+  const allIn = v.action === 'all_in' || v.raiseTo >= (player.bet || 0) + stack - 0.005;
+  if (
+    isRaise &&
+    (allIn
+      ? decision.action === 'all_in'
+      : decision.action === 'raise' && decision.amount === v.raiseTo)
+  )
+    return decision;
+  if (tele) noteFire('plo6_facing_bet_priced_v2_raised');
+  const raised: HorseDecision = allIn
+    ? { ...decision, action: 'all_in' }
+    : { ...decision, action: 'raise', amount: v.raiseTo };
+  if (allIn) delete raised.amount;
+  delete raised.continuationGuard;
+  return raised;
+}
+
 /**
  * Dan 2026-10-25: in PLO4/PLO5/PLO6 a horse without a full house never calls or
  * raises a committing bet on a paired flop, turn or river. See
@@ -9405,6 +9570,23 @@ function pairedBoardFold(
       const called: HorseDecision = priced.allInCall
         ? { ...decision, action: 'all_in' }
         : { ...decision, action: 'call', amount: Math.round(priced.paid * 100) / 100 };
+      if (called.action === 'all_in') delete called.amount;
+      delete called.continuationGuard;
+      return called;
+    }
+  }
+  if (opts.plo6FacingBetIsPricedV2 === true) {
+    const pricedV2 = plo6FacingBetPricedV2Of(player, gs, opts);
+    if (pricedV2 && !pricedV2.pairedBoardGuardStands && pricedV2.callPriced) {
+      if (telemetryOn(opts)) noteFire('plo6_facing_bet_priced_v2_paired_fold_priced_out');
+      const raising =
+        decision.action === 'raise' ||
+        (decision.action === 'all_in' &&
+          (player.bet || 0) + player.stack > (gs.currentBet || 0) + 0.005);
+      if (!raising || pricedV2.street === 'river') return decision;
+      const called: HorseDecision = pricedV2.allInCall
+        ? { ...decision, action: 'all_in' }
+        : { ...decision, action: 'call', amount: Math.round(pricedV2.paid * 100) / 100 };
       if (called.action === 'all_in') delete called.amount;
       delete called.continuationGuard;
       return called;
@@ -19035,11 +19217,16 @@ export class HorseLogic {
       const ownersFinal = publicSized(
         omahaMultiwayIsPricedInTournamentsRule(
           bluffPriced(
-            plo6FacingBetIsPricedRule(
-              omahaTurnRiverRaiseNeedsNutsRule(
-                omahaOwnerRuledFinal(
-                  omahaStrongHandSlowplayMixRule(
-                    omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+            plo6FacingBetIsPricedV2Rule(
+              plo6FacingBetIsPricedRule(
+                omahaTurnRiverRaiseNeedsNutsRule(
+                  omahaOwnerRuledFinal(
+                    omahaStrongHandSlowplayMixRule(
+                      omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
+                      player,
+                      gs,
+                      opts
+                    ),
                     player,
                     gs,
                     opts
@@ -21748,6 +21935,7 @@ export class HorseLogic {
       if (openerBehind === null || heroBehind === null || heroBehind >= openerBehind)
         return undefined;
       const defender = heroBehind === 0 ? 'bb' : heroBehind === 1 ? 'sb' : 'ip';
+      const trimColdCalls = defend85 && opts.cashDefenceTrimColdCalls === true;
       const d72 = gtoDefence(player.cards[0], player.cards[1], {
         dealt: dealt72,
         defender,
@@ -21756,9 +21944,15 @@ export class HorseLogic {
         ante: (gs.ante ?? 0) > 0,
         openToBB,
         ...(defend85 ? { cashAction: true, callers, depthBB: depth85 } : {}),
+        ...(trimColdCalls ? { trimColdCalls: true } : {}),
       });
       if (!d72) return undefined;
-      if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
+      if (telemetryOn(opts)) {
+        noteFire('v72_defend_vs_opener');
+        if (trimColdCalls && (heroBehind > 2 || callers > 0)) {
+          noteFire('cash_defence_trim_cold_calls_seen');
+        }
+      }
       // HOLD'EM PERSONA PREFLOP: the continue share moves by the archetype's
       // points (cash action tables deeper than 50bb only; value bar fixed).
       const continueBar72 =
@@ -21779,6 +21973,7 @@ export class HorseLogic {
         bluffProb: d72.bluffProb,
         defender,
         ...(defend85 ? { cashAction: true } : {}),
+        ...(trimColdCalls ? { trimColdCalls: true, defenderBehind: heroBehind } : {}),
       } as const;
     })();
     // ═══ V73 THE OPENER FACING A 3-BET (2026-11-01) ═══ hero made the only

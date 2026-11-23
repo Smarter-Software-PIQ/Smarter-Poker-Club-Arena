@@ -690,6 +690,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   plo6TopSetNutRealization: outside('PLO6'),
   plo6NoMultiwayBetWithWeakMadeHand: outside('PLO6'),
   plo6FacingBetIsPriced: outside('PLO6 (priced facing a bet; owner-held off, audit-fix batch 1)'),
+  plo6FacingBetIsPricedV2: outside(
+    'PLO6 (six-card native facing-bet pricing model V2; default off)'
+  ),
   omahaMultiwayIsPricedInTournaments: outside(
     'tournaments, a format outside PLO4/PLO5 cash (prices multiway calls; audit-fix batch 1)'
   ),

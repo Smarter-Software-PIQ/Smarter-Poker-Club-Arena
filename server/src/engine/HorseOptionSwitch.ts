@@ -354,6 +354,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemValueAndCallsArePriced',
   'holdemCommittedNoPairIsPriced',
   'holdemDangerBoardEquityIsPriced',
+  'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
   'omahaTurnRiverRaiseIsPriced',
@@ -440,6 +441,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaHiLoTournamentFirstIn',
   'plo6TopSetNutRealization',
   'plo6ManiacPriceRefusalToRangePlay',
+  'plo6FacingBetIsPriced',
+  'plo6FacingBetIsPricedV2',
   'v62RiverBettorPolarity',
   'readPostflopFoldRate',
   'readShrinkResponse',
@@ -775,6 +778,17 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     source:
       'league card nlh_danger_board_equity_is_priced_vs_danger_bettor and _vs_danger_value, PR #11634 (docs/horse-option-authority.d/holdemDangerBoardEquityIsPriced.md; docs/changelog/2026-11-21-holdem-scripted-no-limit-field.md)',
   }),
+  // 2026-11-21 Antigravity Coordinator: declared eval-40aba893fbc9 on the human-calibrated PLO6 field (F6 400/400
+  // sessions, 200,000 pairs / 400,000 hands) failed with measured harm (-15.510 +/- 2.655 bb/100, z = -5.84);
+  // Horse mirror M6 was not significant (+1.483 +/- 1.319, z = +1.12), and HVH48 true-card river fold->call bled
+  // -334.4 bb vs OFF. Locked off-only as measured harm.
+  plo6FacingBetIsPriced: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'Declared eval-40aba893fbc9 (2026-11-21) VALID FAIL: F6 human-calibrated PLO6 field 400/400 sessions (200,000 pairs / 400,000 hands) -15.510 +/- 2.655 bb/100 (z = -5.84 < -2.0, 256/400 sessions negative); M6 Horse mirror 100/100 +1.483 +/- 1.319 (z = +1.12); 0 illegal/truncated/corrected/fallbacks; HVH48 true-card river fold->call -334.4 bb vs OFF',
+    source:
+      'DECLARATION-PLO6-FACING-BET-IS-PRICED.md (sha256 95ca359f), eval-40aba893fbc9/RESULT.json, docs/horse-option-authority.d/plo6FacingBetIsPriced.md',
+  }),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
     reason: 'off-only stops an explicit true; it changes nothing by default',
@@ -1042,6 +1056,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'NLH cash, heads-up, turn/river four-flush or four-straight board, one pair facing a wager',
     'one pair facing a bet on a four-flush or four-straight turn/river prices equity against measured bettor showdowns',
   ],
+  cashDefenceTrimColdCalls: [
+    HOLDEM,
+    'NLH cash preflop facing a single open (non-BTN IP cold-calls and multiway caller spots)',
+    'trims V85+V87 non-BTN IP cold-call and multiway double-stacking flatting bloat while keeping 3-bets and tournaments unchanged',
+  ],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],
   v23ShortDeck: [HOLDEM, 'Short deck', 'the short-deck half of the V23 variant polish'],
   v32FacingDefense: [HOLDEM, 'NLH solver facing-bet defence', 'solver facing-bet defence'],
@@ -1127,6 +1146,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'Every variant, opponent exploit learning (live memory and the durable profile) and the gear-shift gate, every Horse process',
     'the style-shift release fires only beyond sampling noise and ages only the statistic that moved (process switch)',
+  ],
+  plo6FacingBetIsPricedV2: [
+    'PLO6',
+    'PLO6 cash facing a bet (table and Lightning)',
+    'six-card native facing-bet pricing model fixing V1 valueShare blowup, low-SPR jams, six-card bluff priors, paired-board guard, and river call->fold',
   ],
 };
 
