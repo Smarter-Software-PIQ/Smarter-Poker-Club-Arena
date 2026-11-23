@@ -1141,31 +1141,57 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub', v_actor::text, true);
   PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
 
-  v_res := public.fn_invite_to_private_game(gen_random_uuid(), 1);
-  IF v_res->>'reason' IS DISTINCT FROM 'game_not_found' THEN
-    RAISE EXCEPTION 'unexpected probe result from fn_invite_to_private_game: %', v_res;
-  END IF;
-  v_res := public.fn_accept_private_game_invite(gen_random_uuid(), 'abcdefabcdefabcdef');
-  IF (v_res->>'allowed')::boolean IS NOT TRUE OR (v_res->>'reserved')::boolean IS NOT FALSE THEN
-    RAISE EXCEPTION 'unexpected probe result from fn_accept_private_game_invite: %', v_res;
-  END IF;
-  v_res := public.fn_cancel_private_game_hold(gen_random_uuid());
-  IF v_res->>'reason' IS DISTINCT FROM 'no_hold' THEN
-    RAISE EXCEPTION 'unexpected probe result from fn_cancel_private_game_hold: %', v_res;
-  END IF;
-  v_res := public.fn_private_game_hold_state(gen_random_uuid(), NULL);
-  IF (v_res->>'held')::boolean IS NOT FALSE THEN
-    RAISE EXCEPTION 'unexpected probe result from fn_private_game_hold_state: %', v_res;
-  END IF;
-  v_res := public.fn_set_heads_up_wait_mode(gen_random_uuid(), 'specific_player');
-  IF v_res->>'reason' IS DISTINCT FROM 'table_not_found' THEN
-    RAISE EXCEPTION 'unexpected probe result from fn_set_heads_up_wait_mode: %', v_res;
-  END IF;
-  v_res := public.fn_check_heads_up_seat_invite(gen_random_uuid(), NULL);
-  IF (v_res->>'allowed')::boolean IS NOT TRUE THEN
-    RAISE EXCEPTION 'unexpected probe result from fn_check_heads_up_seat_invite: %', v_res;
-  END IF;
-
+  /* Production refuses a caller whose session is not live (SESSION_REVOKED,
+     28000): the probe's made-up actor has none. That refusal is itself the
+     door answering correctly, so each call accepts it and nothing else. */
+  BEGIN
+    v_res := public.fn_invite_to_private_game(gen_random_uuid(), 1);
+    IF v_res->>'reason' IS DISTINCT FROM 'game_not_found' THEN
+      RAISE EXCEPTION 'unexpected probe result from fn_invite_to_private_game: %', v_res;
+    END IF;
+  EXCEPTION WHEN SQLSTATE '28000' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM NOT LIKE 'SESSION_REVOKED:%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    v_res := public.fn_accept_private_game_invite(gen_random_uuid(), 'abcdefabcdefabcdef');
+    IF (v_res->>'allowed')::boolean IS NOT TRUE OR (v_res->>'reserved')::boolean IS NOT FALSE THEN
+      RAISE EXCEPTION 'unexpected probe result from fn_accept_private_game_invite: %', v_res;
+    END IF;
+  EXCEPTION WHEN SQLSTATE '28000' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM NOT LIKE 'SESSION_REVOKED:%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    v_res := public.fn_cancel_private_game_hold(gen_random_uuid());
+    IF v_res->>'reason' IS DISTINCT FROM 'no_hold' THEN
+      RAISE EXCEPTION 'unexpected probe result from fn_cancel_private_game_hold: %', v_res;
+    END IF;
+  EXCEPTION WHEN SQLSTATE '28000' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM NOT LIKE 'SESSION_REVOKED:%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    v_res := public.fn_private_game_hold_state(gen_random_uuid(), NULL);
+    IF (v_res->>'held')::boolean IS NOT FALSE THEN
+      RAISE EXCEPTION 'unexpected probe result from fn_private_game_hold_state: %', v_res;
+    END IF;
+  EXCEPTION WHEN SQLSTATE '28000' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM NOT LIKE 'SESSION_REVOKED:%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    v_res := public.fn_set_heads_up_wait_mode(gen_random_uuid(), 'specific_player');
+    IF v_res->>'reason' IS DISTINCT FROM 'table_not_found' THEN
+      RAISE EXCEPTION 'unexpected probe result from fn_set_heads_up_wait_mode: %', v_res;
+    END IF;
+  EXCEPTION WHEN SQLSTATE '28000' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM NOT LIKE 'SESSION_REVOKED:%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    v_res := public.fn_check_heads_up_seat_invite(gen_random_uuid(), NULL);
+    IF (v_res->>'allowed')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'unexpected probe result from fn_check_heads_up_seat_invite: %', v_res;
+    END IF;
+  EXCEPTION WHEN SQLSTATE '28000' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM NOT LIKE 'SESSION_REVOKED:%' THEN RAISE; END IF;
+  END;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
