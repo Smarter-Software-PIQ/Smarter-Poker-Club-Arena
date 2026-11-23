@@ -3034,6 +3034,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River lead range'
   ),
   flag(
+    'holdemRiverLeadRangeIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for riverLeadRange (A4) on OOP heads-up river leads first-to-act into the turn aggressor in single-board 2-card NLH; deterministically prices candidate lead sizes (0.33x, 0.55x, 0.75x, 1.0x pot, stack-capped) vs EV(check) using measured NLH empirical betWhenCheckedTo, river fold-to-lead, exact call-range equity conditioning, and villain raise risk (holdemEmpiricalPriors, HorseHoldemRiverLeadRangeIsPriced); zero fastRandom coin flips, independent of riverLeadRange, zero PLO4/5/6 reach',
+    'Horse Switch'
+  ),
+  flag(
     'riverBluffHiLo',
     'hi-lo river bluffs with a low possible (HorseRiverBluffRange): the nut low with no high bets the freeroll, air bluffs the whole pot only when the public low chance is at most 0.5 and otherwise checks (no half-pot giveaway); default on, false restores the old domain gate (2026-11-07)',
     'River bluff hi-lo'
@@ -9924,6 +9929,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v66_bet_raised_one_pair_priced_unpriced',
     'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
     'a flop/turn bet-then-raised one-pair spot could not be priced heads-up (multiway, side pot, or empty range); existing behavior ran unchanged',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_value_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead into the turn aggressor placed a priced strong-value lead (equity >= 0.75) because EV(lead) cleared EV(check) + riskMargin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_thin_value_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead into the turn aggressor placed a priced thin-value lead (0.25 <= equity < 0.75) because EV(lead) cleared EV(check) + riskMargin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_bluff_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead into the turn aggressor placed a priced air bluff lead (equity < 0.25) because EV(lead) cleared EV(check) + riskMargin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_check_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead spot into the turn aggressor checked deterministically because EV(check) + riskMargin beat every legal priced lead size',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a priced OOP river lead bet could not be placed as a legal bet or all-in by betSize',
     'Horse Switch'
   ),
 

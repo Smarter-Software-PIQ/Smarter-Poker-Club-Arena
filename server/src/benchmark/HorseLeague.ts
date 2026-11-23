@@ -3591,6 +3591,35 @@ export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze(
     a: { v66BetRaisedOnePair: true, v66BetRaisedOnePairIsPriced: true },
     b: { v66BetRaisedOnePair: true },
   },
+  // 2026-11-22 Horse Switch lane (holdemRiverLeadRangeIsPriced, default OFF, dark):
+  // arm B keeps production riverLeadRange on; arm A switches on its EV-priced OOP river lead
+  // replacement (HorseHoldemRiverLeadRangeIsPriced.ts) at both the bluff-lead and value-lead sites.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_river_lead_range_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverLeadRange: true, holdemRiverLeadRangeIsPriced: true },
+    b: { riverLeadRange: true },
+  },
+  // The same question heads-up, where OOP river lead spots into the turn aggressor are frequent.
+  {
+    name: 'hu_holdem_river_lead_range_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverLeadRange: true, holdemRiverLeadRangeIsPriced: true },
+    b: { riverLeadRange: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

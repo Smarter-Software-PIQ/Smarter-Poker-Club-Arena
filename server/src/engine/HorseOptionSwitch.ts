@@ -1264,6 +1264,11 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
   nashCallVsTightJammerRespect:
     'prototype hold: default-OFF prototype without a switch-list migration during the 4 PM hold; register in a follow-up migration PR',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  holdemRiverLeadRangeIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */
