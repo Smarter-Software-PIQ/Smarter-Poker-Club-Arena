@@ -164,6 +164,15 @@ def main():
    db.run('CREATE TRIGGER actual_incident_bridge AFTER INSERT ON ledger_reconcile_log FOR EACH ROW EXECUTE FUNCTION fn_ca_reconcile_log_to_incident()')
    db.run("CREATE TRIGGER actual_push_bridge AFTER INSERT ON notifications FOR EACH ROW EXECUTE FUNCTION fn_mirror_notification_to_push_outbox()")
    db.run(MIG.read_text())
+   refund_notice_mig=ROOT/'supabase/migrations/20261123083752_a_refunded_entry_notifies_the_player_and_successor_grants_st.sql'
+   rn_sql=refund_notice_mig.read_text()
+   rn_digest_boundary='-- PROMO GRANT NOTICE AND DIGEST SECTION.'
+   db.run("BEGIN;SET LOCAL lock_timeout='2s';\n"+rn_sql[rn_sql.index(rn_digest_boundary):])
+   rn_table_start=rn_sql.index('CREATE TABLE public.ca_promo_refund_notices')
+   rn_fn_end=rn_sql.index('REVOKE ALL ON FUNCTION public.fn_ca_promo_emit_refund_notice')
+   rn_fn_end=rn_sql.index(';',rn_fn_end)+1
+   db.run(rn_sql[rn_table_start:rn_fn_end])
+   db.run("CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_daily_digest(date)','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %',n,f;END IF;END LOOP;END$$;")
    proof=next(line.split('-- @live-proof: ',1)[1] for line in MIG.read_text().splitlines() if line.startswith('-- @live-proof: '))
    check('declared live proof validates all source producers and observer storage',db.one('SELECT '+proof),'t')
    check('private notices cannot be called by browser',db.one("SELECT has_function_privilege('authenticated','fn_ca_promo_emit_notice(uuid,text,numeric,numeric,numeric)','EXECUTE')"),'f')
@@ -259,6 +268,43 @@ def main():
    check('unrelated current grants do not inherit donor flags',next(x for x in report['funding_owners'] if x['funded_from_id']==A)['flagged'],0)
    check('daily club totals retain exact given principal',report['clubs'][0]['given'],50)
    check('daily club total counts distinct cases once',report['clubs'][0]['flagged'],1)
+   # Refund successor grant (20261123083752): never emits a misleading
+   # "Promo Chips Received" notice and never inflates daily digest `given`.
+   succ_id=str(uuid.uuid4())
+   db.run(f"""INSERT INTO ca_promo_play_through_grants(
+     id,club_id,user_id,amount,remaining,multiplier,source_kind,source_ref,
+     source_ledger_id,funded_from_type,funded_from_id,cycle_started_at,granted_at,expires_at)
+     VALUES('{succ_id}','{C}','{A}',12,12,4,'club_promo','refund_successor:'||'{g2}'||':fee_refund:test',
+       NULL,'promo_wallet','{base.BOB}',('{closed_day}'::date::timestamp AT TIME ZONE 'America/Chicago'),
+       (('{closed_day}'::date+time '12:30') AT TIME ZONE 'America/Chicago'),
+       clock_timestamp()+interval '20 days')""")
+   check('refund successor emits no misleading received notice',db.one(f"SELECT count(*) FROM ca_promo_notice_milestones WHERE grant_id='{succ_id}'"),'0')
+   check('refund successor creates no received notification row',db.one(f"SELECT count(*) FROM notifications WHERE data->>'grant_id'='{succ_id}'"),'0')
+   report_after_succ=db.json(f"SELECT fn_ca_promo_daily_digest('{closed_day}'::date)")
+   check('refund successor does not double-count daily given total',report_after_succ['clubs'][0]['given'],50)
+   check('refund successor is still tracked in locked_now',report_after_succ['clubs'][0]['locked_now'],report['clubs'][0]['locked_now']+12)
+   db.run(f"UPDATE ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='met' WHERE id='{succ_id}'")
+   check('refund successor still emits completion notice when met',db.one(f"SELECT string_agg(milestone,',') FROM ca_promo_notice_milestones WHERE grant_id='{succ_id}'"),'unlocked')
+   # Refund notification emitter (20261123083752): exact wording, push bridge,
+   # idempotent replay, and deleted-profile resilience.
+   db.run("CREATE TABLE IF NOT EXISTS public.tournaments(id uuid PRIMARY KEY,name text)")
+   ev_sat=str(uuid.uuid4())
+   db.run(f"INSERT INTO public.tournaments(id,name) VALUES('{ev_sat}','Satellite Into Nightly 20K (NLH)')")
+   led_w=str(uuid.uuid4())
+   check('wallet refund notice emits once',db.one(f"SELECT public.fn_ca_promo_emit_refund_notice('{led_w}',gen_random_uuid(),'{A}','{C}','{ev_sat}','wallet',10,5.25,0,0,NULL)"),'t')
+   check('wallet refund notice wording explains promo stays under play-through',db.one(f"SELECT type||'|'||title||'|'||message FROM notifications WHERE data->>'ledger_id'='{led_w}'"),'promo_play_through|Tournament Entry Refunded|Your 10.00 Entry To Satellite Into Nightly 20K (NLH) Was Refunded. 5.25 Of It Is Promo Chips And Stays Under Play-Through.')
+   check('wallet refund notice mirrors to push outbox',db.one(f"SELECT count(*) FROM push_outbox o JOIN notifications n ON n.id=o.related_entity_id WHERE n.data->>'ledger_id'='{led_w}'"),'1')
+   check('wallet refund notice replay is idempotent',db.one(f"SELECT public.fn_ca_promo_emit_refund_notice('{led_w}',gen_random_uuid(),'{A}','{C}','{ev_sat}','wallet',10,5.25,0,0,NULL)"),'f')
+   check('wallet refund notice replay never duplicates notification',db.one(f"SELECT count(*) FROM notifications WHERE data->>'ledger_id'='{led_w}'"),'1')
+   led_t=str(uuid.uuid4())
+   check('ticket refund notice emits once',db.one(f"SELECT public.fn_ca_promo_emit_refund_notice('{led_t}',gen_random_uuid(),'{A}','{C}','{ev_sat}','ticket',20,10,0,0,20)"),'t')
+   check('ticket refund notice wording explains promo on ticket',db.one(f"SELECT title||'|'||message FROM notifications WHERE data->>'ledger_id'='{led_t}'"),'Tournament Ticket Refunded|Your 20.00 Entry To Satellite Into Nightly 20K (NLH) Was Refunded As A Tournament Ticket. 10.00 Of It Is Promo Chips And Stays Under Play-Through.')
+   led_cash=str(uuid.uuid4())
+   check('non-promo wallet refund notice uses tournament_cash type',db.one(f"SELECT public.fn_ca_promo_emit_refund_notice('{led_cash}',gen_random_uuid(),'{A}','{C}','{ev_sat}','wallet',10,0,0,0,NULL)"),'t')
+   check('non-promo wallet refund notice wording',db.one(f"SELECT type||'|'||message FROM notifications WHERE data->>'ledger_id'='{led_cash}'"),'tournament_cash|Your 10.00 Entry To Satellite Into Nightly 20K (NLH) Was Refunded To Your Wallet.')
+   led_orphan=str(uuid.uuid4())
+   check('deleted profile preserves refund notice receipt without throwing',db.one(f"SELECT public.fn_ca_promo_emit_refund_notice('{led_orphan}',NULL,gen_random_uuid(),'{C}','{ev_sat}','wallet',10,5,0,0,NULL)"),'f')
+   check('deleted profile stores null notification_id receipt',db.one(f"SELECT notification_id IS NULL FROM ca_promo_refund_notices WHERE ledger_id='{led_orphan}'"),'t')
    @contextmanager
    def held_notice(sql):
     proc=subprocess.Popen([str(pg/'psql'),'-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-h',directory,'-p',str(port),'-U','postgres','-d','promo_notices'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)

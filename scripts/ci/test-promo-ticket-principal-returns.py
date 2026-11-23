@@ -50,8 +50,12 @@ body=r'''
  _,split_md5,_=e.sql(db,"SELECT md5(pg_get_functiondef('public.fn_ca_promo_returned_ticket_principal_fee(uuid,uuid,uuid)'::regprocedure))",label='original-ticket-split-md5')
  e.report['original_ticket_split_md5']=split_md5.strip()
  e.sql(db,"BEGIN;SET LOCAL lock_timeout = '2s';\n"+keep_text[keep_text.index(keep_boundary):],label='refunded-ticket-entry-keeps-promo')
- e.sql(db,"CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_returned_ticket_principal_fee(uuid,uuid,uuid)','public.fn_ca_promo_restore_refunded_entry_cost(uuid,text,numeric,uuid,uuid)','public.fn_ca_promo_refund_successor_grant(uuid,numeric,text,text,uuid)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %: %',n,f,(SELECT string_agg(c.message,' | ') FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error');END IF;END LOOP;END$$;",label='keep-owners-plpgsql-check-clean')
- e.report['native'].append({'case':'keep-owners-plpgsql-check-clean','assertions':3})
+ notices=next((root/'supabase/migrations').glob('20261123083752_*.sql'));remember(notices)
+ notice_text=notices.read_text();ticket_notice_boundary='-- TICKET REFUND NOTICE SECTION.';digest_boundary='-- PROMO GRANT NOTICE AND DIGEST SECTION.'
+ if notice_text.count(ticket_notice_boundary)!=1 or notice_text.count(digest_boundary)!=1:raise SystemExit('notice migration ticket boundary changed')
+ e.sql(db,"BEGIN;SET LOCAL lock_timeout = '2s';\n"+notice_text[notice_text.index(ticket_notice_boundary):notice_text.index(digest_boundary)]+'COMMIT;',label='refunded-ticket-entry-notifies-player')
+ e.sql(db,"CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_returned_ticket_principal_fee(uuid,uuid,uuid)','public.fn_ca_promo_restore_refunded_entry_cost(uuid,text,numeric,uuid,uuid)','public.fn_ca_promo_refund_successor_grant(uuid,numeric,text,text,uuid)','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)','public.fn_ca_promo_return_refunded_principal(uuid)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %: %',n,f,(SELECT string_agg(c.message,' | ') FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error');END IF;END LOOP;END$$;",label='keep-owners-plpgsql-check-clean')
+ e.report['native'].append({'case':'keep-owners-plpgsql-check-clean','assertions':5})
  cross_open="   e.sql(fee_db,f"+chr(34)*3;cross_start=BOOT_SOURCE.index(cross_open+"BEGIN;SET LOCAL session_replication_role=replica;\n INSERT INTO public.clubs SELECT")+len(cross_open)
  cross_template=BOOT_SOURCE[cross_start:BOOT_SOURCE.index(chr(34)*3+",label='satellite-cross-original-refund-wallet-opening')",cross_start)]
  base=db
@@ -122,6 +126,7 @@ IF (SELECT fee_target FROM public.ca_promo_play_through_grants WHERE source_ref=
 SELECT count(*) INTO before_count FROM public.chip_ledger;
 ack:=public.fn_ca_return_satellite_entitlement_as_ticket('{entitlement}','atomic_cancel_tournament','Original cancelled entry');
 IF EXISTS(SELECT 1 FROM public.ca_promo_refund_keep_receipts) THEN RAISE EXCEPTION 'a grant the promo terms ended was kept';END IF;
+IF (SELECT count(*) FROM public.ca_promo_refund_notices WHERE entitlement_id='{entitlement}' AND refund_kind='ticket' AND refund_amount=20 AND promo_kept_locked=0 AND promo_returned_to_fund={expected})<>1 THEN RAISE EXCEPTION 'fund-return ticket refund notice missing or wrong';END IF;
 IF (ack->>'value')::numeric<>{face} OR ack->>'replayed'<>'true' OR (SELECT count(*) FROM public.chip_ledger)<>before_count OR (SELECT promo_balance FROM public.clubs WHERE id='20000000-0000-0000-0000-000000000001')<>{1050-promo}+{expected} THEN RAISE EXCEPTION 'original same intent replay changed effect';END IF;
 END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label='actual-ticket-return-'+mode)
   if not fund_mode:
@@ -160,7 +165,7 @@ SELECT count(*) INTO before_count FROM public.chip_ledger;
 ack:=public.fn_ca_return_satellite_entitlement_as_ticket('{entitlement}','atomic_cancel_tournament','Original cancelled entry');
 IF (ack->>'value')::numeric<>20 OR ack->>'replayed'<>'true' OR (SELECT count(*) FROM public.chip_ledger)<>before_count OR (SELECT promo_balance FROM public.clubs WHERE id='{wallet_club}')<>fund_before OR (SELECT count(*) FROM public.ca_promo_refund_keep_receipts)<>1 OR (SELECT COALESCE(sum(remaining),0) FROM public.ca_promo_play_through_grants)<>{on_ticket} THEN RAISE EXCEPTION 'kept ticket return replay changed effect';END IF;
 PERFORM public.fn_ca_promo_returned_ticket_principal_fee((SELECT id FROM public.chip_ledger WHERE metadata->>'kind'='tournament_entry_ticket_return' AND metadata->>'entitlement_id'='{entitlement}'),'{entitlement}',{T});
-IF (SELECT count(*) FROM public.ca_promo_refund_keep_receipts)<>1 OR (SELECT COALESCE(sum(remaining),0) FROM public.ca_promo_play_through_grants)<>{on_ticket} OR (SELECT count(*) FROM public.chip_ledger)<>before_count THEN RAISE EXCEPTION 'direct owner replay restored twice';END IF;
+IF (SELECT count(*) FROM public.ca_promo_refund_keep_receipts)<>1 OR (SELECT COALESCE(sum(remaining),0) FROM public.ca_promo_play_through_grants)<>{on_ticket} OR (SELECT count(*) FROM public.chip_ledger)<>before_count OR (SELECT count(*) FROM public.ca_promo_refund_notices WHERE entitlement_id='{entitlement}' AND refund_kind='ticket' AND refund_amount=20 AND promo_kept_locked={on_ticket} AND promo_kept_unlocked={2 if mode=='met' else 0} AND promo_returned_to_fund=0)<>1 THEN RAISE EXCEPTION 'direct owner replay restored twice or notice missing';END IF;
 END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label='actual-ticket-keep-'+mode)
   if mode=='active':
    target=str(uuid.uuid4())
