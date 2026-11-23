@@ -40,6 +40,8 @@ This reader only READS (GitHub GETs) and prints for the plan job:
                    run (its pending status names it); plan as before
   state=unselectable  baseline=<sha> has diverged CONTROL_INPUTS from main
                    and can never pass select-daily-engine.py; plan as before
+  state=served     baseline=<sha> is already contained in the serving engine
+                   (O17); there is nothing to ship, so plan as before
 
 ONE CERTIFICATION PER BASELINE (incident 076ff467, 2026-11-20). `done` used
 to be the only answer that stopped a re-certification, so every push merged
@@ -66,6 +68,18 @@ non-test CONTROL_INPUTS path, and (2) verifies that no non-test CONTROL_INPUTS
 path diverged between the resulting baseline and main (returning
 state=unselectable instead of wasting a Backup soak). Unreadable or truncated
 GitHub API answers fail open to existing behavior (CLAUDE.md 10.86).
+
+A BUILD THE ENGINE ALREADY SERVES IS NOT OWED (O17, 2026-11-23). Under the
+three-hourly cadence the 01:00 Chicago cycle seals inside the freeze, so the
+serving engine can already contain tonight's baseline (or be newer than it).
+The 04:00 selector only walks commits after the serving release, so such a
+baseline can never be selected, yet the first push or schedule run of the
+night would still claim it, force a refresh and spend a full soak on the one
+Backup host. The reader now asks /health for the serving releaseSha and
+GitHub's compare whether that release contains the baseline (identical or
+ahead), and answers `served` before reading any certificate. An unreadable
+health or compare answer is not `served`: it plans exactly as before
+(CLAUDE.md 10.86).
 
 The certification window is [freeze start, selection - one worst Backup run):
 a run started inside it finishes before the selection reads (the freeze start
@@ -295,7 +309,7 @@ def window(now_utc, start_hm, by_hm):
 
 
 def decide(now_utc, clock, baseline_reader, certified_after,
-           advance_zero_migration=None, control_selectable=None):
+           advance_zero_migration=None, control_selectable=None, served_contains=None):
     start, inside = window(now_utc, *clock)
     if not inside:
         return {'state': 'outside'}
@@ -306,6 +320,9 @@ def decide(now_utc, clock, baseline_reader, certified_after,
         advanced = advance_zero_migration(baseline)
         if isinstance(advanced, str) and re.fullmatch(r'[0-9a-f]{40}', advanced):
             baseline = advanced
+    if served_contains is not None and served_contains(baseline) is True:
+        return {'state': 'served', 'baseline': baseline,
+                'freezeStart': start.strftime('%Y-%m-%dT%H:%M:%SZ')}
     if control_selectable is not None:
         selectable = control_selectable(baseline)
         if selectable is False:
@@ -352,6 +369,40 @@ def certification_state(rows, start, run_status):
 
 def gh(*args):
     return subprocess.run(['gh', 'api', *args], capture_output=True, text=True, timeout=60, check=True).stdout
+
+
+HEALTH_URL = 'https://engine.smarter.poker/health'
+
+
+def serving_release(url=HEALTH_URL, timeout=15):
+    """The serving engine's exact releaseSha, or None when unreadable (O17)."""
+    import urllib.request
+    try:
+        request = urllib.request.Request(url, method='GET', headers={'Cache-Control': 'no-cache'})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            value = json.loads(response.read().decode('utf-8')).get('releaseSha')
+    except Exception:  # noqa: BLE001 - unreadable health is unknown, never served
+        return None
+    return value if isinstance(value, str) and re.fullmatch(r'[0-9a-f]{40}', value) else None
+
+
+def contains(baseline, serving, compare_status):
+    """True when the serving release contains baseline, False when it does not,
+    None when it cannot be told. compare_status(base, head) returns GitHub's
+    compare status of base...head (identical, ahead, behind, diverged)."""
+    if not serving or not re.fullmatch(r'[0-9a-f]{40}', baseline or ''):
+        return None
+    if serving == baseline:
+        return True
+    try:
+        status = compare_status(baseline, serving)
+    except Exception:  # noqa: BLE001 - unreadable compare is unknown
+        return None
+    if status in ('identical', 'ahead'):
+        return True
+    if status in ('behind', 'diverged'):
+        return False
+    return None
 
 
 def main():
@@ -421,6 +472,12 @@ def main():
                 return None
             return is_control_selectable(compare_to_main(sha), control_spec)
 
+        def served_contains(sha):
+            return contains(
+                sha, serving_release(),
+                lambda base, head: gh(f'repos/{a.repo}/compare/{base}...{head}', '--jq', '.status').strip(),
+            )
+
         verdict = decide(
             now,
             clock,
@@ -428,6 +485,7 @@ def main():
             certified_after,
             advance_zero_migration=advance_zero_migration,
             control_selectable=control_selectable,
+            served_contains=served_contains,
         )
     except Exception as error:  # noqa: BLE001 - every unreadable answer is unknown
         verdict = {'state': 'unknown', 'why': str(error)[:200]}
