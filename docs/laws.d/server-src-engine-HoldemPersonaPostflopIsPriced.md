@@ -1,0 +1,3 @@
+# server/src/engine/HoldemPersonaPostflopIsPriced.law.test.ts
+
+When `holdemPersonaPostflopIsPriced` is on (default OFF, read `=== true`, dark in `OPTION_SWITCH_REFUSED`), the four V87 persona postflop spots (heads-up IP dry-flop range c-bet, turn takeaway, OOP flop check-trap into a stabber, flop check-raise into a stabber) are decided deterministically by EV using measured live NLH empirical priors (`holdemEmpiricalPriors`: IP/OOP, board texture, effective SPR, turn fold, flop `betWhenCheckedTo`, and true villain raise call fraction) shrunk smoothly against opponent reads, independently of `holdemPersonaPostflop`; when off, every decision and receipt is byte-identical.

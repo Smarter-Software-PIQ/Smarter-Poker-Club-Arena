@@ -3327,6 +3327,32 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  // 2026-11-21 Horse Switch lane (holdemPersonaPostflopIsPriced V2 empirical priors, default OFF, dark):
+  // both arms carry holdemPersonaPostflop on (its production row); a prices the four V87 spots it scales
+  // (range c-bet, turn takeaway, OOP check-trap, check-raise into a stabber) by EV against the line range
+  // and measured live NLH empirical priors (holdemEmpiricalPriors.ts), b keeps the persona frequencies.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_persona_postflop_is_priced',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
+    b: { holdemPersonaPostflop: true },
+  },
+  // The same question heads-up, where every postflop pot is heads-up and all four spots are reachable.
+  {
+    name: 'hu_holdem_persona_postflop_is_priced',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
+    b: { holdemPersonaPostflop: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
