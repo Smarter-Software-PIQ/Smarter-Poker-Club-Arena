@@ -6,17 +6,23 @@
  * numbers go through HorseLogic.decide, combo-weighted over the 169 classes.
  * See docs/changelog/2026-11-07-nash-push-fold-v2.md.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseMind } from './HorseMind.js';
+import { disarmBrainTelemetryForTest, drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { decayAndAdd, freshExploitCounters } from './HorseOpponentExploit.js';
 import { seedFastRandom } from './HorseEval.js';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import { nashJamUpTo } from './HorseAnteAwarePushFold.js';
 import {
   NASH_V2_CALL_MAX_BB,
+  nashV2CallProbability,
   nashV2CallUpTo,
   nashV2CallWidth,
   nashV2JamUpTo,
   nashV2JamWidth,
+  nashV2TightJammerCallProbability,
+  nashV2TightJammerParams,
 } from './HorseNashPushFoldV2.js';
 import type { ActionRecord, Card, SeatPlayer } from '../types.js';
 
@@ -49,6 +55,8 @@ type Spot = {
   /** Tournament ICM inputs (stacks in chips by seat, payouts). */
   icm?: { stacks: number[]; payoutPct: number[]; playersLeft: number; spotsPaid: number };
   humans?: boolean;
+  /** Optional UUID user_id for the jammer seat (for durable HorseMind profile tests). */
+  jammerUserId?: string;
 };
 
 function decide(spot: Spot, cls: string, seed: number, opts: Record<string, unknown>): string {
@@ -71,7 +79,7 @@ function decide(spot: Spot, cls: string, seed: number, opts: Record<string, unkn
     const bet = seat === sbSeat ? 1 : seat === bbSeat ? 2 : 0;
     players.push({
       seat,
-      user_id: `nv2-${seat}`,
+      user_id: seat === jammerSeat && spot.jammerUserId ? spot.jammerUserId : `nv2-${seat}`,
       username: `Nv2${seat}`,
       stack: spot.stackBB * BB - bet - (seat === bbSeat ? ante : 0),
       bet,
@@ -393,5 +401,277 @@ describe('nashPushFoldIcm through HorseLogic.decide', () => {
     const spot: Spot = { seats: 10, stackBB: 10, mode: 'tournament', ante: true, jammer: null };
     const w = width(spot, { nashPushFoldIcm: true }, ['jam']);
     expect(Math.abs(w - nashV2JamWidth(9, 10, 1))).toBeLessThan(1.5);
+  });
+});
+
+describe('nashCallVsTightJammerRespect (2026-11-21, default OFF prototype)', () => {
+  afterEach(() => {
+    HorseMind.reset();
+    disarmBrainTelemetryForTest();
+  });
+
+  const JAMMER_UID = '11111111-1111-4111-8111-111111111116';
+  const btnJam15bbBba: Spot = {
+    seats: 6,
+    stackBB: 15,
+    mode: 'tournament',
+    ante: true,
+    jammer: 3, // BTN in 6-max preflop order [UTG=3, HJ=4, CO=5, BTN=6, SB=1]
+    jammerUserId: JAMMER_UID,
+  };
+
+  function seedProfile(
+    uid: string,
+    o: {
+      hands: number;
+      vpipEvery?: number;
+      pfrEvery?: number;
+      rfiOppEvery?: number;
+      rfiEvery?: number;
+      recentShiftHands?: number;
+    }
+  ): void {
+    HorseMind.reset();
+    const counters = freshExploitCounters();
+    for (let i = 1; i <= o.hands; i++) {
+      const inc = freshExploitCounters();
+      inc.hands = 1;
+      const isRfiOpp = o.rfiOppEvery ? i % o.rfiOppEvery === 0 : i % 2 === 0;
+      const isRfi = isRfiOpp && o.rfiEvery ? i % o.rfiEvery === 0 : false;
+      const isPfr = isRfi || (o.pfrEvery ? i % o.pfrEvery === 0 : false);
+      const isVpip = isPfr || (o.vpipEvery ? i % o.vpipEvery === 0 : false);
+      if (isRfiOpp) inc.rfiOpp = 1;
+      if (isRfi) inc.rfi = 1;
+      if (isPfr) inc.pfr = 1;
+      if (isVpip) inc.vpip = 1;
+      decayAndAdd(counters, inc);
+    }
+    if (o.recentShiftHands) {
+      for (let i = 0; i < o.recentShiftHands; i++) {
+        const inc = freshExploitCounters();
+        inc.hands = 1;
+        inc.vpip = 1;
+        inc.pfr = 1;
+        inc.rfiOpp = 1;
+        inc.rfi = 1;
+        decayAndAdd(counters, inc);
+      }
+    }
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: uid,
+        variant: 'nlh',
+        mode: 'tournament',
+        size: 'full',
+        observed_hands: o.hands + (o.recentShiftHands ?? 0),
+        initialized: true,
+        counters,
+      },
+    ]);
+  }
+
+  it('pure table adjustment is exact Nash when neutral, monotone in confidence and width, and keeps premiums calling', () => {
+    const baseProb = nashV2CallProbability({
+      hand: 'A8o',
+      jammerBehind: 2,
+      callerKind: 'bb',
+      depthBB: 15,
+      anteBB: 1,
+      bubble: 1,
+    });
+    // Null, zero confidence, or observed width >= Nash width -> untouched.
+    for (const tightRead of [
+      null,
+      { observedOpenWidth: 0.08, confidence: 0 },
+      { observedOpenWidth: 0.45, confidence: 0.95 },
+    ]) {
+      const res = nashV2TightJammerCallProbability({
+        hand: 'A8o',
+        jammerBehind: 2,
+        callerKind: 'bb',
+        depthBB: 15,
+        anteBB: 1,
+        bubble: 1,
+        tightRead,
+      });
+      expect(res.tightened).toBe(false);
+      expect(res.probability).toBe(baseProb);
+    }
+
+    // Tightening is monotone in confidence and observed width.
+    const pLowConf = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 15,
+      anteBB: 1,
+      tightRead: { observedOpenWidth: 0.09, confidence: 0.35 },
+    });
+    const pHighConf = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 15,
+      anteBB: 1,
+      tightRead: { observedOpenWidth: 0.09, confidence: 0.9 },
+    });
+    expect(pLowConf.tightened).toBe(true);
+    expect(pHighConf.tightened).toBe(true);
+    expect(pHighConf.effectiveBehind).toBeGreaterThan(pLowConf.effectiveBehind);
+
+    // Short-stack desperation stand-down: <= 10bb or Harrington M <= 4 keeps exact Nash.
+    for (const shortCase of [
+      { depthBB: 8, anteBB: 1, jammerBehind: 5 }, // M = 3.2 (red zone, e.g. 8bb BBA tournament)
+      { depthBB: 10, anteBB: 0, jammerBehind: 2 }, // <= 10bb push/fold boundary
+      { depthBB: 10, anteBB: 1, jammerBehind: 2 }, // M = 4.0 boundary
+    ]) {
+      const pShort = nashV2TightJammerParams({
+        ...shortCase,
+        tightRead: { observedOpenWidth: 0.08, confidence: 0.95 },
+      });
+      expect(pShort.tightened).toBe(false);
+      expect(pShort.effectiveBehind).toBe(shortCase.jammerBehind);
+      expect(pShort.effectiveBubble).toBe(1);
+      expect(
+        nashV2TightJammerCallProbability({
+          hand: 'A8o',
+          callerKind: 'bb',
+          ...shortCase,
+          tightRead: { observedOpenWidth: 0.08, confidence: 0.95 },
+        })
+      ).toEqual({
+        probability: nashV2CallProbability({
+          hand: 'A8o',
+          callerKind: 'bb',
+          ...shortCase,
+        }),
+        tightened: false,
+      });
+    }
+
+    // Monotonic depth ramp between 10bb and 13+bb (with M > 4).
+    const p11 = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 11.5,
+      anteBB: 0,
+      tightRead: { observedOpenWidth: 0.09, confidence: 0.9 },
+    });
+    const p15 = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 15,
+      anteBB: 0,
+      tightRead: { observedOpenWidth: 0.09, confidence: 0.9 },
+    });
+    expect(p11.tightened).toBe(true);
+    expect(p15.tightened).toBe(true);
+    expect(p15.effectiveBehind).toBeGreaterThan(p11.effectiveBehind);
+
+    // Ultra-nit tighter than n=9 caps bubble smoothly while premiums still call 100%.
+    const ultra = nashV2TightJammerParams({
+      jammerBehind: 2,
+      depthBB: 15,
+      anteBB: 1,
+      tightRead: { observedOpenWidth: 0.04, confidence: 1 },
+    });
+    expect(ultra.effectiveBehind).toBe(9);
+    expect(ultra.effectiveBubble).toBeGreaterThan(1);
+    expect(ultra.effectiveBubble).toBeLessThanOrEqual(2);
+    for (const prem of ['AA', 'KK', 'QQ']) {
+      expect(
+        nashV2TightJammerCallProbability({
+          hand: prem,
+          jammerBehind: 2,
+          callerKind: 'bb',
+          depthBB: 15,
+          anteBB: 1,
+          tightRead: { observedOpenWidth: 0.04, confidence: 1 },
+        }).probability
+      ).toBe(1);
+    }
+  });
+
+  it('(a) default OFF (unset or false) is byte-identical even with an evidenced tight/nit jammer read', () => {
+    seedProfile(JAMMER_UID, {
+      hands: 120,
+      vpipEvery: 24,
+      pfrEvery: 24,
+      rfiOppEvery: 2,
+      rfiEvery: 24,
+    });
+    const baseUnset = answers(btnJam15bbBba, { mind: true });
+    const baseExplicitFalse = answers(btnJam15bbBba, {
+      mind: true,
+      nashCallVsTightJammerRespect: false,
+    });
+    const baseNoMind = answers(btnJam15bbBba, { mind: false });
+    expect(baseUnset).toEqual(baseNoMind);
+    expect(baseExplicitFalse).toEqual(baseNoMind);
+  });
+
+  it('(b) unknown jammer (no history or <15 hands) keeps exact Nash call width when enabled', () => {
+    HorseMind.reset();
+    const base = answers(btnJam15bbBba, { mind: true });
+    const withEmpty = answers(btnJam15bbBba, { mind: true, nashCallVsTightJammerRespect: true });
+    expect(withEmpty).toEqual(base);
+
+    seedProfile(JAMMER_UID, { hands: 10, rfiOppEvery: 2 });
+    const withShort = answers(btnJam15bbBba, { mind: true, nashCallVsTightJammerRespect: true });
+    expect(withShort).toEqual(base);
+  });
+
+  it('(c) evidenced tight/nit jammer tightens call width, emits receipt, and stands down on gear shift', () => {
+    seedProfile(JAMMER_UID, {
+      hands: 120,
+      vpipEvery: 24,
+      pfrEvery: 24,
+      rfiOppEvery: 2,
+      rfiEvery: 24,
+    });
+
+    const baseW = width(btnJam15bbBba, { mind: true }, CALLS);
+    enableBrainTelemetry();
+    drainFires();
+    const tightW = width(
+      btnJam15bbBba,
+      { mind: true, telemetry: true, nashCallVsTightJammerRespect: true },
+      CALLS
+    );
+    const fires = drainFires();
+    expect(tightW).toBeLessThan(baseW - 5);
+    expect(tightW).toBeGreaterThan(4); // still calls strong hands / premiums
+    expect(
+      fires.find((f) => f.feature === 'nash_call_vs_tight_jammer_seen')?.fires ?? 0
+    ).toBeGreaterThan(0);
+
+    // Short-stack desperation (8bb BBA tournament, M = 3.2): stands down to exact Nash even vs nit.
+    const btnJam8bbBba: Spot = {
+      seats: 6,
+      stackBB: 8,
+      mode: 'tournament',
+      ante: true,
+      jammer: 3,
+      jammerUserId: JAMMER_UID,
+    };
+    const shortBase = answers(btnJam8bbBba, { mind: true });
+    const shortWithOpt = answers(btnJam8bbBba, {
+      mind: true,
+      nashCallVsTightJammerRespect: true,
+    });
+    expect(shortWithOpt).toEqual(shortBase);
+
+    // Realistic Nash-width jammer (~22% VPIP, ~17% PFR, ~33% RFI) is NOT tightened.
+    seedProfile(JAMMER_UID, { hands: 120, vpipEvery: 5, pfrEvery: 6, rfiOppEvery: 2, rfiEvery: 6 });
+    const nashBase = answers(btnJam15bbBba, { mind: true });
+    const nashWithOpt = answers(btnJam15bbBba, { mind: true, nashCallVsTightJammerRespect: true });
+    expect(nashWithOpt).toEqual(nashBase);
+
+    // Fast-window gear shift (previously tight nit jams 8 hands straight): stands down to exact Nash.
+    seedProfile(JAMMER_UID, {
+      hands: 120,
+      vpipEvery: 24,
+      pfrEvery: 24,
+      rfiOppEvery: 2,
+      rfiEvery: 24,
+      recentShiftHands: 8,
+    });
+    const shiftBase = answers(btnJam15bbBba, { mind: true });
+    const shiftWithOpt = answers(btnJam15bbBba, { mind: true, nashCallVsTightJammerRespect: true });
+    expect(shiftWithOpt).toEqual(shiftBase);
   });
 });

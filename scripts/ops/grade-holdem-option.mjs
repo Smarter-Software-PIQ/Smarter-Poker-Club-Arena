@@ -78,6 +78,10 @@ Options:
   --lane-lock=<path>         Optional owner-checked lane lock file (never steals foreign lock)
   --lane-owner=<id>          Lane owner string matching --lane-lock
   --max-load=<num>           Override 1-minute load ceiling (default: manifest.bars.maxLoad1m or 35)
+  --max-load-while-push-locked=<num>
+                             Opt-in: a present shepherd.lock does not refuse a job while the
+                             1-minute load is below <num> (must be below the load ceiling).
+                             Unset (default): any shepherd.lock refuses.
   --resume                   (run) Keep the cell-seed jobs an earlier run of this exact grade
                              already finished (same manifest, criteria, git HEAD/tree and harness
                              bytes) and run only the rest. A gate abort no longer throws away
@@ -90,7 +94,10 @@ Options:
 // Mirrors horseLeagueCard.ts offline semantics with a = b = matchup.b (OFF-vs-OFF).
 // Uses a namespace dynamic import for HorseLeague.js so DEVELOPMENT_LEAGUE_CARDS is resolved
 // when exported and gracefully falls back to [] on older branches without that export.
-export const CONTROL_RUNNER_SOURCE = `
+// The body is async (dynamic imports). `tsx -e` compiles eval input as CommonJS, where top-level
+// await is a syntax error, so the shipped source wraps the body in an async function and exits 1 on
+// any error. (2026-11-22: the unwrapped body failed every CONTROL cell before any hand was dealt.)
+export const CONTROL_RUNNER_BODY = `
 process.env.EQUITY_GOVERNOR = 'off';
 process.env.SUPABASE_URL = 'https://supabase.invalid';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'horse-league-card-offline-placeholder';
@@ -124,6 +131,13 @@ console.log('DEVRESULT ' + JSON.stringify({
 }));
 process.exit(0);
 `.trim();
+
+export const CONTROL_RUNNER_SOURCE = `(async () => {
+${CONTROL_RUNNER_BODY}
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});`;
 
 // --- Default I/O Dependencies (all injectable for unit tests) ----------------------------------
 
@@ -401,6 +415,7 @@ function runPreflightCheck(flags, deps) {
   const gate = evaluateSystemGate({
     shepherdLockExists: deps.exists(flags.shepherdLock),
     shepherdLockPath: flags.shepherdLock,
+    maxLoad1mWhilePushLocked: flags.maxLoad1mWhilePushLocked,
     laneLock,
     expectedLaneOwner: flags.laneOwner,
     load1m: deps.getLoad1m(),
@@ -632,6 +647,7 @@ async function handleRun(flags, deps) {
         const midGate = evaluateSystemGate({
           shepherdLockExists: deps.exists(flags.shepherdLock),
           shepherdLockPath: flags.shepherdLock,
+          maxLoad1mWhilePushLocked: flags.maxLoad1mWhilePushLocked,
           laneLock: flags.laneLock ? deps.readLaneLock(flags.laneLock) : null,
           expectedLaneOwner: flags.laneOwner,
           load1m: deps.getLoad1m(),
