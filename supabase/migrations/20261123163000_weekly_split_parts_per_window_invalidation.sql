@@ -1,10 +1,10 @@
 -- 20261123163000_weekly_split_parts_per_window_invalidation.sql
 --
--- ROOT CAUSE (Incident 6377941a — WeeklyPayoutNotReadyHalfHourBefore, 2026-11-23):
+-- ROOT CAUSE (Incident 6377941a - WeeklyPayoutNotReadyHalfHourBefore, 2026-11-23):
 -- On Monday 2026-11-23, weekly-prep-shard-0..3 completed the first full pass of
 -- the 2026-11-16..2026-11-23 close in ~35 minutes (reaching r3 83 at 08:30Z,
 -- a full hour before the 09:30Z / 03:30 CST readiness check). However, whenever
--- a late closed-week source arrived in window 83 (06:00Z..08:00Z — e.g. an
+-- a late closed-week source arrived in window 83 (06:00Z..08:00Z - e.g. an
 -- overnight tournament settling after 08:00Z, culminating at 11:00:57Z),
 -- smarter_private.weekly_refresh_changed_payout_windows and
 -- public.fn_rakeback_recompute_split deleted ALL 114+ rows in
@@ -27,7 +27,7 @@
 --    per-window invalidation: late cash sources invalidate only the affected 2h
 --    counts window(s) (+/- 1 minute boundary margin) plus players/check/write;
 --    late tournament fee sources invalidate only the affected 6h tq window(s)
---    (w.we > GREATEST(f.charged_at, v_from)) plus players/check/write — never
+--    (w.we > GREATEST(f.charged_at, v_from)) plus players/check/write - never
 --    wiping all 84 cash counts windows on a late tournament settlement.
 --
 -- @live-proof: (SELECT position('PER-WINDOW SPLIT-PART INVALIDATION (20261123)' IN pg_get_functiondef('smarter_private.weekly_refresh_changed_payout_windows(text,uuid,timestamptz,timestamptz)'::regprocedure)) > 0 AND position('PER-WINDOW SPLIT-PART INVALIDATION (20261123)' IN pg_get_functiondef('public.fn_rakeback_recompute_split(uuid,date,date)'::regprocedure)) > 0 AND NOT has_function_privilege('anon', 'smarter_private.weekly_refresh_changed_payout_windows(text,uuid,timestamptz,timestamptz)', 'EXECUTE') AND NOT has_function_privilege('anon', 'public.fn_rakeback_recompute_split(uuid,date,date)', 'EXECUTE'))
