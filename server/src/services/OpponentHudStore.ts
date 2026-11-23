@@ -58,6 +58,11 @@ import {
   priorsForStake,
   type OpponentHudPacket,
 } from '../engine/opponentHud/OpponentHud.js';
+import {
+  HUD_BACKFILL_MIN_PAGE_LIMIT,
+  HUD_BACKFILL_PAGE_LIMIT,
+  withTransientBackfillRetry,
+} from '../engine/opponentHud/OpponentHudBackfillPlan.js';
 import { noteFire } from '../engine/BrainTelemetry.js';
 import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../engine/HorseOptionSwitch.js';
 
@@ -103,6 +108,16 @@ export const HUD_ACTIVATION_MAX_CATCHUP_MS = 48 * 3600_000;
  * HUD_CATCHUP_APPLY_SLICE hands, so a decision's packet is never queued behind it.
  */
 export const HUD_CATCHUP_PAGE_ROWS = 250;
+export const HUD_CATCHUP_MAX_PAGES = 160;
+/**
+ * AUDIT-24H P1-2: reconcileDay and catchUp never request > 500 rows/page (1,000-row pages
+ * cross Supabase PostgREST's 8s statement_timeout), adaptively halve on transient timeouts,
+ * and raise the reconcile page cap so daily PLO4+PLO5+NLH volume never trips page limits.
+ */
+export const HUD_RECONCILE_PAGE_ROWS = HUD_BACKFILL_PAGE_LIMIT;
+export const HUD_RECONCILE_MAX_PAGES = 1_600;
+/** Live boot prewarm & IPC snapshot families with active decision consumers (PLO4/PLO5 cash). */
+export const HUD_LIVE_SNAPSHOT_FAMILIES: readonly HudFamily[] = ['plo4', 'plo5'];
 export const HUD_CATCHUP_PAUSE_MS = 200;
 export const HUD_CATCHUP_SLOW_MS = 1_000;
 export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
@@ -704,17 +719,29 @@ export class OpponentHudStore {
       if (this.readyLatencies.length > 5000) this.readyLatencies.splice(0, 1000);
       this.asked.delete(k);
     }
-    this.evict();
+    this.evict(family);
     return entry;
   }
 
-  private evict(): void {
-    if (this.cache.size <= HUD_CACHE_MAX) return;
-    for (const [k, e] of this.cache) {
-      if (this.cache.size <= HUD_CACHE_MAX) break;
-      if (e.state === 'ready' && e.dirty) continue; // persisted first, evicted on a later pass
-      this.cache.delete(k);
-      noteFire('opponent_hud_cache_evicted');
+  /**
+   * Per-family cache eviction (AUDIT-24H P1-2): each family enforces its own HUD_CACHE_MAX
+   * ceiling so high-volume NLH traffic can never evict prewarmed PLO4 or PLO5 profiles.
+   */
+  private evict(targetFamily?: HudFamily): void {
+    const families: readonly HudFamily[] = targetFamily ? [targetFamily] : HUD_FAMILIES;
+    for (const fam of families) {
+      const prefix = `${fam}|`;
+      let count = 0;
+      for (const k of this.cache.keys()) if (k.startsWith(prefix)) count += 1;
+      if (count <= HUD_CACHE_MAX) continue;
+      for (const [k, e] of this.cache) {
+        if (count <= HUD_CACHE_MAX) break;
+        if (!k.startsWith(prefix)) continue;
+        if (e.state === 'ready' && e.dirty) continue; // persisted first, evicted on a later pass
+        this.cache.delete(k);
+        count -= 1;
+        noteFire('opponent_hud_cache_evicted');
+      }
     }
   }
 
@@ -1070,13 +1097,13 @@ export class OpponentHudStore {
     await this.catchUp(new Date(this.deps.now() - HUD_BOOT_CATCHUP_MS).toISOString());
     return n;
   }
-  /** The 'boot' trigger (activation at engine boot or cutover): every stored profile updated in the last
+  /** The 'boot' trigger (activation at engine boot or cutover): every stored PLO4/PLO5 profile updated in the last
    *  HUD_BOOT_WINDOW_MS is made ready; each one's readiness from `startedAt` is counted as opponent_hud_ready_boot_*. */
   private async prewarmProfiles(startedAt: number): Promise<number> {
     if (!this.armedState) return 0;
     let n = 0;
     const since = new Date(this.deps.now() - HUD_BOOT_WINDOW_MS).toISOString();
-    for (const family of HUD_FAMILIES) {
+    for (const family of HUD_LIVE_SNAPSHOT_FAMILIES) {
       let after: string | null = null;
       for (let page = 0; page < 40; page++) {
         const ac = new AbortController();
@@ -1113,19 +1140,65 @@ export class OpponentHudStore {
     return n;
   }
 
-  /** Apply every PLO4/PLO5 cash hand since `sinceIso` to the warm profiles (bounded pages; never throws). */
+  /**
+   * Bounded transient-retry + adaptive page-halving wrapper for handsPage reads
+   * (AUDIT-24H P1-2: protects catchUp & nightly reconcileDay from PostgREST 8s timeouts).
+   */
+  private async fetchHandsPageWithRetry(
+    afterAt: string,
+    afterId: string,
+    baseLimit: number,
+    untilIso?: string
+  ): Promise<{ rows: { id: string; created_at: string }[]; usedLimit: number }> {
+    let pageLimit = Math.min(HUD_BACKFILL_PAGE_LIMIT, Math.max(1, baseLimit));
+    const sleep = (ms: number): Promise<void> =>
+      this.deps.sleep
+        ? this.deps.sleep(ms)
+        : new Promise((r) => {
+            const t = setTimeout(r, ms);
+            (t as { unref?: () => void }).unref?.();
+          });
+    const rows = await withTransientBackfillRetry(
+      async () => {
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
+        (t as { unref?: () => void }).unref?.();
+        try {
+          const out = await this.deps.handsPage!(afterAt, afterId, pageLimit, ac.signal, untilIso);
+          return Array.isArray(out) ? out : [];
+        } finally {
+          clearTimeout(t);
+        }
+      },
+      {
+        maxRetries: 4,
+        retryBaseMs: 250,
+        sleep,
+        onRetry: () => {
+          pageLimit = Math.max(
+            Math.min(HUD_BACKFILL_MIN_PAGE_LIMIT, baseLimit),
+            Math.floor(pageLimit / 2)
+          );
+        },
+      }
+    );
+    return { rows, usedLimit: pageLimit };
+  }
+
+  /** Apply every retained hand since `sinceIso` to the warm profiles (bounded adaptive pages; never throws). */
   async catchUp(sinceIso: string): Promise<number> {
     if (!this.deps.handsPage) return 0;
     let afterAt = sinceIso;
     let afterId = '00000000-0000-0000-0000-000000000000';
     let applied = 0;
-    for (let page = 0; page < 40; page++) {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-      (t as { unref?: () => void }).unref?.();
+    for (let page = 0; page < HUD_CATCHUP_MAX_PAGES; page++) {
       try {
-        const rows = await this.deps.handsPage(afterAt, afterId, 1000, ac.signal);
-        if (!Array.isArray(rows) || !rows.length) break;
+        const { rows, usedLimit } = await this.fetchHandsPageWithRetry(
+          afterAt,
+          afterId,
+          HUD_CATCHUP_PAGE_ROWS
+        );
+        if (!rows.length) break;
         for (const r of rows) {
           const rec = handRecordFromRow(r);
           if (typeof rec === 'string') continue;
@@ -1143,12 +1216,10 @@ export class OpponentHudStore {
         }
         afterAt = rows[rows.length - 1].created_at;
         afterId = rows[rows.length - 1].id;
-        if (rows.length < 1000) break;
+        if (rows.length < usedLimit) break;
       } catch {
         noteFire('opponent_hud_catchup_failed');
         break;
-      } finally {
-        clearTimeout(t);
       }
     }
     return applied;
@@ -1305,42 +1376,34 @@ export class OpponentHudStore {
       let afterAt = new Date(start - 1).toISOString();
       let afterId = '00000000-0000-0000-0000-000000000000';
       let complete = false;
-      for (let page = 0; page < 400 && !complete; page++) {
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-        (t as { unref?: () => void }).unref?.();
-        try {
-          const rows = await this.deps.handsPage(
-            afterAt,
-            afterId,
-            1000,
-            ac.signal,
-            new Date(end - 1).toISOString()
-          );
-          if (!Array.isArray(rows) || !rows.length) {
-            complete = true;
-            break;
-          }
-          for (const r of rows) {
-            const rec = handRecordFromRow(r);
-            if (typeof rec === 'string' || hudDayOf(rec.at) !== day) continue;
-            const deltas = extractHandDeltas(rec);
-            for (const d of deltas) {
-              const k = key(rec.family, d.user);
-              let e = expected.get(k);
-              if (!e) expected.set(k, (e = { ids: new Set(), sum: 0 }));
-              const prefix = hudIdPrefix(rec.id);
-              if (e.ids.has(prefix)) continue;
-              e.ids.add(prefix);
-              e.sum = (e.sum + (hudHandDigest(d.user, rec, deltas) ?? 0)) >>> 0;
-            }
-          }
-          afterAt = rows[rows.length - 1].created_at;
-          afterId = rows[rows.length - 1].id;
-          if (rows.length < 1000) complete = true;
-        } finally {
-          clearTimeout(t);
+      for (let page = 0; page < HUD_RECONCILE_MAX_PAGES && !complete; page++) {
+        const { rows, usedLimit } = await this.fetchHandsPageWithRetry(
+          afterAt,
+          afterId,
+          HUD_RECONCILE_PAGE_ROWS,
+          new Date(end - 1).toISOString()
+        );
+        if (!rows.length) {
+          complete = true;
+          break;
         }
+        for (const r of rows) {
+          const rec = handRecordFromRow(r);
+          if (typeof rec === 'string' || hudDayOf(rec.at) !== day) continue;
+          const deltas = extractHandDeltas(rec);
+          for (const d of deltas) {
+            const k = key(rec.family, d.user);
+            let e = expected.get(k);
+            if (!e) expected.set(k, (e = { ids: new Set(), sum: 0 }));
+            const prefix = hudIdPrefix(rec.id);
+            if (e.ids.has(prefix)) continue;
+            e.ids.add(prefix);
+            e.sum = (e.sum + (hudHandDigest(d.user, rec, deltas) ?? 0)) >>> 0;
+          }
+        }
+        afterAt = rows[rows.length - 1].created_at;
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < usedLimit) complete = true;
         await new Promise<void>((r) => setImmediate(r));
       }
       if (!complete) throw new Error('verification page limit');
@@ -1455,12 +1518,17 @@ export function opponentHudSnapshotField(
 ): { opponentHud?: OpponentHudPacket } {
   try {
     if (!shared || !shared.armed()) return {};
+    // AUDIT-24H P1-2: attach live IPC packets ONLY for PLO4/PLO5 cash (never bloat 57% NLH
+    // or tournament decisions/journals before an NLH/tournament consumer explicitly opts in).
+    const family = familyOf(gs.gameVariant);
+    const cash = gs.gameMode !== 'tournament' && !gs.tournament;
+    if (!family || !cash || !HUD_LIVE_SNAPSHOT_FAMILIES.includes(family)) return {};
     const stage = String(gs.stage ?? 'preflop');
     const street: HudStreet =
       stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'preflop';
     return shared.packetFor({
-      family: familyOf(gs.gameVariant),
-      cash: gs.gameMode !== 'tournament' && !gs.tournament,
+      family,
+      cash,
       heroId,
       opponentIds: (gs.players ?? [])
         .filter((p) => p && p.is_folded !== true && typeof p.user_id === 'string')
@@ -1553,9 +1621,38 @@ const missing = (error: { code?: string; message?: string }): boolean =>
   error.code === '42883' ||
   /could not find the function|function .* does not exist/i.test(error.message ?? '');
 
-function supabaseHudDeps(): OpponentHudStoreDeps {
+/**
+ * What a failed hands-page call says in its Error: the fixed prefix, the database's error code, the HTTP status and
+ * one bounded line of the database's own message, so the transient check (`isTransientBackfillError`: statement
+ * timeout, 502/503/504, ...) can recognise it and the adaptive retry runs. Never the details or hint (they can quote
+ * a row) and never an address.
+ */
+function hudDbFailure(
+  prefix: string,
+  error: { code?: unknown; message?: unknown },
+  status?: unknown
+): Error {
+  const code =
+    typeof error.code === 'string' && /^[A-Za-z0-9]{1,10}$/.test(error.code) ? error.code : '';
+  const http = typeof status === 'number' && status >= 100 && status <= 599 ? status : 0;
+  const tags = [code ? `code ${code}` : '', http ? `http ${http}` : ''].filter(Boolean).join(', ');
+  const text = (typeof error.message === 'string' ? error.message : '')
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[address]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return new Error(`${prefix}${tags ? ` (${tags})` : ''}: ${text || 'no message'}`);
+}
+
+type HudDbClient = Awaited<typeof import('./supabase.js')>['supabase'];
+
+/** The production dependencies. `clientForTest` stands in for the database client in a test of these wrappers. */
+export function supabaseHudDeps(clientForTest?: unknown): OpponentHudStoreDeps {
   // imported lazily so engine tests that never touch the store need no database client
-  const client = async () => (await import('./supabase.js')).supabase;
+  const client = async (): Promise<HudDbClient> =>
+    clientForTest !== undefined
+      ? (clientForTest as HudDbClient)
+      : (await import('./supabase.js')).supabase;
   return {
     async read(userIds, family, signal) {
       const { data, error } = await (await client())
@@ -1579,7 +1676,7 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
       return (data ?? []) as HudStoredRow[];
     },
     async handsPage(afterAt, afterId, limit, signal, untilIso) {
-      const { data, error } = await (
+      const { data, error, status } = await (
         await client()
       )
         .rpc('fn_opponent_hud_hands_page', {
@@ -1589,7 +1686,7 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
           p_limit: limit,
         })
         .abortSignal(signal);
-      if (error) throw new Error('opponent hud hands page failed');
+      if (error) throw hudDbFailure('opponent hud hands page failed', error, status);
       return (data ?? []) as { id: string; created_at: string }[];
     },
     alert(name, firing, summary) {
