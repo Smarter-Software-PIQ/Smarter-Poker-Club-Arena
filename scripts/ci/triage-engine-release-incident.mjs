@@ -165,7 +165,7 @@ async function runInspect() {
   const client = new Client({
     connectionString: url,
     connectionTimeoutMillis: 15_000,
-    statement_timeout: 25_000,
+    statement_timeout: 8_000,
   });
   try {
     await client.connect();
@@ -394,27 +394,40 @@ async function runInspect() {
                                      WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number)) AS open_week_missing`,
         [periodEnd]
       );
-      const dryRunSlices = [];
-      const sliceBaseMs = Date.parse('2026-11-18T20:14:00.000Z');
-      const sliceStepMs = 4 * 60 * 1000;
-      for (let i = 0; i < 13; i += 1) {
-        const sIso = new Date(sliceBaseMs + i * sliceStepMs).toISOString();
-        const eIso = new Date(sliceBaseMs + (i + 1) * sliceStepMs).toISOString();
-        const t0 = Date.now();
-        const rows = await safeSelect(
-          `SELECT count(*) AS candidates,
-                  count(*) FILTER (WHERE proof->>'status' = 'proven') AS proven,
-                  count(*) FILTER (WHERE proof->>'status' = 'proven' AND proof#>>'{evidence,status}' = 'ready') AS evidence_ready,
-                  count(*) FILTER (WHERE proof->>'status' IS DISTINCT FROM 'proven') AS refused,
-                  count(*) FILTER (WHERE proof->>'status' = 'proven' AND proof#>>'{game_scope,game_union_id}' = 'fade0000-0000-0000-0000-000000000001') AS midway_hands,
-                  COALESCE(sum((proof#>>'{evidence,accepted_rake}')::numeric) FILTER (WHERE proof->>'status' = 'proven' AND proof#>>'{game_scope,game_union_id}' = 'fade0000-0000-0000-0000-000000000001'), 0) AS midway_rake,
-                  COALESCE(jsonb_agg(DISTINCT proof->>'reason') FILTER (WHERE proof->>'status' IS DISTINCT FROM 'proven'), '[]'::jsonb) AS refusal_reasons
-             FROM public.fn_union_pnl_prove_cash_outcome_links($1::timestamptz, $2::timestamptz)`,
-          [sIso, eIso]
-        );
-        dryRunSlices.push({ start: sIso, end: eIso, ms: Date.now() - t0, result: rows });
-      }
-      context.missingScopeDryRunSlices = dryRunSlices;
+      context.missingScopeBuckets = await safeSelect(
+        `SELECT date_bin(interval '5 minutes', o.recognized_at, '2026-11-18T20:14:00Z'::timestamptz) AS bucket,
+                count(*) AS n,
+                COALESCE(sum((o.evidence->>'accepted_rake')::numeric), 0) AS rake,
+                min(o.recognized_at) AS first_at,
+                max(o.recognized_at) AS last_at
+           FROM public.union_pnl_cash_outcomes o
+          WHERE o.recognized_at >= '2026-11-18T20:14:00Z'::timestamptz
+            AND o.recognized_at < '2026-11-18T21:06:00Z'::timestamptz
+            AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
+            AND NOT EXISTS (
+              SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
+               WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
+            )
+          GROUP BY 1
+          ORDER BY 1`
+      );
+      const t0 = Date.now();
+      const sampleSlice = await safeSelect(
+        `SELECT count(*) AS candidates,
+                count(*) FILTER (WHERE proof->>'status' = 'proven') AS proven,
+                count(*) FILTER (WHERE proof->>'status' = 'proven' AND proof#>>'{evidence,status}' = 'ready') AS evidence_ready,
+                count(*) FILTER (WHERE proof->>'status' IS DISTINCT FROM 'proven') AS refused,
+                count(*) FILTER (WHERE proof->>'status' = 'proven' AND proof#>>'{game_scope,game_union_id}' = 'fade0000-0000-0000-0000-000000000001') AS midway_hands,
+                COALESCE(sum((proof#>>'{evidence,accepted_rake}')::numeric) FILTER (WHERE proof->>'status' = 'proven' AND proof#>>'{game_scope,game_union_id}' = 'fade0000-0000-0000-0000-000000000001'), 0) AS midway_rake,
+                COALESCE(jsonb_agg(DISTINCT proof->>'reason') FILTER (WHERE proof->>'status' IS DISTINCT FROM 'proven'), '[]'::jsonb) AS refusal_reasons
+           FROM public.fn_union_pnl_prove_cash_outcome_links('2026-11-18T20:14:00Z'::timestamptz, '2026-11-18T20:15:00Z'::timestamptz)`
+      );
+      context.missingScopeDryRunSample1m = {
+        start: '2026-11-18T20:14:00Z',
+        end: '2026-11-18T20:15:00Z',
+        ms: Date.now() - t0,
+        result: sampleSlice,
+      };
       context.weeklyPrepTimeline = await safeSelect(
         `SELECT date_bin(interval '15 minutes', started_at, $1::timestamptz) AS bucket,
                 count(*) AS runs,
@@ -545,7 +558,7 @@ async function runClaim() {
   const client = new Client({
     connectionString: url,
     connectionTimeoutMillis: 15_000,
-    statement_timeout: 25_000,
+    statement_timeout: 8_000,
   });
   try {
     await client.connect();
