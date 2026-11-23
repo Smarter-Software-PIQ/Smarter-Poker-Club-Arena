@@ -1262,6 +1262,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   // not carry it (league and tests pass it directly). Remove this line in the migration PR.
   holdemTournamentAggressionIsPriced:
     'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  nashCallVsTightJammerRespect:
+    'prototype hold: default-OFF prototype without a switch-list migration during the 4 PM hold; register in a follow-up migration PR',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */
