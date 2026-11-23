@@ -3315,6 +3315,56 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 ]);
 
 /**
+ * 2026-11-22 Horse Switch lane (Wave 10.1): dark dev-only NLH tournament cards
+ * grading `holdemTournamentAggressionIsPriced` (EV + ICM priced postflop
+ * replacement for `v57TournamentAggression`) across 6-max BBA MTT, 6-max Final
+ * Table ICM MTT, and 2-max HU MTT. Arm A switches the priced postflop layer ON
+ * alongside v57TournamentAggression; Arm B keeps legacy v57TournamentAggression.
+ * Strictly in DEVELOPMENT_LEAGUE_CARDS, never LEAGUE_MATCHUPS.
+ */
+export const HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'mtt6_holdem_tournament_aggression_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 30,
+    context: bigBlindAnteMttContext(6, 30),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v57TournamentAggression: true, holdemTournamentAggressionIsPriced: true },
+    b: { v57TournamentAggression: true },
+  },
+  {
+    name: 'mtt6_ft_holdem_tournament_aggression_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 25,
+    context: finalTableMttWithStacksContext(6, 25),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v57TournamentAggression: true, holdemTournamentAggressionIsPriced: true },
+    b: { v57TournamentAggression: true },
+  },
+  {
+    name: 'mtt_hu_holdem_tournament_aggression_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    stackBB: 25,
+    context: finalTableMttContext(2, 25),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v57TournamentAggression: true, holdemTournamentAggressionIsPriced: true },
+    b: { v57TournamentAggression: true },
+  },
+]);
+
+/**
  * DEVELOPMENT CARDS: declared like a nightly card and dealt by the same
  * runMatchup, but by name only, for a declared grade run
  * (src/scripts/horseLeagueCard.ts --card=<name>). They are NOT in LEAGUE_MATCHUPS:
@@ -3511,6 +3561,7 @@ export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze(
     a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
     b: { riverBluffMultiway: true },
   },
+  ...HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS,
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
