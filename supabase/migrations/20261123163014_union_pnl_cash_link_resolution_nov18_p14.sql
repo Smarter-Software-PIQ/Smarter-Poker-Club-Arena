@@ -3,7 +3,7 @@
 -- RESOLVE NOV 18 ALIAS-REGRESSION UNLINKED CASH OUTCOMES (Part 14/18:
 -- 2026-11-18T20:53:00Z .. 2026-11-18T20:56:00Z).
 --
--- ROOT CAUSE (Incident 605ea9ca — union_accounting_scheduler; drift 378c5998
+-- ROOT CAUSE (Incident 605ea9ca - union_accounting_scheduler; drift 378c5998
 -- and 25365b5d union_eco_not_recorded):
 -- Between 2026-11-18 20:12:48Z and 2026-11-18 21:04:56Z, migration
 -- 20261118164000 introduced an ambiguous alias x inside
