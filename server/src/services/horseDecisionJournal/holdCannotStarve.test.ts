@@ -100,11 +100,13 @@ describe('a retirement never scans the catalog', () => {
       native.close();
     }
   });
+  /** Repeated scans the yardstick takes its minimum over (see fullCatalog). */
+  const SCAN_YARDSTICK_SAMPLES = 5;
   /** 64 small segments, then one newest filler segment of `filler` index rows; returns the folder, the
    *  byte bound that leaves room for no more than the archive minus its 48 oldest segments (so the next
-   *  append must retire at least 48), the oldest 48 segments with their event rowids, and the time of ONE
+   *  append must retire at least 48), the oldest 48 segments with their event rowids, and the time of one
    *  scan of the catalog by the unindexed segment_sha column (the work a foreign-key check does per
-   *  retired segment). */
+   *  retired segment), the cheapest of SCAN_YARDSTICK_SAMPLES. */
   const fullCatalog = (filler: number) => {
     const dir = folder();
     const w = open(dir);
@@ -152,11 +154,20 @@ describe('a retirement never scans the catalog', () => {
         )
         .get()!.n
     );
-    const scanStarted = performance.now();
-    native
-      .prepare('SELECT count(*) AS n FROM archive_events WHERE segment_sha = ?')
-      .get('0'.repeat(64));
-    const scanMs = performance.now() - scanStarted;
+    // The yardstick is the cheapest of five identical scans, not one sample. Host
+    // load only ever adds time to a sample, so the minimum is the closest reading of
+    // what one scan costs on this host now. One sample could land on a stall: on
+    // Nov 23 2026 at load 16 a single scan read about 14 s while the 48 enforced
+    // scans of the negative control took 6.4 s in all, which put the bound above the
+    // regression it exists to catch. The bound formula and both assertions are
+    // unchanged; only the reading that feeds them is.
+    const scan = native.prepare('SELECT count(*) AS n FROM archive_events WHERE segment_sha = ?');
+    let scanMs = Infinity;
+    for (let sample = 0; sample < SCAN_YARDSTICK_SAMPLES; sample++) {
+      const scanStarted = performance.now();
+      scan.get('0'.repeat(64));
+      scanMs = Math.min(scanMs, performance.now() - scanStarted);
+    }
     native.close();
     return { dir, maxBytes: Number(usage.bytes) - oldest48 + 1, oldest, scanMs };
   };
