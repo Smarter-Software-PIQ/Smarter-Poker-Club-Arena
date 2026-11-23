@@ -16,7 +16,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   keepHeldPlaces,
   OPEN_LIST_STATUSES,
@@ -25,7 +26,7 @@ import {
   type OpenListRow,
 } from './HorseGameQueue.js';
 
-const HERE = new URL('.', import.meta.url).pathname;
+const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
 const FLEET = readFileSync(join(HERE, 'HorseFleetManager.ts'), 'utf8');
 
