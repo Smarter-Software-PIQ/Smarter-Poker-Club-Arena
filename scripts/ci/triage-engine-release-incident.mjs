@@ -413,27 +413,39 @@ async function runInspect() {
       );
       const periodStart = '2026-11-16T08:00:00+00:00';
       const midwayUnion = 'fade0000-0000-0000-0000-000000000001';
-      context.pnlClubsCertificates = await safeSelect(
-        `SELECT kind, certified_at,
-                value->>'cash_reconciled' AS cash_reconciled,
-                value->>'hands' AS hands,
-                value->>'accepted_rake' AS accepted_rake,
-                value->>'cash_rake' AS cash_rake,
-                ((value->>'accepted_rake')::numeric - (value->>'cash_rake')::numeric) AS raw_diff,
-                public.fn_union_pnl_week_rake_straddle($1::uuid, $2::timestamptz, $3::timestamptz) AS straddle,
-                ((value->>'accepted_rake')::numeric - public.fn_union_pnl_week_rake_straddle($1::uuid, $2::timestamptz, $3::timestamptz) - (value->>'cash_rake')::numeric) AS net_diff
-           FROM public.accounting_close_certificates
-          WHERE kind IN ('pnl_clubs', 'pnl_clubs_problem')
-            AND union_id = $1::uuid
-            AND period_start = $2::timestamptz
-            AND period_end = $3::timestamptz
-          ORDER BY certified_at DESC
-          LIMIT 4`,
+      context.weekRakeTotals = await safeSelect(
+        `WITH acc AS (
+           SELECT COALESCE(sum((x->>'rake')::numeric) FILTER (WHERE (x->>'kind')::int = 0), 0) AS accepted_rake,
+                  COALESCE(sum((x->>'hands')::bigint) FILTER (WHERE (x->>'kind')::int = 0), 0) AS hands,
+                  count(DISTINCT p.window_start) AS windows
+             FROM public.accounting_close_partials p
+             CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.value->'groups', '[]'::jsonb)) x
+            WHERE p.kind = 'pnl_hands_window'
+              AND p.union_id = $1::uuid
+              AND p.period_start = $2::timestamptz
+              AND p.period_end = $3::timestamptz
+         ),
+         earned AS (
+           SELECT COALESCE(sum(s.rake_credit), 0) AS cash_rake,
+                  count(*) AS src_rows
+             FROM public.accounting_payable_earning_sources s
+            WHERE s.union_id = $1::uuid
+              AND s.source_type = 'cash_rake_accrual'
+              AND s.earned_at >= $2::timestamptz
+              AND s.earned_at < $3::timestamptz
+         ),
+         str AS (
+           SELECT public.fn_union_pnl_week_rake_straddle($1::uuid, $2::timestamptz, $3::timestamptz) AS straddle
+         )
+         SELECT a.windows, a.hands, e.src_rows, a.accepted_rake, e.cash_rake, s.straddle,
+                (a.accepted_rake - e.cash_rake) AS raw_diff,
+                (a.accepted_rake - s.straddle - e.cash_rake) AS net_diff
+           FROM acc a CROSS JOIN earned e CROSS JOIN str s`,
         [midwayUnion, periodStart, periodEnd]
       );
-      context.cashRakeDiffBy2hWindow = await safeSelect(
+      context.dayRakeTotals = await safeSelect(
         `WITH acc AS (
-           SELECT p.window_start, p.window_end, p.computed_at,
+           SELECT date_trunc('day', p.window_start) AS utc_day,
                   COALESCE(sum((x->>'rake')::numeric) FILTER (WHERE (x->>'kind')::int = 0), 0) AS accepted_rake,
                   COALESCE(sum((x->>'hands')::bigint) FILTER (WHERE (x->>'kind')::int = 0), 0) AS hands
              FROM public.accounting_close_partials p
@@ -442,12 +454,11 @@ async function runInspect() {
               AND p.union_id = $1::uuid
               AND p.period_start = $2::timestamptz
               AND p.period_end = $3::timestamptz
-            GROUP BY p.window_start, p.window_end, p.computed_at
+            GROUP BY 1
          ),
          earned AS (
-           SELECT date_bin(interval '2 hours', s.earned_at, $2::timestamptz) AS window_start,
-                  COALESCE(sum(s.rake_credit), 0) AS cash_rake,
-                  count(*) AS src_rows
+           SELECT date_trunc('day', s.earned_at) AS utc_day,
+                  COALESCE(sum(s.rake_credit), 0) AS cash_rake
              FROM public.accounting_payable_earning_sources s
             WHERE s.union_id = $1::uuid
               AND s.source_type = 'cash_rake_accrual'
@@ -455,22 +466,70 @@ async function runInspect() {
               AND s.earned_at < $3::timestamptz
             GROUP BY 1
          )
-         SELECT COALESCE(a.window_start, e.window_start) AS window_start,
-                a.computed_at,
+         SELECT COALESCE(a.utc_day, e.utc_day) AS utc_day,
                 COALESCE(a.hands, 0) AS hands,
-                COALESCE(e.src_rows, 0) AS src_rows,
                 COALESCE(a.accepted_rake, 0) AS accepted_rake,
                 COALESCE(e.cash_rake, 0) AS cash_rake,
                 (COALESCE(a.accepted_rake, 0) - COALESCE(e.cash_rake, 0)) AS diff
            FROM acc a
-           FULL OUTER JOIN earned e ON e.window_start = a.window_start
-          WHERE COALESCE(a.accepted_rake, 0) IS DISTINCT FROM COALESCE(e.cash_rake, 0)
-          ORDER BY abs(COALESCE(a.accepted_rake, 0) - COALESCE(e.cash_rake, 0)) DESC, window_start
-          LIMIT 25`,
+           FULL OUTER JOIN earned e ON e.utc_day = a.utc_day
+          ORDER BY 1`,
         [midwayUnion, periodStart, periodEnd]
       );
+      context.nov20HandLevelDiff = await safeSelect(
+        `WITH outs AS (
+           SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at,
+                  (o.evidence->>'accepted_rake')::numeric AS accepted_rake,
+                  o.game_scope->>'game_union_id' AS own_union,
+                  'own'::text AS src_kind
+             FROM public.union_pnl_cash_outcomes o
+            WHERE o.recognized_at >= '2026-11-20T06:00:00Z'::timestamptz
+              AND o.recognized_at < '2026-11-20T14:00:00Z'::timestamptz
+              AND o.game_scope->>'game_union_id' = $1::text
+              AND COALESCE((o.evidence->>'accepted_rake')::numeric, 0) > 0
+           UNION ALL
+           SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at,
+                  (r.evidence->>'accepted_rake')::numeric AS accepted_rake,
+                  r.game_scope->>'game_union_id' AS own_union,
+                  'linked'::text AS src_kind
+             FROM public.union_pnl_cash_outcomes o
+             JOIN public.union_pnl_cash_outcome_link_resolutions r
+               ON r.table_id = o.table_id AND r.hand_number = o.hand_number AND r.hand_id = o.hand_id
+            WHERE o.recognized_at >= '2026-11-20T06:00:00Z'::timestamptz
+              AND o.recognized_at < '2026-11-20T14:00:00Z'::timestamptz
+              AND r.game_scope->>'game_union_id' = $1::text
+              AND COALESCE((r.evidence->>'accepted_rake')::numeric, 0) > 0
+         ),
+         joined AS (
+           SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at, o.src_kind, o.accepted_rake,
+                  r.id AS rake_record_id, r.rake_amount AS rr_rake, r.created_at AS rr_created_at,
+                  COALESCE(es.earned_rake, 0) AS earned_rake,
+                  es.min_earned_at, es.max_earned_at, es.src_count
+             FROM outs o
+             LEFT JOIN public.rake_records r ON r.hand_id = o.hand_id
+             LEFT JOIN LATERAL (
+               SELECT sum(s.rake_credit) AS earned_rake,
+                      min(s.earned_at) AS min_earned_at,
+                      max(s.earned_at) AS max_earned_at,
+                      count(*) AS src_count
+                 FROM public.accounting_payable_earning_sources s
+                WHERE s.rake_record_id = r.id
+                  AND s.union_id = $1::uuid
+                  AND s.source_type = 'cash_rake_accrual'
+             ) es ON true
+         )
+         SELECT count(*) FILTER (WHERE accepted_rake IS DISTINCT FROM earned_rake) AS mismatched_hands,
+                COALESCE(sum(accepted_rake - earned_rake) FILTER (WHERE accepted_rake IS DISTINCT FROM earned_rake), 0) AS mismatched_sum,
+                count(*) FILTER (WHERE rake_record_id IS NULL) AS missing_rake_record,
+                count(*) FILTER (WHERE rake_record_id IS NOT NULL AND src_count = 0) AS missing_earning_source,
+                count(*) FILTER (WHERE rake_record_id IS NOT NULL AND src_count > 0 AND accepted_rake IS DISTINCT FROM earned_rake) AS amount_mismatch,
+                (SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.recognized_at), '[]'::jsonb)
+                   FROM (SELECT * FROM joined WHERE accepted_rake IS DISTINCT FROM earned_rake ORDER BY recognized_at LIMIT 20) s) AS sample
+           FROM joined`,
+        [midwayUnion]
+      );
       context.cashRakeStraddlersWide = await safeSelect(
-        `SELECT s.id AS source_id, r.id AS rake_record_id, r.hand_id, s.rake_credit,
+        `SELECT s.rake_record_id, r.hand_id, s.rake_credit,
                 s.earned_at, o.recognized_at,
                 round(extract(epoch FROM (s.earned_at - o.recognized_at))::numeric, 2) AS lag_sec,
                 o.game_scope->>'game_union_id' AS own_union,
