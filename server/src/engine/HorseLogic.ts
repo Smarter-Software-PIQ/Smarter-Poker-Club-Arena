@@ -954,7 +954,14 @@ import {
   flopTurnBluffSize,
   flopTurnRaiseEligibility,
   flopTurnRaiseProbability,
+  holdemDrawRead,
 } from './HorseFlopTurnBluffRange.js';
+import {
+  classifyHoldemFlopTexture,
+  holdemFlopTurnBluffIsPricedApplies,
+  holdemFlopTurnBluffPricedVerdict,
+  isHoldemBoardThreeFlush,
+} from './HorseHoldemFlopTurnBluffIsPriced.js';
 import {
   multiwayRiverBluffEligibility,
   multiwayRiverBluffProbability,
@@ -5365,6 +5372,15 @@ export interface HorseDecideOpts {
    *  that tells a story; reads reshape it and never switch it off. Default
    *  on; false ablates it. */
   flopTurnBluffBaseline?: boolean;
+  /** holdemFlopTurnBluffIsPriced (2026-11-22, Horse Switch lane, default OFF, read === true):
+   *  dark priced replacement for flopTurnBluffBaseline (A3, REVIEW-HOLDEM-OFFLIST-20261121.md §5)
+   *  on unopened / checked-to flops and turns in single-board 2-card NLH. Replaces random size
+   *  and frequency draws with deterministic EV pricing over candidate legal bluff/semi-bluff sizes
+   *  (0.33x, 0.55x, 0.75x, 1.0x pot / stack cap) vs realized EV(check) using empirical NLH
+   *  flop/turn fold-to-bet curves, multiway discount, selection-bias surplus retention, and draw
+   *  equity realization (HorseHoldemFlopTurnBluffIsPriced). Independent of flopTurnBluffBaseline;
+   *  zero PLO4/5/6 reach; bit-identical when OFF. */
+  holdemFlopTurnBluffIsPriced?: boolean;
   /** Out-of-position river leads (2026-11-07, HorseRiverBluffRange.ts): first
    *  to act on the river into the turn bettor, bluff-lead the rivers that
    *  complete the caller's draws (blockers first), rarely the blanks, never
@@ -26025,7 +26041,15 @@ export class HorseLogic {
               /* reads are best-effort */
             }
           }
-          if (!rangeCbetBlocked87 && (opts.flopTurnBluffBaseline ?? true) !== false) {
+          if (
+            !rangeCbetBlocked87 &&
+            ((opts.flopTurnBluffBaseline ?? true) !== false ||
+              (opts.holdemFlopTurnBluffIsPriced === true &&
+                !multiBoard36 &&
+                !gs.bombPot &&
+                !gs.allInOrFold &&
+                !sat37.active))
+          ) {
             const eligRangeFt87 = flopTurnBluffEligibility({
               omaha: false,
               potLimit: vi.isPotLimit,
@@ -27300,9 +27324,43 @@ export class HorseLogic {
       // bets at the solved frequency for that class, reads reshaping it, or
       // checks. See HorseFlopTurnBluffRange.ts. Spots it does not own fall
       // through unchanged.
+      const opponentsCanRespondFt = opponents.every(
+        (o) => !o.is_all_in && !o.is_sitting_out && o.stack > 0
+      );
+      let deepestOppStackFtPriced = 0;
+      if (opts.holdemFlopTurnBluffIsPriced === true) {
+        for (const o of opponents) {
+          const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
+          if (os > deepestOppStackFtPriced) deepestOppStackFtPriced = os;
+        }
+      }
+      const holdemFlopTurnBluffPricedActive =
+        opts.holdemFlopTurnBluffIsPriced === true &&
+        holdemFlopTurnBluffIsPricedApplies({
+          enabled: opts.holdemFlopTurnBluffIsPriced,
+          isOmaha: vi.isOmaha,
+          isPotLimit: vi.isPotLimit,
+          isHiLo: vi.isHiLo,
+          isShortDeck: vi.isShortDeck,
+          isFixedLimit: vi.isFixedLimit,
+          holeCount: vi.holeCount,
+          holeCardCount: player.cards.length,
+          street,
+          boardLength: board.length,
+          facingBet,
+          multiBoard: multiBoard36,
+          bombPot: gs.bombPot === true,
+          allInOrFold: gs.allInOrFold === true,
+          satelliteActive: sat37.active,
+          opponentsLive: opponents.length,
+          opponentsCanRespond: opponentsCanRespondFt,
+          pot,
+          heroStack: stack,
+          effectiveVillainStack: deepestOppStackFtPriced,
+        });
       if (
         (street === 'flop' || street === 'turn') &&
-        (opts.flopTurnBluffBaseline ?? true) !== false
+        (holdemFlopTurnBluffPricedActive || (opts.flopTurnBluffBaseline ?? true) !== false)
       ) {
         const eligFt = flopTurnBluffEligibility({
           omaha: vi.isOmaha,
@@ -27319,16 +27377,113 @@ export class HorseLogic {
           history: gs.actionHistory ?? [],
           heroId: player.user_id,
           opponentIds: opponents.map((o) => o.user_id),
-          opponentsCanRespond: opponents.every(
-            (o) => !o.is_all_in && !o.is_sitting_out && o.stack > 0
-          ),
+          opponentsCanRespond: opponentsCanRespondFt,
           equity,
           category: cat,
           inPosition: ip,
           initiative,
           omahaDraw: vi.isOmaha ? drawInfo40() : null,
         });
-        if (eligFt.eligible) {
+        if (holdemFlopTurnBluffPricedActive) {
+          if (eligFt.eligible && eligFt.selection !== 'junk') {
+            let stationFtPriced = false;
+            let ftcFtPriced: number | null = null;
+            let countersFtPriced: ReturnType<typeof HorseMind.getExploitCounters> | undefined;
+            if (useMind) {
+              try {
+                for (const o of opponents) {
+                  const oppReadFtPriced = HorseMind.opponentRead(o.user_id);
+                  const ftcCheckPriced =
+                    opts.v16Reads !== false ? HorseMind.foldToCbetOf(o.user_id) : null;
+                  const rfrCheckPriced = HorseMind.riverFoldRate(o.user_id);
+                  if (
+                    isStation(oppReadFtPriced) ||
+                    (ftcCheckPriced !== null && ftcCheckPriced < 0.25) ||
+                    (rfrCheckPriced !== null && rfrCheckPriced < 0.25)
+                  ) {
+                    stationFtPriced = true;
+                    break;
+                  }
+                }
+                if (opponents.length === 1) {
+                  if (
+                    opts.v16Reads !== false &&
+                    (eligFt.line === 'cbet' || eligFt.line === 'barrel')
+                  ) {
+                    ftcFtPriced = HorseMind.foldToCbetOf(opponents[0].user_id);
+                  }
+                  const scopeFtPriced = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+                  countersFtPriced = HorseMind.getExploitCounters(
+                    opponents[0].user_id,
+                    scopeFtPriced
+                  );
+                }
+              } catch {
+                /* reads are best-effort: no read uses measured NLH empirical pool prior */
+              }
+            }
+            const drawReadFtPriced = holdemDrawRead(player.cards, board);
+            const verdictFt = holdemFlopTurnBluffPricedVerdict({
+              street: street === 'flop' ? 'flop' : 'turn',
+              pot,
+              heroStack: stack,
+              effectiveVillainStack: deepestOppStackFtPriced,
+              bigBlind: gs.bigBlind,
+              equity,
+              line: eligFt.line,
+              selection: eligFt.selection,
+              opponents: opponents.length,
+              inPosition: ip,
+              flopTexture: classifyHoldemFlopTexture(board),
+              pairedBoard: eligFt.pairedBoard,
+              threeFlushBoard: isHoldemBoardThreeFlush(board),
+              nutFlushDraw: drawReadFtPriced.nutFlushDraw,
+              rangeAdvantage: boardFavorsAggressor === true,
+              rangesFavorOpponent:
+                runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
+              scareUnblocked: dangered,
+              callDeductionFraction: callDeductionFraction ?? rakeMarg,
+              icmRisk: isTournamentMode(gs) ? risk : 0,
+              station: stationFtPriced,
+              foldToCbet: ftcFtPriced,
+              bluffMod: exploit.bluffMod,
+              exploitCounters: countersFtPriced,
+            });
+            if (verdictFt.decision === 'bet' && verdictFt.betPotFrac !== null) {
+              const betFtPriced = this.betSize(
+                planHandKey,
+                pot,
+                verdictFt.betPotFrac,
+                player,
+                gs,
+                vi,
+                { ...params, sizingMultiplier: 1 },
+                false
+              );
+              const placedFtPriced =
+                betFtPriced.action === 'bet' || betFtPriced.action === 'all_in';
+              if (placedFtPriced) {
+                planBarrel(equity);
+                if (tele15) {
+                  noteFire('holdem_flop_turn_bluff_priced_bet_seen');
+                  if (verdictFt.isDraw) {
+                    noteFire('holdem_flop_turn_bluff_priced_semibluff_seen');
+                  } else {
+                    noteFire('holdem_flop_turn_bluff_priced_air_seen');
+                  }
+                }
+              } else if (tele15) {
+                noteFire('holdem_flop_turn_bluff_priced_illegal_seen');
+              }
+              return betFtPriced;
+            }
+            if (tele15) {
+              noteFire('holdem_flop_turn_bluff_priced_check_seen');
+              if (stationFtPriced) noteFire('holdem_flop_turn_bluff_priced_station_check_seen');
+            }
+            return { action: 'check', thinkTime: 0 };
+          }
+        } else if (eligFt.eligible) {
           let effFt = 0;
           for (const o of opponents) {
             const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
