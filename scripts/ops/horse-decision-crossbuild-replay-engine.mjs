@@ -12,6 +12,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { performance as nodePerformance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 import {
   AUGMENT_VERSION,
   BASE_STYLES,
@@ -521,7 +522,7 @@ const isEntrypoint = (() => {
   try {
     return (
       process.argv[1] &&
-      resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname) &&
+      resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url)) &&
       process.argv[2]
     );
   } catch {
