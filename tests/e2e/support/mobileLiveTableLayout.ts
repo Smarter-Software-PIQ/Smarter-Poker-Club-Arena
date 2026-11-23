@@ -609,13 +609,14 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   // EVERY TOP CHAIR STANDS ON THE RAIL (Dan 2026-11-22: "THEY MUST 100% OF THE
   // TIME BE ON THE RAIL AND NEVER ON TOP OF THE TABLE OR OVERLAPPING THE FELT
   // ... THE ACTION BAR BEING LAYER 1 AND THE AVATAR LAYER 2"). On a portrait
-  // phone or tablet (up to 768px wide), every ring and every top chair, cash
+  // phone layout or tablet (481-768px wide), every ring and every top chair, cash
   // or tournament, seated or watched: the plate rests on the chair's own rail
   // station (the nine-seat phone ring keeps its plates centred on it, never
   // past the felt), neither the plate nor the portrait reaches the felt window,
   // the tab bar and the jackpot plaque paint above the portrait, and nothing
   // covers the jackpot plaque. src/components/table/topChairRail.ts.
-  const railViewport = innerWidth <= 768 && innerHeight > innerWidth;
+  // 481-768px portrait: the phone layout and tablets (topChairRailViewport).
+  const railViewport = innerWidth > 480 && innerWidth <= 768 && innerHeight > innerWidth;
   if (railViewport) {
     const chassisNode = table.querySelector('.table-scaler');
     const feltNode = table.querySelector('.table-surface');

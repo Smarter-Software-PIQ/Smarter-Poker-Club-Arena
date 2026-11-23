@@ -1691,8 +1691,12 @@ for (const [width, heightOverride] of occupiedViewports)
             };
           }, AVATAR_CROWN_TOP);
           // Preserve breathing, tense and celebration poses around the
-          // two-pixel resting crop; only the crown may cross the bar.
-          expect(crown.gap).toBeGreaterThan(-12 * crown.scale);
+          // two-pixel resting crop; only the crown may cross the bar. On a
+          // portrait phone layout or tablet the top chair stands on its rail
+          // and its head may run under the bar (Dan 2026-11-22: "THE TOP OF
+          // THAT VILLAINS HEAD CAN BE 'CUT OFF' AT THE TOP OR 'UNDER THE
+          // ACTION BAR'"); the rail checks in readMobileTableLayout own it.
+          if (width > 768) expect(crown.gap).toBeGreaterThan(-12 * crown.scale);
           // A mobile revealed hand now owns a full card-height lane above
           // its plate. Only face-down and desktop crowns retain the crop.
           if (!revealed || width > 768) expect(crown.gap).toBeLessThan(2 * crown.scale);
