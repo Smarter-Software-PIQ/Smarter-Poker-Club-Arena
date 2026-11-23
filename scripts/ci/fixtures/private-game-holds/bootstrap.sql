@@ -176,8 +176,9 @@ GRANT EXECUTE ON FUNCTION public.fn_unregister_from_tournament(uuid) TO authenti
 CREATE FUNCTION public.fn_ca_unregister_tournament_player_exact(
   p_tournament_id uuid,
   p_user_id uuid,
-  p_table_id uuid,
-  p_reason text
+  p_expected_table_id uuid DEFAULT NULL,
+  p_description text DEFAULT NULL,
+  p_request_id uuid DEFAULT NULL
 )
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_t public.tournaments%ROWTYPE;
@@ -187,13 +188,13 @@ BEGIN
   UPDATE public.tournament_players SET status = 'unregistered'
    WHERE tournament_id = v_t.id AND user_id = p_user_id AND status IN ('registered', 'playing');
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'reason', 'not_registered'); END IF;
-  IF p_table_id IS NOT NULL THEN
+  IF p_expected_table_id IS NOT NULL THEN
     UPDATE public.table_seats SET left_at = now()
-     WHERE table_id = p_table_id AND user_id = p_user_id AND left_at IS NULL;
+     WHERE table_id = p_expected_table_id AND user_id = p_user_id AND left_at IS NULL;
   END IF;
   UPDATE public.wallets_fixture SET balance = balance + v_t.buy_in_amount + v_t.buy_in_fee WHERE user_id = p_user_id;
   UPDATE public.tournaments SET current_players = GREATEST(COALESCE(current_players, 0) - 1, 0) WHERE id = v_t.id;
-  RETURN jsonb_build_object('ok', true, 'refunded', v_t.buy_in_amount + v_t.buy_in_fee, 'reason', p_reason);
+  RETURN jsonb_build_object('ok', true, 'refunded', v_t.buy_in_amount + v_t.buy_in_fee, 'reason', p_description, 'request_id', p_request_id);
 END $$;
-REVOKE ALL ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text, uuid) TO service_role;
