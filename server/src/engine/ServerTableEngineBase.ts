@@ -2551,8 +2551,8 @@ export abstract class ServerTableEngineBase {
     const holdAnchorMs = handEndedAt !== null && handEndedAt <= enteredAt ? handEndedAt : enteredAt;
     const holdDeadlineMs = holdAnchorMs + targetHoldMs;
     this.lastHoldDeadlineMs = holdDeadlineMs;
-    const sleepMs = Math.max(0, holdDeadlineMs - enteredAt);
-    if (sleepMs > 0) await this.sleep(sleepMs);
+    // Not before its deadline: one timer can wake 1-2 ms short of it.
+    await this.sleepUntil(holdDeadlineMs);
   }
 
   /**
@@ -12347,6 +12347,42 @@ export abstract class ServerTableEngineBase {
 
   protected sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * A NODE TIMER CAN WAKE BEFORE THE WALL CLOCK READS ITS DEADLINE (2026-11-23).
+   *
+   * The two between-hands beats are deadlines on Date.now(): the completion
+   * hold ends at `lastHoldDeadlineMs` and the rest at `nextHandNotBeforeMs`.
+   * Each was waited out with one `setTimeout(deadline - Date.now())`, and that
+   * is not the same thing. Node counts a timer in whole milliseconds of
+   * libuv's loop clock - a monotonic clock floored to the millisecond, and on
+   * Linux the 1 ms CLOCK_MONOTONIC_COARSE whenever its resolution allows -
+   * while Date.now() floors the wall clock, whose sub-millisecond phase is
+   * unrelated to it. A timer of n ms is therefore only guaranteed more than
+   * n - 2 ms of real time, and it can wake while Date.now() still reads the
+   * deadline minus 1 or 2. Measured 2026-11-23 (Node 22): 29 of 600 deals in
+   * the noUnintendedDelayBetweenHands fixture started at the rest deadline
+   * minus 1 ms, and CI read `expected 1499 to be >= 1500` on PR #11817.
+   *
+   * A beat is "not before" its deadline, so after the timer a residue of at
+   * most NODE_TIMER_EARLY_WAKE_MAX_MS is waited out with one more timer padded
+   * by the same bound; by the same arithmetic that timer cannot wake before
+   * the deadline. A larger residue is not a timer waking early - the wall
+   * clock stepped back, or a test's sleep did not advance it - and is not
+   * waited: the timer already served the beat on the monotonic clock, and a
+   * clock step must never stretch a beat.
+   */
+  static readonly NODE_TIMER_EARLY_WAKE_MAX_MS = 2;
+
+  /** Sleep until Date.now() reads `deadlineMs`, never before it (see NODE_TIMER_EARLY_WAKE_MAX_MS). */
+  protected async sleepUntil(deadlineMs: number): Promise<void> {
+    const left = deadlineMs - Date.now();
+    if (!(left > 0)) return;
+    await this.sleep(left);
+    const residue = deadlineMs - Date.now();
+    if (residue > 0 && residue <= ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS)
+      await this.sleep(residue + ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS);
   }
 
   /**
