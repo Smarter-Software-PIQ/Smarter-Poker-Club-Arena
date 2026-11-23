@@ -9,7 +9,7 @@ ALL OF THESE".
 
 #11774 fixed the six-max top seat in the 600px phone layout only. On heads-up,
 four-seat and eight-seat tables, on the two top diagonals of the 3/5/7/9/10
-seat rings, on six-max at a raw phone width (480px or less) and on a portrait
+seat rings, and on six-max on a portrait
 tablet (641-768px), the top chair's name plate still sat 11-22% down the
 table canvas, below the 8.9% where the felt begins. Tournament top chairs were
 never placed by the layout hook at all and sat on the felt by CSS alone.
@@ -31,8 +31,12 @@ bottom edge rests on the station; the portrait rises as far as its size takes
 it, under the jackpot plaque and tab bar, which paint above it. Nothing above
 the chair is an input, so nothing above it can push it onto the felt again.
 
-- `useProtectedCardLayout.ts` applies it on every portrait viewport up to 768px,
-  cash and tournament (tournament top chairs join the top lane).
+- `useProtectedCardLayout.ts` applies it on every portrait layout from 481 to
+  768px (the 600px layout every phone uses, and portrait tablets), cash and
+  tournament (tournament top chairs join the top lane). A page narrower than
+  481px is a multi-table mini tile or a squeezed desktop window, not a phone's
+  table; extending the rule there collided with the minis' tabled hands and
+  crown clearances in CSS Beat, so those keep their approved placement.
 - `opponentAvatarLayout.ts` never nudges a top chair.
 - `mobileAvatarEnlargement.ts` lets those portraits pass behind the tab bar
   instead of shrinking them (CLAUDE.md 10.7c: no portrait got smaller).

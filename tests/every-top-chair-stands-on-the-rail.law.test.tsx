@@ -85,12 +85,8 @@ describe('every top-cap station of every ring is on the rail', () => {
 });
 
 describe('which layouts stand their top chairs on the rail', () => {
-  it('every portrait phone and tablet up to 768px', () => {
+  it('every portrait phone layout and tablet, 481 to 768px', () => {
     for (const [w, h] of [
-      [320, 568],
-      [375, 667],
-      [390, 844],
-      [430, 932],
       [600, 900],
       [600, 1065],
       [600, 1298],
@@ -101,8 +97,13 @@ describe('which layouts stand their top chairs on the rail', () => {
     ])
       expect(topChairRailViewport(w, h), `${w}x${h}`).toBe(true);
   });
-  it('not landscape and not wider than 768px', () => {
+  it('not landscape, not wider than 768px, and not a page narrower than a phone layout', () => {
     for (const [w, h] of [
+      [320, 568],
+      [375, 667],
+      [390, 844],
+      [430, 932],
+      [480, 900],
       [844, 390],
       [667, 375],
       [769, 1024],
@@ -209,7 +210,6 @@ function Ring({ seats, tournament, pods }: { seats: number; tournament: boolean;
 }
 
 const VIEWPORTS = [
-  { name: 'raw 390x844 phone', width: 390, height: 844 },
   { name: '600x1298 phone reference layout', width: 600, height: 1298 },
   { name: '768x1024 tablet', width: 768, height: 1024 },
 ] as const;

@@ -145,12 +145,11 @@ const stationLine = RING.top + (RING.height * STATION) / 100;
 const feltTop = RING.top + (RING.height * FELT_WINDOW.top) / 100;
 
 describe('on a portrait phone or tablet both chairs stand on the rail, level', () => {
-  // A raw-width phone, the 600px phone reference layout and a portrait tablet.
+  // The 600px phone reference layout and a portrait tablet.
   // The fixture is a nine-seat ring: at 600px its plates keep their approved
   // centred placement (never past the felt); elsewhere the bottom edge rests
   // on the station.
   const VIEWPORTS = [
-    { name: 'raw 393x852 phone', width: 393, height: 852, rest: stationLine },
     {
       name: '600x1298 phone reference layout',
       width: 600,
