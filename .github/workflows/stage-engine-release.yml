@@ -120,7 +120,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           SENDER_TYPE: ${{ github.event.sender.type }}
-          PUSHED_AT: ${{ github.event.repository.pushed_at || '' }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -144,13 +143,26 @@ jobs:
           daily_date=''
           cutoff_epoch=''
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::A daily reservation cannot be replayed."; exit 1; }
-          # Original event time selects one bounded reservation date. A delayed
-          # event cannot claim an expired date, and a rerun cannot reserve again.
+          # The run's own creation time selects one bounded reservation date. A
+          # delayed event cannot claim an expired date, and a rerun cannot
+          # reserve again.
+          #
+          # ONE CLOCK FOR THE CLAIM AND THE ELECTION (2026-11-23). A push used
+          # to judge itself by the push payload's repository.pushed_at while the
+          # election below judges every earlier run by its created_at, the only
+          # time it can see. Push run 45114163784 was pushed at 04:49:59Z and
+          # created at 04:50:01Z; the 01:00 Chicago cycle's reservation opened
+          # at 04:50:00Z. It found no window and prepared nothing, every later
+          # run deferred to it, and the cycle was never prepared. A push is now
+          # judged by its run's created_at like every other event, so a run the
+          # election counts is a run that claims. created_at is never earlier
+          # than the push, so this clock is the stricter one at the window end.
           moment=''
-          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
-            moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
-          elif [ "$EVENT_NAME" = push ]; then
-            moment="${PUSHED_AT:-}"
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = push ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
+            moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || {
+              moment=''
+              echo "::warning title=DAILY PREPARATION UNKNOWN::Could not read this run's own creation time; this run prepares nothing."
+            }
           fi
           window=''
           if [ -n "$moment" ]; then

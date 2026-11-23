@@ -699,11 +699,17 @@ class OwnerWitnessRealHistory(unittest.TestCase):
                         if selector == 'host':
                             script = 'set -euo pipefail\n' + prefix + function + '\nowner_window_reason "$HEALTH"\n'
                         else:
-                            script = prefix + 'date() { printf 14; }\ncurl() { printf "%s" "$HEALTH"; }\n' + stage + '\ncat "$GITHUB_OUTPUT"\n'
+                            # A push is judged by its run's own created_at (2026-11-23), read
+                            # through gh: a daytime push run, outside every reservation. Any
+                            # other gh call (a run list) is refused, so nothing leaves the box.
+                            gh = 'gh() { case "$*" in *"/actions/runs/"*) printf "%s" "$RUN_CREATED_AT" ;; *) return 1 ;; esac; }\n'
+                            script = prefix + gh + 'date() { printf 14; }\ncurl() { printf "%s" "$HEALTH"; }\n' + stage + '\ncat "$GITHUB_OUTPUT"\n'
                         result = subprocess.run(['bash', '-c', script], cwd=repo,
                             env={**env, 'REPO_DIR': tmp, 'SHA': target, 'HEALTH': health,
                                  'EVENT_NAME': 'push', 'GITHUB_SHA': target, 'GITHUB_OUTPUT': str(output),
-                                 'GITHUB_RUN_ATTEMPT': '1', 'PUSHED_AT': '', 'RUNNER_TEMP': tmp},
+                                 'GITHUB_RUN_ATTEMPT': '1', 'RUNNER_TEMP': tmp,
+                                 'REPO': 'test/repo', 'RUN_ID': '123',
+                                 'RUN_CREATED_AT': '2026-11-23T20:00:00Z'},
                             text=True, capture_output=True, timeout=15)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         admitted = ('owner-ordered fixture' if selector == 'host' else 'allowed=true') in result.stdout
