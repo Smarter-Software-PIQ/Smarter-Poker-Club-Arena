@@ -25,13 +25,18 @@ authenticated sessions:
     hold ends on expiry, Cancel or the inviter unregistering (normal refund)
     and the board fills as usual; no room, another inviter's hold, the daily
     close and an unknown format are refused before any money moves;
+  * two-session concurrency races on real PostgreSQL connections prove lock
+    order (no deadlock with exclusive entry boundary 530090 -> tournaments
+    FOR NO KEY UPDATE), simultaneous unregistered inviters (exactly one wins,
+    loser rolls back with zero charge), inviter-vs-stranger on the last two
+    seats, and registered inviter-vs-horse seat conservation;
   * before 20261123071654 a Sit & Go invite was refused: that file is the cause;
   * removing the trigger lets the stranger in: the trigger is the cause, for a
     seat-first game and for a Sit & Go alike.
 
 Usage: python3 scripts/ci/test-private-game-holds-postgres.py [--pg-bin DIR]
 """
-import json, os, shutil, subprocess, sys, tempfile, uuid
+import json, os, shutil, subprocess, sys, tempfile, time, uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -434,6 +439,155 @@ try:
         r = j(f"SELECT public.fn_invite_to_private_game('{odd}', 1)", other)
         ok(r['ok'] is False and r['reason'] == 'format_not_supported' and balance(other) == 100.0,
            'a field outside four to nine seats, or with no persisted sng-v1 format, is not offered')
+
+    # 10f. Two-session real-PostgreSQL concurrency races (lock order, double-invite,
+    # inviter-vs-stranger on last two seats, and registered inviter-vs-horse).
+    def spawn_psql(sql, actor=None, role='authenticated'):
+        pre = "SET lock_timeout = '10s';\nSET statement_timeout = '15s';\n"
+        if actor:
+            pre += (f"SET request.jwt.claim.sub='{actor}';\nSET request.jwt.claim.role='{role}';\n"
+                    f"SET ROLE {role};\n")
+        p = subprocess.Popen(
+            [str(PG / 'psql'), '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-h', str(sock), '-U', 'postgres', '-d', 'postgres'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        assert p.stdin is not None
+        p.stdin.write(pre + sql)
+        p.stdin.flush()
+        p.stdin.close()
+        return p
+
+    def open_barrier(lock_sql):
+        """Hold a real transaction lock until release(proc) commits it."""
+        p = subprocess.Popen(
+            [str(PG / 'psql'), '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-h', str(sock), '-U', 'postgres', '-d', 'postgres'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        assert p.stdin is not None and p.stdout is not None
+        p.stdin.write(f"BEGIN;\n{lock_sql}\nSELECT 'LOCKED';\n")
+        p.stdin.flush()
+        while True:
+            raw = p.stdout.readline()
+            if not raw:
+                out, err = p.communicate(timeout=10)
+                raise RuntimeError(f'barrier failed: {out} {err}')
+            if raw.strip() == 'LOCKED':
+                break
+        return p
+
+    def wait_waiting_locks(min_waiters, timeout=8.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            cnt = int(q("SELECT count(*) FROM pg_locks WHERE NOT granted"))
+            if cnt >= min_waiters:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def finish_psql(p, timeout=15):
+        assert p.stdout is not None and p.stderr is not None
+        p.wait(timeout=timeout)
+        return p.stdout.read(), p.stderr.read()
+
+    def release_barrier(p, extra_sql=''):
+        out, err = p.communicate(input=f"{extra_sql}\nCOMMIT;\n", timeout=15)
+        if p.returncode != 0:
+            raise RuntimeError(f'barrier commit failed: {out} {err}')
+
+    # Race 1: lock-order proof — exclusive entry boundary (530090, 1) THEN event row
+    # must NEVER deadlock with an unregistered Sit & Go invite.
+    race_lock = sit_and_go(6)
+    inv_lock = person()
+    b1 = open_barrier("SELECT pg_advisory_xact_lock(530090, 1);")
+    p_inv_lock = spawn_psql(f"SELECT public.fn_invite_to_private_game('{race_lock}', 2);", inv_lock)
+    ok(wait_waiting_locks(1),
+       'concurrency lock-order: unregistered Sit & Go invite waits on entry boundary (530090, 1) without locking tournaments first')
+    # Acquire the event row while still holding (530090, 1): would deadlock (40P01)
+    # if fn_invite_to_private_game locked tournaments before calling the door.
+    release_barrier(b1, f"SELECT 1 FROM public.tournaments WHERE id = '{race_lock}' FOR NO KEY UPDATE;")
+    out1, err1 = finish_psql(p_inv_lock)
+    r_lock = json.loads(out1.strip().splitlines()[-1]) if p_inv_lock.returncode == 0 else {}
+    ok(p_inv_lock.returncode == 0 and 'deadlock' not in err1.lower() and r_lock.get('ok') is True
+       and r_lock.get('seats_held') == 2 and balance(inv_lock) == 90.0 and entries(race_lock) == 1,
+       'concurrency lock-order: entry boundary -> event row finishes with zero deadlock and one clean hold')
+
+    # Race 2: two unregistered inviters pass the early pre-check and collide on (530090, 1).
+    race_two = sit_and_go(6)
+    inv_a, inv_b = person(), person()
+    b2 = open_barrier("SELECT pg_advisory_xact_lock(530090, 1);")
+    pa = spawn_psql(f"SELECT public.fn_invite_to_private_game('{race_two}', 5);", inv_a)
+    pb = spawn_psql(f"SELECT public.fn_invite_to_private_game('{race_two}', 5);", inv_b)
+    ok(wait_waiting_locks(2),
+       'concurrency two-inviters: both unregistered inviters pass early reads and queue on (530090, 1)')
+    release_barrier(b2)
+    oa, ea = finish_psql(pa)
+    ob, eb = finish_psql(pb)
+    ra = json.loads(oa.strip().splitlines()[-1]) if pa.returncode == 0 and oa.strip() else {'ok': False, 'err': ea}
+    rb = json.loads(ob.strip().splitlines()[-1]) if pb.returncode == 0 and ob.strip() else {'ok': False, 'err': eb}
+    ok('deadlock' not in (ea + eb).lower() and pa.returncode == 0 and pb.returncode == 0,
+       'concurrency two-inviters: zero deadlock and both calls return cleanly')
+    winners = [r for r in (ra, rb) if r.get('ok') is True]
+    losers = [r for r in (ra, rb) if r.get('ok') is False]
+    ok(len(winners) == 1 and len(losers) == 1
+       and losers[0].get('reason') in ('another_invite_is_holding', 'private_game_seat_held')
+       and entries(race_two) == 1
+       and q(f"SELECT count(*) FROM public.private_game_holds WHERE tournament_id='{race_two}'") == '1'
+       and sorted([balance(inv_a), balance(inv_b)]) == [90.0, 100.0],
+       'concurrency two-inviters: exactly one wins the hold, the loser rolls back with zero charge')
+
+    # Race 3: unregistered inviter vs stranger on a 6-seat Sit & Go with 4 entries seated (2 open seats).
+    race_str = sit_and_go(6)
+    for h in horses(4):
+        q(horse_entry(race_str, h), None, 'postgres')
+    inv_s, str_s = person(), person()
+    b3 = open_barrier("SELECT pg_advisory_xact_lock(530090, 1);")
+    p_is = spawn_psql(f"SELECT public.fn_invite_to_private_game('{race_str}', 1);", inv_s)
+    p_ss = spawn_psql(register_sql(race_str), str_s)
+    ok(wait_waiting_locks(2),
+       'concurrency inviter-vs-stranger: both queue on (530090, 1) with two open seats left')
+    release_barrier(b3)
+    ois, eis = finish_psql(p_is)
+    oss, ess = finish_psql(p_ss)
+    ok('deadlock' not in (eis + ess).lower() and p_is.returncode == 0,
+       'concurrency inviter-vs-stranger: zero deadlock')
+    ris = json.loads(ois.strip().splitlines()[-1])
+    if ris.get('ok') is True:
+        # Inviter won seat 5 + held seat 6 -> stranger must be refused by guard with zero charge.
+        ok(p_ss.returncode != 0 and 'PRIVATE_GAME_SEAT_HELD' in (ess + oss)
+           and balance(inv_s) == 90.0 and balance(str_s) == 100.0
+           and entries(race_str) == 5 and view(race_str)['held_open'] == 1,
+           'concurrency inviter-vs-stranger: inviter won and held seat 6; stranger refused with zero charge')
+    else:
+        # Stranger won seat 5 -> inviter rolled back seat 6 with no_open_seat and zero charge.
+        rss = json.loads(oss.strip().splitlines()[-1])
+        ok(p_ss.returncode == 0 and rss.get('ok') is True
+           and ris.get('reason') == 'no_open_seat'
+           and balance(str_s) == 90.0 and balance(inv_s) == 100.0
+           and entries(race_str) == 5
+           and q(f"SELECT count(*) FROM public.private_game_holds WHERE tournament_id='{race_str}'") == '0',
+           'concurrency inviter-vs-stranger: stranger won seat 5; inviter rolled back cleanly with zero charge')
+
+    # Race 4: already-registered inviter holding 5 seats vs horse registering concurrently.
+    race_h = sit_and_go(6)
+    inv_h = person()
+    horse_h = person(horse=True)
+    ok(register(race_h, inv_h)['ok'], 'concurrency registered-inviter-vs-horse: inviter registers first')
+    b4 = open_barrier(f"SELECT 1 FROM public.tournaments WHERE id = '{race_h}' FOR NO KEY UPDATE;")
+    p_ih = spawn_psql(f"SELECT public.fn_invite_to_private_game('{race_h}', 5);", inv_h)
+    p_hh = spawn_psql(horse_entry(race_h, horse_h), None, 'postgres')
+    ok(wait_waiting_locks(2),
+       'concurrency registered-inviter-vs-horse: both queue on the tournaments event lock')
+    release_barrier(b4)
+    oih, eih = finish_psql(p_ih)
+    ohh, ehh = finish_psql(p_hh)
+    ok('deadlock' not in (eih + ehh).lower() and p_ih.returncode == 0,
+       'concurrency registered-inviter-vs-horse: zero deadlock')
+    rih = json.loads(oih.strip().splitlines()[-1])
+    v_rh = view(race_h)
+    ok(rih.get('ok') is True and entries(race_h) + v_rh['held_open'] == 6
+       and ((entries(race_h) == 1 and v_rh['held_open'] == 5 and p_hh.returncode != 0 and 'PRIVATE_GAME_SEAT_HELD' in (ehh + ohh) and balance(horse_h) == 100.0)
+            or (entries(race_h) == 2 and v_rh['held_open'] == 4 and p_hh.returncode == 0 and balance(horse_h) == 90.0)),
+       'concurrency registered-inviter-vs-horse: exact seat conservation with zero oversubscription')
 
     # A held Sit & Go seat for the red case below: every unheld seat taken.
     red = sit_and_go(6)

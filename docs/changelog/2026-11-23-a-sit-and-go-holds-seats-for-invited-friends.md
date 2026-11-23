@@ -78,12 +78,15 @@ clock (every frozen second given back), admissions, Cancel and entry rule.
 ## How it is pinned
 
 - `scripts/ci/test-private-game-holds-postgres.py` (CI: Private game holds):
-  72 checks on a real PostgreSQL with the four migrations installed unchanged,
+  84 checks on a real PostgreSQL with the four migrations installed unchanged,
   including six and nine seat fields, horses filling only unheld seats, the
   field waiting for the friends, a stranger and a horse refused, expiry,
   Cancel, the inviter unregistering, the thaw credit, every refusal before
-  money moves, and two red cases: before 20261123071654 a Sit & Go invite is
-  refused; with the trigger removed a stranger and a horse take held seats.
+  money moves, four real two-session concurrency races (lock order against
+  exclusive entry boundary 530090 -> event row, two simultaneous inviters,
+  inviter vs stranger on the last two seats, and registered inviter vs horse),
+  and two red cases: before 20261123071654 a Sit & Go invite is refused; with
+  the trigger removed a stranger and a horse take held seats.
 - `server/src/services/aSeatHeldForAFriendIsNotGivenToAHorse.law.test.ts`
   (registry entry updated).
 - `tests/unit/aSitAndGoHoldsASeatForAFriend.test.ts`.
