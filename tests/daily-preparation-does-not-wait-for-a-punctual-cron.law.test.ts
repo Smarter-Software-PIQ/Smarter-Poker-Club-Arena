@@ -66,11 +66,17 @@ type Case = {
   event: 'push' | 'schedule' | 'repository_dispatch' | 'workflow_run';
   sender?: string;
   attempt?: number;
-  createdAt?: string; // schedule: the run's own created_at from the API
-  pushedAt?: string; // push: github.event.repository.pushed_at (epoch seconds)
+  // The run's own created_at from the API: the moment of EVERY event, a push
+  // included (2026-11-23), because it is the clock the election reads.
+  createdAt?: string;
+  // The push payload's repository.pushed_at (epoch seconds). The admission
+  // must never read it; the harness still sets it so a case can prove that.
+  pushedAt?: string;
+  runId?: number;
   runs?: Run[];
   totalCount?: number;
   listFails?: boolean;
+  runReadFails?: boolean;
   pages?: unknown[];
   health?: string;
   message?: string;
@@ -128,7 +134,9 @@ cat '${join(dir, 'policy.json')}'
             printf '%s\\n' "\${@: -1}" >> "$LIST_LOG"
             [ "$LIST_FAILS" != 1 ] || return 1
             printf '%s' "$RUNS_JSON" ;;
-          *) printf '%s' "$RUN_CREATED_AT" ;;
+          *)
+            [ "$RUN_READ_FAILS" != 1 ] || return 1
+            printf '%s' "$RUN_CREATED_AT" ;;
         esac
       }
       curl() { printf '%s' "$HEALTH"; }
@@ -154,12 +162,13 @@ cat '${join(dir, 'policy.json')}'
             }
           ),
           LIST_FAILS: c.listFails ? '1' : '0',
+          RUN_READ_FAILS: c.runReadFails ? '1' : '0',
           LIST_LOG: join(dir, 'list.log'),
           HEALTH: c.health ?? '{"liveness":"ok"}',
           MESSAGE: c.message ?? 'routine',
           REPO: 'test/repo',
           RUNNER_TEMP: dir,
-          RUN_ID: '123',
+          RUN_ID: String(c.runId ?? 123),
           GITHUB_OUTPUT: join(dir, 'output'),
         },
       }
@@ -303,19 +312,18 @@ describe('the daily preparation reserves early and executes at the unchanged cut
   });
 
   it('a protected-main push inside the window is just as able to prepare', () => {
-    const { outputs, listed } = admit({
-      event: 'push',
-      pushedAt: epoch('2026-11-01T09:40:00Z'),
-    });
+    // A push is judged by its run's created_at, like every other event.
+    const { outputs, listed } = admit({ event: 'push', createdAt: '2026-11-01T09:40:00Z' });
     expect(outputs.allowed).toBe('true');
     expect(outputs.daily_preparation).toBe('true');
     expect(outputs.daily_preparation_date).toBe('2026-11-01');
     expect(listed).toEqual([
       'repos/test/repo/actions/workflows/stage-engine-release.yml/runs?created=2026-11-01T04:30:00Z..2026-11-01T09:50:00Z&per_page=100',
     ]);
-    // Daytime pushes still queue, and no push instant is still no admission.
-    for (const pushedAt of [epoch('2026-11-01T19:40:00Z'), '']) {
-      const queued = admit({ event: 'push', pushedAt });
+    // Daytime pushes still queue, and a run whose creation time cannot be
+    // read is still no admission, even with an in-window push payload time.
+    for (const createdAt of ['2026-11-01T19:40:00Z', '']) {
+      const queued = admit({ event: 'push', createdAt, pushedAt: epoch('2026-11-01T09:40:00Z') });
       expect(queued.outputs.allowed).toBe('false');
       expect(queued.outputs.daily_preparation).toBe('false');
       expect(queued.listed).toEqual([]);
@@ -324,7 +332,7 @@ describe('the daily preparation reserves early and executes at the unchanged cut
 });
 
 describe('the preparation happens once per Chicago date', () => {
-  const inWindow = { event: 'push' as const, pushedAt: epoch('2026-11-01T09:44:00Z') };
+  const inWindow = { event: 'push' as const, createdAt: '2026-11-01T09:44:00Z' };
 
   it('admits the automatic Backup completion in the original window and preserves the cutoff', () => {
     expect(stage.on.workflow_run).toEqual({
@@ -346,7 +354,7 @@ describe('the preparation happens once per Chicago date', () => {
     expect(
       admit({ event: 'workflow_run', createdAt: '2026-11-08T09:50:00Z' }).outputs.daily_preparation
     ).toBe('false');
-    const push = { event: 'push' as const, pushedAt: epoch('2026-11-08T09:44:00Z') };
+    const push = { event: 'push' as const, createdAt: '2026-11-08T09:44:00Z' };
     expect(admit({ ...push, runs: [automatic] }).outputs.daily_preparation).toBe('false');
     expect(
       admit({
@@ -461,7 +469,19 @@ describe('the workflow adds chances, not authority', () => {
   });
 
   it('the admission itself only reads: no dispatch, no write, no wait', () => {
-    expect(admissionStep.env.PUSHED_AT).toBe("${{ github.event.repository.pushed_at || '' }}");
+    // MOVED 2026-11-23: this pin used to require PUSHED_AT (the push payload's
+    // repository.pushed_at). That second clock is what stranded the 01:00
+    // Chicago cycle: the election can only see created_at, so a push is now
+    // judged by its run's created_at and the payload time is not read at all.
+    expect(admissionStep.env.PUSHED_AT).toBeUndefined();
+    expect(admission).not.toMatch(/\$\{?PUSHED_AT/);
+    expect(stageText).not.toContain('${{ github.event.repository.pushed_at');
+    expect(admission).toContain(
+      'if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = push ] || [ "$EVENT_NAME" = workflow_run ]'
+    );
+    expect(admission).toContain(
+      'moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)'
+    );
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(admission).not.toMatch(/dispatches|--method|-X POST|sleep|while true/);
     expect(admission).toContain('WINDOW_MINUTES = 20');
@@ -652,5 +672,148 @@ describe('the real protected policy gets an early reservation before every cycle
       });
       expect(outputs.daily_preparation, day).toBe('false');
     }
+  });
+});
+
+describe('a reservation is elected by the moment it claims (2026-11-23, the 01:00 Chicago cycle)', () => {
+  // The incident, as GitHub recorded it. The 01:00 CST cycle is 07:00Z; its
+  // preparation is 06:30-06:50Z and, under the three-hourly policy, its
+  // reservation opens 100 minutes before that, at 04:50:00Z. Push run
+  // 45114163784 was pushed at 04:49:59Z (repository.pushed_at 1795409399) and
+  // created at 04:50:01Z. It judged itself by the push time, found no window
+  // and prepared nothing; every later run judged it by its created_at, found
+  // an earlier eligible run and deferred to it. Nobody prepared the cycle and
+  // the engine kept serving the 19:00 release through the 01:00 break.
+  const real = JSON.parse(
+    readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+  );
+  const policy = { ...real, frequency: 'three-hourly' };
+  const health = JSON.stringify({
+    liveness: 'ok',
+    maintenance: {
+      schedule: { frequency: 'three-hourly', startHours: [1, 4, 7, 10, 13, 16, 19, 22] },
+    },
+  });
+  const opens = '2026-11-23T04:50:00Z';
+  const query =
+    'repos/test/repo/actions/workflows/stage-engine-release.yml/runs?created=2026-11-23T04:50:00Z..2026-11-23T06:50:00Z&per_page=100';
+  const title = 'Daily engine reservation';
+  const first = {
+    id: 45114163784,
+    event: 'push',
+    created_at: '2026-11-23T04:50:01Z',
+    display_title: title,
+  };
+  const before = (iso: string, seconds: number) => String(Number(epoch(iso)) - seconds);
+  const claim = (c: Partial<Case>) => admit({ event: 'push', policy, health, ...c });
+
+  it('the push made one second before the opening, whose run is created after it, owns and prepares the cycle', () => {
+    expect(epoch(opens)).toBe('1795409400');
+    const { outputs, listed, stdout } = claim({
+      runId: first.id,
+      pushedAt: '1795409399', // 04:49:59Z: one second before the reservation opens
+      createdAt: first.created_at, // 04:50:01Z: two seconds after
+      runs: [first],
+    });
+    expect(outputs.allowed, stdout).toBe('true');
+    expect(outputs.daily_preparation).toBe('true');
+    expect(outputs.daily_preparation_date).toBe('2026-11-23T01');
+    expect(outputs.cutoff_epoch).toBe(epoch('2026-11-23T06:30:00Z'));
+    expect(outputs.lookback_seconds).toBe('6000');
+    expect(listed).toEqual([query]);
+    expect(stdout).toContain(`owned by this run (${first.id})`);
+  });
+
+  it('the later pushes in that window defer to it by name and prepare nothing', () => {
+    const second = {
+      id: 45121321101,
+      event: 'push',
+      created_at: '2026-11-23T06:00:51Z',
+      display_title: title,
+    };
+    const third = {
+      id: 45123768860,
+      event: 'push',
+      created_at: '2026-11-23T06:23:25Z',
+      display_title: title,
+    };
+    for (const [me, runs] of [
+      [second, [first, second]],
+      [third, [first, second, third]],
+    ] as const) {
+      const { outputs, stdout } = claim({
+        runId: me.id,
+        pushedAt: before(me.created_at, 2),
+        createdAt: me.created_at,
+        runs: [...runs],
+      });
+      expect(outputs.allowed, String(me.id)).toBe('false');
+      expect(outputs.daily_preparation, String(me.id)).toBe('false');
+      expect(stdout).toContain(`belongs to earlier run ${first.id}`);
+    }
+  });
+
+  it('a run created at or after the window end claims nothing, whatever its push time', () => {
+    for (const createdAt of [
+      '2026-11-23T06:50:00Z',
+      '2026-11-23T06:50:01Z',
+      '2026-11-23T07:20:00Z',
+    ]) {
+      const { outputs, listed } = claim({
+        createdAt,
+        pushedAt: epoch('2026-11-23T06:49:59Z'), // inside the window: a delayed event
+      });
+      expect(outputs.allowed, createdAt).toBe('false');
+      expect(outputs.daily_preparation, createdAt).toBe('false');
+      expect(listed, createdAt).toEqual([]);
+    }
+  });
+
+  it('every run the election counts is a run that claims for itself, and no other', () => {
+    // A run created at t (its push two seconds earlier) claims the cycle
+    // exactly when a later run in the window would defer to it.
+    const later = {
+      id: 2000,
+      event: 'push',
+      created_at: '2026-11-23T06:49:59Z',
+      display_title: title,
+    };
+    const table: [string, boolean][] = [
+      ['2026-11-23T04:49:59Z', false],
+      ['2026-11-23T04:50:00Z', true],
+      ['2026-11-23T04:50:01Z', true],
+      ['2026-11-23T06:49:59Z', true],
+      ['2026-11-23T06:50:00Z', false],
+    ];
+    for (const [t, owns] of table) {
+      const self = { id: 1000, event: 'push', created_at: t, display_title: title };
+      const claimed =
+        claim({ runId: 1000, createdAt: t, pushedAt: before(t, 2), runs: [self] }).outputs
+          .daily_preparation === 'true';
+      const elected = claim({
+        runId: later.id,
+        createdAt: later.created_at,
+        pushedAt: before(later.created_at, 2),
+        runs: [self, later],
+      });
+      const deferred = elected.outputs.daily_preparation === 'false';
+      expect(claimed, t).toBe(owns);
+      expect(deferred, t).toBe(claimed);
+      if (deferred) expect(elected.stdout, t).toContain('belongs to earlier run 1000');
+    }
+  });
+
+  it('a push whose own creation time cannot be read says UNKNOWN and prepares nothing', () => {
+    const { outputs, listed, stdout } = claim({
+      createdAt: first.created_at,
+      pushedAt: before(first.created_at, 2),
+      runReadFails: true,
+    });
+    expect(outputs.allowed).toBe('false');
+    expect(outputs.daily_preparation).toBe('false');
+    expect(listed).toEqual([]);
+    expect(stdout).toContain(
+      "DAILY PREPARATION UNKNOWN::Could not read this run's own creation time"
+    );
   });
 });
