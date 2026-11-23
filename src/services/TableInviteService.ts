@@ -4,9 +4,10 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Loads invitable contacts (accepted friends + optional active clubmates),
- * sends real Supabase `notifications` rows with type `table_invite`, enforces
- * self-invite / invalid-target / duplicate-cooldown guards, and looks up the
- * player's active seated table for one-tap friend invites from ProfilePage.
+ * sends one `table_invite` notification per tap through the server
+ * (public.fn_send_game_invite), enforces self-invite / invalid-target /
+ * duplicate-cooldown guards, and looks up the player's active seated table for
+ * one-tap friend invites from ProfilePage.
  */
 
 import { supabase } from '../lib/supabase';
@@ -14,7 +15,7 @@ import { reportError } from '../utils/errorReporter';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { resolveVipStatus, type VipColumns } from '../utils/vipStatus';
 import type { VipTier } from '../components/avatars/PlayerAvatar';
-import { buildTableInviteDeepLink } from './NotificationService';
+import { normalizeInviteCode, normalizeInviteToken, normalizeUuid } from '../lib/inviteCode';
 
 export type TableInviteKind = 'cash' | 'tournament' | 'lightning';
 export type InvitableContactSource = 'friend' | 'clubmate';
@@ -32,17 +33,25 @@ export interface InvitableContact {
 export interface SendTableInviteParams {
   recipientUserId: string;
   senderUserId: string;
+  /** The picker's own label. The notification's wording is built by the server. */
   senderName: string;
   kind: TableInviteKind;
   tableId?: string | null;
   tournamentId?: string | null;
   clusterId?: string | null;
+  /** The picker's own label. The notification names the game from its row. */
   tableName: string;
   inviteCode?: string | null;
   inviteToken?: string | null;
 }
 
-export type SendTableInviteFailureReason = 'self' | 'cooldown' | 'invalid_target' | 'insert_failed';
+export type SendTableInviteFailureReason =
+  | 'self'
+  | 'cooldown'
+  | 'invalid_target'
+  | 'not_allowed'
+  | 'rate_limited'
+  | 'insert_failed';
 
 export type SendTableInviteResult =
   | { ok: true; actionUrl: string; cooldownMs: number }
@@ -244,10 +253,34 @@ export async function fetchInvitableContacts(
   return contacts;
 }
 
+/** What public.fn_send_game_invite answers (20261123013356). */
+interface SendGameInviteAnswer {
+  ok?: boolean;
+  duplicate?: boolean;
+  reason?: string;
+  path?: string;
+  retry_after_seconds?: number;
+}
+
 /**
- * Inserts a real `table_invite` notification row for `recipientUserId`.
- * Guards against self-invites, missing targets, and per-(recipient, target)
- * duplicate spam. Never reports success when Supabase returns an error.
+ * Sends one `table_invite` notification to `recipientUserId`, through the
+ * server.
+ *
+ * THE BROWSER NEVER WRITES ANOTHER PLAYER'S INBOX (2026-11-22). This used to
+ * insert the friend's notification row itself. Production refuses that write
+ * (the browser holds SELECT and UPDATE on notifications and no INSERT policy
+ * admits it: World Hub migrations 20261020170027 and 20261020171316), so every
+ * in-app invite answered "Could Not Send Invite" and nobody received one. And
+ * where a wide INSERT policy did exist it let any account write any notice to
+ * anyone. public.fn_send_game_invite is the one door: it checks the friend is
+ * a friend or plays in the game's club, that the sender can see the game,
+ * names the game the way the share door does (a tournament as its tournament,
+ * a Heads Up hold as its table and token), builds the title, sentence and
+ * link itself, answers a repeat inside a minute with the first invite and
+ * allows 30 a sender in ten minutes.
+ *
+ * The guards below run first so an impossible tap never reaches the network,
+ * and success is reported only when the server says it delivered.
  */
 export async function sendInAppTableInvite(
   params: SendTableInviteParams
@@ -272,7 +305,17 @@ export async function sendInAppTableInvite(
   }
 
   const targetKey = buildTableInviteTargetKey(params);
-  if (!targetKey) {
+  const recipientId = normalizeUuid(recipientUserId);
+  const tableId = normalizeUuid(params.tableId);
+  const tournamentId = normalizeUuid(params.tournamentId);
+  const clusterId = normalizeUuid(params.clusterId);
+  const namesAGame =
+    params.kind === 'lightning'
+      ? Boolean(clusterId)
+      : params.kind === 'tournament'
+        ? Boolean(tournamentId || tableId)
+        : Boolean(tableId);
+  if (!targetKey || !recipientId || !namesAGame) {
     return {
       ok: false,
       reason: 'invalid_target',
@@ -291,67 +334,14 @@ export async function sendInAppTableInvite(
     };
   }
 
-  const tableId = cleanText(params.tableId) || null;
-  const tournamentId = cleanText(params.tournamentId) || null;
-  const clusterId = cleanText(params.clusterId) || null;
-  const inviteCode = cleanText(params.inviteCode) || null;
-  const inviteToken = cleanText(params.inviteToken) || null;
-  const senderName = cleanText(params.senderName) || 'A Friend';
-  const fallbackTableLabel =
-    params.kind === 'tournament'
-      ? 'This Tournament'
-      : params.kind === 'lightning'
-        ? 'This Lightning Pool'
-        : 'This Table';
-  const tableName = cleanText(params.tableName) || fallbackTableLabel;
-
-  const payloadData: Record<string, unknown> = {
-    table_id: tableId,
-    tableId,
-    tournament_id: tournamentId,
-    tournamentId,
-    cluster_id: clusterId,
-    clusterId,
-    kind: params.kind,
-    table_name: tableName,
-    tableName,
-    invite_code: inviteCode,
-    inviteCode,
-    invite_token: inviteToken,
-    inviteToken,
-    from_user_id: senderUserId,
-    fromUserId: senderUserId,
-    from_name: senderName,
-    fromName: senderName,
-  };
-
-  const actionUrl = buildTableInviteDeepLink(payloadData);
-  if (!actionUrl || actionUrl === '/') {
-    return {
-      ok: false,
-      reason: 'invalid_target',
-      message: 'No Active Table Target Available For Invite.',
-    };
-  }
-
-  payloadData.action_url = actionUrl;
-
-  const title =
-    params.kind === 'lightning'
-      ? 'Lightning Table Invite'
-      : params.kind === 'tournament'
-        ? 'Tournament Invite'
-        : 'Table Invite';
-  const message = `${senderName} Invited You To Join ${tableName}`;
-
-  const { error } = await supabase.from('notifications').insert({
-    user_id: recipientUserId,
-    type: 'table_invite',
-    title,
-    message,
-    action_url: actionUrl,
-    data: payloadData,
-    read: false,
+  const { data, error } = await supabase.rpc('fn_send_game_invite', {
+    p_recipient_id: recipientId,
+    p_kind: params.kind,
+    p_table_id: tableId,
+    p_tournament_id: tournamentId,
+    p_cluster_id: clusterId,
+    p_invite_code: normalizeInviteCode(params.inviteCode),
+    p_invite_token: normalizeInviteToken(params.inviteToken),
   });
 
   if (error) {
@@ -363,14 +353,53 @@ export async function sendInAppTableInvite(
     };
   }
 
-  pruneExpiredCooldowns(now);
-  inviteCooldowns.set(cooldownKeyOf(recipientUserId, targetKey), now + TABLE_INVITE_COOLDOWN_MS);
+  const answer = (data && typeof data === 'object' ? data : {}) as SendGameInviteAnswer;
+  if (answer.ok === true && typeof answer.path === 'string' && answer.path.startsWith('/')) {
+    pruneExpiredCooldowns(now);
+    inviteCooldowns.set(cooldownKeyOf(recipientUserId, targetKey), now + TABLE_INVITE_COOLDOWN_MS);
+    return { ok: true, actionUrl: answer.path, cooldownMs: TABLE_INVITE_COOLDOWN_MS };
+  }
 
-  return {
-    ok: true,
-    actionUrl,
-    cooldownMs: TABLE_INVITE_COOLDOWN_MS,
-  };
+  const retryAfterMs =
+    typeof answer.retry_after_seconds === 'number' && answer.retry_after_seconds > 0
+      ? answer.retry_after_seconds * 1000
+      : undefined;
+  switch (answer.reason) {
+    case 'self':
+      return { ok: false, reason: 'self', message: 'You Cannot Invite Yourself To A Table.' };
+    case 'not_allowed':
+      return {
+        ok: false,
+        reason: 'not_allowed',
+        message: 'Only Friends And Clubmates Can Be Invited To This Game.',
+      };
+    case 'rate_limited':
+      return {
+        ok: false,
+        reason: 'rate_limited',
+        message: 'Too Many Invites Sent. Try Again In A Few Minutes.',
+        ...(retryAfterMs ? { retryAfterMs } : {}),
+      };
+    case 'not_found':
+    case 'invalid_target':
+      return {
+        ok: false,
+        reason: 'invalid_target',
+        message: 'This Game Is No Longer Open For Invites.',
+      };
+    default:
+      // sign_in_required, not_delivered or an answer this client cannot read:
+      // never reported as sent.
+      reportError(
+        new Error(`fn_send_game_invite answered ${String(answer.reason ?? 'unreadable')}`),
+        'TableInviteService.sendInAppTableInvite.refused'
+      );
+      return {
+        ok: false,
+        reason: 'insert_failed',
+        message: 'Could Not Send Invite Right Now. Please Try Again.',
+      };
+  }
 }
 
 /**

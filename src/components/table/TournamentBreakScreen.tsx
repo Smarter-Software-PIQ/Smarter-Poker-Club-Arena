@@ -34,6 +34,7 @@ import {
   breakWaitingLabel,
 } from './breakScreenCopy';
 import { hasShareSheet, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
+import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import './TournamentBreakScreen.css';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -197,6 +198,9 @@ export function TournamentBreakScreen({
   const sharing = useRef(false);
   const [shareMessage, setShareMessage] = useState('');
   const [shareFallbackUrl, setShareFallbackUrl] = useState('');
+  /* The link carries the sender's club code (2026-11-22), read while the
+     break screen is up so the tap goes straight to the share sheet. */
+  const shareInviteCode = useTournamentSenderInviteCode({ tournamentId }, heroUserId, isVisible);
   const shareTournament = async () => {
     if (sharing.current) return;
     if (!tournamentId) {
@@ -206,7 +210,7 @@ export function TournamentBreakScreen({
     sharing.current = true;
     setShareMessage('');
     setShareFallbackUrl('');
-    const url = tournamentShareUrl(tournamentId);
+    const url = tournamentShareUrl(tournamentId, { inviteCode: shareInviteCode });
     try {
       /* src/lib/share.ts: sheet, then clipboard, then the link itself on
          screen. A sheet that refuses no longer ends the tap. */

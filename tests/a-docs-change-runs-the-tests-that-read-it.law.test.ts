@@ -31,16 +31,39 @@ describe('a docs change runs the tests that read it', () => {
     expect(plan.client).toContain('tests/unit/holdemBlanketScoreboard.test.ts');
   });
 
-  it('a doc no test reads runs nothing, and a running suite is not run twice', async () => {
+  it('a doc only the whole-tree sweep reads runs only that, and a running suite is not run twice', async () => {
     const { docsReaderPlan } = await load('scripts/ci/run-docs-readers.mjs');
     // Spelled in two pieces so this file does not itself read the path.
     const unread = ['doc', 's/nobody-reads-this/README.md'].join('');
     const quiet = docsReaderPlan(ROOT, [unread], {});
-    expect(quiet.client).toEqual([]);
+    expect(quiet.client).toEqual(['tests/unit/theDeployDocsNameTheLiveRoute.test.ts']);
     expect(quiet.server).toEqual([]);
     const running = docsReaderPlan(ROOT, [BROKE_MAIN], { tests: true, server: true });
     expect(running.client).toEqual([]);
     expect(running.server).toEqual([]);
+  });
+
+  it('a sweep no scanner can see is found by its declaration, and honours its skips', async () => {
+    const { declaredDocs, sourceReads, docsReaderPlan } = await load(
+      'scripts/ci/run-docs-readers.mjs'
+    );
+    // The marker is assembled so this file does not itself declare a sweep.
+    const marker = ['@reads', '-docs:'].join('');
+    const declared = declaredDocs(
+      `// ${marker} docs !docs/changelog/ src/not-docs\n/* ${marker} docs/laws.d */`
+    );
+    expect(declared).toEqual({ reads: ['docs', 'docs/laws.d'], skips: ['docs/changelog'] });
+    expect(sourceReads([], declared, 'docs/runbooks/x.md')).toBe(true);
+    expect(sourceReads([], declared, 'docs/changelog/x.md')).toBe(false);
+    // A declared skip wins over a literal the walker names in order to skip it.
+    expect(sourceReads(['docs/changelog'], declared, 'docs/changelog/x.md')).toBe(false);
+    // The deploy-docs law walks every doc from the repository root.
+    const deploy = 'tests/unit/theDeployDocsNameTheLiveRoute.test.ts';
+    const plan = (path: string) => docsReaderPlan(ROOT, [path], {}).client as string[];
+    expect(plan(['doc', 's/club-operations/OPERATIONS-UPGRADE-PLAN.md'].join(''))).toContain(
+      deploy
+    );
+    expect(plan(['doc', 's/handoffs/anything.md'].join(''))).not.toContain(deploy);
   });
 
   it('reads literals, templates and path pieces, but not comments', async () => {

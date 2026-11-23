@@ -114,3 +114,157 @@ export function useClubSenderInviteCode(
 ): string | null {
   return useSenderInviteCode(null, userId, Boolean(enabled && clubId), clubId);
 }
+
+/*
+ * THE SENDER'S CODE FOR A TOURNAMENT LINK (2026-11-22).
+ *
+ * A tournament link carries the club code (`?i=`) so a friend who is not in
+ * the club yet is offered its join step instead of "Tournament Not Found".
+ * Which club's code: the club that hosts the tournament when the sender is a
+ * member of it; for a union event hosted by a sibling club, the sender's own
+ * club inside that union (every club in a union can read the union's
+ * tournaments, fn_poker_can_read_games over fn_club_scope_ids); otherwise the
+ * sender's own active club, the same last resort a table link uses.
+ *
+ * A lobby renders a card per tournament, most of them in one club, so the
+ * answer is remembered per account and scope for the session: thirty cards
+ * ask once, not thirty times. Only a code is remembered; "no code" is asked
+ * again next time.
+ */
+export interface TournamentInviteScope {
+  tournamentId?: string | null;
+  clubId?: string | null;
+  unionId?: string | null;
+}
+
+async function scopeOfTournament(
+  tournamentId: string
+): Promise<{ clubId: string | null; unionId: string | null } | null> {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('club_id, union_id')
+    .eq('id', tournamentId)
+    .maybeSingle();
+  if (error) {
+    reportError(error, 'useSenderInviteCode.scopeOfTournament');
+    return null;
+  }
+  const row = data as { club_id?: string | null; union_id?: string | null } | null;
+  return row ? { clubId: row.club_id ?? null, unionId: row.union_id ?? null } : null;
+}
+
+/** The sender's earliest-joined active club inside a union (or the union's own row). */
+async function ownClubInUnion(userId: string, unionId: string): Promise<string | null> {
+  const { data: rows, error } = await supabase
+    .from('club_members')
+    .select('club_id, joined_at')
+    .eq('user_id', userId)
+    .in('status', ACTIVE)
+    .order('joined_at', { ascending: true })
+    .limit(50);
+  if (error) {
+    reportError(error, 'useSenderInviteCode.ownClubInUnion');
+    return null;
+  }
+  const mine = ((rows || []) as { club_id?: string | null }[])
+    .map((r) => r.club_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (mine.length === 0) return null;
+  if (mine.includes(unionId)) return unionId;
+  const [byColumn, byLink] = await Promise.all([
+    supabase.from('clubs').select('id').in('id', mine).eq('union_id', unionId),
+    supabase.from('union_clubs').select('club_id').eq('union_id', unionId).in('club_id', mine),
+  ]);
+  const inUnion = new Set<string>();
+  for (const r of (byColumn.data || []) as { id?: string | null }[]) if (r.id) inUnion.add(r.id);
+  for (const r of (byLink.data || []) as { club_id?: string | null }[])
+    if (r.club_id) inUnion.add(r.club_id);
+  return mine.find((id) => inUnion.has(id)) ?? null;
+}
+
+const tournamentCodeCache = new Map<string, Promise<string | null>>();
+const TOURNAMENT_CODE_CACHE_LIMIT = 200;
+
+/** Test helper: forget every remembered tournament code. */
+export function resetTournamentSenderInviteCodes(): void {
+  tournamentCodeCache.clear();
+}
+
+async function resolveTournamentScopeCode(
+  clubId: string | null,
+  unionId: string | null,
+  userId: string
+): Promise<string | null> {
+  const host = await codeFor(clubId);
+  if (host) return host;
+  if (unionId && unionId !== clubId) {
+    const inUnion = await codeFor(await ownClubInUnion(userId, unionId));
+    if (inUnion) return inUnion;
+  }
+  return codeFor(await ownActiveClub(userId));
+}
+
+/** Resolve the sender's invite code for a tournament link (null when there is none). */
+export async function resolveTournamentSenderInviteCode(
+  scope: TournamentInviteScope,
+  userId: string | null | undefined
+): Promise<string | null> {
+  if (!userId) return null;
+  try {
+    let clubId = scope.clubId || null;
+    let unionId = scope.unionId || null;
+    if (!clubId && !unionId && scope.tournamentId) {
+      const read = await scopeOfTournament(scope.tournamentId);
+      clubId = read?.clubId ?? null;
+      unionId = read?.unionId ?? null;
+    }
+    const key = `${userId}|${clubId ?? ''}|${unionId ?? ''}`;
+    let pending = tournamentCodeCache.get(key);
+    if (!pending) {
+      if (tournamentCodeCache.size >= TOURNAMENT_CODE_CACHE_LIMIT) tournamentCodeCache.clear();
+      pending = resolveTournamentScopeCode(clubId, unionId, userId).catch(() => null);
+      tournamentCodeCache.set(key, pending);
+    }
+    const code = await pending;
+    if (!code && tournamentCodeCache.get(key) === pending) tournamentCodeCache.delete(key);
+    return code;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The sender's invite code for the tournament a surface shares, fetched when
+ * the surface opens (a phone only opens its share sheet straight from the
+ * tap). Pass the tournament's club and union when the surface has them; a
+ * surface holding only the id gets them read once.
+ */
+export function useTournamentSenderInviteCode(
+  scope: TournamentInviteScope,
+  userId: string | null | undefined,
+  enabled = true
+): string | null {
+  const tournamentId = scope.tournamentId || null;
+  const clubId = scope.clubId || null;
+  const unionId = scope.unionId || null;
+  const active = Boolean(enabled && userId && (tournamentId || clubId || unionId));
+  const key = active ? `${userId}|${tournamentId ?? ''}|${clubId ?? ''}|${unionId ?? ''}` : '';
+  /* Held with the scope it answers, so a surface that switches to another
+     tournament never shares the previous club's code while the new one is
+     still being read. */
+  const [answer, setAnswer] = useState<{ key: string; code: string | null }>({
+    key: '',
+    code: null,
+  });
+  useEffect(() => {
+    if (!key) return;
+    let cancelled = false;
+    void resolveTournamentSenderInviteCode({ tournamentId, clubId, unionId }, userId).then((c) => {
+      if (!cancelled) setAnswer({ key, code: c });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, tournamentId, clubId, unionId, userId]);
+  return key && answer.key === key ? answer.code : null;
+}
