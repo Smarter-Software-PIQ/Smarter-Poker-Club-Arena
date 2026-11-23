@@ -18733,7 +18733,9 @@ export class HorseLogic {
       const blockTrap87 =
         v87RiverBlockTrapPending &&
         opts.v87HoldemOverhaul !== false &&
-        opts.v87RiverBlockBetTrap !== false &&
+        // The priced block lead (v87RiverBlockBetTrapIsPriced) keeps its own size whatever the legacy
+        // v87RiverBlockBetTrap sub-flag says; with the priced option off this is the split's gate unchanged.
+        (opts.v87RiverBlockBetTrap !== false || opts.v87RiverBlockBetTrapIsPriced === true) &&
         gs.stage === 'river' &&
         shoveDisciplined.action === 'bet' &&
         Number.isFinite(shoveDisciplined.amount) &&
