@@ -1514,9 +1514,13 @@ it kept drifting for another 135 commits.
    worktrees swapped their changes. `.husky/reference-transaction` refuses a
    new stash entry; a push stores the ref before it resets the tree, so the
    refusal leaves your edits exactly where they were (measured on git 2.43
-   and Apple git 2.50.1). Popping or dropping an existing entry still works.
-   Commit on your own branch instead. Pinned by
-   `tests/unit/oneStashListIsNeverShared.test.ts`.
+   and Apple git 2.50.1). The hook also refuses `stash clear` (2026-11-23:
+   the shared list held 141 entries from many agents, and one clear deletes
+   all of them). It cannot refuse `stash pop`, `stash apply` or the drop of
+   one entry among several: git runs no hook before those act, so a pop in
+   your worktree applies whatever entry is on top, usually another agent's.
+   Do not run them. Commit on your own branch or copy the files to your own
+   folder instead. Pinned by `tests/unit/oneStashListIsNeverShared.test.ts`.
 
 6. **The shared clone stays on `main`; never `git checkout`/`git switch` there
    (2026-11-21).** On 2026-11-21 `~/Documents/club-arena` was found on a
