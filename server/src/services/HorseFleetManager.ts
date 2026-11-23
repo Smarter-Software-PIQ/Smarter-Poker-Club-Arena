@@ -92,7 +92,13 @@ import {
   varietyHoldsThisCycle,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
-import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
+import {
+  keepHeldPlaces,
+  OPEN_LIST_STATUSES,
+  planHorseQueues,
+  type HorseQueueAsk,
+  type HorseQueueGameInfo,
+} from './HorseGameQueue.js';
 import { availableNow, regularSeatWeight } from './HorseRegulars.js';
 import {
   onDuty,
@@ -1047,17 +1053,23 @@ export class HorseFleetManager {
     seatedThisCycle: ReadonlyMap<string, number> = new Map()
   ): Promise<void> {
     try {
+      /* EVERY OPEN PLACE, NOT ONLY THE WAITING ONES (2026-11-22). A called name
+         ('notified') is still that horse's place on the list, and the index
+         (cash_game_waitlist_one_open) refuses a second one. The planner still
+         sees only the waiting rows, exactly as before; the called rows only
+         stop it putting the same horse down twice (keepHeldPlaces). */
       const page = await fetchAllRows<{
         id: string;
         game_id: string;
         user_id: string;
         created_at: string;
+        status: string;
       }>(
         (cursor, want) => {
           let q = supabase
             .from('cash_game_waitlist')
-            .select('id, game_id, user_id, created_at')
-            .eq('status', 'waiting')
+            .select('id, game_id, user_id, created_at, status')
+            .in('status', [...OPEN_LIST_STATUSES])
             .order('id', { ascending: true })
             .limit(want);
           if (cursor) q = q.gt('id', cursor);
@@ -1066,7 +1078,8 @@ export class HorseFleetManager {
         { label: 'HorseFleet.horseGameQueues', maxRows: 50_000, shouldContinue }
       );
       if (shouldContinue?.() === false || !page.complete) return;
-      const rows = page.rows.filter((r) => horseIdSet.has(String(r.user_id)));
+      const openRows = page.rows.filter((r) => horseIdSet.has(String(r.user_id)));
+      const rows = openRows.filter((r) => r.status === 'waiting');
 
       const lightning = await this.lightningClusterIds();
       const gameTables: Array<{ gameId: string; maxPlayers: number; seated: number }> = [];
@@ -1114,28 +1127,33 @@ export class HorseFleetManager {
       const queueNowMs = Date.now();
       const queueWeekday = chicagoNow().weekday;
       const queueToday = chicagoCounterDay(queueNowMs);
-      const plan = planHorseQueues({
-        asks,
-        tables: gameTables,
-        rows,
-        excludedGameIds: excluded,
-        humanWaitingGameIds,
-        seatedByGame,
-        nowMs: Date.now(),
-        gameInfo,
-        seatedAnywhere,
-        onDuty: (id: string) => {
-          const ok = onDuty(
-            id,
-            queueDutyBook?.states.get(id),
-            queueNowMs,
-            queueWeekday,
-            queueToday
-          );
-          if (!ok) recordListRowCancelled();
-          return ok;
-        },
-      });
+      /* A REPEAT JOIN KEEPS ITS PLACE: a horse already holding an open place
+         on a game's list is not put down for it again (HorseGameQueue). */
+      const plan = keepHeldPlaces(
+        planHorseQueues({
+          asks,
+          tables: gameTables,
+          rows,
+          excludedGameIds: excluded,
+          humanWaitingGameIds,
+          seatedByGame,
+          nowMs: Date.now(),
+          gameInfo,
+          seatedAnywhere,
+          onDuty: (id: string) => {
+            const ok = onDuty(
+              id,
+              queueDutyBook?.states.get(id),
+              queueNowMs,
+              queueWeekday,
+              queueToday
+            );
+            if (!ok) recordListRowCancelled();
+            return ok;
+          },
+        }),
+        openRows
+      );
       for (let i = 0; i < plan.cancel.length; i += 200) {
         if (shouldContinue?.() === false) return;
         const { error } = await supabase
