@@ -116,6 +116,7 @@ import {
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
 import { plo6FacingBetPricedAdmitsCall } from '../HorsePlo6FacingBetIsPriced.js';
+import { plo6FacingBetPricedV2AdmitsCall } from '../HorsePlo6FacingBetPricedV2.js';
 import {
   OMAHA_MW_TOURNEY_VARIANTS,
   omahaMwTourneyAdmits,
@@ -1088,6 +1089,12 @@ export interface HorseDecisionReceiptContext {
    */
   plo6FacingBetIsPriced?: boolean;
   /**
+   * Six-card native facing-bet pricing model (HorsePlo6FacingBetPricedV2): the decision's own
+   * plo6FacingBetIsPricedV2, read `=== true`. Only then is its PLO6 fold/raise -> call admitted
+   * (re-run on the request, for the exact chips of the call). Absent or false, admits nothing extra.
+   */
+  plo6FacingBetIsPricedV2?: boolean;
+  /**
    * HORSE DECISIONS lane 2026-11-19 (review N1): the decision's own omahaMultiwayIsPricedInTournaments, read
    * `=== true`. Only then are its two conversions admitted in Omaha pot-limit tournaments (PLO4/5/6/8): a
    * preflop call -> the fold and a postflop bet, raise or all-in facing no bet -> the check, each in the rule's
@@ -1743,6 +1750,20 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       plo6FacingBetPricedAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Six-card native facing-bet pricing model (HorsePlo6FacingBetPricedV2, option
+    // plo6FacingBetIsPricedV2, default off): admitted only under the decision's own option
+    // (context.plo6FacingBetIsPricedV2, its gate candidates) and only where the request-pure
+    // V2 verdict re-run on the request (no rake, either position) prices the exact call.
+    const plo6FacingBetPricedV2Called =
+      context?.plo6FacingBetIsPricedV2 === true &&
+      transition.node === 'wager_rules' &&
+      variant === 'plo6' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      plo6FacingBetPricedV2AdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
     // river a raise facing a wager with a hand that is not nut class becomes
@@ -2038,6 +2059,7 @@ function policyGraphIsValidInScope(
       !omahaRiverNutsFloorCalled &&
       !omahaFourBetFoldCalled &&
       !plo6FacingBetPricedCalled &&
+      !plo6FacingBetPricedV2Called &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
       !omahaSampledRaiseResized &&
@@ -2556,6 +2578,20 @@ export function plo6FacingBetIsPricedGateCandidates(
   );
 }
 
+/** The plo6FacingBetIsPricedV2 values the worker may have run this decision with. */
+export function plo6FacingBetIsPricedV2GateCandidates(
+  requestOpts: { plo6FacingBetIsPricedV2?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  return decisionOptionGateCandidates(
+    'plo6FacingBetIsPricedV2',
+    requestOpts as Readonly<Record<string, unknown>> | null | undefined,
+    switchConfig,
+    previousSwitchConfig
+  );
+}
+
 /** The omahaMultiwayIsPricedInTournaments values the worker may have run this decision with (review N1). */
 export function omahaMultiwayIsPricedInTournamentsGateCandidates(
   requestOpts: { omahaMultiwayIsPricedInTournaments?: unknown } | null | undefined,
@@ -2591,6 +2627,7 @@ export function horseDecisionReceiptRefusalForGates(
     | 'omahaSlowplayMixInLightning'
     | 'omahaBluffPricedAgainstTheTarget'
     | 'plo6FacingBetIsPriced'
+    | 'plo6FacingBetIsPricedV2'
     | 'omahaMultiwayPricedInTournaments'
   >,
   plo6Gates: readonly boolean[],
@@ -2599,44 +2636,49 @@ export function horseDecisionReceiptRefusalForGates(
   slowplayMixInLightningGates: readonly boolean[] = [false],
   bluffPricedGates: readonly boolean[] = [false],
   plo6FacingBetPricedGates: readonly boolean[] = [false],
-  multiwayTourneyGates: readonly boolean[] = [false]
+  multiwayTourneyGates: readonly boolean[] = [false],
+  plo6FacingBetPricedV2Gates: readonly boolean[] = [false]
 ): string | null {
   let first: string | null = null;
   let seen = false;
-  for (const mwGate of multiwayTourneyGates.length > 0 ? multiwayTourneyGates : [false])
-    for (const plo6PricedGate of plo6FacingBetPricedGates.length > 0
-      ? plo6FacingBetPricedGates
-      : [false])
-      for (const bluffGate of bluffPricedGates.length > 0 ? bluffPricedGates : [false])
-        for (const slowplayGate of slowplayMixInLightningGates.length > 0
-          ? slowplayMixInLightningGates
-          : [false]) {
-          for (const lightningGate of pricedInLightningGates.length > 0
-            ? pricedInLightningGates
+  for (const plo6V2Gate of plo6FacingBetPricedV2Gates.length > 0
+    ? plo6FacingBetPricedV2Gates
+    : [false])
+    for (const mwGate of multiwayTourneyGates.length > 0 ? multiwayTourneyGates : [false])
+      for (const plo6PricedGate of plo6FacingBetPricedGates.length > 0
+        ? plo6FacingBetPricedGates
+        : [false])
+        for (const bluffGate of bluffPricedGates.length > 0 ? bluffPricedGates : [false])
+          for (const slowplayGate of slowplayMixInLightningGates.length > 0
+            ? slowplayMixInLightningGates
             : [false]) {
-            for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
-              const refusal = horseDecisionReceiptRefusalForPlo6Gates(
-                value,
-                expectedVariant,
-                {
-                  ...context,
-                  ...(gate ? { omahaPricedRaise: true } : {}),
-                  ...(lightningGate ? { omahaPricedInLightning: true } : {}),
-                  ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
-                  ...(bluffGate ? { omahaBluffPricedAgainstTheTarget: true } : {}),
-                  ...(plo6PricedGate ? { plo6FacingBetIsPriced: true } : {}),
-                  ...(mwGate ? { omahaMultiwayPricedInTournaments: true } : {}),
-                },
-                plo6Gates
-              );
-              if (refusal === null) return null;
-              if (!seen) {
-                first = refusal;
-                seen = true;
+            for (const lightningGate of pricedInLightningGates.length > 0
+              ? pricedInLightningGates
+              : [false]) {
+              for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+                const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+                  value,
+                  expectedVariant,
+                  {
+                    ...context,
+                    ...(gate ? { omahaPricedRaise: true } : {}),
+                    ...(lightningGate ? { omahaPricedInLightning: true } : {}),
+                    ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
+                    ...(bluffGate ? { omahaBluffPricedAgainstTheTarget: true } : {}),
+                    ...(plo6PricedGate ? { plo6FacingBetIsPriced: true } : {}),
+                    ...(plo6V2Gate ? { plo6FacingBetIsPricedV2: true } : {}),
+                    ...(mwGate ? { omahaMultiwayPricedInTournaments: true } : {}),
+                  },
+                  plo6Gates
+                );
+                if (refusal === null) return null;
+                if (!seen) {
+                  first = refusal;
+                  seen = true;
+                }
               }
             }
           }
-        }
   return first;
 }
 

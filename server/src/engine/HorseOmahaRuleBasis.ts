@@ -610,6 +610,17 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     'the owner VPIP floor (a game rule, not strategy)'
   ),
   plo6FacingBetIsPriced: exempt('other_game', 'PLO6, tournaments or hi-lo: outside PLO4/PLO5 cash'),
+  plo6FacingBetIsPricedV2: {
+    kind: 'priced',
+    range:
+      'native six-card bettor value quantiles and six-card non-value bluff priors narrowed by line, all-in jam sizing, multiway field, paired boards, and 3-bet/4-bet depth (PLO6 cash only; outside PLO4/PLO5 cash)',
+    equity:
+      'exact six-card counts on turn and river (seeded six-card sample on flop and multiway river) against that six-card range (HorsePlo6FacingBetPricedV2.ts)',
+    realization:
+      'measured street and flop-defence-tree realization with six-card multiway joint callers and showdown on the river',
+    price:
+      'two-way EV(call) and river EV(raise) against the pot after projected rake and jackpot deduction',
+  },
   plo6ManiacPriceRefusalToRangePlay: exempt(
     'other_game',
     'PLO6, tournaments or hi-lo: outside PLO4/PLO5 cash'
