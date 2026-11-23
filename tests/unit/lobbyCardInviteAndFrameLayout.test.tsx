@@ -281,7 +281,7 @@ describe('Lobby card Invite placement & layout contracts (SNG, Spin, MTT, Cash)'
     }
   });
 
-  it('Cash and MTT cards retain their top-right plaques and status + invite controls', () => {
+  it('Cash and MTT display cards retain their top-right plaques and status labels with NO front-facing Invite button', () => {
     const cash = cashEntry({
       id: 'cash-1',
       name: 'NLH 1/2 Classic',
@@ -296,12 +296,27 @@ describe('Lobby card Invite placement & layout contracts (SNG, Spin, MTT, Cash)'
       cluster_id: 'c-1',
       cluster_template: 'classic',
     } as LobbyTableRow);
+    const mtt = tournamentEntry(
+      makeTournament({
+        id: 'mtt-1',
+        name: 'Nightly 20K',
+        tournament_type: 'MTT',
+        format_contract: 'mtt-v1',
+        guaranteed_prize: 20000,
+        buy_in_amount: 35,
+        max_players: 500,
+        current_players: 42,
+        start_time: new Date(Date.now() + 7_200_000).toISOString(),
+        status: 'REGISTERING',
+      }),
+      'mtt'
+    );
 
     render(
       <MemoryRouter>
         <LobbyTable
-          entries={[cash]}
-          category="HOLDEM"
+          entries={[cash, mtt]}
+          category="ALL"
           selectedId={null}
           onSelect={() => {}}
           onActivate={() => {}}
@@ -310,11 +325,28 @@ describe('Lobby card Invite placement & layout contracts (SNG, Spin, MTT, Cash)'
       </MemoryRouter>
     );
 
-    const statusCell = document.querySelector(
-      '.compact-lobby tr[data-id="cash-1"] td[data-label="Status"]'
-    ) as HTMLElement;
-    expect(statusCell.querySelector('.lt-status')?.textContent?.trim()).toBe('Seats Available');
-    expect(statusCell.querySelector('[data-testid="lobby-invite-btn"]')).not.toBeNull();
+    for (const scope of ['.compact-lobby', '.lobby-table']) {
+      const table = document.querySelector(scope)!;
+
+      const cashHeading = table.querySelector('tr[data-game-heading="cash-1"]') as HTMLElement;
+      const cashBody = table.querySelector('tr[data-id="cash-1"]') as HTMLElement;
+      const cashStatusCell = cashBody.querySelector('td[data-label="Status"]') as HTMLElement;
+      expect(cashHeading.querySelector('[data-testid="lobby-invite-btn"]')).toBeNull();
+      expect(cashStatusCell.querySelector('.lt-status')?.textContent?.trim()).toBe(
+        'Seats Available'
+      );
+      expect(cashStatusCell.querySelector('[data-testid="lobby-invite-btn"]')).toBeNull();
+
+      const mttHeading = table.querySelector('tr[data-game-heading="mtt-1"]') as HTMLElement;
+      const mttBody = table.querySelector('tr[data-id="mtt-1"]') as HTMLElement;
+      const mttStatusCell = mttBody.querySelector('td[data-label="Status"]') as HTMLElement;
+      expect(mttHeading.querySelector('.lt-tournament-heading__guarantee')?.textContent).toContain(
+        'Guarantee'
+      );
+      expect(mttHeading.querySelector('[data-testid="lobby-invite-btn"]')).toBeNull();
+      expect(mttStatusCell.querySelector('.lt-status')?.textContent?.trim()).toBe('Registering');
+      expect(mttStatusCell.querySelector('[data-testid="lobby-invite-btn"]')).toBeNull();
+    }
   });
 
   it('PremiumMttRows.css enforces horizontal/vertical glass bay clearance, elevates .lt-invite-btn, and introduces zero :hover rules', () => {

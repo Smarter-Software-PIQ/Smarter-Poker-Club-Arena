@@ -513,31 +513,22 @@ describe('Must-Move ?cluster= smart routing logic & bounded ref guard', () => {
   });
 });
 
-describe('Mobile MTT CSS law: Invite button stays visible while .lt-status is hidden', () => {
+describe('Mobile MTT CSS law: status cell hidden without front-facing Invite button', () => {
   const css = readFileSync(resolve(__dirname, '../../src/components/lobby/LobbyTable.css'), 'utf8');
   const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  it('does not hide tr[data-kind="mtt"] td.lt-col-status on mobile', () => {
-    expect(stripped).not.toMatch(
-      /\.lobby-table\s+tr\[data-kind='mtt'\]\s+td\.lt-col-status\s*\{\s*display:\s*none/
-    );
-  });
-
-  it('hides only .lt-status inside MTT status cell and reserves padding-right on title', () => {
+  it('hides tr[data-kind="mtt"] td.lt-col-status on mobile and reclaims full title width', () => {
     expect(stripped).toMatch(
-      /\.lobby-table\s+tr\[data-kind='mtt'\]\s+td\.lt-col-status\s+\.lt-status\s*\{\s*display:\s*none;/
+      /\.lobby-table\s+tr\[data-kind='mtt'\]\s+td\.lt-col-status\s*\{\s*display:\s*none;/
     );
     const padMatches = [
       ...stripped.matchAll(
-        /\.lobby-table\s+tr\[data-kind='mtt'\]\s+td\.lt-col-name\s*\{[^}]*padding-right:\s*(\d+)px/g
+        /\.lobby-table\s+tr\[data-kind='mtt'\]\s+td\.lt-col-name\s*\{[^}]*padding-right:\s*(\d+)/g
       ),
     ];
-    expect(
-      padMatches.length,
-      'MTT title must reserve right padding for .lt-invite-btn'
-    ).toBeGreaterThan(0);
+    expect(padMatches.length).toBeGreaterThan(0);
     for (const m of padMatches) {
-      expect(Number(m[1])).toBeGreaterThanOrEqual(42);
+      expect(Number(m[1])).toBe(0);
     }
   });
 
