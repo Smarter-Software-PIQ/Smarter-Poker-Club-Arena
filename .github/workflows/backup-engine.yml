@@ -1209,6 +1209,7 @@ jobs:
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -uo pipefail
           if [ "$REFRESH_RESULT" != success ]; then
@@ -1225,9 +1226,51 @@ jobs:
           # non-freeze-baseline push runs. Yield cleanly (stop standby container,
           # exit 0, write NO failure/error status) ONLY when ALL FOUR hold:
           #   (a) a newer active push run of backup-engine.yml is queued/in_progress on main,
-          #   (b) projection(SHA) or supabase/migrations on origin/main already differs from SHA,
+          #   (b) projection(SHA) on origin/main already differs from SHA, or
+          #       supabase/migrations differs AND production now holds a migration
+          #       (or required definition) the soaking copy lacks (O16),
           #   (c) < 75 minutes (4500 s) remain until the next scheduled 3-hourly/daily cutoff,
           #   (d) every read succeeded (unreadable -> keep soaking, CLAUDE.md 10.86).
+          #
+          # A NEW MIGRATION FILE IS NOT A NEW INSTALL (2026-11-23, O16). At
+          # 02:44:02Z Backup 45099104481 stopped certifying a9fde5791f0a sixteen
+          # seconds after main gained 20261123002808 (f2fa22672808), which
+          # merged inside the O3 deferral (02:30-04:10Z): the dispatcher was
+          # holding it and production had not installed it, so the soak was
+          # still a selectable candidate when it was stopped. (Its author then
+          # recorded that version by hand at 02:49Z as held, so the cycle was
+          # lost either way; the yield rule was still wrong.) The selector
+          # judges the copy against production's INSTALLED set, so a
+          # migration-only divergence now yields only once production actually
+          # holds a version or required definition the copy lacks (the same
+          # refresh-due comparison the refresh job makes, read-only). Deferred,
+          # window or unreadable answers keep soaking. The nightly freeze holds
+          # migrations merged after 23:45 Chicago the same way.
+          o1_copy_state() {
+            local evidence_sha verdict due_answer production_digest
+            ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+              'cat /var/lib/club-arena-standby/schema-evidence.json' > o1-copy-evidence.json 2>/dev/null || : > o1-copy-evidence.json
+            evidence_sha=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+              "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\")).get(\"schemaEvidenceSha256\") or \"\")'" 2>/dev/null) || evidence_sha=''
+            if ! [ -s o1-copy-evidence.json ] || ! [[ "$evidence_sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo unreadable
+              return 0
+            fi
+            verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
+              --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" 2> o1-copy-reason.txt) || verdict=''
+            due_answer=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+            production_digest=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p')
+            if ! [[ "$production_digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo unreadable
+            elif [ "$due_answer" = false ]; then
+              echo current
+            elif grep -qE "lacks installed migration|does not hold production's definition" o1-copy-reason.txt 2>/dev/null; then
+              echo stale
+            else
+              echo unreadable
+            fi
+          }
+          o1_noted=''
           : > certificate.out
           ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
             "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 1800" \
@@ -1297,6 +1340,24 @@ jobs:
           ' "$SHA" "$main_sha" 2>/dev/null) || diverged=unreadable
               if [ "$diverged" = unreadable ] || [ -z "$diverged" ]; then
                 continue
+              fi
+              if [ "$diverged" = migrations_tree_diverged ]; then
+                copy_state=$(o1_copy_state)
+                case "$copy_state" in
+                  stale) diverged="migrations_tree_diverged,migrations_installed_after_copy" ;;
+                  current)
+                    if [ "$o1_noted" != current ]; then
+                      echo "O1 mid-soak check: main carries migration file(s) $SHA lacks, but production has not installed them (deferred or not yet sent), so the copy still holds production's installed set; keeping soak (O16)."
+                      o1_noted=current
+                    fi
+                    continue ;;
+                  *)
+                    if [ "$o1_noted" != unreadable ]; then
+                      echo "O1 mid-soak check: could not tell whether production installed a migration the copy lacks; keeping soak (CLAUDE.md 10.86, O16)."
+                      o1_noted=unreadable
+                    fi
+                    continue ;;
+                esac
               fi
               yielded=1
               yield_reason="$diverged (main=$main_sha, ${secs_to_cutoff}s to next cutoff, $newer_waiting newer active push run(s))"
