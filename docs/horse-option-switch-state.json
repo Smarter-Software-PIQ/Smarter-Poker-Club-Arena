@@ -1,0 +1,362 @@
+{
+  "schema": "horse-option-switch-state/v1",
+  "asOfUtc": "2026-11-23T05:05:00.000Z",
+  "auditMax": 189,
+  "rows": {
+    "holdemCallDownExcludesCurrentHand": {
+      "state": "on",
+      "auditId": 14,
+      "changedAt": "2026-11-15T23:32:41.284Z"
+    },
+    "holdemCallDownNeedsStyleEvidence": {
+      "state": "on",
+      "auditId": 15,
+      "changedAt": "2026-11-15T23:32:41.908Z"
+    },
+    "holdemGearShiftReach": {
+      "state": "on",
+      "auditId": 16,
+      "changedAt": "2026-11-15T23:32:42.551Z"
+    },
+    "holdemManiacSampleGate": {
+      "state": "on",
+      "auditId": 13,
+      "changedAt": "2026-11-15T23:32:40.672Z"
+    },
+    "holdemManiacShortHandedReach": {
+      "state": "on",
+      "auditId": 58,
+      "changedAt": "2026-11-16T23:50:40.945Z"
+    },
+    "holdemPersonaPostflop": {
+      "state": "on",
+      "auditId": 59,
+      "changedAt": "2026-11-16T23:50:40.945Z"
+    },
+    "holdemPersonaReRaiseMix": {
+      "state": "off",
+      "auditId": 75,
+      "changedAt": "2026-11-19T01:12:24.137Z"
+    },
+    "holdemProfileCompletenessCap": {
+      "state": "on",
+      "auditId": 57,
+      "changedAt": "2026-11-16T23:50:40.945Z"
+    },
+    "holdemRiverFullHouseValue": {
+      "state": "on",
+      "auditId": 18,
+      "changedAt": "2026-11-15T23:32:43.876Z"
+    },
+    "holdemRiverFullHouseValueIsPriced": {
+      "state": "on",
+      "auditId": 166,
+      "changedAt": "2026-11-21T01:19:04.816Z"
+    },
+    "holdemTournamentAllInCallIsPriced": {
+      "state": "on",
+      "auditId": 186,
+      "changedAt": "2026-11-23T01:25:29.995Z"
+    },
+    "holdemValueAndCallsArePriced": {
+      "state": "on",
+      "auditId": 185,
+      "changedAt": "2026-11-22T23:25:25.642Z"
+    },
+    "horseActionTimeIsPublicOnly": {
+      "state": "on",
+      "auditId": 20,
+      "changedAt": "2026-11-16T02:55:24.020Z"
+    },
+    "huBbDefendsUnreadToPrice": {
+      "state": "on",
+      "auditId": 168,
+      "changedAt": "2026-11-21T04:42:12.080Z"
+    },
+    "icmBustPaysPlace": {
+      "state": "on",
+      "auditId": 11,
+      "changedAt": "2026-11-15T23:32:39.459Z"
+    },
+    "lightningVpipFloorLimpOnly": {
+      "state": "off",
+      "auditId": 160,
+      "changedAt": "2026-11-20T16:00:15.506Z"
+    },
+    "omahaBareOverpairOopFlopCheck": {
+      "state": "on",
+      "auditId": 133,
+      "changedAt": "2026-11-20T05:13:33.964Z"
+    },
+    "omahaBigBetIsPotShare": {
+      "state": "on",
+      "auditId": 138,
+      "changedAt": "2026-11-20T05:16:45.803Z"
+    },
+    "omahaBigDrawAggression": {
+      "state": "on",
+      "auditId": 134,
+      "changedAt": "2026-11-20T05:14:12.550Z"
+    },
+    "omahaBlanketRowsOffInPlo45Cash": {
+      "state": "on",
+      "auditId": 174,
+      "changedAt": "2026-11-22T01:26:35.737Z"
+    },
+    "omahaBluffCatcherFoldVsValueLeader": {
+      "state": "off",
+      "auditId": 183,
+      "changedAt": "2026-11-22T22:24:45.612Z"
+    },
+    "omahaBluffShareFromBetRate": {
+      "state": "off",
+      "auditId": 95,
+      "changedAt": "2026-11-20T04:53:45.524Z"
+    },
+    "omahaCardImpact": {
+      "state": "on",
+      "auditId": 140,
+      "changedAt": "2026-11-20T05:18:10.663Z"
+    },
+    "omahaEliteContinuesVsMeasuredWideThreeBettor": {
+      "state": "on",
+      "auditId": 141,
+      "changedAt": "2026-11-20T05:18:50.648Z"
+    },
+    "omahaEvFoldModelHeadsUp": {
+      "state": "off",
+      "auditId": 162,
+      "changedAt": "2026-11-20T20:13:21.469Z"
+    },
+    "omahaFacingBetEv": {
+      "state": "on",
+      "auditId": 128,
+      "changedAt": "2026-11-20T05:10:04.344Z"
+    },
+    "omahaFlopFacingBetEv": {
+      "state": "on",
+      "auditId": 129,
+      "changedAt": "2026-11-20T05:10:46.874Z"
+    },
+    "omahaMadeHandDefenseVsValueLeader": {
+      "state": "on",
+      "auditId": 131,
+      "changedAt": "2026-11-20T05:12:04.995Z"
+    },
+    "omahaManiacReRaiseWidthMeasured": {
+      "state": "on",
+      "auditId": 142,
+      "changedAt": "2026-11-20T05:19:30.897Z"
+    },
+    "omahaMathCorePlo5Flop": {
+      "state": "shadow",
+      "auditId": 189,
+      "changedAt": "2026-11-23T04:33:19.477Z"
+    },
+    "omahaNoCallColdFourBetWithoutPremium": {
+      "state": "on",
+      "auditId": 143,
+      "changedAt": "2026-11-20T05:20:10.804Z"
+    },
+    "omahaNoDrawRaiseOutOfPosition": {
+      "state": "on",
+      "auditId": 135,
+      "changedAt": "2026-11-20T05:14:50.867Z"
+    },
+    "omahaOopReraisedPotStrongRange": {
+      "state": "on",
+      "auditId": 144,
+      "changedAt": "2026-11-20T05:20:51.343Z"
+    },
+    "omahaOopTurnCheckAfterFlopCall": {
+      "state": "off",
+      "auditId": 76,
+      "changedAt": "2026-11-19T05:06:13.221Z"
+    },
+    "omahaOverpairNoOopBarrelVsValueLeader": {
+      "state": "on",
+      "auditId": 118,
+      "changedAt": "2026-11-20T05:04:58.625Z"
+    },
+    "omahaPairedBoardFoldRespectsPrice": {
+      "state": "on",
+      "auditId": 130,
+      "changedAt": "2026-11-20T05:11:25.554Z"
+    },
+    "omahaPairedRiverNoThinLeadVsValueLeader": {
+      "state": "on",
+      "auditId": 120,
+      "changedAt": "2026-11-20T05:05:38.224Z"
+    },
+    "omahaPairedTurnNoBarrelWithoutBoatVsValueLeader": {
+      "state": "on",
+      "auditId": 122,
+      "changedAt": "2026-11-20T05:06:16.580Z"
+    },
+    "omahaPreflopReraiseDefencePricedInPosition": {
+      "state": "on",
+      "auditId": 150,
+      "changedAt": "2026-11-20T05:24:46.843Z"
+    },
+    "omahaPressureNeedsPostflopAggression": {
+      "state": "off",
+      "auditId": 155,
+      "changedAt": "2026-11-20T06:01:05.948Z"
+    },
+    "omahaReraiseRangeEarlyPosition": {
+      "state": "on",
+      "auditId": 145,
+      "changedAt": "2026-11-20T05:21:30.563Z"
+    },
+    "omahaReraiseRangeOutOfPosition": {
+      "state": "off",
+      "auditId": 77,
+      "changedAt": "2026-11-19T09:31:49.449Z"
+    },
+    "omahaReraisedPotFlopContinueNeedsEquityShape": {
+      "state": "off",
+      "auditId": 69,
+      "changedAt": "2026-11-18T01:42:08.570Z"
+    },
+    "omahaRiverCurrentNutsCallFloor": {
+      "state": "on",
+      "auditId": 163,
+      "changedAt": "2026-11-20T22:38:31.323Z"
+    },
+    "omahaRiverMediumBetStrongHandCalls": {
+      "state": "on",
+      "auditId": 132,
+      "changedAt": "2026-11-20T05:12:43.281Z"
+    },
+    "omahaRiverNutBlockerBluffReachable": {
+      "state": "off",
+      "auditId": 154,
+      "changedAt": "2026-11-20T05:48:44.332Z"
+    },
+    "omahaSmallBetIsPriced": {
+      "state": "off",
+      "auditId": 86,
+      "changedAt": "2026-11-19T23:11:47.572Z"
+    },
+    "omahaStabDefenceIsPriced": {
+      "state": "off",
+      "auditId": 182,
+      "changedAt": "2026-11-22T20:07:44.082Z"
+    },
+    "omahaStrategyInTournaments": {
+      "state": "on",
+      "auditId": 44,
+      "changedAt": "2026-11-16T02:55:24.020Z"
+    },
+    "omahaStreetPlan": {
+      "state": "off",
+      "auditId": 171,
+      "changedAt": "2026-11-21T06:26:58.565Z"
+    },
+    "omahaStrongHandSlowplayMix": {
+      "state": "off",
+      "auditId": 156,
+      "changedAt": "2026-11-20T08:01:50.568Z"
+    },
+    "omahaStrongHandValue": {
+      "state": "on",
+      "auditId": 137,
+      "changedAt": "2026-11-20T05:16:07.749Z"
+    },
+    "omahaTurnBetNeedsRiverPlan": {
+      "state": "off",
+      "auditId": 165,
+      "changedAt": "2026-11-21T00:08:07.676Z"
+    },
+    "omahaTurnRiverRaiseIsPriced": {
+      "state": "on",
+      "auditId": 149,
+      "changedAt": "2026-11-20T05:24:07.266Z"
+    },
+    "omahaTurnRiverRaiseNeedsNuts": {
+      "state": "on",
+      "auditId": 147,
+      "changedAt": "2026-11-20T05:22:49.149Z"
+    },
+    "omahaUnderpairNoMultiwayFlopContinue": {
+      "state": "off",
+      "auditId": 184,
+      "changedAt": "2026-11-22T23:07:17.967Z"
+    },
+    "omahaValueSizeIsUnreadable": {
+      "state": "on",
+      "auditId": 151,
+      "changedAt": "2026-11-20T05:25:26.135Z"
+    },
+    "omahaVpipFloorByLimp": {
+      "state": "on",
+      "auditId": 51,
+      "changedAt": "2026-11-16T02:55:24.020Z"
+    },
+    "styleBigBetHonesty": {
+      "state": "on",
+      "auditId": 2,
+      "changedAt": "2026-11-14T06:19:03.210Z"
+    },
+    "styleFoldBluff": {
+      "state": "on",
+      "auditId": 9,
+      "changedAt": "2026-11-14T06:23:20.487Z"
+    },
+    "styleFoldRatePreRepair": {
+      "state": "on",
+      "auditId": 4,
+      "changedAt": "2026-11-14T06:19:03.210Z"
+    },
+    "styleLongShownMemory": {
+      "state": "on",
+      "auditId": 61,
+      "changedAt": "2026-11-16T23:50:40.945Z"
+    },
+    "styleRaiseRespect": {
+      "state": "on",
+      "auditId": 1,
+      "changedAt": "2026-11-14T06:19:03.210Z"
+    },
+    "styleTightMultiSignal": {
+      "state": "on",
+      "auditId": 12,
+      "changedAt": "2026-11-15T23:32:40.058Z"
+    },
+    "styleTightPlayerExploit": {
+      "state": "on",
+      "auditId": 173,
+      "changedAt": "2026-11-21T23:07:09.203Z"
+    },
+    "styleTightReRaiserRespect": {
+      "state": "on",
+      "auditId": 10,
+      "changedAt": "2026-11-14T07:16:35.955Z"
+    },
+    "styleValueBettorNotManiac": {
+      "state": "on",
+      "auditId": 3,
+      "changedAt": "2026-11-14T06:19:03.210Z"
+    },
+    "styleValueExtraction": {
+      "state": "on",
+      "auditId": 5,
+      "changedAt": "2026-11-14T06:19:03.210Z"
+    },
+    "tournamentUtilityStackScaledMargin": {
+      "state": "on",
+      "auditId": 60,
+      "changedAt": "2026-11-16T23:50:40.945Z"
+    },
+    "v46ShortDeck": {
+      "state": "off",
+      "auditId": 74,
+      "changedAt": "2026-11-19T00:08:32.981Z"
+    },
+    "vpipFloorLimpOnly": {
+      "state": "on",
+      "auditId": 73,
+      "changedAt": "2026-11-18T20:18:59.435Z"
+    }
+  }
+}
