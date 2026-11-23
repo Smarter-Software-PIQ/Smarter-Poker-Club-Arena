@@ -1,0 +1,52 @@
+name: Private game holds
+# Native proof that a seat held for an invited friend is refused to everyone
+# else, a horse by the same rule as a person, that the friend's token admits
+# them, that the hold expires, is thawed by every frozen second and ends when
+# its inviter leaves or cancels, and that a failed inviter buy-in leaves no
+# game, hold or charge (docs/changelog/2026-11-22-invite-to-game-holds-a-private-seat.md).
+# Runs on any change to the two hold migrations, the Heads Up hold they build
+# on, the harness or its fixture, and on the same paths at main so
+# check-main-is-green reads its result.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/private-game-holds.yml
+      - scripts/ci/test-private-game-holds-postgres.py
+      - scripts/ci/fixtures/private-game-holds/**
+      - supabase/migrations/20261122025900_heads_up_wait_mode_and_invite_hold.sql
+      - supabase/migrations/20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql
+      - supabase/migrations/20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/private-game-holds.yml
+      - scripts/ci/test-private-game-holds-postgres.py
+      - scripts/ci/fixtures/private-game-holds/**
+      - supabase/migrations/20261122025900_heads_up_wait_mode_and_invite_hold.sql
+      - supabase/migrations/20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql
+      - supabase/migrations/20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql
+  workflow_dispatch:
+concurrency:
+  group: private-game-holds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL 17 on the disposable runner
+        run: |
+          set -euo pipefail
+          if [[ -x /usr/lib/postgresql/17/bin/initdb ]]; then exit 0; fi
+          # The one shared install (signed sources, checkout key, bounded retries).
+          bash .github/actions/install-postgres-17/install.sh
+      - name: A held seat is refused to anyone but its invited holder
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-private-game-holds-postgres.py

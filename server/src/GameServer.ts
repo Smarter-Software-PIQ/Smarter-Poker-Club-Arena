@@ -6601,6 +6601,12 @@ export class GameServer {
       // Informational: a drift alerts, it never holds a table.
       rakeSpec: rakeSpecDriftState(),
       cashRakePolicyVersion: 3,
+      /* INVITE TO GAME HOLDS A PRIVATE SEAT (2026-11-22). The serving engine
+         seats no horse into a game whose seats are held for invited friends
+         and does not count a private held game as a board. The client offers
+         the private game only when the engine it plays on says so: a hold an
+         older engine cannot see would be filled by its horses. */
+      privateGameHolds: 1,
       // Public liveness comes from the worker-owned store. The main thread no
       // longer hydrates a second solver artifact whose status could look healthy
       // while the live action path was empty or failed.
@@ -14000,16 +14006,25 @@ export class GameServer {
        last HUMAN_SEAT_DEMAND_TTL_MS the seats are declared, so the horses
        this human will need are still free the moment the hold ends. */
     if (hasHuman) {
+      /* A SEAT HELD FOR AN INVITED FRIEND (2026-11-22): any seat-first board,
+         any seat count, for as long as the database says the hold is live
+         (privateGameHolds.ts). Unreadable: wait for the next pass rather than
+         seat a horse into a friend's seat - this board is retried in 12 s. */
+      const privateUntil = await this.tournamentRecurring.privateGameHolds.holdUntilMs(tournamentId);
+      if (privateUntil === null) return;
       const waitOverride =
         seats === 2
           ? await this.readHeadsUpWaitHoldOverride(tournamentId, occupancy.humanUserIds)
           : undefined;
-      const holdUntil = seatFirstHumanPartnerHoldUntilMs(
-        startMs,
-        occupancy.firstHumanAtMs,
-        seatFirstHumanPartnerHoldJitterMs(tournamentId),
-        createdAtMs,
-        waitOverride
+      const holdUntil = Math.max(
+        privateUntil,
+        seatFirstHumanPartnerHoldUntilMs(
+          startMs,
+          occupancy.firstHumanAtMs,
+          seatFirstHumanPartnerHoldJitterMs(tournamentId),
+          createdAtMs,
+          waitOverride
+        )
       );
       const now = Date.now();
       if (holdUntil > now) {

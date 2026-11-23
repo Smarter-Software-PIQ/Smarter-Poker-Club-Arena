@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { gameInviteText, gameInviteUrl, lobbyEntryInviteTarget, shareLink } from '../../lib/share';
+import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { InviteLinkIcon } from '../table/TableMenuIcons';
 import ArenaGameCard from './game-cards/ArenaGameCard';
@@ -811,7 +812,24 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     []
   );
 
+  /* Invite To Game on a Spin or Heads Up still taking seats holds the
+     friend's seat (2026-11-22, usePrivateGameInviteLauncher). */
+  const privateInvite = usePrivateGameInviteLauncher();
   const handleInviteToGame = useCallback(async () => {
+    if (entry.kind === 'spin' || entry.kind === 'sng') {
+      const raw = entry.raw as unknown as Record<string, unknown>;
+      const taken = await privateInvite.offer({
+        id: entry.id,
+        name: entry.name,
+        status: typeof raw.status === 'string' ? raw.status : null,
+        variant: typeof raw.variant === 'string' ? raw.variant : null,
+        max_players: Number(raw.max_players ?? entry.capacity ?? 0),
+        buy_in_amount: raw.buy_in_amount as number | string | null | undefined,
+        buy_in_fee: raw.buy_in_fee as number | string | null | undefined,
+        started_at: typeof raw.started_at === 'string' ? raw.started_at : null,
+      });
+      if (taken) return;
+    }
     const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     setInviteFallbackUrl('');
     const outcome = await shareLink({
@@ -827,12 +845,13 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     } else if (outcome === 'failed') {
       setInviteFallbackUrl(url);
     }
-  }, [entry, inviteCode]);
+  }, [entry, inviteCode, privateInvite]);
 
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.
   return createPortal(
     <div className="glp-backdrop" onClick={onClose} role="presentation">
+      {privateInvite.element}
       <aside
         ref={panelRef}
         className={`glp${isCash ? ' glp--cash' : ''}`}

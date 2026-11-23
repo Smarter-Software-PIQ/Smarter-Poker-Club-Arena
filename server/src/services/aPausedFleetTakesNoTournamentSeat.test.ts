@@ -110,6 +110,8 @@ describe('a paused fleet takes no new seat in a tournament either', () => {
     reportErrorMock.mockReset();
     _resetFleetPolicyCacheForTests();
     svc = new TournamentRecurringService();
+    // No game in this file holds a seat for an invited friend (privateGameHolds.ts).
+    vi.spyOn(svc.privateGameHolds, 'snapshot').mockResolvedValue(new Map());
     pick = vi
       .spyOn(svc as unknown as { pickFreeHorses: () => Promise<string[]> }, 'pickFreeHorses')
       .mockResolvedValue(['free-1', 'free-2', 'free-3']);

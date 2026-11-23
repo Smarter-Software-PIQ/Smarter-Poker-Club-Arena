@@ -164,9 +164,12 @@ BEGIN
      OR (SELECT sum(amount) FROM public.ca_promo_principal_return_receipts) <> 15.25 THEN
     RAISE EXCEPTION 'an original receipt was rewritten or the board moved';
   END IF;
-  SET CONSTRAINTS ALL IMMEDIATE;
-
+  -- The deferred conservation checks run at COMMIT. They are forced early only
+  -- in a probe: forcing them in the install fires the applier's own deferred
+  -- claim check before its history row exists, and the install is refused
+  -- (2026-11-23 04:10 UTC, migration_applier_claim_unrecorded, nothing applied).
   IF v_probe THEN
+    SET CONSTRAINTS ALL IMMEDIATE;
     RAISE EXCEPTION 'PROBE OK (rolled back): twin2983 wallet % -> %, union promo % -> %, grant %',
       v_wallet, v_after, v_fund, v_fund_after, v_grant;
   END IF;
