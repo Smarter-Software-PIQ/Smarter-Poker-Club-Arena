@@ -561,7 +561,7 @@ export function SignUpHost() {
           )}
           {/* True for any event you are entering BEFORE the off: a scheduled
               one until its clock, and a starts-when-full Sit And Go until its
-              field fills and it launches (migration 20261122192807). A late
+              field fills and it launches (migration 20261122185915). A late
               registration cannot be unregistered. */}
           {!o.isLateRegistration && !!startLabel && (
             <p className="signup-note">You Can Unregister Any Time Before The Tournament Starts</p>

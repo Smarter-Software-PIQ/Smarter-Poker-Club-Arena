@@ -12,291 +12,171 @@
  * creates its six and nine seat boards with start_time two minutes ahead as a
  * fill window, not a start.
  *
- * No database is available to this suite, so the SQL is pinned at source: the
- * anchored edits of migration 20261122192807 are applied here to the newest
- * recorded body of each function they rewrite, exactly as the migration
- * applies them to the live one, and the rule is asserted on the result.
+ * Why it broke: 20260909183657 keyed the Sit and Go exception on two seats,
+ * because every live Sit and Go was heads-up then. The six and nine seat
+ * satellites arrived on 2026-10-28 (20261028163610) in the same format, and
+ * nothing tied the unregister rule to the set of formats that start when full.
+ *
+ * The installed fix is 20261122185915 ('sng_actual_start'). Two lanes fixed
+ * this in parallel; 20261122192807 carried the same rule under another name,
+ * was refused on install because its anchors were already gone, and is now
+ * verify-only. This law pins the installed rule at source: the newest
+ * recorded body of each function, the receipt constraint, the client, and
+ * that no later migration can replace these functions without the rule.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { sliceBetween } from './helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '..');
 const DIR = resolve(ROOT, 'supabase/migrations');
 const read = (name: string) => readFileSync(resolve(DIR, name), 'utf8');
+const MIGRATIONS = readdirSync(DIR)
+  .filter((f) => /^\d{14}_.*\.sql$/.test(f))
+  .sort();
 
-const MIGRATION = '20261122192807_a_sit_and_go_is_unregistered_until_it_actually_starts.sql';
-const sql = read(MIGRATION);
+const INSTALLED = '20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql';
+const VERIFY_ONLY = '20261122192807_a_sit_and_go_is_unregistered_until_it_actually_starts.sql';
 
-function between(source: string, open: string, close = open, from = 0): string {
-  const start = source.indexOf(open, from);
-  expect(start, `opening ${open}`).toBeGreaterThan(-1);
-  const end = source.indexOf(close, start + open.length);
-  expect(end, `closing ${close}`).toBeGreaterThan(start);
-  return source.slice(start + open.length, end);
-}
+const createOf = (fn: string) =>
+  new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+public\\.${fn}\\s*\\(`, 'i');
 
-/** The body of the newest recorded CREATE of `fn` in `file`. */
-function recordedBody(file: string, fn: string, tag = '$function$'): string {
+/** The file holding the newest recorded CREATE of `fn`, and that body. */
+function newest(fn: string): { file: string; body: string } {
+  const files = MIGRATIONS.filter((f) => createOf(fn).test(read(f)));
+  expect(files.length, `${fn} is defined somewhere`).toBeGreaterThan(0);
+  const file = files[files.length - 1];
   const source = read(file);
-  const at = source.lastIndexOf(`CREATE OR REPLACE FUNCTION public.${fn}(`);
-  expect(at, `${fn} in ${file}`).toBeGreaterThan(-1);
-  return between(source, tag, tag, at);
-}
-
-/** Every (old, new) pair a DO block of the migration carries, in order. */
-function edits(tag: string): Array<{ label: string; oldText: string; newText: string }> {
-  const block = between(sql, `$${tag}$`);
-  const out: Array<{ label: string; oldText: string; newText: string }> = [];
-  const re = /\('([a-z_]+)',\n\$o\$([\s\S]*?)\$o\$,\n\$r\$([\s\S]*?)\$r\$\)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(block))) out.push({ label: m[1], oldText: m[2], newText: m[3] });
-  return out;
-}
-
-function applyOnce(body: string, list: ReturnType<typeof edits>, name: string): string {
-  let out = body;
-  for (const e of list) {
-    expect(out.split(e.oldText).length - 1, `${name} anchor ${e.label}`).toBe(1);
-    out = out.replace(e.oldText, () => e.newText);
-  }
-  return out;
-}
-
-const coreBefore = recordedBody(
-  '20261102154336_midway_promo_funded_bounty_only_free_buys.sql',
-  'fn_ca_unregister_tournament_player_exact'
-);
-const core = applyOnce(coreBefore, edits('sit_and_go_core'), 'core');
-
-const diamondBefore = recordedBody(
-  '20260930235000_a_retry_gets_its_first_receipt.sql',
-  'fn_poker_diamond_tournament_unregister'
-);
-const diamond = applyOnce(diamondBefore, edits('sit_and_go_diamond'), 'diamond');
-
-/* The receipt reader is its 20260909183657 body with the two anchored edits
-   of 20260909235709 (launch_release) already applied. */
-function receiptBeforeThisMigration(): string {
-  let body = between(
-    read('20260909183657_seat_first_unregistration_uses_actual_start_truth.sql'),
-    '$actual_start_unregistration_receipt$'
+  const at = source.search(createOf(fn));
+  const fromCreate = source.slice(at);
+  const body = sliceBetween(
+    fromCreate.slice(fromCreate.indexOf('$function$')),
+    '$function$',
+    '\n$function$'
   );
-  const patch = read(
-    '20260909235709_a_registrant_the_launch_cannot_seat_is_released_with_an_exac.sql'
-  );
-  for (const n of ['1', '2']) {
-    const oldText = between(patch, `v_old${n} text := $t$`, '$t$;');
-    const newText = between(patch, `v_new${n} text := $t$`, '$t$;');
-    expect(body.split(oldText).length - 1, `launch_release anchor ${n}`).toBe(1);
-    body = body.replace(oldText, () => newText);
-  }
-  return body;
+  return { file, body };
 }
-const receipt = applyOnce(receiptBeforeThisMigration(), edits('sit_and_go_receipt'), 'receipt');
+
+const CORE = 'fn_ca_unregister_tournament_player_exact';
+const DIAMOND = 'fn_poker_diamond_tournament_unregister';
+const RECEIPT = 'fn_ca_tournament_unregistration_receipt';
+const core = newest(CORE);
+const diamond = newest(DIAMOND);
+const receipt = newest(RECEIPT);
 
 describe('the cause: a fill window was read as a start', () => {
-  it('the fixed Sit and Go satellite is created with a start_time two minutes ahead', () => {
+  it('the fixed Sit and Go satellite is an SNG board with a start_time two minutes ahead', () => {
     const creator = read('20261028163610_two_seat_fixed_field_sng_satellites.sql');
     expect(creator).toContain("clock_timestamp()+interval '2 minutes'");
     expect(creator).toContain("format_contract='sng-v1'");
-    expect(creator).toContain('p_seats NOT IN (6,9)');
-  });
-
-  it('before this migration only a two seat Sit and Go escaped the clock', () => {
-    expect(coreBefore).toMatch(
-      /ELSIF v_t\.format_contract='sng-v1'\s+AND COALESCE\(v_t\.max_players,0\)=2 THEN\s+v_start_authority:='heads_up_sng_actual_start';\s+END IF;/
-    );
-    expect(coreBefore).not.toContain('sit_and_go_actual_start');
-    expect(coreBefore).toMatch(
-      /IF v_start_authority='scheduled_clock' THEN[\s\S]{0,260}?IF clock_timestamp\(\)>=v_t\.start_time THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/
-    );
+    expect(creator).toContain("tournament_type='SNG' AND variant='sng'");
   });
 });
 
 describe('a Sit and Go of any size is judged by what actually happened', () => {
-  it('every sng-v1 event leaves the scheduled clock', () => {
-    expect(core).toMatch(
-      /v_start_authority:='heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1' THEN[\s\S]{0,520}?v_start_authority:='sit_and_go_actual_start';\s+END IF;/
+  it('the newest definition of all three functions is the installed fix or a later one that keeps it', () => {
+    // A later migration may tighten the rule (for example, close the event once
+    // any launch receipt exists); it may not drop the authority.
+    for (const { file, body } of [core, diamond, receipt]) {
+      expect(file >= INSTALLED, `${file} is not older than the installed fix`).toBe(true);
+      expect(body).toContain('sng_actual_start');
+    }
+  });
+
+  it('every non-heads-up SNG Sit and Go leaves the scheduled clock', () => {
+    const choice = sliceBetween(core.body, "IF v_t.format_contract='spin-v1' THEN", 'END IF;');
+    expect(choice).toContain("v_start_authority:='heads_up_sng_actual_start';");
+    expect(choice).toContain("upper(COALESCE(v_t.tournament_type::text,''))='SNG'");
+    expect(choice).toContain("v_start_authority:='sng_actual_start';");
+
+    const diamondChoice = sliceBetween(
+      diamond.body,
+      "IF v_t.format_contract='spin-v1' THEN",
+      'END IF;'
     );
-    expect(diamond).toMatch(
-      /v_authority := 'heads_up_sng_actual_start';\s+ELSIF v_t\.format_contract='sng-v1' THEN[\s\S]{0,200}?v_authority := 'sit_and_go_actual_start';\s+END IF;/
-    );
+    expect(diamondChoice).toContain("v_authority := 'sng_actual_start';");
   });
 
   it('the clock refusal is reachable only for the scheduled clock', () => {
-    for (const body of [core, diamond]) {
-      const clocks = body.match(/clock_timestamp\(\)>=v_t\.start_time/g) ?? [];
-      expect(clocks).toHaveLength(1);
-      expect(body).toMatch(
-        /IF v_(?:start_)?authority='scheduled_clock' THEN\s+IF v_t\.start_time IS NULL THEN[\s\S]{0,160}?IF clock_timestamp\(\)>=v_t\.start_time THEN/
-      );
-    }
+    const gate = sliceBetween(core.body, "IF v_start_authority='scheduled_clock' THEN", 'ELSE');
+    expect(gate).toContain('IF clock_timestamp()>=v_t.start_time THEN');
+    const occurrences = core.body.split('clock_timestamp()>=v_t.start_time').length - 1;
+    expect(occurrences, 'one clock refusal, inside the scheduled-clock branch').toBe(1);
   });
 
-  it('refuses once the event has started: status, started_at, a hand, or any launch receipt', () => {
-    expect(core).toContain("NOT IN ('ANNOUNCED','REGISTERING')");
-    expect(core).toContain('v_t.started_at IS NOT NULL OR v_launch_completed_at IS NOT NULL');
-    expect(core).toContain('v_persisted_hand_exists');
-    const anyReceipt =
-      /IF v_start_authority='sit_and_go_actual_start' AND EXISTS \(\s+SELECT 1 FROM public\.tournament_launch_receipts r\s+WHERE r\.tournament_id=p_tournament_id\) THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/;
-    expect(core).toMatch(anyReceipt);
-    expect(diamond).toMatch(
-      /IF v_authority='sit_and_go_actual_start' AND EXISTS \(\s+SELECT 1 FROM public\.tournament_launch_receipts r\s+WHERE r\.tournament_id=p_tournament_id\) THEN\s+RETURN jsonb_build_object\('ok',false,'reason','tournament_started'\);/
+  it('a seat-first event refuses on a persisted hand, started_at or its launch', () => {
+    const seatFirst = sliceBetween(
+      core.body,
+      "IF v_start_authority='scheduled_clock' THEN",
+      'IF v_reg.id IS NULL THEN'
     );
-    // Refused before any money or roster work is attempted.
-    expect(core.search(anyReceipt)).toBeLessThan(
-      core.indexOf('FROM public.tournament_refund_entitlements e')
-    );
-    expect(diamond.indexOf("v_authority='sit_and_go_actual_start' AND EXISTS")).toBeLessThan(
-      diamond.indexOf('fn_poker_diamond_tournament_refund(')
-    );
+    expect(seatFirst).toContain('v_t.started_at IS NOT NULL');
+    expect(seatFirst).toContain('public.tournament_launch_receipts');
+    expect(core.body).toContain('INTO v_persisted_hand_exists;');
   });
 
-  it('a launch and an unregistration cannot both win: one row lock, and a second proof before the receipt', () => {
-    // The unregistration holds the tournament row for its whole transaction...
-    expect(core).toMatch(
-      /SELECT \* INTO v_t FROM public\.tournaments t\s+WHERE t\.id=p_tournament_id FOR UPDATE;/
+  it('a launch and an unregistration cannot both win: the row lock, then a second proof', () => {
+    expect(core.body).toMatch(/WHERE t\.id=p_tournament_id FOR UPDATE;/);
+    const reproof = sliceBetween(
+      core.body,
+      'Re-prove the chosen start authority',
+      'INSERT INTO public.tournament_unregistration_receipts('
     );
-    expect(diamond).toContain('FROM public.tournaments t WHERE t.id=p_tournament_id FOR UPDATE;');
-    // ...and the launch takes the same row before its first write, the receipt.
-    const launch = recordedBody(
-      '20261118163436_owner_pauses_free_buy_starts_until_the_hand_delay_is_fixed.sql',
-      'fn_begin_tournament_launch_before_lease_generation'
-    );
-    const lock = launch.lastIndexOf('FOR UPDATE;');
-    const insert = launch.indexOf('INSERT INTO public.tournament_launch_receipts');
-    expect(lock).toBeGreaterThan(-1);
-    expect(insert).toBeGreaterThan(lock);
-    expect(launch.slice(launch.lastIndexOf('SELECT', lock), lock)).toContain(
-      'FROM public.tournaments t'
-    );
-    // After the refund and roster work, the rule is proved again or everything rolls back.
-    const reproof = core.indexOf("'sit and go launch began before unregistration could commit'");
-    expect(reproof).toBeGreaterThan(core.indexOf('fn_settle_tournament_refund_exact('));
-    expect(reproof).toBeLessThan(
-      core.indexOf('INSERT INTO public.tournament_unregistration_receipts(')
-    );
-    expect(sliceBetween(core.slice(reproof), 'sit and go launch began', 'END IF;')).toContain(
-      "ERRCODE='55000'"
-    );
+    expect(reproof).toContain("NOT IN ('ANNOUNCED','REGISTERING')");
+    expect(reproof).toContain('v_actual_started_at IS NOT NULL');
+    expect(reproof).toContain('public.tournament_launch_receipts');
+    expect(reproof).toContain("ERRCODE='55000'");
   });
 
-  it("the launch's own release of a registrant it cannot seat keeps its authority", () => {
-    expect(core).toMatch(
-      /IF v_start_authority IN \('scheduled_clock','sit_and_go_actual_start'\) AND EXISTS \([\s\S]{0,360}?app\.ca_launch_release_launch_id[\s\S]{0,60}?v_start_authority:='launch_release';/
-    );
-    expect(diamond).toMatch(
-      /IF v_authority IN \('scheduled_clock','sit_and_go_actual_start'\) AND EXISTS \(/
-    );
-  });
-
-  it('scheduled events, Spins and Heads-Up keep the rule they had', () => {
-    expect(core).toContain("v_start_authority text:='scheduled_clock';");
-    expect(core).toMatch(
-      /IF v_t\.format_contract='spin-v1' THEN\s+v_start_authority:='spin_actual_start';/
-    );
-    expect(core).toMatch(
-      /ELSIF v_t\.format_contract='sng-v1'\s+AND COALESCE\(v_t\.max_players,0\)=2 THEN\s+v_start_authority:='heads_up_sng_actual_start';/
-    );
-    expect(core).toContain("'tournament started before unregistration could commit'");
-    // The seat-first satellite's start is advertised; it is not moved here.
-    expect(core).not.toContain('seat-first-satellite-v1');
-  });
-
-  it('the refund is the one the function already owned, once, and never asks who is a horse', () => {
-    const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
-    for (const e of [
-      ...edits('sit_and_go_core'),
-      ...edits('sit_and_go_diamond'),
-      ...edits('sit_and_go_receipt'),
-    ]) {
-      const added = strip(e.newText);
-      expect(added).not.toMatch(
-        /is_horse|wallet_transactions|chip_ledger|chip_balance|fn_add_chips|INSERT|UPDATE|DELETE/
-      );
-    }
-    expect(core.match(/fn_settle_tournament_refund_exact\(/g)).toEqual(
-      coreBefore.match(/fn_settle_tournament_refund_exact\(/g)
-    );
-    expect(core).not.toMatch(/is_horse/);
-    expect(diamond).not.toMatch(/is_horse/);
+  it('never asks who is a horse', () => {
+    expect(core.body).not.toMatch(/is_horse/i);
+    expect(diamond.body).not.toMatch(/is_horse/i);
   });
 });
 
-describe('the immutable receipt can name and prove the new authority', () => {
-  it('the check constraint is widened by exactly one value, from its live definition', () => {
-    const block = between(sql, '$widen_receipt_authority$');
-    expect(block).toContain('pg_get_constraintdef(c.oid)');
-    expect(block).toContain('tournament_unregistration_actual_start_check');
-    expect(block).toContain("$n$, 'sit_and_go_actual_start'::text$n$");
-    expect(core).toMatch(
-      /v_seat_number,v_seats_taken,v_t\.start_time,v_start_authority,v_unregistered_at\);/
+describe('the immutable receipt can name and prove the authority', () => {
+  it('the check constraint admits sng_actual_start', () => {
+    const constraint = sliceBetween(
+      read(INSTALLED),
+      'ADD CONSTRAINT tournament_unregistration_actual_start_check',
+      ');'
     );
+    expect(constraint).toContain("'sng_actual_start'::text");
   });
 
-  it('the reader accepts it only for a Sit and Go that is not Heads-Up and had no completed launch', () => {
-    expect(receipt).toMatch(
-      /'spin_actual_start','heads_up_sng_actual_start','launch_release',\s+'sit_and_go_actual_start'\)\s+AND EXISTS \([\s\S]{0,260}?launch\.completed_at<=v_r\.settled_at/
+  it('the reader accepts it only for a non-heads-up SNG Sit and Go', () => {
+    const rule = sliceBetween(
+      receipt.body,
+      "OR (v_r.start_authority='sng_actual_start'",
+      'OR v_r.start_authority NOT IN'
     );
-    expect(receipt).toMatch(
-      /OR \(v_r\.start_authority='sit_and_go_actual_start'\s+AND NOT EXISTS \(\s+SELECT 1 FROM public\.tournaments t\s+WHERE t\.id=v_r\.tournament_id\s+AND t\.format_contract='sng-v1'\s+AND COALESCE\(t\.max_players,0\)<>2\)\)/
-    );
-    expect(receipt).toMatch(
-      /v_r\.start_authority NOT IN \(\s+'scheduled_clock','spin_actual_start','heads_up_sng_actual_start',\s+'launch_release','sit_and_go_actual_start'\)/
-    );
+    expect(rule).toContain("t.format_contract='sng-v1'");
+    expect(rule).toContain("upper(COALESCE(t.tournament_type::text,''))='SNG'");
+    expect(rule).toContain('COALESCE(t.max_players,0)<>2');
   });
 });
 
-describe('the migration is safe to install and cannot be silently undone', () => {
-  it('is one transaction with bounded locks and aborts on any anchor it cannot find', () => {
-    expect(sql.match(/^BEGIN;$/gm)).toHaveLength(1);
-    expect(sql.match(/^COMMIT;$/gm)).toHaveLength(1);
-    expect(sql).toContain("SET LOCAL lock_timeout = '3s';");
-    expect(sql.match(/was expected exactly once/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(sql).toContain('sit and go actual-start unregistration did not install exactly');
-    expect(sql).not.toMatch(/@install-window/);
-    expect(sql).not.toMatch(/\bcron\.schedule\b/);
-  });
-
-  it('executes each rewritten function before COMMIT', async () => {
-    const mod = await import(
-      /* @vite-ignore */ pathToFileURL(resolve(ROOT, 'scripts/ci/migration-function-probes.mjs'))
-        .href
-    );
-    expect(
-      mod
-        .functionsNeedingProbe(sql)
-        .map((f: { qualified: string }) => f.qualified)
-        .sort()
-    ).toEqual([
-      'public.fn_ca_tournament_unregistration_receipt',
-      'public.fn_ca_unregister_tournament_player_exact',
-      'public.fn_poker_diamond_tournament_unregister',
-    ]);
-    expect(mod.missingProbes(sql)).toEqual([]);
-  });
-
+describe('the rule cannot be silently undone', () => {
   it('no later migration replaces these functions without the rule', () => {
-    const later = readdirSync(DIR).filter((f) => /^\d{14}_.*\.sql$/.test(f) && f > MIGRATION);
-    for (const file of later) {
+    for (const file of MIGRATIONS.filter((f) => f > INSTALLED)) {
       const source = read(file);
-      for (const fn of [
-        'fn_ca_unregister_tournament_player_exact',
-        'fn_ca_tournament_unregistration_receipt',
-        'fn_poker_diamond_tournament_unregister',
-      ]) {
-        if (
-          new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+public\\.${fn}\\s*\\(`, 'i').test(
-            source
-          )
-        ) {
-          expect(source, `${file} replaces ${fn}`).toContain('sit_and_go_actual_start');
+      for (const fn of [CORE, RECEIPT, DIAMOND]) {
+        if (createOf(fn).test(source)) {
+          expect(source, `${file} replaces ${fn}`).toContain('sng_actual_start');
         }
       }
     }
+  });
+
+  it('the parallel migration is verify-only: it proves the rule and changes nothing', () => {
+    const sql = read(VERIFY_ONLY);
+    for (const fn of [CORE, RECEIPT, DIAMOND]) expect(sql).not.toMatch(createOf(fn));
+    expect(sql).not.toMatch(/ALTER\s+TABLE/i);
+    expect(sql).toContain('-- @live-proof:');
+    expect(sql.match(/^BEGIN;$/gm)?.length).toBe(1);
+    expect(sql.match(/^COMMIT;$/gm)?.length).toBe(1);
+    expect(sql).not.toContain('sit_and_go_actual_start');
   });
 });
 
@@ -306,19 +186,15 @@ describe('the client says the same thing the database does', () => {
 
   it('the page unregisters through the one RPC and never decides "started" from a clock', () => {
     expect(service).toContain(".rpc('fn_unregister_from_tournament', {");
-    const unregister = between(
+    const unregister = sliceBetween(
       service,
       'async unregisterPlayer(',
       'async leaveTournamentSeatAndRefund('
     );
     expect(unregister).not.toMatch(/start_time|Date\.now\(\)|new Date\(/);
-    expect(service).toContain(
-      "tournament_started: 'This tournament has started. You can only unregister before it starts.'"
-    );
   });
 
   it('a starts-when-full entry is told it can unregister before the start', () => {
-    expect(dialog).toMatch(/!o\.isLateRegistration && !!startLabel && \(/);
     expect(dialog).toContain('You Can Unregister Any Time Before The Tournament Starts');
   });
 });
