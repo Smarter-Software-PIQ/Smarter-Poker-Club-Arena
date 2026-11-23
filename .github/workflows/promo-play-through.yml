@@ -118,6 +118,7 @@ jobs:
             .github/workflows/promo-play-through.yml
             scripts/ci/test-promo-obligation-earning-matrix.py
             scripts/ci/test-promo-mystery-bounty-pool-residual.py
+            scripts/ci/test-promo-sweep-idle-and-lateral-clock.py
             tests/fixtures/promo-obligation-earning-matrix/**
             scripts/ci/test-hot-path-no-history-scans.py
             tests/hot-path-never-scans-promo-history.law.test.ts
@@ -287,6 +288,14 @@ jobs:
           TMPDIR: ${{ runner.temp }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-hot-path-no-history-scans.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/hot-path-no-history-scans
+      - name: Promo fee sweep skips idle accounts and short-circuits hand_atomic_commits (6efe4260)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -o pipefail
+          python3 -B scripts/ci/test-promo-sweep-idle-and-lateral-clock.py --pg-bin /usr/lib/postgresql/17/bin | tee "$RUNNER_TEMP/promo-sweep-idle-lateral.log"
+          tail -n 1 "$RUNNER_TEMP/promo-sweep-idle-lateral.log" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and v.get("checks",0)>=14 else "the sweep/lateral proof printed no passed verdict")'
       - name: Retain the regression evidence
         if: always() && steps.relevant.outputs.run == 'true'
         uses: actions/upload-artifact@v4
