@@ -19,12 +19,23 @@ import type { HorseDecision, SeatPlayer } from '../../types.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { cardToInt } from './OmahaMathCoreEval.js';
 import { rakeNet, type CoreState } from './OmahaMathCore.js';
+import { saveFastRandom } from '../HorseEval.js';
+import { HorseMind } from '../HorseMind.js';
+import {
+  disarmBrainTelemetryForTest,
+  drainFires,
+  enableBrainTelemetry,
+  peekDecisionLatency,
+} from '../BrainTelemetry.js';
+import { ServerTableEngineTurns } from '../ServerTableEngineTurns.js';
+import { omahaMathCoreOwns } from './OmahaMathCoreAcceptance.js';
 import { omahaMathCoreRule } from './OmahaMathCoreRule.js';
 import { warmOmahaMathCore } from './OmahaMathCoreWarmUp.js';
 import {
   OMAHA_MATH_CORE_TR_FW_EDGES,
   cumulativeTailBets,
   lifetimeRiverShare,
+  omahaMathCoreTurnRiverProvider,
   priceTurnRiverLifetimeCall,
   setOmahaMathCoreTurnRiverProvider,
   turnRiverTailFrequency,
@@ -956,5 +967,324 @@ describe('LAW: B3 Math Core Turn/River opponent-lifetime pricing (OmahaMathCoreT
     // Worker-start warm-up warms priceTurnRiverLifetimeCall cleanly across PLO4/PLO5 turn+river
     const w = warmOmahaMathCore();
     expect(w.ok).toBe(true);
+  });
+
+  it('18. audit P0-1: without an installed HUD packet, PLO5/PLO4 turn & river NEVER fall through to population decideOmahaMathCore and still rescue exact current nuts', () => {
+    clearDecisionHud();
+    const U_OPP = '00000000-0000-4000-8000-000000000002';
+    const U_HERO = '00000000-0000-4000-8000-000000000001';
+    const legalize = (d: HorseDecision): HorseDecision => d;
+
+    for (const variant of ['plo5', 'plo4'] as const) {
+      const holeStr = variant === 'plo5' ? 'Kh9c8d5c3h' : 'Kh9c8d5c';
+      const nutsStr = variant === 'plo5' ? 'KhKcQdJcTh' : 'KhKcQdJc';
+      for (const stage of ['turn', 'river'] as const) {
+        const boardStr = stage === 'turn' ? 'Ks9d7c4h' : 'Ks9d7c4h2s';
+        const streetOpt =
+          variant === 'plo5'
+            ? stage === 'turn'
+              ? { omahaMathCorePlo5Turn: true }
+              : { omahaMathCorePlo5River: true }
+            : stage === 'turn'
+              ? { omahaMathCorePlo4Turn: true }
+              : { omahaMathCorePlo4River: true };
+        const mkGs = (hStr: string) => {
+          const hero = {
+            seat: 1,
+            user_id: U_HERO,
+            cards: cardObjs(hStr),
+            stack: 500,
+            bet: 0,
+            is_folded: false,
+            is_all_in: false,
+            is_sitting_out: false,
+          } as unknown as SeatPlayer;
+          const gs = {
+            gameVariant: variant,
+            stage,
+            pot: 200,
+            currentBet: 100,
+            bigBlind: 2,
+            smallBlind: 1,
+            buttonSeat: 2,
+            communityCards: cardObjs(boardStr),
+            players: [
+              hero,
+              {
+                seat: 2,
+                user_id: U_OPP,
+                stack: 400,
+                bet: 100,
+                is_folded: false,
+                is_all_in: false,
+                is_sitting_out: false,
+              },
+            ],
+            actionHistory: [
+              { seat: 2, stage: 'preflop', action: 'raise', amount: 6 },
+              { seat: 1, stage: 'preflop', action: 'call', amount: 6 },
+              { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+              { seat: 2, stage: 'flop', action: 'check', amount: 0 },
+              { seat: 1, stage, action: 'check', amount: 0 },
+              { seat: 2, stage, action: 'bet', amount: 100 },
+            ],
+            rakePercent: 5,
+            rakeCap: 6,
+            noFlopNoDrop: true,
+            handNumber: 777101,
+          } as unknown as HorseGameStateV2;
+          return { hero, gs };
+        };
+
+        // Non-nuts fold with NO HUD packet: stays on b3-turn-river-hud fast-path, 0 samples, owned: false
+        const { hero, gs } = mkGs(holeStr);
+        const kept = omahaMathCoreRule(
+          { action: 'fold', thinkTime: 1000 },
+          hero,
+          gs,
+          { omahaMathCore: true, ...streetOpt },
+          legalize
+        );
+        expect(kept.action, `${variant} ${stage} no-hud`).toBe('fold');
+        expect(kept.omahaMathCore?.core?.tables, `${variant} ${stage}`).toBe('b3-turn-river-hud');
+        expect(kept.omahaMathCore?.core?.samples, `${variant} ${stage}`).toBe(0);
+        expect(kept.omahaMathCore?.owned, `${variant} ${stage}`).toBe(false);
+        expect(omahaMathCoreOwns(kept), `${variant} ${stage}`).toBe(false);
+
+        // Exact current nuts with NO HUD packet: STILL rescued by CURRENT_NUTS_CALL_FLOOR & core-owned!
+        const { hero: nh, gs: ngs } = mkGs(nutsStr);
+        const rescued = omahaMathCoreRule(
+          { action: 'fold', thinkTime: 1000 },
+          nh,
+          ngs,
+          { omahaMathCore: true, ...streetOpt },
+          legalize
+        );
+        expect(rescued.action, `${variant} ${stage} nuts`).toBe('call');
+        expect(rescued.omahaMathCore?.core?.tables, `${variant} ${stage} nuts`).toBe(
+          'b3-turn-river-hud'
+        );
+        expect(rescued.omahaMathCore?.owned, `${variant} ${stage} nuts`).toBeUndefined();
+        expect(omahaMathCoreOwns(rescued), `${variant} ${stage} nuts`).toBe(true);
+      }
+    }
+  });
+
+  it('19. audit P0-2: unpriced kept B3 turn/river decisions set owned: false (preserving V44 Second Look); actual B3 fold->call flips stay core-owned', () => {
+    const U_STAB = '00000000-0000-4000-8000-000000000002';
+    const U_HERO = '00000000-0000-4000-8000-000000000001';
+    const pStab = emptyHudProfile(U_STAB, 'plo5');
+    pStab.hands = 500;
+    pStab.life['r.stab.hu'] = [220, 172];
+    pStab.xc = { 'r.fw.stab.hu.b11': 172, 'r.brl.hu.opps': 120, 'r.brl.hu.bets': 96 };
+    installDecisionHud(
+      buildHudPacket('plo5', [pStab], { 'r.stab.hu': [0.28, 33] }, 1_800_000_000_000, 'river')
+    );
+
+    const hero = {
+      seat: 1,
+      user_id: U_HERO,
+      cards: cardObjs('Kh9c8d5c3h'),
+      stack: 500,
+      bet: 0,
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    } as unknown as SeatPlayer;
+    const gs = {
+      gameVariant: 'plo5',
+      stage: 'river',
+      pot: 200,
+      currentBet: 100,
+      bigBlind: 2,
+      smallBlind: 1,
+      buttonSeat: 2,
+      communityCards: cardObjs('Ks9d7c4h2s'),
+      players: [
+        hero,
+        {
+          seat: 2,
+          user_id: U_STAB,
+          stack: 400,
+          bet: 100,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+      ],
+      actionHistory: [
+        { seat: 2, stage: 'preflop', action: 'raise', amount: 6 },
+        { seat: 1, stage: 'preflop', action: 'call', amount: 6 },
+        { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 2, stage: 'flop', action: 'bet', amount: 10 },
+        { seat: 1, stage: 'flop', action: 'call', amount: 10 },
+        { seat: 1, stage: 'turn', action: 'check', amount: 0 },
+        { seat: 2, stage: 'turn', action: 'bet', amount: 34 },
+        { seat: 1, stage: 'turn', action: 'call', amount: 34 },
+        { seat: 1, stage: 'river', action: 'check', amount: 0 },
+        { seat: 2, stage: 'river', action: 'bet', amount: 100 },
+      ],
+      rakePercent: 5,
+      rakeCap: 6,
+      noFlopNoDrop: true,
+      handNumber: 777102,
+    } as unknown as HorseGameStateV2;
+    const legalize = (d: HorseDecision): HorseDecision => d;
+
+    // Unpriced kept baseline call: owned: false -> Second Look NOT blocked by 'math_core_owned'
+    const keptCall = omahaMathCoreRule(
+      { action: 'call', amount: 100, thinkTime: 1000 },
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo5River: true },
+      legalize
+    );
+    expect(keptCall.action).toBe('call');
+    expect(keptCall.omahaMathCore?.owned).toBe(false);
+    expect(omahaMathCoreOwns(keptCall)).toBe(false);
+    const keptPlan = ServerTableEngineTurns.secondLookPlan(keptCall, 100, 200, 2, 3000, 10000);
+    expect(keptPlan.ok || keptPlan.reason !== 'math_core_owned').toBe(true);
+
+    // Actual B3 fold -> call flip: owned omitted -> core-owned -> Second Look blocked as 'math_core_owned'
+    const flippedCall = omahaMathCoreRule(
+      { action: 'fold', thinkTime: 1000 },
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo5River: true },
+      legalize
+    );
+    expect(flippedCall.action).toBe('call');
+    expect(flippedCall.omahaMathCore?.owned).toBeUndefined();
+    expect(omahaMathCoreOwns(flippedCall)).toBe(true);
+    expect(ServerTableEngineTurns.secondLookPlan(flippedCall, 100, 200, 2, 3000, 10000)).toEqual({
+      ok: false,
+      reason: 'math_core_owned',
+    });
+  });
+
+  it('20. audit P1-5: standalone omahaMathCoreRecover (incumbent="none") on PLO5 river is NOT narrowed by omahaMathCorePlo5RiverFoldToCall', () => {
+    clearDecisionHud();
+    // Hero holds top set KK (nuts) on Ks 9d 7c 4h 2s, checked to on river -> standalone recovery can value-bet!
+    const U_OPP = '00000000-0000-4000-8000-000000000002';
+    const U_HERO = '00000000-0000-4000-8000-000000000001';
+    const hero = {
+      seat: 1,
+      user_id: U_HERO,
+      cards: cardObjs('KhKcQdJcTh'),
+      stack: 500,
+      bet: 0,
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    } as unknown as SeatPlayer;
+    const gs = {
+      gameVariant: 'plo5',
+      stage: 'river',
+      pot: 100,
+      currentBet: 0,
+      bigBlind: 2,
+      smallBlind: 1,
+      buttonSeat: 1,
+      communityCards: cardObjs('Ks9d7c4h2s'),
+      players: [
+        hero,
+        {
+          seat: 2,
+          user_id: U_OPP,
+          stack: 500,
+          bet: 0,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+        },
+      ],
+      actionHistory: [
+        { seat: 1, stage: 'preflop', action: 'raise', amount: 6 },
+        { seat: 2, stage: 'preflop', action: 'call', amount: 6 },
+        { seat: 2, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 1, stage: 'flop', action: 'check', amount: 0 },
+        { seat: 2, stage: 'turn', action: 'check', amount: 0 },
+        { seat: 1, stage: 'turn', action: 'check', amount: 0 },
+        { seat: 2, stage: 'river', action: 'check', amount: 0 },
+      ],
+      rakePercent: 5,
+      rakeCap: 6,
+      noFlopNoDrop: true,
+      handNumber: 777103,
+    } as unknown as HorseGameStateV2;
+    const legalize = (d: HorseDecision): HorseDecision => d;
+    const rec = omahaMathCoreRule(
+      { action: 'check', thinkTime: 0 },
+      hero,
+      gs,
+      { omahaMathCore: true, omahaMathCorePlo5River: true },
+      legalize,
+      undefined,
+      'none'
+    );
+    expect(rec.action).toBe('bet');
+    expect(rec.omahaMathCore?.applied).toBe(true);
+    expect(rec.omahaMathCore?.core?.tables).not.toBe('b3-turn-river-hud');
+  });
+
+  it('21. audit P1-1: warmOmahaMathCore warms HorseLogic.decide + plo4Policy + B2 cbetRaiseShare cleanly without throws, provider leaks, HorseMind wipe/pollution, or fastRandom mutation', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prevProv = omahaMathCoreTurnRiverProvider();
+    HorseMind.reset();
+    HorseMind.observe(
+      [
+        {
+          seat: 1,
+          userId: 'preseeded-opp',
+          action: 'raise',
+          amount: 6,
+          stage: 'preflop',
+          timestamp: 1,
+        },
+        {
+          seat: 2,
+          userId: 'preseeded-hero',
+          action: 'call',
+          amount: 6,
+          stage: 'preflop',
+          timestamp: 2,
+        },
+      ],
+      [
+        { user_id: 'preseeded-opp', seat: 1, stack: 200, bet: 6 },
+        { user_id: 'preseeded-hero', seat: 2, stack: 200, bet: 6 },
+      ] as unknown as SeatPlayer[],
+      undefined,
+      undefined,
+      2
+    );
+    expect(HorseMind.getStats('preseeded-opp')?.hands).toBe(1);
+    // Review 2026-11-22: the worker arms telemetry before the warm-up runs, so the synthetic decisions must
+    // count nothing (HorseMind's presumed-aggressor receipt is not gated by opts.telemetry).
+    enableBrainTelemetry();
+    drainFires();
+    const latencyBefore = JSON.stringify(peekDecisionLatency());
+    const before = saveFastRandom();
+    let w: ReturnType<typeof warmOmahaMathCore>;
+    let firesAfterWarm: ReturnType<typeof drainFires>;
+    let latencyAfter: string;
+    try {
+      w = warmOmahaMathCore(() => 0);
+      firesAfterWarm = drainFires();
+      latencyAfter = JSON.stringify(peekDecisionLatency());
+    } finally {
+      disarmBrainTelemetryForTest();
+    }
+    const after = saveFastRandom();
+    expect(firesAfterWarm).toEqual([]);
+    expect(latencyAfter).toBe(latencyBefore);
+    expect(w.ok).toBe(true);
+    expect(errSpy).not.toHaveBeenCalled();
+    expect(omahaMathCoreTurnRiverProvider()).toBe(prevProv);
+    expect(after).toBe(before);
+    expect(HorseMind.getStats('preseeded-opp')?.hands).toBe(1);
+    expect(HorseMind.getStats('warm-seat-1')).toBeUndefined();
+    expect(HorseMind.getStats('warm-seat-2')).toBeUndefined();
+    HorseMind.reset();
   });
 });

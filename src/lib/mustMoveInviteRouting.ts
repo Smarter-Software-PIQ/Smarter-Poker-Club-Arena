@@ -39,6 +39,46 @@ export function parseTableInviteParams(
   return { inviteCode, clusterId, inviteToken, returnPath };
 }
 
+export interface TournamentInviteParams {
+  inviteCode: string | null;
+  /** A seat-hold token, when a tournament link carries one (`?invite=`). */
+  inviteToken: string | null;
+  returnPath: string | null;
+}
+
+/**
+ * Parse `?i=<CODE>` and `?invite=<TOKEN>` from a tournament URL
+ * (/tournaments/:id, reached from smarter.poker/t/<id>), and build the
+ * return path the club-join detour comes back to (2026-11-22).
+ *
+ * The same reading as parseTableInviteParams, for the same reason: a signed-in
+ * friend who is not yet in the club cannot read the tournament at all, so the
+ * link's club code is the only way the page can offer the join, and the join
+ * has to bring them back to the tournament.
+ *
+ * The return path drops `i` on purpose. A member who comes back from the join
+ * page and still cannot open the tournament (it closed, or the code was for a
+ * club outside its union) sees "Tournament Not Found", not the join step a
+ * second time, so the detour can never become a loop. `invite` rides through,
+ * exactly as it does for a table.
+ */
+export function parseTournamentInviteParams(
+  tournamentId: string | undefined,
+  search: string
+): TournamentInviteParams {
+  const params = new URLSearchParams(search);
+  const inviteCode = normalizeInviteCode(params.get('i'));
+  const inviteToken = normalizeInviteToken(params.get('invite'));
+  let returnPath: string | null = null;
+  if (tournamentId) {
+    const back = new URLSearchParams();
+    if (inviteToken) back.set('invite', inviteToken);
+    const qs = back.toString();
+    returnPath = `/tournaments/${encodeURIComponent(tournamentId)}${qs ? `?${qs}` : ''}`;
+  }
+  return { inviteCode, inviteToken, returnPath };
+}
+
 export interface MustMoveRoutingEligibilityInput {
   tableId: string | undefined;
   clusterId: string | null;

@@ -1,0 +1,5 @@
+{
+  "_owner": "claude/tournament-links-carry-the-club. Migration 20261123013356_a_game_invite_is_sent_by_the_server_to_a_clubmate_or_friend (not yet installed when written): public.fn_send_game_invite, the one door for an in-app game invite (src/services/TableInviteService.ts), and its send log smarter_private.ca_game_invite_sends.",
+  "tables": ["smarter_private.ca_game_invite_sends"],
+  "functions": ["fn_send_game_invite"]
+}

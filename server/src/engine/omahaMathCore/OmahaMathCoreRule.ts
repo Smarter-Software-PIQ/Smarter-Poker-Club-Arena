@@ -655,11 +655,13 @@ export function omahaMathCoreRule(
       gs,
       opts.omahaMathCoreNetsTheWholeDeduction === true
     );
-    // B3 fast-path (lane core-repair, 2026-11-22): on PLO4/PLO5 cash turn/river when a live
-    // opponent-lifetime HUD packet is installed (Stage 1), ONLY fold -> plain call proven by
-    // priceTurnRiverLifetimeCall (plus CURRENT_NUTS_CALL_FLOOR) is permitted. Skip the wasted
-    // decideOmahaMathCore() Monte Carlo/value-search pass whose choice would be discarded,
-    // saving 10-57 ms per decision with bit-identical action outputs.
+    // B3 fast-path (lane core-repair, 2026-11-22; audit P0-1 & P0-2): on PLO4/PLO5 cash turn/river
+    // against a live incumbent ('today'), NEVER fall through to the failed, uncertified population
+    // turn/river decideOmahaMathCore() pass — even when no opponent-lifetime HUD packet is installed.
+    // ONLY fold -> plain call proven by priceTurnRiverLifetimeCall (when trProv.active(trVariant))
+    // plus CURRENT_NUTS_CALL_FLOOR is permitted. Any unpriced kept decision sets owned: false so
+    // downstream safety doors (commit-door, V44 Second Look, Lightning fold-through, Phase 8-14
+    // withdrawals) retain full authority.
     const trStage = String(gs.stage);
     const trVariantRaw = String(gs.gameVariant).toLowerCase();
     const trVariant: 'plo4' | 'plo5' | null =
@@ -668,8 +670,7 @@ export function omahaMathCoreRule(
     if (
       incumbent === 'today' &&
       trVariant !== null &&
-      (trStage === 'turn' || trStage === 'river') &&
-      trProv?.active?.(trVariant) === true
+      (trStage === 'turn' || trStage === 'river')
     ) {
       const trT0 = now();
       const keepInc: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
@@ -680,6 +681,7 @@ export function omahaMathCoreRule(
       let trSamples = 0;
       let trEv: number | null = incoming.action === 'fold' ? 0 : null;
       if (
+        trProv?.active?.(trVariant) === true &&
         incoming.action === 'fold' &&
         coreState.aggressorSeat !== null &&
         coreState.line !== null &&
@@ -789,6 +791,8 @@ export function omahaMathCoreRule(
         samples: trSamples,
         ms: Math.round((now() - trT0) * 10) / 10,
       };
+      const trKeptUnpriced =
+        trLegal.action === incoming.action && trLegal.amount === (incoming.amount ?? undefined);
       const trOut: HorseDecision = {
         ...decision,
         action: trLegal.action,
@@ -801,6 +805,9 @@ export function omahaMathCoreRule(
           incoming,
           error: null,
           core: trReceipt,
+          // Audit P0-2: unpriced kept turn/river decisions belong to the baseline rules, not the core,
+          // so omahaMathCoreOwns() returns false and downstream safety doors keep full authority.
+          ...(trKeptUnpriced ? { owned: false as const } : {}),
         },
       };
       if (trLegal.amount === undefined) delete trOut.amount;
@@ -925,38 +932,10 @@ export function omahaMathCoreRule(
         }
       }
     }
-    // RIVER-CORE criterion 3: on the PLO5 cash river (when not governed by a lifetime HUD record above,
-    // which already returned on the B3 fast-path before decideOmahaMathCore) the core may only turn
-    // today's fold into a plain call.
-    if (trVariant === 'plo5' && trStage === 'river') {
-      const keep: HorseDecision = { action: incoming.action, thinkTime: decision.thinkTime };
-      if (incoming.amount !== null && incoming.action !== 'fold' && incoming.action !== 'check')
-        keep.amount = incoming.amount;
-      const pick = omahaMathCorePlo5RiverFoldToCall(
-        incoming.action,
-        receipt.evs,
-        player.stack ?? 0,
-        OMAHA_MATH_CORE_CHANGE_MARGIN_K ?? 5
-      );
-      let narrowed: HorseDecision = keep;
-      if (pick) {
-        const proposed: HorseDecision = { action: 'call', thinkTime: decision.thinkTime };
-        if (pick.amount !== null) proposed.amount = pick.amount;
-        try {
-          const l = legalize(proposed);
-          if (l.action === 'call') narrowed = l;
-        } catch {
-          narrowed = keep;
-        }
-      }
-      const chosen = receipt.evs.find((e) => e.action === narrowed.action);
-      receipt.choice = {
-        action: narrowed.action as CoreReceipt['choice']['action'],
-        amount: narrowed.amount ?? null,
-        ev: chosen ? Math.round(chosen.ev * 100) / 100 : null,
-      };
-      legal = narrowed;
-    }
+    // RIVER-CORE criterion 3 (the PLO5 cash river against a live incumbent may only turn today's fold into a
+    // plain call) is enforced by the B3 turn/river fast path above, which returns before this point for every
+    // PLO4/PLO5 turn/river decision with incumbent === 'today' (audit P0-1). Only standalone recovery
+    // (incumbent === 'none') reaches here on those streets, and it is not narrowed (audit P1-5).
     // Current-nuts call floor, last word (lane CORE-POOLED-2 phase 2): whatever path reached a fold - the
     // change margin keeping today's fold, the PLO5 river fold -> call narrowing keeping it (an all-in call or
     // a fold that is no longer a priced candidate) - the exact current nuts facing a wager is called when a

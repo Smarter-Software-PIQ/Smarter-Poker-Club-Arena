@@ -51,6 +51,8 @@ describe('core error fallback with omahaNoCategoricalRules on', () => {
     };
     const bad: string[] = [];
     let fellBack = 0;
+    let flopInScope = 0;
+    let trFastPath = 0;
     let inScope = 0;
     for (const r of RECORDS) {
       HorseMind.reset();
@@ -64,12 +66,19 @@ describe('core error fallback with omahaNoCategoricalRules on', () => {
         ...opts,
       } as never);
       // A malformed fixture state (a negative stack, e.g. hand 59852287 seat 5) is outside the core's scope.
-      if ((st.hero as unknown as { stack: number }).stack >= 0 || d.omahaMathCore) inScope++;
+      if ((st.hero as unknown as { stack: number }).stack >= 0 || d.omahaMathCore) {
+        inScope++;
+        if (r.street === 'flop') flopInScope++;
+      }
       if (d.omahaMathCore?.applied === false && d.omahaMathCore.error) fellBack++;
+      if (d.omahaMathCore?.core?.tables === 'b3-turn-river-hud') trFastPath++;
       for (const f of drainFires().map((x) => x.feature)) if (hit(f)) bad.push(`hand ${r.n}: ${f}`);
     }
     expect(inScope).toBeGreaterThanOrEqual(RECORDS.length - 1);
-    expect(fellBack).toBe(inScope);
+    // Flop hits mocked decideOmahaMathCore and falls back cleanly; turn/river stays on B3 fast-path
+    // (audit P0-1: zero fallback to population decideOmahaMathCore), and 0 categorical receipts fire.
+    expect(fellBack).toBe(flopInScope);
+    expect(trFastPath).toBe(inScope - flopInScope);
     expect(bad).toEqual([]);
   }, 600000);
 });

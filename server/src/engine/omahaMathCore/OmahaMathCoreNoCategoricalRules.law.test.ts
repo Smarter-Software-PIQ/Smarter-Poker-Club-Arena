@@ -70,12 +70,19 @@ describe('omahaMathCore + omahaNoCategoricalRules: the executed action is the co
         }
         // The core selects by EV minus its sampling error and keeps today's action unless its best beats it by
         // the prove-it-to-change-it margin (COREWIRE 55cbe6b226a / 8d170f49411; the core's own argmax laws
-        // cover that). Here: the choice is one of the core's priced actions, at its priced EV.
-        const priced = core.core.evs.some(
-          (e) =>
-            e.action === core.core!.choice.action &&
-            Math.abs(e.ev - (core.core!.choice.ev ?? Number.NaN)) <= 0.01
-        );
+        // cover that). On turn/river (audit P0-1/P0-2), B3 Stage 1 never falls through to uncertified
+        // population decideOmahaMathCore without a HUD packet — it keeps incoming unpriced (owned: false,
+        // tables: 'b3-turn-river-hud') or rescues exact current nuts via nutFloor.
+        const b3FastPathKeptOrNuts =
+          core.core.tables === 'b3-turn-river-hud' &&
+          (core.owned === false || core.core.nutFloor != null);
+        const priced =
+          b3FastPathKeptOrNuts ||
+          core.core.evs.some(
+            (e) =>
+              e.action === core.core!.choice.action &&
+              Math.abs(e.ev - (core.core!.choice.ev ?? Number.NaN)) <= 0.01
+          );
         if (!priced) misses.push(`hand ${r.n}: choice is not one of the core's priced actions`);
         if (d.action !== core.action || (d.amount ?? null) !== (core.amount ?? null))
           misses.push(

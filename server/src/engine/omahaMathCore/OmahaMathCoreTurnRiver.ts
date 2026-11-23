@@ -14,9 +14,18 @@
  *   - current nuts invariant: never folds the current nuts facing a wager
  */
 import { type CoreState } from './OmahaMathCore.js';
-import { omahaBest, resetOmahaBestMemo } from './OmahaMathCoreEval.js';
+import {
+  buildPoolFastData,
+  createBoardTable,
+  loadBoardTable,
+  scoreHandWithBoard,
+  scorePoolHoldingWithBoard,
+} from './OmahaMathCoreEval.js';
 import { seededRng } from './OmahaMathCoreEquity.js';
 import { holdsCurrentNuts } from './OmahaMathCoreNutsFloor.js';
+
+/** Reusable L1-resident board lookup table (strictly synchronous leaf scratch; zero async/callback re-entrancy). */
+const TR_BOARD_TBL = createBoardTable();
 
 export const OMAHA_MATH_CORE_TURN_RIVER_VERSION = 'core-turn-river-hud-v1';
 
@@ -412,7 +421,6 @@ export function priceTurnRiverLifetimeCall(input: {
   }
 
   // Deterministic pool of opposing holdings (card removal against hero & board)
-  resetOmahaBestMemo();
   const used = new Uint8Array(52);
   for (const c of state.hole) used[c] = 1;
   for (const c of state.board) used[c] = 1;
@@ -432,51 +440,56 @@ export function priceTurnRiverLifetimeCall(input: {
       hold[j * holeLen + i] = deck[i];
     }
   }
-  const h = new Array<number>(holeLen);
+  const fast = buildPoolFastData(hold, N, holeLen);
   const mOf = (fr: number) => Math.max(0, Math.min(N, fr * N));
 
   let shareAt: (fr: number) => number;
   let riverBudget: number | null = null;
   if (street === 'river') {
-    const heroScore = omahaBest(state.hole, holeLen, state.board, 5);
+    loadBoardTable(TR_BOARD_TBL, state.board, 5);
+    const heroScore = scoreHandWithBoard(state.hole, holeLen, TR_BOARD_TBL);
     let beats = 0;
     let ties = 0;
     for (let j = 0; j < N; j++) {
-      for (let i = 0; i < holeLen; i++) h[i] = hold[j * holeLen + i];
-      const s = omahaBest(h, holeLen, state.board, 5);
+      const s = scorePoolHoldingWithBoard(fast, hold, j, TR_BOARD_TBL);
       if (s > heroScore) beats++;
       else if (s === heroScore) ties++;
     }
     shareAt = (fr) => polarizedRiverEquity(fr, freq.pBase, N, beats, ties);
   } else {
     const R = U;
-    const heroR = new Float64Array(R);
     const b5 = [...state.board, 0];
+    const maskLo = fast.maskLo;
+    const maskHi = fast.maskHi;
+    // River-major layout (out[r * N + j]): loadBoardTable runs once per river card (R=43..44)
+    // instead of N*R=25,800 omahaBest + BEST_MEMO inserts, with sequential writes & L1-resident reads.
+    const out = new Int8Array(R * N);
+    const sumJ = new Int32Array(N);
+    const cntJ = new Int32Array(N);
     for (let r = 0; r < R; r++) {
-      b5[4] = unseen[r];
-      heroR[r] = omahaBest(state.hole, holeLen, b5, 5);
+      const rCard = unseen[r];
+      b5[4] = rCard;
+      loadBoardTable(TR_BOARD_TBL, b5, 5);
+      const heroScore = scoreHandWithBoard(state.hole, holeLen, TR_BOARD_TBL);
+      const rLo = rCard < 32 ? 1 << rCard : 0;
+      const rHi = rCard >= 32 ? 1 << (rCard - 32) : 0;
+      const rowBase = r * N;
+      for (let j = 0; j < N; j++) {
+        if ((maskLo[j] & rLo) !== 0 || (maskHi[j] & rHi) !== 0) {
+          out[rowBase + j] = -1;
+          continue;
+        }
+        const s = scorePoolHoldingWithBoard(fast, hold, j, TR_BOARD_TBL);
+        const o = heroScore > s ? 2 : heroScore === s ? 1 : 0;
+        out[rowBase + j] = o;
+        sumJ[j] += o;
+        cntJ[j]++;
+      }
     }
-    const out = new Int8Array(N * R).fill(-1);
     const eqJ = new Float64Array(N);
-    const mine = new Uint8Array(52);
     for (let j = 0; j < N; j++) {
-      for (let i = 0; i < holeLen; i++) {
-        h[i] = hold[j * holeLen + i];
-        mine[h[i]] = 1;
-      }
-      let sum = 0;
-      let cnt = 0;
-      for (let r = 0; r < R; r++) {
-        if (mine[unseen[r]]) continue;
-        b5[4] = unseen[r];
-        const s = omahaBest(h, holeLen, b5, 5);
-        const o = heroR[r] > s ? 2 : heroR[r] === s ? 1 : 0;
-        out[j * R + r] = o;
-        sum += o;
-        cnt++;
-      }
-      eqJ[j] = cnt > 0 ? sum / (2 * cnt) : 0;
-      for (let i = 0; i < holeLen; i++) mine[h[i]] = 0;
+      const c = cntJ[j];
+      eqJ[j] = c > 0 ? sumJ[j] / (2 * c) : 0;
     }
     const order = Array.from({ length: N }, (_, j) => j).sort((a, c) => eqJ[a] - eqJ[c] || a - c);
     const heroBehind = stack - callChips;
@@ -489,38 +502,78 @@ export function priceTurnRiverLifetimeCall(input: {
     const rf = (rb + kr) / (rn + kr);
     riverBudget = Math.min(1, rf + kFreq * Math.sqrt(Math.max(0, rf * (1 - rf)) / (rn + kr)));
     const budget = riverBudget;
+    const mVal = Math.max(1, Math.min(N, Math.floor(freq.pBase * N)));
+    let polarBuilt = false;
+    let polarSVal: Int32Array | null = null;
+    let polarCVal: Int32Array | null = null;
+    let polarSEx: Int32Array | null = null;
+    let polarCEx: Int32Array | null = null;
     shareAt = (fr) => {
       if (!(mOf(fr) > 0)) return 0;
       const f = Math.min(1, fr);
-      const mVal = Math.max(1, Math.min(N, Math.floor(freq.pBase * N)));
       const usePolar = f > freq.pBase && mVal < N;
-      const m = usePolar ? mVal : Math.max(1, Math.min(N, Math.floor(mOf(f))));
-      const wVal = usePolar ? freq.pBase / f : 1;
-      const wEx = usePolar ? (f - freq.pBase) / f : 0;
+      if (usePolar) {
+        if (!polarBuilt) {
+          polarBuilt = true;
+          polarSVal = new Int32Array(R);
+          polarCVal = new Int32Array(R);
+          polarSEx = new Int32Array(R);
+          polarCEx = new Int32Array(R);
+          for (let r = 0; r < R; r++) {
+            const rowBase = r * N;
+            let sVal = 0;
+            let cVal = 0;
+            for (let q = 0; q < mVal; q++) {
+              const o = out[rowBase + order[q]];
+              if (o < 0) continue;
+              sVal += o;
+              cVal++;
+            }
+            polarSVal[r] = sVal;
+            polarCVal[r] = cVal;
+            if (cVal === 0) continue;
+            let sEx = 0;
+            let cEx = 0;
+            for (let q = mVal; q < N; q++) {
+              const o = out[rowBase + order[q]];
+              if (o < 0) continue;
+              sEx += o;
+              cEx++;
+            }
+            polarSEx[r] = sEx;
+            polarCEx[r] = cEx;
+          }
+        }
+        const wVal = freq.pBase / f;
+        const wEx = (f - freq.pBase) / f;
+        let tot = 0;
+        let wsum = 0;
+        for (let r = 0; r < R; r++) {
+          const cVal = polarCVal![r];
+          if (cVal === 0) continue;
+          let eqR = polarSVal![r] / (2 * cVal);
+          const cEx = polarCEx![r];
+          if (cEx > 0) eqR = wVal * eqR + wEx * (polarSEx![r] / (2 * cEx));
+          tot += cVal * lifetimeRiverShare(eqR, sigma, budget);
+          wsum += cVal;
+        }
+        return wsum > 0 ? tot / wsum : 0;
+      }
+      const m = Math.max(1, Math.min(N, Math.floor(mOf(f))));
       let tot = 0;
       let wsum = 0;
       for (let r = 0; r < R; r++) {
+        const rowBase = r * N;
         let sVal = 0;
         let cVal = 0;
         for (let q = 0; q < m; q++) {
-          const o = out[order[q] * R + r];
+          const o = out[rowBase + order[q]];
           if (o < 0) continue;
           sVal += o;
           cVal++;
         }
         if (cVal === 0) continue;
-        let eqR = sVal / (2 * cVal);
-        if (usePolar) {
-          let sEx = 0;
-          let cEx = 0;
-          for (let q = m; q < N; q++) {
-            const o = out[order[q] * R + r];
-            if (o < 0) continue;
-            sEx += o;
-            cEx++;
-          }
-          if (cEx > 0) eqR = wVal * eqR + wEx * (sEx / (2 * cEx));
-        }
+        const eqR = sVal / (2 * cVal);
         tot += cVal * lifetimeRiverShare(eqR, sigma, budget);
         wsum += cVal;
       }
@@ -547,7 +600,6 @@ export function priceTurnRiverLifetimeCall(input: {
   const evCallSe = (isRiverCommit ? seFull : sePool) * netPot;
   const evCallLo = shareLo * netPot - callChips;
   const proven = shareLo > 0 && evCallLo > 0;
-  resetOmahaBestMemo();
 
   return {
     ...base,

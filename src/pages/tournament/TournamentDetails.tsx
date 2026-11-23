@@ -114,6 +114,9 @@ import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
 import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
+import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
+import { parseTournamentInviteParams } from '../../lib/mustMoveInviteRouting';
+import TournamentClubJoinGate from '../../components/tournament/TournamentClubJoinGate';
 import {
   findNextOpenGame,
   inviteLandingState,
@@ -1784,12 +1787,18 @@ export default function TournamentDetails({
   useEffect(() => {
     setShareFallbackUrl('');
   }, [tournament?.id]);
+  /* The link carries the sender's club code (2026-11-22), read when the page
+     opens so the tap can go straight to the share sheet. */
+  const shareInviteCode = useTournamentSenderInviteCode(
+    { tournamentId: tournament?.id, clubId: tournament?.club_id, unionId: tournament?.union_id },
+    user?.id
+  );
   const shareTournament = useCallback(async () => {
     if (!tournament?.id) {
       toast?.error?.('Tournament Link Unavailable');
       return;
     }
-    const url = tournamentShareUrl(tournament.id);
+    const url = tournamentShareUrl(tournament.id, { inviteCode: shareInviteCode });
     setShareFallbackUrl('');
     const outcome = await shareLink({
       source: 'TournamentDetails.share',
@@ -1803,7 +1812,7 @@ export default function TournamentDetails({
     // sanitised and a URL in it never reached the player (2026-11-15,
     // components/common/ShareLinkFallback.tsx).
     else if (outcome === 'failed') setShareFallbackUrl(url);
-  }, [tournament?.id, tournament?.name, toast]);
+  }, [tournament?.id, tournament?.name, toast, shareInviteCode]);
 
   /* INVITE TO GAME HOLDS A PRIVATE SEAT (2026-11-22). A Spin, Heads Up or
      satellite still taking seats is a game that fills and starts within
@@ -1984,6 +1993,26 @@ export default function TournamentDetails({
   // tabProps is null exactly when `tournament` is null, so this one guard
   // covers both and TypeScript keeps its narrowing all the way down.
   if (!tournament || !tabProps) {
+    /* A TOURNAMENT LINK FROM A CLUB YOU HAVE NOT JOINED (2026-11-22). A
+       tournament is readable only inside its club, so a friend who opened a
+       shared link before joining read nothing and landed here. When the link
+       carries the sender's club code the way in is the club's own join step,
+       which returns to this tournament; only the real route offers it (a
+       lobby tab's query is the table's, never a shared link's). */
+    const clubJoin = tournamentIdOverride
+      ? null
+      : parseTournamentInviteParams(tournamentId, search);
+    if (clubJoin?.inviteCode) {
+      return (
+        <div className="tournament-details error">
+          {closeButton}
+          <TournamentClubJoinGate
+            inviteCode={clubJoin.inviteCode}
+            returnPath={clubJoin.returnPath}
+          />
+        </div>
+      );
+    }
     return (
       <div className="tournament-details error">
         {closeButton}

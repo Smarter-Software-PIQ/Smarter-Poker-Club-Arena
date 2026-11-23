@@ -104,6 +104,23 @@ export function safeInviteNextPath(raw: string | null | undefined): string | nul
 }
 
 /**
+ * The club-join detour for an invite link that names a game the viewer cannot
+ * open yet: the Share & Invite short route `/i/<CODE>` (InviteCodePage), with
+ * the game as `?next=` so InvitePage returns there once the player has joined.
+ * One rule for the table and the tournament. Null when the code is not a club
+ * invite code; the return path is dropped when safeInviteNextPath refuses it.
+ */
+export function clubInviteJoinPath(
+  inviteCode: unknown,
+  returnPath: string | null | undefined
+): string | null {
+  const code = normalizeInviteCode(inviteCode);
+  if (!code) return null;
+  const safeReturn = safeInviteNextPath(returnPath);
+  return safeReturn ? `/i/${code}?next=${encodeURIComponent(safeReturn)}` : `/i/${code}`;
+}
+
+/**
  * Append a validated `?next=` return path to an in-app Club Arena route (e.g.
  * `/invite/:clubId?i=CODE`). Leaves the destination untouched if `nextPath` is
  * absent or rejected by `safeInviteNextPath`.

@@ -17,14 +17,22 @@ import {
 } from './OpponentHudStore.js';
 import {
   applyHudHand,
+  applyHudHandToProfiles,
   emptyHudProfile,
   handRecordFromRow,
   type HudHandRecord,
+  type OpponentHudProfile,
 } from '../engine/opponentHud/OpponentHudProfile.js';
 import {
+  HUD_BACKFILL_DEFAULT_CONCURRENCY,
+  HUD_BACKFILL_MAX_UUID,
   HUD_BACKFILL_PAGE_LIMIT,
+  HUD_BACKFILL_ZERO_UUID,
+  SharedBackfillPacer,
+  buildBackfillTimeWindows,
   isTransientBackfillError,
   pageAllOpponentHudHands,
+  pageAllOpponentHudHandsConcurrent,
   planOpponentHudBackfill,
   withTransientBackfillRetry,
 } from '../engine/opponentHud/OpponentHudBackfillPlan.js';
@@ -388,11 +396,13 @@ describe('OPPONENT-HUD-FIX-1 item 4 (AUDIT-C 6/10): the backfill starts at hand 
     expect(src).not.toMatch(/2026-01-01T00:00:00Z|2026-10-01/);
     expect(src).not.toMatch(/stored > p\.hands && !flag\('--force'\)/);
     expect(src).toMatch(/planOpponentHudBackfill\(/);
-    // Regression guard (2026-11-22 dry-runs 44984942583 & 45026021393): PostgREST max_rows=1000 truncated
-    // p_limit=1500 after page 1, p_limit=1000 crossed the 8s statement_timeout on a heavy page, and missing
-    // process.exit(0) left Supabase client handles open for 6 hours.
+    // Regression guard (2026-11-22 dry-runs 44984942583, 45026021393 & 45048446094): PostgREST max_rows=1000
+    // truncated p_limit=1500 after page 1, p_limit=1000 crossed the 8s statement_timeout on a heavy page,
+    // single-stream 500-row scans flirted with the 360-min GHA cap, and missing process.exit(0) hung 6 hours.
     expect(HUD_BACKFILL_PAGE_LIMIT).toBeLessThanOrEqual(500);
-    expect(src).toMatch(/pageAllOpponentHudHands\(/);
+    expect(HUD_BACKFILL_DEFAULT_CONCURRENCY).toBeGreaterThanOrEqual(2);
+    expect(src).toMatch(/pageAllOpponentHudHandsConcurrent</);
+    expect(src).toMatch(/SharedBackfillPacer/);
     expect(src).toMatch(/withTransientBackfillRetry\(/);
     expect(src).not.toMatch(/rows\.length\s*<\s*1500|p_limit:\s*1500/);
     expect(src).toMatch(/process\.exit\(0\)/);
@@ -526,5 +536,196 @@ describe('OPPONENT-HUD-FIX-1 item 4 (AUDIT-C 6/10): the backfill starts at hand 
         onRow: () => {},
       })
     ).rejects.toThrow(/cursor did not advance/);
+  });
+  it('partitions [since, until] into exact non-overlapping keyset windows across exact and microsecond boundaries', () => {
+    const since = '2026-07-22T00:00:00.000Z';
+    const until = '2026-07-22T10:00:00.000Z';
+    const windows = buildBackfillTimeWindows(since, until, 4 * HOUR);
+    expect(windows).toEqual([
+      {
+        index: 0,
+        afterAt: since,
+        afterId: HUD_BACKFILL_ZERO_UUID,
+        until: '2026-07-22T04:00:00.000Z',
+      },
+      {
+        index: 1,
+        afterAt: '2026-07-22T04:00:00.000Z',
+        afterId: HUD_BACKFILL_MAX_UUID,
+        until: '2026-07-22T08:00:00.000Z',
+      },
+      {
+        index: 2,
+        afterAt: '2026-07-22T08:00:00.000Z',
+        afterId: HUD_BACKFILL_MAX_UUID,
+        until,
+      },
+    ]);
+    // Simulate Postgres predicate (created_at > afterAt OR (created_at = afterAt AND id > afterId)) AND created_at <= until
+    // using ISO strings padded with microsecond precision.
+    const samples = [
+      { id: H(1), created_at: '2026-07-22T00:00:00.000000Z' },
+      { id: H(2), created_at: '2026-07-22T03:59:59.999999Z' },
+      { id: H(3), created_at: '2026-07-22T04:00:00.000000Z' },
+      { id: H(4), created_at: '2026-07-22T04:00:00.000001Z' },
+      { id: H(5), created_at: '2026-07-22T08:00:00.000000Z' },
+      { id: H(6), created_at: '2026-07-22T08:00:00.000001Z' },
+      { id: H(7), created_at: '2026-07-22T10:00:00.000000Z' },
+    ];
+    const normIso = (s: string) => s.replace(/\.(\d{3})Z$/, '.$1000Z');
+    const inWindow = (r: { id: string; created_at: string }, w: (typeof windows)[number]) => {
+      const a = normIso(w.afterAt);
+      const u = normIso(w.until);
+      return (r.created_at > a || (r.created_at === a && r.id > w.afterId)) && r.created_at <= u;
+    };
+    const matchedIds: string[] = [];
+    for (const w of windows) {
+      for (const s of samples) {
+        if (inWindow(s, w)) matchedIds.push(s.id);
+      }
+    }
+    expect(matchedIds).toEqual(samples.map((s) => s.id));
+  });
+  it('concurrent windowed reader produces byte-for-byte identical OpponentHudProfiles even when later windows resolve first', async () => {
+    const startMs = Date.parse('2026-08-01T00:00:00.000Z');
+    const allRows: ReturnType<typeof row>[] = [];
+    // 120 hands across 24 hours (6 x 4h windows), alternating winners/actors so recency, days, ids, recall all exercise order.
+    for (let i = 0; i < 120; i++) {
+      const at = startMs + i * 12 * 60 * 1000; // every 12 minutes; includes exact 4h boundaries (i = 0, 20, 40, 60, 80, 100)
+      allRows.push(row(i + 1, i % 2 === 0 ? 1 : 2, i % 2 === 0 ? 2 : 1, at));
+    }
+    const since = new Date(startMs).toISOString();
+    const until = new Date(startMs + 24 * HOUR).toISOString();
+
+    const makeFetch = (outOfOrderDelays: boolean) => {
+      let active = 0;
+      let peakActive = 0;
+      const fetchPage = async ({
+        afterAt,
+        afterId,
+        until: u,
+        limit,
+      }: {
+        afterAt: string;
+        afterId: string;
+        until: string;
+        limit: number;
+      }) => {
+        active += 1;
+        peakActive = Math.max(peakActive, active);
+        try {
+          if (outOfOrderDelays) {
+            // Earlier windows take LONGER than later windows so completion order is intentionally reversed!
+            const ageHours = Math.max(0, (Date.parse(u) - startMs) / HOUR);
+            const delayMs = Math.max(1, Math.round(28 - ageHours));
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+          const matching = allRows.filter(
+            (r) =>
+              (r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId)) &&
+              r.created_at <= u
+          );
+          return matching.slice(0, Math.min(limit, 7));
+        } finally {
+          active -= 1;
+        }
+      };
+      return { fetchPage, getPeakActive: () => peakActive };
+    };
+
+    const runWith = async (concurrency: number) => {
+      const profiles = new Map<string, OpponentHudProfile>();
+      const seenIds: string[] = [];
+      const f = makeFetch(concurrency > 1);
+      const res = await pageAllOpponentHudHandsConcurrent<
+        ReturnType<typeof row>,
+        HudHandRecord | string
+      >({
+        since,
+        until,
+        concurrency,
+        windowMs: 4 * HOUR,
+        limit: 500,
+        pacer: new SharedBackfillPacer({
+          maxConcurrency: concurrency,
+          basePauseMs: 0,
+          slowMs: 5000,
+        }),
+        sleep: async () => {},
+        fetchPage: f.fetchPage,
+        mapRow: (r) => handRecordFromRow(r),
+        onItem: (rec) => {
+          if (typeof rec === 'string') return;
+          seenIds.push(rec.id);
+          applyHudHandToProfiles(rec, (user) => {
+            const k = `${rec.family}|${user}`;
+            let p = profiles.get(k);
+            if (!p) {
+              p = emptyHudProfile(user, rec.family);
+              profiles.set(k, p);
+            }
+            return p;
+          });
+        },
+      });
+      return { res, seenIds, profiles, peakActive: f.getPeakActive() };
+    };
+
+    const seq = await runWith(1);
+    const par = await runWith(4);
+    expect(par.peakActive).toBeGreaterThan(1);
+    expect(par.peakActive).toBeLessThanOrEqual(4);
+    expect(par.res.rows).toBe(120);
+    expect(par.seenIds).toEqual(seq.seenIds);
+    expect(JSON.stringify([...par.profiles.entries()])).toBe(
+      JSON.stringify([...seq.profiles.entries()])
+    );
+  });
+  it('SharedBackfillPacer throttles effective concurrency on slow/transient pressure and recovers after clean pages, while fatal errors fail closed', async () => {
+    const pacer = new SharedBackfillPacer({
+      maxConcurrency: 4,
+      basePauseMs: 200,
+      slowMs: 5000,
+      recoverCleanPages: 3,
+    });
+    expect(pacer.getEffectiveConcurrency()).toBe(4);
+    expect(pacer.getPauseMs()).toBe(200);
+    // Transient timeout immediately throttles concurrency down and doubles pause.
+    pacer.recordTransientError();
+    expect(pacer.getEffectiveConcurrency()).toBe(3);
+    expect(pacer.getPauseMs()).toBe(400);
+    pacer.recordTransientError();
+    pacer.recordTransientError();
+    pacer.recordTransientError();
+    // Floors cleanly at 1 (never 0 -> never deadlocks).
+    expect(pacer.getEffectiveConcurrency()).toBe(1);
+    expect(pacer.getPauseMs()).toBe(3200);
+    // 3 consecutive fast clean pages recover concurrency +1 and halve pause back down.
+    pacer.recordSuccess(500);
+    pacer.recordSuccess(500);
+    pacer.recordSuccess(500);
+    expect(pacer.getEffectiveConcurrency()).toBe(2);
+    expect(pacer.getPauseMs()).toBe(400);
+
+    // Fatal non-transient error in one concurrent window aborts cleanly without hanging or leaking half-applied items.
+    const committed: string[] = [];
+    await expect(
+      pageAllOpponentHudHandsConcurrent<{ id: string; created_at: string }>({
+        since: '2026-08-01T00:00:00.000Z',
+        until: '2026-08-01T16:00:00.000Z',
+        concurrency: 4,
+        windowMs: 4 * HOUR,
+        sleep: async () => {},
+        fetchPage: async ({ afterAt }) => {
+          if (afterAt === '2026-08-01T04:00:00.000Z') {
+            throw new Error('permission denied for function fn_opponent_hud_hands_page');
+          }
+          await new Promise((r) => setTimeout(r, 10));
+          return [];
+        },
+        onItem: (r) => committed.push(r.id),
+      })
+    ).rejects.toThrow(/permission denied/);
+    expect(committed).toEqual([]);
   });
 });
