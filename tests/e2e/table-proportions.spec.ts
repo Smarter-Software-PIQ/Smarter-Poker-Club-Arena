@@ -3896,3 +3896,12 @@ test.describe('cold observer and phone geometry', () => {
       await context.close();
     });
 });
+
+// Dan 2026-11-22: every top chair stands on the rail. These real-component
+// cases are their own bounded group. Inside the cold observer family above
+// they made that single default-mode group longer than a whole CSS Beat shard,
+// and Playwright then handed shard 7 no tests at all.
+test.describe('every top chair stands on the rail', () => {
+  test.describe.configure({ mode: 'default' });
+  registerObserverAvatarSizingCases('top-chair-rail');
+});

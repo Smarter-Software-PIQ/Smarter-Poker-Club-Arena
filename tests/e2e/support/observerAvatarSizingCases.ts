@@ -7,24 +7,29 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 
 /** Real seat components, decoded mixed artwork and production CSS. No player
- * is labelled Hero and no account, seating or gameplay operation is involved. */
-export function registerObserverAvatarSizingCases() {
-  for (const [width, height, emptyBottom, mobileArtwork, topRail] of [
-    [320, 568, false, undefined, undefined],
-    [467, 994, false, undefined, undefined],
-    [600, 1277, true, undefined, undefined],
-    [600, 1277, false, undefined, undefined], // The production phone's desktop-reference viewport.
-    [652, 996, false, undefined, undefined],
-    [652, 996, true, undefined, undefined],
-    // Each independent geometry contract retains its own existing 60s bound.
-    ...FIXED_MOBILE_ARTWORK_CASES.map(
-      (settings) => [600, 1298, false, settings, undefined] as const
-    ),
-    // Dan 2026-11-22: every top chair stands on the rail (topChairRailCases.ts).
-    ...TOP_CHAIR_RAIL_CASES.map(
-      (settings) => [settings.width, settings.height, false, undefined, settings] as const
-    ),
-  ] as const)
+ * is labelled Hero and no account, seating or gameplay operation is involved.
+ * `family` picks the artwork-allocation cases or the top-chair rail cases;
+ * each registers inside its own bounded group (table-proportions.spec.ts). */
+export function registerObserverAvatarSizingCases(
+  family: 'artwork' | 'top-chair-rail' = 'artwork'
+) {
+  for (const [width, height, emptyBottom, mobileArtwork, topRail] of family === 'top-chair-rail'
+    ? // Dan 2026-11-22: every top chair stands on the rail (topChairRailCases.ts).
+      TOP_CHAIR_RAIL_CASES.map(
+        (settings) => [settings.width, settings.height, false, undefined, settings] as const
+      )
+    : ([
+        [320, 568, false, undefined, undefined],
+        [467, 994, false, undefined, undefined],
+        [600, 1277, true, undefined, undefined],
+        [600, 1277, false, undefined, undefined], // The production phone's desktop-reference viewport.
+        [652, 996, false, undefined, undefined],
+        [652, 996, true, undefined, undefined],
+        // Each independent geometry contract retains its own existing 60s bound.
+        ...FIXED_MOBILE_ARTWORK_CASES.map(
+          (settings) => [600, 1298, false, settings, undefined] as const
+        ),
+      ] as const))
     test(
       topRail
         ? `every top chair stands on the rail: ${topRail.seats}-max ${topRail.spectator === 'true' ? 'spectator' : 'seated'}${topRail.tournament === 'true' ? ' tournament' : ''} at ${topRail.width}x${topRail.height}`
