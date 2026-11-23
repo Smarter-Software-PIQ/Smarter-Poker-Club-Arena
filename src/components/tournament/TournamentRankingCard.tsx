@@ -33,6 +33,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { shareButtonLabel, shareFile, shareLink, tournamentShareUrl } from '../../lib/share';
+import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -372,6 +373,13 @@ export default function TournamentRankingCard({
           ? 'Could Not Share'
           : null;
   const shareWord = shareStatus ?? shareButtonLabel('image');
+  /* The link on a shared result carries the sender's club code (2026-11-22),
+     so a friend outside the club is offered its join step. Read when the
+     card shows; the id comes from the session already in localStorage. */
+  const shareInviteCode = useTournamentSenderInviteCode(
+    { tournamentId: result.tournamentId ? String(result.tournamentId) : null },
+    readLocalSession()?.userId
+  );
   const [profile, setProfile] = useState<{
     username: string;
     avatarUrl: string;
@@ -575,7 +583,7 @@ export default function TournamentRankingCard({
     /* The link opens THIS tournament (it was the bare lobby until
        2026-11-14, so a shared result pointed at nothing in particular). */
     const url = result.tournamentId
-      ? tournamentShareUrl(String(result.tournamentId))
+      ? tournamentShareUrl(String(result.tournamentId), { inviteCode: shareInviteCode })
       : `${publicOrigin()}/hub/club-arena`;
     const flash = (what: 'copied' | 'saved' | 'failed') => {
       setShared(what);
@@ -754,7 +762,9 @@ export default function TournamentRankingCard({
                   ink: 'silver',
                   onClick: () => void handleShare(),
                 },
-            middle: rematch?.secondaryLabel ? { label: shareWord, onClick: handleShare } : undefined,
+            middle: rematch?.secondaryLabel
+              ? { label: shareWord, onClick: handleShare }
+              : undefined,
             primary: {
               label:
                 rematch?.primaryLabel ?? (offersResultReplay(result) ? 'Play Again' : 'Game Lobby'),

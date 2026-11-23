@@ -42,14 +42,24 @@ const hourlyCashStep = {
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py',
 };
+const calledNameStep = {
+  name: 'A called name keeps its place under the hourly cap',
+  if: 'matrix.shard == 1',
+  'working-directory': '.',
+  run: 'python3 -B scripts/ci/test-a-called-name-keeps-its-place-postgres.py',
+};
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
   expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
   expect(job.steps[index]).toStrictEqual(hourlyCashStep);
   expect(job.steps[index - 1]?.name).toBe('TypeScript Check (server scripts)');
-  expect(job.steps[index + 1]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
+  // The seat-call proof rides directly behind it (20261123013241): pinned
+  // exactly, then removed with it so every original field stays fingerprinted.
+  expect(job.steps[index + 1]).toStrictEqual(calledNameStep);
+  expect(job.steps.filter((step) => step.name === calledNameStep.name)).toHaveLength(1);
+  expect(job.steps[index + 2]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
   // Pin this exact added proof; every original engine job field stays fingerprinted.
-  job.steps.splice(index, 1);
+  job.steps.splice(index, 2);
 };
 
 const backupSequenceStep = {

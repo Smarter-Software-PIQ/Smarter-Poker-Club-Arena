@@ -299,9 +299,34 @@ export function profileShareUrl(userId: string, origin?: string): string {
  * signed-out friend what they were invited to with one Register button
  * instead of a bare sign-in page. Private, VIP-only and non-public-club events
  * get the plain card there, exactly like a missing one.
+ *
+ * A TOURNAMENT LINK CARRIES THE CLUB (2026-11-22). It carries the sender's
+ * club invite code as `?i=`, spelled exactly as a table link spells it
+ * (withShareQueryParams), and the World Hub page passes it on to
+ * /hub/club-arena/tournaments/<id>. Without it a signed-in friend who was not
+ * yet a member of the club opened the link on "Tournament Not Found": the
+ * tournament is readable only inside its club, and nothing on the page said
+ * which club to join or how. The tournament page now reads `i` and offers the
+ * club's own join step (parseTournamentInviteParams), returning to the
+ * tournament once joined. `invite` rides the same way for a seat-hold token.
  */
-export function tournamentShareUrl(tournamentId: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
+export interface TournamentShareUrlOptions {
+  origin?: string;
+  inviteCode?: string | null;
+  inviteToken?: string | null;
+}
+
+export function tournamentShareUrl(
+  tournamentId: string,
+  originOrOptions?: string | TournamentShareUrlOptions
+): string {
+  const opts =
+    typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
+  const base = `${opts.origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
+  return withShareQueryParams(base, {
+    inviteCode: opts.inviteCode,
+    inviteToken: opts.inviteToken,
+  });
 }
 
 export interface TableShareUrlOptions {
@@ -505,7 +530,9 @@ export function gameInviteUrl(
   const opts =
     typeof originOrOptions === 'string' ? { origin: originOrOptions } : (originOrOptions ?? {});
   const inviteCode = opts.inviteCode ?? target.inviteCode;
-  if (target.kind === 'tournament') return tournamentShareUrl(target.id, opts.origin);
+  if (target.kind === 'tournament') {
+    return tournamentShareUrl(target.id, { origin: opts.origin, inviteCode });
+  }
   if (target.kind === 'lightning') {
     return lightningShareUrl(target.id, { origin: opts.origin, inviteCode });
   }

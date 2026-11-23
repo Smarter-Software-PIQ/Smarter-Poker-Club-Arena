@@ -4,7 +4,10 @@
  * loop over the reference scorer (omahaBestReference over eval5, itself proven equal to eval5Reference) for every
  * five-card hand in every 2+3 split and on seeded deals of 4, 5 and 6 hole cards against 3, 4 and 5 board cards.
  */
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { type CoreState } from './OmahaMathCore.js';
+import { seededRng } from './OmahaMathCoreEquity.js';
 import {
   buildPoolFastData,
   createBoardTable,
@@ -21,6 +24,13 @@ import {
   setOmahaBestMemoForTests,
   sortIndicesDescStable,
 } from './OmahaMathCoreEval.js';
+import {
+  lifetimeRiverShare,
+  OMAHA_MATH_CORE_TR_FREQ_K,
+  OMAHA_MATH_CORE_TR_POOL,
+  OMAHA_MATH_CORE_TR_PRIOR_OPPS,
+  priceTurnRiverLifetimeCall,
+} from './OmahaMathCoreTurnRiver.js';
 
 const rngOf = (seed: number) => {
   let s = seed;
@@ -184,5 +194,219 @@ describe('table-driven 2+3 evaluator equals the reference loop', () => {
       (x, y) => vals[y] - vals[x]
     );
     expect([...sortIndicesDescStable(vals, vals.length)]).toEqual(expected);
+  });
+
+  it('priceTurnRiverLifetimeCall matches brute-force omahaBestReference bit-identically on PLO5/PLO4 turn and river without BEST_MEMO churn', () => {
+    const src = readFileSync(new URL('./OmahaMathCoreTurnRiver.ts', import.meta.url), 'utf8');
+    expect(src).toContain('loadBoardTable');
+    expect(src).toContain('scorePoolHoldingWithBoard');
+    expect(src).toContain('scoreHandWithBoard');
+    expect(src).not.toMatch(/\bomahaBest\s*\(/);
+    expect(src).not.toMatch(/\bresetOmahaBestMemo\s*\(/);
+
+    const cases: Array<{
+      variant: 'plo5' | 'plo4';
+      street: 'turn' | 'river';
+      hole: number[];
+      board: number[];
+      commitsStack?: boolean;
+      seed: string;
+    }> = [
+      {
+        variant: 'plo5',
+        street: 'turn',
+        hole: [1, 5, 21, 33, 45],
+        board: [0, 4, 8, 12], // 4-card monotone wheel
+        seed: 'tr-parity-plo5-turn-mono',
+      },
+      {
+        variant: 'plo4',
+        street: 'turn',
+        hole: [40, 41, 36, 32],
+        board: [48, 49, 50, 51], // quads on turn
+        seed: 'tr-parity-plo4-turn-quads',
+      },
+      {
+        variant: 'plo5',
+        street: 'river',
+        hole: [1, 5, 21, 33, 45],
+        board: [0, 4, 8, 12, 16], // 5-card monotone wheel
+        commitsStack: true,
+        seed: 'tr-parity-plo5-river-mono',
+      },
+      {
+        variant: 'plo4',
+        street: 'river',
+        hole: [36, 40, 29, 17],
+        board: [48, 49, 50, 44, 45], // full house on river
+        seed: 'tr-parity-plo4-river-fh',
+      },
+    ];
+
+    const bins = new Array<number>(14).fill(0);
+    bins[13] = 80;
+    const counts = { opps: 100, bets: 80, bins };
+    const riverCounts = { opps: 70, bets: 35 };
+    const net = (p: number) => p * 0.95;
+
+    for (const tc of cases) {
+      const holeLen = tc.variant === 'plo5' ? 5 : 4;
+      const toCall = 12;
+      const pot = 28;
+      const heroStack = tc.commitsStack ? 12 : 100;
+      const state = {
+        variant: tc.variant,
+        street: tc.street,
+        hole: tc.hole,
+        board: tc.board,
+        pot,
+        toCall,
+        heroStack,
+        bb: 1,
+        heroSeat: 0,
+        aggressorSeat: 1,
+        line: 'stab',
+        wagerFrac: 0.75,
+        seed: tc.seed,
+        opponents: [{ seat: 1, stack: 100, folded: false, allIn: false, prevAggressor: false }],
+      } as unknown as CoreState;
+
+      const got = priceTurnRiverLifetimeCall({
+        state,
+        counts,
+        riverCounts: tc.street === 'turn' ? riverCounts : null,
+        net,
+      });
+      expect(got.applies).toBe(true);
+      expect(got.pool).toBe(OMAHA_MATH_CORE_TR_POOL[tc.street]);
+
+      // Independent reference recomputation via omahaBestReference
+      const used = new Uint8Array(52);
+      for (const c of tc.hole) used[c] = 1;
+      for (const c of tc.board) used[c] = 1;
+      const unseen: number[] = [];
+      for (let c = 0; c < 52; c++) if (!used[c]) unseen.push(c);
+      const N = OMAHA_MATH_CORE_TR_POOL[tc.street];
+      const rng = seededRng(`${tc.seed}|tr-hud`);
+      const deck = unseen.slice();
+      const U = deck.length;
+      const hold = new Int8Array(N * holeLen);
+      for (let j = 0; j < N; j++) {
+        for (let i = 0; i < holeLen; i++) {
+          const x = i + Math.floor(rng() * (U - i));
+          const t = deck[i];
+          deck[i] = deck[x];
+          deck[x] = t;
+          hold[j * holeLen + i] = deck[i];
+        }
+      }
+      const pBase = got.pBase!;
+      const f = got.f!;
+      const fLo = got.fLo!;
+      if (tc.street === 'river') {
+        const heroScore = omahaBestReference(tc.hole, holeLen, tc.board, 5);
+        let beats = 0;
+        let ties = 0;
+        const h = new Array<number>(holeLen);
+        for (let j = 0; j < N; j++) {
+          for (let i = 0; i < holeLen; i++) h[i] = hold[j * holeLen + i];
+          const s = omahaBestReference(h, holeLen, tc.board, 5);
+          if (s > heroScore) beats++;
+          else if (s === heroScore) ties++;
+        }
+        const prefixEq = (m: number) => {
+          const t = Math.max(0, Math.min(ties, m - beats));
+          const w = Math.max(0, m - beats - ties);
+          return (w + 0.5 * t) / m;
+        };
+        const polarEq = (fr: number) => {
+          const ff = Math.min(1, fr);
+          const mVal = pBase * N;
+          const eqVal = prefixEq(mVal);
+          const mRem = N - mVal;
+          const beatsRem = Math.max(0, beats - mVal);
+          const tiesRem = Math.max(0, Math.min(ties, beats + ties - mVal));
+          const losesRem = Math.max(0, mRem - beatsRem - tiesRem);
+          return (pBase / ff) * eqVal + ((ff - pBase) / ff) * ((losesRem + 0.5 * tiesRem) / mRem);
+        };
+        expect(got.share).toBe(polarEq(f));
+      } else {
+        const R = U;
+        const b5 = [...tc.board, 0];
+        const heroR = new Float64Array(R);
+        for (let r = 0; r < R; r++) {
+          b5[4] = unseen[r];
+          heroR[r] = omahaBestReference(tc.hole, holeLen, b5, 5);
+        }
+        const out = new Int8Array(N * R).fill(-1);
+        const eqJ = new Float64Array(N);
+        const mine = new Uint8Array(52);
+        const h = new Array<number>(holeLen);
+        for (let j = 0; j < N; j++) {
+          for (let i = 0; i < holeLen; i++) {
+            h[i] = hold[j * holeLen + i];
+            mine[h[i]] = 1;
+          }
+          let sum = 0;
+          let cnt = 0;
+          for (let r = 0; r < R; r++) {
+            if (mine[unseen[r]]) continue;
+            b5[4] = unseen[r];
+            const s = omahaBestReference(h, holeLen, b5, 5);
+            const o = heroR[r] > s ? 2 : heroR[r] === s ? 1 : 0;
+            out[j * R + r] = o;
+            sum += o;
+            cnt++;
+          }
+          eqJ[j] = cnt > 0 ? sum / (2 * cnt) : 0;
+          for (let i = 0; i < holeLen; i++) mine[h[i]] = 0;
+        }
+        const order = Array.from({ length: N }, (_, j) => j).sort(
+          (a, c) => eqJ[a] - eqJ[c] || a - c
+        );
+        const finalPot = pot + toCall;
+        const sigma = Math.min(finalPot, heroStack - toCall, 100) / finalPot;
+        const kr = OMAHA_MATH_CORE_TR_PRIOR_OPPS['river|hu'];
+        const rf = (riverCounts.bets + kr) / (riverCounts.opps + kr);
+        const budget = Math.min(
+          1,
+          rf + OMAHA_MATH_CORE_TR_FREQ_K * Math.sqrt((rf * (1 - rf)) / (riverCounts.opps + kr))
+        );
+        const evalRefShare = (fr: number) => {
+          const ff = Math.min(1, fr);
+          const m = Math.max(1, Math.min(N, Math.floor(pBase * N)));
+          const wVal = pBase / ff;
+          const wEx = (ff - pBase) / ff;
+          let tot = 0;
+          let wsum = 0;
+          for (let r = 0; r < R; r++) {
+            let sVal = 0;
+            let cVal = 0;
+            for (let q = 0; q < m; q++) {
+              const o = out[order[q] * R + r];
+              if (o < 0) continue;
+              sVal += o;
+              cVal++;
+            }
+            if (cVal === 0) continue;
+            let eqR = sVal / (2 * cVal);
+            let sEx = 0;
+            let cEx = 0;
+            for (let q = m; q < N; q++) {
+              const o = out[order[q] * R + r];
+              if (o < 0) continue;
+              sEx += o;
+              cEx++;
+            }
+            if (cEx > 0) eqR = wVal * eqR + wEx * (sEx / (2 * cEx));
+            tot += cVal * lifetimeRiverShare(eqR, sigma, budget);
+            wsum += cVal;
+          }
+          return wsum > 0 ? tot / wsum : 0;
+        };
+        expect(got.share).toBe(evalRefShare(f));
+        expect(got.evCall).toBe(evalRefShare(fLo) * net(finalPot) - toCall);
+      }
+    }
   });
 });
