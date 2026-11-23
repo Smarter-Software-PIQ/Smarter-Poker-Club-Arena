@@ -108,6 +108,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   addon_refund: 'Add-On Refund',
   bounty_own: 'Own Bounty',
   prize_reversal: 'Prize Reversal',
+  promo_reversal: 'Promo Chips Returned To Sponsor',
   // 'TIP' intentionally absent: dealer tipping was removed on 2026-08-20 and no
   // row has ever carried this category. The fallback below would still render a
   // legacy row rather than blanking it.
@@ -170,6 +171,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   bounty_own: '#22c55e',
   addon_refund: '#22c55e',
   prize_reversal: '#ef4444',
+  promo_reversal: '#ef4444',
 };
 
 /** Filters offered in the dropdown. `value` is either a type or a category. */
