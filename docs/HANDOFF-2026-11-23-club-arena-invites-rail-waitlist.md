@@ -600,7 +600,7 @@ CONFIRMED serving. PENDING = merged but not yet serving.
 
 | WS                        | PR     | Commit                                                                         | State                                                                                                                                                                               |
 | ------------------------- | ------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sit & Go seat holds       | #11839 | `08e32e4ad` (merged 08:11:34Z)                                                 | Client publish run 45136628290 was IN PROGRESS at writing. Engine PENDING. Migration 20261123071654 held by dispatcher run 45136628450 until about 04:15 Chicago.                   |
+| Sit & Go seat holds       | #11839 | `08e32e4ad` (merged 08:11:34Z)                                                 | Client publish CONFIRMED LIVE at 08:22Z (client `608f33c50`). Engine PENDING. Migration 20261123071654 held by dispatcher run 45136628450 until about 04:15 Chicago.                |
 | Engine-cycle election fix | #11836 | `ad3540f38` (branch `claude/a-reservation-is-elected-by-the-moment-it-claims`) | OPEN, all latest checks green (an older `ownership` run is red; the latest passed after the body got `Lane: release-custody`). DO NOT merge before the 04:00 seal (see section 19). |
 
 ### Per-workstream detail and bookmarks
@@ -749,7 +749,7 @@ bookmark; the squash is the "end" bookmark.
 ## 10. Exact Current State (2026-11-23 about 08:15 UTC / 02:15 Chicago)
 
 - **Live client:** `ca_sha 23a5ee274...` (includes everything up to #11804).
-  Publish run 45136628290 for `08e32e4ad` (#11839) was in progress.
+  At 08:22Z the live client became `608f33c50`, which CONFIRMED contains `08e32e4ad` (#11839).
 - **Live engine:** `releaseSha 735299cd5fda6b59c43d1379371d1a3dfb1a050f` (sealed
   in the 19:00 Chicago cycle of 11-22). The 22:00 and 01:00 cycles shipped
   nothing new. `/health.maintenance.schedule` reads three-hourly, `startHours
@@ -857,7 +857,7 @@ UNKNOWN (not in the repo).
 | Client typecheck                                                                                      | `npx tsc --noEmit`                                                                                                                        | clean (on each branch before push)                                                                                                                           | none                   |
 | Native Postgres proofs                                                                                | `test-private-game-holds-postgres.py` (72 checks after #11839), `test-a-called-name-keeps-its-place-postgres.py`, unregister prove script | passed locally and in CI                                                                                                                                     | none                   |
 | Table layout browser suite                                                                            | local `table-proportions.spec.ts`, 132 or more cases; CI CSS Beat 20 shards                                                               | all passed on #11804 final; one local load-timeout at 320px 9-seat passed on rerun                                                                           | none                   |
-| Live client publish                                                                                   | build-info `ca_sha` contains each fix                                                                                                     | CONFIRMED for everything except #11839 (publishing at writing)                                                                                               | confirm #11839         |
+| Live client publish                                                                                   | build-info `ca_sha` contains each fix                                                                                                     | CONFIRMED for everything, #11839 included (client `608f33c50` at 08:22Z)                                                                                     | none                   |
 | Live engine                                                                                           | `/health releaseSha`                                                                                                                      | `735299cd`; #11805, #11808, #11839 NOT live                                                                                                                  | verify after 04:00     |
 | Post-Deploy E2E for `82dca44b3`                                                                       | GitHub "Post-Deploy E2E"                                                                                                                  | "Client browser verification" job CANCELLED (superseded); live-table verification was in progress                                                            | UNVERIFIED, re-check   |
 | Real-browser manual checks of invite flows, held seats, join gate, Sit & Go hold UI                   | not done                                                                                                                                  | NOT RUN                                                                                                                                                      | section 20             |
@@ -1023,7 +1023,7 @@ inviter registration goes through the normal registration door.
 - Verify 20261123071654 installed (an apply-merged-migration run titled with it,
   `success`).
 - Merge #11836 in the safe slot; verify it on main.
-- Verify the #11839 client is live: build-info `ca_sha` contains `08e32e4ad`.
+- (Done: the #11839 client is live in `608f33c50`.) Re-prove only if a later publish regresses it.
 
 **High**
 
@@ -1228,5 +1228,6 @@ inviter registration goes through the normal registration door.
 - `/home/claude/handoff/HANDOFF-2026-11-23-club-arena-invites-rail-waitlist.md`
   (this file)
 - `docs/HANDOFF-2026-11-23-club-arena-invites-rail-waitlist.md` in the
-  repository, on a docs-only branch and PR (see the chat message for the PR
-  number)
+  repository, on docs-only branch
+  `claude/handoff-2026-11-23-invites-rail-waitlist`, PR #11846 (merge it once
+  its checks pass; docs only)
