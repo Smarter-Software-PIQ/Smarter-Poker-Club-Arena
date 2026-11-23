@@ -93,6 +93,8 @@ import {
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
+import { lineOnArrival, type LineContext } from './HorseLineOnArrival.js';
+import { onCashSeatCommitted } from '../cluster/cashSeatCommittedSignal.js';
 import { availableNow, regularSeatWeight } from './HorseRegulars.js';
 import {
   onDuty,
@@ -184,7 +186,11 @@ import {
   withheldReason,
   type FleetPolicy,
 } from './HorseFleetPolicy.js';
-import { isFullClassicQueueTable, queuePolicyWithheldReason } from './HorseQueueAdmission.js';
+import {
+  hourlyAdmissionForWalk,
+  isFullClassicQueueTable,
+  queuePolicyWithheldReason,
+} from './HorseQueueAdmission.js';
 import {
   gameOwesALine,
   lastChairGameKey,
@@ -746,6 +752,13 @@ export class HorseFleetManager {
    * is the truth about a fleet that is not seating anyone.
    */
   private lastEligibleBuiltAt = 0;
+  /** The last completed cycle's sittable pool per game, for the line a game
+   *  owes the moment it fills (HorseLineOnArrival). Null until a cycle ends. */
+  private lineContext: LineContext | null = null;
+  /** Tables whose fill is being answered now; a second report coalesces. */
+  private readonly lineAsksInFlight = new Set<string>();
+  /** That cycle's tag book, for the duty rule on the line (HorseWorkSchedule). */
+  private lineDutyBook: TagBook | null = null;
   /** Games the walk could not start, resting so depth may proceed (HorseVarietyFirst). */
   private readonly varietyStarts = new VarietyStartMemory();
   /** This cycle's held starts, for the seat-call door (claimOfferedSeats). */
@@ -831,6 +844,8 @@ export class HorseFleetManager {
     }
 
     this.isRunning = true;
+    /* A GAME THAT FILLS ASKS FOR ITS LINE WHEN IT FILLS (HorseLineOnArrival). */
+    onCashSeatCommitted((tableId) => this.lineOnSeatCommitted(tableId));
     const generation = ++this.lifecycleGeneration;
     console.log('[HorseFleet] Starting fleet manager...');
 
@@ -872,6 +887,7 @@ export class HorseFleetManager {
 
     // This is the synchronous ownership fence. No await may precede it.
     this.isRunning = false;
+    onCashSeatCommitted(null);
     this.lifecycleGeneration++;
     if (this.seedInterval) {
       clearInterval(this.seedInterval);
@@ -1018,6 +1034,96 @@ export class HorseFleetManager {
       reportError(err, 'HorseFleet.gamesWithWaitingList');
       return null;
     }
+  }
+
+  /**
+   * A GAME THAT FILLS ASKS FOR ITS LINE WHEN IT FILLS (Dan 2026-11-22). The
+   * table engine reports a chair taken at a table that is now full
+   * (cluster/cashSeatCommittedSignal); this reads that one game fresh and, when
+   * every live table of it is full and nobody is waiting, puts one horse on
+   * its list now instead of at the next cycle. See HorseLineOnArrival.
+   */
+  lineOnSeatCommitted(tableId: string): void {
+    if (!this.isRunning || isMaintenanceFrozen() || this.lineAsksInFlight.has(tableId)) return;
+    this.lineAsksInFlight.add(tableId);
+    const generation = this.lifecycleGeneration;
+    void this.trackLifecycleJob(this.askLineOnArrival(tableId, generation))
+      .catch((err) => reportError(err, 'HorseFleet.lineOnArrival'))
+      .finally(() => this.lineAsksInFlight.delete(tableId));
+  }
+
+  /* Fails CLOSED in the adding direction, like syncHorseGameQueues: any read
+     that does not answer adds nobody, and the next cycle decides. */
+  private async askLineOnArrival(tableId: string, generation: number): Promise<void> {
+    const context = this.lineContext;
+    if (!context) return;
+    const { data: at, error: atErr } = await supabase
+      .from('tables')
+      .select('id, cluster_id')
+      .eq('id', tableId)
+      .maybeSingle();
+    const gameId = !atErr && at?.cluster_id ? String(at.cluster_id) : null;
+    if (!gameId || !this.lifecycleIsCurrent(generation)) return;
+    const lightning = await this.lightningClusterIds();
+    if (lightning === null || lightning.has(gameId)) return;
+    const { data: gameTables, error: tablesErr } = await supabase
+      .from('tables')
+      .select('id, lifecycle, status, is_deleted, max_players')
+      .eq('cluster_id', gameId);
+    if (tablesErr || !Array.isArray(gameTables) || gameTables.length === 0) return;
+    const ids = gameTables.map((t: { id: string }) => String(t.id));
+    const [{ data: seats, error: seatsErr }, { count: listed, error: listErr }] = await Promise.all(
+      [
+        supabase
+          .from('table_seats')
+          .select('table_id, user_id')
+          .in('table_id', ids)
+          .is('left_at', null),
+        supabase
+          .from('cash_game_waitlist')
+          .select('id', { count: 'exact', head: true })
+          .eq('game_id', gameId)
+          .in('status', ['waiting', 'notified']),
+      ]
+    );
+    if (seatsErr || listErr || !Array.isArray(seats) || typeof listed !== 'number') return;
+    const seatedByTable = new Map<string, Set<string>>();
+    for (const s of seats as Array<{ table_id: string; user_id: string }>) {
+      const set = seatedByTable.get(String(s.table_id)) ?? new Set<string>();
+      set.add(String(s.user_id));
+      seatedByTable.set(String(s.table_id), set);
+    }
+    const candidates = (context.poolByGame.get(gameId) ?? []).slice(0, 200);
+    if (candidates.length === 0) return;
+    const { data: otherRows, error: rowsErr } = await supabase
+      .from('cash_game_waitlist')
+      .select('id, game_id, user_id, created_at')
+      .eq('status', 'waiting')
+      .in('user_id', candidates);
+    if (rowsErr || !Array.isArray(otherRows) || !this.lifecycleIsCurrent(generation)) return;
+    const nowMs = Date.now();
+    const weekday = chicagoNow().weekday;
+    const today = chicagoCounterDay(nowMs);
+    const dutyBook = this.lineDutyBook;
+    const pick = lineOnArrival({
+      gameId,
+      tables: gameTables,
+      seatedByTable,
+      namesOnList: listed,
+      otherRows,
+      context,
+      lightningGames: lightning,
+      nowMs,
+      onDuty: (id) => onDuty(id, dutyBook?.states.get(id), nowMs, weekday, today),
+    });
+    if (!pick || isMaintenanceFrozen() || !this.lifecycleIsCurrent(generation)) return;
+    const { error } = await supabase
+      .from('cash_game_waitlist')
+      .insert({ ...pick, status: 'waiting' });
+    /* A name the cycle put down in the same instant is the same answer. */
+    if (error && (error as { code?: string }).code !== '23505') throw new Error(error.message);
+    if (!error)
+      console.log(`[HorseFleet] line started the moment game ${gameId.slice(0, 8)} filled`);
   }
 
   /**
@@ -3001,10 +3107,19 @@ export class HorseFleetManager {
       this.varietyHeldStarts = varietyHeld;
       publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
       let hourlyAutonomousStarted = false;
+      /* A CALLED NAME KEEPS ITS PLACE (Dan 2026-11-22; migration 20261123013241).
+         A seat call is answered at every table, not only the ones the hourly
+         projection admits for the fleet's own purchases. The projection paces
+         unsolicited seating (2-4 minutes between a new table's horses); a name
+         the list called is the game's own seating, which the database no
+         longer paces, and the database no longer calls a horse to a chair the
+         cap would refuse (fn_cash_hourly_call_admissible). Skipping a paced
+         table here let the sixty-second hold lapse, and a lapsed call takes
+         the name off the list. The door still re-checks every seat. */
       const claimed = cycleWithheld
         ? 0
         : await this.claimOfferedSeats(
-            tables.filter((table) => hourlyAdmissions.has(table.id)),
+            tables,
             allActiveSeats,
             bankrolls,
             bankrollsLoaded,
@@ -3062,6 +3177,9 @@ export class HorseFleetManager {
          1 on the host at once. See HorseBuyerAllocation. */
       const clusterPools: BuyerPool[] = [];
       const horseQueueAsks: HorseQueueAsk[] = [];
+      /* Who could sit in each game this cycle, kept for the line a game owes
+         the moment a person fills it (HorseLineOnArrival). */
+      const linePoolsByGame = new Map<string, Set<string>>();
       const capacityByHorse = new Map<string, number>();
       /* A DOOR THAT SAID "FULL" IS NOT ASKED AGAIN THIS CYCLE (2026-09-11).
          `FOUR TABLE LIMIT` and `TABLE_CAP_REACHED` are the database counting
@@ -3259,7 +3377,18 @@ export class HorseFleetManager {
       }
       for (const table of tablesToSeed) {
         if (!readIsCurrent()) break;
-        const hourly = hourlyAdmissions.get(table.id);
+        /* A FULL GAME'S LINE IS NOT THE HOURLY CAP'S BUSINESS (Dan 2026-11-22).
+           A physically full table the hourly projection leaves out (a table it
+           is closing) still reaches the queue-only path below, which buys
+           nothing and asks for the game's line. See hourlyAdmissionForWalk. */
+        const hourly = hourlyAdmissionForWalk(
+          hourlyAdmissions.get(table.id),
+          isFullClassicQueueTable(
+            table,
+            new Set((seatsByTable.get(table.id) ?? []).map((seat) => seat.seat_number)).size,
+            cashPlanLightningGames
+          )
+        );
         if (!hourly || (hourly.startsGame && hourlyAutonomousStarted)) {
           beat.withheldTables++;
           continue;
@@ -4082,6 +4211,9 @@ export class HorseFleetManager {
              OPORD 1.4 18.3 counts them beside the humans on the waitlist. */
           let clusterPool: BuyerPool | null = null;
           if (table.cluster_id) {
+            const linePool = linePoolsByGame.get(String(table.cluster_id)) ?? new Set<string>();
+            for (const h of pool) linePool.add(String(h.id));
+            linePoolsByGame.set(String(table.cluster_id), linePool);
             /* A cluster table's pool is kept for the allocation after the
                loop. A FULL table asks for FULL_TABLE_BUYER_PROBE (two: the
                open rule's threshold), never more, so it cannot eat the
@@ -4652,6 +4784,30 @@ export class HorseFleetManager {
         nextEligible.set(tableId, n);
       }
       this.lastEligibleByTable = nextEligible;
+      /* THE LINE A GAME OWES WHEN IT FILLS: this cycle's pools, and who is
+         seated now (this cycle's seats included). See HorseLineOnArrival. */
+      {
+        const seatedNow = new Set<string>();
+        for (const seats of seatsByTable.values())
+          for (const s of seats) seatedNow.add(String(s.user_id));
+        for (const [horseId, at] of horseTables) if (at.size > 0) seatedNow.add(String(horseId));
+        const lineGameInfo = new Map<string, HorseQueueGameInfo>();
+        for (const t of tables) {
+          if (t?.cluster_id && !lineGameInfo.has(String(t.cluster_id)))
+            lineGameInfo.set(String(t.cluster_id), {
+              variant: t.game_variant ?? null,
+              bigBlind: Number(t.big_blind) || null,
+            });
+        }
+        this.lineContext = {
+          builtAt: Date.now(),
+          poolByGame: new Map([...linePoolsByGame].map(([g, ids]) => [g, [...ids]])),
+          seatedAnywhere: seatedNow,
+          gameInfo: lineGameInfo,
+          disabledGameIds: new Set(disabledGameIds),
+        };
+        this.lineDutyBook = book;
+      }
       /* THE GAME LINES (Dan 2026-11-06). After seating, so a horse seated
          this cycle is never also put in line for the same game. */
       if (readIsCurrent()) {

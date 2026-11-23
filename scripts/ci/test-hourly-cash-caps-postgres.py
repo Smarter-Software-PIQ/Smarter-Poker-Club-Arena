@@ -352,6 +352,9 @@ try:
  assert_sql("EXISTS(SELECT 1 FROM table_seats WHERE table_id=md5('move-dst')::uuid AND user_id=md5('horse195')::uuid AND left_at IS NULL)",'swap actually moved its player')
  # A one-way transfer is an arrival into an assembling game. It may not
  # turn the old funded-seat exemption into an instant ring.
+ # (This pins 20261116194028 as installed. 20261123013241 lets the game's own
+ # sanctioned moves and called names past the arrival clock, never the cap;
+ # scripts/ci/test-a-called-name-keeps-its-place-postgres.py proves that one.)
  refuses("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse196')::uuid,2);COMMIT;",'cash_hourly_horse_arrival_paced')
  q("UPDATE cash_hourly_table_starts SET next_horse_at='-infinity' WHERE table_id=md5('move-dst')::uuid;")
  q("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse196')::uuid,2);UPDATE table_seats SET stack=0,left_at=now() WHERE table_id=md5('move-src')::uuid AND user_id=md5('horse196')::uuid;COMMIT;")

@@ -47,8 +47,9 @@
  *     SHOULDN'T BE A WAITING LIST WHEN THERE ARE ALWAYS OPEN SEATS"); a person
  *     joins the pool and a table is made for them.
  *   - A person taking the last chair: nobody is refused a seat for a rule
- *     about the fleet. The next fleet cycle puts a name on the list
- *     (isFullClassicQueueTable).
+ *     about the fleet. The seat event itself asks for the line at once
+ *     (HorseLineOnArrival), and the next fleet cycle still does
+ *     (isFullClassicQueueTable) if that event was missed.
  *   - A two-seat table that would otherwise hold one player who cannot be
  *     dealt: a game that cannot deal is worse than a full one, so the second
  *     chair is taken (DEALABLE_MINIMUM).

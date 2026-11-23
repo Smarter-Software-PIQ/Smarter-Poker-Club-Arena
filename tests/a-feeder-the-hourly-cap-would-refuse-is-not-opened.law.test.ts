@@ -83,7 +83,12 @@ describe('a feeder the hourly cap would refuse is not opened', () => {
     );
     const latest = defs.at(-1);
     expect(latest, 'fn_cash_hourly_table_admissions has a defining migration').toBeTruthy();
-    expect(latest!.sql).toMatch(/CASE WHEN f\.table_id IS NULL THEN b\.occupied<b\.cap/);
+    // 20261123013241 made the admission count the empty opening feeders the
+    // opener already counted (less the table's own), so the two ask the SAME
+    // new-table question with the same reservations.
+    expect(latest!.sql).toMatch(
+      /CASE WHEN f\.table_id IS NULL\s+THEN b\.occupied\+b\.reserved-CASE WHEN EXISTS\(SELECT 1 FROM opening o WHERE o\.id=t\.id\) THEN 1 ELSE 0 END<b\.cap/
+    );
     expect(latest!.sql).toMatch(/scope='floor' AND next_open_at>clock_timestamp\(\)/);
   });
 
